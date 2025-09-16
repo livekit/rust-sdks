@@ -4,7 +4,7 @@ use {
     anyhow::{anyhow, Result},
     livekit::{DataPacket, RoomEvent, SimulateScenario},
     std::{sync::Arc, time::Duration},
-    tokio::{sync::oneshot, time}
+    tokio::{sync::oneshot, time},
 };
 
 mod common;

@@ -401,9 +401,7 @@ impl OutgoingStreamManager {
     ) -> StreamResult<ByteStreamInfo> {
         let bytes = data.as_ref();
 
-        let byte_header = proto::data_stream::ByteHeader {
-            name: options.name.unwrap_or_default(),
-        };
+        let byte_header = proto::data_stream::ByteHeader { name: options.name.unwrap_or_default() };
         let header = proto::data_stream::Header {
             stream_id: options.id.unwrap_or_else(|| create_random_uuid()),
             timestamp: Utc::now().timestamp_millis(),
