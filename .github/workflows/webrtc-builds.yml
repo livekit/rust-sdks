@@ -31,7 +31,7 @@ jobs:
             arch: x64
 
           - name: win
-            os: windows-latest
+            os: windows-2019
             cmd: .\build_windows.cmd
             arch: arm64
 
