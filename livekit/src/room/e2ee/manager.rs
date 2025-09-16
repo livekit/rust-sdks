@@ -35,6 +35,7 @@ type StateChangedHandler = Box<dyn Fn(ParticipantIdentity, EncryptionState) + Se
 struct ManagerInner {
     options: Option<E2eeOptions>, // If Some, it means the e2ee was initialized
     enabled: bool,                // Used to enable/disable e2ee
+    dc_encryption: bool,
     frame_cryptors: HashMap<(ParticipantIdentity, TrackSid), FrameCryptor>,
 }
 
@@ -47,10 +48,11 @@ pub struct E2eeManager {
 impl E2eeManager {
     /// E2eeOptions is an optional parameter. We may support to reconfigure e2ee after connect in
     /// the future.
-    pub(crate) fn new(options: Option<E2eeOptions>) -> Self {
+    pub(crate) fn new(options: Option<E2eeOptions>, with_dc_encryption: bool) -> Self {
         Self {
             inner: Arc::new(Mutex::new(ManagerInner {
                 enabled: options.is_some(), // Enabled by default if options is provided
+                dc_encryption: options.is_some() && with_dc_encryption,
                 options,
                 frame_cryptors: HashMap::new(),
             })),

@@ -350,7 +350,9 @@ pub struct RoomOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
     pub dynacast: bool,
+    #[deprecated = "use encryption field instead, see x for a detailed explanation of the implications"]
     pub e2ee: Option<E2eeOptions>,
+    pub encryption: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
     pub sdk_options: RoomSdkOptions,
@@ -363,6 +365,7 @@ impl Default for RoomOptions {
             adaptive_stream: false,
             dynacast: false,
             e2ee: None,
+            encryption: None,
 
             // Explicitly set the default values
             rtc_config: RtcConfiguration {
@@ -459,7 +462,9 @@ impl Room {
         options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
-        let e2ee_manager = E2eeManager::new(options.e2ee.clone());
+        let with_dc_encryption = options.encryption.is_some();
+        let encryption_options = options.encryption.clone().or(options.e2ee.clone());
+        let e2ee_manager = E2eeManager::new(encryption_options, with_dc_encryption);
         let mut signal_options = SignalOptions::default();
         signal_options.sdk_options = options.sdk_options.clone().into();
         signal_options.auto_subscribe = options.auto_subscribe;
