@@ -131,7 +131,7 @@ jobs:
       - name: Set GCC 14 as default (optional)
         if: ${{ matrix.target.os == 'ubuntu-latest' }}
         run: |
-          update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 --slave /usr/bin/g++ g++ /usr/bin/g++-14
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 --slave /usr/bin/g++ g++ /usr/bin/g++-14
           sudo update-alternatives --config gcc
           gcc --version
       
