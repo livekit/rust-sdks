@@ -31,7 +31,7 @@ jobs:
             arch: x64
 
           - name: win
-            os: windows-2019
+            os: windows-latest
             cmd: .\build_windows.cmd
             arch: arm64
 
@@ -155,8 +155,6 @@ jobs:
           Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip" -OutFile ninja.zip
           Expand-Archive -Path ninja.zip -DestinationPath ${{ github.workspace }}\ninja
           echo "${{ github.workspace }}\ninja" | Out-File -Append -Encoding utf8 -FilePath $Env:GITHUB_PATH
-          Invoke-WebRequest -Uri "https://go.microsoft.com/fwlink/?linkid=2317808" -OutFile ${{ github.workspace }}\winsdksetup.exe
-          ${{ github.workspace }}\winsdksetup.exe /features OptionId.WindowsDesktopDebuggers /q /norestart
 
       - name: Print ninja version
         run: ninja --version
