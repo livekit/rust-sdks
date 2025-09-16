@@ -348,7 +348,7 @@ impl OutgoingStreamManager {
     pub async fn send_text(
         &self,
         text: &str,
-        mut options: StreamTextOptions,
+        options: StreamTextOptions,
     ) -> StreamResult<TextStreamInfo> {
         let text_header = proto::data_stream::TextHeader {
             operation_type: options.operation_type.unwrap_or_default() as i32,
@@ -357,8 +357,6 @@ impl OutgoingStreamManager {
             attached_stream_ids: options.attached_stream_ids,
             generated: options.generated.unwrap_or_default(),
         };
-
-        options.attributes.insert("__push".to_owned(), "1".into());
         let header = proto::data_stream::Header {
             stream_id: options.id.unwrap_or_else(|| create_random_uuid()),
             timestamp: Utc::now().timestamp_millis(),
@@ -399,13 +397,13 @@ impl OutgoingStreamManager {
     pub async fn send_bytes(
         &self,
         data: impl AsRef<[u8]>,
-        mut options: StreamByteOptions,
+        options: StreamByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
         let bytes = data.as_ref();
 
-        let byte_header = proto::data_stream::ByteHeader { name: options.name.unwrap_or_default() };
-
-        options.attributes.insert("__push".to_owned(), "1".into());
+        let byte_header = proto::data_stream::ByteHeader {
+            name: options.name.unwrap_or_default(),
+        };
         let header = proto::data_stream::Header {
             stream_id: options.id.unwrap_or_else(|| create_random_uuid()),
             timestamp: Utc::now().timestamp_millis(),

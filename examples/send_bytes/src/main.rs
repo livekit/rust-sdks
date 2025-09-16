@@ -55,15 +55,18 @@ async fn run_receiver(
     println!("Waiting for LED control packets…");
     while let Some(event) = rx.recv().await {
         match event {
-            RoomEvent::BytesReceived { bytes, info, participant_identity: _ } => {
-                if info.topic != LED_CONTROL_TOPIC {
+            RoomEvent::ByteStreamOpened { reader, topic, participant_identity: _ } => {
+                if topic != LED_CONTROL_TOPIC {
                     continue;
                 };
-                let Ok(be_bytes) = bytes[..4].try_into() else {
+                let Some(reader) = reader.take() else { continue };
+
+                let Ok(be_bytes) = reader.read_all().await?[..4].try_into() else {
                     log::warn!("Unexpected packet length");
                     continue;
                 };
                 let packet = LedControlPacket::from(u32::from_be_bytes(be_bytes));
+
                 println!("[rx] {}", packet);
             }
             _ => {}
