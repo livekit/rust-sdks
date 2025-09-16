@@ -21,6 +21,7 @@
 #include "api/task_queue/task_queue_factory.h"
 #include "api/task_queue/task_queue_base.h"
 #include "modules/audio_device/include/audio_device.h"
+#include "modules/audio_device/audio_device_buffer.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/task_utils/repeating_task.h"
 
@@ -116,6 +117,14 @@ class AudioDevice : public webrtc::AudioDeviceModule {
 
   int32_t SetAudioDeviceSink(webrtc::AudioDeviceSink* sink) const override;
 
+  webrtc::AudioDeviceBuffer *audio_device_buffer() {
+    return &audio_device_buffer_;
+  }
+
+  webrtc::AudioTransport* audio_transport() {
+    return audio_transport_;
+  }
+
  private:
   mutable webrtc::Mutex mutex_;
   std::vector<int16_t> data_;
@@ -123,6 +132,7 @@ class AudioDevice : public webrtc::AudioDeviceModule {
   webrtc::RepeatingTaskHandle audio_task_;
   webrtc::AudioTransport* audio_transport_;
   webrtc::TaskQueueFactory* task_queue_factory_;
+  webrtc::AudioDeviceBuffer audio_device_buffer_;
   bool playing_{false};
   bool initialized_{false};
 };

@@ -25,7 +25,8 @@ namespace livekit {
 
 AudioDevice::AudioDevice(webrtc::TaskQueueFactory* task_queue_factory)
     : task_queue_factory_(task_queue_factory),
-      data_(kSamplesPer10Ms * kChannels) {}
+      data_(kSamplesPer10Ms * kChannels),
+      audio_device_buffer_(task_queue_factory) {}
 
 AudioDevice::~AudioDevice() {
   Terminate();
@@ -39,6 +40,7 @@ int32_t AudioDevice::ActiveAudioLayer(AudioLayer* audioLayer) const {
 int32_t AudioDevice::RegisterAudioCallback(webrtc::AudioTransport* transport) {
   webrtc::MutexLock lock(&mutex_);
   audio_transport_ = transport;
+  audio_device_buffer_.RegisterAudioCallback(transport);
   return 0;
 }
 
@@ -46,6 +48,11 @@ int32_t AudioDevice::Init() {
   webrtc::MutexLock lock(&mutex_);
   if (initialized_)
     return 0;
+
+  audio_device_buffer_.SetRecordingSampleRate(kSampleRate);
+  audio_device_buffer_.SetPlayoutSampleRate(kSampleRate);
+  audio_device_buffer_.SetRecordingChannels(kChannels);
+  audio_device_buffer_.SetPlayoutChannels(kChannels);
 
   audio_queue_ =
       task_queue_factory_->CreateTaskQueue(
@@ -63,9 +70,13 @@ int32_t AudioDevice::Init() {
 
           // Request the AudioData, otherwise WebRTC will ignore the packets.
           // 10ms of audio data.
+          audio_device_buffer_.RequestPlayoutData(kSamplesPer10Ms);
+          audio_device_buffer_.GetPlayoutData(data);
+          /*
           audio_transport_->NeedMorePlayData(
               kSamplesPer10Ms, kBytesPerSample, kChannels, kSampleRate, data,
               n_samples_out, &elapsed_time_ms, &ntp_time_ms);
+          */
         }
 
         return webrtc::TimeDelta::Millis(10);
@@ -156,12 +167,14 @@ bool AudioDevice::RecordingIsInitialized() const {
 int32_t AudioDevice::StartPlayout() {
   webrtc::MutexLock lock(&mutex_);
   playing_ = true;
+  audio_device_buffer_.StartPlayout();
   return 0;
 }
 
 int32_t AudioDevice::StopPlayout() {
   webrtc::MutexLock lock(&mutex_);
   playing_ = false;
+  audio_device_buffer_.StopPlayout();
   return 0;
 }
 
@@ -171,10 +184,12 @@ bool AudioDevice::Playing() const {
 }
 
 int32_t AudioDevice::StartRecording() {
+  audio_device_buffer_.StartRecording();
   return 0;
 }
 
 int32_t AudioDevice::StopRecording() {
+  audio_device_buffer_.StopRecording();
   return 0;
 }
 
