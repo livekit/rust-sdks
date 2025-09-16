@@ -115,11 +115,31 @@ jobs:
         run: |
          pip3 install setuptools # pkg_resources is sometimes not found?
 
+      - name: Add GCC PPA and install GCC 14
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        run: |
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+          sudo apt update
+          sudo apt install gcc-14 g++-14 -y
+
+      - name: Verify GCC 14 installation
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        run: |
+          gcc-14 --version
+          g++-14 --version
+
+      - name: Set GCC 14 as default (optional)
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        run: |
+          update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 --slave /usr/bin/g++ g++ /usr/bin/g++-14
+          sudo update-alternatives --config gcc
+          gcc --version
+      
       - name: Install linux dependencies
         if: ${{ matrix.target.os == 'ubuntu-latest' }}
         run: |
           sudo apt update -y
-          sudo apt install -y ninja-build pkg-config openjdk-11-jdk g++-aarch64-linux-gnu
+          sudo apt install -y ninja-build pkg-config openjdk-11-jdk g++-14-aarch64-linux-gnu
 
       - name: Install macos dependencies
         if: ${{ matrix.target.os == 'macos-latest' }}
