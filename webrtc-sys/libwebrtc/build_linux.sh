@@ -108,6 +108,7 @@ args="is_debug=$debug  \
   rtc_use_h265=true \
   rtc_use_pipewire=false \
   symbol_level=0 \
+  libyuv_use_sme=false \
   enable_iterator_debugging=false \
   use_rtti=true \
   is_clang=false \
