@@ -17,7 +17,10 @@ use livekit_protocol as proto;
 use tokio::sync::mpsc;
 
 use super::peer_transport::PeerTransport;
-use crate::{rtc_engine::peer_transport::OnOfferCreated, DataPacketKind};
+use crate::{
+    rtc_engine::{peer_transport::OnOfferCreated, rtc_session::RELIABLE_DC_LABEL},
+    DataPacketKind,
+};
 
 pub type RtcEmitter = mpsc::UnboundedSender<RtcEvent>;
 pub type RtcEvents = mpsc::UnboundedReceiver<RtcEvent>;
@@ -50,6 +53,7 @@ pub enum RtcEvent {
     Data {
         data: Vec<u8>,
         binary: bool,
+        kind: DataPacketKind,
     },
     DataChannelBufferedAmountChange {
         sent: u64,
@@ -90,7 +94,12 @@ fn on_data_channel(
     emitter: RtcEmitter,
 ) -> rtc::peer_connection::OnDataChannel {
     Box::new(move |data_channel| {
-        data_channel.on_message(Some(on_message(emitter.clone())));
+        let kind = if data_channel.label() == RELIABLE_DC_LABEL {
+            DataPacketKind::Reliable
+        } else {
+            DataPacketKind::Lossy
+        };
+        data_channel.on_message(Some(on_message(emitter.clone(), kind)));
 
         let _ = emitter.send(RtcEvent::DataChannel { data_channel, target });
     })
@@ -140,9 +149,13 @@ pub fn forward_pc_events(transport: &mut PeerTransport, rtc_emitter: RtcEmitter)
     transport.on_offer(Some(on_offer(signal_target, rtc_emitter)));
 }
 
-fn on_message(emitter: RtcEmitter) -> rtc::data_channel::OnMessage {
+fn on_message(emitter: RtcEmitter, kind: DataPacketKind) -> rtc::data_channel::OnMessage {
     Box::new(move |buffer| {
-        let _ = emitter.send(RtcEvent::Data { data: buffer.data.to_vec(), binary: buffer.binary });
+        let _ = emitter.send(RtcEvent::Data {
+            data: buffer.data.to_vec(),
+            binary: buffer.binary,
+            kind,
+        });
     })
 }
 
@@ -158,6 +171,6 @@ fn on_buffered_amount_change(
 }
 
 pub fn forward_dc_events(dc: &mut DataChannel, kind: DataPacketKind, rtc_emitter: RtcEmitter) {
-    dc.on_message(Some(on_message(rtc_emitter.clone())));
+    dc.on_message(Some(on_message(rtc_emitter.clone(), kind)));
     dc.on_buffered_amount_change(Some(on_buffered_amount_change(rtc_emitter, dc.clone(), kind)));
 }

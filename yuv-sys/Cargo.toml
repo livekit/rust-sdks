@@ -1,13 +1,13 @@
 [package]
 name = "yuv-sys"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2021"
 authors = ["Theo Monnom <theo.8bits@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "libyuv bindings"
 
 [build-dependencies]
-bindgen = "0.69"
+bindgen = "0.72.1"
 cc = "1.0"
 regex = "1"
 rayon = "1.8"

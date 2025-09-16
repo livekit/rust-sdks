@@ -37,8 +37,11 @@
 #include "livekit/android.h"
 #endif
 
-#if defined(__linux__) && defined(__x86_64__) && !defined(WEBRTC_ANDROID)
+#if defined(USE_NVIDIA_VIDEO_CODEC)
 #include "nvidia/nvidia_encoder_factory.h"
+#endif
+
+#if defined(USE_VAAPI_VIDEO_CODEC)
 #include "vaapi/vaapi_encoder_factory.h"
 #endif
 
@@ -63,11 +66,19 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
   factories_.push_back(CreateAndroidVideoEncoderFactory());
 #endif
 
-#if defined(__linux__) && defined(__x86_64__) && !defined(WEBRTC_ANDROID)
+#if defined(USE_NVIDIA_VIDEO_CODEC)
   if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
     factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
-  } else if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
-    factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
+  } else {
+#endif
+
+#if defined(USE_VAAPI_VIDEO_CODEC)
+    if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
+      factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
+    }
+#endif
+
+#if defined(USE_NVIDIA_VIDEO_CODEC)
   }
 #endif
 }

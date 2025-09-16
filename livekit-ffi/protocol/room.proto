@@ -261,6 +261,7 @@ message TrackPublishOptions {
   optional bool simulcast = 6;
   optional TrackSource source = 7;
   optional string stream = 8;
+  optional bool preconnect_buffer = 9;
 }
 
 enum IceTransportType {

@@ -232,6 +232,9 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             red: opts.red.unwrap_or(default_publish_options.red),
             simulcast: opts.simulcast.unwrap_or(default_publish_options.simulcast),
             stream: opts.stream.unwrap_or(default_publish_options.stream),
+            preconnect_buffer: opts
+                .preconnect_buffer
+                .unwrap_or(default_publish_options.preconnect_buffer),
         }
     }
 }

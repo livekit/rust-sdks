@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.6](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.5...rust-sdks/livekit-api@0.4.6) - 2025-09-03
+
+### Other
+
+- add attributes to Claims and AccessToken ([#693](https://github.com/livekit/rust-sdks/pull/693))
+
 ## [0.4.5](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.4...rust-sdks/livekit-api@0.4.5) - 2025-07-31
 
 ### Other
