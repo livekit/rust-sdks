@@ -1,6 +1,6 @@
 [package]
 name = "livekit-ffi"
-version = "0.12.31"
+version = "0.12.33"
 edition = "2021"
 license = "Apache-2.0"
 description = "FFI interface for bindings in other languages"
@@ -19,6 +19,7 @@ tracing = ["tokio/tracing", "console-subscriber"]
 
 [dependencies]
 livekit = { workspace = true }
+webrtc-sys = { workspace = true , features = [ "use_vaapi", "use_nvidia" ]}
 soxr-sys = { workspace = true }
 imgproc = { workspace = true }
 livekit-protocol = { workspace = true }

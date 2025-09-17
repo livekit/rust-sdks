@@ -85,6 +85,7 @@ pub struct TrackPublishOptions {
     // pub name: String,
     pub source: TrackSource,
     pub stream: String,
+    pub preconnect_buffer: bool,
 }
 
 impl Default for TrackPublishOptions {
@@ -98,6 +99,7 @@ impl Default for TrackPublishOptions {
             simulcast: true,
             source: TrackSource::Unknown,
             stream: "".to_string(),
+            preconnect_buffer: false,
         }
     }
 }
@@ -282,6 +284,7 @@ pub fn video_layers_from_encodings(
             height,
             bitrate: 0,
             ssrc: 0,
+            ..Default::default()
         }];
     }
 
@@ -296,6 +299,7 @@ pub fn video_layers_from_encodings(
             height: (height as f64 / scale) as u32,
             bitrate: encoding.max_bitrate.unwrap_or(0) as u32,
             ssrc: 0,
+            ..Default::default()
         });
     }
 

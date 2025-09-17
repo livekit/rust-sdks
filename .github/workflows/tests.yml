@@ -35,8 +35,10 @@ jobs:
             target: x86_64-pc-windows-msvc
           - os: macos-latest
             target: x86_64-apple-darwin
+            e2e-testing: true
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            e2e-testing: true
 
     name: Test (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -52,11 +54,29 @@ jobs:
           sudo apt update -y
           sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev libva-dev libdrm-dev libnvidia-decode-570 libnvidia-compute-570 nvidia-cuda-dev
 
+      - name: Install LiveKit server
+        if: ${{ matrix.e2e-testing }}
+        run: |
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            curl -sSL https://get.livekit.io | bash
+          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            brew install livekit
+          fi
+
       - uses: actions/checkout@v3
         with:
           submodules: true
 
-      - name: Test
+      - name: Run LiveKit server
+        if: ${{ matrix.e2e-testing }}
+        run: livekit-server --dev &
+
+      - name: Test (no E2E)
+        if: ${{ !matrix.e2e-testing }}
         run: cargo +nightly test --release --verbose --target ${{ matrix.target }} -- --nocapture
+
+      - name: Test (with E2E)
+        if: ${{ matrix.e2e-testing }}
+        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} --features __lk-e2e-test -- --nocapture
 
 
