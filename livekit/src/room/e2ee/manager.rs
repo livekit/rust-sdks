@@ -15,7 +15,9 @@
 use std::{collections::HashMap, sync::Arc};
 
 use libwebrtc::{
-    native::frame_cryptor::{EncryptionAlgorithm, EncryptionState, FrameCryptor},
+    native::frame_cryptor::{
+        DataPacketCryptor, EncryptedPacket, EncryptionAlgorithm, EncryptionState, FrameCryptor,
+    },
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
 };
@@ -37,6 +39,7 @@ struct ManagerInner {
     enabled: bool,                // Used to enable/disable e2ee
     dc_encryption: bool,
     frame_cryptors: HashMap<(ParticipantIdentity, TrackSid), FrameCryptor>,
+    data_packet_cryptor: Option<DataPacketCryptor>,
 }
 
 #[derive(Clone)]
@@ -49,12 +52,19 @@ impl E2eeManager {
     /// E2eeOptions is an optional parameter. We may support to reconfigure e2ee after connect in
     /// the future.
     pub(crate) fn new(options: Option<E2eeOptions>, with_dc_encryption: bool) -> Self {
+        // Create DataPacketCryptor whenever E2EE options are available
+        // This allows for decryption even if we're not encrypting our own data
+        let data_packet_cryptor = options.as_ref().map(|opts| {
+            DataPacketCryptor::new(EncryptionAlgorithm::AesGcm, opts.key_provider.handle.clone())
+        });
+
         Self {
             inner: Arc::new(Mutex::new(ManagerInner {
                 enabled: options.is_some(), // Enabled by default if options is provided
                 dc_encryption: options.is_some() && with_dc_encryption,
                 options,
                 frame_cryptors: HashMap::new(),
+                data_packet_cryptor,
             })),
             state_changed: Default::default(),
         }
@@ -229,5 +239,49 @@ impl E2eeManager {
 
         let mut inner = self.inner.lock();
         inner.frame_cryptors.remove(&(participant_identity, track_sid));
+    }
+
+    /// Decrypt data received from a data channel
+    pub fn handle_encrypted_data(
+        &self,
+        data: &[u8],
+        iv: &[u8],
+        participant_identity: &str,
+        key_index: u32,
+    ) -> Option<Vec<u8>> {
+        let inner = self.inner.lock();
+
+        let data_packet_cryptor = inner.data_packet_cryptor.as_ref()?;
+
+        let encrypted_packet = EncryptedPacket { data: data.to_vec(), iv: iv.to_vec(), key_index };
+
+        match data_packet_cryptor.decrypt(participant_identity, &encrypted_packet) {
+            Ok(decrypted_data) => Some(decrypted_data),
+            Err(e) => {
+                log::warn!("handle_encrypted_data error: {}", e);
+                None
+            }
+        }
+    }
+
+    /// Encrypt data for transmission over a data channel
+    pub fn encrypt_data(
+        &self,
+        data: &[u8],
+        participant_identity: &str,
+        key_index: u32,
+    ) -> Result<EncryptedPacket, Box<dyn std::error::Error>> {
+        let inner = self.inner.lock();
+
+        let data_packet_cryptor =
+            inner.data_packet_cryptor.as_ref().ok_or("DataPacketCryptor is not initialized")?;
+
+        let key_provider =
+            inner.options.as_ref().ok_or("E2EE options not available")?.key_provider.clone();
+
+        // Get the latest key index for this participant
+        let key_index = key_provider.get_key(participant_identity);
+
+        data_packet_cryptor.encrypt(participant_identity, key_index as u32, data)
     }
 }

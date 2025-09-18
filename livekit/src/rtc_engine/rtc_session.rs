@@ -25,7 +25,7 @@ use std::{
 
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
-use livekit_protocol as proto;
+use livekit_protocol::{self as proto, encryption};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
 use prost::Message;
@@ -49,7 +49,7 @@ use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
     prelude::TrackKind,
-    room::DisconnectReason,
+    room::{e2ee::manager::E2eeManager, DisconnectReason},
     rtc_engine::{
         lk_runtime::LkRuntime,
         peer_transport::PeerTransport,
@@ -301,6 +301,8 @@ struct SessionInner {
     negotiation_queue: NegotiationQueue,
 
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
+
+    e2ee_manager: Option<E2eeManager>,
 }
 
 /// Information about the local participant needed for outgoing
@@ -348,6 +350,7 @@ impl RtcSession {
         url: &str,
         token: &str,
         options: EngineOptions,
+        e2ee_manager: Option<E2eeManager>,
     ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
         let (emitter, session_events) = mpsc::unbounded_channel();
 
@@ -425,6 +428,7 @@ impl RtcSession {
             negotiation_debouncer: Default::default(),
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
+            e2ee_manager,
         });
 
         // Start session tasks
@@ -1133,10 +1137,127 @@ impl SessionInner {
                     participant_identity.map_or("".into(), |identity| identity.0);
                 self.emitter.send(SessionEvent::DataStreamTrailer { trailer, participant_identity })
             }
+            proto::data_packet::Value::EncryptedPacket(encrypted_packet) => {
+                // Handle encrypted data packets
+                if let Some(e2ee_manager) = &self.e2ee_manager {
+                    let participant_identity_str =
+                        participant_identity.as_ref().map(|p| p.0.as_str()).unwrap_or("");
+
+                    match e2ee_manager.handle_encrypted_data(
+                        &encrypted_packet.encrypted_value,
+                        &encrypted_packet.iv,
+                        participant_identity_str,
+                        encrypted_packet.key_index,
+                    ) {
+                        Some(decrypted_payload) => {
+                            // Parse the decrypted payload as EncryptedPacketPayload
+                            match proto::EncryptedPacketPayload::decode(&*decrypted_payload) {
+                                Ok(encrypted_payload) => {
+                                    if let Some(value) = encrypted_payload.value {
+                                        // Forward the decrypted payload based on its type
+                                        self.handle_decrypted_payload(
+                                            kind,
+                                            participant_sid,
+                                            participant_identity,
+                                            value,
+                                        )
+                                    } else {
+                                        log::warn!("Decrypted payload has no value");
+                                        Ok(())
+                                    }
+                                }
+                                Err(e) => {
+                                    log::warn!("Failed to decode decrypted payload: {}", e);
+                                    Ok(())
+                                }
+                            }
+                        }
+                        None => {
+                            log::warn!(
+                                "Failed to decrypt data packet from {}",
+                                participant_identity_str
+                            );
+                            Ok(()) // Don't emit the event if decryption fails
+                        }
+                    }
+                } else {
+                    log::warn!("Received encrypted data packet but E2EE is not enabled");
+                    Ok(()) // Don't emit the event if E2EE is not available
+                }
+            }
             _ => Ok(()),
         };
         if let Err(err) = send_result {
             log::error!("failed to emit incoming data packet: {:?}", err);
+        }
+    }
+
+    fn handle_decrypted_payload(
+        &self,
+        kind: DataPacketKind,
+        participant_sid: Option<ParticipantSid>,
+        participant_identity: Option<ParticipantIdentity>,
+        value: proto::encrypted_packet_payload::Value,
+    ) -> Result<(), mpsc::error::SendError<SessionEvent>> {
+        match value {
+            proto::encrypted_packet_payload::Value::User(user) => {
+                self.emitter.send(SessionEvent::Data {
+                    kind,
+                    participant_sid,
+                    participant_identity,
+                    payload: user.payload,
+                    topic: user.topic,
+                })
+            }
+            proto::encrypted_packet_payload::Value::ChatMessage(message) => {
+                self.emitter.send(SessionEvent::ChatMessage {
+                    participant_identity: participant_identity
+                        .unwrap_or(ParticipantIdentity("".into())),
+                    message: ChatMessage::from(message),
+                })
+            }
+
+            proto::encrypted_packet_payload::Value::RpcRequest(rpc_request) => {
+                let caller_identity = participant_identity;
+                self.emitter.send(SessionEvent::RpcRequest {
+                    caller_identity,
+                    request_id: rpc_request.id,
+                    method: rpc_request.method,
+                    payload: rpc_request.payload,
+                    response_timeout: Duration::from_millis(rpc_request.response_timeout_ms as u64),
+                    version: rpc_request.version,
+                })
+            }
+            proto::encrypted_packet_payload::Value::RpcResponse(rpc_response) => {
+                let (payload, error) = match rpc_response.value {
+                    None => (None, None),
+                    Some(proto::rpc_response::Value::Payload(payload)) => (Some(payload), None),
+                    Some(proto::rpc_response::Value::Error(err)) => (None, Some(err)),
+                };
+                self.emitter.send(SessionEvent::RpcResponse {
+                    request_id: rpc_response.request_id,
+                    payload,
+                    error,
+                })
+            }
+            proto::encrypted_packet_payload::Value::RpcAck(rpc_ack) => {
+                self.emitter.send(SessionEvent::RpcAck { request_id: rpc_ack.request_id })
+            }
+            proto::encrypted_packet_payload::Value::StreamHeader(header) => {
+                let participant_identity =
+                    participant_identity.map_or("".into(), |identity| identity.0);
+                self.emitter.send(SessionEvent::DataStreamHeader { header, participant_identity })
+            }
+            proto::encrypted_packet_payload::Value::StreamChunk(chunk) => {
+                let participant_identity =
+                    participant_identity.map_or("".into(), |identity| identity.0);
+                self.emitter.send(SessionEvent::DataStreamChunk { chunk, participant_identity })
+            }
+            proto::encrypted_packet_payload::Value::StreamTrailer(trailer) => {
+                let participant_identity =
+                    participant_identity.map_or("".into(), |identity| identity.0);
+                self.emitter.send(SessionEvent::DataStreamTrailer { trailer, participant_identity })
+            }
         }
     }
 
@@ -1350,6 +1471,35 @@ impl SessionInner {
         // Populate local participant info fields
         packet.participant_identity = self.participant_info.identity.to_string();
         packet.participant_sid = self.participant_info.sid.to_string();
+
+        // Handle encryption for user data packets
+        if let Some(proto::data_packet::Value::User(user)) = packet.value.take() {
+            if let Some(e2ee_manager) = &self.e2ee_manager {
+                match e2ee_manager.encrypt_data(&user.payload, &self.participant_info.identity.0, 0)
+                {
+                    Ok(encrypted_packet) => {
+                        let encryption_type = e2ee_manager.encryption_type().clone();
+                        // Replace with EncryptedPacket variant
+                        packet.value = Some(proto::data_packet::Value::EncryptedPacket(
+                            proto::EncryptedPacket {
+                                encrypted_value: encrypted_packet.data,
+                                iv: encrypted_packet.iv,
+                                key_index: encrypted_packet.key_index,
+                                encryption_type: encryption_type.into(),
+                            },
+                        ));
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to encrypt data packet: {}", e);
+                        // Restore original user packet if encryption fails
+                        packet.value = Some(proto::data_packet::Value::User(user));
+                    }
+                }
+            } else {
+                // Restore user packet if no E2EE manager
+                packet.value = Some(proto::data_packet::Value::User(user));
+            }
+        }
 
         let (completion_tx, completion_rx) = oneshot::channel();
         let ev = DataChannelEvent {
