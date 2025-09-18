@@ -48,7 +48,7 @@ class PeerConnection : webrtc::PeerConnectionObserver {
  public:
   PeerConnection(
       std::shared_ptr<RtcRuntime> rtc_runtime,
-      rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory,
+      webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory,
       rust::Box<PeerConnectionObserverWrapper> observer);
 
   ~PeerConnection();
@@ -141,13 +141,13 @@ class PeerConnection : webrtc::PeerConnectionObserver {
       webrtc::PeerConnectionInterface::SignalingState new_state) override;
 
   void OnAddStream(
-      rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) override;
+      webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream) override;
 
   void OnRemoveStream(
-      rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) override;
+      webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream) override;
 
   void OnDataChannel(
-      rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) override;
+      webrtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) override;
 
   void OnRenegotiationNeeded() override;
 
@@ -182,23 +182,23 @@ class PeerConnection : webrtc::PeerConnectionObserver {
       const cricket::CandidatePairChangeEvent& event) override;
 
   void OnAddTrack(
-      rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
-      const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&
+      webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
+      const std::vector<webrtc::scoped_refptr<webrtc::MediaStreamInterface>>&
           streams) override;
 
   void OnTrack(
-      rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) override;
+      webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) override;
 
   void OnRemoveTrack(
-      rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) override;
+      webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) override;
 
   void OnInterestingUsage(int usage_pattern) override;
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory_;
+  webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory_;
   rust::Box<PeerConnectionObserverWrapper> observer_;
-  rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
+  webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
 static std::shared_ptr<PeerConnection> _shared_peer_connection() {

@@ -190,7 +190,7 @@ fn main() {
                 _ => {}
             }
 
-            builder.flag("-std=c++2a");
+            builder.flag("-Wno-changes-meaning").flag("-std=c++20");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
@@ -208,6 +208,7 @@ fn main() {
             println!("cargo:rustc-link-lib=framework=QuartzCore");
             println!("cargo:rustc-link-lib=framework=IOKit");
             println!("cargo:rustc-link-lib=framework=IOSurface");
+            println!("cargo:rustc-link-lib=framework=ScreenCaptureKit");
 
             configure_darwin_sysroot(&mut builder);
 

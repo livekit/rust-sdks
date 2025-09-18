@@ -110,8 +110,8 @@ int32_t NvidiaH264DecoderImpl::Decode(const EncodedImage& input_image,
   }
 
   h264_bitstream_parser_.ParseBitstream(input_image);
-  absl::optional<int> qp = h264_bitstream_parser_.GetLastSliceQp();
-  absl::optional<SpsParser::SpsState> sps = h264_bitstream_parser_.sps();
+  std::optional<int> qp = h264_bitstream_parser_.GetLastSliceQp();
+  std::optional<SpsParser::SpsState> sps = h264_bitstream_parser_.sps();
 
   if (is_configured_decoder_) {
     if (!sps ||
@@ -149,7 +149,7 @@ int32_t NvidiaH264DecoderImpl::Decode(const EncodedImage& input_image,
     int64_t timeStamp;
     uint8_t* pFrame = decoder_->GetFrame(&timeStamp);
 
-    rtc::scoped_refptr<webrtc::I420Buffer> i420_buffer =
+    webrtc::scoped_refptr<webrtc::I420Buffer> i420_buffer =
         buffer_pool_.CreateI420Buffer(decoder_->GetWidth(),
                                       decoder_->GetHeight());
 
@@ -176,7 +176,7 @@ int32_t NvidiaH264DecoderImpl::Decode(const EncodedImage& input_image,
             .build();
 
     // todo: measurement decoding time
-    absl::optional<int32_t> decodetime;
+    std::optional<int32_t> decodetime;
     decoded_complete_callback_->Decoded(decoded_frame, decodetime, qp);
   }
 

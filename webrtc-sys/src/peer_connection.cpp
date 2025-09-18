@@ -73,7 +73,7 @@ to_native_offer_answer_options(const RtcOfferAnswerOptions& options) {
 
 PeerConnection::PeerConnection(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    rtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory,
+    webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> pc_factory,
     rust::Box<PeerConnectionObserverWrapper> observer)
     : rtc_runtime_(std::move(rtc_runtime)),
       pc_factory_(std::move(pc_factory)),
@@ -115,8 +115,8 @@ void PeerConnection::create_offer(
     rust::Fn<void(rust::Box<PeerContext>, std::unique_ptr<SessionDescription>)>
         on_success,
     rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_error) const {
-  rtc::scoped_refptr<NativeCreateSdpObserver> observer =
-      rtc::make_ref_counted<NativeCreateSdpObserver>(std::move(ctx), on_success,
+  webrtc::scoped_refptr<NativeCreateSdpObserver> observer =
+      webrtc::make_ref_counted<NativeCreateSdpObserver>(std::move(ctx), on_success,
                                                      on_error);
 
   peer_connection_->CreateOffer(observer.get(),
@@ -129,8 +129,8 @@ void PeerConnection::create_answer(
     rust::Fn<void(rust::Box<PeerContext>, std::unique_ptr<SessionDescription>)>
         on_success,
     rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_error) const {
-  rtc::scoped_refptr<NativeCreateSdpObserver> observer =
-      rtc::make_ref_counted<NativeCreateSdpObserver>(std::move(ctx), on_success,
+  webrtc::scoped_refptr<NativeCreateSdpObserver> observer =
+      webrtc::make_ref_counted<NativeCreateSdpObserver>(std::move(ctx), on_success,
                                                      on_error);
 
   peer_connection_->CreateAnswer(observer.get(),
@@ -141,8 +141,8 @@ void PeerConnection::set_local_description(
     std::unique_ptr<SessionDescription> desc,
     rust::Box<PeerContext> ctx,
     rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete) const {
-  rtc::scoped_refptr<NativeSetLocalSdpObserver> observer =
-      rtc::make_ref_counted<NativeSetLocalSdpObserver>(std::move(ctx),
+  webrtc::scoped_refptr<NativeSetLocalSdpObserver> observer =
+      webrtc::make_ref_counted<NativeSetLocalSdpObserver>(std::move(ctx),
                                                        on_complete);
 
   peer_connection_->SetLocalDescription(desc->clone()->release(), observer);
@@ -152,8 +152,8 @@ void PeerConnection::set_remote_description(
     std::unique_ptr<SessionDescription> desc,
     rust::Box<PeerContext> ctx,
     rust::Fn<void(rust::Box<PeerContext>, RtcError)> on_complete) const {
-  rtc::scoped_refptr<NativeSetRemoteSdpObserver> observer =
-      rtc::make_ref_counted<NativeSetRemoteSdpObserver>(std::move(ctx),
+  webrtc::scoped_refptr<NativeSetRemoteSdpObserver> observer =
+      webrtc::make_ref_counted<NativeSetRemoteSdpObserver>(std::move(ctx),
                                                         on_complete);
 
   peer_connection_->SetRemoteDescription(desc->clone()->release(), observer);
@@ -209,7 +209,7 @@ void PeerConnection::remove_track(std::shared_ptr<RtpSender> sender) const {
 void PeerConnection::get_stats(
     rust::Box<PeerContext> ctx,
     rust::Fn<void(rust::Box<PeerContext>, rust::String)> on_stats) const {
-  auto observer = rtc::make_ref_counted<NativeRtcStatsCollector<PeerContext>>(
+  auto observer = webrtc::make_ref_counted<NativeRtcStatsCollector<PeerContext>>(
       std::move(ctx), on_stats);
   peer_connection_->GetStats(observer.get());
 }
@@ -230,7 +230,7 @@ std::shared_ptr<RtpTransceiver> PeerConnection::add_transceiver_for_media(
     MediaType media_type,
     RtpTransceiverInit init) const {
   auto result = peer_connection_->AddTransceiver(
-      static_cast<cricket::MediaType>(media_type),
+      static_cast<webrtc::MediaType>(media_type),
       to_native_rtp_transceiver_init(init));
 
   if (!result.ok())
@@ -350,19 +350,19 @@ void PeerConnection::OnSignalingChange(
 }
 
 void PeerConnection::OnAddStream(
-    rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
+    webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
   observer_->on_add_stream(std::make_unique<MediaStream>(rtc_runtime_, stream));
 }
 
 void PeerConnection::OnRemoveStream(
-    rtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
+    webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream) {
   // Find current MediaStream
   // observer_->on_remove_stream(std::make_unique<MediaStream>(rtc_runtime_,
   // stream));
 }
 
 void PeerConnection::OnDataChannel(
-    rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) {
+    webrtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) {
   observer_->on_data_channel(
       std::make_shared<DataChannel>(rtc_runtime_, data_channel));
 }
@@ -444,8 +444,8 @@ void PeerConnection::OnIceSelectedCandidatePairChanged(
 }
 
 void PeerConnection::OnAddTrack(
-    rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
-    const std::vector<rtc::scoped_refptr<webrtc::MediaStreamInterface>>&
+    webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
+    const std::vector<webrtc::scoped_refptr<webrtc::MediaStreamInterface>>&
         streams) {
   rust::Vec<MediaStreamPtr> vec;
 
@@ -460,13 +460,13 @@ void PeerConnection::OnAddTrack(
 }
 
 void PeerConnection::OnTrack(
-    rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) {
+    webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) {
   observer_->on_track(std::make_unique<RtpTransceiver>(
       rtc_runtime_, transceiver, peer_connection_));
 }
 
 void PeerConnection::OnRemoveTrack(
-    rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) {
+    webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) {
   observer_->on_remove_track(
       std::make_unique<RtpReceiver>(rtc_runtime_, receiver, peer_connection_));
 }

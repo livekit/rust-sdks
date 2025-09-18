@@ -328,7 +328,7 @@ int AudioDevice::GetRecordAudioParameters(
 }
 #endif  // WEBRTC_IOS
 
-int32_t AudioDevice::SetAudioDeviceSink(webrtc::AudioDeviceSink* sink) const {
+int32_t AudioDevice::SetObserver(webrtc::AudioDeviceObserver* observer) {
   return 0;
 }
 

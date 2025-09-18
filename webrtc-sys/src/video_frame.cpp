@@ -43,7 +43,7 @@ int64_t VideoFrame::ntp_time_ms() const {
   return frame_.ntp_time_ms();
 }
 uint32_t VideoFrame::timestamp() const {
-  return frame_.timestamp();
+  return frame_.rtp_timestamp();
 }
 
 VideoRotation VideoFrame::rotation() const {
