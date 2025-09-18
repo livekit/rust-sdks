@@ -20,7 +20,6 @@
 
 #include "absl/types/optional.h"
 #include "api/make_ref_counted.h"
-#include "api/crypto/data_packet_cryptor.h"
 #include "livekit/peer_connection.h"
 #include "livekit/peer_connection_factory.h"
 #include "livekit/webrtc.h"
@@ -155,76 +154,70 @@ int32_t FrameCryptor::key_index() const {
   return e2ee_transformer_->key_index();
 }
 
-class DataPacketCryptor {
- public:
-  DataPacketCryptor(webrtc::FrameCryptorTransformer::Algorithm algorithm,
-                   webrtc::scoped_refptr<webrtc::KeyProvider> key_provider)
-      : data_packet_cryptor_(
-            webrtc::make_ref_counted<webrtc::DataPacketCryptor>(algorithm, key_provider)) {}
+DataPacketCryptor::DataPacketCryptor(webrtc::FrameCryptorTransformer::Algorithm algorithm,
+                 webrtc::scoped_refptr<webrtc::KeyProvider> key_provider)
+    : data_packet_cryptor_(
+          webrtc::make_ref_counted<webrtc::DataPacketCryptor>(algorithm, key_provider)) {}
 
-  EncryptedPacket encrypt_data_packet(
-      const ::rust::String participant_id,
-      uint32_t key_index,
-      rust::Vec<::std::uint8_t> data) const {
-    std::vector<uint8_t> data_vec;
-    std::copy(data.begin(), data.end(), std::back_inserter(data_vec));
-    
-    auto result = data_packet_cryptor_->Encrypt(
-        std::string(participant_id.data(), participant_id.size()),
-        key_index,
-        data_vec);
-    
-    if (!result.ok()) {
-      throw std::runtime_error("Failed to encrypt data packet: " + result.error().message());
-    }
-    
-    auto& packet = result.value();
-    
-    EncryptedPacket encrypted_packet;
-    encrypted_packet.data = rust::Vec<uint8_t>();
-    std::copy(packet->data.begin(), packet->data.end(), 
-              std::back_inserter(encrypted_packet.data));
-    
-    encrypted_packet.iv = rust::Vec<uint8_t>();
-    std::copy(packet->iv.begin(), packet->iv.end(), 
-              std::back_inserter(encrypted_packet.iv));
-    
-    encrypted_packet.key_index = packet->key_index;
-    
-    return encrypted_packet;
+EncryptedPacket DataPacketCryptor::encrypt_data_packet(
+    const ::rust::String participant_id,
+    uint32_t key_index,
+    rust::Vec<::std::uint8_t> data) const {
+  std::vector<uint8_t> data_vec;
+  std::copy(data.begin(), data.end(), std::back_inserter(data_vec));
+
+  auto result = data_packet_cryptor_->Encrypt(
+      std::string(participant_id.data(), participant_id.size()),
+      key_index,
+      data_vec);
+
+  if (!result.ok()) {
+    throw std::runtime_error(std::string("Failed to encrypt data packet: ") + result.error().message());
   }
 
-  rust::Vec<::std::uint8_t> decrypt_data_packet(
-      const ::rust::String participant_id,
-      const EncryptedPacket& encrypted_packet) const {
-    std::vector<uint8_t> data_vec;
-    std::copy(encrypted_packet.data.begin(), encrypted_packet.data.end(), 
-              std::back_inserter(data_vec));
-    
-    std::vector<uint8_t> iv_vec;
-    std::copy(encrypted_packet.iv.begin(), encrypted_packet.iv.end(), 
-              std::back_inserter(iv_vec));
-    
-    auto native_encrypted_packet = webrtc::make_ref_counted<webrtc::EncryptedPacket>(
-        std::move(data_vec), std::move(iv_vec), encrypted_packet.key_index);
-    
-    auto result = data_packet_cryptor_->Decrypt(
-        std::string(participant_id.data(), participant_id.size()),
-        native_encrypted_packet);
-    
-    if (!result.ok()) {
-      throw std::runtime_error("Failed to decrypt data packet: " + result.error().message());
-    }
-    
-    rust::Vec<uint8_t> decrypted_data;
-    auto& decrypted = result.value();
-    std::copy(decrypted.begin(), decrypted.end(), std::back_inserter(decrypted_data));
-    return decrypted_data;
+  auto& packet = result.value();
+
+  EncryptedPacket encrypted_packet;
+  encrypted_packet.data = rust::Vec<uint8_t>();
+  std::copy(packet->data.begin(), packet->data.end(),
+            std::back_inserter(encrypted_packet.data));
+
+  encrypted_packet.iv = rust::Vec<uint8_t>();
+  std::copy(packet->iv.begin(), packet->iv.end(),
+            std::back_inserter(encrypted_packet.iv));
+
+  encrypted_packet.key_index = packet->key_index;
+
+  return encrypted_packet;
+}
+
+rust::Vec<::std::uint8_t> DataPacketCryptor::decrypt_data_packet(
+    const ::rust::String participant_id,
+    const EncryptedPacket& encrypted_packet) const {
+  std::vector<uint8_t> data_vec;
+  std::copy(encrypted_packet.data.begin(), encrypted_packet.data.end(),
+            std::back_inserter(data_vec));
+
+  std::vector<uint8_t> iv_vec;
+  std::copy(encrypted_packet.iv.begin(), encrypted_packet.iv.end(),
+            std::back_inserter(iv_vec));
+
+  auto native_encrypted_packet = webrtc::make_ref_counted<webrtc::EncryptedPacket>(
+      std::move(data_vec), std::move(iv_vec), encrypted_packet.key_index);
+
+  auto result = data_packet_cryptor_->Decrypt(
+      std::string(participant_id.data(), participant_id.size()),
+      native_encrypted_packet);
+
+  if (!result.ok()) {
+    throw std::runtime_error(std::string("Failed to decrypt data packet: ") + result.error().message());
   }
 
- private:
-  webrtc::scoped_refptr<webrtc::DataPacketCryptor> data_packet_cryptor_;
-};
+  rust::Vec<uint8_t> decrypted_data;
+  auto& decrypted = result.value();
+  std::copy(decrypted.begin(), decrypted.end(), std::back_inserter(decrypted_data));
+  return decrypted_data;
+}
 
 std::shared_ptr<KeyProvider> new_key_provider(KeyProviderOptions options) {
   return std::make_shared<KeyProvider>(options);
