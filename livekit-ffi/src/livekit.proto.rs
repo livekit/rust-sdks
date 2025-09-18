@@ -3289,6 +3289,7 @@ pub struct RoomOptions {
     pub adaptive_stream: ::core::option::Option<bool>,
     #[prost(bool, optional, tag="3")]
     pub dynacast: ::core::option::Option<bool>,
+    #[deprecated]
     #[prost(message, optional, tag="4")]
     pub e2ee: ::core::option::Option<E2eeOptions>,
     /// allow to setup a custom RtcConfiguration
@@ -3296,6 +3297,8 @@ pub struct RoomOptions {
     pub rtc_config: ::core::option::Option<RtcConfig>,
     #[prost(uint32, optional, tag="6")]
     pub join_retries: ::core::option::Option<u32>,
+    #[prost(message, optional, tag="7")]
+    pub encryption: ::core::option::Option<E2eeOptions>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]

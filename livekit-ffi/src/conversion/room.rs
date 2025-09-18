@@ -179,6 +179,21 @@ impl From<proto::RoomOptions> for RoomOptions {
             })
         });
 
+        let encryption = value.encryption.and_then(|opts| {
+            let encryption_type = opts.encryption_type();
+            let provider_opts = opts.key_provider_options;
+
+            Some(E2eeOptions {
+                encryption_type: encryption_type.into(),
+                key_provider: if provider_opts.shared_key.is_some() {
+                    let shared_key = provider_opts.shared_key.clone().unwrap();
+                    KeyProvider::with_shared_key(provider_opts.into(), shared_key)
+                } else {
+                    KeyProvider::new(provider_opts.into())
+                },
+            })
+        });
+
         let rtc_config =
             value.rtc_config.map(Into::into).unwrap_or(RoomOptions::default().rtc_config);
 
@@ -189,6 +204,7 @@ impl From<proto::RoomOptions> for RoomOptions {
         options.rtc_config = rtc_config;
         options.join_retries = value.join_retries.unwrap_or(options.join_retries);
         options.e2ee = e2ee;
+        options.encryption = encryption;
         options
     }
 }
