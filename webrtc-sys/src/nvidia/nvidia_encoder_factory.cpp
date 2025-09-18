@@ -1,7 +1,6 @@
 #include "nvidia_encoder_factory.h"
 
 #include <memory>
-#include <iostream>
 
 #include "cuda_context.h"
 #include "h264_encoder_impl.h"
@@ -33,11 +32,11 @@ bool NvidiaVideoEncoderFactory::IsSupported() {
   // Check if the CUDA context can be initialized.
   auto cu_context = std::make_unique<livekit::CudaContext>();
   if (!cu_context->Initialize()) {
-    std::cout << "Failed to initialize CUDA context." << std::endl;
+    RTC_LOG(LS_WARNING) << "Failed to initialize CUDA context.";
     return false;
   }
 
-  std::cout << "Nvidia Encoder is supported." << std::endl;
+  RTC_LOG(LS_INFO) << "Nvidia Encoder is supported.";
   return true;
 }
 
