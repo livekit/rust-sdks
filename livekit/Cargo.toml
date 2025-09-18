@@ -8,7 +8,7 @@ repository = "https://github.com/livekit/rust-sdks"
 
 [features]
 # By default ws TLS is not enabled
-default = ["tokio"]
+default = ["async"]
 
 async = ["livekit-api/signal-client-async"]
 tokio = ["livekit-api/signal-client-tokio"]
