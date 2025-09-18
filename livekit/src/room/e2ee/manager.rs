@@ -200,11 +200,6 @@ impl E2eeManager {
         inner.options.as_ref().map(|opts| opts.encryption_type).unwrap_or(EncryptionType::None)
     }
 
-    pub fn is_dc_encryption_enabled(&self) -> bool {
-        let inner = self.inner.lock();
-        inner.dc_encryption
-    }
-
     fn setup_rtp_sender(
         &self,
         participant_identity: &ParticipantIdentity,
@@ -285,12 +280,6 @@ impl E2eeManager {
         let data_packet_cryptor =
             inner.data_packet_cryptor.as_ref().ok_or("DataPacketCryptor is not initialized")?;
 
-        let key_provider =
-            inner.options.as_ref().ok_or("E2EE options not available")?.key_provider.clone();
-
-        // Get the latest key index for this participant
-        let key_index = key_provider.get_key(participant_identity);
-
-        data_packet_cryptor.encrypt(participant_identity, key_index as u32, data)
+        data_packet_cryptor.encrypt(participant_identity, key_index, data)
     }
 }
