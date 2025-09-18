@@ -536,6 +536,10 @@ impl RtcSession {
         self.inner.data_channel(target, kind)
     }
 
+    pub fn e2ee_manager(&self) -> Option<E2eeManager> {
+        self.inner.e2ee_manager.clone()
+    }
+
     pub fn data_channel_buffered_amount_low_threshold(&self, kind: DataPacketKind) -> u64 {
         match kind {
             DataPacketKind::Lossy => {
@@ -1472,32 +1476,75 @@ impl SessionInner {
         packet.participant_identity = self.participant_info.identity.to_string();
         packet.participant_sid = self.participant_info.sid.to_string();
 
-        // Handle encryption for user data packets
-        if let Some(proto::data_packet::Value::User(user)) = packet.value.take() {
-            if let Some(e2ee_manager) = &self.e2ee_manager {
-                match e2ee_manager.encrypt_data(&user.payload, &self.participant_info.identity.0, 0)
-                {
-                    Ok(encrypted_packet) => {
-                        let encryption_type = e2ee_manager.encryption_type().clone();
-                        // Replace with EncryptedPacket variant
-                        packet.value = Some(proto::data_packet::Value::EncryptedPacket(
-                            proto::EncryptedPacket {
-                                encrypted_value: encrypted_packet.data,
-                                iv: encrypted_packet.iv,
-                                key_index: encrypted_packet.key_index,
-                                encryption_type: encryption_type.into(),
-                            },
-                        ));
+        let packet_value = packet.value.take();
+
+        // Handle encryption for all data packet types when DC encryption is enabled
+        if let (Some(e2ee_manager), Some(value)) = (&self.e2ee_manager, packet_value.clone()) {
+            if e2ee_manager.is_dc_encryption_enabled() {
+                // Create EncryptedPacketPayload from the original value if it's an encryptable type
+                let encrypted_payload_value = match value {
+                    proto::data_packet::Value::User(user) => {
+                        Some(proto::encrypted_packet_payload::Value::User(user))
                     }
-                    Err(e) => {
-                        log::warn!("Failed to encrypt data packet: {}", e);
-                        // Restore original user packet if encryption fails
-                        packet.value = Some(proto::data_packet::Value::User(user));
+                    proto::data_packet::Value::ChatMessage(msg) => {
+                        Some(proto::encrypted_packet_payload::Value::ChatMessage(msg))
                     }
+                    proto::data_packet::Value::RpcRequest(req) => {
+                        Some(proto::encrypted_packet_payload::Value::RpcRequest(req))
+                    }
+                    proto::data_packet::Value::RpcResponse(resp) => {
+                        Some(proto::encrypted_packet_payload::Value::RpcResponse(resp))
+                    }
+                    proto::data_packet::Value::RpcAck(ack) => {
+                        Some(proto::encrypted_packet_payload::Value::RpcAck(ack))
+                    }
+                    proto::data_packet::Value::StreamHeader(header) => {
+                        Some(proto::encrypted_packet_payload::Value::StreamHeader(header))
+                    }
+                    proto::data_packet::Value::StreamChunk(chunk) => {
+                        Some(proto::encrypted_packet_payload::Value::StreamChunk(chunk))
+                    }
+                    proto::data_packet::Value::StreamTrailer(trailer) => {
+                        Some(proto::encrypted_packet_payload::Value::StreamTrailer(trailer))
+                    }
+                    // Non-encryptable types return None
+                    _ => None,
+                };
+
+                if let Some(encrypted_payload_value) = encrypted_payload_value {
+                    // Create EncryptedPacketPayload and encrypt it
+                    let encrypted_payload =
+                        proto::EncryptedPacketPayload { value: Some(encrypted_payload_value) };
+
+                    // Encode the payload and encrypt it
+                    let payload_bytes = encrypted_payload.encode_to_vec();
+                    match e2ee_manager.encrypt_data(
+                        &payload_bytes,
+                        &self.participant_info.identity.0,
+                        0, // FIXME - we need to get the current key index of the keyprovider here
+                    ) {
+                        Ok(encrypted_data) => {
+                            // Replace with EncryptedPacket variant
+                            packet.value = Some(proto::data_packet::Value::EncryptedPacket(
+                                proto::EncryptedPacket {
+                                    encrypted_value: encrypted_data.data,
+                                    iv: encrypted_data.iv,
+                                    key_index: encrypted_data.key_index,
+                                    encryption_type: e2ee_manager.encryption_type().into(),
+                                },
+                            ));
+                        }
+                        Err(e) => {
+                            log::warn!("Failed to encrypt data packet: {}", e);
+                        }
+                    }
+                } else {
+                    // Packet type shouldn't be encrypted, restore original
+                    packet.value = packet_value;
                 }
             } else {
-                // Restore user packet if no E2EE manager
-                packet.value = Some(proto::data_packet::Value::User(user));
+                // DC encryption not enabled, restore original packet
+                packet.value = packet_value;
             }
         }
 

@@ -175,6 +175,10 @@ impl E2eeManager {
         self.inner.lock().enabled && self.initialized()
     }
 
+    pub fn is_dc_encryption_enabled(&self) -> bool {
+        self.inner.lock().dc_encryption
+    }
+
     pub fn set_enabled(&self, enabled: bool) {
         let inner = self.inner.lock();
         if inner.enabled == enabled {
@@ -194,6 +198,11 @@ impl E2eeManager {
     pub fn encryption_type(&self) -> EncryptionType {
         let inner = self.inner.lock();
         inner.options.as_ref().map(|opts| opts.encryption_type).unwrap_or(EncryptionType::None)
+    }
+
+    pub fn is_dc_encryption_enabled(&self) -> bool {
+        let inner = self.inner.lock();
+        inner.dc_encryption
     }
 
     fn setup_rtp_sender(
