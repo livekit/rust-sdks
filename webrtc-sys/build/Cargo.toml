@@ -1,6 +1,6 @@
 [package]
 name = "webrtc-sys-build"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2021"
 license = "Apache-2.0"
 description = "Build utilities when working with libwebrtc"

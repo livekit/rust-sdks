@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.8](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys-build@0.3.7...rust-sdks/webrtc-sys-build@0.3.8) - 2025-09-19
+
+### Other
+
+- Upgrade libwebrtc to m137. ([#696](https://github.com/livekit/rust-sdks/pull/696))
+
 ## [0.3.7](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys-build@0.3.6...rust-sdks/webrtc-sys-build@0.3.7) - 2025-06-17
 
 ### Fixed

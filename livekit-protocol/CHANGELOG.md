@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.0](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.4.0...rust-sdks/livekit-protocol@0.5.0) - 2025-09-19
+
+### Other
+
+- Upgrade protocol to v1.41.0 ([#703](https://github.com/livekit/rust-sdks/pull/703))
+
 ## [0.4.0](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.3.10...rust-sdks/livekit-protocol@0.4.0) - 2025-06-17
 
 ### Other

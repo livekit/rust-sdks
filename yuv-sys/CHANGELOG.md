@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.9](https://github.com/livekit/rust-sdks/compare/rust-sdks/yuv-sys@0.3.8...rust-sdks/yuv-sys@0.3.9) - 2025-09-19
+
+### Other
+
+- Upgrade libwebrtc to m137. ([#696](https://github.com/livekit/rust-sdks/pull/696))
+
 ## [0.3.8](https://github.com/livekit/rust-sdks/compare/rust-sdks/yuv-sys@0.3.7...rust-sdks/yuv-sys@0.3.8) - 2025-09-09
 
 ### Other

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.19](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.18...rust-sdks/livekit@0.7.19) - 2025-09-19
+
+### Fixed
+
+- apply original participant fields in data messages ([#709](https://github.com/livekit/rust-sdks/pull/709))
+
+### Other
+
+- Add send_bytes method ([#691](https://github.com/livekit/rust-sdks/pull/691))
+- Disable opus red for e2ee enabled clients ([#706](https://github.com/livekit/rust-sdks/pull/706))
+- Upgrade protocol to v1.41.0 ([#703](https://github.com/livekit/rust-sdks/pull/703))
+
 ## [0.7.18](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.17...rust-sdks/livekit@0.7.18) - 2025-09-09
 
 ### Other
