@@ -477,6 +477,7 @@ impl Room {
                 signal_options,
                 join_retries: options.join_retries,
             },
+            Some(e2ee_manager.clone()),
         )
         .await?;
         let rtc_engine = Arc::new(rtc_engine);

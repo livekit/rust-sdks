@@ -25,7 +25,7 @@ use std::{
 
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
-use livekit_protocol::{self as proto, encryption};
+use livekit_protocol::{self as proto};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
 use prost::Message;
@@ -1537,6 +1537,7 @@ impl SessionInner {
                                     encryption_type: e2ee_manager.encryption_type().into(),
                                 },
                             ));
+                            log::info!("Successfully encrypted data packet");
                         }
                         Err(e) => {
                             log::warn!("Failed to encrypt data packet: {}", e);
@@ -1544,10 +1545,12 @@ impl SessionInner {
                     }
                 } else {
                     // Packet type shouldn't be encrypted, restore original
+                    log::info!("Packet type shouldn't be encrypted, restore original");
                     packet.value = packet_value;
                 }
             } else {
                 // DC encryption not enabled, restore original packet
+                log::info!("DC encryption not enabled, restore original packet");
                 packet.value = packet_value;
             }
         }
