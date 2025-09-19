@@ -399,6 +399,9 @@ impl OutgoingStreamManager {
         data: impl AsRef<[u8]>,
         options: StreamByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
+        if options.total_length.is_some() {
+            log::warn!("Ignoring total_length option specified for send_bytes");
+        }
         let bytes = data.as_ref();
 
         let byte_header = proto::data_stream::ByteHeader { name: options.name.unwrap_or_default() };
