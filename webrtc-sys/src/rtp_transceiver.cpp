@@ -38,8 +38,8 @@ webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
 
 RtpTransceiver::RtpTransceiver(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver,
-    rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
+    webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver,
+    webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
     : rtc_runtime_(rtc_runtime),
       transceiver_(std::move(transceiver)),
       peer_connection_(std::move(peer_connection)) {}

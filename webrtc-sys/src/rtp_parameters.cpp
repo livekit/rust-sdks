@@ -34,7 +34,7 @@ webrtc::RtpCodecCapability to_native_rtp_codec_capability(
   // native.mime_type(); IGNORED
 
   native.name = capability.name.c_str();
-  native.kind = static_cast<cricket::MediaType>(capability.kind);
+  native.kind = static_cast<webrtc::MediaType>(capability.kind);
 
   if (capability.has_clock_rate)
     native.clock_rate = capability.clock_rate;
@@ -133,7 +133,7 @@ webrtc::RtpCodecParameters to_native_rtp_codec_parameters(
     RtpCodecParameters params) {
   webrtc::RtpCodecParameters native{};
   native.name = params.name.c_str();
-  native.kind = static_cast<cricket::MediaType>(params.kind);
+  native.kind = static_cast<webrtc::MediaType>(params.kind);
   native.payload_type = params.payload_type;
 
   for (auto pair : params.parameters)

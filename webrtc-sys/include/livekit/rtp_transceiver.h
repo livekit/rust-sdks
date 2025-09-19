@@ -43,8 +43,8 @@ class RtpTransceiver {
  public:
   RtpTransceiver(
       std::shared_ptr<RtcRuntime> rtc_runtime,
-      rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver,
-      rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
+      webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver,
+      webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
   MediaType media_type() const;
 
@@ -82,8 +82,8 @@ class RtpTransceiver {
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  rtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver_;
-  rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
+  webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver_;
+  webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
 static std::shared_ptr<RtpTransceiver> _shared_rtp_transceiver() {

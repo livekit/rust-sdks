@@ -61,6 +61,7 @@ class VAAPIH264EncoderWrapper : public VideoEncoder {
   VAProfile GetVAProfile() const;
 
  private:
+  const webrtc::Environment& env_;
   EncodedImageCallback* encoded_image_callback_ = nullptr;
   std::unique_ptr<livekit::VaapiH264EncoderWrapper> encoder_;
   LayerConfig configuration_;

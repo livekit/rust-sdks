@@ -71,11 +71,12 @@ git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --i
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
-cd third_party
-git apply "$COMMAND_DIR/patches/abseil_use_optional.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-cd ..
+cd build
 
-cd ..
+git apply "$COMMAND_DIR/patches/force_gcc.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+cd ../.. 
+
 
 mkdir -p "$ARTIFACTS_DIR/lib"
 
@@ -92,6 +93,9 @@ args="is_debug=$debug  \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
   use_custom_libcxx=false \
+  use_llvm_libatomic=false \
+  use_libcxx_modules=false \
+  use_custom_libcxx_for_host=false \
   rtc_include_tests=false \
   rtc_build_tools=false \
   rtc_build_examples=false \
@@ -99,13 +103,14 @@ args="is_debug=$debug  \
   enable_libaom=true \
   is_component_build=false \
   enable_stripping=true \
-  use_goma=false \
   ffmpeg_branding=\"Chrome\" \
   rtc_use_h264=true \
+  rtc_use_h265=true \
   rtc_use_pipewire=false \
   symbol_level=0 \
   enable_iterator_debugging=false \
   use_rtti=true \
+  is_clang=false \
   rtc_use_x11=false"
 
 # generate ninja files
@@ -128,4 +133,4 @@ cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 
 cd src
 find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
-
+find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"

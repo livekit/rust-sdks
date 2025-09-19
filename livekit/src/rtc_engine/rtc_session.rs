@@ -1042,15 +1042,10 @@ impl SessionInner {
                 // Participant SID and identity used to be defined on user packet, but
                 // they have been moved to the packet root. For backwards compatibility,
                 // we take the user packet's values if the top-level fields are not set.
-                let participant_sid = participant_sid
-                    .is_none()
-                    .then_some(user.participant_sid)
-                    .and_then(|sid| sid.try_into().ok());
-                let participant_identity = participant_identity
-                    .is_none()
-                    .then_some(user.participant_identity)
-                    .and_then(|identity| identity.try_into().ok());
-
+                let participant_sid =
+                    participant_sid.or_else(|| user.participant_sid.try_into().ok());
+                let participant_identity =
+                    participant_identity.or_else(|| user.participant_identity.try_into().ok());
                 self.emitter.send(SessionEvent::Data {
                     kind,
                     participant_sid,

@@ -33,7 +33,7 @@ namespace livekit {
 class MediaStreamTrack {
  protected:
   MediaStreamTrack(std::shared_ptr<RtcRuntime>,
-                   rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track);
+                   webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track);
 
  public:
   rust::String kind() const;
@@ -44,13 +44,13 @@ class MediaStreamTrack {
 
   TrackState state() const;
 
-  rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> rtc_track() const {
+  webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> rtc_track() const {
     return track_;
   }
 
  protected:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  rtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track_;
+  webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track_;
 };
 
 static std::shared_ptr<MediaStreamTrack> _shared_media_stream_track() {

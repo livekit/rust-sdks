@@ -42,7 +42,7 @@ class VideoTrack : public MediaStreamTrack {
  private:
   friend RtcRuntime;
   VideoTrack(std::shared_ptr<RtcRuntime> rtc_runtime,
-             rtc::scoped_refptr<webrtc::VideoTrackInterface> track);
+             webrtc::scoped_refptr<webrtc::VideoTrackInterface> track);
 
  public:
   ~VideoTrack();
@@ -68,7 +68,7 @@ class VideoTrack : public MediaStreamTrack {
   mutable std::vector<std::shared_ptr<NativeVideoSink>> sinks_;
 };
 
-class NativeVideoSink : public rtc::VideoSinkInterface<webrtc::VideoFrame> {
+class NativeVideoSink : public webrtc::VideoSinkInterface<webrtc::VideoFrame> {
  public:
   explicit NativeVideoSink(rust::Box<VideoSinkWrapper> observer);
 
@@ -85,7 +85,7 @@ std::shared_ptr<NativeVideoSink> new_native_video_sink(
     rust::Box<VideoSinkWrapper> observer);
 
 class VideoTrackSource {
-  class InternalSource : public rtc::AdaptedVideoTrackSource {
+  class InternalSource : public webrtc::AdaptedVideoTrackSource {
    public:
     InternalSource(const VideoResolution&
                        resolution);  // (0, 0) means no resolution/optional, the
@@ -94,7 +94,7 @@ class VideoTrackSource {
     ~InternalSource() override;
 
     bool is_screencast() const override;
-    absl::optional<bool> needs_denoising() const override;
+    std::optional<bool> needs_denoising() const override;
     SourceState state() const override;
     bool remote() const override;
     VideoResolution video_resolution() const;
@@ -102,7 +102,7 @@ class VideoTrackSource {
 
    private:
     mutable webrtc::Mutex mutex_;
-    rtc::TimestampAligner timestamp_aligner_;
+    webrtc::TimestampAligner timestamp_aligner_;
     VideoResolution resolution_;
   };
 
@@ -114,10 +114,10 @@ class VideoTrackSource {
   bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame)
       const;  // frames pushed from Rust (+interior mutability)
 
-  rtc::scoped_refptr<InternalSource> get() const;
+  webrtc::scoped_refptr<InternalSource> get() const;
 
  private:
-  rtc::scoped_refptr<InternalSource> source_;
+  webrtc::scoped_refptr<InternalSource> source_;
 };
 
 std::shared_ptr<VideoTrackSource> new_video_track_source(

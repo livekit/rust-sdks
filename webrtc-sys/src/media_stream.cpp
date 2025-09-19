@@ -33,7 +33,7 @@ namespace livekit {
 
 MediaStream::MediaStream(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    rtc::scoped_refptr<webrtc::MediaStreamInterface> stream)
+    webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream)
     : rtc_runtime_(rtc_runtime), media_stream_(std::move(stream)) {}
 
 rust::String MediaStream::id() const {
@@ -73,12 +73,12 @@ std::shared_ptr<VideoTrack> MediaStream::find_video_track(
 bool MediaStream::add_track(std::shared_ptr<MediaStreamTrack> track) const {
   if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
     return media_stream_->AddTrack(
-        rtc::scoped_refptr<webrtc::VideoTrackInterface>(
+        webrtc::scoped_refptr<webrtc::VideoTrackInterface>(
             static_cast<webrtc::VideoTrackInterface*>(
                 track->rtc_track().get())));
   } else {
     return media_stream_->AddTrack(
-        rtc::scoped_refptr<webrtc::AudioTrackInterface>(
+        webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
             static_cast<webrtc::AudioTrackInterface*>(
                 track->rtc_track().get())));
   }
@@ -87,12 +87,12 @@ bool MediaStream::add_track(std::shared_ptr<MediaStreamTrack> track) const {
 bool MediaStream::remove_track(std::shared_ptr<MediaStreamTrack> track) const {
   if (track->kind() == webrtc::MediaStreamTrackInterface::kVideoKind) {
     return media_stream_->RemoveTrack(
-        rtc::scoped_refptr<webrtc::VideoTrackInterface>(
+        webrtc::scoped_refptr<webrtc::VideoTrackInterface>(
             static_cast<webrtc::VideoTrackInterface*>(
                 track->rtc_track().get())));
   } else {
     return media_stream_->RemoveTrack(
-        rtc::scoped_refptr<webrtc::AudioTrackInterface>(
+        webrtc::scoped_refptr<webrtc::AudioTrackInterface>(
             static_cast<webrtc::AudioTrackInterface*>(
                 track->rtc_track().get())));
   }

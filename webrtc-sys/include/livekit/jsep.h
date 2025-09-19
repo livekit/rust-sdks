@@ -139,7 +139,7 @@ class NativeRtcStatsCollector : public webrtc::RTCStatsCollectorCallback {
       : ctx_(std::move(ctx)), on_stats_(on_stats) {}
 
   void OnStatsDelivered(
-      const rtc::scoped_refptr<const webrtc::RTCStatsReport>& report) override {
+      const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report) override {
     on_stats_(std::move(ctx_), report->ToJson());
   }
 
