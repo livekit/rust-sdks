@@ -1,19 +1,13 @@
-#![allow(unused_imports)]
-use crate::common::test_rooms;
-use anyhow::{anyhow, Result};
-use livekit::{DataPacket, RoomEvent, SimulateScenario};
-use std::{sync::Arc, time::Duration};
-use tokio::{sync::oneshot, time};
+#[cfg(feature = "__lk-e2e-test")]
+use {
+    crate::common::test_rooms,
+    anyhow::{anyhow, Result},
+    livekit::{DataPacket, RoomEvent, SimulateScenario},
+    std::{sync::Arc, time::Duration},
+    tokio::{sync::oneshot, time},
+};
 
 mod common;
-
-// These tests depend on a LiveKit server, and thus are not enabled by default;
-// to run them, start a local LiveKit server in development mode, and enable the
-// E2E test feature:
-//
-// > livekit-server --dev
-// > cargo test --features __lk-e2e-test
-//
 
 #[cfg(feature = "__lk-e2e-test")]
 #[tokio::test]

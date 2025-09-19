@@ -1100,6 +1100,15 @@ fn on_send_file(
     ffi_participant.send_file(server, request)
 }
 
+fn on_send_bytes(
+    server: &'static FfiServer,
+    request: proto::StreamSendBytesRequest,
+) -> FfiResult<proto::StreamSendBytesResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    ffi_participant.send_bytes(server, request)
+}
+
 fn on_send_text(
     server: &'static FfiServer,
     request: proto::StreamSendTextRequest,
@@ -1382,6 +1391,9 @@ pub fn handle_request(
         }
         proto::ffi_request::Message::SendFile(request) => {
             proto::ffi_response::Message::SendFile(on_send_file(server, request)?)
+        }
+        proto::ffi_request::Message::SendBytes(request) => {
+            proto::ffi_response::Message::SendBytes(on_send_bytes(server, request)?)
         }
         proto::ffi_request::Message::SendText(request) => {
             proto::ffi_response::Message::SendText(on_send_text(server, request)?)
