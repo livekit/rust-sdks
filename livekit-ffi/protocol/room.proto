@@ -291,9 +291,10 @@ message RoomOptions {
   optional bool auto_subscribe = 1;
   optional bool adaptive_stream = 2;
   optional bool dynacast = 3;
-  optional E2eeOptions e2ee = 4;
+  optional E2eeOptions e2ee = 4 [deprecated=true];
   optional RtcConfig rtc_config = 5; // allow to setup a custom RtcConfiguration
   optional uint32 join_retries = 6;
+  optional E2eeOptions encryption = 7;
 }
 
 //

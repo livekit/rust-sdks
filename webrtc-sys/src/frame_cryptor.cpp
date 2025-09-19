@@ -154,6 +154,71 @@ int32_t FrameCryptor::key_index() const {
   return e2ee_transformer_->key_index();
 }
 
+DataPacketCryptor::DataPacketCryptor(webrtc::FrameCryptorTransformer::Algorithm algorithm,
+                 webrtc::scoped_refptr<webrtc::KeyProvider> key_provider)
+    : data_packet_cryptor_(
+          webrtc::make_ref_counted<webrtc::DataPacketCryptor>(algorithm, key_provider)) {}
+
+EncryptedPacket DataPacketCryptor::encrypt_data_packet(
+    const ::rust::String participant_id,
+    uint32_t key_index,
+    rust::Vec<::std::uint8_t> data) const {
+  std::vector<uint8_t> data_vec;
+  std::copy(data.begin(), data.end(), std::back_inserter(data_vec));
+
+  auto result = data_packet_cryptor_->Encrypt(
+      std::string(participant_id.data(), participant_id.size()),
+      key_index,
+      data_vec);
+
+  if (!result.ok()) {
+    throw std::runtime_error(std::string("Failed to encrypt data packet: ") + result.error().message());
+  }
+
+  auto& packet = result.value();
+
+  EncryptedPacket encrypted_packet;
+  encrypted_packet.data = rust::Vec<uint8_t>();
+  std::copy(packet->data.begin(), packet->data.end(),
+            std::back_inserter(encrypted_packet.data));
+
+  encrypted_packet.iv = rust::Vec<uint8_t>();
+  std::copy(packet->iv.begin(), packet->iv.end(),
+            std::back_inserter(encrypted_packet.iv));
+
+  encrypted_packet.key_index = packet->key_index;
+
+  return encrypted_packet;
+}
+
+rust::Vec<::std::uint8_t> DataPacketCryptor::decrypt_data_packet(
+    const ::rust::String participant_id,
+    const EncryptedPacket& encrypted_packet) const {
+  std::vector<uint8_t> data_vec;
+  std::copy(encrypted_packet.data.begin(), encrypted_packet.data.end(),
+            std::back_inserter(data_vec));
+
+  std::vector<uint8_t> iv_vec;
+  std::copy(encrypted_packet.iv.begin(), encrypted_packet.iv.end(),
+            std::back_inserter(iv_vec));
+
+  auto native_encrypted_packet = webrtc::make_ref_counted<webrtc::EncryptedPacket>(
+      std::move(data_vec), std::move(iv_vec), encrypted_packet.key_index);
+
+  auto result = data_packet_cryptor_->Decrypt(
+      std::string(participant_id.data(), participant_id.size()),
+      native_encrypted_packet);
+
+  if (!result.ok()) {
+    throw std::runtime_error(std::string("Failed to decrypt data packet: ") + result.error().message());
+  }
+
+  rust::Vec<uint8_t> decrypted_data;
+  auto& decrypted = result.value();
+  std::copy(decrypted.begin(), decrypted.end(), std::back_inserter(decrypted_data));
+  return decrypted_data;
+}
+
 std::shared_ptr<KeyProvider> new_key_provider(KeyProviderOptions options) {
   return std::make_shared<KeyProvider>(options);
 }
@@ -182,6 +247,14 @@ std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_receiver(
       std::string(participant_id.data(), participant_id.size()),
       AlgorithmToFrameCryptorAlgorithm(algorithm),
       key_provider->rtc_key_provider(), receiver->rtc_receiver());
+}
+
+std::shared_ptr<DataPacketCryptor> new_data_packet_cryptor(
+    Algorithm algorithm,
+    std::shared_ptr<KeyProvider> key_provider) {
+  return std::make_shared<DataPacketCryptor>(
+      AlgorithmToFrameCryptorAlgorithm(algorithm),
+      key_provider->rtc_key_provider());
 }
 
 }  // namespace livekit
