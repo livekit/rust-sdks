@@ -37,7 +37,7 @@ type StateChangedHandler = Box<dyn Fn(ParticipantIdentity, EncryptionState) + Se
 struct ManagerInner {
     options: Option<E2eeOptions>, // If Some, it means the e2ee was initialized
     enabled: bool,                // Used to enable/disable e2ee
-    dc_encryption: bool,
+    dc_encryption_enabled: bool,
     frame_cryptors: HashMap<(ParticipantIdentity, TrackSid), FrameCryptor>,
     data_packet_cryptor: Option<DataPacketCryptor>,
 }
@@ -61,7 +61,7 @@ impl E2eeManager {
         Self {
             inner: Arc::new(Mutex::new(ManagerInner {
                 enabled: options.is_some(), // Enabled by default if options is provided
-                dc_encryption: options.is_some() && with_dc_encryption,
+                dc_encryption_enabled: options.is_some() && with_dc_encryption,
                 options,
                 frame_cryptors: HashMap::new(),
                 data_packet_cryptor,
@@ -176,7 +176,7 @@ impl E2eeManager {
     }
 
     pub fn is_dc_encryption_enabled(&self) -> bool {
-        self.inner.lock().dc_encryption
+        self.inner.lock().dc_encryption_enabled
     }
 
     pub fn set_enabled(&self, enabled: bool) {

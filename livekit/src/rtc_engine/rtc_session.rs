@@ -1518,10 +1518,14 @@ impl SessionInner {
 
                     // Encode the payload and encrypt it
                     let payload_bytes = encrypted_payload.encode_to_vec();
+                    let key_index = e2ee_manager
+                        .key_provider()
+                        .map(|kp| kp.get_latest_key_index() as u32)
+                        .unwrap_or(0);
                     match e2ee_manager.encrypt_data(
                         &payload_bytes,
                         &self.participant_info.identity.0,
-                        0, // FIXME - we need to get the current key index of the keyprovider here
+                        key_index,
                     ) {
                         Ok(encrypted_data) => {
                             // Replace with EncryptedPacket variant

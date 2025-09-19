@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use libwebrtc::native::frame_cryptor as fc;
+use std::cell::Cell;
 
 use crate::id::ParticipantIdentity;
 
@@ -40,6 +41,7 @@ impl Default for KeyProviderOptions {
 #[derive(Clone)]
 pub struct KeyProvider {
     pub(crate) handle: fc::KeyProvider,
+    latest_key_index: Cell<i32>,
 }
 
 impl KeyProvider {
@@ -52,6 +54,7 @@ impl KeyProvider {
                 ratchet_salt: options.ratchet_salt,
                 failure_tolerance: options.failure_tolerance,
             }),
+            latest_key_index: Cell::new(0),
         }
     }
 
@@ -63,10 +66,11 @@ impl KeyProvider {
             failure_tolerance: options.failure_tolerance,
         });
         handle.set_shared_key(0, shared_key);
-        Self { handle }
+        Self { handle, latest_key_index: Cell::new(0) }
     }
 
     pub fn set_shared_key(&self, shared_key: Vec<u8>, key_index: i32) {
+        self.latest_key_index.set(key_index);
         self.handle.set_shared_key(key_index, shared_key);
     }
 
@@ -79,6 +83,7 @@ impl KeyProvider {
     }
 
     pub fn set_key(&self, identity: &ParticipantIdentity, key_index: i32, key: Vec<u8>) -> bool {
+        self.latest_key_index.set(key_index);
         self.handle.set_key(identity.to_string(), key_index, key)
     }
 
@@ -92,5 +97,9 @@ impl KeyProvider {
 
     pub fn set_sif_trailer(&self, trailer: Vec<u8>) {
         self.handle.set_sif_trailer(trailer);
+    }
+
+    pub fn get_latest_key_index(&self) -> i32 {
+        self.latest_key_index.get()
     }
 }
