@@ -17,7 +17,7 @@ mod common;
 
 #[cfg(feature = "__lk-e2e-test")]
 #[tokio::test]
-async fn test_reliable_retry_e2ee() -> Result<()> {
+async fn test_data_channel_encryption() -> Result<()> {
     const ITERATIONS: usize = 128;
     const PAYLOAD_SIZE: usize = 4096;
 
