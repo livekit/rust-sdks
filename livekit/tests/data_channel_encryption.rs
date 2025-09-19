@@ -22,14 +22,15 @@ mod common;
 #[cfg(feature = "__lk-e2e-test")]
 #[tokio::test]
 async fn test_reliable_retry_e2ee() -> Result<()> {
+    use livekit::e2ee::key_provider::KeyProvider;
+
     const ITERATIONS: usize = 128;
     const PAYLOAD_SIZE: usize = 4096;
 
-    let key_provider_1 = KeyProvider::new(KeyProviderOptions::default());
-    let key_provider_2 = KeyProvider::new(KeyProviderOptions::default());
-
-    key_provider_1.set_shared_key("password".as_bytes().to_vec(), 0);
-    key_provider_2.set_shared_key("password".as_bytes().to_vec(), 0);
+    let key_provider_1 =
+        KeyProvider::with_shared_key(KeyProviderOptions::default(), "password".as_bytes().to_vec());
+    let key_provider_2 =
+        KeyProvider::with_shared_key(KeyProviderOptions::default(), "password".as_bytes().to_vec());
 
     // Set up test rooms
     let mut options1 = RoomOptions::default();
