@@ -21,13 +21,21 @@ async fn test_data_channel_encryption() -> Result<()> {
     const ITERATIONS: usize = 128;
     const PAYLOAD_SIZE: usize = 4096;
 
-    let key_provider =
+    let key_provider1 =
         KeyProvider::with_shared_key(KeyProviderOptions::default(), "password".as_bytes().to_vec());
 
-    let mut options = RoomOptions::default();
-    options.encryption = Some(E2eeOptions { key_provider, encryption_type: EncryptionType::Gcm });
+    let mut options1 = RoomOptions::default();
+    options1.encryption =
+        Some(E2eeOptions { key_provider: key_provider1, encryption_type: EncryptionType::Gcm });
 
-    let mut rooms = test_rooms_with_options([options.clone(), options]).await?;
+    let key_provider2 =
+        KeyProvider::with_shared_key(KeyProviderOptions::default(), "password".as_bytes().to_vec());
+
+    let mut options2 = RoomOptions::default();
+    options2.encryption =
+        Some(E2eeOptions { key_provider: key_provider2, encryption_type: EncryptionType::Gcm });
+
+    let mut rooms = test_rooms_with_options([options1, options2]).await?;
 
     let (sending_room, _) = rooms.pop().unwrap();
     let (receiving_room, mut receiving_event_rx) = rooms.pop().unwrap();
