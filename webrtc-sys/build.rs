@@ -219,6 +219,7 @@ fn main() {
                 .flag("-std=c++20");
         }
         "ios" => {
+            println!("cargo:rustc-link-lib=framework=Foundation");
             println!("cargo:rustc-link-lib=framework=CoreFoundation");
             println!("cargo:rustc-link-lib=framework=AVFoundation");
             println!("cargo:rustc-link-lib=framework=CoreAudio");
