@@ -240,9 +240,38 @@ struct EncodedPacket {
     sequence: u32,
 }
 
-impl Into<EncodedPacket> for proto::DataPacket {
-    fn into(self) -> EncodedPacket {
-        EncodedPacket { data: self.encode_to_vec(), sequence: self.sequence }
+impl From<proto::DataPacket> for EncodedPacket {
+    fn from(packet: proto::DataPacket) -> Self {
+        Self { data: packet.encode_to_vec(), sequence: packet.sequence }
+    }
+}
+
+fn convert_encrypted_to_data_packet_value(
+    encrypted_value: proto::encrypted_packet_payload::Value,
+) -> proto::data_packet::Value {
+    match encrypted_value {
+        proto::encrypted_packet_payload::Value::User(user) => proto::data_packet::Value::User(user),
+        proto::encrypted_packet_payload::Value::ChatMessage(msg) => {
+            proto::data_packet::Value::ChatMessage(msg)
+        }
+        proto::encrypted_packet_payload::Value::RpcRequest(req) => {
+            proto::data_packet::Value::RpcRequest(req)
+        }
+        proto::encrypted_packet_payload::Value::RpcResponse(resp) => {
+            proto::data_packet::Value::RpcResponse(resp)
+        }
+        proto::encrypted_packet_payload::Value::RpcAck(ack) => {
+            proto::data_packet::Value::RpcAck(ack)
+        }
+        proto::encrypted_packet_payload::Value::StreamHeader(header) => {
+            proto::data_packet::Value::StreamHeader(header)
+        }
+        proto::encrypted_packet_payload::Value::StreamChunk(chunk) => {
+            proto::data_packet::Value::StreamChunk(chunk)
+        }
+        proto::encrypted_packet_payload::Value::StreamTrailer(trailer) => {
+            proto::data_packet::Value::StreamTrailer(trailer)
+        }
     }
 }
 
@@ -1016,7 +1045,11 @@ impl SessionInner {
                     self.update_packet_rx_state(&packet);
                 }
                 if let Some(detail) = packet.value.take() {
-                    self.emit_incoming_packet(kind, packet, detail);
+                    let participant_sid: Option<ParticipantSid> =
+                        packet.participant_sid.try_into().ok();
+                    let participant_identity: Option<ParticipantIdentity> =
+                        packet.participant_identity.try_into().ok();
+                    self.emit_incoming_packet(kind, participant_sid, participant_identity, detail);
                 }
             }
             RtcEvent::DataChannelBufferedAmountChange { sent, amount: _, kind } => {
@@ -1036,15 +1069,10 @@ impl SessionInner {
     fn emit_incoming_packet(
         &self,
         kind: DataPacketKind,
-        packet: proto::DataPacket,
+        participant_sid: Option<ParticipantSid>,
+        participant_identity: Option<ParticipantIdentity>,
         value: proto::data_packet::Value,
     ) {
-        // TODO: Standardize how participant identity is emitted in events;
-        // Option<ParticipantIdentity>, ParticipantIdentity, and String are all used.
-        let participant_sid: Option<ParticipantSid> = packet.participant_sid.try_into().ok();
-        let participant_identity: Option<ParticipantIdentity> =
-            packet.participant_identity.try_into().ok();
-
         let send_result = match value {
             proto::data_packet::Value::User(user) => {
                 // Participant SID and identity used to be defined on user packet, but
@@ -1152,16 +1180,17 @@ impl SessionInner {
                             // Parse the decrypted payload as EncryptedPacketPayload
                             match proto::EncryptedPacketPayload::decode(&*decrypted_payload) {
                                 Ok(encrypted_payload) => {
-                                    if let Some(value) = encrypted_payload.value {
-                                        // Forward the decrypted payload based on its type
-                                        self.handle_decrypted_payload(
+                                    if let Some(decrypted_value) = encrypted_payload.value {
+                                        // Recursively call emit_incoming_packet with the decrypted value
+                                        self.emit_incoming_packet(
                                             kind,
                                             participant_sid,
                                             participant_identity,
-                                            value,
-                                        )
+                                            convert_encrypted_to_data_packet_value(decrypted_value),
+                                        );
+                                        Ok(())
                                     } else {
-                                        log::warn!("Decrypted payload has no value");
+                                        log::warn!("Failed to decrypt encrypted payload");
                                         Ok(())
                                     }
                                 }
@@ -1176,7 +1205,7 @@ impl SessionInner {
                                 "Failed to decrypt data packet from {}",
                                 participant_identity_str
                             );
-                            Ok(()) // Don't emit the event if decryption fails
+                            Ok(())
                         }
                     }
                 } else {
@@ -1188,75 +1217,6 @@ impl SessionInner {
         };
         if let Err(err) = send_result {
             log::error!("failed to emit incoming data packet: {:?}", err);
-        }
-    }
-
-    fn handle_decrypted_payload(
-        &self,
-        kind: DataPacketKind,
-        participant_sid: Option<ParticipantSid>,
-        participant_identity: Option<ParticipantIdentity>,
-        value: proto::encrypted_packet_payload::Value,
-    ) -> Result<(), mpsc::error::SendError<SessionEvent>> {
-        match value {
-            proto::encrypted_packet_payload::Value::User(user) => {
-                self.emitter.send(SessionEvent::Data {
-                    kind,
-                    participant_sid,
-                    participant_identity,
-                    payload: user.payload,
-                    topic: user.topic,
-                })
-            }
-            proto::encrypted_packet_payload::Value::ChatMessage(message) => {
-                self.emitter.send(SessionEvent::ChatMessage {
-                    participant_identity: participant_identity
-                        .unwrap_or(ParticipantIdentity("".into())),
-                    message: ChatMessage::from(message),
-                })
-            }
-
-            proto::encrypted_packet_payload::Value::RpcRequest(rpc_request) => {
-                let caller_identity = participant_identity;
-                self.emitter.send(SessionEvent::RpcRequest {
-                    caller_identity,
-                    request_id: rpc_request.id,
-                    method: rpc_request.method,
-                    payload: rpc_request.payload,
-                    response_timeout: Duration::from_millis(rpc_request.response_timeout_ms as u64),
-                    version: rpc_request.version,
-                })
-            }
-            proto::encrypted_packet_payload::Value::RpcResponse(rpc_response) => {
-                let (payload, error) = match rpc_response.value {
-                    None => (None, None),
-                    Some(proto::rpc_response::Value::Payload(payload)) => (Some(payload), None),
-                    Some(proto::rpc_response::Value::Error(err)) => (None, Some(err)),
-                };
-                self.emitter.send(SessionEvent::RpcResponse {
-                    request_id: rpc_response.request_id,
-                    payload,
-                    error,
-                })
-            }
-            proto::encrypted_packet_payload::Value::RpcAck(rpc_ack) => {
-                self.emitter.send(SessionEvent::RpcAck { request_id: rpc_ack.request_id })
-            }
-            proto::encrypted_packet_payload::Value::StreamHeader(header) => {
-                let participant_identity =
-                    participant_identity.map_or("".into(), |identity| identity.0);
-                self.emitter.send(SessionEvent::DataStreamHeader { header, participant_identity })
-            }
-            proto::encrypted_packet_payload::Value::StreamChunk(chunk) => {
-                let participant_identity =
-                    participant_identity.map_or("".into(), |identity| identity.0);
-                self.emitter.send(SessionEvent::DataStreamChunk { chunk, participant_identity })
-            }
-            proto::encrypted_packet_payload::Value::StreamTrailer(trailer) => {
-                let participant_identity =
-                    participant_identity.map_or("".into(), |identity| identity.0);
-                self.emitter.send(SessionEvent::DataStreamTrailer { trailer, participant_identity })
-            }
         }
     }
 
