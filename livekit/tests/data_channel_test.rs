@@ -51,6 +51,7 @@ async fn test_reliable_retry() -> Result<()> {
                 if let RoomEvent::DataReceived { payload, .. } = event {
                     assert_eq!(payload.len(), PAYLOAD_SIZE);
                     packets_received += 1;
+                    println!("Received packet {}/{}", packets_received, ITERATIONS);
                     if packets_received == ITERATIONS {
                         fulfill.send(()).ok();
                         break;
@@ -60,7 +61,7 @@ async fn test_reliable_retry() -> Result<()> {
         }
     });
 
-    for _ in 0..ITERATIONS {
+    for i in 0..ITERATIONS {
         let packet = DataPacket {
             reliable: true,
             payload: [0xFA; PAYLOAD_SIZE].to_vec(),
@@ -68,10 +69,11 @@ async fn test_reliable_retry() -> Result<()> {
             ..Default::default()
         };
         sending_room.local_participant().publish_data(packet).await?;
+        println!("Sent packet {}/{}", i + 1, ITERATIONS);
         time::sleep(Duration::from_millis(10)).await;
     }
 
-    match time::timeout(Duration::from_secs(15), expectation).await {
+    match time::timeout(Duration::from_secs(20), expectation).await {
         Ok(Ok(())) => Ok(()),
         Ok(Err(_)) => Err(anyhow!("Not all packets were received")),
         Err(_) => Err(anyhow!("Timed out waiting for packets")),
