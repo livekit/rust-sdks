@@ -240,9 +240,9 @@ struct EncodedPacket {
     sequence: u32,
 }
 
-impl From<proto::DataPacket> for EncodedPacket {
-    fn from(packet: proto::DataPacket) -> Self {
-        Self { data: packet.encode_to_vec(), sequence: packet.sequence }
+impl Into<EncodedPacket> for proto::DataPacket {
+    fn into(self) -> EncodedPacket {
+        EncodedPacket { data: self.encode_to_vec(), sequence: self.sequence }
     }
 }
 
