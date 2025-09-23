@@ -275,6 +275,38 @@ fn convert_encrypted_to_data_packet_value(
     }
 }
 
+fn convert_data_packet_to_encrypted_value(
+    value: proto::data_packet::Value,
+) -> Option<proto::encrypted_packet_payload::Value> {
+    match value {
+        proto::data_packet::Value::User(user) => {
+            Some(proto::encrypted_packet_payload::Value::User(user))
+        }
+        proto::data_packet::Value::ChatMessage(msg) => {
+            Some(proto::encrypted_packet_payload::Value::ChatMessage(msg))
+        }
+        proto::data_packet::Value::RpcRequest(req) => {
+            Some(proto::encrypted_packet_payload::Value::RpcRequest(req))
+        }
+        proto::data_packet::Value::RpcResponse(resp) => {
+            Some(proto::encrypted_packet_payload::Value::RpcResponse(resp))
+        }
+        proto::data_packet::Value::RpcAck(ack) => {
+            Some(proto::encrypted_packet_payload::Value::RpcAck(ack))
+        }
+        proto::data_packet::Value::StreamHeader(header) => {
+            Some(proto::encrypted_packet_payload::Value::StreamHeader(header))
+        }
+        proto::data_packet::Value::StreamChunk(chunk) => {
+            Some(proto::encrypted_packet_payload::Value::StreamChunk(chunk))
+        }
+        proto::data_packet::Value::StreamTrailer(trailer) => {
+            Some(proto::encrypted_packet_payload::Value::StreamTrailer(trailer))
+        }
+        _ => None,
+    }
+}
+
 impl TxQueueItem for EncodedPacket {
     fn buffered_size(&self) -> usize {
         self.data.len()
@@ -1437,34 +1469,7 @@ impl SessionInner {
         if let (Some(e2ee_manager), Some(value)) = (&self.e2ee_manager, packet_value.clone()) {
             if e2ee_manager.is_dc_encryption_enabled() {
                 // Create EncryptedPacketPayload from the original value if it's an encryptable type
-                let encrypted_payload_value = match value {
-                    proto::data_packet::Value::User(user) => {
-                        Some(proto::encrypted_packet_payload::Value::User(user))
-                    }
-                    proto::data_packet::Value::ChatMessage(msg) => {
-                        Some(proto::encrypted_packet_payload::Value::ChatMessage(msg))
-                    }
-                    proto::data_packet::Value::RpcRequest(req) => {
-                        Some(proto::encrypted_packet_payload::Value::RpcRequest(req))
-                    }
-                    proto::data_packet::Value::RpcResponse(resp) => {
-                        Some(proto::encrypted_packet_payload::Value::RpcResponse(resp))
-                    }
-                    proto::data_packet::Value::RpcAck(ack) => {
-                        Some(proto::encrypted_packet_payload::Value::RpcAck(ack))
-                    }
-                    proto::data_packet::Value::StreamHeader(header) => {
-                        Some(proto::encrypted_packet_payload::Value::StreamHeader(header))
-                    }
-                    proto::data_packet::Value::StreamChunk(chunk) => {
-                        Some(proto::encrypted_packet_payload::Value::StreamChunk(chunk))
-                    }
-                    proto::data_packet::Value::StreamTrailer(trailer) => {
-                        Some(proto::encrypted_packet_payload::Value::StreamTrailer(trailer))
-                    }
-                    // Non-encryptable types return None
-                    _ => None,
-                };
+                let encrypted_payload_value = convert_data_packet_to_encrypted_value(value);
 
                 if let Some(encrypted_payload_value) = encrypted_payload_value {
                     // Create EncryptedPacketPayload and encrypt it
