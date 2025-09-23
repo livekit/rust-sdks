@@ -25,7 +25,7 @@ pub struct VideoResolution {
 impl Default for VideoResolution {
     // Default to 720p
     fn default() -> Self {
-        VideoResolution{width: 1280, height: 720}
+        VideoResolution { width: 1280, height: 720 }
     }
 }
 
