@@ -58,7 +58,7 @@ pub mod native {
 
     impl Default for NativeVideoSource {
         fn default() -> Self {
-            Self::new(VideoResolution::default())
+            Self::new(VideoResolution { width: 640, height: 480 })
         }
     }
 
