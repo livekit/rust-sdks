@@ -1534,7 +1534,9 @@ impl SessionInner {
                             ));
                         }
                         Err(e) => {
-                            log::warn!("Failed to encrypt data packet: {}", e);
+                            return Err(EngineError::Internal(
+                                format!("Failed to encrypt data packet: {}", e).into(),
+                            ));
                         }
                     }
                 } else {

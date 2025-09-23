@@ -459,11 +459,11 @@ impl Room {
     pub async fn connect(
         url: &str,
         token: &str,
-        options: RoomOptions,
+        mut options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
         let with_dc_encryption = options.encryption.is_some();
-        let encryption_options = options.encryption.clone().or(options.e2ee.clone());
+        let encryption_options = options.encryption.take().or(options.e2ee.take());
         let e2ee_manager = E2eeManager::new(encryption_options, with_dc_encryption);
         let mut signal_options = SignalOptions::default();
         signal_options.sdk_options = options.sdk_options.clone().into();
