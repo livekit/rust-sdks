@@ -16,10 +16,17 @@ use livekit_protocol::enum_dispatch;
 
 use crate::imp::video_source as vs_imp;
 
-#[derive(Default, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct VideoResolution {
     pub width: u32,
     pub height: u32,
+}
+
+impl Default for VideoResolution {
+    // Default to 720p
+    fn default() -> Self {
+        VideoResolution { width: 1280, height: 720 }
+    }
 }
 
 #[non_exhaustive]
