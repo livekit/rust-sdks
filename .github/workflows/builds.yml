@@ -25,6 +25,7 @@ on:
     paths:
       - livekit/**
       - libwebrtc/**
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
