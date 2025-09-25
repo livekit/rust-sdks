@@ -246,13 +246,13 @@ impl RtcEngine {
         &self,
         data: proto::DataPacket,
         kind: DataPacketKind,
+        is_raw_packet: bool,
     ) -> EngineResult<()> {
         let (session, _r_lock) = {
             let (handle, _r_lock) = self.inner.wait_reconnection().await?;
             (handle.session.clone(), _r_lock)
         };
-
-        session.publish_data(data, kind).await
+        session.publish_data(data, kind, is_raw_packet).await
     }
 
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {

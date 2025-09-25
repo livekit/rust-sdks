@@ -407,7 +407,7 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        match self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await {
+        match self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable, false).await {
             Ok(_) => Ok(ChatMessage::from(chat_message)),
             Err(e) => Err(Into::into(e)),
         }
@@ -433,7 +433,7 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        match self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await {
+        match self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable, false).await {
             Ok(_) => Ok(ChatMessage::from(proto_msg)),
             Err(e) => Err(Into::into(e)),
         }
@@ -477,7 +477,7 @@ impl LocalParticipant {
             true => DataPacketKind::Reliable,
             false => DataPacketKind::Lossy,
         };
-        self.inner.rtc_engine.publish_data(packet, kind).await.map_err(Into::into)
+        self.inner.rtc_engine.publish_data(packet, kind, true).await.map_err(Into::into)
     }
 
     pub async fn publish_data(&self, packet: DataPacket) -> RoomResult<()> {
@@ -498,7 +498,7 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        self.inner.rtc_engine.publish_data(data, kind).await.map_err(Into::into)
+        self.inner.rtc_engine.publish_data(data, kind, false).await.map_err(Into::into)
     }
 
     pub fn set_data_channel_buffered_amount_low_threshold(
@@ -553,7 +553,11 @@ impl LocalParticipant {
             value: Some(proto::data_packet::Value::Transcription(transcription_packet)),
             ..Default::default()
         };
-        self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await.map_err(Into::into)
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn publish_dtmf(&self, dtmf: SipDTMF) -> RoomResult<()> {
@@ -567,7 +571,11 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await.map_err(Into::into)
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
     }
 
     async fn publish_rpc_request(&self, rpc_request: RpcRequest) -> RoomResult<()> {
@@ -587,7 +595,11 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await.map_err(Into::into)
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
     }
 
     async fn publish_rpc_response(&self, rpc_response: RpcResponse) -> RoomResult<()> {
@@ -611,7 +623,11 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await.map_err(Into::into)
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
     }
 
     async fn publish_rpc_ack(&self, rpc_ack: RpcAck) -> RoomResult<()> {
@@ -625,7 +641,11 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable).await.map_err(Into::into)
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
     }
 
     pub(crate) async fn update_track_subscription_permissions(&self) {
