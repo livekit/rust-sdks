@@ -33,18 +33,20 @@ async fn test_connect() -> Result<()> {
 #[test_log::test(tokio::test)]
 async fn test_connect_multiple() -> Result<()> {
     let mut rooms = test_rooms(2).await?;
-    let (first_room, _) = rooms.pop().unwrap();
+
     let (second_room, _) = rooms.pop().unwrap();
+    let (first_room, _) = rooms.pop().unwrap();
 
     assert_eq!(first_room.name(), second_room.name(), "Participants are in different rooms");
 
-    assert!(
-        first_room.remote_participants().get(&second_room.local_participant().identity()).is_some(),
-        "First participant does not see second"
-    );
-    assert!(
-        second_room.remote_participants().get(&first_room.local_participant().identity()).is_some(),
-        "Second participant does not see first"
-    );
+    assert!(second_room
+        .remote_participants()
+        .get(&first_room.local_participant().identity())
+        .is_some());
+    assert!(first_room
+        .remote_participants()
+        .get(&second_room.local_participant().identity())
+        .is_some());
+
     Ok(())
 }
