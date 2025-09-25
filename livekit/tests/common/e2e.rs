@@ -38,6 +38,7 @@ pub async fn test_rooms(count: usize) -> Result<Vec<(Room, UnboundedReceiver<Roo
                 .with_ttl(Duration::from_secs(30 * 60)) // 30 minutes
                 .with_grants(grants)
                 .with_identity(&format!("p{}", id))
+                .with_name(&format!("Participant {}", id))
                 .to_jwt()
                 .context("Failed to generate JWT")?)
         })
