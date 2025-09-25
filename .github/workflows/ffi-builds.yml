@@ -116,10 +116,9 @@ jobs:
         with:
           submodules: true
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
+      - name: Install Rust toolchain.
+        run: |
+          rustup target add ${{ matrix.target }}
 
       - name: Set up QEMU
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
