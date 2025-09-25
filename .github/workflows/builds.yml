@@ -82,7 +82,7 @@ jobs:
 
       - name: Install Rust toolchain.
         run: |
-          rustup add ${{ matrix.target }}
+          rustup target add ${{ matrix.target }}
 
       - name: Build (Cargo)
         if: ${{ !contains(matrix.target, 'android') }}
