@@ -488,7 +488,7 @@ impl RtcSession {
         &self,
         data: proto::DataPacket,
         kind: DataPacketKind,
-        is_raw_packet: bool
+        is_raw_packet: bool,
     ) -> Result<(), EngineError> {
         self.inner.publish_data(data, kind, is_raw_packet).await
     }
@@ -1340,7 +1340,7 @@ impl SessionInner {
         self: &Arc<Self>,
         mut packet: proto::DataPacket,
         kind: DataPacketKind,
-        is_raw_packet: bool
+        is_raw_packet: bool,
     ) -> Result<(), EngineError> {
         self.ensure_publisher_connected(kind).await?;
 

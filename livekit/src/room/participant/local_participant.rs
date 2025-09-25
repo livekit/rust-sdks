@@ -553,7 +553,11 @@ impl LocalParticipant {
             value: Some(proto::data_packet::Value::Transcription(transcription_packet)),
             ..Default::default()
         };
-        self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable, false).await.map_err(Into::into)
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn publish_dtmf(&self, dtmf: SipDTMF) -> RoomResult<()> {
@@ -567,7 +571,11 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable, false).await.map_err(Into::into)
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
     }
 
     async fn publish_rpc_request(&self, rpc_request: RpcRequest) -> RoomResult<()> {
@@ -587,7 +595,11 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable, false).await.map_err(Into::into)
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
     }
 
     async fn publish_rpc_response(&self, rpc_response: RpcResponse) -> RoomResult<()> {
@@ -611,7 +623,11 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable, false).await.map_err(Into::into)
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
     }
 
     async fn publish_rpc_ack(&self, rpc_ack: RpcAck) -> RoomResult<()> {
@@ -625,7 +641,11 @@ impl LocalParticipant {
             ..Default::default()
         };
 
-        self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable, false).await.map_err(Into::into)
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
     }
 
     pub(crate) async fn update_track_subscription_permissions(&self) {

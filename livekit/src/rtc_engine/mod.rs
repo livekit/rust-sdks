@@ -246,7 +246,7 @@ impl RtcEngine {
         &self,
         data: proto::DataPacket,
         kind: DataPacketKind,
-        is_raw_packet: bool
+        is_raw_packet: bool,
     ) -> EngineResult<()> {
         let (session, _r_lock) = {
             let (handle, _r_lock) = self.inner.wait_reconnection().await?;
