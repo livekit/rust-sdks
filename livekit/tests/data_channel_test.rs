@@ -71,7 +71,7 @@ async fn test_reliable_retry() -> Result<()> {
         time::sleep(Duration::from_millis(10)).await;
     }
 
-    match time::timeout(Duration::from_secs(15), expectation).await {
+    match time::timeout(Duration::from_secs(5), expectation).await {
         Ok(Ok(())) => Ok(()),
         Ok(Err(_)) => Err(anyhow!("Not all packets were received")),
         Err(_) => Err(anyhow!("Timed out waiting for packets")),
