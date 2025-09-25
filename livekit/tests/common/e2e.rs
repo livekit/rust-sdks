@@ -1,10 +1,13 @@
 use anyhow::{Context, Result};
-use futures_util::future::try_join_all;
+use chrono::Utc;
 use libwebrtc::native::create_random_uuid;
 use livekit::{Room, RoomEvent, RoomOptions};
 use livekit_api::access_token::{AccessToken, VideoGrants};
 use std::{env, time::Duration};
-use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::{
+    sync::mpsc::UnboundedReceiver,
+    time::{self, timeout},
+};
 
 struct TestEnvironment {
     api_key: String,
@@ -44,14 +47,29 @@ pub async fn test_rooms(count: usize) -> Result<Vec<(Room, UnboundedReceiver<Roo
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let rooms = try_join_all(tokens.into_iter().map(|token| {
+    let mut rooms = Vec::with_capacity(count);
+    for token in tokens {
         let server_url = test_env.server_url.clone();
-        async move {
-            let options = RoomOptions::default();
-            Room::connect(&server_url, &token, options).await.context("Failed to connect to room")
+        let options = RoomOptions::default();
+        rooms.push(
+            Room::connect(&server_url, &token, options)
+                .await
+                .context("Failed to connect to room")?,
+        );
+    }
+
+    // Wait for participant visibility across all room connections. When using a
+    // local SFU, this takes significantly longer and can lead to intermittently failing tests.
+    let all_connected_time = Utc::now();
+    let wait_participant_visibility = async {
+        while rooms.iter().any(|(room, _)| room.remote_participants().len() != count - 1) {
+            time::sleep(Duration::from_millis(10)).await;
         }
-    }))
-    .await?;
+        log::info!("All participants visible after {}", Utc::now() - all_connected_time);
+    };
+    timeout(Duration::from_secs(5), wait_participant_visibility)
+        .await
+        .context("Not all participants became visible")?;
 
     Ok(rooms)
 }
