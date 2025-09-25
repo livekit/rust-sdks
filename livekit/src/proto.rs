@@ -136,6 +136,16 @@ impl From<EncryptionType> for encryption::Type {
     }
 }
 
+impl From<EncryptionType> for i32 {
+    fn from(value: EncryptionType) -> Self {
+        match value {
+            EncryptionType::None => 0,
+            EncryptionType::Gcm => 1,
+            EncryptionType::Custom => 2,
+        }
+    }
+}
+
 impl From<participant_info::Kind> for participant::ParticipantKind {
     fn from(value: participant_info::Kind) -> Self {
         match value {

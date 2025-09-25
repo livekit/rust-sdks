@@ -46,6 +46,13 @@ pub mod ffi {
         InternalError,
     }
 
+    #[derive(Debug)]
+    pub struct EncryptedPacket {
+        pub data: Vec<u8>,
+        pub iv: Vec<u8>,
+        pub key_index: u32,
+    }
+
     unsafe extern "C++" {
         include!("livekit/frame_cryptor.h");
 
@@ -127,6 +134,30 @@ pub mod ffi {
         pub fn unregister_observer(self: &FrameCryptor);
     }
 
+    unsafe extern "C++" {
+        include!("livekit/frame_cryptor.h");
+
+        pub type DataPacketCryptor;
+
+        pub fn new_data_packet_cryptor(
+            algorithm: Algorithm,
+            key_provider: SharedPtr<KeyProvider>,
+        ) -> SharedPtr<DataPacketCryptor>;
+
+        pub fn encrypt_data_packet(
+            self: &DataPacketCryptor,
+            participant_id: String,
+            key_index: u32,
+            data: Vec<u8>,
+        ) -> Result<EncryptedPacket>;
+
+        pub fn decrypt_data_packet(
+            self: &DataPacketCryptor,
+            participant_id: String,
+            encrypted_packet: &EncryptedPacket,
+        ) -> Result<Vec<u8>>;
+    }
+
     extern "Rust" {
         type RtcFrameCryptorObserverWrapper;
 
@@ -140,8 +171,12 @@ pub mod ffi {
 
 impl_thread_safety!(ffi::FrameCryptor, Send + Sync);
 impl_thread_safety!(ffi::KeyProvider, Send + Sync);
+impl_thread_safety!(ffi::DataPacketCryptor, Send + Sync);
 
 use ffi::FrameCryptionState;
+
+// Re-export the EncryptedPacket for convenience
+pub use ffi::EncryptedPacket;
 
 pub trait RtcFrameCryptorObserver: Send + Sync {
     fn on_frame_cryption_state_change(&self, participant_id: String, state: FrameCryptionState);
@@ -162,5 +197,61 @@ impl RtcFrameCryptorObserverWrapper {
         state: FrameCryptionState,
     ) {
         self.observer.on_frame_cryption_state_change(participant_id, state);
+    }
+}
+
+/// High-level Rust wrapper for data packet cryptor functionality
+pub struct DataPacketCryptor {
+    inner: cxx::SharedPtr<ffi::DataPacketCryptor>,
+}
+
+impl DataPacketCryptor {
+    /// Create a new data packet cryptor with the specified algorithm and key provider
+    pub fn new(algorithm: ffi::Algorithm, key_provider: cxx::SharedPtr<ffi::KeyProvider>) -> Self {
+        Self { inner: ffi::new_data_packet_cryptor(algorithm, key_provider) }
+    }
+
+    /// Encrypt data for a specific participant
+    pub fn encrypt(
+        &self,
+        participant_id: &str,
+        key_index: u32,
+        data: &[u8],
+    ) -> Result<ffi::EncryptedPacket, Box<dyn std::error::Error>> {
+        let data_vec: Vec<u8> = data.to_vec();
+        match self.inner.encrypt_data_packet(participant_id.to_string(), key_index, data_vec) {
+            Ok(packet) => Ok(packet),
+            Err(e) => Err(format!("Encryption failed: {}", e).into()),
+        }
+    }
+
+    /// Decrypt an encrypted packet for a specific participant
+    pub fn decrypt(
+        &self,
+        participant_id: &str,
+        encrypted_packet: &ffi::EncryptedPacket,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        match self.inner.decrypt_data_packet(participant_id.to_string(), encrypted_packet) {
+            Ok(data) => Ok(data.into_iter().collect()),
+            Err(e) => Err(format!("Decryption failed: {}", e).into()),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_data_packet_cryptor_creation() {
+        let options = ffi::KeyProviderOptions {
+            shared_key: true,
+            ratchet_window_size: 16,
+            ratchet_salt: vec![],
+            failure_tolerance: -1,
+        };
+
+        let key_provider = ffi::new_key_provider(options);
+        let _cryptor = DataPacketCryptor::new(ffi::Algorithm::AesGcm, key_provider);
     }
 }
