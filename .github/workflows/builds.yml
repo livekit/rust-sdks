@@ -80,10 +80,9 @@ jobs:
         run:  |
           sudo apt install -y libva-dev libdrm-dev libnvidia-compute-570 libnvidia-decode-570 nvidia-cuda-dev -y
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
+      - name: Install Rust toolchain.
+        run: |
+          rustup add ${{ matrix.target }}
 
       - name: Build (Cargo)
         if: ${{ !contains(matrix.target, 'android') }}
