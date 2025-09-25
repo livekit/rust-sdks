@@ -1,13 +1,10 @@
 #[cfg(feature = "__lk-e2e-test")]
 use {
     crate::common::test_rooms,
-    anyhow::{anyhow, Context, Ok, Result},
+    anyhow::{anyhow, Ok, Result},
     chrono::{TimeDelta, Utc},
-    livekit::{
-        OperationType, RoomEvent, StreamByteOptions, StreamReader, StreamTextOptions,
-        TextStreamInfo,
-    },
-    std::{sync::Mutex, time::Duration},
+    livekit::{RoomEvent, StreamByteOptions, StreamReader, StreamTextOptions},
+    std::time::Duration,
     tokio::{time::timeout, try_join},
 };
 
