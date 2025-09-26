@@ -73,7 +73,13 @@ static bool check_cuda_device() {
     return false;
   }
 
-  CUresult result = cuDeviceGetCount(&device_count);
+  CUresult result = cuInit(0);
+  if (result != CUDA_SUCCESS) {
+    RTC_LOG(LS_ERROR) << "Failed to initialize CUDA.";
+    return false;
+  }
+
+  result = cuDeviceGetCount(&device_count);
   if (result != CUDA_SUCCESS) {
     RTC_LOG(LS_ERROR) << "Failed to get CUDA device count.";
     return false;
@@ -120,7 +126,13 @@ bool CudaContext::Initialize() {
     return false;
   }
 
-  CUresult result = cuDeviceGetCount(&num_devices);
+  CUresult result = cuInit(0);
+  if (result != CUDA_SUCCESS) {
+    RTC_LOG(LS_ERROR) << "Failed to initialize CUDA.";
+    return false;
+  }
+
+  result = cuDeviceGetCount(&num_devices);
   if (result != CUDA_SUCCESS) {
     RTC_LOG(LS_ERROR) << "Failed to get CUDA device count.";
     return false;
@@ -131,7 +143,6 @@ bool CudaContext::Initialize() {
     return false;
   }
 
-  CUCTX_CUDA_CALL_ERROR(cuInit(0));
   CUCTX_CUDA_CALL_ERROR(cuDeviceGet(&cu_device, 0));
 
   char device_name[80];
