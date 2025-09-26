@@ -61,13 +61,39 @@ static bool load_cuda_modules() {
   return true;
 }
 
+static bool check_cuda_device() {
+  int device_count = 0;
+  int driver_version = 0;
+
+  CUCTX_CUDA_CALL_ERROR(cuDriverGetVersion(&driver_version));
+  if (kRequiredDriverVersion > driver_version) {
+    RTC_LOG(LS_ERROR)
+        << "CUDA driver version is not higher than the required version. "
+        << driver_version;
+    return false;
+  }
+
+  CUresult result = cuDeviceGetCount(&device_count);
+  if (result != CUDA_SUCCESS) {
+    RTC_LOG(LS_ERROR) << "Failed to get CUDA device count.";
+    return false;
+  }
+
+  if (device_count == 0) {
+    RTC_LOG(LS_ERROR) << "No CUDA devices found.";
+    return false;
+  }
+
+  return  true;
+}
+
 CudaContext* CudaContext::GetInstance() {
   static CudaContext instance;
   return &instance;
 }
 
 bool CudaContext::IsAvailable() {
-  return load_cuda_modules();
+  return load_cuda_modules() && check_cuda_device();
 }
 
 bool CudaContext::Initialize() {
@@ -80,7 +106,7 @@ bool CudaContext::Initialize() {
     return false;
   }
 
-  int numDevices = 0;
+  int num_devices = 0;
   CUdevice cu_device = 0;
   CUcontext context = nullptr;
 
@@ -91,6 +117,17 @@ bool CudaContext::Initialize() {
     RTC_LOG(LS_ERROR)
         << "CUDA driver version is not higher than the required version. "
         << driverVersion;
+    return false;
+  }
+
+  CUresult result = cuDeviceGetCount(&num_devices);
+  if (result != CUDA_SUCCESS) {
+    RTC_LOG(LS_ERROR) << "Failed to get CUDA device count.";
+    return false;
+  }
+
+  if (num_devices == 0) {
+    RTC_LOG(LS_ERROR) << "No CUDA devices found.";
     return false;
   }
 
