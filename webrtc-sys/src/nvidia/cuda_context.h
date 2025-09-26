@@ -11,7 +11,7 @@ class CudaContext {
   ~CudaContext() = default;
 
   static bool IsAvailable();
-  
+
   static CudaContext* GetInstance() {
     static CudaContext instance;
     return &instance;
@@ -20,7 +20,7 @@ class CudaContext {
   bool Initialize();
   bool IsInitialized() const { return cu_context_ != nullptr; }
   CUcontext GetContext() const;
-  
+
   void Shutdown();
 
  private:
