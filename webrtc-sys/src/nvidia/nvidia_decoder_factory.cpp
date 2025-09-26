@@ -65,7 +65,7 @@ std::vector<SdpVideoFormat> SupportedNvDecoderCodecs(CUcontext context) {
 }
 
 NvidiaVideoDecoderFactory::NvidiaVideoDecoderFactory()
-    : cu_context_(std::make_unique<livekit::CudaContext>()) {
+    : cu_context_(livekit::CudaContext::GetInstance()) {
   if (cu_context_->Initialize()) {
     supported_formats_ = SupportedNvDecoderCodecs(cu_context_->GetContext());
   } else {
@@ -78,12 +78,11 @@ NvidiaVideoDecoderFactory::NvidiaVideoDecoderFactory()
 NvidiaVideoDecoderFactory::~NvidiaVideoDecoderFactory() {}
 
 bool NvidiaVideoDecoderFactory::IsSupported() {
-  // Check if the CUDA context can be initialized.
-  auto cu_context = std::make_unique<livekit::CudaContext>();
-  if (!cu_context->Initialize()) {
-    std::cout << "Failed to initialize CUDA context." << std::endl;
+  if (!livekit::CudaContext::IsAvailable()) {
+    std::cout << "Cuda Context is not available." << std::endl;
     return false;
   }
+
   std::cout << "Nvidia Decoder is supported." << std::endl;
   return true;
 }
@@ -96,7 +95,7 @@ std::unique_ptr<VideoDecoder> NvidiaVideoDecoderFactory::Create(
     if (format.IsSameCodec(supported_format)) {
       // If the format is supported, create and return the encoder.
       if (!cu_context_) {
-        cu_context_ = std::make_unique<livekit::CudaContext>();
+        cu_context_ = livekit::CudaContext::GetInstance();
         if (!cu_context_->Initialize()) {
           RTC_LOG(LS_ERROR) << "Failed to initialize CUDA context.";
           return nullptr;

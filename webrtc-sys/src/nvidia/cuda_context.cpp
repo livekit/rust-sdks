@@ -61,6 +61,11 @@ static bool load_cuda_modules() {
   return true;
 }
 
+
+bool CudaContext::IsAvailable() {
+  return load_cuda_modules();
+}
+
 bool CudaContext::Initialize() {
   // Initialize CUDA context
 
@@ -102,6 +107,22 @@ bool CudaContext::Initialize() {
   cu_context_ = context;
 
   return true;
+}
+
+CUcontext CudaContext::GetContext() const {
+  RTC_DCHECK(cu_context_ != nullptr);
+  // Ensure the context is current
+  CUcontext current;
+  if (cuCtxGetCurrent(&current) != CUDA_SUCCESS) {
+    throw;
+  }
+  if (cu_context_ == current) {
+    return cu_context_;
+  }
+  if (cuCtxSetCurrent(cu_context_) != CUDA_SUCCESS) {
+    throw;
+  }
+  return cu_context_;
 }
 
 void CudaContext::Shutdown() {
