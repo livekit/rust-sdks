@@ -1,7 +1,6 @@
 #include "nvidia_encoder_factory.h"
 
 #include <memory>
-#include <iostream>
 
 #include "cuda_context.h"
 #include "h264_encoder_impl.h"
@@ -31,7 +30,7 @@ NvidiaVideoEncoderFactory::~NvidiaVideoEncoderFactory() {}
 
 bool NvidiaVideoEncoderFactory::IsSupported() {
   if (!livekit::CudaContext::IsAvailable()) {
-    std::cout << "Cuda Context is not available." << std::endl;
+    RTC_LOG(LS_WARNING) << "Cuda Context is not available.";
     return false;
   }
 

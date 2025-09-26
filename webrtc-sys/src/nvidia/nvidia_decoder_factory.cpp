@@ -3,7 +3,6 @@
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
 #include <memory>
-#include <iostream>
 
 #include "cuda_context.h"
 #include "h264_decoder_impl.h"
@@ -79,7 +78,7 @@ NvidiaVideoDecoderFactory::~NvidiaVideoDecoderFactory() {}
 
 bool NvidiaVideoDecoderFactory::IsSupported() {
   if (!livekit::CudaContext::IsAvailable()) {
-    std::cout << "Cuda Context is not available." << std::endl;
+    RTC_LOG(LS_WARNING) << "Cuda Context is not available.";
     return false;
   }
 

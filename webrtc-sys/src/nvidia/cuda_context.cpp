@@ -71,7 +71,8 @@ bool CudaContext::Initialize() {
 
   bool success = load_cuda_modules();
   if (!success) {
-    std::cout << "Failed to load CUDA modules. maybe the NVIDIA driver is not installed?" << std::endl;
+    RTC_LOG(LS_ERROR) << "Failed to load CUDA modules. maybe the NVIDIA driver "
+                         "is not installed?";
     return false;
   }
 
