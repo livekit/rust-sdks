@@ -1,6 +1,7 @@
 #include "vaapi_encoder_factory.h"
 
 #include <memory>
+#include <iostream>
 
 #include "h264_encoder_impl.h"
 #include "rtc_base/logging.h"
