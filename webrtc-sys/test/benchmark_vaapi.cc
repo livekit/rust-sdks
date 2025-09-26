@@ -23,7 +23,7 @@ VaapiBenchmark::VaapiBenchmark(std::string name,
                                std::string resultsFileName)
     : Benchmark(name, description, resultsFileName, "vaapi_bitstream_output.h264") {}
 
-VideoEncoder* VaapiBenchmark::GetNewEncoder() {
+VideoEncoder* VaapiBenchmark::GetNewEncoder(webrtc::Environment &env) {
   if (!VAAPIVideoEncoderFactory::IsSupported()) {
     fprintf(stderr, "VAAPI is not supported on this system.\n");
     return nullptr;
@@ -38,7 +38,7 @@ VideoEncoder* VaapiBenchmark::GetNewEncoder() {
   };
   auto format = SdpVideoFormat("H264", baselineParameters);
 
-  auto enc = _factory->Create(webrtc::CreateEnvironment(), format);
+  auto enc = _factory->Create(env, format);
   if (!enc) {
     fprintf(stderr, "Failed to create H264 encoder.\n");
     return nullptr;

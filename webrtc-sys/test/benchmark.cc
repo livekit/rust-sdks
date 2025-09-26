@@ -87,13 +87,15 @@ VideoEncodeCompleteCallback::OnEncodedImage(
 
 Benchmark::Benchmark()
     : _resultsFileName(webrtc::test::OutputPath() + "benchmark.txt"),
-      _codecName("Default") {}
+      _codecName("Default"),
+      _env(webrtc::CreateEnvironment()) {}
 
 Benchmark::Benchmark(std::string name, std::string description)
     : _name(name),
       _description(description),
       _resultsFileName(webrtc::test::OutputPath() + "benchmark.txt"),
-      _codecName("Default") {}
+      _codecName("Default"),
+      _env(webrtc::CreateEnvironment()) {}
 
 Benchmark::Benchmark(std::string name,
                      std::string description,
@@ -103,7 +105,8 @@ Benchmark::Benchmark(std::string name,
       _description(description),
       _resultsFileName(resultsFileName),
       _codecName(codecName),
-      _cpu(webrtc::CpuWrapper::CreateCpu()) {}
+      _cpu(webrtc::CpuWrapper::CreateCpu()),
+      _env(webrtc::CreateEnvironment()) {}
 
 void Benchmark::Perform() {
   std::vector<const VideoSource*> sources;
@@ -113,12 +116,12 @@ void Benchmark::Perform() {
   sources.push_back(new const VideoSource(
       webrtc::test::ProjectRootPath() + "resources/FourPeople_1280x720_30.yuv",
       kWHD));
-  sources.push_back(
-      new const VideoSource(webrtc::test::ProjectRootPath() +
-                                "resources/Big_Buck_Bunny_1920x1080_30.yuv",
-                            kWFullHD));
+  //sources.push_back(
+  //    new const VideoSource(webrtc::test::ProjectRootPath() +
+  //                              "resources/Big_Buck_Bunny_1920x1080_30.yuv",
+  //                          kWFullHD));
 
-  const VideoSize size[] = {kWHD, kWFullHD};
+  const VideoSize size[] = {kWHD};
   const int frameRate[] = {30};
   // Specifies the framerates for which to perform a speed test.
   const bool speedTestMask[] = {true};
@@ -231,12 +234,12 @@ void Benchmark::Perform() {
 }
 
 void Benchmark::PerformNormalTest() {
-  _encoder = GetNewEncoder();
+  _encoder = GetNewEncoder(_env);
   _lengthSourceFrame = _target->GetFrameLength();
   CodecSettings(_target->GetWidth(), _target->GetHeight(),
                 _target->GetFrameRate(), _bitRate);
   Setup();
-  std::unique_ptr<rtc::Event> waitEvent = std::make_unique<rtc::Event>();
+  std::unique_ptr<webrtc::Event> waitEvent = std::make_unique<webrtc::Event>();
   //_inputVideoBuffer.VerifyAndAllocate(_lengthSourceFrame);
   _encoder->InitEncode(&_inst, 4, 1440);
   CodecSpecific_InitBitrate();
@@ -301,7 +304,7 @@ void Benchmark::Teardown() {
 }
 
 void Benchmark::CodecSpecific_InitBitrate() {
-  webrtc::SimulcastRateAllocator init_allocator(_inst);
+  webrtc::SimulcastRateAllocator init_allocator(_env,_inst);
 
   if (_bitRate == 0) {
     VideoBitrateAllocation allocation =
@@ -328,7 +331,7 @@ bool Benchmark::Encode() {
     return true;
   }
   // TODO: build video frame from buffer ptr.
-  rtc::scoped_refptr<webrtc::I420Buffer> buffer(
+  webrtc::scoped_refptr<webrtc::I420Buffer> buffer(
       webrtc::I420Buffer::Create(_inst.width, _inst.height));
 
   buffer->InitializeData();
@@ -346,7 +349,7 @@ bool Benchmark::Encode() {
     return true;
   }
   _encodeCompleteTime = 0;
-  _encodeTimes[inputVideoBuffer.timestamp()] = tGetTime();
+  _encodeTimes[inputVideoBuffer.rtp_timestamp()] = tGetTime();
   std::vector<VideoFrameType> frame_types(1, VideoFrameType::kVideoFrameDelta);
 
   // check SLI queue
@@ -387,9 +390,9 @@ bool Benchmark::Encode() {
 
   if (_encodeCompleteTime > 0) {
     _totalEncodeTime +=
-        _encodeCompleteTime - _encodeTimes[inputVideoBuffer.timestamp()];
+        _encodeCompleteTime - _encodeTimes[inputVideoBuffer.rtp_timestamp()];
   } else {
-    _totalEncodeTime += tGetTime() - _encodeTimes[inputVideoBuffer.timestamp()];
+    _totalEncodeTime += tGetTime() - _encodeTimes[inputVideoBuffer.rtp_timestamp()];
   }
   assert(ret >= 0);
   return false;
