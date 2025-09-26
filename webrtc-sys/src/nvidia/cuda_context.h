@@ -12,11 +12,7 @@ class CudaContext {
 
   static bool IsAvailable();
 
-  static CudaContext* GetInstance() {
-    static CudaContext instance;
-    return &instance;
-  }
-
+  static CudaContext* GetInstance();
   bool Initialize();
   bool IsInitialized() const { return cu_context_ != nullptr; }
   CUcontext GetContext() const;

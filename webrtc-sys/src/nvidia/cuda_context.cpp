@@ -61,6 +61,10 @@ static bool load_cuda_modules() {
   return true;
 }
 
+CudaContext* CudaContext::GetInstance() {
+  static CudaContext instance;
+  return &instance;
+}
 
 bool CudaContext::IsAvailable() {
   return load_cuda_modules();
