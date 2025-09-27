@@ -16,7 +16,7 @@ class NvidiaBenchmark : public Benchmark {
   }
 
  protected:
-  webrtc::VideoEncoder* GetNewEncoder() override;
+  webrtc::VideoEncoder* GetNewEncoder(webrtc::Environment &env) override;
 
  private:
   std::unique_ptr<webrtc::VideoEncoder> _encoder;
