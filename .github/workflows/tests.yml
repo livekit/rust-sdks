@@ -73,10 +73,14 @@ jobs:
 
       - name: Test (no E2E)
         if: ${{ !matrix.e2e-testing }}
+        env:
+          RUST_LOG: info
         run: cargo +nightly test --release --verbose --target ${{ matrix.target }} -- --nocapture
 
       - name: Test (with E2E)
         if: ${{ matrix.e2e-testing }}
+        env:
+          RUST_LOG: info
         run: cargo +nightly test --release --verbose --target ${{ matrix.target }} --features __lk-e2e-test -- --nocapture
 
 
