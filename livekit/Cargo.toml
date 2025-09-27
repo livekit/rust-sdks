@@ -47,3 +47,4 @@ bmrng = "0.5.2"
 
 [dev-dependencies]
 anyhow = "1.0.99"
+test-log = "0.2.18"
