@@ -18,6 +18,7 @@
 #include <string>
 
 #include "cpu/cpu_linux.h"
+#include "api/environment/environment_factory.h"
 #include "modules/include/module_common_types.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "rtc_base/synchronization/mutex.h"
@@ -98,7 +99,7 @@ class Benchmark {
             std::string description,
             std::string resultsFileName,
             std::string codecName);
-  virtual webrtc::VideoEncoder* GetNewEncoder() = 0;
+  virtual webrtc::VideoEncoder* GetNewEncoder(webrtc::Environment &env) = 0;
   virtual void PerformNormalTest();
   virtual void CodecSpecific_InitBitrate();
   static const char* GetMagicStr() { return "#!benchmark1.0"; }
@@ -167,7 +168,7 @@ class Benchmark {
   std::string _inname;
   std::string _outname;
   webrtc::VideoEncoder* _encoder;
-  webrtc::VideoDecoder* _decoder;
+  //webrtc::VideoDecoder* _decoder;
   uint32_t _bitRate;
   bool _appendNext = false;
   int _framecnt;
@@ -207,6 +208,7 @@ class Benchmark {
   uint64_t _lastDecPictureId = 0;
   std::list<fbSignal> _signalPLI;
   webrtc::CpuWrapper* _cpu;
+  webrtc::Environment _env;
 };
 
 #endif  // WEBRTC_MODULES_VIDEO_CODING_CODECS_TEST_FRAWEWORK_BENCHMARK_H_
