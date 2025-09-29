@@ -1,6 +1,6 @@
 [package]
 name = "yuv-sys"
-version = "0.3.8"
+version = "0.3.9"
 edition = "2021"
 authors = ["Theo Monnom <theo.8bits@gmail.com>"]
 license = "MIT OR Apache-2.0"
