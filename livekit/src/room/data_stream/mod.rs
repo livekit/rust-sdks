@@ -23,6 +23,8 @@ mod outgoing;
 pub use incoming::*;
 pub use outgoing::*;
 
+use crate::e2ee::EncryptionType;
+
 /// Result type for data stream operations.
 pub type StreamResult<T> = Result<T, StreamError>;
 
@@ -96,6 +98,8 @@ pub struct ByteStreamInfo {
     pub mime_type: String,
     /// The name of the file being sent.
     pub name: String,
+    /// The encryption used
+    pub encryption_type: EncryptionType,
 }
 
 /// Information about a text data stream.
@@ -118,6 +122,8 @@ pub struct TextStreamInfo {
     pub reply_to_stream_id: Option<String>,
     pub attached_stream_ids: Vec<String>,
     pub generated: bool,
+    /// The encryption used
+    pub encryption_type: EncryptionType,
 }
 
 /// Operation type for text streams.
@@ -162,6 +168,7 @@ impl ByteStreamInfo {
             attributes: header.attributes,
             mime_type: header.mime_type,
             name: byte_header.name,
+            encryption_type: EncryptionType::None,
         }
     }
 }
@@ -182,6 +189,7 @@ impl TextStreamInfo {
                 .then_some(text_header.reply_to_stream_id),
             attached_stream_ids: text_header.attached_stream_ids,
             generated: text_header.generated,
+            encryption_type: EncryptionType::None,
         }
     }
 }
@@ -209,6 +217,7 @@ impl AnyStreamInfo {
         [Byte, Text];
         pub fn id(self: &Self) -> &str;
         pub fn total_length(self: &Self) -> Option<u64>;
+        pub fn encryption_type(self: &Self) -> EncryptionType;
     );
 }
 
@@ -217,6 +226,7 @@ macro_rules! stream_info {
     () => {
         fn id(&self) -> &str { &self.id }
         fn total_length(&self) -> Option<u64> { self.total_length }
+        fn encryption_type(&self) -> EncryptionType { self.encryption_type }
     };
 }
 

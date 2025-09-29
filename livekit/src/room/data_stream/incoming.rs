@@ -15,7 +15,7 @@
 use super::{
     AnyStreamInfo, ByteStreamInfo, StreamError, StreamProgress, StreamResult, TextStreamInfo,
 };
-use crate::TakeCell;
+use crate::{e2ee::EncryptionType, TakeCell};
 use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt};
 use livekit_protocol::data_stream as proto;
@@ -246,12 +246,19 @@ impl IncomingStreamManager {
     }
 
     /// Handles an incoming header packet.
-    pub fn handle_header(&self, header: proto::Header, identity: String) {
+    pub fn handle_header(
+        &self,
+        header: proto::Header,
+        identity: String,
+        encryption_type: livekit_protocol::encryption::Type,
+    ) {
         let Ok(info) =
             AnyStreamInfo::try_from(header).inspect_err(|e| log::error!("Invalid header: {}", e))
         else {
             return;
         };
+
+        info.encryption_type = encryption_type.into();
 
         let id = info.id().to_owned();
         let bytes_total = info.total_length();

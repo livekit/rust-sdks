@@ -876,11 +876,11 @@ impl RoomSession {
             EngineEvent::LocalTrackSubscribed { track_sid } => {
                 self.handle_track_subscribed(track_sid)
             }
-            EngineEvent::DataStreamHeader { header, participant_identity } => {
-                self.handle_data_stream_header(header, participant_identity);
+            EngineEvent::DataStreamHeader { header, participant_identity, encryption_type } => {
+                self.handle_data_stream_header(header, participant_identity, encryption_type);
             }
-            EngineEvent::DataStreamChunk { chunk, participant_identity } => {
-                self.handle_data_stream_chunk(chunk, participant_identity);
+            EngineEvent::DataStreamChunk { chunk, participant_identity, encryption_type } => {
+                self.handle_data_stream_chunk(chunk, participant_identity, encryption_type);
             }
             EngineEvent::DataStreamTrailer { trailer, participant_identity } => {
                 self.handle_data_stream_trailer(trailer, participant_identity);
@@ -1485,8 +1485,13 @@ impl RoomSession {
         &self,
         header: proto::data_stream::Header,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     ) {
-        self.incoming_stream_manager.handle_header(header.clone(), participant_identity.clone());
+        self.incoming_stream_manager.handle_header(
+            header.clone(),
+            participant_identity.clone(),
+            encryption_type,
+        );
 
         // For backwards compatibly
         let event = RoomEvent::StreamHeaderReceived { header, participant_identity };

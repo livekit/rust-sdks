@@ -113,6 +113,7 @@ pub enum SessionEvent {
         payload: Vec<u8>,
         topic: Option<String>,
         kind: DataPacketKind,
+        encryption_type: proto::encryption::Type,
     },
     ChatMessage {
         participant_identity: ParticipantIdentity,
@@ -174,10 +175,12 @@ pub enum SessionEvent {
     DataStreamHeader {
         header: proto::data_stream::Header,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     },
     DataStreamChunk {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     },
     DataStreamTrailer {
         trailer: proto::data_stream::Trailer,
@@ -1081,7 +1084,13 @@ impl SessionInner {
                         packet.participant_sid.try_into().ok();
                     let participant_identity: Option<ParticipantIdentity> =
                         packet.participant_identity.try_into().ok();
-                    self.emit_incoming_packet(kind, participant_sid, participant_identity, detail);
+                    self.emit_incoming_packet(
+                        kind,
+                        participant_sid,
+                        participant_identity,
+                        detail,
+                        proto::encryption::Type::None,
+                    );
                 }
             }
             RtcEvent::DataChannelBufferedAmountChange { sent, amount: _, kind } => {
@@ -1104,6 +1113,7 @@ impl SessionInner {
         participant_sid: Option<ParticipantSid>,
         participant_identity: Option<ParticipantIdentity>,
         value: proto::data_packet::Value,
+        encryption_type: proto::encryption::Type,
     ) {
         let send_result = match value {
             proto::data_packet::Value::User(user) => {
@@ -1120,6 +1130,7 @@ impl SessionInner {
                     participant_identity,
                     payload: user.payload,
                     topic: user.topic,
+                    encryption_type,
                 })
             }
             proto::data_packet::Value::SipDtmf(dtmf) => self.emitter.send(SessionEvent::SipDTMF {
@@ -1184,12 +1195,20 @@ impl SessionInner {
             proto::data_packet::Value::StreamHeader(header) => {
                 let participant_identity =
                     participant_identity.map_or("".into(), |identity| identity.0);
-                self.emitter.send(SessionEvent::DataStreamHeader { header, participant_identity })
+                self.emitter.send(SessionEvent::DataStreamHeader {
+                    header,
+                    participant_identity,
+                    encryption_type,
+                })
             }
             proto::data_packet::Value::StreamChunk(chunk) => {
                 let participant_identity =
                     participant_identity.map_or("".into(), |identity| identity.0);
-                self.emitter.send(SessionEvent::DataStreamChunk { chunk, participant_identity })
+                self.emitter.send(SessionEvent::DataStreamChunk {
+                    chunk,
+                    participant_identity,
+                    encryption_type,
+                })
             }
             proto::data_packet::Value::StreamTrailer(trailer) => {
                 let participant_identity =
@@ -1219,6 +1238,7 @@ impl SessionInner {
                                             participant_sid,
                                             participant_identity,
                                             convert_encrypted_to_data_packet_value(decrypted_value),
+                                            encrypted_packet.encryption_type(),
                                         );
                                         Ok(())
                                     } else {

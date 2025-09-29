@@ -510,6 +510,7 @@ message ConnectionQualityChanged {
 message UserPacket {
   required OwnedBuffer data = 1;
   optional string topic = 2;
+  required EncryptionType encryption_type = 3;
 }
 
 message ChatMessage {

@@ -98,6 +98,7 @@ pub enum EngineEvent {
         payload: Vec<u8>,
         topic: Option<String>,
         kind: DataPacketKind,
+        encryption_type: proto::encryption::Type,
     },
     ChatMessage {
         participant_identity: ParticipantIdentity,
@@ -165,10 +166,12 @@ pub enum EngineEvent {
     DataStreamHeader {
         header: proto::data_stream::Header,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     },
     DataStreamChunk {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     },
     DataStreamTrailer {
         trailer: proto::data_stream::Trailer,
@@ -480,13 +483,21 @@ impl EngineInner {
                     }
                 }
             }
-            SessionEvent::Data { participant_sid, participant_identity, payload, topic, kind } => {
+            SessionEvent::Data {
+                participant_sid,
+                participant_identity,
+                payload,
+                topic,
+                kind,
+                encryption_type,
+            } => {
                 let _ = self.engine_tx.send(EngineEvent::Data {
                     participant_sid,
                     participant_identity,
                     payload,
                     topic,
                     kind,
+                    encryption_type,
                 });
             }
             SessionEvent::ChatMessage { participant_identity, message } => {
@@ -553,15 +564,19 @@ impl EngineInner {
             SessionEvent::LocalTrackSubscribed { track_sid } => {
                 let _ = self.engine_tx.send(EngineEvent::LocalTrackSubscribed { track_sid });
             }
-            SessionEvent::DataStreamHeader { header, participant_identity } => {
-                let _ = self
-                    .engine_tx
-                    .send(EngineEvent::DataStreamHeader { header, participant_identity });
+            SessionEvent::DataStreamHeader { header, participant_identity, encryption_type } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamHeader {
+                    header,
+                    participant_identity,
+                    encryption_type,
+                });
             }
-            SessionEvent::DataStreamChunk { chunk, participant_identity } => {
-                let _ = self
-                    .engine_tx
-                    .send(EngineEvent::DataStreamChunk { chunk, participant_identity });
+            SessionEvent::DataStreamChunk { chunk, participant_identity, encryption_type } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamChunk {
+                    chunk,
+                    participant_identity,
+                    encryption_type,
+                });
             }
             SessionEvent::DataStreamTrailer { trailer, participant_identity } => {
                 let _ = self
