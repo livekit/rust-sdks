@@ -61,6 +61,9 @@ pub enum StreamError {
 
     #[error("internal error")]
     Internal,
+
+    #[error("encryption type mismatch")]
+    EncryptionTypeMismatch,
 }
 
 /// Progress of a data stream.
@@ -142,16 +145,25 @@ impl TryFrom<proto::Header> for AnyStreamInfo {
     type Error = StreamError;
 
     fn try_from(mut header: proto::Header) -> Result<Self, Self::Error> {
+        Self::try_from_with_encryption(header, EncryptionType::None)
+    }
+}
+
+impl AnyStreamInfo {
+    pub fn try_from_with_encryption(
+        mut header: proto::Header,
+        encryption_type: EncryptionType,
+    ) -> Result<Self, StreamError> {
         let Some(content_header) = header.content_header.take() else {
             Err(StreamError::InvalidHeader)?
         };
         let info = match content_header {
-            proto::header::ContentHeader::ByteHeader(byte_header) => {
-                Self::Byte(ByteStreamInfo::from_headers(header, byte_header))
-            }
-            proto::header::ContentHeader::TextHeader(text_header) => {
-                Self::Text(TextStreamInfo::from_headers(header, text_header))
-            }
+            proto::header::ContentHeader::ByteHeader(byte_header) => Self::Byte(
+                ByteStreamInfo::from_headers_with_encryption(header, byte_header, encryption_type),
+            ),
+            proto::header::ContentHeader::TextHeader(text_header) => Self::Text(
+                TextStreamInfo::from_headers_with_encryption(header, text_header, encryption_type),
+            ),
         };
         Ok(info)
     }
@@ -159,6 +171,14 @@ impl TryFrom<proto::Header> for AnyStreamInfo {
 
 impl ByteStreamInfo {
     pub(crate) fn from_headers(header: proto::Header, byte_header: proto::ByteHeader) -> Self {
+        Self::from_headers_with_encryption(header, byte_header, EncryptionType::None)
+    }
+
+    pub(crate) fn from_headers_with_encryption(
+        header: proto::Header,
+        byte_header: proto::ByteHeader,
+        encryption_type: EncryptionType,
+    ) -> Self {
         Self {
             id: header.stream_id,
             topic: header.topic,
@@ -168,13 +188,21 @@ impl ByteStreamInfo {
             attributes: header.attributes,
             mime_type: header.mime_type,
             name: byte_header.name,
-            encryption_type: EncryptionType::None,
+            encryption_type,
         }
     }
 }
 
 impl TextStreamInfo {
     pub(crate) fn from_headers(header: proto::Header, text_header: proto::TextHeader) -> Self {
+        Self::from_headers_with_encryption(header, text_header, EncryptionType::None)
+    }
+
+    pub(crate) fn from_headers_with_encryption(
+        header: proto::Header,
+        text_header: proto::TextHeader,
+        encryption_type: EncryptionType,
+    ) -> Self {
         Self {
             id: header.stream_id,
             topic: header.topic,
@@ -189,7 +217,7 @@ impl TextStreamInfo {
                 .then_some(text_header.reply_to_stream_id),
             attached_stream_ids: text_header.attached_stream_ids,
             generated: text_header.generated,
-            encryption_type: EncryptionType::None,
+            encryption_type,
         }
     }
 }

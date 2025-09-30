@@ -23,8 +23,8 @@ use libwebrtc::{
     RtcError,
 };
 use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
-use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
+use livekit_protocol::{self as proto, encryption};
 use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
@@ -825,8 +825,22 @@ impl RoomSession {
                 self.handle_signal_restarted(join_response, tx)
             }
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
-            EngineEvent::Data { payload, topic, kind, participant_sid, participant_identity } => {
-                self.handle_data(payload, topic, kind, participant_sid, participant_identity);
+            EngineEvent::Data {
+                payload,
+                topic,
+                kind,
+                participant_sid,
+                participant_identity,
+                encryption_type,
+            } => {
+                self.handle_data(
+                    payload,
+                    topic,
+                    kind,
+                    participant_sid,
+                    participant_identity,
+                    encryption_type,
+                );
             }
             EngineEvent::ChatMessage { participant_identity, message } => {
                 self.handle_chat_message(participant_identity, message);
@@ -1396,6 +1410,7 @@ impl RoomSession {
         kind: DataPacketKind,
         participant_sid: Option<ParticipantSid>,
         participant_identity: Option<ParticipantIdentity>,
+        encryption_type: proto::encryption::Type,
     ) {
         let mut participant = participant_identity
             .as_ref()
@@ -1412,6 +1427,13 @@ impl RoomSession {
         if participant.is_none() && (participant_identity.is_some() || participant_sid.is_some()) {
             // We received a data packet from a participant that is not in the participants list
             return;
+        }
+
+        // Update participant's data encryption status for regular data messages
+        if let Some(ref p) = participant {
+            use crate::e2ee::EncryptionType;
+            let is_encrypted = EncryptionType::from(encryption_type) != EncryptionType::None;
+            p.update_data_encryption_status(is_encrypted);
         }
 
         self.dispatcher.dispatch(&RoomEvent::DataReceived {
@@ -1493,6 +1515,15 @@ impl RoomSession {
             encryption_type,
         );
 
+        // Update participant's data encryption status
+        if let Some(participant) =
+            self.remote_participants.read().get(&participant_identity.clone().into()).cloned()
+        {
+            use crate::e2ee::EncryptionType;
+            let is_encrypted = EncryptionType::from(encryption_type) != EncryptionType::None;
+            participant.update_data_encryption_status(is_encrypted);
+        }
+
         // For backwards compatibly
         let event = RoomEvent::StreamHeaderReceived { header, participant_identity };
         self.dispatcher.dispatch(&event);
@@ -1502,8 +1533,9 @@ impl RoomSession {
         &self,
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     ) {
-        self.incoming_stream_manager.handle_chunk(chunk.clone());
+        self.incoming_stream_manager.handle_chunk(chunk.clone(), encryption_type);
 
         // For backwards compatibly
         let event = RoomEvent::StreamChunkReceived { chunk, participant_identity };

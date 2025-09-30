@@ -492,4 +492,17 @@ impl RemoteParticipant {
     pub fn disconnect_reason(&self) -> DisconnectReason {
         self.inner.info.read().disconnect_reason
     }
+
+    pub fn is_encrypted(&self) -> bool {
+        *self.inner.is_encrypted.read()
+    }
+
+    #[doc(hidden)]
+    pub fn update_data_encryption_status(&self, is_encrypted: bool) {
+        super::update_data_encryption_status(
+            &self.inner,
+            &super::Participant::Remote(self.clone()),
+            is_encrypted,
+        );
+    }
 }
