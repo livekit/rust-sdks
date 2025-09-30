@@ -149,6 +149,10 @@ pub enum RoomEvent {
         participant: Participant,
         changed_attributes: HashMap<String, String>,
     },
+    ParticipantEncryptionStatusChanged {
+        participant: Participant,
+        is_encrypted: bool,
+    },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,
     },
@@ -1685,6 +1689,15 @@ impl RoomSession {
             move |participant, changed_attributes| {
                 let event =
                     RoomEvent::ParticipantAttributesChanged { participant, changed_attributes };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        participant.on_encryption_status_changed({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, is_encrypted| {
+                let event =
+                    RoomEvent::ParticipantEncryptionStatusChanged { participant, is_encrypted };
                 dispatcher.dispatch(&event);
             }
         });

@@ -293,6 +293,13 @@ impl RemoteParticipant {
         super::on_attributes_changed(&self.inner, handler)
     }
 
+    pub(crate) fn on_encryption_status_changed(
+        &self,
+        handler: impl Fn(Participant, bool) + Send + 'static,
+    ) {
+        super::on_encryption_status_changed(&self.inner, handler);
+    }
+
     pub(crate) fn set_speaking(&self, speaking: bool) {
         super::set_speaking(&self.inner, &Participant::Remote(self.clone()), speaking);
     }

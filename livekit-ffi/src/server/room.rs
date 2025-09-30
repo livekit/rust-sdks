@@ -1179,6 +1179,14 @@ async fn forward_event(
                 },
             ));
         }
+        RoomEvent::ParticipantEncryptionStatusChanged { participant, is_encrypted } => {
+            let _ = send_event(proto::room_event::Message::ParticipantEncryptionStatusChanged(
+                proto::ParticipantEncryptionStatusChanged {
+                    participant_identity: participant.identity().to_string(),
+                    is_encrypted,
+                },
+            ));
+        }
         RoomEvent::ActiveSpeakersChanged { speakers } => {
             let participant_identities =
                 speakers.iter().map(|p| p.identity().to_string()).collect::<Vec<_>>();

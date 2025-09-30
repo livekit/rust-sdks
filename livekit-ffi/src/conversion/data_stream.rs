@@ -35,6 +35,7 @@ impl From<TextStreamInfo> for proto::TextStreamInfo {
             reply_to_stream_id: info.reply_to_stream_id,
             attached_stream_ids: info.attached_stream_ids,
             generated: Some(info.generated),
+            encryption_type: info.encryption_type.into(),
         }
     }
 }
@@ -49,6 +50,7 @@ impl From<ByteStreamInfo> for proto::ByteStreamInfo {
             total_length: info.total_length,
             attributes: info.attributes,
             name: info.name,
+            encryption_type: info.encryption_type.into(),
         }
     }
 }
