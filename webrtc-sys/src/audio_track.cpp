@@ -101,7 +101,7 @@ void NativeAudioSink::OnData(const void* audio_data,
   const int16_t* data = static_cast<const int16_t*>(audio_data);
 
   if (sample_rate_ != sample_rate || num_channels_ != number_of_channels) {
-    webrtc::InterleavedView<const int16_t> source(static_cast<const int16_t*>(data),
+    webrtc::InterleavedView<const int16_t> source(data,
                                          number_of_frames,
                                          number_of_channels);
     // resample/remix before capturing
