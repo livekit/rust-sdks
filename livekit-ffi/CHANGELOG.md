@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.35](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.34...rust-sdks/livekit-ffi@0.12.35) - 2025-10-03
+
+### Other
+
+- updated the following local packages: webrtc-sys, livekit
+
 ## [0.12.34](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.33...rust-sdks/livekit-ffi@0.12.34) - 2025-09-29
 
 ### Fixed

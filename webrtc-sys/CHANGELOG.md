@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.13](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.12...rust-sdks/webrtc-sys@0.3.13) - 2025-10-03
+
+### Other
+
+- Fix empty audio frames after resample ([#722](https://github.com/livekit/rust-sdks/pull/722))
+
 ## [0.3.12](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.11...rust-sdks/webrtc-sys@0.3.12) - 2025-09-29
 
 ### Fixed
