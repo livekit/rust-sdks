@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "api/audio_options.h"
+#include "api/audio/audio_frame.h"
 #include "api/media_stream_interface.h"
 #include "api/task_queue/task_queue_base.h"
 #include "audio/remix_resample.h"
@@ -87,6 +88,7 @@ NativeAudioSink::NativeAudioSink(rust::Box<AudioSinkWrapper> observer,
       num_channels_(num_channels) {
   frame_.sample_rate_hz_ = sample_rate;
   frame_.num_channels_ = num_channels;
+  frame_.samples_per_channel_ = webrtc::SampleRateToDefaultChannelSize(sample_rate);
 }
 
 void NativeAudioSink::OnData(const void* audio_data,
