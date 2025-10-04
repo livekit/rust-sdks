@@ -9,6 +9,8 @@ use tokio::{
     time::{self, timeout},
 };
 
+pub mod audio;
+
 struct TestEnvironment {
     api_key: String,
     api_secret: String,
