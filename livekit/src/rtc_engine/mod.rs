@@ -450,6 +450,13 @@ impl EngineInner {
                 match action {
                     proto::leave_request::Action::Resume
                     | proto::leave_request::Action::Reconnect => {
+                        let running_handle = self.running_handle.read();
+
+                        // server could have sent a leave & disconnected signal client
+                        // we don't want to start another resume cycle
+                        if !running_handle.can_reconnect {
+                            return Ok(());
+                        }
                         log::warn!(
                             "received session close: {:?} {:?} {:?}",
                             source,
