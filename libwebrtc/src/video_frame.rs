@@ -235,6 +235,10 @@ impl I420Buffer {
             )
         }
     }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I420Buffer {
+        self.handle.scale(scaled_width, scaled_height)
+    }
 }
 
 impl I420ABuffer {
@@ -273,6 +277,10 @@ impl I420ABuffer {
                 }),
             )
         }
+    }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I420ABuffer {
+        self.handle.scale(scaled_width, scaled_height)
     }
 }
 
@@ -317,6 +325,10 @@ impl I422Buffer {
             )
         }
     }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I422Buffer {
+        self.handle.scale(scaled_width, scaled_height)
+    }
 }
 
 impl I444Buffer {
@@ -359,6 +371,10 @@ impl I444Buffer {
                 std::slice::from_raw_parts_mut(data_v.as_ptr() as *mut u8, data_v.len()),
             )
         }
+    }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I444Buffer {
+        self.handle.scale(scaled_width, scaled_height)
     }
 }
 
@@ -403,6 +419,10 @@ impl I010Buffer {
             )
         }
     }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I010Buffer {
+        self.handle.scale(scaled_width, scaled_height)
+    }
 }
 
 impl NV12Buffer {
@@ -438,6 +458,10 @@ impl NV12Buffer {
                 std::slice::from_raw_parts_mut(data_uv.as_ptr() as *mut u8, data_uv.len()),
             )
         }
+    }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> NV12Buffer {
+        self.handle.scale(scaled_width, scaled_height)
     }
 }
 
