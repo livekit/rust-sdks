@@ -7,7 +7,7 @@ description = "Build utilities when working with libwebrtc"
 repository = "https://github.com/livekit/client-sdk-rust"
 
 [dependencies]
-reqwest = { version = "0.11", default-features = false, features = ["rustls-tls-native-roots", "blocking"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "blocking"] }
 zip = "0.6"
 regex = "1.0"
 scratch = "1.0"
