@@ -70,6 +70,17 @@ jobs:
         with:
           submodules: true
 
+      - name: Cache apt packages
+        if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm' }}
+        uses: actions/cache@v4
+        with:
+          path: |
+            /var/lib/apt/lists
+            /var/cache/apt/archives
+          key: ${{ matrix.os }}-apt-${{ hashFiles('**/builds.yml') }}
+          restore-keys: |
+            ${{ matrix.os }}-apt-
+
       - name: Install linux dependencies
         if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'}}
         run: |
