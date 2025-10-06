@@ -460,7 +460,7 @@ impl EngineInner {
                             }
                             // ensure we release the lock from this scope, it'll be used again in reconnection_needed
                         }
-                        
+
                         log::warn!(
                             "received session close: {:?} {:?} {:?}",
                             source,
