@@ -43,10 +43,34 @@ jobs:
     name: Test (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
       - name: Install Rust toolchain
         run: |
           rustup update --no-self-update nightly
           rustup target add ${{ matrix.target }} --toolchain nightly
+
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v3
+        with:
+          path: target/
+          key: ${{ runner.os }}-cargo-build-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-build-
 
       - name: Install linux dependencies
         if: ${{ matrix.os == 'ubuntu-latest' }}
@@ -62,10 +86,6 @@ jobs:
           elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             brew install livekit
           fi
-
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
 
       - name: Run LiveKit server
         if: ${{ matrix.e2e-testing }}
