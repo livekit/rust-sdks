@@ -1,0 +1,12 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "wgpu_room(debug)",
+            "program": "${workspaceFolder}/examples/target/debug/wgpu_room",
+            "preLaunchTask": "build"
+        }
+    ]
+}

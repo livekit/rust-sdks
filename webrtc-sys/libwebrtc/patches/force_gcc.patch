@@ -1,0 +1,25 @@
+diff --git a/config/c++/c++.gni b/config/c++/c++.gni
+index c29d898fb..5ef014e51 100644
+--- a/config/c++/c++.gni
++++ b/config/c++/c++.gni
+@@ -62,7 +62,7 @@ declare_args() {
+   # case.
+   # We disable that on LibFuzzer builds because it breaks the libfuzzer
+   # runtime. See crbug.com/411020147.
+-  use_llvm_libatomic = !is_apple && !is_nacl && !use_libfuzzer
++  use_llvm_libatomic = !is_apple && !is_nacl && !use_libfuzzer && !is_linux
+ }
+ 
+ if (use_implicit_libcxx_modules) {
+diff --git a/config/linux/BUILD.gn b/config/linux/BUILD.gn
+index 131bb71d1..36c86c48e 100644
+--- a/config/linux/BUILD.gn
++++ b/config/linux/BUILD.gn
+@@ -15,6 +15,7 @@ group("linux") {
+ # is applied to all targets. It is here to separate out the logic that is
+ # Linux-only. This is not applied to Android, but is applied to ChromeOS.
+ config("compiler") {
++  cflags_cc = [ "-Wno-changes-meaning" ]
+   if (current_cpu == "arm64") {
+     import("//build/config/arm.gni")
+     cflags = []

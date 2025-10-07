@@ -26,7 +26,7 @@ std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(
     CVPixelBufferRef pixelBuffer
 ) {
     RTCCVPixelBuffer *buffer = [[RTCCVPixelBuffer alloc] initWithPixelBuffer:pixelBuffer];
-    rtc::scoped_refptr<webrtc::VideoFrameBuffer> frame_buffer = webrtc::ObjCToNativeVideoFrameBuffer(buffer);
+    webrtc::scoped_refptr<webrtc::VideoFrameBuffer> frame_buffer = webrtc::ObjCToNativeVideoFrameBuffer(buffer);
     [buffer release];
     CVPixelBufferRelease(pixelBuffer);
     return std::make_unique<VideoFrameBuffer>(frame_buffer);

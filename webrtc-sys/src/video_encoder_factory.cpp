@@ -98,7 +98,7 @@ VideoEncoderFactory::InternalFactory::GetSupportedFormats() const {
 VideoEncoderFactory::CodecSupport
 VideoEncoderFactory::InternalFactory::QueryCodecSupport(
     const webrtc::SdpVideoFormat& format,
-    absl::optional<std::string> scalability_mode) const {
+    std::optional<std::string> scalability_mode) const {
   auto original_format =
       webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(), format);
   return original_format
@@ -139,7 +139,7 @@ std::vector<webrtc::SdpVideoFormat> VideoEncoderFactory::GetSupportedFormats()
 
 VideoEncoderFactory::CodecSupport VideoEncoderFactory::QueryCodecSupport(
     const webrtc::SdpVideoFormat& format,
-    absl::optional<std::string> scalability_mode) const {
+    std::optional<std::string> scalability_mode) const {
   return internal_factory_->QueryCodecSupport(format, scalability_mode);
 }
 

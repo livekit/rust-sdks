@@ -24,7 +24,7 @@ NvidiaBenchmark::NvidiaBenchmark(std::string name,
     : Benchmark(name, description, resultsFileName, "nvidia_bitstream_output.h264") {}
 
 
-VideoEncoder* NvidiaBenchmark::GetNewEncoder() {
+VideoEncoder* NvidiaBenchmark::GetNewEncoder(webrtc::Environment &env) {
   if (!NvidiaVideoEncoderFactory::IsSupported()) {
     fprintf(stderr, "NVIDIA is not supported on this system.\n");
     return nullptr;
@@ -34,13 +34,13 @@ VideoEncoder* NvidiaBenchmark::GetNewEncoder() {
     _factory = std::make_unique<NvidiaVideoEncoderFactory>();
   }
   std::map<std::string, std::string> baselineParameters = {
-      {"profile-level-id", "4d0032"},
+      {"profile-level-id", "42e01f"},
       {"level-asymmetry-allowed", "1"},
       {"packetization-mode", "1"},
   };
   auto format = SdpVideoFormat("H264", baselineParameters);
 
-  auto enc = _factory->Create(webrtc::CreateEnvironment(), format);
+  auto enc = _factory->Create(env, format);
   if (!enc) {
     fprintf(stderr, "Failed to create H264 encoder.\n");
     return nullptr;

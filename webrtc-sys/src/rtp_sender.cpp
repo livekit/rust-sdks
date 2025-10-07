@@ -26,8 +26,8 @@ namespace livekit {
 
 RtpSender::RtpSender(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    rtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
-    rtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
+    webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
+    webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
     : rtc_runtime_(rtc_runtime),
       sender_(std::move(sender)),
       peer_connection_(std::move(peer_connection)) {}
@@ -48,7 +48,7 @@ void RtpSender::get_stats(
     rust::Box<SenderContext> ctx,
     rust::Fn<void(rust::Box<SenderContext>, rust::String)> on_stats) const {
   auto observer =
-      rtc::make_ref_counted<NativeRtcStatsCollector<SenderContext>>(std::move(ctx), on_stats);
+      webrtc::make_ref_counted<NativeRtcStatsCollector<SenderContext>>(std::move(ctx), on_stats);
   peer_connection_->GetStats(sender_, observer);
 }
 

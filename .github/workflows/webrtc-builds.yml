@@ -26,12 +26,12 @@ jobs:
       matrix:
         target:
           - name: win
-            os: windows-latest
+            os: windows-2022
             cmd: .\build_windows.cmd
             arch: x64
 
           - name: win
-            os: windows-latest
+            os: windows-2022
             cmd: .\build_windows.cmd
             arch: arm64
 
@@ -104,17 +104,38 @@ jobs:
           echo "OutName: ${{ steps.setup.outputs.OUT }}"
           echo "OutZip: ${{ steps.setup.outputs.ZIP }}"
 
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-
-      - uses: actions/setup-python@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
 
       - name: install setuptools (none-macOS)
         if: ${{ matrix.target.os != 'macos-latest' }}
         run: |
          pip3 install setuptools # pkg_resources is sometimes not found?
 
+      - name: Add GCC PPA and install GCC 14
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        run: |
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+          sudo apt update
+          sudo apt install gcc-14 g++-14 g++-14-aarch64-linux-gnu -y
+
+      - name: Verify GCC 14 installation
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        run: |
+          gcc-14 --version
+          g++-14 --version
+          aarch64-linux-gnu-g++-14 --version
+
+      - name: Set GCC 14 as default (optional)
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        run: |
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 --slave /usr/bin/g++ g++ /usr/bin/g++-14
+          sudo update-alternatives --config gcc
+          gcc --version
+          sudo update-alternatives --install /usr/bin/aarch64-linux-gnu-gcc aarch64-linux-gnu-gcc /usr/bin/aarch64-linux-gnu-gcc-14 140 --slave /usr/bin/aarch64-linux-gnu-g++ aarch64-linux-gnu-g++ /usr/bin/aarch64-linux-gnu-g++-14
+          sudo update-alternatives --config aarch64-linux-gnu-gcc
+          aarch64-linux-gnu-gcc --version
+      
       - name: Install linux dependencies
         if: ${{ matrix.target.os == 'ubuntu-latest' }}
         run: |
@@ -126,7 +147,7 @@ jobs:
         run: brew install ninja
 
       - name: Install windows dependencies
-        if: ${{ matrix.target.os == 'windows-latest' }}
+        if: ${{ matrix.target.os == 'windows-2022' }}
         run: |
           Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip" -OutFile ninja.zip
           Expand-Archive -Path ninja.zip -DestinationPath ${{ github.workspace }}\ninja
@@ -145,13 +166,13 @@ jobs:
         working-directory: webrtc-sys/libwebrtc
 
       - name: Zip artifact (Unix)
-        if: ${{ matrix.target.os != 'windows-latest' }}
+        if: ${{ matrix.target.os != 'windows-2022' }}
         run: |
           cd webrtc-sys/libwebrtc
           zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ${{ steps.setup.outputs.OUT }} -r
 
       - name: Zip artifact (Windows)
-        if: ${{ matrix.target.os == 'windows-latest' }}
+        if: ${{ matrix.target.os == 'windows-2022' }}
         run: Compress-Archive -Path .\webrtc-sys\libwebrtc\${{ steps.setup.outputs.OUT }} -DestinationPath ${{ steps.setup.outputs.ZIP }}
 
       - name: Upload artifacts

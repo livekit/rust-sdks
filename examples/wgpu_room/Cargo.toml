@@ -23,3 +23,7 @@ serde = { version = "1", features = ["derive"] }
 log = "0.4"
 env_logger = "0.10.0"
 console-subscriber = { version = "0.1.10", features = ["parking_lot"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# On macos use feature relax-sign-encoding to avoid runtime crash (https://github.com/rust-windowing/winit/pull/4302)
+objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }

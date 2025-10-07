@@ -521,7 +521,7 @@ int NvDecoder::HandlePictureDecode(CUVIDPICPARAMS *pPicParams) {
     }
     m_nPicNumInDecodeOrder[pPicParams->CurrPicIdx] = m_nDecodePicCnt++;
     CUDA_DRVAPI_CALL(cuCtxPushCurrent(m_cuContext));
-    NVDEC_API_CALL(cuvidDecodePicture(m_hDecoder, pPicParams));
+    cuvidDecodePicture(m_hDecoder, pPicParams);
     if (m_bForce_zero_latency && ((!pPicParams->field_pic_flag) || (pPicParams->second_field)))
     {
         CUVIDPARSERDISPINFO dispInfo;

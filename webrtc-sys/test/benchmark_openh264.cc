@@ -23,8 +23,8 @@ OpenH264Benchmark::OpenH264Benchmark(std::string name,
                            std::string resultsFileName)
     : Benchmark(name, description, resultsFileName, "openh264_bitstream_output.h264") {}
 
-VideoEncoder* OpenH264Benchmark::GetNewEncoder() {
-  auto enc = CreateH264Encoder(webrtc::CreateEnvironment());
+VideoEncoder* OpenH264Benchmark::GetNewEncoder(webrtc::Environment &env) {
+  auto enc = CreateH264Encoder(env);
   if (!enc) {
     fprintf(stderr, "Failed to create H264 encoder.\n");
     return nullptr;

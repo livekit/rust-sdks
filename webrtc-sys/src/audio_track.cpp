@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "api/audio_options.h"
+#include "api/audio/audio_frame.h"
 #include "api/media_stream_interface.h"
 #include "api/task_queue/task_queue_base.h"
 #include "audio/remix_resample.h"
@@ -56,7 +57,7 @@ inline AudioSourceOptions to_rust_audio_options(
 }
 
 AudioTrack::AudioTrack(std::shared_ptr<RtcRuntime> rtc_runtime,
-                       rtc::scoped_refptr<webrtc::AudioTrackInterface> track)
+                       webrtc::scoped_refptr<webrtc::AudioTrackInterface> track)
     : MediaStreamTrack(rtc_runtime, std::move(track)) {}
 
 AudioTrack::~AudioTrack() {
@@ -87,6 +88,7 @@ NativeAudioSink::NativeAudioSink(rust::Box<AudioSinkWrapper> observer,
       num_channels_(num_channels) {
   frame_.sample_rate_hz_ = sample_rate;
   frame_.num_channels_ = num_channels;
+  frame_.samples_per_channel_ = webrtc::SampleRateToDefaultChannelSize(sample_rate);
 }
 
 void NativeAudioSink::OnData(const void* audio_data,
@@ -99,9 +101,11 @@ void NativeAudioSink::OnData(const void* audio_data,
   const int16_t* data = static_cast<const int16_t*>(audio_data);
 
   if (sample_rate_ != sample_rate || num_channels_ != number_of_channels) {
+    webrtc::InterleavedView<const int16_t> source(data,
+                                         number_of_frames,
+                                         number_of_channels);
     // resample/remix before capturing
-    webrtc::voe::RemixAndResample(data, number_of_frames, number_of_channels,
-                                  sample_rate, &resampler_, &frame_);
+    webrtc::voe::RemixAndResample(source, sample_rate, &resampler_, &frame_);
 
     rust::Slice<const int16_t> rust_slice(
         frame_.data(), frame_.num_channels() * frame_.samples_per_channel());
@@ -270,7 +274,7 @@ AudioTrackSource::AudioTrackSource(AudioSourceOptions options,
                                    int num_channels,
                                    int queue_size_ms,
                                    webrtc::TaskQueueFactory* task_queue_factory)
-    : source_(rtc::make_ref_counted<InternalSource>(
+    : source_(webrtc::make_ref_counted<InternalSource>(
           to_native_audio_options(options),
           sample_rate,
           num_channels,
@@ -311,7 +315,7 @@ std::shared_ptr<AudioTrackSource> new_audio_track_source(
                                             GetGlobalTaskQueueFactory());
 }
 
-rtc::scoped_refptr<AudioTrackSource::InternalSource> AudioTrackSource::get()
+webrtc::scoped_refptr<AudioTrackSource::InternalSource> AudioTrackSource::get()
     const {
   return source_;
 }

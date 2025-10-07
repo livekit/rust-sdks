@@ -213,7 +213,7 @@ enum DataChannelEventDetail {
 
 #[derive(Debug)]
 struct PublishPacketRequest {
-    /// Unencoded data packewt.
+    /// Unencoded data packet.
     packet: proto::DataPacket,
 
     /// Notifies the caller once the request has been fulfilled.
@@ -488,8 +488,9 @@ impl RtcSession {
         &self,
         data: proto::DataPacket,
         kind: DataPacketKind,
+        is_raw_packet: bool,
     ) -> Result<(), EngineError> {
-        self.inner.publish_data(data, kind).await
+        self.inner.publish_data(data, kind, is_raw_packet).await
     }
 
     pub async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
@@ -1042,15 +1043,10 @@ impl SessionInner {
                 // Participant SID and identity used to be defined on user packet, but
                 // they have been moved to the packet root. For backwards compatibility,
                 // we take the user packet's values if the top-level fields are not set.
-                let participant_sid = participant_sid
-                    .is_none()
-                    .then_some(user.participant_sid)
-                    .and_then(|sid| sid.try_into().ok());
-                let participant_identity = participant_identity
-                    .is_none()
-                    .then_some(user.participant_identity)
-                    .and_then(|identity| identity.try_into().ok());
-
+                let participant_sid =
+                    participant_sid.or_else(|| user.participant_sid.try_into().ok());
+                let participant_identity =
+                    participant_identity.or_else(|| user.participant_identity.try_into().ok());
                 self.emitter.send(SessionEvent::Data {
                     kind,
                     participant_sid,
@@ -1344,12 +1340,15 @@ impl SessionInner {
         self: &Arc<Self>,
         mut packet: proto::DataPacket,
         kind: DataPacketKind,
+        is_raw_packet: bool,
     ) -> Result<(), EngineError> {
         self.ensure_publisher_connected(kind).await?;
 
         // Populate local participant info fields
-        packet.participant_identity = self.participant_info.identity.to_string();
-        packet.participant_sid = self.participant_info.sid.to_string();
+        if !is_raw_packet {
+            packet.participant_identity = self.participant_info.identity.to_string();
+            packet.participant_sid = self.participant_info.sid.to_string();
+        }
 
         let (completion_tx, completion_rx) = oneshot::channel();
         let ev = DataChannelEvent {

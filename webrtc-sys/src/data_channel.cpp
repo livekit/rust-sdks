@@ -37,14 +37,14 @@ webrtc::DataChannelInit to_native_data_channel_init(DataChannelInit init) {
     rtc_init.maxRetransmits = init.max_retransmits;
 
   if (init.has_priority)
-    rtc_init.priority = static_cast<webrtc::Priority>(init.priority);
+    rtc_init.priority = webrtc::PriorityValue(static_cast<webrtc::Priority>(init.priority));
 
   return rtc_init;
 }
 
 DataChannel::DataChannel(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    rtc::scoped_refptr<webrtc::DataChannelInterface> data_channel)
+    webrtc::scoped_refptr<webrtc::DataChannelInterface> data_channel)
     : rtc_runtime_(rtc_runtime), data_channel_(std::move(data_channel)) {
   RTC_LOG(LS_VERBOSE) << "DataChannel::DataChannel()";
 }
@@ -73,7 +73,7 @@ void DataChannel::unregister_observer() const {
 
 bool DataChannel::send(const DataBuffer& buffer) const {
   return data_channel_->Send(webrtc::DataBuffer{
-      rtc::CopyOnWriteBuffer(buffer.ptr, buffer.len), buffer.binary});
+      webrtc::CopyOnWriteBuffer(buffer.ptr, buffer.len), buffer.binary});
 }
 
 int DataChannel::id() const {

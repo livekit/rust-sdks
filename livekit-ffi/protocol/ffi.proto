@@ -148,7 +148,9 @@ message FfiRequest {
     TextStreamWriterWriteRequest text_stream_write = 65;
     TextStreamWriterCloseRequest text_stream_close = 66;
 
-    // NEXT_ID: 67
+    StreamSendBytesRequest send_bytes = 67;
+
+    // NEXT_ID: 68
   }
 }
 
@@ -243,7 +245,9 @@ message FfiResponse {
     TextStreamWriterWriteResponse text_stream_write = 64;
     TextStreamWriterCloseResponse text_stream_close = 65;
 
-    // NEXT_ID: 66
+    StreamSendBytesResponse send_bytes = 66;
+
+    // NEXT_ID: 67
   }
 }
 
@@ -298,6 +302,7 @@ message FfiEvent {
     TextStreamWriterWriteCallback text_stream_writer_write = 38;
     TextStreamWriterCloseCallback text_stream_writer_close = 39;
     StreamSendTextCallback send_text = 40;
+    StreamSendBytesCallback send_bytes = 41;
   }
 }
 

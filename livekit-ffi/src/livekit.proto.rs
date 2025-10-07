@@ -2447,6 +2447,45 @@ pub mod stream_send_file_callback {
         Error(super::StreamError),
     }
 }
+// MARK: - Send bytes
+
+/// Sends bytes over a data stream.
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamSendBytesRequest {
+    #[prost(uint64, required, tag="1")]
+    pub local_participant_handle: u64,
+    #[prost(message, required, tag="2")]
+    pub options: StreamByteOptions,
+    /// Bytes to send.
+    #[prost(bytes="vec", required, tag="3")]
+    pub bytes: ::prost::alloc::vec::Vec<u8>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamSendBytesResponse {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StreamSendBytesCallback {
+    #[prost(uint64, required, tag="1")]
+    pub async_id: u64,
+    #[prost(oneof="stream_send_bytes_callback::Result", tags="2, 3")]
+    pub result: ::core::option::Option<stream_send_bytes_callback::Result>,
+}
+/// Nested message and enum types in `StreamSendBytesCallback`.
+pub mod stream_send_bytes_callback {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Result {
+        #[prost(message, tag="2")]
+        Info(super::ByteStreamInfo),
+        #[prost(message, tag="3")]
+        Error(super::StreamError),
+    }
+}
 // MARK: - Send text
 
 /// Sends text over a data stream.
@@ -4889,7 +4928,7 @@ pub struct RpcMethodInvocationEvent {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiRequest {
-    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66")]
+    #[prost(oneof="ffi_request::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 48, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66, 67")]
     pub message: ::core::option::Option<ffi_request::Message>,
 }
 /// Nested message and enum types in `FfiRequest`.
@@ -5037,13 +5076,15 @@ pub mod ffi_request {
         TextStreamWrite(super::TextStreamWriterWriteRequest),
         #[prost(message, tag="66")]
         TextStreamClose(super::TextStreamWriterCloseRequest),
+        #[prost(message, tag="67")]
+        SendBytes(super::StreamSendBytesRequest),
     }
 }
 /// This is the output of livekit_ffi_request function.
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiResponse {
-    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65")]
+    #[prost(oneof="ffi_response::Message", tags="2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 47, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 66")]
     pub message: ::core::option::Option<ffi_response::Message>,
 }
 /// Nested message and enum types in `FfiResponse`.
@@ -5189,6 +5230,8 @@ pub mod ffi_response {
         TextStreamWrite(super::TextStreamWriterWriteResponse),
         #[prost(message, tag="65")]
         TextStreamClose(super::TextStreamWriterCloseResponse),
+        #[prost(message, tag="66")]
+        SendBytes(super::StreamSendBytesResponse),
     }
 }
 /// To minimize complexity, participant events are not included in the protocol.
@@ -5197,7 +5240,7 @@ pub mod ffi_response {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct FfiEvent {
-    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40")]
+    #[prost(oneof="ffi_event::Message", tags="1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41")]
     pub message: ::core::option::Option<ffi_event::Message>,
 }
 /// Nested message and enum types in `FfiEvent`.
@@ -5285,6 +5328,8 @@ pub mod ffi_event {
         TextStreamWriterClose(super::TextStreamWriterCloseCallback),
         #[prost(message, tag="40")]
         SendText(super::StreamSendTextCallback),
+        #[prost(message, tag="41")]
+        SendBytes(super::StreamSendBytesCallback),
     }
 }
 /// Stop all rooms synchronously (Do we need async here?).

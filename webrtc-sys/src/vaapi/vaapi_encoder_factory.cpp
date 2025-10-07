@@ -1,17 +1,17 @@
 #include "vaapi_encoder_factory.h"
 
 #include <memory>
+#include <iostream>
 
 #include "h264_encoder_impl.h"
-
-#include <iostream>
+#include "rtc_base/logging.h"
 
 #if defined(WIN32)
 #include "vaapi_display_win32.h"
 using VaapiDisplay = livekit::VaapiDisplayWin32;
 #elif defined(__linux__)
 #include "vaapi_display_drm.h"
-using VaapiDisplay = livekit::VaapiDisplayDrm ;
+using VaapiDisplay = livekit::VaapiDisplayDrm;
 #endif
 
 namespace webrtc {
@@ -41,7 +41,7 @@ bool VAAPIVideoEncoderFactory::IsSupported() {
   // This could involve checking if the VAAPI display can be opened.
   VaapiDisplay vaapi_display;
   if (!vaapi_display.Open()) {
-    std::cerr << "Failed to open VAAPI display." << std::endl;
+    RTC_LOG(LS_WARNING) << "Failed to open VAAPI display.";
     return false;
   }
 

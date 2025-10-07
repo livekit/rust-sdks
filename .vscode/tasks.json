@@ -1,0 +1,33 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build",
+            "type": "shell",
+            "command": "cargo",
+            "args": [
+                "build"
+            ],
+            "options": {
+                "env": {
+                    // cd webrtc-sys/libwebrtc && ./build_macos.sh --arch arm64 --profile debug
+                    "LK_CUSTOM_WEBRTC": "${workspaceFolder}/webrtc-sys/libwebrtc/mac-arm64-debug"
+                },
+                "cwd": "${workspaceFolder}/examples"
+            },
+            "dependsOn": ["libwebrtc-build"]
+        },
+        {
+            "label": "libwebrtc-build",
+            "type": "shell",
+            "command": "./build_macos.sh",
+            "args": [
+                "--arch", "arm64",
+                "--profile", "debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}/webrtc-sys/libwebrtc"
+            },
+        }
+    ]
+}

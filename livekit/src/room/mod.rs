@@ -1730,7 +1730,7 @@ async fn outgoing_data_stream_task(
     loop {
         tokio::select! {
             Ok((packet, responder)) = packet_rx.recv() => {
-                let result = engine.publish_data(packet, DataPacketKind::Reliable).await;
+                let result = engine.publish_data(packet, DataPacketKind::Reliable, false).await;
                 let _ = responder.respond(result);
             },
             _ = close_rx.recv() => {

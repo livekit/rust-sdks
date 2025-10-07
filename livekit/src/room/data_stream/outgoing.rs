@@ -386,6 +386,55 @@ impl OutgoingStreamManager {
         Ok(info)
     }
 
+    /// Send bytes to participants in the room.
+    ///
+    /// This method sends an in-memory blob of bytes to participants in the room
+    /// as a byte stream. It opens a stream using the provided options, writes the
+    /// entire buffer, and closes the stream before returning.
+    ///
+    /// The `total_length` in the header is set from the provided data and is not
+    /// overridable by `options.total_length`.
+    pub async fn send_bytes(
+        &self,
+        data: impl AsRef<[u8]>,
+        options: StreamByteOptions,
+    ) -> StreamResult<ByteStreamInfo> {
+        if options.total_length.is_some() {
+            log::warn!("Ignoring total_length option specified for send_bytes");
+        }
+        let bytes = data.as_ref();
+
+        let byte_header = proto::data_stream::ByteHeader { name: options.name.unwrap_or_default() };
+        let header = proto::data_stream::Header {
+            stream_id: options.id.unwrap_or_else(|| create_random_uuid()),
+            timestamp: Utc::now().timestamp_millis(),
+            topic: options.topic,
+            mime_type: options.mime_type.unwrap_or_else(|| BYTE_MIME_TYPE.to_owned()),
+            total_length: Some(bytes.len() as u64), // not overridable
+            encryption_type: proto::encryption::Type::None.into(),
+            attributes: options.attributes,
+            content_header: Some(proto::data_stream::header::ContentHeader::ByteHeader(
+                byte_header.clone(),
+            )),
+        };
+
+        let open_options = RawStreamOpenOptions {
+            header: header.clone(),
+            destination_identities: options.destination_identities,
+            packet_tx: self.packet_tx.clone(),
+        };
+        let writer = ByteStreamWriter {
+            info: Arc::new(ByteStreamInfo::from_headers(header, byte_header)),
+            stream: Arc::new(Mutex::new(RawStream::open(open_options).await?)),
+        };
+
+        let info = (*writer.info).clone();
+        writer.write(bytes).await?;
+        writer.close().await?;
+
+        Ok(info)
+    }
+
     pub async fn send_file(
         &self,
         path: impl AsRef<Path>,

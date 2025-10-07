@@ -8,12 +8,15 @@ namespace livekit {
 class CudaContext {
  public:
   CudaContext() = default;
-  ~CudaContext() { Shutdown(); }
+  ~CudaContext() = default;
 
+  static bool IsAvailable();
+
+  static CudaContext* GetInstance();
   bool Initialize();
   bool IsInitialized() const { return cu_context_ != nullptr; }
-  CUcontext GetContext() const { return cu_context_; }
-  CUdevice GetDevice() const { return cu_device_; }
+  CUcontext GetContext() const;
+
   void Shutdown();
 
  private:
