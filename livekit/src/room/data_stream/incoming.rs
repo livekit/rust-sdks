@@ -15,7 +15,7 @@
 use super::{
     AnyStreamInfo, ByteStreamInfo, StreamError, StreamProgress, StreamResult, TextStreamInfo,
 };
-use crate::TakeCell;
+use crate::{e2ee::EncryptionType, TakeCell};
 use bytes::{Bytes, BytesMut};
 use futures_util::{Stream, StreamExt};
 use livekit_protocol::data_stream as proto;
@@ -225,6 +225,7 @@ impl AnyStreamReader {
 struct Descriptor {
     progress: StreamProgress,
     chunk_tx: UnboundedSender<StreamResult<Bytes>>,
+    encryption_type: EncryptionType,
     // TODO(ladvoc): keep track of open time.
 }
 
@@ -246,15 +247,21 @@ impl IncomingStreamManager {
     }
 
     /// Handles an incoming header packet.
-    pub fn handle_header(&self, header: proto::Header, identity: String) {
-        let Ok(info) =
-            AnyStreamInfo::try_from(header).inspect_err(|e| log::error!("Invalid header: {}", e))
+    pub fn handle_header(
+        &self,
+        header: proto::Header,
+        identity: String,
+        encryption_type: livekit_protocol::encryption::Type,
+    ) {
+        let Ok(info) = AnyStreamInfo::try_from_with_encryption(header, encryption_type.into())
+            .inspect_err(|e| log::error!("Invalid header: {}", e))
         else {
             return;
         };
 
         let id = info.id().to_owned();
         let bytes_total = info.total_length();
+        let stream_encryption_type = info.encryption_type();
 
         let mut inner = self.inner.lock();
         if inner.open_streams.contains_key(&id) {
@@ -265,18 +272,30 @@ impl IncomingStreamManager {
         let (reader, chunk_tx) = AnyStreamReader::from(info);
         let _ = self.open_tx.send((reader, identity));
 
-        let descriptor =
-            Descriptor { progress: StreamProgress { bytes_total, ..Default::default() }, chunk_tx };
+        let descriptor = Descriptor {
+            progress: StreamProgress { bytes_total, ..Default::default() },
+            chunk_tx,
+            encryption_type: stream_encryption_type,
+        };
         inner.open_streams.insert(id, descriptor);
     }
 
     /// Handles an incoming chunk packet.
-    pub fn handle_chunk(&self, chunk: proto::Chunk) {
+    pub fn handle_chunk(
+        &self,
+        chunk: proto::Chunk,
+        encryption_type: livekit_protocol::encryption::Type,
+    ) {
         let id = chunk.stream_id;
         let mut inner = self.inner.lock();
         let Some(descriptor) = inner.open_streams.get_mut(&id) else {
             return;
         };
+
+        if descriptor.encryption_type != encryption_type.into() {
+            inner.close_stream_with_error(&id, StreamError::EncryptionTypeMismatch);
+            return;
+        }
 
         if descriptor.progress.chunk_index != chunk.chunk_index {
             inner.close_stream_with_error(&id, StreamError::MissedChunk);

@@ -36,6 +36,13 @@ pub enum EncryptionState {
     InternalError,
 }
 
+#[derive(Debug, Clone)]
+pub struct EncryptedPacket {
+    pub data: Vec<u8>,
+    pub iv: Vec<u8>,
+    pub key_index: u32,
+}
+
 #[derive(Clone)]
 pub struct KeyProvider {
     pub(crate) sys_handle: SharedPtr<sys_fc::ffi::KeyProvider>,
@@ -149,6 +156,49 @@ impl FrameCryptor {
     }
 }
 
+#[derive(Clone)]
+pub struct DataPacketCryptor {
+    pub(crate) sys_handle: SharedPtr<sys_fc::ffi::DataPacketCryptor>,
+}
+
+impl DataPacketCryptor {
+    pub fn new(algorithm: EncryptionAlgorithm, key_provider: KeyProvider) -> Self {
+        Self {
+            sys_handle: sys_fc::ffi::new_data_packet_cryptor(
+                algorithm.into(),
+                key_provider.sys_handle,
+            ),
+        }
+    }
+
+    pub fn encrypt(
+        &self,
+        participant_id: &str,
+        key_index: u32,
+        data: &[u8],
+    ) -> Result<EncryptedPacket, Box<dyn std::error::Error>> {
+        let data_vec: Vec<u8> = data.to_vec();
+        match self.sys_handle.encrypt_data_packet(participant_id.to_string(), key_index, data_vec) {
+            Ok(packet) => Ok(packet.into()),
+            Err(e) => Err(format!("Encryption failed: {}", e).into()),
+        }
+    }
+
+    pub fn decrypt(
+        &self,
+        participant_id: &str,
+        encrypted_packet: &EncryptedPacket,
+    ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        match self
+            .sys_handle
+            .decrypt_data_packet(participant_id.to_string(), &encrypted_packet.clone().into())
+        {
+            Ok(data) => Ok(data.into_iter().collect()),
+            Err(e) => Err(format!("Decryption failed: {}", e).into()),
+        }
+    }
+}
+
 #[derive(Default)]
 struct RtcFrameCryptorObserver {
     state_change_handler: Mutex<Option<OnStateChange>>,
@@ -209,5 +259,21 @@ impl From<KeyProviderOptions> for sys_fc::ffi::KeyProviderOptions {
             ratchet_salt: value.ratchet_salt,
             failure_tolerance: value.failure_tolerance,
         }
+    }
+}
+
+impl From<sys_fc::ffi::EncryptedPacket> for EncryptedPacket {
+    fn from(value: sys_fc::ffi::EncryptedPacket) -> Self {
+        Self {
+            data: value.data.into_iter().collect(),
+            iv: value.iv.into_iter().collect(),
+            key_index: value.key_index,
+        }
+    }
+}
+
+impl From<EncryptedPacket> for sys_fc::ffi::EncryptedPacket {
+    fn from(value: EncryptedPacket) -> Self {
+        Self { data: value.data, iv: value.iv, key_index: value.key_index }
     }
 }

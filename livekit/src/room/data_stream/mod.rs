@@ -23,6 +23,8 @@ mod outgoing;
 pub use incoming::*;
 pub use outgoing::*;
 
+use crate::e2ee::EncryptionType;
+
 /// Result type for data stream operations.
 pub type StreamResult<T> = Result<T, StreamError>;
 
@@ -59,6 +61,9 @@ pub enum StreamError {
 
     #[error("internal error")]
     Internal,
+
+    #[error("encryption type mismatch")]
+    EncryptionTypeMismatch,
 }
 
 /// Progress of a data stream.
@@ -96,6 +101,8 @@ pub struct ByteStreamInfo {
     pub mime_type: String,
     /// The name of the file being sent.
     pub name: String,
+    /// The encryption used
+    pub encryption_type: EncryptionType,
 }
 
 /// Information about a text data stream.
@@ -118,6 +125,8 @@ pub struct TextStreamInfo {
     pub reply_to_stream_id: Option<String>,
     pub attached_stream_ids: Vec<String>,
     pub generated: bool,
+    /// The encryption used
+    pub encryption_type: EncryptionType,
 }
 
 /// Operation type for text streams.
@@ -136,16 +145,25 @@ impl TryFrom<proto::Header> for AnyStreamInfo {
     type Error = StreamError;
 
     fn try_from(mut header: proto::Header) -> Result<Self, Self::Error> {
+        Self::try_from_with_encryption(header, EncryptionType::None)
+    }
+}
+
+impl AnyStreamInfo {
+    pub fn try_from_with_encryption(
+        mut header: proto::Header,
+        encryption_type: EncryptionType,
+    ) -> Result<Self, StreamError> {
         let Some(content_header) = header.content_header.take() else {
             Err(StreamError::InvalidHeader)?
         };
         let info = match content_header {
-            proto::header::ContentHeader::ByteHeader(byte_header) => {
-                Self::Byte(ByteStreamInfo::from_headers(header, byte_header))
-            }
-            proto::header::ContentHeader::TextHeader(text_header) => {
-                Self::Text(TextStreamInfo::from_headers(header, text_header))
-            }
+            proto::header::ContentHeader::ByteHeader(byte_header) => Self::Byte(
+                ByteStreamInfo::from_headers_with_encryption(header, byte_header, encryption_type),
+            ),
+            proto::header::ContentHeader::TextHeader(text_header) => Self::Text(
+                TextStreamInfo::from_headers_with_encryption(header, text_header, encryption_type),
+            ),
         };
         Ok(info)
     }
@@ -153,6 +171,14 @@ impl TryFrom<proto::Header> for AnyStreamInfo {
 
 impl ByteStreamInfo {
     pub(crate) fn from_headers(header: proto::Header, byte_header: proto::ByteHeader) -> Self {
+        Self::from_headers_with_encryption(header, byte_header, EncryptionType::None)
+    }
+
+    pub(crate) fn from_headers_with_encryption(
+        header: proto::Header,
+        byte_header: proto::ByteHeader,
+        encryption_type: EncryptionType,
+    ) -> Self {
         Self {
             id: header.stream_id,
             topic: header.topic,
@@ -162,12 +188,21 @@ impl ByteStreamInfo {
             attributes: header.attributes,
             mime_type: header.mime_type,
             name: byte_header.name,
+            encryption_type,
         }
     }
 }
 
 impl TextStreamInfo {
     pub(crate) fn from_headers(header: proto::Header, text_header: proto::TextHeader) -> Self {
+        Self::from_headers_with_encryption(header, text_header, EncryptionType::None)
+    }
+
+    pub(crate) fn from_headers_with_encryption(
+        header: proto::Header,
+        text_header: proto::TextHeader,
+        encryption_type: EncryptionType,
+    ) -> Self {
         Self {
             id: header.stream_id,
             topic: header.topic,
@@ -182,6 +217,7 @@ impl TextStreamInfo {
                 .then_some(text_header.reply_to_stream_id),
             attached_stream_ids: text_header.attached_stream_ids,
             generated: text_header.generated,
+            encryption_type,
         }
     }
 }
@@ -209,6 +245,7 @@ impl AnyStreamInfo {
         [Byte, Text];
         pub fn id(self: &Self) -> &str;
         pub fn total_length(self: &Self) -> Option<u64>;
+        pub fn encryption_type(self: &Self) -> EncryptionType;
     );
 }
 
@@ -217,6 +254,7 @@ macro_rules! stream_info {
     () => {
         fn id(&self) -> &str { &self.id }
         fn total_length(&self) -> Option<u64> { self.total_length }
+        fn encryption_type(&self) -> EncryptionType { self.encryption_type }
     };
 }
 

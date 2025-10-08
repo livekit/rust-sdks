@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
+use futures_util::future::try_join_all;
 use libwebrtc::native::create_random_uuid;
 use livekit::{Room, RoomEvent, RoomOptions};
 use livekit_api::access_token::{AccessToken, VideoGrants};
@@ -31,34 +32,41 @@ impl TestEnvironment {
 
 /// Creates the specified number of connections to a shared room for testing.
 pub async fn test_rooms(count: usize) -> Result<Vec<(Room, UnboundedReceiver<RoomEvent>)>> {
+    test_rooms_with_options((0..count).map(|_| RoomOptions::default())).await
+}
+
+/// Creates multiple connections to a shared room for testing, one for each configuration.
+pub async fn test_rooms_with_options(
+    options: impl IntoIterator<Item = RoomOptions>,
+) -> Result<Vec<(Room, UnboundedReceiver<RoomEvent>)>> {
     let test_env = TestEnvironment::from_env_or_defaults();
     let room_name = format!("test_room_{}", create_random_uuid());
 
-    let tokens = (0..count)
+    let tokens = options
         .into_iter()
-        .map(|id| -> Result<String> {
+        .enumerate()
+        .map(|(id, options)| -> Result<(String, RoomOptions)> {
             let grants =
                 VideoGrants { room_join: true, room: room_name.clone(), ..Default::default() };
-            Ok(AccessToken::with_api_key(&test_env.api_key, &test_env.api_secret)
+            let token = AccessToken::with_api_key(&test_env.api_key, &test_env.api_secret)
                 .with_ttl(Duration::from_secs(30 * 60)) // 30 minutes
                 .with_grants(grants)
                 .with_identity(&format!("p{}", id))
                 .with_name(&format!("Participant {}", id))
                 .to_jwt()
-                .context("Failed to generate JWT")?)
+                .context("Failed to generate JWT")?;
+            Ok((token, options))
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let mut rooms = Vec::with_capacity(count);
-    for token in tokens {
+    let count = tokens.len();
+    let rooms = try_join_all(tokens.into_iter().map(|(token, options)| {
         let server_url = test_env.server_url.clone();
-        let options = RoomOptions::default();
-        rooms.push(
-            Room::connect(&server_url, &token, options)
-                .await
-                .context("Failed to connect to room")?,
-        );
-    }
+        async move {
+            Room::connect(&server_url, &token, options).await.context("Failed to connect to room")
+        }
+    }))
+    .await?;
 
     // Wait for participant visibility across all room connections. When using a
     // local SFU, this takes significantly longer and can lead to intermittently failing tests.

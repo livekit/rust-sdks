@@ -23,8 +23,8 @@ use libwebrtc::{
     RtcError,
 };
 use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
-use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
+use livekit_protocol::{self as proto, encryption};
 use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
@@ -148,6 +148,10 @@ pub enum RoomEvent {
     ParticipantAttributesChanged {
         participant: Participant,
         changed_attributes: HashMap<String, String>,
+    },
+    ParticipantEncryptionStatusChanged {
+        participant: Participant,
+        is_encrypted: bool,
     },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,
@@ -350,7 +354,10 @@ pub struct RoomOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
     pub dynacast: bool,
+    // TODO: link to encryption docs in deprecation notice once available
+    #[deprecated(note = "Use `encryption` field instead")]
     pub e2ee: Option<E2eeOptions>,
+    pub encryption: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
     pub sdk_options: RoomSdkOptions,
@@ -363,6 +370,7 @@ impl Default for RoomOptions {
             adaptive_stream: false,
             dynacast: false,
             e2ee: None,
+            encryption: None,
 
             // Explicitly set the default values
             rtc_config: RtcConfiguration {
@@ -456,10 +464,12 @@ impl Room {
     pub async fn connect(
         url: &str,
         token: &str,
-        options: RoomOptions,
+        mut options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
-        let e2ee_manager = E2eeManager::new(options.e2ee.clone());
+        let with_dc_encryption = options.encryption.is_some();
+        let encryption_options = options.encryption.take().or(options.e2ee.take());
+        let e2ee_manager = E2eeManager::new(encryption_options, with_dc_encryption);
         let mut signal_options = SignalOptions::default();
         signal_options.sdk_options = options.sdk_options.clone().into();
         signal_options.auto_subscribe = options.auto_subscribe;
@@ -472,6 +482,7 @@ impl Room {
                 signal_options,
                 join_retries: options.join_retries,
             },
+            Some(e2ee_manager.clone()),
         )
         .await?;
         let rtc_engine = Arc::new(rtc_engine);
@@ -819,8 +830,22 @@ impl RoomSession {
                 self.handle_signal_restarted(join_response, tx)
             }
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
-            EngineEvent::Data { payload, topic, kind, participant_sid, participant_identity } => {
-                self.handle_data(payload, topic, kind, participant_sid, participant_identity);
+            EngineEvent::Data {
+                payload,
+                topic,
+                kind,
+                participant_sid,
+                participant_identity,
+                encryption_type,
+            } => {
+                self.handle_data(
+                    payload,
+                    topic,
+                    kind,
+                    participant_sid,
+                    participant_identity,
+                    encryption_type,
+                );
             }
             EngineEvent::ChatMessage { participant_identity, message } => {
                 self.handle_chat_message(participant_identity, message);
@@ -870,11 +895,11 @@ impl RoomSession {
             EngineEvent::LocalTrackSubscribed { track_sid } => {
                 self.handle_track_subscribed(track_sid)
             }
-            EngineEvent::DataStreamHeader { header, participant_identity } => {
-                self.handle_data_stream_header(header, participant_identity);
+            EngineEvent::DataStreamHeader { header, participant_identity, encryption_type } => {
+                self.handle_data_stream_header(header, participant_identity, encryption_type);
             }
-            EngineEvent::DataStreamChunk { chunk, participant_identity } => {
-                self.handle_data_stream_chunk(chunk, participant_identity);
+            EngineEvent::DataStreamChunk { chunk, participant_identity, encryption_type } => {
+                self.handle_data_stream_chunk(chunk, participant_identity, encryption_type);
             }
             EngineEvent::DataStreamTrailer { trailer, participant_identity } => {
                 self.handle_data_stream_trailer(trailer, participant_identity);
@@ -1390,6 +1415,7 @@ impl RoomSession {
         kind: DataPacketKind,
         participant_sid: Option<ParticipantSid>,
         participant_identity: Option<ParticipantIdentity>,
+        encryption_type: proto::encryption::Type,
     ) {
         let mut participant = participant_identity
             .as_ref()
@@ -1406,6 +1432,13 @@ impl RoomSession {
         if participant.is_none() && (participant_identity.is_some() || participant_sid.is_some()) {
             // We received a data packet from a participant that is not in the participants list
             return;
+        }
+
+        // Update participant's data encryption status for regular data messages
+        if let Some(ref p) = participant {
+            use crate::e2ee::EncryptionType;
+            let is_encrypted = EncryptionType::from(encryption_type) != EncryptionType::None;
+            p.update_data_encryption_status(is_encrypted);
         }
 
         self.dispatcher.dispatch(&RoomEvent::DataReceived {
@@ -1479,8 +1512,22 @@ impl RoomSession {
         &self,
         header: proto::data_stream::Header,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     ) {
-        self.incoming_stream_manager.handle_header(header.clone(), participant_identity.clone());
+        self.incoming_stream_manager.handle_header(
+            header.clone(),
+            participant_identity.clone(),
+            encryption_type,
+        );
+
+        // Update participant's data encryption status
+        if let Some(participant) =
+            self.remote_participants.read().get(&participant_identity.clone().into()).cloned()
+        {
+            use crate::e2ee::EncryptionType;
+            let is_encrypted = EncryptionType::from(encryption_type) != EncryptionType::None;
+            participant.update_data_encryption_status(is_encrypted);
+        }
 
         // For backwards compatibly
         let event = RoomEvent::StreamHeaderReceived { header, participant_identity };
@@ -1491,8 +1538,9 @@ impl RoomSession {
         &self,
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     ) {
-        self.incoming_stream_manager.handle_chunk(chunk.clone());
+        self.incoming_stream_manager.handle_chunk(chunk.clone(), encryption_type);
 
         // For backwards compatibly
         let event = RoomEvent::StreamChunkReceived { chunk, participant_identity };
@@ -1642,6 +1690,15 @@ impl RoomSession {
             move |participant, changed_attributes| {
                 let event =
                     RoomEvent::ParticipantAttributesChanged { participant, changed_attributes };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        participant.on_encryption_status_changed({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, is_encrypted| {
+                let event =
+                    RoomEvent::ParticipantEncryptionStatusChanged { participant, is_encrypted };
                 dispatcher.dispatch(&event);
             }
         });

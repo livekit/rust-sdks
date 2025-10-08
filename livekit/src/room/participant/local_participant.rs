@@ -1017,4 +1017,13 @@ impl LocalParticipant {
     pub async fn stream_bytes(&self, options: StreamByteOptions) -> StreamResult<ByteStreamWriter> {
         self.session().unwrap().outgoing_stream_manager.stream_bytes(options).await
     }
+
+    pub fn is_encrypted(&self) -> bool {
+        *self.inner.is_encrypted.read()
+    }
+
+    #[doc(hidden)]
+    pub fn update_data_encryption_status(&self, _is_encrypted: bool) {
+        // Local participants don't receive data messages, so this is a no-op
+    }
 }

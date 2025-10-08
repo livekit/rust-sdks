@@ -293,6 +293,13 @@ impl RemoteParticipant {
         super::on_attributes_changed(&self.inner, handler)
     }
 
+    pub(crate) fn on_encryption_status_changed(
+        &self,
+        handler: impl Fn(Participant, bool) + Send + 'static,
+    ) {
+        super::on_encryption_status_changed(&self.inner, handler);
+    }
+
     pub(crate) fn set_speaking(&self, speaking: bool) {
         super::set_speaking(&self.inner, &Participant::Remote(self.clone()), speaking);
     }
@@ -491,5 +498,18 @@ impl RemoteParticipant {
 
     pub fn disconnect_reason(&self) -> DisconnectReason {
         self.inner.info.read().disconnect_reason
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        *self.inner.is_encrypted.read()
+    }
+
+    #[doc(hidden)]
+    pub fn update_data_encryption_status(&self, is_encrypted: bool) {
+        super::update_data_encryption_status(
+            &self.inner,
+            &super::Participant::Remote(self.clone()),
+            is_encrypted,
+        );
     }
 }

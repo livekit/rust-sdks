@@ -291,9 +291,10 @@ message RoomOptions {
   optional bool auto_subscribe = 1;
   optional bool adaptive_stream = 2;
   optional bool dynacast = 3;
-  optional E2eeOptions e2ee = 4;
+  optional E2eeOptions e2ee = 4 [deprecated=true];
   optional RtcConfig rtc_config = 5; // allow to setup a custom RtcConfiguration
   optional uint32 join_retries = 6;
+  optional E2eeOptions encryption = 7;
 }
 
 //
@@ -358,6 +359,7 @@ message RoomEvent {
     ParticipantMetadataChanged participant_metadata_changed = 17;
     ParticipantNameChanged participant_name_changed = 18;
     ParticipantAttributesChanged participant_attributes_changed = 19;
+    ParticipantEncryptionStatusChanged participant_encryption_status_changed = 39;
     ConnectionQualityChanged connection_quality_changed = 20;
     ConnectionStateChanged connection_state_changed = 21;
     // Connected connected = 21;
@@ -494,6 +496,11 @@ message ParticipantAttributesChanged {
   required string participant_identity = 1;
   repeated AttributesEntry attributes = 2;
   repeated AttributesEntry changed_attributes = 3;
+}
+
+message ParticipantEncryptionStatusChanged {
+  required string participant_identity = 1;
+  required bool is_encrypted = 2;
 }
 
 message ParticipantNameChanged {

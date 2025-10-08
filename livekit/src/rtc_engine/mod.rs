@@ -38,7 +38,7 @@ use crate::{
     },
     DataPacketKind,
 };
-use crate::{ChatMessage, TranscriptionSegment};
+use crate::{ChatMessage, E2eeManager, TranscriptionSegment};
 
 pub mod lk_runtime;
 mod peer_transport;
@@ -98,6 +98,7 @@ pub enum EngineEvent {
         payload: Vec<u8>,
         topic: Option<String>,
         kind: DataPacketKind,
+        encryption_type: proto::encryption::Type,
     },
     ChatMessage {
         participant_identity: ParticipantIdentity,
@@ -165,10 +166,12 @@ pub enum EngineEvent {
     DataStreamHeader {
         header: proto::data_stream::Header,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     },
     DataStreamChunk {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
+        encryption_type: proto::encryption::Type,
     },
     DataStreamTrailer {
         trailer: proto::data_stream::Trailer,
@@ -232,9 +235,10 @@ impl RtcEngine {
         url: &str,
         token: &str,
         options: EngineOptions,
+        e2ee_manager: Option<E2eeManager>,
     ) -> EngineResult<(Self, proto::JoinResponse, EngineEvents)> {
         let (inner, join_response, engine_events) =
-            EngineInner::connect(url, token, options).await?;
+            EngineInner::connect(url, token, options, e2ee_manager).await?;
         Ok((Self { inner }, join_response, engine_events))
     }
 
@@ -340,6 +344,7 @@ impl EngineInner {
         url: &str,
         token: &str,
         options: EngineOptions,
+        e2ee_manager: Option<E2eeManager>,
     ) -> EngineResult<(Arc<Self>, proto::JoinResponse, EngineEvents)> {
         let lk_runtime = LkRuntime::instance();
         let max_retries = options.join_retries;
@@ -348,9 +353,10 @@ impl EngineInner {
             move || {
                 let options = options.clone();
                 let lk_runtime = lk_runtime.clone();
+                let e2ee_manager = e2ee_manager.clone();
                 async move {
                     let (session, join_response, session_events) =
-                        RtcSession::connect(url, token, options.clone()).await?;
+                        RtcSession::connect(url, token, options.clone(), e2ee_manager).await?;
                     session.wait_pc_connection().await?;
 
                     let (engine_tx, engine_rx) = mpsc::unbounded_channel();
@@ -488,13 +494,21 @@ impl EngineInner {
                     }
                 }
             }
-            SessionEvent::Data { participant_sid, participant_identity, payload, topic, kind } => {
+            SessionEvent::Data {
+                participant_sid,
+                participant_identity,
+                payload,
+                topic,
+                kind,
+                encryption_type,
+            } => {
                 let _ = self.engine_tx.send(EngineEvent::Data {
                     participant_sid,
                     participant_identity,
                     payload,
                     topic,
                     kind,
+                    encryption_type,
                 });
             }
             SessionEvent::ChatMessage { participant_identity, message } => {
@@ -561,15 +575,19 @@ impl EngineInner {
             SessionEvent::LocalTrackSubscribed { track_sid } => {
                 let _ = self.engine_tx.send(EngineEvent::LocalTrackSubscribed { track_sid });
             }
-            SessionEvent::DataStreamHeader { header, participant_identity } => {
-                let _ = self
-                    .engine_tx
-                    .send(EngineEvent::DataStreamHeader { header, participant_identity });
+            SessionEvent::DataStreamHeader { header, participant_identity, encryption_type } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamHeader {
+                    header,
+                    participant_identity,
+                    encryption_type,
+                });
             }
-            SessionEvent::DataStreamChunk { chunk, participant_identity } => {
-                let _ = self
-                    .engine_tx
-                    .send(EngineEvent::DataStreamChunk { chunk, participant_identity });
+            SessionEvent::DataStreamChunk { chunk, participant_identity, encryption_type } => {
+                let _ = self.engine_tx.send(EngineEvent::DataStreamChunk {
+                    chunk,
+                    participant_identity,
+                    encryption_type,
+                });
             }
             SessionEvent::DataStreamTrailer { trailer, participant_identity } => {
                 let _ = self
@@ -693,12 +711,14 @@ impl EngineInner {
     async fn reconnect_task(self: &Arc<Self>) -> EngineResult<()> {
         // Get the latest connection info from the signal_client (including the refreshed token
         // because the initial join token may have expired)
-        let (url, token) = {
+        let (url, token, e2ee_manager) = {
             let running_handle = self.running_handle.read();
             let signal_client = running_handle.session.signal_client();
+            let e2ee_manager = running_handle.session.e2ee_manager();
             (
                 signal_client.url(),
                 signal_client.token(), // Refreshed token
+                e2ee_manager.clone(),
             )
         };
 
@@ -720,8 +740,14 @@ impl EngineInner {
                 }
 
                 log::error!("restarting connection... attempt: {}", i);
-                if let Err(err) =
-                    self.try_restart_connection(&url, &token, self.options.clone()).await
+                if let Err(err) = self
+                    .try_restart_connection(
+                        &url,
+                        &token,
+                        self.options.clone(),
+                        e2ee_manager.clone(),
+                    )
+                    .await
                 {
                     log::error!("restarting connection failed: {}", err);
                 } else {
@@ -768,6 +794,7 @@ impl EngineInner {
         url: &str,
         token: &str,
         options: EngineOptions,
+        e2ee_manager: Option<E2eeManager>,
     ) -> EngineResult<()> {
         // Close the current RtcSession and the current tasks
         let (session, engine_task) = {
@@ -784,7 +811,7 @@ impl EngineInner {
         }
 
         let (new_session, join_response, session_events) =
-            RtcSession::connect(url, token, options).await?;
+            RtcSession::connect(url, token, options, e2ee_manager).await?;
 
         // On SignalRestarted, the room will try to unpublish the local tracks
         // NOTE: Doing operations that use rtc_session will not use the new one
