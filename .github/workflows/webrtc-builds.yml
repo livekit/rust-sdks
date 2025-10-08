@@ -47,12 +47,12 @@ jobs:
 
           - name: linux
             os: ubuntu-latest
-            cmd: ./build_linux.sh
+            cmd: ./build_linux.sh --toolchain chromium-llvm
             arch: x64
 
           - name: linux
             os: ubuntu-latest
-            cmd: ./build_linux.sh
+            cmd: ./build_linux.sh --toolchain chromium-llvm
             arch: arm64
 
           - name: android
@@ -110,37 +110,17 @@ jobs:
       - name: install setuptools (none-macOS)
         if: ${{ matrix.target.os != 'macos-latest' }}
         run: |
-         pip3 install setuptools # pkg_resources is sometimes not found?
+          pip3 install setuptools # pkg_resources is sometimes not found?
 
-      - name: Add GCC PPA and install GCC 14
-        if: ${{ matrix.target.os == 'ubuntu-latest' }}
-        run: |
-          sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
-          sudo apt update
-          sudo apt install gcc-14 g++-14 g++-14-aarch64-linux-gnu -y
-
-      - name: Verify GCC 14 installation
-        if: ${{ matrix.target.os == 'ubuntu-latest' }}
-        run: |
-          gcc-14 --version
-          g++-14 --version
-          aarch64-linux-gnu-g++-14 --version
-
-      - name: Set GCC 14 as default (optional)
-        if: ${{ matrix.target.os == 'ubuntu-latest' }}
-        run: |
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 --slave /usr/bin/g++ g++ /usr/bin/g++-14
-          sudo update-alternatives --config gcc
-          gcc --version
-          sudo update-alternatives --install /usr/bin/aarch64-linux-gnu-gcc aarch64-linux-gnu-gcc /usr/bin/aarch64-linux-gnu-gcc-14 140 --slave /usr/bin/aarch64-linux-gnu-g++ aarch64-linux-gnu-g++ /usr/bin/aarch64-linux-gnu-g++-14
-          sudo update-alternatives --config aarch64-linux-gnu-gcc
-          aarch64-linux-gnu-gcc --version
-      
       - name: Install linux dependencies
         if: ${{ matrix.target.os == 'ubuntu-latest' }}
         run: |
           sudo apt update -y
           sudo apt install -y ninja-build pkg-config openjdk-11-jdk
+
+      - name: Disable __GLIBC_USE_ISOC2X macro
+        if: ${{ matrix.target.os == 'ubuntu-latest' }} && ${{ matrix.target.arch == 'arm64' }}
+        run: sudo sed -i 's/__GLIBC_USE_ISOC2X[[:space:]]*1/__GLIBC_USE_ISOC2X\t0/' /usr/aarch64-linux-gnu/include/features.h
 
       - name: Install macos dependencies
         if: ${{ matrix.target.os == 'macos-latest' }}
