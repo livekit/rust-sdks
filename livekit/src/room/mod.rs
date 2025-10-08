@@ -354,7 +354,8 @@ pub struct RoomOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
     pub dynacast: bool,
-    #[deprecated(note = "Use `encryption` field instead, see x for a detailed explanation")]
+    // TODO: link to encryption docs in deprecation notice once available
+    #[deprecated(note = "Use `encryption` field instead")]
     pub e2ee: Option<E2eeOptions>,
     pub encryption: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
