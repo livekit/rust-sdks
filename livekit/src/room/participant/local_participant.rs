@@ -738,7 +738,7 @@ impl LocalParticipant {
     pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {
         // Maximum amount of time it should ever take for an RPC request to reach the destination, and the ACK to come back
         // This is set to 7 seconds to account for various relay timeouts and retries in LiveKit Cloud that occur in rare cases
-    
+
         let max_round_trip_latency = Duration::from_millis(7000);
 
         if data.payload.len() > MAX_PAYLOAD_BYTES {
