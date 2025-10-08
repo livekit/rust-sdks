@@ -150,6 +150,23 @@ fn main() {
                 .flag("/EHsc");
         }
         "linux" => {
+            // If libwebrtc was built with Chromium's libc++, the C++ in this crate needs to be built with it too.
+            let buildtools = webrtc_include.join("buildtools/third_party/libc++");
+            if buildtools.exists() {
+                // Chromium's libc++ doesn't build with GCC
+                if env::var("CC").is_err() {
+                    builder.compiler("clang++");
+                }
+                builder.include(buildtools);
+                builder.flag("-nostdinc++");
+                let webrtc_include = webrtc_include.to_string_lossy();
+                builder.flag(format!("-isystem{webrtc_include}/third_party/libc++/src/include"));
+                builder.flag(format!("-isystem{webrtc_include}/third_party/libc++abi/src/include"));
+                // The cxx crate builds this C++ file. However, this crate needs to rebuild it when using a
+                // different C++ standard library or linking will fail with unresolved symbol errors.
+                builder.file("src/cxx.cc");
+            }
+
             println!("cargo:rustc-link-lib=dylib=rt");
             println!("cargo:rustc-link-lib=dylib=dl");
             println!("cargo:rustc-link-lib=dylib=pthread");
