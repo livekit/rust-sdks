@@ -248,7 +248,6 @@ int32_t NvidiaH264EncoderImpl::InitEncode(
 
 int32_t NvidiaH264EncoderImpl::RegisterEncodeCompleteCallback(
     EncodedImageCallback* callback) {
-  RTC_DCHECK(callback);
   encoded_image_callback_ = callback;
   return WEBRTC_VIDEO_CODEC_OK;
 }

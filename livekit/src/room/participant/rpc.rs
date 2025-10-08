@@ -4,7 +4,7 @@
 
 use crate::room::participant::ParticipantIdentity;
 use livekit_protocol::RpcError as RpcError_Proto;
-use std::time::Duration;
+use std::{error::Error, fmt::Display, time::Duration};
 
 /// Parameters for performing an RPC call
 #[derive(Debug, Clone)]
@@ -83,6 +83,13 @@ impl RpcError {
         }
     }
 }
+
+impl Display for RpcError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "RPC Error: {} ({})", self.message, self.code)
+    }
+}
+impl Error for RpcError {}
 
 #[derive(Debug, Clone, Copy)]
 pub enum RpcErrorCode {

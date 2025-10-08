@@ -61,16 +61,58 @@ static bool load_cuda_modules() {
   return true;
 }
 
+static bool check_cuda_device() {
+  int device_count = 0;
+  int driver_version = 0;
+
+  CUCTX_CUDA_CALL_ERROR(cuDriverGetVersion(&driver_version));
+  if (kRequiredDriverVersion > driver_version) {
+    RTC_LOG(LS_ERROR)
+        << "CUDA driver version is not higher than the required version. "
+        << driver_version;
+    return false;
+  }
+
+  CUresult result = cuInit(0);
+  if (result != CUDA_SUCCESS) {
+    RTC_LOG(LS_ERROR) << "Failed to initialize CUDA.";
+    return false;
+  }
+
+  result = cuDeviceGetCount(&device_count);
+  if (result != CUDA_SUCCESS) {
+    RTC_LOG(LS_ERROR) << "Failed to get CUDA device count.";
+    return false;
+  }
+
+  if (device_count == 0) {
+    RTC_LOG(LS_ERROR) << "No CUDA devices found.";
+    return false;
+  }
+
+  return  true;
+}
+
+CudaContext* CudaContext::GetInstance() {
+  static CudaContext instance;
+  return &instance;
+}
+
+bool CudaContext::IsAvailable() {
+  return load_cuda_modules() && check_cuda_device();
+}
+
 bool CudaContext::Initialize() {
   // Initialize CUDA context
 
   bool success = load_cuda_modules();
   if (!success) {
-    std::cout << "Failed to load CUDA modules. maybe the NVIDIA driver is not installed?" << std::endl;
+    RTC_LOG(LS_ERROR) << "Failed to load CUDA modules. maybe the NVIDIA driver "
+                         "is not installed?";
     return false;
   }
 
-  int numDevices = 0;
+  int num_devices = 0;
   CUdevice cu_device = 0;
   CUcontext context = nullptr;
 
@@ -84,7 +126,23 @@ bool CudaContext::Initialize() {
     return false;
   }
 
-  CUCTX_CUDA_CALL_ERROR(cuInit(0));
+  CUresult result = cuInit(0);
+  if (result != CUDA_SUCCESS) {
+    RTC_LOG(LS_ERROR) << "Failed to initialize CUDA.";
+    return false;
+  }
+
+  result = cuDeviceGetCount(&num_devices);
+  if (result != CUDA_SUCCESS) {
+    RTC_LOG(LS_ERROR) << "Failed to get CUDA device count.";
+    return false;
+  }
+
+  if (num_devices == 0) {
+    RTC_LOG(LS_ERROR) << "No CUDA devices found.";
+    return false;
+  }
+
   CUCTX_CUDA_CALL_ERROR(cuDeviceGet(&cu_device, 0));
 
   char device_name[80];
@@ -102,6 +160,22 @@ bool CudaContext::Initialize() {
   cu_context_ = context;
 
   return true;
+}
+
+CUcontext CudaContext::GetContext() const {
+  RTC_DCHECK(cu_context_ != nullptr);
+  // Ensure the context is current
+  CUcontext current;
+  if (cuCtxGetCurrent(&current) != CUDA_SUCCESS) {
+    throw;
+  }
+  if (cu_context_ == current) {
+    return cu_context_;
+  }
+  if (cuCtxSetCurrent(cu_context_) != CUDA_SUCCESS) {
+    throw;
+  }
+  return cu_context_;
 }
 
 void CudaContext::Shutdown() {

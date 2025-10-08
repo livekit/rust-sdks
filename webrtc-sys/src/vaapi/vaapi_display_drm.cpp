@@ -4,7 +4,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <iostream>
 
 #ifdef IN_LIBVA
 #include "va/drm/va_drm.h"
@@ -111,7 +110,8 @@ namespace livekit {
 bool VaapiDisplayDrm::Open() {
   va_display_ = va_open_display_drm(&drm_fd_);
   if (!va_display_) {
-    std::cout << "Failed to open VA display. Maybe the AMD video driver or libva-dev/libdrm-dev is not installed?" << std::endl;
+    RTC_LOG(LS_ERROR) << "Failed to open VA drm display. Maybe the AMD video "
+                         "driver or libva-dev/libdrm-dev is not installed?";
     return false;
   }
   return true;

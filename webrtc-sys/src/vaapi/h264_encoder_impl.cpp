@@ -163,7 +163,6 @@ int32_t VAAPIH264EncoderWrapper::InitEncode(
 
 int32_t VAAPIH264EncoderWrapper::RegisterEncodeCompleteCallback(
     EncodedImageCallback* callback) {
-  RTC_DCHECK(callback);
   encoded_image_callback_ = callback;
   return WEBRTC_VIDEO_CODEC_OK;
 }

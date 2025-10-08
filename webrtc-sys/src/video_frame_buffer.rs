@@ -87,6 +87,22 @@ pub mod ffi {
         fn stride_a(self: &I420ABuffer) -> u32;
         fn data_a(self: &I420ABuffer) -> *const u8;
 
+        fn scale(self: &I420Buffer, scaled_width: i32, scaled_height: i32)
+            -> UniquePtr<I420Buffer>;
+        fn scale(
+            self: &I420ABuffer,
+            scaled_width: i32,
+            scaled_height: i32,
+        ) -> UniquePtr<I420ABuffer>;
+        fn scale(self: &I422Buffer, scaled_width: i32, scaled_height: i32)
+            -> UniquePtr<I422Buffer>;
+        fn scale(self: &I444Buffer, scaled_width: i32, scaled_height: i32)
+            -> UniquePtr<I444Buffer>;
+        fn scale(self: &I010Buffer, scaled_width: i32, scaled_height: i32)
+            -> UniquePtr<I010Buffer>;
+        fn scale(self: &NV12Buffer, scaled_width: i32, scaled_height: i32)
+            -> UniquePtr<NV12Buffer>;
+
         fn copy_i420_buffer(i420: &UniquePtr<I420Buffer>) -> UniquePtr<I420Buffer>;
         fn new_i420_buffer(
             width: i32,

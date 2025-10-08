@@ -219,6 +219,7 @@ fn main() {
                 .flag("-std=c++20");
         }
         "ios" => {
+            println!("cargo:rustc-link-lib=framework=Foundation");
             println!("cargo:rustc-link-lib=framework=CoreFoundation");
             println!("cargo:rustc-link-lib=framework=AVFoundation");
             println!("cargo:rustc-link-lib=framework=CoreAudio");
@@ -323,7 +324,7 @@ fn configure_darwin_sysroot(builder: &mut cc::Build) {
     let sysroot = String::from_utf8_lossy(&sysroot.stdout);
     let sysroot = sysroot.trim();
 
-    let search_dirs = Command::new("clang").arg("--print-search-dirs").output().unwrap();
+    let search_dirs = Command::new("cc").arg("--print-search-dirs").output().unwrap();
 
     let search_dirs = String::from_utf8_lossy(&search_dirs.stdout);
     for line in search_dirs.lines() {

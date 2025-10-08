@@ -25,6 +25,7 @@ on:
     paths:
       - livekit/**
       - libwebrtc/**
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -75,10 +76,14 @@ jobs:
           sudo apt update -y
           sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
+      - name: Install VA-API/NVIDIA drivers for linux x64 build
+        if: ${{ matrix.os == 'ubuntu-latest'}}
+        run:  |
+          sudo apt install -y libva-dev libdrm-dev libnvidia-compute-570 libnvidia-decode-570 nvidia-cuda-dev -y
+
+      - name: Install Rust toolchain.
+        run: |
+          rustup target add ${{ matrix.target }}
 
       - name: Build (Cargo)
         if: ${{ !contains(matrix.target, 'android') }}

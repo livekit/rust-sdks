@@ -216,7 +216,7 @@ enum DataChannelEventDetail {
 
 #[derive(Debug)]
 struct PublishPacketRequest {
-    /// Unencoded data packewt.
+    /// Unencoded data packet.
     packet: proto::DataPacket,
 
     /// Notifies the caller once the request has been fulfilled.
@@ -556,8 +556,9 @@ impl RtcSession {
         &self,
         data: proto::DataPacket,
         kind: DataPacketKind,
+        is_raw_packet: bool,
     ) -> Result<(), EngineError> {
-        self.inner.publish_data(data, kind).await
+        self.inner.publish_data(data, kind, is_raw_packet).await
     }
 
     pub async fn restart(&self) -> EngineResult<proto::ReconnectResponse> {
@@ -1476,12 +1477,15 @@ impl SessionInner {
         self: &Arc<Self>,
         mut packet: proto::DataPacket,
         kind: DataPacketKind,
+        is_raw_packet: bool,
     ) -> Result<(), EngineError> {
         self.ensure_publisher_connected(kind).await?;
 
         // Populate local participant info fields
-        packet.participant_identity = self.participant_info.identity.to_string();
-        packet.participant_sid = self.participant_info.sid.to_string();
+        if !is_raw_packet {
+            packet.participant_identity = self.participant_info.identity.to_string();
+            packet.participant_sid = self.participant_info.sid.to_string();
+        }
 
         let packet_value = packet.value.take();
 

@@ -1,6 +1,6 @@
 [package]
 name = "livekit"
-version = "0.7.18"
+version = "0.7.20"
 edition = "2021"
 license = "Apache-2.0"
 description = "Rust Client SDK for LiveKit"
@@ -48,3 +48,4 @@ test-log = "0.2.18"
 
 [dev-dependencies]
 anyhow = "1.0.99"
+test-log = "0.2.18"
