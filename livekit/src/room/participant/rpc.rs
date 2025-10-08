@@ -21,7 +21,7 @@ impl Default for PerformRpcData {
             destination_identity: Default::default(),
             method: Default::default(),
             payload: Default::default(),
-            response_timeout: Duration::from_secs(10),
+            response_timeout: Duration::from_secs(15),
         }
     }
 }
