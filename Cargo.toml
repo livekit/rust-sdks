@@ -12,6 +12,21 @@ members = [
     "imgproc",
     "webrtc-sys",
     "webrtc-sys/build",
+
+    "examples/api",
+    "examples/basic_room",
+    "examples/basic_room_async",
+    "examples/basic_room_dispatcher",
+    "examples/basic_text_stream",
+    "examples/encrypted_text_stream",
+    "examples/local_audio",
+    "examples/mobile",
+    "examples/play_from_disk",
+    "examples/rpc",
+    "examples/save_to_disk",
+    "examples/send_bytes",
+    "examples/webhooks",
+    "examples/wgpu_room",
 ]
 
 [workspace.dependencies]
