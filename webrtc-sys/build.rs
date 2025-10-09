@@ -81,7 +81,59 @@ fn main() {
         "src/desktop_capturer.cpp",
     ]);
 
-    let webrtc_dir = webrtc_sys_build::webrtc_dir();
+    let mut webrtc_dir = webrtc_sys_build::webrtc_dir();
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+
+    #[cfg(target_os = "linux")]
+    println!("cargo:rerun-if-env-changed=LK_LIBWEBRTC_SOURCE");
+    #[cfg(target_os = "linux")]
+    if let Ok(source_archive) = env::var("LK_LIBWEBRTC_SOURCE") {
+        let out_dir = env::var("OUT_DIR").unwrap();
+        let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
+
+        fn check_command_output(output: std::process::Output) {
+            let status = output.status;
+            if !status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                panic!("Command exited unsuccessfully: {status:?},\nstdout:\n{stdout}\nstderr:\n{stderr}");
+            }
+        }
+
+        if !std::fs::exists(format!("{out_dir}/src")).unwrap() {
+            check_command_output(
+                Command::new("tar")
+                    .args(["-Jxf", &source_archive, "-C", &out_dir])
+                    .output()
+                    .unwrap(),
+            );
+        }
+
+        let script_arch = match target_arch.as_str() {
+            "x86_64" => "x64",
+            "aarch64" => "arm64",
+            a => a,
+        };
+        check_command_output(
+            Command::new("bash")
+                .args([
+                    &format!("{manifest_dir}/libwebrtc/build_linux.sh"),
+                    "--sources",
+                    &format!("{out_dir}/src"),
+                    "--toolchain",
+                    "gnu",
+                    "--arch",
+                    script_arch,
+                    "--profile",
+                    "release",
+                ])
+                .output()
+                .unwrap(),
+        );
+
+        webrtc_dir = PathBuf::from(format!("{out_dir}/linux-{script_arch}-release"));
+    }
+
     let webrtc_include = webrtc_dir.join("include");
     let webrtc_lib = webrtc_dir.join("lib");
 
@@ -112,7 +164,6 @@ fn main() {
     println!("cargo:rustc-link-lib=static=webrtc");
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     match target_os.as_str() {
         "windows" => {
             println!("cargo:rustc-link-lib=dylib=msdmo");
