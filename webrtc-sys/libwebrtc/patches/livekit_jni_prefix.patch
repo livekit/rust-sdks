@@ -1,0 +1,369 @@
+diff --git a/modules/video_coding/codecs/test/android_codec_factory_helper.cc b/modules/video_coding/codecs/test/android_codec_factory_helper.cc
+index d1be684cbb..812c3eb5dc 100644
+--- a/modules/video_coding/codecs/test/android_codec_factory_helper.cc
++++ b/modules/video_coding/codecs/test/android_codec_factory_helper.cc
+@@ -51,9 +51,9 @@ void InitializeAndroidObjects() {
+ std::unique_ptr<VideoEncoderFactory> CreateAndroidEncoderFactory() {
+   JNIEnv* env = AttachCurrentThreadIfNeeded();
+   ScopedJavaLocalRef<jclass> factory_class =
+-      GetClass(env, "org/webrtc/HardwareVideoEncoderFactory");
++      GetClass(env, "livekit/org/webrtc/HardwareVideoEncoderFactory");
+   jmethodID factory_constructor = env->GetMethodID(
+-      factory_class.obj(), "<init>", "(Lorg/webrtc/EglBase$Context;ZZ)V");
++      factory_class.obj(), "<init>", "(Llivekit/org/webrtc/EglBase$Context;ZZ)V");
+   ScopedJavaLocalRef<jobject> factory_object(
+       env, env->NewObject(factory_class.obj(), factory_constructor,
+                           nullptr /* shared_context */,
+@@ -65,9 +65,9 @@ std::unique_ptr<VideoEncoderFactory> CreateAndroidEncoderFactory() {
+ std::unique_ptr<VideoDecoderFactory> CreateAndroidDecoderFactory() {
+   JNIEnv* env = AttachCurrentThreadIfNeeded();
+   ScopedJavaLocalRef<jclass> factory_class =
+-      GetClass(env, "org/webrtc/HardwareVideoDecoderFactory");
++      GetClass(env, "livekit/org/webrtc/HardwareVideoDecoderFactory");
+   jmethodID factory_constructor = env->GetMethodID(
+-      factory_class.obj(), "<init>", "(Lorg/webrtc/EglBase$Context;)V");
++      factory_class.obj(), "<init>", "(Llivekit/org/webrtc/EglBase$Context;)V");
+   ScopedJavaLocalRef<jobject> factory_object(
+       env, env->NewObject(factory_class.obj(), factory_constructor,
+                           nullptr /* shared_context */));
+diff --git a/sdk/android/BUILD.gn b/sdk/android/BUILD.gn
+index 7c05290942..7f9b9012d3 100644
+--- a/sdk/android/BUILD.gn
++++ b/sdk/android/BUILD.gn
+@@ -1333,6 +1333,7 @@ if (current_os == "linux" || is_android) {
+     sources = [ "api/org/webrtc/Metrics.java" ]
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   # Generated JNI for public JNI targets, matching order of targets
+@@ -1347,6 +1348,7 @@ if (current_os == "linux" || is_android) {
+     ]
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   generate_jni("generated_video_jni") {
+@@ -1377,12 +1379,14 @@ if (current_os == "linux" || is_android) {
+     ]
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   generate_jni("generated_video_egl_jni") {
+     sources = [ "src/java/org/webrtc/EglBase10Impl.java" ]
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   generate_jni("generated_libvpx_vp8_jni") {
+@@ -1393,6 +1397,7 @@ if (current_os == "linux" || is_android) {
+ 
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   generate_jni("generated_libvpx_vp9_jni") {
+@@ -1403,6 +1408,7 @@ if (current_os == "linux" || is_android) {
+ 
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   generate_jni("generated_libaom_av1_encoder_jni") {
+@@ -1410,6 +1416,7 @@ if (current_os == "linux" || is_android) {
+ 
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   generate_jni("generated_dav1d_jni") {
+@@ -1417,6 +1424,7 @@ if (current_os == "linux" || is_android) {
+ 
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   generate_jni("generated_swcodecs_jni") {
+@@ -1427,6 +1435,7 @@ if (current_os == "linux" || is_android) {
+ 
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   generate_jni("generated_peerconnection_jni") {
+@@ -1469,12 +1478,14 @@ if (current_os == "linux" || is_android) {
+     ]
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   generate_jni("generated_java_audio_jni") {
+     sources = [ "api/org/webrtc/audio/JavaAudioDeviceModule.java" ]
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   generate_jni("generated_builtin_audio_codecs_jni") {
+@@ -1484,6 +1495,7 @@ if (current_os == "linux" || is_android) {
+     ]
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   # Generated JNI for native API targets
+@@ -1496,6 +1508,7 @@ if (current_os == "linux" || is_android) {
+     ]
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   # Generated JNI for internal targets.
+@@ -1503,12 +1516,14 @@ if (current_os == "linux" || is_android) {
+   generate_jni("generated_logging_jni") {
+     sources = [ "src/java/org/webrtc/JNILogging.java" ]
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   generate_jni("generated_audio_device_module_base_jni") {
+     sources = [ "src/java/org/webrtc/audio/WebRtcAudioManager.java" ]
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ 
+   generate_jni("generated_java_audio_device_module_native_jni") {
+@@ -1518,6 +1533,7 @@ if (current_os == "linux" || is_android) {
+     ]
+     namespace = "webrtc::jni"
+     jni_generator_include = "//sdk/android/src/jni/jni_generator_helper.h"
++    package_prefix = android_package_prefix
+   }
+ }
+ 
+diff --git a/sdk/android/api/org/webrtc/PeerConnectionFactory.java b/sdk/android/api/org/webrtc/PeerConnectionFactory.java
+index 762ad3b678..6cb2000788 100644
+--- a/sdk/android/api/org/webrtc/PeerConnectionFactory.java
++++ b/sdk/android/api/org/webrtc/PeerConnectionFactory.java
+@@ -91,7 +91,7 @@ public class PeerConnectionFactory {
+       private String fieldTrials = "";
+       private boolean enableInternalTracer;
+       private NativeLibraryLoader nativeLibraryLoader = new NativeLibrary.DefaultLoader();
+-      private String nativeLibraryName = "jingle_peerconnection_so";
++      private String nativeLibraryName = "lkjingle_peerconnection_so";
+       @Nullable private Loggable loggable;
+       @Nullable private Severity loggableSeverity;
+ 
+diff --git a/sdk/android/src/jni/jni_helpers.h b/sdk/android/src/jni/jni_helpers.h
+index 4e5781027a..5d17a87c50 100644
+--- a/sdk/android/src/jni/jni_helpers.h
++++ b/sdk/android/src/jni/jni_helpers.h
+@@ -30,10 +30,10 @@
+ // boundary. crbug.com/655248
+ #define JNI_FUNCTION_DECLARATION(rettype, name, ...)                    \
+   __attribute__((force_align_arg_pointer)) extern "C" JNIEXPORT rettype \
+-      JNICALL Java_org_webrtc_##name(__VA_ARGS__)
++      JNICALL Java_livekit_org_webrtc_##name(__VA_ARGS__)
+ #else
+ #define JNI_FUNCTION_DECLARATION(rettype, name, ...) \
+-  extern "C" JNIEXPORT rettype JNICALL Java_org_webrtc_##name(__VA_ARGS__)
++  extern "C" JNIEXPORT rettype JNICALL Java_livekit_org_webrtc_##name(__VA_ARGS__)
+ #endif
+ 
+ namespace webrtc {
+diff --git a/sdk/android/src/jni/simulcast_video_encoder.cc b/sdk/android/src/jni/simulcast_video_encoder.cc
+index 6874c1821b..1cf8cceda5 100644
+--- a/sdk/android/src/jni/simulcast_video_encoder.cc
++++ b/sdk/android/src/jni/simulcast_video_encoder.cc
+@@ -15,7 +15,14 @@ extern "C" {
+ #endif
+ 
+ // (VideoEncoderFactory primary, VideoEncoderFactory fallback, VideoCodecInfo info)
+-JNIEXPORT jlong JNICALL Java_org_webrtc_SimulcastVideoEncoder_nativeCreateEncoder(JNIEnv *env, jclass klass, jlong webrtcEnvRef, jobject primary, jobject fallback, jobject info) {
++JNI_FUNCTION_DECLARATION(jlong,
++                         SimulcastVideoEncoder_nativeCreateEncoder,
++                         JNIEnv *env,
++                         jclass klass,
++                         jlong webrtcEnvRef,
++                         jobject primary,
++                         jobject fallback,
++                         jobject info) {
+     RTC_LOG(LS_INFO) << "Create simulcast video encoder";
+     JavaParamRef<jobject> info_ref(info);
+     SdpVideoFormat format = VideoCodecInfoToSdpVideoFormat(env, info_ref);
+diff --git a/tools_webrtc/android/build_aar.py b/tools_webrtc/android/build_aar.py
+index b442358283..5900e11935 100755
+--- a/tools_webrtc/android/build_aar.py
++++ b/tools_webrtc/android/build_aar.py
+@@ -252,7 +252,7 @@ def BuildAar(archs,
+             Collect(aar_file, build_dir, arch, unstripped)
+ 
+     license_dir = os.path.dirname(os.path.realpath(output_file))
+-    GenerateLicenses(license_dir, build_dir, archs)
++    #GenerateLicenses(license_dir, build_dir, archs)
+ 
+     if not ext_build_dir:
+         shutil.rmtree(build_dir, True)
+diff --git a/webrtc.gni b/webrtc.gni
+index 969cdbd2be..16095bbd4f 100644
+--- a/webrtc.gni
++++ b/webrtc.gni
+@@ -255,6 +255,10 @@ declare_args() {
+   #          hasn't been registered.
+   rtc_strict_field_trials = ""
+ 
++  if (is_android) {
++    android_package_prefix = "livekit"
++  }
++
+   # If different from "", symbols exported with RTC_OBJC_EXPORT will be prefixed
+   # with this string.
+   # See the definition of RTC_OBJC_TYPE_PREFIX in the code.
+diff --git a/third_party/jni_zero/codegen/header_common.py b/third_party/jni_zero/codegen/header_common.py
+index be0ee6ca43b..8f90d4f6c33 100644
+--- a/third_party/jni_zero/codegen/header_common.py
++++ b/third_party/jni_zero/codegen/header_common.py
+@@ -13,7 +13,8 @@ def class_accessors(java_classes, module_name):
+   for java_class in java_classes:
+     if java_class in (java_types.OBJECT_CLASS, java_types.STRING_CLASS):
+       continue
+-    escaped_name = common.escape_class_name(java_class.full_name_with_slashes)
++    print("header accessor: ", java_class.class_without_prefix.full_name_with_slashes)
++    escaped_name = common.escape_class_name(java_class.class_without_prefix.full_name_with_slashes)
+     # #ifdef needed when multple .h files are #included that common classes.
+     sb.append(f"""\
+ #ifndef {escaped_name}_clazz_defined
+@@ -42,7 +43,7 @@ def class_accessor_expression(java_class):
+   if java_class == java_types.STRING_CLASS:
+     return 'jni_zero::g_string_class'
+ 
+-  escaped_name = common.escape_class_name(java_class.full_name_with_slashes)
++  escaped_name = common.escape_class_name(java_class.class_without_prefix.full_name_with_slashes)
+   return f'{escaped_name}_clazz(env)'
+ 
+ 
+@@ -52,7 +53,7 @@ def header_preamble(script_name,
+                     user_includes,
+                     header_guard=None):
+   if header_guard is None:
+-    header_guard = java_class.full_name_with_slashes.replace('/', '_') + '_JNI'
++    header_guard = java_class.class_without_prefix.full_name_with_slashes.replace('/', '_') + '_JNI'
+   sb = []
+   sb.append(f"""\
+ // This file was generated by
+diff --git a/third_party/jni_zero/java_types.py b/third_party/jni_zero/java_types.py
+index 06708f70ab3..a4df349a492 100644
+--- a/third_party/jni_zero/java_types.py
++++ b/third_party/jni_zero/java_types.py
+@@ -62,6 +62,7 @@ class JavaClass:
+   _fqn: str
+   # This is only meaningful if make_prefix have been called on the original class.
+   _class_without_prefix: 'JavaClass' = None
++  _prefix: str = None
+ 
+   def __post_init__(self):
+     assert '.' not in self._fqn, f'{self._fqn} should have / and $, but not .'
+@@ -126,10 +127,10 @@ class JavaClass:
+     if not prefix:
+       return self
+     prefix = prefix.replace('.', '/')
+-    return JavaClass(f'{prefix}/{self._fqn}', self)
++    return JavaClass(f'{prefix}/{self._fqn}', self, prefix)
+ 
+   def make_nested(self, name):
+-    return JavaClass(f'{self._fqn}${name}')
++    return JavaClass(f'{self.class_without_prefix._fqn}${name}').make_prefixed(self._prefix)
+ 
+ 
+ @dataclasses.dataclass(frozen=True)
+diff --git a/third_party/jni_zero/jni_zero.gni b/third_party/jni_zero/jni_zero.gni
+index 46d9619789e..4b7e721f716 100644
+--- a/third_party/jni_zero/jni_zero.gni
++++ b/third_party/jni_zero/jni_zero.gni
+@@ -100,6 +100,7 @@ template("_invoke_jni_zero") {
+ #   require_native_mocks: Enforce that any native calls using
+ #     org.jni_zero.NativeMethods must have a mock set
+ #     (optional).
++#   package_prefix: package prefix to add to jni
+ #   enable_native_mocks: Allow native calls using
+ #     org.jni_zero.NativeMethods to be mocked in tests
+ #     (optional).
+@@ -267,6 +268,7 @@ template("generate_jni_impl") {
+                                "deps",
+                                "metadata",
+                                "public_deps",
++                               "package_prefix",
+                              ])
+       if (!defined(public_deps)) {
+         public_deps = []
+@@ -343,6 +345,10 @@ template("generate_jni_impl") {
+         args += [ "--split-name=${invoker.split_name}" ]
+       }
+ 
++      if (defined(package_prefix)) {
++        args += [ "--package-prefix=${package_prefix}" ]
++      }
++
+       foreach(_name, _input_names) {
+         _name = get_path_info(_name, "name") + "_jni.h"
+         outputs += [ "$_jni_output_dir/$_name" ]
+diff --git a/third_party/jni_zero/parse.py b/third_party/jni_zero/parse.py
+index 33203b9848e..ffd92a2e135 100644
+--- a/third_party/jni_zero/parse.py
++++ b/third_party/jni_zero/parse.py
+@@ -342,13 +342,15 @@ _IMPORT_REGEX = re.compile(r'^import\s+([^\s*]+);', flags=re.MULTILINE)
+ _IMPORT_CLASS_NAME_REGEX = re.compile(r'^(.*?)\.([A-Z].*)')
+ 
+ 
+-def _parse_imports(contents):
++def _parse_imports(contents, package_prefix):
+   # Regex skips static imports as well as wildcard imports.
+   names = _IMPORT_REGEX.findall(contents)
+   for name in names:
+     m = _IMPORT_CLASS_NAME_REGEX.match(name)
+     if m:
+       package, class_name = m.groups()
++      if package.startswith('org.webrtc'):
++        package = package_prefix + '.org.webrtc'
+       yield java_types.JavaClass(
+           package.replace('.', '/') + '/' + class_name.replace('.', '$'))
+ 
+@@ -385,7 +387,7 @@ def _do_parse(filename, *, package_prefix):
+     nested_classes = [c.make_prefixed(package_prefix) for c in nested_classes]
+ 
+   type_resolver = java_types.TypeResolver(outer_class)
+-  for java_class in _parse_imports(contents):
++  for java_class in _parse_imports(contents, package_prefix):
+     type_resolver.add_import(java_class)
+   for java_class in nested_classes:
+     type_resolver.add_nested_class(java_class)
+@@ -415,6 +417,7 @@ def _do_parse(filename, *, package_prefix):
+ 
+ 
+ def parse_java_file(filename, *, package_prefix=None):
++  print("parse_java_file: ", filename)
+   try:
+     return _do_parse(filename, package_prefix=package_prefix)
+   except ParseError as e:
+@@ -431,6 +434,7 @@ _JAVAP_METHOD_REGEX = re.compile(
+ 
+ 
+ def parse_javap(filename, contents):
++  print("parse_javap: ", filename)
+   contents = _remove_generics(contents)
+   match = _JAVAP_CLASS_REGEX.search(contents)
+   if not match:
