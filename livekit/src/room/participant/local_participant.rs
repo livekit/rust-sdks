@@ -736,7 +736,10 @@ impl LocalParticipant {
     }
 
     pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {
-        let max_round_trip_latency = Duration::from_millis(2000);
+        // Maximum amount of time it should ever take for an RPC request to reach the destination, and the ACK to come back
+        // This is set to 7 seconds to account for various relay timeouts and retries in LiveKit Cloud that occur in rare cases
+
+        let max_round_trip_latency = Duration::from_millis(7000);
 
         if data.payload.len() > MAX_PAYLOAD_BYTES {
             return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
@@ -757,6 +760,7 @@ impl LocalParticipant {
         let id = create_random_uuid();
         let (ack_tx, ack_rx) = oneshot::channel();
         let (response_tx, response_rx) = oneshot::channel();
+        let effective_timeout = data.response_timeout - max_round_trip_latency;
 
         match self
             .publish_rpc_request(RpcRequest {
@@ -764,7 +768,7 @@ impl LocalParticipant {
                 id: id.clone(),
                 method: data.method.clone(),
                 payload: data.payload.clone(),
-                response_timeout: data.response_timeout,
+                response_timeout: effective_timeout,
                 version: 1,
             })
             .await
