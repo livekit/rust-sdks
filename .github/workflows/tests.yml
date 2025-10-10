@@ -52,6 +52,12 @@ jobs:
           rustup update --no-self-update nightly
           rustup target add ${{ matrix.target }} --toolchain nightly
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Cache Cargo registry
         uses: actions/cache@v3
         with:

@@ -120,6 +120,12 @@ jobs:
         run: |
           rustup target add ${{ matrix.target }}
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up QEMU
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
         uses: docker/setup-qemu-action@v3
@@ -182,14 +188,14 @@ jobs:
       - name: Zip artifact (Unix)
         if: ${{ matrix.os != 'windows-latest' && matrix.platform != 'android'}}
         run: |
-          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/ 
+          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
           cd target/${{ matrix.target }}/release/
           zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} livekit_ffi.h LICENSE.md
 
       - name: Zip artifact (Unix for Android)
         if: ${{ matrix.os != 'windows-latest' && matrix.platform == 'android'}}
         run: |
-          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/ 
+          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
           cd target/${{ matrix.target }}/release/
           zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} ${{ matrix.jar }} livekit_ffi.h LICENSE.md
 
