@@ -17,6 +17,7 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "api/audio/audio_frame.h"
 #include "api/audio_options.h"
@@ -137,7 +138,7 @@ class AudioTrackSource {
     void (*on_complete_)(const SourceContext*) RTC_GUARDED_BY(mutex_);
 
     int missed_frames_ RTC_GUARDED_BY(mutex_) = 0;
-    int16_t* silence_buffer_ = nullptr;
+    std::vector<int16_t> silence_buffer_;
 
     int sample_rate_;
     int num_channels_;

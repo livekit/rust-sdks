@@ -59,11 +59,11 @@ impl<'a> Iterator for Utf8AwareChunks<'a> {
 pub trait Utf8AwareChunkExt {
     /// Splits the bytes into chunks of the specified size, ensuring that
     /// UTF-8 character boundaries are respected.
-    fn utf8_aware_chunks(&self, chunk_size: usize) -> Utf8AwareChunks;
+    fn utf8_aware_chunks(&self, chunk_size: usize) -> Utf8AwareChunks<'_>;
 }
 
 impl Utf8AwareChunkExt for [u8] {
-    fn utf8_aware_chunks(&self, chunk_size: usize) -> Utf8AwareChunks {
+    fn utf8_aware_chunks(&self, chunk_size: usize) -> Utf8AwareChunks<'_> {
         Utf8AwareChunks::new(self, chunk_size)
     }
 }

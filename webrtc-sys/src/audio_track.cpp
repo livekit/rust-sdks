@@ -150,7 +150,7 @@ AudioTrackSource::InternalSource::InternalSource(
 
   int samples10ms = sample_rate / 100 * num_channels;
 
-  silence_buffer_ = new int16_t[samples10ms]();
+  silence_buffer_.resize(samples10ms);
   queue_size_samples_ = queue_size_ms / 10 * samples10ms;
   notify_threshold_samples_ = queue_size_samples_;  // TODO: this is currently
                                                     // using x2 the queue size
@@ -164,10 +164,13 @@ AudioTrackSource::InternalSource::InternalSource(
       audio_queue_.get(),
       [this, samples10ms]() {
         webrtc::MutexLock lock(&mutex_);
+        constexpr int kBitsPerSample = sizeof(int16_t) * 8;
 
         if (buffer_.size() >= samples10ms) {
+          // Reset |missed_frames_| to 0 so that it won't keep sending silence to webrtc due to audio callback timing drifts.
+          missed_frames_ = 0;
           for (auto sink : sinks_)
-            sink->OnData(buffer_.data(), sizeof(int16_t) * 8, sample_rate_,
+            sink->OnData(buffer_.data(), kBitsPerSample, sample_rate_,
                          num_channels_, samples10ms / num_channels_);
 
           buffer_.erase(buffer_.begin(), buffer_.begin() + samples10ms);
@@ -175,7 +178,7 @@ AudioTrackSource::InternalSource::InternalSource(
           missed_frames_++;
           if (missed_frames_ >= silence_frames_threshold) {
             for (auto sink : sinks_)
-              sink->OnData(silence_buffer_, sizeof(int16_t) * 8, sample_rate_,
+              sink->OnData(silence_buffer_.data(), kBitsPerSample, sample_rate_,
                            num_channels_, samples10ms / num_channels_);
           }
         }
@@ -192,7 +195,6 @@ AudioTrackSource::InternalSource::InternalSource(
 }
 
 AudioTrackSource::InternalSource::~InternalSource() {
-  delete[] silence_buffer_;
 }
 
 bool AudioTrackSource::InternalSource::capture_frame(
