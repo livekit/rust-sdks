@@ -1,0 +1,15 @@
+[package]
+name = "screensharing"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+env_logger = "0.10"
+livekit = { path = "../../livekit", features = ["native-tls"]}
+livekit-api = { path = "../../livekit-api"}
+log = "0.4"
+clap = { version = "4.0", features = ["derive"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+glib = "0.21.1"

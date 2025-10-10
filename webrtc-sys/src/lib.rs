@@ -19,6 +19,7 @@ pub mod audio_resampler;
 pub mod audio_track;
 pub mod candidate;
 pub mod data_channel;
+pub mod desktop_capturer;
 pub mod frame_cryptor;
 pub mod helper;
 pub mod jsep;

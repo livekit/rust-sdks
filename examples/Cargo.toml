@@ -8,4 +8,5 @@ members = [
     "webhooks",
     "api",
     "rpc",
+    "screensharing",
 ]
