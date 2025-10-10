@@ -157,6 +157,7 @@ jobs:
             export PATH=/root/.cargo/bin:\$PATH; \
             yum install llvm llvm-libs -y; \
             yum install clang -y; \
+            yum install protobuf-compiler -y; \
             yum groupinstall 'Development Tools' -y; \
             clang --version; \
             yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel -y; \
