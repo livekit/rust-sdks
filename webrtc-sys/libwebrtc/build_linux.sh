@@ -88,9 +88,7 @@ mkdir -p "$ARTIFACTS_DIR/lib"
 python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
 
 if [ "$arch" = "arm64" ]; then
-  cd /
-  sudo sed -i.bak 's/__GLIBC_USE_ISOC23[[:space:]]*1/__GLIBC_USE_ISOC23\t0/' /usr/aarch64-linux-gnu/include/features.h
-  cd $COMMAND_DIR
+  sed -i 's/__GLIBC_USE_ISOC23[[:space:]]*1/__GLIBC_USE_ISOC23\t0/' /usr/aarch64-linux-gnu/include/features.h
 fi
 
 debug="false"
