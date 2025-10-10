@@ -75,12 +75,23 @@ cd build
 
 git apply "$COMMAND_DIR/patches/force_gcc.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
-cd ../.. 
+cd ..
 
+cd third_party
+
+git apply "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+cd ../..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
 
 python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
+
+if [ "$arch" = "arm64" ]; then
+  cd /
+  sudo patch -p0 < $COMMAND_DIR/patches/disable_glibc_use_isoc23.patch
+  cd $COMMAND_DIR
+fi
 
 debug="false"
 if [ "$profile" = "debug" ]; then
