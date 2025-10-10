@@ -45,6 +45,7 @@ prost-build = "0.14.1"
 webrtc-sys-build = { workspace = true }
 
 [dev-dependencies]
+libloading = "0.8.9"
 livekit-api = { workspace = true }
 
 [lib]
