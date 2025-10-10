@@ -89,7 +89,7 @@ python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
 
 if [ "$arch" = "arm64" ]; then
   cd /
-  sudo cp -f $COMMAND_DIR/patches/features.h /usr/aarch64-linux-gnu/include/features.h
+  sudo sed -i 's/define __GLIBC_USE_ISOC23[[:space:]]\+1/define __GLIBC_USE_ISOC23\t0/' /usr/aarch64-linux-gnu/include/features.h
   cd $COMMAND_DIR
 fi
 
