@@ -1,9 +1,11 @@
 #[cfg(feature = "__lk-e2e-test")]
 use {
-    anyhow::Result,
+    anyhow::{Ok, Result},
     chrono::{TimeDelta, TimeZone, Utc},
     common::test_rooms,
-    livekit::{ConnectionState, ParticipantKind},
+    livekit::{ConnectionState, ParticipantKind, RoomEvent},
+    std::time::Duration,
+    tokio::time::{self, timeout},
 };
 
 mod common;
@@ -34,19 +36,42 @@ async fn test_connect() -> Result<()> {
 async fn test_connect_multiple() -> Result<()> {
     let mut rooms = test_rooms(2).await?;
 
-    let (second_room, _) = rooms.pop().unwrap();
-    let (first_room, _) = rooms.pop().unwrap();
+    let (second, _) = rooms.pop().unwrap();
+    let (first, _) = rooms.pop().unwrap();
 
-    assert_eq!(first_room.name(), second_room.name(), "Participants are in different rooms");
+    assert_eq!(first.name(), second.name(), "Participants are in different rooms");
 
-    assert!(second_room
-        .remote_participants()
-        .get(&first_room.local_participant().identity())
-        .is_some());
-    assert!(first_room
-        .remote_participants()
-        .get(&second_room.local_participant().identity())
-        .is_some());
+    assert!(second.remote_participants().get(&first.local_participant().identity()).is_some());
+    assert!(first.remote_participants().get(&second.local_participant().identity()).is_some());
 
+    Ok(())
+}
+
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_participant_disconnect() -> Result<()> {
+    let mut rooms = test_rooms(2).await?;
+    let (second, _) = rooms.pop().unwrap();
+    let second_sid = second.local_participant().sid();
+    let second_name = second.local_participant().name();
+
+    let (_, mut first_event_rx) = rooms.pop().unwrap();
+
+    tokio::spawn(async move {
+        time::sleep(Duration::from_millis(400)).await;
+        second.close().await?;
+        Ok(())
+    });
+
+    let wait_for_disconnected = async move {
+        while let Some(event) = first_event_rx.recv().await {
+            let RoomEvent::ParticipantDisconnected(participant) = event else { continue };
+            assert_eq!(participant.sid(), second_sid);
+            assert_eq!(participant.name(), second_name);
+            break;
+        }
+        Ok(())
+    };
+    timeout(Duration::from_secs(15), wait_for_disconnected).await??;
     Ok(())
 }
