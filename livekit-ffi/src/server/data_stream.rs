@@ -64,21 +64,17 @@ impl FfiByteStreamReader {
                             proto::ByteStreamReaderChunkReceived { content: bytes.to_vec() };
                         let event = proto::ByteStreamReaderEvent {
                             reader_handle: self.handle_id,
-                            detail: Some(proto::byte_stream_reader_event::Detail::ChunkReceived(
-                                detail,
-                            )),
+                            detail: Some(detail.into()),
                         };
-                        let _ = server
-                            .send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
+                        let _ = server.send_event(event.into());
                     }
                     Err(err) => {
                         let detail = proto::ByteStreamReaderEos { error: Some(err.into()) };
                         let event = proto::ByteStreamReaderEvent {
                             reader_handle: self.handle_id,
-                            detail: Some(proto::byte_stream_reader_event::Detail::Eos(detail)),
+                            detail: Some(detail.into()),
                         };
-                        let _ = server
-                            .send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
+                        let _ = server.send_event(event.into());
                         return;
                     }
                 }
@@ -87,9 +83,9 @@ impl FfiByteStreamReader {
             let detail = proto::ByteStreamReaderEos { error: None };
             let event = proto::ByteStreamReaderEvent {
                 reader_handle: self.handle_id,
-                detail: Some(proto::byte_stream_reader_event::Detail::Eos(detail)),
+                detail: Some(detail.into()),
             };
-            let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderEvent(event));
+            let _ = server.send_event(event.into());
         });
         server.watch_panic(handle);
         Ok(proto::ByteStreamReaderReadIncrementalResponse {})
@@ -105,7 +101,7 @@ impl FfiByteStreamReader {
             let result = self.inner.read_all().await.into();
             let callback =
                 proto::ByteStreamReaderReadAllCallback { async_id, result: Some(result) };
-            let _ = server.send_event(proto::ffi_event::Message::ByteStreamReaderReadAll(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
         Ok(proto::ByteStreamReaderReadAllResponse { async_id })
@@ -126,8 +122,7 @@ impl FfiByteStreamReader {
                 .into();
             let callback =
                 proto::ByteStreamReaderWriteToFileCallback { async_id, result: Some(result) };
-            let _ =
-                server.send_event(proto::ffi_event::Message::ByteStreamReaderWriteToFile(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
 
@@ -149,21 +144,17 @@ impl FfiTextStreamReader {
                         let detail = proto::TextStreamReaderChunkReceived { content: text };
                         let event = proto::TextStreamReaderEvent {
                             reader_handle: self.handle_id,
-                            detail: Some(proto::text_stream_reader_event::Detail::ChunkReceived(
-                                detail,
-                            )),
+                            detail: Some(detail.into()),
                         };
-                        let _ = server
-                            .send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
+                        let _ = server.send_event(event.into());
                     }
                     Err(err) => {
                         let detail = proto::TextStreamReaderEos { error: Some(err.into()) };
                         let event = proto::TextStreamReaderEvent {
                             reader_handle: self.handle_id,
-                            detail: Some(proto::text_stream_reader_event::Detail::Eos(detail)),
+                            detail: Some(detail.into()),
                         };
-                        let _ = server
-                            .send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
+                        let _ = server.send_event(event.into());
                         return;
                     }
                 }
@@ -172,9 +163,9 @@ impl FfiTextStreamReader {
             let detail = proto::TextStreamReaderEos { error: None };
             let event = proto::TextStreamReaderEvent {
                 reader_handle: self.handle_id,
-                detail: Some(proto::text_stream_reader_event::Detail::Eos(detail)),
+                detail: Some(detail.into()),
             };
-            let _ = server.send_event(proto::ffi_event::Message::TextStreamReaderEvent(event));
+            let _ = server.send_event(event.into());
         });
         server.watch_panic(handle);
         Ok(proto::TextStreamReaderReadIncrementalResponse {})
@@ -190,7 +181,7 @@ impl FfiTextStreamReader {
             let result = self.inner.read_all().await.into();
             let callback =
                 proto::TextStreamReaderReadAllCallback { async_id, result: Some(result) };
-            let _ = server.send_event(proto::ffi_event::Message::TextStreamReaderReadAll(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
         Ok(proto::TextStreamReaderReadAllResponse { async_id })
@@ -225,7 +216,7 @@ impl FfiByteStreamWriter {
                 async_id,
                 error: result.map_err(|e| e.into()).err(),
             };
-            let _ = server.send_event(proto::ffi_event::Message::ByteStreamWriterWrite(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
         Ok(proto::ByteStreamWriterWriteResponse { async_id })
@@ -246,7 +237,7 @@ impl FfiByteStreamWriter {
                 async_id,
                 error: result.map_err(|e| e.into()).err(),
             };
-            let _ = server.send_event(proto::ffi_event::Message::ByteStreamWriterClose(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
         Ok(proto::ByteStreamWriterCloseResponse { async_id })
@@ -281,7 +272,7 @@ impl FfiTextStreamWriter {
                 async_id,
                 error: result.map_err(|e| e.into()).err(),
             };
-            let _ = server.send_event(proto::ffi_event::Message::TextStreamWriterWrite(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
         Ok(proto::TextStreamWriterWriteResponse { async_id })
@@ -302,7 +293,7 @@ impl FfiTextStreamWriter {
                 async_id,
                 error: result.map_err(|e| e.into()).err(),
             };
-            let _ = server.send_event(proto::ffi_event::Message::TextStreamWriterClose(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
         Ok(proto::TextStreamWriterCloseResponse { async_id })

@@ -71,10 +71,7 @@ fn on_disconnect(
 
         ffi_room.close(server).await;
 
-        let _ =
-            server.send_event(proto::ffi_event::Message::Disconnect(proto::DisconnectCallback {
-                async_id,
-            }));
+        let _ = server.send_event(proto::DisconnectCallback { async_id }.into());
     });
     server.watch_panic(handle);
     Ok(proto::DisconnectResponse { async_id })
@@ -391,22 +388,24 @@ fn on_get_stats(
     let handle = server.async_runtime.spawn(async move {
         match ffi_track.track.get_stats().await {
             Ok(stats) => {
-                let _ = server.send_event(proto::ffi_event::Message::GetStats(
+                let _ = server.send_event(
                     proto::GetStatsCallback {
                         async_id,
                         error: None,
                         stats: stats.into_iter().map(Into::into).collect(),
-                    },
-                ));
+                    }
+                    .into(),
+                );
             }
             Err(err) => {
-                let _ = server.send_event(proto::ffi_event::Message::GetStats(
+                let _ = server.send_event(
                     proto::GetStatsCallback {
                         async_id,
                         error: Some(err.to_string()),
                         stats: Vec::default(),
-                    },
-                ));
+                    }
+                    .into(),
+                );
             }
         }
     });
@@ -713,7 +712,7 @@ fn on_get_session_stats(
     let handle = server.async_runtime.spawn(async move {
         match ffi_room.inner.room.get_stats().await {
             Ok(stats) => {
-                let _ = server.send_event(proto::ffi_event::Message::GetSessionStats(
+                let _ = server.send_event(
                     proto::GetSessionStatsCallback {
                         async_id,
                         message: Some(proto::get_session_stats_callback::Message::Result(
@@ -730,18 +729,20 @@ fn on_get_session_stats(
                                     .collect(),
                             },
                         )),
-                    },
-                ));
+                    }
+                    .into(),
+                );
             }
             Err(err) => {
-                let _ = server.send_event(proto::ffi_event::Message::GetSessionStats(
+                let _ = server.send_event(
                     proto::GetSessionStatsCallback {
                         async_id,
                         message: Some(proto::get_session_stats_callback::Message::Error(
                             err.to_string(),
                         )),
-                    },
-                ));
+                    }
+                    .into(),
+                );
             }
         }
     });
@@ -1180,251 +1181,91 @@ pub fn handle_request(
 
     let mut res = proto::FfiResponse::default();
 
+    use proto::ffi_request::Message as Request;
     res.message = Some(match request {
-        proto::ffi_request::Message::Dispose(dispose) => {
-            proto::ffi_response::Message::Dispose(on_dispose(server, dispose)?)
+        Request::Dispose(req) => on_dispose(server, req)?.into(),
+        Request::Connect(req) => on_connect(server, req)?.into(),
+        Request::Disconnect(req) => on_disconnect(server, req)?.into(),
+        Request::PublishTrack(req) => on_publish_track(server, req)?.into(),
+        Request::UnpublishTrack(req) => on_unpublish_track(server, req)?.into(),
+        Request::PublishData(req) => on_publish_data(server, req)?.into(),
+        Request::PublishTranscription(req) => on_publish_transcription(server, req)?.into(),
+        Request::PublishSipDtmf(req) => on_publish_sip_dtmf(server, req)?.into(),
+        Request::SetSubscribed(req) => on_set_subscribed(server, req)?.into(),
+        Request::SetLocalMetadata(req) => on_set_local_metadata(server, req)?.into(),
+        Request::SetLocalName(req) => on_set_local_name(server, req)?.into(),
+        Request::SetLocalAttributes(req) => on_set_local_attributes(server, req)?.into(),
+        Request::SendChatMessage(req) => on_send_chat_message(server, req)?.into(),
+        Request::EditChatMessage(req) => on_edit_chat_message(server, req)?.into(),
+        Request::CreateVideoTrack(req) => on_create_video_track(server, req)?.into(),
+        Request::CreateAudioTrack(req) => on_create_audio_track(server, req)?.into(),
+        Request::LocalTrackMute(req) => on_local_track_mute(server, req)?.into(),
+        Request::EnableRemoteTrack(req) => on_enable_remote_track(server, req)?.into(),
+        Request::GetStats(req) => on_get_stats(server, req)?.into(),
+        Request::NewVideoStream(req) => on_new_video_stream(server, req)?.into(),
+        Request::VideoStreamFromParticipant(req) => {
+            on_video_stream_from_participant(server, req)?.into()
         }
-        proto::ffi_request::Message::Connect(connect) => {
-            proto::ffi_response::Message::Connect(on_connect(server, connect)?)
+        Request::NewVideoSource(req) => on_new_video_source(server, req)?.into(),
+        Request::CaptureVideoFrame(req) => unsafe { on_capture_video_frame(server, req)?.into() },
+        Request::VideoConvert(req) => unsafe { on_video_convert(server, req)?.into() },
+        Request::NewAudioStream(req) => on_new_audio_stream(server, req)?.into(),
+        Request::NewAudioSource(req) => on_new_audio_source(server, req)?.into(),
+        Request::AudioStreamFromParticipant(req) => {
+            on_audio_stream_from_participant_stream(server, req)?.into()
         }
-        proto::ffi_request::Message::Disconnect(disconnect) => {
-            proto::ffi_response::Message::Disconnect(on_disconnect(server, disconnect)?)
+        Request::CaptureAudioFrame(req) => on_capture_audio_frame(server, req)?.into(),
+        Request::ClearAudioBuffer(req) => on_clear_audio_buffer(server, req)?.into(),
+        Request::NewAudioResampler(req) => new_audio_resampler(server, req)?.into(),
+        Request::RemixAndResample(req) => remix_and_resample(server, req)?.into(),
+        Request::E2ee(req) => on_e2ee_request(server, req)?.into(),
+        Request::GetSessionStats(req) => on_get_session_stats(server, req)?.into(),
+        Request::NewSoxResampler(req) => on_new_sox_resampler(server, req)?.into(),
+        Request::PushSoxResampler(req) => on_push_sox_resampler(server, req)?.into(),
+        Request::FlushSoxResampler(req) => on_flush_sox_resampler(server, req)?.into(),
+        Request::NewApm(req) => on_new_apm(server, req)?.into(),
+        Request::ApmProcessStream(req) => on_apm_process_stream(server, req)?.into(),
+        Request::ApmProcessReverseStream(req) => on_apm_process_reverse_stream(server, req)?.into(),
+        Request::ApmSetStreamDelay(req) => on_apm_set_stream_delay(server, req)?.into(),
+        Request::PerformRpc(req) => on_perform_rpc(server, req)?.into(),
+        Request::RegisterRpcMethod(req) => on_register_rpc_method(server, req)?.into(),
+        Request::UnregisterRpcMethod(req) => on_unregister_rpc_method(server, req)?.into(),
+        Request::RpcMethodInvocationResponse(req) => {
+            on_rpc_method_invocation_response(server, req)?.into()
         }
-        proto::ffi_request::Message::PublishTrack(publish) => {
-            proto::ffi_response::Message::PublishTrack(on_publish_track(server, publish)?)
+        Request::EnableRemoteTrackPublication(req) => {
+            on_enable_remote_track_publication(server, req)?.into()
         }
-        proto::ffi_request::Message::UnpublishTrack(unpublish) => {
-            proto::ffi_response::Message::UnpublishTrack(on_unpublish_track(server, unpublish)?)
+        Request::UpdateRemoteTrackPublicationDimension(req) => {
+            on_update_remote_track_publication_dimension(server, req)?.into()
         }
-        proto::ffi_request::Message::PublishData(publish) => {
-            proto::ffi_response::Message::PublishData(on_publish_data(server, publish)?)
+        Request::SendStreamHeader(req) => on_send_stream_header(server, req)?.into(),
+        Request::SendStreamChunk(req) => on_send_stream_chunk(server, req)?.into(),
+        Request::SendStreamTrailer(req) => on_send_stream_trailer(server, req)?.into(),
+        Request::SetDataChannelBufferedAmountLowThreshold(req) => {
+            on_set_data_channel_buffered_amount_low_threshold(server, req)?.into()
         }
-        proto::ffi_request::Message::PublishTranscription(publish) => {
-            proto::ffi_response::Message::PublishTranscription(on_publish_transcription(
-                server, publish,
-            )?)
+        Request::ByteReadIncremental(req) => {
+            on_byte_stream_reader_read_incremental(server, req)?.into()
         }
-        proto::ffi_request::Message::PublishSipDtmf(publish) => {
-            proto::ffi_response::Message::PublishSipDtmf(on_publish_sip_dtmf(server, publish)?)
+        Request::ByteReadAll(req) => on_byte_stream_reader_read_all(server, req)?.into(),
+        Request::ByteWriteToFile(req) => on_byte_stream_reader_write_to_file(server, req)?.into(),
+        Request::TextReadIncremental(req) => {
+            on_text_stream_reader_read_incremental(server, req)?.into()
         }
-        proto::ffi_request::Message::SetSubscribed(subscribed) => {
-            proto::ffi_response::Message::SetSubscribed(on_set_subscribed(server, subscribed)?)
-        }
-        proto::ffi_request::Message::SetLocalMetadata(u) => {
-            proto::ffi_response::Message::SetLocalMetadata(on_set_local_metadata(server, u)?)
-        }
-        proto::ffi_request::Message::SetLocalName(update) => {
-            proto::ffi_response::Message::SetLocalName(on_set_local_name(server, update)?)
-        }
-        proto::ffi_request::Message::SetLocalAttributes(update) => {
-            proto::ffi_response::Message::SetLocalAttributes(on_set_local_attributes(
-                server, update,
-            )?)
-        }
-        proto::ffi_request::Message::SendChatMessage(update) => {
-            proto::ffi_response::Message::SendChatMessage(on_send_chat_message(server, update)?)
-        }
-        proto::ffi_request::Message::EditChatMessage(update) => {
-            proto::ffi_response::Message::SendChatMessage(on_edit_chat_message(server, update)?)
-        }
-        proto::ffi_request::Message::CreateVideoTrack(create) => {
-            proto::ffi_response::Message::CreateVideoTrack(on_create_video_track(server, create)?)
-        }
-        proto::ffi_request::Message::CreateAudioTrack(create) => {
-            proto::ffi_response::Message::CreateAudioTrack(on_create_audio_track(server, create)?)
-        }
-        proto::ffi_request::Message::LocalTrackMute(create) => {
-            proto::ffi_response::Message::LocalTrackMute(on_local_track_mute(server, create)?)
-        }
-        proto::ffi_request::Message::EnableRemoteTrack(create) => {
-            proto::ffi_response::Message::EnableRemoteTrack(on_enable_remote_track(server, create)?)
-        }
-        proto::ffi_request::Message::GetStats(get_stats) => {
-            proto::ffi_response::Message::GetStats(on_get_stats(server, get_stats)?)
-        }
-        proto::ffi_request::Message::NewVideoStream(new_stream) => {
-            proto::ffi_response::Message::NewVideoStream(on_new_video_stream(server, new_stream)?)
-        }
-        proto::ffi_request::Message::VideoStreamFromParticipant(new_stream) => {
-            proto::ffi_response::Message::VideoStreamFromParticipant(
-                on_video_stream_from_participant(server, new_stream)?,
-            )
-        }
-        proto::ffi_request::Message::NewVideoSource(new_source) => {
-            proto::ffi_response::Message::NewVideoSource(on_new_video_source(server, new_source)?)
-        }
-        proto::ffi_request::Message::CaptureVideoFrame(push) => unsafe {
-            proto::ffi_response::Message::CaptureVideoFrame(on_capture_video_frame(server, push)?)
-        },
-        proto::ffi_request::Message::VideoConvert(video_convert) => unsafe {
-            proto::ffi_response::Message::VideoConvert(on_video_convert(server, video_convert)?)
-        },
-        proto::ffi_request::Message::NewAudioStream(new_stream) => {
-            proto::ffi_response::Message::NewAudioStream(on_new_audio_stream(server, new_stream)?)
-        }
-        proto::ffi_request::Message::NewAudioSource(new_source) => {
-            proto::ffi_response::Message::NewAudioSource(on_new_audio_source(server, new_source)?)
-        }
-        proto::ffi_request::Message::AudioStreamFromParticipant(new_stream) => {
-            proto::ffi_response::Message::AudioStreamFromParticipant(
-                on_audio_stream_from_participant_stream(server, new_stream)?,
-            )
-        }
-        proto::ffi_request::Message::CaptureAudioFrame(push) => {
-            proto::ffi_response::Message::CaptureAudioFrame(on_capture_audio_frame(server, push)?)
-        }
-        proto::ffi_request::Message::ClearAudioBuffer(clear) => {
-            proto::ffi_response::Message::ClearAudioBuffer(on_clear_audio_buffer(server, clear)?)
-        }
-        proto::ffi_request::Message::NewAudioResampler(new_res) => {
-            proto::ffi_response::Message::NewAudioResampler(new_audio_resampler(server, new_res)?)
-        }
-        proto::ffi_request::Message::RemixAndResample(remix) => {
-            proto::ffi_response::Message::RemixAndResample(remix_and_resample(server, remix)?)
-        }
-        proto::ffi_request::Message::E2ee(e2ee) => {
-            proto::ffi_response::Message::E2ee(on_e2ee_request(server, e2ee)?)
-        }
-        proto::ffi_request::Message::GetSessionStats(get_session_stats) => {
-            proto::ffi_response::Message::GetSessionStats(on_get_session_stats(
-                server,
-                get_session_stats,
-            )?)
-        }
-        proto::ffi_request::Message::NewSoxResampler(new_soxr) => {
-            proto::ffi_response::Message::NewSoxResampler(on_new_sox_resampler(server, new_soxr)?)
-        }
-        proto::ffi_request::Message::PushSoxResampler(push_soxr) => {
-            proto::ffi_response::Message::PushSoxResampler(on_push_sox_resampler(
-                server, push_soxr,
-            )?)
-        }
-        proto::ffi_request::Message::FlushSoxResampler(flush_soxr) => {
-            proto::ffi_response::Message::FlushSoxResampler(on_flush_sox_resampler(
-                server, flush_soxr,
-            )?)
-        }
-        proto::ffi_request::Message::NewApm(new_apm) => {
-            proto::ffi_response::Message::NewApm(on_new_apm(server, new_apm)?)
-        }
-        proto::ffi_request::Message::ApmProcessStream(request) => {
-            proto::ffi_response::Message::ApmProcessStream(on_apm_process_stream(server, request)?)
-        }
-        proto::ffi_request::Message::ApmProcessReverseStream(request) => {
-            proto::ffi_response::Message::ApmProcessReverseStream(on_apm_process_reverse_stream(
-                server, request,
-            )?)
-        }
-        proto::ffi_request::Message::ApmSetStreamDelay(request) => {
-            proto::ffi_response::Message::ApmSetStreamDelay(on_apm_set_stream_delay(
-                server, request,
-            )?)
-        }
-        proto::ffi_request::Message::PerformRpc(request) => {
-            proto::ffi_response::Message::PerformRpc(on_perform_rpc(server, request)?)
-        }
-        proto::ffi_request::Message::RegisterRpcMethod(request) => {
-            proto::ffi_response::Message::RegisterRpcMethod(on_register_rpc_method(
-                server, request,
-            )?)
-        }
-        proto::ffi_request::Message::UnregisterRpcMethod(request) => {
-            proto::ffi_response::Message::UnregisterRpcMethod(on_unregister_rpc_method(
-                server, request,
-            )?)
-        }
-        proto::ffi_request::Message::RpcMethodInvocationResponse(request) => {
-            proto::ffi_response::Message::RpcMethodInvocationResponse(
-                on_rpc_method_invocation_response(server, request)?,
-            )
-        }
-        proto::ffi_request::Message::EnableRemoteTrackPublication(request) => {
-            proto::ffi_response::Message::EnableRemoteTrackPublication(
-                on_enable_remote_track_publication(server, request)?,
-            )
-        }
-        proto::ffi_request::Message::UpdateRemoteTrackPublicationDimension(request) => {
-            proto::ffi_response::Message::UpdateRemoteTrackPublicationDimension(
-                on_update_remote_track_publication_dimension(server, request)?,
-            )
-        }
-        proto::ffi_request::Message::SendStreamHeader(request) => {
-            proto::ffi_response::Message::SendStreamHeader(on_send_stream_header(server, request)?)
-        }
-        proto::ffi_request::Message::SendStreamChunk(request) => {
-            proto::ffi_response::Message::SendStreamChunk(on_send_stream_chunk(server, request)?)
-        }
-        proto::ffi_request::Message::SendStreamTrailer(request) => {
-            proto::ffi_response::Message::SendStreamTrailer(on_send_stream_trailer(
-                server, request,
-            )?)
-        }
-        proto::ffi_request::Message::SetDataChannelBufferedAmountLowThreshold(request) => {
-            proto::ffi_response::Message::SetDataChannelBufferedAmountLowThreshold(
-                on_set_data_channel_buffered_amount_low_threshold(server, request)?,
-            )
-        }
-        proto::ffi_request::Message::ByteReadIncremental(request) => {
-            proto::ffi_response::Message::ByteReadIncremental(
-                on_byte_stream_reader_read_incremental(server, request)?,
-            )
-        }
-        proto::ffi_request::Message::ByteReadAll(request) => {
-            proto::ffi_response::Message::ByteReadAll(on_byte_stream_reader_read_all(
-                server, request,
-            )?)
-        }
-        proto::ffi_request::Message::ByteWriteToFile(request) => {
-            proto::ffi_response::Message::ByteWriteToFile(on_byte_stream_reader_write_to_file(
-                server, request,
-            )?)
-        }
-        proto::ffi_request::Message::TextReadIncremental(request) => {
-            proto::ffi_response::Message::TextReadIncremental(
-                on_text_stream_reader_read_incremental(server, request)?,
-            )
-        }
-        proto::ffi_request::Message::TextReadAll(request) => {
-            proto::ffi_response::Message::TextReadAll(on_text_stream_reader_read_all(
-                server, request,
-            )?)
-        }
-        proto::ffi_request::Message::SendFile(request) => {
-            proto::ffi_response::Message::SendFile(on_send_file(server, request)?)
-        }
-        proto::ffi_request::Message::SendBytes(request) => {
-            proto::ffi_response::Message::SendBytes(on_send_bytes(server, request)?)
-        }
-        proto::ffi_request::Message::SendText(request) => {
-            proto::ffi_response::Message::SendText(on_send_text(server, request)?)
-        }
-        proto::ffi_request::Message::ByteStreamOpen(request) => {
-            proto::ffi_response::Message::ByteStreamOpen(on_byte_stream_open(server, request)?)
-        }
-        proto::ffi_request::Message::ByteStreamWrite(request) => {
-            proto::ffi_response::Message::ByteStreamWrite(on_byte_stream_write(server, request)?)
-        }
-        proto::ffi_request::Message::ByteStreamClose(request) => {
-            proto::ffi_response::Message::ByteStreamClose(on_byte_stream_close(server, request)?)
-        }
-        proto::ffi_request::Message::TextStreamOpen(request) => {
-            proto::ffi_response::Message::TextStreamOpen(on_text_stream_open(server, request)?)
-        }
-        proto::ffi_request::Message::TextStreamWrite(request) => {
-            proto::ffi_response::Message::TextStreamWrite(on_text_stream_write(server, request)?)
-        }
-        proto::ffi_request::Message::TextStreamClose(request) => {
-            proto::ffi_response::Message::TextStreamClose(on_text_stream_close(server, request)?)
-        }
-        proto::ffi_request::Message::LoadAudioFilterPlugin(request) => {
-            proto::ffi_response::Message::LoadAudioFilterPlugin(on_load_audio_filter_plugin(
-                server, request,
-            )?)
-        }
-        proto::ffi_request::Message::SetTrackSubscriptionPermissions(request) => {
-            proto::ffi_response::Message::SetTrackSubscriptionPermissions(
-                on_set_track_subscription_permissions(server, request)?,
-            )
+        Request::TextReadAll(req) => on_text_stream_reader_read_all(server, req)?.into(),
+        Request::SendFile(req) => on_send_file(server, req)?.into(),
+        Request::SendBytes(req) => on_send_bytes(server, req)?.into(),
+        Request::SendText(req) => on_send_text(server, req)?.into(),
+        Request::ByteStreamOpen(req) => on_byte_stream_open(server, req)?.into(),
+        Request::ByteStreamWrite(req) => on_byte_stream_write(server, req)?.into(),
+        Request::ByteStreamClose(req) => on_byte_stream_close(server, req)?.into(),
+        Request::TextStreamOpen(req) => on_text_stream_open(server, req)?.into(),
+        Request::TextStreamWrite(req) => on_text_stream_write(server, req)?.into(),
+        Request::TextStreamClose(req) => on_text_stream_close(server, req)?.into(),
+        Request::LoadAudioFilterPlugin(req) => on_load_audio_filter_plugin(server, req)?.into(),
+        Request::SetTrackSubscriptionPermissions(req) => {
+            on_set_track_subscription_permissions(server, req)?.into()
         }
     });
 

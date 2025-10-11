@@ -145,7 +145,7 @@ impl FfiVideoStream {
                     server.store_handle(handle_id, buffer);
 
 
-                    if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
+                    if let Err(err) = server.send_event(
                         proto::VideoStreamEvent {
                             stream_handle,
                             message: Some(proto::video_stream_event::Message::FrameReceived(
@@ -160,8 +160,8 @@ impl FfiVideoStream {
                                     },
                                 }
                             )),
-                        }
-                    )) {
+                        }.into()
+                    ) {
                         server.drop_handle(handle_id);
                         log::warn!("failed to send video frame: {}", err);
                     }
@@ -170,14 +170,15 @@ impl FfiVideoStream {
         }
 
         if send_eos {
-            if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
+            if let Err(err) = server.send_event(
                 proto::VideoStreamEvent {
                     stream_handle,
                     message: Some(proto::video_stream_event::Message::Eos(
                         proto::VideoStreamEos {},
                     )),
-                },
-            )) {
+                }
+                .into(),
+            ) {
                 log::warn!("failed to send video EOS: {}", err);
             }
         }
@@ -265,12 +266,13 @@ impl FfiVideoStream {
                 break;
             }
         }
-        if let Err(err) = server.send_event(proto::ffi_event::Message::VideoStreamEvent(
+        if let Err(err) = server.send_event(
             proto::VideoStreamEvent {
                 stream_handle,
                 message: Some(proto::video_stream_event::Message::Eos(proto::VideoStreamEos {})),
-            },
-        )) {
+            }
+            .into(),
+        ) {
             log::warn!("failed to send video EOS: {}", err);
         }
     }

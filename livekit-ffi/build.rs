@@ -71,6 +71,33 @@ fn generate_protobuf() {
         println!("cargo:rerun-if-changed={}", path.display());
     }
     prost_build::Config::new()
+        .derive_from_variants("livekit.proto.FfiRequest.message")
+        .derive_from_variants("livekit.proto.FfiResponse.message")
+        .derive_from_variants("livekit.proto.FfiEvent.message")
+        .derive_from_variants("livekit.proto.RoomEvent.message")
+        .from_variants_skip_field("livekit.proto.RoomEvent.message.room_updated")
+        .from_variants_skip_field("livekit.proto.RoomEvent.message.moved")
+        .derive_from_variants("livekit.proto.AudioStreamEvent.message")
+        .derive_from_variants("livekit.proto.TextStreamReaderEvent.detail")
+        .derive_from_variants("livekit.proto.ByteStreamReaderEvent.detail")
         .compile_protos(&paths, &[PROTO_SRC_DIR])
         .expect("Protobuf generation failed");
+}
+
+trait ProstConfigExt {
+    /// Derive [`from_variants::FromVariants`] on a oneof field's generated enum.
+    fn derive_from_variants(&mut self, path: impl AsRef<str>) -> &mut Self;
+
+    /// When using [`derive_from_variants`], skip a particular case. This is necessary
+    /// for oneofs that contain multiple cases with the same message type.
+    fn from_variants_skip_field(&mut self, path: impl AsRef<str>) -> &mut Self;
+}
+
+impl ProstConfigExt for prost_build::Config {
+    fn derive_from_variants(&mut self, path: impl AsRef<str>) -> &mut Self {
+        self.enum_attribute(path, "#[derive(from_variants::FromVariants)]")
+    }
+    fn from_variants_skip_field(&mut self, path: impl AsRef<str>) -> &mut Self {
+        self.field_attribute(path, "#[from_variants(skip)]")
+    }
 }
