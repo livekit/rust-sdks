@@ -88,9 +88,12 @@ async fn log_forward_task(mut rx: mpsc::UnboundedReceiver<LogMsg>) {
         // It is safe to use FFI_SERVER here, if we receive logs when capture_logs is enabled,
         // it means the server has already been initialized
 
-        let _ = FFI_SERVER.send_event(proto::ffi_event::Message::Logs(proto::LogBatch {
+        let _ = FFI_SERVER.send_event(
+            proto::LogBatch {
             records: batch.clone(), // Avoid clone here?
-        }));
+        }
+            .into(),
+        );
         batch.clear();
     }
 

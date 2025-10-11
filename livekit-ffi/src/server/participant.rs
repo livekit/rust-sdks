@@ -80,7 +80,7 @@ impl FfiParticipant {
                 }),
             };
 
-            let _ = server.send_event(proto::ffi_event::Message::PerformRpc(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
         Ok(proto::PerformRpcResponse { async_id })
@@ -151,7 +151,7 @@ impl FfiParticipant {
                 Err(err) => proto::stream_send_file_callback::Result::Error(err.into()),
             };
             let callback = proto::StreamSendFileCallback { async_id, result: Some(result) };
-            let _ = server.send_event(proto::ffi_event::Message::SendFile(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
         Ok(proto::StreamSendFileResponse { async_id })
@@ -171,7 +171,7 @@ impl FfiParticipant {
                 Err(err) => proto::stream_send_text_callback::Result::Error(err.into()),
             };
             let callback = proto::StreamSendTextCallback { async_id, result: Some(result) };
-            let _ = server.send_event(proto::ffi_event::Message::SendText(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
         Ok(proto::StreamSendTextResponse { async_id })
@@ -191,7 +191,7 @@ impl FfiParticipant {
                 Err(err) => proto::stream_send_bytes_callback::Result::Error(err.into()),
             };
             let callback = proto::StreamSendBytesCallback { async_id, result: Some(result) };
-            let _ = server.send_event(proto::ffi_event::Message::SendBytes(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
         Ok(proto::StreamSendBytesResponse { async_id })
@@ -214,7 +214,7 @@ impl FfiParticipant {
                 Err(err) => proto::byte_stream_open_callback::Result::Error(err.into()),
             };
             let callback = proto::ByteStreamOpenCallback { async_id, result: Some(result) };
-            let _ = server.send_event(proto::ffi_event::Message::ByteStreamOpen(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
         Ok(proto::ByteStreamOpenResponse { async_id })
@@ -237,7 +237,7 @@ impl FfiParticipant {
                 Err(err) => proto::text_stream_open_callback::Result::Error(err.into()),
             };
             let callback = proto::TextStreamOpenCallback { async_id, result: Some(result) };
-            let _ = server.send_event(proto::ffi_event::Message::TextStreamOpen(callback));
+            let _ = server.send_event(callback.into());
         });
         server.watch_panic(handle);
         Ok(proto::TextStreamOpenResponse { async_id })
@@ -256,7 +256,7 @@ async fn forward_rpc_method_invocation(
 
     room.store_rpc_method_invocation_waiter(invocation_id, tx);
 
-    let _ = server.send_event(proto::ffi_event::Message::RpcMethodInvocation(
+    let _ = server.send_event(
         proto::RpcMethodInvocationEvent {
             local_participant_handle: local_participant_handle as u64,
             invocation_id,
@@ -265,8 +265,9 @@ async fn forward_rpc_method_invocation(
             caller_identity: data.caller_identity.into(),
             payload: data.payload,
             response_timeout_ms: data.response_timeout.as_millis() as u32,
-        },
-    ));
+        }
+        .into(),
+    );
 
     rx.await.unwrap_or_else(|_| {
         Err(RpcError {

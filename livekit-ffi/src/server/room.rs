@@ -199,7 +199,7 @@ impl FfiRoom {
 
                     // Send the async response to the FfiClient *before* starting the tasks.
                     // Ensure no events are sent before the callback
-                    let _ = server.send_event(proto::ffi_event::Message::Connect(
+                    let _ = server.send_event(
                         proto::ConnectCallback {
                             async_id,
                             message: Some(proto::connect_callback::Message::Result(
@@ -212,22 +212,25 @@ impl FfiRoom {
                                     participants: remote_infos,
                                 },
                             )),
-                        },
-                    ));
+                        }
+                        .into(),
+                    );
 
                     // Update Room SID on promise resolve
                     let room_handle = inner.handle_id.clone();
                     server.async_runtime.spawn(async move {
-                        let _ = server.send_event(proto::ffi_event::Message::RoomEvent(
+                        let _ = server.send_event(
                             proto::RoomEvent {
                                 room_handle,
-                                message: Some(proto::room_event::Message::RoomSidChanged(
+                                message: Some(
                                     proto::RoomSidChanged {
                                         sid: ffi_room.inner.room.sid().await.into(),
-                                    },
-                                )),
-                            },
-                        ));
+                                    }
+                                    .into(),
+                                ),
+                            }
+                            .into(),
+                        );
                     });
 
                     // Forward events
@@ -281,13 +284,14 @@ impl FfiRoom {
                     // Failed to connect to the room, send an error message to the FfiClient
                     // TODO(theomonnom): Typed errors?
                     log::error!("error while connecting to a room: {}", e);
-                    let _ = server.send_event(proto::ffi_event::Message::Connect(
+                    let _ = server.send_event(
                         proto::ConnectCallback {
                             async_id,
                             message: Some(proto::connect_callback::Message::Error(e.to_string())),
                             ..Default::default()
-                        },
-                    ));
+                        }
+                        .into(),
+                    );
                 }
             };
         };
@@ -353,7 +357,7 @@ impl RoomInner {
                     error: Some(format!("failed to send data, room closed: {}", err)),
                 };
 
-                let _ = server.send_event(proto::ffi_event::Message::PublishData(cb));
+                let _ = server.send_event(cb.into());
             });
             server.watch_panic(handle);
         }
@@ -391,7 +395,7 @@ impl RoomInner {
                     error: Some(format!("failed to send transcription, room closed: {}", err)),
                 };
 
-                let _ = server.send_event(proto::ffi_event::Message::PublishTranscription(cb));
+                let _ = server.send_event(cb.into());
             });
             server.watch_panic(handle);
         }
@@ -426,7 +430,7 @@ impl RoomInner {
                     error: Some(format!("failed to send SIP DTMF message, room closed: {}", err)),
                 };
 
-                let _ = server.send_event(proto::ffi_event::Message::PublishSipDtmf(cb));
+                let _ = server.send_event(cb.into());
             });
             server.watch_panic(handle);
         }
@@ -472,7 +476,7 @@ impl RoomInner {
                     let publication_info = proto::TrackPublicationInfo::from(&ffi_publication);
                     server.store_handle(ffi_publication.handle, ffi_publication);
 
-                    let _ = server.send_event(proto::ffi_event::Message::PublishTrack(
+                    let _ = server.send_event(
                         proto::PublishTrackCallback {
                             async_id,
                             message: Some(proto::publish_track_callback::Message::Publication(
@@ -481,21 +485,23 @@ impl RoomInner {
                                     info: publication_info,
                                 },
                             )),
-                        },
-                    ));
+                        }
+                        .into(),
+                    );
 
                     inner.pending_published_tracks.lock().insert(publication.sid());
                 }
                 Err(err) => {
                     // Failed to publish the track
-                    let _ = server.send_event(proto::ffi_event::Message::PublishTrack(
+                    let _ = server.send_event(
                         proto::PublishTrackCallback {
                             async_id,
                             message: Some(proto::publish_track_callback::Message::Error(
                                 err.to_string(),
                             )),
-                        },
-                    ));
+                        }
+                        .into(),
+                    );
                 }
             }
         });
@@ -530,12 +536,13 @@ impl RoomInner {
                 }
             }
 
-            let _ = server.send_event(proto::ffi_event::Message::UnpublishTrack(
+            let _ = server.send_event(
                 proto::UnpublishTrackCallback {
                     async_id,
                     error: unpublish_res.err().map(|e| e.to_string()),
-                },
-            ));
+                }
+                .into(),
+            );
         });
         server.watch_panic(handle);
         proto::UnpublishTrackResponse { async_id }
@@ -552,12 +559,13 @@ impl RoomInner {
             let res =
                 inner.room.local_participant().set_metadata(set_local_metadata.metadata).await;
 
-            let _ = server.send_event(proto::ffi_event::Message::SetLocalMetadata(
+            let _ = server.send_event(
                 proto::SetLocalMetadataCallback {
                     async_id,
                     error: res.err().map(|e| e.to_string()),
-                },
-            ));
+                }
+                .into(),
+            );
         });
         server.watch_panic(handle);
         proto::SetLocalMetadataResponse { async_id }
@@ -573,9 +581,10 @@ impl RoomInner {
         let handle = server.async_runtime.spawn(async move {
             let res = inner.room.local_participant().set_name(set_local_name.name).await;
 
-            let _ = server.send_event(proto::ffi_event::Message::SetLocalName(
-                proto::SetLocalNameCallback { async_id, error: res.err().map(|e| e.to_string()) },
-            ));
+            let _ = server.send_event(
+                proto::SetLocalNameCallback { async_id, error: res.err().map(|e| e.to_string()) }
+                    .into(),
+            );
         });
         server.watch_panic(handle);
         proto::SetLocalNameResponse { async_id }
@@ -601,12 +610,13 @@ impl RoomInner {
                 )
                 .await;
 
-            let _ = server.send_event(proto::ffi_event::Message::SetLocalAttributes(
+            let _ = server.send_event(
                 proto::SetLocalAttributesCallback {
                     async_id,
                     error: res.err().map(|e| e.to_string()),
-                },
-            ));
+                }
+                .into(),
+            );
         });
         server.watch_panic(handle);
         proto::SetLocalAttributesResponse { async_id }
@@ -631,24 +641,26 @@ impl RoomInner {
                 .await;
             match res {
                 Ok(message) => {
-                    let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
+                    let _ = server.send_event(
                         proto::SendChatMessageCallback {
                             async_id,
                             message: Some(proto::send_chat_message_callback::Message::ChatMessage(
                                 proto::ChatMessage::from(message).into(),
                             )),
-                        },
-                    ));
+                        }
+                        .into(),
+                    );
                 }
                 Err(error) => {
-                    let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
+                    let _ = server.send_event(
                         proto::SendChatMessageCallback {
                             async_id,
                             message: Some(proto::send_chat_message_callback::Message::Error(
                                 error.to_string(),
                             )),
-                        },
-                    ));
+                        }
+                        .into(),
+                    );
                 }
             }
         });
@@ -676,24 +688,26 @@ impl RoomInner {
                 .await;
             match res {
                 Ok(message) => {
-                    let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
+                    let _ = server.send_event(
                         proto::SendChatMessageCallback {
                             async_id,
                             message: Some(proto::send_chat_message_callback::Message::ChatMessage(
                                 proto::ChatMessage::from(message).into(),
                             )),
-                        },
-                    ));
+                        }
+                        .into(),
+                    );
                 }
                 Err(error) => {
-                    let _ = server.send_event(proto::ffi_event::Message::ChatMessage(
+                    let _ = server.send_event(
                         proto::SendChatMessageCallback {
                             async_id,
                             message: Some(proto::send_chat_message_callback::Message::Error(
                                 error.to_string(),
                             )),
-                        },
-                    ));
+                        }
+                        .into(),
+                    );
                 }
             }
         });
@@ -726,7 +740,7 @@ impl RoomInner {
                 async_id,
                 error: res.err().map(|e| e.to_string()),
             };
-            let _ = server.send_event(proto::ffi_event::Message::SendStreamHeader(cb));
+            let _ = server.send_event(cb.into());
         });
         server.watch_panic(handle);
         proto::SendStreamHeaderResponse { async_id }
@@ -756,7 +770,7 @@ impl RoomInner {
                 async_id,
                 error: res.err().map(|e| e.to_string()),
             };
-            let _ = server.send_event(proto::ffi_event::Message::SendStreamChunk(cb));
+            let _ = server.send_event(cb.into());
         });
         server.watch_panic(handle);
         proto::SendStreamChunkResponse { async_id }
@@ -785,7 +799,7 @@ impl RoomInner {
                 async_id,
                 error: res.err().map(|e| e.to_string()),
             };
-            let _ = server.send_event(proto::ffi_event::Message::SendStreamTrailer(cb));
+            let _ = server.send_event(cb.into());
         });
         server.watch_panic(handle);
         proto::SendStreamTrailerResponse { async_id }
@@ -857,7 +871,7 @@ async fn data_task(
                     error: res.err().map(|e| e.to_string()),
                 };
 
-                let _ = server.send_event(proto::ffi_event::Message::PublishData(cb));
+                let _ = server.send_event(cb.into());
             },
             _ = close_rx.recv() => {
                 break;
@@ -897,7 +911,7 @@ async fn transcription_task(
                     error: res.err().map(|e| e.to_string()),
                 };
 
-                let _ = server.send_event(proto::ffi_event::Message::PublishTranscription(cb));
+                let _ = server.send_event(cb.into());
             },
             _ = close_rx.recv() => {
                 break;
@@ -923,7 +937,7 @@ async fn sip_dtmf_task(
                     error: res.err().map(|e| e.to_string()),
                 };
 
-                let _ = server.send_event(proto::ffi_event::Message::PublishSipDtmf(cb));
+                let _ = server.send_event(cb.into());
             },
             _ = close_rx.recv() => {
                 break;
@@ -977,10 +991,10 @@ async fn room_task(
         };
     }
 
-    let _ = server.send_event(proto::ffi_event::Message::RoomEvent(proto::RoomEvent {
-        room_handle: inner.handle_id,
-        message: Some(proto::room_event::Message::Eos(proto::RoomEos {})),
-    }));
+    let _ = server.send_event(
+        proto::RoomEvent { room_handle: inner.handle_id, message: Some(proto::RoomEos {}.into()) }
+            .into(),
+    );
 }
 
 async fn forward_event(
@@ -990,10 +1004,9 @@ async fn forward_event(
     present_state: Arc<Mutex<ActualState>>,
 ) {
     let send_event = |event: proto::room_event::Message| {
-        server.send_event(proto::ffi_event::Message::RoomEvent(proto::RoomEvent {
-            room_handle: inner.handle_id,
-            message: Some(event),
-        }))
+        server.send_event(
+            proto::RoomEvent { room_handle: inner.handle_id, message: Some(event) }.into(),
+        )
     };
     match event {
         RoomEvent::ParticipantConnected(participant) => {
@@ -1005,25 +1018,27 @@ async fn forward_event(
             };
             server.store_handle(handle_id, ffi_participant.clone());
 
-            let _ = send_event(proto::room_event::Message::ParticipantConnected(
+            let _ = send_event(
                 proto::ParticipantConnected {
                     info: proto::OwnedParticipant {
                         handle: proto::FfiOwnedHandle { id: handle_id },
                         info: proto::ParticipantInfo::from(&ffi_participant),
                     },
-                },
-            ));
+                }
+                .into(),
+            );
         }
         RoomEvent::ParticipantDisconnected(participant) => {
-            let _ = send_event(proto::room_event::Message::ParticipantDisconnected(
+            let _ = send_event(
                 proto::ParticipantDisconnected {
                     participant_identity: participant.identity().into(),
                     disconnect_reason: proto::DisconnectReason::from(
                         participant.disconnect_reason(),
                     )
                     .into(),
-                },
-            ));
+                }
+                .into(),
+            );
         }
         RoomEvent::LocalTrackPublished { publication, track: _, participant: _ } => {
             let sid = publication.sid();
@@ -1049,21 +1064,19 @@ async fn forward_event(
             };
             server.store_handle(ffi_publication.handle, ffi_publication);
 
-            let _ = send_event(proto::room_event::Message::LocalTrackPublished(
-                proto::LocalTrackPublished { track_sid: sid.to_string() },
-            ));
+            let _ = send_event(proto::LocalTrackPublished { track_sid: sid.to_string() }.into());
         }
         RoomEvent::LocalTrackUnpublished { publication, participant: _ } => {
-            let _ = send_event(proto::room_event::Message::LocalTrackUnpublished(
-                proto::LocalTrackUnpublished { publication_sid: publication.sid().into() },
-            ));
+            let _ = send_event(
+                proto::LocalTrackUnpublished { publication_sid: publication.sid().into() }.into(),
+            );
 
             inner.pending_unpublished_tracks.lock().insert(publication.sid());
         }
         RoomEvent::LocalTrackSubscribed { track } => {
-            let _ = send_event(proto::room_event::Message::LocalTrackSubscribed(
-                proto::LocalTrackSubscribed { track_sid: track.sid().to_string() },
-            ));
+            let _ = send_event(
+                proto::LocalTrackSubscribed { track_sid: track.sid().to_string() }.into(),
+            );
         }
         RoomEvent::TrackPublished { publication, participant } => {
             let handle_id = server.next_id();
@@ -1075,20 +1088,25 @@ async fn forward_event(
             let publication_info = proto::TrackPublicationInfo::from(&ffi_publication);
             server.store_handle(ffi_publication.handle, ffi_publication);
 
-            let _ = send_event(proto::room_event::Message::TrackPublished(proto::TrackPublished {
-                participant_identity: participant.identity().to_string(),
-                publication: proto::OwnedTrackPublication {
-                    handle: proto::FfiOwnedHandle { id: handle_id },
-                    info: publication_info,
-                },
-            }));
+            let _ = send_event(
+                proto::TrackPublished {
+                    participant_identity: participant.identity().to_string(),
+                    publication: proto::OwnedTrackPublication {
+                        handle: proto::FfiOwnedHandle { id: handle_id },
+                        info: publication_info,
+                    },
+                }
+                .into(),
+            );
         }
         RoomEvent::TrackUnpublished { publication, participant } => {
-            let _ =
-                send_event(proto::room_event::Message::TrackUnpublished(proto::TrackUnpublished {
+            let _ = send_event(
+                proto::TrackUnpublished {
                     participant_identity: participant.identity().to_string(),
                     publication_sid: publication.sid().into(),
-                }));
+                }
+                .into(),
+            );
         }
         RoomEvent::TrackSubscribed { track, publication: _, participant } => {
             let handle_id = server.next_id();
@@ -1103,67 +1121,77 @@ async fn forward_event(
             server.store_handle(ffi_track.handle, ffi_track);
             inner.track_handle_lookup.lock().insert(track_sid, handle_id);
 
-            let _ =
-                send_event(proto::room_event::Message::TrackSubscribed(proto::TrackSubscribed {
+            let _ = send_event(
+                proto::TrackSubscribed {
                     participant_identity: participant.identity().to_string(),
                     track: proto::OwnedTrack {
                         handle: proto::FfiOwnedHandle { id: handle_id },
                         info: track_info,
                     },
-                }));
+                }
+                .into(),
+            );
         }
         RoomEvent::TrackUnsubscribed { track, publication: _, participant } => {
-            let _ = send_event(proto::room_event::Message::TrackUnsubscribed(
+            let _ = send_event(
                 proto::TrackUnsubscribed {
                     participant_identity: participant.identity().to_string(),
                     track_sid: track.sid().to_string(),
-                },
-            ));
+                }
+                .into(),
+            );
         }
         RoomEvent::TrackSubscriptionFailed { participant, error, track_sid } => {
-            let _ = send_event(proto::room_event::Message::TrackSubscriptionFailed(
+            let _ = send_event(
                 proto::TrackSubscriptionFailed {
                     participant_identity: participant.identity().to_string(),
                     error: error.to_string(),
                     track_sid: track_sid.into(),
-                },
-            ));
+                }
+                .into(),
+            );
         }
         RoomEvent::TrackMuted { participant, publication } => {
-            let _ = send_event(proto::room_event::Message::TrackMuted(proto::TrackMuted {
-                participant_identity: participant.identity().to_string(),
-                track_sid: publication.sid().into(),
-            }));
+            let _ = send_event(
+                proto::TrackMuted {
+                    participant_identity: participant.identity().to_string(),
+                    track_sid: publication.sid().into(),
+                }
+                .into(),
+            );
         }
         RoomEvent::TrackUnmuted { participant, publication } => {
-            let _ = send_event(proto::room_event::Message::TrackUnmuted(proto::TrackUnmuted {
-                participant_identity: participant.identity().to_string(),
-                track_sid: publication.sid().into(),
-            }));
+            let _ = send_event(
+                proto::TrackUnmuted {
+                    participant_identity: participant.identity().to_string(),
+                    track_sid: publication.sid().into(),
+                }
+                .into(),
+            );
         }
         RoomEvent::RoomMetadataChanged { old_metadata: _, metadata } => {
-            let _ = send_event(proto::room_event::Message::RoomMetadataChanged(
-                proto::RoomMetadataChanged { metadata },
-            ));
+            let _ = send_event(proto::RoomMetadataChanged { metadata }.into());
         }
         RoomEvent::ParticipantMetadataChanged { participant, old_metadata: _, metadata } => {
-            let _ = send_event(proto::room_event::Message::ParticipantMetadataChanged(
+            let _ = send_event(
                 proto::ParticipantMetadataChanged {
                     participant_identity: participant.identity().to_string(),
                     metadata,
-                },
-            ));
+                }
+                .into(),
+            );
         }
         RoomEvent::ParticipantNameChanged { participant, old_name: _, name } => {
-            let _ = send_event(proto::room_event::Message::ParticipantNameChanged(
+            let _ = send_event(
                 proto::ParticipantNameChanged {
                     participant_identity: participant.identity().to_string(),
                     name,
-                },
-            ));
+                }
+                .into(),
+            );
         }
         RoomEvent::ParticipantAttributesChanged { participant, changed_attributes } => {
-            let _ = send_event(proto::room_event::Message::ParticipantAttributesChanged(
+            let _ = send_event(
                 proto::ParticipantAttributesChanged {
                     participant_identity: participant.identity().to_string(),
                     changed_attributes: changed_attributes
@@ -1176,32 +1204,33 @@ async fn forward_event(
                         .into_iter()
                         .map(|(key, value)| proto::AttributesEntry { key, value })
                         .collect(),
-                },
-            ));
+                }
+                .into(),
+            );
         }
         RoomEvent::ParticipantEncryptionStatusChanged { participant, is_encrypted } => {
-            let _ = send_event(proto::room_event::Message::ParticipantEncryptionStatusChanged(
+            let _ = send_event(
                 proto::ParticipantEncryptionStatusChanged {
                     participant_identity: participant.identity().to_string(),
                     is_encrypted,
-                },
-            ));
+                }
+                .into(),
+            );
         }
         RoomEvent::ActiveSpeakersChanged { speakers } => {
             let participant_identities =
                 speakers.iter().map(|p| p.identity().to_string()).collect::<Vec<_>>();
 
-            let _ = send_event(proto::room_event::Message::ActiveSpeakersChanged(
-                proto::ActiveSpeakersChanged { participant_identities },
-            ));
+            let _ = send_event(proto::ActiveSpeakersChanged { participant_identities }.into());
         }
         RoomEvent::ConnectionQualityChanged { quality, participant } => {
-            let _ = send_event(proto::room_event::Message::ConnectionQualityChanged(
+            let _ = send_event(
                 proto::ConnectionQualityChanged {
                     participant_identity: participant.identity().to_string(),
                     quality: proto::ConnectionQuality::from(quality).into(),
-                },
-            ));
+                }
+                .into(),
+            );
         }
         RoomEvent::DataReceived { payload, kind, participant, topic } => {
             let handle_id = server.next_id();
@@ -1215,7 +1244,7 @@ async fn forward_event(
             };
 
             server.store_handle(handle_id, FfiDataBuffer { handle: handle_id, data: payload });
-            let _ = send_event(proto::room_event::Message::DataPacketReceived(
+            let _ = send_event(
                 proto::DataPacketReceived {
                     value: Some(proto::data_packet_received::Value::User(proto::UserPacket {
                         data: proto::OwnedBuffer {
@@ -1226,8 +1255,9 @@ async fn forward_event(
                     })),
                     participant_identity: identity,
                     kind: proto::DataPacketKind::from(kind).into(),
-                },
-            ));
+                }
+                .into(),
+            );
         }
         RoomEvent::TranscriptionReceived { participant, track_publication, segments } => {
             let segments = segments
@@ -1250,16 +1280,16 @@ async fn forward_event(
                 Some(p) => Some(p.identity().to_string()),
                 None => None,
             };
-            let _ = send_event(proto::room_event::Message::TranscriptionReceived(
-                proto::TranscriptionReceived { participant_identity, segments, track_sid },
-            ));
+            let _ = send_event(
+                proto::TranscriptionReceived { participant_identity, segments, track_sid }.into(),
+            );
         }
         RoomEvent::SipDTMFReceived { code, digit, participant } => {
             let (_sid, identity) = match participant {
                 Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
                 None => (None, String::new()),
             };
-            let _ = send_event(proto::room_event::Message::DataPacketReceived(
+            let _ = send_event(
                 proto::DataPacketReceived {
                     value: Some(proto::data_packet_received::Value::SipDtmf(proto::SipDtmf {
                         code,
@@ -1267,8 +1297,9 @@ async fn forward_event(
                     })),
                     participant_identity: identity,
                     kind: proto::DataPacketKind::KindReliable.into(),
-                },
-            ));
+                }
+                .into(),
+            );
         }
 
         RoomEvent::ChatMessage { message, participant } => {
@@ -1276,40 +1307,45 @@ async fn forward_event(
                 Some(p) => (Some(p.sid().to_string()), p.identity().to_string()),
                 None => (None, String::new()),
             };
-            let _ =
-                send_event(proto::room_event::Message::ChatMessage(proto::ChatMessageReceived {
+            let _ = send_event(
+                proto::ChatMessageReceived {
                     message: proto::ChatMessage::from(message).into(),
                     participant_identity: identity,
-                }));
+                }
+                .into(),
+            );
         }
 
         RoomEvent::ConnectionStateChanged(state) => {
-            let _ = send_event(proto::room_event::Message::ConnectionStateChanged(
-                proto::ConnectionStateChanged { state: proto::ConnectionState::from(state).into() },
-            ));
+            let _ = send_event(
+                proto::ConnectionStateChanged { state: proto::ConnectionState::from(state).into() }
+                    .into(),
+            );
         }
         RoomEvent::Connected { .. } => {
             // Ignore here, we're already sent the event on connect (see above)
         }
         RoomEvent::Disconnected { reason } => {
-            let _ = send_event(proto::room_event::Message::Disconnected(proto::Disconnected {
-                reason: proto::DisconnectReason::from(reason).into(),
-            }));
+            let _ = send_event(
+                proto::Disconnected { reason: proto::DisconnectReason::from(reason).into() }.into(),
+            );
         }
         RoomEvent::Reconnecting => {
             present_state.lock().reconnecting = true;
-            let _ = send_event(proto::room_event::Message::Reconnecting(proto::Reconnecting {}));
+            let _ = send_event(proto::Reconnecting {}.into());
         }
         RoomEvent::Reconnected => {
             present_state.lock().reconnecting = false;
-            let _ = send_event(proto::room_event::Message::Reconnected(proto::Reconnected {}));
+            let _ = send_event(proto::Reconnected {}.into());
         }
         RoomEvent::E2eeStateChanged { participant, state } => {
-            let _ =
-                send_event(proto::room_event::Message::E2eeStateChanged(proto::E2eeStateChanged {
+            let _ = send_event(
+                proto::E2eeStateChanged {
                     participant_identity: participant.identity().to_string(),
                     state: proto::EncryptionState::from(state).into(),
-                }));
+                }
+                .into(),
+            );
         }
         RoomEvent::ByteStreamOpened { reader, topic: _, participant_identity } => {
             let Some(reader) = reader.take() else { return };
@@ -1318,14 +1354,16 @@ async fn forward_event(
             let ffi_reader = FfiByteStreamReader { handle_id, inner: reader };
             server.store_handle(ffi_reader.handle_id, ffi_reader);
 
-            let _ =
-                send_event(proto::room_event::Message::ByteStreamOpened(proto::ByteStreamOpened {
+            let _ = send_event(
+                proto::ByteStreamOpened {
                     reader: proto::OwnedByteStreamReader {
                         handle: proto::FfiOwnedHandle { id: handle_id },
                         info: info.into(),
                     },
                     participant_identity: participant_identity.0,
-                }));
+                }
+                .into(),
+            );
         }
         RoomEvent::TextStreamOpened { reader, topic: _, participant_identity } => {
             let Some(reader) = reader.take() else { return };
@@ -1334,37 +1372,42 @@ async fn forward_event(
             let ffi_reader = FfiTextStreamReader { handle_id, inner: reader };
             server.store_handle(ffi_reader.handle_id, ffi_reader);
 
-            let _ =
-                send_event(proto::room_event::Message::TextStreamOpened(proto::TextStreamOpened {
+            let _ = send_event(
+                proto::TextStreamOpened {
                     reader: proto::OwnedTextStreamReader {
                         handle: proto::FfiOwnedHandle { id: handle_id },
                         info: info.into(),
                     },
                     participant_identity: participant_identity.0,
-                }));
+                }
+                .into(),
+            );
         }
         RoomEvent::StreamHeaderReceived { header, participant_identity } => {
-            let _ = send_event(proto::room_event::Message::StreamHeaderReceived(
-                proto::DataStreamHeaderReceived { header: header.into(), participant_identity },
-            ));
+            let _ = send_event(
+                proto::DataStreamHeaderReceived { header: header.into(), participant_identity }
+                    .into(),
+            );
         }
         RoomEvent::StreamChunkReceived { chunk, participant_identity } => {
-            let _ = send_event(proto::room_event::Message::StreamChunkReceived(
-                proto::DataStreamChunkReceived { chunk: chunk.into(), participant_identity },
-            ));
+            let _ = send_event(
+                proto::DataStreamChunkReceived { chunk: chunk.into(), participant_identity }.into(),
+            );
         }
         RoomEvent::StreamTrailerReceived { trailer, participant_identity } => {
-            let _ = send_event(proto::room_event::Message::StreamTrailerReceived(
-                proto::DataStreamTrailerReceived { trailer: trailer.into(), participant_identity },
-            ));
+            let _ = send_event(
+                proto::DataStreamTrailerReceived { trailer: trailer.into(), participant_identity }
+                    .into(),
+            );
         }
         RoomEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
-            let _ = send_event(proto::room_event::Message::DataChannelLowThresholdChanged(
+            let _ = send_event(
                 proto::DataChannelBufferedAmountLowThresholdChanged {
                     kind: proto::DataPacketKind::from(kind).into(),
                     threshold,
-                },
-            ));
+                }
+                .into(),
+            );
         }
         RoomEvent::RoomUpdated { room } => {
             let _ = send_event(proto::room_event::Message::RoomUpdated(room.into()));
@@ -1373,14 +1416,15 @@ async fn forward_event(
             let _ = send_event(proto::room_event::Message::Moved(room.into()));
         }
         RoomEvent::ParticipantsUpdated { participants } => {
-            let _ = send_event(proto::room_event::Message::ParticipantsUpdated(
+            let _ = send_event(
                 proto::ParticipantsUpdated {
                     participants: participants
                         .into_iter()
                         .map(|p| proto::ParticipantInfo::from(&p))
                         .collect(),
-                },
-            ));
+                }
+                .into(),
+            );
         }
         _ => {
             log::warn!("unhandled room event: {:?}", event);
