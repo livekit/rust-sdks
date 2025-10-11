@@ -1721,12 +1721,12 @@ checksum = "d750af042f7ef4f724306de029d18836c26c1765a54a6a3f094cbd23a7267ffa"
 
 [[package]]
 name = "libloading"
-version = "0.8.6"
+version = "0.8.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fc2f4eb4bc735547cfed7c0a4922cbd04a4655978c09b54f1f7b228750664c34"
+checksum = "d7c4b02199fee7c5d21a5ae7d8cfa79a6ef5bb2fc834d6e9058e89c825efdc55"
 dependencies = [
  "cfg-if",
- "windows-targets 0.52.0",
+ "windows-link",
 ]
 
 [[package]]
@@ -1854,6 +1854,7 @@ dependencies = [
  "imgproc",
  "jni",
  "lazy_static",
+ "libloading",
  "livekit",
  "livekit-api",
  "livekit-protocol",

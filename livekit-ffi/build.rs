@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env, path::Path};
+use std::{
+    env,
+    path::{Path, PathBuf},
+};
 
 const PROTO_SRC_DIR: &str = "protocol";
 
@@ -23,6 +26,7 @@ fn main() {
     download_webrtc();
     copy_webrtc_license();
     configure_linker();
+    get_lib_path();
     generate_protobuf();
 }
 
@@ -59,6 +63,30 @@ fn configure_linker() {
             panic!("Unsupported target, {}", target_os);
         }
     }
+}
+
+/// Get the path of the built library in the target directory, used for integration testing.
+fn get_lib_path() {
+    let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let target_dir = out_dir.ancestors().nth(4).expect("Failed to find target directory");
+
+    let build_profile = env::var("PROFILE").unwrap();
+    let output_dir = target_dir.join(build_profile);
+
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let lib_extension = match target_os.as_str() {
+        "windows" => "dll",
+        "linux" | "android" => "so",
+        "macos" => "dylib",
+        "ios" => "a",
+        _ => {
+            panic!("Unsupported target, {}", target_os);
+        }
+    };
+    let crate_name = env::var("CARGO_PKG_NAME").unwrap();
+    let lib_name = format!("lib{}.{}", crate_name.replace("-", "_"), lib_extension);
+    let lib_path = output_dir.join(lib_name);
+    println!("cargo::rustc-env=FFI_LIB_PATH={}", lib_path.display());
 }
 
 fn generate_protobuf() {
