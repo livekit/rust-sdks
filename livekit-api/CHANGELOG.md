@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.8](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.7...rust-sdks/livekit-api@0.4.8) - 2025-10-13
+
+### Other
+
+- Bump reqwest to 0.12 ([#711](https://github.com/livekit/rust-sdks/pull/711))
+
 ## [0.4.7](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.6...rust-sdks/livekit-api@0.4.7) - 2025-09-29
 
 ### Other

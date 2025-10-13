@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.9](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys-build@0.3.8...rust-sdks/webrtc-sys-build@0.3.9) - 2025-10-13
+
+### Other
+
+- bump libwebrtc libs version for webrtc-sys. ([#741](https://github.com/livekit/rust-sdks/pull/741))
+- Bump reqwest to 0.12 ([#711](https://github.com/livekit/rust-sdks/pull/711))
+
 ## [0.3.8](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys-build@0.3.7...rust-sdks/webrtc-sys-build@0.3.8) - 2025-09-29
 
 ### Other
