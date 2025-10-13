@@ -167,7 +167,9 @@ fn main() {
                 add_gio_headers(&mut builder);
             }
 
-            for lib_name in ["libdrm", "gbm"] {
+            for lib_name in
+                ["libdrm", "gbm", "x11", "xfixes", "xdamage", "xrandr", "xcomposite", "xext"]
+            {
                 pkg_config::probe_library(lib_name).unwrap();
             }
 

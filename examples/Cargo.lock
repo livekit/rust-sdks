@@ -5528,6 +5528,7 @@ dependencies = [
  "cxx-build",
  "glob",
  "log",
+ "pkg-config",
  "webrtc-sys-build",
 ]
 
