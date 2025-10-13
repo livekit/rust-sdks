@@ -14,6 +14,7 @@
 
 use std::path::PathBuf;
 use std::{
+    collections::HashSet,
     env,
     fs::{self, File},
     io::{self, BufRead, Write},
@@ -117,20 +118,28 @@ pub fn webrtc_dir() -> path::PathBuf {
 pub fn webrtc_defines() -> Vec<(String, Option<String>)> {
     // read preprocessor definitions from webrtc.ninja
     let defines_re = Regex::new(r"-D(\w+)(?:=([^\s]+))?").unwrap();
-    let webrtc_gni = fs::File::open(webrtc_dir().join("webrtc.ninja")).unwrap();
+    let files = [webrtc_dir().join("webrtc.ninja"), webrtc_dir().join("desktop_capture.ninja")];
 
-    let mut defines_line = String::default();
-    io::BufReader::new(webrtc_gni).read_line(&mut defines_line).unwrap();
+    let mut seen = HashSet::new();
+    let mut vec = Vec::new();
 
-    let mut vec = Vec::default();
-    for cap in defines_re.captures_iter(&defines_line) {
-        let define_name = &cap[1];
-        let define_value = cap.get(2).map(|m| m.as_str());
-        if IGNORE_DEFINES.contains(&define_name) {
-            continue;
+    for path in files {
+        let gni = fs::File::open(path).unwrap();
+
+        let mut defines_line = String::default();
+        io::BufReader::new(gni).read_line(&mut defines_line).unwrap();
+        for cap in defines_re.captures_iter(&defines_line) {
+            let define_name = &cap[1];
+            let define_value = cap.get(2).map(|m| m.as_str());
+            if IGNORE_DEFINES.contains(&define_name) {
+                continue;
+            }
+            let value = define_value.map(str::to_string);
+            let name = define_name.to_owned();
+            if seen.insert((name.clone(), value.clone())) {
+                vec.push((name, value));
+            }
         }
-
-        vec.push((define_name.to_owned(), define_value.map(str::to_string)));
     }
 
     vec
