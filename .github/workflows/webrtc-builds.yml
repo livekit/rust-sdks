@@ -15,8 +15,8 @@
 name: WebRTC builds
 on:
   push:
-    tags:
-      - "webrtc-*"
+#    tags:
+#      - "webrtc-*"
   workflow_dispatch:
 
 jobs:
