@@ -37,8 +37,8 @@ use tokio_tungstenite::{
     connect_async,
     tungstenite::client::IntoClientRequest,
     tungstenite::error::ProtocolError,
-    tungstenite::{Error as WsError, Message},
     tungstenite::http::{header::AUTHORIZATION, HeaderValue},
+    tungstenite::{Error as WsError, Message},
     MaybeTlsStream, WebSocketStream,
 };
 
@@ -48,8 +48,8 @@ use async_tungstenite::{
     async_std::ClientStream as MaybeTlsStream,
     tungstenite::client::IntoClientRequest,
     tungstenite::error::ProtocolError,
-    tungstenite::{Error as WsError, Message},
     tungstenite::http::{header::AUTHORIZATION, HeaderValue},
+    tungstenite::{Error as WsError, Message},
     WebSocketStream,
 };
 
