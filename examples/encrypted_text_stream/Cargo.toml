@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-livekit = { workspace = true, features = ["native-tls"] }
+livekit = { workspace = true }
 livekit-api = { workspace = true }
 log = "0.4.26"
 env_logger = "0.11.7"

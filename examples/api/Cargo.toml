@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1", features = ["full", "parking_lot"] }
-livekit-api = { workspace = true, features = ["native-tls"] }
+livekit-api = { workspace = true }
 futures = "0.3"
