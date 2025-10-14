@@ -28,7 +28,7 @@ use base64;
 
 #[cfg(feature = "signal-client-tokio")]
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream as TokioTcpStream,
 };
 
