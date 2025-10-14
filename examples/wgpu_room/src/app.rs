@@ -47,10 +47,8 @@ impl LkApp {
             .and_then(|storage| eframe::get_value(storage, eframe::APP_KEY))
             .unwrap_or_default();
 
-        let async_runtime = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .unwrap();
+        let async_runtime =
+            tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
 
         Self {
             service: LkService::new(async_runtime.handle()),
@@ -74,11 +72,7 @@ impl LkApp {
             UiCmd::RoomEvent { event } => {
                 log::info!("{:?}", event);
                 match event {
-                    RoomEvent::TrackSubscribed {
-                        track,
-                        publication: _,
-                        participant,
-                    } => {
+                    RoomEvent::TrackSubscribed { track, publication: _, participant } => {
                         if let RemoteTrack::Video(ref video_track) = track {
                             // Create a new VideoRenderer
                             let video_renderer = VideoRenderer::new(
@@ -92,19 +86,10 @@ impl LkApp {
                             // TODO(theomonnom): Once we support media devices, we can play audio tracks here
                         }
                     }
-                    RoomEvent::TrackUnsubscribed {
-                        track,
-                        publication: _,
-                        participant,
-                    } => {
-                        self.video_renderers
-                            .remove(&(participant.identity(), track.sid()));
+                    RoomEvent::TrackUnsubscribed { track, publication: _, participant } => {
+                        self.video_renderers.remove(&(participant.identity(), track.sid()));
                     }
-                    RoomEvent::LocalTrackPublished {
-                        track,
-                        publication: _,
-                        participant,
-                    } => {
+                    RoomEvent::LocalTrackPublished { track, publication: _, participant } => {
                         if let LocalTrack::Video(ref video_track) = track {
                             // Also create a new VideoRenderer for local tracks
                             let video_renderer = VideoRenderer::new(
@@ -116,12 +101,8 @@ impl LkApp {
                                 .insert((participant.identity(), track.sid()), video_renderer);
                         }
                     }
-                    RoomEvent::LocalTrackUnpublished {
-                        publication,
-                        participant,
-                    } => {
-                        self.video_renderers
-                            .remove(&(participant.identity(), publication.sid()));
+                    RoomEvent::LocalTrackUnpublished { publication, participant } => {
+                        self.video_renderers.remove(&(participant.identity(), publication.sid()));
                     }
                     RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
@@ -240,10 +221,7 @@ impl LkApp {
             ui.label(format!("Name: {}", room.name()));
             //ui.label(format!("Sid: {}", String::from(room.sid().await)));
             ui.label(format!("ConnectionState: {:?}", room.connection_state()));
-            ui.label(format!(
-                "ParticipantCount: {:?}",
-                room.remote_participants().len() + 1
-            ));
+            ui.label(format!("ParticipantCount: {:?}", room.remote_participants().len() + 1));
         }
 
         egui::warn_if_debug_build(ui);
@@ -262,10 +240,8 @@ impl LkApp {
         egui::ScrollArea::vertical().show(ui, |ui| {
             // Iterate with sorted keys to avoid flickers (Because this is a immediate mode UI)
             let participants = room.remote_participants();
-            let mut sorted_participants = participants
-                .keys()
-                .cloned()
-                .collect::<Vec<ParticipantIdentity>>();
+            let mut sorted_participants =
+                participants.keys().cloned().collect::<Vec<ParticipantIdentity>>();
             sorted_participants.sort_by(|a, b| a.as_str().cmp(b.as_str()));
 
             for psid in sorted_participants {
@@ -288,11 +264,7 @@ impl LkApp {
                         }
                     });
 
-                    ui.label(format!(
-                        "{} - {:?}",
-                        publication.name(),
-                        publication.source()
-                    ));
+                    ui.label(format!("{} - {:?}", publication.name(), publication.source()));
 
                     ui.horizontal(|ui| {
                         if publication.is_muted() {
@@ -307,9 +279,8 @@ impl LkApp {
 
                         if publication.is_subscribed() {
                             if ui.button("Unsubscribe").clicked() {
-                                let _ = self
-                                    .service
-                                    .send(AsyncCmd::UnsubscribeTrack { publication });
+                                let _ =
+                                    self.service.send(AsyncCmd::UnsubscribeTrack { publication });
                             }
                         } else if ui.button("Subscribe").clicked() {
                             let _ = self.service.send(AsyncCmd::SubscribeTrack { publication });
@@ -334,46 +305,46 @@ impl LkApp {
         }
 
         egui::ScrollArea::vertical().show(ui, |ui| {
-            VideoGrid::new("default_grid")
-                .max_columns(6)
-                .show(ui, |ui| {
-                    if show_videos {
-                        // Draw participant videos
-                        for ((participant_sid, _), video_renderer) in &self.video_renderers {
-                            ui.video_frame(|ui| {
-                                let room = room.as_ref().unwrap().clone();
+            VideoGrid::new("default_grid").max_columns(6).show(ui, |ui| {
+                if show_videos {
+                    // Draw participant videos
+                    for ((participant_sid, _), video_renderer) in &self.video_renderers {
+                        ui.video_frame(|ui| {
+                            let room = room.as_ref().unwrap().clone();
 
-                                if let Some(participant) = room.remote_participants().get(participant_sid)
-                                {
-                                    draw_video(
-                                        participant.name().as_str(),
-                                        participant.is_speaking(),
-                                        video_renderer,
-                                        ui,
-                                    );
-                                } else {
-                                    draw_video(
-                                        room.local_participant().name().as_str(),
-                                        room.local_participant().is_speaking(),
-                                        video_renderer,
-                                        ui,
-                                    );
-                                }
-                            });
-                        }
-                    } else {
-                        // Draw video skeletons when we're not connected
-                        for _ in 0..5 {
-                            ui.video_frame(|ui| {
-                                egui::Frame::none()
-                                    .fill(ui.style().visuals.code_bg_color)
-                                    .show(ui, |ui| {
-                                        ui.allocate_space(ui.available_size());
-                                    });
-                            });
-                        }
+                            if let Some(participant) =
+                                room.remote_participants().get(participant_sid)
+                            {
+                                draw_video(
+                                    participant.name().as_str(),
+                                    participant.is_speaking(),
+                                    video_renderer,
+                                    ui,
+                                );
+                            } else {
+                                draw_video(
+                                    room.local_participant().name().as_str(),
+                                    room.local_participant().is_speaking(),
+                                    video_renderer,
+                                    ui,
+                                );
+                            }
+                        });
                     }
-                })
+                } else {
+                    // Draw video skeletons when we're not connected
+                    for _ in 0..5 {
+                        ui.video_frame(|ui| {
+                            egui::Frame::none().fill(ui.style().visuals.code_bg_color).show(
+                                ui,
+                                |ui| {
+                                    ui.allocate_space(ui.available_size());
+                                },
+                            );
+                        });
+                    }
+                }
+            })
         });
     }
 }
@@ -392,12 +363,12 @@ impl eframe::App for LkApp {
             self.top_panel(ui);
         });
 
-        egui::SidePanel::left("left_panel")
-            .resizable(true)
-            .width_range(20.0..=360.0)
-            .show(ctx, |ui| {
+        egui::SidePanel::left("left_panel").resizable(true).width_range(20.0..=360.0).show(
+            ctx,
+            |ui| {
                 self.left_panel(ui);
-            });
+            },
+        );
 
         /*egui::TopBottomPanel::bottom("bottom_panel")
         .resizable(true)
@@ -406,12 +377,12 @@ impl eframe::App for LkApp {
             self.bottom_panel(ui);
         });*/
 
-        egui::SidePanel::right("right_panel")
-            .resizable(true)
-            .width_range(20.0..=360.0)
-            .show(ctx, |ui| {
+        egui::SidePanel::right("right_panel").resizable(true).width_range(20.0..=360.0).show(
+            ctx,
+            |ui| {
                 self.right_panel(ui);
-            });
+            },
+        );
 
         egui::CentralPanel::default().show(ctx, |ui| {
             self.central_panel(ui);
@@ -427,8 +398,13 @@ fn draw_video(name: &str, speaking: bool, video_renderer: &VideoRenderer, ui: &m
     let inner_rect = rect.shrink(1.0);
 
     if speaking {
-        ui.painter()
-            .rect(rect, CornerRadius::default(), egui::Color32::GREEN, Stroke::NONE, egui::StrokeKind::Inside);
+        ui.painter().rect(
+            rect,
+            CornerRadius::default(),
+            egui::Color32::GREEN,
+            Stroke::NONE,
+            egui::StrokeKind::Inside,
+        );
     }
 
     // Always draw a background in case we still didn't receive a frame

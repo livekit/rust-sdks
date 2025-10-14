@@ -130,9 +130,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("only 16-bit samples supported for this demo".into());
     }
 
-    let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default())
-        .await
-        .unwrap();
+    let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default()).await.unwrap();
     let room = Arc::new(room);
     log::info!("Connected to room: {} - {}", room.name(), room.sid().await);
 
@@ -148,10 +146,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     room.local_participant()
         .publish_track(
             LocalTrack::Audio(track),
-            TrackPublishOptions {
-                source: TrackSource::Microphone,
-                ..Default::default()
-            },
+            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
         )
         .await?;
 

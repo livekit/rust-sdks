@@ -20,7 +20,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (room, rx) = Room::connect(&url, &token, RoomOptions::default()).await?;
     println!("Connected to room: {} - {}", room.name(), room.sid().await);
 
-    if is_sender { run_sender(room).await } else { run_receiver(room, rx).await }
+    if is_sender {
+        run_sender(room).await
+    } else {
+        run_receiver(room, rx).await
+    }
 }
 
 async fn run_sender(room: Room) -> Result<(), Box<dyn Error>> {

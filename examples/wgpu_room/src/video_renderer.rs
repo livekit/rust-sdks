@@ -117,26 +117,29 @@ impl RendererInternal {
         self.height = height;
         self.rgba_data.resize((width * height * 4) as usize, 0);
 
-        self.texture = Some(self.render_state.device.create_texture(&eframe::wgpu::TextureDescriptor {
-            label: Some("lk-videotexture"),
-            usage: eframe::wgpu::TextureUsages::TEXTURE_BINDING | eframe::wgpu::TextureUsages::COPY_DST,
-            dimension: eframe::wgpu::TextureDimension::D2,
-            size: eframe::wgpu::Extent3d { width, height, ..Default::default() },
-            sample_count: 1,
-            mip_level_count: 1,
-            format: eframe::wgpu::TextureFormat::Rgba8UnormSrgb,
-            view_formats: &[eframe::wgpu::TextureFormat::Rgba8UnormSrgb],
-        }));
+        self.texture =
+            Some(self.render_state.device.create_texture(&eframe::wgpu::TextureDescriptor {
+                label: Some("lk-videotexture"),
+                usage: eframe::wgpu::TextureUsages::TEXTURE_BINDING
+                    | eframe::wgpu::TextureUsages::COPY_DST,
+                dimension: eframe::wgpu::TextureDimension::D2,
+                size: eframe::wgpu::Extent3d { width, height, ..Default::default() },
+                sample_count: 1,
+                mip_level_count: 1,
+                format: eframe::wgpu::TextureFormat::Rgba8UnormSrgb,
+                view_formats: &[eframe::wgpu::TextureFormat::Rgba8UnormSrgb],
+            }));
 
-        self.texture_view =
-            Some(self.texture.as_mut().unwrap().create_view(&eframe::wgpu::TextureViewDescriptor {
+        self.texture_view = Some(self.texture.as_mut().unwrap().create_view(
+            &eframe::wgpu::TextureViewDescriptor {
                 label: Some("lk-videotexture-view"),
                 format: Some(eframe::wgpu::TextureFormat::Rgba8UnormSrgb),
                 dimension: Some(eframe::wgpu::TextureViewDimension::D2),
                 mip_level_count: Some(1),
                 array_layer_count: Some(1),
                 ..Default::default()
-            }));
+            },
+        ));
 
         if let Some(texture_id) = self.egui_texture {
             // Update the existing texture

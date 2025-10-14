@@ -23,17 +23,18 @@ pub fn calculate_db_level(samples: &[i16]) -> f32 {
     if samples.is_empty() {
         return -60.0; // Very quiet
     }
-    
+
     // Calculate RMS
-    let sum_squares: f64 = samples.iter()
+    let sum_squares: f64 = samples
+        .iter()
         .map(|&sample| {
             let normalized = sample as f64 / i16::MAX as f64;
             normalized * normalized
         })
         .sum();
-    
+
     let rms = (sum_squares / samples.len() as f64).sqrt();
-    
+
     // Convert to dB (20 * log10(rms))
     if rms > 0.0 {
         20.0 * rms.log10() as f32
@@ -65,10 +66,10 @@ fn format_single_meter(db_level: f32, meter_width: usize, meter_label: &str) -> 
     let db_clamped = db_level.clamp(-60.0, 0.0);
     let normalized = (db_clamped + 60.0) / 60.0; // Normalize to 0.0-1.0
     let filled_width = (normalized * meter_width as f32) as usize;
-    
+
     let mut meter = String::new();
     meter.push_str(meter_label);
-    
+
     // Add the dB value with appropriate color
     let db_color = if db_level > -6.0 {
         COLOR_BRIGHT_RED
@@ -80,12 +81,12 @@ fn format_single_meter(db_level: f32, meter_width: usize, meter_label: &str) -> 
         COLOR_GREEN
     };
     meter.push_str(&format!("{}{:>5.1} dB{} ", db_color, db_level, COLOR_RESET));
-    
+
     // Add the visual meter with colors
     meter.push('[');
     for i in 0..meter_width {
         let position_ratio = i as f32 / meter_width as f32;
-        
+
         if i < filled_width {
             let color = get_meter_color(db_level, position_ratio);
             meter.push_str(color);
@@ -106,26 +107,26 @@ fn format_single_meter(db_level: f32, meter_width: usize, meter_label: &str) -> 
 fn format_dual_meters(mic_db: f32, room_db: f32) -> String {
     let mic_meter = format_single_meter(mic_db, MIC_METER_WIDTH, "Mic: ");
     let room_meter = format_single_meter(room_db, ROOM_METER_WIDTH, "  Room: ");
-    
+
     format!("{}{}", mic_meter, room_meter)
 }
 
 /// Display dual dB meters continuously
 pub async fn display_dual_db_meters(
     mut mic_db_rx: mpsc::UnboundedReceiver<f32>,
-    mut room_db_rx: mpsc::UnboundedReceiver<f32>
+    mut room_db_rx: mpsc::UnboundedReceiver<f32>,
 ) -> Result<()> {
     let mut last_update = std::time::Instant::now();
     let mut current_mic_db = -60.0f32;
     let mut current_room_db = -60.0f32;
     let mut first_display = true;
-    
+
     loop {
         tokio::select! {
             db_level = mic_db_rx.recv() => {
                 if let Some(db) = db_level {
                     current_mic_db = db;
-                    
+
                     // Update display at regular intervals
                     if last_update.elapsed().as_millis() >= DB_METER_UPDATE_INTERVAL_MS as u128 {
                         display_meters(current_mic_db, current_room_db, &mut first_display);
@@ -138,7 +139,7 @@ pub async fn display_dual_db_meters(
             db_level = room_db_rx.recv() => {
                 if let Some(db) = db_level {
                     current_room_db = db;
-                    
+
                     // Update display at regular intervals
                     if last_update.elapsed().as_millis() >= DB_METER_UPDATE_INTERVAL_MS as u128 {
                         display_meters(current_mic_db, current_room_db, &mut first_display);
@@ -155,7 +156,7 @@ pub async fn display_dual_db_meters(
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -165,10 +166,13 @@ fn display_meters(mic_db: f32, room_db: f32, first_display: &mut bool) {
         // Don't clear screen - just show header where we are
         println!();
         println!("{}Audio Levels Monitor{}", COLOR_BRIGHT_GREEN, COLOR_RESET);
-        println!("{}────────────────────────────────────────────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
+        println!(
+            "{}────────────────────────────────────────────────────────────────────────────────{}",
+            COLOR_DIM, COLOR_RESET
+        );
         *first_display = false;
     }
-    
+
     // Clear current line and display meters in place
     print!("\r\x1B[K"); // Clear current line
     print!("{}", format_dual_meters(mic_db, room_db));
@@ -180,13 +184,13 @@ pub async fn display_db_meter(mut db_rx: mpsc::UnboundedReceiver<f32>) -> Result
     let mut last_update = std::time::Instant::now();
     let mut current_db = -60.0f32;
     let mut first_display = true;
-    
+
     loop {
         tokio::select! {
             db_level = db_rx.recv() => {
                 if let Some(db) = db_level {
                     current_db = db;
-                    
+
                     // Update display at regular intervals
                     if last_update.elapsed().as_millis() >= DB_METER_UPDATE_INTERVAL_MS as u128 {
                         display_single_meter(current_db, &mut first_display);
@@ -202,7 +206,7 @@ pub async fn display_db_meter(mut db_rx: mpsc::UnboundedReceiver<f32>) -> Result
             }
         }
     }
-    
+
     Ok(())
 }
 
@@ -215,9 +219,9 @@ fn display_single_meter(db_level: f32, first_display: &mut bool) {
         println!("{}────────────────────────────────────────{}", COLOR_DIM, COLOR_RESET);
         *first_display = false;
     }
-    
+
     // Clear current line and display meter in place
     print!("\r\x1B[K"); // Clear current line
     print!("{}", format_single_meter(db_level, 40, "Mic Level: "));
     io::stdout().flush().unwrap();
-} 
+}
