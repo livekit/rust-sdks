@@ -21,6 +21,7 @@ use crate::access_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants}
 
 pub use twirp_client::{TwirpError, TwirpErrorCode, TwirpResult};
 
+pub mod agent_dispatch;
 pub mod egress;
 pub mod ingress;
 pub mod room;
