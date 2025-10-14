@@ -3,9 +3,19 @@ name = "basic_room"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+default = [ "tokio" ]
+tokio = [ "livekit/tokio", "livekit/rustls-tls-native-roots", "dep:tokio" ]
+async = [ "livekit/async", "livekit/native-tls", "dep:async-std", "dep:futures" ]
+dispatcher = [ "livekit/dispatcher", "livekit/native-tls", "dep:smol", "dep:futures" ]
+
 [dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { version = "1", features = ["full"], optional = true }
+async-std = { version = "1", optional = true }
+futures = { version = "0.3.0", optional = true }
+smol = { version = "2", optional = true }
+
 env_logger = "0.10"
-livekit = { path = "../../livekit", features = ["rustls-tls-native-roots"]}
-livekit-api = { path = "../../livekit-api", features = ["rustls-tls-native-roots"]}
+livekit = { path = "../../livekit", default-features = false }
+livekit-api = { path = "../../livekit-api", default-features = false }
 log = "0.4"
