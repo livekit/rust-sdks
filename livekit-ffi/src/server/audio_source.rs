@@ -101,7 +101,7 @@ impl FfiAudioSource {
                             async_id,
                             error: res.err().map(|e| e.to_string()),
                         }
-                        .into()
+                        .into(),
                     );
                 }
                 _ => {}
