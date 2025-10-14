@@ -253,7 +253,7 @@ impl SignalInner {
         let (stream, mut events) = match SignalStream::connect(lk_url.clone(), token).await {
             Ok(stream) => stream,
             Err(err) => {
-                if let SignalError::TokenFormat = err  {
+                if let SignalError::TokenFormat = err {
                     return Err(err);
                 }
                 // Connection failed, try to retrieve more informations
