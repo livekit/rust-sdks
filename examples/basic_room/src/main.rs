@@ -5,7 +5,8 @@ use std::env;
 // Connect to a room using the specified env variables
 // and print all incoming events
 
-async fn basic_room() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
 
     let url = env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set");
@@ -38,44 +39,4 @@ async fn basic_room() {
     while let Some(msg) = rx.recv().await {
         log::info!("Event: {:?}", msg);
     }
-}
-
-#[cfg(feature = "tokio")]
-#[tokio::main]
-async fn main() {
-    basic_room().await
-}
-
-#[cfg(feature = "async")]
-fn main() {
-    async_std::task::block_on(basic_room())
-}
-
-#[cfg(feature = "dispatcher")]
-struct SmolDispatcher;
-
-#[cfg(feature = "dispatcher")]
-impl livekit::dispatcher::Dispatcher for SmolDispatcher {
-    fn dispatch(&self, runnable: livekit::dispatcher::Runnable) {
-        smol::spawn(async {
-            runnable.run();
-        })
-        .detach();
-    }
-
-    fn dispatch_after(&self, duration: Duration, runnable: livekit::dispatcher::Runnable) {
-        let timer = smol::Timer::after(duration);
-        smol::spawn(async {
-            timer.await;
-            runnable.run();
-        })
-        .detach();
-    }
-}
-
-#[cfg(feature = "dispatcher")]
-fn main() {
-    livekit::dispatcher::set_dispatcher(SmolDispatcher {});
-
-    smol::block_on(basic_room())
 }

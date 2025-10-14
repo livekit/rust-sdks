@@ -26,8 +26,8 @@ __lk-internal = [] # internal features (used by livekit-ffi)
 __lk-e2e-test = [] # end-to-end testing with a LiveKit server
 
 [dependencies]
-livekit-runtime = { workspace = true, default-features = false }
-livekit-api = { workspace = true, default-features = false }
+livekit-runtime = { workspace = true }
+livekit-api = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-protocol = { workspace = true }
 prost = "0.12"
