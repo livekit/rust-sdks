@@ -1,7 +1,7 @@
-mod db_meter;
-mod audio_mixer;
 mod audio_capture;
+mod audio_mixer;
 mod audio_playback;
+mod db_meter;
 
 use anyhow::{anyhow, Result};
 use audio_capture::AudioCapture;
@@ -11,6 +11,8 @@ use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, SampleRate, StreamConfig};
 use db_meter::display_dual_db_meters;
+use futures_util::StreamExt;
+use libwebrtc::native::apm::AudioProcessingModule;
 use livekit::{
     options::TrackPublishOptions,
     track::{LocalAudioTrack, LocalTrack, TrackSource},
@@ -23,14 +25,9 @@ use livekit::{
     Room, RoomEvent, RoomOptions,
 };
 use livekit_api::access_token;
-use libwebrtc::native::apm::AudioProcessingModule;
 use log::{debug, error, info, warn};
-use std::{
-    env,
-    sync::Arc,
-};
+use std::{env, sync::Arc};
 use tokio::sync::mpsc;
-use futures_util::StreamExt;
 
 // Echo cancellation processor that coordinates forward and reverse streams
 struct EchoCancellationProcessor {
@@ -52,42 +49,41 @@ impl EchoCancellationProcessor {
             false, // high_pass_filter - keep disabled for compatibility
             noise_suppression,
         );
-        
+
         let frame_size = (sample_rate / 100) as usize; // 10ms worth of samples for mono
-        
-        Self {
-            apm,
-            sample_rate,
-            frame_size,
-        }
+
+        Self { apm, sample_rate, frame_size }
     }
-    
+
     // Process microphone input (forward stream) with echo cancellation
     fn process_microphone_audio(&mut self, audio_data: &mut [i16]) -> Result<()> {
         if audio_data.len() != self.frame_size {
             return Err(anyhow!("Audio data must be exactly {} samples (10ms)", self.frame_size));
         }
-        
+
         if let Err(e) = self.apm.process_stream(audio_data, self.sample_rate as i32, 1) {
             warn!("APM process_stream failed: {}", e);
         }
-        
+
         Ok(())
     }
-    
+
     // Process reference audio (reverse stream) - what's being played through speakers
     fn process_reference_audio(&mut self, audio_data: &mut [i16]) -> Result<()> {
         if audio_data.len() != self.frame_size {
-            return Err(anyhow!("Reference audio data must be exactly {} samples (10ms)", self.frame_size));
+            return Err(anyhow!(
+                "Reference audio data must be exactly {} samples (10ms)",
+                self.frame_size
+            ));
         }
-        
+
         if let Err(e) = self.apm.process_reverse_stream(audio_data, self.sample_rate as i32, 1) {
             warn!("APM process_reverse_stream failed: {}", e);
         }
-        
+
         Ok(())
     }
-    
+
     // Set the delay between the reverse stream (speakers) and forward stream (microphone)
     fn set_stream_delay(&mut self, delay_ms: i32) -> Result<()> {
         if let Err(e) = self.apm.set_stream_delay_ms(delay_ms) {
@@ -165,24 +161,18 @@ struct Args {
     api_secret: Option<String>,
 }
 
-
-
-
-
-
-
 fn list_audio_devices() -> Result<()> {
     let host = cpal::default_host();
-    
+
     println!("Available audio input devices:");
     println!("─────────────────────────────");
 
     let input_devices = host.input_devices()?;
-    
+
     for (i, device) in input_devices.enumerate() {
         let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
         println!("{}. {}", i + 1, name);
-        
+
         if let Ok(config) = device.default_input_config() {
             println!("   └─ Sample rate: {} Hz", config.sample_rate().0);
             println!("   └─ Channels: {}", config.channels());
@@ -201,11 +191,11 @@ fn list_audio_devices() -> Result<()> {
     println!("─────────────────────────────");
 
     let output_devices = host.output_devices()?;
-    
+
     for (i, device) in output_devices.enumerate() {
         let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
         println!("{}. {}", i + 1, name);
-        
+
         if let Ok(config) = device.default_output_config() {
             println!("   └─ Sample rate: {} Hz", config.sample_rate().0);
             println!("   └─ Channels: {}", config.channels());
@@ -226,7 +216,7 @@ fn list_audio_devices() -> Result<()> {
 fn find_input_device_by_name(name: &str) -> Result<Device> {
     let host = cpal::default_host();
     let devices = host.input_devices()?;
-    
+
     for device in devices {
         if let Ok(device_name) = device.name() {
             if device_name.contains(name) {
@@ -234,14 +224,14 @@ fn find_input_device_by_name(name: &str) -> Result<Device> {
             }
         }
     }
-    
+
     Err(anyhow!("Input device '{}' not found", name))
 }
 
 fn find_output_device_by_name(name: &str) -> Result<Device> {
     let host = cpal::default_host();
     let devices = host.output_devices()?;
-    
+
     for device in devices {
         if let Ok(device_name) = device.name() {
             if device_name.contains(name) {
@@ -249,7 +239,7 @@ fn find_output_device_by_name(name: &str) -> Result<Device> {
             }
         }
     }
-    
+
     Err(anyhow!("Output device '{}' not found", name))
 }
 
@@ -260,8 +250,8 @@ async fn stream_audio_to_livekit(
     sample_rate: u32,
 ) -> Result<()> {
     let mut buffer = Vec::new();
-    let samples_per_10ms = (sample_rate / 100) as usize;  // For mono
-    
+    let samples_per_10ms = (sample_rate / 100) as usize; // For mono
+
     info!(
         "Starting LiveKit audio streaming with echo cancellation ({}Hz, 1 channel, {} samples per 10ms)",
         sample_rate, samples_per_10ms
@@ -276,16 +266,16 @@ async fn stream_audio_to_livekit(
         // Send 10ms chunks to LiveKit
         while buffer.len() >= samples_per_10ms {
             let mut chunk: Vec<i16> = buffer.drain(..samples_per_10ms).collect();
-            
+
             // Process through echo cancellation before sending to LiveKit
             if let Err(e) = echo_processor.process_microphone_audio(&mut chunk) {
                 warn!("Echo cancellation processing failed: {}", e);
             }
-            
+
             let audio_frame = AudioFrame {
                 data: chunk.into(),
                 sample_rate,
-                num_channels: 1,  // Fixed to mono
+                num_channels: 1, // Fixed to mono
                 samples_per_channel: samples_per_10ms as u32,
             };
 
@@ -305,8 +295,8 @@ async fn stream_audio_to_livekit_with_shared_apm(
     sample_rate: u32,
 ) -> Result<()> {
     let mut buffer = Vec::new();
-    let samples_per_10ms = (sample_rate / 100) as usize;  // For mono
-    
+    let samples_per_10ms = (sample_rate / 100) as usize; // For mono
+
     info!(
         "Starting LiveKit audio streaming with SHARED APM echo cancellation ({}Hz, 1 channel, {} samples per 10ms)",
         sample_rate, samples_per_10ms
@@ -324,7 +314,7 @@ async fn stream_audio_to_livekit_with_shared_apm(
         // Send 10ms chunks to LiveKit
         while buffer.len() >= samples_per_10ms {
             let mut chunk: Vec<i16> = buffer.drain(..samples_per_10ms).collect();
-            
+
             // Process through SHARED echo cancellation before sending to LiveKit
             {
                 let mut processor = echo_processor.lock().await;
@@ -332,11 +322,11 @@ async fn stream_audio_to_livekit_with_shared_apm(
                     warn!("Shared APM echo cancellation processing failed: {}", e);
                 }
             }
-            
+
             let audio_frame = AudioFrame {
                 data: chunk.into(),
                 sample_rate,
-                num_channels: 1,  // Fixed to mono
+                num_channels: 1, // Fixed to mono
                 samples_per_channel: samples_per_10ms as u32,
             };
 
@@ -363,16 +353,24 @@ async fn handle_remote_audio_streams(
             RoomEvent::ParticipantConnected(participant) => {
                 info!("Participant connected: {} ({})", participant.identity(), participant.name());
             }
-            
+
             RoomEvent::TrackPublished { participant, publication } => {
-                info!("Track published by {}: {} ({:?})", 
-                    participant.identity(), publication.name(), publication.kind());
+                info!(
+                    "Track published by {}: {} ({:?})",
+                    participant.identity(),
+                    publication.name(),
+                    publication.kind()
+                );
             }
-            
+
             RoomEvent::TrackSubscribed { track, participant, .. } => {
-                info!("Track subscribed from {}: {} ({:?})", 
-                    participant.identity(), track.name(), track.kind());
-                    
+                info!(
+                    "Track subscribed from {}: {} ({:?})",
+                    participant.identity(),
+                    track.name(),
+                    track.kind()
+                );
+
                 if let livekit::track::RemoteTrack::Audio(audio_track) = track {
                     let participant_identity = participant.identity().to_string();
                     info!("Setting up audio stream for participant: {}", participant_identity);
@@ -381,7 +379,7 @@ async fn handle_remote_audio_streams(
                     let mut audio_stream = NativeAudioStream::new(
                         audio_track.rtc_track(),
                         sample_rate as i32,
-                        1,  // Fixed to mono
+                        1, // Fixed to mono
                     );
 
                     // Start processing audio frames from this participant
@@ -390,29 +388,33 @@ async fn handle_remote_audio_streams(
 
                     tokio::spawn(async move {
                         info!("Starting audio stream processing for participant: {}", stream_key);
-                        
+
                         while let Some(audio_frame) = audio_stream.next().await {
                             // Add this participant's audio to the mixer
                             mixer_clone.add_audio_data(audio_frame.data.as_ref());
-                            
-                            debug!("Received audio frame from {}: {} samples, {} channels, {} Hz, buffer size: {}", 
-                                stream_key, audio_frame.data.len(), audio_frame.num_channels, 
+
+                            debug!("Received audio frame from {}: {} samples, {} channels, {} Hz, buffer size: {}",
+                                stream_key, audio_frame.data.len(), audio_frame.num_channels,
                                 audio_frame.sample_rate, mixer_clone.buffer_size());
                         }
-                        
+
                         info!("Audio stream ended for participant: {}", stream_key);
                     });
                 }
             }
-            
+
             RoomEvent::TrackUnsubscribed { track, participant, .. } => {
-                info!("Track unsubscribed from {}: {} ({:?})", 
-                    participant.identity(), track.name(), track.kind());
-                    
+                info!(
+                    "Track unsubscribed from {}: {} ({:?})",
+                    participant.identity(),
+                    track.name(),
+                    track.kind()
+                );
+
                 if let livekit::track::RemoteTrack::Audio(_) = track {
                     let participant_identity = participant.identity().to_string();
                     info!("Stopping audio stream for participant: {}", participant_identity);
-                    
+
                     // Audio stream will be automatically cleaned up when the task ends
                 }
             }
@@ -420,7 +422,7 @@ async fn handle_remote_audio_streams(
             RoomEvent::ParticipantDisconnected(participant) => {
                 let participant_identity = participant.identity().to_string();
                 info!("Participant disconnected: {}", participant_identity);
-                
+
                 // Audio stream will be automatically cleaned up when the task ends
             }
 
@@ -449,13 +451,14 @@ async fn main() -> Result<()> {
     }
 
     // Get LiveKit connection details from CLI arguments or environment variables
-    let url = args.url.or_else(|| env::var("LIVEKIT_URL").ok())
-        .expect("LiveKit URL must be provided via --url argument or LIVEKIT_URL environment variable");
+    let url = args.url.or_else(|| env::var("LIVEKIT_URL").ok()).expect(
+        "LiveKit URL must be provided via --url argument or LIVEKIT_URL environment variable",
+    );
     let api_key = args.api_key.or_else(|| env::var("LIVEKIT_API_KEY").ok())
         .expect("LiveKit API key must be provided via --api-key argument or LIVEKIT_API_KEY environment variable");
     let api_secret = args.api_secret.or_else(|| env::var("LIVEKIT_API_SECRET").ok())
         .expect("LiveKit API secret must be provided via --api-secret argument or LIVEKIT_API_SECRET environment variable");
-    
+
     // Create access token
     let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
         .with_identity(&args.identity)
@@ -466,7 +469,7 @@ async fn main() -> Result<()> {
             ..Default::default()
         })
         .to_jwt()?;
-        
+
     // Connect to LiveKit room with auto-subscribe enabled
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
@@ -482,8 +485,7 @@ async fn main() -> Result<()> {
         find_input_device_by_name(device_name)?
     } else {
         info!("Using default input device");
-        host.default_input_device()
-            .ok_or_else(|| anyhow!("No default input device available"))?
+        host.default_input_device().ok_or_else(|| anyhow!("No default input device available"))?
     };
 
     let input_device_name = input_device.name().unwrap_or_else(|_| "Unknown".to_string());
@@ -503,7 +505,7 @@ async fn main() -> Result<()> {
             let output_device_name = device.name().unwrap_or_else(|_| "Unknown".to_string());
             info!("Using audio output device: {}", output_device_name);
         }
-        
+
         device
     } else {
         info!("Audio playback disabled");
@@ -514,15 +516,19 @@ async fn main() -> Result<()> {
     let input_supported_config = input_device.default_input_config()?;
     let supported_channels = input_supported_config.channels() as u32;
     if args.channel >= supported_channels {
-        return Err(anyhow!("Invalid channel index: {}. Device supports {} channels.", args.channel, supported_channels));
+        return Err(anyhow!(
+            "Invalid channel index: {}. Device supports {} channels.",
+            args.channel,
+            supported_channels
+        ));
     }
 
     let input_config = StreamConfig {
-        channels: input_supported_config.channels(),  // Capture all available channels to allow channel selection
+        channels: input_supported_config.channels(), // Capture all available channels to allow channel selection
         sample_rate: SampleRate(args.sample_rate),
         buffer_size: cpal::BufferSize::Default,
     };
-    
+
     info!(
         "Audio input config: {}Hz, {} channels, {:?}",
         input_config.sample_rate.0,
@@ -533,16 +539,13 @@ async fn main() -> Result<()> {
     // Configure audio playback (if enabled)
     let output_config = if !args.no_playback {
         let config = StreamConfig {
-            channels: 1,  // Fixed to mono
+            channels: 1, // Fixed to mono
             sample_rate: SampleRate(args.sample_rate),
             buffer_size: cpal::BufferSize::Default,
         };
-        
-        info!(
-            "Audio output config: {}Hz, 1 channel",
-            config.sample_rate.0,
-        );
-        
+
+        info!("Audio output config: {}Hz, 1 channel", config.sample_rate.0,);
+
         Some(config)
     } else {
         None
@@ -552,7 +555,7 @@ async fn main() -> Result<()> {
     // Note: We disable echo cancellation here since we're handling it manually with APM
     let audio_options = AudioSourceOptions {
         echo_cancellation: false, // Disabled - we handle this manually
-        noise_suppression: false, // Disabled - we handle this manually  
+        noise_suppression: false, // Disabled - we handle this manually
         auto_gain_control: false, // Disabled - we handle this manually
     };
 
@@ -566,7 +569,7 @@ async fn main() -> Result<()> {
     let livekit_source = NativeAudioSource::new(
         audio_options,
         args.sample_rate,
-        1,  // Fixed to 1 channel
+        1,    // Fixed to 1 channel
         1000, // 1 second buffer
     );
 
@@ -579,43 +582,38 @@ async fn main() -> Result<()> {
     room.local_participant()
         .publish_track(
             LocalTrack::Audio(track),
-            TrackPublishOptions {
-                source: TrackSource::Microphone,
-                ..Default::default()
-            },
+            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
         )
         .await?;
 
     info!("Audio track published to LiveKit successfully");
 
     // Create shared echo cancellation processor
-    let echo_processor = Arc::new(tokio::sync::Mutex::new(
-        EchoCancellationProcessor::new(
-            args.echo_cancellation,
-            args.noise_suppression,
-            args.auto_gain_control,
-            args.sample_rate,
-        )
-    ));
+    let echo_processor = Arc::new(tokio::sync::Mutex::new(EchoCancellationProcessor::new(
+        args.echo_cancellation,
+        args.noise_suppression,
+        args.auto_gain_control,
+        args.sample_rate,
+    )));
 
     info!("✅ Created shared APM with echo_cancellation={}, noise_suppression={}, auto_gain_control={}",
           args.echo_cancellation, args.noise_suppression, args.auto_gain_control);
 
     // Set up audio capture and streaming
     let (audio_tx, audio_rx) = mpsc::unbounded_channel();
-    
+
     // Set up reference audio channel for echo cancellation
     let (reference_audio_tx, reference_audio_rx) = mpsc::unbounded_channel();
-    
+
     info!("✅ Set up audio channels: microphone input → forward stream, speaker output → reverse stream");
-    
+
     // Set up dB meters
     let (mic_db_tx, mic_db_rx) = mpsc::unbounded_channel();
     let (room_db_tx, room_db_rx) = mpsc::unbounded_channel();
-    
+
     // Start dual dB meter display
     let db_meter_task = tokio::spawn(display_dual_db_meters(mic_db_rx, room_db_rx));
-    
+
     // Start audio capture with channel selection
     let _audio_capture = AudioCapture::new(
         input_device,
@@ -623,19 +621,20 @@ async fn main() -> Result<()> {
         input_supported_config.sample_format(),
         audio_tx,
         Some(mic_db_tx),
-        args.channel,  // Pass selected channel index
-        supported_channels,  // Pass number of input channels
-    ).await?;
-    
+        args.channel,       // Pass selected channel index
+        supported_channels, // Pass number of input channels
+    )
+    .await?;
+
     // Start reference audio processing for echo cancellation
     let reference_task = tokio::spawn(process_reference_audio(
         reference_audio_rx,
         echo_processor.clone(),
         args.sample_rate,
     ));
-    
+
     info!("✅ Started reference audio processing task (reverse stream for AEC)");
-    
+
     // Start streaming to LiveKit with echo cancellation (using shared processor)
     let streaming_task = tokio::spawn(stream_audio_to_livekit_with_shared_apm(
         audio_rx,
@@ -647,46 +646,49 @@ async fn main() -> Result<()> {
     info!("✅ Started LiveKit streaming task (forward stream for AEC)");
 
     // Set up audio playback (if enabled)
-    let _audio_playback = if let (Some(output_device), Some(output_config)) = (output_device, output_config) {
+    let _audio_playback = if let (Some(output_device), Some(output_config)) =
+        (output_device, output_config)
+    {
         // Create audio mixer for combining participant audio streams with reference audio for echo cancellation
         let mixer = AudioMixer::with_reference_audio(
-            args.sample_rate, 
-            1, 
-            args.volume, 
+            args.sample_rate,
+            1,
+            args.volume,
             room_db_tx,
-            reference_audio_tx
+            reference_audio_tx,
         );
-        
+
         // Start handling remote audio streams
         let room_clone = room.clone();
         let mixer_clone = mixer.clone();
-        let remote_audio_task = tokio::spawn(handle_remote_audio_streams(
-            room_clone,
-            mixer_clone,
-            args.sample_rate,
-        ));
+        let remote_audio_task =
+            tokio::spawn(handle_remote_audio_streams(room_clone, mixer_clone, args.sample_rate));
 
         // Get output device format
         let output_supported_config = output_device.default_output_config()?;
-        
+
         // Start audio playback
         let playback = AudioPlayback::new(
             output_device,
             output_config,
             output_supported_config.sample_format(),
             mixer,
-        ).await?;
+        )
+        .await?;
 
-        info!("Audio playback enabled with echo cancellation and volume: {:.1}%", args.volume * 100.0);
-        
+        info!(
+            "Audio playback enabled with echo cancellation and volume: {:.1}%",
+            args.volume * 100.0
+        );
+
         // Store the remote audio task handle for proper cleanup
         let remote_audio_task_handle = remote_audio_task;
-        
+
         // Keep the task alive by storing it in a variable that won't be dropped
         tokio::spawn(async move {
             let _ = remote_audio_task_handle.await;
         });
-        
+
         Some(playback)
     } else {
         warn!("⚠️  Audio playback disabled - echo cancellation will NOT work without reference audio from speakers!");
@@ -719,25 +721,34 @@ async fn process_reference_audio(
     sample_rate: u32,
 ) -> Result<()> {
     let mut buffer = Vec::new();
-    let samples_per_10ms = (sample_rate / 100) as usize;  // For mono
+    let samples_per_10ms = (sample_rate / 100) as usize; // For mono
     let mut frame_count = 0;
-    
-    info!("Starting reference audio processing for echo cancellation (expecting {} samples per 10ms)", samples_per_10ms);
-    
+
+    info!(
+        "Starting reference audio processing for echo cancellation (expecting {} samples per 10ms)",
+        samples_per_10ms
+    );
+
     while let Some(audio_data) = reference_rx.recv().await {
         buffer.extend_from_slice(&audio_data);
 
         // Process 10ms chunks for echo cancellation reference
         while buffer.len() >= samples_per_10ms {
             let mut chunk: Vec<i16> = buffer.drain(..samples_per_10ms).collect();
-            
+
             // Log every 100 frames (1 second) to confirm we're getting reference audio
             frame_count += 1;
             if frame_count % 100 == 0 {
-                let avg_amplitude = chunk.iter().map(|&x| x.abs() as f64).sum::<f64>() / chunk.len() as f64;
-                debug!("Reference audio frame #{}: {} samples, avg amplitude: {:.1}", frame_count, chunk.len(), avg_amplitude);
+                let avg_amplitude =
+                    chunk.iter().map(|&x| x.abs() as f64).sum::<f64>() / chunk.len() as f64;
+                debug!(
+                    "Reference audio frame #{}: {} samples, avg amplitude: {:.1}",
+                    frame_count,
+                    chunk.len(),
+                    avg_amplitude
+                );
             }
-            
+
             // Process through echo cancellation reverse stream
             {
                 let mut processor = echo_processor.lock().await;
@@ -750,4 +761,4 @@ async fn process_reference_audio(
 
     warn!("Reference audio processing ended - this may impact echo cancellation effectiveness");
     Ok(())
-} 
+}

@@ -31,20 +31,15 @@ impl WavWriter {
         let file = File::create(path).await?;
         let writer = BufWriter::new(file);
 
-        let mut wav_writer = WavWriter {
-            header,
-            data: BytesMut::new(),
-            writer,
-        };
+        let mut wav_writer = WavWriter { header, data: BytesMut::new(), writer };
 
         wav_writer.write_header()?;
         Ok(wav_writer)
     }
 
     fn write_header(&mut self) -> Result<(), std::io::Error> {
-        let byte_rate = self.header.sample_rate
-            * self.header.bit_depth as i32
-            * self.header.num_channels;
+        let byte_rate =
+            self.header.sample_rate * self.header.bit_depth as i32 * self.header.num_channels;
 
         let block_align = byte_rate as u16 / self.header.sample_rate as u16;
 
@@ -89,19 +84,13 @@ async fn main() {
     let url = env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set");
     let token = env::var("LIVEKIT_TOKEN").expect("LIVEKIT_TOKEN is not set");
 
-    let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default())
-        .await
-        .unwrap();
+    let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default()).await.unwrap();
     println!("Connected to room: {} - {}", room.name(), String::from(room.sid().await));
 
     while let Some(msg) = rx.recv().await {
         #[allow(clippy::single_match)]
         match msg {
-            RoomEvent::TrackSubscribed {
-                track,
-                publication: _,
-                participant: _,
-            } => {
+            RoomEvent::TrackSubscribed { track, publication: _, participant: _ } => {
                 if let RemoteTrack::Audio(audio_track) = track {
                     record_track(audio_track).await.unwrap();
                     break;
@@ -121,11 +110,7 @@ async fn record_track(audio_track: RemoteAudioTrack) -> Result<(), std::io::Erro
     let sample_rate = 48000;
     let num_channels = 2;
 
-    let header = WavHeader {
-        sample_rate,
-        bit_depth: 16,
-        num_channels,
-    };
+    let header = WavHeader { sample_rate, bit_depth: 16, num_channels };
 
     let mut resampler = audio_resampler::AudioResampler::default();
     let mut wav_writer = WavWriter::create(FILE_PATH, header).await?;

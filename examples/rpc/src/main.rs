@@ -137,40 +137,52 @@ async fn register_receiver_methods(greeters_room: Arc<Room>, math_genius_room: A
         })
     });
 
-    math_genius_room.local_participant().register_rpc_method("nested-calculation".to_string(), move |data| {
-        let math_genius_room = math_genius_room.clone();
-        Box::pin(async move {
-            let json_data: Value = serde_json::from_str(&data.payload).unwrap();
-            let number = json_data["number"].as_f64().unwrap();
-            println!(
-                "[{}] [Math Genius] {} wants me to do a nested calculation on {}.",
-                elapsed_time(),
-                data.caller_identity,
-                number
-            );
+    math_genius_room.local_participant().register_rpc_method(
+        "nested-calculation".to_string(),
+        move |data| {
+            let math_genius_room = math_genius_room.clone();
+            Box::pin(async move {
+                let json_data: Value = serde_json::from_str(&data.payload).unwrap();
+                let number = json_data["number"].as_f64().unwrap();
+                println!(
+                    "[{}] [Math Genius] {} wants me to do a nested calculation on {}.",
+                    elapsed_time(),
+                    data.caller_identity,
+                    number
+                );
 
-            match math_genius_room.local_participant().perform_rpc(PerformRpcData {
-                destination_identity: data.caller_identity.to_string(),
-                method: "provide-intermediate".to_string(),
-                payload: json!({"original": number}).to_string(),
-                ..Default::default()
-            }).await {
-                Ok(intermediate_response) => {
-                    let intermediate: Value = serde_json::from_str(&intermediate_response).unwrap();
-                    let intermediate_value = intermediate["value"].as_f64().unwrap();
-                    let final_result = intermediate_value * 2.0;
-                    println!("[{}] [Math Genius] Got intermediate value {}, final result is {}", 
-                        elapsed_time(), intermediate_value, final_result);
-                    Ok(json!({"result": final_result}).to_string())
+                match math_genius_room
+                    .local_participant()
+                    .perform_rpc(PerformRpcData {
+                        destination_identity: data.caller_identity.to_string(),
+                        method: "provide-intermediate".to_string(),
+                        payload: json!({"original": number}).to_string(),
+                        ..Default::default()
+                    })
+                    .await
+                {
+                    Ok(intermediate_response) => {
+                        let intermediate: Value =
+                            serde_json::from_str(&intermediate_response).unwrap();
+                        let intermediate_value = intermediate["value"].as_f64().unwrap();
+                        let final_result = intermediate_value * 2.0;
+                        println!(
+                            "[{}] [Math Genius] Got intermediate value {}, final result is {}",
+                            elapsed_time(),
+                            intermediate_value,
+                            final_result
+                        );
+                        Ok(json!({"result": final_result}).to_string())
+                    }
+                    Err(e) => Err(RpcError {
+                        code: 1,
+                        message: "Failed to get intermediate result".to_string(),
+                        data: None,
+                    }),
                 }
-                Err(e) => Err(RpcError {
-                    code: 1,
-                    message: "Failed to get intermediate result".to_string(),
-                    data: None,
-                }),
-            }
-        })
-    });
+            })
+        },
+    );
 }
 
 async fn perform_greeting(room: &Arc<Room>) -> Result<(), Box<dyn std::error::Error>> {
@@ -274,8 +286,12 @@ async fn perform_nested_calculation(room: &Arc<Room>) -> Result<(), Box<dyn std:
             let json_data: Value = serde_json::from_str(&data.payload).unwrap();
             let original = json_data["original"].as_f64().unwrap();
             let intermediate = original + 10.0;
-            println!("[{}] [Caller] Providing intermediate calculation: {} + 10 = {}", 
-                elapsed_time(), original, intermediate);
+            println!(
+                "[{}] [Caller] Providing intermediate calculation: {} + 10 = {}",
+                elapsed_time(),
+                original,
+                intermediate
+            );
             Ok(json!({"value": intermediate}).to_string())
         })
     });

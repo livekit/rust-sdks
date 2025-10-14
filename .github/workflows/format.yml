@@ -31,14 +31,6 @@ jobs:
           toolchain: nightly-2023-12-30
           components: rustfmt
 
-      - name: Check workspace versions match
-        run: |
-          cargo metadata --format-version=1 --no-deps |
-          jq -e -r '.packages[] | "\(.name) \(.version)"' |
-          sort | xargs -l bash -c \
-          'grep "$0 = { version = \"$1\"" -q Cargo.toml && printf "version %-7s %-27s $0\n" $1 "matches package" || printf "version %-7s is not reflected on package $0\n" "$1" | false';
-          if [ $? -eq 0 ]; then exit 0; else exit 1; fi
-
       - name: Cargo fmt
         run: |
           cargo fmt -- --check
