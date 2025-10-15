@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, future::Future, pin::Pin};
-use futures_util::future;
+use std::{error::Error, future::{ready, Future}, pin::Pin};
 use livekit_api::access_token::{self, AccessTokenError};
-use livekit_protocol::{TokenSourceRequest, TokenSourceResponse};
+
+// FIXME: is reexporting these from here a good idea?
+pub use livekit_protocol::{TokenSourceRequest, TokenSourceResponse};
 
 mod fetch_options;
 mod traits;
