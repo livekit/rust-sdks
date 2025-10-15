@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
 use livekit_protocol::{RoomAgentDispatch, RoomConfiguration, TokenSourceRequest};
+use std::collections::HashMap;
 
 /// Options that can be used when fetching new credentials from a TokenSourceConfigurable
 ///
@@ -56,16 +56,26 @@ impl TokenSourceFetchOptions {
             self.participant_attributes = Some(HashMap::new());
         };
 
-        let Some(participant_attribute_mut) = self.participant_attributes.as_mut() else { unreachable!(); };
+        let Some(participant_attribute_mut) = self.participant_attributes.as_mut() else {
+            unreachable!();
+        };
         participant_attribute_mut
     }
 
-    pub fn with_participant_attribute(mut self, attribute_key: &str, attribute_value: &str) -> Self {
-        self.ensure_participant_attributes_defined().insert(attribute_key.into(), attribute_value.into());
+    pub fn with_participant_attribute(
+        mut self,
+        attribute_key: &str,
+        attribute_value: &str,
+    ) -> Self {
+        self.ensure_participant_attributes_defined()
+            .insert(attribute_key.into(), attribute_value.into());
         self
     }
 
-    pub fn with_participant_attributes(mut self, participant_attributes: HashMap<String, String>) -> Self {
+    pub fn with_participant_attributes(
+        mut self,
+        participant_attributes: HashMap<String, String>,
+    ) -> Self {
         self.ensure_participant_attributes_defined().extend(participant_attributes);
         self
     }

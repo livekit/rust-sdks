@@ -12,30 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, future::{ready, Future}, pin::Pin};
 use livekit_api::access_token::{self, AccessTokenError};
+use std::{
+    error::Error,
+    future::{ready, Future},
+    pin::Pin,
+};
 
 // FIXME: is reexporting these from here a good idea?
 pub use livekit_protocol::{TokenSourceRequest, TokenSourceResponse};
 
 mod fetch_options;
-mod traits;
 mod minter_credentials;
+mod traits;
 
 pub use fetch_options::TokenSourceFetchOptions;
-pub use traits::{
-    TokenSourceFixed,
-    TokenSourceConfigurable,
-    TokenSourceFixedSynchronous,
-    TokenSourceConfigurableSynchronous,
-};
 pub use minter_credentials::{
-    MinterCredentialsSource,
-    MinterCredentials,
-    MinterCredentialsEnvironment,
+    MinterCredentials, MinterCredentialsEnvironment, MinterCredentialsSource,
 };
-
-
+pub use traits::{
+    TokenSourceConfigurable, TokenSourceConfigurableSynchronous, TokenSourceFixed,
+    TokenSourceFixedSynchronous,
+};
 
 pub trait TokenLiteralGenerator {
     fn apply(&self) -> TokenSourceResponse;
@@ -69,9 +67,6 @@ impl<G: TokenLiteralGenerator> TokenSourceFixedSynchronous for TokenSourceLitera
     }
 }
 
-
-
-
 pub struct TokenSourceMinter<CredentialsSource: MinterCredentialsSource> {
     credentials_source: CredentialsSource,
 }
@@ -83,8 +78,12 @@ impl<CS: MinterCredentialsSource> TokenSourceMinter<CS> {
 }
 
 impl<C: MinterCredentialsSource> TokenSourceConfigurableSynchronous for TokenSourceMinter<C> {
-    fn fetch_synchronous(&self, options: &TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>> {
-        let MinterCredentials { url: server_url, api_key, api_secret } = self.credentials_source.get();
+    fn fetch_synchronous(
+        &self,
+        options: &TokenSourceFetchOptions,
+    ) -> Result<TokenSourceResponse, Box<dyn Error>> {
+        let MinterCredentials { url: server_url, api_key, api_secret } =
+            self.credentials_source.get();
 
         // FIXME: apply options in the below code!
         let participant_token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
@@ -107,11 +106,6 @@ impl Default for TokenSourceMinter<MinterCredentialsEnvironment> {
     }
 }
 
-
-
-
-
-
 pub struct TokenSourceCustomMinter<
     MintFn: Fn(access_token::AccessToken) -> Result<String, AccessTokenError>,
     Credentials: MinterCredentialsSource,
@@ -121,34 +115,36 @@ pub struct TokenSourceCustomMinter<
 }
 
 impl<
-    MF: Fn(access_token::AccessToken) -> Result<String, AccessTokenError>,
-    CS: MinterCredentialsSource
-> TokenSourceCustomMinter<MF, CS> {
+        MF: Fn(access_token::AccessToken) -> Result<String, AccessTokenError>,
+        CS: MinterCredentialsSource,
+    > TokenSourceCustomMinter<MF, CS>
+{
     pub fn new_with_credentials(mint_fn: MF, credentials_source: CS) -> Self {
         Self { mint_fn, credentials_source }
     }
     pub fn new(mint_fn: MF) -> TokenSourceCustomMinter<MF, MinterCredentialsEnvironment> {
-        TokenSourceCustomMinter::new_with_credentials(mint_fn, MinterCredentialsEnvironment::default())
+        TokenSourceCustomMinter::new_with_credentials(
+            mint_fn,
+            MinterCredentialsEnvironment::default(),
+        )
     }
 }
 
-
 impl<
-    MF: Fn(access_token::AccessToken) -> Result<String, AccessTokenError>,
-    C: MinterCredentialsSource,
-> TokenSourceFixedSynchronous for TokenSourceCustomMinter<MF, C> {
+        MF: Fn(access_token::AccessToken) -> Result<String, AccessTokenError>,
+        C: MinterCredentialsSource,
+    > TokenSourceFixedSynchronous for TokenSourceCustomMinter<MF, C>
+{
     fn fetch_synchronous(&self) -> Result<TokenSourceResponse, Box<dyn Error>> {
-        let MinterCredentials { url: server_url, api_key, api_secret } = self.credentials_source.get();
+        let MinterCredentials { url: server_url, api_key, api_secret } =
+            self.credentials_source.get();
 
-        let participant_token = (self.mint_fn)(access_token::AccessToken::with_api_key(&api_key, &api_secret))?;
+        let participant_token =
+            (self.mint_fn)(access_token::AccessToken::with_api_key(&api_key, &api_secret))?;
 
         Ok(TokenSourceResponse { server_url, participant_token })
     }
 }
-
-
-
-
 
 use reqwest::{header::HeaderMap, Method};
 
@@ -160,16 +156,15 @@ pub struct TokenSourceEndpoint {
 
 impl TokenSourceEndpoint {
     pub fn new(url: &str) -> Self {
-        Self {
-            url: url.into(),
-            method: Method::POST,
-            headers: HeaderMap::new(),
-        }
+        Self { url: url.into(), method: Method::POST, headers: HeaderMap::new() }
     }
 }
 
 impl TokenSourceConfigurable for TokenSourceEndpoint {
-    async fn fetch(&self, options: &TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>> {
+    async fn fetch(
+        &self,
+        options: &TokenSourceFetchOptions,
+    ) -> Result<TokenSourceResponse, Box<dyn Error>> {
         let client = reqwest::Client::new();
 
         // FIXME: What are the best practices around implementing Into on a reference to avoid the
@@ -184,7 +179,13 @@ impl TokenSourceConfigurable for TokenSourceEndpoint {
             .await?;
 
         if !response.status().is_success() {
-            return Err(format!("Error generating token from endpoint {}: received {:?} / {}", self.url, response.status(), response.text().await?).into());
+            return Err(format!(
+                "Error generating token from endpoint {}: received {:?} / {}",
+                self.url,
+                response.status(),
+                response.text().await?
+            )
+            .into());
         }
 
         let response_json = response.json::<TokenSourceResponse>().await?;
@@ -193,9 +194,6 @@ impl TokenSourceConfigurable for TokenSourceEndpoint {
     }
 }
 
-
-
-
 pub struct TokenSourceSandboxTokenServer(TokenSourceEndpoint);
 
 impl TokenSourceSandboxTokenServer {
@@ -203,45 +201,52 @@ impl TokenSourceSandboxTokenServer {
         Self::new_with_base_url(sandbox_id, "https://cloud-api.livekit.io")
     }
     pub fn new_with_base_url(sandbox_id: &str, base_url: &str) -> Self {
-        let mut endpoint = TokenSourceEndpoint::new(
-            &format!("{base_url}/api/v2/sandbox/connection-details")
-        );
+        let mut endpoint =
+            TokenSourceEndpoint::new(&format!("{base_url}/api/v2/sandbox/connection-details"));
         endpoint.headers.insert("X-Sandbox-ID", sandbox_id.parse().unwrap());
         Self(endpoint)
     }
 }
 
 impl TokenSourceConfigurable for TokenSourceSandboxTokenServer {
-    async fn fetch(&self, options: &TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>> {
+    async fn fetch(
+        &self,
+        options: &TokenSourceFetchOptions,
+    ) -> Result<TokenSourceResponse, Box<dyn Error>> {
         self.0.fetch(options).await
     }
 }
 
-
-
-
 pub struct TokenSourceCustom<
-    CustomFn: Fn(&TokenSourceFetchOptions) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
+    CustomFn: Fn(
+        &TokenSourceFetchOptions,
+    ) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
 >(CustomFn);
 
 impl<
-    CustomFn: Fn(&TokenSourceFetchOptions) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
-> TokenSourceCustom<CustomFn> {
+        CustomFn: Fn(
+            &TokenSourceFetchOptions,
+        ) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
+    > TokenSourceCustom<CustomFn>
+{
     pub fn new(custom_fn: CustomFn) -> Self {
         Self(custom_fn)
     }
 }
 
 impl<
-    CustomFn: Fn(&TokenSourceFetchOptions) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
-> TokenSourceConfigurable for TokenSourceCustom<CustomFn> {
-    async fn fetch(&self, options: &TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>> {
+        CustomFn: Fn(
+            &TokenSourceFetchOptions,
+        ) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
+    > TokenSourceConfigurable for TokenSourceCustom<CustomFn>
+{
+    async fn fetch(
+        &self,
+        options: &TokenSourceFetchOptions,
+    ) -> Result<TokenSourceResponse, Box<dyn Error>> {
         (self.0)(options).await
     }
 }
-
-
-
 
 async fn test() {
     let fetch_options = TokenSourceFetchOptions::default().with_agent_name("voice ai quickstart");
@@ -255,26 +260,33 @@ async fn test() {
     let minter = TokenSourceMinter::default();
     let _ = minter.fetch(&fetch_options).await;
 
-    let minter_literal_credentials = TokenSourceMinter::new(MinterCredentials::new("server url", "api key", "api secret"));
+    let minter_literal_credentials =
+        TokenSourceMinter::new(MinterCredentials::new("server url", "api key", "api secret"));
     let _ = minter_literal_credentials.fetch(&fetch_options).await;
 
-    let minter_env = TokenSourceMinter::new(MinterCredentialsEnvironment::new("SERVER_URL", "API_KEY", "API_SECRET"));
+    let minter_env = TokenSourceMinter::new(MinterCredentialsEnvironment::new(
+        "SERVER_URL",
+        "API_KEY",
+        "API_SECRET",
+    ));
     let _ = minter_env.fetch(&fetch_options).await;
 
-    let minter_literal_custom = TokenSourceMinter::new(|| MinterCredentials::new("server url", "api key", "api secret"));
+    let minter_literal_custom =
+        TokenSourceMinter::new(|| MinterCredentials::new("server url", "api key", "api secret"));
     let _ = minter_literal_custom.fetch(&fetch_options).await;
 
-    let custom_minter = TokenSourceCustomMinter::<_, MinterCredentialsEnvironment>::new(|access_token| {
-        access_token
-            .with_identity("rust-bot")
-            .with_name("Rust Bot")
-            .with_grants(access_token::VideoGrants {
-                room_join: true,
-                room: "my-room".to_string(),
-                ..Default::default()
-            })
-            .to_jwt()
-    });
+    let custom_minter =
+        TokenSourceCustomMinter::<_, MinterCredentialsEnvironment>::new(|access_token| {
+            access_token
+                .with_identity("rust-bot")
+                .with_name("Rust Bot")
+                .with_grants(access_token::VideoGrants {
+                    room_join: true,
+                    room: "my-room".to_string(),
+                    ..Default::default()
+                })
+                .to_jwt()
+        });
     let _ = custom_minter.fetch().await;
 
     let endpoint = TokenSourceEndpoint::new("https://example.com/my/example/auth/endpoint");
@@ -293,12 +305,10 @@ async fn test() {
 
     // TODO: custom
     let custom = TokenSourceCustom::new(|_options| {
-        Box::pin(ready(
-            Ok(TokenSourceResponse {
-                server_url: "...".into(),
-                participant_token: "... _options should be encoded in here ...".into(),
-            })
-        ))
+        Box::pin(ready(Ok(TokenSourceResponse {
+            server_url: "...".into(),
+            participant_token: "... _options should be encoded in here ...".into(),
+        })))
     });
     let _ = custom.fetch(&fetch_options).await;
 }

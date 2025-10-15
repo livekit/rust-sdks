@@ -16,7 +16,6 @@ const LIVEKIT_URL_ENV_NAME: &'static str = "LIVEKIT_URL";
 const LIVEKIT_API_KEY_ENV_NAME: &'static str = "LIVEKIT_API_KEY";
 const LIVEKIT_API_SECRET_ENV_NAME: &'static str = "LIVEKIT_API_SECRET";
 
-
 /// MinterCredentials provides a way to configure a TokenSourceMinter with a `LIVEKIT_URL`,
 /// `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` value.
 pub trait MinterCredentialsSource {
@@ -31,11 +30,7 @@ pub struct MinterCredentials {
 }
 impl MinterCredentials {
     pub fn new(server_url: &str, api_key: &str, api_secret: &str) -> Self {
-        Self {
-            url: server_url.into(),
-            api_key: api_key.into(),
-            api_secret: api_secret.into(),
-        }
+        Self { url: server_url.into(), api_key: api_key.into(), api_secret: api_secret.into() }
     }
 }
 
@@ -58,15 +53,21 @@ impl MinterCredentialsSource for MinterCredentialsEnvironment {
     fn get(&self) -> MinterCredentials {
         let (url_variable, api_key_variable, api_secret_variable) = (&self.0, &self.1, &self.2);
         let url = std::env::var(url_variable).expect(format!("{url_variable} is not set").as_str());
-        let api_key = std::env::var(api_key_variable).expect(format!("{api_key_variable} is not set").as_str());
-        let api_secret = std::env::var(api_secret_variable).expect(format!("{api_secret_variable} is not set").as_str());
+        let api_key = std::env::var(api_key_variable)
+            .expect(format!("{api_key_variable} is not set").as_str());
+        let api_secret = std::env::var(api_secret_variable)
+            .expect(format!("{api_secret_variable} is not set").as_str());
         MinterCredentials { url, api_key, api_secret }
     }
 }
 
 impl Default for MinterCredentialsEnvironment {
     fn default() -> Self {
-        Self(LIVEKIT_URL_ENV_NAME.into(), LIVEKIT_API_KEY_ENV_NAME.into(), LIVEKIT_API_SECRET_ENV_NAME.into())
+        Self(
+            LIVEKIT_URL_ENV_NAME.into(),
+            LIVEKIT_API_KEY_ENV_NAME.into(),
+            LIVEKIT_API_SECRET_ENV_NAME.into(),
+        )
     }
 }
 

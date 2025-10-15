@@ -12,11 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, future::{ready, Future}};
 use livekit_protocol::{TokenSourceRequest, TokenSourceResponse};
+use std::{
+    error::Error,
+    future::{ready, Future},
+};
 
 use crate::token_source::TokenSourceFetchOptions;
-
 
 /// A Fixed TokenSource is a token source that takes no parameters and returns a completely
 /// independently derived value on each fetch() call.
@@ -32,14 +34,13 @@ pub trait TokenSourceFixedSynchronous {
     // FIXME: what should the error type of the result be?
     fn fetch_synchronous(&self) -> Result<TokenSourceResponse, Box<dyn Error>>;
 }
- 
+
 impl<T: TokenSourceFixedSynchronous> TokenSourceFixed for T {
     // FIXME: what should the error type of the result be?
     fn fetch(&self) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> {
         ready(self.fetch_synchronous())
     }
 }
-
 
 ///  A Configurable TokenSource is a token source that takes a
 /// TokenSourceFetchOptions object as input and returns a deterministic
@@ -52,18 +53,27 @@ impl<T: TokenSourceFixedSynchronous> TokenSourceFixed for T {
 /// A few common downstream implementers are TokenSourceEndpoint and TokenSourceCustom.
 pub trait TokenSourceConfigurable {
     // FIXME: what should the error type of the result be?
-    fn fetch(&self, options: &TokenSourceFetchOptions) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>;
+    fn fetch(
+        &self,
+        options: &TokenSourceFetchOptions,
+    ) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>;
 }
 
 /// A helper trait to more easily implement a TokenSourceConfigurable which not async.
 pub trait TokenSourceConfigurableSynchronous {
     // FIXME: what should the error type of the result be?
-    fn fetch_synchronous(&self, options: &TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>>;
+    fn fetch_synchronous(
+        &self,
+        options: &TokenSourceFetchOptions,
+    ) -> Result<TokenSourceResponse, Box<dyn Error>>;
 }
- 
+
 impl<T: TokenSourceConfigurableSynchronous> TokenSourceConfigurable for T {
     // FIXME: what should the error type of the result be?
-    fn fetch(&self, options: &TokenSourceFetchOptions) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> {
+    fn fetch(
+        &self,
+        options: &TokenSourceFetchOptions,
+    ) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> {
         ready(self.fetch_synchronous(options))
     }
 }

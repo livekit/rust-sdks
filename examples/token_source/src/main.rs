@@ -1,19 +1,12 @@
 use std::future;
 
 use livekit::prelude::*;
-use livekit_api::access_token;
 use livekit::token_source::{
-    MinterCredentials,
-    MinterCredentialsEnvironment,
-    TokenSourceCustom,
-    TokenSourceCustomMinter,
-    TokenSourceEndpoint,
-    TokenSourceFetchOptions,
-    TokenSourceLiteral,
-    TokenSourceMinter,
-    TokenSourceSandboxTokenServer,
-    TokenSourceResponse,
+    MinterCredentials, MinterCredentialsEnvironment, TokenSourceCustom, TokenSourceCustomMinter,
+    TokenSourceEndpoint, TokenSourceFetchOptions, TokenSourceLiteral, TokenSourceMinter,
+    TokenSourceResponse, TokenSourceSandboxTokenServer,
 };
+use livekit_api::access_token;
 
 #[tokio::main]
 async fn main() {
@@ -32,29 +25,46 @@ async fn main() {
     let minter_response = minter.fetch(&fetch_options).await;
     log::info!("Example TokenSourceMinter::default() result: {:?}", minter_response);
 
-    let minter_literal_credentials = TokenSourceMinter::new(MinterCredentials::new("server url", "api key", "api secret"));
-    let minter_literal_credentials_response = minter_literal_credentials.fetch(&fetch_options).await;
-    log::info!("Example TokenSourceMinter / literal MinterCredentials result: {:?}", minter_literal_credentials_response);
+    let minter_literal_credentials =
+        TokenSourceMinter::new(MinterCredentials::new("server url", "api key", "api secret"));
+    let minter_literal_credentials_response =
+        minter_literal_credentials.fetch(&fetch_options).await;
+    log::info!(
+        "Example TokenSourceMinter / literal MinterCredentials result: {:?}",
+        minter_literal_credentials_response
+    );
 
-    let minter_env = TokenSourceMinter::new(MinterCredentialsEnvironment::new("SERVER_URL", "API_KEY", "API_SECRET"));
+    let minter_env = TokenSourceMinter::new(MinterCredentialsEnvironment::new(
+        "SERVER_URL",
+        "API_KEY",
+        "API_SECRET",
+    ));
     let minter_env_response = minter_env.fetch(&fetch_options).await;
-    log::info!("Example TokenSourceMinter / MinterCredentialsEnvironment result: {:?}", minter_env_response);
+    log::info!(
+        "Example TokenSourceMinter / MinterCredentialsEnvironment result: {:?}",
+        minter_env_response
+    );
 
-    let minter_literal_custom = TokenSourceMinter::new(|| MinterCredentials::new("server url", "api key", "api secret"));
+    let minter_literal_custom =
+        TokenSourceMinter::new(|| MinterCredentials::new("server url", "api key", "api secret"));
     let minter_literal_custom_response = minter_literal_custom.fetch(&fetch_options).await;
-    log::info!("Example TokenSourceMinter / custom credentials result: {:?}", minter_literal_custom_response);
+    log::info!(
+        "Example TokenSourceMinter / custom credentials result: {:?}",
+        minter_literal_custom_response
+    );
 
-    let custom_minter = TokenSourceCustomMinter::<_, MinterCredentialsEnvironment>::new(|access_token| {
-        access_token
-            .with_identity("rust-bot")
-            .with_name("Rust Bot")
-            .with_grants(access_token::VideoGrants {
-                room_join: true,
-                room: "my-room".to_string(),
-                ..Default::default()
-            })
-            .to_jwt()
-    });
+    let custom_minter =
+        TokenSourceCustomMinter::<_, MinterCredentialsEnvironment>::new(|access_token| {
+            access_token
+                .with_identity("rust-bot")
+                .with_name("Rust Bot")
+                .with_grants(access_token::VideoGrants {
+                    room_join: true,
+                    room: "my-room".to_string(),
+                    ..Default::default()
+                })
+                .to_jwt()
+        });
     let custom_minter_response = custom_minter.fetch().await;
     log::info!("Example TokenSourceCustomMinter response: {:?}", custom_minter_response);
 
@@ -75,12 +85,10 @@ async fn main() {
     // let _ = custom.fetch(&fetch_options).await;
 
     let custom = TokenSourceCustom::new(|_options| {
-        Box::pin(future::ready(
-            Ok(TokenSourceResponse {
-                server_url: "...".into(),
-                participant_token: "... _options should be encoded in here ...".into(),
-            })
-        ))
+        Box::pin(future::ready(Ok(TokenSourceResponse {
+            server_url: "...".into(),
+            participant_token: "... _options should be encoded in here ...".into(),
+        })))
     });
     let custom_response = custom.fetch(&fetch_options).await;
     log::info!("Example TokenSourceCustomResponse: {:?}", endpoint_response);
