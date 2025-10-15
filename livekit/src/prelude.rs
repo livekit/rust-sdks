@@ -27,4 +27,5 @@ pub use crate::{
     },
     ConnectionState, DataPacket, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions,
     RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,
+    token_source::{TokenSourceFixed, TokenSourceConfigurable},
 };
