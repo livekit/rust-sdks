@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use futures_util::future;
 use livekit_api::access_token::{self, AccessTokenError};
 use livekit_protocol::{RoomAgentDispatch, RoomConfiguration};
 use serde::{Serialize, Deserialize};
-use std::{collections::HashMap, error::Error};
+use std::{collections::HashMap, error::Error, future::Future, pin::Pin};
 
 #[derive(Clone, Default)]
 pub struct TokenSourceFetchOptions {
@@ -144,7 +145,7 @@ impl TokenSourceResponse {
 
 pub trait TokenSourceFixed {
     // FIXME: what should the error type of the result be?
-    async fn fetch(&self) -> Result<TokenSourceResponse, Box<dyn Error>>;
+    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> + '_>>;
 }
 
 pub trait TokenSourceConfigurable {
@@ -181,8 +182,8 @@ impl<G: TokenLiteralGenerator> TokenSourceLiteral<G> {
 }
 
 impl<G: TokenLiteralGenerator> TokenSourceFixed for TokenSourceLiteral<G> {
-    async fn fetch(&self) -> Result<TokenSourceResponse, Box<dyn Error>> {
-        Ok(self.generator.apply())
+    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> + '_>> {
+        Box::pin(future::ready(Ok(self.generator.apply())))
     }
 }
 
@@ -304,12 +305,21 @@ impl<
     MF: Fn(access_token::AccessToken) -> Result<String, AccessTokenError>,
     C: MinterCredentials,
 > TokenSourceFixed for TokenSourceCustomMinter<MF, C> {
-    async fn fetch(&self) -> Result<TokenSourceResponse, Box<dyn Error>> {
+    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> + '_>> {
         let (server_url, api_key, api_secret) = self.credentials.get();
 
-        let participant_token = (self.mint_fn)(access_token::AccessToken::with_api_key(&api_key, &api_secret))?;
+        let result = (self.mint_fn)(access_token::AccessToken::with_api_key(&api_key, &api_secret)).and_then(|participant_token| {
+            Ok(TokenSourceResponse::new(server_url.as_str(), participant_token.as_str()))
+        });
 
-        Ok(TokenSourceResponse::new(server_url.as_str(), participant_token.as_str()))
+        // FIXME: think more broadly about how error handling should be done and get rid of stuff
+        // like this
+        let coerced_result: Result<TokenSourceResponse, Box<dyn Error>> = match result {
+            Ok(value) => Ok(value),
+            Err(err) => Err(Box::new(err)),
+        };
+
+        Box::pin(future::ready(coerced_result))
     }
 }
 
