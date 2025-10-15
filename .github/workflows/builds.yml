@@ -80,7 +80,8 @@ jobs:
         if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'}}
         run: |
           sudo apt update -y
-          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
+          # libasound2-dev is needed for local_audio example
+          sudo apt install -y libasound2-dev libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
 
       - name: Install VA-API/NVIDIA drivers for linux x64 build
         if: ${{ matrix.os == 'ubuntu-latest'}}
@@ -101,4 +102,5 @@ jobs:
         run: |
           ln -sf $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/${{ matrix.ndk_arch }}/{libunwind.so,libc++abi.a} $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/
           cargo install cargo-ndk
-          cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv
+          # FIXME: wgpu_room does not link on aarch64
+          cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace --exclude wgpu_room -vv

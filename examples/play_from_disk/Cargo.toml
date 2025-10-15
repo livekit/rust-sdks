@@ -7,9 +7,7 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-livekit = { path = "../../livekit", features = ["native-tls"] }
+livekit = { workspace = true }
 thiserror = "1.0.47"
 log = "0.4.20"
 env_logger = "0.10.0"
-
-[workspace]

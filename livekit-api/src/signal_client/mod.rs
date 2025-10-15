@@ -55,6 +55,8 @@ pub enum SignalError {
     WsError(#[from] WsError),
     #[error("failed to parse the url: {0}")]
     UrlParse(String),
+    #[error("access token has invalid characters")]
+    TokenFormat,
     #[error("client error: {0} - {1}")]
     Client(StatusCode, String),
     #[error("server error: {0} - {1}")]
@@ -245,12 +247,15 @@ impl SignalInner {
         proto::JoinResponse,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
-        let lk_url = get_livekit_url(url, token, &options)?;
+        let lk_url = get_livekit_url(url, &options)?;
 
         // Try to connect to the SignalClient
-        let (stream, mut events) = match SignalStream::connect(lk_url.clone()).await {
+        let (stream, mut events) = match SignalStream::connect(lk_url.clone(), token).await {
             Ok(stream) => stream,
             Err(err) => {
+                if let SignalError::TokenFormat = err {
+                    return Err(err);
+                }
                 // Connection failed, try to retrieve more informations
                 Self::validate(lk_url).await?;
                 return Err(err);
@@ -314,10 +319,10 @@ impl SignalInner {
         let sid = &self.join_response.participant.as_ref().unwrap().sid;
         let token = self.token.lock().clone();
 
-        let mut lk_url = get_livekit_url(&self.url, &token, &self.options).unwrap();
+        let mut lk_url = get_livekit_url(&self.url, &self.options).unwrap();
         lk_url.query_pairs_mut().append_pair("reconnect", "1").append_pair("sid", sid);
 
-        let (new_stream, mut events) = SignalStream::connect(lk_url).await?;
+        let (new_stream, mut events) = SignalStream::connect(lk_url, &token).await?;
         let reconnect_response = get_reconnect_response(&mut events).await?;
         *stream = Some(new_stream);
 
@@ -458,7 +463,7 @@ fn is_queuable(signal: &proto::signal_request::Message) -> bool {
     )
 }
 
-fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalResult<url::Url> {
+fn get_livekit_url(url: &str, options: &SignalOptions) -> SignalResult<url::Url> {
     let mut lk_url = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
 
     if !lk_url.has_host() {
@@ -482,7 +487,6 @@ fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalRes
         .query_pairs_mut()
         .append_pair("sdk", options.sdk_options.sdk.as_str())
         .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
-        .append_pair("access_token", token)
         .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
         .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
@@ -533,14 +537,13 @@ mod tests {
 
     #[test]
     fn livekit_url_test() {
-        let it = "null_token";
         let io = SignalOptions::default();
 
-        assert!(get_livekit_url("localhost:7880", it, &io).is_err());
-        assert_eq!(get_livekit_url("https://localhost:7880", it, &io).unwrap().scheme(), "wss");
-        assert_eq!(get_livekit_url("http://localhost:7880", it, &io).unwrap().scheme(), "ws");
-        assert_eq!(get_livekit_url("wss://localhost:7880", it, &io).unwrap().scheme(), "wss");
-        assert_eq!(get_livekit_url("ws://localhost:7880", it, &io).unwrap().scheme(), "ws");
-        assert!(get_livekit_url("ftp://localhost:7880", it, &io).is_err());
+        assert!(get_livekit_url("localhost:7880", &io).is_err());
+        assert_eq!(get_livekit_url("https://localhost:7880", &io).unwrap().scheme(), "wss");
+        assert_eq!(get_livekit_url("http://localhost:7880", &io).unwrap().scheme(), "ws");
+        assert_eq!(get_livekit_url("wss://localhost:7880", &io).unwrap().scheme(), "wss");
+        assert_eq!(get_livekit_url("ws://localhost:7880", &io).unwrap().scheme(), "ws");
+        assert!(get_livekit_url("ftp://localhost:7880", &io).is_err());
     }
 }

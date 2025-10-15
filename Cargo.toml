@@ -12,17 +12,31 @@ members = [
     "imgproc",
     "webrtc-sys",
     "webrtc-sys/build",
+
+    "examples/agent_dispatch",
+    "examples/api",
+    "examples/basic_room",
+    "examples/basic_text_stream",
+    "examples/encrypted_text_stream",
+    "examples/local_audio",
+    "examples/mobile",
+    "examples/play_from_disk",
+    "examples/rpc",
+    "examples/save_to_disk",
+    "examples/send_bytes",
+    "examples/webhooks",
+    "examples/wgpu_room",
 ]
 
 [workspace.dependencies]
-imgproc = { version = "0.3.14", path = "imgproc" }
-yuv-sys = { version = "0.3.9", path = "yuv-sys" }
-libwebrtc = { version = "0.3.17", path = "libwebrtc" }
-livekit-api = { version = "0.4.8", path = "livekit-api" }
-livekit-ffi = { version = "0.12.36", path = "livekit-ffi" }
-livekit-protocol = { version = "0.5.0", path = "livekit-protocol" }
-livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
-livekit = { version = "0.7.21", path = "livekit" }
-soxr-sys = { version = "0.1.0", path = "soxr-sys" }
-webrtc-sys-build = { version = "0.3.9", path = "webrtc-sys/build" }
-webrtc-sys = { version = "0.3.14", path = "webrtc-sys" }
+imgproc = { path = "imgproc" }
+yuv-sys = { path = "yuv-sys" }
+libwebrtc = { path = "libwebrtc" }
+livekit-api = { path = "livekit-api" }
+livekit-ffi = { path = "livekit-ffi" }
+livekit-protocol = { path = "livekit-protocol" }
+livekit-runtime = { path = "livekit-runtime" }
+livekit = { path = "livekit" }
+soxr-sys = { path = "soxr-sys" }
+webrtc-sys-build = { path = "webrtc-sys/build" }
+webrtc-sys = { path = "webrtc-sys" }

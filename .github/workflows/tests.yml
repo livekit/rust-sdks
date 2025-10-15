@@ -82,7 +82,8 @@ jobs:
         if: ${{ matrix.os == 'ubuntu-latest' }}
         run: |
           sudo apt update -y
-          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev libva-dev libdrm-dev libnvidia-decode-570 libnvidia-compute-570 nvidia-cuda-dev
+          # libasound2-dev is needed for local_audio example
+          sudo apt install -y libasound2-dev libssl-dev libx11-dev libgl1-mesa-dev libxext-dev libva-dev libdrm-dev libnvidia-decode-570 libnvidia-compute-570 nvidia-cuda-dev
 
       - name: Install LiveKit server
         if: ${{ matrix.e2e-testing }}
@@ -108,5 +109,3 @@ jobs:
         env:
           RUST_LOG: info
         run: cargo +nightly test --release --verbose --target ${{ matrix.target }} --features __lk-e2e-test -- --nocapture
-
-

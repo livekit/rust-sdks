@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 lazy_static = "1.4.0"
-livekit = { path = "../../livekit", features = ["rustls-tls-webpki-roots"] }
+livekit = { workspace = true }
 log = "0.4.19"
 tokio = { version = "1", features = ["full"] }
 
@@ -14,7 +14,7 @@ jni = "0.21.1"
 android_logger = "0.13.1"
 
 [build-dependencies]
-webrtc-sys-build = { path = "../../webrtc-sys/build" }
+webrtc-sys-build = { workspace = true }
 
 [lib]
 crate-type = ["cdylib"]

@@ -9,10 +9,10 @@ tracing = ["console-subscriber", "tokio/tracing"]
 
 [dependencies]
 tokio = { version = "1", features = ["full", "parking_lot"] }
-livekit = { path = "../../livekit", features = ["native-tls"] }
-webrtc-sys = { path = "../../webrtc-sys", features = [ "use_vaapi", "use_nvidia" ] }
+livekit = { workspace = true }
+webrtc-sys = { workspace = true, features = [ "use_vaapi", "use_nvidia" ] }
 futures = "0.3"
-winit = "0.30.11"
+winit = { version = "0.30.11", features = [ "android-native-activity" ] }
 parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
 image = "0.24"
 wgpu = "25.0"
