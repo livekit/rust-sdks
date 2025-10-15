@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, future::Future};
-use futures_util::future;
+use std::{error::Error, future::{ready, Future}};
 use livekit_protocol::{TokenSourceRequest, TokenSourceResponse};
 
 use crate::token_source::TokenSourceFetchOptions;
@@ -37,7 +36,7 @@ pub trait TokenSourceFixedSynchronous {
 impl<T: TokenSourceFixedSynchronous> TokenSourceFixed for T {
     // FIXME: what should the error type of the result be?
     fn fetch(&self) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> {
-        future::ready(self.fetch_synchronous())
+        ready(self.fetch_synchronous())
     }
 }
 
@@ -65,6 +64,6 @@ pub trait TokenSourceConfigurableSynchronous {
 impl<T: TokenSourceConfigurableSynchronous> TokenSourceConfigurable for T {
     // FIXME: what should the error type of the result be?
     fn fetch(&self, options: &TokenSourceFetchOptions) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> {
-        future::ready(self.fetch_synchronous(options))
+        ready(self.fetch_synchronous(options))
     }
 }

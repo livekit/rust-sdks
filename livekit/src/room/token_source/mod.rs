@@ -293,7 +293,7 @@ async fn test() {
 
     // TODO: custom
     let custom = TokenSourceCustom::new(|_options| {
-        Box::pin(future::ready(
+        Box::pin(ready(
             Ok(TokenSourceResponse {
                 server_url: "...".into(),
                 participant_token: "... _options should be encoded in here ...".into(),
