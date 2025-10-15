@@ -36,6 +36,7 @@ env_logger = "0.10"
 downcast-rs = "1.2"
 console-subscriber = { version = "0.1", features = ["parking_lot"], optional = true }
 bytes = "1.10.1"
+from_variants = "1.0.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"
