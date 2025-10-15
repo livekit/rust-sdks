@@ -416,11 +416,11 @@ impl TokenSourceConfigurable for TokenSourceSandboxTokenServer {
 
 
 struct TokenSourceCustom<
-    CustomFn: AsyncFn(&TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>>,
+    CustomFn: Fn(&TokenSourceFetchOptions) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
 >(CustomFn);
 
 impl<
-    CustomFn: AsyncFn(&TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>>,
+    CustomFn: Fn(&TokenSourceFetchOptions) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
 > TokenSourceCustom<CustomFn> {
     pub fn new(custom_fn: CustomFn) -> Self {
         Self(custom_fn)
@@ -428,7 +428,7 @@ impl<
 }
 
 impl<
-    CustomFn: AsyncFn(&TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>>,
+    CustomFn: Fn(&TokenSourceFetchOptions) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
 > TokenSourceConfigurable for TokenSourceCustom<CustomFn> {
     async fn fetch(&self, options: &TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>> {
         (self.0)(options).await
@@ -472,9 +472,19 @@ async fn test() {
     let endpoint = TokenSourceSandboxTokenServer::new("SANDBOX ID HERE");
     let _ = endpoint.fetch(&fetch_options).await;
 
+    // let foo = Box::pin(async |options: &TokenSourceFetchOptions| {
+    //     Ok(TokenSourceResponse::new("...", "... _options should be encoded in here ..."))
+    // });
+
+    // // TODO: custom
+    // let custom = TokenSourceCustom::new(foo);
+    // let _ = custom.fetch(&fetch_options).await;
+
     // TODO: custom
-    let custom = TokenSourceCustom::new(async |_options| {
-        Ok(TokenSourceResponse::new("...", "... _options should be encoded in here ..."))
+    let custom = TokenSourceCustom::new(|_options| {
+        Box::pin(future::ready(
+            Ok(TokenSourceResponse::new("...", "... _options should be encoded in here ..."))
+        ))
     });
     let _ = custom.fetch(&fetch_options).await;
 }
