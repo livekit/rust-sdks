@@ -77,5 +77,3 @@ fn normalize_host(url: &str) -> String {
     }
     url.trim_end_matches("/rtc").to_string()
 }
-
-
