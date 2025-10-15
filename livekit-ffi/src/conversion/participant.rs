@@ -46,6 +46,7 @@ impl From<ParticipantKind> for proto::ParticipantKind {
             ParticipantKind::Ingress => proto::ParticipantKind::Ingress,
             ParticipantKind::Egress => proto::ParticipantKind::Egress,
             ParticipantKind::Agent => proto::ParticipantKind::Agent,
+            ParticipantKind::Connector => proto::ParticipantKind::Connector,
         }
     }
 }
