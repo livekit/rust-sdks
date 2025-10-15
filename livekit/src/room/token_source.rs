@@ -30,19 +30,19 @@ pub struct TokenSourceFetchOptions {
 }
 
 impl TokenSourceFetchOptions {
-    pub fn with_room_name(&mut self, room_name: &str) -> &mut Self {
+    pub fn with_room_name(mut self, room_name: &str) -> Self {
         self.room_name = Some(room_name.into());
         self
     }
-    pub fn with_participant_name(&mut self, participant_name: &str) -> &mut Self {
+    pub fn with_participant_name(mut self, participant_name: &str) -> Self {
         self.participant_name = Some(participant_name.into());
         self
     }
-    pub fn with_participant_identity(&mut self, participant_identity: &str) -> &mut Self {
+    pub fn with_participant_identity(mut self, participant_identity: &str) -> Self {
         self.participant_identity = Some(participant_identity.into());
         self
     }
-    pub fn with_participant_metadata(&mut self, participant_metadata: &str) -> &mut Self {
+    pub fn with_participant_metadata(mut self, participant_metadata: &str) -> Self {
         self.participant_metadata = Some(participant_metadata.into());
         self
     }
@@ -56,21 +56,21 @@ impl TokenSourceFetchOptions {
         participant_attribute_mut
     }
 
-    pub fn with_participant_attribute(&mut self, attribute_key: &str, attribute_value: &str) -> &mut Self {
+    pub fn with_participant_attribute(mut self, attribute_key: &str, attribute_value: &str) -> Self {
         self.ensure_participant_attributes_defined().insert(attribute_key.into(), attribute_value.into());
         self
     }
 
-    pub fn with_participant_attributes(&mut self, participant_attributes: HashMap<String, String>) -> &mut Self {
+    pub fn with_participant_attributes(mut self, participant_attributes: HashMap<String, String>) -> Self {
         self.ensure_participant_attributes_defined().extend(participant_attributes);
         self
     }
 
-    pub fn with_agent_name(&mut self, agent_name: &str) -> &mut Self {
+    pub fn with_agent_name(mut self, agent_name: &str) -> Self {
         self.agent_name = Some(agent_name.into());
         self
     }
-    pub fn with_agent_metadata(&mut self, agent_metadata: &str) -> &mut Self {
+    pub fn with_agent_metadata(mut self, agent_metadata: &str) -> Self {
         self.agent_metadata = Some(agent_metadata.into());
         self
     }
@@ -387,10 +387,12 @@ impl TokenSourceConfigurable for TokenSourceSandboxTokenServer {
 
 
 
-struct TokenSourceCustom<CustomFn>(CustomFn);
+struct TokenSourceCustom<
+    CustomFn: AsyncFn(&TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>>,
+>(CustomFn);
 
 impl<
-    CustomFn: Fn(&TokenSourceFetchOptions) -> TokenSourceResponse
+    CustomFn: AsyncFn(&TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>>,
 > TokenSourceCustom<CustomFn> {
     pub fn new(custom_fn: CustomFn) -> Self {
         Self(custom_fn)
@@ -398,11 +400,10 @@ impl<
 }
 
 impl<
-    CustomFn: Fn(&TokenSourceFetchOptions) -> TokenSourceResponse
+    CustomFn: AsyncFn(&TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>>,
 > TokenSourceConfigurable for TokenSourceCustom<CustomFn> {
     async fn fetch(&self, options: &TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>> {
-        let response = (self.0)(options);
-        Ok(response)
+        (self.0)(options).await
     }
 }
 
@@ -410,17 +411,19 @@ impl<
 
 
 async fn test() {
+    let fetch_options = TokenSourceFetchOptions::default().with_agent_name("voice ai quickstart");
+
     let literal = TokenSourceLiteral::new(TokenSourceResponse::new("...", "..."));
     let _ = literal.fetch().await;
 
     let minter = TokenSourceMinter::default();
-    let _ = minter.fetch(&TokenSourceFetchOptions { /* agentName: "my agent", ... etc ... */ }).await;
+    let _ = minter.fetch(&fetch_options).await;
 
     let minter_literal_credentials = TokenSourceMinter::new(MinterCredentialsLiteral::new("server url", "api key", "api secret"));
-    let _ = minter.fetch(&TokenSourceFetchOptions { /* agentName: "my agent", ... etc ... */ }).await;
+    let _ = minter.fetch(&fetch_options).await;
 
     let minter_literal_custom = TokenSourceMinter::new(|| ("server url".into(), "api key".into(), "api secret".into()));
-    let _ = minter.fetch(&TokenSourceFetchOptions { /* agentName: "my agent", ... etc ... */ }).await;
+    let _ = minter.fetch(&fetch_options).await;
 
     let custom_minter = TokenSourceCustomMinter::<_, MinterCredentialsEnvironment>::new(|access_token| {
         access_token
@@ -436,10 +439,14 @@ async fn test() {
     let _ = custom_minter.fetch().await;
 
     let endpoint = TokenSourceEndpoint::new("https://example.com/my/example/auth/endpoint");
-    let _ = endpoint.fetch(&TokenSourceFetchOptions { /* agentName: "my agent", ... etc ... */ }).await;
+    let _ = endpoint.fetch(&fetch_options).await;
 
     let endpoint = TokenSourceSandboxTokenServer::new("SANDBOX ID HERE");
-    let _ = endpoint.fetch(&TokenSourceFetchOptions { /* agentName: "my agent", ... etc ... */ }).await;
+    let _ = endpoint.fetch(&fetch_options).await;
 
     // TODO: custom
+    let custom = TokenSourceCustom::new(async |_options| {
+        Ok(TokenSourceResponse::new("...", "... _options should be encoded in here ..."))
+    });
+    let _ = custom.fetch(&fetch_options).await;
 }
