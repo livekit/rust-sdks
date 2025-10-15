@@ -6,17 +6,17 @@ use std::env;
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Create an Agent Dispatch in a LiveKit room", long_about = None)]
 struct Args {
-    /// LiveKit server URL (can also be set via LIVEKIT_URL)
-    #[arg(long)]
-    url: Option<String>,
+    /// LiveKit server URL
+    #[arg(long, env = "LIVEKIT_URL")]
+    url: String,
 
-    /// LiveKit API key (can also be set via LIVEKIT_API_KEY)
-    #[arg(long, alias = "key")]
-    api_key: Option<String>,
+    /// LiveKit API key
+    #[arg(long, alias = "key", env = "LIVEKIT_API_KEY")]
+    api_key: String,
 
-    /// LiveKit API secret (can also be set via LIVEKIT_API_SECRET)
-    #[arg(long, alias = "secret")]
-    api_secret: Option<String>,
+    /// LiveKit API secret
+    #[arg(long, alias = "secret", env = "LIVEKIT_API_SECRET")]
+    api_secret: String,
 
     /// LiveKit room name to dispatch the agent to
     #[arg(long, default_value = "my-room")]
@@ -31,31 +31,17 @@ struct Args {
 async fn main() {
     env_logger::init();
     let args = Args::parse();
-
-    // Resolve connection + credentials from CLI or env vars (matching other examples)
-    let url = args
-        .url
-        .or_else(|| env::var("LIVEKIT_URL").ok())
-        .expect("LiveKit URL must be provided via --url or LIVEKIT_URL env var");
-    let host = normalize_host(&url);
-
-    let api_key = args
-        .api_key
-        .or_else(|| env::var("LIVEKIT_API_KEY").ok())
-        .expect("API key must be provided via --api-key or LIVEKIT_API_KEY env var");
-    let api_secret = args
-        .api_secret
-        .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
-        .expect("API secret must be provided via --api-secret or LIVEKIT_API_SECRET env var");
-
-    let room = args.room_name;
-    let agent_name = args.agent_name;
+    let host = normalize_host(&args.url);
 
     // Instantiate the AgentDispatch service client
-    let client = AgentDispatchClient::with_api_key(&host, &api_key, &api_secret);
+    let client = AgentDispatchClient::with_api_key(&host, &args.api_key, &args.api_secret);
 
     // Create a dispatch for the given agent into the room
-    let req = proto::CreateAgentDispatchRequest { agent_name, room, ..Default::default() };
+    let req = proto::CreateAgentDispatchRequest {
+        agent_name: args.agent_name,
+        room: args.room_name,
+        ..Default::default()
+    };
 
     match client.create_dispatch(req).await {
         Ok(dispatch) => {
