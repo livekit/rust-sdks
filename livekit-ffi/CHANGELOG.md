@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.36](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.35...rust-sdks/livekit-ffi@0.12.36) - 2025-10-13
+
+### Added
+
+- *(e2ee)* add data channel encryption ([#708](https://github.com/livekit/rust-sdks/pull/708))
+
+### Fixed
+
+- fix some potential audio issues, clean up the code a bit, and suppress some warnings  ([#737](https://github.com/livekit/rust-sdks/pull/737))
+- do not log 'signal client closed: "stream closed"' on disconnect ([#727](https://github.com/livekit/rust-sdks/pull/727))
+
+### Other
+
+- Upgrade prost, use prost-build (FFI only) ([#734](https://github.com/livekit/rust-sdks/pull/734))
+- Test participant disconnect ([#732](https://github.com/livekit/rust-sdks/pull/732))
+- Increase RPC max RT time to 7s ([#729](https://github.com/livekit/rust-sdks/pull/729))
+- E2E audio test ([#724](https://github.com/livekit/rust-sdks/pull/724))
+- bump libwebrtc libs version for webrtc-sys. ([#741](https://github.com/livekit/rust-sdks/pull/741))
+- Bump reqwest to 0.12 ([#711](https://github.com/livekit/rust-sdks/pull/711))
+
 ## [0.12.35](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.34...rust-sdks/livekit-ffi@0.12.35) - 2025-10-03
 
 ### Other

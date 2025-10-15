@@ -28,14 +28,16 @@ use base64;
 
 #[cfg(feature = "signal-client-tokio")]
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream as TokioTcpStream,
 };
 
 #[cfg(feature = "signal-client-tokio")]
 use tokio_tungstenite::{
     connect_async,
+    tungstenite::client::IntoClientRequest,
     tungstenite::error::ProtocolError,
+    tungstenite::http::{header::AUTHORIZATION, HeaderValue},
     tungstenite::{Error as WsError, Message},
     MaybeTlsStream, WebSocketStream,
 };
@@ -44,7 +46,9 @@ use tokio_tungstenite::{
 use async_tungstenite::{
     async_std::connect_async,
     async_std::ClientStream as MaybeTlsStream,
+    tungstenite::client::IntoClientRequest,
     tungstenite::error::ProtocolError,
+    tungstenite::http::{header::AUTHORIZATION, HeaderValue},
     tungstenite::{Error as WsError, Message},
     WebSocketStream,
 };
@@ -83,28 +87,13 @@ impl SignalStream {
     /// closed.
     pub async fn connect(
         url: url::Url,
+        token: &str,
     ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {
-        {
-            // Don't log sensitive info
-            let mut url = url.clone();
-            let filtered_pairs: Vec<_> = url
-                .query_pairs()
-                .filter(|(key, _)| key != "access_token")
-                .map(|(k, v)| (k.into_owned(), v.into_owned()))
-                .collect();
-
-            {
-                let mut query_pairs = url.query_pairs_mut();
-                query_pairs.clear();
-                for (key, value) in filtered_pairs {
-                    query_pairs.append_pair(&key, &value);
-                }
-
-                query_pairs.append_pair("access_token", "...");
-            }
-
-            log::info!("connecting to {}", url);
-        }
+        log::info!("connecting to {}", url);
+        let mut request = url.clone().into_client_request()?;
+        let auth_header = HeaderValue::from_str(&format!("Bearer {token}"))
+            .map_err(|_| SignalError::TokenFormat)?;
+        request.headers_mut().insert(AUTHORIZATION, auth_header);
 
         #[cfg(feature = "signal-client-tokio")]
         let ws_stream = {
@@ -300,16 +289,16 @@ impl SignalStream {
 
                     // Now perform WebSocket handshake over the established connection
                     let (ws_stream, _) =
-                        tokio_tungstenite::client_async_with_config(url, stream, None).await?;
+                        tokio_tungstenite::client_async_with_config(request, stream, None).await?;
                     ws_stream
                 } else {
                     // No proxy specified, connect directly
-                    let (ws_stream, _) = connect_async(url).await?;
+                    let (ws_stream, _) = connect_async(request).await?;
                     ws_stream
                 }
             } else {
                 // Non-tokio build or no proxy - connect directly
-                let (ws_stream, _) = connect_async(url).await?;
+                let (ws_stream, _) = connect_async(request).await?;
                 ws_stream
             };
 
@@ -317,7 +306,7 @@ impl SignalStream {
         };
 
         #[cfg(not(feature = "signal-client-tokio"))]
-        let (ws_stream, _) = connect_async(url).await?;
+        let (ws_stream, _) = connect_async(request).await?;
         let (ws_writer, ws_reader) = ws_stream.split();
 
         let (emitter, events) = mpsc::unbounded_channel();

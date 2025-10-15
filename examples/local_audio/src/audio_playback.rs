@@ -1,12 +1,12 @@
+use crate::audio_mixer::AudioMixer;
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, StreamTrait};
-use cpal::{Device, SampleFormat, Stream, StreamConfig, SizedSample, Sample, FromSample};
+use cpal::{Device, FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig};
 use log::{error, info};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use crate::audio_mixer::AudioMixer;
 
 pub struct AudioPlayback {
     _stream: Stream,
@@ -24,9 +24,15 @@ impl AudioPlayback {
         let is_running_clone = is_running.clone();
 
         let stream = match sample_format {
-            SampleFormat::F32 => Self::create_output_stream::<f32>(device, config, mixer, is_running_clone)?,
-            SampleFormat::I16 => Self::create_output_stream::<i16>(device, config, mixer, is_running_clone)?,
-            SampleFormat::U16 => Self::create_output_stream::<u16>(device, config, mixer, is_running_clone)?,
+            SampleFormat::F32 => {
+                Self::create_output_stream::<f32>(device, config, mixer, is_running_clone)?
+            }
+            SampleFormat::I16 => {
+                Self::create_output_stream::<i16>(device, config, mixer, is_running_clone)?
+            }
+            SampleFormat::U16 => {
+                Self::create_output_stream::<u16>(device, config, mixer, is_running_clone)?
+            }
             sample_format => {
                 return Err(anyhow!("Unsupported sample format: {:?}", sample_format));
             }
@@ -35,10 +41,7 @@ impl AudioPlayback {
         stream.play()?;
         info!("Audio playback stream started");
 
-        Ok(AudioPlayback {
-            _stream: stream,
-            is_running,
-        })
+        Ok(AudioPlayback { _stream: stream, is_running })
     }
 
     fn create_output_stream<T>(
@@ -62,7 +65,7 @@ impl AudioPlayback {
                 }
 
                 let mixed_samples = mixer.get_samples(data.len());
-                
+
                 // Convert mixed i16 samples to output format
                 for (i, sample) in data.iter_mut().enumerate() {
                     *sample = Self::convert_i16_to_sample::<T>(mixed_samples[i]);
@@ -100,4 +103,4 @@ impl Drop for AudioPlayback {
     fn drop(&mut self) {
         self.stop();
     }
-} 
+}
