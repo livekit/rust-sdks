@@ -72,7 +72,7 @@ impl<G: TokenLiteralGenerator> TokenSourceFixedSynchronous for TokenSourceLitera
 
 
 
-struct TokenSourceMinter<CredentialsSource: MinterCredentialsSource> {
+pub struct TokenSourceMinter<CredentialsSource: MinterCredentialsSource> {
     credentials_source: CredentialsSource,
 }
 
@@ -112,7 +112,7 @@ impl Default for TokenSourceMinter<MinterCredentialsEnvironment> {
 
 
 
-struct TokenSourceCustomMinter<
+pub struct TokenSourceCustomMinter<
     MintFn: Fn(access_token::AccessToken) -> Result<String, AccessTokenError>,
     Credentials: MinterCredentialsSource,
 > {
@@ -152,7 +152,7 @@ impl<
 
 use reqwest::{header::HeaderMap, Method};
 
-struct TokenSourceEndpoint {
+pub struct TokenSourceEndpoint {
     url: String,
     method: Method,
     headers: HeaderMap,
@@ -196,7 +196,7 @@ impl TokenSourceConfigurable for TokenSourceEndpoint {
 
 
 
-struct TokenSourceSandboxTokenServer(TokenSourceEndpoint);
+pub struct TokenSourceSandboxTokenServer(TokenSourceEndpoint);
 
 impl TokenSourceSandboxTokenServer {
     pub fn new(sandbox_id: &str) -> Self {
@@ -220,7 +220,7 @@ impl TokenSourceConfigurable for TokenSourceSandboxTokenServer {
 
 
 
-struct TokenSourceCustom<
+pub struct TokenSourceCustom<
     CustomFn: Fn(&TokenSourceFetchOptions) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
 >(CustomFn);
 
