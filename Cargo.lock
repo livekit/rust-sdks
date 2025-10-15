@@ -55,6 +55,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent_dispatch"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "env_logger 0.10.2",
+ "livekit-api",
+ "livekit-protocol",
+ "log",
+ "tokio",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
