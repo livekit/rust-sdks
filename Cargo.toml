@@ -13,6 +13,7 @@ members = [
     "webrtc-sys",
     "webrtc-sys/build",
 
+    "examples/agent_dispatch",
     "examples/api",
     "examples/basic_room",
     "examples/basic_text_stream",
