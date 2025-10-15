@@ -62,6 +62,7 @@ pub mod participant;
 pub mod publication;
 pub mod track;
 pub(crate) mod utils;
+pub mod token_source;
 
 pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
