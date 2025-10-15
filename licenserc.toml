@@ -9,7 +9,10 @@ excludes = [
     "livekit-protocol/protocol",
     "examples",
     ".github",
-    "*.toml"
+    "*.toml",
+    # Generated files
+    "livekit-protocol/src/livekit.rs",
+    "livekit-protocol/src/livekit.serde.rs",
 ]
 
 [mapping.DOUBLESLASH_STYLE]
