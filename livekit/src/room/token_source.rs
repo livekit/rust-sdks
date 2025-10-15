@@ -145,14 +145,41 @@ impl TokenSourceResponse {
 
 pub trait TokenSourceFixed {
     // FIXME: what should the error type of the result be?
-    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> + '_>>;
+    fn fetch(&self) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>;
 }
 
 pub trait TokenSourceConfigurable {
     // FIXME: what should the error type of the result be?
-    async fn fetch(&self, options: &TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>>;
+    fn fetch(&self, options: &TokenSourceFetchOptions) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>;
 }
 
+pub trait TokenSourceConfigurableSynchronous {
+    // FIXME: what should the error type of the result be?
+    fn fetch_synchronous(&self, options: &TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>>;
+}
+ 
+impl<T: TokenSourceConfigurableSynchronous> TokenSourceConfigurable for T {
+    // FIXME: what should the error type of the result be?
+    fn fetch(&self, options: &TokenSourceFetchOptions) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> {
+        future::ready(self.fetch_synchronous(options))
+    }
+}
+
+
+
+
+
+pub trait TokenSourceFixedSynchronous {
+    // FIXME: what should the error type of the result be?
+    fn fetch_synchronous(&self) -> Result<TokenSourceResponse, Box<dyn Error>>;
+}
+ 
+impl<T: TokenSourceFixedSynchronous> TokenSourceFixed for T {
+    // FIXME: what should the error type of the result be?
+    fn fetch(&self) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> {
+        future::ready(self.fetch_synchronous())
+    }
+}
 
 
 
@@ -181,9 +208,9 @@ impl<G: TokenLiteralGenerator> TokenSourceLiteral<G> {
     }
 }
 
-impl<G: TokenLiteralGenerator> TokenSourceFixed for TokenSourceLiteral<G> {
-    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> + '_>> {
-        Box::pin(future::ready(Ok(self.generator.apply())))
+impl<G: TokenLiteralGenerator> TokenSourceFixedSynchronous for TokenSourceLiteral<G> {
+    fn fetch_synchronous(&self) -> Result<TokenSourceResponse, Box<dyn Error>> {
+        Ok(self.generator.apply())
     }
 }
 
@@ -250,8 +277,8 @@ impl<C: MinterCredentials> TokenSourceMinter<C> {
     }
 }
 
-impl<C: MinterCredentials> TokenSourceConfigurable for TokenSourceMinter<C> {
-    async fn fetch(&self, options: &TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>> {
+impl<C: MinterCredentials> TokenSourceConfigurableSynchronous for TokenSourceMinter<C> {
+    fn fetch_synchronous(&self, options: &TokenSourceFetchOptions) -> Result<TokenSourceResponse, Box<dyn Error>> {
         let (server_url, api_key, api_secret) = self.credentials.get();
 
         // FIXME: apply options in the below code!
@@ -304,22 +331,13 @@ impl<
 impl<
     MF: Fn(access_token::AccessToken) -> Result<String, AccessTokenError>,
     C: MinterCredentials,
-> TokenSourceFixed for TokenSourceCustomMinter<MF, C> {
-    fn fetch(&self) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> + '_>> {
+> TokenSourceFixedSynchronous for TokenSourceCustomMinter<MF, C> {
+    fn fetch_synchronous(&self) -> Result<TokenSourceResponse, Box<dyn Error>> {
         let (server_url, api_key, api_secret) = self.credentials.get();
 
-        let result = (self.mint_fn)(access_token::AccessToken::with_api_key(&api_key, &api_secret)).and_then(|participant_token| {
-            Ok(TokenSourceResponse::new(server_url.as_str(), participant_token.as_str()))
-        });
+        let participant_token = (self.mint_fn)(access_token::AccessToken::with_api_key(&api_key, &api_secret))?;
 
-        // FIXME: think more broadly about how error handling should be done and get rid of stuff
-        // like this
-        let coerced_result: Result<TokenSourceResponse, Box<dyn Error>> = match result {
-            Ok(value) => Ok(value),
-            Err(err) => Err(Box::new(err)),
-        };
-
-        Box::pin(future::ready(coerced_result))
+        Ok(TokenSourceResponse::new(server_url.as_str(), participant_token.as_str()))
     }
 }
 
