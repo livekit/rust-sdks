@@ -448,10 +448,10 @@ async fn test() {
     let _ = minter.fetch(&fetch_options).await;
 
     let minter_literal_credentials = TokenSourceMinter::new(MinterCredentialsLiteral::new("server url", "api key", "api secret"));
-    let _ = minter.fetch(&fetch_options).await;
+    let _ = minter_literal_credentials.fetch(&fetch_options).await;
 
     let minter_literal_custom = TokenSourceMinter::new(|| ("server url".into(), "api key".into(), "api secret".into()));
-    let _ = minter.fetch(&fetch_options).await;
+    let _ = minter_literal_custom.fetch(&fetch_options).await;
 
     let custom_minter = TokenSourceCustomMinter::<_, MinterCredentialsEnvironment>::new(|access_token| {
         access_token
