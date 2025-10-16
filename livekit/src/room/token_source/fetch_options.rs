@@ -19,6 +19,7 @@ use std::collections::HashMap;
 ///
 /// Example:
 /// ```rust
+/// use livekit::token_source::TokenSourceFetchOptions;
 /// let _ = TokenSourceFetchOptions::default().with_agent_name("my agent name");
 /// ```
 #[derive(Clone, Default)]
