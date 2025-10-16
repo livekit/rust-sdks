@@ -3017,6 +3017,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-uniffi"
+version = "0.1.0"
+
+[[package]]
 name = "local_audio"
 version = "0.1.0"
 dependencies = [
