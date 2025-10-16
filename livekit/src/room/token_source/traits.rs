@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    error::Error,
-    future::{ready, Future},
-};
+use std::future::{ready, Future};
 
-use crate::token_source::{TokenSourceFetchOptions, TokenSourceResponse};
+use crate::token_source::{TokenSourceFetchOptions, TokenSourceResponse, TokenSourceResult};
 
 /// A Fixed TokenSource is a token source that takes no parameters and returns a completely
 /// independently derived value on each fetch() call.
@@ -25,18 +22,18 @@ use crate::token_source::{TokenSourceFetchOptions, TokenSourceResponse};
 /// The most common downstream implementer is TokenSourceLiteral.
 pub trait TokenSourceFixed {
     // FIXME: what should the error type of the result be?
-    fn fetch(&self) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>;
+    fn fetch(&self) -> impl Future<Output = TokenSourceResult<TokenSourceResponse>>;
 }
 
 /// A helper trait to more easily implement a TokenSourceFixed which not async.
 pub trait TokenSourceFixedSynchronous {
     // FIXME: what should the error type of the result be?
-    fn fetch_synchronous(&self) -> Result<TokenSourceResponse, Box<dyn Error>>;
+    fn fetch_synchronous(&self) -> TokenSourceResult<TokenSourceResponse>;
 }
 
 impl<T: TokenSourceFixedSynchronous> TokenSourceFixed for T {
     // FIXME: what should the error type of the result be?
-    fn fetch(&self) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> {
+    fn fetch(&self) -> impl Future<Output = TokenSourceResult<TokenSourceResponse>> {
         ready(self.fetch_synchronous())
     }
 }
@@ -55,7 +52,7 @@ pub trait TokenSourceConfigurable {
     fn fetch(
         &self,
         options: &TokenSourceFetchOptions,
-    ) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>;
+    ) -> impl Future<Output = TokenSourceResult<TokenSourceResponse>>;
 }
 
 /// A helper trait to more easily implement a TokenSourceConfigurable which not async.
@@ -64,7 +61,7 @@ pub trait TokenSourceConfigurableSynchronous {
     fn fetch_synchronous(
         &self,
         options: &TokenSourceFetchOptions,
-    ) -> Result<TokenSourceResponse, Box<dyn Error>>;
+    ) -> TokenSourceResult<TokenSourceResponse>;
 }
 
 impl<T: TokenSourceConfigurableSynchronous> TokenSourceConfigurable for T {
@@ -72,7 +69,7 @@ impl<T: TokenSourceConfigurableSynchronous> TokenSourceConfigurable for T {
     fn fetch(
         &self,
         options: &TokenSourceFetchOptions,
-    ) -> impl Future<Output = Result<TokenSourceResponse, Box<dyn Error>>> {
+    ) -> impl Future<Output = TokenSourceResult<TokenSourceResponse>> {
         ready(self.fetch_synchronous(options))
     }
 }

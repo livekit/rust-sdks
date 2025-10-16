@@ -14,13 +14,15 @@
 
 use livekit_api::access_token::{self, AccessTokenError};
 use livekit_protocol as proto;
-use std::{error::Error, future::Future, pin::Pin};
+use std::{future::Future, pin::Pin};
 
+mod error;
 mod fetch_options;
 mod minter_credentials;
 mod request_response;
 mod traits;
 
+pub use error::{TokenSourceError, TokenSourceResult};
 pub use fetch_options::TokenSourceFetchOptions;
 pub use minter_credentials::{
     MinterCredentials, MinterCredentialsEnvironment, MinterCredentialsSource,
@@ -58,7 +60,7 @@ impl<G: TokenLiteralGenerator> TokenSourceLiteral<G> {
 }
 
 impl<G: TokenLiteralGenerator> TokenSourceFixedSynchronous for TokenSourceLiteral<G> {
-    fn fetch_synchronous(&self) -> Result<TokenSourceResponse, Box<dyn Error>> {
+    fn fetch_synchronous(&self) -> TokenSourceResult<TokenSourceResponse> {
         Ok(self.generator.apply())
     }
 }
@@ -77,7 +79,7 @@ impl<C: MinterCredentialsSource> TokenSourceConfigurableSynchronous for TokenSou
     fn fetch_synchronous(
         &self,
         options: &TokenSourceFetchOptions,
-    ) -> Result<TokenSourceResponse, Box<dyn Error>> {
+    ) -> TokenSourceResult<TokenSourceResponse> {
         let MinterCredentials { url: server_url, api_key, api_secret } =
             self.credentials_source.get();
 
@@ -131,7 +133,7 @@ impl<
         C: MinterCredentialsSource,
     > TokenSourceFixedSynchronous for TokenSourceCustomMinter<MF, C>
 {
-    fn fetch_synchronous(&self) -> Result<TokenSourceResponse, Box<dyn Error>> {
+    fn fetch_synchronous(&self) -> TokenSourceResult<TokenSourceResponse> {
         let MinterCredentials { url: server_url, api_key, api_secret } =
             self.credentials_source.get();
 
@@ -160,7 +162,7 @@ impl TokenSourceConfigurable for TokenSourceEndpoint {
     async fn fetch(
         &self,
         options: &TokenSourceFetchOptions,
-    ) -> Result<TokenSourceResponse, Box<dyn Error>> {
+    ) -> TokenSourceResult<TokenSourceResponse> {
         let client = reqwest::Client::new();
 
         let request: TokenSourceRequest = options.clone().into();
@@ -174,13 +176,11 @@ impl TokenSourceConfigurable for TokenSourceEndpoint {
             .await?;
 
         if !response.status().is_success() {
-            return Err(format!(
-                "Error generating token from endpoint {}: received {:?} / {}",
-                self.url,
-                response.status(),
-                response.text().await?
-            )
-            .into());
+            return Err(TokenSourceError::TokenGenerationFailed {
+                url: self.url.clone(),
+                status_code: response.status(),
+                raw_body_text: response.text().await?,
+            });
         }
 
         let response_proto = response.json::<proto::TokenSourceResponse>().await?;
@@ -206,7 +206,7 @@ impl TokenSourceConfigurable for TokenSourceSandboxTokenServer {
     async fn fetch(
         &self,
         options: &TokenSourceFetchOptions,
-    ) -> Result<TokenSourceResponse, Box<dyn Error>> {
+    ) -> TokenSourceResult<TokenSourceResponse> {
         self.0.fetch(options).await
     }
 }
@@ -214,13 +214,13 @@ impl TokenSourceConfigurable for TokenSourceSandboxTokenServer {
 pub struct TokenSourceCustom<
     CustomFn: Fn(
         &TokenSourceFetchOptions,
-    ) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
+    ) -> Pin<Box<dyn Future<Output = TokenSourceResult<TokenSourceResponse>>>>,
 >(CustomFn);
 
 impl<
         CustomFn: Fn(
             &TokenSourceFetchOptions,
-        ) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
+        ) -> Pin<Box<dyn Future<Output = TokenSourceResult<TokenSourceResponse>>>>,
     > TokenSourceCustom<CustomFn>
 {
     pub fn new(custom_fn: CustomFn) -> Self {
@@ -231,13 +231,13 @@ impl<
 impl<
         CustomFn: Fn(
             &TokenSourceFetchOptions,
-        ) -> Pin<Box<dyn Future<Output = Result<TokenSourceResponse, Box<dyn Error>>>>>,
+        ) -> Pin<Box<dyn Future<Output = TokenSourceResult<TokenSourceResponse>>>>,
     > TokenSourceConfigurable for TokenSourceCustom<CustomFn>
 {
     async fn fetch(
         &self,
         options: &TokenSourceFetchOptions,
-    ) -> Result<TokenSourceResponse, Box<dyn Error>> {
+    ) -> TokenSourceResult<TokenSourceResponse> {
         (self.0)(options).await
     }
 }
