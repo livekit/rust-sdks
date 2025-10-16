@@ -1190,23 +1190,23 @@ public object FfiConverterTypeSIPGrants: FfiConverterRustBuffer<SipGrants> {
 
  */
 data class TokenOptions (
-    var `ttl`: java.time.Duration?
+    var `ttl`: java.time.Duration? = null 
     , 
-    var `videoGrants`: VideoGrants?
+    var `videoGrants`: VideoGrants? = null 
     , 
-    var `sipGrants`: SipGrants?
+    var `sipGrants`: SipGrants? = null 
     , 
-    var `identity`: kotlin.String?
+    var `identity`: kotlin.String? = null 
     , 
-    var `name`: kotlin.String?
+    var `name`: kotlin.String? = null 
     , 
-    var `metadata`: kotlin.String?
+    var `metadata`: kotlin.String? = null 
     , 
-    var `attributes`: Map<kotlin.String, kotlin.String>?
+    var `attributes`: Map<kotlin.String, kotlin.String>? = null 
     , 
-    var `sha256`: kotlin.String?
+    var `sha256`: kotlin.String? = null 
     , 
-    var `roomName`: kotlin.String?
+    var `roomName`: kotlin.String? = null 
     
 ){
     
