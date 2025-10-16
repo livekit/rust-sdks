@@ -8,3 +8,15 @@ repository = "https://github.com/livekit/rust-sdks"
 readme = "README.md"
 
 [dependencies]
+livekit-api = { workspace = true, features = ["uniffi"] }
+uniffi = { version = "0.30.0", features = [ "cli" ] }
+
+[build-dependencies]
+uniffi = { version = "0.30.0", features = [ "build" ] }
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "bindgen.rs"
