@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_protocol::{RoomAgentDispatch, RoomConfiguration, TokenSourceRequest};
+use livekit_protocol as proto;
 use std::collections::HashMap;
+
+use crate::token_source::TokenSourceRequest;
 
 /// Options that can be used when fetching new credentials from a TokenSourceConfigurable
 ///
@@ -93,7 +95,7 @@ impl TokenSourceFetchOptions {
 
 impl Into<TokenSourceRequest> for TokenSourceFetchOptions {
     fn into(self) -> TokenSourceRequest {
-        let mut agent_dispatch = RoomAgentDispatch::default();
+        let mut agent_dispatch = proto::RoomAgentDispatch::default();
         if let Some(agent_name) = self.agent_name {
             agent_dispatch.agent_name = agent_name;
         }
@@ -101,8 +103,8 @@ impl Into<TokenSourceRequest> for TokenSourceFetchOptions {
             agent_dispatch.metadata = agent_metadata;
         }
 
-        let room_config = if agent_dispatch != RoomAgentDispatch::default() {
-            let mut room_config = RoomConfiguration::default();
+        let room_config = if agent_dispatch != proto::RoomAgentDispatch::default() {
+            let mut room_config = proto::RoomConfiguration::default();
             room_config.agents.push(agent_dispatch);
             Some(room_config)
         } else {

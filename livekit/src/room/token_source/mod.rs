@@ -13,23 +13,19 @@
 // limitations under the License.
 
 use livekit_api::access_token::{self, AccessTokenError};
-use std::{
-    error::Error,
-    future::{ready, Future},
-    pin::Pin,
-};
-
-// FIXME: is reexporting these from here a good idea?
-pub use livekit_protocol::{TokenSourceRequest, TokenSourceResponse};
+use livekit_protocol as proto;
+use std::{error::Error, future::Future, pin::Pin};
 
 mod fetch_options;
 mod minter_credentials;
+mod request_response;
 mod traits;
 
 pub use fetch_options::TokenSourceFetchOptions;
 pub use minter_credentials::{
     MinterCredentials, MinterCredentialsEnvironment, MinterCredentialsSource,
 };
+pub use request_response::{TokenSourceRequest, TokenSourceResponse};
 pub use traits::{
     TokenSourceConfigurable, TokenSourceConfigurableSynchronous, TokenSourceFixed,
     TokenSourceFixedSynchronous,
@@ -167,13 +163,12 @@ impl TokenSourceConfigurable for TokenSourceEndpoint {
     ) -> Result<TokenSourceResponse, Box<dyn Error>> {
         let client = reqwest::Client::new();
 
-        // FIXME: What are the best practices around implementing Into on a reference to avoid the
-        // clone?
-        let request_body: TokenSourceRequest = options.clone().into();
+        let request: TokenSourceRequest = options.clone().into();
+        let request_proto: proto::TokenSourceRequest = request.into();
 
         let response = client
             .request(self.method.clone(), &self.url)
-            .json(&request_body)
+            .json(&request_proto)
             .headers(self.headers.clone())
             .send()
             .await?;
@@ -188,9 +183,8 @@ impl TokenSourceConfigurable for TokenSourceEndpoint {
             .into());
         }
 
-        let response_json = response.json::<TokenSourceResponse>().await?;
-
-        Ok(response_json)
+        let response_proto = response.json::<proto::TokenSourceResponse>().await?;
+        Ok(response_proto.into())
     }
 }
 

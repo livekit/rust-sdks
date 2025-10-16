@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_protocol::{TokenSourceRequest, TokenSourceResponse};
 use std::{
     error::Error,
     future::{ready, Future},
 };
 
-use crate::token_source::TokenSourceFetchOptions;
+use crate::token_source::{TokenSourceFetchOptions, TokenSourceResponse};
 
 /// A Fixed TokenSource is a token source that takes no parameters and returns a completely
 /// independently derived value on each fetch() call.
