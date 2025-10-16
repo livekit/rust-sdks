@@ -1,0 +1,10 @@
+[package]
+name = "livekit-uniffi"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Experimental FFI interface using UniFFI"
+repository = "https://github.com/livekit/rust-sdks"
+readme = "README.md"
+
+[dependencies]
