@@ -1347,7 +1347,7 @@ class TokenOptions:
     Any fields left empty will use the token generator's defaults.
 
 """
-    def __init__(self, *, ttl:typing.Optional[Duration], video_grants:typing.Optional[VideoGrants], sip_grants:typing.Optional[SipGrants], identity:typing.Optional[str], name:typing.Optional[str], metadata:typing.Optional[str], attributes:typing.Optional[dict[str, str]], sha256:typing.Optional[str], room_name:typing.Optional[str]):
+    def __init__(self, *, ttl:typing.Optional[Duration] = None, video_grants:typing.Optional[VideoGrants] = None, sip_grants:typing.Optional[SipGrants] = None, identity:typing.Optional[str] = None, name:typing.Optional[str] = None, metadata:typing.Optional[str] = None, attributes:typing.Optional[dict[str, str]] = None, sha256:typing.Optional[str] = None, room_name:typing.Optional[str] = None):
         self.ttl = ttl
         self.video_grants = video_grants
         self.sip_grants = sip_grants
