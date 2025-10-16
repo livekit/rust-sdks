@@ -749,7 +749,7 @@ public struct TokenOptions: Equatable, Hashable {
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(ttl: TimeInterval?, videoGrants: VideoGrants?, sipGrants: SipGrants?, identity: String?, name: String?, metadata: String?, attributes: [String: String]?, sha256: String?, roomName: String?) {
+    public init(ttl: TimeInterval? = nil, videoGrants: VideoGrants? = nil, sipGrants: SipGrants? = nil, identity: String? = nil, name: String? = nil, metadata: String? = nil, attributes: [String: String]? = nil, sha256: String? = nil, roomName: String? = nil) {
         self.ttl = ttl
         self.videoGrants = videoGrants
         self.sipGrants = sipGrants
