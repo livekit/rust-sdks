@@ -93,17 +93,26 @@ pub struct ApiCredentials {
 ///
 #[derive(Record)]
 pub struct TokenOptions {
+    #[uniffi(default)]
     ttl: Option<Duration>,
+    #[uniffi(default)]
     video_grants: Option<VideoGrants>,
+    #[uniffi(default)]
     sip_grants: Option<SIPGrants>,
+    #[uniffi(default)]
     identity: Option<String>,
+    #[uniffi(default)]
     name: Option<String>,
+    #[uniffi(default)]
     metadata: Option<String>,
+    #[uniffi(default)]
     attributes: Option<HashMap<String, String>>,
+    #[uniffi(default)]
     sha256: Option<String>,
 
     // Fields below have been flattened from the protocol-level `RoomConfiguration` message.
     // Expose more fields as necessary for client use.
+    #[uniffi(default)]
     room_name: Option<String>,
 }
 
