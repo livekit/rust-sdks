@@ -23,14 +23,14 @@ use std::collections::HashMap;
 /// ```
 #[derive(Clone, Default)]
 pub struct TokenSourceFetchOptions {
-    pub room_name: Option<String>,
-    pub participant_name: Option<String>,
-    pub participant_identity: Option<String>,
-    pub participant_metadata: Option<String>,
-    pub participant_attributes: Option<HashMap<String, String>>,
+    room_name: Option<String>,
+    participant_name: Option<String>,
+    participant_identity: Option<String>,
+    participant_metadata: Option<String>,
+    participant_attributes: Option<HashMap<String, String>>,
 
-    pub agent_name: Option<String>,
-    pub agent_metadata: Option<String>,
+    agent_name: Option<String>,
+    agent_metadata: Option<String>,
 }
 
 impl TokenSourceFetchOptions {
