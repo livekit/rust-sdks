@@ -8,11 +8,12 @@ repository = "https://github.com/livekit/rust-sdks"
 readme = "README.md"
 
 [dependencies]
-livekit-api = { workspace = true, features = ["uniffi"] }
-uniffi = { version = "0.30.0", features = [ "cli" ] }
+livekit-protocol = { workspace = true }
+livekit-api = { workspace = true }
+uniffi = { version = "0.30.0", features = ["cli", "scaffolding-ffi-buffer-fns"] }
 
 [build-dependencies]
-uniffi = { version = "0.30.0", features = [ "build" ] }
+uniffi = { version = "0.30.0", features = ["build", "scaffolding-ffi-buffer-fns"] }
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
