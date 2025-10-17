@@ -291,11 +291,6 @@ impl<Value: TokenResponseCacheValue> TokenResponseCache<Value> for TokenResponse
 
 
 
-fn is_response_valid(response: &TokenSourceResponse) -> bool {
-    // FIXME: write this
-    true
-}
-
 trait TokenSourceFixedCached {
     fn get_response_cache(&self) -> Arc<RwLock<impl TokenResponseCache<TokenSourceResponse>>>;
 
@@ -309,7 +304,7 @@ trait TokenSourceFixedCached {
             let cached_value = cache_read.get();
 
             if let Some(cached_response) = cached_value {
-                if is_response_valid(cached_response) {
+                if access_token::is_token_valid(&cached_response.participant_token)? {
                     Some(cached_response.clone())
                 } else {
                     None
@@ -345,7 +340,7 @@ trait TokenSourceConfigurableCached {
             let cached_value = cache_read.get();
 
             if let Some((cached_options, cached_response)) = cached_value {
-                if options == cached_options && is_response_valid(cached_response) {
+                if options == cached_options && access_token::is_token_valid(&cached_response.participant_token)? {
                     Some(cached_response.clone())
                 } else {
                     None

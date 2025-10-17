@@ -316,6 +316,29 @@ impl TokenVerifier {
     }
 }
 
+/// Given a token, determine if it is currently valid based off data in the claims.
+///
+/// NOTE: No token signature validation is being done! To do this, see [TokenVerifier].
+pub fn is_token_valid(token: &str) -> Result<bool, AccessTokenError> {
+    let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+    validation.validate_exp = true;
+    validation.validate_nbf = true;
+    validation.insecure_disable_signature_validation();
+
+    let result = jsonwebtoken::decode::<Claims>(
+        token,
+        &DecodingKey::from_secret(&[]),
+        &validation,
+    );
+
+    match result {
+        Ok(_) => Ok(true),
+        Err(err) if err.kind() == &jsonwebtoken::errors::ErrorKind::ExpiredSignature => Ok(false),
+        Err(err) if err.kind() == &jsonwebtoken::errors::ErrorKind::ImmatureSignature => Ok(false),
+        Err(err) => Err(err.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
