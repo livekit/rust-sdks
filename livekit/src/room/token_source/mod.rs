@@ -514,15 +514,3 @@ impl<
         self.fetch_cached().await
     }
 }
-
-
-
-
-
-fn test() {
-    let a = TokenSourceCache::new_configurable(TokenSourceMinter::default());
-
-    let minter = TokenSourceMinter::default();
-    let cache = TokenResponseInMemoryCache::new();
-    let b = TokenSourceCache::new_configurable_with_cache(minter, cache);
-}
