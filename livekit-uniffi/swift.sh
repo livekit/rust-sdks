@@ -26,6 +26,12 @@ cargo build --release --target x86_64-apple-ios
 cargo build --release --target aarch64-apple-ios-macabi
 cargo build --release --target x86_64-apple-ios-macabi
 
+# Tier 3 targets: tvOS, visionOS
+cargo +nightly build -Zbuild-std=std,panic_abort --release --target=aarch64-apple-tvos
+cargo +nightly build -Zbuild-std=std,panic_abort --release --target=aarch64-apple-visionos
+cargo +nightly build -Zbuild-std=std,panic_abort --release --target=aarch64-apple-tvos-sim
+cargo +nightly build -Zbuild-std=std,panic_abort --release --target=aarch64-apple-visionos-sim
+
 mkdir -p ../target/ios-simulator/release
 lipo -create \
     ../target/aarch64-apple-ios-sim/release/liblivekit_uniffi.a \
@@ -51,4 +57,8 @@ xcodebuild -create-xcframework \
     -library ../target/ios-simulator/release/liblivekit_uniffi.a -headers ./generated/swift \
     -library ../target/macos/release/liblivekit_uniffi.a -headers ./generated/swift \
     -library ../target/ios-macabi/release/liblivekit_uniffi.a -headers ./generated/swift \
+    -library ../target/aarch64-apple-tvos/release/liblivekit_uniffi.a -headers ./generated/swift \
+    -library ../target/aarch64-apple-visionos/release/liblivekit_uniffi.a -headers ./generated/swift \
+    -library ../target/aarch64-apple-tvos-sim/release/liblivekit_uniffi.a -headers ./generated/swift \
+    -library ../target/aarch64-apple-visionos-sim/release/liblivekit_uniffi.a -headers ./generated/swift \
     -output "../target/LiveKitFFI.xcframework"
