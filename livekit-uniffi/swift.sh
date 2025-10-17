@@ -1,15 +1,19 @@
 #!/bin/bash
 set -e
 
+UNIFFI_MODULE="livekit_uniffi"
+LIB_NAME="lib${UNIFFI_MODULE}"
+XCFRAMEWORK_NAME="LiveKitFFI"
+
 cargo build --release
 
 cargo run --bin uniffi-bindgen generate \
-    --library ../target/release/liblivekit_uniffi.dylib \
+    --library "../target/release/${LIB_NAME}.dylib" \
     --language swift \
     --out-dir "generated/swift"
 
 # Required for xcframework
-mv ./generated/swift/livekit_uniffiFFI.modulemap ./generated/swift/module.modulemap
+mv ./generated/swift/${UNIFFI_MODULE}FFI.modulemap ./generated/swift/module.modulemap
 
 RUSTUP_TARGETS=(
     aarch64-apple-darwin
@@ -50,22 +54,22 @@ for config in "${UNIVERSAL_BINARIES[@]}"; do
     IFS=':' read -r output_dir arch1 arch2 <<< "$config"
     mkdir -p "../target/${output_dir}/release"
     lipo -create \
-        "../target/${arch1}/release/liblivekit_uniffi.a" \
-        "../target/${arch2}/release/liblivekit_uniffi.a" \
-        -output "../target/${output_dir}/release/liblivekit_uniffi.a"
+        "../target/${arch1}/release/${LIB_NAME}.a" \
+        "../target/${arch2}/release/${LIB_NAME}.a" \
+        -output "../target/${output_dir}/release/${LIB_NAME}.a"
 done
 
-rm -rf ../target/LiveKitFFI.xcframework
+rm -rf "../target/${XCFRAMEWORK_NAME}.xcframework"
 
 XCFRAMEWORK_LIBS=(
-    "../target/aarch64-apple-ios/release/liblivekit_uniffi.a"
-    "../target/ios-simulator/release/liblivekit_uniffi.a"
-    "../target/macos/release/liblivekit_uniffi.a"
-    "../target/ios-macabi/release/liblivekit_uniffi.a"
-    "../target/aarch64-apple-tvos/release/liblivekit_uniffi.a"
-    "../target/aarch64-apple-visionos/release/liblivekit_uniffi.a"
-    "../target/aarch64-apple-tvos-sim/release/liblivekit_uniffi.a"
-    "../target/aarch64-apple-visionos-sim/release/liblivekit_uniffi.a"
+    "../target/aarch64-apple-ios/release/${LIB_NAME}.a"
+    "../target/ios-simulator/release/${LIB_NAME}.a"
+    "../target/macos/release/${LIB_NAME}.a"
+    "../target/ios-macabi/release/${LIB_NAME}.a"
+    "../target/aarch64-apple-tvos/release/${LIB_NAME}.a"
+    "../target/aarch64-apple-visionos/release/${LIB_NAME}.a"
+    "../target/aarch64-apple-tvos-sim/release/${LIB_NAME}.a"
+    "../target/aarch64-apple-visionos-sim/release/${LIB_NAME}.a"
 )
 
 XCFRAMEWORK_ARGS=()
@@ -75,4 +79,4 @@ done
 
 xcodebuild -create-xcframework \
     "${XCFRAMEWORK_ARGS[@]}" \
-    -output "../target/LiveKitFFI.xcframework"
+    -output "../target/${XCFRAMEWORK_NAME}.xcframework"
