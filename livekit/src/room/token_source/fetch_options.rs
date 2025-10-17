@@ -24,7 +24,7 @@ use crate::token_source::TokenSourceRequest;
 /// use livekit::token_source::TokenSourceFetchOptions;
 /// let _ = TokenSourceFetchOptions::default().with_agent_name("my agent name");
 /// ```
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct TokenSourceFetchOptions {
     room_name: Option<String>,
     participant_name: Option<String>,
