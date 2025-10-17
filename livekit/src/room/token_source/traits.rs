@@ -21,18 +21,15 @@ use crate::token_source::{TokenSourceFetchOptions, TokenSourceResponse, TokenSou
 ///
 /// The most common downstream implementer is TokenSourceLiteral.
 pub trait TokenSourceFixed {
-    // FIXME: what should the error type of the result be?
     fn fetch(&self) -> impl Future<Output = TokenSourceResult<TokenSourceResponse>>;
 }
 
 /// A helper trait to more easily implement a TokenSourceFixed which not async.
 pub trait TokenSourceFixedSynchronous {
-    // FIXME: what should the error type of the result be?
     fn fetch_synchronous(&self) -> TokenSourceResult<TokenSourceResponse>;
 }
 
 impl<T: TokenSourceFixedSynchronous> TokenSourceFixed for T {
-    // FIXME: what should the error type of the result be?
     fn fetch(&self) -> impl Future<Output = TokenSourceResult<TokenSourceResponse>> {
         ready(self.fetch_synchronous())
     }
@@ -48,7 +45,6 @@ impl<T: TokenSourceFixedSynchronous> TokenSourceFixed for T {
 ///
 /// A few common downstream implementers are TokenSourceEndpoint and TokenSourceCustom.
 pub trait TokenSourceConfigurable {
-    // FIXME: what should the error type of the result be?
     fn fetch(
         &self,
         options: &TokenSourceFetchOptions,
@@ -57,7 +53,6 @@ pub trait TokenSourceConfigurable {
 
 /// A helper trait to more easily implement a TokenSourceConfigurable which not async.
 pub trait TokenSourceConfigurableSynchronous {
-    // FIXME: what should the error type of the result be?
     fn fetch_synchronous(
         &self,
         options: &TokenSourceFetchOptions,
@@ -65,7 +60,6 @@ pub trait TokenSourceConfigurableSynchronous {
 }
 
 impl<T: TokenSourceConfigurableSynchronous> TokenSourceConfigurable for T {
-    // FIXME: what should the error type of the result be?
     fn fetch(
         &self,
         options: &TokenSourceFetchOptions,
