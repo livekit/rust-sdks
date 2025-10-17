@@ -360,6 +360,7 @@ trait TokenSourceConfigurableCached {
     }
 }
 
+// FIXME: Why doesn't this work?
 // impl<T: TokenSourceConfigurableCached> TokenSourceConfigurable for T {
 //     async fn fetch(
 //         &self,
@@ -395,6 +396,8 @@ impl<Inner: TokenSourceConfigurable> TokenSourceCache<
     (TokenSourceFetchOptions, TokenSourceResponse),
     TokenResponseInMemoryCache<(TokenSourceFetchOptions, TokenSourceResponse)>
 > {
+    // FIXME: Is there some way I can make this `new` without requiring something like the below?
+    // TokenSourceCache::<TokenSourceCacheConfigurable<_>, _, _>::new(...)
     fn new_configurable(inner_token_source: Inner) -> Self {
         TokenSourceCache::new_configurable_with_cache(inner_token_source, TokenResponseInMemoryCache::new())
     }
@@ -405,6 +408,8 @@ impl<Inner: TokenSourceFixed> TokenSourceCache<
     TokenSourceResponse,
     TokenResponseInMemoryCache<TokenSourceResponse>
 > {
+    // FIXME: Is there some way I can make this `new` without requiring something like the below?
+    // TokenSourceCache::<TokenSourceCacheFixed<_>, _, _>::new(...)
     fn new_fixed(inner_token_source: Inner) -> Self {
         TokenSourceCache::new_fixed_with_cache(inner_token_source, TokenResponseInMemoryCache::new())
     }
