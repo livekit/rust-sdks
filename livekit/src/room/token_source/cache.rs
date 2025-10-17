@@ -186,6 +186,14 @@ impl<Inner: TokenSourceFixed, Cache: TokenResponseCache<TokenSourceResponse>>
     }
 }
 
+impl<Type: CacheType, Value: TokenResponseCacheValue, Cache: TokenResponseCache<Value>>
+    TokenSourceCache<Type, Value, Cache>
+{
+    fn clear_cache(&mut self) {
+        self.cache.write().clear();
+    }
+}
+
 impl<
         Inner: TokenSourceConfigurable,
         Cache: TokenResponseCache<(TokenSourceFetchOptions, TokenSourceResponse)>,
