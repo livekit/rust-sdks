@@ -115,6 +115,10 @@ pub enum SessionEvent {
         kind: DataPacketKind,
         encryption_type: proto::encryption::Type,
     },
+    DataTrackPublishedResponse {
+        request_id: u32,
+        result: proto::data_track_published_response::Result
+    },
     ChatMessage {
         participant_identity: ParticipantIdentity,
         message: ChatMessage,
@@ -517,6 +521,13 @@ impl RtcSession {
 
     pub fn publisher_negotiation_needed(&self) {
         self.inner.publisher_negotiation_needed()
+    }
+
+    pub async fn add_data_track(
+        &self,
+        req: proto::AddDataTrackRequest,
+    ) -> EngineResult<proto::DataTrackInfo> {
+        self.inner.add_data_track(req).await
     }
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
@@ -974,6 +985,14 @@ impl SessionInner {
                 let _ =
                     self.emitter.send(SessionEvent::ConnectionQuality { updates: quality.updates });
             }
+            proto::signal_response::Message::DataTrackPublished(publish_res) => {
+                // TODO: Why is this optional?
+                let Some(result) = publish_res.result else { return Ok(()) };
+                let _ = self.emitter.send(SessionEvent::DataTrackPublishedResponse {
+                    request_id: publish_res.request_id,
+                    result
+                });
+            }
             proto::signal_response::Message::TrackPublished(publish_res) => {
                 let mut pending_tracks = self.pending_tracks.lock();
                 if let Some(tx) = pending_tracks.remove(&publish_res.cid) {
@@ -1271,6 +1290,18 @@ impl SessionInner {
         if let Err(err) = send_result {
             log::error!("failed to emit incoming data packet: {:?}", err);
         }
+    }
+
+    async fn add_data_track(
+        &self,
+        req: proto::AddDataTrackRequest,
+    ) -> EngineResult<proto::DataTrackInfo> {
+        // TODO: verify unique name before sending request
+        self.signal_client.send(proto::signal_request::Message::AddDataTrack(req)).await;
+
+        // TODO: await response
+
+        todo!()
     }
 
     async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {

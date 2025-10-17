@@ -45,13 +45,10 @@ pub use self::{
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
-    participant::ConnectionQuality,
-    prelude::*,
-    registered_audio_filter_plugins,
-    rtc_engine::{
+    data_track::DataTrack, participant::ConnectionQuality, prelude::*, registered_audio_filter_plugins, rtc_engine::{
         EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, RtcEngine,
         SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
-    },
+    }
 };
 
 pub mod data_stream;
@@ -61,6 +58,7 @@ pub mod options;
 pub mod participant;
 pub mod publication;
 pub mod track;
+pub mod data_track;
 pub(crate) mod utils;
 
 pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -88,6 +86,10 @@ pub enum RoomError {
 pub enum RoomEvent {
     ParticipantConnected(RemoteParticipant),
     ParticipantDisconnected(RemoteParticipant),
+    // DataTrackPublished {
+    //     track: DataTrack<data_track::Remote>,
+    //     participant: RemoteParticipant
+    // },
     LocalTrackPublished {
         publication: LocalTrackPublication,
         track: LocalTrack,
