@@ -14,21 +14,26 @@
 
 use livekit_api::access_token::{self, AccessTokenError};
 use livekit_protocol as proto;
-use parking_lot::RwLock;
-use std::{future::Future, pin::Pin, sync::Arc};
+use std::{future::Future, pin::Pin};
 
+mod cache;
 mod error;
 mod fetch_options;
 mod minter_credentials;
 mod request_response;
+mod token_response_cache;
 mod traits;
 
+pub use cache::{CacheConfigurable, CacheFixed, TokenSourceCache};
 pub use error::{TokenSourceError, TokenSourceResult};
 pub use fetch_options::TokenSourceFetchOptions;
 pub use minter_credentials::{
     MinterCredentials, MinterCredentialsEnvironment, MinterCredentialsSource,
 };
 pub use request_response::{TokenSourceRequest, TokenSourceResponse};
+pub use token_response_cache::{
+    TokenResponseCache, TokenResponseCacheValue, TokenResponseInMemoryCache,
+};
 pub use traits::{
     TokenSourceConfigurable, TokenSourceConfigurableSynchronous, TokenSourceFixed,
     TokenSourceFixedSynchronous,
@@ -240,277 +245,5 @@ impl<
         options: &TokenSourceFetchOptions,
     ) -> TokenSourceResult<TokenSourceResponse> {
         (self.0)(options).await
-    }
-}
-
-
-
-
-
-
-
-trait TokenResponseCacheValue {}
-
-impl TokenResponseCacheValue for TokenSourceResponse {}
-impl TokenResponseCacheValue for (TokenSourceFetchOptions, TokenSourceResponse) {}
-
-/// Represents a mechanism by which token responses can be cached
-///
-/// When used with a TokenSourceFixed, `Value` is `TokenSourceResponse`
-/// When used with a TokenSourceConfigurable, `Value` is `(TokenSourceFetchOptions, TokenSourceResponse)`
-trait TokenResponseCache<Value: TokenResponseCacheValue> {
-    fn get(&self) -> Option<&Value>;
-    fn set(&mut self, value: Value);
-    fn clear(&mut self);
-}
-
-/// In-memory implementation of [TokenResponseCache]
-struct TokenResponseInMemoryCache<Value: TokenResponseCacheValue>(Option<Value>);
-impl<Value: TokenResponseCacheValue> TokenResponseInMemoryCache<Value> {
-    pub fn new() -> Self {
-        Self(None)
-    }
-}
-
-impl<Value: TokenResponseCacheValue> TokenResponseCache<Value> for TokenResponseInMemoryCache<Value> {
-    fn get(&self) -> Option<&Value> {
-        self.0.as_ref()
-    }
-    fn set(&mut self, value: Value) {
-        self.0 = Some(value);
-    }
-    fn clear(&mut self) {
-        self.0 = None;
-    }
-}
-
-
-
-
-
-
-
-
-trait TokenSourceFixedCached {
-    fn get_response_cache(&self) -> Arc<RwLock<impl TokenResponseCache<TokenSourceResponse>>>;
-
-    async fn update(&self) -> TokenSourceResult<TokenSourceResponse>;
-
-    async fn fetch_cached(&self) -> TokenSourceResult<TokenSourceResponse> {
-        let cache = self.get_response_cache();
-
-        let cached_response_to_return = {
-            let cache_read = cache.read();
-            let cached_value = cache_read.get();
-
-            if let Some(cached_response) = cached_value {
-                if access_token::is_token_valid(&cached_response.participant_token)? {
-                    Some(cached_response.clone())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        if let Some(cached_response) = cached_response_to_return {
-            Ok(cached_response)
-        } else {
-            let response = self.update().await?;
-            cache.write().set(response.clone());
-            Ok(response)
-        }
-    }
-}
-
-trait TokenSourceConfigurableCached {
-    fn get_response_cache(&self) -> Arc<RwLock<impl TokenResponseCache<(TokenSourceFetchOptions, TokenSourceResponse)>>>;
-
-    async fn update(&self, options: &TokenSourceFetchOptions) -> TokenSourceResult<TokenSourceResponse>;
-
-    async fn fetch_cached(
-        &self,
-        options: &TokenSourceFetchOptions,
-    ) -> TokenSourceResult<TokenSourceResponse> {
-        let cache = self.get_response_cache();
-
-        let cached_response_to_return = {
-            let cache_read = cache.read();
-            let cached_value = cache_read.get();
-
-            if let Some((cached_options, cached_response)) = cached_value {
-                if options == cached_options && access_token::is_token_valid(&cached_response.participant_token)? {
-                    Some(cached_response.clone())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
-
-        if let Some(cached_response) = cached_response_to_return {
-            Ok(cached_response)
-        } else {
-            let response = self.update(options).await?;
-            cache.write().set((options.clone(), response.clone()));
-            Ok(response)
-        }
-    }
-}
-
-// FIXME: Why doesn't this work?
-// impl<T: TokenSourceConfigurableCached> TokenSourceConfigurable for T {
-//     async fn fetch(
-//         &self,
-//         options: &TokenSourceFetchOptions,
-//     ) -> TokenSourceResult<TokenSourceResponse> {
-//         self.fetch_cached(options).await
-//     }
-// }
-
-
-
-
-
-
-trait TokenSourceCacheType {}
-
-struct TokenSourceCacheConfigurable<T: TokenSourceConfigurable>(T);
-impl<T: TokenSourceConfigurable> TokenSourceCacheType for TokenSourceCacheConfigurable<T> {}
-
-struct TokenSourceCacheFixed<T: TokenSourceFixed>(T);
-impl<T: TokenSourceFixed> TokenSourceCacheType for TokenSourceCacheFixed<T> {}
-
-/// A conmposable TokenSource which can wrap either a [TokenSourceFixed] or a [TokenSourceConfigurable] and
-/// caches the intermediate value in a [TokenResponseCache].
-struct TokenSourceCache<Type: TokenSourceCacheType, Value: TokenResponseCacheValue, Cache: TokenResponseCache<Value>> {
-    inner: Type,
-    cache: Arc<RwLock<Cache>>,
-    _v: Value, // FIXME: how do I remove this? `Value` needs to be used in here or I get an error.
-}
-
-impl<Inner: TokenSourceConfigurable> TokenSourceCache<
-    TokenSourceCacheConfigurable<Inner>,
-    (TokenSourceFetchOptions, TokenSourceResponse),
-    TokenResponseInMemoryCache<(TokenSourceFetchOptions, TokenSourceResponse)>
-> {
-    // FIXME: Is there some way I can make this `new` without requiring something like the below?
-    // TokenSourceCache::<TokenSourceCacheConfigurable<_>, _, _>::new(...)
-    fn new_configurable(inner_token_source: Inner) -> Self {
-        TokenSourceCache::new_configurable_with_cache(inner_token_source, TokenResponseInMemoryCache::new())
-    }
-}
-
-impl<Inner: TokenSourceFixed> TokenSourceCache<
-    TokenSourceCacheFixed<Inner>,
-    TokenSourceResponse,
-    TokenResponseInMemoryCache<TokenSourceResponse>
-> {
-    // FIXME: Is there some way I can make this `new` without requiring something like the below?
-    // TokenSourceCache::<TokenSourceCacheFixed<_>, _, _>::new(...)
-    fn new_fixed(inner_token_source: Inner) -> Self {
-        TokenSourceCache::new_fixed_with_cache(inner_token_source, TokenResponseInMemoryCache::new())
-    }
-}
-
-impl<
-    Inner: TokenSourceConfigurable,
-    Cache: TokenResponseCache<(TokenSourceFetchOptions, TokenSourceResponse)>
-> TokenSourceCache<
-    TokenSourceCacheConfigurable<Inner>,
-    (TokenSourceFetchOptions, TokenSourceResponse),
-    Cache
-> {
-    fn new_configurable_with_cache(inner_token_source: Inner, token_cache: Cache) -> Self {
-        Self {
-            inner: TokenSourceCacheConfigurable(inner_token_source),
-            cache: Arc::new(RwLock::new(token_cache)),
-
-            // FIXME: remove this!
-            _v: (TokenSourceFetchOptions::default(), TokenSourceResponse { server_url: "".into(), participant_token: "".into() }),
-        }
-    }
-}
-
-impl<
-    Inner: TokenSourceFixed,
-    Cache: TokenResponseCache<TokenSourceResponse>
-> TokenSourceCache<
-    TokenSourceCacheFixed<Inner>,
-    TokenSourceResponse,
-    Cache
-> {
-    fn new_fixed_with_cache(inner_token_source: Inner, token_cache: Cache) -> Self {
-        Self {
-            inner: TokenSourceCacheFixed(inner_token_source),
-            cache: Arc::new(RwLock::new(token_cache)),
-
-            // FIXME: remove this!
-            _v: TokenSourceResponse { server_url: "".into(), participant_token: "".into() },
-        }
-    }
-}
-
-
-impl<
-    Inner: TokenSourceConfigurable,
-    Cache: TokenResponseCache<(TokenSourceFetchOptions, TokenSourceResponse)>
-> TokenSourceConfigurableCached for TokenSourceCache<
-    TokenSourceCacheConfigurable<Inner>,
-    (TokenSourceFetchOptions, TokenSourceResponse),
-    Cache,
-> {
-    fn get_response_cache(&self) -> Arc<RwLock<impl TokenResponseCache<(TokenSourceFetchOptions, TokenSourceResponse)>>> {
-        self.cache.clone()
-    }
-    async fn update(&self, options: &TokenSourceFetchOptions) -> TokenSourceResult<TokenSourceResponse> {
-        self.inner.0.fetch(options).await
-    }
-}
-
-impl<
-    Inner: TokenSourceFixed,
-    Cache: TokenResponseCache<TokenSourceResponse>
-> TokenSourceFixedCached for TokenSourceCache<
-    TokenSourceCacheFixed<Inner>,
-    TokenSourceResponse,
-    Cache,
-> {
-    fn get_response_cache(&self) -> Arc<RwLock<impl TokenResponseCache<TokenSourceResponse>>> {
-        self.cache.clone()
-    }
-    async fn update(&self) -> TokenSourceResult<TokenSourceResponse> {
-        self.inner.0.fetch().await
-    }
-}
-
-
-
-
-impl<
-    Inner: TokenSourceConfigurable,
-    Cache: TokenResponseCache<(TokenSourceFetchOptions, TokenSourceResponse)>
-> TokenSourceConfigurable for TokenSourceCache<
-    TokenSourceCacheConfigurable<Inner>,
-    (TokenSourceFetchOptions, TokenSourceResponse),
-    Cache,
-> {
-    async fn fetch(&self, options: &TokenSourceFetchOptions) -> TokenSourceResult<TokenSourceResponse> {
-        self.fetch_cached(options).await
-    }
-}
-
-impl<
-    Inner: TokenSourceFixed,
-    Cache: TokenResponseCache<TokenSourceResponse>
-> TokenSourceFixed for TokenSourceCache<
-    TokenSourceCacheFixed<Inner>,
-    TokenSourceResponse,
-    Cache,
-> {
-    async fn fetch(&self) -> TokenSourceResult<TokenSourceResponse> {
-        self.fetch_cached().await
     }
 }
