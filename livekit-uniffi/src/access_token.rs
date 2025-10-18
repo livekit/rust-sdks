@@ -125,6 +125,8 @@ pub fn generate_token(
     options: TokenOptions,
     credentials: Option<ApiCredentials>,
 ) -> Result<String, AccessTokenError> {
+    // TODO: used to test log forwarding, remove
+    log::debug!("Generating access token");
     let mut token = match credentials {
         Some(credentials) => AccessToken::with_api_key(&credentials.key, &credentials.secret),
         None => AccessToken::new()?,
@@ -170,6 +172,8 @@ pub fn verify_token(
     token: &str,
     credentials: Option<ApiCredentials>,
 ) -> Result<Claims, AccessTokenError> {
+    // TODO: used to test log forwarding, remove
+    log::debug!("Verifying access token");
     let verifier = match credentials {
         Some(credentials) => TokenVerifier::with_api_key(&credentials.key, &credentials.secret),
         None => TokenVerifier::new()?,
