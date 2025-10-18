@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.22](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.21...rust-sdks/livekit@0.7.22) - 2025-10-18
+
+### Other
+
+- put examples in root Cargo workspace ([#731](https://github.com/livekit/rust-sdks/pull/731))
+
 ## [0.7.21](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.20...rust-sdks/livekit@0.7.21) - 2025-10-13
 
 ### Added
