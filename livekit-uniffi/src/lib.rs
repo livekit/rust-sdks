@@ -15,6 +15,9 @@
 /// Access token generation and verification from [`livekit-api::access_token`].
 pub mod access_token;
 
+/// Forward log messages from Rust.
+pub mod log_forward;
+
 // TODO: expose more modules...
 
 uniffi::setup_scaffolding!();

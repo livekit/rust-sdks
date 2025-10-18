@@ -26,6 +26,7 @@ import threading
 import itertools
 import traceback
 import typing
+import asyncio
 import platform
 
 
@@ -480,6 +481,10 @@ def _uniffi_check_contract_api_version(lib):
 def _uniffi_check_api_checksums(lib):
     if lib.uniffi_livekit_uniffi_checksum_func_generate_token() != 29823:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_livekit_uniffi_checksum_func_log_forward_bootstrap() != 14091:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_livekit_uniffi_checksum_func_log_forward_receive() != 30685:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_livekit_uniffi_checksum_func_verify_token() != 47517:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
 
@@ -751,6 +756,14 @@ _UniffiLib.uniffi_livekit_uniffi_fn_func_generate_token.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_livekit_uniffi_fn_func_generate_token.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_livekit_uniffi_fn_func_log_forward_bootstrap.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_livekit_uniffi_fn_func_log_forward_bootstrap.restype = None
+_UniffiLib.uniffi_livekit_uniffi_fn_func_log_forward_receive.argtypes = (
+)
+_UniffiLib.uniffi_livekit_uniffi_fn_func_log_forward_receive.restype = ctypes.c_uint64
 _UniffiLib.uniffi_livekit_uniffi_fn_func_verify_token.argtypes = (
     _UniffiRustBuffer,
     _UniffiRustBuffer,
@@ -763,6 +776,12 @@ _UniffiLib.ffi_livekit_uniffi_uniffi_contract_version.restype = ctypes.c_uint32
 _UniffiLib.uniffi_livekit_uniffi_checksum_func_generate_token.argtypes = (
 )
 _UniffiLib.uniffi_livekit_uniffi_checksum_func_generate_token.restype = ctypes.c_uint16
+_UniffiLib.uniffi_livekit_uniffi_checksum_func_log_forward_bootstrap.argtypes = (
+)
+_UniffiLib.uniffi_livekit_uniffi_checksum_func_log_forward_bootstrap.restype = ctypes.c_uint16
+_UniffiLib.uniffi_livekit_uniffi_checksum_func_log_forward_receive.argtypes = (
+)
+_UniffiLib.uniffi_livekit_uniffi_checksum_func_log_forward_receive.restype = ctypes.c_uint16
 _UniffiLib.uniffi_livekit_uniffi_checksum_func_verify_token.argtypes = (
 )
 _UniffiLib.uniffi_livekit_uniffi_checksum_func_verify_token.restype = ctypes.c_uint16
@@ -770,7 +789,69 @@ _UniffiLib.uniffi_livekit_uniffi_checksum_func_verify_token.restype = ctypes.c_u
 _uniffi_check_contract_api_version(_UniffiLib)
 # _uniffi_check_api_checksums(_UniffiLib)
 
+# RustFuturePoll values
+_UNIFFI_RUST_FUTURE_POLL_READY = 0
+_UNIFFI_RUST_FUTURE_POLL_WAKE = 1
 
+# Stores futures for _uniffi_continuation_callback
+_UniffiContinuationHandleMap = _UniffiHandleMap()
+
+_UNIFFI_GLOBAL_EVENT_LOOP = None
+
+"""
+Set the event loop to use for async functions
+
+This is needed if some async functions run outside of the eventloop, for example:
+    - A non-eventloop thread is spawned, maybe from `EventLoop.run_in_executor` or maybe from the
+      Rust code spawning its own thread.
+    - The Rust code calls an async callback method from a sync callback function, using something
+      like `pollster` to block on the async call.
+
+In this case, we need an event loop to run the Python async function, but there's no eventloop set
+for the thread.  Use `uniffi_set_event_loop` to force an eventloop to be used in this case.
+"""
+def uniffi_set_event_loop(eventloop: asyncio.BaseEventLoop):
+    global _UNIFFI_GLOBAL_EVENT_LOOP
+    _UNIFFI_GLOBAL_EVENT_LOOP = eventloop
+
+def _uniffi_get_event_loop():
+    if _UNIFFI_GLOBAL_EVENT_LOOP is not None:
+        return _UNIFFI_GLOBAL_EVENT_LOOP
+    else:
+        return asyncio.get_running_loop()
+
+# Continuation callback for async functions
+# lift the return value or error and resolve the future, causing the async function to resume.
+@_UNIFFI_RUST_FUTURE_CONTINUATION_CALLBACK
+def _uniffi_continuation_callback(future_ptr, poll_code):
+    (eventloop, future) = _UniffiContinuationHandleMap.remove(future_ptr)
+    eventloop.call_soon_threadsafe(_uniffi_set_future_result, future, poll_code)
+
+def _uniffi_set_future_result(future, poll_code):
+    if not future.cancelled():
+        future.set_result(poll_code)
+
+async def _uniffi_rust_call_async(rust_future, ffi_poll, ffi_complete, ffi_free, lift_func, error_ffi_converter):
+    try:
+        eventloop = _uniffi_get_event_loop()
+
+        # Loop and poll until we see a _UNIFFI_RUST_FUTURE_POLL_READY value
+        while True:
+            future = eventloop.create_future()
+            ffi_poll(
+                rust_future,
+                _uniffi_continuation_callback,
+                _UniffiContinuationHandleMap.insert((eventloop, future)),
+            )
+            poll_code = await future
+            if poll_code == _UNIFFI_RUST_FUTURE_POLL_READY:
+                break
+
+        return lift_func(
+            _uniffi_rust_call_with_error(error_ffi_converter, ffi_complete, rust_future)
+        )
+    finally:
+        ffi_free(rust_future)
 
 # Public interface members begin here.
 
@@ -1188,6 +1269,187 @@ class _UniffiFfiConverterTypeClaims(_UniffiConverterRustBuffer):
         _UniffiFfiConverterMapStringString.write(value.attributes, buf)
         _UniffiFfiConverterString.write(value.room_name, buf)
 
+
+
+
+
+
+class LogForwardLevel(enum.Enum):
+    
+    ERROR = 0
+    
+    WARN = 1
+    
+    INFO = 2
+    
+    DEBUG = 3
+    
+    TRACE = 4
+    
+
+
+class _UniffiFfiConverterTypeLogForwardLevel(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        variant = buf.read_i32()
+        if variant == 1:
+            return LogForwardLevel.ERROR
+        if variant == 2:
+            return LogForwardLevel.WARN
+        if variant == 3:
+            return LogForwardLevel.INFO
+        if variant == 4:
+            return LogForwardLevel.DEBUG
+        if variant == 5:
+            return LogForwardLevel.TRACE
+        raise InternalError("Raw enum value doesn't match any cases")
+
+    @staticmethod
+    def check_lower(value):
+        if value == LogForwardLevel.ERROR:
+            return
+        if value == LogForwardLevel.WARN:
+            return
+        if value == LogForwardLevel.INFO:
+            return
+        if value == LogForwardLevel.DEBUG:
+            return
+        if value == LogForwardLevel.TRACE:
+            return
+        raise ValueError(value)
+
+    @staticmethod
+    def write(value, buf):
+        if value == LogForwardLevel.ERROR:
+            buf.write_i32(1)
+        if value == LogForwardLevel.WARN:
+            buf.write_i32(2)
+        if value == LogForwardLevel.INFO:
+            buf.write_i32(3)
+        if value == LogForwardLevel.DEBUG:
+            buf.write_i32(4)
+        if value == LogForwardLevel.TRACE:
+            buf.write_i32(5)
+
+
+
+class _UniffiFfiConverterOptionalString(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiFfiConverterString.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiFfiConverterString.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiFfiConverterString.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+class _UniffiFfiConverterUInt32(_UniffiConverterPrimitiveInt):
+    CLASS_NAME = "u32"
+    VALUE_MIN = 0
+    VALUE_MAX = 2**32
+
+    @staticmethod
+    def read(buf):
+        return buf.read_u32()
+
+    @staticmethod
+    def write(value, buf):
+        buf.write_u32(value)
+
+class _UniffiFfiConverterOptionalUInt32(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiFfiConverterUInt32.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiFfiConverterUInt32.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiFfiConverterUInt32.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+@dataclass
+class LogForwardEntry:
+    def __init__(self, *, level:LogForwardLevel, target:str, file:typing.Optional[str], line:typing.Optional[int], message:str):
+        self.level = level
+        self.target = target
+        self.file = file
+        self.line = line
+        self.message = message
+        
+        
+
+    
+    def __str__(self):
+        return "LogForwardEntry(level={}, target={}, file={}, line={}, message={})".format(self.level, self.target, self.file, self.line, self.message)
+    def __eq__(self, other):
+        if self.level != other.level:
+            return False
+        if self.target != other.target:
+            return False
+        if self.file != other.file:
+            return False
+        if self.line != other.line:
+            return False
+        if self.message != other.message:
+            return False
+        return True
+
+class _UniffiFfiConverterTypeLogForwardEntry(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return LogForwardEntry(
+            level=_UniffiFfiConverterTypeLogForwardLevel.read(buf),
+            target=_UniffiFfiConverterString.read(buf),
+            file=_UniffiFfiConverterOptionalString.read(buf),
+            line=_UniffiFfiConverterOptionalUInt32.read(buf),
+            message=_UniffiFfiConverterString.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiFfiConverterTypeLogForwardLevel.check_lower(value.level)
+        _UniffiFfiConverterString.check_lower(value.target)
+        _UniffiFfiConverterOptionalString.check_lower(value.file)
+        _UniffiFfiConverterOptionalUInt32.check_lower(value.line)
+        _UniffiFfiConverterString.check_lower(value.message)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiFfiConverterTypeLogForwardLevel.write(value.level, buf)
+        _UniffiFfiConverterString.write(value.target, buf)
+        _UniffiFfiConverterOptionalString.write(value.file, buf)
+        _UniffiFfiConverterOptionalUInt32.write(value.line, buf)
+        _UniffiFfiConverterString.write(value.message, buf)
+
 # The Duration type.
 Duration = datetime.timedelta
 
@@ -1286,31 +1548,6 @@ class _UniffiFfiConverterOptionalTypeSIPGrants(_UniffiConverterRustBuffer):
             return None
         elif flag == 1:
             return _UniffiFfiConverterTypeSIPGrants.read(buf)
-        else:
-            raise InternalError("Unexpected flag byte for optional type")
-
-class _UniffiFfiConverterOptionalString(_UniffiConverterRustBuffer):
-    @classmethod
-    def check_lower(cls, value):
-        if value is not None:
-            _UniffiFfiConverterString.check_lower(value)
-
-    @classmethod
-    def write(cls, value, buf):
-        if value is None:
-            buf.write_u8(0)
-            return
-
-        buf.write_u8(1)
-        _UniffiFfiConverterString.write(value, buf)
-
-    @classmethod
-    def read(cls, buf):
-        flag = buf.read_u8()
-        if flag == 0:
-            return None
-        elif flag == 1:
-            return _UniffiFfiConverterString.read(buf)
         else:
             raise InternalError("Unexpected flag byte for optional type")
 
@@ -1509,6 +1746,78 @@ class _UniffiFfiConverterTypeAccessTokenError(_UniffiConverterRustBuffer):
         if isinstance(value, AccessTokenError.Encoding):
             buf.write_i32(4)
 
+
+
+
+
+
+class LogForwardFilter(enum.Enum):
+    
+    OFF = 0
+    
+    ERROR = 1
+    
+    WARN = 2
+    
+    INFO = 3
+    
+    DEBUG = 4
+    
+    TRACE = 5
+    
+
+
+class _UniffiFfiConverterTypeLogForwardFilter(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        variant = buf.read_i32()
+        if variant == 1:
+            return LogForwardFilter.OFF
+        if variant == 2:
+            return LogForwardFilter.ERROR
+        if variant == 3:
+            return LogForwardFilter.WARN
+        if variant == 4:
+            return LogForwardFilter.INFO
+        if variant == 5:
+            return LogForwardFilter.DEBUG
+        if variant == 6:
+            return LogForwardFilter.TRACE
+        raise InternalError("Raw enum value doesn't match any cases")
+
+    @staticmethod
+    def check_lower(value):
+        if value == LogForwardFilter.OFF:
+            return
+        if value == LogForwardFilter.ERROR:
+            return
+        if value == LogForwardFilter.WARN:
+            return
+        if value == LogForwardFilter.INFO:
+            return
+        if value == LogForwardFilter.DEBUG:
+            return
+        if value == LogForwardFilter.TRACE:
+            return
+        raise ValueError(value)
+
+    @staticmethod
+    def write(value, buf):
+        if value == LogForwardFilter.OFF:
+            buf.write_i32(1)
+        if value == LogForwardFilter.ERROR:
+            buf.write_i32(2)
+        if value == LogForwardFilter.WARN:
+            buf.write_i32(3)
+        if value == LogForwardFilter.INFO:
+            buf.write_i32(4)
+        if value == LogForwardFilter.DEBUG:
+            buf.write_i32(5)
+        if value == LogForwardFilter.TRACE:
+            buf.write_i32(6)
+
+
+
 class _UniffiFfiConverterOptionalTypeApiCredentials(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
@@ -1531,6 +1840,31 @@ class _UniffiFfiConverterOptionalTypeApiCredentials(_UniffiConverterRustBuffer):
             return None
         elif flag == 1:
             return _UniffiFfiConverterTypeApiCredentials.read(buf)
+        else:
+            raise InternalError("Unexpected flag byte for optional type")
+
+class _UniffiFfiConverterOptionalTypeLogForwardEntry(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        if value is not None:
+            _UniffiFfiConverterTypeLogForwardEntry.check_lower(value)
+
+    @classmethod
+    def write(cls, value, buf):
+        if value is None:
+            buf.write_u8(0)
+            return
+
+        buf.write_u8(1)
+        _UniffiFfiConverterTypeLogForwardEntry.write(value, buf)
+
+    @classmethod
+    def read(cls, buf):
+        flag = buf.read_u8()
+        if flag == 0:
+            return None
+        elif flag == 1:
+            return _UniffiFfiConverterTypeLogForwardEntry.read(buf)
         else:
             raise InternalError("Unexpected flag byte for optional type")
 
@@ -1570,6 +1904,50 @@ def generate_token(options: TokenOptions,credentials: typing.Optional[ApiCredent
         *_uniffi_lowered_args,
     )
     return _uniffi_lift_return(_uniffi_ffi_result)
+def log_forward_bootstrap(level: LogForwardFilter) -> None:
+    """
+    Bootstraps log forwarding.
+
+    Call this once early in the processes's execution. Calling more
+    than once will cause a panic.
+
+"""
+    
+    _UniffiFfiConverterTypeLogForwardFilter.check_lower(level)
+    _uniffi_lowered_args = (
+        _UniffiFfiConverterTypeLogForwardFilter.lower(level),
+    )
+    _uniffi_lift_return = lambda val: None
+    _uniffi_error_converter = None
+    _uniffi_ffi_result = _uniffi_rust_call_with_error(
+        _uniffi_error_converter,
+        _UniffiLib.uniffi_livekit_uniffi_fn_func_log_forward_bootstrap,
+        *_uniffi_lowered_args,
+    )
+    return _uniffi_lift_return(_uniffi_ffi_result)
+async def log_forward_receive() -> typing.Optional[LogForwardEntry]:
+    """
+    Asynchronously receives a forwarded log entry.
+
+    Invoke repeatedly to receive log entries as they are produced
+    until `None` is returned, indicating forwarding has ended. Clients will
+    likely want to bridge this to the languages's equivalent of an asynchronous stream.
+
+    If log forwarding hasn't been bootstrapped, this will panic.
+
+"""
+    _uniffi_lowered_args = (
+    )
+    _uniffi_lift_return = _UniffiFfiConverterOptionalTypeLogForwardEntry.lift
+    _uniffi_error_converter = None
+    return await _uniffi_rust_call_async(
+        _UniffiLib.uniffi_livekit_uniffi_fn_func_log_forward_receive(*_uniffi_lowered_args),
+        _UniffiLib.ffi_livekit_uniffi_rust_future_poll_rust_buffer,
+        _UniffiLib.ffi_livekit_uniffi_rust_future_complete_rust_buffer,
+        _UniffiLib.ffi_livekit_uniffi_rust_future_free_rust_buffer,
+        _uniffi_lift_return,
+        _uniffi_error_converter,
+    )
 def verify_token(token: str,credentials: typing.Optional[ApiCredentials]) -> Claims:
     """
     Verifies an access token.
@@ -1597,12 +1975,17 @@ def verify_token(token: str,credentials: typing.Optional[ApiCredentials]) -> Cla
 
 __all__ = [
     "InternalError",
+    "LogForwardLevel",
     "AccessTokenError",
+    "LogForwardFilter",
     "ApiCredentials",
     "VideoGrants",
     "SipGrants",
     "Claims",
+    "LogForwardEntry",
     "TokenOptions",
     "generate_token",
+    "log_forward_bootstrap",
+    "log_forward_receive",
     "verify_token",
 ]
