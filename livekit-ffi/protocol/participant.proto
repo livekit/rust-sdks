@@ -40,6 +40,7 @@ enum ParticipantKind {
   PARTICIPANT_KIND_EGRESS = 2;
   PARTICIPANT_KIND_SIP = 3;
   PARTICIPANT_KIND_AGENT = 4;
+  PARTICIPANT_KIND_CONNECTOR = 5;
 }
 
 enum DisconnectReason {
