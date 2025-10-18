@@ -16,10 +16,9 @@ use livekit_api::access_token::{
     AccessToken, AccessTokenError, SIPGrants, TokenVerifier, VideoGrants,
 };
 use std::{collections::HashMap, time::Duration};
-use uniffi::{export, remote, Record};
 
 /// An error that can occur during token generation or verification.
-#[remote(Error)]
+#[uniffi::remote(Error)]
 #[uniffi(flat_error)]
 pub enum AccessTokenError {
     InvalidKeys,
@@ -32,7 +31,7 @@ pub enum AccessTokenError {
 ///
 /// Maps to the JWT's `video` field.
 //
-#[remote(Record)]
+#[uniffi::remote(Record)]
 pub struct VideoGrants {
     pub room_create: bool,
     pub room_list: bool,
@@ -55,14 +54,14 @@ pub struct VideoGrants {
 ///
 /// Maps to the JWT's `sip` field.
 ///
-#[remote(Record)]
+#[uniffi::remote(Record)]
 pub struct SIPGrants {
     pub admin: bool,
     pub call: bool,
 }
 
 /// Claims decoded from a valid access token.
-#[derive(Record)]
+#[derive(uniffi::Record)]
 pub struct Claims {
     pub exp: u64,
     pub iss: String,
@@ -81,7 +80,7 @@ pub struct Claims {
 }
 
 /// API credentials for access token generation and verification.
-#[derive(Record)]
+#[derive(uniffi::Record)]
 pub struct ApiCredentials {
     key: String,
     secret: String,
@@ -91,7 +90,7 @@ pub struct ApiCredentials {
 ///
 /// Any fields left empty will use the token generator's defaults.
 ///
-#[derive(Record)]
+#[derive(uniffi::Record)]
 pub struct TokenOptions {
     #[uniffi(default)]
     ttl: Option<Duration>,
@@ -121,7 +120,7 @@ pub struct TokenOptions {
 /// If `credentials` are omitted, API key and secret will be read from the environment
 /// variables `LIVEKIT_API_KEY` and `LIVEKIT_SECRET` respectively.
 ///
-#[export]
+#[uniffi::export]
 pub fn generate_token(
     options: TokenOptions,
     credentials: Option<ApiCredentials>,
@@ -166,7 +165,7 @@ pub fn generate_token(
 /// If `credentials` are omitted, API key and secret will be read from the environment
 /// variables `LIVEKIT_API_KEY` and `LIVEKIT_SECRET` respectively.
 ///
-#[export]
+#[uniffi::export]
 pub fn verify_token(
     token: &str,
     credentials: Option<ApiCredentials>,
