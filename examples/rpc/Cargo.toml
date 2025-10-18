@@ -2,12 +2,13 @@
 name = "rpc"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 env_logger = "0.10"
-livekit = { workspace = true }
-livekit-api = { workspace = true }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 log = "0.4"
 rand = "0.8"
 serde_json = "1.0"

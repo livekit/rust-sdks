@@ -2,6 +2,7 @@
 name = "wgpu_room"
 version = "0.1.1"
 edition = "2021"
+publish = false
 
 [features]
 default = []
@@ -9,7 +10,7 @@ tracing = ["console-subscriber", "tokio/tracing"]
 
 [dependencies]
 tokio = { version = "1", features = ["full", "parking_lot"] }
-livekit = { workspace = true }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"]}
 webrtc-sys = { workspace = true, features = [ "use_vaapi", "use_nvidia" ] }
 futures = "0.3"
 winit = { version = "0.30.11", features = [ "android-native-activity" ] }

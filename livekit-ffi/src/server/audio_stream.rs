@@ -337,12 +337,13 @@ impl FfiAudioStream {
                 break;
             }
         }
-        if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
+        if let Err(err) = server.send_event(
             proto::AudioStreamEvent {
                 stream_handle: stream_handle,
-                message: Some(proto::audio_stream_event::Message::Eos(proto::AudioStreamEos {})),
-            },
-        )) {
+                message: Some(proto::AudioStreamEos {}.into()),
+            }
+            .into(),
+        ) {
             log::warn!("failed to send audio eos: {}", err);
         }
     }
@@ -404,19 +405,20 @@ impl FfiAudioStream {
                             let handle_id = server.next_id();
                             let buffer_info = proto::AudioFrameBufferInfo::from(&new_frame);
                             server.store_handle(handle_id, new_frame);
-                            if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
+                            if let Err(err) = server.send_event(
                                 proto::AudioStreamEvent {
                                     stream_handle: stream_handle_id,
-                                    message: Some(proto::audio_stream_event::Message::FrameReceived(
+                                    message: Some(
                                         proto::AudioFrameReceived {
                                             frame: proto::OwnedAudioFrameBuffer {
                                                 handle: proto::FfiOwnedHandle { id: handle_id },
                                                 info: buffer_info,
                                             },
-                                        },
-                                    )),
-                                },
-                            )) {
+                                        }
+                                        .into()
+                                    ),
+                                }.into()
+                            ) {
                                 server.drop_handle(handle_id);
                                 log::warn!("failed to send audio frame: {}", err);
                             }
@@ -425,19 +427,21 @@ impl FfiAudioStream {
                         let handle_id = server.next_id();
                         let buffer_info = proto::AudioFrameBufferInfo::from(&frame);
                         server.store_handle(handle_id, frame);
-                        if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
+                        if let Err(err) = server.send_event(
                             proto::AudioStreamEvent {
                                 stream_handle: stream_handle_id,
-                                message: Some(proto::audio_stream_event::Message::FrameReceived(
+                                message: Some(
                                     proto::AudioFrameReceived {
                                         frame: proto::OwnedAudioFrameBuffer {
                                             handle: proto::FfiOwnedHandle { id: handle_id },
                                             info: buffer_info,
                                         },
-                                    },
-                                )),
-                            },
-                        )) {
+                                    }
+                                    .into()
+                                ),
+                            }
+                            .into()
+                        ) {
                             server.drop_handle(handle_id);
                             log::warn!("failed to send audio frame: {}", err);
                         }
@@ -447,14 +451,13 @@ impl FfiAudioStream {
             }
         }
         if send_eos {
-            if let Err(err) = server.send_event(proto::ffi_event::Message::AudioStreamEvent(
+            if let Err(err) = server.send_event(
                 proto::AudioStreamEvent {
                     stream_handle: stream_handle_id,
-                    message: Some(proto::audio_stream_event::Message::Eos(
-                        proto::AudioStreamEos {},
-                    )),
-                },
-            )) {
+                    message: Some(proto::AudioStreamEos {}.into()),
+                }
+                .into(),
+            ) {
                 log::warn!("failed to send audio eos: {}", err);
             }
         }
