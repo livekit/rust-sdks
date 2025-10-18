@@ -1284,6 +1284,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashmap"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5041cc499144891f3790297212f32a74fb938e5136a14943f338ef9e0ae276cf"
+dependencies = [
+ "cfg-if",
+ "crossbeam-utils",
+ "hashbrown 0.14.3",
+ "lock_api",
+ "once_cell",
+ "parking_lot_core",
+]
+
+[[package]]
 name = "dasp_sample"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2979,6 +2993,7 @@ dependencies = [
  "libloading",
  "libwebrtc",
  "livekit-api",
+ "livekit-datatrack",
  "livekit-protocol",
  "livekit-runtime",
  "log",
@@ -3023,12 +3038,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-datatrack"
+version = "0.1.0"
+dependencies = [
+ "dashmap 6.1.0",
+ "livekit-protocol",
+ "log",
+ "thiserror 2.0.17",
+ "tokio",
+]
+
+[[package]]
 name = "livekit-ffi"
 version = "0.12.39"
 dependencies = [
  "bytes",
  "console-subscriber",
- "dashmap",
+ "dashmap 5.5.3",
  "downcast-rs",
  "env_logger 0.10.2",
  "from_variants",
@@ -6690,14 +6716,14 @@ version = "0.60.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
 dependencies = [
- "windows-targets 0.53.5",
+ "windows-targets 0.53.4",
 ]
 
 [[package]]
 name = "windows-sys"
-version = "0.61.2"
+version = "0.61.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc"
+checksum = "6f109e41dd4a3c848907eb83d5a42ea98b3769495597450cf6d153507b166f0f"
 dependencies = [
  "windows-link",
 ]

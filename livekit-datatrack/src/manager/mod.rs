@@ -12,5 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Re-export APIs from the data track crate.
-pub use livekit_datatrack::api::*;
+pub mod publish;
+pub mod subscribe;
+
+#[derive(PartialEq, Eq, Hash, Debug)]
+pub struct TrackHandle(u16);

@@ -6,6 +6,7 @@ members = [
     "livekit-protocol",
     "livekit-ffi",
     "livekit-runtime",
+    "livekit-datatrack",
     "libwebrtc",
     "soxr-sys",
     "yuv-sys",
@@ -36,6 +37,7 @@ livekit-api = { version = "0.4.9", path = "livekit-api" }
 livekit-ffi = { version = "0.12.39", path = "livekit-ffi" }
 livekit-protocol = { version = "0.5.1", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
+livekit-datatrack = { version = "0.1.0", path = "livekit-datatrack" }
 soxr-sys = { version = "0.1.1", path = "soxr-sys" }
 webrtc-sys = { version = "0.3.16", path = "webrtc-sys" }
 webrtc-sys-build = { version = "0.3.11", path = "webrtc-sys/build" }
