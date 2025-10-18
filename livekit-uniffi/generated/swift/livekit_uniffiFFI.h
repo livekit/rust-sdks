@@ -248,6 +248,17 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureRes
 RustBuffer uniffi_livekit_uniffi_fn_func_generate_token(RustBuffer options, RustBuffer credentials, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FUNC_LOG_FORWARD_BOOTSTRAP
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FUNC_LOG_FORWARD_BOOTSTRAP
+void uniffi_livekit_uniffi_fn_func_log_forward_bootstrap(RustBuffer level, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FUNC_LOG_FORWARD_RECEIVE
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FUNC_LOG_FORWARD_RECEIVE
+uint64_t uniffi_livekit_uniffi_fn_func_log_forward_receive(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FUNC_VERIFY_TOKEN
 #define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FUNC_VERIFY_TOKEN
 RustBuffer uniffi_livekit_uniffi_fn_func_verify_token(RustBuffer token, RustBuffer credentials, RustCallStatus *_Nonnull out_status
@@ -516,6 +527,18 @@ void ffi_livekit_uniffi_rust_future_complete_void(uint64_t handle, RustCallStatu
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_FUNC_GENERATE_TOKEN
 #define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_FUNC_GENERATE_TOKEN
 uint16_t uniffi_livekit_uniffi_checksum_func_generate_token(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_FUNC_LOG_FORWARD_BOOTSTRAP
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_FUNC_LOG_FORWARD_BOOTSTRAP
+uint16_t uniffi_livekit_uniffi_checksum_func_log_forward_bootstrap(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_FUNC_LOG_FORWARD_RECEIVE
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_FUNC_LOG_FORWARD_RECEIVE
+uint16_t uniffi_livekit_uniffi_checksum_func_log_forward_receive(void
     
 );
 #endif

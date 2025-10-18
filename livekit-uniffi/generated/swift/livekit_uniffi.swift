@@ -419,6 +419,22 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
+    typealias FfiType = UInt32
+    typealias SwiftType = UInt32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> UInt32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -669,6 +685,70 @@ public func FfiConverterTypeClaims_lift(_ buf: RustBuffer) throws -> Claims {
 #endif
 public func FfiConverterTypeClaims_lower(_ value: Claims) -> RustBuffer {
     return FfiConverterTypeClaims.lower(value)
+}
+
+
+public struct LogForwardEntry: Equatable, Hashable {
+    public var level: LogForwardLevel
+    public var target: String
+    public var file: String?
+    public var line: UInt32?
+    public var message: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(level: LogForwardLevel, target: String, file: String?, line: UInt32?, message: String) {
+        self.level = level
+        self.target = target
+        self.file = file
+        self.line = line
+        self.message = message
+    }
+
+    
+}
+
+#if compiler(>=6)
+extension LogForwardEntry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLogForwardEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LogForwardEntry {
+        return
+            try LogForwardEntry(
+                level: FfiConverterTypeLogForwardLevel.read(from: &buf), 
+                target: FfiConverterString.read(from: &buf), 
+                file: FfiConverterOptionString.read(from: &buf), 
+                line: FfiConverterOptionUInt32.read(from: &buf), 
+                message: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LogForwardEntry, into buf: inout [UInt8]) {
+        FfiConverterTypeLogForwardLevel.write(value.level, into: &buf)
+        FfiConverterString.write(value.target, into: &buf)
+        FfiConverterOptionString.write(value.file, into: &buf)
+        FfiConverterOptionUInt32.write(value.line, into: &buf)
+        FfiConverterString.write(value.message, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLogForwardEntry_lift(_ buf: RustBuffer) throws -> LogForwardEntry {
+    return try FfiConverterTypeLogForwardEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLogForwardEntry_lower(_ value: LogForwardEntry) -> RustBuffer {
+    return FfiConverterTypeLogForwardEntry.lower(value)
 }
 
 
@@ -1023,6 +1103,209 @@ public func FfiConverterTypeAccessTokenError_lower(_ value: AccessTokenError) ->
     return FfiConverterTypeAccessTokenError.lower(value)
 }
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum LogForwardFilter: Equatable, Hashable {
+    
+    case off
+    case error
+    case warn
+    case info
+    case debug
+    case trace
+
+
+
+}
+
+#if compiler(>=6)
+extension LogForwardFilter: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLogForwardFilter: FfiConverterRustBuffer {
+    typealias SwiftType = LogForwardFilter
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LogForwardFilter {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .off
+        
+        case 2: return .error
+        
+        case 3: return .warn
+        
+        case 4: return .info
+        
+        case 5: return .debug
+        
+        case 6: return .trace
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LogForwardFilter, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .off:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .error:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .warn:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .info:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .debug:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .trace:
+            writeInt(&buf, Int32(6))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLogForwardFilter_lift(_ buf: RustBuffer) throws -> LogForwardFilter {
+    return try FfiConverterTypeLogForwardFilter.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLogForwardFilter_lower(_ value: LogForwardFilter) -> RustBuffer {
+    return FfiConverterTypeLogForwardFilter.lower(value)
+}
+
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum LogForwardLevel: Equatable, Hashable {
+    
+    case error
+    case warn
+    case info
+    case debug
+    case trace
+
+
+
+}
+
+#if compiler(>=6)
+extension LogForwardLevel: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLogForwardLevel: FfiConverterRustBuffer {
+    typealias SwiftType = LogForwardLevel
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LogForwardLevel {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .error
+        
+        case 2: return .warn
+        
+        case 3: return .info
+        
+        case 4: return .debug
+        
+        case 5: return .trace
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LogForwardLevel, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .error:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .warn:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .info:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .debug:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .trace:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLogForwardLevel_lift(_ buf: RustBuffer) throws -> LogForwardLevel {
+    return try FfiConverterTypeLogForwardLevel.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLogForwardLevel_lower(_ value: LogForwardLevel) -> RustBuffer {
+    return FfiConverterTypeLogForwardLevel.lower(value)
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
+    typealias SwiftType = UInt32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterUInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterUInt32.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -1090,6 +1373,30 @@ fileprivate struct FfiConverterOptionTypeApiCredentials: FfiConverterRustBuffer 
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterTypeApiCredentials.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeLogForwardEntry: FfiConverterRustBuffer {
+    typealias SwiftType = LogForwardEntry?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeLogForwardEntry.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeLogForwardEntry.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -1217,6 +1524,54 @@ fileprivate struct FfiConverterDictionaryStringString: FfiConverterRustBuffer {
         return dict
     }
 }
+private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
+private let UNIFFI_RUST_FUTURE_POLL_WAKE: Int8 = 1
+
+fileprivate let uniffiContinuationHandleMap = UniffiHandleMap<UnsafeContinuation<Int8, Never>>()
+
+fileprivate func uniffiRustCallAsync<F, T>(
+    rustFutureFunc: () -> UInt64,
+    pollFunc: (UInt64, @escaping UniffiRustFutureContinuationCallback, UInt64) -> (),
+    completeFunc: (UInt64, UnsafeMutablePointer<RustCallStatus>) -> F,
+    freeFunc: (UInt64) -> (),
+    liftFunc: (F) throws -> T,
+    errorHandler: ((RustBuffer) throws -> Swift.Error)?
+) async throws -> T {
+    // Make sure to call the ensure init function since future creation doesn't have a
+    // RustCallStatus param, so doesn't use makeRustCall()
+    uniffiEnsureLivekitUniffiInitialized()
+    let rustFuture = rustFutureFunc()
+    defer {
+        freeFunc(rustFuture)
+    }
+    var pollResult: Int8;
+    repeat {
+        pollResult = await withUnsafeContinuation {
+            pollFunc(
+                rustFuture,
+                { handle, pollResult in
+                    uniffiFutureContinuationCallback(handle: handle, pollResult: pollResult)
+                },
+                uniffiContinuationHandleMap.insert(obj: $0)
+            )
+        }
+    } while pollResult != UNIFFI_RUST_FUTURE_POLL_READY
+
+    return try liftFunc(makeRustCall(
+        { completeFunc(rustFuture, $0) },
+        errorHandler: errorHandler
+    ))
+}
+
+// Callback handlers for an async calls.  These are invoked by Rust when the future is ready.  They
+// lift the return value or error and resume the suspended function.
+fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: Int8) {
+    if let continuation = try? uniffiContinuationHandleMap.remove(handle: handle) {
+        continuation.resume(returning: pollResult)
+    } else {
+        print("uniffiFutureContinuationCallback invalid handle")
+    }
+}
 /**
  * Generates an access token.
  *
@@ -1231,6 +1586,44 @@ public func generateToken(options: TokenOptions, credentials: ApiCredentials?)th
         FfiConverterOptionTypeApiCredentials.lower(credentials),$0
     )
 })
+}
+/**
+ * Bootstraps log forwarding.
+ *
+ * Call this once early in the processes's execution. Calling more
+ * than once will cause a panic.
+
+ */
+public func logForwardBootstrap(level: LogForwardFilter)  {try! rustCall() {
+    uniffi_livekit_uniffi_fn_func_log_forward_bootstrap(
+        FfiConverterTypeLogForwardFilter_lower(level),$0
+    )
+}
+}
+/**
+ * Asynchronously receives a forwarded log entry.
+ *
+ * Invoke repeatedly to receive log entries as they are produced
+ * until `None` is returned, indicating forwarding has ended. Clients will
+ * likely want to bridge this to the languages's equivalent of an asynchronous stream.
+ *
+ * If log forwarding hasn't been bootstrapped, this will panic.
+
+ */
+public func logForwardReceive()async  -> LogForwardEntry?  {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_livekit_uniffi_fn_func_log_forward_receive(
+                )
+            },
+            pollFunc: ffi_livekit_uniffi_rust_future_poll_rust_buffer,
+            completeFunc: ffi_livekit_uniffi_rust_future_complete_rust_buffer,
+            freeFunc: ffi_livekit_uniffi_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterOptionTypeLogForwardEntry.lift,
+            errorHandler: nil
+            
+        )
 }
 /**
  * Verifies an access token.
@@ -1264,6 +1657,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.contractVersionMismatch
     }
     if (uniffi_livekit_uniffi_checksum_func_generate_token() != 29823) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_livekit_uniffi_checksum_func_log_forward_bootstrap() != 14091) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_livekit_uniffi_checksum_func_log_forward_receive() != 30685) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_livekit_uniffi_checksum_func_verify_token() != 47517) {

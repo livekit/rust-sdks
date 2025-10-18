@@ -30,6 +30,13 @@ import java.nio.CharBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.coroutines.resume
+import kotlinx.coroutines.CancellableContinuation
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 // This is a helper for safely working with byte buffers returned from the Rust code.
 // A rust-owned buffer is represented by its capacity, its current length, and a
@@ -635,6 +642,10 @@ internal object IntegrityCheckingUniffiLib {
     }
     external fun uniffi_livekit_uniffi_checksum_func_generate_token(
     ): Short
+    external fun uniffi_livekit_uniffi_checksum_func_log_forward_bootstrap(
+    ): Short
+    external fun uniffi_livekit_uniffi_checksum_func_log_forward_receive(
+    ): Short
     external fun uniffi_livekit_uniffi_checksum_func_verify_token(
     ): Short
     external fun ffi_livekit_uniffi_uniffi_contract_version(
@@ -652,6 +663,10 @@ internal object UniffiLib {
     }
     external fun uniffi_livekit_uniffi_fn_func_generate_token(`options`: RustBuffer.ByValue,`credentials`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
+    external fun uniffi_livekit_uniffi_fn_func_log_forward_bootstrap(`level`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_livekit_uniffi_fn_func_log_forward_receive(
+    ): Long
     external fun uniffi_livekit_uniffi_fn_func_verify_token(`token`: RustBuffer.ByValue,`credentials`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun ffi_livekit_uniffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
@@ -776,6 +791,12 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_livekit_uniffi_checksum_func_generate_token() != 29823.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_livekit_uniffi_checksum_func_log_forward_bootstrap() != 14091.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_livekit_uniffi_checksum_func_log_forward_receive() != 30685.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_livekit_uniffi_checksum_func_verify_token() != 47517.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -792,6 +813,46 @@ public fun uniffiEnsureInitialized() {
 }
 
 // Async support
+// Async return type handlers
+
+internal const val UNIFFI_RUST_FUTURE_POLL_READY = 0.toByte()
+internal const val UNIFFI_RUST_FUTURE_POLL_WAKE = 1.toByte()
+
+internal val uniffiContinuationHandleMap = UniffiHandleMap<CancellableContinuation<Byte>>()
+
+// FFI type for Rust future continuations
+internal object uniffiRustFutureContinuationCallbackImpl: UniffiRustFutureContinuationCallback {
+    override fun callback(data: Long, pollResult: Byte) {
+        uniffiContinuationHandleMap.remove(data).resume(pollResult)
+    }
+}
+
+internal suspend fun<T, F, E: kotlin.Exception> uniffiRustCallAsync(
+    rustFuture: Long,
+    pollFunc: (Long, UniffiRustFutureContinuationCallback, Long) -> Unit,
+    completeFunc: (Long, UniffiRustCallStatus) -> F,
+    freeFunc: (Long) -> Unit,
+    liftFunc: (F) -> T,
+    errorHandler: UniffiRustCallStatusErrorHandler<E>
+): T {
+    try {
+        do {
+            val pollResult = suspendCancellableCoroutine<Byte> { continuation ->
+                pollFunc(
+                    rustFuture,
+                    uniffiRustFutureContinuationCallbackImpl,
+                    uniffiContinuationHandleMap.insert(continuation)
+                )
+            }
+        } while (pollResult != UNIFFI_RUST_FUTURE_POLL_READY);
+
+        return liftFunc(
+            uniffiRustCallWithError(errorHandler, { status -> completeFunc(rustFuture, status) })
+        )
+    } finally {
+        freeFunc(rustFuture)
+    }
+}
 
 // Public interface members begin here.
 
@@ -871,6 +932,29 @@ object UniffiWithHandle
  * @suppress
  * */
 object NoHandle
+
+/**
+ * @suppress
+ */
+public object FfiConverterUInt: FfiConverter<UInt, Int> {
+    override fun lift(value: Int): UInt {
+        return value.toUInt()
+    }
+
+    override fun read(buf: ByteBuffer): UInt {
+        return lift(buf.getInt())
+    }
+
+    override fun lower(value: UInt): Int {
+        return value.toInt()
+    }
+
+    override fun allocationSize(value: UInt) = 4UL
+
+    override fun write(value: UInt, buf: ByteBuffer) {
+        buf.putInt(value.toInt())
+    }
+}
 
 /**
  * @suppress
@@ -1136,6 +1220,57 @@ public object FfiConverterTypeClaims: FfiConverterRustBuffer<Claims> {
             FfiConverterString.write(value.`metadata`, buf)
             FfiConverterMapStringString.write(value.`attributes`, buf)
             FfiConverterString.write(value.`roomName`, buf)
+    }
+}
+
+
+
+data class LogForwardEntry (
+    var `level`: LogForwardLevel
+    , 
+    var `target`: kotlin.String
+    , 
+    var `file`: kotlin.String?
+    , 
+    var `line`: kotlin.UInt?
+    , 
+    var `message`: kotlin.String
+    
+){
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLogForwardEntry: FfiConverterRustBuffer<LogForwardEntry> {
+    override fun read(buf: ByteBuffer): LogForwardEntry {
+        return LogForwardEntry(
+            FfiConverterTypeLogForwardLevel.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterOptionalString.read(buf),
+            FfiConverterOptionalUInt.read(buf),
+            FfiConverterString.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: LogForwardEntry) = (
+            FfiConverterTypeLogForwardLevel.allocationSize(value.`level`) +
+            FfiConverterString.allocationSize(value.`target`) +
+            FfiConverterOptionalString.allocationSize(value.`file`) +
+            FfiConverterOptionalUInt.allocationSize(value.`line`) +
+            FfiConverterString.allocationSize(value.`message`)
+    )
+
+    override fun write(value: LogForwardEntry, buf: ByteBuffer) {
+            FfiConverterTypeLogForwardLevel.write(value.`level`, buf)
+            FfiConverterString.write(value.`target`, buf)
+            FfiConverterOptionalString.write(value.`file`, buf)
+            FfiConverterOptionalUInt.write(value.`line`, buf)
+            FfiConverterString.write(value.`message`, buf)
     }
 }
 
@@ -1433,6 +1568,105 @@ public object FfiConverterTypeAccessTokenError : FfiConverterRustBuffer<AccessTo
 
 
 
+enum class LogForwardFilter {
+    
+    OFF,
+    ERROR,
+    WARN,
+    INFO,
+    DEBUG,
+    TRACE;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLogForwardFilter: FfiConverterRustBuffer<LogForwardFilter> {
+    override fun read(buf: ByteBuffer) = try {
+        LogForwardFilter.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: LogForwardFilter) = 4UL
+
+    override fun write(value: LogForwardFilter, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+enum class LogForwardLevel {
+    
+    ERROR,
+    WARN,
+    INFO,
+    DEBUG,
+    TRACE;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeLogForwardLevel: FfiConverterRustBuffer<LogForwardLevel> {
+    override fun read(buf: ByteBuffer) = try {
+        LogForwardLevel.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: LogForwardLevel) = 4UL
+
+    override fun write(value: LogForwardLevel, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalUInt: FfiConverterRustBuffer<kotlin.UInt?> {
+    override fun read(buf: ByteBuffer): kotlin.UInt? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterUInt.read(buf)
+    }
+
+    override fun allocationSize(value: kotlin.UInt?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterUInt.allocationSize(value)
+        }
+    }
+
+    override fun write(value: kotlin.UInt?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterUInt.write(value, buf)
+        }
+    }
+}
+
+
+
+
 /**
  * @suppress
  */
@@ -1522,6 +1756,38 @@ public object FfiConverterOptionalTypeApiCredentials: FfiConverterRustBuffer<Api
         } else {
             buf.put(1)
             FfiConverterTypeApiCredentials.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeLogForwardEntry: FfiConverterRustBuffer<LogForwardEntry?> {
+    override fun read(buf: ByteBuffer): LogForwardEntry? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeLogForwardEntry.read(buf)
+    }
+
+    override fun allocationSize(value: LogForwardEntry?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeLogForwardEntry.allocationSize(value)
+        }
+    }
+
+    override fun write(value: LogForwardEntry?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeLogForwardEntry.write(value, buf)
         }
     }
 }
@@ -1688,6 +1954,14 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
         }
     }
 }
+
+
+
+
+
+
+
+
         /**
          * Generates an access token.
          *
@@ -1705,6 +1979,46 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
     )
     }
     
+
+        /**
+         * Bootstraps log forwarding.
+         *
+         * Call this once early in the processes's execution. Calling more
+         * than once will cause a panic.
+
+         */ fun `logForwardBootstrap`(`level`: LogForwardFilter)
+        = 
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_livekit_uniffi_fn_func_log_forward_bootstrap(
+    
+        FfiConverterTypeLogForwardFilter.lower(`level`),_status)
+}
+    
+    
+
+        /**
+         * Asynchronously receives a forwarded log entry.
+         *
+         * Invoke repeatedly to receive log entries as they are produced
+         * until `None` is returned, indicating forwarding has ended. Clients will
+         * likely want to bridge this to the languages's equivalent of an asynchronous stream.
+         *
+         * If log forwarding hasn't been bootstrapped, this will panic.
+
+         */
+    @Suppress("ASSIGNED_BUT_NEVER_ACCESSED_VARIABLE")
+     suspend fun `logForwardReceive`() : LogForwardEntry? {
+        return uniffiRustCallAsync(
+        UniffiLib.uniffi_livekit_uniffi_fn_func_log_forward_receive(),
+        { future, callback, continuation -> UniffiLib.ffi_livekit_uniffi_rust_future_poll_rust_buffer(future, callback, continuation) },
+        { future, continuation -> UniffiLib.ffi_livekit_uniffi_rust_future_complete_rust_buffer(future, continuation) },
+        { future -> UniffiLib.ffi_livekit_uniffi_rust_future_free_rust_buffer(future) },
+        // lift function
+        { FfiConverterOptionalTypeLogForwardEntry.lift(it) },
+        // Error FFI converter
+        UniffiNullRustCallStatusErrorHandler,
+    )
+    }
 
         /**
          * Verifies an access token.
