@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 tokio = { version = "1", features = ["full", "parking_lot"] }
-livekit-api = { workspace = true, features = ["native-tls"] }
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 env_logger = "0.10"
 log = "0.4"
 livekit-protocol = { workspace = true }

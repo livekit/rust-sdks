@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 tokio = { version = "1.47.1", features = ["full"] }
-livekit = { workspace = true }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 log = "0.4.28"
 env_logger = "0.11.8"
 bitfield-struct = "0.11.0"

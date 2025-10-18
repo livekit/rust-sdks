@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
-livekit = { workspace = true }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 bytes = "1.4.0"
 tokio-util = "0.7.8"
 futures = "0.3.28"
