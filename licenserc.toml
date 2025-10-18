@@ -1,0 +1,31 @@
+headerPath = "Apache-2.0.txt"
+excludes = [
+    "yuv-sys/libyuv",
+    "soxr-sys/src",
+    "webrtc-sys/libwebrtc",
+    "webrtc-sys/test",
+    "webrtc-sys/src/vaapi",
+    "webrtc-sys/src/nvidia",
+    "webrtc-sys/.clang-format",
+    "livekit-protocol/protocol",
+    "livekit-ffi/.cargo/config",
+    "examples",
+    "NOTICE",
+    ".github",
+    "*.toml",
+    "*.txt",
+    # Generated files
+    "livekit-protocol/src/livekit.rs",
+    "livekit-protocol/src/livekit.serde.rs",
+]
+
+[mapping.DOUBLESLASH_STYLE]
+extensions = ["proto"]
+
+[mapping.SLASHSTAR_STYLE]
+extensions = ["mm"]
+
+[properties]
+inceptionYear = 2025
+copyrightOwner = "LiveKit, Inc."
+projectName = "LiveKit Rust SDKs"
