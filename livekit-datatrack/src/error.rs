@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod dtp;
-mod mime;
-mod frame;
-mod track;
-mod error;
-mod manager;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum PublishError {
+    #[error("")] // TODO: descriptions
+    NameTaken,
+    #[error("")]
+    Unauthorized,
+}

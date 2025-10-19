@@ -12,3 +12,5 @@ livekit-protocol = { workspace = true }
 log = "0.4.28"
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", default-features = false, features = ["sync"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+bytes = "1.10.1"

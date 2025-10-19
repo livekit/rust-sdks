@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::mime::Mime;
-use std::marker::PhantomData;
-use thiserror::Error;
+use crate::{frame::DataTrackFrame, mime::Mime};
+use futures_util::{task::Context, Stream};
+use std::{marker::PhantomData, pin::Pin, task::Poll};
 
 /// Options for publishing a data track.
 #[derive(Clone, Debug)]
@@ -44,7 +44,7 @@ struct DataTrackInfo {
     handle: u16,
     name: String,
     mime: Mime,
-    uses_e2ee: bool
+    uses_e2ee: bool,
 }
 
 impl DataTrackInfo {
@@ -62,14 +62,6 @@ impl DataTrackInfo {
     }
 }
 
-#[derive(Debug, Error)]
-pub enum PublishError {
-    #[error("")] // TODO: descriptions
-    NameTaken,
-    #[error("")]
-    Unauthorized,
-}
-
 /// Marker type indicating a [`DataTrack`] belongs to the local participant.
 pub struct Local;
 
@@ -79,21 +71,12 @@ pub struct Remote;
 #[derive(Clone, Debug)]
 pub struct DataTrack<L> {
     /// Marker indicating local or remote.
-    inner: Inner,
     _location: PhantomData<L>,
     // Need info, way to signal closing by SFU or other
 
     // Cases:
     // Local (publish) -> channel tx
     // Remote (subscribe) -> channel rx
-}
-
-/*
-#[derive(Clone, Debug)]
-pub struct DataTrack<L> {
-    // Marker indicating local or remote.
-    _location: PhantomData<L>,
-    // Need info, way to signal closing by SFU or other
 }
 
 impl<L> DataTrack<L> {
@@ -123,10 +106,7 @@ impl DataTrack<Remote> {
         todo!()
     }
 
-    pub fn subscribe_with_target(
-        &self,
-        target_fps: u32,
-    ) -> DataTrackResult<DataTrackSubscription> {
+    pub fn subscribe_with_target(&self, target_fps: u32) -> DataTrackResult<DataTrackSubscription> {
         todo!()
     }
 }
@@ -134,10 +114,9 @@ impl DataTrack<Remote> {
 pub struct DataTrackSubscription;
 
 impl Stream for DataTrackSubscription {
-    type Item = S;
+    type Item = DataTrackFrame;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
         todo!();
     }
 }
-*/

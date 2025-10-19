@@ -12,14 +12,29 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{error::PublishError, track::{DataTrack, Local, PublishOptions}};
+
 use super::TrackHandle;
-use crate::api::{DataTrack, Local, PublishError, PublishOptions};
 use dashmap::DashMap;
 use livekit_protocol as proto;
+use tokio::sync::mpsc;
+
+
 
 // Question: mechanism for signaling tx/rx. Options:
 // 1.
 // 2.
+
+enum PubMangerRxMessage {
+    PublishedResponse(proto::DataTrackPublishedResponse),
+    UnpublishedResponse(()),
+    RequestResponse(proto::RequestResponse)
+}
+
+enum PubMangerTxMessage {
+    AddTrack(proto::AddTrackRequest),
+    UnpublishRequest(())
+}
 
 #[derive(Debug)]
 pub struct PubManagerOptions {
@@ -30,6 +45,7 @@ pub struct PubManagerOptions {
     //   - Rx DataTrackPublishedResponse, DataTrackUnpublishedResponse, RequestResponse
     // - Data track channel
     //   - Tx
+    transport_tx: mpsc::UnboundedReceiver<Vec<u8>>
 }
 
 #[derive(Debug)]

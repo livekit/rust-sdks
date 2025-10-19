@@ -3041,7 +3041,9 @@ dependencies = [
 name = "livekit-datatrack"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "dashmap 6.1.0",
+ "futures-util",
  "livekit-protocol",
  "log",
  "thiserror 2.0.17",
