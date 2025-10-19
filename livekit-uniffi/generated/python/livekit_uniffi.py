@@ -479,6 +479,8 @@ def _uniffi_check_contract_api_version(lib):
         raise InternalError("UniFFI contract version mismatch: try cleaning and rebuilding your project")
 
 def _uniffi_check_api_checksums(lib):
+    if lib.uniffi_livekit_uniffi_checksum_func_build_version() != 45072:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_livekit_uniffi_checksum_func_generate_token() != 29823:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_livekit_uniffi_checksum_func_log_forward_bootstrap() != 14091:
@@ -750,6 +752,10 @@ _UniffiLib.ffi_livekit_uniffi_rust_future_free_void.argtypes = (
     ctypes.c_uint64,
 )
 _UniffiLib.ffi_livekit_uniffi_rust_future_free_void.restype = None
+_UniffiLib.uniffi_livekit_uniffi_fn_func_build_version.argtypes = (
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_livekit_uniffi_fn_func_build_version.restype = _UniffiRustBuffer
 _UniffiLib.uniffi_livekit_uniffi_fn_func_generate_token.argtypes = (
     _UniffiRustBuffer,
     _UniffiRustBuffer,
@@ -773,6 +779,9 @@ _UniffiLib.uniffi_livekit_uniffi_fn_func_verify_token.restype = _UniffiRustBuffe
 _UniffiLib.ffi_livekit_uniffi_uniffi_contract_version.argtypes = (
 )
 _UniffiLib.ffi_livekit_uniffi_uniffi_contract_version.restype = ctypes.c_uint32
+_UniffiLib.uniffi_livekit_uniffi_checksum_func_build_version.argtypes = (
+)
+_UniffiLib.uniffi_livekit_uniffi_checksum_func_build_version.restype = ctypes.c_uint16
 _UniffiLib.uniffi_livekit_uniffi_checksum_func_generate_token.argtypes = (
 )
 _UniffiLib.uniffi_livekit_uniffi_checksum_func_generate_token.restype = ctypes.c_uint16
@@ -1880,6 +1889,20 @@ class _UniffiFfiConverterUInt8(_UniffiConverterPrimitiveInt):
     @staticmethod
     def write(value, buf):
         buf.write_u8(value)
+def build_version() -> str:
+    """
+    Returns the version specified in the crate's Cargo.toml.
+"""
+    _uniffi_lowered_args = (
+    )
+    _uniffi_lift_return = _UniffiFfiConverterString.lift
+    _uniffi_error_converter = None
+    _uniffi_ffi_result = _uniffi_rust_call_with_error(
+        _uniffi_error_converter,
+        _UniffiLib.uniffi_livekit_uniffi_fn_func_build_version,
+        *_uniffi_lowered_args,
+    )
+    return _uniffi_lift_return(_uniffi_ffi_result)
 def generate_token(options: TokenOptions,credentials: typing.Optional[ApiCredentials]) -> str:
     """
     Generates an access token.
@@ -1984,6 +2007,7 @@ __all__ = [
     "Claims",
     "LogForwardEntry",
     "TokenOptions",
+    "build_version",
     "generate_token",
     "log_forward_bootstrap",
     "log_forward_receive",

@@ -10,6 +10,9 @@ def main():
     # Receive log messages from Rust
     log_forward_bootstrap(level=LogForwardFilter.INFO)
 
+    # Print FFI version
+    print(f"FFI version: v{build_version()}")
+
     credentials = ApiCredentials(key="devkey", secret="secret")
 
     jwt = generate_token(
