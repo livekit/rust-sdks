@@ -763,7 +763,8 @@ impl LocalParticipant {
         let (response_tx, response_rx) = oneshot::channel();
         let effective_timeout = std::cmp::max(
             data.response_timeout.saturating_sub(max_round_trip_latency),
-            min_effective_timeout);
+            min_effective_timeout,
+        );
 
         match self
             .publish_rpc_request(RpcRequest {
