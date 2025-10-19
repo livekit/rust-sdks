@@ -12,15 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// Access token generation and verification from [`livekit-api::access_token`].
-pub mod access_token;
+/// Returns the version specified in the crate's Cargo.toml.
+#[uniffi::export]
+pub fn build_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
 
-/// Forward log messages from Rust.
-pub mod log_forward;
-
-/// Information about the build such as version.
-pub mod build_info;
-
-// TODO: expose more modules...
-
-uniffi::setup_scaffolding!();
+// TODO: consider adding other info such as timestamp and Git hash.

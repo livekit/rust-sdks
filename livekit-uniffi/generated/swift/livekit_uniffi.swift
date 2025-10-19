@@ -1573,6 +1573,15 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
     }
 }
 /**
+ * Returns the version specified in the crate's Cargo.toml.
+ */
+public func buildVersion() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_livekit_uniffi_fn_func_build_version($0
+    )
+})
+}
+/**
  * Generates an access token.
  *
  * If `credentials` are omitted, API key and secret will be read from the environment
@@ -1655,6 +1664,9 @@ private let initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_livekit_uniffi_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
+    }
+    if (uniffi_livekit_uniffi_checksum_func_build_version() != 45072) {
+        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_livekit_uniffi_checksum_func_generate_token() != 29823) {
         return InitializationResult.apiChecksumMismatch

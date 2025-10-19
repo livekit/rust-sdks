@@ -640,6 +640,8 @@ internal object IntegrityCheckingUniffiLib {
         uniffiCheckContractApiVersion(this)
         uniffiCheckApiChecksums(this)
     }
+    external fun uniffi_livekit_uniffi_checksum_func_build_version(
+    ): Short
     external fun uniffi_livekit_uniffi_checksum_func_generate_token(
     ): Short
     external fun uniffi_livekit_uniffi_checksum_func_log_forward_bootstrap(
@@ -661,6 +663,8 @@ internal object UniffiLib {
         Native.register(UniffiLib::class.java, findLibraryName(componentName = "livekit_uniffi"))
         
     }
+    external fun uniffi_livekit_uniffi_fn_func_build_version(uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_livekit_uniffi_fn_func_generate_token(`options`: RustBuffer.ByValue,`credentials`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_livekit_uniffi_fn_func_log_forward_bootstrap(`level`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -788,6 +792,9 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if (lib.uniffi_livekit_uniffi_checksum_func_build_version() != 45072.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_livekit_uniffi_checksum_func_generate_token() != 29823.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
@@ -1961,6 +1968,19 @@ public object FfiConverterMapStringString: FfiConverterRustBuffer<Map<kotlin.Str
 
 
 
+
+        /**
+         * Returns the version specified in the crate's Cargo.toml.
+         */ fun `buildVersion`(): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_livekit_uniffi_fn_func_build_version(
+    
+        _status)
+}
+    )
+    }
+    
 
         /**
          * Generates an access token.

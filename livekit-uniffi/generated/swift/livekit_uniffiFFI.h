@@ -243,6 +243,12 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureRes
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FUNC_BUILD_VERSION
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FUNC_BUILD_VERSION
+RustBuffer uniffi_livekit_uniffi_fn_func_build_version(RustCallStatus *_Nonnull out_status
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FUNC_GENERATE_TOKEN
 #define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FUNC_GENERATE_TOKEN
 RustBuffer uniffi_livekit_uniffi_fn_func_generate_token(RustBuffer options, RustBuffer credentials, RustCallStatus *_Nonnull out_status
@@ -522,6 +528,12 @@ void ffi_livekit_uniffi_rust_future_free_void(uint64_t handle
 #ifndef UNIFFI_FFIDEF_FFI_LIVEKIT_UNIFFI_RUST_FUTURE_COMPLETE_VOID
 #define UNIFFI_FFIDEF_FFI_LIVEKIT_UNIFFI_RUST_FUTURE_COMPLETE_VOID
 void ffi_livekit_uniffi_rust_future_complete_void(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_FUNC_BUILD_VERSION
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_FUNC_BUILD_VERSION
+uint16_t uniffi_livekit_uniffi_checksum_func_build_version(void
+    
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_FUNC_GENERATE_TOKEN
