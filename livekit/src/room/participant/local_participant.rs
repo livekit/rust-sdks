@@ -740,6 +740,7 @@ impl LocalParticipant {
         // This is set to 7 seconds to account for various relay timeouts and retries in LiveKit Cloud that occur in rare cases
 
         let max_round_trip_latency = Duration::from_millis(7000);
+        let min_effective_timeout = Duration::from_millis(1000);
 
         if data.payload.len() > MAX_PAYLOAD_BYTES {
             return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
@@ -760,7 +761,10 @@ impl LocalParticipant {
         let id = create_random_uuid();
         let (ack_tx, ack_rx) = oneshot::channel();
         let (response_tx, response_rx) = oneshot::channel();
-        let effective_timeout = data.response_timeout - max_round_trip_latency;
+        let effective_timeout = std::cmp::max(
+            data.response_timeout.saturating_sub(max_round_trip_latency),
+            min_effective_timeout,
+        );
 
         match self
             .publish_rpc_request(RpcRequest {
