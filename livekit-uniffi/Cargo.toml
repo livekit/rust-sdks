@@ -20,7 +20,7 @@ uniffi = { version = "0.30.0", features = ["build", "scaffolding-ffi-buffer-fns"
 
 # ref: https://github.com/rust-random/getrandom?tab=readme-ov-file#opt-in-backends
 [target.wasm32-unknown-unknown]
-rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
+rustflags = ['--cfg', 'getrandom_backend="unsupported"']
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
