@@ -89,7 +89,6 @@ livekit-token = { workspace = true, optional = true }
 livekit-runtime = { workspace = true, optional = true}
 tokio-tungstenite = { version = "0.20", optional = true }
 async-tungstenite = { version = "0.25.0", features = [ "async-std-runtime", "async-native-tls"], optional = true }
-tokio = { version = "1", default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
 tokio-rustls = { version = "0.24", optional = true }
 rustls-native-certs = { version = "0.6", optional = true }
 futures-util = { version = "0.3", default-features = false, features = [ "sink" ], optional = true }
@@ -101,3 +100,9 @@ isahc = { version = "1.7.2", default-features = false, features = [ "json", "tex
 
 scopeguard = "1.2.0"
 rand = "0.9.0"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1", default-features = false, features = ["sync", "macros", "io-util"], optional = true }
