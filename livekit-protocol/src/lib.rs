@@ -15,7 +15,9 @@
 #![allow(non_snake_case)]
 #![allow(clippy::large_enum_variant)]
 
+#[cfg(not(target_arch = "wasm32"))]
 pub mod debouncer;
+
 pub mod enum_dispatch;
 pub mod observer;
 pub mod promise;
