@@ -18,12 +18,7 @@ dispatcher = ["dep:futures", "dep:async-io", "dep:async-std", "dep:async-task"]
 
 [dependencies]
 # tokio
-tokio = { version = "1", default-features = false, optional = true, features = [
-    "rt",
-    "rt-multi-thread",
-    "net",
-    "time",
-] }
+# (note: tokio dependency conditionally added in lower block)
 tokio-stream = { version = "0.1.14", optional = true }
 
 # dispatcher and async-std
@@ -33,3 +28,15 @@ async-io = { version = "2.3.1", optional = true }
 
 # dispatcher
 async-task = {version = "4.7.0", optional = true }
+
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { version = "1", default-features = false, optional = true, features = [
+    "rt",
+    "rt-multi-thread",
+    "net",
+    "time",
+] }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { version = "1", default-features = false, optional = true, features = ["time"] }

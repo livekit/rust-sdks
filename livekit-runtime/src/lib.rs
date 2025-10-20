@@ -5,9 +5,9 @@
 ))]
 compile_error!("Cannot compile livekit with multiple runtimes");
 
-#[cfg(feature = "tokio")]
+#[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
 mod tokio;
-#[cfg(feature = "tokio")]
+#[cfg(all(feature = "tokio", not(target_arch = "wasm32")))]
 pub use tokio::*;
 
 #[cfg(feature = "async")]
