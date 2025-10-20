@@ -30,11 +30,7 @@ pub mod ffi {
     struct DesktopCapturerOptions {
         window_capturer: bool,
         include_cursor: bool,
-        allow_sck_capturer: bool,
         allow_sck_system_picker: bool,
-        allow_wgc_capturer: bool,
-        allow_directx_capturer: bool,
-        allow_pipewire_capturer: bool,
     }
 
     enum CaptureResult {

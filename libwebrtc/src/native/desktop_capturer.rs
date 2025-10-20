@@ -20,15 +20,7 @@ pub struct DesktopCapturerOptions {
     pub window_capturer: bool,
     pub include_cursor: bool,
     #[cfg(target_os = "macos")]
-    pub allow_sck_capturer: bool,
-    #[cfg(target_os = "macos")]
     pub allow_sck_system_picker: bool,
-    #[cfg(target_os = "windows")]
-    pub allow_wgc_capturer: bool,
-    #[cfg(target_os = "windows")]
-    pub allow_directx_capturer: bool,
-    #[cfg(target_os = "linux")]
-    pub allow_pipewire_capturer: bool,
 }
 
 impl Default for DesktopCapturerOptions {
@@ -37,15 +29,7 @@ impl Default for DesktopCapturerOptions {
             window_capturer: false,
             include_cursor: false,
             #[cfg(target_os = "macos")]
-            allow_sck_capturer: true,
-            #[cfg(target_os = "macos")]
             allow_sck_system_picker: true,
-            #[cfg(target_os = "windows")]
-            allow_wgc_capturer: true,
-            #[cfg(target_os = "windows")]
-            allow_directx_capturer: true,
-            #[cfg(target_os = "linux")]
-            allow_pipewire_capturer: false,
         }
     }
 }
@@ -66,32 +50,8 @@ impl DesktopCapturerOptions {
     }
 
     #[cfg(target_os = "macos")]
-    pub(crate) fn with_sck_capturer(mut self, allow_sck_capturer: bool) -> Self {
-        self.allow_sck_capturer = allow_sck_capturer;
-        self
-    }
-
-    #[cfg(target_os = "macos")]
     pub(crate) fn with_sck_system_picker(mut self, allow_sck_system_picker: bool) -> Self {
         self.allow_sck_system_picker = allow_sck_system_picker;
-        self
-    }
-
-    #[cfg(target_os = "windows")]
-    pub(crate) fn with_wgc_capturer(mut self, allow_wgc_capturer: bool) -> Self {
-        self.allow_wgc_capturer = allow_wgc_capturer;
-        self
-    }
-
-    #[cfg(target_os = "windows")]
-    pub(crate) fn with_directx_capturer(mut self, allow_directx_capturer: bool) -> Self {
-        self.allow_directx_capturer = allow_directx_capturer;
-        self
-    }
-
-    #[cfg(target_os = "linux")]
-    pub(crate) fn with_pipewire_capturer(mut self, allow_pipewire_capturer: bool) -> Self {
-        self.allow_pipewire_capturer = allow_pipewire_capturer;
         self
     }
 
@@ -99,25 +59,11 @@ impl DesktopCapturerOptions {
         let mut sys_handle = sys_dc::ffi::DesktopCapturerOptions {
             window_capturer: self.window_capturer,
             include_cursor: self.include_cursor,
-            allow_sck_capturer: false,
             allow_sck_system_picker: false,
-            allow_wgc_capturer: false,
-            allow_directx_capturer: false,
-            allow_pipewire_capturer: false,
         };
         #[cfg(target_os = "macos")]
         {
-            sys_handle.allow_sck_capturer = self.allow_sck_capturer;
             sys_handle.allow_sck_system_picker = self.allow_sck_system_picker;
-        }
-        #[cfg(target_os = "windows")]
-        {
-            sys_handle.allow_wgc_capturer = self.allow_wgc_capturer;
-            sys_handle.allow_directx_capturer = self.allow_directx_capturer;
-        }
-        #[cfg(target_os = "linux")]
-        {
-            sys_handle.allow_pipewire_capturer = self.allow_pipewire_capturer;
         }
         sys_handle
     }

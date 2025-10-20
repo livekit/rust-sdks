@@ -22,37 +22,44 @@ use crate::imp::desktop_capturer as imp_dc;
 ///
 /// # Example
 /// ```no_run
-/// use libwebrtc::desktop_capturer::DesktopCapturerOptions;
+/// use libwebrtc::desktop_capturer::{DesktopCapturerOptions, DesktopCaptureSourceType};
 ///
-/// let mut options = DesktopCapturerOptions::new();
+/// let mut options = DesktopCapturerOptions::new(DesktopCaptureSourceType::SCREEN);
 /// options.set_include_cursor(true);
 /// ```
 pub struct DesktopCapturerOptions {
     pub(crate) sys_handle: imp_dc::DesktopCapturerOptions,
 }
 
+/// Specifies the type of source that a desktop capturer should capture.
+#[derive(Debug, PartialEq)]
+pub enum DesktopCaptureSourceType {
+    SCREEN,
+    WINDOW,
+}
+
 impl DesktopCapturerOptions {
     /// Creates a new `DesktopCapturerOptions` with default values.
-    pub fn new() -> Self {
-        Self { sys_handle: imp_dc::DesktopCapturerOptions::new() }
+    ///
+    /// # Arguments
+    ///
+    /// * `source_type` - The type of source to capture (screen or window).
+    ///
+    /// # Defaults
+    ///
+    /// - Cursor is not included in captured frames (use [`set_include_cursor`](Self::set_include_cursor) to change)
+    /// - On macOS, the ScreenCaptureKit system picker is enabled (use [`set_sck_system_picker`](Self::set_sck_system_picker) to change)
+    pub fn new(source_type: DesktopCaptureSourceType) -> Self {
+        let mut sys_handle = imp_dc::DesktopCapturerOptions::new();
+        if source_type == DesktopCaptureSourceType::WINDOW {
+            sys_handle = sys_handle.with_window_capturer(true);
+        }
+        Self { sys_handle }
     }
 
     /// Sets whether to include the cursor in captured frames.
     pub fn set_include_cursor(&mut self, include: bool) {
         self.sys_handle = self.sys_handle.with_cursor(include);
-    }
-
-    /// Sets whether to capture windows instead of the entire screen.
-    pub fn set_window_capturer(&mut self, window_capturer: bool) {
-        self.sys_handle = self.sys_handle.with_window_capturer(window_capturer);
-    }
-
-    /// Sets whether to allow the ScreenCaptureKit (SCK) capturer on macOS.
-    ///
-    /// This is enabled by default.
-    #[cfg(target_os = "macos")]
-    pub fn set_sck_capturer(&mut self, allow_sck_capturer: bool) {
-        self.sys_handle = self.sys_handle.with_sck_capturer(allow_sck_capturer);
     }
 
     /// Sets whether to allow the ScreenCaptureKit system picker on macOS.
@@ -64,30 +71,6 @@ impl DesktopCapturerOptions {
     #[cfg(target_os = "macos")]
     pub fn set_sck_system_picker(&mut self, allow_sck_system_picker: bool) {
         self.sys_handle = self.sys_handle.with_sck_system_picker(allow_sck_system_picker);
-    }
-
-    /// Sets whether to allow the Windows Graphics Capture (WGC) capturer on Windows.
-    ///
-    /// This is enabled by default.
-    #[cfg(target_os = "windows")]
-    pub fn set_wgc_capturer(&mut self, allow_wgc_capturer: bool) {
-        self.sys_handle = self.sys_handle.with_wgc_capturer(allow_wgc_capturer);
-    }
-
-    /// Sets whether to allow the DirectX capturer on Windows.
-    ///
-    /// This is enabled by default.
-    #[cfg(target_os = "windows")]
-    pub fn set_directx_capturer(&mut self, allow_directx_capturer: bool) {
-        self.sys_handle = self.sys_handle.with_directx_capturer(allow_directx_capturer);
-    }
-
-    /// Sets whether to allow the PipeWire capturer on Linux.
-    ///
-    /// It should be enabled when using Wayland.
-    #[cfg(target_os = "linux")]
-    pub fn set_pipewire_capturer(&mut self, allow_pipewire_capturer: bool) {
-        self.sys_handle = self.sys_handle.with_pipewire_capturer(allow_pipewire_capturer);
     }
 }
 

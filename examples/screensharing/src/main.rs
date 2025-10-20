@@ -3,7 +3,7 @@ use livekit::options::{TrackPublishOptions, VideoCodec};
 use livekit::prelude::*;
 use livekit::track::{LocalTrack, LocalVideoTrack, TrackSource};
 use livekit::webrtc::desktop_capturer::{
-    CaptureResult, DesktopCapturer, DesktopCapturerOptions, DesktopFrame,
+    CaptureResult, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions, DesktopFrame,
 };
 use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::prelude::{
@@ -28,7 +28,7 @@ struct Args {
 
     /// Use system screen picker (macOS only)
     #[cfg(target_os = "macos")]
-    #[arg(long)]
+    #[arg(long, default_value_t = true)]
     use_system_picker: bool,
 }
 
@@ -96,11 +96,11 @@ async fn main() {
     let callback = move |result: CaptureResult, frame: DesktopFrame| {
         match result {
             CaptureResult::ErrorTemporary => {
-                log::info!("Error temporary");
+                log::debug!("Error temporary");
                 return;
             }
             CaptureResult::ErrorPermanent => {
-                log::info!("Error permanent");
+                log::debug!("Error permanent");
                 return;
             }
             _ => {}
@@ -138,19 +138,17 @@ async fn main() {
 
         buffer_source_clone.capture_frame(&*framebuffer);
     };
-    let mut options = DesktopCapturerOptions::new();
+    let source_type = if args.capture_window {
+        DesktopCaptureSourceType::WINDOW
+    } else {
+        DesktopCaptureSourceType::SCREEN
+    };
+    let mut options = DesktopCapturerOptions::new(source_type);
     #[cfg(target_os = "macos")]
     {
         options.set_sck_system_picker(args.use_system_picker);
     }
-    options.set_window_capturer(args.capture_window);
     options.set_include_cursor(args.capture_cursor);
-    #[cfg(target_os = "linux")]
-    {
-        if std::env::var("WAYLAND_DISPLAY").is_ok() {
-            options.set_pipewire_capturer(true);
-        }
-    }
 
     let mut capturer =
         DesktopCapturer::new(callback, options).expect("Failed to create desktop capturer");
