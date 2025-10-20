@@ -25,10 +25,10 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
     DesktopCapturerOptions options) {
   webrtc::DesktopCaptureOptions webrtc_options =
       webrtc::DesktopCaptureOptions::CreateDefault();
-#ifdef __APPLE__
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
   webrtc_options.set_allow_sck_capturer(true);
   webrtc_options.set_allow_sck_system_picker(options.allow_sck_system_picker);
-#endif
+#endif /* defined(WEBRTC_MAC) && !defined(WEBRTC_IOS) */
 #ifdef _WIN64
   if (options.window_capturer) {
     webrtc_options.set_allow_wgc_screen_capturer(true);
@@ -38,10 +38,10 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
     webrtc_options.set_enumerate_current_process_windows(false);
   }
   webrtc_options.set_allow_directx_capturer(true);
-#endif
+#endif /* _WIN64 */
 #ifdef WEBRTC_USE_PIPEWIRE
   webrtc_options.set_allow_pipewire(true);
-#endif
+#endif /* WEBRTC_USE_PIPEWIRE */
 
   webrtc_options.set_prefer_cursor_embedded(options.include_cursor);
 
