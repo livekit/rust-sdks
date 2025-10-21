@@ -8,7 +8,7 @@ from livekit_uniffi import *
 
 def main():
     # Receive log messages from Rust
-    log_forward_bootstrap(level=LogForwardFilter.INFO)
+    log_forward_bootstrap(level=LogForwardFilter.DEBUG)
 
     # Print FFI version
     print(f"FFI version: v{build_version()}")
