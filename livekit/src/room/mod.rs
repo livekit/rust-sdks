@@ -1429,11 +1429,6 @@ impl RoomSession {
                 .unwrap_or(None);
         }
 
-        if participant.is_none() && (participant_identity.is_some() || participant_sid.is_some()) {
-            // We received a data packet from a participant that is not in the participants list
-            return;
-        }
-
         // Update participant's data encryption status for regular data messages
         if let Some(ref p) = participant {
             use crate::e2ee::EncryptionType;
