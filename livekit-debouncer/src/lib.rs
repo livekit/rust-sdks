@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,14 +12,4 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![allow(non_snake_case)]
-#![allow(clippy::large_enum_variant)]
-
-pub mod enum_dispatch;
-pub mod observer;
-pub mod promise;
-
-include!("livekit.rs");
-
-#[cfg(feature = "serde")]
-include!("livekit.serde.rs");
+pub mod debouncer;

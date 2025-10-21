@@ -29,8 +29,8 @@ use livekit_protocol::{self as proto};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
 use prost::Message;
+use livekit_debouncer::debouncer::{self, Debouncer};
 use proto::{
-    debouncer::{self, Debouncer},
     SignalTarget,
 };
 use serde::{Deserialize, Serialize};

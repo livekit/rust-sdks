@@ -1,23 +1,17 @@
 [package]
-name = "livekit-protocol"
-version = "0.5.0"
+name = "livekit-debouncer"
+version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "Livekit protocol and utilities for the Rust SDK"
+description = "Livekit debouncer utility"
 repository = "https://github.com/livekit/rust-sdks"
 
 [dependencies]
+livekit-runtime = { workspace = true }
 tokio = { version = "1", default-features = false, features = [
     "sync",
     "macros",
     "rt",
 ] }
 futures-util = { version = "0.3", features = ["sink"] }
-parking_lot = "0.12"
-prost = "0.12"
-prost-types = "0.12"
-
-serde = "1.0"
-pbjson = "0.6"
-pbjson-types = "0.6"
 thiserror = "1.0"
