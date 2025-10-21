@@ -3436,15 +3436,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "livekit-uniffi-typescript-demo"
-version = "0.1.0"
-dependencies = [
- "livekit-uniffi",
- "uniffi-runtime-javascript",
- "wasm-bindgen",
-]
-
-[[package]]
 name = "local_audio"
 version = "0.1.0"
 dependencies = [
@@ -6500,19 +6491,9 @@ dependencies = [
  "clap",
  "uniffi_bindgen",
  "uniffi_build",
- "uniffi_core 0.30.0",
+ "uniffi_core",
  "uniffi_macros",
  "uniffi_pipeline",
-]
-
-[[package]]
-name = "uniffi-runtime-javascript"
-version = "0.29.3-1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a6be59d9b1cc31b6e144beccf854321e27fcadf86fdd09d5db8085a4c6b78884"
-dependencies = [
- "uniffi_core 0.29.4",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -6550,18 +6531,6 @@ dependencies = [
  "anyhow",
  "camino",
  "uniffi_bindgen",
-]
-
-[[package]]
-name = "uniffi_core"
-version = "0.29.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2d990b553d6b9a7ee9c3ae71134674739913d52350b56152b0e613595bb5a6f"
-dependencies = [
- "anyhow",
- "bytes",
- "once_cell",
- "static_assertions",
 ]
 
 [[package]]
