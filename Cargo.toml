@@ -6,6 +6,7 @@ members = [
     "livekit-protocol",
     "livekit-ffi",
     "livekit-runtime",
+    "livekit-token",
     "libwebrtc",
     "soxr-sys",
     "yuv-sys",
@@ -36,6 +37,7 @@ livekit-api = { path = "livekit-api" }
 livekit-ffi = { path = "livekit-ffi" }
 livekit-protocol = { path = "livekit-protocol" }
 livekit-runtime = { path = "livekit-runtime" }
+livekit-token = { path = "livekit-token" }
 livekit = { path = "livekit" }
 soxr-sys = { path = "soxr-sys" }
 webrtc-sys-build = { path = "webrtc-sys/build" }
