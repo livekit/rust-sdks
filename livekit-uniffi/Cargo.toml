@@ -23,7 +23,7 @@ uniffi = { version = "0.30.0", features = ["build", "scaffolding-ffi-buffer-fns"
 rustflags = ['--cfg', 'getrandom_backend="unsupported"']
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+crate-type = ["cdylib", "staticlib", "lib"]
 
 [[bin]]
 name = "uniffi-bindgen"
