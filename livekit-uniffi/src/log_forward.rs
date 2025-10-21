@@ -74,7 +74,6 @@ pub struct LogForwardEntry {
 }
 // TODO: can we expose static strings?
 
-#[derive(Debug)]
 struct Logger {
     tx: mpsc::UnboundedSender<LogForwardEntry>,
     rx: Mutex<mpsc::UnboundedReceiver<LogForwardEntry>>,
