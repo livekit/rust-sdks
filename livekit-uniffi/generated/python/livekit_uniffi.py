@@ -483,9 +483,9 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_livekit_uniffi_checksum_func_generate_token() != 29823:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    if lib.uniffi_livekit_uniffi_checksum_func_log_forward_bootstrap() != 14091:
+    if lib.uniffi_livekit_uniffi_checksum_func_log_forward_bootstrap() != 28675:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    if lib.uniffi_livekit_uniffi_checksum_func_log_forward_receive() != 30685:
+    if lib.uniffi_livekit_uniffi_checksum_func_log_forward_receive() != 7863:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_livekit_uniffi_checksum_func_verify_token() != 47517:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
@@ -1931,8 +1931,8 @@ def log_forward_bootstrap(level: LogForwardFilter) -> None:
     """
     Bootstraps log forwarding.
 
-    Call this once early in the processes's execution. Calling more
-    than once will cause a panic.
+    Generally, you will invoke this once early in program execution. However,
+    subsequent invocations are allowed to change the log level.
 
 """
     
@@ -1955,8 +1955,6 @@ async def log_forward_receive() -> typing.Optional[LogForwardEntry]:
     Invoke repeatedly to receive log entries as they are produced
     until `None` is returned, indicating forwarding has ended. Clients will
     likely want to bridge this to the languages's equivalent of an asynchronous stream.
-
-    If log forwarding hasn't been bootstrapped, this will panic.
 
 """
     _uniffi_lowered_args = (

@@ -21,13 +21,13 @@ static LOGGER: OnceCell<Logger> = OnceCell::new();
 
 /// Bootstraps log forwarding.
 ///
-/// Call this once early in the processes's execution. Calling more
-/// than once will cause a panic.
+/// Generally, you will invoke this once early in program execution. However,
+/// subsequent invocations are allowed to change the log level.
 ///
 #[uniffi::export]
 fn log_forward_bootstrap(level: LevelFilter) {
     let logger = LOGGER.get_or_init(|| Logger::new());
-    log::set_logger(logger).expect("Log forwarding already bootstrapped");
+    _ = log::set_logger(logger); // Returns an error if already set (ignore)
     log::set_max_level(level);
 }
 
@@ -36,8 +36,6 @@ fn log_forward_bootstrap(level: LevelFilter) {
 /// Invoke repeatedly to receive log entries as they are produced
 /// until `None` is returned, indicating forwarding has ended. Clients will
 /// likely want to bridge this to the languages's equivalent of an asynchronous stream.
-///
-/// If log forwarding hasn't been bootstrapped, this will panic.
 ///
 #[uniffi::export]
 async fn log_forward_receive() -> Option<LogForwardEntry> {
@@ -76,6 +74,7 @@ pub struct LogForwardEntry {
 }
 // TODO: can we expose static strings?
 
+#[derive(Debug)]
 struct Logger {
     tx: mpsc::UnboundedSender<LogForwardEntry>,
     rx: Mutex<mpsc::UnboundedReceiver<LogForwardEntry>>,
