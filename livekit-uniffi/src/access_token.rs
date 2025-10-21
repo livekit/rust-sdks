@@ -129,7 +129,13 @@ pub fn generate_token(
     log::debug!("Generating access token");
     let mut token = match credentials {
         Some(credentials) => AccessToken::with_api_key(&credentials.key, &credentials.secret),
-        None => AccessToken::new()?,
+        None => {
+            #[cfg(target_arch = "wasm32")]
+            unimplemented!("Cannot generate access token with credentials set to None in wasm32!");
+
+            #[cfg(not(target_arch = "wasm32"))]
+            AccessToken::new()?
+        },
     };
     if let Some(ttl) = options.ttl {
         token = token.with_ttl(ttl);
@@ -176,7 +182,13 @@ pub fn verify_token(
     log::debug!("Verifying access token");
     let verifier = match credentials {
         Some(credentials) => TokenVerifier::with_api_key(&credentials.key, &credentials.secret),
-        None => TokenVerifier::new()?,
+        None => {
+            #[cfg(target_arch = "wasm32")]
+            unimplemented!("Cannot generate token verifier with credentials set to None in wasm32!");
+
+            #[cfg(not(target_arch = "wasm32"))]
+            TokenVerifier::new()?
+        },
     };
     let claims = verifier.verify(token)?;
     let room_name = claims.room_config.map_or(String::default(), |config| config.name);
