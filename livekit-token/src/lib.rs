@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,7 +24,12 @@ use jsonwebtoken::{self, DecodingKey, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::get_env_keys;
+#[cfg(not(target_arch = "wasm32"))]
+fn get_env_keys() -> Result<(String, String), std::env::VarError> {
+    let api_key = std::env::var("LIVEKIT_API_KEY")?;
+    let api_secret = std::env::var("LIVEKIT_API_SECRET")?;
+    Ok((api_key, api_secret))
+}
 
 pub const DEFAULT_TTL: Duration = Duration::from_secs(3600 * 6); // 6 hours
 
@@ -195,6 +200,7 @@ impl AccessToken {
         Self { api_key: api_key.to_owned(), api_secret: api_secret.to_owned(), claims }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Result<Self, AccessTokenError> {
         // Try to get the API Key and the Secret Key from the environment
         let (api_key, api_secret) = get_env_keys()?;
@@ -291,6 +297,7 @@ impl TokenVerifier {
         Self { api_key: api_key.to_owned(), api_secret: api_secret.to_owned() }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn new() -> Result<Self, AccessTokenError> {
         let (api_key, api_secret) = get_env_keys()?;
         Ok(Self::with_api_key(&api_key, &api_secret))
