@@ -3406,6 +3406,7 @@ dependencies = [
 name = "livekit-token"
 version = "0.1.0"
 dependencies = [
+ "getrandom 0.2.16",
  "jsonwebtoken",
  "livekit-protocol",
  "serde",
