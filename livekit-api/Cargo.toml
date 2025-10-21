@@ -41,7 +41,7 @@ __signal-client-async-compatible = [
 
 services-tokio = ["dep:reqwest"]
 services-async = ["dep:isahc"]
-access-token = ["dep:jsonwebtoken"]
+access-token = ["dep:livekit-token"]
 webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 
 # Note that the following features only change the behavior of tokio-tungstenite.
@@ -83,8 +83,7 @@ pbjson-types = "0.6"
 serde_json = { version = "1.0", optional = true }
 base64 = { version = "0.21", optional = true, features = ["std"] }
 
-# access_token & services
-jsonwebtoken = { version = "9", default-features = false, optional = true }
+livekit-token = { workspace = true, optional = true }
 
 # signal_client
 livekit-runtime = { workspace = true, optional = true}

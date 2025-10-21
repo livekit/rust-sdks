@@ -13,7 +13,9 @@
 // limitations under the License.
 
 #[cfg(feature = "access-token")]
-pub mod access_token;
+pub mod access_token {
+    pub use livekit_token::*;
+}
 
 #[cfg(any(feature = "services-tokio", feature = "services-async"))]
 pub mod services;
