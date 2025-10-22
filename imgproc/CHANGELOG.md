@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.15](https://github.com/livekit/rust-sdks/compare/rust-sdks/imgproc@0.3.14...rust-sdks/imgproc@0.3.15) - 2025-10-22
+
+### Other
+
+- License check ([#746](https://github.com/livekit/rust-sdks/pull/746))
+
 ## [0.3.14](https://github.com/livekit/rust-sdks/compare/rust-sdks/imgproc@0.3.13...rust-sdks/imgproc@0.3.14) - 2025-09-29
 
 ### Other

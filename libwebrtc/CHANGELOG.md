@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.18](https://github.com/livekit/rust-sdks/compare/rust-sdks/libwebrtc@0.3.17...rust-sdks/libwebrtc@0.3.18) - 2025-10-22
+
+### Other
+
+- License check ([#746](https://github.com/livekit/rust-sdks/pull/746))
+
 ## [0.3.17](https://github.com/livekit/rust-sdks/compare/rust-sdks/libwebrtc@0.3.16...rust-sdks/libwebrtc@0.3.17) - 2025-10-13
 
 ### Added

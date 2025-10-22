@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.37](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.36...rust-sdks/livekit-ffi@0.12.37) - 2025-10-22
+
+### Other
+
+- License check ([#746](https://github.com/livekit/rust-sdks/pull/746))
+- Derive from_variants for FFI oneof fields ([#738](https://github.com/livekit/rust-sdks/pull/738))
+- Remove participant check for data packets ([#757](https://github.com/livekit/rust-sdks/pull/757))
+- clamp connection timeout and fixed the comment ([#748](https://github.com/livekit/rust-sdks/pull/748))
+- put examples in root Cargo workspace ([#731](https://github.com/livekit/rust-sdks/pull/731))
+
 ## [0.12.36](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.35...rust-sdks/livekit-ffi@0.12.36) - 2025-10-13
 
 ### Added

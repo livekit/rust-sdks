@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.5.1](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.5.0...rust-sdks/livekit-protocol@0.5.1) - 2025-10-22
+
+### Other
+
+- License check ([#746](https://github.com/livekit/rust-sdks/pull/746))
+
 ## [0.5.0](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.4.0...rust-sdks/livekit-protocol@0.5.0) - 2025-09-29
 
 ### Other

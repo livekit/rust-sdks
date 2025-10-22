@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.10](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys-build@0.3.9...rust-sdks/webrtc-sys-build@0.3.10) - 2025-10-22
+
+### Other
+
+- License check ([#746](https://github.com/livekit/rust-sdks/pull/746))
+
 ## [0.3.9](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys-build@0.3.8...rust-sdks/webrtc-sys-build@0.3.9) - 2025-10-13
 
 ### Other
