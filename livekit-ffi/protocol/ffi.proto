@@ -150,7 +150,9 @@ message FfiRequest {
 
     StreamSendBytesRequest send_bytes = 67;
 
-    // NEXT_ID: 68
+    SetRemoteTrackPublicationQualityRequest set_remote_track_publication_quality = 68;
+
+    // NEXT_ID: 69
   }
 }
 
@@ -247,7 +249,9 @@ message FfiResponse {
 
     StreamSendBytesResponse send_bytes = 66;
 
-    // NEXT_ID: 67
+    SetRemoteTrackPublicationQualityResponse set_remote_track_publication_quality = 67;
+
+    // NEXT_ID: 68
   }
 }
 

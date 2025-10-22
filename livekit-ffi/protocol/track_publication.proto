@@ -32,7 +32,19 @@ message UpdateRemoteTrackPublicationDimensionRequest {
   required uint32 height = 3;
 }
 
+// Video quality for simulcasted tracks.
+enum VideoQuality {
+  VIDEO_QUALITY_LOW = 0;
+  VIDEO_QUALITY_MEDIUM = 1;
+  VIDEO_QUALITY_HIGH = 2;
+}
+
 message UpdateRemoteTrackPublicationDimensionResponse {}
 
+// For tracks that support simulcasting, adjust subscribed quality.
+message SetRemoteTrackPublicationQualityRequest {
+  required uint64 track_publication_handle = 1;
+  required VideoQuality quality = 2;
+}
 
-
+message SetRemoteTrackPublicationQualityResponse {}
