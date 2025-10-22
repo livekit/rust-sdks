@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.10](https://github.com/livekit/rust-sdks/compare/rust-sdks/yuv-sys@0.3.9...rust-sdks/yuv-sys@0.3.10) - 2025-10-22
+
+### Other
+
+- License check ([#746](https://github.com/livekit/rust-sdks/pull/746))
+- Cargo workspace cleanup ([#745](https://github.com/livekit/rust-sdks/pull/745))
+
 ## [0.3.9](https://github.com/livekit/rust-sdks/compare/rust-sdks/yuv-sys@0.3.8...rust-sdks/yuv-sys@0.3.9) - 2025-09-29
 
 ### Other

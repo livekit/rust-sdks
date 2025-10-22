@@ -29,14 +29,14 @@ members = [
 ]
 
 [workspace.dependencies]
-imgproc = { version = "0.3.14", path = "imgproc" }
-libwebrtc = { version = "0.3.17", path = "libwebrtc" }
-livekit = { version = "0.7.21", path = "livekit" }
-livekit-api = { version = "0.4.8", path = "livekit-api" }
-livekit-ffi = { version = "0.12.36", path = "livekit-ffi" }
-livekit-protocol = { version = "0.5.0", path = "livekit-protocol" }
+imgproc = { version = "0.3.15", path = "imgproc" }
+libwebrtc = { version = "0.3.18", path = "libwebrtc" }
+livekit = { version = "0.7.22", path = "livekit" }
+livekit-api = { version = "0.4.9", path = "livekit-api" }
+livekit-ffi = { version = "0.12.37", path = "livekit-ffi" }
+livekit-protocol = { version = "0.5.1", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
-soxr-sys = { version = "0.1.0", path = "soxr-sys" }
-webrtc-sys = { version = "0.3.14", path = "webrtc-sys" }
-webrtc-sys-build = { version = "0.3.9", path = "webrtc-sys/build" }
-yuv-sys = { version = "0.3.9", path = "yuv-sys" }
+soxr-sys = { version = "0.1.1", path = "soxr-sys" }
+webrtc-sys = { version = "0.3.15", path = "webrtc-sys" }
+webrtc-sys-build = { version = "0.3.10", path = "webrtc-sys/build" }
+yuv-sys = { version = "0.3.10", path = "yuv-sys" }
