@@ -4,7 +4,7 @@ use crate::{
     video_renderer::VideoRenderer,
 };
 use egui::{CornerRadius, Stroke};
-use livekit::{e2ee::EncryptionType, prelude::*, SimulateScenario};
+use livekit::{e2ee::EncryptionType, prelude::*, track::VideoQuality, SimulateScenario};
 use std::collections::HashMap;
 
 /// The state of the application are saved on app exit and restored on app start.
@@ -265,6 +265,33 @@ impl LkApp {
                     });
 
                     ui.label(format!("{} - {:?}", publication.name(), publication.source()));
+
+                    ui.horizontal(|ui| {
+                        ui.label("Simulcasted - ");
+                        let is_simulcasted = publication.simulcasted();
+                        ui.label(if is_simulcasted { "Yes" } else { "No" });
+                        if is_simulcasted {
+                            ui.menu_button("Set Quality", |ui| {
+                                let publication = publication.clone();
+                                if ui.button("Low").clicked() {
+                                    let _ = self.service.send(AsyncCmd::SetVideoQuality {
+                                        publication,
+                                        quality: VideoQuality::Low,
+                                    });
+                                } else if ui.button("Medium").clicked() {
+                                    let _ = self.service.send(AsyncCmd::SetVideoQuality {
+                                        publication,
+                                        quality: VideoQuality::Medium,
+                                    });
+                                } else if ui.button("High").clicked() {
+                                    let _ = self.service.send(AsyncCmd::SetVideoQuality {
+                                        publication,
+                                        quality: VideoQuality::High,
+                                    });
+                                }
+                            });
+                        }
+                    });
 
                     ui.horizontal(|ui| {
                         if publication.is_muted() {
