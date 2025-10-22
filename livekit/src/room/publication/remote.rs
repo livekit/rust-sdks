@@ -18,7 +18,7 @@ use livekit_protocol::{self as proto, AudioTrackFeature};
 use parking_lot::{Mutex, RwLock};
 
 use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
-use crate::{e2ee::EncryptionType, track::VideoQuality, prelude::*};
+use crate::{e2ee::EncryptionType, prelude::*, track::VideoQuality};
 
 type SubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
 type UnsubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
