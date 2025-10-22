@@ -7,4 +7,3 @@ publish = false
 [dependencies]
 tokio = { version = "1", features = ["full", "parking_lot"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
-futures = "0.3"
