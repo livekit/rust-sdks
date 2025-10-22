@@ -70,7 +70,7 @@ pub enum TrackSource {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TrackDimension(pub u32, pub u32);
 
-/// Video quality for simulcast tracks.
+/// Video quality for simulcasted tracks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum VideoQuality {
     Low,
