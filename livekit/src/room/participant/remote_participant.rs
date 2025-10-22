@@ -25,7 +25,11 @@ use livekit_runtime::timeout;
 use parking_lot::Mutex;
 
 use super::{ConnectionQuality, ParticipantInner, ParticipantKind, TrackKind};
-use crate::{prelude::*, rtc_engine::RtcEngine, track::TrackError};
+use crate::{
+    prelude::*,
+    rtc_engine::RtcEngine,
+    track::{TrackError, VideoQuality},
+};
 
 const ADD_TRACK_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -406,6 +410,33 @@ impl RemoteParticipant {
                         disabled: !enabled,
                         width,
                         height,
+                        ..Default::default()
+                    };
+
+                    rtc_engine
+                        .send_request(proto::signal_request::Message::TrackSetting(
+                            update_track_settings,
+                        ))
+                        .await
+                });
+            }
+        });
+
+        publication.on_video_quality_changed({
+            let rtc_engine = self.inner.rtc_engine.clone();
+            move |publication, quality| {
+                let rtc_engine = rtc_engine.clone();
+                livekit_runtime::spawn(async move {
+                    let tsid: String = publication.sid().into();
+                    let quality = match quality {
+                        VideoQuality::Low => proto::VideoQuality::Low,
+                        VideoQuality::Medium => proto::VideoQuality::Medium,
+                        VideoQuality::High => proto::VideoQuality::High,
+                    }
+                    .into();
+                    let update_track_settings = proto::UpdateTrackSettings {
+                        track_sids: vec![tsid.clone()],
+                        quality,
                         ..Default::default()
                     };
 
