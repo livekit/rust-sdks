@@ -2969,7 +2969,7 @@ checksum = "f5e54036fe321fd421e10d732f155734c4e4afd610dd556d9a82833ab3ee0bed"
 
 [[package]]
 name = "livekit"
-version = "0.7.22"
+version = "0.7.23"
 dependencies = [
  "anyhow",
  "bmrng",
@@ -3025,7 +3025,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.37"
+version = "0.12.38"
 dependencies = [
  "bytes",
  "console-subscriber",
