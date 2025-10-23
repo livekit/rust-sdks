@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.39](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.38...rust-sdks/livekit-ffi@0.12.39) - 2025-10-23
+
+### Other
+
+- Expose set video quality ([#759](https://github.com/livekit/rust-sdks/pull/759))
+
 ## [0.12.38](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.37...rust-sdks/livekit-ffi@0.12.38) - 2025-10-23
 
 ### Other
