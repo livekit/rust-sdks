@@ -181,6 +181,25 @@ fn on_update_remote_track_publication_dimension(
     Ok(proto::UpdateRemoteTrackPublicationDimensionResponse {})
 }
 
+fn on_set_remote_track_publication_quality(
+    server: &'static FfiServer,
+    request: proto::SetRemoteTrackPublicationQualityRequest,
+) -> FfiResult<proto::SetRemoteTrackPublicationQualityResponse> {
+    let ffi_publication =
+        server.retrieve_handle::<FfiPublication>(request.track_publication_handle)?;
+
+    let TrackPublication::Remote(publication) = &ffi_publication.publication else {
+        return Err(FfiError::InvalidRequest("publication is not a RemotePublication".into()));
+    };
+    let quality = match request.quality() {
+        proto::VideoQuality::Low => livekit::track::VideoQuality::Low,
+        proto::VideoQuality::Medium => livekit::track::VideoQuality::Medium,
+        proto::VideoQuality::High => livekit::track::VideoQuality::High,
+    };
+    publication.set_video_quality(quality);
+    Ok(proto::SetRemoteTrackPublicationQualityResponse {})
+}
+
 fn on_set_local_metadata(
     server: &'static FfiServer,
     set_local_metadata: proto::SetLocalMetadataRequest,
@@ -1238,6 +1257,9 @@ pub fn handle_request(
         }
         Request::UpdateRemoteTrackPublicationDimension(req) => {
             on_update_remote_track_publication_dimension(server, req)?.into()
+        }
+        Request::SetRemoteTrackPublicationQuality(req) => {
+            on_set_remote_track_publication_quality(server, req)?.into()
         }
         Request::SendStreamHeader(req) => on_send_stream_header(server, req)?.into(),
         Request::SendStreamChunk(req) => on_send_stream_chunk(server, req)?.into(),

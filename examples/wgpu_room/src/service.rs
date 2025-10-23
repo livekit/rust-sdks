@@ -5,6 +5,7 @@ use crate::{
 use livekit::{
     e2ee::{key_provider::*, E2eeOptions, EncryptionType},
     prelude::*,
+    track::VideoQuality,
     SimulateScenario,
 };
 use parking_lot::Mutex;
@@ -20,6 +21,7 @@ pub enum AsyncCmd {
     ToggleSine,
     SubscribeTrack { publication: RemoteTrackPublication },
     UnsubscribeTrack { publication: RemoteTrackPublication },
+    SetVideoQuality { publication: RemoteTrackPublication, quality: VideoQuality },
     E2eeKeyRatchet,
     LogStats,
 }
@@ -158,6 +160,9 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
             }
             AsyncCmd::UnsubscribeTrack { publication } => {
                 publication.set_subscribed(false);
+            }
+            AsyncCmd::SetVideoQuality { publication, quality } => {
+                publication.set_video_quality(quality);
             }
             AsyncCmd::E2eeKeyRatchet => {
                 if let Some(state) = running_state.as_ref() {
