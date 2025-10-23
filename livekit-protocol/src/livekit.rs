@@ -12,7 +12,7 @@ pub struct MetricsBatch {
     /// This is useful for storing participant identities, track names, etc.
     /// There is also a predefined list of labels that can be used to reference common metrics.
     /// They have reserved indices from 0 to (METRIC_LABEL_PREDEFINED_MAX_VALUE - 1).
-    /// Indexes pointing at str_data should start from METRIC_LABEL_PREDEFINED_MAX_VALUE, 
+    /// Indexes pointing at str_data should start from METRIC_LABEL_PREDEFINED_MAX_VALUE,
     /// such that str_data\[0\] == index of METRIC_LABEL_PREDEFINED_MAX_VALUE.
     #[prost(string, repeated, tag="3")]
     pub str_data: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -77,6 +77,14 @@ pub struct EventMetric {
     /// index into 'str_data'
     #[prost(uint32, tag="9")]
     pub rid: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MetricsRecordingHeader {
+    #[prost(string, tag="1")]
+    pub room_id: ::prost::alloc::string::String,
+    #[prost(bool, optional, tag="2")]
+    pub enable_user_data_training: ::core::option::Option<bool>,
 }
 //
 // Protocol used to record metrics for a specific session.
@@ -217,7 +225,7 @@ pub struct ListUpdate {
     pub add: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// delete items from a list
     #[prost(string, repeated, tag="3")]
-    pub del: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub remove: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// sets the list to an empty list
     #[prost(bool, tag="4")]
     pub clear: bool,
@@ -398,6 +406,10 @@ pub mod participant_info {
         Sip = 3,
         /// LiveKit agents
         Agent = 4,
+        /// Connectors participants
+        ///
+        /// NEXT_ID: 8
+        Connector = 7,
     }
     impl Kind {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -411,6 +423,7 @@ pub mod participant_info {
                 Kind::Egress => "EGRESS",
                 Kind::Sip => "SIP",
                 Kind::Agent => "AGENT",
+                Kind::Connector => "CONNECTOR",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -421,6 +434,7 @@ pub mod participant_info {
                 "EGRESS" => Some(Self::Egress),
                 "SIP" => Some(Self::Sip),
                 "AGENT" => Some(Self::Agent),
+                "CONNECTOR" => Some(Self::Connector),
                 _ => None,
             }
         }
@@ -521,11 +535,9 @@ pub struct TrackInfo {
     pub muted: bool,
     /// original width of video (unset for audio)
     /// clients may receive a lower resolution version with simulcast
-    #[deprecated]
     #[prost(uint32, tag="5")]
     pub width: u32,
     /// original height of video (unset for audio)
-    #[deprecated]
     #[prost(uint32, tag="6")]
     pub height: u32,
     /// true if track is simulcasted
@@ -601,6 +613,7 @@ pub mod video_layer {
         Unused = 0,
         OneSpatialLayerPerStream = 1,
         MultipleSpatialLayersPerStream = 2,
+        OneSpatialLayerPerStreamIncompleteRtcpSr = 3,
     }
     impl Mode {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -612,6 +625,7 @@ pub mod video_layer {
                 Mode::Unused => "MODE_UNUSED",
                 Mode::OneSpatialLayerPerStream => "ONE_SPATIAL_LAYER_PER_STREAM",
                 Mode::MultipleSpatialLayersPerStream => "MULTIPLE_SPATIAL_LAYERS_PER_STREAM",
+                Mode::OneSpatialLayerPerStreamIncompleteRtcpSr => "ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -620,6 +634,7 @@ pub mod video_layer {
                 "MODE_UNUSED" => Some(Self::Unused),
                 "ONE_SPATIAL_LAYER_PER_STREAM" => Some(Self::OneSpatialLayerPerStream),
                 "MULTIPLE_SPATIAL_LAYERS_PER_STREAM" => Some(Self::MultipleSpatialLayersPerStream),
+                "ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR" => Some(Self::OneSpatialLayerPerStreamIncompleteRtcpSr),
                 _ => None,
             }
         }
@@ -715,7 +730,7 @@ pub struct EncryptedPacket {
     pub iv: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint32, tag="3")]
     pub key_index: u32,
-    /// This is an encrypted EncryptedPacketPayload message representation 
+    /// This is an encrypted EncryptedPacketPayload message representation
     #[prost(bytes="vec", tag="4")]
     pub encrypted_value: ::prost::alloc::vec::Vec<u8>,
 }
@@ -1440,11 +1455,29 @@ pub mod data_stream {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FilterParams {
+    #[prost(string, repeated, tag="1")]
+    pub include_events: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="2")]
+    pub exclude_events: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WebhookConfig {
     #[prost(string, tag="1")]
     pub url: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub signing_key: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub filter_params: ::core::option::Option<FilterParams>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SubscribedAudioCodec {
+    #[prost(string, tag="1")]
+    pub codec: ::prost::alloc::string::String,
+    #[prost(bool, tag="2")]
+    pub enabled: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1452,6 +1485,7 @@ pub enum AudioCodec {
     DefaultAc = 0,
     Opus = 1,
     Aac = 2,
+    AcMp3 = 3,
 }
 impl AudioCodec {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1463,6 +1497,7 @@ impl AudioCodec {
             AudioCodec::DefaultAc => "DEFAULT_AC",
             AudioCodec::Opus => "OPUS",
             AudioCodec::Aac => "AAC",
+            AudioCodec::AcMp3 => "AC_MP3",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1471,6 +1506,7 @@ impl AudioCodec {
             "DEFAULT_AC" => Some(Self::DefaultAc),
             "OPUS" => Some(Self::Opus),
             "AAC" => Some(Self::Aac),
+            "AC_MP3" => Some(Self::AcMp3),
             _ => None,
         }
     }
@@ -2703,6 +2739,7 @@ pub enum EncodedFileType {
     DefaultFiletype = 0,
     Mp4 = 1,
     Ogg = 2,
+    Mp3 = 3,
 }
 impl EncodedFileType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -2714,6 +2751,7 @@ impl EncodedFileType {
             EncodedFileType::DefaultFiletype => "DEFAULT_FILETYPE",
             EncodedFileType::Mp4 => "MP4",
             EncodedFileType::Ogg => "OGG",
+            EncodedFileType::Mp3 => "MP3",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2722,6 +2760,7 @@ impl EncodedFileType {
             "DEFAULT_FILETYPE" => Some(Self::DefaultFiletype),
             "MP4" => Some(Self::Mp4),
             "OGG" => Some(Self::Ogg),
+            "MP3" => Some(Self::Mp3),
             _ => None,
         }
     }
@@ -3056,7 +3095,7 @@ pub mod signal_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalResponse {
-    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
+    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
     pub message: ::core::option::Option<signal_response::Message>,
 }
 /// Nested message and enum types in `SignalResponse`.
@@ -3139,6 +3178,12 @@ pub mod signal_response {
         /// notify number of required media sections to satisfy subscribed tracks
         #[prost(message, tag="25")]
         MediaSectionsRequirement(super::MediaSectionsRequirement),
+        /// when audio subscription changes, used to enable simulcasting of audio codecs based on subscriptions
+        #[prost(message, tag="26")]
+        SubscribedAudioCodecUpdate(super::SubscribedAudioCodecUpdate),
+        /// sent when server answers publisher, includes the mid -> trackID mapping
+        #[prost(message, tag="27")]
+        MappedAnswer(super::MappedSessionDescription),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3299,6 +3344,14 @@ pub struct SessionDescription {
     pub sdp: ::prost::alloc::string::String,
     #[prost(uint32, tag="3")]
     pub id: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MappedSessionDescription {
+    #[prost(message, optional, tag="1")]
+    pub session_description: ::core::option::Option<SessionDescription>,
+    #[prost(map="string, string", tag="2")]
+    pub mid_to_track_id: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3520,6 +3573,14 @@ pub struct SubscribedQualityUpdate {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SubscribedAudioCodecUpdate {
+    #[prost(string, tag="1")]
+    pub track_sid: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="2")]
+    pub subscribed_audio_codecs: ::prost::alloc::vec::Vec<SubscribedAudioCodec>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackPermission {
     /// permission could be granted either by participant sid or identity
     #[prost(string, tag="1")]
@@ -3697,6 +3758,8 @@ pub struct RequestResponse {
     pub reason: i32,
     #[prost(string, tag="3")]
     pub message: ::prost::alloc::string::String,
+    #[prost(oneof="request_response::Request", tags="4, 5, 6, 7, 8, 9")]
+    pub request: ::core::option::Option<request_response::Request>,
 }
 /// Nested message and enum types in `RequestResponse`.
 pub mod request_response {
@@ -3707,6 +3770,9 @@ pub mod request_response {
         NotFound = 1,
         NotAllowed = 2,
         LimitExceeded = 3,
+        Queued = 4,
+        UnsupportedType = 5,
+        UnclassifiedError = 6,
     }
     impl Reason {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -3719,6 +3785,9 @@ pub mod request_response {
                 Reason::NotFound => "NOT_FOUND",
                 Reason::NotAllowed => "NOT_ALLOWED",
                 Reason::LimitExceeded => "LIMIT_EXCEEDED",
+                Reason::Queued => "QUEUED",
+                Reason::UnsupportedType => "UNSUPPORTED_TYPE",
+                Reason::UnclassifiedError => "UNCLASSIFIED_ERROR",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3728,9 +3797,28 @@ pub mod request_response {
                 "NOT_FOUND" => Some(Self::NotFound),
                 "NOT_ALLOWED" => Some(Self::NotAllowed),
                 "LIMIT_EXCEEDED" => Some(Self::LimitExceeded),
+                "QUEUED" => Some(Self::Queued),
+                "UNSUPPORTED_TYPE" => Some(Self::UnsupportedType),
+                "UNCLASSIFIED_ERROR" => Some(Self::UnclassifiedError),
                 _ => None,
             }
         }
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Request {
+        #[prost(message, tag="4")]
+        Trickle(super::TrickleRequest),
+        #[prost(message, tag="5")]
+        AddTrack(super::AddTrackRequest),
+        #[prost(message, tag="6")]
+        Mute(super::MuteTrackRequest),
+        #[prost(message, tag="7")]
+        UpdateMetadata(super::UpdateParticipantMetadata),
+        #[prost(message, tag="8")]
+        UpdateAudioTrack(super::UpdateLocalAudioTrack),
+        #[prost(message, tag="9")]
+        UpdateVideoTrack(super::UpdateLocalVideoTrack),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3928,6 +4016,8 @@ pub struct Job {
     pub agent_name: ::prost::alloc::string::String,
     #[prost(message, optional, tag="8")]
     pub state: ::core::option::Option<JobState>,
+    #[prost(bool, tag="10")]
+    pub enable_recording: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4571,6 +4661,26 @@ pub struct MoveParticipantResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PerformRpcRequest {
+    #[prost(string, tag="1")]
+    pub room: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub destination_identity: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub method: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub payload: ::prost::alloc::string::String,
+    #[prost(uint32, tag="5")]
+    pub response_timeout_ms: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PerformRpcResponse {
+    #[prost(string, tag="1")]
+    pub payload: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateIngressRequest {
     #[prost(enumeration="IngressInput", tag="1")]
     pub input_type: i32,
@@ -5055,6 +5165,16 @@ pub struct CreateSipTrunkRequest {
     /// Optional user-defined metadata for the Trunk.
     #[prost(string, tag="11")]
     pub metadata: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ProviderInfo {
+    #[prost(string, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(enumeration="ProviderType", tag="3")]
+    pub r#type: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5715,10 +5835,18 @@ pub struct CreateSipParticipantRequest {
     #[prost(enumeration="SipMediaEncryption", tag="18")]
     pub media_encryption: i32,
     /// Wait for the answer for the call before returning.
-    ///
-    /// NEXT ID: 21
     #[prost(bool, tag="19")]
     pub wait_until_answered: bool,
+    /// Optional display name for the 'From' SIP header.
+    ///
+    /// Cases:
+    /// 1) Unspecified: Use legacy behavior - display name will be set to be the caller's number.
+    /// 2) Empty string: Do not send a display name, which will result in a CNAM lookup downstream.
+    /// 3) Non-empty: Use the specified value as the display name.
+    ///
+    /// NEXT ID: 22
+    #[prost(string, optional, tag="21")]
+    pub display_name: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5806,6 +5934,12 @@ pub struct SipCallInfo {
     pub audio_codec: ::prost::alloc::string::String,
     #[prost(string, tag="21")]
     pub media_encryption: ::prost::alloc::string::String,
+    #[prost(string, tag="25")]
+    pub pcap_file_link: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="26")]
+    pub call_context: ::prost::alloc::vec::Vec<::pbjson_types::Any>,
+    #[prost(message, optional, tag="27")]
+    pub provider_info: ::core::option::Option<ProviderInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -6106,6 +6240,37 @@ impl SipMediaEncryption {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
+pub enum ProviderType {
+    Unknown = 0,
+    /// Internally implemented
+    Internal = 1,
+    /// Vendor provided
+    External = 2,
+}
+impl ProviderType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ProviderType::Unknown => "PROVIDER_TYPE_UNKNOWN",
+            ProviderType::Internal => "PROVIDER_TYPE_INTERNAL",
+            ProviderType::External => "PROVIDER_TYPE_EXTERNAL",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PROVIDER_TYPE_UNKNOWN" => Some(Self::Unknown),
+            "PROVIDER_TYPE_INTERNAL" => Some(Self::Internal),
+            "PROVIDER_TYPE_EXTERNAL" => Some(Self::External),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
 pub enum SipCallStatus {
     /// Incoming call is being handled by the SIP service. The SIP participant hasn't joined a LiveKit room yet
     ScsCallIncoming = 0,
@@ -6227,6 +6392,38 @@ impl SipCallDirection {
             _ => None,
         }
     }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TokenSourceRequest {
+    /// The name of the room being requested when generating credentials
+    #[prost(string, optional, tag="1")]
+    pub room_name: ::core::option::Option<::prost::alloc::string::String>,
+    /// The name of the participant being requested for this client when generating credentials
+    #[prost(string, optional, tag="2")]
+    pub participant_name: ::core::option::Option<::prost::alloc::string::String>,
+    /// The identity of the participant being requested for this client when generating credentials
+    #[prost(string, optional, tag="3")]
+    pub participant_identity: ::core::option::Option<::prost::alloc::string::String>,
+    /// Any participant metadata being included along with the credentials generation operation
+    #[prost(string, optional, tag="4")]
+    pub participant_metadata: ::core::option::Option<::prost::alloc::string::String>,
+    /// Any participant attributes being included along with the credentials generation operation
+    #[prost(map="string, string", tag="5")]
+    pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// A RoomConfiguration object can be passed to request extra parameters should be included when
+    /// generating connection credentials - dispatching agents, defining egress settings, etc
+    /// More info: <https://docs.livekit.io/home/get-started/authentication/#room-configuration>
+    #[prost(message, optional, tag="6")]
+    pub room_config: ::core::option::Option<RoomConfiguration>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TokenSourceResponse {
+    #[prost(string, tag="1")]
+    pub server_url: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub participant_token: ::prost::alloc::string::String,
 }
 include!("livekit.serde.rs");
 // @@protoc_insertion_point(module)

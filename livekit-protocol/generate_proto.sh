@@ -31,4 +31,5 @@ protoc \
     $PROTOCOL/livekit_room.proto \
     $PROTOCOL/livekit_webhook.proto \
     $PROTOCOL/livekit_sip.proto \
-    $PROTOCOL/livekit_models.proto
+    $PROTOCOL/livekit_models.proto \
+    $PROTOCOL/livekit_token_source.proto
