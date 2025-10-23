@@ -23,6 +23,7 @@ pub enum VideoCodec {
     H264,
     VP9,
     AV1,
+    H265,
 }
 
 impl VideoCodec {
@@ -32,6 +33,7 @@ impl VideoCodec {
             VideoCodec::H264 => "h264",
             VideoCodec::VP9 => "vp9",
             VideoCodec::AV1 => "av1",
+            VideoCodec::H265 => "h265",
         }
     }
 }
