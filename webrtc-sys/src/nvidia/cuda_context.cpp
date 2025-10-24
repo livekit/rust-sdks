@@ -150,7 +150,11 @@ bool CudaContext::Initialize() {
       cuDeviceGetName(device_name, sizeof(device_name), cu_device));
   RTC_LOG(LS_INFO) << "CUDA device name: " << device_name;
 
+#if CUDA_VERSION >= 13000
+  CUCTX_CUDA_CALL_ERROR(cuCtxCreate(&context, nullptr, 0, cu_device));
+#else
   CUCTX_CUDA_CALL_ERROR(cuCtxCreate(&context, 0, cu_device));
+#endif
   if (context == nullptr) {
     RTC_LOG(LS_ERROR) << "Failed to create CUDA context.";
     return false;
