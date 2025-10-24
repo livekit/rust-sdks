@@ -253,6 +253,7 @@ fn main() {
             configure_android_sysroot(&mut builder);
 
             println!("cargo:rustc-link-lib=c++abi");
+            println!("cargo:rustc-link-lib=c++_static");
             builder.file("src/android.cpp").flag("-std=c++20").cpp_link_stdlib("c++_static");
         }
         _ => {
