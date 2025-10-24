@@ -77,8 +77,8 @@ impl LogoTrack {
                 LocalTrack::Video(track.clone()),
                 TrackPublishOptions {
                     source: TrackSource::Camera,
-                    simulcast: false,
-                    video_codec: VideoCodec::H264,
+                    simulcast: true,
+                    video_codec: VideoCodec::H265,
                     ..Default::default()
                 },
             )
