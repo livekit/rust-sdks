@@ -16,21 +16,30 @@
 
 arch=""
 profile="release"
+toolchain="gnu"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    --sources)
+      sources="$(realpath $2)"
+      shift 2
+      ;;
     --arch)
       arch="$2"
-      if [ "$arch" != "x64" ] && [ "$arch" != "arm64" ]; then
-        echo "Error: Invalid value for --arch. Must be 'x64' or 'arm64'."
-        exit 1
-      fi
       shift 2
       ;;
     --profile)
       profile="$2"
       if [ "$profile" != "debug" ] && [ "$profile" != "release" ]; then
         echo "Error: Invalid value for --profile. Must be 'debug' or 'release'."
+        exit 1
+      fi
+      shift 2
+      ;;
+    --toolchain)
+      toolchain="$2"
+      if [ "$toolchain" != "gnu" ] && [ "$toolchain" != "llvm" ] && [ "$toolchain" != "chromium-llvm" ]; then
+        echo "Error: Invalid value for --toolchain. Must be 'gnu', 'llvm', or 'chromium-llvm' (Chromium's bundled Clang with Debian sysroot)"
         exit 1
       fi
       shift 2
@@ -47,48 +56,51 @@ if [ -z "$arch" ]; then
   exit 1
 fi
 
+if [ -z "$sources" ]; then
+  echo "Error: --sources must be set."
+  exit 1
+fi
+
 echo "Building LiveKit WebRTC - Linux"
 echo "Arch: $arch"
 echo "Profile: $profile"
+echo "Toolchain: $toolchain"
 
-if [ ! -e "$(pwd)/depot_tools" ]
-then
-  git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
-fi
+COMMAND_DIR=$(cd $(dirname $0); pwd)
+OUTPUT_DIR="$(dirname "$sources")"
+BUILD_DIR="$OUTPUT_DIR/build-$arch-$profile"
+ARTIFACTS_DIR="$OUTPUT_DIR/linux-$arch-$profile"
 
-export COMMAND_DIR=$(cd $(dirname $0); pwd)
-export PATH="$(pwd)/depot_tools:$PATH"
-export OUTPUT_DIR="$(pwd)/src/out-$arch-$profile"
-export ARTIFACTS_DIR="$(pwd)/linux-$arch-$profile"
-
-if [ ! -e "$(pwd)/src" ]
-then
-  gclient sync -D --no-history
-fi
-
-cd src
-git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-
-cd build
-
-git apply "$COMMAND_DIR/patches/force_gcc.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-
-cd ..
-
-cd third_party
-
-git apply "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-
-cd ../..
-
-mkdir -p "$ARTIFACTS_DIR/lib"
-
-python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
-
-if [ "$arch" = "arm64" ]; then
-  sudo sed -i 's/__GLIBC_USE_ISOC2X[[:space:]]*1/__GLIBC_USE_ISOC2X\t0/' /usr/aarch64-linux-gnu/include/features.h
+if [ "$toolchain" == "gnu" ]; then
+  [ -n "$CC" ] || export CC="$(which gcc)"
+  [ -n "$CXX" ] || export CXX="$(which g++)"
+  [ -n "$AR" ] || export AR="$(which ar)"
+  [ -n "$NM" ] || export NM="$(which nm)"
+  export CXXFLAGS="${CXXFLAGS} -Wno-changes-meaning -Wno-unknown-pragmas -D_DEFAULT_SOURCE"
+  OBJCOPY="$(which objcopy)"
+  chromium_libcxx=false
+  toolchain_gn_args="is_clang=false \
+  custom_toolchain=\"//build/toolchain/linux/unbundle:default\" \
+  host_toolchain=\"//build/toolchain/linux/unbundle:default\""
+elif [ "$toolchain" == "llvm" ]; then
+  [ -n "$CC" ] || export CC="$(which clang)"
+  [ -n "$CXX" ] || export CXX="$(which clang++)"
+  [ -n "$AR" ] || export AR="$(which llvm-ar)"
+  [ -n "$NM" ] || export NM="$(which llvm-nm)"
+  OBJCOPY="$(which llvm-objcopy)"
+  # Using system libc++ stumbles over
+  # https://github.com/llvm/llvm-project/issues/50248
+  # so use Chromium's libc++
+  chromium_libcxx=true
+  toolchain_gn_args="is_clang=true \
+  clang_use_chrome_plugins=false \
+  custom_toolchain=\"//build/toolchain/linux/unbundle:default\" \
+  host_toolchain=\"//build/toolchain/linux/unbundle:default\""
+elif [ "$toolchain" == "chromium-llvm" ]; then
+  AR="$sources/third_party/llvm-build/Release+Asserts/bin/llvm-ar"
+  OBJCOPY="$sources/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy"
+  chromium_libcxx=true
+  toolchain_gn_args="is_clang=true use_custom_libcxx=true"
 fi
 
 debug="false"
@@ -101,10 +113,11 @@ args="is_debug=$debug  \
   target_cpu=\"$arch\" \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
-  use_custom_libcxx=false \
+  use_custom_libcxx=${chromium_libcxx}
   use_llvm_libatomic=false \
   use_libcxx_modules=false \
   use_custom_libcxx_for_host=false \
+  use_sysroot=false \
   rtc_include_tests=false \
   rtc_build_tools=false \
   rtc_build_examples=false \
@@ -119,27 +132,38 @@ args="is_debug=$debug  \
   symbol_level=0 \
   enable_iterator_debugging=false \
   use_rtti=true \
-  is_clang=false \
-  rtc_use_x11=false"
+  rtc_use_x11=false \
+  $toolchain_gn_args"
+
+set -xe
 
 # generate ninja files
-gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
+export PATH="$sources/depot_tools:$PATH"
+gn gen "$BUILD_DIR" --root="$sources" --args="${args}"
 
 # build static library
-ninja -C "$OUTPUT_DIR" :default
+ninja -C "$BUILD_DIR" :default
+
+mkdir -p "$ARTIFACTS_DIR/lib"
 
 # make libwebrtc.a
 # don't include nasm
-ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
+"$AR" -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$BUILD_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
+"$OBJCOPY" --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
 
-python3 "./src/tools_webrtc/libs/generate_licenses.py" \
-  --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
+python3 "$sources/tools_webrtc/libs/generate_licenses.py" \
+  --target :default "$BUILD_DIR" "$BUILD_DIR"
 
-cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
-cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
-cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
+cp "$BUILD_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
+cp "$BUILD_DIR/args.gn" "$ARTIFACTS_DIR"
+cp "$BUILD_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 
-cd src
+cd $sources
+if [ $chromium_libcxx == "true" ]; then
+  mkdir -p "$ARTIFACTS_DIR/include/buildtools/third_party"
+  cp -R buildtools/third_party/libc++ "$ARTIFACTS_DIR/include/buildtools/third_party"
+  mkdir -p "$ARTIFACTS_DIR/include/third_party/libc++/src"
+  cp -R third_party/libc++/src/include "$ARTIFACTS_DIR/include/third_party/libc++/src"
+fi
 find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
 find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"
