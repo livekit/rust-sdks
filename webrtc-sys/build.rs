@@ -251,7 +251,7 @@ fn main() {
             println!("cargo:rustc-link-lib=OpenSLES");
             println!("cargo:rustc-link-lib=c++_static");
             println!("cargo:rustc-link-lib=c++abi");
-            
+
             configure_android_sysroot(&mut builder);
             builder.file("src/android.cpp").flag("-std=c++20");
         }
