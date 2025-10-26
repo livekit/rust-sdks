@@ -252,9 +252,9 @@ fn main() {
 
             configure_android_sysroot(&mut builder);
 
-            println!("cargo:rustc-link-lib=c++abi");
+            builder.file("src/android.cpp").flag("-std=c++20");
             println!("cargo:rustc-link-lib=c++_static");
-            builder.file("src/android.cpp").flag("-std=c++20").cpp_link_stdlib("c++_static");
+            println!("cargo:rustc-link-lib=c++abi");
         }
         _ => {
             panic!("Unsupported target, {}", target_os);
@@ -341,9 +341,15 @@ fn configure_darwin_sysroot(builder: &mut cc::Build) {
 }
 
 fn configure_android_sysroot(builder: &mut cc::Build) {
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     let toolchain = webrtc_sys_build::android_ndk_toolchain().unwrap();
-    let toolchain_lib = toolchain.join("lib");
-
+    let ndk_arch = match target_arch.as_str() {
+        "x86_64" => "x86_64-unknown-linux-musl",
+        "aarch64" => "aarch64-unknown-linux-musl",
+        "arm" => "arm-unknown-linux-musleabihf",
+        _ => panic!("Unsupported target_arch: {}", target_arch),
+    };
+    let toolchain_lib = toolchain.join("lib/").join(ndk_arch);
     let sysroot = toolchain.join("sysroot").canonicalize().unwrap();
     println!("cargo:rustc-link-search={}", toolchain_lib.display());
 
