@@ -40,6 +40,7 @@ from_variants = "1.0.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"
+link-cplusplus = { version = "1", features = ["nothing"] }
 
 [build-dependencies]
 prost-build = "0.14.1"

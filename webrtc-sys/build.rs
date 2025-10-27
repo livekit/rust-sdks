@@ -249,10 +249,11 @@ fn main() {
 
             println!("cargo:rustc-link-lib=EGL");
             println!("cargo:rustc-link-lib=OpenSLES");
+            println!("cargo:rustc-link-lib=c++_static");
+            println!("cargo:rustc-link-lib=c++abi");
 
             configure_android_sysroot(&mut builder);
-
-            builder.file("src/android.cpp").flag("-std=c++20").cpp_link_stdlib("c++_static");
+            builder.file("src/android.cpp").flag("-std=c++20");
         }
         _ => {
             panic!("Unsupported target, {}", target_os);
@@ -340,10 +341,6 @@ fn configure_darwin_sysroot(builder: &mut cc::Build) {
 
 fn configure_android_sysroot(builder: &mut cc::Build) {
     let toolchain = webrtc_sys_build::android_ndk_toolchain().unwrap();
-    let toolchain_lib = toolchain.join("lib");
-
     let sysroot = toolchain.join("sysroot").canonicalize().unwrap();
-    println!("cargo:rustc-link-search={}", toolchain_lib.display());
-
     builder.flag(format!("-isysroot{}", sysroot.display()).as_str());
 }
