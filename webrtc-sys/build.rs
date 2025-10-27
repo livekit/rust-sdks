@@ -153,23 +153,38 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
 
-            match target_arch.as_str() {
-                "x86_64" => {
-                    #[cfg(feature = "use_vaapi")]
-                    builder
-                        .file("src/vaapi/vaapi_display_drm.cpp")
-                        .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
-                        .file("src/vaapi/vaapi_encoder_factory.cpp")
-                        .file("src/vaapi/h264_encoder_impl.cpp")
-                        .file("src/vaapi/implib/libva-drm.so.init.c")
-                        .file("src/vaapi/implib/libva-drm.so.tramp.S")
-                        .file("src/vaapi/implib/libva.so.init.c")
-                        .file("src/vaapi/implib/libva.so.tramp.S")
-                        .flag("-DUSE_VAAPI_VIDEO_CODEC=1");
+            let x86 = target_arch == "x86_64" || target_arch == "i686";
+            let arm = target_arch == "aarch64" || target_arch.contains("arm");
 
-                    #[cfg(feature = "use_nvidia")]
+            if x86 {
+                // Do not use pkg_config::probe_library because libva is dlopened
+                // and pkg_config::probe_library would link it.
+                let libva_include = pkg_config::get_variable("libva", "includedir")
+                    .expect("libva development headers not found");
+                builder
+                    .include(libva_include)
+                    .file("src/vaapi/vaapi_display_drm.cpp")
+                    .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
+                    .file("src/vaapi/vaapi_encoder_factory.cpp")
+                    .file("src/vaapi/h264_encoder_impl.cpp")
+                    .file("src/vaapi/implib/libva-drm.so.init.c")
+                    .file("src/vaapi/implib/libva-drm.so.tramp.S")
+                    .file("src/vaapi/implib/libva.so.init.c")
+                    .file("src/vaapi/implib/libva.so.tramp.S")
+                    .flag("-DUSE_VAAPI_VIDEO_CODEC=1");
+            }
+
+            if x86 || arm {
+                let cuda_home = PathBuf::from(match env::var("CUDA_HOME") {
+                    Ok(p) => p,
+                    Err(_) => "/usr/local/cuda".to_owned(),
+                });
+                let cuda_include_dir = cuda_home.join("include");
+
+                // libcuda and libnvcuvid are dlopened, so do not link them.
+                if cuda_include_dir.join("cuda.h").exists() {
                     builder
-                        .flag("-I/usr/local/cuda/include")
+                        .include(cuda_include_dir)
                         .flag("-Isrc/nvidia/NvCodec/include")
                         .flag("-Isrc/nvidia/NvCodec/NvCodec")
                         .file("src/nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp")
@@ -186,8 +201,9 @@ fn main() {
                         .file("src/nvidia/implib/libnvcuvid.so.tramp.S")
                         .flag("-Wno-deprecated-declarations")
                         .flag("-DUSE_NVIDIA_VIDEO_CODEC=1");
+                } else {
+                    println!("cargo:warning=cuda.h not found; building without hardware accelerated video codec support for NVidia GPUs");
                 }
-                _ => {}
             }
 
             builder.flag("-Wno-changes-meaning").flag("-std=c++20");
@@ -249,10 +265,11 @@ fn main() {
 
             println!("cargo:rustc-link-lib=EGL");
             println!("cargo:rustc-link-lib=OpenSLES");
+            println!("cargo:rustc-link-lib=c++_static");
+            println!("cargo:rustc-link-lib=c++abi");
 
             configure_android_sysroot(&mut builder);
-
-            builder.file("src/android.cpp").flag("-std=c++20").cpp_link_stdlib("c++_static");
+            builder.file("src/android.cpp").flag("-std=c++20");
         }
         _ => {
             panic!("Unsupported target, {}", target_os);
@@ -340,10 +357,6 @@ fn configure_darwin_sysroot(builder: &mut cc::Build) {
 
 fn configure_android_sysroot(builder: &mut cc::Build) {
     let toolchain = webrtc_sys_build::android_ndk_toolchain().unwrap();
-    let toolchain_lib = toolchain.join("lib");
-
     let sysroot = toolchain.join("sysroot").canonicalize().unwrap();
-    println!("cargo:rustc-link-search={}", toolchain_lib.display());
-
     builder.flag(format!("-isysroot{}", sysroot.display()).as_str());
 }

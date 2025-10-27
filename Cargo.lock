@@ -2583,7 +2583,7 @@ dependencies = [
 
 [[package]]
 name = "imgproc"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "yuv-sys",
 ]
@@ -2900,7 +2900,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.17"
+version = "0.3.18"
 dependencies = [
  "cxx",
  "env_logger 0.10.2",
@@ -2968,7 +2968,7 @@ checksum = "f5e54036fe321fd421e10d732f155734c4e4afd610dd556d9a82833ab3ee0bed"
 
 [[package]]
 name = "livekit"
-version = "0.7.21"
+version = "0.7.23"
 dependencies = [
  "anyhow",
  "bmrng",
@@ -2994,7 +2994,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.4.8"
+version = "0.4.9"
 dependencies = [
  "async-tungstenite",
  "base64 0.21.7",
@@ -3024,7 +3024,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.36"
+version = "0.12.38"
 dependencies = [
  "bytes",
  "console-subscriber",
@@ -3052,7 +3052,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "futures-util",
  "livekit-runtime",
@@ -5104,7 +5104,7 @@ dependencies = [
 
 [[package]]
 name = "soxr-sys"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cc",
  "hound",
@@ -6159,7 +6159,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.14"
+version = "0.3.15"
 dependencies = [
  "cc",
  "cxx",
@@ -6172,7 +6172,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys-build"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "anyhow",
  "fs2",
@@ -7105,7 +7105,7 @@ dependencies = [
 
 [[package]]
 name = "yuv-sys"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "bindgen",
  "cc",

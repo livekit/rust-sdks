@@ -16,20 +16,23 @@
 
 #include "livekit/objc_video_factory.h"
 
-#import <sdk/objc/components/video_codec/RTCVideoDecoderFactoryH264.h>
-#import <sdk/objc/components/video_codec/RTCVideoEncoderFactoryH264.h>
+#import <sdk/objc/components/video_codec/RTCDefaultVideoDecoderFactory.h>
+#import <sdk/objc/components/video_codec/RTCDefaultVideoEncoderFactory.h>
+#import <sdk/objc/components/video_codec/RTCVideoEncoderFactorySimulcast.h>
 #include "sdk/objc/native/api/video_decoder_factory.h"
 #include "sdk/objc/native/api/video_encoder_factory.h"
 
 namespace livekit {
 
 std::unique_ptr<webrtc::VideoEncoderFactory> CreateObjCVideoEncoderFactory() {
-  // TODO(theomonnom): Simulcast?
-  return webrtc::ObjCToNativeVideoEncoderFactory([[RTCVideoEncoderFactoryH264 alloc] init]);
+  RTCDefaultVideoEncoderFactory* encoderFactory = [[RTCDefaultVideoEncoderFactory alloc] init];
+  RTCVideoEncoderFactorySimulcast* simulcastFactory =
+      [[RTCVideoEncoderFactorySimulcast alloc] initWithPrimary:encoderFactory fallback:encoderFactory];
+  return webrtc::ObjCToNativeVideoEncoderFactory(simulcastFactory);
 }
 
 std::unique_ptr<webrtc::VideoDecoderFactory> CreateObjCVideoDecoderFactory() {
-  return webrtc::ObjCToNativeVideoDecoderFactory([[RTCVideoDecoderFactoryH264 alloc] init]);
+  return webrtc::ObjCToNativeVideoDecoderFactory([[RTCDefaultVideoDecoderFactory alloc] init]);
 }
 
 }  // namespace livekit

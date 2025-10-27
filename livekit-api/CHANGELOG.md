@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.9](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.8...rust-sdks/livekit-api@0.4.9) - 2025-10-22
+
+### Other
+
+- License check ([#746](https://github.com/livekit/rust-sdks/pull/746))
+- Agent dispatch APIs ([#742](https://github.com/livekit/rust-sdks/pull/742))
+- Access token via auth header ([#728](https://github.com/livekit/rust-sdks/pull/728))
+
 ## [0.4.8](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.7...rust-sdks/livekit-api@0.4.8) - 2025-10-13
 
 ### Other

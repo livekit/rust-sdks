@@ -1,6 +1,6 @@
 [package]
 name = "livekit-ffi"
-version = "0.12.36"
+version = "0.12.38"
 edition = "2021"
 license = "Apache-2.0"
 description = "FFI interface for bindings in other languages"
@@ -20,7 +20,7 @@ tracing = ["tokio/tracing", "console-subscriber"]
 
 [dependencies]
 livekit = { workspace = true }
-webrtc-sys = { workspace = true , features = [ "use_vaapi", "use_nvidia" ]}
+webrtc-sys = { workspace = true }
 soxr-sys = { workspace = true }
 imgproc = { workspace = true }
 livekit-protocol = { workspace = true }
@@ -40,6 +40,7 @@ from_variants = "1.0.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"
+link-cplusplus = { version = "1", features = ["nothing"] }
 
 [build-dependencies]
 prost-build = "0.14.1"

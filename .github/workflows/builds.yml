@@ -105,4 +105,4 @@ jobs:
           ln -sf $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/${{ matrix.ndk_arch }}/{libunwind.so,libc++abi.a} $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/
           cargo install cargo-ndk
           # FIXME: wgpu_room does not link on aarch64
-          cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace --exclude wgpu_room -vv
+          cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv
