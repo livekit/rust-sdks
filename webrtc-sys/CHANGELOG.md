@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.16](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.15...rust-sdks/webrtc-sys@0.3.16) - 2025-10-27
+
+### Fixed
+
+- fix unable to locate __arm_tpidr2_save for android ffi. ([#765](https://github.com/livekit/rust-sdks/pull/765))
+
+### Other
+
+- Linux hardware acceleration build fixes ([#753](https://github.com/livekit/rust-sdks/pull/753))
+
 ## [0.3.15](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.14...rust-sdks/webrtc-sys@0.3.15) - 2025-10-22
 
 ### Other

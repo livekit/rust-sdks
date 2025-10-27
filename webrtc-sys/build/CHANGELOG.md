@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.11](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys-build@0.3.10...rust-sdks/webrtc-sys-build@0.3.11) - 2025-10-27
+
+### Fixed
+
+- fix unable to locate __arm_tpidr2_save for android ffi. ([#765](https://github.com/livekit/rust-sdks/pull/765))
+
 ## [0.3.10](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys-build@0.3.9...rust-sdks/webrtc-sys-build@0.3.10) - 2025-10-22
 
 ### Other
