@@ -60,6 +60,7 @@ pub mod id;
 pub mod options;
 pub mod participant;
 pub mod publication;
+pub mod token_source;
 pub mod track;
 pub(crate) mod utils;
 

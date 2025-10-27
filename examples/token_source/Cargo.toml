@@ -1,0 +1,11 @@
+[package]
+name = "token_source"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+env_logger = "0.10"
+livekit = { path = "../../livekit", features = ["rustls-tls-native-roots"]}
+livekit-api = { path = "../../livekit-api", features = ["rustls-tls-native-roots"]}
+log = "0.4"
