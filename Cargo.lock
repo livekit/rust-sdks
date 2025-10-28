@@ -225,7 +225,6 @@ checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 name = "api"
 version = "0.1.0"
 dependencies = [
- "futures",
  "livekit-api",
  "tokio",
 ]
@@ -3062,7 +3061,6 @@ dependencies = [
  "pbjson",
  "pbjson-types",
  "prost 0.12.6",
- "prost-types 0.12.6",
  "serde",
  "thiserror 1.0.69",
  "tokio",
@@ -4794,7 +4792,6 @@ dependencies = [
  "futures",
  "livekit",
  "tokio",
- "tokio-util",
 ]
 
 [[package]]
