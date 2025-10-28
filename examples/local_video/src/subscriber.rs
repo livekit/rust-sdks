@@ -8,7 +8,7 @@ use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
 use log::{debug, info};
 use parking_lot::Mutex;
-use std::sync::Arc;
+use std::{env, sync::Arc, time::{Duration, Instant}};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -25,11 +25,11 @@ struct Args {
     #[arg(long)]
     url: Option<String>,
 
-    /// LiveKit API key
+    /// LiveKit API key (can also be set via LIVEKIT_API_KEY environment variable)
     #[arg(long)]
     api_key: Option<String>,
 
-    /// LiveKit API secret
+    /// LiveKit API secret (can also be set via LIVEKIT_API_SECRET environment variable)
     #[arg(long)]
     api_secret: Option<String>,
 }
@@ -54,8 +54,11 @@ impl eframe::App for VideoApp {
                 let size = [shared.width as usize, shared.height as usize];
                 let image = egui::ColorImage::from_rgba_unmultiplied(size, &shared.rgba);
                 match &mut self.texture {
-                    Some(tex) => tex.set(image, egui::TextureOptions::LINEAR),
+                    Some(tex) => {
+                        tex.set(image, egui::TextureOptions::LINEAR)
+                    }
                     None => {
+                        debug!("Creating texture for remote video: {}x{}", shared.width, shared.height);
                         self.texture = Some(ui.ctx().load_texture(
                             "remote-video",
                             image,
@@ -69,7 +72,7 @@ impl eframe::App for VideoApp {
             if let Some(tex) = &self.texture {
                 let tex_size = tex.size_vec2();
                 let available = ui.available_size();
-                let scale = (available.x / tex_size.x).min(available.y / tex_size.y).max(1.0);
+                let scale = (available.x / tex_size.x).min(available.y / tex_size.y);
                 let desired = tex_size * scale;
                 ui.image((tex.id(), desired));
             } else {
@@ -77,7 +80,7 @@ impl eframe::App for VideoApp {
             }
         });
 
-        ctx.request_repaint();
+        ctx.request_repaint_after(Duration::from_millis(16));
     }
 }
 
@@ -86,16 +89,19 @@ async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    // LiveKit connection details
-    let url = std::env::var("LIVEKIT_URL").ok().or(args.url).expect(
-        "LIVEKIT_URL must be provided via --url or env",
-    );
-    let api_key = std::env::var("LIVEKIT_API_KEY").ok().or(args.api_key).expect(
-        "LIVEKIT_API_KEY must be provided via --api-key or env",
-    );
-    let api_secret = std::env::var("LIVEKIT_API_SECRET").ok().or(args.api_secret).expect(
-        "LIVEKIT_API_SECRET must be provided via --api-secret or env",
-    );
+    // LiveKit connection details (prefer CLI args, fallback to env vars)
+    let url = args
+        .url
+        .or_else(|| env::var("LIVEKIT_URL").ok())
+        .expect("LiveKit URL must be provided via --url argument or LIVEKIT_URL environment variable");
+    let api_key = args
+        .api_key
+        .or_else(|| env::var("LIVEKIT_API_KEY").ok())
+        .expect("LiveKit API key must be provided via --api-key argument or LIVEKIT_API_KEY environment variable");
+    let api_secret = args
+        .api_secret
+        .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
+        .expect("LiveKit API secret must be provided via --api-secret argument or LIVEKIT_API_SECRET environment variable");
 
     let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
         .with_identity(&args.identity)
@@ -123,7 +129,9 @@ async fn main() -> Result<()> {
     let rt = tokio::runtime::Handle::current();
     tokio::spawn(async move {
         let mut events = room.subscribe();
+        info!("Subscribed to room events");
         while let Some(evt) = events.recv().await {
+            debug!("Room event: {:?}", evt);
             if let RoomEvent::TrackSubscribed { track, .. } = evt {
                 if let livekit::track::RemoteTrack::Video(video_track) = track {
                     info!("Subscribed to video track: {}", video_track.name());
@@ -131,6 +139,9 @@ async fn main() -> Result<()> {
                     let shared2 = shared_clone.clone();
                     std::thread::spawn(move || {
                         let mut sink = NativeVideoStream::new(video_track.rtc_track());
+                        let mut frames: u64 = 0;
+                        let mut last_log = Instant::now();
+                        let mut logged_first = false;
                         while let Some(frame) = rt.block_on(sink.next()) {
                             let buffer = frame.buffer.to_i420();
                             let w = buffer.width();
@@ -138,6 +149,14 @@ async fn main() -> Result<()> {
 
                             let (sy, su, sv) = buffer.strides();
                             let (dy, du, dv) = buffer.data();
+
+                            if !logged_first {
+                                debug!(
+                                    "First frame I420: {}x{}, strides Y/U/V = {}/{}/{}",
+                                    w, h, sy, su, sv
+                                );
+                                logged_first = true;
+                            }
 
                             let mut rgba = vec![0u8; (w * h * 4) as usize];
                             libwebrtc::native::yuv_helper::i420_to_rgba(
@@ -149,7 +168,17 @@ async fn main() -> Result<()> {
                             s.height = h;
                             s.rgba = rgba;
                             s.dirty = true;
+
+                            frames += 1;
+                            let elapsed = last_log.elapsed();
+                            if elapsed >= Duration::from_secs(2) {
+                                let fps = frames as f64 / elapsed.as_secs_f64();
+                                info!("Receiving video: {}x{}, ~{:.1} fps", w, h, fps);
+                                frames = 0;
+                                last_log = Instant::now();
+                            }
                         }
+                        info!("Video stream ended");
                     });
                     break;
                 }

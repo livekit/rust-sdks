@@ -18,6 +18,7 @@ livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 webrtc-sys = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-api = { workspace = true }
+yuv-sys = { workspace = true }
 futures = "0.3"
 clap = { version = "4.5", features = ["derive"] }
 log = "0.4"

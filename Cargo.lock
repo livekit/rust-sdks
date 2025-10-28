@@ -3256,6 +3256,7 @@ dependencies = [
  "webrtc-sys",
  "wgpu 25.0.2",
  "winit",
+ "yuv-sys",
 ]
 
 [[package]]

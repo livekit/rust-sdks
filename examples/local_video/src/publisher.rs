@@ -1,13 +1,13 @@
 use anyhow::Result;
 use clap::Parser;
-use livekit::webrtc::native::yuv_helper;
 use livekit::options::{TrackPublishOptions, VideoCodec};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
-use log::{error, info, warn};
+use log::{debug, info};
+use yuv_sys as yuv_sys;
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution};
 use nokhwa::Camera;
@@ -107,22 +107,46 @@ async fn main() -> Result<()> {
     let room = std::sync::Arc::new(room);
     info!("Connected: {} - {}", room.name(), room.sid().await);
 
+    // Log room events
+    {
+        let room_clone = room.clone();
+        tokio::spawn(async move {
+            let mut events = room_clone.subscribe();
+            info!("Subscribed to room events");
+            while let Some(evt) = events.recv().await {
+                debug!("Room event: {:?}", evt);
+            }
+        });
+    }
+
     // Setup camera
     let index = CameraIndex::Index(args.camera_index as u32);
     let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
     let mut camera = Camera::new(index, requested)?;
-    // Try to honor requested size/fps if supported
-    let _ = camera.set_camera_format(CameraFormat::new(
+    // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
+    let wanted = CameraFormat::new(
         Resolution::new(args.width, args.height),
-        FrameFormat::MJPEG,
+        FrameFormat::YUYV,
         args.fps,
-    ));
+    );
+    let mut using_fmt = "YUYV";
+    if let Err(_) = camera.set_camera_format(wanted) {
+        let alt = CameraFormat::new(
+            Resolution::new(args.width, args.height),
+            FrameFormat::MJPEG,
+            args.fps,
+        );
+        using_fmt = "MJPEG";
+        let _ = camera.set_camera_format(alt);
+    }
     camera.open_stream()?;
     let fmt = camera.camera_format();
     let width = fmt.width();
     let height = fmt.height();
     let fps = fmt.frame_rate();
-    info!("Camera opened: {}x{} @ {} fps", width, height, fps);
+    info!("Camera opened: {}x{} @ {} fps (format: {})", width, height, fps, using_fmt);
+    // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
+    let pace_fps = args.fps as f64;
 
     // Create LiveKit video source and track
     let rtc_source = NativeVideoSource::new(VideoResolution { width, height });
@@ -137,7 +161,7 @@ async fn main() -> Result<()> {
             LocalTrack::Video(track.clone()),
             TrackPublishOptions {
                 source: TrackSource::Camera,
-                simulcast: true,
+                simulcast: false,
                 video_codec: VideoCodec::H264,
                 ..Default::default()
             },
@@ -147,53 +171,134 @@ async fn main() -> Result<()> {
 
     // Reusable I420 buffer and frame
     let mut frame = VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: 0, buffer: I420Buffer::new(width, height) };
+    let is_yuyv = using_fmt == "YUYV";
+
+    // Accurate pacing using absolute schedule (no drift)
+    let mut ticker = tokio::time::interval(Duration::from_secs_f64(1.0 / pace_fps));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    // Align the first tick to now
+    ticker.tick().await;
+    let start_ts = Instant::now();
 
     // Capture loop
-    let mut last = Instant::now();
+    let mut frames: u64 = 0;
+    let mut last_fps_log = Instant::now();
+    let target = Duration::from_secs_f64(1.0 / pace_fps);
+    info!("Target frame interval: {:.2} ms", target.as_secs_f64() * 1000.0);
+
+    // Timing accumulators (ms) for rolling stats
+    let mut sum_get_ms = 0.0;
+    let mut sum_decode_ms = 0.0;
+    let mut sum_convert_ms = 0.0;
+    let mut sum_capture_ms = 0.0;
+    let mut sum_sleep_ms = 0.0;
+    let mut sum_iter_ms = 0.0;
     loop {
-        // Get frame as RGB
+        // Wait until the scheduled next frame time
+        let wait_start = Instant::now();
+        ticker.tick().await;
+        let iter_start = Instant::now();
+
+        // Get frame as RGB24 (decoded by nokhwa if needed)
+        let t0 = Instant::now();
         let frame_buf = camera.frame()?;
-        let rgb = frame_buf.decode_image::<RgbFormat>()?;
-        let rgba_stride = (width * 4) as u32;
-
-        // Convert RGB to ABGR in-place buffer (expand to 4 channels)
-        // Build a temporary ABGR buffer
-        let mut abgr = vec![0u8; (width * height * 4) as usize];
-        for (i, chunk) in rgb.as_raw().chunks_exact(3).enumerate() {
-            let r = chunk[0];
-            let g = chunk[1];
-            let b = chunk[2];
-            let o = i * 4;
-            // ABGR layout
-            abgr[o] = 255;
-            abgr[o + 1] = b;
-            abgr[o + 2] = g;
-            abgr[o + 3] = r;
-        }
-
-        // Fill i420 buffer
+        let t1 = Instant::now();
         let (stride_y, stride_u, stride_v) = frame.buffer.strides();
         let (data_y, data_u, data_v) = frame.buffer.data_mut();
-        yuv_helper::abgr_to_i420(
-            &abgr,
-            rgba_stride,
-            data_y,
-            stride_y,
-            data_u,
-            stride_u,
-            data_v,
-            stride_v,
-            width as i32,
-            height as i32,
-        );
+        // Fast path for YUYV: convert directly to I420 via libyuv
+        let t2 = if is_yuyv {
+            let src = frame_buf.buffer();
+            let src_bytes = src.as_ref();
+            let src_stride = (width * 2) as i32; // YUYV packed 4:2:2
+            let t2_local = t1; // no decode step in YUYV path
+            unsafe {
+                // returns 0 on success
+                let _ = yuv_sys::rs_YUY2ToI420(
+                    src_bytes.as_ptr(),
+                    src_stride,
+                    data_y.as_mut_ptr(),
+                    stride_y as i32,
+                    data_u.as_mut_ptr(),
+                    stride_u as i32,
+                    data_v.as_mut_ptr(),
+                    stride_v as i32,
+                    width as i32,
+                    height as i32,
+                );
+            }
+            t2_local
+        } else {
+            // Fallback (e.g., MJPEG): decode to RGB24 then convert to I420
+            let rgb = frame_buf.decode_image::<RgbFormat>()?;
+            let t2_local = Instant::now();
+            unsafe {
+                let _ = yuv_sys::rs_RGB24ToI420(
+                    rgb.as_raw().as_ptr(),
+                    (width * 3) as i32,
+                    data_y.as_mut_ptr(),
+                    stride_y as i32,
+                    data_u.as_mut_ptr(),
+                    stride_u as i32,
+                    data_v.as_mut_ptr(),
+                    stride_v as i32,
+                    width as i32,
+                    height as i32,
+                );
+            }
+            t2_local
+        };
+        let t3 = Instant::now();
 
+        // Update RTP timestamp (monotonic, microseconds since start)
+        frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
         rtc_source.capture_frame(&frame);
+        let t4 = Instant::now();
 
-        // Simple pacing
-        let elapsed = last.elapsed();
-        let target = Duration::from_secs_f32(1.0 / fps as f32);
-        if elapsed < target { tokio::time::sleep(target - elapsed).await; }
-        last = Instant::now();
+        frames += 1;
+        // We already paced via interval; measure actual sleep time for logging only
+        let sleep_dur = (iter_start - wait_start);
+
+        // Per-iteration timing bookkeeping
+        let t_end = Instant::now();
+        let get_ms = (t1 - t0).as_secs_f64() * 1000.0;
+        let decode_ms = (t2 - t1).as_secs_f64() * 1000.0;
+        let convert_ms = (t3 - t2).as_secs_f64() * 1000.0;
+        let capture_ms = (t4 - t3).as_secs_f64() * 1000.0;
+        let sleep_ms = sleep_dur.as_secs_f64() * 1000.0;
+        let iter_ms = (t_end - iter_start).as_secs_f64() * 1000.0;
+        sum_get_ms += get_ms;
+        sum_decode_ms += decode_ms;
+        sum_convert_ms += convert_ms;
+        sum_capture_ms += capture_ms;
+        sum_sleep_ms += sleep_ms;
+        sum_iter_ms += iter_ms;
+
+        if last_fps_log.elapsed() >= std::time::Duration::from_secs(2) {
+            let secs = last_fps_log.elapsed().as_secs_f64();
+            let fps_est = frames as f64 / secs;
+            let n = frames.max(1) as f64;
+            info!(
+                "Publishing video: {}x{}, ~{:.1} fps | avg ms: get {:.2}, decode {:.2}, convert {:.2}, capture {:.2}, sleep {:.2}, iter {:.2} | target {:.2}",
+                width,
+                height,
+                fps_est,
+                sum_get_ms / n,
+                sum_decode_ms / n,
+                sum_convert_ms / n,
+                sum_capture_ms / n,
+                sum_sleep_ms / n,
+                sum_iter_ms / n,
+                target.as_secs_f64() * 1000.0,
+            );
+            frames = 0;
+            sum_get_ms = 0.0;
+            sum_decode_ms = 0.0;
+            sum_convert_ms = 0.0;
+            sum_capture_ms = 0.0;
+            sum_sleep_ms = 0.0;
+            sum_iter_ms = 0.0;
+            last_fps_log = Instant::now();
+        }
     }
 }
 
