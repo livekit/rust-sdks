@@ -15,3 +15,7 @@ bindgen() {
 bindgen swift
 bindgen kotlin
 bindgen python
+
+
+cargo install uniffi-bindgen-cs --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.10.0+v0.29.4
+uniffi-bindgen-cs --library ../target/release/liblivekit_uniffi.dylib --out-dir generated/csharp
