@@ -130,14 +130,14 @@ async fn main() -> Result<()> {
         args.fps,
     );
     let mut using_fmt = "YUYV";
-    if let Err(_) = camera.set_camera_format(wanted) {
+    if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(wanted))) {
         let alt = CameraFormat::new(
             Resolution::new(args.width, args.height),
             FrameFormat::MJPEG,
             args.fps,
         );
         using_fmt = "MJPEG";
-        let _ = camera.set_camera_format(alt);
+        let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
     }
     camera.open_stream()?;
     let fmt = camera.camera_format();
@@ -256,7 +256,7 @@ async fn main() -> Result<()> {
 
         frames += 1;
         // We already paced via interval; measure actual sleep time for logging only
-        let sleep_dur = (iter_start - wait_start);
+        let sleep_dur = iter_start - wait_start;
 
         // Per-iteration timing bookkeeping
         let t_end = Instant::now();
