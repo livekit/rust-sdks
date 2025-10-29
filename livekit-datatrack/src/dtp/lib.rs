@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod builder;
-mod common;
-mod parse;
-
-pub use builder::{DtpBuilder, BuildError};
-pub use parse::{Dtp, ParseError};
-pub use common::{Encryption, Iv};
+mod packet;
+mod track_handle;
+mod deserialize;
+mod serialize;
