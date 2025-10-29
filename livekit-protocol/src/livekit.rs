@@ -409,6 +409,10 @@ pub mod participant_info {
         Sip = 3,
         /// LiveKit agents
         Agent = 4,
+        /// Connectors participants
+        ///
+        /// NEXT_ID: 8
+        Connector = 7,
     }
     impl Kind {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -422,6 +426,7 @@ pub mod participant_info {
                 Kind::Egress => "EGRESS",
                 Kind::Sip => "SIP",
                 Kind::Agent => "AGENT",
+                Kind::Connector => "CONNECTOR",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -432,6 +437,7 @@ pub mod participant_info {
                 "EGRESS" => Some(Self::Egress),
                 "SIP" => Some(Self::Sip),
                 "AGENT" => Some(Self::Agent),
+                "CONNECTOR" => Some(Self::Connector),
                 _ => None,
             }
         }
@@ -586,23 +592,20 @@ pub struct TrackInfo {
 pub struct DataTrackInfo {
     #[prost(string, tag="1")]
     pub sid: ::prost::alloc::string::String,
-    /// 16-bit, SFU-assigned identifier used to associate packets with the track, unique per room.
-    #[prost(uint32, tag="2")]
-    pub handle: u32,
     /// Human-readable identifier (e.g., `geoLocation`, `servoPosition.x`, etc.), unique per publisher.
-    #[prost(string, tag="3")]
+    #[prost(string, tag="2")]
     pub name: ::prost::alloc::string::String,
     /// MIME type of the data sent over the track (e.g., `application/json`).
     /// This must be a valid MIME type as defined by RFC 2046.
-    #[prost(string, tag="4")]
+    #[prost(string, tag="3")]
     pub mime_type: ::prost::alloc::string::String,
     /// Method used for end-to-end encryption (E2EE) on packet payloads.
-    #[prost(enumeration="encryption::Type", tag="5")]
+    #[prost(enumeration="encryption::Type", tag="4")]
     pub encryption: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DataTrackSubscribeOptions {
+pub struct DataTrackSubscriptionOptions {
     /// Rate in frames per second (FPS) the subscriber wants to receive frames at.
     /// If omitted, the subscriber defaults to the publisher's nominal FPS; if the
     /// publisher has no nominal FPS, it will use the maximum.
@@ -3056,7 +3059,7 @@ impl EgressSourceType {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalRequest {
-    #[prost(oneof="signal_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20")]
+    #[prost(oneof="signal_request::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21")]
     pub message: ::core::option::Option<signal_request::Message>,
 }
 /// Nested message and enum types in `SignalRequest`.
@@ -3117,16 +3120,19 @@ pub mod signal_request {
         UpdateVideoTrack(super::UpdateLocalVideoTrack),
         /// Publish a data track
         #[prost(message, tag="19")]
-        AddDataTrack(super::AddDataTrackRequest),
-        /// Update subscription state for one or more data tracks
+        PublishDataTrack(super::PublishDataTrackRequest),
+        /// Unpublish a data track
         #[prost(message, tag="20")]
+        UnpublishDataTrack(super::UnpublishDataTrackRequest),
+        /// Update subscription state for one or more data tracks
+        #[prost(message, tag="21")]
         UpdateDataSubscription(super::UpdateDataSubscription),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalResponse {
-    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27")]
+    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29")]
     pub message: ::core::option::Option<signal_response::Message>,
 }
 /// Nested message and enum types in `SignalResponse`.
@@ -3212,9 +3218,15 @@ pub mod signal_response {
         /// when audio subscription changes, used to enable simulcasting of audio codecs based on subscriptions
         #[prost(message, tag="26")]
         SubscribedAudioCodecUpdate(super::SubscribedAudioCodecUpdate),
-        /// Sent in response to `AddDataTrackRequest`.
+        /// Sent in response to `PublishDataTrackRequest`.
         #[prost(message, tag="27")]
-        DataTrackPublished(super::DataTrackPublishedResponse),
+        PublishDataTrack(super::PublishDataTrackResponse),
+        /// Sent in response to `UnpublishDataTrackRequest` or SFU-initiated unpublish.
+        #[prost(message, tag="28")]
+        UnpublishDataTrack(super::UnpublishDataTrackResponse),
+        /// Sent to data track subscribers to provide mapping from track SIDs to handles.
+        #[prost(message, tag="29")]
+        DataTrackHandles(super::DataTrackSubscriberHandles),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3281,74 +3293,51 @@ pub struct AddTrackRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AddDataTrackRequest {
+pub struct PublishDataTrackRequest {
+    /// 16-bit identifier attached to packets, unique per publisher.
+    #[prost(uint32, tag="1")]
+    pub handle: u32,
     /// Human-readable identifier (e.g., `geoLocation`, `servoPosition.x`, etc.), unique per publisher.
-    #[prost(string, tag="1")]
+    #[prost(string, tag="2")]
     pub name: ::prost::alloc::string::String,
     /// MIME type of the data sent over the track (e.g., `application/json`).
     /// This must be a valid MIME type as defined by RFC 2046.
-    #[prost(string, tag="2")]
+    #[prost(string, tag="3")]
     pub mime_type: ::prost::alloc::string::String,
     /// Method used for end-to-end encryption (E2EE) on frame payloads.
-    #[prost(enumeration="encryption::Type", tag="3")]
+    #[prost(enumeration="encryption::Type", tag="4")]
     pub encryption: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct DataTrackPublishedResponse {
+pub struct PublishDataTrackResponse {
+    /// Handle of the track that was published.
     #[prost(uint32, tag="1")]
-    pub request_id: u32,
-    #[prost(oneof="data_track_published_response::Result", tags="2, 3")]
-    pub result: ::core::option::Option<data_track_published_response::Result>,
+    pub handle: u32,
+    /// Information about the published track.
+    #[prost(message, optional, tag="2")]
+    pub info: ::core::option::Option<DataTrackInfo>,
 }
-/// Nested message and enum types in `DataTrackPublishedResponse`.
-pub mod data_track_published_response {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-    #[repr(i32)]
-    pub enum Error {
-        /// Unknown reason.
-        Unknown = 0,
-        /// Name is invalid.
-        InvalidName = 1,
-        /// MIME type is invalid.
-        InvalidMimeType = 2,
-        /// Publisher already has a data track published with the same name.
-        NameTaken = 3,
-    }
-    impl Error {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                Error::Unknown => "UNKNOWN",
-                Error::InvalidName => "INVALID_NAME",
-                Error::InvalidMimeType => "INVALID_MIME_TYPE",
-                Error::NameTaken => "NAME_TAKEN",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "UNKNOWN" => Some(Self::Unknown),
-                "INVALID_NAME" => Some(Self::InvalidName),
-                "INVALID_MIME_TYPE" => Some(Self::InvalidMimeType),
-                "NAME_TAKEN" => Some(Self::NameTaken),
-                _ => None,
-            }
-        }
-    }
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Result {
-        /// Track was successfully published, track info is provided.
-        #[prost(message, tag="2")]
-        Ok(super::DataTrackInfo),
-        /// Track could not be published, reason is provided.
-        #[prost(enumeration="Error", tag="3")]
-        Error(i32),
-    }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UnpublishDataTrackRequest {
+    /// Handle of the track to unpublish.
+    #[prost(uint32, tag="1")]
+    pub handle: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct UnpublishDataTrackResponse {
+    /// Handle of the track that was unpublished.
+    #[prost(uint32, tag="1")]
+    pub handle: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DataTrackSubscriberHandles {
+    /// Mapping from data track SIDs to handles subscribers will see on incoming packets.
+    #[prost(map="string, uint32", tag="1")]
+    pub handles: ::std::collections::HashMap<::prost::alloc::string::String, u32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3446,6 +3435,8 @@ pub struct SessionDescription {
     pub sdp: ::prost::alloc::string::String,
     #[prost(uint32, tag="3")]
     pub id: u32,
+    #[prost(map="string, string", tag="4")]
+    pub mid_to_track_id: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3466,14 +3457,23 @@ pub struct UpdateSubscription {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UpdateDataSubscription {
-    #[prost(string, repeated, tag="1")]
-    pub track_sids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(bool, tag="2")]
-    pub subscribe: bool,
-    /// Options for each track subscription. Entries in this list align
-    /// positionally with `track_sids`.
-    #[prost(message, repeated, tag="3")]
-    pub options: ::prost::alloc::vec::Vec<DataTrackSubscribeOptions>,
+    #[prost(message, repeated, tag="1")]
+    pub updates: ::prost::alloc::vec::Vec<update_data_subscription::Update>,
+}
+/// Nested message and enum types in `UpdateDataSubscription`.
+pub mod update_data_subscription {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+    pub struct Update {
+        #[prost(string, tag="1")]
+        pub sid: ::prost::alloc::string::String,
+        #[prost(bool, tag="2")]
+        pub subscribe: bool,
+        /// Options to apply when initially subscribing or updating an existing subscription.
+        /// When unsubscribing, this field is ignored.
+        #[prost(message, optional, tag="3")]
+        pub options: ::core::option::Option<super::DataTrackSubscriptionOptions>,
+    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3864,7 +3864,7 @@ pub struct RequestResponse {
     pub reason: i32,
     #[prost(string, tag="3")]
     pub message: ::prost::alloc::string::String,
-    #[prost(oneof="request_response::Request", tags="4, 5, 6, 7, 8, 9")]
+    #[prost(oneof="request_response::Request", tags="4, 5, 6, 7, 8, 9, 10, 11")]
     pub request: ::core::option::Option<request_response::Request>,
 }
 /// Nested message and enum types in `RequestResponse`.
@@ -3879,6 +3879,10 @@ pub mod request_response {
         Queued = 4,
         UnsupportedType = 5,
         UnclassifiedError = 6,
+        DataTrackInvalidHandle = 7,
+        DataTrackInvalidName = 8,
+        DataTrackInvalidMimeType = 9,
+        DataTrackNameTaken = 10,
     }
     impl Reason {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -3894,6 +3898,10 @@ pub mod request_response {
                 Reason::Queued => "QUEUED",
                 Reason::UnsupportedType => "UNSUPPORTED_TYPE",
                 Reason::UnclassifiedError => "UNCLASSIFIED_ERROR",
+                Reason::DataTrackInvalidHandle => "DATA_TRACK_INVALID_HANDLE",
+                Reason::DataTrackInvalidName => "DATA_TRACK_INVALID_NAME",
+                Reason::DataTrackInvalidMimeType => "DATA_TRACK_INVALID_MIME_TYPE",
+                Reason::DataTrackNameTaken => "DATA_TRACK_NAME_TAKEN",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3906,6 +3914,10 @@ pub mod request_response {
                 "QUEUED" => Some(Self::Queued),
                 "UNSUPPORTED_TYPE" => Some(Self::UnsupportedType),
                 "UNCLASSIFIED_ERROR" => Some(Self::UnclassifiedError),
+                "DATA_TRACK_INVALID_HANDLE" => Some(Self::DataTrackInvalidHandle),
+                "DATA_TRACK_INVALID_NAME" => Some(Self::DataTrackInvalidName),
+                "DATA_TRACK_INVALID_MIME_TYPE" => Some(Self::DataTrackInvalidMimeType),
+                "DATA_TRACK_NAME_TAKEN" => Some(Self::DataTrackNameTaken),
                 _ => None,
             }
         }
@@ -3925,6 +3937,10 @@ pub mod request_response {
         UpdateAudioTrack(super::UpdateLocalAudioTrack),
         #[prost(message, tag="9")]
         UpdateVideoTrack(super::UpdateLocalVideoTrack),
+        #[prost(message, tag="10")]
+        PublishDataTrack(super::PublishDataTrackRequest),
+        #[prost(message, tag="11")]
+        UnpublishDataTrack(super::UnpublishDataTrackRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -5274,6 +5290,18 @@ pub struct CreateSipTrunkRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ProviderInfo {
+    #[prost(string, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(enumeration="ProviderType", tag="3")]
+    pub r#type: i32,
+    #[prost(bool, tag="4")]
+    pub prevent_transfer: bool,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SipTrunkInfo {
     #[prost(string, tag="1")]
     pub sip_trunk_id: ::prost::alloc::string::String,
@@ -5939,10 +5967,11 @@ pub struct CreateSipParticipantRequest {
     /// 1) Unspecified: Use legacy behavior - display name will be set to be the caller's number.
     /// 2) Empty string: Do not send a display name, which will result in a CNAM lookup downstream.
     /// 3) Non-empty: Use the specified value as the display name.
-    ///
-    /// NEXT ID: 22
     #[prost(string, optional, tag="21")]
     pub display_name: ::core::option::Option<::prost::alloc::string::String>,
+    /// NEXT ID: 23
+    #[prost(message, optional, tag="22")]
+    pub destination: ::core::option::Option<Destination>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -6034,6 +6063,8 @@ pub struct SipCallInfo {
     pub pcap_file_link: ::prost::alloc::string::String,
     #[prost(message, repeated, tag="26")]
     pub call_context: ::prost::alloc::vec::Vec<::pbjson_types::Any>,
+    #[prost(message, optional, tag="27")]
+    pub provider_info: ::core::option::Option<ProviderInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -6068,6 +6099,16 @@ pub struct SipUri {
     pub port: u32,
     #[prost(enumeration="SipTransport", tag="5")]
     pub transport: i32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Destination {
+    #[prost(string, tag="1")]
+    pub city: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub country: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub region: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -6328,6 +6369,37 @@ impl SipMediaEncryption {
             "SIP_MEDIA_ENCRYPT_DISABLE" => Some(Self::SipMediaEncryptDisable),
             "SIP_MEDIA_ENCRYPT_ALLOW" => Some(Self::SipMediaEncryptAllow),
             "SIP_MEDIA_ENCRYPT_REQUIRE" => Some(Self::SipMediaEncryptRequire),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ProviderType {
+    Unknown = 0,
+    /// Internally implemented
+    Internal = 1,
+    /// Vendor provided
+    External = 2,
+}
+impl ProviderType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ProviderType::Unknown => "PROVIDER_TYPE_UNKNOWN",
+            ProviderType::Internal => "PROVIDER_TYPE_INTERNAL",
+            ProviderType::External => "PROVIDER_TYPE_EXTERNAL",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PROVIDER_TYPE_UNKNOWN" => Some(Self::Unknown),
+            "PROVIDER_TYPE_INTERNAL" => Some(Self::Internal),
+            "PROVIDER_TYPE_EXTERNAL" => Some(Self::External),
             _ => None,
         }
     }
