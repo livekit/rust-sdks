@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::track_handle::TrackHandle;
+use super::track_handle::TrackHandle;
 use bytes::Bytes;
 use core::fmt;
 
@@ -38,6 +38,18 @@ pub struct Header {
 pub struct E2ee {
     pub key_index: u8,
     pub iv: [u8; 12],
+}
+
+impl Dtp {
+    /// Whether the packet is the final one in a frame.
+    pub fn is_final(&self) -> bool {
+        self.header.is_final
+    }
+
+    /// Whether the packet's payload is encrypted.
+    pub fn is_encrypted(&self) -> bool {
+        self.header.e2ee.is_some()
+    }
 }
 
 impl fmt::Debug for Dtp {

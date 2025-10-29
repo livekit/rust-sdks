@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::packet::{Dtp, Header, consts::*};
+use super::packet::{Dtp, Header, consts::*};
 use bytes::{BufMut, Bytes, BytesMut};
 use thiserror::Error;
 
@@ -138,8 +138,7 @@ impl Header {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::packet::E2ee;
+    use super::{*, super::packet::E2ee};
     use bytes::Buf;
 
     /// Constructed packet to use in tests.
