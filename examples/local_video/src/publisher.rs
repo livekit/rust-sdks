@@ -123,7 +123,7 @@ async fn main() -> Result<()> {
     let index = CameraIndex::Index(args.camera_index as u32);
     let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
     let mut camera = Camera::new(index, requested)?;
-    // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
+    // Try raw YUYV first (cheaper than MJPEG), then UYVY, fall back to MJPEG
     let wanted = CameraFormat::new(
         Resolution::new(args.width, args.height),
         FrameFormat::YUYV,
@@ -131,13 +131,23 @@ async fn main() -> Result<()> {
     );
     let mut using_fmt = "YUYV";
     if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(wanted))) {
-        let alt = CameraFormat::new(
+        // Try UYVY as an alternative packed 4:2:2 format
+        let alt_uyvy = CameraFormat::new(
             Resolution::new(args.width, args.height),
-            FrameFormat::MJPEG,
+            FrameFormat::UYVY,
             args.fps,
         );
-        using_fmt = "MJPEG";
-        let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
+        if camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt_uyvy))).is_ok() {
+            using_fmt = "UYVY";
+        } else {
+            let alt = CameraFormat::new(
+                Resolution::new(args.width, args.height),
+                FrameFormat::MJPEG,
+                args.fps,
+            );
+            using_fmt = "MJPEG";
+            let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
+        }
     }
     camera.open_stream()?;
     let fmt = camera.camera_format();
@@ -172,6 +182,7 @@ async fn main() -> Result<()> {
     // Reusable I420 buffer and frame
     let mut frame = VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: 0, buffer: I420Buffer::new(width, height) };
     let is_yuyv = using_fmt == "YUYV";
+    let is_uyvy = using_fmt == "UYVY";
 
     // Accurate pacing using absolute schedule (no drift)
     let mut ticker = tokio::time::interval(Duration::from_secs_f64(1.0 / pace_fps));
@@ -205,26 +216,41 @@ async fn main() -> Result<()> {
         let t1 = Instant::now();
         let (stride_y, stride_u, stride_v) = frame.buffer.strides();
         let (data_y, data_u, data_v) = frame.buffer.data_mut();
-        // Fast path for YUYV: convert directly to I420 via libyuv
-        let t2 = if is_yuyv {
+        // Fast path for YUYV/UYVY: convert directly to I420 via libyuv
+        let t2 = if is_yuyv || is_uyvy {
             let src = frame_buf.buffer();
             let src_bytes = src.as_ref();
-            let src_stride = (width * 2) as i32; // YUYV packed 4:2:2
-            let t2_local = t1; // no decode step in YUYV path
+            let src_stride = (width * 2) as i32; // packed 4:2:2
+            let t2_local = t1; // no decode step in packed YUV path
             unsafe {
                 // returns 0 on success
-                let _ = yuv_sys::rs_YUY2ToI420(
-                    src_bytes.as_ptr(),
-                    src_stride,
-                    data_y.as_mut_ptr(),
-                    stride_y as i32,
-                    data_u.as_mut_ptr(),
-                    stride_u as i32,
-                    data_v.as_mut_ptr(),
-                    stride_v as i32,
-                    width as i32,
-                    height as i32,
-                );
+                if is_yuyv {
+                    let _ = yuv_sys::rs_YUY2ToI420(
+                        src_bytes.as_ptr(),
+                        src_stride,
+                        data_y.as_mut_ptr(),
+                        stride_y as i32,
+                        data_u.as_mut_ptr(),
+                        stride_u as i32,
+                        data_v.as_mut_ptr(),
+                        stride_v as i32,
+                        width as i32,
+                        height as i32,
+                    );
+                } else {
+                    let _ = yuv_sys::rs_UYVYToI420(
+                        src_bytes.as_ptr(),
+                        src_stride,
+                        data_y.as_mut_ptr(),
+                        stride_y as i32,
+                        data_u.as_mut_ptr(),
+                        stride_u as i32,
+                        data_v.as_mut_ptr(),
+                        stride_v as i32,
+                        width as i32,
+                        height as i32,
+                    );
+                }
             }
             t2_local
         } else {
