@@ -9,7 +9,6 @@ use livekit_api::access_token;
 use log::{debug, info};
 use yuv_sys as yuv_sys;
 use nokhwa::pixel_format::RgbFormat;
-use nokhwa::pixel_format::LumaFormat;
 use nokhwa::utils::{ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution};
 use nokhwa::Camera;
 use std::env;
@@ -122,63 +121,23 @@ async fn main() -> Result<()> {
 
     // Setup camera
     let index = CameraIndex::Index(args.camera_index as u32);
-    // Prefer LumaFormat for grayscale cameras; fall back to RgbFormat if not supported
-    let mut camera = match Camera::new(
-        index.clone(),
-        RequestedFormat::new::<LumaFormat>(RequestedFormatType::AbsoluteHighestFrameRate),
-    ) {
-        Ok(cam) => {
-            info!("Opened camera with LumaFormat output (highest framerate)");
-            cam
-        }
-        Err(e) => {
-            info!(
-                "LumaFormat not available ({}); falling back to RgbFormat output",
-                e
-            );
-            Camera::new(
-                index.clone(),
-                RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate),
-            )?
-        }
-    };
-    // Try raw YUYV first (cheaper than MJPEG), then GREY, then fall back to MJPEG
+    let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
+    let mut camera = Camera::new(index, requested)?;
+    // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
     let wanted = CameraFormat::new(
         Resolution::new(args.width, args.height),
         FrameFormat::YUYV,
         args.fps,
     );
     let mut using_fmt = "YUYV";
-    info!(
-        "Requesting camera format: YUYV {}x{} @ {} fps",
-        args.width, args.height, args.fps
-    );
     if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(wanted))) {
-        // Try GREY (I400)
-        let grey = CameraFormat::new(
+        let alt = CameraFormat::new(
             Resolution::new(args.width, args.height),
-            FrameFormat::GRAY,
+            FrameFormat::MJPEG,
             args.fps,
         );
-        using_fmt = "GREY";
-        info!(
-            "Requesting camera format: GREY {}x{} @ {} fps",
-            args.width, args.height, args.fps
-        );
-        if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(grey))) {
-            // Fall back to MJPEG
-            let alt = CameraFormat::new(
-                Resolution::new(args.width, args.height),
-                FrameFormat::MJPEG,
-                args.fps,
-            );
-            using_fmt = "MJPEG";
-            info!(
-                "Requesting camera format: MJPEG {}x{} @ {} fps",
-                args.width, args.height, args.fps
-            );
-            let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
-        }
+        using_fmt = "MJPEG";
+        let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
     }
     camera.open_stream()?;
     let fmt = camera.camera_format();
@@ -275,32 +234,13 @@ async fn main() -> Result<()> {
             }
             t2_local
         } else {
-            // Auto path: handle GREY (I400), RGB24, or compressed MJPEG
+            // Auto path (either RGB24 already or compressed MJPEG)
             let src = frame_buf.buffer();
-            let src_bytes = src.as_ref();
-            let grey_len = (width as usize) * (height as usize);
-            let t2_local = if src_bytes.len() == grey_len {
-                // GREY/I400: use libyuv converter
-                unsafe {
-                    let _ = yuv_sys::rs_I400ToI420(
-                        src_bytes.as_ptr(),
-                        width as i32,
-                        data_y.as_mut_ptr(),
-                        stride_y as i32,
-                        data_u.as_mut_ptr(),
-                        stride_u as i32,
-                        data_v.as_mut_ptr(),
-                        stride_v as i32,
-                        width as i32,
-                        height as i32,
-                    );
-                }
-                Instant::now()
-            } else if src_bytes.len() == (width as usize * height as usize * 3) {
+            let t2_local = if src.len() == (width as usize * height as usize * 3) {
                 // Already RGB24 from backend; convert directly
                 unsafe {
                     let _ = yuv_sys::rs_RGB24ToI420(
-                        src_bytes.as_ptr(),
+                        src.as_ref().as_ptr(),
                         (width * 3) as i32,
                         data_y.as_mut_ptr(),
                         stride_y as i32,
@@ -319,8 +259,8 @@ async fn main() -> Result<()> {
                 let t2_try = unsafe {
                     // rs_MJPGToI420 returns 0 on success
                     let ret = yuv_sys::rs_MJPGToI420(
-                        src_bytes.as_ptr(),
-                        src_bytes.len(),
+                        src.as_ref().as_ptr(),
+                        src.len(),
                         data_y.as_mut_ptr(),
                         stride_y as i32,
                         data_u.as_mut_ptr(),
@@ -338,7 +278,7 @@ async fn main() -> Result<()> {
                     t2_try
                 } else {
                     // Fallback: decode MJPEG using image crate then RGB24->I420
-                    match image::load_from_memory(src_bytes) {
+                    match image::load_from_memory(src.as_ref()) {
                         Ok(img_dyn) => {
                             let rgb8 = img_dyn.to_rgb8();
                             let dec_w = rgb8.width() as u32;
@@ -369,7 +309,7 @@ async fn main() -> Result<()> {
                         Err(e2) => {
                             if !logged_mjpeg_fallback {
                                 log::error!(
-                                    "MJPEG decode failed; buffer not RGB24/GRY8 and image decode failed: {}",
+                                    "MJPEG decode failed; buffer not RGB24 and image decode failed: {}",
                                     e2
                                 );
                                 logged_mjpeg_fallback = true;
