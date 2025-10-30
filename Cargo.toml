@@ -30,11 +30,11 @@ members = [
 
 [workspace.dependencies]
 imgproc = { version = "0.3.15", path = "imgproc" }
-libwebrtc = { version = "0.3.19", path = "libwebrtc" }
-livekit = { version = "0.7.24", path = "livekit" }
-livekit-api = { version = "0.4.9", path = "livekit-api" }
-livekit-ffi = { version = "0.12.39", path = "livekit-ffi" }
-livekit-protocol = { version = "0.5.1", path = "livekit-protocol" }
+libwebrtc = { version = "0.3.20", path = "libwebrtc" }
+livekit = { version = "0.7.25", path = "livekit" }
+livekit-api = { version = "0.4.10", path = "livekit-api" }
+livekit-ffi = { version = "0.12.40", path = "livekit-ffi" }
+livekit-protocol = { version = "0.5.2", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
 soxr-sys = { version = "0.1.1", path = "soxr-sys" }
 webrtc-sys = { version = "0.3.16", path = "webrtc-sys" }
