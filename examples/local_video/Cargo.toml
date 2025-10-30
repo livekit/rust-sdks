@@ -14,7 +14,7 @@ path = "src/subscriber.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full", "parking_lot"] }
-livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit = { workspace = true }
 webrtc-sys = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-api = { workspace = true }
