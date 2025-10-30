@@ -123,7 +123,7 @@ async fn main() -> Result<()> {
     let index = CameraIndex::Index(args.camera_index as u32);
     let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
     let mut camera = Camera::new(index, requested)?;
-    // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
+    // Try raw YUYV first (cheaper than MJPEG), then GREY, then fall back to MJPEG
     let wanted = CameraFormat::new(
         Resolution::new(args.width, args.height),
         FrameFormat::YUYV,
@@ -131,13 +131,23 @@ async fn main() -> Result<()> {
     );
     let mut using_fmt = "YUYV";
     if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(wanted))) {
-        let alt = CameraFormat::new(
+        // Try GREY (I400)
+        let grey = CameraFormat::new(
             Resolution::new(args.width, args.height),
-            FrameFormat::MJPEG,
+            FrameFormat::GRAY,
             args.fps,
         );
-        using_fmt = "MJPEG";
-        let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
+        using_fmt = "GREY";
+        if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(grey))) {
+            // Fall back to MJPEG
+            let alt = CameraFormat::new(
+                Resolution::new(args.width, args.height),
+                FrameFormat::MJPEG,
+                args.fps,
+            );
+            using_fmt = "MJPEG";
+            let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
+        }
     }
     camera.open_stream()?;
     let fmt = camera.camera_format();
