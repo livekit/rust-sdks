@@ -21,7 +21,7 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --arch)
       arch="$2"
-      if [ "$arch" != "x64" ] && [ "$arch" != "arm64" ]; then
+      if [ "$arch" != "x64" ] && [ "$arch" != "arm64" ] && [ "$arch" != "riscv64" ]; then
         echo "Error: Invalid value for --arch. Must be 'x64' or 'arm64'."
         exit 1
       fi
@@ -85,7 +85,24 @@ cd ../..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
 
+if [[ "$arch" == "riscv64" ]]
+then
+# somehow you have to configure ffmpeg manually for riscv64
+cd src/third_party/ffmpeg && ./configure --arch=riscv64 --no-asm && make -j16 || true && cd ../../../
+
+# Manually create a sysroot
+sudo apt-get install libasound2-dev libpulse-dev libavutil-dev g++-riscv64-linux-gnu debootstrap
+sudo debootstrap \
+  --arch=riscv64 \
+  --include=qtbase5-dev,qt6-base-dev,qt6-base-dev-tools,krb5-multidev,libasound2-dev,libatk-bridge2.0-dev,libatk1.0-dev,libatspi2.0-dev,libblkid-dev,libbluetooth-dev,libc-dev-bin,libc6-dev,libcrypt-dev,libcups2-dev,libcurl4-gnutls-dev,libdbus-1-dev,libdbusmenu-glib-dev,libdbusmenu-gtk3-dev,libdevmapper1.02.1,libdrm-dev,libffi-dev,libflac-dev,libgbm-dev,libgcc-12-dev,libgcrypt20-dev,libgdk-pixbuf-2.0-dev,libgl1-mesa-dev,libglib2.0-dev,libglib2.0-dev-bin,libgtk-3-dev,libgtk-4-dev,libjsoncpp-dev,libkrb5-dev,libmount-dev,libnotify-dev,libnsl-dev,libnss3-dev,libpango1.0-dev,libpci-dev,libpcre2-dev,libpipewire-0.3-dev,libpulse-dev,libre2-dev,libselinux1-dev,libsepol-dev,libspeechd-dev,libstdc++-12-dev,libstdc++-13-dev,libtirpc-dev,libudev1,libva-dev,libx11-xcb-dev,libxkbcommon-x11-dev,libxshmfence-dev,linux-libc-dev,mesa-common-dev,uuid-dev,zlib1g-dev,wayland-protocols,libasan8 \
+  sid \
+  build/linux/debian_sid_riscv64-sysroot \
+  https://snapshot.debian.org/archive/debian/20240907T023014Z/
+
+sudo chown 1000:1000 -R src/build/linux/debian_sid_riscv64-sysroot
+else
 python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
+fi
 
 if [ "$arch" = "arm64" ]; then
   sudo sed -i 's/__GLIBC_USE_ISOC2X[[:space:]]*1/__GLIBC_USE_ISOC2X\t0/' /usr/aarch64-linux-gnu/include/features.h
@@ -95,6 +112,8 @@ debug="false"
 if [ "$profile" = "debug" ]; then
   debug="true"
 fi
+
+set -e
 
 args="is_debug=$debug  \
   target_os=\"linux\" \
