@@ -145,6 +145,7 @@ async fn main() -> Result<()> {
     let height = fmt.height();
     let fps = fmt.frame_rate();
     info!("Camera opened: {}x{} @ {} fps (format: {})", width, height, fps, using_fmt);
+    debug!("Negotiated nokhwa CameraFormat: {:?}", fmt);
     // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
     let pace_fps = args.fps as f64;
 
@@ -172,6 +173,10 @@ async fn main() -> Result<()> {
     // Reusable I420 buffer and frame
     let mut frame = VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: 0, buffer: I420Buffer::new(width, height) };
     let is_yuyv = using_fmt == "YUYV";
+    info!(
+        "Selected conversion path: {}",
+        if is_yuyv { "YUYV->I420 (libyuv)" } else { "MJPEG->RGB->I420" }
+    );
 
     // Accurate pacing using absolute schedule (no drift)
     let mut ticker = tokio::time::interval(Duration::from_secs_f64(1.0 / pace_fps));
@@ -193,6 +198,7 @@ async fn main() -> Result<()> {
     let mut sum_capture_ms = 0.0;
     let mut sum_sleep_ms = 0.0;
     let mut sum_iter_ms = 0.0;
+    let mut logged_mjpeg_fallback = false;
     loop {
         // Wait until the scheduled next frame time
         let wait_start = Instant::now();
@@ -228,23 +234,73 @@ async fn main() -> Result<()> {
             }
             t2_local
         } else {
-            // Fallback (e.g., MJPEG): decode to RGB24 then convert to I420
-            let rgb = frame_buf.decode_image::<RgbFormat>()?;
-            let t2_local = Instant::now();
-            unsafe {
-                let _ = yuv_sys::rs_RGB24ToI420(
-                    rgb.as_raw().as_ptr(),
-                    (width * 3) as i32,
-                    data_y.as_mut_ptr(),
-                    stride_y as i32,
-                    data_u.as_mut_ptr(),
-                    stride_u as i32,
-                    data_v.as_mut_ptr(),
-                    stride_v as i32,
-                    width as i32,
-                    height as i32,
-                );
-            }
+            // Fallback (e.g., MJPEG): try nokhwa's decode first; if that fails, use image crate
+            let t2_local = match frame_buf.decode_image::<RgbFormat>() {
+                Ok(rgb) => {
+                    unsafe {
+                        let _ = yuv_sys::rs_RGB24ToI420(
+                            rgb.as_raw().as_ptr(),
+                            (width * 3) as i32,
+                            data_y.as_mut_ptr(),
+                            stride_y as i32,
+                            data_u.as_mut_ptr(),
+                            stride_u as i32,
+                            data_v.as_mut_ptr(),
+                            stride_v as i32,
+                            width as i32,
+                            height as i32,
+                        );
+                    }
+                    Instant::now()
+                }
+                Err(e) => {
+                    if !logged_mjpeg_fallback {
+                        log::warn!(
+                            "MJPEG decode via nokhwa failed: {}. Falling back to image crate decode.",
+                            e
+                        );
+                        logged_mjpeg_fallback = true;
+                    }
+                    let src = frame_buf.buffer();
+                    match image::load_from_memory(src.as_ref()) {
+                        Ok(img_dyn) => {
+                            let rgb8 = img_dyn.to_rgb8();
+                            let dec_w = rgb8.width() as u32;
+                            let dec_h = rgb8.height() as u32;
+                            if dec_w != width || dec_h != height {
+                                log::warn!(
+                                    "Decoded MJPEG size {}x{} differs from camera {}x{}; skipping resize and attempting convert as-is",
+                                    dec_w,
+                                    dec_h,
+                                    width,
+                                    height
+                                );
+                            }
+                            unsafe {
+                                let _ = yuv_sys::rs_RGB24ToI420(
+                                    rgb8.as_raw().as_ptr(),
+                                    (dec_w * 3) as i32,
+                                    data_y.as_mut_ptr(),
+                                    stride_y as i32,
+                                    data_u.as_mut_ptr(),
+                                    stride_u as i32,
+                                    data_v.as_mut_ptr(),
+                                    stride_v as i32,
+                                    width as i32,
+                                    height as i32,
+                                );
+                            }
+                            Instant::now()
+                        }
+                        Err(e2) => {
+                            return Err(anyhow::anyhow!(
+                                "MJPEG decode failed: {}; fallback with image crate also failed: {}",
+                                e, e2
+                            ));
+                        }
+                    }
+                }
+            };
             t2_local
         };
         let t3 = Instant::now();
