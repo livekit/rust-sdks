@@ -234,13 +234,32 @@ async fn main() -> Result<()> {
             }
             t2_local
         } else {
-            // Auto path (either RGB24 already or compressed MJPEG)
+            // Auto path: handle GREY (I400), RGB24, or compressed MJPEG
             let src = frame_buf.buffer();
-            let t2_local = if src.len() == (width as usize * height as usize * 3) {
+            let src_bytes = src.as_ref();
+            let grey_len = (width as usize) * (height as usize);
+            let t2_local = if src_bytes.len() == grey_len {
+                // GREY/I400: use libyuv converter
+                unsafe {
+                    let _ = yuv_sys::rs_I400ToI420(
+                        src_bytes.as_ptr(),
+                        width as i32,
+                        data_y.as_mut_ptr(),
+                        stride_y as i32,
+                        data_u.as_mut_ptr(),
+                        stride_u as i32,
+                        data_v.as_mut_ptr(),
+                        stride_v as i32,
+                        width as i32,
+                        height as i32,
+                    );
+                }
+                Instant::now()
+            } else if src_bytes.len() == (width as usize * height as usize * 3) {
                 // Already RGB24 from backend; convert directly
                 unsafe {
                     let _ = yuv_sys::rs_RGB24ToI420(
-                        src.as_ref().as_ptr(),
+                        src_bytes.as_ptr(),
                         (width * 3) as i32,
                         data_y.as_mut_ptr(),
                         stride_y as i32,
@@ -259,8 +278,8 @@ async fn main() -> Result<()> {
                 let t2_try = unsafe {
                     // rs_MJPGToI420 returns 0 on success
                     let ret = yuv_sys::rs_MJPGToI420(
-                        src.as_ref().as_ptr(),
-                        src.len(),
+                        src_bytes.as_ptr(),
+                        src_bytes.len(),
                         data_y.as_mut_ptr(),
                         stride_y as i32,
                         data_u.as_mut_ptr(),
@@ -278,7 +297,7 @@ async fn main() -> Result<()> {
                     t2_try
                 } else {
                     // Fallback: decode MJPEG using image crate then RGB24->I420
-                    match image::load_from_memory(src.as_ref()) {
+                    match image::load_from_memory(src_bytes) {
                         Ok(img_dyn) => {
                             let rgb8 = img_dyn.to_rgb8();
                             let dec_w = rgb8.width() as u32;
@@ -309,7 +328,7 @@ async fn main() -> Result<()> {
                         Err(e2) => {
                             if !logged_mjpeg_fallback {
                                 log::error!(
-                                    "MJPEG decode failed; buffer not RGB24 and image decode failed: {}",
+                                    "MJPEG decode failed; buffer not RGB24/GRY8 and image decode failed: {}",
                                     e2
                                 );
                                 logged_mjpeg_fallback = true;
