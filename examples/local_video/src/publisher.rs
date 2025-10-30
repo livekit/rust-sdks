@@ -9,6 +9,7 @@ use livekit_api::access_token;
 use log::{debug, info};
 use yuv_sys as yuv_sys;
 use nokhwa::pixel_format::RgbFormat;
+use nokhwa::pixel_format::LumaFormat;
 use nokhwa::utils::{ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution};
 use nokhwa::Camera;
 use std::env;
@@ -121,8 +122,26 @@ async fn main() -> Result<()> {
 
     // Setup camera
     let index = CameraIndex::Index(args.camera_index as u32);
-    let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
-    let mut camera = Camera::new(index, requested)?;
+    // Prefer LumaFormat for grayscale cameras; fall back to RgbFormat if not supported
+    let mut camera = match Camera::new(
+        index.clone(),
+        RequestedFormat::new::<LumaFormat>(RequestedFormatType::AbsoluteHighestFrameRate),
+    ) {
+        Ok(cam) => {
+            info!("Opened camera with LumaFormat output (highest framerate)");
+            cam
+        }
+        Err(e) => {
+            info!(
+                "LumaFormat not available ({}); falling back to RgbFormat output",
+                e
+            );
+            Camera::new(
+                index.clone(),
+                RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate),
+            )?
+        }
+    };
     // Try raw YUYV first (cheaper than MJPEG), then GREY, then fall back to MJPEG
     let wanted = CameraFormat::new(
         Resolution::new(args.width, args.height),
