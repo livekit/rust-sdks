@@ -130,6 +130,10 @@ async fn main() -> Result<()> {
         args.fps,
     );
     let mut using_fmt = "YUYV";
+    info!(
+        "Requesting camera format: YUYV {}x{} @ {} fps",
+        args.width, args.height, args.fps
+    );
     if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(wanted))) {
         // Try GREY (I400)
         let grey = CameraFormat::new(
@@ -138,6 +142,10 @@ async fn main() -> Result<()> {
             args.fps,
         );
         using_fmt = "GREY";
+        info!(
+            "Requesting camera format: GREY {}x{} @ {} fps",
+            args.width, args.height, args.fps
+        );
         if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(grey))) {
             // Fall back to MJPEG
             let alt = CameraFormat::new(
@@ -146,6 +154,10 @@ async fn main() -> Result<()> {
                 args.fps,
             );
             using_fmt = "MJPEG";
+            info!(
+                "Requesting camera format: MJPEG {}x{} @ {} fps",
+                args.width, args.height, args.fps
+            );
             let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
         }
     }
