@@ -152,7 +152,7 @@ pub struct Claims {
 }
 
 impl Claims {
-    pub fn with_unverified(token: &str) -> Result<Self, AccessTokenError> {
+    pub fn from_unverified(token: &str) -> Result<Self, AccessTokenError> {
         let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.validate_exp = true;
         #[cfg(test)]
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_unverified_token() {
-        let claims = Claims::with_unverified(TEST_TOKEN).expect("Failed to parse token");
+        let claims = Claims::from_unverified(TEST_TOKEN).expect("Failed to parse token");
 
         assert_eq!(claims.sub, "identity");
         assert_eq!(claims.name, "name");
@@ -432,7 +432,7 @@ mod tests {
             .to_jwt()
             .unwrap();
 
-        let claims = Claims::with_unverified(&token).expect("Failed to parse fresh token");
+        let claims = Claims::from_unverified(&token).expect("Failed to parse fresh token");
         assert_eq!(claims.sub, "test");
         assert_eq!(claims.name, "test");
         assert_eq!(claims.video.room, "test-room");
@@ -441,7 +441,7 @@ mod tests {
         let parts: Vec<&str> = token.split('.').collect();
         let malformed_token = format!("{}.{}.wrongsignature", parts[0], parts[1]);
         
-        let claims = Claims::with_unverified(&malformed_token).expect("Failed to parse token with wrong signature");
+        let claims = Claims::from_unverified(&malformed_token).expect("Failed to parse token with wrong signature");
         assert_eq!(claims.sub, "test");
         assert_eq!(claims.name, "test");
     }
