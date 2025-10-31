@@ -151,6 +151,24 @@ pub struct Claims {
     pub room_config: Option<livekit_protocol::RoomConfiguration>,
 }
 
+impl Claims {
+    pub fn from_unverified(token: &str) -> Result<Self, AccessTokenError> {
+        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
+        validation.validate_exp = true;
+        validation.validate_nbf = true;
+        validation.set_required_spec_claims::<String>(&[]);
+        validation.insecure_disable_signature_validation();
+
+        let token = jsonwebtoken::decode::<Claims>(
+            token,
+            &DecodingKey::from_secret(&[]),
+            &validation,
+        )?;
+
+        Ok(token.claims)
+    }
+}
+
 #[derive(Clone)]
 pub struct AccessToken {
     api_key: String,
@@ -299,10 +317,6 @@ impl TokenVerifier {
     pub fn verify(&self, token: &str) -> Result<Claims, AccessTokenError> {
         let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.validate_exp = true;
-        #[cfg(test)] // FIXME: TEST_TOKEN is expired, TODO: generate TEST_TOKEN at test runtime
-        {
-            validation.validate_exp = false;
-        }
         validation.validate_nbf = true;
         validation.set_issuer(&[&self.api_key]);
 
@@ -320,7 +334,7 @@ impl TokenVerifier {
 mod tests {
     use std::time::Duration;
 
-    use super::{AccessToken, TokenVerifier, VideoGrants};
+    use super::{AccessToken, Claims, TokenVerifier, VideoGrants};
 
     const TEST_API_KEY: &str = "myapikey";
     const TEST_API_SECRET: &str = "thiskeyistotallyunsafe";
@@ -382,5 +396,45 @@ mod tests {
             },
             claims
         );
+    }
+
+    #[test]
+    fn test_unverified_token() {
+        let claims = Claims::from_unverified(TEST_TOKEN).expect("Failed to parse token");
+
+        assert_eq!(claims.sub, "identity");
+        assert_eq!(claims.name, "name");
+        assert_eq!(claims.iss, TEST_API_KEY);
+        assert_eq!(
+            claims.room_config,
+            Some(livekit_protocol::RoomConfiguration {
+                agents: vec![livekit_protocol::RoomAgentDispatch {
+                    agent_name: "test-agent".to_string(),
+                    metadata: "test-metadata".to_string(),
+                }],
+                ..Default::default()
+            })
+        );
+
+        let token = AccessToken::with_api_key(TEST_API_KEY, TEST_API_SECRET)
+            .with_ttl(Duration::from_secs(60))
+            .with_identity("test")
+            .with_name("test")
+            .with_grants(VideoGrants { room_join: true, room: "test-room".to_string(), ..Default::default() })
+            .to_jwt()
+            .unwrap();
+
+        let claims = Claims::from_unverified(&token).expect("Failed to parse fresh token");
+        assert_eq!(claims.sub, "test");
+        assert_eq!(claims.name, "test");
+        assert_eq!(claims.video.room, "test-room");
+        assert!(claims.video.room_join);
+
+        let parts: Vec<&str> = token.split('.').collect();
+        let malformed_token = format!("{}.{}.wrongsignature", parts[0], parts[1]);
+        
+        let claims = Claims::from_unverified(&malformed_token).expect("Failed to parse token with wrong signature");
+        assert_eq!(claims.sub, "test");
+        assert_eq!(claims.name, "test");
     }
 }
