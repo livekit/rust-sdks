@@ -155,10 +155,6 @@ impl Claims {
     pub fn from_unverified(token: &str) -> Result<Self, AccessTokenError> {
         let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.validate_exp = true;
-        #[cfg(test)]
-        {
-            validation.validate_exp = false;
-        }
         validation.validate_nbf = true;
         validation.set_required_spec_claims::<String>(&[]);
         validation.insecure_disable_signature_validation();
@@ -321,10 +317,6 @@ impl TokenVerifier {
     pub fn verify(&self, token: &str) -> Result<Claims, AccessTokenError> {
         let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
         validation.validate_exp = true;
-        #[cfg(test)] // FIXME: TEST_TOKEN is expired, TODO: generate TEST_TOKEN at test runtime
-        {
-            validation.validate_exp = false;
-        }
         validation.validate_nbf = true;
         validation.set_issuer(&[&self.api_key]);
 
