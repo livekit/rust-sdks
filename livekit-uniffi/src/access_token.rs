@@ -140,7 +140,7 @@ pub struct TokenOptions {
 /// variables `LIVEKIT_API_KEY` and `LIVEKIT_SECRET` respectively.
 ///
 #[uniffi::export]
-pub fn generate_token(
+pub fn token_generate(
     options: TokenOptions,
     credentials: Option<ApiCredentials>,
 ) -> Result<String, AccessTokenError> {
@@ -187,7 +187,7 @@ pub fn generate_token(
 /// variables `LIVEKIT_API_KEY` and `LIVEKIT_SECRET` respectively.
 ///
 #[uniffi::export]
-pub fn verify_token(
+pub fn token_verify(
     token: &str,
     credentials: Option<ApiCredentials>,
 ) -> Result<Claims, AccessTokenError> {
@@ -208,7 +208,7 @@ pub fn verify_token(
 /// WARNING: Do not use this for authentication - the signature is not verified!
 ///
 #[uniffi::export]
-pub fn unverified_token(token: &str) -> Result<Claims, AccessTokenError> {
-    let claims = access_token::Claims::with_unverified(token)?;
+pub fn token_claims_from_unverified(token: &str) -> Result<Claims, AccessTokenError> {
+    let claims = access_token::Claims::from_unverified(token)?;
     Ok(claims.into())
 }
