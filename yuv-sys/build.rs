@@ -119,11 +119,25 @@ fn main() {
         .filter(|f| f.path().extension().unwrap() == "h")
         .collect::<Vec<_>>();
 
-    let source_files = fs::read_dir(source_dir)
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
+    let source_files: Vec<_> = fs::read_dir(source_dir)
         .unwrap()
         .map(Result::unwrap)
-        .filter(|f| f.path().extension().unwrap() == "cc")
-        .collect::<Vec<_>>();
+        .filter(|f| {
+            let path = f.path();
+            let ext = path.extension().unwrap();
+            if ext == "cc" {
+                // Exclude row_neon64.cc on macOS - it contains I8MM instructions
+                // that Apple Silicon doesn't support
+                if target_os == "macos" && path.file_name().unwrap() == "row_neon64.cc" {
+                    return false;
+                }
+                true
+            } else {
+                false
+            }
+        })
+        .collect();
 
     let fnc_content = fs::read_to_string("yuv_functions.txt").unwrap();
     let fnc_list = fnc_content.lines().collect::<Vec<_>>();
@@ -134,11 +148,18 @@ fn main() {
         rename_symbols(&fnc_list, &include_files, &source_files);
     }
 
-    cc::Build::new()
+    let mut build = cc::Build::new();
+    build
         .warnings(false)
         .include(libyuv_dir.join("include"))
-        .files(source_files.iter().map(|f| f.path()))
-        .compile("yuv");
+        .files(source_files.iter().map(|f| f.path()));
+
+    // Disable SVE on macOS (Apple Silicon doesn't support it)
+    if target_os == "macos" {
+        build.define("LIBYUV_DISABLE_SVE", None);
+    }
+
+    build.compile("yuv");
 
     let mut bindgen = bindgen::Builder::default()
         .header(include_dir.join("libyuv.h").to_string_lossy())
