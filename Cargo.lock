@@ -3128,6 +3128,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-audio"
+version = "0.1.0"
+dependencies = [
+ "soxr-sys",
+ "thiserror 2.0.17",
+]
+
+[[package]]
 name = "livekit-ffi"
 version = "0.12.39"
 dependencies = [
@@ -3188,6 +3196,7 @@ name = "livekit-uniffi"
 version = "0.1.0"
 dependencies = [
  "livekit-api",
+ "livekit-audio",
  "livekit-protocol",
  "log",
  "once_cell",
