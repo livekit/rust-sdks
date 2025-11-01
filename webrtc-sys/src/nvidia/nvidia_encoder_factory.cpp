@@ -19,6 +19,8 @@ NvidiaVideoEncoderFactory::NvidiaVideoEncoderFactory() {
 
   // Advertise HEVC/H265 with default parameters.
   supported_formats_.push_back(SdpVideoFormat("H265"));
+  // Some stacks use 'HEVC' name.
+  supported_formats_.push_back(SdpVideoFormat("HEVC"));
 
   /*std::map<std::string, std::string> highParameters = {
       {"profile-level-id", "4d0032"},
