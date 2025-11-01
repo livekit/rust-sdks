@@ -56,6 +56,10 @@ struct Args {
     /// LiveKit API secret
     #[arg(long)]
     api_secret: Option<String>,
+
+    /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
+    #[arg(long, default_value_t = false)]
+    h265: bool,
 }
 
 fn list_cameras() -> Result<()> {
@@ -156,19 +160,39 @@ async fn main() -> Result<()> {
         RtcVideoSource::Native(rtc_source.clone()),
     );
 
-    room
+    // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
+    let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
+    info!("Attempting publish with codec: {}", requested_codec.as_str());
+
+    let publish_opts = |codec: VideoCodec| TrackPublishOptions {
+        source: TrackSource::Camera,
+        simulcast: false,
+        video_codec: codec,
+        ..Default::default()
+    };
+
+    let publish_result = room
         .local_participant()
-        .publish_track(
-            LocalTrack::Video(track.clone()),
-            TrackPublishOptions {
-                source: TrackSource::Camera,
-                simulcast: false,
-                video_codec: VideoCodec::H264,
-                ..Default::default()
-            },
-        )
-        .await?;
-    info!("Published camera track");
+        .publish_track(LocalTrack::Video(track.clone()), publish_opts(requested_codec))
+        .await;
+
+    if let Err(e) = publish_result {
+        if matches!(requested_codec, VideoCodec::H265) {
+            log::warn!(
+                "H.265 publish failed ({}). Falling back to H.264...",
+                e
+            );
+            room
+                .local_participant()
+                .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
+                .await?;
+            info!("Published camera track with H.264 fallback");
+        } else {
+            return Err(e.into());
+        }
+    } else {
+        info!("Published camera track");
+    }
 
     // Reusable I420 buffer and frame
     let mut frame = VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: 0, buffer: I420Buffer::new(width, height) };
