@@ -1,0 +1,11 @@
+[package]
+name = "livekit-audio"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Core module for audio processing in LiveKit"
+repository = "https://github.com/livekit/rust-sdks"
+
+[dependencies]
+thiserror = "2.0.17"
+soxr-sys = { workspace = true }
