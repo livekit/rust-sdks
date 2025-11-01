@@ -243,6 +243,31 @@ typedef void (*UniffiForeignFutureCompleteVoid)(uint64_t, UniffiForeignFutureRes
     );
 
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_CLONE_RESAMPLER
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_CLONE_RESAMPLER
+uint64_t uniffi_livekit_uniffi_fn_clone_resampler(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FREE_RESAMPLER
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FREE_RESAMPLER
+void uniffi_livekit_uniffi_fn_free_resampler(uint64_t handle, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_CONSTRUCTOR_RESAMPLER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_CONSTRUCTOR_RESAMPLER_NEW
+uint64_t uniffi_livekit_uniffi_fn_constructor_resampler_new(RustBuffer settings, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_METHOD_RESAMPLER_FLUSH
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_METHOD_RESAMPLER_FLUSH
+RustBuffer uniffi_livekit_uniffi_fn_method_resampler_flush(uint64_t ptr, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_METHOD_RESAMPLER_PUSH
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_METHOD_RESAMPLER_PUSH
+RustBuffer uniffi_livekit_uniffi_fn_method_resampler_push(uint64_t ptr, RustBuffer input, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FUNC_BUILD_VERSION
 #define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_FN_FUNC_BUILD_VERSION
 RustBuffer uniffi_livekit_uniffi_fn_func_build_version(RustCallStatus *_Nonnull out_status
@@ -557,6 +582,24 @@ uint16_t uniffi_livekit_uniffi_checksum_func_log_forward_receive(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_FUNC_VERIFY_TOKEN
 #define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_FUNC_VERIFY_TOKEN
 uint16_t uniffi_livekit_uniffi_checksum_func_verify_token(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_METHOD_RESAMPLER_FLUSH
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_METHOD_RESAMPLER_FLUSH
+uint16_t uniffi_livekit_uniffi_checksum_method_resampler_flush(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_METHOD_RESAMPLER_PUSH
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_METHOD_RESAMPLER_PUSH
+uint16_t uniffi_livekit_uniffi_checksum_method_resampler_push(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_CONSTRUCTOR_RESAMPLER_NEW
+#define UNIFFI_FFIDEF_UNIFFI_LIVEKIT_UNIFFI_CHECKSUM_CONSTRUCTOR_RESAMPLER_NEW
+uint16_t uniffi_livekit_uniffi_checksum_constructor_resampler_new(void
     
 );
 #endif

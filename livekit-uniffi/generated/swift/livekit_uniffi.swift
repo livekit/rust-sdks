@@ -419,6 +419,22 @@ fileprivate final class UniffiHandleMap<T>: @unchecked Sendable {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterInt16: FfiConverterPrimitive {
+    typealias FfiType = Int16
+    typealias SwiftType = Int16
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int16 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int16, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
     typealias FfiType = UInt32
     typealias SwiftType = UInt32
@@ -445,6 +461,22 @@ fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
 
     public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
         writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterDouble: FfiConverterPrimitive {
+    typealias FfiType = Double
+    typealias SwiftType = Double
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Double {
+        return try lift(readDouble(&buf))
+    }
+
+    public static func write(_ value: Double, into buf: inout [UInt8]) {
+        writeDouble(&buf, lower(value))
     }
 }
 
@@ -540,6 +572,167 @@ fileprivate struct FfiConverterDuration: FfiConverterRustBuffer {
         writeInt(&buf, nanoseconds)
     }
 }
+
+
+
+
+public protocol ResamplerProtocol: AnyObject, Sendable {
+    
+    /**
+     * Flush any remaining audio data through the resampler and retrieve the resampled data.
+     *
+     * This method should be called when no more input data will be provided to ensure that all
+     * internal buffers are processed and all resampled data is output.
+
+     */
+    func flush() throws  -> [Int16]
+    
+    /**
+     * Push audio data into the resampler and retrieve any available resampled data.
+     *
+     * This method accepts audio data, resamples it according to the configured input
+     * and output rates, and returns any resampled data that is available after processing the input.
+
+     */
+    func push(input: [Int16]) throws  -> [Int16]
+    
+}
+open class Resampler: ResamplerProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_livekit_uniffi_fn_clone_resampler(self.handle, $0) }
+    }
+    /**
+     * Creates a new audio resampler with the given settings.
+     */
+public convenience init(settings: ResamplerSettings)throws  {
+    let handle =
+        try rustCallWithError(FfiConverterTypeResamplerError_lift) {
+    uniffi_livekit_uniffi_fn_constructor_resampler_new(
+        FfiConverterTypeResamplerSettings_lower(settings),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        try! rustCall { uniffi_livekit_uniffi_fn_free_resampler(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Flush any remaining audio data through the resampler and retrieve the resampled data.
+     *
+     * This method should be called when no more input data will be provided to ensure that all
+     * internal buffers are processed and all resampled data is output.
+
+     */
+open func flush()throws  -> [Int16]  {
+    return try  FfiConverterSequenceInt16.lift(try rustCallWithError(FfiConverterTypeResamplerError_lift) {
+    uniffi_livekit_uniffi_fn_method_resampler_flush(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Push audio data into the resampler and retrieve any available resampled data.
+     *
+     * This method accepts audio data, resamples it according to the configured input
+     * and output rates, and returns any resampled data that is available after processing the input.
+
+     */
+open func push(input: [Int16])throws  -> [Int16]  {
+    return try  FfiConverterSequenceInt16.lift(try rustCallWithError(FfiConverterTypeResamplerError_lift) {
+    uniffi_livekit_uniffi_fn_method_resampler_push(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceInt16.lower(input),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeResampler: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = Resampler
+
+    public static func lift(_ handle: UInt64) throws -> Resampler {
+        return Resampler(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: Resampler) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Resampler {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: Resampler, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResampler_lift(_ handle: UInt64) throws -> Resampler {
+    return try FfiConverterTypeResampler.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResampler_lower(_ value: Resampler) -> UInt64 {
+    return FfiConverterTypeResampler.lower(value)
+}
+
+
 
 
 /**
@@ -749,6 +942,66 @@ public func FfiConverterTypeLogForwardEntry_lift(_ buf: RustBuffer) throws -> Lo
 #endif
 public func FfiConverterTypeLogForwardEntry_lower(_ value: LogForwardEntry) -> RustBuffer {
     return FfiConverterTypeLogForwardEntry.lower(value)
+}
+
+
+public struct ResamplerSettings: Equatable, Hashable {
+    public var inputRate: Double
+    public var outputRate: Double
+    public var numChannels: UInt32
+    public var quality: ResamplerQuality
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(inputRate: Double, outputRate: Double, numChannels: UInt32, quality: ResamplerQuality) {
+        self.inputRate = inputRate
+        self.outputRate = outputRate
+        self.numChannels = numChannels
+        self.quality = quality
+    }
+
+    
+}
+
+#if compiler(>=6)
+extension ResamplerSettings: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeResamplerSettings: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ResamplerSettings {
+        return
+            try ResamplerSettings(
+                inputRate: FfiConverterDouble.read(from: &buf), 
+                outputRate: FfiConverterDouble.read(from: &buf), 
+                numChannels: FfiConverterUInt32.read(from: &buf), 
+                quality: FfiConverterTypeResamplerQuality.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ResamplerSettings, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.inputRate, into: &buf)
+        FfiConverterDouble.write(value.outputRate, into: &buf)
+        FfiConverterUInt32.write(value.numChannels, into: &buf)
+        FfiConverterTypeResamplerQuality.write(value.quality, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResamplerSettings_lift(_ buf: RustBuffer) throws -> ResamplerSettings {
+    return try FfiConverterTypeResamplerSettings.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResamplerSettings_lower(_ value: ResamplerSettings) -> RustBuffer {
+    return FfiConverterTypeResamplerSettings.lower(value)
 }
 
 
@@ -1282,6 +1535,174 @@ public func FfiConverterTypeLogForwardLevel_lower(_ value: LogForwardLevel) -> R
 }
 
 
+
+public enum ResamplerError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case Initialization(String
+    )
+    case OperationFailed(String
+    )
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension ResamplerError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeResamplerError: FfiConverterRustBuffer {
+    typealias SwiftType = ResamplerError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ResamplerError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .Initialization(
+            try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .OperationFailed(
+            try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ResamplerError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .Initialization(v1):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(v1, into: &buf)
+            
+        
+        case let .OperationFailed(v1):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(v1, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResamplerError_lift(_ buf: RustBuffer) throws -> ResamplerError {
+    return try FfiConverterTypeResamplerError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResamplerError_lower(_ value: ResamplerError) -> RustBuffer {
+    return FfiConverterTypeResamplerError.lower(value)
+}
+
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+
+public enum ResamplerQuality: Equatable, Hashable {
+    
+    case quick
+    case low
+    case medium
+    case high
+    case veryHigh
+
+
+
+}
+
+#if compiler(>=6)
+extension ResamplerQuality: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeResamplerQuality: FfiConverterRustBuffer {
+    typealias SwiftType = ResamplerQuality
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ResamplerQuality {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .quick
+        
+        case 2: return .low
+        
+        case 3: return .medium
+        
+        case 4: return .high
+        
+        case 5: return .veryHigh
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: ResamplerQuality, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .quick:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .low:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .medium:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .high:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .veryHigh:
+            writeInt(&buf, Int32(5))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResamplerQuality_lift(_ buf: RustBuffer) throws -> ResamplerQuality {
+    return try FfiConverterTypeResamplerQuality.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeResamplerQuality_lower(_ value: ResamplerQuality) -> RustBuffer {
+    return FfiConverterTypeResamplerQuality.lower(value)
+}
+
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -1471,6 +1892,31 @@ fileprivate struct FfiConverterOptionDictionaryStringString: FfiConverterRustBuf
         case 1: return try FfiConverterDictionaryStringString.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceInt16: FfiConverterRustBuffer {
+    typealias SwiftType = [Int16]
+
+    public static func write(_ value: [Int16], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterInt16.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [Int16] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [Int16]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterInt16.read(from: &buf))
+        }
+        return seq
     }
 }
 
@@ -1676,6 +2122,15 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_livekit_uniffi_checksum_func_verify_token() != 47517) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_livekit_uniffi_checksum_method_resampler_flush() != 32136) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_livekit_uniffi_checksum_method_resampler_push() != 59438) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_livekit_uniffi_checksum_constructor_resampler_new() != 65134) {
         return InitializationResult.apiChecksumMismatch
     }
 
