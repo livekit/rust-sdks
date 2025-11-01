@@ -4,6 +4,7 @@
 
 #include "cuda_context.h"
 #include "h264_encoder_impl.h"
+#include "h265_encoder_impl.h"
 #include "rtc_base/logging.h"
 
 namespace webrtc {
@@ -15,6 +16,9 @@ NvidiaVideoEncoderFactory::NvidiaVideoEncoderFactory() {
       {"packetization-mode", "1"},
   };
   supported_formats_.push_back(SdpVideoFormat("H264", baselineParameters));
+
+  // Advertise HEVC/H265 with default parameters.
+  supported_formats_.push_back(SdpVideoFormat("H265"));
 
   /*std::map<std::string, std::string> highParameters = {
       {"profile-level-id", "4d0032"},
@@ -44,7 +48,6 @@ std::unique_ptr<VideoEncoder> NvidiaVideoEncoderFactory::Create(
   // Check if the requested format is supported.
   for (const auto& supported_format : supported_formats_) {
     if (format.IsSameCodec(supported_format)) {
-      // If the format is supported, create and return the encoder.
       if (!cu_context_) {
         cu_context_ = livekit::CudaContext::GetInstance();
         if (!cu_context_->Initialize()) {
@@ -52,9 +55,20 @@ std::unique_ptr<VideoEncoder> NvidiaVideoEncoderFactory::Create(
           return nullptr;
         }
       }
-      return std::make_unique<NvidiaH264EncoderImpl>(
-          env, cu_context_->GetContext(), CU_MEMORYTYPE_DEVICE,
-          NV_ENC_BUFFER_FORMAT_IYUV, format);
+
+      if (format.name == "H264") {
+        RTC_LOG(LS_INFO) << "Using NVIDIA HW encoder (NVENC) for H264";
+        return std::make_unique<NvidiaH264EncoderImpl>(
+            env, cu_context_->GetContext(), CU_MEMORYTYPE_DEVICE,
+            NV_ENC_BUFFER_FORMAT_IYUV, format);
+      }
+
+      if (format.name == "H265" || format.name == "HEVC") {
+        RTC_LOG(LS_INFO) << "Using NVIDIA HW encoder (NVENC) for H265/HEVC";
+        return std::make_unique<NvidiaH265EncoderImpl>(
+            env, cu_context_->GetContext(), CU_MEMORYTYPE_DEVICE,
+            NV_ENC_BUFFER_FORMAT_IYUV, format);
+      }
     }
   }
   return nullptr;

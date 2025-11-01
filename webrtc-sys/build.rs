@@ -191,6 +191,7 @@ fn main() {
                         .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.cpp")
                         .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp")
                         .file("src/nvidia/h264_encoder_impl.cpp")
+                        .file("src/nvidia/h265_encoder_impl.cpp")
                         .file("src/nvidia/h264_decoder_impl.cpp")
                         .file("src/nvidia/nvidia_decoder_factory.cpp")
                         .file("src/nvidia/nvidia_encoder_factory.cpp")
