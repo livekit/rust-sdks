@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+/// Audio processing.
+pub mod audio;
+
 /// Access token generation and verification from [`livekit-api::access_token`].
 pub mod access_token;
 
