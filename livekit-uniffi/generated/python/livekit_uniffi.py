@@ -489,6 +489,12 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_livekit_uniffi_checksum_func_verify_token() != 47517:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_livekit_uniffi_checksum_constructor_resampler_new() != 65134:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_livekit_uniffi_checksum_method_resampler_flush() != 32136:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    if lib.uniffi_livekit_uniffi_checksum_method_resampler_push() != 59438:
+        raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
 
 # A ctypes library to expose the extern-C FFI definitions.
 # This is an implementation detail which will be called internally by the public API.
@@ -752,6 +758,16 @@ _UniffiLib.ffi_livekit_uniffi_rust_future_free_void.argtypes = (
     ctypes.c_uint64,
 )
 _UniffiLib.ffi_livekit_uniffi_rust_future_free_void.restype = None
+_UniffiLib.uniffi_livekit_uniffi_fn_clone_resampler.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_livekit_uniffi_fn_clone_resampler.restype = ctypes.c_uint64
+_UniffiLib.uniffi_livekit_uniffi_fn_free_resampler.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_livekit_uniffi_fn_free_resampler.restype = None
 _UniffiLib.uniffi_livekit_uniffi_fn_func_build_version.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
@@ -776,6 +792,22 @@ _UniffiLib.uniffi_livekit_uniffi_fn_func_verify_token.argtypes = (
     ctypes.POINTER(_UniffiRustCallStatus),
 )
 _UniffiLib.uniffi_livekit_uniffi_fn_func_verify_token.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_livekit_uniffi_fn_constructor_resampler_new.argtypes = (
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_livekit_uniffi_fn_constructor_resampler_new.restype = ctypes.c_uint64
+_UniffiLib.uniffi_livekit_uniffi_fn_method_resampler_flush.argtypes = (
+    ctypes.c_uint64,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_livekit_uniffi_fn_method_resampler_flush.restype = _UniffiRustBuffer
+_UniffiLib.uniffi_livekit_uniffi_fn_method_resampler_push.argtypes = (
+    ctypes.c_uint64,
+    _UniffiRustBuffer,
+    ctypes.POINTER(_UniffiRustCallStatus),
+)
+_UniffiLib.uniffi_livekit_uniffi_fn_method_resampler_push.restype = _UniffiRustBuffer
 _UniffiLib.ffi_livekit_uniffi_uniffi_contract_version.argtypes = (
 )
 _UniffiLib.ffi_livekit_uniffi_uniffi_contract_version.restype = ctypes.c_uint32
@@ -794,6 +826,15 @@ _UniffiLib.uniffi_livekit_uniffi_checksum_func_log_forward_receive.restype = cty
 _UniffiLib.uniffi_livekit_uniffi_checksum_func_verify_token.argtypes = (
 )
 _UniffiLib.uniffi_livekit_uniffi_checksum_func_verify_token.restype = ctypes.c_uint16
+_UniffiLib.uniffi_livekit_uniffi_checksum_constructor_resampler_new.argtypes = (
+)
+_UniffiLib.uniffi_livekit_uniffi_checksum_constructor_resampler_new.restype = ctypes.c_uint16
+_UniffiLib.uniffi_livekit_uniffi_checksum_method_resampler_flush.argtypes = (
+)
+_UniffiLib.uniffi_livekit_uniffi_checksum_method_resampler_flush.restype = ctypes.c_uint16
+_UniffiLib.uniffi_livekit_uniffi_checksum_method_resampler_push.argtypes = (
+)
+_UniffiLib.uniffi_livekit_uniffi_checksum_method_resampler_push.restype = ctypes.c_uint16
 
 _uniffi_check_contract_api_version(_UniffiLib)
 # _uniffi_check_api_checksums(_UniffiLib)
@@ -1459,6 +1500,127 @@ class _UniffiFfiConverterTypeLogForwardEntry(_UniffiConverterRustBuffer):
         _UniffiFfiConverterOptionalUInt32.write(value.line, buf)
         _UniffiFfiConverterString.write(value.message, buf)
 
+class _UniffiFfiConverterFloat64(_UniffiConverterPrimitiveFloat):
+    @staticmethod
+    def read(buf):
+        return buf.read_double()
+
+    @staticmethod
+    def write(value, buf):
+        buf.write_double(value)
+
+
+
+
+
+
+class ResamplerQuality(enum.Enum):
+    
+    QUICK = 0
+    
+    LOW = 1
+    
+    MEDIUM = 2
+    
+    HIGH = 3
+    
+    VERY_HIGH = 4
+    
+
+
+class _UniffiFfiConverterTypeResamplerQuality(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        variant = buf.read_i32()
+        if variant == 1:
+            return ResamplerQuality.QUICK
+        if variant == 2:
+            return ResamplerQuality.LOW
+        if variant == 3:
+            return ResamplerQuality.MEDIUM
+        if variant == 4:
+            return ResamplerQuality.HIGH
+        if variant == 5:
+            return ResamplerQuality.VERY_HIGH
+        raise InternalError("Raw enum value doesn't match any cases")
+
+    @staticmethod
+    def check_lower(value):
+        if value == ResamplerQuality.QUICK:
+            return
+        if value == ResamplerQuality.LOW:
+            return
+        if value == ResamplerQuality.MEDIUM:
+            return
+        if value == ResamplerQuality.HIGH:
+            return
+        if value == ResamplerQuality.VERY_HIGH:
+            return
+        raise ValueError(value)
+
+    @staticmethod
+    def write(value, buf):
+        if value == ResamplerQuality.QUICK:
+            buf.write_i32(1)
+        if value == ResamplerQuality.LOW:
+            buf.write_i32(2)
+        if value == ResamplerQuality.MEDIUM:
+            buf.write_i32(3)
+        if value == ResamplerQuality.HIGH:
+            buf.write_i32(4)
+        if value == ResamplerQuality.VERY_HIGH:
+            buf.write_i32(5)
+
+
+
+@dataclass
+class ResamplerSettings:
+    def __init__(self, *, input_rate:float, output_rate:float, num_channels:int, quality:ResamplerQuality):
+        self.input_rate = input_rate
+        self.output_rate = output_rate
+        self.num_channels = num_channels
+        self.quality = quality
+        
+        
+
+    
+    def __str__(self):
+        return "ResamplerSettings(input_rate={}, output_rate={}, num_channels={}, quality={})".format(self.input_rate, self.output_rate, self.num_channels, self.quality)
+    def __eq__(self, other):
+        if self.input_rate != other.input_rate:
+            return False
+        if self.output_rate != other.output_rate:
+            return False
+        if self.num_channels != other.num_channels:
+            return False
+        if self.quality != other.quality:
+            return False
+        return True
+
+class _UniffiFfiConverterTypeResamplerSettings(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return ResamplerSettings(
+            input_rate=_UniffiFfiConverterFloat64.read(buf),
+            output_rate=_UniffiFfiConverterFloat64.read(buf),
+            num_channels=_UniffiFfiConverterUInt32.read(buf),
+            quality=_UniffiFfiConverterTypeResamplerQuality.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiFfiConverterFloat64.check_lower(value.input_rate)
+        _UniffiFfiConverterFloat64.check_lower(value.output_rate)
+        _UniffiFfiConverterUInt32.check_lower(value.num_channels)
+        _UniffiFfiConverterTypeResamplerQuality.check_lower(value.quality)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiFfiConverterFloat64.write(value.input_rate, buf)
+        _UniffiFfiConverterFloat64.write(value.output_rate, buf)
+        _UniffiFfiConverterUInt32.write(value.num_channels, buf)
+        _UniffiFfiConverterTypeResamplerQuality.write(value.quality, buf)
+
 # The Duration type.
 Duration = datetime.timedelta
 
@@ -1827,6 +1989,257 @@ class _UniffiFfiConverterTypeLogForwardFilter(_UniffiConverterRustBuffer):
 
 
 
+
+
+# ResamplerError
+# We want to define each variant as a nested class that's also a subclass,
+# which is tricky in Python.  To accomplish this we're going to create each
+# class separately, then manually add the child classes to the base class's
+# __dict__.  All of this happens in dummy class to avoid polluting the module
+# namespace.
+class ResamplerError(Exception):
+    pass
+
+_UniffiTempResamplerError = ResamplerError
+
+class ResamplerError:  # type: ignore
+    
+    class Initialization(_UniffiTempResamplerError):
+        
+        def __init__(self, *values):
+            if len(values) != 1:
+                raise TypeError(f"Expected 1 arguments, found {len(values)}")
+            if not isinstance(values[0], str):
+                raise TypeError(f"unexpected type for tuple element 0 - expected 'str', got '{type(values[0])}'")
+            super().__init__(", ".join(map(repr, values)))
+            self._values = values
+
+        def __getitem__(self, index):
+            return self._values[index]
+
+        def __repr__(self):
+            return "ResamplerError.Initialization({})".format(str(self))
+    _UniffiTempResamplerError.Initialization = Initialization # type: ignore
+    class OperationFailed(_UniffiTempResamplerError):
+        
+        def __init__(self, *values):
+            if len(values) != 1:
+                raise TypeError(f"Expected 1 arguments, found {len(values)}")
+            if not isinstance(values[0], str):
+                raise TypeError(f"unexpected type for tuple element 0 - expected 'str', got '{type(values[0])}'")
+            super().__init__(", ".join(map(repr, values)))
+            self._values = values
+
+        def __getitem__(self, index):
+            return self._values[index]
+
+        def __repr__(self):
+            return "ResamplerError.OperationFailed({})".format(str(self))
+    _UniffiTempResamplerError.OperationFailed = OperationFailed # type: ignore
+
+ResamplerError = _UniffiTempResamplerError # type: ignore
+del _UniffiTempResamplerError
+
+
+class _UniffiFfiConverterTypeResamplerError(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        variant = buf.read_i32()
+        if variant == 1:
+            return ResamplerError.Initialization(
+                _UniffiFfiConverterString.read(buf),
+            )
+        if variant == 2:
+            return ResamplerError.OperationFailed(
+                _UniffiFfiConverterString.read(buf),
+            )
+        raise InternalError("Raw enum value doesn't match any cases")
+
+    @staticmethod
+    def check_lower(value):
+        if isinstance(value, ResamplerError.Initialization):
+            _UniffiFfiConverterString.check_lower(value._values[0])
+            return
+        if isinstance(value, ResamplerError.OperationFailed):
+            _UniffiFfiConverterString.check_lower(value._values[0])
+            return
+
+    @staticmethod
+    def write(value, buf):
+        if isinstance(value, ResamplerError.Initialization):
+            buf.write_i32(1)
+            _UniffiFfiConverterString.write(value._values[0], buf)
+        if isinstance(value, ResamplerError.OperationFailed):
+            buf.write_i32(2)
+            _UniffiFfiConverterString.write(value._values[0], buf)
+
+class _UniffiFfiConverterInt16(_UniffiConverterPrimitiveInt):
+    CLASS_NAME = "i16"
+    VALUE_MIN = -2**15
+    VALUE_MAX = 2**15
+
+    @staticmethod
+    def read(buf):
+        return buf.read_i16()
+
+    @staticmethod
+    def write(value, buf):
+        buf.write_i16(value)
+
+class _UniffiFfiConverterSequenceInt16(_UniffiConverterRustBuffer):
+    @classmethod
+    def check_lower(cls, value):
+        for item in value:
+            _UniffiFfiConverterInt16.check_lower(item)
+
+    @classmethod
+    def write(cls, value, buf):
+        items = len(value)
+        buf.write_i32(items)
+        for item in value:
+            _UniffiFfiConverterInt16.write(item, buf)
+
+    @classmethod
+    def read(cls, buf):
+        count = buf.read_i32()
+        if count < 0:
+            raise InternalError("Unexpected negative sequence length")
+
+        return [
+            _UniffiFfiConverterInt16.read(buf) for i in range(count)
+        ]
+
+
+class ResamplerProtocol(typing.Protocol):
+    
+    def flush(self, ) -> typing.List[int]:
+        """
+        Flush any remaining audio data through the resampler and retrieve the resampled data.
+
+        This method should be called when no more input data will be provided to ensure that all
+        internal buffers are processed and all resampled data is output.
+
+"""
+        raise NotImplementedError
+    def push(self, input: typing.List[int]) -> typing.List[int]:
+        """
+        Push audio data into the resampler and retrieve any available resampled data.
+
+        This method accepts audio data, resamples it according to the configured input
+        and output rates, and returns any resampled data that is available after processing the input.
+
+"""
+        raise NotImplementedError
+
+class Resampler(ResamplerProtocol):
+    
+    _handle: ctypes.c_uint64
+    def __init__(self, settings: ResamplerSettings):
+        """
+        Creates a new audio resampler with the given settings.
+"""
+        
+        _UniffiFfiConverterTypeResamplerSettings.check_lower(settings)
+        _uniffi_lowered_args = (
+            _UniffiFfiConverterTypeResamplerSettings.lower(settings),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterTypeResampler.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeResamplerError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_livekit_uniffi_fn_constructor_resampler_new,
+            *_uniffi_lowered_args,
+        )
+        self._handle = _uniffi_ffi_result
+
+    def __del__(self):
+        # In case of partial initialization of instances.
+        handle = getattr(self, "_handle", None)
+        if handle is not None:
+            _uniffi_rust_call(_UniffiLib.uniffi_livekit_uniffi_fn_free_resampler, handle)
+
+    def _uniffi_clone_handle(self):
+        return _uniffi_rust_call(_UniffiLib.uniffi_livekit_uniffi_fn_clone_resampler, self._handle)
+
+    # Used by alternative constructors or any methods which return this type.
+    @classmethod
+    def _uniffi_make_instance(cls, handle):
+        # Lightly yucky way to bypass the usual __init__ logic
+        # and just create a new instance with the required handle.
+        inst = cls.__new__(cls)
+        inst._handle = handle
+        return inst
+    def flush(self, ) -> typing.List[int]:
+        """
+        Flush any remaining audio data through the resampler and retrieve the resampled data.
+
+        This method should be called when no more input data will be provided to ensure that all
+        internal buffers are processed and all resampled data is output.
+
+"""
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterSequenceInt16.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeResamplerError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_livekit_uniffi_fn_method_resampler_flush,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+    def push(self, input: typing.List[int]) -> typing.List[int]:
+        """
+        Push audio data into the resampler and retrieve any available resampled data.
+
+        This method accepts audio data, resamples it according to the configured input
+        and output rates, and returns any resampled data that is available after processing the input.
+
+"""
+        
+        _UniffiFfiConverterSequenceInt16.check_lower(input)
+        _uniffi_lowered_args = (
+            self._uniffi_clone_handle(),
+            _UniffiFfiConverterSequenceInt16.lower(input),
+        )
+        _uniffi_lift_return = _UniffiFfiConverterSequenceInt16.lift
+        _uniffi_error_converter = _UniffiFfiConverterTypeResamplerError
+        _uniffi_ffi_result = _uniffi_rust_call_with_error(
+            _uniffi_error_converter,
+            _UniffiLib.uniffi_livekit_uniffi_fn_method_resampler_push,
+            *_uniffi_lowered_args,
+        )
+        return _uniffi_lift_return(_uniffi_ffi_result)
+
+
+
+
+
+class _UniffiFfiConverterTypeResampler:
+    @staticmethod
+    def lift(value: int) -> Resampler:
+        return Resampler._uniffi_make_instance(value)
+
+    @staticmethod
+    def check_lower(value: Resampler):
+        if not isinstance(value, Resampler):
+            raise TypeError("Expected Resampler instance, {} found".format(type(value).__name__))
+
+    @staticmethod
+    def lower(value: Resampler) -> ctypes.c_uint64:
+        return value._uniffi_clone_handle()
+
+    @classmethod
+    def read(cls, buf: _UniffiRustBuffer) -> Resampler:
+        ptr = buf.read_u64()
+        if ptr == 0:
+            raise InternalError("Raw handle value was null")
+        return cls.lift(ptr)
+
+    @classmethod
+    def write(cls, value: Resampler, buf: _UniffiRustBuffer):
+        buf.write_u64(cls.lower(value))
+
 class _UniffiFfiConverterOptionalTypeApiCredentials(_UniffiConverterRustBuffer):
     @classmethod
     def check_lower(cls, value):
@@ -1997,17 +2410,22 @@ def verify_token(token: str,credentials: typing.Optional[ApiCredentials]) -> Cla
 __all__ = [
     "InternalError",
     "LogForwardLevel",
+    "ResamplerQuality",
     "AccessTokenError",
     "LogForwardFilter",
+    "ResamplerError",
     "ApiCredentials",
     "VideoGrants",
     "SipGrants",
     "Claims",
     "LogForwardEntry",
+    "ResamplerSettings",
     "TokenOptions",
     "build_version",
     "generate_token",
     "log_forward_bootstrap",
     "log_forward_receive",
     "verify_token",
+    "Resampler",
+    "ResamplerProtocol",
 ]

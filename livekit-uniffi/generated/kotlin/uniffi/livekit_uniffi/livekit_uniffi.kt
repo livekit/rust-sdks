@@ -30,6 +30,7 @@ import java.nio.CharBuffer
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.DelicateCoroutinesApi
@@ -650,6 +651,12 @@ internal object IntegrityCheckingUniffiLib {
     ): Short
     external fun uniffi_livekit_uniffi_checksum_func_verify_token(
     ): Short
+    external fun uniffi_livekit_uniffi_checksum_method_resampler_flush(
+    ): Short
+    external fun uniffi_livekit_uniffi_checksum_method_resampler_push(
+    ): Short
+    external fun uniffi_livekit_uniffi_checksum_constructor_resampler_new(
+    ): Short
     external fun ffi_livekit_uniffi_uniffi_contract_version(
     ): Int
     
@@ -658,11 +665,26 @@ internal object IntegrityCheckingUniffiLib {
 
 internal object UniffiLib {
     
+    // The Cleaner for the whole library
+    internal val CLEANER: UniffiCleaner by lazy {
+        UniffiCleaner.create()
+    }
+    
 
     init {
         Native.register(UniffiLib::class.java, findLibraryName(componentName = "livekit_uniffi"))
         
     }
+    external fun uniffi_livekit_uniffi_fn_clone_resampler(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_livekit_uniffi_fn_free_resampler(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): Unit
+    external fun uniffi_livekit_uniffi_fn_constructor_resampler_new(`settings`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): Long
+    external fun uniffi_livekit_uniffi_fn_method_resampler_flush(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
+    external fun uniffi_livekit_uniffi_fn_method_resampler_push(`ptr`: Long,`input`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    ): RustBuffer.ByValue
     external fun uniffi_livekit_uniffi_fn_func_build_version(uniffi_out_err: UniffiRustCallStatus, 
     ): RustBuffer.ByValue
     external fun uniffi_livekit_uniffi_fn_func_generate_token(`options`: RustBuffer.ByValue,`credentials`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -807,6 +829,15 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_livekit_uniffi_checksum_func_verify_token() != 47517.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_livekit_uniffi_checksum_method_resampler_flush() != 32136.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_livekit_uniffi_checksum_method_resampler_push() != 59438.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_livekit_uniffi_checksum_constructor_resampler_new() != 65134.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
 }
 
 /**
@@ -939,6 +970,93 @@ object UniffiWithHandle
  * @suppress
  * */
 object NoHandle
+/**
+ * The cleaner interface for Object finalization code to run.
+ * This is the entry point to any implementation that we're using.
+ *
+ * The cleaner registers objects and returns cleanables, so now we are
+ * defining a `UniffiCleaner` with a `UniffiClenaer.Cleanable` to abstract the
+ * different implmentations available at compile time.
+ *
+ * @suppress
+ */
+interface UniffiCleaner {
+    interface Cleanable {
+        fun clean()
+    }
+
+    fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable
+
+    companion object
+}
+
+// The fallback Jna cleaner, which is available for both Android, and the JVM.
+private class UniffiJnaCleaner : UniffiCleaner {
+    private val cleaner = com.sun.jna.internal.Cleaner.getCleaner()
+
+    override fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable =
+        UniffiJnaCleanable(cleaner.register(value, cleanUpTask))
+}
+
+private class UniffiJnaCleanable(
+    private val cleanable: com.sun.jna.internal.Cleaner.Cleanable,
+) : UniffiCleaner.Cleanable {
+    override fun clean() = cleanable.clean()
+}
+
+
+// We decide at uniffi binding generation time whether we were
+// using Android or not.
+// There are further runtime checks to chose the correct implementation
+// of the cleaner.
+private fun UniffiCleaner.Companion.create(): UniffiCleaner =
+    try {
+        // For safety's sake: if the library hasn't been run in android_cleaner = true
+        // mode, but is being run on Android, then we still need to think about
+        // Android API versions.
+        // So we check if java.lang.ref.Cleaner is there, and use that…
+        java.lang.Class.forName("java.lang.ref.Cleaner")
+        JavaLangRefCleaner()
+    } catch (e: ClassNotFoundException) {
+        // … otherwise, fallback to the JNA cleaner.
+        UniffiJnaCleaner()
+    }
+
+private class JavaLangRefCleaner : UniffiCleaner {
+    val cleaner = java.lang.ref.Cleaner.create()
+
+    override fun register(value: Any, cleanUpTask: Runnable): UniffiCleaner.Cleanable =
+        JavaLangRefCleanable(cleaner.register(value, cleanUpTask))
+}
+
+private class JavaLangRefCleanable(
+    val cleanable: java.lang.ref.Cleaner.Cleanable
+) : UniffiCleaner.Cleanable {
+    override fun clean() = cleanable.clean()
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterShort: FfiConverter<Short, Short> {
+    override fun lift(value: Short): Short {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Short {
+        return buf.getShort()
+    }
+
+    override fun lower(value: Short): Short {
+        return value
+    }
+
+    override fun allocationSize(value: Short) = 2UL
+
+    override fun write(value: Short, buf: ByteBuffer) {
+        buf.putShort(value)
+    }
+}
 
 /**
  * @suppress
@@ -983,6 +1101,29 @@ public object FfiConverterULong: FfiConverter<ULong, Long> {
 
     override fun write(value: ULong, buf: ByteBuffer) {
         buf.putLong(value.toLong())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterDouble: FfiConverter<Double, Double> {
+    override fun lift(value: Double): Double {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Double {
+        return buf.getDouble()
+    }
+
+    override fun lower(value: Double): Double {
+        return value
+    }
+
+    override fun allocationSize(value: Double) = 8UL
+
+    override fun write(value: Double, buf: ByteBuffer) {
+        buf.putDouble(value)
     }
 }
 
@@ -1104,6 +1245,313 @@ public object FfiConverterDuration: FfiConverterRustBuffer<java.time.Duration> {
         buf.putLong(value.seconds)
         // Type mismatch (should be u32) but since values will always be between 0 and 999,999,999 it should be OK
         buf.putInt(value.nano)
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+//
+public interface ResamplerInterface {
+    
+    /**
+     * Flush any remaining audio data through the resampler and retrieve the resampled data.
+     *
+     * This method should be called when no more input data will be provided to ensure that all
+     * internal buffers are processed and all resampled data is output.
+
+     */
+    fun `flush`(): List<kotlin.Short>
+    
+    /**
+     * Push audio data into the resampler and retrieve any available resampled data.
+     *
+     * This method accepts audio data, resamples it according to the configured input
+     * and output rates, and returns any resampled data that is available after processing the input.
+
+     */
+    fun `push`(`input`: List<kotlin.Short>): List<kotlin.Short>
+    
+    companion object
+}
+
+open class Resampler: Disposable, AutoCloseable, ResamplerInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+    /**
+     * Creates a new audio resampler with the given settings.
+     */
+    constructor(`settings`: ResamplerSettings) :
+        this(UniffiWithHandle, 
+    uniffiRustCallWithError(ResamplerException) { _status ->
+    UniffiLib.uniffi_livekit_uniffi_fn_constructor_resampler_new(
+    
+        FfiConverterTypeResamplerSettings.lower(`settings`),_status)
+}
+    )
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_livekit_uniffi_fn_free_resampler(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_livekit_uniffi_fn_clone_resampler(handle, status)
+        }
+    }
+
+    
+    /**
+     * Flush any remaining audio data through the resampler and retrieve the resampled data.
+     *
+     * This method should be called when no more input data will be provided to ensure that all
+     * internal buffers are processed and all resampled data is output.
+
+     */
+    @Throws(ResamplerException::class)override fun `flush`(): List<kotlin.Short> {
+            return FfiConverterSequenceShort.lift(
+    callWithHandle {
+    uniffiRustCallWithError(ResamplerException) { _status ->
+    UniffiLib.uniffi_livekit_uniffi_fn_method_resampler_flush(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Push audio data into the resampler and retrieve any available resampled data.
+     *
+     * This method accepts audio data, resamples it according to the configured input
+     * and output rates, and returns any resampled data that is available after processing the input.
+
+     */
+    @Throws(ResamplerException::class)override fun `push`(`input`: List<kotlin.Short>): List<kotlin.Short> {
+            return FfiConverterSequenceShort.lift(
+    callWithHandle {
+    uniffiRustCallWithError(ResamplerException) { _status ->
+    UniffiLib.uniffi_livekit_uniffi_fn_method_resampler_push(
+        it,
+        FfiConverterSequenceShort.lower(`input`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeResampler: FfiConverter<Resampler, Long> {
+    override fun lower(value: Resampler): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): Resampler {
+        return Resampler(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): Resampler {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: Resampler) = 8UL
+
+    override fun write(value: Resampler, buf: ByteBuffer) {
+        buf.putLong(lower(value))
     }
 }
 
@@ -1278,6 +1726,52 @@ public object FfiConverterTypeLogForwardEntry: FfiConverterRustBuffer<LogForward
             FfiConverterOptionalString.write(value.`file`, buf)
             FfiConverterOptionalUInt.write(value.`line`, buf)
             FfiConverterString.write(value.`message`, buf)
+    }
+}
+
+
+
+data class ResamplerSettings (
+    var `inputRate`: kotlin.Double
+    , 
+    var `outputRate`: kotlin.Double
+    , 
+    var `numChannels`: kotlin.UInt
+    , 
+    var `quality`: ResamplerQuality
+    
+){
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeResamplerSettings: FfiConverterRustBuffer<ResamplerSettings> {
+    override fun read(buf: ByteBuffer): ResamplerSettings {
+        return ResamplerSettings(
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterTypeResamplerQuality.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: ResamplerSettings) = (
+            FfiConverterDouble.allocationSize(value.`inputRate`) +
+            FfiConverterDouble.allocationSize(value.`outputRate`) +
+            FfiConverterUInt.allocationSize(value.`numChannels`) +
+            FfiConverterTypeResamplerQuality.allocationSize(value.`quality`)
+    )
+
+    override fun write(value: ResamplerSettings, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`inputRate`, buf)
+            FfiConverterDouble.write(value.`outputRate`, buf)
+            FfiConverterUInt.write(value.`numChannels`, buf)
+            FfiConverterTypeResamplerQuality.write(value.`quality`, buf)
     }
 }
 
@@ -1642,6 +2136,119 @@ public object FfiConverterTypeLogForwardLevel: FfiConverterRustBuffer<LogForward
 
 
 
+
+sealed class ResamplerException: kotlin.Exception() {
+    
+    class Initialization(
+        
+        val v1: kotlin.String
+        ) : ResamplerException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+    class OperationFailed(
+        
+        val v1: kotlin.String
+        ) : ResamplerException() {
+        override val message
+            get() = "v1=${ v1 }"
+    }
+    
+
+    companion object ErrorHandler : UniffiRustCallStatusErrorHandler<ResamplerException> {
+        override fun lift(error_buf: RustBuffer.ByValue): ResamplerException = FfiConverterTypeResamplerError.lift(error_buf)
+    }
+
+    
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeResamplerError : FfiConverterRustBuffer<ResamplerException> {
+    override fun read(buf: ByteBuffer): ResamplerException {
+        
+
+        return when(buf.getInt()) {
+            1 -> ResamplerException.Initialization(
+                FfiConverterString.read(buf),
+                )
+            2 -> ResamplerException.OperationFailed(
+                FfiConverterString.read(buf),
+                )
+            else -> throw RuntimeException("invalid error enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: ResamplerException): ULong {
+        return when(value) {
+            is ResamplerException.Initialization -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+            is ResamplerException.OperationFailed -> (
+                // Add the size for the Int that specifies the variant plus the size needed for all fields
+                4UL
+                + FfiConverterString.allocationSize(value.v1)
+            )
+        }
+    }
+
+    override fun write(value: ResamplerException, buf: ByteBuffer) {
+        when(value) {
+            is ResamplerException.Initialization -> {
+                buf.putInt(1)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+            is ResamplerException.OperationFailed -> {
+                buf.putInt(2)
+                FfiConverterString.write(value.v1, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+
+}
+
+
+
+
+enum class ResamplerQuality {
+    
+    QUICK,
+    LOW,
+    MEDIUM,
+    HIGH,
+    VERY_HIGH;
+    companion object
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeResamplerQuality: FfiConverterRustBuffer<ResamplerQuality> {
+    override fun read(buf: ByteBuffer) = try {
+        ResamplerQuality.values()[buf.getInt() - 1]
+    } catch (e: IndexOutOfBoundsException) {
+        throw RuntimeException("invalid enum value, something is very wrong!!", e)
+    }
+
+    override fun allocationSize(value: ResamplerQuality) = 4UL
+
+    override fun write(value: ResamplerQuality, buf: ByteBuffer) {
+        buf.putInt(value.ordinal + 1)
+    }
+}
+
+
+
+
+
+
 /**
  * @suppress
  */
@@ -1891,6 +2498,34 @@ public object FfiConverterOptionalMapStringString: FfiConverterRustBuffer<Map<ko
         } else {
             buf.put(1)
             FfiConverterMapStringString.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceShort: FfiConverterRustBuffer<List<kotlin.Short>> {
+    override fun read(buf: ByteBuffer): List<kotlin.Short> {
+        val len = buf.getInt()
+        return List<kotlin.Short>(len) {
+            FfiConverterShort.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.Short>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterShort.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.Short>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterShort.write(it, buf)
         }
     }
 }
