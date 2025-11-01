@@ -32,6 +32,7 @@ wgpu = "25.0"
 winit = { version = "0.30.11", features = ["android-native-activity"] }
 parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
 anyhow = "1"
+bytemuck = { version = "1.16", features = ["derive"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
