@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{slice, sync::Arc};
+use std::{slice, sync::Arc, time::Instant};
+use metrics_logger::metrics::histogram;
 
 use colorcvt::cvtimpl;
 use livekit::{
@@ -480,7 +481,13 @@ unsafe fn on_video_convert(
     let ref buffer = video_convert.buffer;
     let flip_y = video_convert.flip_y;
     let dst_type = video_convert.dst_type();
-    match cvtimpl::cvt(buffer.clone(), dst_type, flip_y.unwrap_or(false)) {
+
+    let start = Instant::now();
+    let cvt_result = cvtimpl::cvt(buffer.clone(), dst_type, flip_y.unwrap_or(false));
+    let delta = start.elapsed();
+    histogram!("color_cvt").record(delta.as_millis() as f64);
+
+    match cvt_result {
         Ok((buffer, info)) => {
             let id = server.next_id();
             server.store_handle(id, buffer);
