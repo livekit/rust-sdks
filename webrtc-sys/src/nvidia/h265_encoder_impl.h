@@ -10,6 +10,8 @@
 #include "NvEncoder/NvEncoderCuda.h"
 
 #include "absl/container/inlined_vector.h"
+#include "api/environment/environment.h"
+#include "api/video_codecs/sdp_video_format.h"
 #include "api/transport/rtp/dependency_descriptor.h"
 #include "api/video/i420_buffer.h"
 #include "api/video/video_codec_constants.h"
