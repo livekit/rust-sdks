@@ -166,7 +166,7 @@ async fn main() -> Result<()> {
 
     let publish_opts = |codec: VideoCodec| TrackPublishOptions {
         source: TrackSource::Camera,
-        simulcast: false,
+        simulcast: true,
         video_codec: codec,
         ..Default::default()
     };
