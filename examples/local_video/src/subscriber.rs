@@ -10,7 +10,12 @@ use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
 use log::{debug, info};
 use parking_lot::Mutex;
-use std::{env, sync::Arc, time::{Duration, Instant}};
+use std::{
+    collections::HashMap,
+    env,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -131,9 +136,59 @@ async fn main() -> Result<()> {
         info!("Subscribed to room events");
         while let Some(evt) = events.recv().await {
             debug!("Room event: {:?}", evt);
-            if let RoomEvent::TrackSubscribed { track, .. } = evt {
+            if let RoomEvent::TrackSubscribed { track, publication, participant } = evt {
                 if let livekit::track::RemoteTrack::Video(video_track) = track {
-                    info!("Subscribed to video track: {}", video_track.name());
+                    info!(
+                        "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}",
+                        publication.name(),
+                        publication.sid(),
+                        participant.identity(),
+                        publication.mime_type(),
+                        publication.simulcasted(),
+                        publication.dimension().0,
+                        publication.dimension().1
+                    );
+
+                    // Try to fetch inbound RTP/codec stats for more details
+                    match video_track.get_stats().await {
+                        Ok(stats) => {
+                            let mut codec_by_id: HashMap<String, (String, String)> = HashMap::new();
+                            let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> = None;
+                            for s in stats.iter() {
+                                match s {
+                                    livekit::webrtc::stats::RtcStats::Codec(c) => {
+                                        codec_by_id.insert(
+                                            c.rtc.id.clone(),
+                                            (c.codec.mime_type.clone(), c.codec.sdp_fmtp_line.clone()),
+                                        );
+                                    }
+                                    livekit::webrtc::stats::RtcStats::InboundRtp(i) => {
+                                        if i.stream.kind == "video" {
+                                            inbound = Some(i.clone());
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+
+                            if let Some(i) = inbound {
+                                if let Some((mime, fmtp)) = codec_by_id.get(&i.stream.codec_id) {
+                                    info!("Inbound codec: {} (fmtp: {})", mime, fmtp);
+                                } else {
+                                    info!("Inbound codec id: {}", i.stream.codec_id);
+                                }
+                                info!(
+                                    "Inbound current layer: {}x{} ~{:.1} fps, decoder: {}, power_efficient: {}",
+                                    i.inbound.frame_width,
+                                    i.inbound.frame_height,
+                                    i.inbound.frames_per_second,
+                                    i.inbound.decoder_implementation,
+                                    i.inbound.power_efficient_decoder
+                                );
+                            }
+                        }
+                        Err(e) => debug!("Failed to get stats for video track: {:?}", e),
+                    }
                     // Start background sink thread
                     let shared2 = shared_clone.clone();
                     std::thread::spawn(move || {
