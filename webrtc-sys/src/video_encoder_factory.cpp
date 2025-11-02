@@ -99,6 +99,19 @@ VideoEncoderFactory::CodecSupport
 VideoEncoderFactory::InternalFactory::QueryCodecSupport(
     const webrtc::SdpVideoFormat& format,
     std::optional<std::string> scalability_mode) const {
+  // First, consult hardware/platform factories we aggregate (e.g., NVENC/VAAPI).
+  for (const auto& factory : factories_) {
+    for (const auto& supported_format : factory->GetSupportedFormats()) {
+      if (supported_format.IsSameCodec(format)) {
+        // If a hardware factory reports support for this codec, report supported.
+        // SimulcastEncoderAdapter will manage multi-stream behavior for codecs
+        // that don't implement native simulcast.
+        return webrtc::VideoEncoderFactory::CodecSupport{.is_supported = true};
+      }
+    }
+  }
+
+  // Fall back to built-in software encoders.
   auto original_format =
       webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(), format);
   return original_format

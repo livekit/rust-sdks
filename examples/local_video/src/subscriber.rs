@@ -111,6 +111,7 @@ async fn main() -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
+    room_options.adaptive_stream = true;
     let (room, _) = Room::connect(&url, &token, room_options).await?;
     let room = Arc::new(room);
     info!("Connected: {} - {}", room.name(), room.sid().await);
