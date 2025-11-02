@@ -55,10 +55,31 @@ struct SharedYuv {
 
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
+    publication: Arc<Mutex<Option<RemoteTrackPublication>>>,
 }
 
 impl eframe::App for VideoApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Keyboard controls for simulcast quality selection
+        if ctx.input(|i| i.key_pressed(egui::Key::Num1)) {
+            if let Some(publication) = self.publication.lock().clone() {
+                publication.set_video_quality(livekit::track::VideoQuality::Low);
+                info!("Requested simulcast layer: Low (1)");
+            }
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Num2)) {
+            if let Some(publication) = self.publication.lock().clone() {
+                publication.set_video_quality(livekit::track::VideoQuality::Medium);
+                info!("Requested simulcast layer: Medium (2)");
+            }
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::Num3)) {
+            if let Some(publication) = self.publication.lock().clone() {
+                publication.set_video_quality(livekit::track::VideoQuality::High);
+                info!("Requested simulcast layer: High (3)");
+            }
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             let available = ui.available_size();
             let rect = egui::Rect::from_min_size(ui.min_rect().min, available);
@@ -129,8 +150,12 @@ async fn main() -> Result<()> {
         dirty: false,
     }));
 
+    // Handle to the current remote publication for quality selection via keyboard
+    let publication_handle: Arc<Mutex<Option<RemoteTrackPublication>>> = Arc::new(Mutex::new(None));
+
     // Subscribe to room events: on first video track, start sink task
     let shared_clone = shared.clone();
+    let pub_handle_clone = publication_handle.clone();
     let rt = tokio::runtime::Handle::current();
     tokio::spawn(async move {
         let mut events = room.subscribe();
@@ -138,6 +163,11 @@ async fn main() -> Result<()> {
         while let Some(evt) = events.recv().await {
             debug!("Room event: {:?}", evt);
             if let RoomEvent::TrackSubscribed { track, publication, participant } = evt {
+                // Store handle for keyboard-triggered quality selection
+                {
+                    let mut slot = pub_handle_clone.lock();
+                    *slot = Some(publication.clone());
+                }
                 if let livekit::track::RemoteTrack::Video(video_track) = track {
                     info!(
                         "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}",
@@ -261,7 +291,7 @@ async fn main() -> Result<()> {
     });
 
     // Start UI
-    let app = VideoApp { shared };
+    let app = VideoApp { shared, publication: publication_handle };
     let native_options = eframe::NativeOptions::default();
     eframe::run_native("LiveKit Video Subscriber", native_options, Box::new(|_| Ok::<Box<dyn eframe::App>, _>(Box::new(app))))?;
 

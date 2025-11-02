@@ -270,8 +270,11 @@ impl RemoteTrackPublication {
     ///
     pub fn set_video_quality(&self, quality: VideoQuality) {
         if !self.simulcasted() {
-            log::warn!("Cannot set video quality for a track that is not simulcasted");
-            return;
+            // Some codecs/transports (e.g., H265/NVENC) may not mark simulcast accurately.
+            // Proceed to send the request regardless so the server can honor it when layered.
+            log::info!(
+                "set_video_quality called on a publication reporting simulcasted=false; sending request anyway"
+            );
         }
         if let Some(video_quality_changed) =
             self.remote.events.video_quality_changed.lock().as_ref()
