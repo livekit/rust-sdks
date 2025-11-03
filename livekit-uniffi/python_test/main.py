@@ -29,13 +29,13 @@ def main():
 
     credentials = ApiCredentials(key="devkey", secret="secret")
 
-    jwt = generate_token(
+    jwt = token_generate(
         options=TokenOptions(room_name="test", identity="some_participant"),
         credentials=credentials,
     )
     print(f"Generated JWT: {jwt}")
 
-    decoded_grants = verify_token(
+    decoded_grants = token_verify(
         token=jwt,
         credentials=credentials,
     )

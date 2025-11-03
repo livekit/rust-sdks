@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use livekit_api::access_token::{
-    AccessToken, AccessTokenError, SIPGrants, TokenVerifier, VideoGrants,
+    self, AccessToken, AccessTokenError, SIPGrants, TokenVerifier, VideoGrants,
 };
 use std::{collections::HashMap, time::Duration};
 
@@ -79,6 +79,25 @@ pub struct Claims {
     pub room_name: String,
 }
 
+impl From<livekit_api::access_token::Claims> for Claims {
+    fn from(claims: livekit_api::access_token::Claims) -> Self {
+        let room_name = claims.room_config.map_or(String::default(), |config| config.name);
+        Self {
+            exp: claims.exp as u64,
+            iss: claims.iss,
+            nbf: claims.nbf as u64,
+            sub: claims.sub,
+            name: claims.name,
+            video: claims.video,
+            sip: claims.sip,
+            sha256: claims.sha256,
+            metadata: claims.metadata,
+            attributes: claims.attributes,
+            room_name,
+        }
+    }
+}
+
 /// API credentials for access token generation and verification.
 #[derive(uniffi::Record)]
 pub struct ApiCredentials {
@@ -121,7 +140,7 @@ pub struct TokenOptions {
 /// variables `LIVEKIT_API_KEY` and `LIVEKIT_SECRET` respectively.
 ///
 #[uniffi::export]
-pub fn generate_token(
+pub fn token_generate(
     options: TokenOptions,
     credentials: Option<ApiCredentials>,
 ) -> Result<String, AccessTokenError> {
@@ -168,7 +187,7 @@ pub fn generate_token(
 /// variables `LIVEKIT_API_KEY` and `LIVEKIT_SECRET` respectively.
 ///
 #[uniffi::export]
-pub fn verify_token(
+pub fn token_verify(
     token: &str,
     credentials: Option<ApiCredentials>,
 ) -> Result<Claims, AccessTokenError> {
@@ -179,18 +198,17 @@ pub fn verify_token(
         None => TokenVerifier::new()?,
     };
     let claims = verifier.verify(token)?;
-    let room_name = claims.room_config.map_or(String::default(), |config| config.name);
-    Ok(Claims {
-        exp: claims.exp as u64,
-        iss: claims.iss,
-        nbf: claims.nbf as u64,
-        sub: claims.sub,
-        name: claims.name,
-        video: claims.video,
-        sip: claims.sip,
-        sha256: claims.sha256,
-        metadata: claims.metadata,
-        attributes: claims.attributes,
-        room_name,
-    })
+    Ok(claims.into())
+}
+
+/// Parses an access token without verifying its signature.
+///
+/// This is useful when you want to inspect token contents without having the secret.
+/// The token's expiration (exp) and not-before (nbf) times are still validated.
+/// WARNING: Do not use this for authentication - the signature is not verified!
+///
+#[uniffi::export]
+pub fn token_claims_from_unverified(token: &str) -> Result<Claims, AccessTokenError> {
+    let claims = access_token::Claims::from_unverified(token)?;
+    Ok(claims.into())
 }
