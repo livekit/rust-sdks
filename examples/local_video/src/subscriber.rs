@@ -132,7 +132,7 @@ async fn main() -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
-    room_options.adaptive_stream = true;
+    room_options.adaptive_stream = false;
     let (room, _) = Room::connect(&url, &token, room_options).await?;
     let room = Arc::new(room);
     info!("Connected: {} - {}", room.name(), room.sid().await);
@@ -595,9 +595,10 @@ impl CallbackTrait for YuvPaintCallback {
         }
 
         // Build pipeline and textures on first paint or on resize
-        let state_entry = resources.get::<YuvGpuState>().expect("YuvGpuState should be initialized in prepare");
-        // We cannot mutate resources here; assume created already with correct dims
-        let state = state_entry;
+        let Some(state) = resources.get::<YuvGpuState>() else {
+            // First frame may arrive between prepare and paint; skip until next prepare
+            return;
+        };
 
         if state.dims != (shared.width, shared.height) {
             // We cannot rebuild here (no device access); skip drawing until next frame where prepare will rebuild
