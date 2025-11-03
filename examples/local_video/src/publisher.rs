@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use livekit::options::{TrackPublishOptions, VideoCodec};
+use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
@@ -166,8 +166,9 @@ async fn main() -> Result<()> {
 
     let publish_opts = |codec: VideoCodec| TrackPublishOptions {
         source: TrackSource::Camera,
-        simulcast: true,
+        simulcast: false,
         video_codec: codec,
+        video_encoding: Some(VideoEncoding { max_bitrate: 8000000, max_framerate: fps as f64 }),
         ..Default::default()
     };
 
