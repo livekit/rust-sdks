@@ -199,9 +199,16 @@ async fn main() -> Result<()> {
         ..Default::default()
     };
 
+    let opts = publish_opts(requested_codec);
+    info!(
+        "Publish options: codec={}, simulcast={}, encoding={:?}",
+        requested_codec.as_str(),
+        opts.simulcast,
+        opts.video_encoding
+    );
     let publish_result = room
         .local_participant()
-        .publish_track(LocalTrack::Video(track.clone()), publish_opts(requested_codec))
+        .publish_track(LocalTrack::Video(track.clone()), opts)
         .await;
 
     if let Err(e) = publish_result {
@@ -210,9 +217,16 @@ async fn main() -> Result<()> {
                 "H.265 publish failed ({}). Falling back to H.264...",
                 e
             );
+            let opts_fallback = publish_opts(VideoCodec::H264);
+            info!(
+                "Fallback publish options: codec={}, simulcast={}, encoding={:?}",
+                VideoCodec::H264.as_str(),
+                opts_fallback.simulcast,
+                opts_fallback.video_encoding
+            );
             room
                 .local_participant()
-                .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
+                .publish_track(LocalTrack::Video(track.clone()), opts_fallback)
                 .await?;
             info!("Published camera track with H.264 fallback");
         } else {

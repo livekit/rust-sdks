@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use libwebrtc::prelude::*;
+use log::debug;
 use livekit_protocol as proto;
 
 use crate::prelude::*;
@@ -128,6 +129,14 @@ pub fn compute_video_encodings(
     height: u32,
     options: &TrackPublishOptions,
 ) -> Vec<RtpEncodingParameters> {
+    debug!(
+        "compute_video_encodings: width={} height={} simulcast={} video_encoding={:?} codec={}",
+        width,
+        height,
+        options.simulcast,
+        options.video_encoding,
+        options.video_codec.as_str()
+    );
     let screenshare = options.source == TrackSource::Screenshare;
     let encoding = match options.video_encoding.clone() {
         Some(encoding) => encoding,
@@ -144,7 +153,9 @@ pub fn compute_video_encodings(
     };
 
     if !options.simulcast {
-        return into_rtp_encodings(width, height, &[initial_preset]);
+        let enc = into_rtp_encodings(width, height, &[initial_preset]);
+        debug!("compute_video_encodings (no simulcast) -> {:?}", enc);
+        return enc;
     }
 
     let mut simulcast_presets = compute_default_simulcast_presets(screenshare, &initial_preset);
@@ -156,17 +167,25 @@ pub fn compute_video_encodings(
 
     if size >= 960 && low_preset.is_some() {
         #[allow(clippy::unnecessary_unwrap)]
-        return into_rtp_encodings(
-            width,
-            height,
-            &[low_preset.unwrap(), mid_preset.unwrap(), initial_preset],
-        );
+        {
+            let enc = into_rtp_encodings(
+                width,
+                height,
+                &[low_preset.unwrap(), mid_preset.unwrap(), initial_preset],
+            );
+            debug!("compute_video_encodings (3 layers) -> {:?}", enc);
+            return enc;
+        }
     } else if size >= 480 {
-        return into_rtp_encodings(width, height, &[mid_preset.unwrap(), initial_preset]);
+        let enc = into_rtp_encodings(width, height, &[mid_preset.unwrap(), initial_preset]);
+        debug!("compute_video_encodings (2 layers) -> {:?}", enc);
+        return enc;
     }
 
     // Other layers not needed
-    into_rtp_encodings(width, height, &[initial_preset])
+    let enc = into_rtp_encodings(width, height, &[initial_preset]);
+    debug!("compute_video_encodings (1 layer) -> {:?}", enc);
+    enc
 }
 
 /// Return an appropriate VideoEncdoding for the specified resolution based on our presets

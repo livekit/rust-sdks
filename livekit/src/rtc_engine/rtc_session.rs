@@ -1285,6 +1285,13 @@ impl SessionInner {
             pendings_tracks.insert(cid.clone(), tx);
         }
 
+        log::debug!(
+            "rtc_session.add_track: sending AddTrackRequest cid={} size={}x{} layers={:?}",
+            cid,
+            req.width,
+            req.height,
+            req.layers
+        );
         self.signal_client.send(proto::signal_request::Message::AddTrack(req)).await;
 
         // Wait the result from the server (TrackInfo)
@@ -1323,6 +1330,12 @@ impl SessionInner {
         options: TrackPublishOptions,
         encodings: Vec<RtpEncodingParameters>,
     ) -> EngineResult<RtpTransceiver> {
+        log::debug!(
+            "create_sender: kind={:?} codec={} encodings={:?}",
+            track.kind(),
+            options.video_codec.as_str(),
+            encodings
+        );
         let init = RtpTransceiverInit {
             direction: RtpTransceiverDirection::SendOnly,
             stream_ids: Default::default(),
@@ -1364,6 +1377,10 @@ impl SessionInner {
             matched.append(&mut partial_matched);
 
             transceiver.set_codec_preferences(matched)?;
+
+            let sender = transceiver.sender();
+            let params = sender.parameters();
+            log::debug!("create_sender: RtpSender parameters after init: {:?}", params);
         }
 
         Ok(transceiver)

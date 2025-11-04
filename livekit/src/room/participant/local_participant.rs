@@ -262,6 +262,13 @@ impl LocalParticipant {
 
                 encodings = compute_video_encodings(req.width, req.height, &options);
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
+                log::debug!(
+                    "publish_track: video encodings={:?} layers={:?} options.encoding={:?} codec={}",
+                    encodings,
+                    req.layers,
+                    options.video_encoding,
+                    options.video_codec.as_str()
+                );
             }
             LocalTrack::Audio(_audio_track) => {
                 // Setup audio encoding
@@ -274,6 +281,15 @@ impl LocalParticipant {
                 });
             }
         }
+        log::debug!(
+            "publish_track: sending AddTrackRequest cid={} type={} size={}x{} layers={:?}",
+            req.cid,
+            req.r#type,
+            req.width,
+            req.height,
+            req.layers
+        );
+
         let track_info = self.inner.rtc_engine.add_track(req).await?;
         let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
         track.update_info(track_info); // Update sid + source
