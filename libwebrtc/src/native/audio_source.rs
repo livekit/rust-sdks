@@ -27,6 +27,25 @@ pub struct NativeAudioSource {
 }
 
 impl NativeAudioSource {
+    /// Creates a new [`NativeAudioSource`].
+    ///
+    /// # Arguments
+    /// * `options` – Configuration options for the source (e.g. echo cancellation, noise suppression).
+    /// * `sample_rate` – Sampling rate in Hz (for example, `48000`).
+    /// * `num_channels` – Number of audio channels (`1` for mono, `2` for stereo, etc.).
+    /// * `queue_size_ms` – Size of the internal buffering queue, in milliseconds.
+    ///
+    /// # Behavior
+    /// - If `queue_size_ms` is **zero**, buffering is **disabled** and audio frames are
+    ///   delivered directly to webrtc sinks. In this mode, the caller **must provide 10 ms frames**
+    ///   (i.e., `sample_rate / 100` samples per channel) when calling [`capture_frame`].
+    /// - If `queue_size_ms` is **non-zero**, buffering is enabled. The value must be a
+    ///   **multiple of 10**, representing the total buffering duration in milliseconds.
+    ///   Frames will be queued and flushed to sinks asynchronously once the buffer
+    ///   reaches the configured threshold.
+    ///
+    /// # Panics
+    /// assert if `queue_size_ms` is not a multiple of 10.
     pub fn new(
         options: AudioSourceOptions,
         sample_rate: u32,
@@ -80,17 +99,14 @@ impl NativeAudioSource {
 
         // Fast path: no buffering
         if self.queue_size_samples == 0 {
-            // 10 ms = sample_rate / 100 frames per channel
+            // frame size must be 10ms for fast path
             let expected_frames_per_ch = (self.sample_rate / 100) as usize;
-
-            // Ensure buffer aligns with channel count
             if frame.data.len() % (self.num_channels as usize) != 0 {
                 return Err(RtcError {
                     error_type: RtcErrorType::InvalidState,
                     message: "frame.data length not divisible by channel count".to_owned(),
                 });
             }
-
             let nb_frames = frame.data.len() / (self.num_channels as usize);
             if nb_frames != expected_frames_per_ch {
                 return Err(RtcError {
