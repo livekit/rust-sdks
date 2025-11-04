@@ -262,7 +262,7 @@ impl LocalParticipant {
 
                 encodings = compute_video_encodings(req.width, req.height, &options);
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
-                log::debug!(
+                log::info!(
                     "publish_track: video encodings={:?} layers={:?} options.encoding={:?} codec={}",
                     encodings,
                     req.layers,

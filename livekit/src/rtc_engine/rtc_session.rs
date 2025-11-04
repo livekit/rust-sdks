@@ -1285,7 +1285,7 @@ impl SessionInner {
             pendings_tracks.insert(cid.clone(), tx);
         }
 
-        log::debug!(
+        log::info!(
             "rtc_session.add_track: sending AddTrackRequest cid={} size={}x{} layers={:?}",
             cid,
             req.width,
@@ -1330,7 +1330,7 @@ impl SessionInner {
         options: TrackPublishOptions,
         encodings: Vec<RtpEncodingParameters>,
     ) -> EngineResult<RtpTransceiver> {
-        log::debug!(
+        log::info!(
             "create_sender: kind={:?} codec={} encodings={:?}",
             track.kind(),
             options.video_codec.as_str(),

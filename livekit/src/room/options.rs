@@ -129,7 +129,7 @@ pub fn compute_video_encodings(
     height: u32,
     options: &TrackPublishOptions,
 ) -> Vec<RtpEncodingParameters> {
-    debug!(
+    info!(
         "compute_video_encodings: width={} height={} simulcast={} video_encoding={:?} codec={}",
         width,
         height,
