@@ -78,6 +78,52 @@ impl NativeAudioSource {
             });
         }
 
+        // Fast path: no buffering
+        if self.queue_size_samples == 0 {
+            // 10 ms = sample_rate / 100 frames per channel
+            let expected_frames_per_ch = (self.sample_rate / 100) as usize;
+
+            // Ensure buffer aligns with channel count
+            if frame.data.len() % (self.num_channels as usize) != 0 {
+                return Err(RtcError {
+                    error_type: RtcErrorType::InvalidState,
+                    message: "frame.data length not divisible by channel count".to_owned(),
+                });
+            }
+
+            let nb_frames = frame.data.len() / (self.num_channels as usize);
+            if nb_frames != expected_frames_per_ch {
+                return Err(RtcError {
+                    error_type: RtcErrorType::InvalidState,
+                    message: format!(
+                        "direct capture requires 10ms frames: got {} frames, expected {}",
+                        nb_frames, expected_frames_per_ch
+                    ),
+                });
+            }
+
+            unsafe {
+                // Pass null ctx + null callback; C++ ignores them in direct mode
+                let data: &[i16] = frame.data.as_ref();
+                let ok = self.sys_handle.capture_frame(
+                    data,
+                    self.sample_rate,
+                    self.num_channels,
+                    nb_frames,
+                    std::ptr::null(),
+                    std::mem::zeroed::<sys_at::CompleteCallback>(),
+                );
+                if !ok {
+                    return Err(RtcError {
+                        error_type: RtcErrorType::InvalidState,
+                        message: "failed to capture frame without buffering".to_owned(),
+                    });
+                }
+            }
+            return Ok(());
+        }
+
+        // Buffered path.
         extern "C" fn lk_audio_source_complete(userdata: *const sys_at::SourceContext) {
             let tx = unsafe { Box::from_raw(userdata as *mut oneshot::Sender<()>) };
             let _ = tx.send(());
@@ -91,6 +137,7 @@ impl NativeAudioSource {
             let ctx_ptr = Box::into_raw(ctx) as *const sys_at::SourceContext;
 
             unsafe {
+                // In the fast path, C++ never store / invoke on_complete / ctx.
                 if !self.sys_handle.capture_frame(
                     chunk,
                     self.sample_rate,
