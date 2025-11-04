@@ -832,7 +832,7 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
     if (lib.uniffi_livekit_uniffi_checksum_method_resampler_flush() != 32136.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
-    if (lib.uniffi_livekit_uniffi_checksum_method_resampler_push() != 59438.toShort()) {
+    if (lib.uniffi_livekit_uniffi_checksum_method_resampler_push() != 58546.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_livekit_uniffi_checksum_constructor_resampler_new() != 65134.toShort()) {
@@ -1363,7 +1363,7 @@ public interface ResamplerInterface {
      * and output rates, and returns any resampled data that is available after processing the input.
 
      */
-    fun `push`(`input`: List<kotlin.Short>): List<kotlin.Short>
+    fun `push`(`input`: NativeAudioBuffer): List<kotlin.Short>
     
     companion object
 }
@@ -1504,13 +1504,13 @@ open class Resampler: Disposable, AutoCloseable, ResamplerInterface
      * and output rates, and returns any resampled data that is available after processing the input.
 
      */
-    @Throws(ResamplerException::class)override fun `push`(`input`: List<kotlin.Short>): List<kotlin.Short> {
+    @Throws(ResamplerException::class)override fun `push`(`input`: NativeAudioBuffer): List<kotlin.Short> {
             return FfiConverterSequenceShort.lift(
     callWithHandle {
     uniffiRustCallWithError(ResamplerException) { _status ->
     UniffiLib.uniffi_livekit_uniffi_fn_method_resampler_push(
         it,
-        FfiConverterSequenceShort.lower(`input`),_status)
+        FfiConverterTypeNativeAudioBuffer.lower(`input`),_status)
 }
     }
     )
@@ -1726,6 +1726,45 @@ public object FfiConverterTypeLogForwardEntry: FfiConverterRustBuffer<LogForward
             FfiConverterOptionalString.write(value.`file`, buf)
             FfiConverterOptionalUInt.write(value.`line`, buf)
             FfiConverterString.write(value.`message`, buf)
+    }
+}
+
+
+
+/**
+ * A buffer owned by and whose lifetime is managed by the foreign language.
+ */
+data class NativeAudioBuffer (
+    var `ptr`: kotlin.ULong
+    , 
+    var `len`: kotlin.ULong
+    
+){
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeNativeAudioBuffer: FfiConverterRustBuffer<NativeAudioBuffer> {
+    override fun read(buf: ByteBuffer): NativeAudioBuffer {
+        return NativeAudioBuffer(
+            FfiConverterULong.read(buf),
+            FfiConverterULong.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: NativeAudioBuffer) = (
+            FfiConverterULong.allocationSize(value.`ptr`) +
+            FfiConverterULong.allocationSize(value.`len`)
+    )
+
+    override fun write(value: NativeAudioBuffer, buf: ByteBuffer) {
+            FfiConverterULong.write(value.`ptr`, buf)
+            FfiConverterULong.write(value.`len`, buf)
     }
 }
 

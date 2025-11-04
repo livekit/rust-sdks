@@ -594,7 +594,7 @@ public protocol ResamplerProtocol: AnyObject, Sendable {
      * and output rates, and returns any resampled data that is available after processing the input.
 
      */
-    func push(input: [Int16]) throws  -> [Int16]
+    func push(input: NativeAudioBuffer) throws  -> [Int16]
     
 }
 open class Resampler: ResamplerProtocol, @unchecked Sendable {
@@ -678,11 +678,11 @@ open func flush()throws  -> [Int16]  {
      * and output rates, and returns any resampled data that is available after processing the input.
 
      */
-open func push(input: [Int16])throws  -> [Int16]  {
+open func push(input: NativeAudioBuffer)throws  -> [Int16]  {
     return try  FfiConverterSequenceInt16.lift(try rustCallWithError(FfiConverterTypeResamplerError_lift) {
     uniffi_livekit_uniffi_fn_method_resampler_push(
             self.uniffiCloneHandle(),
-        FfiConverterSequenceInt16.lower(input),$0
+        FfiConverterTypeNativeAudioBuffer_lower(input),$0
     )
 })
 }
@@ -942,6 +942,61 @@ public func FfiConverterTypeLogForwardEntry_lift(_ buf: RustBuffer) throws -> Lo
 #endif
 public func FfiConverterTypeLogForwardEntry_lower(_ value: LogForwardEntry) -> RustBuffer {
     return FfiConverterTypeLogForwardEntry.lower(value)
+}
+
+
+/**
+ * A buffer owned by and whose lifetime is managed by the foreign language.
+ */
+public struct NativeAudioBuffer: Equatable, Hashable {
+    public var ptr: UInt64
+    public var len: UInt64
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(ptr: UInt64, len: UInt64) {
+        self.ptr = ptr
+        self.len = len
+    }
+
+    
+}
+
+#if compiler(>=6)
+extension NativeAudioBuffer: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeNativeAudioBuffer: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> NativeAudioBuffer {
+        return
+            try NativeAudioBuffer(
+                ptr: FfiConverterUInt64.read(from: &buf), 
+                len: FfiConverterUInt64.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: NativeAudioBuffer, into buf: inout [UInt8]) {
+        FfiConverterUInt64.write(value.ptr, into: &buf)
+        FfiConverterUInt64.write(value.len, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNativeAudioBuffer_lift(_ buf: RustBuffer) throws -> NativeAudioBuffer {
+    return try FfiConverterTypeNativeAudioBuffer.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeNativeAudioBuffer_lower(_ value: NativeAudioBuffer) -> RustBuffer {
+    return FfiConverterTypeNativeAudioBuffer.lower(value)
 }
 
 
@@ -2127,7 +2182,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_livekit_uniffi_checksum_method_resampler_flush() != 32136) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_livekit_uniffi_checksum_method_resampler_push() != 59438) {
+    if (uniffi_livekit_uniffi_checksum_method_resampler_push() != 58546) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_livekit_uniffi_checksum_constructor_resampler_new() != 65134) {

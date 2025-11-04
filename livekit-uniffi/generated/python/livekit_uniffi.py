@@ -493,7 +493,7 @@ def _uniffi_check_api_checksums(lib):
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     if lib.uniffi_livekit_uniffi_checksum_method_resampler_flush() != 32136:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
-    if lib.uniffi_livekit_uniffi_checksum_method_resampler_push() != 59438:
+    if lib.uniffi_livekit_uniffi_checksum_method_resampler_push() != 58546:
         raise InternalError("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
 
 # A ctypes library to expose the extern-C FFI definitions.
@@ -1500,6 +1500,45 @@ class _UniffiFfiConverterTypeLogForwardEntry(_UniffiConverterRustBuffer):
         _UniffiFfiConverterOptionalUInt32.write(value.line, buf)
         _UniffiFfiConverterString.write(value.message, buf)
 
+@dataclass
+class NativeAudioBuffer:
+    """
+    A buffer owned by and whose lifetime is managed by the foreign language.
+"""
+    def __init__(self, *, ptr:int, len:int):
+        self.ptr = ptr
+        self.len = len
+        
+        
+
+    
+    def __str__(self):
+        return "NativeAudioBuffer(ptr={}, len={})".format(self.ptr, self.len)
+    def __eq__(self, other):
+        if self.ptr != other.ptr:
+            return False
+        if self.len != other.len:
+            return False
+        return True
+
+class _UniffiFfiConverterTypeNativeAudioBuffer(_UniffiConverterRustBuffer):
+    @staticmethod
+    def read(buf):
+        return NativeAudioBuffer(
+            ptr=_UniffiFfiConverterUInt64.read(buf),
+            len=_UniffiFfiConverterUInt64.read(buf),
+        )
+
+    @staticmethod
+    def check_lower(value):
+        _UniffiFfiConverterUInt64.check_lower(value.ptr)
+        _UniffiFfiConverterUInt64.check_lower(value.len)
+
+    @staticmethod
+    def write(value, buf):
+        _UniffiFfiConverterUInt64.write(value.ptr, buf)
+        _UniffiFfiConverterUInt64.write(value.len, buf)
+
 class _UniffiFfiConverterFloat64(_UniffiConverterPrimitiveFloat):
     @staticmethod
     def read(buf):
@@ -2121,7 +2160,7 @@ class ResamplerProtocol(typing.Protocol):
 
 """
         raise NotImplementedError
-    def push(self, input: typing.List[int]) -> typing.List[int]:
+    def push(self, input: NativeAudioBuffer) -> typing.List[int]:
         """
         Push audio data into the resampler and retrieve any available resampled data.
 
@@ -2188,7 +2227,7 @@ class Resampler(ResamplerProtocol):
             *_uniffi_lowered_args,
         )
         return _uniffi_lift_return(_uniffi_ffi_result)
-    def push(self, input: typing.List[int]) -> typing.List[int]:
+    def push(self, input: NativeAudioBuffer) -> typing.List[int]:
         """
         Push audio data into the resampler and retrieve any available resampled data.
 
@@ -2197,10 +2236,10 @@ class Resampler(ResamplerProtocol):
 
 """
         
-        _UniffiFfiConverterSequenceInt16.check_lower(input)
+        _UniffiFfiConverterTypeNativeAudioBuffer.check_lower(input)
         _uniffi_lowered_args = (
             self._uniffi_clone_handle(),
-            _UniffiFfiConverterSequenceInt16.lower(input),
+            _UniffiFfiConverterTypeNativeAudioBuffer.lower(input),
         )
         _uniffi_lift_return = _UniffiFfiConverterSequenceInt16.lift
         _uniffi_error_converter = _UniffiFfiConverterTypeResamplerError
@@ -2419,6 +2458,7 @@ __all__ = [
     "SipGrants",
     "Claims",
     "LogForwardEntry",
+    "NativeAudioBuffer",
     "ResamplerSettings",
     "TokenOptions",
     "build_version",
