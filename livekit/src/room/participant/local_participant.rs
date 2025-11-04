@@ -291,6 +291,7 @@ impl LocalParticipant {
         );
 
         let track_info = self.inner.rtc_engine.add_track(req).await?;
+        log::info!("publish_track: server TrackInfo returned: {:?}", track_info);
         let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
         track.update_info(track_info); // Update sid + source
 

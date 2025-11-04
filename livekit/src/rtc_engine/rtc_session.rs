@@ -1380,7 +1380,7 @@ impl SessionInner {
 
             let sender = transceiver.sender();
             let params = sender.parameters();
-            log::debug!("create_sender: RtpSender parameters after init: {:?}", params);
+            log::info!("create_sender: RtpSender parameters after init: {:?}", params);
         }
 
         Ok(transceiver)
