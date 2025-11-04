@@ -14,6 +14,7 @@
 
 use libwebrtc::prelude::*;
 use log::debug;
+use log::info;
 use livekit_protocol as proto;
 
 use crate::prelude::*;
