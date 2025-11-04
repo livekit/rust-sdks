@@ -417,6 +417,7 @@ impl SIPClient {
         call_to: String,
         room_name: String,
         options: CreateSIPParticipantOptions,
+        outbound_trunk_config: Option<proto::SipOutboundConfig>,
     ) -> ServiceResult<proto::SipParticipantInfo> {
         self.client
             .request(
@@ -424,6 +425,7 @@ impl SIPClient {
                 "CreateSIPParticipant",
                 proto::CreateSipParticipantRequest {
                     sip_trunk_id: sip_trunk_id.to_owned(),
+                    trunk: outbound_trunk_config,
                     sip_call_to: call_to.to_owned(),
                     sip_number: options.sip_number.to_owned().unwrap_or_default(),
                     room_name: room_name.to_owned(),
