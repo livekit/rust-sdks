@@ -51,6 +51,15 @@ struct SharedYuv {
     u: Vec<u8>,
     v: Vec<u8>,
     dirty: bool,
+    // Original published dimensions to infer simulcast layer from current frame size
+    orig_width: u32,
+    orig_height: u32,
+    // Live FPS estimation updated by the sink thread
+    fps: f32,
+    frame_count: u32,
+    last_fps_ts: Instant,
+    // Current inferred simulcast layer label: "low", "med", or "high"
+    layer_label: String,
 }
 
 struct VideoApp {
@@ -93,6 +102,38 @@ impl eframe::App for VideoApp {
                 YuvPaintCallback { shared: self.shared.clone() },
             );
             ui.painter().add(cb);
+
+            // Overlay: resolution (top line) and current simulcast layer + fps (second line)
+            let (fps, layer, w, h) = {
+                let s = self.shared.lock();
+                (s.fps, if s.layer_label.is_empty() { "".to_string() } else { s.layer_label.clone() }, s.width, s.height)
+            };
+
+            let fps_int = fps.round() as u32;
+            let stats_text = if layer.is_empty() {
+                format!("{:03}FPS", fps_int)
+            } else {
+                format!("{} {:03}FPS", layer, fps_int)
+            };
+            let res_text = if w == 0 || h == 0 { "".to_string() } else { format!("{}x{}", w, h) };
+
+            egui::Area::new(egui::Id::new("video_overlay"))
+                .order(egui::Order::Foreground)
+                .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-8.0, -8.0))
+                .show(ui.ctx(), |ui| {
+                    let frame = egui::Frame::new()
+                        .fill(egui::Color32::from_rgba_premultiplied(0, 0, 0, 150))
+                        .corner_radius(egui::CornerRadius::same(6))
+                        .inner_margin(egui::Margin::symmetric(8, 4));
+                    frame.show(ui, |ui| {
+                        ui.vertical(|ui| {
+                            if !res_text.is_empty() {
+                                ui.label(egui::RichText::new(res_text.clone()).monospace().color(egui::Color32::WHITE));
+                            }
+                            ui.label(egui::RichText::new(stats_text).monospace().color(egui::Color32::WHITE));
+                        });
+                    });
+                });
         });
 
         ctx.request_repaint_after(Duration::from_millis(16));
@@ -148,6 +189,12 @@ async fn main() -> Result<()> {
         u: Vec::new(),
         v: Vec::new(),
         dirty: false,
+        orig_width: 0,
+        orig_height: 0,
+        fps: 0.0,
+        frame_count: 0,
+        last_fps_ts: Instant::now(),
+        layer_label: String::new(),
     }));
 
     // Handle to the current remote publication for quality selection via keyboard
@@ -179,6 +226,14 @@ async fn main() -> Result<()> {
                         publication.dimension().0,
                         publication.dimension().1
                     );
+
+                    // Store original published dimensions for layer inference
+                    {
+                        let mut s = shared_clone.lock();
+                        let TrackDimension(ow, oh) = publication.dimension();
+                        s.orig_width = ow as u32;
+                        s.orig_height = oh as u32;
+                    }
 
                     // Try to fetch inbound RTP/codec stats for more details
                     match video_track.get_stats().await {
@@ -272,6 +327,32 @@ async fn main() -> Result<()> {
                             std::mem::swap(&mut s.u, &mut u_buf);
                             std::mem::swap(&mut s.v, &mut v_buf);
                             s.dirty = true;
+
+                            // Update FPS estimation (1s window)
+                            s.frame_count = s.frame_count.saturating_add(1);
+                            let elapsed_fps = s.last_fps_ts.elapsed();
+                            if elapsed_fps >= Duration::from_secs(1) {
+                                s.fps = s.frame_count as f32 / elapsed_fps.as_secs_f32();
+                                s.frame_count = 0;
+                                s.last_fps_ts = Instant::now();
+                            }
+
+                            // Infer current simulcast layer relative to original dimensions
+                            if s.orig_width > 0 && s.orig_height > 0 {
+                                let base = s.orig_width.max(s.orig_height) as f32;
+                                let curr = s.width.max(s.height) as f32;
+                                if curr > 0.0 {
+                                    let ratio = base / curr; // >= 1.0
+                                    let label = if ratio < 1.25 {
+                                        "high"
+                                    } else if ratio < 2.6 {
+                                        "med"
+                                    } else {
+                                        "low"
+                                    };
+                                    s.layer_label = label.to_string();
+                                }
+                            }
 
                             frames += 1;
                             let elapsed = last_log.elapsed();
