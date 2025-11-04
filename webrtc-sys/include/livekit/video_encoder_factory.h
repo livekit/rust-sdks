@@ -20,6 +20,11 @@
 #include "api/video_codecs/video_encoder_factory.h"
 
 namespace livekit {
+// Global toggle controlling whether hardware video encoders (e.g., NVENC/VAAPI/Platform) are used.
+// Must be set before creating the PeerConnectionFactory to take effect.
+void set_video_encoder_hardware_enabled(bool enabled);
+bool get_video_encoder_hardware_enabled();
+
 class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
   class InternalFactory : public webrtc::VideoEncoderFactory {
    public:

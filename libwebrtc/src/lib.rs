@@ -65,6 +65,8 @@ pub mod video_track;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
     pub use webrtc_sys::webrtc::ffi::create_random_uuid;
+    pub use webrtc_sys::webrtc::ffi::get_video_encoder_hardware_enabled;
+    pub use webrtc_sys::webrtc::ffi::set_video_encoder_hardware_enabled;
 
     pub use crate::imp::{apm, audio_resampler, frame_cryptor, yuv_helper};
 }

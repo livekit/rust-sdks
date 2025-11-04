@@ -47,6 +47,17 @@
 
 namespace livekit {
 
+// Global flag controlling hardware encoder usage
+static std::atomic<bool> g_video_encoder_hw_enabled{true};
+
+void set_video_encoder_hardware_enabled(bool enabled) {
+  g_video_encoder_hw_enabled.store(enabled);
+}
+
+bool get_video_encoder_hardware_enabled() {
+  return g_video_encoder_hw_enabled.load();
+}
+
 using Factory = webrtc::VideoEncoderFactoryTemplate<
     webrtc::LibvpxVp8EncoderTemplateAdapter,
 #if defined(WEBRTC_USE_H264)
@@ -59,26 +70,32 @@ using Factory = webrtc::VideoEncoderFactoryTemplate<
 
 VideoEncoderFactory::InternalFactory::InternalFactory() {
 #ifdef __APPLE__
-  factories_.push_back(livekit::CreateObjCVideoEncoderFactory());
+  if (get_video_encoder_hardware_enabled()) {
+    factories_.push_back(livekit::CreateObjCVideoEncoderFactory());
+  }
 #endif
 
 #ifdef WEBRTC_ANDROID
-  factories_.push_back(CreateAndroidVideoEncoderFactory());
+  if (get_video_encoder_hardware_enabled()) {
+    factories_.push_back(CreateAndroidVideoEncoderFactory());
+  }
 #endif
 
 #if defined(USE_NVIDIA_VIDEO_CODEC)
-  if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
-    factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
-  } else {
+  if (get_video_encoder_hardware_enabled()) {
+    if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
+      factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
+    } else {
 #endif
 
 #if defined(USE_VAAPI_VIDEO_CODEC)
-    if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
-      factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
-    }
+      if (get_video_encoder_hardware_enabled() && webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
+        factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
+      }
 #endif
 
 #if defined(USE_NVIDIA_VIDEO_CODEC)
+    }
   }
 #endif
 }

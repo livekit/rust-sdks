@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
@@ -60,6 +60,17 @@ struct Args {
     /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
     #[arg(long, default_value_t = false)]
     h265: bool,
+
+    /// Hardware encoder preference: auto (default), on, off
+    #[arg(long, value_enum, default_value_t = HwPref::Auto)]
+    hw: HwPref,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum HwPref {
+    Auto,
+    On,
+    Off,
 }
 
 fn list_cameras() -> Result<()> {
@@ -103,6 +114,22 @@ async fn main() -> Result<()> {
             ..Default::default()
         })
         .to_jwt()?;
+
+    // Apply hardware encoder preference before creating any WebRTC objects
+    match args.hw {
+        HwPref::On => {
+            livekit::webrtc::native::set_video_encoder_hardware_enabled(true);
+            info!("Hardware encoders: ON");
+        }
+        HwPref::Off => {
+            livekit::webrtc::native::set_video_encoder_hardware_enabled(false);
+            info!("Hardware encoders: OFF (software only)");
+        }
+        HwPref::Auto => {
+            // Leave default behavior
+            info!("Hardware encoders: AUTO");
+        }
+    }
 
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();

@@ -56,11 +56,16 @@ pub mod ffi {
 
     unsafe extern "C++" {
         include!("livekit/webrtc.h");
+        include!("livekit/video_encoder_factory.h");
 
         type LogSink;
 
         fn create_random_uuid() -> String;
         fn new_log_sink(fnc: fn(String, LoggingSeverity)) -> UniquePtr<LogSink>;
+
+        // Controls global hardware video encoder usage. Must be set before creating the PC factory.
+        fn set_video_encoder_hardware_enabled(enabled: bool);
+        fn get_video_encoder_hardware_enabled() -> bool;
     }
 }
 
