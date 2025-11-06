@@ -119,18 +119,24 @@ impl eframe::App for VideoApp {
 
             egui::Area::new(egui::Id::new("video_overlay"))
                 .order(egui::Order::Foreground)
-                .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-8.0, -8.0))
+                .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-12.0, -12.0))
                 .show(ui.ctx(), |ui| {
                     let frame = egui::Frame::new()
                         .fill(egui::Color32::from_rgba_premultiplied(0, 0, 0, 150))
-                        .corner_radius(egui::CornerRadius::same(6))
-                        .inner_margin(egui::Margin::symmetric(8, 4));
+                        .corner_radius(egui::CornerRadius::same(4))
+                        .inner_margin(egui::Margin::symmetric(12, 8));
                     frame.show(ui, |ui| {
+                        // Cap max width and ensure labels wrap
+                        ui.set_max_width((rect.width() * 0.5).min(320.0));
                         ui.vertical(|ui| {
                             if !res_text.is_empty() {
-                                ui.label(egui::RichText::new(res_text.clone()).monospace().color(egui::Color32::WHITE));
+                                ui.add(egui::Label::new(
+                                    egui::RichText::new(res_text.clone()).monospace().size(18.0).color(egui::Color32::WHITE)
+                                ).wrap());
                             }
-                            ui.label(egui::RichText::new(stats_text).monospace().color(egui::Color32::WHITE));
+                            ui.add(egui::Label::new(
+                                egui::RichText::new(stats_text).monospace().size(18.0).color(egui::Color32::WHITE)
+                            ).wrap());
                         });
                     });
                 });
