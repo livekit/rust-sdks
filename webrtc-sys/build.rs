@@ -152,6 +152,7 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=dl");
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
+            println!("cargo:rustc-link-lib=dylib=v4l2");
 
             let x86 = target_arch == "x86_64" || target_arch == "i686";
             let arm = target_arch == "aarch64" || target_arch.contains("arm");
@@ -206,6 +207,15 @@ fn main() {
                 } else {
                     println!("cargo:warning=cuda.h not found; building without hardware accelerated video codec support for NVidia GPUs");
                 }
+            }
+
+            // Jetson (Linux aarch64) V4L2 M2M encoder support
+            if target_arch == "aarch64" {
+                builder
+                    .file("src/jetson/jetson_video_encoder_factory.cpp")
+                    .file("src/jetson/h264_encoder_impl.cpp")
+                    .file("src/jetson/v4l2_h264_encoder.cpp")
+                    .flag("-DUSE_JETSON_VIDEO_CODEC=1");
             }
 
             builder.flag("-Wno-changes-meaning").flag("-std=c++20");

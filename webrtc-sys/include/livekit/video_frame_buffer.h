@@ -222,6 +222,31 @@ std::unique_ptr<NV12Buffer> new_nv12_buffer(int width, int height, int stride_y,
 std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(PlatformImageBuffer *buffer);
 PlatformImageBuffer* native_buffer_to_platform_image_buffer(const std::unique_ptr<VideoFrameBuffer> &);
 
+// Linux/Jetson: create a native buffer backed by NV12 DMA-BUF FDs (Y and UV planes).
+// The created buffer reports type=kNative and preserves width/height/strides.
+std::unique_ptr<VideoFrameBuffer> new_dmabuf_nv12_buffer(
+    int fd_y,
+    int fd_uv,
+    int width,
+    int height,
+    int stride_y,
+    int stride_uv);
+
+// Helpers to detect and extract NV12 DMA-BUF info from a native buffer.
+struct DmabufNV12Info {
+  int fd_y;
+  int fd_uv;
+  int width;
+  int height;
+  int stride_y;
+  int stride_uv;
+};
+
+// Check if the underlying webrtc::VideoFrameBuffer is a DMA-BUF NV12 buffer.
+bool vfb_is_dmabuf_nv12(const webrtc::VideoFrameBuffer* vfb);
+// Populate out with NV12 DMA-BUF plane FDs and metadata. Returns false if not applicable.
+bool vfb_get_dmabuf_nv12_info(const webrtc::VideoFrameBuffer* vfb, DmabufNV12Info* out);
+
 static const VideoFrameBuffer* yuv_to_vfb(const PlanarYuvBuffer* yuv) {
   return yuv;
 }

@@ -143,6 +143,16 @@ pub mod ffi {
             stride_uv: i32,
         ) -> UniquePtr<NV12Buffer>;
 
+        // Linux/Jetson: create a native buffer backed by NV12 DMA-BUF plane FDs.
+        unsafe fn new_dmabuf_nv12_buffer(
+            fd_y: i32,
+            fd_uv: i32,
+            width: i32,
+            height: i32,
+            stride_y: i32,
+            stride_uv: i32,
+        ) -> UniquePtr<VideoFrameBuffer>;
+
         unsafe fn new_native_buffer_from_platform_image_buffer(
             platform_native_buffer: *mut PlatformImageBuffer,
         ) -> UniquePtr<VideoFrameBuffer>;

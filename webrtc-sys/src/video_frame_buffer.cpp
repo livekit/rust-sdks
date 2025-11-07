@@ -359,4 +359,69 @@ PlatformImageBuffer* native_buffer_to_platform_image_buffer(
 
 #endif
 
+#if defined(__linux__)
+
+// Minimal native buffer that carries NV12 DMA-BUF plane FDs and metadata.
+// This buffer advertises type=kNative to signal non-cpu pixel ownership.
+class DmabufVideoFrameBuffer : public webrtc::VideoFrameBuffer {
+ public:
+  DmabufVideoFrameBuffer(int fd_y, int fd_uv, int width, int height, int stride_y, int stride_uv)
+      : fd_y_(fd_y), fd_uv_(fd_uv), width_(width), height_(height), stride_y_(stride_y), stride_uv_(stride_uv) {}
+
+  Type type() const override { return Type::kNative; }
+  int width() const override { return width_; }
+  int height() const override { return height_; }
+
+  // Accessors for encoders that can import DMA-BUF directly.
+  int fd_y() const { return fd_y_; }
+  int fd_uv() const { return fd_uv_; }
+  int stride_y() const { return stride_y_; }
+  int stride_uv() const { return stride_uv_; }
+
+ private:
+  int fd_y_;
+  int fd_uv_;
+  int width_;
+  int height_;
+  int stride_y_;
+  int stride_uv_;
+};
+
+std::unique_ptr<VideoFrameBuffer> new_dmabuf_nv12_buffer(
+    int fd_y,
+    int fd_uv,
+    int width,
+    int height,
+    int stride_y,
+    int stride_uv) {
+  // NOTE: FDs are not duplicated here; caller retains ownership and must ensure lifetime
+  // until the frame is consumed. Future improvement: dup() to own FDs within buffer.
+  rtc::scoped_refptr<webrtc::VideoFrameBuffer> buf =
+      new rtc::RefCountedObject<DmabufVideoFrameBuffer>(fd_y, fd_uv, width, height, stride_y, stride_uv);
+  return std::make_unique<VideoFrameBuffer>(buf);
+}
+
+bool vfb_is_dmabuf_nv12(const webrtc::VideoFrameBuffer* vfb) {
+  if (!vfb) return false;
+  if (vfb->type() != webrtc::VideoFrameBuffer::Type::kNative) return false;
+  // Try RTTI to detect our implementation
+  auto* dmabuf = dynamic_cast<const DmabufVideoFrameBuffer*>(vfb);
+  return dmabuf != nullptr;
+}
+
+bool vfb_get_dmabuf_nv12_info(const webrtc::VideoFrameBuffer* vfb, DmabufNV12Info* out) {
+  if (!vfb || !out) return false;
+  auto* dmabuf = dynamic_cast<const DmabufVideoFrameBuffer*>(vfb);
+  if (!dmabuf) return false;
+  out->fd_y = dmabuf->fd_y();
+  out->fd_uv = dmabuf->fd_uv();
+  out->width = dmabuf->width();
+  out->height = dmabuf->height();
+  out->stride_y = dmabuf->stride_y();
+  out->stride_uv = dmabuf->stride_uv();
+  return true;
+}
+
+#endif  // __linux__
+
 }  // namespace livekit

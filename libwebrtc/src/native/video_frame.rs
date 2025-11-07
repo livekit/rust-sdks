@@ -166,6 +166,26 @@ impl NativeBuffer {
         unsafe { vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _ }
     }
 
+    #[cfg(all(target_os = "linux"))]
+    pub unsafe fn from_nv12_dmabuf(
+        fd_y: i32,
+        fd_uv: i32,
+        width: u32,
+        height: u32,
+        stride_y: u32,
+        stride_uv: u32,
+    ) -> vf::native::NativeBuffer {
+        let buf = vfb_sys::ffi::new_dmabuf_nv12_buffer(
+            fd_y,
+            fd_uv,
+            width as i32,
+            height as i32,
+            stride_y as i32,
+            stride_uv as i32,
+        );
+        vf::native::NativeBuffer { handle: NativeBuffer { sys_handle: buf } }
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         &self.sys_handle
     }

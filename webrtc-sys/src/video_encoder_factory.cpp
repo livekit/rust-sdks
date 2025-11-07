@@ -40,6 +40,9 @@
 #if defined(USE_NVIDIA_VIDEO_CODEC)
 #include "nvidia/nvidia_encoder_factory.h"
 #endif
+#if defined(USE_JETSON_VIDEO_CODEC)
+#include "jetson/jetson_video_encoder_factory.h"
+#endif
 
 #if defined(USE_VAAPI_VIDEO_CODEC)
 #include "vaapi/vaapi_encoder_factory.h"
@@ -78,6 +81,17 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
 #ifdef WEBRTC_ANDROID
   if (get_video_encoder_hardware_enabled()) {
     factories_.push_back(CreateAndroidVideoEncoderFactory());
+  }
+#endif
+
+#if defined(USE_JETSON_VIDEO_CODEC)
+  // Prefer Jetson V4L2 encoders on aarch64 Linux platforms.
+  if (get_video_encoder_hardware_enabled()) {
+#if defined(__linux__) && (defined(__aarch64__) || defined(__ARM_ARCH))
+    if (webrtc::JetsonVideoEncoderFactory::IsSupported()) {
+      factories_.push_back(std::make_unique<webrtc::JetsonVideoEncoderFactory>());
+    }
+#endif
   }
 #endif
 
