@@ -158,6 +158,17 @@ impl From<participant_info::Kind> for participant::ParticipantKind {
     }
 }
 
+impl From<participant_info::State> for participant::ParticipantState {
+    fn from(value: participant_info::State) -> Self {
+        match value {
+            participant_info::State::Joining => participant::ParticipantState::Joining,
+            participant_info::State::Joined => participant::ParticipantState::Joined,
+            participant_info::State::Active => participant::ParticipantState::Active,
+            participant_info::State::Disconnected => participant::ParticipantState::Disconnected,
+        }
+    }
+}
+
 impl From<ChatMessage> for RoomChatMessage {
     fn from(proto_msg: ChatMessage) -> Self {
         RoomChatMessage {
