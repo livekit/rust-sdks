@@ -175,7 +175,7 @@ fn main() {
                     .flag("-DUSE_VAAPI_VIDEO_CODEC=1");
             }
 
-            if x86 || arm {
+            if x86 {
                 let cuda_home = PathBuf::from(match env::var("CUDA_HOME") {
                     Ok(p) => p,
                     Err(_) => "/usr/local/cuda".to_owned(),
