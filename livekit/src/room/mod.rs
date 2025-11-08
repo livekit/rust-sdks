@@ -1025,6 +1025,11 @@ impl RoomSession {
                 self.dispatcher
                     .dispatch(&RoomEvent::ParticipantConnected(remote_participant.clone()));
 
+                if remote_participant.state() == ParticipantState::Active {
+                    // Already active, also emit active event
+                    self.dispatcher
+                        .dispatch(&RoomEvent::ParticipantActive(remote_participant.clone()));
+                }
                 remote_participant.update_info(pi.clone()); // Add tracks
             }
         }
