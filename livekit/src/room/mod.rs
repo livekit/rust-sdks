@@ -1000,9 +1000,9 @@ impl RoomSession {
                     // disconnected
                 }
             } else if let Some(remote_participant) = remote_participant {
-                let already_active = remote_participant.is_active();
+                let already_active = remote_participant.state() == ParticipantState::Active;
                 remote_participant.update_info(pi.clone());
-                if !already_active && remote_participant.is_active() {
+                if !already_active && remote_participant.state() == ParticipantState::Active {
                     self.dispatcher
                         .dispatch(&RoomEvent::ParticipantActive(remote_participant.clone()));
                 }

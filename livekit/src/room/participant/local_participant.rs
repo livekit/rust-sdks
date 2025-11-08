@@ -697,8 +697,8 @@ impl LocalParticipant {
         self.inner.info.read().name.clone()
     }
 
-    pub fn is_active(&self) -> bool {
-        self.inner.info.read().state == ParticipantState::Active
+    pub fn state(&self) -> ParticipantState {
+        self.inner.info.read().state
     }
 
     pub fn metadata(&self) -> String {

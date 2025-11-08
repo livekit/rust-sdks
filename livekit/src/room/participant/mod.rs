@@ -47,7 +47,7 @@ pub enum ParticipantKind {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub(crate) enum ParticipantState {
+pub enum ParticipantState {
     Joining,
     Joined,
     Active,
@@ -92,7 +92,7 @@ impl Participant {
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
         pub fn kind(self: &Self) -> ParticipantKind;
-        pub fn is_active(self: &Self) -> bool;
+        pub fn state(self: &Self) -> ParticipantState;
         pub fn disconnect_reason(self: &Self) -> DisconnectReason;
         pub fn is_encrypted(self: &Self) -> bool;
 
