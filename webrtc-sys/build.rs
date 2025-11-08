@@ -111,6 +111,11 @@ fn main() {
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    // Helpful diagnostics for cross/host confusion
+    println!(
+        "cargo:warning=webrtc-sys target_os={}, target_arch={}",
+        target_os, target_arch
+    );
     match target_os.as_str() {
         "windows" => {
             println!("cargo:rustc-link-lib=dylib=msdmo");
@@ -158,6 +163,7 @@ fn main() {
             let arm = target_arch == "aarch64" || target_arch.contains("arm");
 
             if x86 {
+                println!("cargo:warning=webrtc-sys enabling VAAPI sources (x86)");
                 // Do not use pkg_config::probe_library because libva is dlopened
                 // and pkg_config::probe_library would link it.
                 let libva_include = pkg_config::get_variable("libva", "includedir")
@@ -176,6 +182,7 @@ fn main() {
             }
 
             if x86 {
+                println!("cargo:warning=webrtc-sys enabling NVIDIA NVCodec sources (x86)");
                 let cuda_home = PathBuf::from(match env::var("CUDA_HOME") {
                     Ok(p) => p,
                     Err(_) => "/usr/local/cuda".to_owned(),
@@ -211,6 +218,7 @@ fn main() {
 
             // Jetson (Linux aarch64) V4L2 M2M encoder support
             if target_arch == "aarch64" {
+                println!("cargo:warning=webrtc-sys enabling Jetson V4L2 encoder sources (aarch64)");
                 builder
                     .file("src/jetson/jetson_video_encoder_factory.cpp")
                     .file("src/jetson/h264_encoder_impl.cpp")
@@ -218,7 +226,11 @@ fn main() {
                     .flag("-DUSE_JETSON_VIDEO_CODEC=1");
             }
 
-            builder.flag("-Wno-changes-meaning").flag("-std=c++20");
+            builder
+                .flag("-Wno-changes-meaning")
+                // Work around GCC diagnostic promoted to error in some environments.
+                .flag("-fpermissive")
+                .flag("-std=c++20");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");

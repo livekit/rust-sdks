@@ -3,7 +3,9 @@
 #include <optional>
 
 #include "api/video/video_frame_buffer.h"
+#include "api/video/codec_specific_info.h"
 #include "api/video_codecs/h264_profile_level_id.h"
+#include "modules/video_coding/codecs/h264/include/h264.h"
 #include "livekit/video_frame_buffer.h"
 #include "modules/video_coding/include/video_error_codes.h"
 #include "v4l2_h264_encoder.h"

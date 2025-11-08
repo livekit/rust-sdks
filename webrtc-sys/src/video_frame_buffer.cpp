@@ -371,6 +371,11 @@ class DmabufVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   Type type() const override { return Type::kNative; }
   int width() const override { return width_; }
   int height() const override { return height_; }
+  // Required by VideoFrameBuffer interface. We do not intend to use this path
+  // for Jetson DMABUF-native frames; return an empty I420 buffer as a fallback.
+  rtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() override {
+    return webrtc::I420Buffer::Create(width_, height_);
+  }
 
   // Accessors for encoders that can import DMA-BUF directly.
   int fd_y() const { return fd_y_; }
