@@ -54,7 +54,7 @@
 #include "NvVideoEncoder.h"
 #include "jetson_native_buffer.h"
 
-namespace livekit {
+namespace webrtc {
 // Minimal session wrapper around NvVideoEncoder using USERPTR for CPU I420.
 class JetsonV4L2Session {
  public:
@@ -96,36 +96,33 @@ class JetsonV4L2Session {
     }
 
     // H264 profile.
-    v4l2_control ctrl {};
-    ctrl.id = V4L2_CID_MPEG_VIDEO_H264_PROFILE;
+    uint32_t prof_val = V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE;
     switch (profile) {
       case webrtc::H264Profile::kProfileConstrainedBaseline:
       case webrtc::H264Profile::kProfileBaseline:
-        ctrl.value = V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE;
+        prof_val = V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE;
         break;
       case webrtc::H264Profile::kProfileMain:
-        ctrl.value = V4L2_MPEG_VIDEO_H264_PROFILE_MAIN;
+        prof_val = V4L2_MPEG_VIDEO_H264_PROFILE_MAIN;
         break;
       case webrtc::H264Profile::kProfileConstrainedHigh:
       case webrtc::H264Profile::kProfileHigh:
-        ctrl.value = V4L2_MPEG_VIDEO_H264_PROFILE_HIGH;
+        prof_val = V4L2_MPEG_VIDEO_H264_PROFILE_HIGH;
         break;
     }
-    if (enc_->setExtControls(&ctrl, 1) < 0) {
+    if (enc_->setControl(V4L2_CID_MPEG_VIDEO_H264_PROFILE, prof_val) < 0) {
       // Some Jetson builds may not support changing profile; continue best-effort.
     }
 
     // CBR rate control if available.
-    v4l2_control rc_ctrl {};
-    rc_ctrl.id = V4L2_CID_MPEG_VIDEO_BITRATE_MODE;
-    rc_ctrl.value = V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
-    enc_->setExtControls(&rc_ctrl, 1);
+    enc_->setControl(V4L2_CID_MPEG_VIDEO_BITRATE_MODE,
+                     V4L2_MPEG_VIDEO_BITRATE_MODE_CBR);
 
     // Initialize capture plane buffers and stream. Output plane will be set on first use.
     if (enc_->capture_plane.setupPlane(V4L2_MEMORY_MMAP, kNumCaptureBuffers, true, false) < 0) {
       return false;
     }
-    if (enc_->subscribeEvent(V4L2_EVENT_EOS, 0) < 0) {
+    if (enc_->subscribeEvent(V4L2_EVENT_EOS, 0, 0) < 0) {
       // Not fatal.
     }
     if (enc_->capture_plane.setStreamStatus(true) < 0) {
@@ -194,6 +191,28 @@ class JetsonV4L2Session {
     return true;
   }
 
+  bool GetFreeOutputBufferIndex(uint32_t& index_out) {
+    if (!enc_) return false;
+    if (!output_streaming_) return false;
+    if (!output_primed_) {
+      index_out = 0;
+      output_primed_ = true;
+      return true;
+    }
+    struct v4l2_buffer v4l2_buf {};
+    struct v4l2_plane planes[VIDEO_MAX_PLANES] {};
+    v4l2_buf.m.planes = planes;
+    v4l2_buf.length = enc_->output_plane.getNumPlanes();
+    NvBuffer* out_nvbuf = nullptr;
+    NvBuffer* shared = nullptr;
+    // Dequeue a previously queued output buffer to reuse its index.
+    if (enc_->output_plane.dqBuffer(v4l2_buf, &out_nvbuf, &shared, 1000) < 0) {
+      return false;
+    }
+    index_out = v4l2_buf.index;
+    return true;
+  }
+
   bool EncodeI420(const uint8_t* y,
                   const uint8_t* u,
                   const uint8_t* v,
@@ -210,13 +229,11 @@ class JetsonV4L2Session {
     v4l2_buf.m.planes = planes;
     v4l2_buf.length = enc_->output_plane.getNumPlanes();
 
-    if (enc_->output_plane.getNumBuffers() == 0) {
+    uint32_t buf_index = 0;
+    if (!GetFreeOutputBufferIndex(buf_index)) {
       return false;
     }
-
-    if (enc_->output_plane.getEmpty(v4l2_buf, nullptr) < 0) {
-      return false;
-    }
+    v4l2_buf.index = buf_index;
 
     // Fill planes with user pointers to the provided I420 data.
     const int y_stride = width_;
@@ -238,13 +255,7 @@ class JetsonV4L2Session {
     planes[2].m.userptr = reinterpret_cast<unsigned long>(const_cast<uint8_t*>(v));
     planes[2].length = v_size;
 
-    // Force IDR via control if requested.
-    if (force_idr) {
-      v4l2_control ctrl {};
-      ctrl.id = V4L2_CID_MPEG_VIDEO_FORCE_IDR;
-      ctrl.value = 1;
-      enc_->setExtControls(&ctrl, 1);
-    }
+    // Per-frame keyframe forcing is currently not supported via control here.
 
     // Queue raw frame.
     if (enc_->output_plane.qBuffer(v4l2_buf, nullptr) < 0) {
@@ -256,8 +267,9 @@ class JetsonV4L2Session {
     struct v4l2_plane cap_planes[VIDEO_MAX_PLANES] {};
     cap_buf.m.planes = cap_planes;
     cap_buf.length = enc_->capture_plane.getNumPlanes();
-
-    if (enc_->capture_plane.dqBuffer(cap_buf, nullptr, -1) < 0) {
+    NvBuffer* cap_nvbuf = nullptr;
+    NvBuffer* shared_nvbuf = nullptr;
+    if (enc_->capture_plane.dqBuffer(cap_buf, &cap_nvbuf, &shared_nvbuf, 1000) < 0) {
       return false;
     }
 
@@ -293,9 +305,11 @@ class JetsonV4L2Session {
     v4l2_buf.m.planes = planes;
     v4l2_buf.length = enc_->output_plane.getNumPlanes();
 
-    if (enc_->output_plane.getEmpty(v4l2_buf, nullptr) < 0) {
+    uint32_t buf_index = 0;
+    if (!GetFreeOutputBufferIndex(buf_index)) {
       return false;
     }
+    v4l2_buf.index = buf_index;
 
     const int y_size = y_stride * height_;
     const int uv_h = height_ / 2;
@@ -327,12 +341,7 @@ class JetsonV4L2Session {
       v4l2_buf.length = 3;
     }
 
-    if (force_idr) {
-      v4l2_control ctrl {};
-      ctrl.id = V4L2_CID_MPEG_VIDEO_FORCE_IDR;
-      ctrl.value = 1;
-      enc_->setExtControls(&ctrl, 1);
-    }
+    // Per-frame keyframe forcing is currently not supported via control here.
 
     if (enc_->output_plane.qBuffer(v4l2_buf, nullptr) < 0) {
       return false;
@@ -342,7 +351,9 @@ class JetsonV4L2Session {
     struct v4l2_plane cap_planes[VIDEO_MAX_PLANES] {};
     cap_buf.m.planes = cap_planes;
     cap_buf.length = enc_->capture_plane.getNumPlanes();
-    if (enc_->capture_plane.dqBuffer(cap_buf, nullptr, -1) < 0) {
+    NvBuffer* cap_nvbuf = nullptr;
+    NvBuffer* shared_nvbuf = nullptr;
+    if (enc_->capture_plane.dqBuffer(cap_buf, &cap_nvbuf, &shared_nvbuf, 1000) < 0) {
       return false;
     }
     const uint8_t* cap_data =
@@ -365,8 +376,9 @@ class JetsonV4L2Session {
   bool output_streaming_ = false;
   enum v4l2_memory output_mem_type_ = V4L2_MEMORY_USERPTR;
   uint32_t output_pixfmt_ = V4L2_PIX_FMT_YUV420M;
+  bool output_primed_ = false;
 };
-}  // namespace livekit
+}  // namespace webrtc
 #endif  // defined(USE_JETSON_VIDEO_CODEC)
 
 namespace webrtc {
@@ -462,7 +474,7 @@ int32_t JetsonH264EncoderImpl::InitEncode(const VideoCodec* inst,
   if (!configuration_.sending) {
     // Initialize hardware encoder session.
     const int keyInterval = codec_.maxFramerate > 0 ? codec_.maxFramerate * 5 : 60;
-    jetson_session_ = std::make_unique<livekit::JetsonV4L2Session>();
+    jetson_session_ = std::make_unique<webrtc::JetsonV4L2Session>();
     if (!jetson_session_->Initialize(codec_.width, codec_.height,
                                      configuration_.target_bps,
                                      codec_.maxFramerate,
