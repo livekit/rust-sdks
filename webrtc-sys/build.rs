@@ -174,6 +174,16 @@ fn main() {
                     .flag("-DUSE_VAAPI_VIDEO_CODEC=1");
             }
 
+            if arm {
+                // Jetson encoder (V4L2 nvv4l2h264enc backend). We do not link
+                // against gstreamer or libv4l2; actual runtime probing is done
+                // in code. This enables factory registration on aarch64 Linux.
+                builder
+                    .file("src/jetson/h264_encoder_impl.cpp")
+                    .file("src/jetson/jetson_encoder_factory.cpp")
+                    .flag("-DUSE_JETSON_VIDEO_CODEC=1");
+            }
+
             if x86 || arm {
                 let cuda_home = PathBuf::from(match env::var("CUDA_HOME") {
                     Ok(p) => p,
