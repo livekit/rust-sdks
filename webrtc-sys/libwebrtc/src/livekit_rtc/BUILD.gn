@@ -11,23 +11,21 @@ if (is_android) {
   import("//build/config/linux/pkg_config.gni")
 }
 
-
-
 lk_sources = [
-  "src/peer.cc",
-  "src/audio_device.cc",
-  "src/transceiver.cc",
-  "src/utils.cc",
-  "src/data_channel.cc",
-  "src/capi.cc",
-  "src/video_encoder.cc",
-  "src/video_decoder.cc",
-  #"src/android.cc",
+  "peer.cc",
+  "audio_device.cc",
+  "transceiver.cc",
+  "utils.cc",
+  "data_channel.cc",
+  "capi.cc",
+  "video_encoder.cc",
+  "video_decoder.cc",
+  #"android.cc",
 ]
 
 if (is_mac) {
   lk_sources += [
-    "src/objc_video_factory.mm",
+    "objc_video_factory.mm",
   ]
 }
 
@@ -35,12 +33,9 @@ config("livekit_config") {
   include_dirs = [ "." ]
 }
 
-
 rtc_shared_library("livekit_rtc") {
   libs = []
-
   sources = lk_sources
-
   defines = [
     "USE_LIBYUV",
     "WEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE",

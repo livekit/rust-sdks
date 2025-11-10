@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,7 +22,7 @@ pub mod native {
         task::{Context, Poll},
     };
 
-    use tokio_stream::Stream;
+    use livekit_runtime::Stream;
 
     use super::stream_imp;
     use crate::{audio_frame::AudioFrame, audio_track::RtcAudioTrack};
@@ -38,8 +38,10 @@ pub mod native {
     }
 
     impl NativeAudioStream {
-        pub fn new(audio_track: RtcAudioTrack) -> Self {
-            Self { handle: stream_imp::NativeAudioStream::new(audio_track) }
+        pub fn new(audio_track: RtcAudioTrack, sample_rate: i32, num_channels: i32) -> Self {
+            Self {
+                handle: stream_imp::NativeAudioStream::new(audio_track, sample_rate, num_channels),
+            }
         }
 
         pub fn track(&self) -> RtcAudioTrack {

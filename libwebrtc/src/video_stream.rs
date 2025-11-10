@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -25,10 +25,9 @@ pub mod native {
         task::{Context, Poll},
     };
 
-    use tokio_stream::Stream;
-
     use super::stream_imp;
     use crate::{video_frame::BoxVideoFrame, video_track::RtcVideoTrack};
+    use livekit_runtime::Stream;
 
     pub struct NativeVideoStream {
         pub(crate) handle: stream_imp::NativeVideoStream,

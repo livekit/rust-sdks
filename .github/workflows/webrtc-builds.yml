@@ -26,65 +26,65 @@ jobs:
       matrix:
         target:
           - name: win
-            os: windows-2019
+            os: windows-2022
             cmd: .\build_windows.cmd
             arch: x64
 
           - name: win
-            os: windows-2019
+            os: windows-2022
             cmd: .\build_windows.cmd
             arch: arm64
 
           - name: mac
-            os: macos-11
+            os: macos-latest
             cmd: ./build_macos.sh
             arch: x64
 
           - name: mac
-            os: macos-11
+            os: macos-latest
             cmd: ./build_macos.sh
             arch: arm64
 
-          - name: linux 
-            os: buildjet-8vcpu-ubuntu-2004
+          - name: linux
+            os: ubuntu-latest
             cmd: ./build_linux.sh
             arch: x64
 
           - name: linux
-            os: buildjet-8vcpu-ubuntu-2004
+            os: ubuntu-latest
             cmd: ./build_linux.sh
-            arch: arm64 
-          
+            arch: arm64
+
           - name: android
-            os: buildjet-8vcpu-ubuntu-2004
+            os: ubuntu-latest
             cmd: ./build_android.sh
             arch: arm64
 
           - name: android
-            os: buildjet-8vcpu-ubuntu-2004
+            os: ubuntu-latest
             cmd: ./build_android.sh
             arch: arm
 
           - name: android
-            os: buildjet-8vcpu-ubuntu-2004
+            os: ubuntu-latest
             cmd: ./build_android.sh
             arch: x64
 
           - name: ios
             out: ios-device-arm64
-            os: macos-11
+            os: macos-latest
             cmd: ./build_ios.sh
             arch: arm64
 
           - name: ios
             out: ios-simulator-arm64
-            os: macos-11
+            os: macos-latest
             cmd: ./build_ios.sh
             arch: arm64
-            buildargs: --environment simulator 
+            buildargs: --environment simulator
         profile:
           - release
-#          - debug
+    #          - debug
 
     name: Build webrtc (${{ matrix.target.name }}-${{ matrix.target.arch }}-${{ matrix.profile }}) ${{ matrix.target.buildargs }}
     runs-on: ${{ matrix.target.os }}
@@ -104,25 +104,50 @@ jobs:
           echo "OutName: ${{ steps.setup.outputs.OUT }}"
           echo "OutZip: ${{ steps.setup.outputs.ZIP }}"
 
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
 
-      - uses: actions/setup-python@v4
-      - run: pip3 install setuptools # pkg_resources is sometimes not found?
+      - name: install setuptools (none-macOS)
+        if: ${{ matrix.target.os != 'macos-latest' }}
+        run: |
+         pip3 install setuptools # pkg_resources is sometimes not found?
 
+      - name: Add GCC PPA and install GCC 14
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        run: |
+          sudo add-apt-repository ppa:ubuntu-toolchain-r/test -y
+          sudo apt update
+          sudo apt install gcc-14 g++-14 g++-14-aarch64-linux-gnu -y
+
+      - name: Verify GCC 14 installation
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        run: |
+          gcc-14 --version
+          g++-14 --version
+          aarch64-linux-gnu-g++-14 --version
+
+      - name: Set GCC 14 as default (optional)
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        run: |
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 140 --slave /usr/bin/g++ g++ /usr/bin/g++-14
+          sudo update-alternatives --config gcc
+          gcc --version
+          sudo update-alternatives --install /usr/bin/aarch64-linux-gnu-gcc aarch64-linux-gnu-gcc /usr/bin/aarch64-linux-gnu-gcc-14 140 --slave /usr/bin/aarch64-linux-gnu-g++ aarch64-linux-gnu-g++ /usr/bin/aarch64-linux-gnu-g++-14
+          sudo update-alternatives --config aarch64-linux-gnu-gcc
+          aarch64-linux-gnu-gcc --version
+      
       - name: Install linux dependencies
-        if: ${{ matrix.target.os == 'ubuntu-20.04' || matrix.target.os == 'ubuntu-latest' || matrix.target.os == 'buildjet-8vcpu-ubuntu-2004' }}
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
         run: |
           sudo apt update -y
           sudo apt install -y ninja-build pkg-config openjdk-11-jdk
 
       - name: Install macos dependencies
-        if: ${{ matrix.target.os == 'macos-11' }}
+        if: ${{ matrix.target.os == 'macos-latest' }}
         run: brew install ninja
 
       - name: Install windows dependencies
-        if: ${{ matrix.target.os == 'windows-2019' }}
+        if: ${{ matrix.target.os == 'windows-2022' }}
         run: |
           Invoke-WebRequest -Uri "https://github.com/ninja-build/ninja/releases/latest/download/ninja-win.zip" -OutFile ninja.zip
           Expand-Archive -Path ninja.zip -DestinationPath ${{ github.workspace }}\ninja
@@ -135,27 +160,26 @@ jobs:
         run: echo -e "\ntarget_os = [\"${{ matrix.target.name }}\"]" >> .gclient
         shell: bash
         working-directory: webrtc-sys/libwebrtc
-        
+
       - name: Build WebRTC
         run: ${{ matrix.target.cmd }} --arch ${{ matrix.target.arch }} --profile ${{ matrix.profile }} ${{ matrix.target.buildargs }}
         working-directory: webrtc-sys/libwebrtc
 
       - name: Zip artifact (Unix)
-        if: ${{ matrix.target.os != 'windows-2019' }}
+        if: ${{ matrix.target.os != 'windows-2022' }}
         run: |
           cd webrtc-sys/libwebrtc
           zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ${{ steps.setup.outputs.OUT }} -r
 
       - name: Zip artifact (Windows)
-        if: ${{ matrix.target.os == 'windows-2019' }}
+        if: ${{ matrix.target.os == 'windows-2022' }}
         run: Compress-Archive -Path .\webrtc-sys\libwebrtc\${{ steps.setup.outputs.OUT }} -DestinationPath ${{ steps.setup.outputs.ZIP }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: webrtc-builds
+          name: webrtc-builds-${{ steps.setup.outputs.OUT }}
           path: ${{ steps.setup.outputs.ZIP }}
-
 
   release:
     name: Release to GH (Draft)
@@ -167,12 +191,13 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: webrtc-builds
+          pattern: webrtc-builds-*
+          merge-multiple: true
           path: ${{ github.workspace }}/webrtc-builds
 
       - name: Create draft release

@@ -71,7 +71,11 @@ cd src
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/android_use_libunwind.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-cd ..
+
+cd third_party/libyuv
+git apply "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+cd ../../..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
 
@@ -93,8 +97,8 @@ args="is_debug=$debug \
   rtc_libvpx_build_vp9=false \
   is_component_build=false \
   enable_stripping=true \
-  use_goma=false \
   rtc_use_h264=false \
+  rtc_use_h265=true \
   rtc_use_pipewire=false \
   symbol_level=0 \
   enable_iterator_debugging=false \
@@ -108,7 +112,7 @@ fi
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 
 # build shared library
-ninja -C "$OUTPUT_DIR" :default \
+autoninja -C "$OUTPUT_DIR" :default \
   sdk/android:native_api \
   sdk/android:libwebrtc \
   sdk/android:libjingle_peerconnection_so
@@ -129,4 +133,4 @@ cp "src/sdk/android/AndroidManifest.xml" "$ARTIFACTS_DIR"
 
 cd src
 find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
-
+find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"

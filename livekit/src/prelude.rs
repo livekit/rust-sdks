@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,14 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub use livekit_protocol::AudioTrackFeature;
+
 pub use crate::{
     id::*,
-    participant::{ConnectionQuality, LocalParticipant, Participant, RemoteParticipant},
+    participant::{
+        ConnectionQuality, DisconnectReason, LocalParticipant, Participant, PerformRpcData,
+        RemoteParticipant, RpcError, RpcErrorCode, RpcInvocationData,
+    },
     publication::{LocalTrackPublication, RemoteTrackPublication, TrackPublication},
     track::{
         AudioTrack, LocalAudioTrack, LocalTrack, LocalVideoTrack, RemoteAudioTrack, RemoteTrack,
         RemoteVideoTrack, StreamState, Track, TrackDimension, TrackKind, TrackSource, VideoTrack,
     },
     ConnectionState, DataPacket, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions,
-    RoomResult, Transcription, TranscriptionSegment,
+    RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,
 };

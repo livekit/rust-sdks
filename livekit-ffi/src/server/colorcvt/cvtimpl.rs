@@ -1,3 +1,17 @@
+// Copyright 2025 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use super::*;
 use crate::proto;
 use crate::{FfiError, FfiResult};
@@ -30,6 +44,7 @@ pub unsafe fn cvt_rgba(
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 4);
     let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
@@ -63,6 +78,15 @@ pub unsafe fn cvt_rgba(
             );
             Ok((dst, info))
         }
+        proto::VideoBufferType::Bgra => {
+            let mut dst = vec![0u8; (width * height * 4) as usize].into_boxed_slice();
+            let stride = width * 4;
+
+            colorcvt::abgr_to_argb(data, stride, &mut dst, stride, width, height, flip_y);
+
+            let info = rgba_info(dst.as_ptr(), dst_type, width, height);
+            Ok((dst, info))
+        }
         _ => {
             Err(FfiError::InvalidRequest(format!("rgba to {:?} is not supported", dst_type).into()))
         }
@@ -76,6 +100,7 @@ pub unsafe fn cvt_abgr(
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 4);
     let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
@@ -122,6 +147,7 @@ pub unsafe fn cvt_argb(
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Argb);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 4);
     let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
@@ -167,6 +193,7 @@ pub unsafe fn cvt_bgra(
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Bgra);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 4);
     let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 
@@ -197,6 +224,16 @@ pub unsafe fn cvt_bgra(
                 chroma_w,
                 chroma_w,
             );
+
+            Ok((dst, info))
+        }
+        proto::VideoBufferType::Rgba => {
+            let mut dst = vec![0u8; (width * height * 4) as usize].into_boxed_slice();
+            let stride = width * 4;
+
+            colorcvt::argb_to_abgr(data, stride, &mut dst, stride, width, height, flip_y);
+
+            let info = rgba_info(dst.as_ptr(), dst_type, width, height);
             Ok((dst, info))
         }
         _ => {
@@ -212,6 +249,7 @@ pub unsafe fn cvt_rgb24(
 ) -> FfiResult<(Box<[u8]>, proto::VideoBufferInfo)> {
     assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgb24);
     let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 3);
     let data_len = (stride * height) as usize;
     let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, data_len as usize) };
 

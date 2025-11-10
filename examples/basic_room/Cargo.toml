@@ -2,10 +2,11 @@
 name = "basic_room"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 env_logger = "0.10"
-livekit = { path = "../../livekit", version = "0.3.2", features = ["native-tls"]}
-livekit-api = { path = "../../livekit-api", version = "0.3.2"}
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 log = "0.4"

@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use livekit_protocol as proto;
+use livekit_protocol::{self as proto, AudioTrackFeature};
 use parking_lot::Mutex;
 
 use super::TrackPublicationInner;
@@ -82,11 +82,19 @@ impl LocalTrackPublication {
         if let Some(track) = self.track() {
             track.mute();
         }
+
+        if let Some(mute_update_needed) = self.inner.events.muted.lock().as_ref() {
+            mute_update_needed(TrackPublication::Local(self.clone()))
+        }
     }
 
     pub fn unmute(&self) {
         if let Some(track) = self.track() {
             track.unmute();
+        }
+
+        if let Some(unmute_update_needed) = self.inner.events.unmuted.lock().as_ref() {
+            unmute_update_needed(TrackPublication::Local(self.clone()))
         }
     }
 
@@ -136,5 +144,9 @@ impl LocalTrackPublication {
 
     pub fn encryption_type(&self) -> EncryptionType {
         self.inner.info.read().encryption_type
+    }
+
+    pub fn audio_features(&self) -> Vec<AudioTrackFeature> {
+        self.inner.info.read().audio_features.clone()
     }
 }

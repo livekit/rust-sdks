@@ -70,6 +70,7 @@ cd src
 git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
 cd ..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
@@ -99,6 +100,7 @@ gn gen "$OUTPUT_DIR" --root="src" \
   rtc_enable_objc_symbol_export=false \
   rtc_include_dav1d_in_internal_decoder_factory=true \
   rtc_use_h264=true \
+  rtc_use_h265=true \
   use_custom_libcxx=false \
   clang_use_chrome_plugins=false \
   use_rtti=true \
@@ -111,13 +113,14 @@ ninja -C "$OUTPUT_DIR" livekit_rtc
 # don't include nasm
 #ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
-#python3 "./src/tools_webrtc/libs/generate_licenses.py" \
-#  --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR"
+python3 "./src/tools_webrtc/libs/generate_licenses.py" \
+  --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR"
 
 cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/liblivekit_rtc.dylib" "$ARTIFACTS_DIR/lib"
 
-#cd src
-# find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
+cd src
+find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
+find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"

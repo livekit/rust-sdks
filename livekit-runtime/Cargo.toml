@@ -1,13 +1,14 @@
 [package]
 name = "livekit-runtime"
-version = "0.3.0"
+version = "0.4.0"
 license = "Apache-2.0"
 description = "Async runtime compatibility layer for LiveKit"
 edition = "2021"
 repository = "https://github.com/livekit/rust-sdks"
 
 [features]
-tokio = ["dep:tokio"]
+default = ["tokio"]
+tokio = ["dep:tokio", "dep:tokio-stream"]
 async = [
     "dep:async-std",
     "dep:futures",
@@ -20,7 +21,10 @@ dispatcher = ["dep:futures", "dep:async-io", "dep:async-std", "dep:async-task"]
 tokio = { version = "1", default-features = false, optional = true, features = [
     "rt",
     "rt-multi-thread",
+    "net",
+    "time",
 ] }
+tokio-stream = { version = "0.1.14", optional = true }
 
 # dispatcher and async-std
 async-std = { version = "1", optional = true }

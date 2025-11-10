@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,11 +14,11 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use livekit_protocol as proto;
+use livekit_protocol::{self as proto, AudioTrackFeature};
 use parking_lot::{Mutex, RwLock};
 
 use super::{PermissionStatus, SubscriptionStatus, TrackPublication, TrackPublicationInner};
-use crate::{e2ee::EncryptionType, prelude::*};
+use crate::{e2ee::EncryptionType, prelude::*, track::VideoQuality};
 
 type SubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
 type UnsubscribedHandler = Box<dyn Fn(RemoteTrackPublication, RemoteTrack) + Send>;
@@ -27,6 +27,9 @@ type SubscriptionStatusChangedHandler =
 type PermissionStatusChangedHandler =
     Box<dyn Fn(RemoteTrackPublication, PermissionStatus, PermissionStatus) + Send>; // old_status, new_status
 type SubscriptionUpdateNeededHandler = Box<dyn Fn(RemoteTrackPublication, bool) + Send>;
+type EnabledStatusChangedHandler = Box<dyn Fn(RemoteTrackPublication, bool) + Send>;
+type VideoDimensionsChangedHandler = Box<dyn Fn(RemoteTrackPublication, TrackDimension) + Send>;
+type VideoQualityChangedHandler = Box<dyn Fn(RemoteTrackPublication, VideoQuality) + Send>;
 
 #[derive(Default)]
 struct RemoteEvents {
@@ -35,6 +38,9 @@ struct RemoteEvents {
     subscription_status_changed: Mutex<Option<SubscriptionStatusChangedHandler>>,
     permission_status_changed: Mutex<Option<PermissionStatusChangedHandler>>,
     subscription_update_needed: Mutex<Option<SubscriptionUpdateNeededHandler>>,
+    enabled_status_changed: Mutex<Option<EnabledStatusChangedHandler>>,
+    video_dimensions_changed: Mutex<Option<VideoDimensionsChangedHandler>>,
+    video_quality_changed: Mutex<Option<VideoQualityChangedHandler>>,
 }
 
 #[derive(Debug)]
@@ -206,6 +212,27 @@ impl RemoteTrackPublication {
         *self.remote.events.subscription_update_needed.lock() = Some(Box::new(f));
     }
 
+    pub(crate) fn on_enabled_status_changed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, bool) + Send + 'static,
+    ) {
+        *self.remote.events.enabled_status_changed.lock() = Some(Box::new(f));
+    }
+
+    pub(crate) fn on_video_dimensions_changed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, TrackDimension) + Send + 'static,
+    ) {
+        *self.remote.events.video_dimensions_changed.lock() = Some(Box::new(f));
+    }
+
+    pub(crate) fn on_video_quality_changed(
+        &self,
+        f: impl Fn(RemoteTrackPublication, VideoQuality) + Send + 'static,
+    ) {
+        *self.remote.events.video_quality_changed.lock() = Some(Box::new(f));
+    }
+
     pub fn set_subscribed(&self, subscribed: bool) {
         let old_subscription_state = self.subscription_status();
         let old_permission_state = self.permission_status();
@@ -233,6 +260,60 @@ impl RemoteTrackPublication {
 
         self.emit_subscription_update(old_subscription_state);
         self.emit_permission_update(old_permission_state);
+    }
+
+    /// For tracks that support simulcasting, adjust subscribed quality.
+    ///
+    /// This indicates the highest quality the client can accept. if network
+    /// bandwidth does not allow, server will automatically reduce quality to
+    /// optimize for uninterrupted video.
+    ///
+    pub fn set_video_quality(&self, quality: VideoQuality) {
+        if !self.simulcasted() {
+            log::warn!("Cannot set video quality for a track that is not simulcasted");
+            return;
+        }
+        if let Some(video_quality_changed) =
+            self.remote.events.video_quality_changed.lock().as_ref()
+        {
+            video_quality_changed(self.clone(), quality)
+        }
+    }
+
+    pub fn set_enabled(&self, enabled: bool) {
+        if self.is_subscribed() && enabled != self.is_enabled() {
+            let track = self.track().unwrap();
+            if self.is_enabled() {
+                track.disable();
+            } else {
+                track.enable();
+            }
+
+            // Request to send an update to the SFU
+            if let Some(enabled_status_changed) =
+                self.remote.events.enabled_status_changed.lock().as_ref()
+            {
+                enabled_status_changed(self.clone(), enabled)
+            }
+        }
+    }
+
+    pub fn update_video_dimensions(&self, dimension: TrackDimension) {
+        if self.is_subscribed() {
+            if dimension != self.dimension() {
+                let TrackDimension(width, height) = dimension;
+                let mut new_info = self.proto_info();
+                new_info.width = width;
+                new_info.height = height;
+                self.update_info(new_info);
+            }
+            // Request to send an update to the SFU
+            if let Some(video_dimensions_changed) =
+                self.remote.events.video_dimensions_changed.lock().as_ref()
+            {
+                video_dimensions_changed(self.clone(), dimension)
+            }
+        }
     }
 
     pub fn subscription_status(&self) -> SubscriptionStatus {
@@ -265,6 +346,10 @@ impl RemoteTrackPublication {
 
     pub fn is_allowed(&self) -> bool {
         self.remote.info.read().allowed
+    }
+
+    pub fn is_enabled(&self) -> bool {
+        self.track().is_some_and(|x| x.is_enabled())
     }
 
     pub fn sid(&self) -> TrackSid {
@@ -309,5 +394,9 @@ impl RemoteTrackPublication {
 
     pub fn encryption_type(&self) -> EncryptionType {
         self.inner.info.read().encryption_type
+    }
+
+    pub fn audio_features(&self) -> Vec<AudioTrackFeature> {
+        self.inner.info.read().audio_features.clone()
     }
 }

@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{proto, server::room::FfiRoom};
 use livekit::{
     e2ee::{
         key_provider::{KeyProvider, KeyProviderOptions},
@@ -23,9 +24,8 @@ use livekit::{
         native::frame_cryptor::EncryptionState,
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
     },
+    RoomInfo,
 };
-
-use crate::{proto, server::room::FfiRoom};
 
 impl From<EncryptionState> for proto::EncryptionState {
     fn from(value: EncryptionState) -> Self {
@@ -82,6 +82,29 @@ impl From<EncryptionType> for proto::EncryptionType {
     }
 }
 
+impl From<DisconnectReason> for proto::DisconnectReason {
+    fn from(value: DisconnectReason) -> Self {
+        match value {
+            DisconnectReason::UnknownReason => Self::UnknownReason,
+            DisconnectReason::ClientInitiated => Self::ClientInitiated,
+            DisconnectReason::DuplicateIdentity => Self::DuplicateIdentity,
+            DisconnectReason::ServerShutdown => Self::ServerShutdown,
+            DisconnectReason::ParticipantRemoved => Self::ParticipantRemoved,
+            DisconnectReason::RoomDeleted => Self::RoomDeleted,
+            DisconnectReason::StateMismatch => Self::StateMismatch,
+            DisconnectReason::JoinFailure => Self::JoinFailure,
+            DisconnectReason::Migration => Self::Migration,
+            DisconnectReason::SignalClose => Self::SignalClose,
+            DisconnectReason::RoomClosed => Self::RoomClosed,
+            DisconnectReason::UserUnavailable => Self::UserUnavailable,
+            DisconnectReason::UserRejected => Self::UserRejected,
+            DisconnectReason::SipTrunkFailure => Self::SipTrunkFailure,
+            DisconnectReason::ConnectionTimeout => Self::ConnectionTimeout,
+            DisconnectReason::MediaFailure => Self::MediaFailure,
+        }
+    }
+}
+
 impl From<proto::KeyProviderOptions> for KeyProviderOptions {
     fn from(value: proto::KeyProviderOptions) -> Self {
         Self {
@@ -113,7 +136,11 @@ impl From<proto::ContinualGatheringPolicy> for ContinualGatheringPolicy {
 
 impl From<proto::IceServer> for IceServer {
     fn from(value: proto::IceServer) -> Self {
-        Self { urls: value.urls, username: value.username, password: value.password }
+        Self {
+            urls: value.urls,
+            username: value.username.unwrap_or_default(),
+            password: value.password.unwrap_or_default(),
+        }
     }
 }
 
@@ -139,9 +166,22 @@ impl From<proto::RoomOptions> for RoomOptions {
     fn from(value: proto::RoomOptions) -> Self {
         let e2ee = value.e2ee.and_then(|opts| {
             let encryption_type = opts.encryption_type();
-            let Some(provider_opts) = opts.key_provider_options else {
-                return None;
-            };
+            let provider_opts = opts.key_provider_options;
+
+            Some(E2eeOptions {
+                encryption_type: encryption_type.into(),
+                key_provider: if provider_opts.shared_key.is_some() {
+                    let shared_key = provider_opts.shared_key.clone().unwrap();
+                    KeyProvider::with_shared_key(provider_opts.into(), shared_key)
+                } else {
+                    KeyProvider::new(provider_opts.into())
+                },
+            })
+        });
+
+        let encryption = value.encryption.and_then(|opts| {
+            let encryption_type = opts.encryption_type();
+            let provider_opts = opts.key_provider_options;
 
             Some(E2eeOptions {
                 encryption_type: encryption_type.into(),
@@ -157,14 +197,15 @@ impl From<proto::RoomOptions> for RoomOptions {
         let rtc_config =
             value.rtc_config.map(Into::into).unwrap_or(RoomOptions::default().rtc_config);
 
-        Self {
-            adaptive_stream: value.adaptive_stream,
-            auto_subscribe: value.auto_subscribe,
-            dynacast: value.dynacast,
-            e2ee,
-            rtc_config,
-            join_retries: value.join_retries,
-        }
+        let mut options = RoomOptions::default();
+        options.adaptive_stream = value.adaptive_stream.unwrap_or(options.adaptive_stream);
+        options.auto_subscribe = value.auto_subscribe.unwrap_or(options.auto_subscribe);
+        options.dynacast = value.dynacast.unwrap_or(options.dynacast);
+        options.rtc_config = rtc_config;
+        options.join_retries = value.join_retries.unwrap_or(options.join_retries);
+        options.e2ee = e2ee;
+        options.encryption = encryption;
+        options
     }
 }
 
@@ -188,14 +229,28 @@ impl From<DataPacketKind> for proto::DataPacketKind {
 
 impl From<proto::TrackPublishOptions> for TrackPublishOptions {
     fn from(opts: proto::TrackPublishOptions) -> Self {
+        let default_publish_options = TrackPublishOptions::default();
+        let video_codec = opts.video_codec.map(|x| proto::VideoCodec::try_from(x).ok()).flatten();
+        let source = opts.source.map(|x| proto::TrackSource::try_from(x).ok()).flatten();
+
         Self {
-            video_codec: opts.video_codec().into(),
-            source: opts.source().into(),
-            video_encoding: opts.video_encoding.map(Into::into),
-            audio_encoding: opts.audio_encoding.map(Into::into),
-            dtx: opts.dtx,
-            red: opts.red,
-            simulcast: opts.simulcast,
+            video_codec: video_codec.map(Into::into).unwrap_or(default_publish_options.video_codec),
+            source: source.map(Into::into).unwrap_or(default_publish_options.source),
+            video_encoding: opts
+                .video_encoding
+                .map(Into::into)
+                .or(default_publish_options.video_encoding),
+            audio_encoding: opts
+                .audio_encoding
+                .map(Into::into)
+                .or(default_publish_options.audio_encoding),
+            dtx: opts.dtx.unwrap_or(default_publish_options.dtx),
+            red: opts.red.unwrap_or(default_publish_options.red),
+            simulcast: opts.simulcast.unwrap_or(default_publish_options.simulcast),
+            stream: opts.stream.unwrap_or(default_publish_options.stream),
+            preconnect_buffer: opts
+                .preconnect_buffer
+                .unwrap_or(default_publish_options.preconnect_buffer),
         }
     }
 }
@@ -215,6 +270,177 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 impl From<&FfiRoom> for proto::RoomInfo {
     fn from(value: &FfiRoom) -> Self {
         let room = &value.inner.room;
-        Self { sid: room.sid().into(), name: room.name(), metadata: room.metadata() }
+        proto::RoomInfo {
+            sid: room.maybe_sid().map(|x| x.to_string()),
+            name: room.name(),
+            metadata: room.metadata(),
+            lossy_dc_buffered_amount_low_threshold: room
+                .data_channel_options(DataPacketKind::Lossy)
+                .buffered_amount_low_threshold,
+            reliable_dc_buffered_amount_low_threshold: room
+                .data_channel_options(DataPacketKind::Reliable)
+                .buffered_amount_low_threshold,
+            empty_timeout: room.empty_timeout(),
+            departure_timeout: room.departure_timeout(),
+            max_participants: room.max_participants(),
+            creation_time: room.creation_time(),
+            num_participants: room.num_participants(),
+            num_publishers: room.num_publishers(),
+            active_recording: room.active_recording(),
+        }
+    }
+}
+
+impl From<RoomInfo> for proto::RoomInfo {
+    fn from(room: RoomInfo) -> Self {
+        proto::RoomInfo {
+            sid: room.sid.map(|x| x.to_string()),
+            name: room.name,
+            metadata: room.metadata,
+            lossy_dc_buffered_amount_low_threshold: room
+                .lossy_dc_options
+                .buffered_amount_low_threshold,
+            reliable_dc_buffered_amount_low_threshold: room
+                .reliable_dc_options
+                .buffered_amount_low_threshold,
+            empty_timeout: room.empty_timeout,
+            departure_timeout: room.departure_timeout,
+            max_participants: room.max_participants,
+            creation_time: room.creation_time,
+            num_participants: room.num_participants,
+            num_publishers: room.num_publishers,
+            active_recording: room.active_recording,
+        }
+    }
+}
+
+impl From<proto::ChatMessage> for livekit::ChatMessage {
+    fn from(proto_msg: proto::ChatMessage) -> Self {
+        livekit::ChatMessage {
+            id: proto_msg.id,
+            message: proto_msg.message,
+            timestamp: proto_msg.timestamp,
+            edit_timestamp: proto_msg.edit_timestamp,
+            deleted: proto_msg.deleted,
+            generated: proto_msg.generated,
+        }
+    }
+}
+
+impl From<livekit::ChatMessage> for proto::ChatMessage {
+    fn from(msg: livekit::ChatMessage) -> Self {
+        proto::ChatMessage {
+            id: msg.id,
+            message: msg.message,
+            timestamp: msg.timestamp,
+            edit_timestamp: msg.edit_timestamp,
+            deleted: msg.deleted.into(),
+            generated: msg.generated.into(),
+        }
+    }
+}
+
+impl From<livekit_protocol::data_stream::Header> for proto::data_stream::Header {
+    fn from(msg: livekit_protocol::data_stream::Header) -> Self {
+        let content_header = match msg.content_header {
+            Some(livekit_protocol::data_stream::header::ContentHeader::TextHeader(text_header)) => {
+                Some(proto::data_stream::header::ContentHeader::TextHeader(
+                    proto::data_stream::TextHeader {
+                        operation_type: text_header.operation_type,
+                        version: Some(text_header.version),
+                        reply_to_stream_id: Some(text_header.reply_to_stream_id),
+                        attached_stream_ids: text_header.attached_stream_ids,
+                        generated: Some(text_header.generated),
+                    },
+                ))
+            }
+            Some(livekit_protocol::data_stream::header::ContentHeader::ByteHeader(byte_header)) => {
+                Some(proto::data_stream::header::ContentHeader::ByteHeader(
+                    proto::data_stream::ByteHeader { name: byte_header.name },
+                ))
+            }
+            None => None,
+        };
+
+        proto::data_stream::Header {
+            stream_id: msg.stream_id,
+            timestamp: msg.timestamp,
+            topic: msg.topic,
+            mime_type: msg.mime_type,
+            total_length: msg.total_length,
+            attributes: msg.attributes,
+            content_header,
+        }
+    }
+}
+
+impl From<proto::data_stream::Header> for livekit_protocol::data_stream::Header {
+    fn from(msg: proto::data_stream::Header) -> Self {
+        let content_header = match msg.content_header {
+            Some(proto::data_stream::header::ContentHeader::TextHeader(text_header)) => {
+                Some(livekit_protocol::data_stream::header::ContentHeader::TextHeader(
+                    livekit_protocol::data_stream::TextHeader {
+                        operation_type: text_header.operation_type,
+                        version: text_header.version.unwrap_or_default(),
+                        reply_to_stream_id: text_header.reply_to_stream_id.unwrap_or_default(),
+                        attached_stream_ids: text_header.attached_stream_ids,
+                        generated: text_header.generated.unwrap_or(false),
+                    },
+                ))
+            }
+            Some(proto::data_stream::header::ContentHeader::ByteHeader(byte_header)) => {
+                Some(livekit_protocol::data_stream::header::ContentHeader::ByteHeader(
+                    livekit_protocol::data_stream::ByteHeader { name: byte_header.name },
+                ))
+            }
+            None => None,
+        };
+
+        livekit_protocol::data_stream::Header {
+            stream_id: msg.stream_id,
+            timestamp: msg.timestamp,
+            topic: msg.topic,
+            mime_type: msg.mime_type,
+            total_length: msg.total_length,
+            attributes: msg.attributes,
+            content_header,
+            encryption_type: 0,
+        }
+    }
+}
+
+impl From<livekit_protocol::data_stream::Chunk> for proto::data_stream::Chunk {
+    fn from(msg: livekit_protocol::data_stream::Chunk) -> Self {
+        proto::data_stream::Chunk {
+            stream_id: msg.stream_id,
+            content: msg.content,
+            chunk_index: msg.chunk_index,
+            version: Some(msg.version),
+            iv: msg.iv,
+        }
+    }
+}
+
+impl From<proto::data_stream::Chunk> for livekit_protocol::data_stream::Chunk {
+    fn from(msg: proto::data_stream::Chunk) -> Self {
+        livekit_protocol::data_stream::Chunk {
+            stream_id: msg.stream_id,
+            content: msg.content,
+            chunk_index: msg.chunk_index,
+            version: msg.version.unwrap_or(0),
+            iv: msg.iv,
+        }
+    }
+}
+
+impl From<livekit_protocol::data_stream::Trailer> for proto::data_stream::Trailer {
+    fn from(msg: livekit_protocol::data_stream::Trailer) -> Self {
+        Self { stream_id: msg.stream_id, reason: msg.reason, attributes: msg.attributes }
+    }
+}
+
+impl From<proto::data_stream::Trailer> for livekit_protocol::data_stream::Trailer {
+    fn from(msg: proto::data_stream::Trailer) -> Self {
+        Self { stream_id: msg.stream_id, reason: msg.reason, attributes: msg.attributes }
     }
 }

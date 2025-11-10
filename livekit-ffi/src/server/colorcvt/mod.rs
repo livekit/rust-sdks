@@ -1,3 +1,17 @@
+// Copyright 2025 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::{proto, FfiResult};
 use livekit::webrtc::{prelude::*, video_frame::BoxVideoBuffer};
 use std::slice;
@@ -327,7 +341,7 @@ pub fn i420_info(
         r#type: proto::VideoBufferType::I420.into(),
         components,
         data_ptr: data_ptr as u64,
-        stride: 0,
+        stride: None,
     }
 }
 
@@ -378,7 +392,7 @@ pub fn i420a_info(
         r#type: proto::VideoBufferType::I420a.into(),
         components,
         data_ptr: data_ptr as u64,
-        stride: 0,
+        stride: None,
     }
 }
 
@@ -419,7 +433,7 @@ pub fn i422_info(
         r#type: proto::VideoBufferType::I422.into(),
         components,
         data_ptr: data_ptr as u64,
-        stride: 0,
+        stride: None,
     }
 }
 
@@ -460,7 +474,7 @@ pub fn i444_info(
         r#type: proto::VideoBufferType::I444.into(),
         components,
         data_ptr: data_ptr as u64,
-        stride: 0,
+        stride: None,
     }
 }
 
@@ -503,7 +517,7 @@ pub fn i010_info(
         r#type: proto::VideoBufferType::I010.into(),
         components,
         data_ptr: data_ptr as u64,
-        stride: 0,
+        stride: None,
     }
 }
 
@@ -538,7 +552,7 @@ pub fn nv12_info(
         r#type: proto::VideoBufferType::Nv12.into(),
         components,
         data_ptr: data_ptr as u64,
-        stride: 0,
+        stride: None,
     }
 }
 
@@ -554,7 +568,7 @@ pub fn rgba_info(
         r#type: r#type.into(),
         components: Vec::default(),
         data_ptr: data_ptr as u64,
-        stride: width * 4,
+        stride: Some(width * 4),
     }
 }
 
@@ -570,6 +584,6 @@ pub fn rgb_info(
         r#type: r#type.into(),
         components: Vec::default(),
         data_ptr: data_ptr as u64,
-        stride: width * 3,
+        stride: Some(width * 3),
     }
 }

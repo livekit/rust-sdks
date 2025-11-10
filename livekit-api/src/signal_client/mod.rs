@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@ use std::{
     borrow::Cow,
     fmt::Debug,
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
     },
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -37,14 +37,17 @@ use async_tungstenite::tungstenite::Error as WsError;
 
 use crate::{http_client, signal_client::signal_stream::SignalStream};
 
+mod region;
 mod signal_stream;
+
+pub use region::RegionUrlProvider;
 
 pub type SignalEmitter = mpsc::UnboundedSender<SignalEvent>;
 pub type SignalEvents = mpsc::UnboundedReceiver<SignalEvent>;
 pub type SignalResult<T> = Result<T, SignalError>;
 
 pub const JOIN_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
-pub const PROTOCOL_VERSION: u32 = 9;
+pub const PROTOCOL_VERSION: u32 = 16;
 
 #[derive(Error, Debug)]
 pub enum SignalError {
@@ -52,6 +55,8 @@ pub enum SignalError {
     WsError(#[from] WsError),
     #[error("failed to parse the url: {0}")]
     UrlParse(String),
+    #[error("access token has invalid characters")]
+    TokenFormat,
     #[error("client error: {0} - {1}")]
     Client(StatusCode, String),
     #[error("server error: {0} - {1}")]
@@ -62,17 +67,38 @@ pub enum SignalError {
     Timeout(String),
     #[error("failed to send message to the server")]
     SendError,
+    #[error("failed to retrieve region info: {0}")]
+    RegionError(String),
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct SignalSdkOptions {
+    pub sdk: String,
+    pub sdk_version: Option<String>,
+}
+
+impl Default for SignalSdkOptions {
+    fn default() -> Self {
+        Self { sdk: "rust".to_string(), sdk_version: None }
+    }
+}
+
+#[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SignalOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
+    pub sdk_options: SignalSdkOptions,
 }
 
 impl Default for SignalOptions {
     fn default() -> Self {
-        Self { auto_subscribe: true, adaptive_stream: false }
+        Self {
+            auto_subscribe: true,
+            adaptive_stream: false,
+            sdk_options: SignalSdkOptions::default(),
+        }
     }
 }
 
@@ -92,6 +118,7 @@ struct SignalInner {
     url: String,
     options: SignalOptions,
     join_response: proto::JoinResponse,
+    request_id: AtomicU32,
 }
 
 pub struct SignalClient {
@@ -116,14 +143,39 @@ impl SignalClient {
         token: &str,
         options: SignalOptions,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
-        let (inner, join_response, stream_events) =
-            SignalInner::connect(url, token, options).await?;
+        let handle_success = |inner: Arc<SignalInner>, join_response, stream_events| {
+            let (emitter, events) = mpsc::unbounded_channel();
+            let signal_task =
+                livekit_runtime::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
 
-        let (emitter, events) = mpsc::unbounded_channel();
-        let signal_task =
-            livekit_runtime::spawn(signal_task(inner.clone(), emitter.clone(), stream_events));
+            (Self { inner, emitter, handle: Mutex::new(Some(signal_task)) }, join_response, events)
+        };
 
-        Ok((Self { inner, emitter, handle: Mutex::new(Some(signal_task)) }, join_response, events))
+        match SignalInner::connect(url, token, options.clone()).await {
+            Ok((inner, join_response, stream_events)) => {
+                return Ok(handle_success(inner, join_response, stream_events))
+            }
+            Err(err) => {
+                // fallback to region urls
+                if matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() != 403) {
+                    log::error!("unexpected signal error: {}", err.to_string());
+                }
+                let urls = RegionUrlProvider::fetch_region_urls(url.into(), token.into()).await?;
+                let mut last_err = err;
+
+                for url in urls.iter() {
+                    log::info!("fallback connection to: {}", url);
+                    match SignalInner::connect(url, token, options.clone()).await {
+                        Ok((inner, join_response, stream_events)) => {
+                            return Ok(handle_success(inner, join_response, stream_events))
+                        }
+                        Err(err) => last_err = err,
+                    }
+                }
+
+                Err(last_err)
+            }
+        }
     }
 
     /// Restart the connection to the server
@@ -151,7 +203,7 @@ impl SignalClient {
 
     /// Close the connection to the server
     pub async fn close(&self) {
-        self.inner.close().await;
+        self.inner.close(true).await;
 
         let handle = self.handle.lock().take();
         if let Some(signal_task) = handle {
@@ -178,6 +230,11 @@ impl SignalClient {
     pub fn token(&self) -> String {
         self.inner.token.lock().clone()
     }
+
+    /// Increment request_id for user-initiated requests and [`RequestResponse`][`proto::RequestResponse`]s
+    pub fn next_request_id(&self) -> u32 {
+        self.inner.next_request_id().clone()
+    }
 }
 
 impl SignalInner {
@@ -190,12 +247,15 @@ impl SignalInner {
         proto::JoinResponse,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
-        let lk_url = get_livekit_url(url, token, &options)?;
+        let lk_url = get_livekit_url(url, &options)?;
 
         // Try to connect to the SignalClient
-        let (stream, mut events) = match SignalStream::connect(lk_url.clone()).await {
+        let (stream, mut events) = match SignalStream::connect(lk_url.clone(), token).await {
             Ok(stream) => stream,
             Err(err) => {
+                if let SignalError::TokenFormat = err {
+                    return Err(err);
+                }
                 // Connection failed, try to retrieve more informations
                 Self::validate(lk_url).await?;
                 return Err(err);
@@ -213,6 +273,7 @@ impl SignalInner {
             options,
             url: url.to_string(),
             join_response: join_response.clone(),
+            request_id: AtomicU32::new(1),
         });
 
         Ok((inner, join_response, events))
@@ -247,7 +308,7 @@ impl SignalInner {
         proto::ReconnectResponse,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
-        self.close().await;
+        self.close(false).await;
 
         // Lock while we are reconnecting
         let mut stream = self.stream.write().await;
@@ -258,10 +319,10 @@ impl SignalInner {
         let sid = &self.join_response.participant.as_ref().unwrap().sid;
         let token = self.token.lock().clone();
 
-        let mut lk_url = get_livekit_url(&self.url, &token, &self.options).unwrap();
+        let mut lk_url = get_livekit_url(&self.url, &self.options).unwrap();
         lk_url.query_pairs_mut().append_pair("reconnect", "1").append_pair("sid", sid);
 
-        let (new_stream, mut events) = SignalStream::connect(lk_url).await?;
+        let (new_stream, mut events) = SignalStream::connect(lk_url, &token).await?;
         let reconnect_response = get_reconnect_response(&mut events).await?;
         *stream = Some(new_stream);
 
@@ -271,9 +332,9 @@ impl SignalInner {
     }
 
     /// Close the connection
-    pub async fn close(&self) {
+    pub async fn close(&self, notify_close: bool) {
         if let Some(stream) = self.stream.write().await.take() {
-            stream.close().await;
+            stream.close(notify_close).await;
         }
     }
 
@@ -314,6 +375,11 @@ impl SignalInner {
                 }
             }
         }
+    }
+
+    /// Increment request_id for user-initiated requests and [`RequestResponse`][`proto::RequestResponse`]s
+    pub fn next_request_id(&self) -> u32 {
+        self.request_id.fetch_add(1, Ordering::SeqCst)
     }
 }
 
@@ -380,7 +446,7 @@ async fn signal_task(
         }
     }
 
-    inner.close().await; // Make sure to always close the ws connection when the loop is terminated
+    inner.close(true).await; // Make sure to always close the ws connection when the loop is terminated
 }
 
 /// Check if the signal is queuable
@@ -397,7 +463,7 @@ fn is_queuable(signal: &proto::signal_request::Message) -> bool {
     )
 }
 
-fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalResult<url::Url> {
+fn get_livekit_url(url: &str, options: &SignalOptions) -> SignalResult<url::Url> {
     let mut lk_url = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
 
     if !lk_url.has_host() {
@@ -419,11 +485,14 @@ fn get_livekit_url(url: &str, token: &str, options: &SignalOptions) -> SignalRes
 
     lk_url
         .query_pairs_mut()
-        .append_pair("sdk", "rust")
-        .append_pair("access_token", token)
+        .append_pair("sdk", options.sdk_options.sdk.as_str())
         .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
         .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
         .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
+
+    if let Some(sdk_version) = &options.sdk_options.sdk_version {
+        lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
+    }
 
     Ok(lk_url)
 }
@@ -468,14 +537,13 @@ mod tests {
 
     #[test]
     fn livekit_url_test() {
-        let it = "null_token";
         let io = SignalOptions::default();
 
-        assert!(get_livekit_url("localhost:7880", it, &io).is_err());
-        assert_eq!(get_livekit_url("https://localhost:7880", it, &io).unwrap().scheme(), "wss");
-        assert_eq!(get_livekit_url("http://localhost:7880", it, &io).unwrap().scheme(), "ws");
-        assert_eq!(get_livekit_url("wss://localhost:7880", it, &io).unwrap().scheme(), "wss");
-        assert_eq!(get_livekit_url("ws://localhost:7880", it, &io).unwrap().scheme(), "ws");
-        assert!(get_livekit_url("ftp://localhost:7880", it, &io).is_err());
+        assert!(get_livekit_url("localhost:7880", &io).is_err());
+        assert_eq!(get_livekit_url("https://localhost:7880", &io).unwrap().scheme(), "wss");
+        assert_eq!(get_livekit_url("http://localhost:7880", &io).unwrap().scheme(), "ws");
+        assert_eq!(get_livekit_url("wss://localhost:7880", &io).unwrap().scheme(), "wss");
+        assert_eq!(get_livekit_url("ws://localhost:7880", &io).unwrap().scheme(), "ws");
+        assert!(get_livekit_url("ftp://localhost:7880", &io).is_err());
     }
 }

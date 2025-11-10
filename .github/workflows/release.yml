@@ -1,0 +1,84 @@
+name: Release
+
+permissions:
+  pull-requests: write
+  contents: write
+  actions: write
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # Release unpublished packages.
+  release-plz-release:
+    name: Release-plz release
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'livekit' }}
+    permissions:
+      contents: write
+    outputs:
+      ffi_tag: ${{ steps.ffi.outputs.ffi_tag }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install VA-API/NVIDIA drivers for build
+        run:  |
+          sudo apt update -y
+          sudo apt install -y libva-dev libdrm-dev libnvidia-compute-570 libnvidia-decode-570 nvidia-cuda-dev -y
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
+        id: release-plz
+        with:
+          command: release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+      - name: Extract ffi tag
+        id: ffi
+        env:
+          RELEASES: ${{ steps.release-plz.outputs.releases }}
+        run: |
+          set -e
+          ffi_tag=$(echo "$RELEASES" | jq -r '.[].tag' | grep 'rust-sdks/livekit-ffi@' || true)
+          echo "ffi_tag=$ffi_tag"
+          echo "ffi_tag=$ffi_tag" >> $GITHUB_OUTPUT
+
+  call-ffi:
+    name: Call FFI Builds
+    if: ${{ needs.release-plz-release.outputs.ffi_tag != '' }}
+    uses: ./.github/workflows/ffi-builds.yml
+    needs: release-plz-release
+    with:
+      tag: ${{ needs.release-plz-release.outputs.ffi_tag }}
+
+  # Create a PR with the new versions and changelog, preparing the next release.
+  release-plz-pr:
+    name: Release-plz PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    concurrency:
+      group: release-plz-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Run release-plz
+        uses: release-plz/action@v0.5
+        with:
+          command: release-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}

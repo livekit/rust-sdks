@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -23,6 +23,7 @@ pub enum VideoCodec {
     H264,
     VP9,
     AV1,
+    H265,
 }
 
 impl VideoCodec {
@@ -32,6 +33,7 @@ impl VideoCodec {
             VideoCodec::H264 => "h264",
             VideoCodec::VP9 => "vp9",
             VideoCodec::AV1 => "av1",
+            VideoCodec::H265 => "h265",
         }
     }
 }
@@ -84,6 +86,8 @@ pub struct TrackPublishOptions {
     pub simulcast: bool,
     // pub name: String,
     pub source: TrackSource,
+    pub stream: String,
+    pub preconnect_buffer: bool,
 }
 
 impl Default for TrackPublishOptions {
@@ -96,6 +100,8 @@ impl Default for TrackPublishOptions {
             red: true,
             simulcast: true,
             source: TrackSource::Unknown,
+            stream: "".to_string(),
+            preconnect_buffer: false,
         }
     }
 }
@@ -123,7 +129,10 @@ pub fn compute_video_encodings(
     options: &TrackPublishOptions,
 ) -> Vec<RtpEncodingParameters> {
     let screenshare = options.source == TrackSource::Screenshare;
-    let encoding = compute_appropriate_encoding(screenshare, width, height, options.video_codec);
+    let encoding = match options.video_encoding.clone() {
+        Some(encoding) => encoding,
+        None => compute_appropriate_encoding(screenshare, width, height, options.video_codec),
+    };
 
     let initial_preset = VideoPreset {
         width,
@@ -174,7 +183,7 @@ pub fn compute_appropriate_encoding(
 
     for preset in presets {
         encoding = preset.encoding.clone();
-        if preset.width >= size {
+        if preset.width > size {
             break;
         }
     }
@@ -252,6 +261,7 @@ pub fn into_rtp_encodings(
         })
     }
 
+    encodings.reverse();
     encodings
 }
 
@@ -276,6 +286,7 @@ pub fn video_layers_from_encodings(
             height,
             bitrate: 0,
             ssrc: 0,
+            ..Default::default()
         }];
     }
 
@@ -290,6 +301,7 @@ pub fn video_layers_from_encodings(
             height: (height as f64 / scale) as u32,
             bitrate: encoding.max_bitrate.unwrap_or(0) as u32,
             ssrc: 0,
+            ..Default::default()
         });
     }
 
@@ -302,11 +314,11 @@ pub mod audio {
     use super::AudioPreset;
 
     pub const TELEPHONE: AudioPreset = AudioPreset::new(12_000);
-    pub const SPEECH: AudioPreset = AudioPreset::new(20_000);
-    pub const MUSIC: AudioPreset = AudioPreset::new(32_000);
-    pub const MUSIC_STEREO: AudioPreset = AudioPreset::new(48_000);
-    pub const MUSIC_HIGH_QUALITY: AudioPreset = AudioPreset::new(64_000);
-    pub const MUSIC_HIGH_QUALITY_STEREO: AudioPreset = AudioPreset::new(96_000);
+    pub const SPEECH: AudioPreset = AudioPreset::new(24_000);
+    pub const MUSIC: AudioPreset = AudioPreset::new(48_000);
+    pub const MUSIC_STEREO: AudioPreset = AudioPreset::new(64_000);
+    pub const MUSIC_HIGH_QUALITY: AudioPreset = AudioPreset::new(96_000);
+    pub const MUSIC_HIGH_QUALITY_STEREO: AudioPreset = AudioPreset::new(128_000);
 
     pub const PRESETS: &[AudioPreset] =
         &[TELEPHONE, SPEECH, MUSIC, MUSIC_STEREO, MUSIC_HIGH_QUALITY, MUSIC_HIGH_QUALITY_STEREO];

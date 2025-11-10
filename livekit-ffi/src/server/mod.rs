@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -24,18 +24,25 @@ use std::{
 
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
-use livekit::webrtc::{native::audio_resampler::AudioResampler, prelude::*};
+use livekit::webrtc::{
+    native::apm::AudioProcessingModule, native::audio_resampler::AudioResampler, prelude::*,
+};
 use parking_lot::{deadlock, Mutex};
-use tokio::task::JoinHandle;
+use tokio::{sync::oneshot, task::JoinHandle};
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
 
+pub mod audio_plugin;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod colorcvt;
+pub mod data_stream;
 pub mod logger;
+pub mod participant;
 pub mod requests;
+pub mod resampler;
 pub mod room;
+mod utils;
 pub mod video_source;
 pub mod video_stream;
 
@@ -46,6 +53,8 @@ pub mod video_stream;
 pub struct FfiConfig {
     pub callback_fn: Arc<dyn Fn(FfiEvent) + Send + Sync>,
     pub capture_logs: bool,
+    pub sdk: String,
+    pub sdk_version: String,
 }
 
 /// To make sure we use the right types, only types that implement this trait
@@ -61,19 +70,23 @@ pub struct FfiDataBuffer {
 
 impl FfiHandle for FfiDataBuffer {}
 impl FfiHandle for Arc<Mutex<AudioResampler>> {}
+impl FfiHandle for Arc<Mutex<AudioProcessingModule>> {}
+impl FfiHandle for Arc<Mutex<resampler::SoxResampler>> {}
 impl FfiHandle for AudioFrame<'static> {}
 impl FfiHandle for BoxVideoBuffer {}
 impl FfiHandle for Box<[u8]> {}
+impl FfiHandle for () {}
 
 pub struct FfiServer {
     /// Store all Ffi handles inside an HashMap, if this isn't efficient enough
     /// We can still use Box::into_raw & Box::from_raw in the future (but keep it safe for now)
     ffi_handles: DashMap<FfiHandleId, Box<dyn FfiHandle>>,
-    async_runtime: tokio::runtime::Runtime,
+    pub async_runtime: tokio::runtime::Runtime,
 
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
     logger: &'static logger::FfiLogger,
+    handle_dropped_txs: DashMap<FfiHandleId, Vec<oneshot::Sender<()>>>,
 }
 
 impl Default for FfiServer {
@@ -111,6 +124,7 @@ impl Default for FfiServer {
             async_runtime,
             config: Default::default(),
             logger,
+            handle_dropped_txs: Default::default(),
         }
     }
 }
@@ -125,8 +139,14 @@ impl FfiServer {
         log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION")); // TODO: Move this log
     }
 
-    pub async fn dispose(&self) {
-        log::info!("disposing the FfiServer, closing all rooms...");
+    /// Returns whether the server has been setup.
+    pub fn is_setup(&self) -> bool {
+        self.config.lock().is_some()
+    }
+
+    pub async fn dispose(&'static self) {
+        self.logger.set_capture_logs(false);
+        log::info!("disposing ffi server");
 
         // Close all rooms
         let mut rooms = Vec::new();
@@ -137,11 +157,10 @@ impl FfiServer {
         }
 
         for room in rooms {
-            room.close().await;
+            room.close(self).await;
         }
 
         // Drop all handles
-        self.ffi_handles.clear();
         *self.config.lock() = None; // Invalidate the config
     }
 
@@ -191,14 +210,46 @@ impl FfiServer {
         Ok(handle)
     }
 
+    pub fn take_handle<T>(&self, id: FfiHandleId) -> FfiResult<T>
+    where
+        T: FfiHandle,
+    {
+        if id == INVALID_HANDLE {
+            return Err(FfiError::InvalidRequest("handle is invalid".into()));
+        }
+
+        let (_, handle) = self
+            .ffi_handles
+            .remove(&id)
+            .ok_or(FfiError::InvalidRequest("handle not found".into()))?;
+
+        let handle = handle.downcast::<T>().map_err(|_| {
+            let tyname = std::any::type_name::<T>();
+            let msg = format!("handle is not a {}", tyname);
+            FfiError::InvalidRequest(msg.into())
+        })?;
+        Ok(*handle)
+    }
+
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
-        self.ffi_handles.remove(&id).is_some()
+        let existed = self.ffi_handles.remove(&id).is_some();
+        self.handle_dropped_txs.remove(&id);
+        return existed;
+    }
+
+    pub fn watch_handle_dropped(&self, handle: FfiHandleId) -> oneshot::Receiver<()> {
+        // Create vec if not exists
+        if self.handle_dropped_txs.get(&handle).is_none() {
+            self.handle_dropped_txs.insert(handle, Vec::new());
+        }
+        let (tx, rx) = oneshot::channel::<()>();
+        let mut tx_vec = self.handle_dropped_txs.get_mut(&handle).unwrap();
+        tx_vec.push(tx);
+        return rx;
     }
 
     pub fn send_panic(&self, err: Box<dyn Error>) {
-        let _ = self.send_event(proto::ffi_event::Message::Panic(proto::Panic {
-            message: err.as_ref().to_string(),
-        }));
+        let _ = self.send_event(proto::Panic { message: err.as_ref().to_string() }.into());
     }
 
     pub fn watch_panic<O>(&'static self, handle: JoinHandle<O>) -> JoinHandle<O>

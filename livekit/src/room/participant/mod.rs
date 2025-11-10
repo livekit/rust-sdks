@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -22,9 +22,12 @@ use crate::{prelude::*, rtc_engine::RtcEngine};
 
 mod local_participant;
 mod remote_participant;
+mod rpc;
+use crate::room::utils;
 
 pub use local_participant::*;
 pub use remote_participant::*;
+pub use rpc::*;
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ConnectionQuality {
@@ -32,6 +35,35 @@ pub enum ConnectionQuality {
     Good,
     Poor,
     Lost,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ParticipantKind {
+    Standard,
+    Ingress,
+    Egress,
+    Sip,
+    Agent,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum DisconnectReason {
+    UnknownReason,
+    ClientInitiated,
+    DuplicateIdentity,
+    ServerShutdown,
+    ParticipantRemoved,
+    RoomDeleted,
+    StateMismatch,
+    JoinFailure,
+    Migration,
+    SignalClose,
+    RoomClosed,
+    UserUnavailable,
+    UserRejected,
+    SipTrunkFailure,
+    ConnectionTimeout,
+    MediaFailure,
 }
 
 #[derive(Debug, Clone)]
@@ -47,9 +79,13 @@ impl Participant {
         pub fn identity(self: &Self) -> ParticipantIdentity;
         pub fn name(self: &Self) -> String;
         pub fn metadata(self: &Self) -> String;
+        pub fn attributes(self: &Self) -> HashMap<String, String>;
         pub fn is_speaking(self: &Self) -> bool;
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
+        pub fn kind(self: &Self) -> ParticipantKind;
+        pub fn disconnect_reason(self: &Self) -> DisconnectReason;
+        pub fn is_encrypted(self: &Self) -> bool;
 
         pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
 
@@ -59,12 +95,13 @@ impl Participant {
         pub(crate) fn set_connection_quality(self: &Self, quality: ConnectionQuality) -> ();
         pub(crate) fn add_publication(self: &Self, publication: TrackPublication) -> ();
         pub(crate) fn remove_publication(self: &Self, sid: &TrackSid) -> Option<TrackPublication>;
+        pub(crate) fn update_data_encryption_status(self: &Self, is_encrypted: bool) -> ();
     );
 
-    pub fn tracks(&self) -> HashMap<TrackSid, TrackPublication> {
+    pub fn track_publications(&self) -> HashMap<TrackSid, TrackPublication> {
         match self {
-            Participant::Local(p) => p.internal_tracks(),
-            Participant::Remote(p) => p.internal_tracks(),
+            Participant::Local(p) => p.internal_track_publications(),
+            Participant::Remote(p) => p.internal_track_publications(),
         }
     }
 }
@@ -74,29 +111,45 @@ struct ParticipantInfo {
     pub identity: ParticipantIdentity,
     pub name: String,
     pub metadata: String,
+    pub attributes: HashMap<String, String>,
     pub speaking: bool,
     pub audio_level: f32,
     pub connection_quality: ConnectionQuality,
+    pub kind: ParticipantKind,
+    pub disconnect_reason: DisconnectReason,
 }
 
 type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
 type TrackUnmutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
 type MetadataChangedHandler = Box<dyn Fn(Participant, String, String) + Send>;
+type AttributesChangedHandler = Box<dyn Fn(Participant, HashMap<String, String>) + Send>;
 type NameChangedHandler = Box<dyn Fn(Participant, String, String) + Send>;
+type EncryptionStatusChangedHandler = Box<dyn Fn(Participant, bool) + Send>;
 
 #[derive(Default)]
 struct ParticipantEvents {
     track_muted: Mutex<Option<TrackMutedHandler>>,
     track_unmuted: Mutex<Option<TrackUnmutedHandler>>,
     metadata_changed: Mutex<Option<MetadataChangedHandler>>,
+    attributes_changed: Mutex<Option<AttributesChangedHandler>>,
     name_changed: Mutex<Option<NameChangedHandler>>,
+    encryption_status_changed: Mutex<Option<EncryptionStatusChangedHandler>>,
 }
 
 pub(super) struct ParticipantInner {
     rtc_engine: Arc<RtcEngine>,
     info: RwLock<ParticipantInfo>,
-    tracks: RwLock<HashMap<TrackSid, TrackPublication>>,
+    track_publications: RwLock<HashMap<TrackSid, TrackPublication>>,
     events: Arc<ParticipantEvents>,
+    is_encrypted: RwLock<bool>,
+    is_data_encrypted: RwLock<Option<bool>>,
+}
+
+#[derive(Clone)]
+pub struct ParticipantTrackPermission {
+    pub participant_identity: ParticipantIdentity,
+    pub allow_all: bool,
+    pub allowed_track_sids: Vec<TrackSid>,
 }
 
 pub(super) fn new_inner(
@@ -105,6 +158,8 @@ pub(super) fn new_inner(
     identity: ParticipantIdentity,
     name: String,
     metadata: String,
+    attributes: HashMap<String, String>,
+    kind: ParticipantKind,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
@@ -113,12 +168,17 @@ pub(super) fn new_inner(
             identity,
             name,
             metadata,
+            attributes,
+            kind,
             speaking: false,
             audio_level: 0.0,
             connection_quality: ConnectionQuality::Excellent,
+            disconnect_reason: DisconnectReason::UnknownReason,
         }),
-        tracks: Default::default(),
+        track_publications: Default::default(),
         events: Default::default(),
+        is_encrypted: RwLock::new(false),
+        is_data_encrypted: RwLock::new(None),
     })
 }
 
@@ -128,6 +188,8 @@ pub(super) fn update_info(
     new_info: proto::ParticipantInfo,
 ) {
     let mut info = inner.info.write();
+    info.disconnect_reason = new_info.disconnect_reason().into();
+    info.kind = new_info.kind().into();
     info.sid = new_info.sid.try_into().unwrap();
     info.identity = new_info.identity.into();
 
@@ -142,6 +204,15 @@ pub(super) fn update_info(
     if old_metadata != new_info.metadata {
         if let Some(cb) = inner.events.metadata_changed.lock().as_ref() {
             cb(participant.clone(), old_metadata, new_info.metadata);
+        }
+    }
+
+    let old_attributes = std::mem::replace(&mut info.attributes, new_info.attributes.clone());
+    let changed_attributes =
+        utils::calculate_changed_attributes(old_attributes, new_info.attributes.clone());
+    if changed_attributes.len() != 0 {
+        if let Some(cb) = inner.events.attributes_changed.lock().as_ref() {
+            cb(participant.clone(), changed_attributes);
         }
     }
 }
@@ -198,12 +269,90 @@ pub(super) fn on_name_changed(
     *inner.events.name_changed.lock() = Some(Box::new(handler));
 }
 
+pub(super) fn on_attributes_changed(
+    inner: &Arc<ParticipantInner>,
+    handler: impl Fn(Participant, HashMap<String, String>) + Send + 'static,
+) {
+    *inner.events.attributes_changed.lock() = Some(Box::new(handler));
+}
+
+pub(super) fn on_encryption_status_changed(
+    inner: &Arc<ParticipantInner>,
+    handler: impl Fn(Participant, bool) + Send + 'static,
+) {
+    *inner.events.encryption_status_changed.lock() = Some(Box::new(handler));
+}
+
+pub(super) fn update_encryption_status(inner: &Arc<ParticipantInner>, participant: &Participant) {
+    use crate::e2ee::EncryptionType;
+
+    let track_publications = inner.track_publications.read();
+    let data_encryption_status = inner.is_data_encrypted.read();
+
+    // Check if all track publications are encrypted
+    let tracks_encrypted = !track_publications.is_empty()
+        && track_publications.values().all(|pub_| pub_.encryption_type() != EncryptionType::None);
+
+    // Overall encryption status: both tracks and data must be encrypted (if data exists)
+    let is_encrypted = match *data_encryption_status {
+        Some(data_encrypted) => tracks_encrypted && data_encrypted,
+        None => tracks_encrypted, // No data messages yet, only consider tracks
+    };
+
+    let mut current_status = inner.is_encrypted.write();
+    if *current_status != is_encrypted {
+        *current_status = is_encrypted;
+        drop(current_status);
+        drop(track_publications);
+        drop(data_encryption_status);
+
+        if let Some(cb) = inner.events.encryption_status_changed.lock().as_ref() {
+            cb(participant.clone(), is_encrypted);
+        }
+    }
+}
+
+pub(super) fn update_data_encryption_status(
+    inner: &Arc<ParticipantInner>,
+    participant: &Participant,
+    is_encrypted: bool,
+) {
+    let mut data_encryption_status = inner.is_data_encrypted.write();
+    let previous_status = *data_encryption_status;
+
+    match previous_status {
+        Some(current) if current == is_encrypted => {
+            // No change needed
+            return;
+        }
+        Some(true) if !is_encrypted => {
+            // Data was encrypted, now unencrypted - update immediately
+            *data_encryption_status = Some(false);
+        }
+        Some(false) if is_encrypted => {
+            // Data was unencrypted, now encrypted - but we need to keep it false
+            // because once we've seen unencrypted data, participant is not fully encrypted
+            return;
+        }
+        None => {
+            // First data message - set the status
+            *data_encryption_status = Some(is_encrypted);
+        }
+        _ => return,
+    }
+
+    drop(data_encryption_status);
+
+    // Update overall encryption status
+    update_encryption_status(inner, participant);
+}
+
 pub(super) fn remove_publication(
     inner: &Arc<ParticipantInner>,
-    _participant: &Participant,
+    participant: &Participant,
     sid: &TrackSid,
 ) -> Option<TrackPublication> {
-    let mut tracks = inner.tracks.write();
+    let mut tracks = inner.track_publications.write();
     let publication = tracks.remove(sid);
     if let Some(publication) = publication.clone() {
         // remove events
@@ -213,6 +362,10 @@ pub(super) fn remove_publication(
         // shouldn't happen (internal)
         log::warn!("could not find publication to remove: {:?}", sid);
     }
+    drop(tracks);
+
+    // Update encryption status after removing publication
+    update_encryption_status(inner, participant);
 
     publication
 }
@@ -222,14 +375,30 @@ pub(super) fn add_publication(
     participant: &Participant,
     publication: TrackPublication,
 ) {
-    let mut tracks = inner.tracks.write();
+    let mut tracks = inner.track_publications.write();
     tracks.insert(publication.sid(), publication.clone());
 
     publication.on_muted({
         let events = inner.events.clone();
         let participant = participant.clone();
+        let rtc_engine = inner.rtc_engine.clone();
         move |publication| {
             if let Some(cb) = events.track_muted.lock().as_ref() {
+                if !publication.is_remote() {
+                    let rtc_engine = rtc_engine.clone();
+                    let publication_cloned = publication.clone();
+                    livekit_runtime::spawn(async move {
+                        let engine_request = rtc_engine
+                            .mute_track(proto::MuteTrackRequest {
+                                sid: publication_cloned.sid().to_string(),
+                                muted: true,
+                            })
+                            .await;
+                        if let Err(e) = engine_request {
+                            log::error!("could not mute track: {e:?}");
+                        }
+                    });
+                }
                 cb(participant.clone(), publication);
             }
         }
@@ -238,10 +407,30 @@ pub(super) fn add_publication(
     publication.on_unmuted({
         let events = inner.events.clone();
         let participant = participant.clone();
+        let rtc_engine = inner.rtc_engine.clone();
         move |publication| {
             if let Some(cb) = events.track_unmuted.lock().as_ref() {
+                if !publication.is_remote() {
+                    let rtc_engine = rtc_engine.clone();
+                    let publication_cloned = publication.clone();
+                    livekit_runtime::spawn(async move {
+                        let engine_request = rtc_engine
+                            .mute_track(proto::MuteTrackRequest {
+                                sid: publication_cloned.sid().to_string(),
+                                muted: false,
+                            })
+                            .await;
+                        if let Err(e) = engine_request {
+                            log::error!("could not unmute track: {e:?}");
+                        }
+                    });
+                }
                 cb(participant.clone(), publication);
             }
         }
     });
+    drop(tracks);
+
+    // Update encryption status after adding publication
+    update_encryption_status(inner, participant);
 }

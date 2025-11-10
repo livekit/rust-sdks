@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,7 +15,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use libwebrtc::{prelude::*, stats::RtcStats};
-use livekit_protocol as proto;
+use livekit_protocol::{self as proto, AudioTrackFeature};
 
 use super::{remote_track, TrackInner};
 use crate::prelude::*;
@@ -67,6 +67,10 @@ impl RemoteAudioTrack {
         self.inner.info.read().stream_state
     }
 
+    pub fn is_enabled(&self) -> bool {
+        self.inner.rtc_track.enabled()
+    }
+
     pub fn enable(&self) {
         self.inner.rtc_track.set_enabled(true);
     }
@@ -95,11 +99,11 @@ impl RemoteAudioTrack {
     }
 
     pub(crate) fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {
-        *self.inner.events.muted.lock() = Some(Box::new(f));
+        self.inner.events.lock().muted.replace(Box::new(f));
     }
 
     pub(crate) fn on_unmuted(&self, f: impl Fn(Track) + Send + 'static) {
-        *self.inner.events.unmuted.lock() = Some(Box::new(f));
+        self.inner.events.lock().unmuted.replace(Box::new(f));
     }
 
     #[allow(dead_code)]

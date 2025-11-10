@@ -2,6 +2,7 @@
 name = "wgpu_room"
 version = "0.1.1"
 edition = "2021"
+publish = false
 
 [features]
 default = []
@@ -9,16 +10,21 @@ tracing = ["console-subscriber", "tokio/tracing"]
 
 [dependencies]
 tokio = { version = "1", features = ["full", "parking_lot"] }
-livekit = { path = "../../livekit", version = "0.3.2", features = ["native-tls"] }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"]}
+webrtc-sys = { workspace = true }
 futures = "0.3"
-winit = "0.28"
+winit = { version = "0.30.11", features = [ "android-native-activity" ] }
 parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
 image = "0.24"
-wgpu = "0.16"
-egui = "0.22.0"
-egui-wgpu = "0.22.0"
-eframe = { version = "0.22.0", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
+wgpu = "25.0"
+egui = "0.31.1"
+egui-wgpu = "0.31.1"
+eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
 serde = { version = "1", features = ["derive"] }
 log = "0.4"
 env_logger = "0.10.0"
 console-subscriber = { version = "0.1.10", features = ["parking_lot"], optional = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# On macos use feature relax-sign-encoding to avoid runtime crash (https://github.com/rust-windowing/winit/pull/4302)
+objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }

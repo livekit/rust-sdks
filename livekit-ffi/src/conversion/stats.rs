@@ -1,3 +1,17 @@
+// Copyright 2025 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use livekit::webrtc::{
     prelude::DataChannelState,
     stats::{
@@ -164,6 +178,7 @@ impl From<rtc::RtcStats> for proto::RtcStats {
                 rtc::RtcStats::Certificate(certificate) => {
                     proto::rtc_stats::Stats::Certificate(certificate.into())
                 }
+                rtc::RtcStats::Stream(stream) => proto::rtc_stats::Stats::Stream(stream.into()),
                 rtc::RtcStats::Track {} => {
                     proto::rtc_stats::Stats::Track(proto::rtc_stats::Track {})
                 }
@@ -174,17 +189,17 @@ impl From<rtc::RtcStats> for proto::RtcStats {
 
 impl From<rtc::CodecStats> for proto::rtc_stats::Codec {
     fn from(value: rtc::CodecStats) -> Self {
-        Self { rtc: Some(value.rtc.into()), codec: Some(value.codec.into()) }
+        Self { rtc: value.rtc.into(), codec: value.codec.into() }
     }
 }
 
 impl From<rtc::InboundRtpStats> for proto::rtc_stats::InboundRtp {
     fn from(value: rtc::InboundRtpStats) -> Self {
         Self {
-            rtc: Some(value.rtc.into()),
-            stream: Some(value.stream.into()),
-            received: Some(value.received.into()),
-            inbound: Some(value.inbound.into()),
+            rtc: value.rtc.into(),
+            stream: value.stream.into(),
+            received: value.received.into(),
+            inbound: value.inbound.into(),
         }
     }
 }
@@ -192,10 +207,10 @@ impl From<rtc::InboundRtpStats> for proto::rtc_stats::InboundRtp {
 impl From<rtc::OutboundRtpStats> for proto::rtc_stats::OutboundRtp {
     fn from(value: rtc::OutboundRtpStats) -> Self {
         Self {
-            rtc: Some(value.rtc.into()),
-            stream: Some(value.stream.into()),
-            sent: Some(value.sent.into()),
-            outbound: Some(value.outbound.into()),
+            rtc: value.rtc.into(),
+            stream: value.stream.into(),
+            sent: value.sent.into(),
+            outbound: value.outbound.into(),
         }
     }
 }
@@ -203,10 +218,10 @@ impl From<rtc::OutboundRtpStats> for proto::rtc_stats::OutboundRtp {
 impl From<rtc::RemoteInboundRtpStats> for proto::rtc_stats::RemoteInboundRtp {
     fn from(value: rtc::RemoteInboundRtpStats) -> Self {
         Self {
-            rtc: Some(value.rtc.into()),
-            stream: Some(value.stream.into()),
-            received: Some(value.received.into()),
-            remote_inbound: Some(value.remote_inbound.into()),
+            rtc: value.rtc.into(),
+            stream: value.stream.into(),
+            received: value.received.into(),
+            remote_inbound: value.remote_inbound.into(),
         }
     }
 }
@@ -214,10 +229,10 @@ impl From<rtc::RemoteInboundRtpStats> for proto::rtc_stats::RemoteInboundRtp {
 impl From<rtc::RemoteOutboundRtpStats> for proto::rtc_stats::RemoteOutboundRtp {
     fn from(value: rtc::RemoteOutboundRtpStats) -> Self {
         Self {
-            rtc: Some(value.rtc.into()),
-            stream: Some(value.stream.into()),
-            sent: Some(value.sent.into()),
-            remote_outbound: Some(value.remote_outbound.into()),
+            rtc: value.rtc.into(),
+            stream: value.stream.into(),
+            sent: value.sent.into(),
+            remote_outbound: value.remote_outbound.into(),
         }
     }
 }
@@ -225,59 +240,65 @@ impl From<rtc::RemoteOutboundRtpStats> for proto::rtc_stats::RemoteOutboundRtp {
 impl From<rtc::MediaSourceStats> for proto::rtc_stats::MediaSource {
     fn from(value: rtc::MediaSourceStats) -> Self {
         Self {
-            rtc: Some(value.rtc.into()),
-            source: Some(value.source.into()),
-            audio: Some(value.audio.into()),
-            video: Some(value.video.into()),
+            rtc: value.rtc.into(),
+            source: value.source.into(),
+            audio: value.audio.into(),
+            video: value.video.into(),
         }
     }
 }
 
 impl From<rtc::MediaPlayoutStats> for proto::rtc_stats::MediaPlayout {
     fn from(value: rtc::MediaPlayoutStats) -> Self {
-        Self { rtc: Some(value.rtc.into()), audio_playout: Some(value.audio_playout.into()) }
+        Self { rtc: value.rtc.into(), audio_playout: value.audio_playout.into() }
     }
 }
 
 impl From<rtc::PeerConnectionStats> for proto::rtc_stats::PeerConnection {
     fn from(value: rtc::PeerConnectionStats) -> Self {
-        Self { rtc: Some(value.rtc.into()), pc: Some(value.pc.into()) }
+        Self { rtc: value.rtc.into(), pc: value.pc.into() }
     }
 }
 
 impl From<rtc::DataChannelStats> for proto::rtc_stats::DataChannel {
     fn from(value: rtc::DataChannelStats) -> Self {
-        Self { rtc: Some(value.rtc.into()), dc: Some(value.dc.into()) }
+        Self { rtc: value.rtc.into(), dc: value.dc.into() }
     }
 }
 
 impl From<rtc::TransportStats> for proto::rtc_stats::Transport {
     fn from(value: rtc::TransportStats) -> Self {
-        Self { rtc: Some(value.rtc.into()), transport: Some(value.transport.into()) }
+        Self { rtc: value.rtc.into(), transport: value.transport.into() }
     }
 }
 
 impl From<rtc::CandidatePairStats> for proto::rtc_stats::CandidatePair {
     fn from(value: rtc::CandidatePairStats) -> Self {
-        Self { rtc: Some(value.rtc.into()), candidate_pair: Some(value.candidate_pair.into()) }
+        Self { rtc: value.rtc.into(), candidate_pair: value.candidate_pair.into() }
     }
 }
 
 impl From<rtc::LocalCandidateStats> for proto::rtc_stats::LocalCandidate {
     fn from(value: rtc::LocalCandidateStats) -> Self {
-        Self { rtc: Some(value.rtc.into()), candidate: Some(value.local_candidate.into()) }
+        Self { rtc: value.rtc.into(), candidate: value.local_candidate.into() }
     }
 }
 
 impl From<rtc::RemoteCandidateStats> for proto::rtc_stats::RemoteCandidate {
     fn from(value: rtc::RemoteCandidateStats) -> Self {
-        Self { rtc: Some(value.rtc.into()), candidate: Some(value.remote_candidate.into()) }
+        Self { rtc: value.rtc.into(), candidate: value.remote_candidate.into() }
     }
 }
 
 impl From<rtc::CertificateStats> for proto::rtc_stats::Certificate {
     fn from(value: rtc::CertificateStats) -> Self {
-        Self { rtc: Some(value.rtc.into()), certificate: Some(value.certificate.into()) }
+        Self { rtc: value.rtc.into(), certificate: value.certificate.into() }
+    }
+}
+
+impl From<rtc::StreamStats> for proto::rtc_stats::Stream {
+    fn from(value: rtc::StreamStats) -> Self {
+        Self { rtc: value.rtc.into(), stream: value.stream.into() }
     }
 }
 
@@ -286,6 +307,12 @@ impl From<rtc::CertificateStats> for proto::rtc_stats::Certificate {
 impl From<rtc::dictionaries::RtcStats> for proto::RtcStatsData {
     fn from(value: rtc::dictionaries::RtcStats) -> Self {
         Self { id: value.id, timestamp: value.timestamp }
+    }
+}
+
+impl From<rtc::dictionaries::StreamStats> for proto::StreamStats {
+    fn from(value: rtc::dictionaries::StreamStats) -> Self {
+        Self { id: value.id, stream_identifier: value.stream_identifier }
     }
 }
 
@@ -423,7 +450,7 @@ impl From<rtc::dictionaries::OutboundRtpStreamStats> for proto::OutboundRtpStrea
             encoder_implementation: value.encoder_implementation,
             power_efficient_encoder: value.power_efficient_encoder,
             active: value.active,
-            scalibility_mode: value.scalibility_mode,
+            scalability_mode: value.scalibility_mode,
         }
     }
 }

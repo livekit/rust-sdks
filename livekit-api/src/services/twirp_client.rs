@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -102,7 +102,10 @@ impl TwirpClient {
         mut headers: HeaderMap,
     ) -> TwirpResult<R> {
         let mut url = url::Url::parse(&self.host)?;
-        url.set_path(&format!("{}/{}.{}/{}", self.prefix, self.pkg, service, method));
+
+        if let Ok(mut segs) = url.path_segments_mut() {
+            segs.push(&format!("{}/{}.{}/{}", self.prefix, self.pkg, service, method));
+        }
 
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/protobuf"));
 

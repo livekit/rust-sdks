@@ -7,10 +7,10 @@ use livekit::{
     },
     Room, RoomOptions,
 };
-use std::{env, mem::size_of, sync::Arc, time::Duration};
+use std::{env, io::SeekFrom, mem::size_of, sync::Arc, time::Duration};
 use std::{error::Error, io};
 use thiserror::Error;
-use tokio::io::{AsyncRead, AsyncReadExt, BufReader};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, BufReader};
 
 #[derive(Debug, Error)]
 pub enum WavError {
@@ -20,7 +20,7 @@ pub enum WavError {
     Io(#[from] io::Error),
 }
 
-pub struct WavReader<R: AsyncRead + Unpin> {
+pub struct WavReader<R: AsyncRead + AsyncSeek + Unpin> {
     reader: R,
 }
 
@@ -39,7 +39,7 @@ pub struct WavHeader {
     bits_per_sample: u16,
 }
 
-impl<R: AsyncRead + Unpin> WavReader<R> {
+impl<R: AsyncRead + AsyncSeek + Unpin> WavReader<R> {
     pub fn new(reader: R) -> Self {
         Self { reader }
     }
@@ -76,8 +76,19 @@ impl<R: AsyncRead + Unpin> WavReader<R> {
         let byte_rate = self.reader.read_u32_le().await?;
         let block_align = self.reader.read_u16_le().await?;
         let bits_per_sample = self.reader.read_u16_le().await?;
-        self.reader.read_exact(&mut data_chunk).await?;
-        let data_size = self.reader.read_u32_le().await?;
+
+        let mut data_size = 0;
+        loop {
+            self.reader.read_exact(&mut data_chunk).await?;
+            data_size = self.reader.read_u32_le().await?;
+
+            if &data_chunk == b"data" {
+                break;
+            } else {
+                // skip non data chunks
+                self.reader.seek(SeekFrom::Current(data_size.into())).await?;
+            }
+        }
 
         if &data_chunk != b"data" {
             return Err(WavError::InvalidHeader("Invalid data chunk"));
@@ -119,16 +130,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         return Err("only 16-bit samples supported for this demo".into());
     }
 
-    let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default())
-        .await
-        .unwrap();
+    let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default()).await.unwrap();
     let room = Arc::new(room);
-    log::info!("Connected to room: {} - {}", room.name(), room.sid());
+    log::info!("Connected to room: {} - {}", room.name(), room.sid().await);
 
     let source = NativeAudioSource::new(
         AudioSourceOptions::default(),
         header.sample_rate,
         header.num_channels as u32,
+        1000,
     );
 
     let track = LocalAudioTrack::create_audio_track("file", RtcAudioSource::Native(source.clone()));
@@ -136,10 +146,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     room.local_participant()
         .publish_track(
             LocalTrack::Audio(track),
-            TrackPublishOptions {
-                source: TrackSource::Microphone,
-                ..Default::default()
-            },
+            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
         )
         .await?;
 

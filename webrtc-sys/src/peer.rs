@@ -1,4 +1,6 @@
-use crate::sys;
+use std::{os::raw::c_void, ptr::null};
+
+use crate::sys::{self, lkPeerObserver};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum IceTransportType {
@@ -42,11 +44,18 @@ impl Default for PeerFactory {
 }
 
 impl PeerFactory {
-    pub fn create_peer(&self, config: &RtcConfiguration) -> Peer {
-        todo!()
+    pub fn create_peer(&self, config: &RtcConfiguration, observer: lkPeerObserver, user_data: c_void) -> Peer {
+        unsafe {
+            let lk_config = sys::lkRtcConfiguration();
+            lk_config.iceServersCount = config.ice_servers.len() as u32;
+            let peer = sys::lkCreatePeer(self.factory, lk_config, observer, user_data);   
+            Peer { peer: sys::RefCounted::from_raw(peer) }
+        }
     }
 }
 
-pub struct Peer {}
+pub struct Peer {
+    peer: sys::RefCounted<sys::lkPeer>,
+}
 
 impl Peer {}

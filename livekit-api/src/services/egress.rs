@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -120,8 +120,10 @@ impl EgressClient {
                     segment_outputs,
                     image_outputs,
                     output: None, // Deprecated
+                    ..Default::default()
                 },
-                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
             )
             .await
             .map_err(Into::into)
@@ -151,8 +153,10 @@ impl EgressClient {
                     image_outputs,
                     output: None, // Deprecated
                     await_start_signal: options.await_start_signal,
+                    ..Default::default()
                 },
-                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
             )
             .await
             .map_err(Into::into)
@@ -181,8 +185,10 @@ impl EgressClient {
                     stream_outputs,
                     segment_outputs,
                     image_outputs,
+                    ..Default::default()
                 },
-                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
             )
             .await
             .map_err(Into::into)
@@ -211,8 +217,10 @@ impl EgressClient {
                     segment_outputs,
                     image_outputs,
                     output: None, // Deprecated
+                    ..Default::default()
                 },
-                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
             )
             .await
             .map_err(Into::into)
@@ -239,8 +247,10 @@ impl EgressClient {
                         }
                     },
                     track_id: track_id.to_string(),
+                    ..Default::default()
                 },
-                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
             )
             .await
             .map_err(Into::into)
@@ -259,7 +269,8 @@ impl EgressClient {
                     egress_id: egress_id.to_owned(),
                     layout: layout.to_owned(),
                 },
-                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
             )
             .await
             .map_err(Into::into)
@@ -280,7 +291,8 @@ impl EgressClient {
                     add_output_urls,
                     remove_output_urls,
                 },
-                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
             )
             .await
             .map_err(Into::into)
@@ -305,7 +317,8 @@ impl EgressClient {
                 SVC,
                 "ListEgress",
                 proto::ListEgressRequest { room_name, egress_id, active: options.active },
-                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
             )
             .await?;
 
@@ -318,7 +331,8 @@ impl EgressClient {
                 SVC,
                 "StopEgress",
                 proto::StopEgressRequest { egress_id: egress_id.to_owned() },
-                self.base.auth_header(VideoGrants { room_record: true, ..Default::default() })?,
+                self.base
+                    .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
             )
             .await
             .map_err(Into::into)

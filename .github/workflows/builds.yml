@@ -19,12 +19,15 @@ on:
     branches: ["main"]
     paths:
       - livekit/**
+      - livekit-api/**
       - libwebrtc/**
   pull_request:
     branches: ["main"]
     paths:
       - livekit/**
+      - livekit-api/**
       - libwebrtc/**
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -35,29 +38,32 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-2019
+          - os: windows-latest
             target: x86_64-pc-windows-msvc
-          - os: windows-2019
+          - os: windows-latest
             target: aarch64-pc-windows-msvc
             #extraargs: --exclude livekit-api --exclude livekit-ffi # waiting for v0.17 of ring
-          - os: macos-11
+          - os: macos-latest
             target: x86_64-apple-darwin
-          - os: macos-11
+          - os: macos-latest
             target: aarch64-apple-darwin
-          - os: macos-11
+          - os: macos-latest
             target: aarch64-apple-ios
-          - os: macos-11
+          - os: macos-latest
             target: aarch64-apple-ios-sim
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-          - os: buildjet-4vcpu-ubuntu-2204-arm
+          - os: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             target: aarch64-linux-android
-          - os: ubuntu-20.04
+            ndk_arch: aarch64-unknown-linux-musl
+          - os: ubuntu-latest
             target: armv7-linux-androideabi
-          - os: ubuntu-20.04
+            ndk_arch: arm-unknown-linux-musleabihf
+          - os: ubuntu-latest
             target: x86_64-linux-android
+            ndk_arch: x86_64-unknown-linux-musl
 
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
@@ -66,16 +72,27 @@ jobs:
         with:
           submodules: true
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-20.04' || matrix.os == 'buildjet-4vcpu-ubuntu-2204-arm'}}
+        if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'}}
         run: |
           sudo apt update -y
-          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
+          # libasound2-dev is needed for local_audio example
+          sudo apt install -y libasound2-dev libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
 
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          target: ${{ matrix.target }}
+      - name: Install VA-API/NVIDIA drivers for linux x64 build
+        if: ${{ matrix.os == 'ubuntu-latest'}}
+        run:  |
+          sudo apt install -y libva-dev libdrm-dev libnvidia-compute-570 libnvidia-decode-570 nvidia-cuda-dev -y
+
+      - name: Install Rust toolchain.
+        run: |
+          rustup target add ${{ matrix.target }}
 
       - name: Build (Cargo)
         if: ${{ !contains(matrix.target, 'android') }}
@@ -85,5 +102,7 @@ jobs:
       - name: Build (Android)
         if: ${{ contains(matrix.target, 'android') }}
         run: |
+          ln -sf $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/${{ matrix.ndk_arch }}/{libunwind.so,libc++abi.a} $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/
           cargo install cargo-ndk
+          # FIXME: wgpu_room does not link on aarch64
           cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv

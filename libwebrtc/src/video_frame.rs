@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -235,6 +235,10 @@ impl I420Buffer {
             )
         }
     }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I420Buffer {
+        self.handle.scale(scaled_width, scaled_height)
+    }
 }
 
 impl I420ABuffer {
@@ -273,6 +277,10 @@ impl I420ABuffer {
                 }),
             )
         }
+    }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I420ABuffer {
+        self.handle.scale(scaled_width, scaled_height)
     }
 }
 
@@ -317,6 +325,10 @@ impl I422Buffer {
             )
         }
     }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I422Buffer {
+        self.handle.scale(scaled_width, scaled_height)
+    }
 }
 
 impl I444Buffer {
@@ -359,6 +371,10 @@ impl I444Buffer {
                 std::slice::from_raw_parts_mut(data_v.as_ptr() as *mut u8, data_v.len()),
             )
         }
+    }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I444Buffer {
+        self.handle.scale(scaled_width, scaled_height)
     }
 }
 
@@ -403,6 +419,10 @@ impl I010Buffer {
             )
         }
     }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I010Buffer {
+        self.handle.scale(scaled_width, scaled_height)
+    }
 }
 
 impl NV12Buffer {
@@ -439,6 +459,10 @@ impl NV12Buffer {
             )
         }
     }
+
+    pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> NV12Buffer {
+        self.handle.scale(scaled_width, scaled_height)
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -448,6 +472,27 @@ pub mod native {
     use super::{vf_imp, I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType};
 
     new_buffer_type!(NativeBuffer, Native, as_native);
+
+    impl NativeBuffer {
+        /// Creates a `NativeBuffer` from a `CVPixelBufferRef` pointer.
+        ///
+        /// This function does not bump the reference count of the pixel buffer.
+        ///
+        /// Safety: The given pointer must be a valid `CVPixelBufferRef`.
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        pub unsafe fn from_cv_pixel_buffer(cv_pixel_buffer: *mut std::ffi::c_void) -> Self {
+            vf_imp::NativeBuffer::from_cv_pixel_buffer(cv_pixel_buffer)
+        }
+
+        /// Returns the `CVPixelBufferRef` that backs this buffer, or `null` if
+        /// this buffer is not currently backed by a `CVPixelBufferRef`.
+        ///
+        /// This function does not bump the reference count of the pixel buffer.
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
+            self.handle.get_cv_pixel_buffer()
+        }
+    }
 
     pub trait VideoFrameBufferExt: VideoBuffer {
         fn to_i420(&self) -> I420Buffer;

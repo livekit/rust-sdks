@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-syntax = "proto3";
+syntax = "proto2";
 
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
@@ -20,9 +20,12 @@ option csharp_namespace = "LiveKit.Proto";
 // import "handle.proto";
 import "e2ee.proto";
 import "track.proto";
+import "track_publication.proto";
 import "room.proto";
 import "video_frame.proto";
 import "audio_frame.proto";
+import "rpc.proto";
+import "data_stream.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
@@ -44,7 +47,7 @@ import "audio_frame.proto";
 //   that it receives from the server.
 //
 // Therefore, the ffi client is easier to implement if there is less handles to manage.
-// 
+//
 // - We are mainly using FfiHandle on info messages (e.g: RoomInfo, TrackInfo, etc...)
 //   For this reason, info are only sent once, at creation (We're not using them for updates, we can infer them from
 //   events on the client implementation).
@@ -63,29 +66,93 @@ message FfiRequest {
     UnpublishTrackRequest unpublish_track = 6;
     PublishDataRequest publish_data = 7;
     SetSubscribedRequest set_subscribed = 8;
-    UpdateLocalMetadataRequest update_local_metadata = 9;
-    UpdateLocalNameRequest update_local_name = 10;
-    GetSessionStatsRequest get_session_stats = 11;
-    PublishTranscriptionRequest publish_transcription = 12;
+    SetLocalMetadataRequest set_local_metadata = 9;
+    SetLocalNameRequest set_local_name = 10;
+    SetLocalAttributesRequest set_local_attributes = 11;
+    GetSessionStatsRequest get_session_stats = 12;
+    PublishTranscriptionRequest publish_transcription = 13;
+    PublishSipDtmfRequest publish_sip_dtmf = 14;
 
     // Track
-    CreateVideoTrackRequest create_video_track = 13;
-    CreateAudioTrackRequest create_audio_track = 14;
-    GetStatsRequest get_stats = 15;
+    CreateVideoTrackRequest create_video_track = 15;
+    CreateAudioTrackRequest create_audio_track = 16;
+    LocalTrackMuteRequest local_track_mute = 17;
+    EnableRemoteTrackRequest enable_remote_track = 18;
+    GetStatsRequest get_stats = 19;
+    SetTrackSubscriptionPermissionsRequest set_track_subscription_permissions = 48;
 
     // Video
-    NewVideoStreamRequest new_video_stream = 16;
-    NewVideoSourceRequest new_video_source = 17;
-    CaptureVideoFrameRequest capture_video_frame = 18;
-    VideoConvertRequest video_convert = 19;
+    NewVideoStreamRequest new_video_stream = 20;
+    NewVideoSourceRequest new_video_source = 21;
+    CaptureVideoFrameRequest capture_video_frame = 22;
+    VideoConvertRequest video_convert = 23;
+    VideoStreamFromParticipantRequest video_stream_from_participant = 24;
 
     // Audio
-    NewAudioStreamRequest new_audio_stream = 22;
-    NewAudioSourceRequest new_audio_source = 23;
-    CaptureAudioFrameRequest capture_audio_frame = 24;
-    NewAudioResamplerRequest new_audio_resampler = 25;
-    RemixAndResampleRequest remix_and_resample = 26;
-    E2eeRequest e2ee = 27;
+    NewAudioStreamRequest new_audio_stream = 25;
+    NewAudioSourceRequest new_audio_source = 26;
+    CaptureAudioFrameRequest capture_audio_frame = 27;
+    ClearAudioBufferRequest clear_audio_buffer = 28;
+    NewAudioResamplerRequest new_audio_resampler = 29;
+    RemixAndResampleRequest remix_and_resample = 30;
+    E2eeRequest e2ee = 31;
+    AudioStreamFromParticipantRequest audio_stream_from_participant = 32;
+    NewSoxResamplerRequest new_sox_resampler = 33;
+    PushSoxResamplerRequest push_sox_resampler = 34;
+    FlushSoxResamplerRequest flush_sox_resampler = 35;
+    SendChatMessageRequest send_chat_message = 36;
+    EditChatMessageRequest edit_chat_message = 37;
+
+    // RPC
+    PerformRpcRequest perform_rpc = 38;
+    RegisterRpcMethodRequest register_rpc_method = 39;
+    UnregisterRpcMethodRequest unregister_rpc_method = 40;
+    RpcMethodInvocationResponseRequest rpc_method_invocation_response = 41;
+
+    // Track Publication
+    EnableRemoteTrackPublicationRequest enable_remote_track_publication = 42;
+    UpdateRemoteTrackPublicationDimensionRequest update_remote_track_publication_dimension = 43;
+
+    // Data Streams (low level)
+    SendStreamHeaderRequest send_stream_header = 44;
+    SendStreamChunkRequest send_stream_chunk = 45;
+    SendStreamTrailerRequest send_stream_trailer = 46;
+
+    // Data Channel
+    SetDataChannelBufferedAmountLowThresholdRequest set_data_channel_buffered_amount_low_threshold = 47;
+
+    // Audio Filter Plugin
+    LoadAudioFilterPluginRequest load_audio_filter_plugin = 49;
+
+    NewApmRequest new_apm = 50;
+    ApmProcessStreamRequest apm_process_stream = 51;
+    ApmProcessReverseStreamRequest apm_process_reverse_stream = 52;
+    ApmSetStreamDelayRequest apm_set_stream_delay = 53;
+
+    // Data Streams (high level)
+    ByteStreamReaderReadIncrementalRequest byte_read_incremental = 54;
+    ByteStreamReaderReadAllRequest byte_read_all = 55;
+    ByteStreamReaderWriteToFileRequest byte_write_to_file = 56;
+
+    TextStreamReaderReadIncrementalRequest text_read_incremental = 57;
+    TextStreamReaderReadAllRequest text_read_all = 58;
+
+    StreamSendFileRequest send_file = 59;
+    StreamSendTextRequest send_text = 60;
+
+    ByteStreamOpenRequest byte_stream_open = 61;
+    ByteStreamWriterWriteRequest byte_stream_write = 62;
+    ByteStreamWriterCloseRequest byte_stream_close = 63;
+
+    TextStreamOpenRequest text_stream_open = 64;
+    TextStreamWriterWriteRequest text_stream_write = 65;
+    TextStreamWriterCloseRequest text_stream_close = 66;
+
+    StreamSendBytesRequest send_bytes = 67;
+
+    SetRemoteTrackPublicationQualityRequest set_remote_track_publication_quality = 68;
+
+    // NEXT_ID: 69
   }
 }
 
@@ -101,29 +168,90 @@ message FfiResponse {
     UnpublishTrackResponse unpublish_track = 6;
     PublishDataResponse publish_data = 7;
     SetSubscribedResponse set_subscribed = 8;
-    UpdateLocalMetadataResponse update_local_metadata = 9;
-    UpdateLocalNameResponse update_local_name = 10;
-    GetSessionStatsResponse get_session_stats = 11;
-    PublishTranscriptionResponse publish_transcription = 12;
+    SetLocalMetadataResponse set_local_metadata = 9;
+    SetLocalNameResponse set_local_name = 10;
+    SetLocalAttributesResponse set_local_attributes = 11;
+    GetSessionStatsResponse get_session_stats = 12;
+    PublishTranscriptionResponse publish_transcription = 13;
+    PublishSipDtmfResponse publish_sip_dtmf = 14;
 
     // Track
-    CreateVideoTrackResponse create_video_track = 13;
-    CreateAudioTrackResponse create_audio_track = 14;
-    GetStatsResponse get_stats = 15;
+    CreateVideoTrackResponse create_video_track = 15;
+    CreateAudioTrackResponse create_audio_track = 16;
+    LocalTrackMuteResponse local_track_mute = 17;
+    EnableRemoteTrackResponse enable_remote_track = 18;
+    GetStatsResponse get_stats = 19;
+    SetTrackSubscriptionPermissionsResponse set_track_subscription_permissions = 47;
 
     // Video
-    NewVideoStreamResponse new_video_stream = 16;
-    NewVideoSourceResponse new_video_source = 17;
-    CaptureVideoFrameResponse capture_video_frame = 18;
-    VideoConvertResponse video_convert = 19;
+    NewVideoStreamResponse new_video_stream = 20;
+    NewVideoSourceResponse new_video_source = 21;
+    CaptureVideoFrameResponse capture_video_frame = 22;
+    VideoConvertResponse video_convert = 23;
+    VideoStreamFromParticipantResponse video_stream_from_participant = 24;
 
     // Audio
-    NewAudioStreamResponse new_audio_stream = 22;
-    NewAudioSourceResponse new_audio_source = 23;
-    CaptureAudioFrameResponse capture_audio_frame = 24;
-    NewAudioResamplerResponse new_audio_resampler = 25;
-    RemixAndResampleResponse remix_and_resample = 26;
-    E2eeResponse e2ee = 27;
+    NewAudioStreamResponse new_audio_stream = 25;
+    NewAudioSourceResponse new_audio_source = 26;
+    CaptureAudioFrameResponse capture_audio_frame = 27;
+    ClearAudioBufferResponse clear_audio_buffer = 28;
+    NewAudioResamplerResponse new_audio_resampler = 29;
+    RemixAndResampleResponse remix_and_resample = 30;
+    AudioStreamFromParticipantResponse audio_stream_from_participant = 31;
+    E2eeResponse e2ee = 32;
+    NewSoxResamplerResponse new_sox_resampler = 33;
+    PushSoxResamplerResponse push_sox_resampler = 34;
+    FlushSoxResamplerResponse flush_sox_resampler = 35;
+    SendChatMessageResponse send_chat_message = 36;
+    // RPC
+    PerformRpcResponse perform_rpc = 37;
+    RegisterRpcMethodResponse register_rpc_method = 38;
+    UnregisterRpcMethodResponse unregister_rpc_method = 39;
+    RpcMethodInvocationResponseResponse rpc_method_invocation_response = 40;
+    // Track Publication
+    EnableRemoteTrackPublicationResponse enable_remote_track_publication = 41;
+    UpdateRemoteTrackPublicationDimensionResponse update_remote_track_publication_dimension = 42;
+
+    // Data Streams
+    SendStreamHeaderResponse send_stream_header = 43;
+    SendStreamChunkResponse send_stream_chunk = 44;
+    SendStreamTrailerResponse send_stream_trailer = 45;
+
+    // Data Channel
+    SetDataChannelBufferedAmountLowThresholdResponse set_data_channel_buffered_amount_low_threshold = 46;
+
+    // Audio Filter Plugin
+    LoadAudioFilterPluginResponse load_audio_filter_plugin = 48;
+
+    NewApmResponse new_apm = 49;
+    ApmProcessStreamResponse apm_process_stream = 50;
+    ApmProcessReverseStreamResponse apm_process_reverse_stream = 51;
+    ApmSetStreamDelayResponse apm_set_stream_delay = 52;
+
+    // Data Streams (high level)
+    ByteStreamReaderReadIncrementalResponse byte_read_incremental = 53;
+    ByteStreamReaderReadAllResponse byte_read_all = 54;
+    ByteStreamReaderWriteToFileResponse byte_write_to_file = 55;
+
+    TextStreamReaderReadIncrementalResponse text_read_incremental = 56;
+    TextStreamReaderReadAllResponse text_read_all = 57;
+
+    StreamSendFileResponse send_file = 58;
+    StreamSendTextResponse send_text = 59;
+
+    ByteStreamOpenResponse byte_stream_open = 60;
+    ByteStreamWriterWriteResponse byte_stream_write = 61;
+    ByteStreamWriterCloseResponse byte_stream_close = 62;
+
+    TextStreamOpenResponse text_stream_open = 63;
+    TextStreamWriterWriteResponse text_stream_write = 64;
+    TextStreamWriterCloseResponse text_stream_close = 65;
+
+    StreamSendBytesResponse send_bytes = 66;
+
+    SetRemoteTrackPublicationQualityResponse set_remote_track_publication_quality = 67;
+
+    // NEXT_ID: 68
   }
 }
 
@@ -137,19 +265,48 @@ message FfiEvent {
     VideoStreamEvent video_stream_event = 3;
     AudioStreamEvent audio_stream_event = 4;
     ConnectCallback connect = 5;
-    DisconnectCallback disconnect = 6;
-    DisposeCallback dispose = 7;
-    PublishTrackCallback publish_track = 8;
-    UnpublishTrackCallback unpublish_track = 9;
-    PublishDataCallback publish_data = 10;
-    PublishTranscriptionCallback publish_transcription = 11;
-    CaptureAudioFrameCallback capture_audio_frame = 12;
-    UpdateLocalMetadataCallback update_local_metadata = 13;
-    UpdateLocalNameCallback update_local_name = 14;
-    GetStatsCallback get_stats = 15;
-    LogBatch logs = 16;
-    GetSessionStatsCallback get_session_stats = 17;
-    Panic panic = 18;
+    DisconnectCallback disconnect = 7;
+    DisposeCallback dispose = 8;
+    PublishTrackCallback publish_track = 9;
+    UnpublishTrackCallback unpublish_track = 10;
+    PublishDataCallback publish_data = 11;
+    PublishTranscriptionCallback publish_transcription = 12;
+    CaptureAudioFrameCallback capture_audio_frame = 13;
+    SetLocalMetadataCallback set_local_metadata = 14;
+    SetLocalNameCallback set_local_name = 15;
+    SetLocalAttributesCallback set_local_attributes = 16;
+    GetStatsCallback get_stats = 17;
+    LogBatch logs = 18;
+    GetSessionStatsCallback get_session_stats = 19;
+    Panic panic = 20;
+    PublishSipDtmfCallback publish_sip_dtmf = 21;
+    SendChatMessageCallback chat_message = 22;
+    PerformRpcCallback perform_rpc = 23;
+    RpcMethodInvocationEvent rpc_method_invocation = 24;
+
+    // Data Streams (low level)
+    SendStreamHeaderCallback send_stream_header = 25;
+    SendStreamChunkCallback send_stream_chunk = 26;
+    SendStreamTrailerCallback send_stream_trailer = 27;
+
+    // Data Streams (high level)
+    ByteStreamReaderEvent byte_stream_reader_event = 28;
+    ByteStreamReaderReadAllCallback byte_stream_reader_read_all = 29;
+    ByteStreamReaderWriteToFileCallback byte_stream_reader_write_to_file = 30;
+
+    ByteStreamOpenCallback byte_stream_open = 31;
+    ByteStreamWriterWriteCallback byte_stream_writer_write = 32;
+    ByteStreamWriterCloseCallback byte_stream_writer_close = 33;
+    StreamSendFileCallback send_file = 34;
+
+    TextStreamReaderEvent text_stream_reader_event = 35;
+    TextStreamReaderReadAllCallback text_stream_reader_read_all = 36;
+
+    TextStreamOpenCallback text_stream_open = 37;
+    TextStreamWriterWriteCallback text_stream_writer_write = 38;
+    TextStreamWriterCloseCallback text_stream_writer_close = 39;
+    StreamSendTextCallback send_text = 40;
+    StreamSendBytesCallback send_bytes = 41;
   }
 }
 
@@ -157,14 +314,14 @@ message FfiEvent {
 // e.g: This is used for the Unity Editor after each assemblies reload.
 // TODO(theomonnom): Implement a debug mode where we can find all leaked handles?
 message DisposeRequest {
-  bool async = 1;
+  required bool async = 1;
 }
 message DisposeResponse {
   optional uint64 async_id = 1; // None if sync
 }
 
 message DisposeCallback {
-  uint64 async_id = 1;
+  required uint64 async_id = 1;
 }
 
 enum LogLevel {
@@ -176,12 +333,12 @@ enum LogLevel {
 }
 
 message LogRecord {
-  LogLevel level = 1;
-  string target = 2; // e.g "livekit", "libwebrtc", "tokio-tungstenite", etc...
+  required LogLevel level = 1;
+  required string target = 2; // e.g "livekit", "libwebrtc", "tokio-tungstenite", etc...
   optional string module_path = 3;
   optional string file = 4;
   optional uint32 line = 5;
-  string message = 6;
+  required string message = 6;
 }
 
 message LogBatch {
@@ -189,7 +346,7 @@ message LogBatch {
 }
 
 message Panic {
-  string message = 1;
+  required string message = 1;
 }
 
 // TODO(theomonnom): Debug messages (Print handles).

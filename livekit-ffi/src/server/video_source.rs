@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -36,9 +36,7 @@ impl FfiVideoSource {
             proto::VideoSourceType::VideoSourceNative => {
                 use livekit::webrtc::video_source::native::NativeVideoSource;
 
-                let video_source = NativeVideoSource::new(
-                    new_source.resolution.map(Into::into).unwrap_or_default(),
-                );
+                let video_source = NativeVideoSource::new(new_source.resolution.into());
                 RtcVideoSource::Native(video_source)
             }
             _ => return Err(FfiError::InvalidRequest("unsupported video source type".into())),
@@ -50,8 +48,8 @@ impl FfiVideoSource {
         server.store_handle(handle_id, video_source);
 
         Ok(proto::OwnedVideoSource {
-            handle: Some(proto::FfiOwnedHandle { id: handle_id }),
-            info: Some(source_info),
+            handle: proto::FfiOwnedHandle { id: handle_id },
+            info: source_info,
         })
     }
 
@@ -63,12 +61,7 @@ impl FfiVideoSource {
         match self.source {
             #[cfg(not(target_arch = "wasm32"))]
             RtcVideoSource::Native(ref source) => {
-                let buffer = capture
-                    .buffer
-                    .as_ref()
-                    .ok_or(FfiError::InvalidRequest("frame is empty".into()))?;
-
-                let buffer = colorcvt::to_libwebrtc_buffer(buffer.clone());
+                let buffer = colorcvt::to_libwebrtc_buffer(capture.buffer.clone());
                 let frame = VideoFrame {
                     rotation: capture.rotation().into(),
                     timestamp_us: capture.timestamp_us,

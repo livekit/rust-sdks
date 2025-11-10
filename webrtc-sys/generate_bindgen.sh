@@ -1,4 +1,4 @@
-bindgen libwebrtc/src/livekit_rtc/livekit/capi.h \
+bindgen libwebrtc/src/livekit_rtc/capi.h \
     --output src/sys/ffi.rs \
     --allowlist-type "lk.*" \
     --allowlist-function "lk.*" \

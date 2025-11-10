@@ -1,4 +1,4 @@
-// Copyright 2024 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -13,11 +13,14 @@
 // limitations under the License.
 
 use livekit_protocol as proto;
+use std::collections::HashMap;
+use std::time::Duration;
 
-use crate::access_token::VideoGrants;
+use crate::access_token::SIPGrants;
 use crate::get_env_keys;
 use crate::services::twirp_client::TwirpClient;
 use crate::services::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
+use pbjson_types::Duration as ProtoDuration;
 
 const SVC: &str = "SIP";
 
@@ -27,9 +30,12 @@ pub struct SIPClient {
     client: TwirpClient,
 }
 
+#[deprecated]
 #[derive(Default, Clone, Debug)]
 pub struct CreateSIPTrunkOptions {
+    /// Human-readable name for the Trunk.
     pub name: String,
+    /// Optional free-form metadata.
     pub metadata: String,
     /// CIDR or IPs that traffic is accepted from
     /// An empty list means all inbound traffic is accepted.
@@ -51,8 +57,55 @@ pub struct CreateSIPTrunkOptions {
     pub outbound_password: String,
 }
 
+#[derive(Default, Clone, Debug)]
+pub struct CreateSIPInboundTrunkOptions {
+    /// Optional free-form metadata.
+    pub metadata: Option<String>,
+    /// CIDR or IPs that traffic is accepted from
+    /// An empty list means all inbound traffic is accepted.
+    pub allowed_addresses: Option<Vec<String>>,
+    /// Accepted `To` values. This Trunk will only accept a call made to
+    /// these numbers. This allows you to have distinct Trunks for different phone
+    /// numbers at the same provider.
+    pub allowed_numbers: Option<Vec<String>>,
+    /// Username and password used to authenticate inbound SIP invites
+    /// May be empty to have no Authentication
+    pub auth_username: Option<String>,
+    pub auth_password: Option<String>,
+    pub headers: Option<HashMap<String, String>>,
+    pub headers_to_attributes: Option<HashMap<String, String>>,
+    pub attributes_to_headers: Option<HashMap<String, String>>,
+    pub max_call_duration: Option<Duration>,
+    pub ringing_timeout: Option<Duration>,
+    pub krisp_enabled: Option<bool>,
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct CreateSIPOutboundTrunkOptions {
+    pub transport: proto::SipTransport,
+    /// Optional free-form metadata.
+    pub metadata: String,
+    /// Username and password used to authenticate outbound SIP invites
+    /// May be empty to have no Authentication
+    pub auth_username: String,
+    pub auth_password: String,
+
+    pub headers: Option<HashMap<String, String>>,
+    pub headers_to_attributes: Option<HashMap<String, String>>,
+    pub attributes_to_headers: Option<HashMap<String, String>>,
+}
+
+#[deprecated]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ListSIPTrunkFilter {
+    All,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListSIPInboundTrunkFilter {
+    All,
+}
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ListSIPOutboundTrunkFilter {
     All,
 }
 
@@ -60,10 +113,11 @@ pub enum ListSIPTrunkFilter {
 pub struct CreateSIPDispatchRuleOptions {
     pub name: String,
     pub metadata: String,
+    pub attributes: HashMap<String, String>,
     /// What trunks are accepted for this dispatch rule
     /// If empty all trunks will match this dispatch rule
     pub trunk_ids: Vec<String>,
-    pub inbound_numbers: Vec<String>,
+    pub allowed_numbers: Vec<String>,
     pub hide_phone_number: bool,
 }
 
@@ -77,14 +131,21 @@ pub struct CreateSIPParticipantOptions {
     /// Optional identity of the participant in LiveKit room
     pub participant_identity: String,
     /// Optionally set the name of the participant in a LiveKit room
-    pub participant_name: String,
-    /// Optionally send metadata to the participant in LiveKit room
-    pub participant_metadata: String,
+    pub participant_name: Option<String>,
+    /// Optionally set the free-form metadata of the participant in a LiveKit room
+    pub participant_metadata: Option<String>,
+    pub participant_attributes: Option<HashMap<String, String>>,
+    // What number should be dialed via SIP
+    pub sip_number: Option<String>,
     /// Optionally send following DTMF digits (extension codes) when making a call.
     /// Character 'w' can be used to add a 0.5 sec delay.
-    pub dtmf: String,
-    /// Optionally play ringtone in the room as an audible indicator for existing participants
-    pub play_ringtone: bool,
+    pub dtmf: Option<String>,
+    /// Optionally play dialtone in the room as an audible indicator for existing participants
+    pub play_dialtone: Option<bool>,
+    pub hide_phone_number: Option<bool>,
+    pub ringing_timeout: Option<Duration>,
+    pub max_call_duration: Option<Duration>,
+    pub enable_krisp: Option<bool>,
 }
 
 impl SIPClient {
@@ -100,35 +161,94 @@ impl SIPClient {
         Ok(Self::with_api_key(host, &api_key, &api_secret))
     }
 
-    pub async fn create_sip_trunk(
+    fn duration_to_proto(d: Option<Duration>) -> Option<ProtoDuration> {
+        d.map(|d| ProtoDuration { seconds: d.as_secs() as i64, nanos: d.subsec_nanos() as i32 })
+    }
+
+    pub async fn create_sip_inbound_trunk(
         &self,
-        number: String,
-        options: CreateSIPTrunkOptions,
-    ) -> ServiceResult<proto::SipTrunkInfo> {
+        name: String,
+        numbers: Vec<String>,
+        options: CreateSIPInboundTrunkOptions,
+    ) -> ServiceResult<proto::SipInboundTrunkInfo> {
         self.client
             .request(
                 SVC,
-                "CreateSIPTrunk",
-                proto::CreateSipTrunkRequest {
-                    name: options.name,
-                    metadata: options.metadata,
-                    outbound_number: number,
-                    outbound_address: options.outbound_address,
-                    outbound_username: options.outbound_username,
-                    outbound_password: options.outbound_password,
+                "CreateSIPInboundTrunk",
+                proto::CreateSipInboundTrunkRequest {
+                    trunk: Some(proto::SipInboundTrunkInfo {
+                        sip_trunk_id: Default::default(),
+                        name,
+                        numbers,
+                        metadata: options.metadata.unwrap_or_default(),
+                        allowed_numbers: options.allowed_numbers.unwrap_or_default(),
+                        allowed_addresses: options.allowed_addresses.unwrap_or_default(),
+                        auth_username: options.auth_username.unwrap_or_default(),
+                        auth_password: options.auth_password.unwrap_or_default(),
+                        headers: options.headers.unwrap_or_default(),
+                        headers_to_attributes: options.headers_to_attributes.unwrap_or_default(),
+                        attributes_to_headers: options.attributes_to_headers.unwrap_or_default(),
+                        krisp_enabled: options.krisp_enabled.unwrap_or(false),
+                        max_call_duration: Self::duration_to_proto(options.max_call_duration),
+                        ringing_timeout: Self::duration_to_proto(options.ringing_timeout),
 
-                    inbound_numbers: options.inbound_numbers,
-                    inbound_numbers_regex: Vec::new(),
-                    inbound_addresses: options.inbound_addresses,
-                    inbound_username: options.inbound_username,
-                    inbound_password: options.inbound_password,
+                        // TODO: support these attributes
+                        include_headers: Default::default(),
+                        media_encryption: Default::default(),
+                    }),
                 },
-                self.base.auth_header(VideoGrants { ..Default::default() })?,
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
             )
             .await
             .map_err(Into::into)
     }
 
+    pub async fn create_sip_outbound_trunk(
+        &self,
+        name: String,
+        address: String,
+        numbers: Vec<String>,
+        options: CreateSIPOutboundTrunkOptions,
+    ) -> ServiceResult<proto::SipOutboundTrunkInfo> {
+        self.client
+            .request(
+                SVC,
+                "CreateSIPOutboundTrunk",
+                proto::CreateSipOutboundTrunkRequest {
+                    trunk: Some(proto::SipOutboundTrunkInfo {
+                        sip_trunk_id: Default::default(),
+                        name,
+                        address,
+                        numbers,
+                        transport: options.transport as i32,
+                        metadata: options.metadata,
+
+                        auth_username: options.auth_username.to_owned(),
+                        auth_password: options.auth_password.to_owned(),
+
+                        headers: options.headers.unwrap_or_default(),
+                        headers_to_attributes: options.headers_to_attributes.unwrap_or_default(),
+                        attributes_to_headers: options.attributes_to_headers.unwrap_or_default(),
+
+                        // TODO: support these attributes
+                        include_headers: Default::default(),
+                        media_encryption: Default::default(),
+                        destination_country: Default::default(),
+                    }),
+                },
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
+            )
+            .await
+            .map_err(Into::into)
+    }
+
+    #[deprecated]
     pub async fn list_sip_trunk(
         &self,
         filter: ListSIPTrunkFilter,
@@ -138,8 +258,64 @@ impl SIPClient {
             .request(
                 SVC,
                 "ListSIPTrunk",
-                proto::ListSipTrunkRequest {},
-                self.base.auth_header(VideoGrants { ..Default::default() })?,
+                proto::ListSipTrunkRequest {
+                    // TODO support these attributes
+                    page: Default::default(),
+                },
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
+            )
+            .await?;
+
+        Ok(resp.items)
+    }
+
+    pub async fn list_sip_inbound_trunk(
+        &self,
+        filter: ListSIPInboundTrunkFilter,
+    ) -> ServiceResult<Vec<proto::SipInboundTrunkInfo>> {
+        let resp: proto::ListSipInboundTrunkResponse = self
+            .client
+            .request(
+                SVC,
+                "ListSIPInboundTrunk",
+                proto::ListSipInboundTrunkRequest {
+                    // TODO: support these attributes
+                    page: Default::default(),
+                    trunk_ids: Default::default(),
+                    numbers: Default::default(),
+                },
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
+            )
+            .await?;
+
+        Ok(resp.items)
+    }
+
+    pub async fn list_sip_outbound_trunk(
+        &self,
+        filter: ListSIPOutboundTrunkFilter,
+    ) -> ServiceResult<Vec<proto::SipOutboundTrunkInfo>> {
+        let resp: proto::ListSipOutboundTrunkResponse = self
+            .client
+            .request(
+                SVC,
+                "ListSIPOutboundTrunk",
+                proto::ListSipOutboundTrunkRequest {
+                    // TODO: support these attributes
+                    page: Default::default(),
+                    trunk_ids: Default::default(),
+                    numbers: Default::default(),
+                },
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
             )
             .await?;
 
@@ -152,7 +328,10 @@ impl SIPClient {
                 SVC,
                 "DeleteSIPTrunk",
                 proto::DeleteSipTrunkRequest { sip_trunk_id: sip_trunk_id.to_owned() },
-                self.base.auth_header(VideoGrants { ..Default::default() })?,
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
             )
             .await
             .map_err(Into::into)
@@ -170,12 +349,18 @@ impl SIPClient {
                 proto::CreateSipDispatchRuleRequest {
                     name: options.name,
                     metadata: options.metadata,
-                    trunk_ids: options.trunk_ids,
-                    inbound_numbers: options.inbound_numbers,
+                    attributes: options.attributes,
+                    trunk_ids: options.trunk_ids.to_owned(),
+                    inbound_numbers: options.allowed_numbers.to_owned(),
                     hide_phone_number: options.hide_phone_number,
                     rule: Some(proto::SipDispatchRule { rule: Some(rule.to_owned()) }),
+
+                    ..Default::default()
                 },
-                self.base.auth_header(VideoGrants { ..Default::default() })?,
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
             )
             .await
             .map_err(Into::into)
@@ -190,8 +375,16 @@ impl SIPClient {
             .request(
                 SVC,
                 "ListSIPDispatchRule",
-                proto::ListSipDispatchRuleRequest {},
-                self.base.auth_header(VideoGrants { ..Default::default() })?,
+                proto::ListSipDispatchRuleRequest {
+                    // TODO: support these attributes
+                    page: Default::default(),
+                    dispatch_rule_ids: Default::default(),
+                    trunk_ids: Default::default(),
+                },
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
             )
             .await?;
 
@@ -209,7 +402,10 @@ impl SIPClient {
                 proto::DeleteSipDispatchRuleRequest {
                     sip_dispatch_rule_id: sip_dispatch_rule_id.to_owned(),
                 },
-                self.base.auth_header(VideoGrants { ..Default::default() })?,
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { admin: true, ..Default::default() }),
+                )?,
             )
             .await
             .map_err(Into::into)
@@ -227,16 +423,40 @@ impl SIPClient {
                 SVC,
                 "CreateSIPParticipant",
                 proto::CreateSipParticipantRequest {
-                    sip_trunk_id,
-                    sip_call_to: call_to,
-                    room_name,
-                    participant_identity: options.participant_identity,
-                    participant_metadata: options.participant_metadata,
-                    participant_name: options.participant_name,
-                    dtmf: options.dtmf,
-                    play_ringtone: options.play_ringtone,
+                    sip_trunk_id: sip_trunk_id.to_owned(),
+                    sip_call_to: call_to.to_owned(),
+                    sip_number: options.sip_number.to_owned().unwrap_or_default(),
+                    room_name: room_name.to_owned(),
+                    participant_identity: options.participant_identity.to_owned(),
+                    participant_name: options.participant_name.to_owned().unwrap_or_default(),
+                    participant_metadata: options
+                        .participant_metadata
+                        .to_owned()
+                        .unwrap_or_default(),
+                    participant_attributes: options
+                        .participant_attributes
+                        .to_owned()
+                        .unwrap_or_default(),
+                    dtmf: options.dtmf.to_owned().unwrap_or_default(),
+                    play_ringtone: options.play_dialtone.unwrap_or(false),
+                    play_dialtone: options.play_dialtone.unwrap_or(false),
+                    hide_phone_number: options.hide_phone_number.unwrap_or(false),
+                    max_call_duration: Self::duration_to_proto(options.max_call_duration),
+                    ringing_timeout: Self::duration_to_proto(options.ringing_timeout),
+
+                    // TODO: rename local proto as well
+                    krisp_enabled: options.enable_krisp.unwrap_or(false),
+
+                    // TODO: support these attributes
+                    headers: Default::default(),
+                    include_headers: Default::default(),
+                    media_encryption: Default::default(),
+                    ..Default::default()
                 },
-                self.base.auth_header(VideoGrants { ..Default::default() })?,
+                self.base.auth_header(
+                    Default::default(),
+                    Some(SIPGrants { call: true, ..Default::default() }),
+                )?,
             )
             .await
             .map_err(Into::into)

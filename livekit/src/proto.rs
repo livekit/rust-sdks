@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,7 +14,9 @@
 
 use livekit_protocol::*;
 
-use crate::{e2ee::EncryptionType, participant, track, DataPacketKind};
+use crate::{
+    e2ee::EncryptionType, participant, room::ChatMessage as RoomChatMessage, track, DataPacketKind,
+};
 
 // Conversions
 impl From<ConnectionQuality> for participant::ConnectionQuality {
@@ -24,6 +26,29 @@ impl From<ConnectionQuality> for participant::ConnectionQuality {
             ConnectionQuality::Good => Self::Good,
             ConnectionQuality::Poor => Self::Poor,
             ConnectionQuality::Lost => Self::Lost,
+        }
+    }
+}
+
+impl From<DisconnectReason> for participant::DisconnectReason {
+    fn from(value: DisconnectReason) -> Self {
+        match value {
+            DisconnectReason::UnknownReason => Self::UnknownReason,
+            DisconnectReason::ClientInitiated => Self::ClientInitiated,
+            DisconnectReason::DuplicateIdentity => Self::DuplicateIdentity,
+            DisconnectReason::ServerShutdown => Self::ServerShutdown,
+            DisconnectReason::ParticipantRemoved => Self::ParticipantRemoved,
+            DisconnectReason::RoomDeleted => Self::RoomDeleted,
+            DisconnectReason::StateMismatch => Self::StateMismatch,
+            DisconnectReason::JoinFailure => Self::JoinFailure,
+            DisconnectReason::Migration => Self::Migration,
+            DisconnectReason::SignalClose => Self::SignalClose,
+            DisconnectReason::RoomClosed => Self::RoomClosed,
+            DisconnectReason::UserUnavailable => Self::UserUnavailable,
+            DisconnectReason::UserRejected => Self::UserRejected,
+            DisconnectReason::SipTrunkFailure => Self::SipTrunkFailure,
+            DisconnectReason::ConnectionTimeout => Self::ConnectionTimeout,
+            DisconnectReason::MediaFailure => Self::MediaFailure,
         }
     }
 }
@@ -107,6 +132,79 @@ impl From<EncryptionType> for encryption::Type {
             EncryptionType::None => Self::None,
             EncryptionType::Gcm => Self::Gcm,
             EncryptionType::Custom => Self::Custom,
+        }
+    }
+}
+
+impl From<EncryptionType> for i32 {
+    fn from(value: EncryptionType) -> Self {
+        match value {
+            EncryptionType::None => 0,
+            EncryptionType::Gcm => 1,
+            EncryptionType::Custom => 2,
+        }
+    }
+}
+
+impl From<participant_info::Kind> for participant::ParticipantKind {
+    fn from(value: participant_info::Kind) -> Self {
+        match value {
+            participant_info::Kind::Standard => participant::ParticipantKind::Standard,
+            participant_info::Kind::Ingress => participant::ParticipantKind::Ingress,
+            participant_info::Kind::Egress => participant::ParticipantKind::Egress,
+            participant_info::Kind::Sip => participant::ParticipantKind::Sip,
+            participant_info::Kind::Agent => participant::ParticipantKind::Agent,
+        }
+    }
+}
+
+impl From<ChatMessage> for RoomChatMessage {
+    fn from(proto_msg: ChatMessage) -> Self {
+        RoomChatMessage {
+            id: proto_msg.id,
+            message: proto_msg.message,
+            timestamp: proto_msg.timestamp,
+            edit_timestamp: proto_msg.edit_timestamp,
+            deleted: proto_msg.deleted.into(),
+            generated: proto_msg.generated.into(),
+        }
+    }
+}
+
+impl From<RoomChatMessage> for ChatMessage {
+    fn from(msg: RoomChatMessage) -> Self {
+        ChatMessage {
+            id: msg.id,
+            message: msg.message,
+            timestamp: msg.timestamp,
+            edit_timestamp: msg.edit_timestamp,
+            deleted: msg.deleted.unwrap_or(false),
+            generated: msg.generated.unwrap_or(false),
+        }
+    }
+}
+
+impl From<participant::ParticipantTrackPermission> for TrackPermission {
+    fn from(perm: participant::ParticipantTrackPermission) -> Self {
+        TrackPermission {
+            participant_identity: perm.participant_identity.to_string(),
+            participant_sid: String::new(),
+            all_tracks: perm.allow_all,
+            track_sids: perm.allowed_track_sids.iter().map(|sid| sid.to_string()).collect(),
+        }
+    }
+}
+
+impl From<TrackPermission> for participant::ParticipantTrackPermission {
+    fn from(perm: TrackPermission) -> Self {
+        participant::ParticipantTrackPermission {
+            participant_identity: perm.participant_identity.into(),
+            allow_all: perm.all_tracks,
+            allowed_track_sids: perm
+                .track_sids
+                .into_iter()
+                .map(|sid| sid.try_into().unwrap())
+                .collect(),
         }
     }
 }

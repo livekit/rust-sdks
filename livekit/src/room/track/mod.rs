@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,8 +15,8 @@
 use std::{fmt::Debug, sync::Arc};
 
 use libwebrtc::{prelude::*, stats::RtcStats};
-use livekit_protocol as proto;
 use livekit_protocol::enum_dispatch;
+use livekit_protocol::{self as proto};
 use parking_lot::{Mutex, RwLock};
 use thiserror::Error;
 
@@ -70,6 +70,14 @@ pub enum TrackSource {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TrackDimension(pub u32, pub u32);
 
+/// Video quality for simulcasted tracks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum VideoQuality {
+    Low,
+    Medium,
+    High,
+}
+
 macro_rules! track_dispatch {
     ([$($variant:ident),+]) => {
         enum_dispatch!(
@@ -79,6 +87,7 @@ macro_rules! track_dispatch {
             pub fn kind(self: &Self) -> TrackKind;
             pub fn source(self: &Self) -> TrackSource;
             pub fn stream_state(self: &Self) -> StreamState;
+            pub fn is_enabled(self: &Self) -> bool;
             pub fn enable(self: &Self) -> ();
             pub fn disable(self: &Self) -> ();
             pub fn is_muted(self: &Self) -> bool;
@@ -131,8 +140,8 @@ type UnmutedHandler = Box<dyn Fn(Track) + Send>;
 #[derive(Default)]
 struct TrackEvents {
     // These mute handlers are only called for local tracks
-    pub muted: Mutex<Option<MutedHandler>>,
-    pub unmuted: Mutex<Option<UnmutedHandler>>,
+    pub muted: Option<MutedHandler>,
+    pub unmuted: Option<UnmutedHandler>,
 }
 
 #[derive(Debug)]
@@ -144,12 +153,13 @@ struct TrackInfo {
     pub stream_state: StreamState,
     pub muted: bool,
     pub transceiver: Option<RtpTransceiver>,
+    pub audio_features: Vec<proto::AudioTrackFeature>,
 }
 
 pub(super) struct TrackInner {
     info: RwLock<TrackInfo>,
     rtc_track: MediaStreamTrack,
-    events: TrackEvents,
+    events: Mutex<TrackEvents>,
 }
 
 pub(super) fn new_inner(
@@ -167,6 +177,7 @@ pub(super) fn new_inner(
             stream_state: StreamState::Active,
             muted: false,
             transceiver: None,
+            audio_features: Vec::new(),
         }),
         rtc_track,
         events: Default::default(),
@@ -190,10 +201,10 @@ pub(super) fn set_muted(inner: &Arc<TrackInner>, track: &Track, muted: bool) {
     inner.info.write().muted = muted;
 
     if muted {
-        if let Some(on_mute) = inner.events.muted.lock().as_ref() {
+        if let Some(on_mute) = inner.events.lock().muted.as_ref() {
             on_mute(track.clone());
         }
-    } else if let Some(on_unmute) = inner.events.unmuted.lock().as_ref() {
+    } else if let Some(on_unmute) = inner.events.lock().muted.as_ref() {
         on_unmute(track.clone());
     }
 }
@@ -202,6 +213,8 @@ pub(super) fn update_info(inner: &Arc<TrackInner>, _track: &Track, new_info: pro
     let mut info = inner.info.write();
     info.kind = TrackKind::try_from(new_info.r#type()).unwrap();
     info.source = TrackSource::from(new_info.source());
-    info.name = new_info.name;
-    info.sid = new_info.sid.try_into().unwrap();
+    info.name = new_info.name.clone();
+    info.sid = new_info.sid.clone().try_into().unwrap();
+    info.audio_features =
+        new_info.audio_features().into_iter().map(|item| item.try_into().unwrap()).collect();
 }

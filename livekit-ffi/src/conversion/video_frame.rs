@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -90,6 +90,7 @@ impl From<proto::VideoCodec> for VideoCodec {
             proto::VideoCodec::H264 => Self::H264,
             proto::VideoCodec::Av1 => Self::AV1,
             proto::VideoCodec::Vp9 => Self::VP9,
+            proto::VideoCodec::H265 => Self::H265,
         }
     }
 }

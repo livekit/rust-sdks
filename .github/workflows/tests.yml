@@ -31,32 +31,81 @@ jobs:
       matrix:
         include:
           # Platform supports is limited for tests (no aarch64)
-          - os: windows-2019
+          - os: windows-latest
             target: x86_64-pc-windows-msvc
-          - os: macos-11
+          - os: macos-latest
             target: x86_64-apple-darwin
-          - os: ubuntu-20.04
+            e2e-testing: true
+          - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            e2e-testing: true
 
     name: Test (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Install Rust toolchain
-        run: |
-          rustup update --no-self-update stable
-          rustup target add ${{ matrix.target }}
-
-      - name: Install linux dependencies
-        if: ${{ matrix.os == 'ubuntu-20.04' }}
-        run: |
-          sudo apt update -y
-          sudo apt install -y libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
-
       - uses: actions/checkout@v3
         with:
           submodules: true
 
-      - name: Test
-        run: cargo test --release --verbose --target ${{ matrix.target }} -- --nocapture
+      - name: Install Rust toolchain
+        run: |
+          rustup update --no-self-update nightly
+          rustup target add ${{ matrix.target }} --toolchain nightly
 
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
+        with:
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Cache Cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache Cargo build
+        uses: actions/cache@v3
+        with:
+          path: target/
+          key: ${{ runner.os }}-cargo-build-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-${{ matrix.target }}-
+            ${{ runner.os }}-cargo-build-
+
+      - name: Install linux dependencies
+        if: ${{ matrix.os == 'ubuntu-latest' }}
+        run: |
+          sudo apt update -y
+          # libasound2-dev is needed for local_audio example
+          sudo apt install -y libasound2-dev libssl-dev libx11-dev libgl1-mesa-dev libxext-dev libva-dev libdrm-dev libnvidia-decode-570 libnvidia-compute-570 nvidia-cuda-dev
+
+      - name: Install LiveKit server
+        if: ${{ matrix.e2e-testing }}
+        run: |
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            curl -sSL https://get.livekit.io | bash
+          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            brew install livekit
+          fi
+
+      - name: Run LiveKit server
+        if: ${{ matrix.e2e-testing }}
+        run: livekit-server --dev &
+
+      - name: Test (no E2E)
+        if: ${{ !matrix.e2e-testing }}
+        env:
+          RUST_LOG: info
+        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} -- --nocapture
+
+      - name: Test (with E2E)
+        if: ${{ matrix.e2e-testing }}
+        env:
+          RUST_LOG: info
+        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} --features __lk-e2e-test -- --nocapture

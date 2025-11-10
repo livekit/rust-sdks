@@ -1,18 +1,21 @@
 [package]
 name = "livekit-protocol"
-version = "0.3.2"
+version = "0.5.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "Livekit protocol and utilities for the Rust SDK"
 repository = "https://github.com/livekit/rust-sdks"
 
 [dependencies]
-livekit-runtime = { path = "../livekit-runtime", version = "0.3.0" }
-tokio = { version = "1", default-features = false, features = [ "sync", "macros" ] }
+livekit-runtime = { workspace = true }
+tokio = { version = "1", default-features = false, features = [
+    "sync",
+    "macros",
+    "rt",
+] }
 futures-util = { version = "0.3", features = ["sink"] }
 parking_lot = "0.12"
 prost = "0.12"
-prost-types = "0.12"
 
 serde = "1.0"
 pbjson = "0.6"

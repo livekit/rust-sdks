@@ -1,3 +1,17 @@
+// Copyright 2025 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
@@ -88,9 +102,12 @@ async fn log_forward_task(mut rx: mpsc::UnboundedReceiver<LogMsg>) {
         // It is safe to use FFI_SERVER here, if we receive logs when capture_logs is enabled,
         // it means the server has already been initialized
 
-        let _ = FFI_SERVER.send_event(proto::ffi_event::Message::Logs(proto::LogBatch {
+        let _ = FFI_SERVER.send_event(
+            proto::LogBatch {
             records: batch.clone(), // Avoid clone here?
-        }));
+        }
+            .into(),
+        );
         batch.clear();
     }
 

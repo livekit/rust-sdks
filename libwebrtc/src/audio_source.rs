@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -63,8 +63,20 @@ pub mod native {
             options: AudioSourceOptions,
             sample_rate: u32,
             num_channels: u32,
+            queue_size_ms: u32,
         ) -> NativeAudioSource {
-            Self { handle: imp_as::NativeAudioSource::new(options, sample_rate, num_channels) }
+            Self {
+                handle: imp_as::NativeAudioSource::new(
+                    options,
+                    sample_rate,
+                    num_channels,
+                    queue_size_ms,
+                ),
+            }
+        }
+
+        pub fn clear_buffer(&self) {
+            self.handle.clear_buffer()
         }
 
         pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {

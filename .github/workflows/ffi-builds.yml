@@ -17,11 +17,17 @@ on:
   push:
     branches: ["main"]
     tags:
-      - "ffi-v*"
+      - "rust-sdks/livekit-ffi@*"
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      tag:
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
+  TAG_NAME: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   build:
@@ -29,68 +35,73 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-2019
+          - os: windows-latest
             platform: windows
             dylib: livekit_ffi.dll
             target: x86_64-pc-windows-msvc
             name: ffi-windows-x86_64
-          - os: windows-2019
+          - os: windows-latest
             platform: windows
             dylib: livekit_ffi.dll
             buildargs: --no-default-features --features "native-tls" # ring 0.16 is incompatible with win aarch64
             target: aarch64-pc-windows-msvc
             name: ffi-windows-arm64
-          - os: macos-11
+          - os: macos-latest
             platform: macos
             dylib: liblivekit_ffi.dylib
             target: x86_64-apple-darwin
             macosx_deployment_target: "10.15"
             name: ffi-macos-x86_64
-          - os: macos-11
+          - os: macos-latest
             platform: macos
             dylib: liblivekit_ffi.dylib
             target: aarch64-apple-darwin
             macosx_deployment_target: "11.0" # aarch64 requires 11
             name: ffi-macos-arm64
-          - os: macos-11
+          - os: macos-latest
             platform: ios
-            dylib: liblivekit_ffi.dylib
+            dylib: liblivekit_ffi.a
             target: aarch64-apple-ios
             iphoneos_deployment_target: "13.0"
             name: ffi-ios-arm64
-          - os: macos-11
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
+          - os: macos-latest
             platform: ios
-            dylib: liblivekit_ffi.dylib
+            dylib: liblivekit_ffi.a
             target: aarch64-apple-ios-sim
             iphoneos_deployment_target: "13.0"
             name: ffi-ios-sim-arm64
-          - os: ubuntu-20.04
+            buildargs: --no-default-features --features "rustls-tls-webpki-roots"
+          - os: ubuntu-latest
             platform: linux
-            build_image: quay.io/pypa/manylinux_2_28_x86_64
+            build_image: sameli/manylinux_2_28_x86_64_cuda_12.3
             dylib: liblivekit_ffi.so
             target: x86_64-unknown-linux-gnu
             name: ffi-linux-x86_64
-          - os: buildjet-4vcpu-ubuntu-2204-arm
+          - os: ubuntu-24.04-arm
             platform: linux
             build_image: quay.io/pypa/manylinux_2_28_aarch64
             dylib: liblivekit_ffi.so
             target: aarch64-unknown-linux-gnu
             name: ffi-linux-arm64
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             platform: android
             dylib: liblivekit_ffi.so
+            jar: libwebrtc.jar
             target: aarch64-linux-android
             name: ffi-android-arm64
             buildargs: --no-default-features --features "rustls-tls-webpki-roots"
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             platform: android
             dylib: liblivekit_ffi.so
+            jar: libwebrtc.jar
             target: armv7-linux-androideabi
             name: ffi-android-armv7
             buildargs: --no-default-features --features "rustls-tls-webpki-roots"
-          - os: ubuntu-20.04
+          - os: ubuntu-latest
             platform: android
             dylib: liblivekit_ffi.so
+            jar: libwebrtc.jar
             target: x86_64-linux-android
             name: ffi-android-x86_64
             buildargs: --no-default-features --features "rustls-tls-webpki-roots"
@@ -102,10 +113,15 @@ jobs:
         with:
           submodules: true
 
-      - uses: actions-rs/toolchain@v1
+      - name: Install Rust toolchain.
+        run: |
+          rustup target add ${{ matrix.target }}
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v2
         with:
-          toolchain: stable
-          target: ${{ matrix.target }}
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up QEMU
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
@@ -122,7 +138,8 @@ jobs:
         # TODO(theomonnom): Seems like this is causing issues with the linker (let’s ignore for now)
         #env:
         #  IPHONEOS_DEPLOYMENT_TARGET: ${{ matrix.iphoneos_deployment_target }}
-        run: cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
+        # run: cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
+        run: cd livekit-ffi && cargo rustc --crate-type staticlib --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
       - name: Build (Windows)
         if: ${{ matrix.platform == 'windows' }}
@@ -137,9 +154,10 @@ jobs:
             export PATH=/root/.cargo/bin:\$PATH; \
             yum install llvm llvm-libs -y; \
             yum install clang -y; \
+            yum install protobuf-compiler -y; \
             yum groupinstall 'Development Tools' -y; \
             clang --version; \
-            yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel -y; \
+            yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel -y; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
             cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}"
 
@@ -151,7 +169,7 @@ jobs:
         run: |
           cd livekit-ffi/
           cargo install cargo-ndk
-          cargo ndk --bindgen --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
+          cargo ndk --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
 
       - name: Copy/Build licenses
         run: |
@@ -165,25 +183,31 @@ jobs:
 
       # zip the files
       - name: Zip artifact (Unix)
-        if: ${{ matrix.os != 'windows-2019' }}
+        if: ${{ matrix.os != 'windows-latest' && matrix.platform != 'android'}}
         run: |
-          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/ 
+          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
           cd target/${{ matrix.target }}/release/
           zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} livekit_ffi.h LICENSE.md
 
+      - name: Zip artifact (Unix for Android)
+        if: ${{ matrix.os != 'windows-latest' && matrix.platform == 'android'}}
+        run: |
+          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
+          cd target/${{ matrix.target }}/release/
+          zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} ${{ matrix.jar }} livekit_ffi.h LICENSE.md
+
       - name: Zip artifact (Windows)
-        if: ${{ matrix.os == 'windows-2019' }}
+        if: ${{ matrix.os == 'windows-latest' }}
         run: |
           cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
           cd target/${{ matrix.target }}/release/
           Get-ChildItem -Path ${{ matrix.dylib }}, livekit_ffi.h, LICENSE.md | Compress-Archive -DestinationPath ${{ github.workspace }}\${{ matrix.name }}.zip
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
-          name: ffi-builds
+          name: ffi-builds-${{ matrix.target }}
           path: ${{ matrix.name }}.zip
-
 
   release:
     name: Release to GH (Draft)
@@ -191,19 +215,20 @@ jobs:
     needs: build
     permissions:
       contents: write
-    if: startsWith(github.ref, 'refs/tags/ffi-v')
+    if: startsWith(inputs.tag || github.ref_name, 'rust-sdks/livekit-ffi@')
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v3
 
       - name: Download artifacts
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
-          name: ffi-builds
+          pattern: ffi-builds-*
+          merge-multiple: true
           path: ${{ github.workspace }}/ffi-builds
 
       - name: Create draft release
         run: |
-          gh release create ${{ github.ref_name }} --draft --title "${{ github.ref_name }}"
-          gh release upload ${{ github.ref_name }} ${{ github.workspace }}/ffi-builds/*
+          gh release create ${{ env.TAG_NAME }} --draft --title "${{ env.TAG_NAME }}"
+          gh release upload ${{ env.TAG_NAME }} ${{ github.workspace }}/ffi-builds/*

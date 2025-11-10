@@ -1,4 +1,5 @@
 use eframe::Renderer;
+use egui::ViewportBuilder;
 use parking_lot::deadlock;
 use std::thread;
 use std::time::Duration;
@@ -35,13 +36,8 @@ fn main() {
 
     eframe::run_native(
         "LiveKit - Rust App",
-        eframe::NativeOptions {
-            follow_system_theme: true,
-            centered: true,
-            renderer: Renderer::Wgpu,
-            ..Default::default()
-        },
-        Box::new(|cc| Box::new(app::LkApp::new(cc))),
+        eframe::NativeOptions { centered: true, renderer: Renderer::Wgpu, ..Default::default() },
+        Box::new(|cc| Ok(Box::new(app::LkApp::new(cc)))),
     )
     .unwrap();
 }

@@ -2,8 +2,9 @@
 name = "webhooks"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
-livekit-api = { version = "0.3.2", path = "../../livekit-api" }
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 hyper = { version = "0.14", features = ["full"] }
 tokio = { version = "1", features = ["full"] }

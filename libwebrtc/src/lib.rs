@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -66,7 +66,7 @@ pub mod video_track;
 pub mod native {
     pub use webrtc_sys::webrtc::ffi::create_random_uuid;
 
-    pub use crate::imp::{audio_resampler, frame_cryptor, yuv_helper};
+    pub use crate::imp::{apm, audio_resampler, frame_cryptor, yuv_helper};
 }
 
 #[cfg(target_os = "android")]

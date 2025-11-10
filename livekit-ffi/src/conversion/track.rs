@@ -1,4 +1,4 @@
-// Copyright 2023 LiveKit, Inc.
+// Copyright 2025 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit::prelude::*;
+use livekit::{participant::ParticipantTrackPermission, prelude::*};
 
 use crate::{
     proto,
@@ -34,6 +34,11 @@ impl From<&FfiPublication> for proto::TrackPublicationInfo {
             muted: publication.is_muted(),
             remote: publication.is_remote(),
             encryption_type: proto::EncryptionType::from(publication.encryption_type()).into(),
+            audio_features: publication
+                .audio_features()
+                .into_iter()
+                .map(|i| proto::AudioTrackFeature::from(i).into())
+                .collect(),
         }
     }
 }
@@ -90,6 +95,66 @@ impl From<TrackSource> for proto::TrackSource {
             TrackSource::Microphone => proto::TrackSource::SourceMicrophone,
             TrackSource::Screenshare => proto::TrackSource::SourceScreenshare,
             TrackSource::ScreenshareAudio => proto::TrackSource::SourceScreenshareAudio,
+        }
+    }
+}
+
+impl From<ParticipantTrackPermission> for proto::ParticipantTrackPermission {
+    fn from(value: ParticipantTrackPermission) -> Self {
+        proto::ParticipantTrackPermission {
+            participant_identity: value.participant_identity.to_string(),
+            allow_all: Some(value.allow_all),
+            allowed_track_sids: value
+                .allowed_track_sids
+                .into_iter()
+                .map(|sid| sid.to_string())
+                .collect(),
+        }
+    }
+}
+
+impl From<proto::ParticipantTrackPermission> for ParticipantTrackPermission {
+    fn from(value: proto::ParticipantTrackPermission) -> Self {
+        Self {
+            participant_identity: value.participant_identity.into(),
+            allow_all: value.allow_all.unwrap_or(false),
+            allowed_track_sids: value
+                .allowed_track_sids
+                .into_iter()
+                .map(|sid| sid.try_into().unwrap())
+                .collect(),
+        }
+    }
+}
+
+impl From<proto::AudioTrackFeature> for AudioTrackFeature {
+    fn from(value: proto::AudioTrackFeature) -> Self {
+        match value {
+            proto::AudioTrackFeature::TfStereo => AudioTrackFeature::TfStereo,
+            proto::AudioTrackFeature::TfNoDtx => AudioTrackFeature::TfNoDtx,
+            proto::AudioTrackFeature::TfAutoGainControl => AudioTrackFeature::TfAutoGainControl,
+            proto::AudioTrackFeature::TfEchoCancellation => AudioTrackFeature::TfEchoCancellation,
+            proto::AudioTrackFeature::TfNoiseSuppression => AudioTrackFeature::TfNoiseSuppression,
+            proto::AudioTrackFeature::TfEnhancedNoiseCancellation => {
+                AudioTrackFeature::TfEnhancedNoiseCancellation
+            }
+            proto::AudioTrackFeature::TfPreconnectBuffer => AudioTrackFeature::TfPreconnectBuffer,
+        }
+    }
+}
+
+impl From<AudioTrackFeature> for proto::AudioTrackFeature {
+    fn from(value: AudioTrackFeature) -> Self {
+        match value {
+            AudioTrackFeature::TfStereo => proto::AudioTrackFeature::TfStereo,
+            AudioTrackFeature::TfNoDtx => proto::AudioTrackFeature::TfNoDtx,
+            AudioTrackFeature::TfAutoGainControl => proto::AudioTrackFeature::TfAutoGainControl,
+            AudioTrackFeature::TfEchoCancellation => proto::AudioTrackFeature::TfEchoCancellation,
+            AudioTrackFeature::TfNoiseSuppression => proto::AudioTrackFeature::TfNoiseSuppression,
+            AudioTrackFeature::TfEnhancedNoiseCancellation => {
+                proto::AudioTrackFeature::TfEnhancedNoiseCancellation
+            }
+            AudioTrackFeature::TfPreconnectBuffer => proto::AudioTrackFeature::TfPreconnectBuffer,
         }
     }
 }
