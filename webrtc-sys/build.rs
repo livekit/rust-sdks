@@ -193,6 +193,7 @@ fn main() {
 
                 builder
                     .file("src/jetson/h264_encoder_impl.cpp")
+                    .file("src/jetson/jetson_native_buffer.cpp")
                     .file("src/jetson/jetson_encoder_factory.cpp")
                     .flag("-DUSE_JETSON_VIDEO_CODEC=1");
 

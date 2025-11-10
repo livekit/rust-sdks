@@ -39,6 +39,8 @@
 #include "system_wrappers/include/metrics.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
 #include "third_party/libyuv/include/libyuv/scale.h"
+#include "api/video/encoded_image.h"
+#include "api/video_codecs/h264_profile_level_id.h"
 
 #if defined(USE_JETSON_VIDEO_CODEC)
 // Nvidia Jetson Multimedia API (L4T MMAPI)
@@ -50,6 +52,7 @@
 #include <unistd.h>
 
 #include "NvVideoEncoder.h"
+#include "jetson_native_buffer.h"
 
 namespace livekit {
 // Minimal session wrapper around NvVideoEncoder using USERPTR for CPU I420.
@@ -71,13 +74,11 @@ class JetsonV4L2Session {
     enc_.reset(NvVideoEncoder::createVideoEncoder("webrtc-jetson-enc"));
     if (!enc_) return false;
 
-    // Output plane: raw input frames (I420 planar) with USERPTR.
+    // Capture plane: encoded H264 bitstream. Pre-configure and stream now.
     if (enc_->setCapturePlaneFormat(V4L2_PIX_FMT_H264, width, height, 2 * 1024 * 1024) < 0) {
       return false;
     }
-    if (enc_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width, height) < 0) {
-      return false;
-    }
+    // Output plane format (raw input) is set later when ensuring memory type.
 
     // Rate control and profile.
     // Bitrate in bps.
@@ -120,18 +121,12 @@ class JetsonV4L2Session {
     rc_ctrl.value = V4L2_MPEG_VIDEO_BITRATE_MODE_CBR;
     enc_->setExtControls(&rc_ctrl, 1);
 
-    // Initialize planes/buffers. Use a small queue size; we run synchronously.
-    if (enc_->output_plane.setupPlane(V4L2_MEMORY_USERPTR, kNumOutputBuffers, true, false) < 0) {
-      return false;
-    }
+    // Initialize capture plane buffers and stream. Output plane will be set on first use.
     if (enc_->capture_plane.setupPlane(V4L2_MEMORY_MMAP, kNumCaptureBuffers, true, false) < 0) {
       return false;
     }
     if (enc_->subscribeEvent(V4L2_EVENT_EOS, 0) < 0) {
       // Not fatal.
-    }
-    if (enc_->output_plane.setStreamStatus(true) < 0) {
-      return false;
     }
     if (enc_->capture_plane.setStreamStatus(true) < 0) {
       return false;
@@ -152,10 +147,51 @@ class JetsonV4L2Session {
 
   void Destroy() {
     if (enc_) {
+      if (output_streaming_) {
+        enc_->output_plane.setStreamStatus(false);
+      }
       enc_->capture_plane.setStreamStatus(false);
-      enc_->output_plane.setStreamStatus(false);
       enc_.reset();
     }
+  }
+
+  bool UpdateRates(int bitrate, int framerate) {
+    if (!enc_) return false;
+    bool ok = true;
+    if (bitrate > 0) {
+      ok = ok && (enc_->setBitrate(bitrate) == 0);
+    }
+    if (framerate > 0) {
+      ok = ok && (enc_->setFrameRate(framerate, 1) == 0);
+    }
+    return ok;
+  }
+
+  bool EnsureOutputPlane(enum v4l2_memory mem_type, uint32_t pixfmt) {
+    if (!enc_) return false;
+    if (output_configured_ && output_mem_type_ == mem_type && output_pixfmt_ == pixfmt) {
+      return true;
+    }
+    // (Re)configure output plane.
+    if (output_streaming_) {
+      enc_->output_plane.setStreamStatus(false);
+      output_streaming_ = false;
+    }
+    // Setup output plane with requested memory type.
+    if (enc_->setOutputPlaneFormat(pixfmt, width_, height_) < 0) {
+      return false;
+    }
+    if (enc_->output_plane.setupPlane(mem_type, kNumOutputBuffers, true, false) < 0) {
+      return false;
+    }
+    if (enc_->output_plane.setStreamStatus(true) < 0) {
+      return false;
+    }
+    output_configured_ = true;
+    output_mem_type_ = mem_type;
+    output_pixfmt_ = pixfmt;
+    output_streaming_ = true;
+    return true;
   }
 
   bool EncodeI420(const uint8_t* y,
@@ -164,6 +200,9 @@ class JetsonV4L2Session {
                   bool force_idr,
                   std::vector<uint8_t>& out) {
     if (!enc_) return false;
+    if (!EnsureOutputPlane(V4L2_MEMORY_USERPTR, V4L2_PIX_FMT_YUV420M)) {
+      return false;
+    }
 
     // Output plane buffer for raw input.
     struct v4l2_buffer v4l2_buf {};
@@ -235,12 +274,97 @@ class JetsonV4L2Session {
     return true;
   }
 
+  bool EncodeDmabuf(bool is_nv12,
+                    int fd_y,
+                    int fd_u,
+                    int fd_v,
+                    bool force_idr,
+                    std::vector<uint8_t>& out,
+                    int y_stride,
+                    int uv_stride) {
+    if (!enc_) return false;
+    const uint32_t pixfmt = is_nv12 ? V4L2_PIX_FMT_NV12M : V4L2_PIX_FMT_YUV420M;
+    if (!EnsureOutputPlane(V4L2_MEMORY_DMABUF, pixfmt)) {
+      return false;
+    }
+
+    struct v4l2_buffer v4l2_buf {};
+    struct v4l2_plane planes[VIDEO_MAX_PLANES] {};
+    v4l2_buf.m.planes = planes;
+    v4l2_buf.length = enc_->output_plane.getNumPlanes();
+
+    if (enc_->output_plane.getEmpty(v4l2_buf, nullptr) < 0) {
+      return false;
+    }
+
+    const int y_size = y_stride * height_;
+    const int uv_h = height_ / 2;
+    const int u_size = uv_stride * uv_h;
+    const int v_size = u_size;
+
+    planes[0].bytesused = y_size;
+    planes[0].m.fd = fd_y;
+    planes[0].length = y_size;
+    planes[0].data_offset = 0;
+
+    if (is_nv12) {
+      // NV12: two planes (Y, interleaved UV)
+      planes[1].bytesused = u_size + v_size;
+      planes[1].m.fd = fd_u;  // fd_v ignored
+      planes[1].length = u_size + v_size;
+      planes[1].data_offset = 0;
+      v4l2_buf.length = 2;
+    } else {
+      // YUV420M: three planes
+      planes[1].bytesused = u_size;
+      planes[1].m.fd = fd_u;
+      planes[1].length = u_size;
+      planes[1].data_offset = 0;
+      planes[2].bytesused = v_size;
+      planes[2].m.fd = fd_v;
+      planes[2].length = v_size;
+      planes[2].data_offset = 0;
+      v4l2_buf.length = 3;
+    }
+
+    if (force_idr) {
+      v4l2_control ctrl {};
+      ctrl.id = V4L2_CID_MPEG_VIDEO_FORCE_IDR;
+      ctrl.value = 1;
+      enc_->setExtControls(&ctrl, 1);
+    }
+
+    if (enc_->output_plane.qBuffer(v4l2_buf, nullptr) < 0) {
+      return false;
+    }
+
+    struct v4l2_buffer cap_buf {};
+    struct v4l2_plane cap_planes[VIDEO_MAX_PLANES] {};
+    cap_buf.m.planes = cap_planes;
+    cap_buf.length = enc_->capture_plane.getNumPlanes();
+    if (enc_->capture_plane.dqBuffer(cap_buf, nullptr, -1) < 0) {
+      return false;
+    }
+    const uint8_t* cap_data =
+        static_cast<uint8_t*>(enc_->capture_plane.getNthBuffer(cap_buf.index)->planes[0].data);
+    size_t cap_size = cap_buf.m.planes[0].bytesused;
+    out.assign(cap_data, cap_data + cap_size);
+    if (enc_->capture_plane.qBuffer(cap_buf, nullptr) < 0) {
+      return false;
+    }
+    return true;
+  }
+
  private:
   static constexpr uint32_t kNumOutputBuffers = 4;
   static constexpr uint32_t kNumCaptureBuffers = 4;
   int width_ = 0;
   int height_ = 0;
   std::unique_ptr<NvVideoEncoder> enc_;
+  bool output_configured_ = false;
+  bool output_streaming_ = false;
+  enum v4l2_memory output_mem_type_ = V4L2_MEMORY_USERPTR;
+  uint32_t output_pixfmt_ = V4L2_PIX_FMT_YUV420M;
 };
 }  // namespace livekit
 #endif  // defined(USE_JETSON_VIDEO_CODEC)
@@ -384,16 +508,8 @@ int32_t JetsonH264EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
 
-  // For now we only accept CPU buffers (I420).
-  webrtc::scoped_refptr<I420BufferInterface> frame_buffer =
-      input_frame.video_frame_buffer()->ToI420();
-  if (!frame_buffer) {
-    RTC_LOG(LS_ERROR) << "Failed to convert "
-                      << VideoFrameBufferTypeToString(
-                             input_frame.video_frame_buffer()->type())
-                      << " image to I420. Can't encode frame.";
-    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
-  }
+  // We'll try zero-copy first, then fallback to CPU (I420) path.
+  webrtc::scoped_refptr<I420BufferInterface> frame_buffer;
 
   bool is_keyframe_needed = false;
   if (configuration_.key_frame_request && configuration_.sending) {
@@ -426,12 +542,42 @@ int32_t JetsonH264EncoderImpl::Encode(
   }
 
   std::vector<uint8_t> output;
-  bool ok = jetson_session_->EncodeI420(frame_buffer->DataY(), frame_buffer->DataU(),
-                                        frame_buffer->DataV(), send_key_frame, output);
-  if (!ok || output.empty()) {
-    RTC_LOG(LS_ERROR) << "Jetson V4L2 encode failed.";
-    ReportError();
-    return WEBRTC_VIDEO_CODEC_ERROR;
+  bool used_zero_copy = false;
+  if (input_frame.video_frame_buffer()->type() ==
+      webrtc::VideoFrameBuffer::Type::kNative) {
+    webrtc::VideoFrameBuffer* native_buf = input_frame.video_frame_buffer().get();
+    if (auto* jetson_buf = dynamic_cast<livekit::JetsonDmabufVideoFrameBuffer*>(native_buf)) {
+      if (jetson_buf->is_nv12()) {
+        used_zero_copy = jetson_session_->EncodeDmabuf(
+            /*is_nv12=*/true,
+            jetson_buf->fd_y(), jetson_buf->fd_u(), /*fd_v*/ -1, send_key_frame, output,
+            jetson_buf->stride_y(), jetson_buf->stride_u());
+      } else {
+        used_zero_copy = jetson_session_->EncodeDmabuf(
+            /*is_nv12=*/false,
+            jetson_buf->fd_y(), jetson_buf->fd_u(), jetson_buf->fd_v(), send_key_frame, output,
+            jetson_buf->stride_y(), jetson_buf->stride_u());
+      }
+    }
+  }
+
+  if (!used_zero_copy) {
+    // Fallback: CPU I420 path.
+    frame_buffer = input_frame.video_frame_buffer()->ToI420();
+    if (!frame_buffer) {
+      RTC_LOG(LS_ERROR) << "Failed to convert "
+                        << VideoFrameBufferTypeToString(
+                               input_frame.video_frame_buffer()->type())
+                        << " image to I420. Can't encode frame.";
+      return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+    }
+    bool ok = jetson_session_->EncodeI420(frame_buffer->DataY(), frame_buffer->DataU(),
+                                          frame_buffer->DataV(), send_key_frame, output);
+    if (!ok || output.empty()) {
+      RTC_LOG(LS_ERROR) << "Jetson V4L2 encode failed.";
+      ReportError();
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
   }
 
   encoded_image_.SetEncodedData(
@@ -490,8 +636,15 @@ void JetsonH264EncoderImpl::SetRates(
 
   if (configuration_.target_bps) {
     configuration_.SetStreamState(true);
-    // Note: updating runtime rate control requires MMAPI control calls;
-    // keep simple for now. Future work: adjust bitrate and framerate here.
+#if defined(USE_JETSON_VIDEO_CODEC)
+    if (jetson_session_) {
+      int target_bps = static_cast<int>(configuration_.target_bps);
+      int target_fps = static_cast<int>(configuration_.max_frame_rate);
+      if (!jetson_session_->UpdateRates(target_bps, target_fps)) {
+        RTC_LOG(LS_WARNING) << "Failed to update Jetson encoder rates";
+      }
+    }
+#endif
   } else {
     configuration_.SetStreamState(false);
   }
