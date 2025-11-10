@@ -402,7 +402,7 @@ std::unique_ptr<VideoFrameBuffer> new_dmabuf_nv12_buffer(
   // NOTE: FDs are not duplicated here; caller retains ownership and must ensure lifetime
   // until the frame is consumed. Future improvement: dup() to own FDs within buffer.
   rtc::scoped_refptr<webrtc::VideoFrameBuffer> buf =
-      new rtc::RefCountedObject<DmabufVideoFrameBuffer>(fd_y, fd_uv, width, height, stride_y, stride_uv);
+      webrtc::make_ref_counted<DmabufVideoFrameBuffer>(fd_y, fd_uv, width, height, stride_y, stride_uv);
   return std::make_unique<VideoFrameBuffer>(buf);
 }
 
