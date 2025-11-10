@@ -178,10 +178,30 @@ fn main() {
                 // Jetson encoder (V4L2 nvv4l2h264enc backend). We do not link
                 // against gstreamer or libv4l2; actual runtime probing is done
                 // in code. This enables factory registration on aarch64 Linux.
+                // Include headers from Jetson MMAPI if available.
+                // You can set JETSON_MMAPI_PATH=/usr/src/jetson_multimedia_api
+                let mmapi_root = env::var("JETSON_MMAPI_PATH")
+                    .unwrap_or_else(|_| "/usr/src/jetson_multimedia_api".to_owned());
+                let mmapi_classes = PathBuf::from(&mmapi_root).join("samples/common/classes");
+                let mmapi_include = PathBuf::from(&mmapi_root).join("include");
+                if mmapi_classes.exists() {
+                    builder.include(&mmapi_classes);
+                }
+                if mmapi_include.exists() {
+                    builder.include(&mmapi_include);
+                }
+
                 builder
                     .file("src/jetson/h264_encoder_impl.cpp")
                     .file("src/jetson/jetson_encoder_factory.cpp")
                     .flag("-DUSE_JETSON_VIDEO_CODEC=1");
+
+                // Link common Jetson MMAPI libs (best-effort).
+                println!("cargo:rustc-link-lib=v4l2");
+                println!("cargo:rustc-link-lib=nvbuf_utils");
+                // Newer L4T:
+                println!("cargo:rustc-link-lib=nvbufsurface");
+                println!("cargo:rustc-link-lib=nvbufsurftransform");
             }
 
             if x86 || arm {

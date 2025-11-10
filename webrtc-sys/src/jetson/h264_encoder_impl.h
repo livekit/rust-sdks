@@ -90,6 +90,10 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   const SdpVideoFormat format_;
   H264Profile profile_ = H264Profile::kProfileConstrainedBaseline;
   H264Level level_ = H264Level::kLevel1_b;
+#if defined(USE_JETSON_VIDEO_CODEC)
+  // Forward-declared in .cpp
+  std::unique_ptr<class JetsonV4L2Session> jetson_session_;
+#endif
 };
 
 }  // namespace webrtc
