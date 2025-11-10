@@ -26,7 +26,6 @@ pub struct CreateIngressOptions {
     pub participant_name: String,
     pub audio: proto::IngressAudioOptions,
     pub video: proto::IngressVideoOptions,
-    #[deprecated(note = "use enable_transcoding instead")]
     pub bypass_transcoding: bool,
     pub enable_transcoding: Option<bool>,
     pub url: String,
@@ -41,7 +40,6 @@ pub struct UpdateIngressOptions {
     pub participant_name: String,
     pub audio: proto::IngressAudioOptions,
     pub video: proto::IngressVideoOptions,
-    #[deprecated(note = "use enable_transcoding instead")]
     pub bypass_transcoding: Option<bool>,
     pub enable_transcoding: Option<bool>,
 }
