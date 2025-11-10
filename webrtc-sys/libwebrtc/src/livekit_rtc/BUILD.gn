@@ -33,7 +33,7 @@ config("livekit_config") {
   include_dirs = [ "." ]
 }
 
-rtc_shared_library("livekit_rtc") {
+rtc_static_library("livekit_rtc") {
   libs = []
   sources = lk_sources
   defines = [
@@ -68,12 +68,24 @@ rtc_shared_library("livekit_rtc") {
     "//third_party/libyuv",
   ]
 
-
   if (is_mac) {
-
     deps += [
       "../sdk:peerconnectionfactory_base_objc",
     ]
   }
-
 }
+
+rtc_test("livekit_rtc_unittests") {
+    testonly = true
+
+    sources = [
+      "peer.test.cc",
+    ]
+
+    deps = [
+      ":livekit_rtc",
+      "//testing/gtest",
+      "//test:test_support",
+      "//test:test_main",
+    ]
+  }
