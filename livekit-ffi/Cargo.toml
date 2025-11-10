@@ -50,4 +50,4 @@ webrtc-sys-build = { workspace = true }
 livekit-api = { workspace = true }
 
 [lib]
-crate-type = ["lib", "cdylib"]
+crate-type = ["lib", "staticlib", "cdylib"]
