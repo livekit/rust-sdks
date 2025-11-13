@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
-use livekit::options::{TrackPublishOptions, VideoCodec};
+use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
@@ -36,6 +36,10 @@ struct Args {
     /// Desired framerate
     #[arg(long, default_value_t = 30)]
     fps: u32,
+
+    /// Max video bitrate for the main layer in bps (optional)
+    #[arg(long)]
+    max_bitrate: Option<u64>,
 
     /// LiveKit participant identity
     #[arg(long, default_value = "rust-camera-pub")] 
@@ -164,11 +168,20 @@ async fn main() -> Result<()> {
     let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
     info!("Attempting publish with codec: {}", requested_codec.as_str());
 
-    let publish_opts = |codec: VideoCodec| TrackPublishOptions {
-        source: TrackSource::Camera,
-        simulcast: true,
-        video_codec: codec,
-        ..Default::default()
+    let publish_opts = |codec: VideoCodec| {
+        let mut opts = TrackPublishOptions {
+            source: TrackSource::Camera,
+            simulcast: true,
+            video_codec: codec,
+            ..Default::default()
+        };
+        if let Some(bitrate) = args.max_bitrate {
+            opts.video_encoding = Some(VideoEncoding {
+                max_bitrate: bitrate,
+                max_framerate: args.fps as f64,
+            });
+        }
+        opts
     };
 
     let publish_result = room
