@@ -39,6 +39,10 @@ struct Args {
     /// LiveKit API secret (can also be set via LIVEKIT_API_SECRET environment variable)
     #[arg(long)]
     api_secret: Option<String>,
+
+    /// Only subscribe to video from this participant identity
+    #[arg(long)]
+    participant: Option<String>,
 }
 
 struct SharedYuv {
@@ -129,132 +133,184 @@ async fn main() -> Result<()> {
     }));
 
     // Subscribe to room events: on first video track, start sink task
+    let allowed_identity = args.participant.clone();
     let shared_clone = shared.clone();
     let rt = tokio::runtime::Handle::current();
+    // Track currently active video track SID to handle unpublish/unsubscribe
+    let active_sid = Arc::new(Mutex::new(None::<TrackSid>));
     tokio::spawn(async move {
+        let active_sid = active_sid.clone();
         let mut events = room.subscribe();
         info!("Subscribed to room events");
         while let Some(evt) = events.recv().await {
             debug!("Room event: {:?}", evt);
-            if let RoomEvent::TrackSubscribed { track, publication, participant } = evt {
-                if let livekit::track::RemoteTrack::Video(video_track) = track {
-                    info!(
-                        "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}",
-                        publication.name(),
-                        publication.sid(),
-                        participant.identity(),
-                        publication.mime_type(),
-                        publication.simulcasted(),
-                        publication.dimension().0,
-                        publication.dimension().1
-                    );
-
-                    // Try to fetch inbound RTP/codec stats for more details
-                    match video_track.get_stats().await {
-                        Ok(stats) => {
-                            let mut codec_by_id: HashMap<String, (String, String)> = HashMap::new();
-                            let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> = None;
-                            for s in stats.iter() {
-                                match s {
-                                    livekit::webrtc::stats::RtcStats::Codec(c) => {
-                                        codec_by_id.insert(
-                                            c.rtc.id.clone(),
-                                            (c.codec.mime_type.clone(), c.codec.sdp_fmtp_line.clone()),
-                                        );
-                                    }
-                                    livekit::webrtc::stats::RtcStats::InboundRtp(i) => {
-                                        if i.stream.kind == "video" {
-                                            inbound = Some(i.clone());
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-
-                            if let Some(i) = inbound {
-                                if let Some((mime, fmtp)) = codec_by_id.get(&i.stream.codec_id) {
-                                    info!("Inbound codec: {} (fmtp: {})", mime, fmtp);
-                                } else {
-                                    info!("Inbound codec id: {}", i.stream.codec_id);
-                                }
-                                info!(
-                                    "Inbound current layer: {}x{} ~{:.1} fps, decoder: {}, power_efficient: {}",
-                                    i.inbound.frame_width,
-                                    i.inbound.frame_height,
-                                    i.inbound.frames_per_second,
-                                    i.inbound.decoder_implementation,
-                                    i.inbound.power_efficient_decoder
-                                );
-                            }
+            match evt {
+                RoomEvent::TrackSubscribed { track, publication, participant } => {
+                    // If a participant filter is set, skip others
+                    if let Some(ref allow) = allowed_identity {
+                        if participant.identity().as_str() != allow {
+                            debug!("Skipping track from '{}' (filter set to '{}')", participant.identity(), allow);
+                            continue;
                         }
-                        Err(e) => debug!("Failed to get stats for video track: {:?}", e),
                     }
-                    // Start background sink thread
-                    let shared2 = shared_clone.clone();
-                    std::thread::spawn(move || {
-                        let mut sink = NativeVideoStream::new(video_track.rtc_track());
-                        let mut frames: u64 = 0;
-                        let mut last_log = Instant::now();
-                        let mut logged_first = false;
-                        // YUV buffers reused to avoid per-frame allocations
-                        let mut y_buf: Vec<u8> = Vec::new();
-                        let mut u_buf: Vec<u8> = Vec::new();
-                        let mut v_buf: Vec<u8> = Vec::new();
-                        while let Some(frame) = rt.block_on(sink.next()) {
-                            let w = frame.buffer.width();
-                            let h = frame.buffer.height();
-
-                            if !logged_first {
-                                debug!(
-                                    "First frame: {}x{}, type {:?}",
-                                    w, h, frame.buffer.buffer_type()
-                                );
-                                logged_first = true;
+                    if let livekit::track::RemoteTrack::Video(video_track) = track {
+                        let sid = publication.sid().clone();
+                        // Only handle if we don't already have an active video track
+                        {
+                            let mut active = active_sid.lock();
+                            if active.as_ref() == Some(&sid) {
+                                debug!("Track {} already active, ignoring duplicate subscribe", sid);
+                                continue;
                             }
-
-                            // Convert to I420 on CPU, but keep planes separate for GPU sampling
-                            let i420 = frame.buffer.to_i420();
-                            let (sy, su, sv) = i420.strides();
-                            let (dy, du, dv) = i420.data();
-
-                            let ch = (h + 1) / 2;
-
-                            // Ensure capacity and copy full plane slices
-                            let y_size = (sy * h) as usize;
-                            let u_size = (su * ch) as usize;
-                            let v_size = (sv * ch) as usize;
-                            if y_buf.len() != y_size { y_buf.resize(y_size, 0); }
-                            if u_buf.len() != u_size { u_buf.resize(u_size, 0); }
-                            if v_buf.len() != v_size { v_buf.resize(v_size, 0); }
-                            y_buf.copy_from_slice(dy);
-                            u_buf.copy_from_slice(du);
-                            v_buf.copy_from_slice(dv);
-
-                            // Swap buffers into shared state
-                            let mut s = shared2.lock();
-                            s.width = w as u32;
-                            s.height = h as u32;
-                            s.stride_y = sy as u32;
-                            s.stride_u = su as u32;
-                            s.stride_v = sv as u32;
-                            std::mem::swap(&mut s.y, &mut y_buf);
-                            std::mem::swap(&mut s.u, &mut u_buf);
-                            std::mem::swap(&mut s.v, &mut v_buf);
-                            s.dirty = true;
-
-                            frames += 1;
-                            let elapsed = last_log.elapsed();
-                            if elapsed >= Duration::from_secs(2) {
-                                let fps = frames as f64 / elapsed.as_secs_f64();
-                                info!("Receiving video: {}x{}, ~{:.1} fps", w, h, fps);
-                                frames = 0;
-                                last_log = Instant::now();
+                            if active.is_some() {
+                                debug!("A video track is already active ({}), ignoring new subscribe {}", active.as_ref().unwrap(), sid);
+                                continue;
                             }
+                            *active = Some(sid.clone());
                         }
-                        info!("Video stream ended");
-                    });
-                    break;
+
+                        info!(
+                            "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}",
+                            publication.name(),
+                            publication.sid(),
+                            participant.identity(),
+                            publication.mime_type(),
+                            publication.simulcasted(),
+                            publication.dimension().0,
+                            publication.dimension().1
+                        );
+
+                        // Try to fetch inbound RTP/codec stats for more details
+                        match video_track.get_stats().await {
+                            Ok(stats) => {
+                                let mut codec_by_id: HashMap<String, (String, String)> = HashMap::new();
+                                let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> = None;
+                                for s in stats.iter() {
+                                    match s {
+                                        livekit::webrtc::stats::RtcStats::Codec(c) => {
+                                            codec_by_id.insert(
+                                                c.rtc.id.clone(),
+                                                (c.codec.mime_type.clone(), c.codec.sdp_fmtp_line.clone()),
+                                            );
+                                        }
+                                        livekit::webrtc::stats::RtcStats::InboundRtp(i) => {
+                                            if i.stream.kind == "video" {
+                                                inbound = Some(i.clone());
+                                            }
+                                        }
+                                        _ => {}
+                                    }
+                                }
+
+                                if let Some(i) = inbound {
+                                    if let Some((mime, fmtp)) = codec_by_id.get(&i.stream.codec_id) {
+                                        info!("Inbound codec: {} (fmtp: {})", mime, fmtp);
+                                    } else {
+                                        info!("Inbound codec id: {}", i.stream.codec_id);
+                                    }
+                                    info!(
+                                        "Inbound current layer: {}x{} ~{:.1} fps, decoder: {}, power_efficient: {}",
+                                        i.inbound.frame_width,
+                                        i.inbound.frame_height,
+                                        i.inbound.frames_per_second,
+                                        i.inbound.decoder_implementation,
+                                        i.inbound.power_efficient_decoder
+                                    );
+                                }
+                            }
+                            Err(e) => debug!("Failed to get stats for video track: {:?}", e),
+                        }
+                        // Start background sink thread
+                        let shared2 = shared_clone.clone();
+                        let active_sid2 = active_sid.clone();
+                        let my_sid = sid.clone();
+                        let rt_clone = rt.clone();
+                        std::thread::spawn(move || {
+                            let mut sink = NativeVideoStream::new(video_track.rtc_track());
+                            let mut frames: u64 = 0;
+                            let mut last_log = Instant::now();
+                            let mut logged_first = false;
+                            // YUV buffers reused to avoid per-frame allocations
+                            let mut y_buf: Vec<u8> = Vec::new();
+                            let mut u_buf: Vec<u8> = Vec::new();
+                            let mut v_buf: Vec<u8> = Vec::new();
+                            while let Some(frame) = rt_clone.block_on(sink.next()) {
+                                let w = frame.buffer.width();
+                                let h = frame.buffer.height();
+
+                                if !logged_first {
+                                    debug!(
+                                        "First frame: {}x{}, type {:?}",
+                                        w, h, frame.buffer.buffer_type()
+                                    );
+                                    logged_first = true;
+                                }
+
+                                // Convert to I420 on CPU, but keep planes separate for GPU sampling
+                                let i420 = frame.buffer.to_i420();
+                                let (sy, su, sv) = i420.strides();
+                                let (dy, du, dv) = i420.data();
+
+                                let ch = (h + 1) / 2;
+
+                                // Ensure capacity and copy full plane slices
+                                let y_size = (sy * h) as usize;
+                                let u_size = (su * ch) as usize;
+                                let v_size = (sv * ch) as usize;
+                                if y_buf.len() != y_size { y_buf.resize(y_size, 0); }
+                                if u_buf.len() != u_size { u_buf.resize(u_size, 0); }
+                                if v_buf.len() != v_size { v_buf.resize(v_size, 0); }
+                                y_buf.copy_from_slice(dy);
+                                u_buf.copy_from_slice(du);
+                                v_buf.copy_from_slice(dv);
+
+                                // Swap buffers into shared state
+                                let mut s = shared2.lock();
+                                s.width = w as u32;
+                                s.height = h as u32;
+                                s.stride_y = sy as u32;
+                                s.stride_u = su as u32;
+                                s.stride_v = sv as u32;
+                                std::mem::swap(&mut s.y, &mut y_buf);
+                                std::mem::swap(&mut s.u, &mut u_buf);
+                                std::mem::swap(&mut s.v, &mut v_buf);
+                                s.dirty = true;
+
+                                frames += 1;
+                                let elapsed = last_log.elapsed();
+                                if elapsed >= Duration::from_secs(2) {
+                                    let fps = frames as f64 / elapsed.as_secs_f64();
+                                    info!("Receiving video: {}x{}, ~{:.1} fps", w, h, fps);
+                                    frames = 0;
+                                    last_log = Instant::now();
+                                }
+                            }
+                            info!("Video stream ended for {}", my_sid);
+                            // Clear active sid if still ours
+                            let mut active = active_sid2.lock();
+                            if active.as_ref() == Some(&my_sid) {
+                                *active = None;
+                            }
+                        });
+                    }
                 }
+                RoomEvent::TrackUnsubscribed { publication, .. } => {
+                    let sid = publication.sid().clone();
+                    let mut active = active_sid.lock();
+                    if active.as_ref() == Some(&sid) {
+                        info!("Video track unsubscribed ({}), clearing active sink", sid);
+                        *active = None;
+                    }
+                }
+                RoomEvent::TrackUnpublished { publication, .. } => {
+                    let sid = publication.sid().clone();
+                    let mut active = active_sid.lock();
+                    if active.as_ref() == Some(&sid) {
+                        info!("Video track unpublished ({}), clearing active sink", sid);
+                        *active = None;
+                    }
+                }
+                _ => {}
             }
         }
     });
@@ -564,9 +620,10 @@ impl CallbackTrait for YuvPaintCallback {
         }
 
         // Build pipeline and textures on first paint or on resize
-        let state_entry = resources.get::<YuvGpuState>().expect("YuvGpuState should be initialized in prepare");
-        // We cannot mutate resources here; assume created already with correct dims
-        let state = state_entry;
+        let Some(state) = resources.get::<YuvGpuState>() else {
+            // prepare may not have created the state yet (race with first frame); skip this paint
+            return;
+        };
 
         if state.dims != (shared.width, shared.height) {
             // We cannot rebuild here (no device access); skip drawing until next frame where prepare will rebuild

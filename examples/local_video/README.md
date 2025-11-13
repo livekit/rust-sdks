@@ -36,5 +36,15 @@ Subscriber usage:
    --identity viewer-1 \
    --url https://your.livekit.server \
    --api-key YOUR_KEY \
-   --api-secret YOUR_SECRET
+    --api-secret YOUR_SECRET
+
+  # subscribe to a specific participant's video only
+  cargo run -p local_video --bin subscriber -- \
+    --room-name demo \
+    --identity viewer-1 \
+    --participant alice
 ```
+
+Notes:
+- `--participant` limits subscription to video tracks from the specified participant identity.
+- If the active video track is unsubscribed or unpublished, the app clears its state and will automatically attach to the next matching video track when it appears.
