@@ -5,6 +5,11 @@ pub type lkPeerFactory = ::std::os::raw::c_void;
 pub type lkPeer = ::std::os::raw::c_void;
 pub type lkDataChannel = ::std::os::raw::c_void;
 pub type lkRtpTransceiver = ::std::os::raw::c_void;
+pub type lkRtpReceiver = ::std::os::raw::c_void;
+pub type lkRtpSender = ::std::os::raw::c_void;
+pub type lkMediaStreamTrack = ::std::os::raw::c_void;
+pub type lkMediaStream = ::std::os::raw::c_void;
+pub type lkSessionDescription = ::std::os::raw::c_void;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkIceTransportType {
@@ -49,6 +54,13 @@ pub enum lkIceState {
     LK_ICE_STATE_FAILED = 4,
     LK_ICE_STATE_DISCONNECTED = 5,
     LK_ICE_STATE_CLOSED = 6,
+}
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkIceGatheringState {
+    LK_ICE_GATHERING_NEW = 0,
+    LK_ICE_GATHERING_GATHERING = 1,
+    LK_ICE_GATHERING_COMPLETE = 2,
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
