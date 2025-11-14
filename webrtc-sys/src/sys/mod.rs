@@ -108,7 +108,7 @@ mod tests {
             let factory = lkCreatePeerFactory();
             let peer = lkCreatePeer(factory, &rtc_config, &observer, std::ptr::null_mut());
 
-            let offer_answer_options = lkOfferAnswerOptions { iceRestart: false, useRtpMux: true };
+            let offer_answer_options = lkOfferAnswerOptions { iceRestart: false, useRtpMux: true,offerToReceiveAudio: true, offerToReceiveVideo: true };
             assert!(lkCreateOffer(
                 peer,
                 &offer_answer_options,

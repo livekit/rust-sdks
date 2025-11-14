@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
-use crate::{RtcError, peer_connection::PeerConnection, sys};
+use crate::{RtcError, RtcErrorType, peer_connection::{PeerConnection, PeerObserver}, sys::{self, lkRtcConfiguration}};
 
 #[derive(Debug, Clone)]
 pub struct IceServer {
@@ -49,6 +49,17 @@ impl Default for RtcConfiguration {
             ice_servers: vec![],
             continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
             ice_transport_type: IceTransportsType::All,
+        }
+    }
+}
+
+impl From<RtcConfiguration> for lkRtcConfiguration {
+    fn from(config: RtcConfiguration) -> Self {
+        lkRtcConfiguration {
+            iceServersCount: config.ice_servers.len() as i32,
+            iceServers: std::ptr::null_mut(), // TODO: implement ice servers
+            iceTransportType: config.ice_transport_type.into(),
+            gatheringPolicy:  config.continual_gathering_policy.into(),
         }
     }
 }
@@ -97,7 +108,6 @@ impl From<ContinualGatheringPolicy> for sys::lkContinualGatheringPolicy {
 }
 
 
-
 impl PeerConnectionFactory {
     pub fn create_peer_connection(
         &self,
@@ -109,13 +119,18 @@ impl PeerConnectionFactory {
             iceTransportType: config.ice_transport_type.into(),
             gatheringPolicy:  config.continual_gathering_policy.into(),
         };
-
-        let peer = PeerConnection::default();
-        let ff_handle = unsafe { sys::lkCreatePeer(self.factory_ffi, lk_config, peer.lk_observer(), peer) };
-        if !!ff_handle {
-            return Err(RtcError::new("Failed to create PeerConnection"));
-        }
-        peer.peer_ffi = unsafe { sys::RefCounted::from_raw(ff_handle) };
+        let mut observer = PeerObserver::default();
+        let sys_peer = unsafe { sys::lkCreatePeer(self.factory_ffi.as_ptr(), &lk_config, &observer.lk_observer(), std::ptr::null_mut()) };
+        if sys_peer == std::ptr::null_mut() {
+            return Err(RtcError {
+                error_type: RtcErrorType::Internal,
+                message: "Failed to create PeerConnection".to_owned(),
+            })}
+        
+        let peer = PeerConnection{
+            observer: Arc::new(observer),
+            sys_peer: unsafe { sys::RefCounted::from_raw(sys_peer)},
+        };
         Ok(peer)
     }
     /* 

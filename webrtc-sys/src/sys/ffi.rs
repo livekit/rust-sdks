@@ -278,15 +278,21 @@ const _: () = {
 pub struct lkOfferAnswerOptions {
     pub iceRestart: bool,
     pub useRtpMux: bool,
+    pub offerToReceiveAudio: bool,
+    pub offerToReceiveVideo: bool,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of lkOfferAnswerOptions"][::std::mem::size_of::<lkOfferAnswerOptions>() - 2usize];
+    ["Size of lkOfferAnswerOptions"][::std::mem::size_of::<lkOfferAnswerOptions>() - 4usize];
     ["Alignment of lkOfferAnswerOptions"][::std::mem::align_of::<lkOfferAnswerOptions>() - 1usize];
     ["Offset of field: lkOfferAnswerOptions::iceRestart"]
         [::std::mem::offset_of!(lkOfferAnswerOptions, iceRestart) - 0usize];
     ["Offset of field: lkOfferAnswerOptions::useRtpMux"]
         [::std::mem::offset_of!(lkOfferAnswerOptions, useRtpMux) - 1usize];
+    ["Offset of field: lkOfferAnswerOptions::offerToReceiveAudio"]
+        [::std::mem::offset_of!(lkOfferAnswerOptions, offerToReceiveAudio) - 2usize];
+    ["Offset of field: lkOfferAnswerOptions::offerToReceiveVideo"]
+        [::std::mem::offset_of!(lkOfferAnswerOptions, offerToReceiveVideo) - 3usize];
 };
 unsafe extern "C" {
     pub fn lkInitialize() -> ::std::os::raw::c_int;

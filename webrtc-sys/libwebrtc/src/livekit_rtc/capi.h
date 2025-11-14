@@ -145,6 +145,8 @@ typedef struct {
 typedef struct {
   bool iceRestart;
   bool useRtpMux;
+  bool offerToReceiveAudio;
+  bool offerToReceiveVideo;
 } lkOfferAnswerOptions;
 
 LK_EXPORT int lkInitialize();

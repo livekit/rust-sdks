@@ -19,7 +19,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::sys;
+use crate::sys::{self, lkSdpType};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SdpType {
@@ -43,6 +43,28 @@ impl FromStr for SdpType {
     }
 }
 
+impl From<SdpType> for sys::lkSdpType {
+    fn from(sdp_type: SdpType) -> Self {
+        match sdp_type {
+            SdpType::Offer => sys::lkSdpType::LK_SDP_TYPE_OFFER,
+            SdpType::PrAnswer => sys::lkSdpType::LK_SDP_TYPE_PRANSWER,
+            SdpType::Answer => sys::lkSdpType::LK_SDP_TYPE_ANSWER,
+            SdpType::Rollback => sys::lkSdpType::LK_SDP_TYPE_ROLLBACK,
+        }
+    }
+}
+
+impl From<lkSdpType> for SdpType {
+    fn from(sdp_type: lkSdpType) -> Self {
+        match sdp_type {
+            lkSdpType::LK_SDP_TYPE_OFFER => SdpType::Offer,
+            lkSdpType::LK_SDP_TYPE_PRANSWER => SdpType::PrAnswer,
+            lkSdpType::LK_SDP_TYPE_ANSWER => SdpType::Answer,
+            lkSdpType::LK_SDP_TYPE_ROLLBACK => SdpType::Rollback,
+        }
+    }
+}
+
 impl Display for SdpType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
@@ -57,8 +79,8 @@ impl Display for SdpType {
 
 #[derive(Clone)]
 pub struct SessionDescription {
-    pub (crate) sdp: String,
-    pub (crate) sdp_type: SdpType,
+    pub(crate) sdp: String,
+    pub(crate) sdp_type: SdpType,
 }
 
 #[derive(Clone, Error, Debug)]
@@ -78,10 +100,7 @@ impl SessionDescription {
             });
         }
 
-        Ok(SessionDescription {
-            sdp: sdp.to_string(),
-            sdp_type,
-        })
+        Ok(SessionDescription { sdp: sdp.to_string(), sdp_type })
     }
 
     pub fn sdp_type(&self) -> SdpType {

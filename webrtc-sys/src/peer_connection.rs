@@ -14,16 +14,15 @@
 
 use std::sync::Arc;
 use std::{fmt::Debug, sync::Mutex};
+use tokio::sync::{mpsc, oneshot};
 
-use crate::RtcError;
-use crate::data_channel::DataChannel;
+use crate::data_channel::{DataChannel, DataChannelInit};
 use crate::ice_candidate::IceCandidate;
 use crate::session_description::SessionDescription;
-use crate::sys::{self,*};
+use crate::sys::{self, *};
+use crate::{RtcError, RtcErrorType};
 
-use crate::{
-    peer_connection_factory::RtcConfiguration,
-};
+use crate::peer_connection_factory::RtcConfiguration;
 
 /*
 use crate::{
@@ -44,69 +43,96 @@ use crate::{
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PeerConnectionState {
-  New,
-  Connecting,
-  Connected,
-  Disconnected,
-  Failed,
-  Closed,
+    New,
+    Connecting,
+    Connected,
+    Disconnected,
+    Failed,
+    Closed,
 }
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum IceConnectionState {
-  New,
-  Checking,
-  Connected,
-  Completed,
-  Failed,
-  Disconnected,
-  Closed,
-  Max,
+    New,
+    Checking,
+    Connected,
+    Completed,
+    Failed,
+    Disconnected,
+    Closed,
+    Max,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum IceGatheringState {
-  New,
-  Gathering,
-  Complete,
+    New,
+    Gathering,
+    Complete,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SignalingState {
-  Stable,
-  HaveLocalOffer,
-  HaveLocalPrAnswer,
-  HaveRemoteOffer,
-  HaveRemotePrAnswer,
-  Closed,
+    Stable,
+    HaveLocalOffer,
+    HaveLocalPrAnswer,
+    HaveRemoteOffer,
+    HaveRemotePrAnswer,
+    Closed,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct OfferOptions {
-  pub ice_restart : bool, pub offer_to_receive_audio : bool,
-      pub offer_to_receive_video : bool,
+    pub ice_restart: bool,
+    pub use_rtp_mux: bool,
+    pub offer_to_receive_audio: bool,
+    pub offer_to_receive_video: bool,
 }
+
+impl From<OfferOptions> for lkOfferAnswerOptions {
+    fn from(_options: OfferOptions) -> Self {
+        lkOfferAnswerOptions {
+            iceRestart: _options.ice_restart,
+            useRtpMux: _options.use_rtp_mux,
+            offerToReceiveAudio: _options.offer_to_receive_audio,
+            offerToReceiveVideo: _options.offer_to_receive_video,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
-pub struct AnswerOptions {
+pub struct AnswerOptions {}
+
+impl From<AnswerOptions> for lkOfferAnswerOptions {
+    fn from(_options: AnswerOptions) -> Self {
+        lkOfferAnswerOptions {
+            iceRestart: false,
+            useRtpMux: true,
+            offerToReceiveAudio: false,
+            offerToReceiveVideo: false,
+        }
+    }
 }
+
 #[derive(Debug, Clone)]
 pub struct IceCandidateError {
-  pub address : String, pub port : i32, pub url : String, pub error_code : i32,
-      pub error_text : String,
+    pub address: String,
+    pub port: i32,
+    pub url: String,
+    pub error_code: i32,
+    pub error_text: String,
 }
 #[derive(Debug, Clone)]
 pub struct TrackEvent {
-  // pub receiver: RtpReceiver,
-  // pub streams: Vec<MediaStream>,
-  // pub track: MediaStreamTrack,
-  // pub transceiver: RtpTransceiver,
+    // pub receiver: RtpReceiver,
+    // pub streams: Vec<MediaStream>,
+    // pub track: MediaStreamTrack,
+    // pub transceiver: RtpTransceiver,
 }
 
 pub type OnConnectionChange = Box<dyn FnMut(PeerConnectionState) + Send + Sync>;
 pub type OnDataChannel = Box<dyn FnMut(DataChannel) + Send + Sync>;
 pub type OnIceCandidate = Box<dyn FnMut(IceCandidate) + Send + Sync>;
 pub type OnIceCandidateError = Box<dyn FnMut(IceCandidateError) + Send + Sync>;
-pub type OnIceConnectionChange =
-    Box<dyn FnMut(IceConnectionState) + Send + Sync>;
+pub type OnIceConnectionChange = Box<dyn FnMut(IceConnectionState) + Send + Sync>;
 pub type OnIceGatheringChange = Box<dyn FnMut(IceGatheringState) + Send + Sync>;
 pub type OnNegotiationNeeded = Box<dyn FnMut(u32) + Send + Sync>;
 pub type OnSignalingChange = Box<dyn FnMut(SignalingState) + Send + Sync>;
@@ -114,69 +140,167 @@ pub type OnTrack = Box<dyn FnMut(TrackEvent) + Send + Sync>;
 
 #[derive(Default)]
 pub struct PeerObserver {
-  pub connection_change_handler : Mutex<Option<OnConnectionChange>>,
-      pub data_channel_handler : Mutex<Option<OnDataChannel>>,
-      pub ice_candidate_handler : Mutex<Option<OnIceCandidate>>,
-      pub ice_candidate_error_handler : Mutex<Option<OnIceCandidateError>>,
-      pub ice_connection_change_handler : Mutex<Option<OnIceConnectionChange>>,
-      pub ice_gathering_change_handler : Mutex<Option<OnIceGatheringChange>>,
-      pub negotiation_needed_handler : Mutex<Option<OnNegotiationNeeded>>,
-      pub signaling_change_handler : Mutex<Option<OnSignalingChange>>,
-      pub track_handler : Mutex<Option<OnTrack>>,
+    pub connection_change_handler: Mutex<Option<OnConnectionChange>>,
+    pub data_channel_handler: Mutex<Option<OnDataChannel>>,
+    pub ice_candidate_handler: Mutex<Option<OnIceCandidate>>,
+    pub ice_candidate_error_handler: Mutex<Option<OnIceCandidateError>>,
+    pub ice_connection_change_handler: Mutex<Option<OnIceConnectionChange>>,
+    pub ice_gathering_change_handler: Mutex<Option<OnIceGatheringChange>>,
+    pub negotiation_needed_handler: Mutex<Option<OnNegotiationNeeded>>,
+    pub signaling_change_handler: Mutex<Option<OnSignalingChange>>,
+    pub track_handler: Mutex<Option<OnTrack>>,
 }
 
 impl From<lkSignalingState> for SignalingState {
-  fn from(value : lkSignalingState) -> Self {
-    match value {
-      lkSignalingState::LK_SIGNALING_STATE_STABLE => Self::Stable,
-      lkSignalingState::LK_SIGNALING_STATE_HAVE_LOCAL_OFFER => Self::HaveLocalOffer,
-      lkSignalingState::LK_SIGNALING_STATE_HAVE_REMOTE_OFFER => Self::HaveRemoteOffer,
-      lkSignalingState::LK_SIGNALING_STATE_HAVE_LOCAL_PRANSWER => Self::HaveLocalPrAnswer,
-      lkSignalingState::LK_SIGNALING_STATE_HAVE_REMOTE_PRANSWER => Self::HaveRemotePrAnswer,
-      lkSignalingState::LK_SIGNALING_STATE_CLOSED => Self::Closed,
+    fn from(value: lkSignalingState) -> Self {
+        match value {
+            lkSignalingState::LK_SIGNALING_STATE_STABLE => Self::Stable,
+            lkSignalingState::LK_SIGNALING_STATE_HAVE_LOCAL_OFFER => Self::HaveLocalOffer,
+            lkSignalingState::LK_SIGNALING_STATE_HAVE_REMOTE_OFFER => Self::HaveRemoteOffer,
+            lkSignalingState::LK_SIGNALING_STATE_HAVE_LOCAL_PRANSWER => Self::HaveLocalPrAnswer,
+            lkSignalingState::LK_SIGNALING_STATE_HAVE_REMOTE_PRANSWER => Self::HaveRemotePrAnswer,
+            lkSignalingState::LK_SIGNALING_STATE_CLOSED => Self::Closed,
+        }
     }
-  }
 }
 
 impl From<lkIceState> for IceConnectionState {
-  fn from(value : lkIceState) -> Self {
-    match value {
-      lkIceState::LK_ICE_STATE_NEW => Self::New,
-      lkIceState::LK_ICE_STATE_CHECKING => Self::Checking,
-      lkIceState::LK_ICE_STATE_CLOSED => Self::Closed,
-      lkIceState::LK_ICE_STATE_COMPLETED => Self::Completed,
-      lkIceState::LK_ICE_STATE_CONNECTED => Self::Connected,
-      lkIceState::LK_ICE_STATE_DISCONNECTED => Self::Disconnected,
-      lkIceState::LK_ICE_STATE_FAILED => Self::Failed,
+    fn from(value: lkIceState) -> Self {
+        match value {
+            lkIceState::LK_ICE_STATE_NEW => Self::New,
+            lkIceState::LK_ICE_STATE_CHECKING => Self::Checking,
+            lkIceState::LK_ICE_STATE_CLOSED => Self::Closed,
+            lkIceState::LK_ICE_STATE_COMPLETED => Self::Completed,
+            lkIceState::LK_ICE_STATE_CONNECTED => Self::Connected,
+            lkIceState::LK_ICE_STATE_DISCONNECTED => Self::Disconnected,
+            lkIceState::LK_ICE_STATE_FAILED => Self::Failed,
+        }
     }
-  }
 }
 
 impl From<lkPeerState> for PeerConnectionState {
-  fn from(value : lkPeerState) -> Self {
-    match value {
-      lkPeerState::LK_PEER_STATE_NEW => Self::New,
-      lkPeerState::LK_PEER_STATE_CLOSED => Self::Closed,
-      lkPeerState::LK_PEER_STATE_CONNECTED => Self::Connected,
-      lkPeerState::LK_PEER_STATE_CONNECTING => Self::Connecting,
-      lkPeerState::LK_PEER_STATE_DISCONNECTED => Self::Disconnected,
-      lkPeerState::LK_PEER_STATE_FAILED => Self::Failed,
+    fn from(value: lkPeerState) -> Self {
+        match value {
+            lkPeerState::LK_PEER_STATE_NEW => Self::New,
+            lkPeerState::LK_PEER_STATE_CLOSED => Self::Closed,
+            lkPeerState::LK_PEER_STATE_CONNECTED => Self::Connected,
+            lkPeerState::LK_PEER_STATE_CONNECTING => Self::Connecting,
+            lkPeerState::LK_PEER_STATE_DISCONNECTED => Self::Disconnected,
+            lkPeerState::LK_PEER_STATE_FAILED => Self::Failed,
+        }
     }
-  }
 }
 
 impl From<lkIceGatheringState> for IceGatheringState {
-  fn from(value : lkIceGatheringState) -> Self {
-    match value {
-      lkIceGatheringState::LK_ICE_GATHERING_NEW => Self::New,
-      lkIceGatheringState::LK_ICE_GATHERING_GATHERING => Self::Gathering,
-      lkIceGatheringState::LK_ICE_GATHERING_COMPLETE => Self::Complete,
+    fn from(value: lkIceGatheringState) -> Self {
+        match value {
+            lkIceGatheringState::LK_ICE_GATHERING_NEW => Self::New,
+            lkIceGatheringState::LK_ICE_GATHERING_GATHERING => Self::Gathering,
+            lkIceGatheringState::LK_ICE_GATHERING_COMPLETE => Self::Complete,
+        }
     }
-  }
 }
-/* 
+
 impl PeerObserver {
-  fn lk_on_signaling_change(&self, new_state : lkSignalingState) {
+    pub fn lk_observer(&mut self) -> lkPeerObserver {
+        lkPeerObserver {
+            onSignalingChange: Some(Self::peer_on_signal_change),
+            onIceCandidate: Some(Self::peer_on_ice_candidate),
+            onDataChannel: Some(Self::peer_on_data_channel),
+            onTrack: Some(Self::pee_on_track),
+            onConnectionChange: Some(Self::peer_on_connection_state_change),
+            onIceCandidateError: Some(Self::peer_on_ice_candidate_error),
+        }
+    }
+
+    extern "C" fn peer_on_signal_change(state: lkSignalingState, userdata: *mut std::ffi::c_void) {
+        let _peer: &mut PeerConnection = unsafe { &mut *userdata.cast::<PeerConnection>() };
+        let mut handler = _peer.observer.signaling_change_handler.lock().unwrap();
+        if let Some(f) = handler.as_mut() {
+            f(state.into());
+        }
+    }
+
+    extern "C" fn peer_on_ice_candidate(
+        sdp_mid: *const ::std::os::raw::c_char,
+        sdp_mline_index: ::std::os::raw::c_int,
+        candidate: *const ::std::os::raw::c_char,
+        userdata: *mut ::std::os::raw::c_void,
+    ) {
+        let _peer: &mut PeerConnection = unsafe { &mut *userdata.cast::<PeerConnection>() };
+        let mut handler = _peer.observer.ice_candidate_handler.lock().unwrap();
+        if let Some(f) = handler.as_mut() {
+            f(IceCandidate {
+                sdp_mid: unsafe { std::ffi::CStr::from_ptr(sdp_mid).to_str().unwrap().to_string() },
+                sdp_mline_index,
+                candidate: unsafe {
+                    std::ffi::CStr::from_ptr(candidate).to_str().unwrap().to_string()
+                },
+            });
+        }
+    }
+
+    #[allow(non_snake_case)]
+    extern "C" fn peer_on_data_channel(dc: *const lkDataChannel, _userdata: *mut std::ffi::c_void) {
+        let _peer: &mut PeerConnection = unsafe { &mut *_userdata.cast::<PeerConnection>() };
+        let mut handler = _peer.observer.data_channel_handler.lock().unwrap();
+        if let Some(f) = handler.as_mut() {
+            //TODO: create DataChannel from dc
+            // f(DataChannel { handle: imp_dc::DataChannel::configure(dc)
+            // });
+        }
+    }
+
+    #[allow(non_snake_case)]
+    extern "C" fn pee_on_track(
+        transceiver: *const lkRtpTransceiver,
+        _userdata: *mut std::ffi::c_void,
+    ) {
+        let _peer: &mut PeerConnection = unsafe { &mut *_userdata.cast::<PeerConnection>() };
+        let mut handler = _peer.observer.track_handler.lock().unwrap();
+        if let Some(f) = handler.as_mut() {
+            //TODO: create TrackEvent from transceiver
+            println!("OnTrack: {:?}", transceiver);
+        }
+    }
+
+    #[allow(non_snake_case)]
+    extern "C" fn peer_on_connection_state_change(
+        state: lkPeerState,
+        _userdata: *mut std::ffi::c_void,
+    ) {
+        let _peer: &mut PeerConnection = unsafe { &mut *_userdata.cast::<PeerConnection>() };
+        let mut handler = _peer.observer.connection_change_handler.lock().unwrap();
+        if let Some(f) = handler.as_mut() {
+            f(state.into());
+        }
+    }
+
+    #[allow(non_snake_case)]
+    extern "C" fn peer_on_ice_candidate_error(
+        address: *const ::std::os::raw::c_char,
+        port: ::std::os::raw::c_int,
+        url: *const ::std::os::raw::c_char,
+        error_code: ::std::os::raw::c_int,
+        error_text: *const ::std::os::raw::c_char,
+        userdata: *mut ::std::os::raw::c_void,
+    ) {
+        let _peer: &mut PeerConnection = unsafe { &mut *userdata.cast::<PeerConnection>() };
+        let mut handler = _peer.observer.ice_candidate_error_handler.lock().unwrap();
+        if let Some(f) = handler.as_mut() {
+            f(IceCandidateError {
+                address: unsafe { std::ffi::CStr::from_ptr(address).to_str().unwrap().to_string() },
+                port,
+                url: unsafe { std::ffi::CStr::from_ptr(url).to_str().unwrap().to_string() },
+                error_code,
+                error_text: unsafe {
+                    std::ffi::CStr::from_ptr(error_text).to_str().unwrap().to_string()
+                },
+            });
+        }
+    }
+}
+/*   fn lk_on_signaling_change(&self, new_state : lkSignalingState) {
     if let
       Some(f) = self.signaling_change_handler.lock().as_mut() {
         f(new_state.into());
@@ -271,366 +395,482 @@ impl PeerObserver {
 }
 */
 
-
 #[cfg(test)]
 mod tests {
-  use log::trace;
-  use tokio::sync::mpsc;
+    use log::trace;
+    use tokio::sync::mpsc;
 
-  use crate::{peer_connection::*, peer_connection_factory::* };
+    use crate::{data_channel::DataChannelInit, peer_connection::*, peer_connection_factory::*};
 
-#[tokio::test]
-  async fn create_pc() {
-    let _ = env_logger::builder().is_test(true).try_init();
+    #[tokio::test]
+    async fn create_pc() {
+        let _ = env_logger::builder().is_test(true).try_init();
 
-    let factory = PeerConnectionFactory::default();
-    let config = RtcConfiguration{
-      ice_servers : vec ![IceServer{
-        urls : vec !["stun:stun1.l.google.com:19302".to_string()],
-        username : "".into(),
-        password : "".into(),
-      }],
-      continual_gathering_policy : ContinualGatheringPolicy::GatherOnce,
-      ice_transport_type : IceTransportsType::All,
-    };
+        let factory = PeerConnectionFactory::default();
+        let config = RtcConfiguration {
+            ice_servers: vec![IceServer {
+                urls: vec!["stun:stun1.l.google.com:19302".to_string()],
+                username: "".into(),
+                password: "".into(),
+            }],
+            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+            ice_transport_type: IceTransportsType::All,
+        };
 
-    let bob = factory.create_peer_connection(config.clone()).unwrap();
-    let alice = factory.create_peer_connection(config.clone()).unwrap();
+        let bob = factory.create_peer_connection(config.clone()).unwrap();
+        let alice = factory.create_peer_connection(config.clone()).unwrap();
 
-    let(bob_ice_tx, mut bob_ice_rx) = mpsc::unbounded_channel::<IceCandidate>();
-    let(alice_ice_tx, mut alice_ice_rx) =
-        mpsc::unbounded_channel::<IceCandidate>();
-    let(alice_dc_tx, mut alice_dc_rx) =
-        mpsc::unbounded_channel::<DataChannel>();
+        let (bob_ice_tx, mut bob_ice_rx) = mpsc::unbounded_channel::<IceCandidate>();
+        let (alice_ice_tx, mut alice_ice_rx) = mpsc::unbounded_channel::<IceCandidate>();
+        let (alice_dc_tx, mut alice_dc_rx) = mpsc::unbounded_channel::<DataChannel>();
 
-    bob.on_ice_candidate(Some(Box::new (
-        move | candidate | { bob_ice_tx.send(candidate).unwrap(); })));
+        bob.on_ice_candidate(Some(Box::new(move |candidate| {
+            bob_ice_tx.send(candidate).unwrap();
+        })));
 
-    alice.on_ice_candidate(Some(Box::new (
-        move | candidate | { alice_ice_tx.send(candidate).unwrap(); })));
+        alice.on_ice_candidate(Some(Box::new(move |candidate| {
+            alice_ice_tx.send(candidate).unwrap();
+        })));
 
-    alice.on_data_channel(
-        Some(Box::new (move | dc | { alice_dc_tx.send(dc).unwrap(); })));
+        //alice.on_data_channel(Some(Box::new(move |dc| {
+        //    alice_dc_tx.send(dc).unwrap();
+        //})));
 
-    let bob_dc =
-        bob.create_data_channel("test_dc", DataChannelInit::default()).unwrap();
+        let bob_dc = bob.create_data_channel("test_dc", DataChannelInit::default()).unwrap();
 
-    let offer = bob.create_offer(OfferOptions::default()).await.unwrap();
-    trace !("Bob offer: {:?}", offer);
-    bob.set_local_description(offer.clone()).await.unwrap();
-    alice.set_remote_description(offer).await.unwrap();
+        let offer = bob.create_offer(OfferOptions::default()).await.unwrap();
+        trace!("Bob offer: {:?}", offer);
+        bob.set_local_description(offer.clone()).await.unwrap();
+        alice.set_remote_description(offer).await.unwrap();
 
-    let answer = alice.create_answer(AnswerOptions::default()).await.unwrap();
-    trace !("Alice answer: {:?}", answer);
-    alice.set_local_description(answer.clone()).await.unwrap();
-    bob.set_remote_description(answer).await.unwrap();
+        let answer = alice.create_answer(AnswerOptions::default()).await.unwrap();
+        trace!("Alice answer: {:?}", answer);
+        alice.set_local_description(answer.clone()).await.unwrap();
+        bob.set_remote_description(answer).await.unwrap();
 
-    let bob_ice = bob_ice_rx.recv().await.unwrap();
-    let alice_ice = alice_ice_rx.recv().await.unwrap();
+        let bob_ice = bob_ice_rx.recv().await.unwrap();
+        let alice_ice = alice_ice_rx.recv().await.unwrap();
 
-    bob.add_ice_candidate(alice_ice).await.unwrap();
-    alice.add_ice_candidate(bob_ice).await.unwrap();
+        bob.add_ice_candidate(alice_ice).await.unwrap();
+        alice.add_ice_candidate(bob_ice).await.unwrap();
 
-    let(data_tx, mut data_rx) = mpsc::unbounded_channel::<String>();
-    let alice_dc = alice_dc_rx.recv().await.unwrap();
-    alice_dc.on_message(Some(Box::new (move | buffer | {
-      data_tx.send(String::from_utf8_lossy(buffer.data).to_string()).unwrap();
-    })));
+        let (data_tx, mut data_rx) = mpsc::unbounded_channel::<String>();
+        let alice_dc = alice_dc_rx.recv().await.unwrap();
+        alice_dc.on_message(Some(Box::new(move |buffer| {
+            data_tx.send(String::from_utf8_lossy(buffer.data).to_string()).unwrap();
+        })));
 
-    bob_dc.send(b "This is a test", true).unwrap();
-    assert_eq !(data_rx.recv().await.unwrap(), "This is a test");
+        bob_dc.send(b"This is a test", true).unwrap();
+        assert_eq!(data_rx.recv().await.unwrap(), "This is a test");
 
-    alice.close();
-    bob.close();
-  }
+        alice.close();
+        bob.close();
+    }
 }
 
 #[derive(Clone)]
 pub struct PeerConnection {
-  observer : Arc<PeerObserver>,
-  pub(crate) peer_ffi : sys::RefCounted<sys::lkPeer>,
-}
-
-impl Default for PeerConnection {
-  fn default()->Self {
-    Self {
-    observer:
-      Arc::new (PeerObserver::default()), 
-      peer_ffi : sys::RefCounted::<sys::lkPeer>{
-        ptr: std::ptr::null_mut(),
-      },
-    }
-  }
+    pub(crate) observer: Arc<PeerObserver>,
+    pub(crate) sys_peer: sys::RefCounted<sys::lkPeer>,
 }
 
 impl PeerConnection {
-  pub fn set_configuration(&self, config : RtcConfiguration)
-      -> Result<(), RtcError>{self.peer_ffi.set_configuration(config)}
-
-  pub async fn create_offer(&self, options : OfferOptions, )
-      ->Result<SessionDescription, RtcError> {
-    let(tx, mut rx) = mpsc::channel::<Result<SessionDescription, RtcError>>(1);
-    let ctx = Box::new (sys_pc::PeerContext(Box::new (tx)));
-    type CtxType = mpsc::Sender<Result<SessionDescription, RtcError>>;
-
-
-    self.peer_ffi.create_offer(
-        options.into(), ctx, | ctx,
-        sdp |
-            {
-              let tx = *ctx.0.downcast ::<CtxType>().unwrap();
-              let _ = tx.blocking_send(Ok(SessionDescription{
-                handle : imp_sdp::SessionDescription{sys_handle : sdp},
-              }));
-            },
-        | ctx,
-        error |
-            {
-              let tx = *ctx.0.downcast ::<CtxType>().unwrap();
-              let _ = tx.blocking_send(Err(error.into()));
-            }, );
-
-    extern "C" fn create_sdp_on_success(sdp_type : sys::lkSdpType,
-                                        sdp : * const ::std::os::raw::c_char,
-                                        _userdata : *mut std::ffi::c_void, ) {
-      let sdp = unsafe{std::ffi::CStr::from_ptr(sdp).to_str().unwrap()};
-      println !("CreateSdp - OnSuccess: {:?} {:?}", sdp_type, sdp);
+    pub fn set_configuration(&self, config: RtcConfiguration) -> Result<(), RtcError> {
+        let sys_config: sys::lkRtcConfiguration = config.into();
+        unsafe {
+            sys::lkPeerSetConfig(self.sys_peer.as_ptr(), &sys_config);
+        }
+        Ok(())
     }
 
-    extern "C" fn create_sdp_on_failure(error : * const sys::lkRtcError,
-                                        _userdata : *mut std::ffi::c_void, ) {
-      println !("CreateSdp - OnFailure: {:?}", error);
+    pub async fn create_offer(
+        &self,
+        options: OfferOptions,
+    ) -> Result<SessionDescription, RtcError> {
+        let (tx, mut rx) = mpsc::channel::<Result<SessionDescription, RtcError>>(1);
+        let tx_box = Box::new(tx);
+        type CtxType = mpsc::Sender<Result<SessionDescription, RtcError>>;
+
+        let userdata = Box::into_raw(tx_box) as *mut std::ffi::c_void;
+
+        // Prepare observer callbacks
+        unsafe extern "C" fn create_offer_on_success(
+            sdp_type: sys::lkSdpType,
+            sdp: *const ::std::os::raw::c_char,
+            userdata: *mut std::ffi::c_void,
+        ) {
+            let sdp = unsafe { std::ffi::CStr::from_ptr(sdp).to_str().unwrap() };
+            let tx = *Box::from_raw(userdata as *mut CtxType);
+            let _ = tx.blocking_send(Ok(SessionDescription {
+                sdp_type: sdp_type.into(),
+                sdp: sdp.to_string(),
+            }));
+        }
+
+        unsafe extern "C" fn create_offer_on_failure(
+            error: *const sys::lkRtcError,
+            userdata: *mut std::ffi::c_void,
+        ) {
+            let tx = *Box::from_raw(userdata as *mut CtxType);
+            let _ = tx.blocking_send(Err(RtcError {
+                error_type: RtcErrorType::Internal,
+                message: format!("Failed to create answer: {:?}", error),
+            }));
+        }
+
+        let observer = lkCreateSdpObserver {
+            onSuccess: Some(create_offer_on_success),
+            onFailure: Some(create_offer_on_failure),
+        };
+
+        unsafe {
+            if sys::lkCreateOffer(self.sys_peer.as_ptr(), &options.into(), &observer, userdata) {
+                println!("lkCreateOffer called successfully");
+            } else {
+                println!("lkCreateOffer call failed");
+            }
+        }
+
+        rx.recv().await.unwrap()
     }
 
-    let create_sdp_observer = lkCreateSdpObserver{
-      onSuccess : Some(create_sdp_on_success),
-      onFailure : Some(create_sdp_on_failure),
-    };
+    pub async fn create_answer(
+        &self,
+        options: AnswerOptions,
+    ) -> Result<SessionDescription, RtcError> {
+        let (tx, mut rx) = mpsc::channel::<Result<SessionDescription, RtcError>>(1);
+        let tx_box = Box::new(tx);
+        type CtxType = mpsc::Sender<Result<SessionDescription, RtcError>>;
 
-    sys::lkCreateOffer(self.peer_ffi.as_ptr(), &create_sdp_observer, ctx);
+        let userdata = Box::into_raw(tx_box) as *mut std::ffi::c_void;
 
-    rx.recv().await.unwrap()
-  }
+        // Prepare observer callbacks
+        unsafe extern "C" fn create_answer_on_success(
+            sdp_type: sys::lkSdpType,
+            sdp: *const ::std::os::raw::c_char,
+            userdata: *mut std::ffi::c_void,
+        ) {
+            let sdp = unsafe { std::ffi::CStr::from_ptr(sdp).to_str().unwrap() };
+            let tx = *Box::from_raw(userdata as *mut CtxType);
+            let _ = tx.blocking_send(Ok(SessionDescription {
+                sdp_type: sdp_type.into(),
+                sdp: sdp.to_string(),
+            }));
+        }
 
-  pub async fn create_answer(&self, options : AnswerOptions, )
-      -> Result<SessionDescription, RtcError>{
-          self.peer_ffi.create_answer(options).await}
+        unsafe extern "C" fn create_answer_on_failure(
+            error: *const sys::lkRtcError,
+            userdata: *mut std::ffi::c_void,
+        ) {
+            let tx = *Box::from_raw(userdata as *mut CtxType);
+            let _ = tx.blocking_send(Err(RtcError {
+                error_type: RtcErrorType::Internal,
+                message: format!("Failed to create answer: {:?}", error),
+            }));
+        }
 
-  pub async fn set_local_description(&self, desc : SessionDescription)
-      ->Result<(), RtcError>{self.peer_ffi.set_local_description(desc).await}
+        let observer = lkCreateSdpObserver {
+            onSuccess: Some(create_answer_on_success),
+            onFailure: Some(create_answer_on_failure),
+        };
 
-  pub async fn set_remote_description(&self, desc : SessionDescription)
-      ->Result<(), RtcError>{self.peer_ffi.set_remote_description(desc).await}
+        unsafe {
+            if sys::lkCreateAnswer(self.sys_peer.as_ptr(), &options.into(), &observer, userdata) {
+                println!("lkCreateAnswer called successfully");
+            } else {
+                println!("lkCreateAnswer call failed");
+            }
+        }
 
-  pub async fn add_ice_candidate(&self, candidate : IceCandidate)
-      ->Result<(), RtcError>{self.peer_ffi.add_ice_candidate(candidate).await}
+        rx.recv().await.unwrap()
+    }
 
-  pub fn create_data_channel(&self, label : &str, init : DataChannelInit, )
-      ->Result<DataChannel, RtcError>{
-          self.peer_ffi.create_data_channel(label, init)}
+    pub async fn set_local_description(&self, desc: SessionDescription) -> Result<(), RtcError> {
+        let sdp_type = desc.sdp_type;
+        let sdp = std::ffi::CString::new(desc.sdp.clone()).unwrap();
 
-  pub fn add_track<T : AsRef<str>>(&self, track : MediaStreamTrack,
-                                   streams_ids : &[T], )
-      ->Result<RtpSender, RtcError>{self.peer_ffi.add_track(track, streams_ids)}
+        let (tx, rx) = oneshot::channel::<Result<(), RtcError>>();
+        // Box the sender and convert to a raw pointer
+        let tx_box = Box::new(tx);
+        let userdata = Box::into_raw(tx_box) as *mut std::ffi::c_void;
 
-  pub fn remove_track(&self, sender : RtpSender)
-      ->Result<(), RtcError>{self.peer_ffi.remove_track(sender)}
+        // Prepare observer callbacks (can be None if not needed)
+        unsafe extern "C" fn set_local_desc_on_success(userdata: *mut std::ffi::c_void) {
+            // Recover the Box and drop it after use
+            let tx: Box<oneshot::Sender<Result<(), RtcError>>> = Box::from_raw(userdata as *mut _);
+            println!("lkSetLocalDescription - OnSuccess");
+            let _ = tx.send(Ok(()));
+            // Box is dropped here
+        }
+        unsafe extern "C" fn set_local_desc_on_failure(
+            error: *const sys::lkRtcError,
+            userdata: *mut std::ffi::c_void,
+        ) {
+            let tx: Box<oneshot::Sender<Result<(), RtcError>>> = Box::from_raw(userdata as *mut _);
+            println!("lkSetLocalDescription - OnFailure: {:?}", error);
+            let _ = tx.send(Err(RtcError {
+                error_type: RtcErrorType::Internal,
+                message: format!("Failed to set remote description: {:?}", error),
+            }));
+            // Box is dropped here
+        }
+        let observer = lkSetSdpObserver {
+            onSuccess: Some(set_local_desc_on_success),
+            onFailure: Some(set_local_desc_on_failure),
+        };
 
-  pub async fn get_stats(&self)
-      ->Result<Vec<RtcStats>, RtcError>{self.peer_ffi.get_stats().await}
+        unsafe {
+            sys::lkSetLocalDescription(
+                self.sys_peer.as_ptr(),
+                sdp_type.into(),
+                sdp.as_ptr(),
+                &observer,
+                userdata,
+            );
+        }
 
-  pub fn add_transceiver(&self, track : MediaStreamTrack,
-                         init : RtpTransceiverInit, )
-      ->Result<RtpTransceiver, RtcError>{
-          self.peer_ffi.add_transceiver(track, init)}
+        rx.await.map_err(|_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "set_local_description cancelled".to_owned(),
+        })?
+    }
 
-  pub fn add_transceiver_for_media(&self, media_type : MediaType,
-                                   init : RtpTransceiverInit, )
-      ->Result<RtpTransceiver, RtcError>{
-          self.peer_ffi.add_transceiver_for_media(media_type, init)}
+    pub async fn set_remote_description(&self, desc: SessionDescription) -> Result<(), RtcError> {
+        let sdp_type = desc.sdp_type;
+        let sdp = std::ffi::CString::new(desc.sdp.clone()).unwrap();
 
-  pub fn close(&self){self.peer_ffi.close()}
+        let (tx, rx) = oneshot::channel::<Result<(), RtcError>>();
+        // Box the sender and convert to a raw pointer
+        let tx_box = Box::new(tx);
+        let userdata = Box::into_raw(tx_box) as *mut std::ffi::c_void;
 
-  pub fn restart_ice(&self){self.peer_ffi.restart_ice()}
+        // Prepare observer callbacks (can be None if not needed)
+        unsafe extern "C" fn set_remote_desc_on_success(userdata: *mut std::ffi::c_void) {
+            // Recover the Box and drop it after use
+            let tx: Box<oneshot::Sender<Result<(), RtcError>>> = Box::from_raw(userdata as *mut _);
+            println!("lkSetRemoteDescription - OnSuccess");
+            let _ = tx.send(Ok(()));
+            // Box is dropped here
+        }
+        unsafe extern "C" fn set_remote_desc_on_failure(
+            error: *const sys::lkRtcError,
+            userdata: *mut std::ffi::c_void,
+        ) {
+            let tx: Box<oneshot::Sender<Result<(), RtcError>>> = Box::from_raw(userdata as *mut _);
+            println!("lkSetRemoteDescription - OnFailure: {:?}", error);
+            let _ = tx.send(Err(RtcError {
+                error_type: RtcErrorType::Internal,
+                message: format!("Failed to set remote description: {:?}", error),
+            }));
+            // Box is dropped here
+        }
+        let observer = lkSetSdpObserver {
+            onSuccess: Some(set_remote_desc_on_success),
+            onFailure: Some(set_remote_desc_on_failure),
+        };
 
-  pub fn connection_state(&self)
-      ->PeerConnectionState{self.peer_ffi.connection_state()}
+        unsafe {
+            sys::lkSetRemoteDescription(
+                self.sys_peer.as_ptr(),
+                sdp_type.into(),
+                sdp.as_ptr(),
+                &observer,
+                userdata,
+            );
+        }
 
-  pub fn ice_connection_state(&self)
-      ->IceConnectionState{self.peer_ffi.ice_connection_state()}
+        rx.await.map_err(|_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "set_remote_description cancelled".to_owned(),
+        })?
+    }
 
-  pub fn ice_gathering_state(&self)
-      ->IceGatheringState{self.peer_ffi.ice_gathering_state()}
+    pub async fn add_ice_candidate(&self, candidate: IceCandidate) -> Result<(), RtcError> {
+        let sdp_mid_cstr = std::ffi::CString::new(candidate.sdp_mid.clone()).unwrap();
+        let candidate_cstr = std::ffi::CString::new(candidate.candidate.clone()).unwrap();
 
-  pub fn signaling_state(&self)
-      ->SignalingState{self.peer_ffi.signaling_state()}
+        let (tx, rx) = oneshot::channel::<Result<(), RtcError>>();
+        let tx_box = Box::new(tx);
+        let userdata = Box::into_raw(tx_box) as *mut std::ffi::c_void;
 
-  pub fn current_local_description(&self)
-      ->Option<SessionDescription>{self.peer_ffi.current_local_description()}
+        unsafe extern "C" fn on_complete(
+            error: *mut sys::lkRtcError,
+            userdata: *mut std::ffi::c_void,
+        ) {
+            let tx: Box<oneshot::Sender<Result<(), RtcError>>> = Box::from_raw(userdata as *mut _);
+            let _ = tx.send(Err(RtcError {
+                error_type: RtcErrorType::Internal,
+                message: format!("Failed to add ICE candidate: {:?}", error),
+            }));
+        }
 
-  pub fn current_remote_description(&self)
-      ->Option<SessionDescription>{self.peer_ffi.current_remote_description()}
+        unsafe {
+            if sys::lkAddIceCandidate(
+                self.sys_peer.as_ptr(),
+                sdp_mid_cstr.as_ptr(),
+                candidate.sdp_mline_index,
+                candidate_cstr.as_ptr(),
+                Some(on_complete),
+                userdata,
+            ) {
+                // If lkAddIceCandidate returns true, it means the candidate was added successfully
+                let tx: Box<oneshot::Sender<Result<(), RtcError>>> =
+                    Box::from_raw(userdata as *mut _);
+                let _ = tx.send(Ok(()));
+            }
+        }
 
-  pub fn senders(&self)
-      ->Vec<RtpSender>{self.peer_ffi.senders()}
+        rx.await.map_err(|_| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "add_ice_candidate cancelled".to_owned(),
+        })?
+    }
 
-  pub fn receivers(&self)
-      ->Vec<RtpReceiver>{self.peer_ffi.receivers()}
+    pub fn close(&self) {
+        unsafe {
+            sys::lkPeerClose(self.sys_peer.as_ptr());
+        }
+    }
 
-  pub fn transceivers(&self)
-      ->Vec<RtpTransceiver>{self.peer_ffi.transceivers()}
+    pub fn create_data_channel(
+        &self,
+        label: &str,
+        init: DataChannelInit,
+    ) -> Result<DataChannel, RtcError> {
+        Err(RtcError { error_type: RtcErrorType::Internal, message: format!("TODO: ") })
+    }
 
-  pub fn observer(&self)
-      ->Arc<PeerObserver>{self.observer.clone()}
+    /*
 
-      pub fn on_connection_state_change(&self, f: Option<OnConnectionChange>) {
-        *self.observer.connection_change_handler.lock() = f;
+    pub fn add_track<T: AsRef<str>>(
+        &self,
+        track: MediaStreamTrack,
+        streams_ids: &[T],
+    ) -> Result<RtpSender, RtcError> {
+        self.sys_peer.add_track(track, streams_ids)
+    }
+
+    pub fn remove_track(&self, sender: RtpSender) -> Result<(), RtcError> {
+        self.sys_peer.remove_track(sender)
+    }
+
+    pub async fn get_stats(&self) -> Result<Vec<RtcStats>, RtcError> {
+        self.sys_peer.get_stats().await
+    }
+
+    pub fn add_transceiver(
+        &self,
+        track: MediaStreamTrack,
+        init: RtpTransceiverInit,
+    ) -> Result<RtpTransceiver, RtcError> {
+        self.sys_peer.add_transceiver(track, init)
+    }
+
+    pub fn add_transceiver_for_media(
+        &self,
+        media_type: MediaType,
+        init: RtpTransceiverInit,
+    ) -> Result<RtpTransceiver, RtcError> {
+        self.sys_peer.add_transceiver_for_media(media_type, init)
+    }
+
+
+
+    pub fn restart_ice(&self) {
+        self.sys_peer.restart_ice()
+    }
+
+    pub fn connection_state(&self) -> PeerConnectionState {
+        self.sys_peer.connection_state()
+    }
+
+    pub fn ice_connection_state(&self) -> IceConnectionState {
+        self.sys_peer.ice_connection_state()
+    }
+
+    pub fn ice_gathering_state(&self) -> IceGatheringState {
+        self.sys_peer.ice_gathering_state()
+    }
+
+    pub fn signaling_state(&self) -> SignalingState {
+        self.sys_peer.signaling_state()
+    }
+
+    pub fn current_local_description(&self) -> Option<SessionDescription> {
+        self.sys_peer.current_local_description()
+    }
+
+    pub fn current_remote_description(&self) -> Option<SessionDescription> {
+        self.sys_peer.current_remote_description()
+    }
+
+    pub fn senders(&self) -> Vec<RtpSender> {
+        self.sys_peer.senders()
+    }
+
+    pub fn receivers(&self) -> Vec<RtpReceiver> {
+        self.sys_peer.receivers()
+    }
+
+    pub fn transceivers(&self) -> Vec<RtpTransceiver> {
+        self.sys_peer.transceivers()
+    }
+
+    pub fn observer(&self) -> Arc<PeerObserver> {
+        self.observer.clone()
+    }
+    */
+    pub fn on_connection_state_change(&self, f: Option<OnConnectionChange>) {
+        let mut guard = self.observer.connection_change_handler.lock().unwrap();
+        guard.replace(f.unwrap());
     }
 
     pub fn on_data_channel(&self, f: Option<OnDataChannel>) {
-        *self.observer.data_channel_handler.lock() = f;
+        let mut guard = self.observer.data_channel_handler.lock().unwrap();
+        guard.replace(f.unwrap());
     }
 
     pub fn on_ice_candidate(&self, f: Option<OnIceCandidate>) {
-        *self.observer.ice_candidate_handler.lock() = f;
+        let mut guard = self.observer.ice_candidate_handler.lock().unwrap();
+        guard.replace(f.unwrap());
     }
 
     pub fn on_ice_candidate_error(&self, f: Option<OnIceCandidateError>) {
-        *self.observer.ice_candidate_error_handler.lock() = f;
+        let mut guard = self.observer.ice_candidate_error_handler.lock().unwrap();
+        guard.replace(f.unwrap());
     }
 
     pub fn on_ice_connection_state_change(&self, f: Option<OnIceConnectionChange>) {
-        *self.observer.ice_connection_change_handler.lock() = f;
+        let mut guard = self.observer.ice_connection_change_handler.lock().unwrap();
+        guard.replace(f.unwrap());
     }
 
     pub fn on_ice_gathering_state_change(&self, f: Option<OnIceGatheringChange>) {
-        *self.observer.ice_gathering_change_handler.lock() = f;
+        let mut guard = self.observer.ice_gathering_change_handler.lock().unwrap();
+        guard.replace(f.unwrap());
     }
 
     pub fn on_negotiation_needed(&self, f: Option<OnNegotiationNeeded>) {
-        *self.observer.negotiation_needed_handler.lock() = f;
+        let mut guard = self.observer.negotiation_needed_handler.lock().unwrap();
+        guard.replace(f.unwrap());
     }
 
     pub fn on_signaling_state_change(&self, f: Option<OnSignalingChange>) {
-        *self.observer.signaling_change_handler.lock() = f;
+        let mut guard = self.observer.signaling_change_handler.lock().unwrap();
+        guard.replace(f.unwrap());
     }
 
     pub fn on_track(&self, f: Option<OnTrack>) {
-        *self.observer.track_handler.lock() = f;
+        let mut guard = self.observer.track_handler.lock().unwrap();
+        guard.replace(f.unwrap());
     }
-
-}
-
-impl PeerConnection {
-  pub fn lk_observer() -> lkPeerObserver {
-    let observer = lkPeerObserver {
-    onSignalingChange:
-      Some(Self::peer_on_signal_change),
-          onIceCandidate : Some(Self::peer_on_ice_candidate),
-          onDataChannel : Some(Self::peer_on_data_channel),
-          onTrack : Some(Self::pee_on_track),
-          onConnectionChange: Some(Self::peer_on_connection_state_change),
-          onIceCandidateError : Some(Self::peer_on_ice_candidate_error),
-    };
-    observer
-  }
-
-  extern "C" fn peer_on_signal_change(state : lkSignalingState,
-                                      userdata : *mut std::ffi::c_void) {
-    let _peer : & mut PeerConnection =
-                    unsafe{&mut * userdata.cast::<PeerConnection>()};
-    let mut handler = _peer.observer.signaling_change_handler.lock().unwrap();
-    if let Some(f) = handler.as_mut() {
-        f(state.into());
-    }
-  }
-
-  extern "C" fn peer_on_ice_candidate(
-      sdp_mid : * const ::std::os::raw::c_char,
-      sdp_mline_index : ::std::os::raw::c_int,
-      candidate : * const ::std::os::raw::c_char,
-      userdata : *mut ::std::os::raw::c_void) {
-    let _peer : & mut PeerConnection =
-                    unsafe{&mut * userdata.cast::<PeerConnection>()};
-    let mut handler = _peer.observer.ice_candidate_handler.lock().unwrap();
-    if let Some(f) = handler.as_mut() {
-        f(IceCandidate{
-          sdp_mid : unsafe{
-              std::ffi::CStr::from_ptr(sdp_mid).to_str().unwrap().to_string()},
-          sdp_mline_index,
-          candidate : unsafe{
-              std::ffi::CStr::from_ptr(candidate).to_str().unwrap().to_string()},
-        });
-    }
-  }
-
-#[allow(non_snake_case)]
-extern "C" fn peer_on_data_channel(dc : * const lkDataChannel,
-                                _userdata : *mut std::ffi::c_void) {
-  let _peer : & mut PeerConnection =
-                    unsafe{&mut * _userdata.cast::<PeerConnection>()};
-    let mut handler = _peer.observer.data_channel_handler.lock().unwrap();
-    if let Some(f) = handler.as_mut() {
-      //TODO: create DataChannel from dc
-      // f(DataChannel { handle: imp_dc::DataChannel::configure(dc)
-      // });
-    }
-}
-
-#[allow(non_snake_case)]
-extern "C" fn pee_on_track(transceiver : * const lkRtpTransceiver,
-                          _userdata : *mut std::ffi::c_void, ) {
-  let _peer : & mut PeerConnection =  
-  unsafe{&mut * _userdata.cast::<PeerConnection>()};
-let mut handler = _peer.observer.track_handler.lock().unwrap();
-if let Some(f) = handler.as_mut() {
-    //TODO: create TrackEvent from transceiver
-    println !("OnTrack: {:?}", transceiver);
-}
-}
-
-#[allow(non_snake_case)]
-extern "C" fn peer_on_connection_state_change(state : lkPeerState,
-                                     _userdata : *mut std::ffi::c_void) {
-  let _peer : & mut PeerConnection =  
-      unsafe{&mut * _userdata.cast::<PeerConnection>()};
-    let mut handler = _peer.observer.connection_change_handler.lock().unwrap();
-    if let Some(f) = handler.as_mut() {
-        f(state.into());
-    }
-}
-
-#[allow(non_snake_case)]
-extern "C" fn peer_on_ice_candidate_error(
-  address: *const ::std::os::raw::c_char,
-  port: ::std::os::raw::c_int,
-  url: *const ::std::os::raw::c_char,
-  error_code: ::std::os::raw::c_int,
-  error_text: *const ::std::os::raw::c_char,
-  userdata: *mut ::std::os::raw::c_void
-) {
-  let _peer : & mut PeerConnection = unsafe{&mut * userdata.cast::<PeerConnection>()};
-  let mut handler = _peer.observer.ice_candidate_error_handler.lock().unwrap();
-  if let Some(f) = handler.as_mut() {
-        f(IceCandidateError{
-          address : unsafe{
-            std::ffi::CStr::from_ptr(address).to_str().unwrap().to_string()},
-          port,
-          url : unsafe{
-            std::ffi::CStr::from_ptr(url).to_str().unwrap().to_string()},
-          error_code,
-          error_text : unsafe{
-            std::ffi::CStr::from_ptr(error_text).to_str().unwrap().to_string()},
-        });
-      }
-  }
 }
 
 impl Debug for PeerConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PeerConnection")
-            .field("state", &self.connection_state())
-            .field("ice_state", &self.ice_connection_state())
+            //.field("state", &self.connection_state())
+            //.field("ice_state", &self.ice_connection_state())
             .finish()
     }
 }

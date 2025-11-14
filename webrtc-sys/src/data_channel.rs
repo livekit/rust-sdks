@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use serde::Deserialize;
 use std::{
     str::{self, Utf8Error},
     sync::{Arc, Mutex},
@@ -21,8 +20,7 @@ use thiserror::Error;
 
 use crate::sys::{self, lkDataChannelObserver, lkDcState};
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum DataChannelState {
     Connecting,
     Open,
@@ -67,6 +65,20 @@ pub struct DataChannelInit {
     pub priority: Option<Priority>,
 }
 
+impl Default for DataChannelInit {
+    fn default() -> Self {
+        Self {
+            ordered: true,
+            max_retransmit_time: None,
+            max_retransmits: None,
+            protocol: String::new(),
+            negotiated: false,
+            id: -1,
+            priority: None,
+        }
+    }
+}
+
 impl From<lkDcState> for DataChannelState {
     fn from(value: lkDcState) -> Self {
         match value {
@@ -74,7 +86,6 @@ impl From<lkDcState> for DataChannelState {
             lkDcState::LK_DC_STATE_OPEN => Self::Open,
             lkDcState::LK_DC_STATE_CLOSING => Self::Closing,
             lkDcState::LK_DC_STATE_CLOSED => Self::Closed,
-            _ => panic!("unknown data channel state"),
         }
     }
 }
@@ -102,13 +113,13 @@ impl DataChannel {
     }
     pub fn configure(sys_handle: sys::RefCounted<sys::lkDataChannel>) -> Self {
         let observer = Arc::new(DataChannelObserver::default());
-        let dc: DataChannel = Self { sys_handle: sys_handle.clone(), observer: observer };
+        let dc: DataChannel = Self { sys_handle: sys_handle.clone(), observer: observer.clone() };
         let lk_observer = dc.observer.lk_observer();
         unsafe {
             sys::lkDcRegisterObserver(
                 sys_handle.as_ptr(),
                 &lk_observer,
-                /*TODO: */ core::ptr::null_mut(),
+                Arc::as_ptr(&observer) as *mut ::std::os::raw::c_void,
             );
         }
         dc
@@ -184,11 +195,25 @@ impl DataChannel {
     pub fn buffered_amount(&self) -> u64 {
         unsafe { sys::lkDcGetBufferedAmount(self.sys_handle.as_ptr()) }
     }
+
+    pub fn on_state_change(&self, handler: Option<OnStateChange>) {
+        let mut guard = self.observer.state_change_handler.lock().unwrap();
+        guard.replace(handler.unwrap());
+    }
+
+    pub fn on_message(&self, handler: Option<OnMessage>) {
+        let mut guard = self.observer.message_handler.lock().unwrap();
+        guard.replace(handler.unwrap());
+    }
+
+    pub fn on_buffered_amount_change(&self, handler: Option<OnBufferedAmountChange>) {
+        let mut guard = self.observer.buffered_amount_change_handler.lock().unwrap();
+        guard.replace(handler.unwrap());
+    }
 }
 
 #[derive(Default)]
 struct DataChannelObserver {
-    dc: Mutex<Option<DataChannel>>,
     state_change_handler: Mutex<Option<OnStateChange>>,
     message_handler: Mutex<Option<OnMessage>>,
     buffered_amount_change_handler: Mutex<Option<OnBufferedAmountChange>>,
@@ -217,7 +242,7 @@ impl DataChannelObserver {
         binary: bool,
         userdata: *mut ::std::os::raw::c_void,
     ) {
-        let observer = unsafe { &*(userdata as *const DataChannelObserver) };
+        let observer: &DataChannelObserver = unsafe { &*(userdata as *const DataChannelObserver) };
         let mut handler = observer.message_handler.lock().unwrap();
 
         if let Some(f) = handler.as_mut() {
