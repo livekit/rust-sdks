@@ -14,10 +14,12 @@
 
 use std::fmt::Debug;
 
-use crate::{session_description::SdpParseError, sys::lkIceCandidate};
+use crate::session_description::SdpParseError;
 
 pub struct IceCandidate {
-    pub(crate) handle: lkIceCandidate,
+    pub(crate) candidate: String,
+    pub(crate) sdp_mid: String,
+    pub(crate) sdp_mline_index: i32,
 }
 
 impl IceCandidate {
@@ -26,31 +28,30 @@ impl IceCandidate {
         sdp_mline_index: i32,
         sdp: &str,
     ) -> Result<IceCandidate, SdpParseError> {
-        IceCandidate{
-            handle: lkIceCandidate{
-                sdpMid: sdp_mid.to_string(),
-                sdpMLineIndex: sdp_mline_index,
-                sdp: sdp.to_string(),
-            }?,
-        }
+        //TOD: validate candidate string by calling into FFI
+        Ok(IceCandidate {
+            candidate: sdp.to_string(),
+            sdp_mid: sdp_mid.to_string(),
+            sdp_mline_index,
+        })
     }
 
     pub fn sdp_mid(&self) -> String {
-        self.handle.sdpMid
+        self.sdp_mid.clone()
     }
 
     pub fn sdp_mline_index(&self) -> i32 {
-        self.handle.sdpMLineIndex
+        self.sdp_mline_index
     }
 
     pub fn candidate(&self) -> String {
-        self.handle.sdp
+        self.candidate.clone()
     }
 }
 
 impl ToString for IceCandidate {
     fn to_string(&self) -> String {
-        self.handle.to_string()
+        self.candidate.to_string()
     }
 }
 

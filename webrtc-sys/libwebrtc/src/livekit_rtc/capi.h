@@ -16,6 +16,11 @@ typedef void lkPeerFactory;
 typedef void lkPeer;
 typedef void lkDataChannel;
 typedef void lkRtpTransceiver;
+typedef void lkRtpReceiver;
+typedef void lkRtpSender;
+typedef void lkMediaStreamTrack;
+typedef void lkMediaStream;
+typedef void lkSessionDescription;
 
 typedef enum {
   LK_ICE_TRANSPORT_TYPE_NONE,
@@ -58,6 +63,12 @@ typedef enum {
 } lkIceState;
 
 typedef enum {
+  LK_ICE_GATHERING_NEW,
+  LK_ICE_GATHERING_GATHERING,
+  LK_ICE_GATHERING_COMPLETE,
+} lkIceGatheringState;
+
+typedef enum {
   LK_SDP_TYPE_OFFER,
   LK_SDP_TYPE_PRANSWER,
   LK_SDP_TYPE_ANSWER,
@@ -72,14 +83,11 @@ typedef enum {
 } lkDcState;
 
 typedef struct {
-  const char* sdpMid;
-  int sdpMLineIndex;
-  const char* sdp;
-} lkIceCandidate;
-
-typedef struct {
   void (*onSignalingChange)(lkSignalingState state, void* userdata);
-  void (*onIceCandidate)(const lkIceCandidate* candidate, void* userdata);
+  void (*onIceCandidate)(const char* sdpMid,
+                         int sdpMLineIndex,
+                         const char* candidate,
+                         void* userdata);
   void (*onDataChannel)(const lkDataChannel* dc, void* userdata);
   void (*onTrack)(const lkRtpTransceiver* transceiver, void* userdata);
   void (*onConnectionChange)(lkPeerState state, void* userdata);
@@ -92,7 +100,7 @@ typedef struct {
 } lkPeerObserver;
 
 typedef struct {
-  void (*onStateChange)(void* userdata);
+  void (*onStateChange)(void* userdata, lkDcState state);
   void (*onMessage)(const uint8_t* data,
                     uint64_t size,
                     bool binary,
@@ -159,7 +167,9 @@ LK_EXPORT lkDataChannel* lkCreateDataChannel(lkPeer* peer,
                                              const lkDataChannelInit* init);
 
 LK_EXPORT bool lkAddIceCandidate(lkPeer* peer,
-                                 const lkIceCandidate* candidate,
+                                 const char* sdpMid,
+                                 int sdpMLineIndex,
+                                 const char* candidate,
                                  void (*onComplete)(lkRtcError* error,
                                                     void* userdata),
                                  void* userdata);
@@ -200,6 +210,10 @@ LK_EXPORT void lkDcUnregisterObserver(lkDataChannel* dc);
 LK_EXPORT lkDcState lkDcGetState(lkDataChannel* dc);
 
 LK_EXPORT int lkDcGetId(lkDataChannel* dc);
+
+LK_EXPORT int lkDcGetLabel(lkDataChannel* dc, char* buffer, int bufferSize);
+
+LK_EXPORT uint64_t lkDcGetBufferedAmount(lkDataChannel* dc);
 
 LK_EXPORT void lkDcSendAsync(lkDataChannel* dc,
                              const uint8_t* data,

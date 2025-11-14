@@ -80,30 +80,15 @@ pub enum lkDcState {
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct lkIceCandidate {
-    pub sdpMid: *const ::std::os::raw::c_char,
-    pub sdpMLineIndex: ::std::os::raw::c_int,
-    pub sdp: *const ::std::os::raw::c_char,
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of lkIceCandidate"][::std::mem::size_of::<lkIceCandidate>() - 24usize];
-    ["Alignment of lkIceCandidate"][::std::mem::align_of::<lkIceCandidate>() - 8usize];
-    ["Offset of field: lkIceCandidate::sdpMid"]
-        [::std::mem::offset_of!(lkIceCandidate, sdpMid) - 0usize];
-    ["Offset of field: lkIceCandidate::sdpMLineIndex"]
-        [::std::mem::offset_of!(lkIceCandidate, sdpMLineIndex) - 8usize];
-    ["Offset of field: lkIceCandidate::sdp"][::std::mem::offset_of!(lkIceCandidate, sdp) - 16usize];
-};
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
 pub struct lkPeerObserver {
     pub onSignalingChange: ::std::option::Option<
         unsafe extern "C" fn(state: lkSignalingState, userdata: *mut ::std::os::raw::c_void),
     >,
     pub onIceCandidate: ::std::option::Option<
         unsafe extern "C" fn(
-            candidate: *const lkIceCandidate,
+            sdpMid: *const ::std::os::raw::c_char,
+            sdpMLineIndex: ::std::os::raw::c_int,
+            candidate: *const ::std::os::raw::c_char,
             userdata: *mut ::std::os::raw::c_void,
         ),
     >,
@@ -150,8 +135,9 @@ const _: () = {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct lkDataChannelObserver {
-    pub onStateChange:
-        ::std::option::Option<unsafe extern "C" fn(userdata: *mut ::std::os::raw::c_void)>,
+    pub onStateChange: ::std::option::Option<
+        unsafe extern "C" fn(userdata: *mut ::std::os::raw::c_void, state: lkDcState),
+    >,
     pub onMessage: ::std::option::Option<
         unsafe extern "C" fn(
             data: *const u8,
@@ -335,7 +321,9 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn lkAddIceCandidate(
         peer: *mut lkPeer,
-        candidate: *const lkIceCandidate,
+        sdpMid: *const ::std::os::raw::c_char,
+        sdpMLineIndex: ::std::os::raw::c_int,
+        candidate: *const ::std::os::raw::c_char,
         onComplete: ::std::option::Option<
             unsafe extern "C" fn(error: *mut lkRtcError, userdata: *mut ::std::os::raw::c_void),
         >,
@@ -397,6 +385,16 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn lkDcGetId(dc: *mut lkDataChannel) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkDcGetLabel(
+        dc: *mut lkDataChannel,
+        buffer: *mut ::std::os::raw::c_char,
+        bufferSize: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkDcGetBufferedAmount(dc: *mut lkDataChannel) -> u64;
 }
 unsafe extern "C" {
     pub fn lkDcSendAsync(

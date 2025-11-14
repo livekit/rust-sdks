@@ -22,10 +22,12 @@ mod tests {
 
     #[allow(non_snake_case)]
     extern "C" fn peerOnIceCandidate(
-        state: *const lkIceCandidate,
-        _userdata: *mut std::ffi::c_void,
+        sdpMid: *const ::std::os::raw::c_char,
+        sdpMLineIndex: ::std::os::raw::c_int,
+        candidate: *const ::std::os::raw::c_char,
+        userdata: *mut ::std::os::raw::c_void,
     ) {
-        println!("OnIceCandidate: {:?}", state);
+        println!("OnIceCandidate: {:?}", candidate);
     }
 
     #[allow(non_snake_case)]

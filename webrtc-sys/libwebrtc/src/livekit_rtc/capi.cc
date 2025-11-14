@@ -66,11 +66,15 @@ lkDataChannel* lkCreateDataChannel(lkPeer* peer,
 }
 
 bool lkAddIceCandidate(lkPeer* peer,
-                       const lkIceCandidate* candidate,
+                       const char* sdpMid,
+                       int sdpMLineIndex,
+                       const char* candidate,
                        void (*onComplete)(lkRtcError* error, void* userdata),
                        void* userdata) {
+  auto cand = IceCandidateInterface = webrtc::CreateIceCandidate(
+  sdpMid, sdpMLineIndex, candidate, nullptr);
   return reinterpret_cast<livekit::Peer*>(peer)->AddIceCandidate(
-      candidate, onComplete, userdata);
+      cand, onComplete, userdata);
 }
 
 bool lkSetLocalDescription(lkPeer* peer,
@@ -132,6 +136,23 @@ lkDcState lkDcGetState(lkDataChannel* dc) {
 
 int lkDcGetId(lkDataChannel* dc) {
   return reinterpret_cast<livekit::DataChannel*>(dc)->Id();
+}
+
+int lkDcGetLabel(lkDataChannel* dc, char* buffer, int bufferSize) {
+  auto label =
+      reinterpret_cast<livekit::DataChannel*>(dc)->data_channel_->label();
+  int len = static_cast<int>(label.size());
+  if (bufferSize > 0) {
+    int copySize = (len < bufferSize - 1) ? len : bufferSize - 1;
+    memcpy(buffer, label.c_str(), copySize);
+    buffer[copySize] = '\0';
+  }
+  return len;
+}
+
+LK_EXPORT uint64_t lkDcGetBufferedAmount(lkDataChannel* dc) {
+  return reinterpret_cast<livekit::DataChannel*>(dc)
+      ->data_channel_->buffered_amount();
 }
 
 void lkDcSendAsync(lkDataChannel* dc,

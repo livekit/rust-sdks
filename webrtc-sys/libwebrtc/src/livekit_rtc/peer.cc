@@ -118,11 +118,7 @@ void PeerObserver::OnIceCandidate(
   std::string sdp;
   candidate->ToString(&sdp);
   std::string mid = candidate->sdp_mid();
-  lkIceCandidate lkCandidate{};
-  lkCandidate.sdpMid = mid.c_str();
-  lkCandidate.sdpMLineIndex = candidate->sdp_mline_index();
-  lkCandidate.sdp = sdp.c_str();
-  observer_->onIceCandidate(&lkCandidate, userdata_);
+  observer_->onIceCandidate(mid.c_str(), candidate->sdp_mline_index(), sdp.c_str() , userdata_);
 }
 
 void PeerObserver::OnTrack(

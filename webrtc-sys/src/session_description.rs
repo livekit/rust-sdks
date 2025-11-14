@@ -19,6 +19,8 @@ use std::{
 
 use thiserror::Error;
 
+use crate::sys;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum SdpType {
     Offer,
@@ -55,7 +57,8 @@ impl Display for SdpType {
 
 #[derive(Clone)]
 pub struct SessionDescription {
-    pub(crate) handle: sd_imp::SessionDescription,
+    pub (crate) sdp: String,
+    pub (crate) sdp_type: SdpType,
 }
 
 #[derive(Clone, Error, Debug)]
@@ -67,17 +70,28 @@ pub struct SdpParseError {
 
 impl SessionDescription {
     pub fn parse(sdp: &str, sdp_type: SdpType) -> Result<Self, SdpParseError> {
-        sd_imp::SessionDescription::parse(sdp, sdp_type)
+        // Basic validation: check if sdp starts with "v="
+        if !sdp.starts_with("v=") {
+            return Err(SdpParseError {
+                line: sdp.lines().next().unwrap_or("").to_string(),
+                description: "SDP must start with 'v='".to_string(),
+            });
+        }
+
+        Ok(SessionDescription {
+            sdp: sdp.to_string(),
+            sdp_type,
+        })
     }
 
     pub fn sdp_type(&self) -> SdpType {
-        self.handle.sdp_type()
+        self.sdp_type
     }
 }
 
 impl ToString for SessionDescription {
     fn to_string(&self) -> String {
-        self.handle.to_string()
+        self.sdp.clone()
     }
 }
 

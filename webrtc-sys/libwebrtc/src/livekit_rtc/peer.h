@@ -20,13 +20,13 @@ class PeerObserver : public webrtc::PeerConnectionObserver,
 
   void OnSignalingChange(
       webrtc::PeerConnectionInterface::SignalingState new_state) override;
-  void OnDataChannel(
-      webrtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) override;
+  void OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface>
+                         data_channel) override;
   void OnIceGatheringChange(
       webrtc::PeerConnectionInterface::IceGatheringState new_state) override;
   void OnIceCandidate(const webrtc::IceCandidateInterface* candidate) override;
-  void OnTrack(
-      webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) override;
+  void OnTrack(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>
+                   transceiver) override;
   void OnIceCandidateError(const std::string& address,
                            int port,
                            const std::string& url,
@@ -47,10 +47,11 @@ class Peer : public webrtc::RefCountInterface {
       : observer_(observer), peer_connection_(pc) {}
 
   webrtc::scoped_refptr<DataChannel> CreateDataChannel(
-      const char* label,
-      const lkDataChannelInit* init);
+      const char* label, const lkDataChannelInit* init);
 
-  bool AddIceCandidate(const lkIceCandidate* candidate,
+  bool AddIceCandidate(const char* sdpMid,
+                       int sdpMLineIndex,
+                       const char* candidate,
                        void (*onComplete)(lkRtcError* error, void* userdata),
                        void* userdata);
 
@@ -87,8 +88,8 @@ class PeerFactory : public webrtc::RefCountInterface {
   ~PeerFactory();
 
   webrtc::scoped_refptr<Peer> CreatePeer(const lkRtcConfiguration* config,
-                                      const lkPeerObserver* observer,
-                                      void* userdata);
+                                         const lkPeerObserver* observer,
+                                         void* userdata);
 
  private:
   std::unique_ptr<webrtc::Thread> network_thread_;

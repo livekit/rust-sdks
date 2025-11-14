@@ -19,6 +19,8 @@ use std::{
     io::{self, BufRead, Write},
     path,
     process::Command,
+    error::Error,
+    ffi::OsStr,
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -81,6 +83,48 @@ pub fn is_using_custom_webrtc() -> Option<path::PathBuf> {
         return Some(path::PathBuf::from(path));
     }
     None
+}
+
+pub fn copy_dylib_to_target(rtc_path: &path::PathBuf) -> Result<(), Box<dyn Error>> {
+    if let Some(target_dir) = find_target_dir() {
+        let build_mode = env::var("PROFILE").unwrap();
+        let source_dylib = rtc_path.join("lib").join("liblivekit_rtc.dylib");
+        println!("cargo:rerun-if-changed={}", source_dylib.display());
+        let target_dylib = target_dir.join(build_mode).join("liblivekit_rtc.dylib");
+        fs::copy(source_dylib, target_dylib)?;
+        Ok(())
+    } else {
+        Err("could not find target dir".into())
+    }
+}
+
+fn find_target_dir() -> Option<path::PathBuf> {
+    if let Some(target_dir) = env::var_os("CARGO_TARGET_DIR") {
+        let target_dir = path::PathBuf::from(target_dir);
+        if target_dir.is_absolute() {
+            return Some(target_dir);
+        } else {
+            return None;
+        };
+    }
+
+    let out_dir = path::PathBuf::from(env::var_os("OUT_DIR").unwrap());
+    let mut dir = out_dir.to_owned();
+    loop {
+        if dir.join(".rustc_info.json").exists()
+            || dir.join("CACHEDIR.TAG").exists()
+            || dir.file_name() == Some(OsStr::new("target"))
+                && dir.parent().map_or(false, |parent| parent.join("Cargo.toml").exists())
+        {
+            return Some(dir);
+        }
+
+        if dir.pop() {
+            continue;
+        }
+
+        return None;
+    }
 }
 
 /// Location of the downloaded webrtc binaries
@@ -292,4 +336,17 @@ fn host_os() -> Option<&'static str> {
     } else {
         None
     }
+}
+
+pub fn link_shared_library(rtc_path: &path::PathBuf) {
+    let lib_search_path = rtc_path.join("lib");
+    //panic!("linking to livekit_rtc dylib at {}", lib_search_path.display());
+    println!("cargo:rustc-link-search=native={}", lib_search_path.display());
+    println!("cargo:rustc-link-lib=dylib=livekit_rtc");
+}
+
+pub fn link_static_library(rtc_path: &path::PathBuf) {
+    let lib_search_path = rtc_path.join("lib");
+    println!("cargo:rustc-link-search=native={}", lib_search_path.display());
+    println!("cargo:rustc-link-lib=static=livekit_rtc");
 }

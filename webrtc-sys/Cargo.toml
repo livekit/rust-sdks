@@ -13,6 +13,8 @@ static = []
 
 [dependencies]
 log = "0.4"
+serde = "1.0.228"
+thiserror = "2.0.17"
 
 [build-dependencies]
 webrtc-sys-build = { workspace = true }

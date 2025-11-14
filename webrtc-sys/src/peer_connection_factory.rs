@@ -14,7 +14,7 @@
 
 use std::fmt::Debug;
 
-use crate::{RtcError, peer_connection::PeerConnection, sys::{self, *}};
+use crate::{RtcError, peer_connection::PeerConnection, sys};
 
 #[derive(Debug, Clone)]
 pub struct IceServer {
@@ -73,24 +73,24 @@ impl Debug for PeerConnectionFactory {
     }
 }
 
-impl From<IceTransportsType> for lkIceTransportType {
+impl From<IceTransportsType> for sys::lkIceTransportType {
     fn from(itt: IceTransportsType) -> Self {
         match itt {
-            IceTransportsType::Relay => lkIceTransportType::LK_ICE_TRANSPORT_TYPE_RELAY,
-            IceTransportsType::NoHost => lkIceTransportType::LK_ICE_TRANSPORT_TYPE_NO_HOST,
-            IceTransportsType::All => lkIceTransportType::LK_ICE_TRANSPORT_TYPE_ALL,
+            IceTransportsType::Relay => sys::lkIceTransportType::LK_ICE_TRANSPORT_TYPE_RELAY,
+            IceTransportsType::NoHost => sys::lkIceTransportType::LK_ICE_TRANSPORT_TYPE_NO_HOST,
+            IceTransportsType::All => sys::lkIceTransportType::LK_ICE_TRANSPORT_TYPE_ALL,
         }
     }
 }
 
-impl From<ContinualGatheringPolicy> for lkContinualGatheringPolicy {
+impl From<ContinualGatheringPolicy> for sys::lkContinualGatheringPolicy {
     fn from(cgp: ContinualGatheringPolicy) -> Self {
         match cgp {
             ContinualGatheringPolicy::GatherOnce => {
-                lkContinualGatheringPolicy::kContinualGatheringPolicy_GatherOnce
+                sys::lkContinualGatheringPolicy::LK_GATHERING_POLICY_ONCE
             }
             ContinualGatheringPolicy::GatherContinually => {
-                lkContinualGatheringPolicy::kContinualGatheringPolicy_GatherContinually
+                sys::lkContinualGatheringPolicy::LK_GATHERING_POLICY_CONTINUALLY
             }
         }
     }
@@ -103,7 +103,7 @@ impl PeerConnectionFactory {
         &self,
         config: RtcConfiguration,
     ) -> Result<PeerConnection, RtcError> {
-        let lk_config = lkRtcConfiguration{
+        let lk_config = sys::lkRtcConfiguration{
             iceServersCount: config.ice_servers.len() as i32,
             iceServers: std::ptr::null_mut(), // TODO: implement ice servers
             iceTransportType: config.ice_transport_type.into(),
@@ -111,12 +111,12 @@ impl PeerConnectionFactory {
         };
 
         let peer = PeerConnection::default();
-        let ff_handle = unsafe { lkCreatePeer(self.factory_ffi, lk_config, peer.lk_observer(), peer) };
+        let ff_handle = unsafe { sys::lkCreatePeer(self.factory_ffi, lk_config, peer.lk_observer(), peer) };
         if !!ff_handle {
             return Err(RtcError::new("Failed to create PeerConnection"));
         }
         peer.peer_ffi = unsafe { sys::RefCounted::from_raw(ff_handle) };
-        peer
+        Ok(peer)
     }
     /* 
     pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {

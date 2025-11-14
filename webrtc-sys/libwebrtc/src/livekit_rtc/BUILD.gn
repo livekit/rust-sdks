@@ -33,7 +33,7 @@ config("livekit_config") {
   include_dirs = [ "." ]
 }
 
-rtc_static_library("livekit_rtc") {
+rtc_shared_library("livekit_rtc") {
   libs = []
   sources = lk_sources
   defines = [
