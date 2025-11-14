@@ -20,6 +20,7 @@
 
 #include "audio/remix_resample.h"
 #include "api/audio/audio_view.h"
+#include "api/audio/audio_frame.h"
 
 namespace livekit {
 
@@ -31,6 +32,7 @@ size_t AudioResampler::remix_and_resample(const int16_t* src,
                                           int dest_sample_rate) {
   frame_.num_channels_ = dest_num_channels;
   frame_.sample_rate_hz_ = dest_sample_rate;
+  frame_.samples_per_channel_ = webrtc::SampleRateToDefaultChannelSize(dest_sample_rate);
   webrtc::InterleavedView<const int16_t> source(static_cast<const int16_t*>(src),
                                          samples_per_channel,
                                          num_channels);
