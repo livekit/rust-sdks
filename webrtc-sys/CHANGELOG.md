@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.17](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.16...rust-sdks/webrtc-sys@0.3.17) - 2025-11-14
+
+### Other
+
+- enable Pipewire (Wayland) and X11 desktop capture ([#784](https://github.com/livekit/rust-sdks/pull/784))
+
 ## [0.3.16](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.15...rust-sdks/webrtc-sys@0.3.16) - 2025-10-27
 
 ### Fixed
