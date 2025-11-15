@@ -1186,11 +1186,13 @@ impl RoomSession {
                 sdp: answer.to_string(),
                 r#type: answer.sdp_type().to_string(),
                 id: 0,
+                mid_to_track_id: HashMap::default(),
             }),
             offer: Some(proto::SessionDescription {
                 sdp: offer.to_string(),
                 r#type: offer.sdp_type().to_string(),
                 id: 0,
+                mid_to_track_id: HashMap::default(),
             }),
             track_sids_disabled: Vec::default(), // TODO: New protocol version
             subscription: Some(proto::UpdateSubscription {
