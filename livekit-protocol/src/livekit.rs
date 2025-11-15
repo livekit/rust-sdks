@@ -590,15 +590,15 @@ pub struct TrackInfo {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataTrackInfo {
-    #[prost(string, tag="1")]
+    /// Client-assigned, 16-bit identifier that will be attached to packets sent by the publisher.
+    #[prost(uint32, tag="1")]
+    pub pub_handle: u32,
+    /// Server-assigned track identifier.
+    #[prost(string, tag="2")]
     pub sid: ::prost::alloc::string::String,
     /// Human-readable identifier (e.g., `geoLocation`, `servoPosition.x`, etc.), unique per publisher.
-    #[prost(string, tag="2")]
-    pub name: ::prost::alloc::string::String,
-    /// MIME type of the data sent over the track (e.g., `application/json`).
-    /// This must be a valid MIME type as defined by RFC 2046.
     #[prost(string, tag="3")]
-    pub mime_type: ::prost::alloc::string::String,
+    pub name: ::prost::alloc::string::String,
     /// Method used for end-to-end encryption (E2EE) on packet payloads.
     #[prost(enumeration="encryption::Type", tag="4")]
     pub encryption: i32,
@@ -3294,50 +3294,45 @@ pub struct AddTrackRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishDataTrackRequest {
-    /// 16-bit identifier attached to packets, unique per publisher.
+    /// Client-assigned, 16-bit identifier that will be attached to packets sent by the publisher.
+    /// This must be non-zero and unique for each data track published by the publisher.
     #[prost(uint32, tag="1")]
-    pub handle: u32,
+    pub pub_handle: u32,
     /// Human-readable identifier (e.g., `geoLocation`, `servoPosition.x`, etc.), unique per publisher.
+    /// This must be non-empty and no longer than 256 characters.
     #[prost(string, tag="2")]
     pub name: ::prost::alloc::string::String,
-    /// MIME type of the data sent over the track (e.g., `application/json`).
-    /// This must be a valid MIME type as defined by RFC 2046.
-    #[prost(string, tag="3")]
-    pub mime_type: ::prost::alloc::string::String,
     /// Method used for end-to-end encryption (E2EE) on frame payloads.
-    #[prost(enumeration="encryption::Type", tag="4")]
+    #[prost(enumeration="encryption::Type", tag="3")]
     pub encryption: i32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct PublishDataTrackResponse {
-    /// Handle of the track that was published.
-    #[prost(uint32, tag="1")]
-    pub handle: u32,
     /// Information about the published track.
-    #[prost(message, optional, tag="2")]
+    #[prost(message, optional, tag="1")]
     pub info: ::core::option::Option<DataTrackInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnpublishDataTrackRequest {
-    /// Handle of the track to unpublish.
+    /// Publisher handle of the track to unpublish.
     #[prost(uint32, tag="1")]
-    pub handle: u32,
+    pub pub_handle: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct UnpublishDataTrackResponse {
-    /// Handle of the track that was unpublished.
+    /// Publisher handle of the track that was unpublished.
     #[prost(uint32, tag="1")]
-    pub handle: u32,
+    pub pub_handle: u32,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DataTrackSubscriberHandles {
-    /// Mapping from data track SIDs to handles subscribers will see on incoming packets.
-    #[prost(map="string, uint32", tag="1")]
-    pub handles: ::std::collections::HashMap<::prost::alloc::string::String, u32>,
+    /// Maps handles from incoming packets to the track SIDs that the packets belong to.
+    #[prost(map="uint32, string", tag="1")]
+    pub sub_handles: ::std::collections::HashMap<u32, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3467,11 +3462,13 @@ pub mod update_data_subscription {
     pub struct Update {
         #[prost(string, tag="1")]
         pub sid: ::prost::alloc::string::String,
-        #[prost(bool, tag="2")]
+        #[prost(string, tag="2")]
+        pub participant_identity: ::prost::alloc::string::String,
+        #[prost(bool, tag="3")]
         pub subscribe: bool,
         /// Options to apply when initially subscribing or updating an existing subscription.
         /// When unsubscribing, this field is ignored.
-        #[prost(message, optional, tag="3")]
+        #[prost(message, optional, tag="4")]
         pub options: ::core::option::Option<super::DataTrackSubscriptionOptions>,
     }
 }
@@ -3879,10 +3876,10 @@ pub mod request_response {
         Queued = 4,
         UnsupportedType = 5,
         UnclassifiedError = 6,
-        DataTrackInvalidHandle = 7,
-        DataTrackInvalidName = 8,
-        DataTrackInvalidMimeType = 9,
-        DataTrackNameTaken = 10,
+        InvalidHandle = 7,
+        InvalidName = 8,
+        DuplicateHandle = 9,
+        DuplicateName = 10,
     }
     impl Reason {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -3898,10 +3895,10 @@ pub mod request_response {
                 Reason::Queued => "QUEUED",
                 Reason::UnsupportedType => "UNSUPPORTED_TYPE",
                 Reason::UnclassifiedError => "UNCLASSIFIED_ERROR",
-                Reason::DataTrackInvalidHandle => "DATA_TRACK_INVALID_HANDLE",
-                Reason::DataTrackInvalidName => "DATA_TRACK_INVALID_NAME",
-                Reason::DataTrackInvalidMimeType => "DATA_TRACK_INVALID_MIME_TYPE",
-                Reason::DataTrackNameTaken => "DATA_TRACK_NAME_TAKEN",
+                Reason::InvalidHandle => "INVALID_HANDLE",
+                Reason::InvalidName => "INVALID_NAME",
+                Reason::DuplicateHandle => "DUPLICATE_HANDLE",
+                Reason::DuplicateName => "DUPLICATE_NAME",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3914,10 +3911,10 @@ pub mod request_response {
                 "QUEUED" => Some(Self::Queued),
                 "UNSUPPORTED_TYPE" => Some(Self::UnsupportedType),
                 "UNCLASSIFIED_ERROR" => Some(Self::UnclassifiedError),
-                "DATA_TRACK_INVALID_HANDLE" => Some(Self::DataTrackInvalidHandle),
-                "DATA_TRACK_INVALID_NAME" => Some(Self::DataTrackInvalidName),
-                "DATA_TRACK_INVALID_MIME_TYPE" => Some(Self::DataTrackInvalidMimeType),
-                "DATA_TRACK_NAME_TAKEN" => Some(Self::DataTrackNameTaken),
+                "INVALID_HANDLE" => Some(Self::InvalidHandle),
+                "INVALID_NAME" => Some(Self::InvalidName),
+                "DUPLICATE_HANDLE" => Some(Self::DuplicateHandle),
+                "DUPLICATE_NAME" => Some(Self::DuplicateName),
                 _ => None,
             }
         }

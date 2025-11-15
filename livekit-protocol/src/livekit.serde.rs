@@ -7106,27 +7106,27 @@ impl serde::Serialize for DataTrackInfo {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if self.pub_handle != 0 {
+            len += 1;
+        }
         if !self.sid.is_empty() {
             len += 1;
         }
         if !self.name.is_empty() {
-            len += 1;
-        }
-        if !self.mime_type.is_empty() {
             len += 1;
         }
         if self.encryption != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.DataTrackInfo", len)?;
+        if self.pub_handle != 0 {
+            struct_ser.serialize_field("pubHandle", &self.pub_handle)?;
+        }
         if !self.sid.is_empty() {
             struct_ser.serialize_field("sid", &self.sid)?;
         }
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
-        }
-        if !self.mime_type.is_empty() {
-            struct_ser.serialize_field("mimeType", &self.mime_type)?;
         }
         if self.encryption != 0 {
             let v = encryption::Type::try_from(self.encryption)
@@ -7143,18 +7143,18 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "pub_handle",
+            "pubHandle",
             "sid",
             "name",
-            "mime_type",
-            "mimeType",
             "encryption",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            PubHandle,
             Sid,
             Name,
-            MimeType,
             Encryption,
             __SkipField__,
         }
@@ -7178,9 +7178,9 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                         E: serde::de::Error,
                     {
                         match value {
+                            "pubHandle" | "pub_handle" => Ok(GeneratedField::PubHandle),
                             "sid" => Ok(GeneratedField::Sid),
                             "name" => Ok(GeneratedField::Name),
-                            "mimeType" | "mime_type" => Ok(GeneratedField::MimeType),
                             "encryption" => Ok(GeneratedField::Encryption),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -7201,12 +7201,20 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut pub_handle__ = None;
                 let mut sid__ = None;
                 let mut name__ = None;
-                let mut mime_type__ = None;
                 let mut encryption__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::PubHandle => {
+                            if pub_handle__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pubHandle"));
+                            }
+                            pub_handle__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::Sid => {
                             if sid__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("sid"));
@@ -7218,12 +7226,6 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                                 return Err(serde::de::Error::duplicate_field("name"));
                             }
                             name__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::MimeType => {
-                            if mime_type__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("mimeType"));
-                            }
-                            mime_type__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Encryption => {
                             if encryption__.is_some() {
@@ -7237,9 +7239,9 @@ impl<'de> serde::Deserialize<'de> for DataTrackInfo {
                     }
                 }
                 Ok(DataTrackInfo {
+                    pub_handle: pub_handle__.unwrap_or_default(),
                     sid: sid__.unwrap_or_default(),
                     name: name__.unwrap_or_default(),
-                    mime_type: mime_type__.unwrap_or_default(),
                     encryption: encryption__.unwrap_or_default(),
                 })
             }
@@ -7255,12 +7257,12 @@ impl serde::Serialize for DataTrackSubscriberHandles {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if !self.handles.is_empty() {
+        if !self.sub_handles.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.DataTrackSubscriberHandles", len)?;
-        if !self.handles.is_empty() {
-            struct_ser.serialize_field("handles", &self.handles)?;
+        if !self.sub_handles.is_empty() {
+            struct_ser.serialize_field("subHandles", &self.sub_handles)?;
         }
         struct_ser.end()
     }
@@ -7272,12 +7274,13 @@ impl<'de> serde::Deserialize<'de> for DataTrackSubscriberHandles {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "handles",
+            "sub_handles",
+            "subHandles",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Handles,
+            SubHandles,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -7300,7 +7303,7 @@ impl<'de> serde::Deserialize<'de> for DataTrackSubscriberHandles {
                         E: serde::de::Error,
                     {
                         match value {
-                            "handles" => Ok(GeneratedField::Handles),
+                            "subHandles" | "sub_handles" => Ok(GeneratedField::SubHandles),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -7320,16 +7323,16 @@ impl<'de> serde::Deserialize<'de> for DataTrackSubscriberHandles {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut handles__ = None;
+                let mut sub_handles__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Handles => {
-                            if handles__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("handles"));
+                        GeneratedField::SubHandles => {
+                            if sub_handles__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("subHandles"));
                             }
-                            handles__ = Some(
-                                map_.next_value::<std::collections::HashMap<_, ::pbjson::private::NumberDeserialize<u32>>>()?
-                                    .into_iter().map(|(k,v)| (k, v.0)).collect()
+                            sub_handles__ = Some(
+                                map_.next_value::<std::collections::HashMap<::pbjson::private::NumberDeserialize<u32>, _>>()?
+                                    .into_iter().map(|(k,v)| (k.0, v)).collect()
                             );
                         }
                         GeneratedField::__SkipField__ => {
@@ -7338,7 +7341,7 @@ impl<'de> serde::Deserialize<'de> for DataTrackSubscriberHandles {
                     }
                 }
                 Ok(DataTrackSubscriberHandles {
-                    handles: handles__.unwrap_or_default(),
+                    sub_handles: sub_handles__.unwrap_or_default(),
                 })
             }
         }
@@ -21751,27 +21754,21 @@ impl serde::Serialize for PublishDataTrackRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.handle != 0 {
+        if self.pub_handle != 0 {
             len += 1;
         }
         if !self.name.is_empty() {
-            len += 1;
-        }
-        if !self.mime_type.is_empty() {
             len += 1;
         }
         if self.encryption != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.PublishDataTrackRequest", len)?;
-        if self.handle != 0 {
-            struct_ser.serialize_field("handle", &self.handle)?;
+        if self.pub_handle != 0 {
+            struct_ser.serialize_field("pubHandle", &self.pub_handle)?;
         }
         if !self.name.is_empty() {
             struct_ser.serialize_field("name", &self.name)?;
-        }
-        if !self.mime_type.is_empty() {
-            struct_ser.serialize_field("mimeType", &self.mime_type)?;
         }
         if self.encryption != 0 {
             let v = encryption::Type::try_from(self.encryption)
@@ -21788,18 +21785,16 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "handle",
+            "pub_handle",
+            "pubHandle",
             "name",
-            "mime_type",
-            "mimeType",
             "encryption",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Handle,
+            PubHandle,
             Name,
-            MimeType,
             Encryption,
             __SkipField__,
         }
@@ -21823,9 +21818,8 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "handle" => Ok(GeneratedField::Handle),
+                            "pubHandle" | "pub_handle" => Ok(GeneratedField::PubHandle),
                             "name" => Ok(GeneratedField::Name),
-                            "mimeType" | "mime_type" => Ok(GeneratedField::MimeType),
                             "encryption" => Ok(GeneratedField::Encryption),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -21846,17 +21840,16 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut handle__ = None;
+                let mut pub_handle__ = None;
                 let mut name__ = None;
-                let mut mime_type__ = None;
                 let mut encryption__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Handle => {
-                            if handle__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("handle"));
+                        GeneratedField::PubHandle => {
+                            if pub_handle__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pubHandle"));
                             }
-                            handle__ = 
+                            pub_handle__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -21865,12 +21858,6 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                                 return Err(serde::de::Error::duplicate_field("name"));
                             }
                             name__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::MimeType => {
-                            if mime_type__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("mimeType"));
-                            }
-                            mime_type__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Encryption => {
                             if encryption__.is_some() {
@@ -21884,9 +21871,8 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackRequest {
                     }
                 }
                 Ok(PublishDataTrackRequest {
-                    handle: handle__.unwrap_or_default(),
+                    pub_handle: pub_handle__.unwrap_or_default(),
                     name: name__.unwrap_or_default(),
-                    mime_type: mime_type__.unwrap_or_default(),
                     encryption: encryption__.unwrap_or_default(),
                 })
             }
@@ -21902,16 +21888,10 @@ impl serde::Serialize for PublishDataTrackResponse {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.handle != 0 {
-            len += 1;
-        }
         if self.info.is_some() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.PublishDataTrackResponse", len)?;
-        if self.handle != 0 {
-            struct_ser.serialize_field("handle", &self.handle)?;
-        }
         if let Some(v) = self.info.as_ref() {
             struct_ser.serialize_field("info", v)?;
         }
@@ -21925,13 +21905,11 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackResponse {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "handle",
             "info",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Handle,
             Info,
             __SkipField__,
         }
@@ -21955,7 +21933,6 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackResponse {
                         E: serde::de::Error,
                     {
                         match value {
-                            "handle" => Ok(GeneratedField::Handle),
                             "info" => Ok(GeneratedField::Info),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -21976,18 +21953,9 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackResponse {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut handle__ = None;
                 let mut info__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Handle => {
-                            if handle__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("handle"));
-                            }
-                            handle__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
                         GeneratedField::Info => {
                             if info__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("info"));
@@ -22000,7 +21968,6 @@ impl<'de> serde::Deserialize<'de> for PublishDataTrackResponse {
                     }
                 }
                 Ok(PublishDataTrackResponse {
-                    handle: handle__.unwrap_or_default(),
                     info: info__,
                 })
             }
@@ -24999,10 +24966,10 @@ impl serde::Serialize for request_response::Reason {
             Self::Queued => "QUEUED",
             Self::UnsupportedType => "UNSUPPORTED_TYPE",
             Self::UnclassifiedError => "UNCLASSIFIED_ERROR",
-            Self::DataTrackInvalidHandle => "DATA_TRACK_INVALID_HANDLE",
-            Self::DataTrackInvalidName => "DATA_TRACK_INVALID_NAME",
-            Self::DataTrackInvalidMimeType => "DATA_TRACK_INVALID_MIME_TYPE",
-            Self::DataTrackNameTaken => "DATA_TRACK_NAME_TAKEN",
+            Self::InvalidHandle => "INVALID_HANDLE",
+            Self::InvalidName => "INVALID_NAME",
+            Self::DuplicateHandle => "DUPLICATE_HANDLE",
+            Self::DuplicateName => "DUPLICATE_NAME",
         };
         serializer.serialize_str(variant)
     }
@@ -25021,10 +24988,10 @@ impl<'de> serde::Deserialize<'de> for request_response::Reason {
             "QUEUED",
             "UNSUPPORTED_TYPE",
             "UNCLASSIFIED_ERROR",
-            "DATA_TRACK_INVALID_HANDLE",
-            "DATA_TRACK_INVALID_NAME",
-            "DATA_TRACK_INVALID_MIME_TYPE",
-            "DATA_TRACK_NAME_TAKEN",
+            "INVALID_HANDLE",
+            "INVALID_NAME",
+            "DUPLICATE_HANDLE",
+            "DUPLICATE_NAME",
         ];
 
         struct GeneratedVisitor;
@@ -25072,10 +25039,10 @@ impl<'de> serde::Deserialize<'de> for request_response::Reason {
                     "QUEUED" => Ok(request_response::Reason::Queued),
                     "UNSUPPORTED_TYPE" => Ok(request_response::Reason::UnsupportedType),
                     "UNCLASSIFIED_ERROR" => Ok(request_response::Reason::UnclassifiedError),
-                    "DATA_TRACK_INVALID_HANDLE" => Ok(request_response::Reason::DataTrackInvalidHandle),
-                    "DATA_TRACK_INVALID_NAME" => Ok(request_response::Reason::DataTrackInvalidName),
-                    "DATA_TRACK_INVALID_MIME_TYPE" => Ok(request_response::Reason::DataTrackInvalidMimeType),
-                    "DATA_TRACK_NAME_TAKEN" => Ok(request_response::Reason::DataTrackNameTaken),
+                    "INVALID_HANDLE" => Ok(request_response::Reason::InvalidHandle),
+                    "INVALID_NAME" => Ok(request_response::Reason::InvalidName),
+                    "DUPLICATE_HANDLE" => Ok(request_response::Reason::DuplicateHandle),
+                    "DUPLICATE_NAME" => Ok(request_response::Reason::DuplicateName),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -40479,12 +40446,12 @@ impl serde::Serialize for UnpublishDataTrackRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.handle != 0 {
+        if self.pub_handle != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.UnpublishDataTrackRequest", len)?;
-        if self.handle != 0 {
-            struct_ser.serialize_field("handle", &self.handle)?;
+        if self.pub_handle != 0 {
+            struct_ser.serialize_field("pubHandle", &self.pub_handle)?;
         }
         struct_ser.end()
     }
@@ -40496,12 +40463,13 @@ impl<'de> serde::Deserialize<'de> for UnpublishDataTrackRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "handle",
+            "pub_handle",
+            "pubHandle",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Handle,
+            PubHandle,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -40524,7 +40492,7 @@ impl<'de> serde::Deserialize<'de> for UnpublishDataTrackRequest {
                         E: serde::de::Error,
                     {
                         match value {
-                            "handle" => Ok(GeneratedField::Handle),
+                            "pubHandle" | "pub_handle" => Ok(GeneratedField::PubHandle),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -40544,14 +40512,14 @@ impl<'de> serde::Deserialize<'de> for UnpublishDataTrackRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut handle__ = None;
+                let mut pub_handle__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Handle => {
-                            if handle__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("handle"));
+                        GeneratedField::PubHandle => {
+                            if pub_handle__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pubHandle"));
                             }
-                            handle__ = 
+                            pub_handle__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -40561,7 +40529,7 @@ impl<'de> serde::Deserialize<'de> for UnpublishDataTrackRequest {
                     }
                 }
                 Ok(UnpublishDataTrackRequest {
-                    handle: handle__.unwrap_or_default(),
+                    pub_handle: pub_handle__.unwrap_or_default(),
                 })
             }
         }
@@ -40576,12 +40544,12 @@ impl serde::Serialize for UnpublishDataTrackResponse {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
-        if self.handle != 0 {
+        if self.pub_handle != 0 {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.UnpublishDataTrackResponse", len)?;
-        if self.handle != 0 {
-            struct_ser.serialize_field("handle", &self.handle)?;
+        if self.pub_handle != 0 {
+            struct_ser.serialize_field("pubHandle", &self.pub_handle)?;
         }
         struct_ser.end()
     }
@@ -40593,12 +40561,13 @@ impl<'de> serde::Deserialize<'de> for UnpublishDataTrackResponse {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "handle",
+            "pub_handle",
+            "pubHandle",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
-            Handle,
+            PubHandle,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -40621,7 +40590,7 @@ impl<'de> serde::Deserialize<'de> for UnpublishDataTrackResponse {
                         E: serde::de::Error,
                     {
                         match value {
-                            "handle" => Ok(GeneratedField::Handle),
+                            "pubHandle" | "pub_handle" => Ok(GeneratedField::PubHandle),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -40641,14 +40610,14 @@ impl<'de> serde::Deserialize<'de> for UnpublishDataTrackResponse {
                 where
                     V: serde::de::MapAccess<'de>,
             {
-                let mut handle__ = None;
+                let mut pub_handle__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
-                        GeneratedField::Handle => {
-                            if handle__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("handle"));
+                        GeneratedField::PubHandle => {
+                            if pub_handle__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pubHandle"));
                             }
-                            handle__ = 
+                            pub_handle__ = 
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
@@ -40658,7 +40627,7 @@ impl<'de> serde::Deserialize<'de> for UnpublishDataTrackResponse {
                     }
                 }
                 Ok(UnpublishDataTrackResponse {
-                    handle: handle__.unwrap_or_default(),
+                    pub_handle: pub_handle__.unwrap_or_default(),
                 })
             }
         }
@@ -40771,6 +40740,9 @@ impl serde::Serialize for update_data_subscription::Update {
         if !self.sid.is_empty() {
             len += 1;
         }
+        if !self.participant_identity.is_empty() {
+            len += 1;
+        }
         if self.subscribe {
             len += 1;
         }
@@ -40780,6 +40752,9 @@ impl serde::Serialize for update_data_subscription::Update {
         let mut struct_ser = serializer.serialize_struct("livekit.UpdateDataSubscription.Update", len)?;
         if !self.sid.is_empty() {
             struct_ser.serialize_field("sid", &self.sid)?;
+        }
+        if !self.participant_identity.is_empty() {
+            struct_ser.serialize_field("participantIdentity", &self.participant_identity)?;
         }
         if self.subscribe {
             struct_ser.serialize_field("subscribe", &self.subscribe)?;
@@ -40798,6 +40773,8 @@ impl<'de> serde::Deserialize<'de> for update_data_subscription::Update {
     {
         const FIELDS: &[&str] = &[
             "sid",
+            "participant_identity",
+            "participantIdentity",
             "subscribe",
             "options",
         ];
@@ -40805,6 +40782,7 @@ impl<'de> serde::Deserialize<'de> for update_data_subscription::Update {
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Sid,
+            ParticipantIdentity,
             Subscribe,
             Options,
             __SkipField__,
@@ -40830,6 +40808,7 @@ impl<'de> serde::Deserialize<'de> for update_data_subscription::Update {
                     {
                         match value {
                             "sid" => Ok(GeneratedField::Sid),
+                            "participantIdentity" | "participant_identity" => Ok(GeneratedField::ParticipantIdentity),
                             "subscribe" => Ok(GeneratedField::Subscribe),
                             "options" => Ok(GeneratedField::Options),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -40852,6 +40831,7 @@ impl<'de> serde::Deserialize<'de> for update_data_subscription::Update {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut sid__ = None;
+                let mut participant_identity__ = None;
                 let mut subscribe__ = None;
                 let mut options__ = None;
                 while let Some(k) = map_.next_key()? {
@@ -40861,6 +40841,12 @@ impl<'de> serde::Deserialize<'de> for update_data_subscription::Update {
                                 return Err(serde::de::Error::duplicate_field("sid"));
                             }
                             sid__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantIdentity => {
+                            if participant_identity__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantIdentity"));
+                            }
+                            participant_identity__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Subscribe => {
                             if subscribe__.is_some() {
@@ -40881,6 +40867,7 @@ impl<'de> serde::Deserialize<'de> for update_data_subscription::Update {
                 }
                 Ok(update_data_subscription::Update {
                     sid: sid__.unwrap_or_default(),
+                    participant_identity: participant_identity__.unwrap_or_default(),
                     subscribe: subscribe__.unwrap_or_default(),
                     options: options__,
                 })
