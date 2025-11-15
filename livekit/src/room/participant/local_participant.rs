@@ -28,7 +28,6 @@ use crate::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
         TextStreamInfo, TextStreamWriter,
     },
-    data_track::{self, DataTrack, DataTrackOptions, Local},
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
@@ -226,19 +225,6 @@ impl LocalParticipant {
         }
 
         vec
-    }
-
-    pub async fn publish_data_track<S>(
-        &self,
-        options: DataTrackOptions<S>,
-    ) -> RoomResult<DataTrack<Local, S>> {
-
-        // TODO: set use_e2ee based on participant info
-        let req = options.into_add_track_request(false);
-        let track_info = self.inner.rtc_engine.add_data_track(req).await?;
-
-        todo!()
-
     }
 
     pub async fn publish_track(

@@ -25,7 +25,11 @@ use parking_lot::Mutex;
 
 use super::{key_provider::KeyProvider, EncryptionType};
 use crate::{
-    data_track, e2ee::E2eeOptions, id::{ParticipantIdentity, TrackSid}, participant::{LocalParticipant, RemoteParticipant}, prelude::{LocalTrack, LocalTrackPublication, RemoteTrack, RemoteTrackPublication}, rtc_engine::lk_runtime::LkRuntime
+    e2ee::E2eeOptions,
+    id::{ParticipantIdentity, TrackSid},
+    participant::{LocalParticipant, RemoteParticipant},
+    prelude::{LocalTrack, LocalTrackPublication, RemoteTrack, RemoteTrackPublication},
+    rtc_engine::lk_runtime::LkRuntime,
 };
 
 type StateChangedHandler = Box<dyn Fn(ParticipantIdentity, EncryptionState) + Send>;
@@ -277,15 +281,5 @@ impl E2eeManager {
             inner.data_packet_cryptor.as_ref().ok_or("DataPacketCryptor is not initialized")?;
 
         data_packet_cryptor.encrypt(participant_identity, key_index, data)
-    }
-}
-
-impl livekit_datatrack::e2ee::E2eeProvider for E2eeManager {
-    fn encrypt(&self, payload: bytes::Bytes) -> livekit_datatrack::e2ee::EncryptedPayload {
-        todo!()
-    }
-
-    fn decrypt(&self, payload: livekit_datatrack::e2ee::EncryptedPayload) -> bytes::Bytes {
-        todo!()
     }
 }

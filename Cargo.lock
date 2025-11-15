@@ -3009,7 +3009,6 @@ dependencies = [
  "libloading",
  "libwebrtc",
  "livekit-api",
- "livekit-datatrack",
  "livekit-protocol",
  "livekit-runtime",
  "log",
