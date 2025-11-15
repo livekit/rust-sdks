@@ -63,6 +63,7 @@ pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
+pub const DATA_TRACK_DC_LABEL: &str = "_datatrack";
 pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
@@ -117,7 +118,7 @@ pub enum SessionEvent {
     },
     DataTrackPublishedResponse {
         request_id: u32,
-        result: proto::data_track_published_response::Result
+        result: proto::data_track_published_response::Result,
     },
     ChatMessage {
         participant_identity: ParticipantIdentity,
@@ -371,6 +372,9 @@ struct SessionInner {
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
 
     e2ee_manager: Option<E2eeManager>,
+
+    data_track_sub: livekit_datatrack::SubManager,
+    data_track_pub: livekit_datatrack::PubManager,
 }
 
 /// Information about the local participant needed for outgoing
@@ -461,6 +465,16 @@ impl RtcSession {
             DataChannelInit { ordered: true, ..DataChannelInit::default() },
         )?;
 
+        let mut data_track_dc = publisher_pc.peer_connection().create_data_channel(
+            DATA_TRACK_DC_LABEL,
+            DataChannelInit {
+                ordered: false,
+                max_retransmits: Some(0),
+                ..DataChannelInit::default()
+            },
+        )?;
+        data_track_dc.on_state_change(callback);
+
         // Forward events received inside the signaling thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
         rtc_events::forward_pc_events(&mut subscriber_pc, rtc_emitter.clone());
@@ -468,6 +482,16 @@ impl RtcSession {
         rtc_events::forward_dc_events(&mut reliable_dc, DataPacketKind::Reliable, rtc_emitter);
 
         let (close_tx, close_rx) = watch::channel(false);
+
+        // let data_track_sub =
+        //     livekit_datatrack::SubManager::new(livekit_datatrack::SubManagerOptions {
+        //         e2ee_provider: None,
+        //     });
+
+        // let data_track_pub =
+        //     livekit_datatrack::PubManager::new(livekit_datatrack::PubManagerOptions {
+        //         e2ee_provider: None,
+        //     });
 
         let inner = Arc::new(SessionInner {
             has_published: Default::default(),
@@ -497,6 +521,8 @@ impl RtcSession {
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
             e2ee_manager,
+            data_track_sub,
+            data_track_pub,
         });
 
         // Start session tasks
@@ -990,7 +1016,7 @@ impl SessionInner {
                 let Some(result) = publish_res.result else { return Ok(()) };
                 let _ = self.emitter.send(SessionEvent::DataTrackPublishedResponse {
                     request_id: publish_res.request_id,
-                    result
+                    result,
                 });
             }
             proto::signal_response::Message::TrackPublished(publish_res) => {
@@ -1297,7 +1323,7 @@ impl SessionInner {
         req: proto::AddDataTrackRequest,
     ) -> EngineResult<proto::DataTrackInfo> {
         // TODO: verify unique name before sending request
-        self.signal_client.send(proto::signal_request::Message::AddDataTrack(req)).await;
+        // self.signal_client.send(proto::signal_request::Message::AddDataTrack(req)).await;
 
         // TODO: await response
 
