@@ -17,7 +17,7 @@ use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_protocol as proto;
-use livekit_runtime::{interval, Interval, JoinHandle};
+use livekit_runtime::{interval, Interval, JoinHandle, MissedTickBehavior};
 use parking_lot::{RwLock, RwLockReadGuard};
 use thiserror::Error;
 use tokio::sync::{
@@ -360,6 +360,8 @@ impl EngineInner {
                     session.wait_pc_connection().await?;
 
                     let (engine_tx, engine_rx) = mpsc::unbounded_channel();
+                    let mut interval = interval(RECONNECT_INTERVAL);
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
                     let inner = Arc::new(Self {
                         lk_runtime,
                         engine_tx,
@@ -374,7 +376,7 @@ impl EngineInner {
                         }),
                         options,
                         reconnecting_lock: AsyncRwLock::default(),
-                        reconnecting_interval: AsyncMutex::new(interval(RECONNECT_INTERVAL)),
+                        reconnecting_interval: AsyncMutex::new(interval),
                     });
 
                     // Start initial tasks
