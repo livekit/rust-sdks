@@ -147,7 +147,7 @@ mod tests {
             header: Header {
                 version: 0,
                 is_final: true,
-                track_handle: 0x8811.try_into().unwrap(),
+                track_handle: 0x8811u32.try_into().unwrap(),
                 sequence: 0x4422,
                 frame_number: 0x4411,
                 timestamp: 0x44221188,

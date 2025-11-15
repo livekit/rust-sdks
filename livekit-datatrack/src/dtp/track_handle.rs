@@ -23,6 +23,9 @@ pub struct TrackHandle(u16);
 pub enum TrackHandleError {
     #[error("{0:#X} is reserved")]
     Reserved(u16),
+
+    #[error("value too large to be a valid track handle")]
+    TooLarge,
 }
 
 impl TryFrom<u16> for TrackHandle {
@@ -36,14 +39,44 @@ impl TryFrom<u16> for TrackHandle {
     }
 }
 
+impl TryFrom<u32> for TrackHandle {
+    type Error = TrackHandleError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        let value: u16 = value.try_into().map_err(|_| TrackHandleError::TooLarge)?;
+        Ok(value.try_into()?)
+    }
+}
+
 impl Into<u16> for TrackHandle {
     fn into(self) -> u16 {
         self.0
     }
 }
 
+impl Into<u32> for TrackHandle {
+    fn into(self) -> u32 {
+        self.0 as u32
+    }
+}
+
 impl Display for TrackHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{0:#X}", self.0)
+    }
+}
+
+/// Utility for allocating unique track handles to use for publishing tracks.
+#[derive(Debug, Default)]
+pub struct TrackHandleAllocator {
+    /// Next handle value.
+    value: u16,
+}
+
+impl TrackHandleAllocator {
+    /// Returns a unique track handle for the next publication, if one can be obtained.
+    pub fn get(&mut self) -> Option<TrackHandle> {
+        let value = self.value.checked_add(1)?;
+        TrackHandle(value).into()
     }
 }

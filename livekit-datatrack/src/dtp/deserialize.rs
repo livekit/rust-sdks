@@ -190,7 +190,7 @@ mod tests {
         let dtp = Dtp::deserialize(raw.freeze()).unwrap();
         assert_eq!(dtp.header.version, 0);
         assert_eq!(dtp.header.is_final, true);
-        assert_eq!(dtp.header.track_handle, 0x8811.try_into().unwrap());
+        assert_eq!(dtp.header.track_handle, 0x8811u32.try_into().unwrap());
         assert_eq!(dtp.header.sequence, 0x4422);
         assert_eq!(dtp.header.frame_number, 0x4411);
         assert_eq!(dtp.header.timestamp, 0x44221188);
