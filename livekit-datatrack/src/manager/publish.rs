@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    dtp::TrackHandleAllocator,
+    dtp,
     error::{InternalError, PublishError, PublishFrameError, PublishFrameErrorReason},
     frame::DataTrackFrame,
     manager::e2ee::EncryptionProvider,
@@ -74,6 +74,7 @@ impl Drop for PubHandle {
 
 struct TrackPubTask {
     // TODO: packetizer, e2ee_provider, rate tracking, etc.
+    packetizer: dtp::Packetizer,
     encryption: Option<Arc<dyn EncryptionProvider>>,
     info: Arc<DataTrackInfo>,
     state_rx: watch::Receiver<DataTrackState>,
@@ -88,7 +89,7 @@ impl TrackPubTask {
         while matches!(state, DataTrackState::Published) {
             tokio::select! {
                 _ = self.state_rx.changed() => Ok(state = *self.state_rx.borrow()),
-                Some(frame) = self.frame_rx.recv() => self.packetize_and_send(frame),
+                Some(frame) = self.frame_rx.recv() => self.publish_frame(frame),
                 else => break
             }
             .inspect_err(|err| log::error!("{}", err))
@@ -102,8 +103,29 @@ impl TrackPubTask {
         Ok(())
     }
 
-    fn packetize_and_send(&self, frame: DataTrackFrame) -> Result<(), InternalError> {
-        todo!()
+    fn publish_frame(&mut self, mut frame: DataTrackFrame) -> Result<(), InternalError> {
+        let mut e2ee: Option<dtp::E2ee> = None;
+        if let Some(encryption) = &self.encryption {
+            debug_assert!(self.info.uses_e2ee);
+            let encrypted_payload =
+                encryption.encrypt(frame.payload).context("Failed to encrypt frame")?;
+            e2ee = Some(dtp::E2ee {
+                key_index: encrypted_payload.key_index,
+                iv: encrypted_payload.iv,
+            });
+            frame.payload = encrypted_payload.payload;
+        }
+
+        let frame = dtp::PacketizerFrame {
+            payload: frame.payload,
+            e2ee,
+            user_timestamp: frame.user_timestamp,
+        };
+        for packet in self.packetizer.packetize(frame) {
+            let serialized = packet.serialize();
+            self.packet_out_tx.try_send(serialized).context("Failed to send packet")?;
+        }
+        Ok(())
     }
 
     fn send_unpublish_req(self) -> Result<(), InternalError> {
@@ -144,7 +166,7 @@ impl PubManager {
             signal_in_rx,
             signal_out_tx,
             packet_out_tx,
-            handle_allocator: TrackHandleAllocator::default(),
+            handle_allocator: dtp::TrackHandleAllocator::default(),
             pending_publications: HashMap::new(),
             active_publications: HashMap::new(),
         };
@@ -171,9 +193,7 @@ impl PubManager {
     ) -> Result<DataTrack<Local>, PublishError> {
         let (result_tx, result_rx) = oneshot::channel();
         let request = PubRequest { options, result_tx };
-        self.pub_req_tx
-            .try_send(request)
-            .map_err(|_| PublishError::Disconnected)?;
+        self.pub_req_tx.try_send(request).map_err(|_| PublishError::Disconnected)?;
 
         // TODO: move timeout inside pub manager
         let track = timeout(Self::PUBLISH_TIMEOUT, result_rx)
@@ -190,7 +210,7 @@ pub struct PubManagerTask {
     signal_in_rx: mpsc::Receiver<PubSignalInput>,
     signal_out_tx: mpsc::Sender<PubSignalOutput>,
     packet_out_tx: mpsc::Sender<Bytes>,
-    handle_allocator: TrackHandleAllocator,
+    handle_allocator: dtp::TrackHandleAllocator,
     pending_publications:
         HashMap<TrackHandle, oneshot::Sender<Result<DataTrack<Local>, PublishError>>>,
     active_publications: HashMap<TrackHandle, watch::Sender<DataTrackState>>,
@@ -256,6 +276,7 @@ impl PubManagerTask {
 
         let task = TrackPubTask {
             // TODO: handle cancellation
+            packetizer: dtp::Packetizer::new(info.handle, 16_000),
             encryption: self.encryption.clone(),
             info: info.clone(),
             frame_rx,
@@ -405,7 +426,7 @@ impl Into<proto::signal_request::Message> for PubSignalOutput {
         use proto::signal_request::Message;
         match self {
             PubSignalOutput::PublishRequest(req) => Message::PublishDataTrack(req),
-            PubSignalOutput::UnpublishRequest(req) => Message::UnpublishDataTrack(req)
+            PubSignalOutput::UnpublishRequest(req) => Message::UnpublishDataTrack(req),
         }
     }
 }

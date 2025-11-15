@@ -16,9 +16,9 @@ use bytes::Bytes;
 use std::fmt::Debug;
 use thiserror::Error;
 
-pub struct EncryptedPayload<'a> {
+pub struct EncryptedPayload {
     pub payload: Bytes,
-    pub iv: &'a [u8; 12],
+    pub iv: [u8; 12],
     pub key_index: u8,
 }
 

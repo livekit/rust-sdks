@@ -13,11 +13,13 @@
 // limitations under the License.
 
 mod packet;
+mod packetizer;
 mod track_handle;
 mod deserialize;
 mod serialize;
 
 pub use packet::*;
+pub use packetizer::*;
 pub use track_handle::*;
 pub use deserialize::*;
 pub use serialize::*;
