@@ -171,13 +171,15 @@ impl PubManager {
     ) -> Result<DataTrack<Local>, PublishError> {
         let (result_tx, result_rx) = oneshot::channel();
         let request = PubRequest { options, result_tx };
-        self.pub_req_tx.send(request);
+        self.pub_req_tx
+            .try_send(request)
+            .map_err(|_| PublishError::Disconnected)?;
 
         // TODO: move timeout inside pub manager
         let track = timeout(Self::PUBLISH_TIMEOUT, result_rx)
             .await
             .map_err(|_| PublishError::Timeout)?
-            .map_err(|_| PublishError::Internal(anyhow!("Request rx closed").into()))??;
+            .map_err(|_| PublishError::Disconnected)??;
         Ok(track)
     }
 }
@@ -212,11 +214,11 @@ impl PubManagerTask {
 
     fn handle_publish_req(&mut self, req: PubRequest) -> Result<(), InternalError> {
         let Some(handle) = self.handle_allocator.get() else {
-            req.result_tx.send(Err(PublishError::LimitReached));
+            _ = req.result_tx.send(Err(PublishError::LimitReached));
             return Ok(());
         };
 
-        if !self.pending_publications.insert(handle, req.result_tx).is_some() {
+        if !self.pending_publications.insert(handle, req.result_tx).is_none() {
             Err(anyhow!("Publication already pending for handle"))?
         }
 
