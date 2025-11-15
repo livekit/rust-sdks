@@ -12,39 +12,38 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{frame::DataTrackFrame, mime::Mime};
-use futures_util::{task::Context, Stream};
-use std::{marker::PhantomData, pin::Pin, task::Poll};
+use crate::{
+    error::PublishFrameError,
+    frame::DataTrackFrame,
+    manager::{self},
+};
+use from_variants::FromVariants;
+use std::{marker::PhantomData, sync::Arc};
+
+pub use crate::dtp::TrackHandle;
 
 /// Options for publishing a data track.
 #[derive(Clone, Debug)]
 pub struct PublishOptions {
     pub(crate) name: String,
     pub(crate) disable_e2ee: bool,
-    pub(crate) mime: Mime,
 }
 
 impl PublishOptions {
     pub fn with_name(name: impl Into<String>) -> Self {
-        Self { name: name.into(), disable_e2ee: false, mime: Mime::BINARY }
+        Self { name: name.into(), disable_e2ee: false }
     }
-
-    pub fn mime(self, mime: Mime) -> Self {
-        Self { mime, ..self }
-    }
-
     pub fn disable_e2ee(self, disabled: bool) -> Self {
         Self { disable_e2ee: disabled, ..self }
     }
 }
 
-#[derive(Clone, Debug)]
-struct DataTrackInfo {
-    sid: String, // TODO: use shared ID type
-    handle: u16,
-    name: String,
-    mime: Mime,
-    uses_e2ee: bool,
+#[derive(Debug, Clone)]
+pub struct DataTrackInfo {
+    pub(crate) sid: String, // TODO: use shared ID type
+    pub(crate) handle: TrackHandle,
+    pub(crate) name: String,
+    pub(crate) uses_e2ee: bool,
 }
 
 impl DataTrackInfo {
@@ -54,69 +53,66 @@ impl DataTrackInfo {
     pub fn name(&self) -> &str {
         &self.name
     }
-    pub fn mime(&self) -> &Mime {
-        &self.mime
-    }
     pub fn uses_e2ee(&self) -> bool {
         self.uses_e2ee
     }
 }
 
 /// Marker type indicating a [`DataTrack`] belongs to the local participant.
+#[derive(Debug)]
 pub struct Local;
 
 /// Marker type indicating a [`DataTrack`] belongs to a remote participant.
+#[derive(Debug)]
 pub struct Remote;
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub struct DataTrack<L> {
+    info: Arc<DataTrackInfo>,
+    inner: DataTrackInner,
     /// Marker indicating local or remote.
     _location: PhantomData<L>,
-    // Need info, way to signal closing by SFU or other
+}
 
-    // Cases:
-    // Local (publish) -> channel tx
-    // Remote (subscribe) -> channel rx
+#[derive(Debug, Clone, FromVariants)]
+enum DataTrackInner {
+    Local(manager::PubHandle),
+    Remote(()), // TODO: add sub handle
 }
 
 impl<L> DataTrack<L> {
-    pub fn info(&self) -> DataTrackInfo {
-        todo!()
+    /// Information about the data track such as name.
+    pub fn info(&self) -> &DataTrackInfo {
+        &self.info
     }
 }
 
 impl DataTrack<Local> {
-    pub fn publish(&self, frame: impl Into<DataTrackFrame>) -> DataTrackResult<()> {
-        todo!()
+    pub(crate) fn new(info: Arc<DataTrackInfo>, handle: manager::PubHandle) -> Self {
+        Self { info, inner: handle.into(), _location: PhantomData }
+    }
+
+    fn handle(&self) -> &manager::PubHandle {
+        match &self.inner {
+            DataTrackInner::Local(publisher) => publisher,
+            DataTrackInner::Remote(_) => unreachable!(), // Safe (type state)
+        }
+    }
+
+    /// Publish a frame onto the track.
+    pub fn publish(&self, frame: impl Into<DataTrackFrame>) -> Result<(), PublishFrameError> {
+        Ok(self.handle().publish(frame.into())?)
+    }
+
+    /// Whether or not the track is still published.
+    pub fn is_published(&self) -> bool {
+        self.handle().is_published()
+    }
+
+    /// Unpublish the track.
+    pub fn unpublish(self) {
+        self.handle().unpublish()
     }
 }
 
-impl DataTrack<Remote> {
-    pub(crate) fn from_info(info: DataTrackInfo) -> Result<Self, ()> {
-        Ok(Self { _location: PhantomData })
-    }
-
-    pub fn is_subscribed() -> bool {
-        // Subscribed as long as there is at least one subscription
-        todo!()
-    }
-
-    pub fn subscribe(&self) -> DataTrackResult<DataTrackSubscription> {
-        // TODO: send request, create receiver
-        todo!()
-    }
-
-    pub fn subscribe_with_target(&self, target_fps: u32) -> DataTrackResult<DataTrackSubscription> {
-        todo!()
-    }
-}
-
-pub struct DataTrackSubscription;
-
-impl Stream for DataTrackSubscription {
-    type Item = DataTrackFrame;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        todo!();
-    }
-}
+// TODO: implement remote track (subscriber)

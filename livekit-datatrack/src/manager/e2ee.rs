@@ -12,9 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod e2ee;
-pub mod publish;
-// pub mod subscribe;
+use std::fmt::Debug;
+use bytes::Bytes;
 
-pub use publish::*;
-// pub use subscribe::*;
+pub struct EncryptedPayload {
+    pub payload: Bytes,
+    pub iv: [u8; 12],
+    pub key_index: u8
+}
+
+pub trait EncryptionProvider: Debug {
+    fn encrypt(&self, payload: Bytes) -> EncryptedPayload;
+}
+
+pub trait DecryptionProvider: Debug {
+    fn decrypt(&self, payload: EncryptedPayload) -> Bytes;
+}

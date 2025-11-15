@@ -14,13 +14,18 @@
 
 use bytes::Bytes;
 
+#[derive(Debug)]
 pub struct DataTrackFrame {
-    payload: Bytes,
+    pub(crate) payload: Bytes,
+    pub(crate) user_timestamp: Option<u64>,
 }
 
 impl DataTrackFrame {
-    pub fn payload(&self) -> &Bytes {
-        &self.payload
+    pub fn payload(&self) -> Bytes {
+        self.payload.clone() // Cheap clone
+    }
+    pub fn user_timestamp(&self) -> Option<u64> {
+        self.user_timestamp
     }
 }
 
@@ -41,6 +46,9 @@ impl DataTrackFrameBuilder {
     }
 
     pub fn build(self) -> DataTrackFrame {
-        todo!()
+        DataTrackFrame {
+            payload: self.payload,
+            user_timestamp: self.user_timestamp
+        }
     }
 }

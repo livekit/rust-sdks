@@ -13,8 +13,9 @@
 // limitations under the License.
 
 mod dtp;
-mod mime;
 mod frame;
 mod track;
 mod error;
 mod manager;
+
+pub use manager::*;
