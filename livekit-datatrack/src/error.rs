@@ -26,6 +26,8 @@ pub enum PublishError {
     Timeout,
     #[error("No more data tracks are able to be published")]
     LimitReached,
+    #[error("Cannot publish data track when disconnected")]
+    Disconnected,
     #[error(transparent)]
     Internal(#[from] InternalError),
 }
