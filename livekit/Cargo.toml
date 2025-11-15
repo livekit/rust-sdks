@@ -30,6 +30,7 @@ livekit-runtime = { workspace = true }
 livekit-api = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-protocol = { workspace = true }
+livekit-datatrack = { workspace = true }
 prost = "0.12"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1.0"

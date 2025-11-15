@@ -54,6 +54,7 @@ use crate::{
     },
 };
 
+pub mod data_track;
 pub mod data_stream;
 pub mod e2ee;
 pub mod id;
@@ -81,6 +82,8 @@ pub enum RoomError {
     AlreadyClosed,
     #[error("request error: {reason:?} - {message}")]
     Request { reason: proto::request_response::Reason, message: String },
+    #[error(transparent)]
+    DataTrack(data_track::PublishError)
 }
 
 #[derive(Clone, Debug)]

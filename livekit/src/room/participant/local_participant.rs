@@ -28,6 +28,7 @@ use crate::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
         TextStreamInfo, TextStreamWriter,
     },
+    data_track::{DataTrackOptions, DataTrack, Local},
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
@@ -225,6 +226,13 @@ impl LocalParticipant {
         }
 
         vec
+    }
+
+    pub async fn publish_data_track(
+        &self,
+        options: DataTrackOptions,
+    ) -> RoomResult<DataTrack<Local>> {
+        todo!()
     }
 
     pub async fn publish_track(
