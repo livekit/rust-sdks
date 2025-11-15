@@ -722,7 +722,7 @@ impl EngineInner {
             )
         };
 
-        for i in 0..RECONNECT_ATTEMPTS {
+        for i in 1..=RECONNECT_ATTEMPTS {
             let (is_closed, full_reconnect) = {
                 let running_handle = self.running_handle.read();
                 (running_handle.closed, running_handle.full_reconnect)
@@ -733,7 +733,7 @@ impl EngineInner {
             }
 
             if full_reconnect {
-                if i == 0 {
+                if i == 1 {
                     let (tx, rx) = oneshot::channel();
                     let _ = self.engine_tx.send(EngineEvent::Restarting(tx));
                     let _ = rx.await;
@@ -757,7 +757,7 @@ impl EngineInner {
                     return Ok(());
                 }
             } else {
-                if i == 0 {
+                if i == 1 {
                     let (tx, rx) = oneshot::channel();
                     let _ = self.engine_tx.send(EngineEvent::Resuming(tx));
                     let _ = rx.await;
