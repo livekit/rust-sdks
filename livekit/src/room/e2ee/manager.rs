@@ -25,12 +25,14 @@ use parking_lot::Mutex;
 
 use super::{key_provider::KeyProvider, EncryptionType};
 use crate::{
+    data_track,
     e2ee::E2eeOptions,
     id::{ParticipantIdentity, TrackSid},
     participant::{LocalParticipant, RemoteParticipant},
     prelude::{LocalTrack, LocalTrackPublication, RemoteTrack, RemoteTrackPublication},
     rtc_engine::lk_runtime::LkRuntime,
 };
+use std::fmt::Debug;
 
 type StateChangedHandler = Box<dyn Fn(ParticipantIdentity, EncryptionState) + Send>;
 
@@ -269,7 +271,7 @@ impl E2eeManager {
     }
 
     /// Encrypt data for transmission over a data channel
-    pub fn encrypt_data(
+    pub(crate) fn encrypt_data(
         &self,
         data: &[u8],
         participant_identity: &str,
@@ -281,5 +283,31 @@ impl E2eeManager {
             inner.data_packet_cryptor.as_ref().ok_or("DataPacketCryptor is not initialized")?;
 
         data_packet_cryptor.encrypt(participant_identity, key_index, data)
+    }
+}
+
+impl Debug for E2eeManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("E2eeManager")
+            .field("enabled", &self.inner.lock().enabled)
+            .finish_non_exhaustive()
+    }
+}
+
+impl data_track::DecryptionProvider for E2eeManager {
+    fn decrypt(
+        &self,
+        payload: data_track::EncryptedPayload,
+    ) -> Result<bytes::Bytes, data_track::DecryptionError> {
+        todo!()
+    }
+}
+
+impl data_track::EncryptionProvider for E2eeManager {
+    fn encrypt(
+        &self,
+        payload: bytes::Bytes,
+    ) -> Result<data_track::EncryptedPayload, data_track::EncryptionError> {
+        todo!()
     }
 }

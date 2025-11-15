@@ -1335,7 +1335,9 @@ name = "data_track"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "env_logger 0.11.8",
  "livekit",
+ "log",
  "tokio",
 ]
 

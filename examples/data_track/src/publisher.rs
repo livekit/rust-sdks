@@ -11,6 +11,8 @@ use tokio::{signal, time};
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    env_logger::init();
+
     let url = env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set");
     let token = env::var("LIVEKIT_TOKEN").expect("LIVEKIT_TOKEN is not set");
 

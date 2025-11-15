@@ -17,7 +17,7 @@ use crate::{
     error::{InternalError, PublishError, PublishFrameError, PublishFrameErrorReason},
     frame::DataTrackFrame,
     manager::e2ee::EncryptionProvider,
-    track::{DataTrack, DataTrackInfo, Local, DataTrackOptions, TrackHandle},
+    track::{DataTrack, DataTrackInfo, DataTrackOptions, Local, TrackHandle},
 };
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
@@ -74,6 +74,7 @@ impl Drop for PubHandle {
 
 struct TrackPubTask {
     // TODO: packetizer, e2ee_provider, rate tracking, etc.
+    encryption: Option<Arc<dyn EncryptionProvider>>,
     info: Arc<DataTrackInfo>,
     state_rx: watch::Receiver<DataTrackState>,
     frame_rx: mpsc::Receiver<DataTrackFrame>,
@@ -253,6 +254,7 @@ impl PubManagerTask {
 
         let task = TrackPubTask {
             // TODO: handle cancellation
+            encryption: self.encryption.clone(),
             info: info.clone(),
             frame_rx,
             state_rx,
@@ -393,5 +395,15 @@ impl TryInto<DataTrackInfo> for proto::DataTrackInfo {
             other => Err(anyhow!("Unsupported E2EE type: {:?}", other))?,
         };
         Ok(DataTrackInfo { handle, sid: self.sid, name: self.name, uses_e2ee })
+    }
+}
+
+impl Into<proto::signal_request::Message> for PubSignalOutput {
+    fn into(self) -> proto::signal_request::Message {
+        use proto::signal_request::Message;
+        match self {
+            PubSignalOutput::PublishRequest(req) => Message::PublishDataTrack(req),
+            PubSignalOutput::UnpublishRequest(req) => Message::UnpublishDataTrack(req)
+        }
     }
 }

@@ -16,6 +16,8 @@ use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
+use livekit_datatrack::error::PublishError;
+use livekit_datatrack::track::{DataTrack, DataTrackOptions, Local};
 use livekit_protocol as proto;
 use livekit_runtime::{interval, Interval, JoinHandle};
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -27,6 +29,7 @@ use tokio::sync::{
 
 pub use self::rtc_session::{SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD};
 use crate::prelude::ParticipantIdentity;
+use crate::{data_track, ChatMessage, E2eeManager, TranscriptionSegment};
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
@@ -38,7 +41,6 @@ use crate::{
     },
     DataPacketKind,
 };
-use crate::{ChatMessage, E2eeManager, TranscriptionSegment};
 
 pub mod lk_runtime;
 mod peer_transport;
@@ -265,6 +267,18 @@ impl RtcEngine {
             (handle.session.clone(), _r_lock)
         };
         session.simulate_scenario(scenario).await
+    }
+
+    pub async fn publish_data_track(
+        &self,
+        options: DataTrackOptions,
+    ) -> Result<DataTrack<Local>, PublishError> {
+        let (session, _r_lock) = {
+            let (handle, _r_lock) =
+                self.inner.wait_reconnection().await.map_err(|_| PublishError::Timeout)?;
+            (handle.session.clone(), _r_lock)
+        };
+        session.publish_data_track(options).await
     }
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {

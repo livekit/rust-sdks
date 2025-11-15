@@ -12,19 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
 use bytes::Bytes;
+use std::fmt::Debug;
+use thiserror::Error;
 
-pub struct EncryptedPayload {
+pub struct EncryptedPayload<'a> {
     pub payload: Bytes,
-    pub iv: [u8; 12],
-    pub key_index: u8
+    pub iv: &'a [u8; 12],
+    pub key_index: u8,
 }
 
-pub trait EncryptionProvider: Debug {
-    fn encrypt(&self, payload: Bytes) -> EncryptedPayload;
+#[derive(Debug, Error)]
+#[error("Encryption failed")]
+pub struct EncryptionError;
+
+pub trait EncryptionProvider: Send + Sync + Debug {
+    /// Encrypt the given payload.
+    fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, EncryptionError>;
 }
 
-pub trait DecryptionProvider: Debug {
-    fn decrypt(&self, payload: EncryptedPayload) -> Bytes;
+#[derive(Debug, Error)]
+#[error("Decryption failed")]
+pub struct DecryptionError;
+
+pub trait DecryptionProvider: Send + Sync + Debug {
+    /// Decrypt the given payload.
+    fn decrypt(&self, payload: EncryptedPayload) -> Result<Bytes, DecryptionError>;
+    // TODO: handle publisher identity
 }

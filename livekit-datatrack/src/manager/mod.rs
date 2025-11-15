@@ -16,5 +16,6 @@ pub mod e2ee;
 pub mod publish;
 // pub mod subscribe;
 
+pub use e2ee::*;
 pub use publish::*;
 // pub use subscribe::*;

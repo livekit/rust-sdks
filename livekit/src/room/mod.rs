@@ -81,9 +81,7 @@ pub enum RoomError {
     #[error("already closed")]
     AlreadyClosed,
     #[error("request error: {reason:?} - {message}")]
-    Request { reason: proto::request_response::Reason, message: String },
-    #[error(transparent)]
-    DataTrack(data_track::PublishError)
+    Request { reason: proto::request_response::Reason, message: String }
 }
 
 #[derive(Clone, Debug)]

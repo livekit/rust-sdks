@@ -23,8 +23,11 @@ use std::{
     time::Duration,
 };
 
+use bytes::Bytes;
+use futures_util::{Stream, StreamExt};
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
+use livekit_datatrack::{error::PublishError, track::{DataTrack, DataTrackOptions, Local}};
 use livekit_protocol::{self as proto};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
@@ -38,6 +41,7 @@ use tokio::sync::{mpsc, oneshot, watch, Notify};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
+    data_track,
     id::ParticipantIdentity,
     utils::{
         ttl_map::TtlMap,
@@ -63,6 +67,7 @@ pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 pub const TRACK_PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 pub const LOSSY_DC_LABEL: &str = "_lossy";
 pub const RELIABLE_DC_LABEL: &str = "_reliable";
+pub const DATA_TRACK_DC_LABEL: &str = "_datatrack";
 pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
@@ -341,6 +346,7 @@ struct SessionInner {
     lossy_dc_buffered_amount_low_threshold: AtomicU64,
     reliable_dc: DataChannel,
     reliable_dc_buffered_amount_low_threshold: AtomicU64,
+    dt_transport: DataChannel,
 
     /// Next sequence number for reliable packets.
     next_packet_sequence: AtomicU32,
@@ -367,6 +373,8 @@ struct SessionInner {
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
 
     e2ee_manager: Option<E2eeManager>,
+
+    dt_pub_manager: data_track::PubManager,
 }
 
 /// Information about the local participant needed for outgoing
@@ -407,6 +415,8 @@ struct SessionHandle {
     signal_task: JoinHandle<()>,
     rtc_task: JoinHandle<()>,
     dc_task: JoinHandle<()>,
+    dt_forward_task: JoinHandle<()>,
+    dt_pub_task: JoinHandle<Result<(), data_track::InternalError>>,
 }
 
 impl RtcSession {
@@ -457,11 +467,30 @@ impl RtcSession {
             DataChannelInit { ordered: true, ..DataChannelInit::default() },
         )?;
 
+        let dt_transport = publisher_pc.peer_connection().create_data_channel(
+            DATA_TRACK_DC_LABEL,
+            DataChannelInit {
+                ordered: false,
+                max_retransmits: Some(0),
+                ..DataChannelInit::default()
+            },
+        )?;
+
         // Forward events received inside the signaling thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
         rtc_events::forward_pc_events(&mut subscriber_pc, rtc_emitter.clone());
         rtc_events::forward_dc_events(&mut lossy_dc, DataPacketKind::Lossy, rtc_emitter.clone());
         rtc_events::forward_dc_events(&mut reliable_dc, DataPacketKind::Reliable, rtc_emitter);
+
+        let dt_pub_options = data_track::PubManagerOptions {
+            encryption: e2ee_manager
+                .clone()
+                .filter(|m| m.enabled())
+                .map(|m| Arc::new(m) as Arc<dyn data_track::EncryptionProvider>),
+        };
+
+        let (dt_pub_manager, dt_pub_task, dt_pub_signal_out, dt_pub_packet_out) =
+            data_track::PubManager::new(dt_pub_options);
 
         let (close_tx, close_rx) = watch::channel(false);
 
@@ -480,6 +509,7 @@ impl RtcSession {
             reliable_dc_buffered_amount_low_threshold: AtomicU64::new(
                 INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
             ),
+            dt_transport,
             next_packet_sequence: 1.into(),
             packet_rx_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
             participant_info,
@@ -493,6 +523,7 @@ impl RtcSession {
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
             e2ee_manager,
+            dt_pub_manager,
         });
 
         // Start session tasks
@@ -500,9 +531,23 @@ impl RtcSession {
             livekit_runtime::spawn(inner.clone().signal_task(signal_events, close_rx.clone()));
         let rtc_task =
             livekit_runtime::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
-        let dc_task = livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx));
+        let dc_task =
+            livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
+        let dt_forward_task = livekit_runtime::spawn(inner.clone().data_track_forward_task(
+            dt_pub_signal_out,
+            dt_pub_packet_out,
+            close_rx,
+        ));
+        let dt_pub_task = livekit_runtime::spawn(dt_pub_task.run());
 
-        let handle = Mutex::new(Some(SessionHandle { close_tx, signal_task, rtc_task, dc_task }));
+        let handle = Mutex::new(Some(SessionHandle {
+            close_tx,
+            signal_task,
+            rtc_task,
+            dc_task,
+            dt_forward_task,
+            dt_pub_task,
+        }));
 
         Ok((Self { inner, handle }, join_response, session_events))
     }
@@ -545,11 +590,19 @@ impl RtcSession {
             let _ = handle.rtc_task.await;
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
+            let _ = handle.dt_pub_task.await.inspect_err(|err| log::error!("{}", err));
         }
 
         // Close the PeerConnections after the task
         // So if a sensitive operation is running, we can wait for it
         self.inner.close().await;
+    }
+
+    pub async fn publish_data_track(
+        &self,
+        options: DataTrackOptions,
+    ) -> Result<DataTrack<Local>, PublishError> {
+        self.inner.publish_data_track(options).await
     }
 
     pub async fn publish_data(
@@ -734,6 +787,28 @@ impl SessionInner {
         }
 
         log::debug!("closing signal_task");
+    }
+
+    async fn data_track_forward_task(
+        self: Arc<Self>,
+        signal_out: impl Stream<Item = data_track::PubSignalOutput>,
+        packet_out: impl Stream<Item = Bytes>,
+        mut close_rx: watch::Receiver<bool>,
+    ) {
+        tokio::pin!(signal_out);
+        tokio::pin!(packet_out);
+        loop {
+            tokio::select! {
+                Some(message) = signal_out.next() => {
+                    self.signal_client.send(message.into()).await
+                },
+                Some(packet) = packet_out.next() => {
+                    _ = self.dt_transport.send(&packet, true)
+                },
+                _ = close_rx.changed() => break
+            }
+        }
+        log::debug!("closing data_track_transport_task");
     }
 
     async fn data_channel_task(
@@ -1475,6 +1550,13 @@ impl SessionInner {
         Ok(())
     }
 
+    pub async fn publish_data_track(
+        &self,
+        options: DataTrackOptions,
+    ) -> Result<DataTrack<Local>, PublishError> {
+        self.dt_pub_manager.publish_track(options).await
+    }
+
     async fn publish_data(
         self: &Arc<Self>,
         mut packet: proto::DataPacket,
@@ -1802,6 +1884,8 @@ impl SessionInner {
         rx.await.unwrap()
     }
 }
+
+struct DataTrackTransportTask {}
 
 macro_rules! make_rtc_config {
     ($fncname:ident, $proto:ty) => {
