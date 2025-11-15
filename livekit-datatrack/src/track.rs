@@ -24,12 +24,12 @@ pub use crate::dtp::TrackHandle;
 
 /// Options for publishing a data track.
 #[derive(Clone, Debug)]
-pub struct PublishOptions {
+pub struct DataTrackOptions {
     pub(crate) name: String,
     pub(crate) disable_e2ee: bool,
 }
 
-impl PublishOptions {
+impl DataTrackOptions {
     pub fn with_name(name: impl Into<String>) -> Self {
         Self { name: name.into(), disable_e2ee: false }
     }
@@ -65,6 +65,12 @@ pub struct Local;
 /// Marker type indicating a [`DataTrack`] belongs to a remote participant.
 #[derive(Debug)]
 pub struct Remote;
+
+/// A data track published by the local participant.
+pub type LocalDataTrack = DataTrack<Local>;
+
+/// A data track published by a remote participant.
+pub type RemoteDataTrack = DataTrack<Remote>;
 
 #[derive(Debug, Clone)]
 pub struct DataTrack<L> {

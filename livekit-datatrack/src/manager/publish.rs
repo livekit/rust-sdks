@@ -17,7 +17,7 @@ use crate::{
     error::{InternalError, PublishError, PublishFrameError, PublishFrameErrorReason},
     frame::DataTrackFrame,
     manager::e2ee::EncryptionProvider,
-    track::{DataTrack, DataTrackInfo, Local, PublishOptions, TrackHandle},
+    track::{DataTrack, DataTrackInfo, Local, DataTrackOptions, TrackHandle},
 };
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
@@ -166,7 +166,7 @@ impl PubManager {
     /// Publishes a data track with the given options.
     pub async fn publish_track(
         &self,
-        options: PublishOptions,
+        options: DataTrackOptions,
     ) -> Result<DataTrack<Local>, PublishError> {
         let (result_tx, result_rx) = oneshot::channel();
         let request = PubRequest { options, result_tx };
@@ -317,7 +317,7 @@ impl PubManagerTask {
 }
 
 struct PubRequest {
-    options: PublishOptions,
+    options: DataTrackOptions,
     result_tx: oneshot::Sender<Result<DataTrack<Local>, PublishError>>,
 }
 
@@ -342,7 +342,7 @@ pub enum PubSignalInput {
     RequestResponse(proto::RequestResponse),
 }
 
-impl PublishOptions {
+impl DataTrackOptions {
     fn into_add_track_request(
         self,
         use_e2ee: bool,
