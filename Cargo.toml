@@ -11,8 +11,7 @@ members = [
     "yuv-sys",
     "imgproc",
     "webrtc-sys",
-    "webrtc-sys/build",
-
+    "webrtc-sys/libwebrtc/build-utils",
     "examples/agent_dispatch",
     "examples/api",
     "examples/basic_room",

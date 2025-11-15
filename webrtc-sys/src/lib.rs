@@ -12,45 +12,45 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(target_os = "android")]
-pub mod android;
-pub mod apm;
-pub mod audio_resampler;
-pub mod audio_track;
-pub mod candidate;
-pub mod data_channel;
-pub mod frame_cryptor;
-pub mod helper;
-pub mod jsep;
-pub mod media_stream;
-pub mod media_stream_track;
-pub mod peer_connection;
-pub mod peer_connection_factory;
-pub mod prohibit_libsrtp_initialization;
-pub mod rtc_error;
-pub mod rtp_parameters;
-pub mod rtp_receiver;
-pub mod rtp_sender;
-pub mod rtp_transceiver;
-pub mod video_frame;
-pub mod video_frame_buffer;
-pub mod video_track;
-pub mod webrtc;
-pub mod yuv_helper;
+use thiserror::Error;
 
-pub const MEDIA_TYPE_VIDEO: &str = "video";
-pub const MEDIA_TYPE_AUDIO: &str = "audio";
-pub const MEDIA_TYPE_DATA: &str = "data";
-
-macro_rules! impl_thread_safety {
-    ($obj:ty, Send) => {
-        unsafe impl Send for $obj {}
-    };
-
-    ($obj:ty, Send + Sync) => {
-        unsafe impl Send for $obj {}
-        unsafe impl Sync for $obj {}
-    };
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum MediaType {
+    Audio,
+    Video,
+    Data,
+    Unsupported,
 }
 
-pub(crate) use impl_thread_safety;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RtcErrorType {
+    Internal,
+    InvalidSdp,
+    InvalidState,
+}
+
+#[derive(Error, Debug)]
+#[error("an RtcError occured: {error_type:?} - {message}")]
+pub struct RtcError {
+    pub error_type: RtcErrorType,
+    pub message: String,
+}
+
+pub mod data_channel;
+pub mod ice_candidate;
+pub mod peer_connection;
+pub mod peer_connection_factory;
+pub mod session_description;
+pub mod sys;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod native {
+    //pub use webrtc_sys::webrtc::ffi::create_random_uuid;
+
+    //pub use crate::imp::{apm, audio_resampler, frame_cryptor, yuv_helper};
+}
+
+#[cfg(target_os = "android")]
+pub mod android {
+    pub use crate::imp::android::*;
+}
