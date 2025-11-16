@@ -26,9 +26,16 @@ pub mod ffi {
         display_id: i64,
     }
 
+    #[derive(Debug, PartialEq)]
+    enum SourceType {
+        Screen,
+        Window,
+        Generic,
+    }
+
     #[derive(Clone, Debug)]
     struct DesktopCapturerOptions {
-        window_capturer: bool,
+        source_type: SourceType,
         include_cursor: bool,
         allow_sck_system_picker: bool,
     }

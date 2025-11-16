@@ -15,9 +15,16 @@
 use cxx::UniquePtr;
 use webrtc_sys::desktop_capturer::{self as sys_dc, ffi::new_desktop_capturer};
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum SourceType {
+    Screen,
+    Window,
+    Generic,
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct DesktopCapturerOptions {
-    pub window_capturer: bool,
+    pub source_type: SourceType,
     pub include_cursor: bool,
     #[cfg(target_os = "macos")]
     pub allow_sck_system_picker: bool,
@@ -26,7 +33,7 @@ pub struct DesktopCapturerOptions {
 impl Default for DesktopCapturerOptions {
     fn default() -> Self {
         Self {
-            window_capturer: false,
+            source_type: SourceType::Screen,
             include_cursor: false,
             #[cfg(target_os = "macos")]
             allow_sck_system_picker: true,
@@ -35,17 +42,12 @@ impl Default for DesktopCapturerOptions {
 }
 
 impl DesktopCapturerOptions {
-    pub(crate) fn new() -> Self {
-        Self { window_capturer: false, include_cursor: false, ..Default::default() }
+    pub(crate) fn new(source_type: SourceType) -> Self {
+        Self { source_type, include_cursor: false, ..Default::default() }
     }
 
     pub(crate) fn with_cursor(mut self, include: bool) -> Self {
         self.include_cursor = include;
-        self
-    }
-
-    pub(crate) fn with_window_capturer(mut self, window_capturer: bool) -> Self {
-        self.window_capturer = window_capturer;
         self
     }
 
@@ -56,8 +58,13 @@ impl DesktopCapturerOptions {
     }
 
     pub(crate) fn to_sys_handle(&self) -> sys_dc::ffi::DesktopCapturerOptions {
+        let source_type = match self.source_type {
+            SourceType::Screen => sys_dc::ffi::SourceType::Screen,
+            SourceType::Window => sys_dc::ffi::SourceType::Window,
+            SourceType::Generic => sys_dc::ffi::SourceType::Generic,
+        };
         let mut sys_handle = sys_dc::ffi::DesktopCapturerOptions {
-            window_capturer: self.window_capturer,
+            source_type,
             include_cursor: self.include_cursor,
             allow_sck_system_picker: false,
         };

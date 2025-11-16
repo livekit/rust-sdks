@@ -32,10 +32,12 @@ pub struct DesktopCapturerOptions {
 }
 
 /// Specifies the type of source that a desktop capturer should capture.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DesktopCaptureSourceType {
-    SCREEN,
-    WINDOW,
+    Screen,
+    Window,
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    Generic,
 }
 
 impl DesktopCapturerOptions {
@@ -50,10 +52,13 @@ impl DesktopCapturerOptions {
     /// - Cursor is not included in captured frames (use [`set_include_cursor`](Self::set_include_cursor) to change)
     /// - On macOS, the ScreenCaptureKit system picker is enabled (use [`set_sck_system_picker`](Self::set_sck_system_picker) to change)
     pub fn new(source_type: DesktopCaptureSourceType) -> Self {
-        let mut sys_handle = imp_dc::DesktopCapturerOptions::new();
-        if source_type == DesktopCaptureSourceType::WINDOW {
-            sys_handle = sys_handle.with_window_capturer(true);
-        }
+        let source_type = match source_type {
+            DesktopCaptureSourceType::Screen => imp_dc::SourceType::Screen,
+            DesktopCaptureSourceType::Window => imp_dc::SourceType::Window,
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            DesktopCaptureSourceType::Generic => imp_dc::SourceType::Generic,
+        };
+        let mut sys_handle = imp_dc::DesktopCapturerOptions::new(source_type);
         Self { sys_handle }
     }
 

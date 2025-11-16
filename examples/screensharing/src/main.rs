@@ -12,8 +12,37 @@ use livekit::webrtc::prelude::{
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit_api::access_token;
 use std::env;
-use std::sync::Arc;
-use std::sync::Mutex;
+use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread;
+use std::time::Duration;
+use tokio::signal;
+
+#[derive(clap::ValueEnum, Clone, Debug)]
+enum SourceType {
+    Screen,
+    Window,
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    Generic,
+}
+
+impl From<SourceType> for DesktopCaptureSourceType {
+    fn from(source: SourceType) -> Self {
+        match source {
+            SourceType::Screen => DesktopCaptureSourceType::Screen,
+            SourceType::Window => DesktopCaptureSourceType::Window,
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            SourceType::Generic => DesktopCaptureSourceType::Generic,
+        }
+    }
+}
+
+enum CaptureCommand {
+    Terminate,
+}
+
+type ResolutionSignal = Arc<(Mutex<Option<VideoResolution>>, Condvar)>;
+type VideoSourceSlot = Arc<Mutex<Option<NativeVideoSource>>>;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -22,9 +51,9 @@ struct Args {
     #[arg(long)]
     capture_cursor: bool,
 
-    /// Capture a specific window (requires window ID)
+    /// Capture a specific source type (screen, window, generic)
     #[arg(long)]
-    capture_window: bool,
+    capture_source_type: SourceType,
 
     /// Use system screen picker (macOS only)
     #[cfg(target_os = "macos")]
@@ -65,10 +94,27 @@ async fn main() {
     let (room, _) = Room::connect(&url, &token, RoomOptions::default()).await.unwrap();
     log::info!("Connected to room: {} - {}", room.name(), String::from(room.sid().await));
 
-    let stream_width = 1920;
-    let stream_height = 1080;
-    let buffer_source =
-        NativeVideoSource::new(VideoResolution { width: stream_width, height: stream_height });
+    let resolution_signal: ResolutionSignal = Arc::new((Mutex::new(None), Condvar::new()));
+    let video_source_slot: VideoSourceSlot = Arc::new(Mutex::new(None));
+    let capture_source_type = args.capture_source_type.clone();
+    let (capture_cmd_tx, capture_handle) = spawn_capture_thread(
+        args.capture_cursor,
+        capture_source_type.into(),
+        #[cfg(target_os = "macos")]
+        args.use_system_picker,
+        resolution_signal.clone(),
+        video_source_slot.clone(),
+    );
+
+    let resolution = wait_for_resolution(&resolution_signal);
+    log::info!("Detected capture resolution: {}x{}", resolution.width, resolution.height);
+
+    let buffer_source = NativeVideoSource::new(resolution.clone());
+    {
+        let mut slot = video_source_slot.lock().unwrap();
+        *slot = Some(buffer_source.clone());
+    }
+
     let track = LocalVideoTrack::create_video_track(
         "screen_share",
         RtcVideoSource::Native(buffer_source.clone()),
@@ -86,69 +132,128 @@ async fn main() {
         .await
         .unwrap();
 
-    let buffer_source_clone = buffer_source.clone();
+    log::info!("Screen sharing started. Press Ctrl+C to stop.");
+    let ctrl_c = signal::ctrl_c();
+    tokio::pin!(ctrl_c);
+    loop {
+        tokio::select! {
+            _ = &mut ctrl_c => {
+                log::info!("Ctrl+C received, stopping capture");
+                break;
+            }
+            _ = tokio::time::sleep(Duration::from_secs(1)) => {}
+        }
+    }
+
+    let _ = capture_cmd_tx.send(CaptureCommand::Terminate);
+    if let Err(err) = capture_handle.join() {
+        log::error!("Capture thread join error: {:?}", err);
+    }
+}
+
+fn wait_for_resolution(signal: &ResolutionSignal) -> VideoResolution {
+    let (lock, cvar) = &**signal;
+    let mut guard = lock.lock().unwrap();
+    while guard.is_none() {
+        guard = cvar.wait(guard).unwrap();
+    }
+    guard.clone().unwrap()
+}
+
+fn spawn_capture_thread(
+    capture_cursor: bool,
+    source_type: DesktopCaptureSourceType,
+    #[cfg(target_os = "macos")] use_system_picker: bool,
+    resolution_signal: ResolutionSignal,
+    video_source_slot: VideoSourceSlot,
+) -> (Sender<CaptureCommand>, thread::JoinHandle<()>) {
+    let (command_tx, command_rx) = mpsc::channel();
+    let handle = thread::spawn(move || {
+        run_capture_loop(
+            capture_cursor,
+            source_type,
+            #[cfg(target_os = "macos")]
+            use_system_picker,
+            resolution_signal,
+            video_source_slot,
+            command_rx,
+        )
+    });
+    (command_tx, handle)
+}
+
+fn run_capture_loop(
+    capture_cursor: bool,
+    source_type: DesktopCaptureSourceType,
+    #[cfg(target_os = "macos")] use_system_picker: bool,
+    resolution_signal: ResolutionSignal,
+    video_source_slot: VideoSourceSlot,
+    command_rx: mpsc::Receiver<CaptureCommand>,
+) {
     let video_frame = Arc::new(Mutex::new(VideoFrame {
         rotation: VideoRotation::VideoRotation0,
-        buffer: I420Buffer::new(stream_width, stream_height),
+        buffer: I420Buffer::new(1, 1),
         timestamp_us: 0,
     }));
-    let capture_buffer = Arc::new(Mutex::new(I420Buffer::new(stream_width, stream_height)));
-    let callback = move |result: CaptureResult, frame: DesktopFrame| {
-        match result {
-            CaptureResult::ErrorTemporary => {
-                log::debug!("Error temporary");
-                return;
-            }
-            CaptureResult::ErrorPermanent => {
-                log::debug!("Error permanent");
-                return;
-            }
-            _ => {}
-        }
+
+    let callback = {
+        let resolution_signal = resolution_signal.clone();
+        let video_source_slot = video_source_slot.clone();
         let video_frame = video_frame.clone();
-        let height = frame.height();
-        let width = frame.width();
+        move |result: CaptureResult, frame: DesktopFrame| {
+            match result {
+                CaptureResult::ErrorTemporary => {
+                    log::debug!("Error temporary");
+                    return;
+                }
+                CaptureResult::ErrorPermanent => {
+                    log::debug!("Error permanent");
+                    return;
+                }
+                _ => {}
+            }
 
-        {
-            let mut capture_buffer = capture_buffer.lock().unwrap();
-            let capture_buffer_width = capture_buffer.width() as i32;
-            let capture_buffer_height = capture_buffer.height() as i32;
-            if height != capture_buffer_height || width != capture_buffer_width {
-                *capture_buffer = I420Buffer::new(width as u32, height as u32);
+            let width = frame.width();
+            let height = frame.height();
+            let stride = frame.stride();
+            let data = frame.data();
+
+            {
+                let (lock, cvar) = &*resolution_signal;
+                let mut guard = lock.lock().unwrap();
+                if guard.is_none() {
+                    *guard = Some(VideoResolution { width: width as u32, height: height as u32 });
+                    cvar.notify_all();
+                }
+            }
+
+            let mut framebuffer = video_frame.lock().unwrap();
+            let buffer_width = framebuffer.buffer.width() as i32;
+            let buffer_height = framebuffer.buffer.height() as i32;
+            if buffer_width != width || buffer_height != height {
+                framebuffer.buffer = I420Buffer::new(width as u32, height as u32);
+            }
+
+            let (stride_y, stride_u, stride_v) = framebuffer.buffer.strides();
+            let (y_plane, u_plane, v_plane) = framebuffer.buffer.data_mut();
+            yuv_helper::argb_to_i420(
+                data, stride, y_plane, stride_y, u_plane, stride_u, v_plane, stride_v, width,
+                height,
+            );
+
+            let slot = video_source_slot.lock().unwrap();
+            if let Some(source) = slot.as_ref() {
+                source.capture_frame(&*framebuffer);
             }
         }
-
-        let stride = frame.stride();
-        let data = frame.data();
-
-        let mut capture_buffer = capture_buffer.lock().unwrap();
-        let (s_y, s_u, s_v) = capture_buffer.strides();
-        let (y, u, v) = capture_buffer.data_mut();
-        yuv_helper::argb_to_i420(data, stride, y, s_y, u, s_u, v, s_v, width, height);
-
-        let scaled_buffer = capture_buffer.scale(stream_width as i32, stream_height as i32);
-        let (scaled_y, scaled_u, scaled_v) = scaled_buffer.data();
-
-        let mut framebuffer = video_frame.lock().unwrap();
-        let buffer = &mut framebuffer.buffer;
-        let (y, u, v) = buffer.data_mut();
-        y.copy_from_slice(scaled_y);
-        u.copy_from_slice(scaled_u);
-        v.copy_from_slice(scaled_v);
-
-        buffer_source_clone.capture_frame(&*framebuffer);
     };
-    let source_type = if args.capture_window {
-        DesktopCaptureSourceType::WINDOW
-    } else {
-        DesktopCaptureSourceType::SCREEN
-    };
+
     let mut options = DesktopCapturerOptions::new(source_type);
     #[cfg(target_os = "macos")]
     {
-        options.set_sck_system_picker(args.use_system_picker);
+        options.set_sck_system_picker(use_system_picker);
     }
-    options.set_include_cursor(args.capture_cursor);
+    options.set_include_cursor(capture_cursor);
 
     let mut capturer =
         DesktopCapturer::new(callback, options).expect("Failed to create desktop capturer");
@@ -158,9 +263,18 @@ async fn main() {
     let selected_source = sources.first().cloned();
     capturer.start_capture(selected_source);
 
-    let now = tokio::time::Instant::now();
-    while now.elapsed() < tokio::time::Duration::from_secs(30) {
-        capturer.capture_frame();
-        tokio::time::sleep(tokio::time::Duration::from_millis(16)).await;
+    loop {
+        match command_rx.recv_timeout(Duration::from_millis(16)) {
+            Ok(CaptureCommand::Terminate) => {
+                log::info!("Capture thread received terminate message");
+                break;
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                capturer.capture_frame();
+            }
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
     }
+
+    log::info!("Capture loop exiting");
 }
