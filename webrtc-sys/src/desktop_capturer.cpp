@@ -65,7 +65,8 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
   return std::make_unique<DesktopCapturer>(std::move(capturer));
 }
 
-void DesktopCapturer::start(rust::Box<DesktopCapturerCallbackWrapper> callback) {
+void DesktopCapturer::start(
+    rust::Box<DesktopCapturerCallbackWrapper> callback) {
   this->callback = std::move(callback);
   capturer->Start(this);
 }
