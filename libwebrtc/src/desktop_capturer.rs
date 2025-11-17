@@ -89,23 +89,14 @@ impl DesktopCapturer {
     ///
     /// # Arguments
     ///
-    /// * `callback` - A function that will be called for each captured frame. The callback
-    ///   receives a [`CaptureResult`] indicating success or error, and a [`DesktopFrame`]
-    ///   containing the captured image data.
     /// * `options` - Configuration options for the capturer
     ///
     /// # Returns
     ///
     /// Returns `Some(DesktopCapturer)` if the capturer was created successfully,
     /// or `None` if creation failed (e.g., due to platform limitations or permissions).
-    pub fn new<T>(callback: T, options: DesktopCapturerOptions) -> Option<Self>
-    where
-        T: Fn(CaptureResult, DesktopFrame) + Send + 'static,
-    {
-        let inner_callback = move |result: imp_dc::CaptureResult, frame: imp_dc::DesktopFrame| {
-            callback(capture_result_from_sys(result), DesktopFrame::new(frame));
-        };
-        let desktop_capturer = imp_dc::DesktopCapturer::new(inner_callback, options.sys_handle);
+    pub fn new(options: DesktopCapturerOptions) -> Option<Self> {
+        let desktop_capturer = imp_dc::DesktopCapturer::new(options.sys_handle);
         if desktop_capturer.is_none() {
             return None;
         }
@@ -118,16 +109,25 @@ impl DesktopCapturer {
     ///
     /// * `source` - The capture source to use. It should be None when the capturer
     /// is configured to use the system picker (on platforms that support it).
+    /// * `callback` - A function that will be called for each captured frame. The callback
+    ///   receives a [`CaptureResult`] indicating success or error, and a [`DesktopFrame`]
+    ///   containing the captured image data.
     ///
     /// # Note
     ///
     /// After calling this method, you must call [`capture_frame`](Self::capture_frame)
     /// to actually capture frames. This method only initializes the capture session.
-    pub fn start_capture(&mut self, source: Option<CaptureSource>) {
+    pub fn start_capture<T>(&mut self, source: Option<CaptureSource>, callback: T)
+    where
+        T: Fn(CaptureResult, DesktopFrame) + Send + 'static,
+    {
         if let Some(source) = source {
             self.handle.select_source(source.sys_handle.id());
         }
-        self.handle.start();
+        let inner_callback = move |result: imp_dc::CaptureResult, frame: imp_dc::DesktopFrame| {
+            callback(capture_result_from_sys(result), DesktopFrame::new(frame));
+        };
+        self.handle.start(inner_callback);
     }
 
     /// Captures a single frame.
@@ -212,6 +212,7 @@ impl std::fmt::Display for CaptureSource {
     }
 }
 
+#[derive(Debug, PartialEq)]
 pub enum CaptureResult {
     Success,
     ErrorTemporary,

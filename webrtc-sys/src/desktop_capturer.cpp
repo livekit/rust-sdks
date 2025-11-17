@@ -21,7 +21,6 @@ using SourceList = webrtc::DesktopCapturer::SourceList;
 namespace livekit {
 
 std::unique_ptr<DesktopCapturer> new_desktop_capturer(
-    rust::Box<DesktopCapturerCallbackWrapper> callback,
     DesktopCapturerOptions options) {
   webrtc::DesktopCaptureOptions webrtc_options =
       webrtc::DesktopCaptureOptions::CreateDefault();
@@ -63,14 +62,13 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
   if (!capturer) {
     return nullptr;
   }
-  return std::make_unique<DesktopCapturer>(std::move(callback),
-                                           std::move(capturer));
+  return std::make_unique<DesktopCapturer>(std::move(capturer));
 }
 
-DesktopCapturer::DesktopCapturer(
-    rust::Box<DesktopCapturerCallbackWrapper> callback,
-    std::unique_ptr<webrtc::DesktopCapturer> capturer)
-    : callback(std::move(callback)), capturer(std::move(capturer)) {}
+void DesktopCapturer::start(rust::Box<DesktopCapturerCallbackWrapper> callback) {
+  this->callback = std::move(callback);
+  capturer->Start(this);
+}
 
 void DesktopCapturer::OnCaptureResult(
     webrtc::DesktopCapturer::Result result,

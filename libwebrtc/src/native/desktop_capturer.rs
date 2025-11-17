@@ -81,13 +81,8 @@ pub struct DesktopCapturer {
 }
 
 impl DesktopCapturer {
-    pub fn new<T>(callback: T, options: DesktopCapturerOptions) -> Option<Self>
-    where
-        T: Fn(CaptureResult, DesktopFrame) + Send + 'static,
-    {
-        let callback = DesktopCallback::new(callback);
-        let callback_wrapper = sys_dc::DesktopCapturerCallbackWrapper::new(Box::new(callback));
-        let sys_handle = new_desktop_capturer(Box::new(callback_wrapper), options.to_sys_handle());
+    pub fn new(options: DesktopCapturerOptions) -> Option<Self> {
+        let sys_handle = new_desktop_capturer(options.to_sys_handle());
         if sys_handle.is_null() {
             None
         } else {
@@ -99,9 +94,14 @@ impl DesktopCapturer {
         self.sys_handle.capture_frame();
     }
 
-    pub fn start(&mut self) {
+    pub fn start<T>(&mut self, callback: T)
+    where
+        T: Fn(CaptureResult, DesktopFrame) + Send + 'static,
+    {
         let pin_handle = self.sys_handle.pin_mut();
-        pin_handle.start();
+        let callback = DesktopCallback::new(callback);
+        let callback_wrapper = sys_dc::DesktopCapturerCallbackWrapper::new(Box::new(callback));
+        pin_handle.start(Box::new(callback_wrapper));
     }
 
     pub fn select_source(&self, id: u64) -> bool {

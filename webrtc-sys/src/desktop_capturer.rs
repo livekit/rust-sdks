@@ -52,14 +52,11 @@ pub mod ffi {
         type DesktopCapturer;
         type DesktopFrame;
 
-        fn new_desktop_capturer(
-            callback: Box<DesktopCapturerCallbackWrapper>,
-            options: DesktopCapturerOptions,
-        ) -> UniquePtr<DesktopCapturer>;
+        fn new_desktop_capturer(options: DesktopCapturerOptions) -> UniquePtr<DesktopCapturer>;
         fn capture_frame(self: &DesktopCapturer);
         fn get_source_list(self: &DesktopCapturer) -> Vec<Source>;
         fn select_source(self: &DesktopCapturer, id: u64) -> bool;
-        fn start(self: Pin<&mut DesktopCapturer>);
+        fn start(self: Pin<&mut DesktopCapturer>, callback: Box<DesktopCapturerCallbackWrapper>);
 
         fn width(self: &DesktopFrame) -> i32;
         fn height(self: &DesktopFrame) -> i32;

@@ -255,13 +255,12 @@ fn run_capture_loop(
     }
     options.set_include_cursor(capture_cursor);
 
-    let mut capturer =
-        DesktopCapturer::new(callback, options).expect("Failed to create desktop capturer");
+    let mut capturer = DesktopCapturer::new(options).expect("Failed to create desktop capturer");
     let sources = capturer.get_source_list();
     log::info!("Found {} sources", sources.len());
 
     let selected_source = sources.first().cloned();
-    capturer.start_capture(selected_source);
+    capturer.start_capture(selected_source, callback);
 
     loop {
         match command_rx.recv_timeout(Duration::from_millis(16)) {

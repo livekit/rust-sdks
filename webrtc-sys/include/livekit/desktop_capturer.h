@@ -34,15 +34,16 @@ namespace livekit {
 
 class DesktopCapturer : public webrtc::DesktopCapturer::Callback {
  public:
-  explicit DesktopCapturer(rust::Box<DesktopCapturerCallbackWrapper> callback,
-                           std::unique_ptr<webrtc::DesktopCapturer> capturer);
+  explicit DesktopCapturer(std::unique_ptr<webrtc::DesktopCapturer> capturer)
+      : capturer(std::move(capturer))
+      , callback(rust::Box<DesktopCapturerCallbackWrapper>::from_raw(nullptr)) {};
 
   void OnCaptureResult(webrtc::DesktopCapturer::Result result,
                        std::unique_ptr<webrtc::DesktopFrame> frame) final;
 
   rust::Vec<Source> get_source_list() const;
   bool select_source(uint64_t id) const { return capturer->SelectSource(id); };
-  void start() { capturer->Start(this); };
+  void start(rust::Box<DesktopCapturerCallbackWrapper> callback);
   void capture_frame() const { capturer->CaptureFrame(); };
 
  private:
@@ -71,6 +72,5 @@ class DesktopFrame {
 };
 
 std::unique_ptr<DesktopCapturer> new_desktop_capturer(
-    rust::Box<DesktopCapturerCallbackWrapper> callback,
     DesktopCapturerOptions options);
 }  // namespace livekit
