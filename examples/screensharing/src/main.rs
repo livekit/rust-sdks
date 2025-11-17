@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{ArgAction, Parser};
 use livekit::options::{TrackPublishOptions, VideoCodec};
 use livekit::prelude::*;
 use livekit::track::{LocalTrack, LocalVideoTrack, TrackSource};
@@ -57,7 +57,7 @@ struct Args {
 
     /// Use system screen picker (macOS only)
     #[cfg(target_os = "macos")]
-    #[arg(long, default_value_t = true)]
+    #[arg(long, default_value_t = true, action = ArgAction::Set)]
     use_system_picker: bool,
 }
 
