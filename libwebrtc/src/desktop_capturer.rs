@@ -58,8 +58,7 @@ impl DesktopCapturerOptions {
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             DesktopCaptureSourceType::Generic => imp_dc::SourceType::Generic,
         };
-        let mut sys_handle = imp_dc::DesktopCapturerOptions::new(source_type);
-        Self { sys_handle }
+        Self { sys_handle: imp_dc::DesktopCapturerOptions::new(source_type) }
     }
 
     /// Sets whether to include the cursor in captured frames.
@@ -108,7 +107,7 @@ impl DesktopCapturer {
     /// # Arguments
     ///
     /// * `source` - The capture source to use. It should be None when the capturer
-    /// is configured to use the system picker (on platforms that support it).
+    ///   is configured to use the system picker (on platforms that support it).
     /// * `callback` - A function that will be called for each captured frame. The callback
     ///   receives a [`CaptureResult`] indicating success or error, and a [`DesktopFrame`]
     ///   containing the captured image data.
@@ -117,9 +116,9 @@ impl DesktopCapturer {
     ///
     /// After calling this method, you must call [`capture_frame`](Self::capture_frame)
     /// to actually capture frames. This method only initializes the capture session.
-    pub fn start_capture<T>(&mut self, source: Option<CaptureSource>, callback: T)
+    pub fn start_capture<T>(&mut self, source: Option<CaptureSource>, mut callback: T)
     where
-        T: Fn(CaptureResult, DesktopFrame) + Send + 'static,
+        T: FnMut(CaptureResult, DesktopFrame) + Send + 'static,
     {
         if let Some(source) = source {
             self.handle.select_source(source.sys_handle.id());

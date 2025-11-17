@@ -190,16 +190,12 @@ fn run_capture_loop(
     video_source_slot: VideoSourceSlot,
     command_rx: mpsc::Receiver<CaptureCommand>,
 ) {
-    let video_frame = Arc::new(Mutex::new(VideoFrame {
-        rotation: VideoRotation::VideoRotation0,
-        buffer: I420Buffer::new(1, 1),
-        timestamp_us: 0,
-    }));
-
     let callback = {
-        let resolution_signal = resolution_signal.clone();
-        let video_source_slot = video_source_slot.clone();
-        let video_frame = video_frame.clone();
+        let mut frame_buffer = VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
+            buffer: I420Buffer::new(1, 1),
+            timestamp_us: 0,
+        };
         move |result: CaptureResult, frame: DesktopFrame| {
             match result {
                 CaptureResult::ErrorTemporary => {
@@ -227,15 +223,14 @@ fn run_capture_loop(
                 }
             }
 
-            let mut framebuffer = video_frame.lock().unwrap();
-            let buffer_width = framebuffer.buffer.width() as i32;
-            let buffer_height = framebuffer.buffer.height() as i32;
+            let buffer_width = frame_buffer.buffer.width() as i32;
+            let buffer_height = frame_buffer.buffer.height() as i32;
             if buffer_width != width || buffer_height != height {
-                framebuffer.buffer = I420Buffer::new(width as u32, height as u32);
+                frame_buffer.buffer = I420Buffer::new(width as u32, height as u32);
             }
 
-            let (stride_y, stride_u, stride_v) = framebuffer.buffer.strides();
-            let (y_plane, u_plane, v_plane) = framebuffer.buffer.data_mut();
+            let (stride_y, stride_u, stride_v) = frame_buffer.buffer.strides();
+            let (y_plane, u_plane, v_plane) = frame_buffer.buffer.data_mut();
             yuv_helper::argb_to_i420(
                 data, stride, y_plane, stride_y, u_plane, stride_u, v_plane, stride_v, width,
                 height,
@@ -243,7 +238,7 @@ fn run_capture_loop(
 
             let slot = video_source_slot.lock().unwrap();
             if let Some(source) = slot.as_ref() {
-                source.capture_frame(&*framebuffer);
+                source.capture_frame(&frame_buffer);
             }
         }
     };
