@@ -17,7 +17,6 @@
 #pragma once
 #include <memory>
 
-#include "modules/desktop_capture/desktop_capture_options.h"
 #include "modules/desktop_capture/desktop_capturer.h"
 #include "rust/cxx.h"
 
@@ -35,25 +34,24 @@ namespace livekit {
 class DesktopCapturer : public webrtc::DesktopCapturer::Callback {
  public:
   explicit DesktopCapturer(std::unique_ptr<webrtc::DesktopCapturer> capturer)
-      : capturer(std::move(capturer)),
-        callback(rust::Box<DesktopCapturerCallbackWrapper>::from_raw(nullptr)) {};
+      : capturer(std::move(capturer)), callback(std::nullopt) {}
 
   void OnCaptureResult(webrtc::DesktopCapturer::Result result,
                        std::unique_ptr<webrtc::DesktopFrame> frame) final;
 
   rust::Vec<Source> get_source_list() const;
-  bool select_source(uint64_t id) const { return capturer->SelectSource(id); };
+  bool select_source(uint64_t id) const { return capturer->SelectSource(id); }
   void start(rust::Box<DesktopCapturerCallbackWrapper> callback);
-  void capture_frame() const { capturer->CaptureFrame(); };
+  void capture_frame() const { capturer->CaptureFrame(); }
 
  private:
   std::unique_ptr<webrtc::DesktopCapturer> capturer;
-  rust::Box<DesktopCapturerCallbackWrapper> callback;
+  std::optional<rust::Box<DesktopCapturerCallbackWrapper>> callback;
 };
 
 class DesktopFrame {
  public:
-  DesktopFrame(std::unique_ptr<webrtc::DesktopFrame> frame) : frame(std::move(frame)) {};
+  DesktopFrame(std::unique_ptr<webrtc::DesktopFrame> frame) : frame(std::move(frame)) {}
   int32_t width() const { return frame->size().width(); }
 
   int32_t height() const { return frame->size().height(); }

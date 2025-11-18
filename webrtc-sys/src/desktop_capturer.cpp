@@ -16,6 +16,8 @@
 
 #include "livekit/desktop_capturer.h"
 
+#include "modules/desktop_capture/desktop_capture_options.h"
+
 using SourceList = webrtc::DesktopCapturer::SourceList;
 
 namespace livekit {
@@ -29,12 +31,17 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
   webrtc_options.set_allow_sck_system_picker(options.allow_sck_system_picker);
 #endif /* defined(WEBRTC_MAC) && !defined(WEBRTC_IOS) */
 #ifdef _WIN64
-  if (options.window_capturer) {
-    webrtc_options.set_allow_wgc_screen_capturer(true);
-  } else {
-    webrtc_options.set_allow_wgc_window_capturer(true);
-    // https://github.com/webrtc-sdk/webrtc/blob/m137_release/modules/desktop_capture/desktop_capture_options.h#L133-L142
-    webrtc_options.set_enumerate_current_process_windows(false);
+  switch (options.source_type) {
+    case SourceType::Screen:
+      webrtc_options.set_allow_wgc_screen_capturer(true);
+      break;
+    case SourceType::Window:
+      webrtc_options.set_allow_wgc_window_capturer(true);
+      // https://github.com/webrtc-sdk/webrtc/blob/m137_release/modules/desktop_capture/desktop_capture_options.h#L133-L142
+      webrtc_options.set_enumerate_current_process_windows(false);
+      break;
+    default:
+      break;
   }
   webrtc_options.set_allow_directx_capturer(true);
 #endif /* _WIN64 */
@@ -42,6 +49,8 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
   webrtc_options.set_allow_pipewire(true);
 #endif /* WEBRTC_USE_PIPEWIRE */
 
+  // prefer_cursor_embedded indicate that the capturer should try to include the
+  // cursor in the frame
   webrtc_options.set_prefer_cursor_embedded(options.include_cursor);
 
   std::unique_ptr<webrtc::DesktopCapturer> capturer = nullptr;
@@ -74,7 +83,7 @@ void DesktopCapturer::start(
 void DesktopCapturer::OnCaptureResult(
     webrtc::DesktopCapturer::Result result,
     std::unique_ptr<webrtc::DesktopFrame> frame) {
-  CaptureResult ret_result = CaptureResult::Success;
+  CaptureResult ret_result = CaptureResult::ErrorPermanent;
   switch (result) {
     case webrtc::DesktopCapturer::Result::SUCCESS:
       ret_result = CaptureResult::Success;
@@ -88,8 +97,10 @@ void DesktopCapturer::OnCaptureResult(
     default:
       break;
   }
-  callback->on_capture_result(ret_result,
-                              std::make_unique<DesktopFrame>(std::move(frame)));
+  if (callback) {
+    (*callback)->on_capture_result(
+        ret_result, std::make_unique<DesktopFrame>(std::move(frame)));
+  }
 }
 
 rust::Vec<Source> DesktopCapturer::get_source_list() const {

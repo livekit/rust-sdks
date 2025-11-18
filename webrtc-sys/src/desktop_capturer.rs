@@ -79,8 +79,14 @@ pub mod ffi {
 
 impl_thread_safety!(ffi::DesktopCapturer, Send + Sync);
 
+#[derive(Debug, PartialEq)]
+pub enum CaptureError {
+    Temporary,
+    Permanent,
+}
+
 pub trait DesktopCapturerCallback: Send {
-    fn on_capture_result(&mut self, result: CaptureResult, frame: UniquePtr<DesktopFrame>);
+    fn on_capture_result(&mut self, result: Result<UniquePtr<DesktopFrame>, CaptureError>);
 }
 
 pub struct DesktopCapturerCallbackWrapper {
@@ -93,6 +99,15 @@ impl DesktopCapturerCallbackWrapper {
     }
 
     fn on_capture_result(&mut self, result: CaptureResult, frame: UniquePtr<DesktopFrame>) {
-        self.callback.on_capture_result(result, frame);
+        match result {
+            CaptureResult::Success => self.callback.on_capture_result(Ok(frame)),
+            CaptureResult::ErrorTemporary => {
+                self.callback.on_capture_result(Err(CaptureError::Temporary))
+            }
+            CaptureResult::ErrorPermanent => {
+                self.callback.on_capture_result(Err(CaptureError::Permanent))
+            }
+            _ => self.callback.on_capture_result(Err(CaptureError::Permanent)),
+        }
     }
 }

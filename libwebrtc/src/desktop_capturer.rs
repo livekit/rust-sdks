@@ -16,7 +16,7 @@ use crate::imp::desktop_capturer as imp_dc;
 
 /// Configuration options for creating a desktop capturer.
 ///
-/// It contains a subset of libwertc's DesktopCaptureOptions.
+/// It contains a subset of libwebrtc's DesktopCaptureOptions.
 ///
 /// By default, it captures the entire screen and does not include the cursor.
 ///
@@ -24,11 +24,11 @@ use crate::imp::desktop_capturer as imp_dc;
 /// ```no_run
 /// use libwebrtc::desktop_capturer::{DesktopCapturerOptions, DesktopCaptureSourceType};
 ///
-/// let mut options = DesktopCapturerOptions::new(DesktopCaptureSourceType::SCREEN);
+/// let mut options = DesktopCapturerOptions::new(DesktopCaptureSourceType::Screen);
 /// options.set_include_cursor(true);
 /// ```
 pub struct DesktopCapturerOptions {
-    pub(crate) sys_handle: imp_dc::DesktopCapturerOptions,
+    sys_handle: imp_dc::DesktopCapturerOptions,
 }
 
 /// Specifies the type of source that a desktop capturer should capture.
@@ -118,13 +118,13 @@ impl DesktopCapturer {
     /// to actually capture frames. This method only initializes the capture session.
     pub fn start_capture<T>(&mut self, source: Option<CaptureSource>, mut callback: T)
     where
-        T: FnMut(CaptureResult, DesktopFrame) + Send + 'static,
+        T: FnMut(Result<DesktopFrame, CaptureError>) + Send + 'static,
     {
         if let Some(source) = source {
             self.handle.select_source(source.sys_handle.id());
         }
-        let inner_callback = move |result: imp_dc::CaptureResult, frame: imp_dc::DesktopFrame| {
-            callback(capture_result_from_sys(result), DesktopFrame::new(frame));
+        let inner_callback = move |result: Result<imp_dc::DesktopFrame, imp_dc::CaptureError>| {
+            callback(capture_result_from_sys(result));
         };
         self.handle.start(inner_callback);
     }
@@ -151,11 +151,11 @@ impl DesktopCapturer {
 }
 
 pub struct DesktopFrame {
-    pub(crate) sys_handle: imp_dc::DesktopFrame,
+    sys_handle: imp_dc::DesktopFrame,
 }
 
 impl DesktopFrame {
-    pub fn new(sys_handle: imp_dc::DesktopFrame) -> Self {
+    fn new(sys_handle: imp_dc::DesktopFrame) -> Self {
         Self { sys_handle }
     }
 
@@ -186,7 +186,7 @@ impl DesktopFrame {
 
 #[derive(Clone)]
 pub struct CaptureSource {
-    pub(crate) sys_handle: imp_dc::CaptureSource,
+    sys_handle: imp_dc::CaptureSource,
 }
 
 impl CaptureSource {
@@ -212,16 +212,19 @@ impl std::fmt::Display for CaptureSource {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum CaptureResult {
-    Success,
-    ErrorTemporary,
-    ErrorPermanent,
+pub enum CaptureError {
+    Temporary,
+    Permanent,
 }
 
-fn capture_result_from_sys(result: imp_dc::CaptureResult) -> CaptureResult {
+fn capture_result_from_sys(
+    result: Result<imp_dc::DesktopFrame, imp_dc::CaptureError>,
+) -> Result<DesktopFrame, CaptureError> {
     match result {
-        imp_dc::CaptureResult::Success => CaptureResult::Success,
-        imp_dc::CaptureResult::ErrorTemporary => CaptureResult::ErrorTemporary,
-        imp_dc::CaptureResult::ErrorPermanent => CaptureResult::ErrorPermanent,
+        Ok(frame) => Ok(DesktopFrame::new(frame)),
+        Err(error) => Err(match error {
+            imp_dc::CaptureError::Temporary => CaptureError::Temporary,
+            imp_dc::CaptureError::Permanent => CaptureError::Permanent,
+        }),
     }
 }

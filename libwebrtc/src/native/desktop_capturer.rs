@@ -16,18 +16,18 @@ use cxx::UniquePtr;
 use webrtc_sys::desktop_capturer::{self as sys_dc, ffi::new_desktop_capturer};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub enum SourceType {
+pub(crate) enum SourceType {
     Screen,
     Window,
     Generic,
 }
 
 #[derive(Copy, Clone, Debug)]
-pub struct DesktopCapturerOptions {
-    pub source_type: SourceType,
-    pub include_cursor: bool,
+pub(crate) struct DesktopCapturerOptions {
+    source_type: SourceType,
+    include_cursor: bool,
     #[cfg(target_os = "macos")]
-    pub allow_sck_system_picker: bool,
+    allow_sck_system_picker: bool,
 }
 
 impl Default for DesktopCapturerOptions {
@@ -43,7 +43,7 @@ impl Default for DesktopCapturerOptions {
 
 impl DesktopCapturerOptions {
     pub(crate) fn new(source_type: SourceType) -> Self {
-        Self { source_type, include_cursor: false, ..Default::default() }
+        Self { source_type, ..Default::default() }
     }
 
     pub(crate) fn with_cursor(mut self, include: bool) -> Self {
@@ -76,12 +76,12 @@ impl DesktopCapturerOptions {
     }
 }
 
-pub struct DesktopCapturer {
-    pub(crate) sys_handle: UniquePtr<sys_dc::ffi::DesktopCapturer>,
+pub(crate) struct DesktopCapturer {
+    sys_handle: UniquePtr<sys_dc::ffi::DesktopCapturer>,
 }
 
 impl DesktopCapturer {
-    pub fn new(options: DesktopCapturerOptions) -> Option<Self> {
+    pub(crate) fn new(options: DesktopCapturerOptions) -> Option<Self> {
         let sys_handle = new_desktop_capturer(options.to_sys_handle());
         if sys_handle.is_null() {
             None
@@ -90,13 +90,13 @@ impl DesktopCapturer {
         }
     }
 
-    pub fn capture_frame(&self) {
+    pub(crate) fn capture_frame(&self) {
         self.sys_handle.capture_frame();
     }
 
-    pub fn start<T>(&mut self, callback: T)
+    pub(crate) fn start<T>(&mut self, callback: T)
     where
-        T: FnMut(CaptureResult, DesktopFrame) + Send + 'static,
+        T: FnMut(Result<DesktopFrame, CaptureError>) + Send + 'static,
     {
         let pin_handle = self.sys_handle.pin_mut();
         let callback = DesktopCallback::new(callback);
@@ -104,11 +104,11 @@ impl DesktopCapturer {
         pin_handle.start(Box::new(callback_wrapper));
     }
 
-    pub fn select_source(&self, id: u64) -> bool {
+    pub(crate) fn select_source(&self, id: u64) -> bool {
         self.sys_handle.select_source(id)
     }
 
-    pub fn get_source_list(&self) -> Vec<CaptureSource> {
+    pub(crate) fn get_source_list(&self) -> Vec<CaptureSource> {
         let mut sources = Vec::new();
         let source_list = self.sys_handle.get_source_list();
         for source in source_list.iter() {
@@ -118,97 +118,98 @@ impl DesktopCapturer {
     }
 }
 
-pub struct DesktopFrame {
-    pub(crate) sys_handle: UniquePtr<sys_dc::ffi::DesktopFrame>,
+pub(crate) struct DesktopFrame {
+    sys_handle: UniquePtr<sys_dc::ffi::DesktopFrame>,
 }
 
 impl DesktopFrame {
-    pub fn new(sys_handle: UniquePtr<sys_dc::ffi::DesktopFrame>) -> Self {
+    fn new(sys_handle: UniquePtr<sys_dc::ffi::DesktopFrame>) -> Self {
         Self { sys_handle }
     }
 
-    pub fn width(&self) -> i32 {
+    pub(crate) fn width(&self) -> i32 {
         self.sys_handle.width()
     }
 
-    pub fn height(&self) -> i32 {
+    pub(crate) fn height(&self) -> i32 {
         self.sys_handle.height()
     }
 
-    pub fn stride(&self) -> u32 {
+    pub(crate) fn stride(&self) -> u32 {
         self.sys_handle.stride() as u32
     }
 
-    pub fn left(&self) -> i32 {
+    pub(crate) fn left(&self) -> i32 {
         self.sys_handle.left()
     }
 
-    pub fn top(&self) -> i32 {
+    pub(crate) fn top(&self) -> i32 {
         self.sys_handle.top()
     }
 
-    pub fn data(&self) -> &[u8] {
+    pub(crate) fn data(&self) -> &[u8] {
         let data = self.sys_handle.data();
         unsafe { std::slice::from_raw_parts(data, self.stride() as usize * self.height() as usize) }
     }
 }
 
-pub struct DesktopCallback<T: FnMut(CaptureResult, DesktopFrame) + Send> {
+struct DesktopCallback<T: FnMut(Result<DesktopFrame, CaptureError>) + Send> {
     callback: T,
 }
 
 impl<T> DesktopCallback<T>
 where
-    T: FnMut(CaptureResult, DesktopFrame) + Send,
+    T: FnMut(Result<DesktopFrame, CaptureError>) + Send,
 {
-    pub fn new(callback: T) -> Self {
+    fn new(callback: T) -> Self {
         Self { callback }
+    }
+
+    fn capture_result_from_sys(
+        result: Result<UniquePtr<sys_dc::ffi::DesktopFrame>, sys_dc::CaptureError>,
+    ) -> Result<DesktopFrame, CaptureError> {
+        match result {
+            Ok(frame) => Ok(DesktopFrame::new(frame)),
+            Err(error) => Err(match error {
+                sys_dc::CaptureError::Temporary => CaptureError::Temporary,
+                sys_dc::CaptureError::Permanent => CaptureError::Permanent,
+            }),
+        }
     }
 }
 
 impl<T> sys_dc::DesktopCapturerCallback for DesktopCallback<T>
 where
-    T: FnMut(CaptureResult, DesktopFrame) + Send,
+    T: FnMut(Result<DesktopFrame, CaptureError>) + Send,
 {
     fn on_capture_result(
         &mut self,
-        result: sys_dc::ffi::CaptureResult,
-        frame: UniquePtr<sys_dc::ffi::DesktopFrame>,
+        result: Result<UniquePtr<sys_dc::ffi::DesktopFrame>, sys_dc::CaptureError>,
     ) {
-        (self.callback)(capture_result_from_sys(result), DesktopFrame::new(frame));
+        (self.callback)(DesktopCallback::<T>::capture_result_from_sys(result));
     }
 }
 
 #[derive(Clone)]
-pub struct CaptureSource {
-    pub(crate) sys_handle: sys_dc::ffi::Source,
+pub(crate) struct CaptureSource {
+    sys_handle: sys_dc::ffi::Source,
 }
 
 impl CaptureSource {
-    pub fn id(&self) -> u64 {
+    pub(crate) fn id(&self) -> u64 {
         self.sys_handle.id
     }
 
-    pub fn title(&self) -> String {
+    pub(crate) fn title(&self) -> String {
         self.sys_handle.title.clone()
     }
 
-    pub fn display_id(&self) -> i64 {
+    pub(crate) fn display_id(&self) -> i64 {
         self.sys_handle.display_id
     }
 }
 
-pub(crate) enum CaptureResult {
-    Success,
-    ErrorTemporary,
-    ErrorPermanent,
-}
-
-fn capture_result_from_sys(result: sys_dc::ffi::CaptureResult) -> CaptureResult {
-    match result {
-        sys_dc::ffi::CaptureResult::Success => CaptureResult::Success,
-        sys_dc::ffi::CaptureResult::ErrorTemporary => CaptureResult::ErrorTemporary,
-        sys_dc::ffi::CaptureResult::ErrorPermanent => CaptureResult::ErrorPermanent,
-        _ => CaptureResult::ErrorPermanent,
-    }
+pub(crate) enum CaptureError {
+    Temporary,
+    Permanent,
 }

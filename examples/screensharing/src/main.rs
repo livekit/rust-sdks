@@ -3,7 +3,7 @@ use livekit::options::{TrackPublishOptions, VideoCodec};
 use livekit::prelude::*;
 use livekit::track::{LocalTrack, LocalVideoTrack, TrackSource};
 use livekit::webrtc::desktop_capturer::{
-    CaptureResult, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions, DesktopFrame,
+    CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions, DesktopFrame,
 };
 use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::prelude::{
@@ -196,18 +196,18 @@ fn run_capture_loop(
             buffer: I420Buffer::new(1, 1),
             timestamp_us: 0,
         };
-        move |result: CaptureResult, frame: DesktopFrame| {
-            match result {
-                CaptureResult::ErrorTemporary => {
+        move |result: Result<DesktopFrame, CaptureError>| {
+            let frame = match result {
+                Ok(frame) => frame,
+                Err(CaptureError::Temporary) => {
                     log::debug!("Error temporary");
                     return;
                 }
-                CaptureResult::ErrorPermanent => {
+                Err(CaptureError::Permanent) => {
                     log::debug!("Error permanent");
                     return;
                 }
-                _ => {}
-            }
+            };
 
             let width = frame.width();
             let height = frame.height();
