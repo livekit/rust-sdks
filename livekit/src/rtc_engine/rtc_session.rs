@@ -932,6 +932,7 @@ impl SessionInner {
                         r#type: "answer".to_string(),
                         sdp: answer.to_string(),
                         id: 0,
+                        mid_to_track_id: Default::default(),
                     }))
                     .await;
             }
@@ -1056,6 +1057,7 @@ impl SessionInner {
                         r#type: "offer".to_string(),
                         sdp: offer.to_string(),
                         id: 0,
+                        mid_to_track_id: Default::default(),
                     }))
                     .await;
             }
