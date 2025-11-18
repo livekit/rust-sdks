@@ -22,6 +22,7 @@ typedef void lkMediaStreamTrack;
 typedef void lkMediaStream;
 typedef void lkSessionDescription;
 typedef void lkIceCandidate;
+typedef void lkdDataBuffer;
 
 typedef enum {
   LK_ICE_TRANSPORT_TYPE_NONE,
@@ -211,6 +212,8 @@ LK_EXPORT void lkDcUnregisterObserver(lkDataChannel* dc);
 LK_EXPORT lkDcState lkDcGetState(lkDataChannel* dc);
 
 LK_EXPORT int lkDcGetId(lkDataChannel* dc);
+
+LK_EXPORT int lkDcGetLabelLength(lkDataChannel* dc);
 
 LK_EXPORT int lkDcGetLabel(lkDataChannel* dc, char* buffer, int bufferSize);
 

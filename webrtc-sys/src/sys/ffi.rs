@@ -11,6 +11,7 @@ pub type lkMediaStreamTrack = ::std::os::raw::c_void;
 pub type lkMediaStream = ::std::os::raw::c_void;
 pub type lkSessionDescription = ::std::os::raw::c_void;
 pub type lkIceCandidate = ::std::os::raw::c_void;
+pub type lkdDataBuffer = ::std::os::raw::c_void;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkIceTransportType {
@@ -395,6 +396,9 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn lkDcGetId(dc: *mut lkDataChannel) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkDcGetLabelLength(dc: *mut lkDataChannel) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
     pub fn lkDcGetLabel(

@@ -160,6 +160,7 @@ pub struct PeerObserver {
     pub negotiation_needed_handler: Mutex<Option<OnNegotiationNeeded>>,
     pub signaling_change_handler: Mutex<Option<OnSignalingChange>>,
     pub track_handler: Mutex<Option<OnTrack>>,
+    sys_ffi: Option<sys::RefCounted<sys::lkPeer>>,
 }
 
 impl From<lkSignalingState> for SignalingState {
@@ -213,12 +214,17 @@ impl From<lkIceGatheringState> for IceGatheringState {
 }
 
 impl PeerObserver {
+    pub fn set_peer_connection(&mut self, ffi: sys::RefCounted<sys::lkPeer>) {
+        self.sys_ffi = Some(ffi);
+    }
     pub extern "C" fn peer_on_signal_change(
         state: lkSignalingState,
         userdata: *mut std::ffi::c_void,
     ) {
-        let observer: &mut PeerObserver = unsafe { &mut *userdata.cast::<PeerObserver>() };
-        let mut handler = observer.signaling_change_handler.lock().unwrap();
+        let observer: &mut Mutex<PeerObserver> =
+            unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };
+        let binding = observer.lock().unwrap();
+        let mut handler = binding.signaling_change_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
             f(state.into());
         }
@@ -228,8 +234,10 @@ impl PeerObserver {
         candidate: *mut lkIceCandidate,
         userdata: *mut ::std::os::raw::c_void,
     ) {
-        let observer: &mut PeerObserver = unsafe { &mut *userdata.cast::<PeerObserver>() };
-        let mut handler = observer.ice_candidate_handler.lock().unwrap();
+        let observer: &mut Mutex<PeerObserver> =
+            unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };
+        let binding = observer.lock().unwrap();
+        let mut handler = binding.ice_candidate_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
             f(IceCandidate { ffi: unsafe { sys::RefCounted::from_raw(candidate) } });
         }
@@ -240,8 +248,10 @@ impl PeerObserver {
         userdata: *mut std::ffi::c_void,
     ) {
         println!("peer_on_data_channel called with dc: {:?}", lk_dc);
-        let observer: &mut PeerObserver = unsafe { &mut *userdata.cast::<PeerObserver>() };
-        let mut handler = observer.data_channel_handler.lock().unwrap();
+        let observer: &mut Mutex<PeerObserver> =
+            unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };
+        let binding = observer.lock().unwrap();
+        let mut handler = binding.data_channel_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
             let dc = DataChannel::configure(unsafe { sys::RefCounted::from_raw(lk_dc as *mut _) });
             f(dc);
@@ -253,8 +263,10 @@ impl PeerObserver {
         userdata: *mut std::ffi::c_void,
     ) {
         println!("pee_on_track called with transceiver: {:?}", transceiver);
-        let observer: &mut PeerObserver = unsafe { &mut *userdata.cast::<PeerObserver>() };
-        let mut handler = observer.track_handler.lock().unwrap();
+        let observer: &mut Mutex<PeerObserver> =
+            unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };
+        let binding = observer.lock().unwrap();
+        let mut handler = binding.track_handler.lock().unwrap();
         if let Some(_) = handler.as_mut() {
             //TODO: create TrackEvent from transceiver
             println!("OnTrack: {:?}", transceiver);
@@ -266,8 +278,10 @@ impl PeerObserver {
         userdata: *mut std::ffi::c_void,
     ) {
         println!("peer_on_connection_state_change called with state: {:?}", state);
-        let observer: &mut PeerObserver = unsafe { &mut *userdata.cast::<PeerObserver>() };
-        let mut handler = observer.connection_change_handler.lock().unwrap();
+        let observer: &mut Mutex<PeerObserver> =
+            unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };
+        let binding = observer.lock().unwrap();
+        let mut handler = binding.connection_change_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
             f(state.into());
         }
@@ -281,8 +295,10 @@ impl PeerObserver {
         error_text: *const ::std::os::raw::c_char,
         userdata: *mut ::std::os::raw::c_void,
     ) {
-        let _peer: &mut PeerConnection = unsafe { &mut *userdata.cast::<PeerConnection>() };
-        let mut handler = _peer.observer.ice_candidate_error_handler.lock().unwrap();
+        let observer: &mut Mutex<PeerObserver> =
+            unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };
+        let binding = observer.lock().unwrap();
+        let mut handler = binding.ice_candidate_error_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
             f(IceCandidateError {
                 address: unsafe { std::ffi::CStr::from_ptr(address).to_str().unwrap().to_string() },
@@ -393,7 +409,7 @@ impl PeerObserver {
 
 #[derive(Clone)]
 pub struct PeerConnection {
-    pub(crate) observer: Arc<PeerObserver>,
+    pub(crate) observer: Arc<Mutex<PeerObserver>>,
     pub(crate) ffi: sys::RefCounted<sys::lkPeer>,
 }
 
@@ -712,47 +728,56 @@ impl PeerConnection {
     }
     */
     pub fn on_connection_state_change(&self, f: Option<OnConnectionChange>) {
-        let mut guard = self.observer.connection_change_handler.lock().unwrap();
+        let binding = self.observer.lock().unwrap();
+        let mut guard = binding.connection_change_handler.lock().unwrap();
         guard.replace(f.unwrap());
     }
 
     pub fn on_data_channel(&self, f: Option<OnDataChannel>) {
-        let mut guard = self.observer.data_channel_handler.lock().unwrap();
+        let binding = self.observer.lock().unwrap();
+        let mut guard = binding.data_channel_handler.lock().unwrap();
         guard.replace(f.unwrap());
     }
 
     pub fn on_ice_candidate(&self, f: Option<OnIceCandidate>) {
-        let mut guard = self.observer.ice_candidate_handler.lock().unwrap();
+        let binding = self.observer.lock().unwrap();
+        let mut guard = binding.ice_candidate_handler.lock().unwrap();
         guard.replace(f.unwrap());
     }
 
     pub fn on_ice_candidate_error(&self, f: Option<OnIceCandidateError>) {
-        let mut guard = self.observer.ice_candidate_error_handler.lock().unwrap();
+        let binding = self.observer.lock().unwrap();
+        let mut guard = binding.ice_candidate_error_handler.lock().unwrap();
         guard.replace(f.unwrap());
     }
 
     pub fn on_ice_connection_state_change(&self, f: Option<OnIceConnectionChange>) {
-        let mut guard = self.observer.ice_connection_change_handler.lock().unwrap();
+        let binding = self.observer.lock().unwrap();
+        let mut guard = binding.ice_connection_change_handler.lock().unwrap();
         guard.replace(f.unwrap());
     }
 
     pub fn on_ice_gathering_state_change(&self, f: Option<OnIceGatheringChange>) {
-        let mut guard = self.observer.ice_gathering_change_handler.lock().unwrap();
+        let binding = self.observer.lock().unwrap();
+        let mut guard = binding.ice_gathering_change_handler.lock().unwrap();
         guard.replace(f.unwrap());
     }
 
     pub fn on_negotiation_needed(&self, f: Option<OnNegotiationNeeded>) {
-        let mut guard = self.observer.negotiation_needed_handler.lock().unwrap();
+        let binding = self.observer.lock().unwrap();
+        let mut guard = binding.negotiation_needed_handler.lock().unwrap();
         guard.replace(f.unwrap());
     }
 
     pub fn on_signaling_state_change(&self, f: Option<OnSignalingChange>) {
-        let mut guard = self.observer.signaling_change_handler.lock().unwrap();
+        let binding = self.observer.lock().unwrap();
+        let mut guard = binding.signaling_change_handler.lock().unwrap();
         guard.replace(f.unwrap());
     }
 
     pub fn on_track(&self, f: Option<OnTrack>) {
-        let mut guard = self.observer.track_handler.lock().unwrap();
+        let binding = self.observer.lock().unwrap();
+        let mut guard = binding.track_handler.lock().unwrap();
         guard.replace(f.unwrap());
     }
 }
@@ -775,18 +800,18 @@ pub static PEER_OBSERVER: sys::lkPeerObserver = sys::lkPeerObserver {
     onIceCandidateError: Some(PeerObserver::peer_on_ice_candidate_error),
 };
 
+
+
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use tokio::sync::mpsc;
 
     use crate::{data_channel::DataChannelInit, peer_connection::*, peer_connection_factory::*};
 
     #[tokio::test]
     async fn create_pc() {
-        unsafe {
-            sys::lkInitialize();
-        }
-
         let _ = env_logger::builder().is_test(true).try_init();
 
         let factory = PeerConnectionFactory::default();
@@ -821,11 +846,17 @@ mod tests {
         })));
 
         alice.on_data_channel(Some(Box::new(move |dc: DataChannel| {
-            println!("Alice received data channel: {:?}", dc.id());
+            dc.on_state_change(Some(Box::new(move |state| {
+                println!("Alice data channel state changed: {:?}", state);
+            })));
+            println!("Alice received data channel: {:?}", dc.label());
             alice_dc_tx.send(dc).unwrap();
         })));
 
         let bob_dc = bob.create_data_channel("test_dc", DataChannelInit::default()).unwrap();
+        bob_dc.on_state_change(Some(Box::new(move |state| {
+            println!("Bob data channel state changed: {:?}", state);
+        })));
         let offer = bob.create_offer(OfferOptions::default()).await.unwrap();
         println!("Bob offer: {:?}", offer.sdp());
 
@@ -834,22 +865,25 @@ mod tests {
         let answer = alice.create_answer(AnswerOptions::default()).await.unwrap();
         println!("Alice answer: {:?}", answer.sdp());
         alice.set_local_description(answer.clone()).await.unwrap();
-
         bob.set_remote_description(answer).await.unwrap();
 
         let bob_ice = bob_ice_rx.recv().await.unwrap();
+        println!("Bob ICE candidate: {:?}", bob_ice.candidate());
         let alice_ice = alice_ice_rx.recv().await.unwrap();
+        println!("Alice ICE candidate: {:?}", alice_ice.candidate());
 
         bob.add_ice_candidate(alice_ice).await.unwrap();
         alice.add_ice_candidate(bob_ice).await.unwrap();
 
         let (data_tx, mut data_rx) = mpsc::unbounded_channel::<String>();
         let alice_dc = alice_dc_rx.recv().await.unwrap();
+
         alice_dc.on_message(Some(Box::new(move |buffer| {
+            println!("Alice received data: {:?}", String::from_utf8_lossy(buffer.data).to_string());
             data_tx.send(String::from_utf8_lossy(buffer.data).to_string()).unwrap();
         })));
 
-        bob_dc.send_async(b"This is a test", true).await.unwrap();
+        bob_dc.send(b"This is a test", true).unwrap();
         assert_eq!(data_rx.recv().await.unwrap(), "This is a test");
 
         alice.close();

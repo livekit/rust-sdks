@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Debug, sync::Arc, rc::Rc};
+use std::{fmt::Debug, sync::{Arc, Mutex}, rc::Rc};
 
 use crate::{
     peer_connection::{PeerConnection, PeerObserver, PEER_OBSERVER},
@@ -122,7 +122,7 @@ impl PeerConnectionFactory {
             iceTransportType: config.ice_transport_type.into(),
             gatheringPolicy: config.continual_gathering_policy.into(),
         };
-        let observer = Arc::new(PeerObserver::default());
+        let observer = Arc::new(Mutex::new(PeerObserver::default()));
         let observer_ptr = Arc::into_raw(observer.clone());
         let sys_peer = unsafe {
             sys::lkCreatePeer(
@@ -139,9 +139,11 @@ impl PeerConnectionFactory {
                 message: "Failed to create PeerConnection".to_owned(),
             });
         }
+        let ffi = unsafe { sys::RefCounted::from_raw(sys_peer) };
+        observer.lock().unwrap().set_peer_connection(ffi.clone());
         let peer = PeerConnection {
             observer: observer,
-            ffi: unsafe { sys::RefCounted::from_raw(sys_peer) },
+            ffi: ffi,
         };
         Ok(peer)
     }

@@ -10,7 +10,7 @@ mod refcounted;
 pub use conv::*;
 pub use ffi::*;
 pub use refcounted::*;
-/*
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -23,12 +23,10 @@ mod tests {
 
     #[allow(non_snake_case)]
     extern "C" fn peerOnIceCandidate(
-        _sdp_mid: *const ::std::os::raw::c_char,
-        _sdp_mline_index: ::std::os::raw::c_int,
-        _candidate: *const ::std::os::raw::c_char,
+        candidate: *mut lkIceCandidate,
         _userdata: *mut ::std::os::raw::c_void,
     ) {
-        println!("OnIceCandidate: {:?}", _candidate);
+        println!("OnIceCandidate: {:?}", candidate);
     }
 
     #[allow(non_snake_case)]
@@ -67,21 +65,17 @@ mod tests {
     // Create SDP observer
     #[allow(non_snake_case)]
     extern "C" fn createSdpOnSuccess(
-        sdpType: lkSdpType,
-        sdp: *const ::std::os::raw::c_char,
+        desc: *mut lkSessionDescription,
         _userdata: *mut std::ffi::c_void,
     ) {
-        let sdp_str = unsafe { std::ffi::CStr::from_ptr(sdp).to_str().unwrap() };
-        println!("CreateSdp - OnSuccess: {:?} {:?}", sdpType, sdp_str);
+        println!("CreateSdp - OnSuccess: {:?} ", desc);
         let peer = _userdata as *mut lkPeer;
         let set_sdp_observer = lkSetSdpObserver {
             onSuccess: Some(setSdpOnSuccess),
             onFailure: Some(setSdpOnFailure),
         };
-        let sdp_cstring = std::ffi::CString::new(sdp_str).unwrap();
-        let sdp_ptr = sdp_cstring.as_ptr();
         unsafe {
-            assert!(lkSetLocalDescription(peer, sdpType, sdp_ptr, &set_sdp_observer, std::ptr::null_mut()));
+            assert!(lkSetLocalDescription(peer, desc, &set_sdp_observer, std::ptr::null_mut()));
         }
     }
 
@@ -157,4 +151,3 @@ mod tests {
         }
     }
 }
-*/

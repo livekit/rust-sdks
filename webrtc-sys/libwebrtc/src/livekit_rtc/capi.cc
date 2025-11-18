@@ -134,13 +134,17 @@ int lkDcGetId(lkDataChannel* dc) {
   return reinterpret_cast<livekit::DataChannel*>(dc)->Id();
 }
 
+int lkDcGetLabelLength(lkDataChannel* dc) {
+  auto label = reinterpret_cast<livekit::DataChannel*>(dc)->label();
+  return static_cast<int>(label.size());
+}
+
 int lkDcGetLabel(lkDataChannel* dc, char* buffer, int bufferSize) {
   auto label = reinterpret_cast<livekit::DataChannel*>(dc)->label();
   int len = static_cast<int>(label.size());
   if (bufferSize > 0) {
-    int copySize = (len < bufferSize - 1) ? len : bufferSize - 1;
+    int copySize = (len < bufferSize) ? len : bufferSize;
     memcpy(buffer, label.c_str(), copySize);
-    buffer[copySize] = '\0';
   }
   return len;
 }

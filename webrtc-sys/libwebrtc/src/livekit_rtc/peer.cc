@@ -111,7 +111,7 @@ void PeerObserver::OnDataChannel(
     webrtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) {
   webrtc::scoped_refptr<DataChannel> lkDc =
       webrtc::make_ref_counted<DataChannel>(data_channel);
-  observer_->onDataChannel(reinterpret_cast<lkDataChannel*>(lkDc.get()),
+  observer_->onDataChannel(reinterpret_cast<lkDataChannel*>(lkDc.release()),
                            userdata_);
 }
 
@@ -237,7 +237,8 @@ bool Peer::AddIceCandidate(const lkIceCandidate* candidate,
                            void (*onComplete)(lkRtcError* error,
                                               void* userdata),
                            void* userdata) {
-  auto lkCandidatePtr = reinterpret_cast<const livekit::IceCandidate*>(candidate);
+  auto lkCandidatePtr =
+      reinterpret_cast<const livekit::IceCandidate*>(candidate);
 
   peer_connection_->AddIceCandidate(lkCandidatePtr->Clone(),
                                     [&](webrtc::RTCError err) {

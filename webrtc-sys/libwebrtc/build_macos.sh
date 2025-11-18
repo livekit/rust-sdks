@@ -95,7 +95,7 @@ gn gen "$OUTPUT_DIR" --root="src" \
   rtc_libvpx_build_vp9=true \
   enable_libaom=true \
   is_component_build=false \
-  enable_stripping=true \
+  enable_stripping=false \
   rtc_enable_symbol_export=true \
   rtc_enable_objc_symbol_export=false \
   rtc_include_dav1d_in_internal_decoder_factory=true \
@@ -120,7 +120,9 @@ cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/liblivekit_rtc.dylib" "$ARTIFACTS_DIR/lib"
+mkdir -p "$ARTIFACTS_DIR/include"
+cp "src/livekit_rtc/capi.h" "$ARTIFACTS_DIR/include/livekit_rtc.h"
 
-cd src
-find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
-find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"
+#cd src
+#find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
+#find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"

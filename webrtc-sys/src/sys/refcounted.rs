@@ -11,6 +11,7 @@ impl<T> RefCounted<T> {
     /// # Safety
     /// The ptr must be owned and implement rtc::RefCountInterface
     pub unsafe fn from_raw(owned_ptr: *mut T) -> Self {
+        sys::lkAddRef(owned_ptr as *mut _);
         RefCounted { ptr: owned_ptr }
     }
 

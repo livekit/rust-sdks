@@ -18,7 +18,7 @@ class DataChannelObserver : public webrtc::DataChannelObserver {
  public:
   DataChannelObserver(
       const lkDataChannelObserver* observer,
-      DataChannel* data_channel,
+     webrtc::scoped_refptr<webrtc::DataChannelInterface> data_channel,
       void* userdata)
       : observer_(observer),data_channel_(data_channel), userdata_(userdata) {}
 
@@ -32,7 +32,7 @@ class DataChannelObserver : public webrtc::DataChannelObserver {
 
  private:
   const lkDataChannelObserver* observer_;
-  DataChannel* data_channel_;
+  webrtc::scoped_refptr<webrtc::DataChannelInterface> data_channel_;
   void* userdata_;
 };
 
