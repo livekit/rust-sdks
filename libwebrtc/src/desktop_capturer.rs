@@ -180,7 +180,7 @@ impl DesktopFrame {
     }
 
     pub fn data(&self) -> &[u8] {
-        &self.sys_handle.data()
+        self.sys_handle.data()
     }
 }
 
