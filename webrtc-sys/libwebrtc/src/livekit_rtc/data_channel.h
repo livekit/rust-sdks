@@ -12,11 +12,15 @@
 namespace livekit {
 
 webrtc::DataChannelInit toNativeDataChannelInit(const lkDataChannelInit& init);
+class DataChannel;
 
 class DataChannelObserver : public webrtc::DataChannelObserver {
  public:
-  DataChannelObserver(const lkDataChannelObserver* observer, void* userdata)
-      : observer_(observer), userdata_(userdata) {}
+  DataChannelObserver(
+      const lkDataChannelObserver* observer,
+      DataChannel* data_channel,
+      void* userdata)
+      : observer_(observer),data_channel_(data_channel), userdata_(userdata) {}
 
   void OnStateChange() override;
 
@@ -28,6 +32,7 @@ class DataChannelObserver : public webrtc::DataChannelObserver {
 
  private:
   const lkDataChannelObserver* observer_;
+  DataChannel* data_channel_;
   void* userdata_;
 };
 
@@ -41,6 +46,10 @@ class DataChannel : public webrtc::RefCountInterface {
   }
 
   int Id() const { return data_channel_->id(); }
+
+  std::string label() const { return data_channel_->label(); }
+
+  uint64_t buffered_amount() const { return data_channel_->buffered_amount(); }
 
   void RegisterObserver(const lkDataChannelObserver* observer, void* userdata);
   void UnregisterObserver();

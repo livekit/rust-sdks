@@ -6,6 +6,7 @@
 #include "livekit_rtc/audio_device.h"
 #include "livekit_rtc/capi.h"
 #include "livekit_rtc/data_channel.h"
+#include "livekit_rtc/session_description.h"
 
 namespace livekit {
 
@@ -49,19 +50,15 @@ class Peer : public webrtc::RefCountInterface {
   webrtc::scoped_refptr<DataChannel> CreateDataChannel(
       const char* label, const lkDataChannelInit* init);
 
-  bool AddIceCandidate(const char* sdpMid,
-                       int sdpMLineIndex,
-                       const char* candidate,
+  bool AddIceCandidate(const lkIceCandidate* candidate,
                        void (*onComplete)(lkRtcError* error, void* userdata),
                        void* userdata);
 
-  bool SetLocalDescription(lkSdpType type,
-                           const char* sdp,
+  bool SetLocalDescription(const lkSessionDescription* desc,
                            const lkSetSdpObserver* observer,
                            void* userdata);
 
-  bool SetRemoteDescription(lkSdpType type,
-                            const char* sdp,
+  bool SetRemoteDescription(const lkSessionDescription* desc,
                             const lkSetSdpObserver* observer,
                             void* userdata);
 

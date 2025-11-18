@@ -19,11 +19,14 @@
 #include "livekit_rtc/audio_device.h"
 #include "livekit_rtc/capi.h"
 #include "livekit_rtc/data_channel.h"
+#include "livekit_rtc/ice_candidate.h"
+#include "livekit_rtc/session_description.h"
 #include "livekit_rtc/transceiver.h"
 #include "livekit_rtc/utils.h"
 #include "livekit_rtc/video_decoder.h"
 #include "livekit_rtc/video_encoder.h"
 #include "media/engine/webrtc_media_engine.h"
+#include "rtc_base/logging.h"
 #include "rtc_base/ssl_adapter.h"
 #include "rtc_base/thread.h"
 
@@ -82,8 +85,10 @@ class CreateSdpObserver : public webrtc::CreateSessionDescriptionObserver {
   void OnSuccess(webrtc::SessionDescriptionInterface* desc) override {
     std::string sdp;
     desc->ToString(&sdp);
-    observer_->onSuccess(static_cast<lkSdpType>(desc->GetType()), sdp.c_str(),
-                         userdata_);
+    observer_->onSuccess(
+        reinterpret_cast<lkSessionDescription*>(
+            SessionDescription::Create(sdp, desc->GetType()).release()),
+        userdata_);
   }
 
   void OnFailure(webrtc::RTCError error) override {
@@ -118,7 +123,11 @@ void PeerObserver::OnIceCandidate(
   std::string sdp;
   candidate->ToString(&sdp);
   std::string mid = candidate->sdp_mid();
-  observer_->onIceCandidate(mid.c_str(), candidate->sdp_mline_index(), sdp.c_str() , userdata_);
+  observer_->onIceCandidate(
+      reinterpret_cast<lkIceCandidate*>(
+          IceCandidate::Create(mid, candidate->sdp_mline_index(), sdp)
+              .release()),
+      userdata_);
 }
 
 void PeerObserver::OnTrack(
@@ -163,14 +172,12 @@ PeerFactory::PeerFactory() {
   });
 
   peer_factory_ = webrtc::CreatePeerConnectionFactory(
-        network_thread_.get(), worker_thread_.get(), signaling_thread_.get(),
-        audio_device_, webrtc::CreateBuiltinAudioEncoderFactory(),
-        webrtc::CreateBuiltinAudioDecoderFactory(),
-        std::make_unique<livekit::VideoEncoderFactory>(),
-        std::make_unique<livekit::VideoDecoderFactory>(),
-        nullptr, nullptr /*TODO: add cusom audio processor */, 
-        nullptr, nullptr
-  );
+      network_thread_.get(), worker_thread_.get(), signaling_thread_.get(),
+      audio_device_, webrtc::CreateBuiltinAudioEncoderFactory(),
+      webrtc::CreateBuiltinAudioDecoderFactory(),
+      std::make_unique<livekit::VideoEncoderFactory>(),
+      std::make_unique<livekit::VideoDecoderFactory>(), nullptr,
+      nullptr /*TODO: add cusom audio processor */, nullptr, nullptr);
 
   if (!peer_factory_) {
     RTC_LOG_ERR(LS_ERROR) << "Failed to create PeerConnectionFactory";
@@ -196,8 +203,9 @@ webrtc::scoped_refptr<Peer> PeerFactory::CreatePeer(
       toNativeConfig(*config);
 
   webrtc::PeerConnectionDependencies deps{obs.get()};
-  webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::PeerConnectionInterface>> res =
-      peer_factory_->CreatePeerConnectionOrError(rtcConfig, std::move(deps));
+  webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::PeerConnectionInterface>>
+      res = peer_factory_->CreatePeerConnectionOrError(rtcConfig,
+                                                       std::move(deps));
 
   if (!res.ok()) {
     RTC_LOG_ERR(LS_ERROR) << "Failed to create PeerConnection: "
@@ -229,71 +237,38 @@ bool Peer::AddIceCandidate(const lkIceCandidate* candidate,
                            void (*onComplete)(lkRtcError* error,
                                               void* userdata),
                            void* userdata) {
-  webrtc::SdpParseError error{};
-  std::unique_ptr<webrtc::IceCandidateInterface> c =
-      std::unique_ptr<webrtc::IceCandidateInterface>(webrtc::CreateIceCandidate(
-          candidate->sdpMid, candidate->sdpMLineIndex, candidate->sdp, &error));
+  auto lkCandidatePtr = reinterpret_cast<const livekit::IceCandidate*>(candidate);
 
-  if (!c) {
-    RTC_LOG_ERR(LS_ERROR) << "Failed to parse SDP: " << error.line << " - "
-                          << error.description;
-    return false;
-  }
-
-  peer_connection_->AddIceCandidate(std::move(c), [&](webrtc::RTCError err) {
-    if (err.ok()) {
-      onComplete(nullptr, userdata);
-    } else {
-      lkRtcError lkErr = toRtcError(err);
-      onComplete(&lkErr, userdata);
-    }
-  });
+  peer_connection_->AddIceCandidate(lkCandidatePtr->Clone(),
+                                    [&](webrtc::RTCError err) {
+                                      if (err.ok()) {
+                                        onComplete(nullptr, userdata);
+                                      } else {
+                                        lkRtcError lkErr = toRtcError(err);
+                                        onComplete(&lkErr, userdata);
+                                      }
+                                    });
   return true;
 }
 
-bool Peer::SetLocalDescription(lkSdpType type,
-                               const char* sdp,
+bool Peer::SetLocalDescription(const lkSessionDescription* desc,
                                const lkSetSdpObserver* observer,
                                void* userdata) {
-  webrtc::SdpParseError error{};
-  std::unique_ptr<webrtc::SessionDescriptionInterface> desc =
-      webrtc::CreateSessionDescription(static_cast<webrtc::SdpType>(type), sdp,
-                                       &error);
+  auto jsepDesc = reinterpret_cast<const livekit::SessionDescription*>(desc);
 
-  if (!desc) {
-    RTC_LOG_ERR(LS_ERROR) << "Failed to parse SDP: " << error.line << " - "
-                          << error.description;
-    return false;
-  }
-
-  webrtc::scoped_refptr<SetLocalSdpObserver> setSdpObserver =
-      webrtc::make_ref_counted<SetLocalSdpObserver>(observer, userdata);
-
-  peer_connection_->SetLocalDescription(std::move(desc),
-                                        std::move(setSdpObserver));
+  peer_connection_->SetLocalDescription(
+      jsepDesc->Clone(),
+      webrtc::make_ref_counted<SetLocalSdpObserver>(observer, userdata));
   return true;
 }
 
-bool Peer::SetRemoteDescription(lkSdpType type,
-                                const char* sdp,
+bool Peer::SetRemoteDescription(const lkSessionDescription* desc,
                                 const lkSetSdpObserver* observer,
                                 void* userdata) {
-  webrtc::SdpParseError error{};
-  std::unique_ptr<webrtc::SessionDescriptionInterface> desc =
-      webrtc::CreateSessionDescription(static_cast<webrtc::SdpType>(type), sdp,
-                                       &error);
-
-  if (!desc) {
-    RTC_LOG_ERR(LS_ERROR) << "Failed to parse SDP: " << error.line << " - "
-                          << error.description;
-    return false;
-  }
-
-  webrtc::scoped_refptr<SetRemoteSdpObserver> setSdpObserver =
-      webrtc::make_ref_counted<SetRemoteSdpObserver>(observer, userdata);
-
-  peer_connection_->SetRemoteDescription(std::move(desc),
-                                         std::move(setSdpObserver));
+  auto jsepDesc = reinterpret_cast<const livekit::SessionDescription*>(desc);
+  peer_connection_->SetRemoteDescription(
+      jsepDesc->Clone(),
+      webrtc::make_ref_counted<SetRemoteSdpObserver>(observer, userdata));
   return true;
 }
 

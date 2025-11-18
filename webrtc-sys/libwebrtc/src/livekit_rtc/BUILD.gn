@@ -20,6 +20,8 @@ lk_sources = [
   "capi.cc",
   "video_encoder.cc",
   "video_decoder.cc",
+  "session_description.cc",
+  "ice_candidate.cc",
   #"android.cc",
 ]
 

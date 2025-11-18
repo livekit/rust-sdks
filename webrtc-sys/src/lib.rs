@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::any::Any;
+
 use thiserror::Error;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -54,3 +56,19 @@ pub mod native {
 pub mod android {
     pub use crate::imp::android::*;
 }
+
+macro_rules! impl_thread_safety {
+    ($obj:ty, Send) => {
+        unsafe impl Send for $obj {}
+    };
+
+    ($obj:ty, Send + Sync) => {
+        unsafe impl Send for $obj {}
+        unsafe impl Sync for $obj {}
+    };
+}
+
+pub(crate) use impl_thread_safety;
+
+#[repr(transparent)]
+pub struct PeerContext(pub Box<dyn Any + Send>);

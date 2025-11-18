@@ -15,7 +15,7 @@ static = []
 log = "0.4"
 serde = "1.0.228"
 thiserror = "2.0.17"
-tokio = { version = "1", default-features = false, features = ["sync", "macros"] }
+tokio = { version = "1", features = ["full"] }
 
 [build-dependencies]
 webrtc-sys-build = { workspace = true }
@@ -28,4 +28,4 @@ pkg-config = "0.3.22"
 env_logger = "0.10"
 
 [lib]
-crate-type = ["lib", "staticlib", "cdylib"]
+crate-type = ["lib", "staticlib"]

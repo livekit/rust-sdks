@@ -10,6 +10,7 @@ pub type lkRtpSender = ::std::os::raw::c_void;
 pub type lkMediaStreamTrack = ::std::os::raw::c_void;
 pub type lkMediaStream = ::std::os::raw::c_void;
 pub type lkSessionDescription = ::std::os::raw::c_void;
+pub type lkIceCandidate = ::std::os::raw::c_void;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkIceTransportType {
@@ -85,12 +86,7 @@ pub struct lkPeerObserver {
         unsafe extern "C" fn(state: lkSignalingState, userdata: *mut ::std::os::raw::c_void),
     >,
     pub onIceCandidate: ::std::option::Option<
-        unsafe extern "C" fn(
-            sdpMid: *const ::std::os::raw::c_char,
-            sdpMLineIndex: ::std::os::raw::c_int,
-            candidate: *const ::std::os::raw::c_char,
-            userdata: *mut ::std::os::raw::c_void,
-        ),
+        unsafe extern "C" fn(candidate: *mut lkIceCandidate, userdata: *mut ::std::os::raw::c_void),
     >,
     pub onDataChannel: ::std::option::Option<
         unsafe extern "C" fn(dc: *const lkDataChannel, userdata: *mut ::std::os::raw::c_void),
@@ -234,6 +230,19 @@ const _: () = {
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct lkStringOut {
+    pub buf: *const ::std::os::raw::c_char,
+    pub length: ::std::os::raw::c_int,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of lkStringOut"][::std::mem::size_of::<lkStringOut>() - 16usize];
+    ["Alignment of lkStringOut"][::std::mem::align_of::<lkStringOut>() - 8usize];
+    ["Offset of field: lkStringOut::buf"][::std::mem::offset_of!(lkStringOut, buf) - 0usize];
+    ["Offset of field: lkStringOut::length"][::std::mem::offset_of!(lkStringOut, length) - 8usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct lkSetSdpObserver {
     pub onSuccess:
         ::std::option::Option<unsafe extern "C" fn(userdata: *mut ::std::os::raw::c_void)>,
@@ -255,8 +264,7 @@ const _: () = {
 pub struct lkCreateSdpObserver {
     pub onSuccess: ::std::option::Option<
         unsafe extern "C" fn(
-            type_: lkSdpType,
-            sdp: *const ::std::os::raw::c_char,
+            desc: *mut lkSessionDescription,
             userdata: *mut ::std::os::raw::c_void,
         ),
     >,
@@ -327,9 +335,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn lkAddIceCandidate(
         peer: *mut lkPeer,
-        sdpMid: *const ::std::os::raw::c_char,
-        sdpMLineIndex: ::std::os::raw::c_int,
-        candidate: *const ::std::os::raw::c_char,
+        candidate: *mut lkIceCandidate,
         onComplete: ::std::option::Option<
             unsafe extern "C" fn(error: *mut lkRtcError, userdata: *mut ::std::os::raw::c_void),
         >,
@@ -339,8 +345,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn lkSetLocalDescription(
         peer: *mut lkPeer,
-        type_: lkSdpType,
-        sdp: *const ::std::os::raw::c_char,
+        desc: *const lkSessionDescription,
         observer: *const lkSetSdpObserver,
         userdata: *mut ::std::os::raw::c_void,
     ) -> bool;
@@ -348,8 +353,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn lkSetRemoteDescription(
         peer: *mut lkPeer,
-        type_: lkSdpType,
-        sdp: *const ::std::os::raw::c_char,
+        desc: *const lkSessionDescription,
         observer: *const lkSetSdpObserver,
         userdata: *mut ::std::os::raw::c_void,
     ) -> bool;
@@ -416,4 +420,55 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn lkDcClose(dc: *mut lkDataChannel);
+}
+unsafe extern "C" {
+    pub fn lkCreateSessionDescription(
+        type_: lkSdpType,
+        sdp: *const ::std::os::raw::c_char,
+    ) -> *mut lkSessionDescription;
+}
+unsafe extern "C" {
+    pub fn lkSessionDescriptionGetType(desc: *mut lkSessionDescription) -> lkSdpType;
+}
+unsafe extern "C" {
+    pub fn lkSessionDescriptionGetSdpLength(
+        desc: *mut lkSessionDescription,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkSessionDescriptionGetSdp(
+        desc: *mut lkSessionDescription,
+        buffer: *mut ::std::os::raw::c_char,
+        bufferSize: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkCreateIceCandidate(
+        mid: *const ::std::os::raw::c_char,
+        mlineIndex: ::std::os::raw::c_int,
+        sdp: *const ::std::os::raw::c_char,
+    ) -> *mut lkIceCandidate;
+}
+unsafe extern "C" {
+    pub fn lkIceCandidateGetMlineIndex(candidate: *mut lkIceCandidate) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkIceCandidateGetMidLength(candidate: *mut lkIceCandidate) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkIceCandidateGetMid(
+        candidate: *mut lkIceCandidate,
+        buffer: *mut ::std::os::raw::c_char,
+        bufferSize: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkIceCandidateGetSdpLength(candidate: *mut lkIceCandidate) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkIceCandidateGetSdp(
+        candidate: *mut lkIceCandidate,
+        buffer: *mut ::std::os::raw::c_char,
+        bufferSize: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
 }

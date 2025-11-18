@@ -16,7 +16,7 @@ webrtc::DataChannelInit toNativeDataChannelInit(const lkDataChannelInit& init) {
 }
 
 void DataChannelObserver::OnStateChange() {
-  observer_->onStateChange(userdata_);
+  observer_->onStateChange(userdata_, data_channel_->State());
 }
 
 void DataChannelObserver::OnMessage(const webrtc::DataBuffer& buffer) {
@@ -31,7 +31,7 @@ void DataChannelObserver::OnBufferedAmountChange(uint64_t sentDataSize) {
 void DataChannel::RegisterObserver(const lkDataChannelObserver* observer,
                                    void* userdata) {
   webrtc::MutexLock lock(&mutex_);
-  observer_ = std::make_unique<DataChannelObserver>(observer, userdata);
+  observer_ = std::make_unique<DataChannelObserver>(observer, this, userdata);
   data_channel_->RegisterObserver(observer_.get());
 }
 

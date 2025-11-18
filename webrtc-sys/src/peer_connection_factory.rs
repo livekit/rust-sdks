@@ -12,9 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc, rc::Rc};
 
-use crate::{RtcError, RtcErrorType, peer_connection::{PeerConnection, PeerObserver}, sys::{self, lkRtcConfiguration}};
+use crate::{
+    peer_connection::{PeerConnection, PeerObserver, PEER_OBSERVER},
+    sys::{self, lkRtcConfiguration},
+    RtcError, RtcErrorType,
+};
 
 #[derive(Debug, Clone)]
 pub struct IceServer {
@@ -59,21 +63,21 @@ impl From<RtcConfiguration> for lkRtcConfiguration {
             iceServersCount: config.ice_servers.len() as i32,
             iceServers: std::ptr::null_mut(), // TODO: implement ice servers
             iceTransportType: config.ice_transport_type.into(),
-            gatheringPolicy:  config.continual_gathering_policy.into(),
+            gatheringPolicy: config.continual_gathering_policy.into(),
         }
     }
 }
 
 #[derive(Clone)]
 pub struct PeerConnectionFactory {
-    pub(crate) factory_ffi: sys::RefCounted<sys::lkPeerFactory>,
+    pub(crate) ffi: sys::RefCounted<sys::lkPeerFactory>,
 }
 
 impl Default for PeerConnectionFactory {
     fn default() -> Self {
         unsafe {
             let factory = sys::lkCreatePeerFactory();
-            Self { factory_ffi: sys::RefCounted::from_raw(factory) }
+            Self { ffi: sys::RefCounted::from_raw(factory) }
         }
     }
 }
@@ -107,33 +111,41 @@ impl From<ContinualGatheringPolicy> for sys::lkContinualGatheringPolicy {
     }
 }
 
-
 impl PeerConnectionFactory {
     pub fn create_peer_connection(
         &self,
         config: RtcConfiguration,
     ) -> Result<PeerConnection, RtcError> {
-        let lk_config = sys::lkRtcConfiguration{
+        let lk_config = sys::lkRtcConfiguration {
             iceServersCount: config.ice_servers.len() as i32,
-            iceServers: std::ptr::null_mut(), // TODO: implement ice servers
+            iceServers: sys::toLKIceServers(&config.ice_servers),
             iceTransportType: config.ice_transport_type.into(),
-            gatheringPolicy:  config.continual_gathering_policy.into(),
+            gatheringPolicy: config.continual_gathering_policy.into(),
         };
-        let mut observer = PeerObserver::default();
-        let sys_peer = unsafe { sys::lkCreatePeer(self.factory_ffi.as_ptr(), &lk_config, &observer.lk_observer(), std::ptr::null_mut()) };
+        let observer = Arc::new(PeerObserver::default());
+        let observer_ptr = Arc::into_raw(observer.clone());
+        let sys_peer = unsafe {
+            sys::lkCreatePeer(
+                self.ffi.as_ptr(),
+                &lk_config,
+                &PEER_OBSERVER,
+                observer_ptr as *mut ::std::os::raw::c_void,
+            )
+        };
         if sys_peer == std::ptr::null_mut() {
+            unsafe { let _ = Rc::from_raw(observer_ptr); }
             return Err(RtcError {
                 error_type: RtcErrorType::Internal,
                 message: "Failed to create PeerConnection".to_owned(),
-            })}
-        
-        let peer = PeerConnection{
-            observer: Arc::new(observer),
-            sys_peer: unsafe { sys::RefCounted::from_raw(sys_peer)},
+            });
+        }
+        let peer = PeerConnection {
+            observer: observer,
+            ffi: unsafe { sys::RefCounted::from_raw(sys_peer) },
         };
         Ok(peer)
     }
-    /* 
+    /*
     pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.handle.get_rtp_sender_capabilities(media_type)
     }
@@ -146,10 +158,10 @@ impl PeerConnectionFactory {
 
 pub mod native {
     //use super::PeerConnectionFactory;
-    use crate::{
+    //use crate::{
     //    audio_source::native::NativeAudioSource, audio_track::RtcAudioTrack,
     //    video_source::native::NativeVideoSource, video_track::RtcVideoTrack,
-    };
+    //};
     /*
     pub trait PeerConnectionFactoryExt {
         fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;

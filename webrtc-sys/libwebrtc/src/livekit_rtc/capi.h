@@ -21,6 +21,7 @@ typedef void lkRtpSender;
 typedef void lkMediaStreamTrack;
 typedef void lkMediaStream;
 typedef void lkSessionDescription;
+typedef void lkIceCandidate;
 
 typedef enum {
   LK_ICE_TRANSPORT_TYPE_NONE,
@@ -84,10 +85,7 @@ typedef enum {
 
 typedef struct {
   void (*onSignalingChange)(lkSignalingState state, void* userdata);
-  void (*onIceCandidate)(const char* sdpMid,
-                         int sdpMLineIndex,
-                         const char* candidate,
-                         void* userdata);
+  void (*onIceCandidate)(lkIceCandidate* candidate, void* userdata);
   void (*onDataChannel)(const lkDataChannel* dc, void* userdata);
   void (*onTrack)(const lkRtpTransceiver* transceiver, void* userdata);
   void (*onConnectionChange)(lkPeerState state, void* userdata);
@@ -100,7 +98,7 @@ typedef struct {
 } lkPeerObserver;
 
 typedef struct {
-  void (*onStateChange)(void* userdata, lkDcState state);
+  void (*onStateChange)(void* userdata, const lkDcState state);
   void (*onMessage)(const uint8_t* data,
                     uint64_t size,
                     bool binary,
@@ -133,12 +131,17 @@ typedef struct {
 } lkRtcError;
 
 typedef struct {
+  const char* buf;
+  int length;
+} lkStringOut;
+
+typedef struct {
   void (*onSuccess)(void* userdata);
   void (*onFailure)(const lkRtcError* error, void* userdata);
 } lkSetSdpObserver;
 
 typedef struct {
-  void (*onSuccess)(lkSdpType type, const char* sdp, void* userdata);
+  void (*onSuccess)(lkSessionDescription *desc, void* userdata);
   void (*onFailure)(const lkRtcError* error, void* userdata);
 } lkCreateSdpObserver;
 
@@ -169,22 +172,18 @@ LK_EXPORT lkDataChannel* lkCreateDataChannel(lkPeer* peer,
                                              const lkDataChannelInit* init);
 
 LK_EXPORT bool lkAddIceCandidate(lkPeer* peer,
-                                 const char* sdpMid,
-                                 int sdpMLineIndex,
-                                 const char* candidate,
+                                 lkIceCandidate* candidate,
                                  void (*onComplete)(lkRtcError* error,
                                                     void* userdata),
                                  void* userdata);
 
 LK_EXPORT bool lkSetLocalDescription(lkPeer* peer,
-                                     lkSdpType type,
-                                     const char* sdp,
+                                     const lkSessionDescription* desc,
                                      const lkSetSdpObserver* observer,
                                      void* userdata);
 
 LK_EXPORT bool lkSetRemoteDescription(lkPeer* peer,
-                                      lkSdpType type,
-                                      const char* sdp,
+                                      const lkSessionDescription* desc,
                                       const lkSetSdpObserver* observer,
                                       void* userdata);
 
@@ -226,6 +225,29 @@ LK_EXPORT void lkDcSendAsync(lkDataChannel* dc,
                              void* userdata);
 
 LK_EXPORT void lkDcClose(lkDataChannel* dc);
+
+LK_EXPORT lkSessionDescription* lkCreateSessionDescription(lkSdpType type,
+                                                           const char* sdp);
+
+LK_EXPORT lkSdpType lkSessionDescriptionGetType(lkSessionDescription* desc);
+
+LK_EXPORT int lkSessionDescriptionGetSdpLength(lkSessionDescription* desc);
+
+LK_EXPORT int lkSessionDescriptionGetSdp(lkSessionDescription* desc, char* buffer, int bufferSize);
+
+LK_EXPORT lkIceCandidate* lkCreateIceCandidate(const char* mid,
+                                                int mlineIndex,
+                                                const char* sdp);
+
+LK_EXPORT int lkIceCandidateGetMlineIndex(lkIceCandidate* candidate);
+
+LK_EXPORT int lkIceCandidateGetMidLength(lkIceCandidate* candidate);
+
+LK_EXPORT int lkIceCandidateGetMid(lkIceCandidate* candidate, char* buffer, int bufferSize);
+
+LK_EXPORT int lkIceCandidateGetSdpLength(lkIceCandidate* candidate);
+
+LK_EXPORT int lkIceCandidateGetSdp(lkIceCandidate* candidate, char* buffer, int bufferSize);
 
 #ifdef __cplusplus
 }

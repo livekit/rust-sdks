@@ -79,8 +79,7 @@ impl Display for SdpType {
 
 #[derive(Clone)]
 pub struct SessionDescription {
-    pub(crate) sdp: String,
-    pub(crate) sdp_type: SdpType,
+    pub(crate) ffi: sys::RefCounted<sys::lkSessionDescription>,
 }
 
 #[derive(Clone, Error, Debug)]
@@ -100,20 +99,35 @@ impl SessionDescription {
             });
         }
 
-        Ok(SessionDescription { sdp: sdp.to_string(), sdp_type })
+        let c_sdp = std::ffi::CString::new(sdp).map_err(|e| SdpParseError {
+            line: sdp.lines().next().unwrap_or("").to_string(),
+            description: format!("Failed to convert SDP to CString: {}", e),
+        })?;
+        let desc = unsafe { sys::lkCreateSessionDescription(sdp_type.into(), c_sdp.as_ptr()) };
+
+        Ok(SessionDescription { ffi: unsafe { sys::RefCounted::from_raw(desc) } })
     }
 
     pub fn sdp_type(&self) -> SdpType {
-        self.sdp_type
+        unsafe { sys::lkSessionDescriptionGetType(self.ffi.as_ptr()).into() }
+    }
+
+    pub fn sdp(&self) -> String {
+        unsafe {
+            let sdp_len = sys::lkSessionDescriptionGetSdpLength(self.ffi.as_ptr());
+            let mut buf = vec![0u8; sdp_len as usize + 1];
+            sys::lkSessionDescriptionGetSdp(self.ffi.as_ptr(), buf.as_mut_ptr() as *mut i8, sdp_len);
+            let cstr = std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8);
+            cstr.to_string_lossy().into_owned()
+        }
     }
 }
 
 impl ToString for SessionDescription {
     fn to_string(&self) -> String {
-        self.sdp.clone()
+        format!("type: {} sdp: {}", self.sdp_type(), self.sdp())
     }
 }
-
 impl Debug for SessionDescription {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SessionDescription").field("sdp_type", &self.sdp_type()).finish()

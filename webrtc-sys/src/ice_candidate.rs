@@ -12,46 +12,69 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::impl_thread_safety;
+use crate::session_description::SdpParseError;
+use crate::sys;
 use std::fmt::Debug;
 
-use crate::session_description::SdpParseError;
-
+#[derive(Clone)]
 pub struct IceCandidate {
-    pub(crate) candidate: String,
-    pub(crate) sdp_mid: String,
-    pub(crate) sdp_mline_index: i32,
+    pub(crate) ffi: sys::RefCounted<sys::lkIceCandidate>,
 }
+
+impl_thread_safety!(IceCandidate, Send + Sync);
 
 impl IceCandidate {
     pub fn parse(
-        sdp_mid: &str,
+        sdp_mid: String,
         sdp_mline_index: i32,
-        sdp: &str,
+        sdp: String,
     ) -> Result<IceCandidate, SdpParseError> {
-        //TOD: validate candidate string by calling into FFI
-        Ok(IceCandidate {
-            candidate: sdp.to_string(),
-            sdp_mid: sdp_mid.to_string(),
-            sdp_mline_index,
-        })
+        let sdp_clone = sdp.clone();
+        let c_sdp = std::ffi::CString::new(sdp).map_err(|e| SdpParseError {
+            line: sdp_clone.lines().next().unwrap_or("").to_string(),
+            description: format!("Failed to convert SDP to CString: {}", e),
+        })?;
+        let sdp_mid_clone = sdp_mid.clone();
+        let c_sdp_mid = std::ffi::CString::new(sdp_mid).map_err(|e| SdpParseError {
+            line: sdp_mid_clone,
+            description: format!("Failed to convert SDP mid to CString: {}", e),
+        })?;
+
+        let ffi = unsafe {
+            sys::lkCreateIceCandidate(c_sdp_mid.as_ptr(), sdp_mline_index as i32, c_sdp.as_ptr())
+        };
+        Ok(IceCandidate { ffi: unsafe { sys::RefCounted::from_raw(ffi) } })
     }
 
     pub fn sdp_mid(&self) -> String {
-        self.sdp_mid.clone()
+        unsafe {
+            let sdp_len = sys::lkIceCandidateGetMidLength(self.ffi.as_ptr());
+            let mut buf = vec![0u8; sdp_len as usize + 1];
+            sys::lkIceCandidateGetMid(self.ffi.as_ptr(), buf.as_mut_ptr() as *mut i8, sdp_len);
+            let cstr = std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8);
+            cstr.to_string_lossy().into_owned()
+        }
     }
 
     pub fn sdp_mline_index(&self) -> i32 {
-        self.sdp_mline_index
+        unsafe { sys::lkIceCandidateGetMlineIndex(self.ffi.as_ptr()).into() }
     }
 
     pub fn candidate(&self) -> String {
-        self.candidate.clone()
+        unsafe {
+            let sdp_len = sys::lkIceCandidateGetSdpLength(self.ffi.as_ptr());
+            let mut buf = vec![0u8; sdp_len as usize + 1];
+            sys::lkIceCandidateGetSdp(self.ffi.as_ptr(), buf.as_mut_ptr() as *mut i8, sdp_len);
+            let cstr = std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8);
+            cstr.to_string_lossy().into_owned()
+        }
     }
 }
 
 impl ToString for IceCandidate {
     fn to_string(&self) -> String {
-        self.candidate.to_string()
+        self.candidate()
     }
 }
 

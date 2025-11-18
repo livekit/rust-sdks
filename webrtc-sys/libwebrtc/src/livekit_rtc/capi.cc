@@ -2,7 +2,9 @@
 
 #include "api/make_ref_counted.h"
 #include "livekit_rtc/data_channel.h"
+#include "livekit_rtc/ice_candidate.h"
 #include "livekit_rtc/peer.h"
+#include "livekit_rtc/session_description.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ref_count.h"
 #include "rtc_base/ssl_adapter.h"
@@ -66,33 +68,27 @@ lkDataChannel* lkCreateDataChannel(lkPeer* peer,
 }
 
 bool lkAddIceCandidate(lkPeer* peer,
-                       const char* sdpMid,
-                       int sdpMLineIndex,
-                       const char* candidate,
+                       lkIceCandidate* candidate,
                        void (*onComplete)(lkRtcError* error, void* userdata),
                        void* userdata) {
-  auto cand = IceCandidateInterface = webrtc::CreateIceCandidate(
-  sdpMid, sdpMLineIndex, candidate, nullptr);
   return reinterpret_cast<livekit::Peer*>(peer)->AddIceCandidate(
-      cand, onComplete, userdata);
+      candidate, onComplete, userdata);
 }
 
 bool lkSetLocalDescription(lkPeer* peer,
-                           lkSdpType type,
-                           const char* sdp,
+                           const lkSessionDescription* desc,
                            const lkSetSdpObserver* observer,
                            void* userdata) {
   return reinterpret_cast<livekit::Peer*>(peer)->SetLocalDescription(
-      type, sdp, observer, userdata);
+      desc, observer, userdata);
 }
 
 bool lkSetRemoteDescription(lkPeer* peer,
-                            lkSdpType type,
-                            const char* sdp,
+                            const lkSessionDescription* desc,
                             const lkSetSdpObserver* observer,
                             void* userdata) {
   return reinterpret_cast<livekit::Peer*>(peer)->SetRemoteDescription(
-      type, sdp, observer, userdata);
+      desc, observer, userdata);
 }
 
 bool lkCreateOffer(lkPeer* peer,
@@ -139,8 +135,7 @@ int lkDcGetId(lkDataChannel* dc) {
 }
 
 int lkDcGetLabel(lkDataChannel* dc, char* buffer, int bufferSize) {
-  auto label =
-      reinterpret_cast<livekit::DataChannel*>(dc)->data_channel_->label();
+  auto label = reinterpret_cast<livekit::DataChannel*>(dc)->label();
   int len = static_cast<int>(label.size());
   if (bufferSize > 0) {
     int copySize = (len < bufferSize - 1) ? len : bufferSize - 1;
@@ -151,8 +146,7 @@ int lkDcGetLabel(lkDataChannel* dc, char* buffer, int bufferSize) {
 }
 
 LK_EXPORT uint64_t lkDcGetBufferedAmount(lkDataChannel* dc) {
-  return reinterpret_cast<livekit::DataChannel*>(dc)
-      ->data_channel_->buffered_amount();
+  return reinterpret_cast<livekit::DataChannel*>(dc)->buffered_amount();
 }
 
 void lkDcSendAsync(lkDataChannel* dc,
@@ -167,4 +161,87 @@ void lkDcSendAsync(lkDataChannel* dc,
 
 void lkDcClose(lkDataChannel* dc) {
   reinterpret_cast<livekit::DataChannel*>(dc)->Close();
+}
+
+lkSessionDescription* lkCreateSessionDescription(lkSdpType type,
+                                                 const char* sdp) {
+  auto desc = livekit::SessionDescription::Create(
+      std::string(sdp), static_cast<webrtc::SdpType>(type));
+  if (!desc) {
+    return nullptr;
+  }
+  return reinterpret_cast<lkSessionDescription*>(desc.release());
+}
+
+lkSdpType lkSessionDescriptionGetType(lkSessionDescription* desc) {
+  return static_cast<lkSdpType>(
+      reinterpret_cast<livekit::SessionDescription*>(desc)->GetType());
+}
+
+int lkSessionDescriptionGetSdpLength(lkSessionDescription* desc) {
+  std::string sdp =
+      reinterpret_cast<livekit::SessionDescription*>(desc)->ToString();
+  return sdp.length();
+}
+
+int lkSessionDescriptionGetSdp(lkSessionDescription* desc,
+                               char* buffer,
+                               int bufferSize) {
+  std::string sdp =
+      reinterpret_cast<livekit::SessionDescription*>(desc)->ToString();
+  int len = static_cast<int>(sdp.size());
+  if (bufferSize > 0) {
+    int copySize = (len < bufferSize) ? len : bufferSize;
+    memcpy(buffer, sdp.c_str(), copySize);
+  }
+  return len;
+}
+
+lkIceCandidate* lkCreateIceCandidate(const char* mid,
+                                     int mlineIndex,
+                                     const char* sdp) {
+  auto candidate = livekit::IceCandidate::Create(std::string(mid), mlineIndex,
+                                                 std::string(sdp));
+  if (!candidate) {
+    return nullptr;
+  }
+  return reinterpret_cast<lkIceCandidate*>(candidate.release());
+}
+
+int lkIceCandidateGetMlineIndex(lkIceCandidate* candidate) {
+  return reinterpret_cast<livekit::IceCandidate*>(candidate)->mline_index();
+}
+
+int lkIceCandidateGetMidLength(lkIceCandidate* candidate) {
+  auto mid = reinterpret_cast<livekit::IceCandidate*>(candidate)->mid();
+  return static_cast<int>(mid.size());
+}
+
+int lkIceCandidateGetMid(lkIceCandidate* candidate,
+                         char* buffer,
+                         int bufferSize) {
+  auto mid = reinterpret_cast<livekit::IceCandidate*>(candidate)->mid();
+  int len = static_cast<int>(mid.size());
+  if (bufferSize > 0) {
+    int copySize = (len < bufferSize) ? len : bufferSize;
+    memcpy(buffer, mid.c_str(), copySize);
+  }
+  return len;
+}
+
+int lkIceCandidateGetSdpLength(lkIceCandidate* candidate) {
+  std::string sdp = reinterpret_cast<livekit::IceCandidate*>(candidate)->sdp();
+  return sdp.length();
+}
+
+int lkIceCandidateGetSdp(lkIceCandidate* candidate,
+                         char* buffer,
+                         int bufferSize) {
+  std::string sdp = reinterpret_cast<livekit::IceCandidate*>(candidate)->sdp();
+  int len = static_cast<int>(sdp.size());
+  if (bufferSize > 0) {
+    int copySize = (len < bufferSize) ? len : bufferSize;
+    memcpy(buffer, sdp.c_str(), copySize);
+  }
+  return len;
 }
