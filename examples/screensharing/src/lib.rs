@@ -94,11 +94,7 @@ mod test {
             .unwrap();
 
         let (room, _) = Room::connect(&url, &token, RoomOptions::default()).await.unwrap();
-        log::info!(
-            "Connected to room: {} - {}",
-            room.name(),
-            String::from(room.sid().await)
-        );
+        log::info!("Connected to room: {} - {}", room.name(), String::from(room.sid().await));
 
         let resolution_signal: ResolutionSignal = Arc::new((Mutex::new(None), Condvar::new()));
         let video_source_slot: VideoSourceSlot = Arc::new(Mutex::new(None));
@@ -113,11 +109,7 @@ mod test {
         );
 
         let resolution = wait_for_resolution(&resolution_signal);
-        log::info!(
-            "Detected capture resolution: {}x{}",
-            resolution.width,
-            resolution.height
-        );
+        log::info!("Detected capture resolution: {}x{}", resolution.width, resolution.height);
 
         let buffer_source = NativeVideoSource::new(resolution.clone());
         {
@@ -228,7 +220,8 @@ mod test {
                     let (lock, cvar) = &*resolution_signal;
                     let mut guard = lock.lock().unwrap();
                     if guard.is_none() {
-                        *guard = Some(VideoResolution { width: width as u32, height: height as u32 });
+                        *guard =
+                            Some(VideoResolution { width: width as u32, height: height as u32 });
                         cvar.notify_all();
                     }
                 }
@@ -260,7 +253,8 @@ mod test {
         }
         options.set_include_cursor(capture_cursor);
 
-        let mut capturer = DesktopCapturer::new(options).expect("Failed to create desktop capturer");
+        let mut capturer =
+            DesktopCapturer::new(options).expect("Failed to create desktop capturer");
         let sources = capturer.get_source_list();
         log::info!("Found {} sources", sources.len());
 
@@ -292,4 +286,3 @@ pub async fn run() {
     let _ = env_logger::try_init();
     log::info!("screensharing example is only available on Linux; skipping.");
 }
-
