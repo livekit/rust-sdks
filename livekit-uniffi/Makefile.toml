@@ -1,0 +1,60 @@
+
+# MARK: Common
+
+[env]
+PACKAGES_DIR = "./packages"
+TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
+TARGET_TRIPLE = "${CARGO_MAKE_RUST_TARGET_TRIPLE}"
+
+[env.LIBRARY_EXTENSION]
+source = "${CARGO_MAKE_RUST_TARGET_OS}"
+mapping = { linux = "so", macos = "dylib", windows = "dll" }
+
+[tasks.locate-cdylib]
+private = true
+script_runner = "@duckscript"
+script = """
+set_env CDYLIB_PATH "${TARGET_DIR}/${TARGET_TRIPLE}/release/liblivekit_uniffi.${LIBRARY_EXTENSION}"
+"""
+
+[tasks.build]
+args = ["build", "--release"]
+
+[tasks.uniffi-bindgen]
+private = true
+dependencies = ["build", "locate-cdylib"]
+script_runner = "@shell"
+script = """
+cargo run --bin uniffi-bindgen generate \
+    --language ${LANG} \
+    --out-dir ${PACKAGES_DIR}/${LANG} \
+    --library ${CDYLIB_PATH}
+"""
+
+[tasks.bindgen]
+dependencies = [
+    "bindgen-swift",
+    "bindgen-python",
+    "bindgen-kotlin"
+]
+
+# MARK: Swift
+
+[tasks.bindgen-swift]
+extend = "uniffi-bindgen"
+private = false
+env = { LANG = "swift" }
+
+# MARK: Python
+
+[tasks.bindgen-python]
+extend = "uniffi-bindgen"
+private = false
+env = { LANG = "python" }
+
+# MARK: Kotlin
+
+[tasks.bindgen-kotlin]
+extend = "uniffi-bindgen"
+private = false
+env = { LANG = "kotlin" }
