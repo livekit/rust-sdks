@@ -22,6 +22,8 @@ lk_sources = [
   "video_decoder.cc",
   "session_description.cc",
   "ice_candidate.cc",
+  "global_task_queue.cc",
+  "audio_track.cc",
   #"android.cc",
 ]
 
@@ -42,7 +44,7 @@ rtc_shared_library("livekit_rtc") {
     "USE_LIBYUV",
     "WEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE",
   ]
-
+  cflags_cc = ["-Wno-sign-compare"]
   public_configs = [ ":livekit_config" ]
 
   deps = [

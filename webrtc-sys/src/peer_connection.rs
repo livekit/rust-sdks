@@ -783,7 +783,7 @@ pub static PEER_OBSERVER: sys::lkPeerObserver = sys::lkPeerObserver {
 #[cfg(test)]
 mod tests {
 
-    use tokio::sync::mpsc;
+    use tokio::{signal, sync::mpsc};
 
     use crate::{data_channel::DataChannelInit, peer_connection::*, peer_connection_factory::*};
 
@@ -851,6 +851,24 @@ mod tests {
 
         bob.add_ice_candidate(alice_ice).await.unwrap();
         alice.add_ice_candidate(bob_ice).await.unwrap();
+
+        let current_local_sdp = bob.current_local_description().unwrap();
+        println!("Bob current local SDP: {:?}", current_local_sdp.sdp());
+
+        let current_remote_sdp = bob.current_remote_description().unwrap();
+        println!("Bob current remote SDP: {:?}", current_remote_sdp.sdp());
+
+        let current_connection_state = bob.connection_state();
+        println!("Bob current connection state: {:?}", current_connection_state);
+
+        let current_ice_state = bob.ice_connection_state();
+        println!("Bob current ICE connection state: {:?}", current_ice_state);
+
+        let ice_gathering_state = bob.ice_gathering_state();
+        println!("Bob current ICE gathering state: {:?}", ice_gathering_state);
+
+        let signaling_state = bob.signaling_state();
+        println!("Bob current signaling state: {:?}", signaling_state);
 
         let (data_tx, mut data_rx) = mpsc::unbounded_channel::<String>();
         let alice_dc = alice_dc_rx.recv().await.unwrap();

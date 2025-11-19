@@ -11,7 +11,12 @@ pub type lkMediaStreamTrack = ::std::os::raw::c_void;
 pub type lkMediaStream = ::std::os::raw::c_void;
 pub type lkSessionDescription = ::std::os::raw::c_void;
 pub type lkIceCandidate = ::std::os::raw::c_void;
-pub type lkdDataBuffer = ::std::os::raw::c_void;
+pub type lkRtpCapabilities = ::std::os::raw::c_void;
+pub type lkRtcVideoTrack = ::std::os::raw::c_void;
+pub type lkRtcAudioTrack = ::std::os::raw::c_void;
+pub type lkVideoTrackSource = ::std::os::raw::c_void;
+pub type lkAudioTrackSource = ::std::os::raw::c_void;
+pub type lkNativeAudioSink = ::std::os::raw::c_void;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkIceTransportType {
@@ -142,6 +147,28 @@ const _: () = {
         [::std::mem::offset_of!(lkPeerObserver, onRenegotiationNeeded) - 56usize];
     ["Offset of field: lkPeerObserver::onIceCandidateError"]
         [::std::mem::offset_of!(lkPeerObserver, onIceCandidateError) - 64usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct lkNativeAudioSinkObserver {
+    pub onAudioData: ::std::option::Option<
+        unsafe extern "C" fn(
+            audioData: *const i16,
+            sampleRate: u32,
+            numberOfChannels: u32,
+            numberOfFrames: ::std::os::raw::c_int,
+            userdata: *mut ::std::os::raw::c_void,
+        ),
+    >,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of lkNativeAudioSinkObserver"]
+        [::std::mem::size_of::<lkNativeAudioSinkObserver>() - 8usize];
+    ["Alignment of lkNativeAudioSinkObserver"]
+        [::std::mem::align_of::<lkNativeAudioSinkObserver>() - 8usize];
+    ["Offset of field: lkNativeAudioSinkObserver::onAudioData"]
+        [::std::mem::offset_of!(lkNativeAudioSinkObserver, onAudioData) - 0usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -317,6 +344,24 @@ const _: () = {
     ["Offset of field: lkOfferAnswerOptions::offerToReceiveVideo"]
         [::std::mem::offset_of!(lkOfferAnswerOptions, offerToReceiveVideo) - 3usize];
 };
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct lkAudioSourceOptions {
+    pub echoCancellation: bool,
+    pub noiseSuppression: bool,
+    pub autoGainControl: bool,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of lkAudioSourceOptions"][::std::mem::size_of::<lkAudioSourceOptions>() - 3usize];
+    ["Alignment of lkAudioSourceOptions"][::std::mem::align_of::<lkAudioSourceOptions>() - 1usize];
+    ["Offset of field: lkAudioSourceOptions::echoCancellation"]
+        [::std::mem::offset_of!(lkAudioSourceOptions, echoCancellation) - 0usize];
+    ["Offset of field: lkAudioSourceOptions::noiseSuppression"]
+        [::std::mem::offset_of!(lkAudioSourceOptions, noiseSuppression) - 1usize];
+    ["Offset of field: lkAudioSourceOptions::autoGainControl"]
+        [::std::mem::offset_of!(lkAudioSourceOptions, autoGainControl) - 2usize];
+};
 unsafe extern "C" {
     pub fn lkInitialize() -> ::std::os::raw::c_int;
 }
@@ -331,6 +376,12 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn lkCreatePeerFactory() -> *mut lkPeerFactory;
+}
+unsafe extern "C" {
+    pub fn lkGetRtpSenderCapabilities(factory: *mut lkPeerFactory) -> *mut lkRtpCapabilities;
+}
+unsafe extern "C" {
+    pub fn lkGetRtpReceiverCapabilities(factory: *mut lkPeerFactory) -> *mut lkRtpCapabilities;
 }
 unsafe extern "C" {
     pub fn lkCreatePeer(
@@ -510,4 +561,12 @@ unsafe extern "C" {
         buffer: *mut ::std::os::raw::c_char,
         bufferSize: ::std::os::raw::c_int,
     ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkCreateNativeAudioSink(
+        observer: *mut lkNativeAudioSinkObserver,
+        userdata: *mut ::std::os::raw::c_void,
+        sample_rate: ::std::os::raw::c_int,
+        num_channels: ::std::os::raw::c_int,
+    ) -> *mut lkNativeAudioSink;
 }

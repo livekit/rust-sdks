@@ -116,6 +116,15 @@ class PeerFactory : public webrtc::RefCountInterface {
                                          const lkPeerObserver* observer,
                                          void* userdata);
 
+  webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface>
+      GetPeerConnectionFactory() const {
+    return peer_factory_;
+  }
+
+  lkRtcVideoTrack* CreateVideoTrack(const char* id, lkVideoTrackSource* source);
+
+  lkRtcAudioTrack* CreateAudioTrack(const char* id, lkAudioTrackSource* source);
+
  private:
   std::unique_ptr<webrtc::Thread> network_thread_;
   std::unique_ptr<webrtc::Thread> worker_thread_;

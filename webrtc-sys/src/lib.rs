@@ -38,10 +38,13 @@ pub struct RtcError {
     pub message: String,
 }
 
+pub mod audio_frame;
+pub mod audio_source;
 pub mod data_channel;
 pub mod ice_candidate;
 pub mod peer_connection;
 pub mod peer_connection_factory;
+pub mod rtp_parameters;
 pub mod session_description;
 pub mod sys;
 

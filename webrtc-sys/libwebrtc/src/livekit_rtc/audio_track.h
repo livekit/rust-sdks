@@ -1,13 +1,147 @@
 #ifndef LIVEKIT_AUDIO_TRACK_H
 #define LIVEKIT_AUDIO_TRACK_H
 
+#include "api/audio/audio_frame.h"
+#include "api/audio_options.h"
+#include "api/media_stream_interface.h"
+#include "api/scoped_refptr.h"
+#include "api/task_queue/task_queue_base.h"
+#include "api/task_queue/task_queue_factory.h"
+#include "audio/remix_resample.h"
+#include "common_audio/resampler/include/push_resampler.h"
+#include "livekit_rtc/capi.h"
+#include "pc/local_audio_source.h"
+#include "rtc_base/synchronization/mutex.h"
+#include "rtc_base/task_utils/repeating_task.h"
+#include "rtc_base/thread_annotations.h"
+
 namespace livekit {
 
-    class AudioTrack {
+using CompleteCallback = void (*)(const void* userdata);
 
-    };
+class AudioTrack {};
 
-}
+class NativeAudioSink : public webrtc::RefCountInterface {
+ protected:
+  class InternalSink : public webrtc::AudioTrackSinkInterface {
+   public:
+    InternalSink(lkNativeAudioSinkObserver* observer,
+                 void* userdata,
+                 int sample_rate,
+                 size_t num_channels);
 
-#endif // LIVEKIT_AUDIO_TRACK_H
+    void OnData(const void* audio_data,
+                int bits_per_sample,
+                int sample_rate,
+                size_t number_of_channels,
+                size_t number_of_frames) override;
 
+   private:
+    lkNativeAudioSinkObserver* observer_;
+    void* userdata_;
+    int sample_rate_;
+    size_t num_channels_;
+    webrtc::AudioFrame frame_;
+    webrtc::PushResampler<int16_t> resampler_;
+  };
+
+ public:
+  explicit NativeAudioSink(lkNativeAudioSinkObserver* observer,
+                           void* userdata,
+                           int sample_rate,
+                           size_t num_channels);
+
+  webrtc::AudioTrackSinkInterface* audio_track_sink() {
+    return &internal_sink_;
+  }
+
+ private:
+  InternalSink internal_sink_;
+};
+
+class AudioTrackSource {
+  class InternalSource : public webrtc::LocalAudioSource {
+   public:
+    InternalSource(const webrtc::AudioOptions& options,
+                   int sample_rate,
+                   int num_channels,
+                   int buffer_size_ms,
+                   webrtc::TaskQueueFactory* task_queue_factory);
+
+    ~InternalSource() override;
+
+    SourceState state() const override;
+    bool remote() const override;
+
+    const webrtc::AudioOptions options() const override;
+
+    void AddSink(webrtc::AudioTrackSinkInterface* sink) override;
+    void RemoveSink(webrtc::AudioTrackSinkInterface* sink) override;
+
+    void set_options(const webrtc::AudioOptions& options);
+
+    bool capture_frame(std::vector<int16_t> audio_data,
+                       uint32_t sample_rate,
+                       uint32_t number_of_channels,
+                       size_t number_of_frames,
+                       const void* userdata,
+                       CompleteCallback on_complete);
+
+    void clear_buffer();
+
+   private:
+    int sample_rate_;
+    int num_channels_;
+    int queue_size_samples_;
+    int notify_threshold_samples_;
+    mutable webrtc::Mutex mutex_;
+    std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter>
+        audio_queue_;
+    webrtc::RepeatingTaskHandle audio_task_;
+
+    std::vector<webrtc::AudioTrackSinkInterface*> sinks_ RTC_GUARDED_BY(mutex_);
+    std::vector<int16_t> buffer_ RTC_GUARDED_BY(mutex_);
+
+    const void* capture_userdata_ RTC_GUARDED_BY(mutex_);
+    void (*on_complete_)(const void*) RTC_GUARDED_BY(mutex_);
+
+    int missed_frames_ RTC_GUARDED_BY(mutex_) = 0;
+    std::vector<int16_t> silence_buffer_;
+    webrtc::AudioOptions options_{};
+  };
+
+ public:
+  AudioTrackSource(lkAudioSourceOptions options,
+                   int sample_rate,
+                   int num_channels,
+                   int queue_size_ms,
+                   webrtc::TaskQueueFactory* task_queue_factory);
+
+  static webrtc::scoped_refptr<AudioTrackSource> Create(
+      lkAudioSourceOptions options,
+      int sample_rate,
+      int num_channels,
+      int queue_size_ms);
+
+  lkAudioSourceOptions audio_options() const;
+
+  void set_audio_options(const lkAudioSourceOptions& options) const;
+
+  bool capture_frame(std::vector<int16_t> audio_data,
+                     uint32_t sample_rate,
+                     uint32_t number_of_channels,
+                     size_t number_of_frames,
+                     const void* ctx,
+                     CompleteCallback on_complete) const;
+
+  void clear_buffer() const;
+
+  webrtc::scoped_refptr<InternalSource> get() const;
+
+ private:
+  webrtc::scoped_refptr<InternalSource> source_;
+};
+
+}  // namespace livekit
+
+#endif  // LIVEKIT_AUDIO_TRACK_H

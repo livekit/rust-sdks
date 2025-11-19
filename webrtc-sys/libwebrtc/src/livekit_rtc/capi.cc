@@ -1,6 +1,7 @@
 #include "livekit_rtc/capi.h"
 
 #include "api/make_ref_counted.h"
+#include "livekit_rtc/audio_track.h"
 #include "livekit_rtc/data_channel.h"
 #include "livekit_rtc/ice_candidate.h"
 #include "livekit_rtc/peer.h"
@@ -250,9 +251,9 @@ int lkIceCandidateGetSdp(lkIceCandidate* candidate,
   return len;
 }
 
- void lkPeerRestartIce(lkPeer* peer) {
+void lkPeerRestartIce(lkPeer* peer) {
   reinterpret_cast<livekit::Peer*>(peer)->RestartIce();
- }
+}
 
 lkPeerState lkGetPeerState(lkPeer* peer) {
   return static_cast<lkPeerState>(
@@ -274,6 +275,41 @@ lkSignalingState lkPeerGetSignalingState(lkPeer* peer) {
       reinterpret_cast<livekit::Peer*>(peer)->GetSignalingState());
 }
 
-const lkSessionDescription* lkPeerGetCurrentLocalDescription(lkPeer* peer);
+const lkSessionDescription* lkPeerGetCurrentLocalDescription(lkPeer* peer) {
+  return reinterpret_cast<livekit::Peer*>(peer)->GetCurrentLocalDescription();
+}
 
-const lkSessionDescription* lkPeerGetCurrentRemoteDescription(lkPeer* peer);
+const lkSessionDescription* lkPeerGetCurrentRemoteDescription(lkPeer* peer) {
+  return reinterpret_cast<livekit::Peer*>(peer)->GetCurrentRemoteDescription();
+}
+
+lkRtpCapabilities* lkGetRtpSenderCapabilities(lkPeerFactory* factory) {
+  auto peer_factory = reinterpret_cast<livekit::PeerFactory*>(factory)
+                          ->GetPeerConnectionFactory();
+  return nullptr;
+}
+
+lkRtpCapabilities* lkGetRtpReceiverCapabilities(lkPeerFactory* factory) {
+  auto peer_factory = reinterpret_cast<livekit::PeerFactory*>(factory)
+                          ->GetPeerConnectionFactory();
+  return nullptr;
+}
+
+lkRtcVideoTrack* CreateVideoTrack(const char* id, lkVideoTrackSource* source) {
+  return nullptr;
+}
+
+lkRtcAudioTrack* CreateAudioTrack(const char* id, lkAudioTrackSource* source) {
+  return nullptr;
+}
+
+LK_EXPORT lkNativeAudioSink* lkCreateNativeAudioSink(
+    lkNativeAudioSinkObserver* observer,
+    void* userdata,
+    int sample_rate,
+    int num_channels) {
+  return reinterpret_cast<lkNativeAudioSink*>(
+      webrtc::make_ref_counted<livekit::NativeAudioSink>(
+          observer, userdata, sample_rate, num_channels)
+          .release());
+}

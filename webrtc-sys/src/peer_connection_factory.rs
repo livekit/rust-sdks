@@ -15,9 +15,7 @@
 use std::{fmt::Debug, sync::{Arc, Mutex}, rc::Rc};
 
 use crate::{
-    peer_connection::{PeerConnection, PeerObserver, PEER_OBSERVER},
-    sys::{self, lkRtcConfiguration},
-    RtcError, RtcErrorType,
+    MediaType, RtcError, RtcErrorType, peer_connection::{PEER_OBSERVER, PeerConnection, PeerObserver}, rtp_parameters::RtpCapabilities, sys::{self, lkRtcConfiguration}
 };
 
 #[derive(Debug, Clone)]
@@ -146,15 +144,14 @@ impl PeerConnectionFactory {
         };
         Ok(peer)
     }
-    /*
+    
     pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
-        self.handle.get_rtp_sender_capabilities(media_type)
+        todo!()
     }
 
     pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
-        self.handle.get_rtp_receiver_capabilities(media_type)
+        todo!()
     }
-    */
 }
 
 pub mod native {

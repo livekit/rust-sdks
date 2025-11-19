@@ -22,7 +22,12 @@ typedef void lkMediaStreamTrack;
 typedef void lkMediaStream;
 typedef void lkSessionDescription;
 typedef void lkIceCandidate;
-typedef void lkdDataBuffer;
+typedef void lkRtpCapabilities;
+typedef void lkRtcVideoTrack;
+typedef void lkRtcAudioTrack;
+typedef void lkVideoTrackSource;
+typedef void lkAudioTrackSource;
+typedef void lkNativeAudioSink;
 
 typedef enum {
   LK_ICE_TRANSPORT_TYPE_NONE,
@@ -102,6 +107,14 @@ typedef struct {
 } lkPeerObserver;
 
 typedef struct {
+  void (*onAudioData)(const int16_t* audioData,
+                      uint32_t sampleRate,
+                      uint32_t numberOfChannels,
+                      int numberOfFrames,
+                      void* userdata);
+} lkNativeAudioSinkObserver;
+
+typedef struct {
   void (*onStateChange)(void* userdata, const lkDcState state);
   void (*onMessage)(const uint8_t* data,
                     uint64_t size,
@@ -145,7 +158,7 @@ typedef struct {
 } lkSetSdpObserver;
 
 typedef struct {
-  void (*onSuccess)(lkSessionDescription *desc, void* userdata);
+  void (*onSuccess)(lkSessionDescription* desc, void* userdata);
   void (*onFailure)(const lkRtcError* error, void* userdata);
 } lkCreateSdpObserver;
 
@@ -155,6 +168,12 @@ typedef struct {
   bool offerToReceiveAudio;
   bool offerToReceiveVideo;
 } lkOfferAnswerOptions;
+
+typedef struct {
+  bool echoCancellation;
+  bool noiseSuppression;
+  bool autoGainControl;
+} lkAudioSourceOptions;
 
 LK_EXPORT int lkInitialize();
 LK_EXPORT int lkDispose();
@@ -166,6 +185,12 @@ LK_EXPORT void lkAddRef(lkRefCounted* rc);
 LK_EXPORT void lkReleaseRef(lkRefCounted* rc);
 
 LK_EXPORT lkPeerFactory* lkCreatePeerFactory();
+
+LK_EXPORT lkRtpCapabilities* lkGetRtpSenderCapabilities(lkPeerFactory* factory);
+
+LK_EXPORT lkRtpCapabilities* lkGetRtpReceiverCapabilities(
+    lkPeerFactory* factory);
+
 LK_EXPORT lkPeer* lkCreatePeer(lkPeerFactory* factory,
                                const lkRtcConfiguration* config,
                                const lkPeerObserver* observer,
@@ -213,9 +238,11 @@ LK_EXPORT lkIceState lkPeerGetIceConnectionState(lkPeer* peer);
 
 LK_EXPORT lkSignalingState lkPeerGetSignalingState(lkPeer* peer);
 
-LK_EXPORT const lkSessionDescription* lkPeerGetCurrentLocalDescription(lkPeer* peer);
+LK_EXPORT const lkSessionDescription* lkPeerGetCurrentLocalDescription(
+    lkPeer* peer);
 
-LK_EXPORT const lkSessionDescription* lkPeerGetCurrentRemoteDescription(lkPeer* peer);
+LK_EXPORT const lkSessionDescription* lkPeerGetCurrentRemoteDescription(
+    lkPeer* peer);
 
 LK_EXPORT bool lkPeerClose(lkPeer* peer);
 
@@ -253,21 +280,33 @@ LK_EXPORT lkSdpType lkSessionDescriptionGetType(lkSessionDescription* desc);
 
 LK_EXPORT int lkSessionDescriptionGetSdpLength(lkSessionDescription* desc);
 
-LK_EXPORT int lkSessionDescriptionGetSdp(lkSessionDescription* desc, char* buffer, int bufferSize);
+LK_EXPORT int lkSessionDescriptionGetSdp(lkSessionDescription* desc,
+                                         char* buffer,
+                                         int bufferSize);
 
 LK_EXPORT lkIceCandidate* lkCreateIceCandidate(const char* mid,
-                                                int mlineIndex,
-                                                const char* sdp);
+                                               int mlineIndex,
+                                               const char* sdp);
 
 LK_EXPORT int lkIceCandidateGetMlineIndex(lkIceCandidate* candidate);
 
 LK_EXPORT int lkIceCandidateGetMidLength(lkIceCandidate* candidate);
 
-LK_EXPORT int lkIceCandidateGetMid(lkIceCandidate* candidate, char* buffer, int bufferSize);
+LK_EXPORT int lkIceCandidateGetMid(lkIceCandidate* candidate,
+                                   char* buffer,
+                                   int bufferSize);
 
 LK_EXPORT int lkIceCandidateGetSdpLength(lkIceCandidate* candidate);
 
-LK_EXPORT int lkIceCandidateGetSdp(lkIceCandidate* candidate, char* buffer, int bufferSize);
+LK_EXPORT int lkIceCandidateGetSdp(lkIceCandidate* candidate,
+                                   char* buffer,
+                                   int bufferSize);
+
+LK_EXPORT lkNativeAudioSink* lkCreateNativeAudioSink(
+    lkNativeAudioSinkObserver* observer,
+    void* userdata,
+    int sample_rate,
+    int num_channels);
 
 #ifdef __cplusplus
 }
