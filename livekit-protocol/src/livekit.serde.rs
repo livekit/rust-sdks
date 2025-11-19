@@ -21478,6 +21478,8 @@ impl serde::Serialize for participant_info::KindDetail {
         let variant = match self {
             Self::CloudAgent => "CLOUD_AGENT",
             Self::Forwarded => "FORWARDED",
+            Self::ConnectorWhatsapp => "CONNECTOR_WHATSAPP",
+            Self::ConnectorTwilio => "CONNECTOR_TWILIO",
         };
         serializer.serialize_str(variant)
     }
@@ -21491,6 +21493,8 @@ impl<'de> serde::Deserialize<'de> for participant_info::KindDetail {
         const FIELDS: &[&str] = &[
             "CLOUD_AGENT",
             "FORWARDED",
+            "CONNECTOR_WHATSAPP",
+            "CONNECTOR_TWILIO",
         ];
 
         struct GeneratedVisitor;
@@ -21533,6 +21537,8 @@ impl<'de> serde::Deserialize<'de> for participant_info::KindDetail {
                 match value {
                     "CLOUD_AGENT" => Ok(participant_info::KindDetail::CloudAgent),
                     "FORWARDED" => Ok(participant_info::KindDetail::Forwarded),
+                    "CONNECTOR_WHATSAPP" => Ok(participant_info::KindDetail::ConnectorWhatsapp),
+                    "CONNECTOR_TWILIO" => Ok(participant_info::KindDetail::ConnectorTwilio),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -32170,11 +32176,15 @@ impl serde::Serialize for SipStatusCode {
             Self::SipStatusCallIsForwarded => "SIP_STATUS_CALL_IS_FORWARDED",
             Self::SipStatusQueued => "SIP_STATUS_QUEUED",
             Self::SipStatusSessionProgress => "SIP_STATUS_SESSION_PROGRESS",
+            Self::SipStatusEarlyDialogTerminated => "SIP_STATUS_EARLY_DIALOG_TERMINATED",
             Self::SipStatusOk => "SIP_STATUS_OK",
             Self::SipStatusAccepted => "SIP_STATUS_ACCEPTED",
+            Self::SipStatusNoNotification => "SIP_STATUS_NO_NOTIFICATION",
+            Self::SipStatusMultipleChoices => "SIP_STATUS_MULTIPLE_CHOICES",
             Self::SipStatusMovedPermanently => "SIP_STATUS_MOVED_PERMANENTLY",
             Self::SipStatusMovedTemporarily => "SIP_STATUS_MOVED_TEMPORARILY",
             Self::SipStatusUseProxy => "SIP_STATUS_USE_PROXY",
+            Self::SipStatusAlternativeService => "SIP_STATUS_ALTERNATIVE_SERVICE",
             Self::SipStatusBadRequest => "SIP_STATUS_BAD_REQUEST",
             Self::SipStatusUnauthorized => "SIP_STATUS_UNAUTHORIZED",
             Self::SipStatusPaymentRequired => "SIP_STATUS_PAYMENT_REQUIRED",
@@ -32186,13 +32196,30 @@ impl serde::Serialize for SipStatusCode {
             Self::SipStatusRequestTimeout => "SIP_STATUS_REQUEST_TIMEOUT",
             Self::SipStatusConflict => "SIP_STATUS_CONFLICT",
             Self::SipStatusGone => "SIP_STATUS_GONE",
+            Self::SipStatusLengthRequired => "SIP_STATUS_LENGTH_REQUIRED",
+            Self::SipStatusConditionalRequestFailed => "SIP_STATUS_CONDITIONAL_REQUEST_FAILED",
             Self::SipStatusRequestEntityTooLarge => "SIP_STATUS_REQUEST_ENTITY_TOO_LARGE",
             Self::SipStatusRequestUriTooLong => "SIP_STATUS_REQUEST_URI_TOO_LONG",
             Self::SipStatusUnsupportedMediaType => "SIP_STATUS_UNSUPPORTED_MEDIA_TYPE",
             Self::SipStatusRequestedRangeNotSatisfiable => "SIP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE",
+            Self::SipStatusUnknownResourcePriority => "SIP_STATUS_UNKNOWN_RESOURCE_PRIORITY",
             Self::SipStatusBadExtension => "SIP_STATUS_BAD_EXTENSION",
             Self::SipStatusExtensionRequired => "SIP_STATUS_EXTENSION_REQUIRED",
+            Self::SipStatusSessionIntervalTooSmall => "SIP_STATUS_SESSION_INTERVAL_TOO_SMALL",
             Self::SipStatusIntervalTooBrief => "SIP_STATUS_INTERVAL_TOO_BRIEF",
+            Self::SipStatusBadLocationInformation => "SIP_STATUS_BAD_LOCATION_INFORMATION",
+            Self::SipStatusBadAlertMessage => "SIP_STATUS_BAD_ALERT_MESSAGE",
+            Self::SipStatusUseIdentityHeader => "SIP_STATUS_USE_IDENTITY_HEADER",
+            Self::SipStatusProvideReferrerIdentity => "SIP_STATUS_PROVIDE_REFERRER_IDENTITY",
+            Self::SipStatusFlowFailed => "SIP_STATUS_FLOW_FAILED",
+            Self::SipStatusAnonymityDisallowed => "SIP_STATUS_ANONYMITY_DISALLOWED",
+            Self::SipStatusBadIdentityInfo => "SIP_STATUS_BAD_IDENTITY_INFO",
+            Self::SipStatusUnsupportedCertificate => "SIP_STATUS_UNSUPPORTED_CERTIFICATE",
+            Self::SipStatusInvalidIdentityHeader => "SIP_STATUS_INVALID_IDENTITY_HEADER",
+            Self::SipStatusFirstHopLacksOutboundSupport => "SIP_STATUS_FIRST_HOP_LACKS_OUTBOUND_SUPPORT",
+            Self::SipStatusMaxBreadthExceeded => "SIP_STATUS_MAX_BREADTH_EXCEEDED",
+            Self::SipStatusBadInfoPackage => "SIP_STATUS_BAD_INFO_PACKAGE",
+            Self::SipStatusConsentNeeded => "SIP_STATUS_CONSENT_NEEDED",
             Self::SipStatusTemporarilyUnavailable => "SIP_STATUS_TEMPORARILY_UNAVAILABLE",
             Self::SipStatusCallTransactionDoesNotExists => "SIP_STATUS_CALL_TRANSACTION_DOES_NOT_EXISTS",
             Self::SipStatusLoopDetected => "SIP_STATUS_LOOP_DETECTED",
@@ -32202,6 +32229,10 @@ impl serde::Serialize for SipStatusCode {
             Self::SipStatusBusyHere => "SIP_STATUS_BUSY_HERE",
             Self::SipStatusRequestTerminated => "SIP_STATUS_REQUEST_TERMINATED",
             Self::SipStatusNotAcceptableHere => "SIP_STATUS_NOT_ACCEPTABLE_HERE",
+            Self::SipStatusBadEvent => "SIP_STATUS_BAD_EVENT",
+            Self::SipStatusRequestPending => "SIP_STATUS_REQUEST_PENDING",
+            Self::SipStatusUndecipherable => "SIP_STATUS_UNDECIPHERABLE",
+            Self::SipStatusSecurityAgreementRequired => "SIP_STATUS_SECURITY_AGREEMENT_REQUIRED",
             Self::SipStatusInternalServerError => "SIP_STATUS_INTERNAL_SERVER_ERROR",
             Self::SipStatusNotImplemented => "SIP_STATUS_NOT_IMPLEMENTED",
             Self::SipStatusBadGateway => "SIP_STATUS_BAD_GATEWAY",
@@ -32213,6 +32244,8 @@ impl serde::Serialize for SipStatusCode {
             Self::SipStatusGlobalDecline => "SIP_STATUS_GLOBAL_DECLINE",
             Self::SipStatusGlobalDoesNotExistAnywhere => "SIP_STATUS_GLOBAL_DOES_NOT_EXIST_ANYWHERE",
             Self::SipStatusGlobalNotAcceptable => "SIP_STATUS_GLOBAL_NOT_ACCEPTABLE",
+            Self::SipStatusGlobalUnwanted => "SIP_STATUS_GLOBAL_UNWANTED",
+            Self::SipStatusGlobalRejected => "SIP_STATUS_GLOBAL_REJECTED",
         };
         serializer.serialize_str(variant)
     }
@@ -32230,11 +32263,15 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
             "SIP_STATUS_CALL_IS_FORWARDED",
             "SIP_STATUS_QUEUED",
             "SIP_STATUS_SESSION_PROGRESS",
+            "SIP_STATUS_EARLY_DIALOG_TERMINATED",
             "SIP_STATUS_OK",
             "SIP_STATUS_ACCEPTED",
+            "SIP_STATUS_NO_NOTIFICATION",
+            "SIP_STATUS_MULTIPLE_CHOICES",
             "SIP_STATUS_MOVED_PERMANENTLY",
             "SIP_STATUS_MOVED_TEMPORARILY",
             "SIP_STATUS_USE_PROXY",
+            "SIP_STATUS_ALTERNATIVE_SERVICE",
             "SIP_STATUS_BAD_REQUEST",
             "SIP_STATUS_UNAUTHORIZED",
             "SIP_STATUS_PAYMENT_REQUIRED",
@@ -32246,13 +32283,30 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
             "SIP_STATUS_REQUEST_TIMEOUT",
             "SIP_STATUS_CONFLICT",
             "SIP_STATUS_GONE",
+            "SIP_STATUS_LENGTH_REQUIRED",
+            "SIP_STATUS_CONDITIONAL_REQUEST_FAILED",
             "SIP_STATUS_REQUEST_ENTITY_TOO_LARGE",
             "SIP_STATUS_REQUEST_URI_TOO_LONG",
             "SIP_STATUS_UNSUPPORTED_MEDIA_TYPE",
             "SIP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE",
+            "SIP_STATUS_UNKNOWN_RESOURCE_PRIORITY",
             "SIP_STATUS_BAD_EXTENSION",
             "SIP_STATUS_EXTENSION_REQUIRED",
+            "SIP_STATUS_SESSION_INTERVAL_TOO_SMALL",
             "SIP_STATUS_INTERVAL_TOO_BRIEF",
+            "SIP_STATUS_BAD_LOCATION_INFORMATION",
+            "SIP_STATUS_BAD_ALERT_MESSAGE",
+            "SIP_STATUS_USE_IDENTITY_HEADER",
+            "SIP_STATUS_PROVIDE_REFERRER_IDENTITY",
+            "SIP_STATUS_FLOW_FAILED",
+            "SIP_STATUS_ANONYMITY_DISALLOWED",
+            "SIP_STATUS_BAD_IDENTITY_INFO",
+            "SIP_STATUS_UNSUPPORTED_CERTIFICATE",
+            "SIP_STATUS_INVALID_IDENTITY_HEADER",
+            "SIP_STATUS_FIRST_HOP_LACKS_OUTBOUND_SUPPORT",
+            "SIP_STATUS_MAX_BREADTH_EXCEEDED",
+            "SIP_STATUS_BAD_INFO_PACKAGE",
+            "SIP_STATUS_CONSENT_NEEDED",
             "SIP_STATUS_TEMPORARILY_UNAVAILABLE",
             "SIP_STATUS_CALL_TRANSACTION_DOES_NOT_EXISTS",
             "SIP_STATUS_LOOP_DETECTED",
@@ -32262,6 +32316,10 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
             "SIP_STATUS_BUSY_HERE",
             "SIP_STATUS_REQUEST_TERMINATED",
             "SIP_STATUS_NOT_ACCEPTABLE_HERE",
+            "SIP_STATUS_BAD_EVENT",
+            "SIP_STATUS_REQUEST_PENDING",
+            "SIP_STATUS_UNDECIPHERABLE",
+            "SIP_STATUS_SECURITY_AGREEMENT_REQUIRED",
             "SIP_STATUS_INTERNAL_SERVER_ERROR",
             "SIP_STATUS_NOT_IMPLEMENTED",
             "SIP_STATUS_BAD_GATEWAY",
@@ -32273,6 +32331,8 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
             "SIP_STATUS_GLOBAL_DECLINE",
             "SIP_STATUS_GLOBAL_DOES_NOT_EXIST_ANYWHERE",
             "SIP_STATUS_GLOBAL_NOT_ACCEPTABLE",
+            "SIP_STATUS_GLOBAL_UNWANTED",
+            "SIP_STATUS_GLOBAL_REJECTED",
         ];
 
         struct GeneratedVisitor;
@@ -32319,11 +32379,15 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
                     "SIP_STATUS_CALL_IS_FORWARDED" => Ok(SipStatusCode::SipStatusCallIsForwarded),
                     "SIP_STATUS_QUEUED" => Ok(SipStatusCode::SipStatusQueued),
                     "SIP_STATUS_SESSION_PROGRESS" => Ok(SipStatusCode::SipStatusSessionProgress),
+                    "SIP_STATUS_EARLY_DIALOG_TERMINATED" => Ok(SipStatusCode::SipStatusEarlyDialogTerminated),
                     "SIP_STATUS_OK" => Ok(SipStatusCode::SipStatusOk),
                     "SIP_STATUS_ACCEPTED" => Ok(SipStatusCode::SipStatusAccepted),
+                    "SIP_STATUS_NO_NOTIFICATION" => Ok(SipStatusCode::SipStatusNoNotification),
+                    "SIP_STATUS_MULTIPLE_CHOICES" => Ok(SipStatusCode::SipStatusMultipleChoices),
                     "SIP_STATUS_MOVED_PERMANENTLY" => Ok(SipStatusCode::SipStatusMovedPermanently),
                     "SIP_STATUS_MOVED_TEMPORARILY" => Ok(SipStatusCode::SipStatusMovedTemporarily),
                     "SIP_STATUS_USE_PROXY" => Ok(SipStatusCode::SipStatusUseProxy),
+                    "SIP_STATUS_ALTERNATIVE_SERVICE" => Ok(SipStatusCode::SipStatusAlternativeService),
                     "SIP_STATUS_BAD_REQUEST" => Ok(SipStatusCode::SipStatusBadRequest),
                     "SIP_STATUS_UNAUTHORIZED" => Ok(SipStatusCode::SipStatusUnauthorized),
                     "SIP_STATUS_PAYMENT_REQUIRED" => Ok(SipStatusCode::SipStatusPaymentRequired),
@@ -32335,13 +32399,30 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
                     "SIP_STATUS_REQUEST_TIMEOUT" => Ok(SipStatusCode::SipStatusRequestTimeout),
                     "SIP_STATUS_CONFLICT" => Ok(SipStatusCode::SipStatusConflict),
                     "SIP_STATUS_GONE" => Ok(SipStatusCode::SipStatusGone),
+                    "SIP_STATUS_LENGTH_REQUIRED" => Ok(SipStatusCode::SipStatusLengthRequired),
+                    "SIP_STATUS_CONDITIONAL_REQUEST_FAILED" => Ok(SipStatusCode::SipStatusConditionalRequestFailed),
                     "SIP_STATUS_REQUEST_ENTITY_TOO_LARGE" => Ok(SipStatusCode::SipStatusRequestEntityTooLarge),
                     "SIP_STATUS_REQUEST_URI_TOO_LONG" => Ok(SipStatusCode::SipStatusRequestUriTooLong),
                     "SIP_STATUS_UNSUPPORTED_MEDIA_TYPE" => Ok(SipStatusCode::SipStatusUnsupportedMediaType),
                     "SIP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE" => Ok(SipStatusCode::SipStatusRequestedRangeNotSatisfiable),
+                    "SIP_STATUS_UNKNOWN_RESOURCE_PRIORITY" => Ok(SipStatusCode::SipStatusUnknownResourcePriority),
                     "SIP_STATUS_BAD_EXTENSION" => Ok(SipStatusCode::SipStatusBadExtension),
                     "SIP_STATUS_EXTENSION_REQUIRED" => Ok(SipStatusCode::SipStatusExtensionRequired),
+                    "SIP_STATUS_SESSION_INTERVAL_TOO_SMALL" => Ok(SipStatusCode::SipStatusSessionIntervalTooSmall),
                     "SIP_STATUS_INTERVAL_TOO_BRIEF" => Ok(SipStatusCode::SipStatusIntervalTooBrief),
+                    "SIP_STATUS_BAD_LOCATION_INFORMATION" => Ok(SipStatusCode::SipStatusBadLocationInformation),
+                    "SIP_STATUS_BAD_ALERT_MESSAGE" => Ok(SipStatusCode::SipStatusBadAlertMessage),
+                    "SIP_STATUS_USE_IDENTITY_HEADER" => Ok(SipStatusCode::SipStatusUseIdentityHeader),
+                    "SIP_STATUS_PROVIDE_REFERRER_IDENTITY" => Ok(SipStatusCode::SipStatusProvideReferrerIdentity),
+                    "SIP_STATUS_FLOW_FAILED" => Ok(SipStatusCode::SipStatusFlowFailed),
+                    "SIP_STATUS_ANONYMITY_DISALLOWED" => Ok(SipStatusCode::SipStatusAnonymityDisallowed),
+                    "SIP_STATUS_BAD_IDENTITY_INFO" => Ok(SipStatusCode::SipStatusBadIdentityInfo),
+                    "SIP_STATUS_UNSUPPORTED_CERTIFICATE" => Ok(SipStatusCode::SipStatusUnsupportedCertificate),
+                    "SIP_STATUS_INVALID_IDENTITY_HEADER" => Ok(SipStatusCode::SipStatusInvalidIdentityHeader),
+                    "SIP_STATUS_FIRST_HOP_LACKS_OUTBOUND_SUPPORT" => Ok(SipStatusCode::SipStatusFirstHopLacksOutboundSupport),
+                    "SIP_STATUS_MAX_BREADTH_EXCEEDED" => Ok(SipStatusCode::SipStatusMaxBreadthExceeded),
+                    "SIP_STATUS_BAD_INFO_PACKAGE" => Ok(SipStatusCode::SipStatusBadInfoPackage),
+                    "SIP_STATUS_CONSENT_NEEDED" => Ok(SipStatusCode::SipStatusConsentNeeded),
                     "SIP_STATUS_TEMPORARILY_UNAVAILABLE" => Ok(SipStatusCode::SipStatusTemporarilyUnavailable),
                     "SIP_STATUS_CALL_TRANSACTION_DOES_NOT_EXISTS" => Ok(SipStatusCode::SipStatusCallTransactionDoesNotExists),
                     "SIP_STATUS_LOOP_DETECTED" => Ok(SipStatusCode::SipStatusLoopDetected),
@@ -32351,6 +32432,10 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
                     "SIP_STATUS_BUSY_HERE" => Ok(SipStatusCode::SipStatusBusyHere),
                     "SIP_STATUS_REQUEST_TERMINATED" => Ok(SipStatusCode::SipStatusRequestTerminated),
                     "SIP_STATUS_NOT_ACCEPTABLE_HERE" => Ok(SipStatusCode::SipStatusNotAcceptableHere),
+                    "SIP_STATUS_BAD_EVENT" => Ok(SipStatusCode::SipStatusBadEvent),
+                    "SIP_STATUS_REQUEST_PENDING" => Ok(SipStatusCode::SipStatusRequestPending),
+                    "SIP_STATUS_UNDECIPHERABLE" => Ok(SipStatusCode::SipStatusUndecipherable),
+                    "SIP_STATUS_SECURITY_AGREEMENT_REQUIRED" => Ok(SipStatusCode::SipStatusSecurityAgreementRequired),
                     "SIP_STATUS_INTERNAL_SERVER_ERROR" => Ok(SipStatusCode::SipStatusInternalServerError),
                     "SIP_STATUS_NOT_IMPLEMENTED" => Ok(SipStatusCode::SipStatusNotImplemented),
                     "SIP_STATUS_BAD_GATEWAY" => Ok(SipStatusCode::SipStatusBadGateway),
@@ -32362,6 +32447,8 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
                     "SIP_STATUS_GLOBAL_DECLINE" => Ok(SipStatusCode::SipStatusGlobalDecline),
                     "SIP_STATUS_GLOBAL_DOES_NOT_EXIST_ANYWHERE" => Ok(SipStatusCode::SipStatusGlobalDoesNotExistAnywhere),
                     "SIP_STATUS_GLOBAL_NOT_ACCEPTABLE" => Ok(SipStatusCode::SipStatusGlobalNotAcceptable),
+                    "SIP_STATUS_GLOBAL_UNWANTED" => Ok(SipStatusCode::SipStatusGlobalUnwanted),
+                    "SIP_STATUS_GLOBAL_REJECTED" => Ok(SipStatusCode::SipStatusGlobalRejected),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -36804,6 +36891,12 @@ impl serde::Serialize for StreamInfo {
         if !self.error.is_empty() {
             len += 1;
         }
+        if self.last_retry_at != 0 {
+            len += 1;
+        }
+        if self.retries != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.StreamInfo", len)?;
         if !self.url.is_empty() {
             struct_ser.serialize_field("url", &self.url)?;
@@ -36831,6 +36924,14 @@ impl serde::Serialize for StreamInfo {
         if !self.error.is_empty() {
             struct_ser.serialize_field("error", &self.error)?;
         }
+        if self.last_retry_at != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("lastRetryAt", ToString::to_string(&self.last_retry_at).as_str())?;
+        }
+        if self.retries != 0 {
+            struct_ser.serialize_field("retries", &self.retries)?;
+        }
         struct_ser.end()
     }
 }
@@ -36849,6 +36950,9 @@ impl<'de> serde::Deserialize<'de> for StreamInfo {
             "duration",
             "status",
             "error",
+            "last_retry_at",
+            "lastRetryAt",
+            "retries",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -36859,6 +36963,8 @@ impl<'de> serde::Deserialize<'de> for StreamInfo {
             Duration,
             Status,
             Error,
+            LastRetryAt,
+            Retries,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -36887,6 +36993,8 @@ impl<'de> serde::Deserialize<'de> for StreamInfo {
                             "duration" => Ok(GeneratedField::Duration),
                             "status" => Ok(GeneratedField::Status),
                             "error" => Ok(GeneratedField::Error),
+                            "lastRetryAt" | "last_retry_at" => Ok(GeneratedField::LastRetryAt),
+                            "retries" => Ok(GeneratedField::Retries),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -36912,6 +37020,8 @@ impl<'de> serde::Deserialize<'de> for StreamInfo {
                 let mut duration__ = None;
                 let mut status__ = None;
                 let mut error__ = None;
+                let mut last_retry_at__ = None;
+                let mut retries__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Url => {
@@ -36956,6 +37066,22 @@ impl<'de> serde::Deserialize<'de> for StreamInfo {
                             }
                             error__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::LastRetryAt => {
+                            if last_retry_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastRetryAt"));
+                            }
+                            last_retry_at__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Retries => {
+                            if retries__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("retries"));
+                            }
+                            retries__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -36968,6 +37094,8 @@ impl<'de> serde::Deserialize<'de> for StreamInfo {
                     duration: duration__.unwrap_or_default(),
                     status: status__.unwrap_or_default(),
                     error: error__.unwrap_or_default(),
+                    last_retry_at: last_retry_at__.unwrap_or_default(),
+                    retries: retries__.unwrap_or_default(),
                 })
             }
         }
