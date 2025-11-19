@@ -878,7 +878,7 @@ mod tests {
             data_tx.send(String::from_utf8_lossy(buffer.data).to_string()).unwrap();
         })));
 
-        bob_dc.send(b"This is a test", true).unwrap();
+        bob_dc.send_async(b"This is a test", true).await.unwrap();
         assert_eq!(data_rx.recv().await.unwrap(), "This is a test");
 
         alice.close();

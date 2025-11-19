@@ -17,7 +17,7 @@
 
 namespace livekit {
 
-using CompleteCallback = void (*)(const void* userdata);
+using CompleteCallback = void (*)(void* userdata);
 
 class AudioTrack {};
 
@@ -59,8 +59,11 @@ class NativeAudioSink : public webrtc::RefCountInterface {
   InternalSink internal_sink_;
 };
 
-class AudioTrackSource {
+class AudioTrackSource : public webrtc::RefCountInterface {
   class InternalSource : public webrtc::LocalAudioSource {
+   public:
+    friend class AudioTrackSource;
+
    public:
     InternalSource(const webrtc::AudioOptions& options,
                    int sample_rate,
@@ -84,14 +87,16 @@ class AudioTrackSource {
                        uint32_t sample_rate,
                        uint32_t number_of_channels,
                        size_t number_of_frames,
-                       const void* userdata,
+                       void* userdata,
                        CompleteCallback on_complete);
 
     void clear_buffer();
 
-   private:
+   protected:
     int sample_rate_;
     int num_channels_;
+
+   private:
     int queue_size_samples_;
     int notify_threshold_samples_;
     mutable webrtc::Mutex mutex_;
@@ -102,8 +107,8 @@ class AudioTrackSource {
     std::vector<webrtc::AudioTrackSinkInterface*> sinks_ RTC_GUARDED_BY(mutex_);
     std::vector<int16_t> buffer_ RTC_GUARDED_BY(mutex_);
 
-    const void* capture_userdata_ RTC_GUARDED_BY(mutex_);
-    void (*on_complete_)(const void*) RTC_GUARDED_BY(mutex_);
+    void* capture_userdata_ RTC_GUARDED_BY(mutex_);
+    void (*on_complete_)(void*) RTC_GUARDED_BY(mutex_);
 
     int missed_frames_ RTC_GUARDED_BY(mutex_) = 0;
     std::vector<int16_t> silence_buffer_;
@@ -131,10 +136,14 @@ class AudioTrackSource {
                      uint32_t sample_rate,
                      uint32_t number_of_channels,
                      size_t number_of_frames,
-                     const void* ctx,
+                     void* ctx,
                      CompleteCallback on_complete) const;
 
   void clear_buffer() const;
+
+  uint32_t sample_rate() const { return source_->sample_rate_; }
+
+  uint32_t num_channels() const { return source_->num_channels_; }
 
   webrtc::scoped_refptr<InternalSource> get() const;
 

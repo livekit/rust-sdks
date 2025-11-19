@@ -151,7 +151,7 @@ bool AudioTrackSource::InternalSource::capture_frame(
     uint32_t sample_rate,
     uint32_t number_of_channels,
     size_t number_of_frames,
-    const void* ctx,
+    void* ctx,
     CompleteCallback on_complete) {
   webrtc::MutexLock lock(&mutex_);
 
@@ -167,7 +167,10 @@ bool AudioTrackSource::InternalSource::capture_frame(
     buffer_.insert(buffer_.end(), data.begin(), data.end());
 
     if (buffer_.size() <= notify_threshold_samples_) {
-      on_complete(ctx);  // complete directly
+      audio_queue_->PostTask([this, ctx, on_complete]() {
+        webrtc::MutexLock lock(&mutex_);
+        on_complete(ctx);
+      });
     } else {
       on_complete_ = on_complete;
       capture_userdata_ = ctx;
@@ -245,7 +248,7 @@ bool AudioTrackSource::capture_frame(std::vector<int16_t> audio_data,
                                      uint32_t sample_rate,
                                      uint32_t number_of_channels,
                                      size_t number_of_frames,
-                                     const void* ctx,
+                                    void* ctx,
                                      CompleteCallback on_complete) const {
   return source_->capture_frame(audio_data, sample_rate, number_of_channels,
                                 number_of_frames, ctx, on_complete);

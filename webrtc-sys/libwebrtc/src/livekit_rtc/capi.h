@@ -308,6 +308,32 @@ LK_EXPORT lkNativeAudioSink* lkCreateNativeAudioSink(
     int sample_rate,
     int num_channels);
 
+LK_EXPORT lkAudioTrackSource* lkCreateAudioTrackSource(
+    lkAudioSourceOptions options,
+    int sample_rate,
+    int num_channels,
+    int queue_size_ms);
+
+LK_EXPORT void lkAudioTrackSourceSetAudioOptions(
+    lkAudioTrackSource* source, const lkAudioSourceOptions* options);
+
+LK_EXPORT lkAudioSourceOptions lkAudioTrackSourceGetAudioOptions(lkAudioTrackSource* source);
+
+LK_EXPORT bool lkAudioTrackSourceCaptureFrame(
+    lkAudioTrackSource* source,
+    const int16_t* audio_data,
+    uint32_t sample_rate,
+    uint32_t number_of_channels,
+    int number_of_frames,
+    void* userdata,
+    void (*onComplete)(void* userdata));
+
+LK_EXPORT void lkAudioTrackSourceClearBuffer(lkAudioTrackSource* source);
+
+LK_EXPORT int lkAudioTrackSourceGetSampleRate(lkAudioTrackSource* source);
+
+LK_EXPORT int lkAudioTrackSourceGetNumChannels(lkAudioTrackSource* source);
+
 #ifdef __cplusplus
 }
 #endif

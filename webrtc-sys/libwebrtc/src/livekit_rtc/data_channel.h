@@ -18,9 +18,9 @@ class DataChannelObserver : public webrtc::DataChannelObserver {
  public:
   DataChannelObserver(
       const lkDataChannelObserver* observer,
-     webrtc::scoped_refptr<webrtc::DataChannelInterface> data_channel,
+      webrtc::scoped_refptr<webrtc::DataChannelInterface> data_channel,
       void* userdata)
-      : observer_(observer),data_channel_(data_channel), userdata_(userdata) {}
+      : observer_(observer), data_channel_(data_channel), userdata_(userdata) {}
 
   void OnStateChange() override;
 

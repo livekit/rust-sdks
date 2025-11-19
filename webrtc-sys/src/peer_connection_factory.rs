@@ -12,10 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Debug, sync::{Arc, Mutex}, rc::Rc};
+use std::{
+    fmt::Debug,
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use crate::{
-    MediaType, RtcError, RtcErrorType, peer_connection::{PEER_OBSERVER, PeerConnection, PeerObserver}, rtp_parameters::RtpCapabilities, sys::{self, lkRtcConfiguration}
+    peer_connection::{PeerConnection, PeerObserver, PEER_OBSERVER},
+    rtp_parameters::RtpCapabilities,
+    sys::{self, lkRtcConfiguration},
+    MediaType, RtcError, RtcErrorType,
 };
 
 #[derive(Debug, Clone)]
@@ -131,20 +138,19 @@ impl PeerConnectionFactory {
             )
         };
         if sys_peer == std::ptr::null_mut() {
-            unsafe { let _ = Rc::from_raw(observer_ptr); }
+            unsafe {
+                let _ = Rc::from_raw(observer_ptr);
+            }
             return Err(RtcError {
                 error_type: RtcErrorType::Internal,
                 message: "Failed to create PeerConnection".to_owned(),
             });
         }
         let ffi = unsafe { sys::RefCounted::from_raw(sys_peer) };
-        let peer = PeerConnection {
-            observer: observer,
-            ffi: ffi,
-        };
+        let peer = PeerConnection { observer: observer, ffi: ffi };
         Ok(peer)
     }
-    
+
     pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         todo!()
     }
@@ -155,21 +161,23 @@ impl PeerConnectionFactory {
 }
 
 pub mod native {
+    use crate::{audio_source::native::NativeAudioSource, peer_connection_factory::PeerConnectionFactory};
+
     //use super::PeerConnectionFactory;
     //use crate::{
     //    audio_source::native::NativeAudioSource, audio_track::RtcAudioTrack,
     //    video_source::native::NativeVideoSource, video_track::RtcVideoTrack,
     //};
-    /*
+/*
     pub trait PeerConnectionFactoryExt {
-        fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;
+        //fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;
         fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack;
     }
 
     impl PeerConnectionFactoryExt for PeerConnectionFactory {
-        fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack {
-            self.handle.create_video_track(label, source)
-        }
+        //fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack {
+        //    self.handle.create_video_track(label, source)
+        //}
 
         fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack {
             self.handle.create_audio_track(label, source)

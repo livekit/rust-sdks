@@ -570,3 +570,48 @@ unsafe extern "C" {
         num_channels: ::std::os::raw::c_int,
     ) -> *mut lkNativeAudioSink;
 }
+unsafe extern "C" {
+    pub fn lkCreateAudioTrackSource(
+        options: lkAudioSourceOptions,
+        sample_rate: ::std::os::raw::c_int,
+        num_channels: ::std::os::raw::c_int,
+        queue_size_ms: ::std::os::raw::c_int,
+    ) -> *mut lkAudioTrackSource;
+}
+unsafe extern "C" {
+    pub fn lkAudioTrackSourceSetAudioOptions(
+        source: *mut lkAudioTrackSource,
+        options: *const lkAudioSourceOptions,
+    );
+}
+unsafe extern "C" {
+    pub fn lkAudioTrackSourceGetAudioOptions(
+        source: *mut lkAudioTrackSource,
+    ) -> lkAudioSourceOptions;
+}
+unsafe extern "C" {
+    pub fn lkAudioTrackSourceCaptureFrame(
+        source: *mut lkAudioTrackSource,
+        audio_data: *const i16,
+        sample_rate: u32,
+        number_of_channels: u32,
+        number_of_frames: ::std::os::raw::c_int,
+        userdata: *mut ::std::os::raw::c_void,
+        onComplete: ::std::option::Option<
+            unsafe extern "C" fn(userdata: *mut ::std::os::raw::c_void),
+        >,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkAudioTrackSourceClearBuffer(source: *mut lkAudioTrackSource);
+}
+unsafe extern "C" {
+    pub fn lkAudioTrackSourceGetSampleRate(
+        source: *mut lkAudioTrackSource,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkAudioTrackSourceGetNumChannels(
+        source: *mut lkAudioTrackSource,
+    ) -> ::std::os::raw::c_int;
+}

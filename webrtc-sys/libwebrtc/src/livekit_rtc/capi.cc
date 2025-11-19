@@ -303,13 +303,59 @@ lkRtcAudioTrack* CreateAudioTrack(const char* id, lkAudioTrackSource* source) {
   return nullptr;
 }
 
-LK_EXPORT lkNativeAudioSink* lkCreateNativeAudioSink(
-    lkNativeAudioSinkObserver* observer,
-    void* userdata,
-    int sample_rate,
-    int num_channels) {
+lkNativeAudioSink* lkCreateNativeAudioSink(lkNativeAudioSinkObserver* observer,
+                                           void* userdata,
+                                           int sample_rate,
+                                           int num_channels) {
   return reinterpret_cast<lkNativeAudioSink*>(
       webrtc::make_ref_counted<livekit::NativeAudioSink>(
           observer, userdata, sample_rate, num_channels)
           .release());
+}
+
+lkAudioTrackSource* lkCreateAudioTrackSource(lkAudioSourceOptions options,
+                                             int sample_rate,
+                                             int num_channels,
+                                             int queue_size_ms) {
+  return reinterpret_cast<lkAudioTrackSource*>(
+      livekit::AudioTrackSource::Create(options, sample_rate, num_channels,
+                                        queue_size_ms)
+          .release());
+}
+
+void lkAudioTrackSourceSetAudioOptions(lkAudioTrackSource* source,
+                                       const lkAudioSourceOptions* options) {
+  reinterpret_cast<livekit::AudioTrackSource*>(source)->set_audio_options(
+      *options);
+}
+
+lkAudioSourceOptions lkAudioTrackSourceGetAudioOptions(
+    lkAudioTrackSource* source) {
+  return reinterpret_cast<livekit::AudioTrackSource*>(source)->audio_options();
+}
+
+bool lkAudioTrackSourceCaptureFrame(lkAudioTrackSource* source,
+                                    const int16_t* audio_data,
+                                    uint32_t sample_rate,
+                                    uint32_t number_of_channels,
+                                    int number_of_frames,
+                                    void* userdata,
+                                    void (*onComplete)(void* userdata)) {
+  std::vector<int16_t> audio_vector(
+      audio_data, audio_data + number_of_channels * number_of_frames);
+  return reinterpret_cast<livekit::AudioTrackSource*>(source)->capture_frame(
+      audio_vector, sample_rate, number_of_channels, number_of_frames, userdata,
+      onComplete);
+}
+
+void lkAudioTrackSourceClearBuffer(lkAudioTrackSource* source) {
+  reinterpret_cast<livekit::AudioTrackSource*>(source)->clear_buffer();
+}
+
+int lkAudioTrackSourceGetSampleRate(lkAudioTrackSource* source) {
+  return reinterpret_cast<livekit::AudioTrackSource*>(source)->sample_rate();
+}
+
+int lkAudioTrackSourceGetNumChannels(lkAudioTrackSource* source) {
+  return reinterpret_cast<livekit::AudioTrackSource*>(source)->num_channels();
 }
