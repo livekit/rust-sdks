@@ -83,6 +83,7 @@ jobs:
         run: |
           sudo apt update -y
           # libasound2-dev is needed for local_audio example
+          # libdrm, libgbm, libxfixes, libxdamage, libxrandr, libxcomposite and libglib are needed for DesktopCapturer
           sudo apt install -y \
             libasound2-dev \
             libssl-dev \
