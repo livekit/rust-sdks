@@ -150,28 +150,6 @@ const _: () = {
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-pub struct lkNativeAudioSinkObserver {
-    pub onAudioData: ::std::option::Option<
-        unsafe extern "C" fn(
-            audioData: *const i16,
-            sampleRate: u32,
-            numberOfChannels: u32,
-            numberOfFrames: ::std::os::raw::c_int,
-            userdata: *mut ::std::os::raw::c_void,
-        ),
-    >,
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of lkNativeAudioSinkObserver"]
-        [::std::mem::size_of::<lkNativeAudioSinkObserver>() - 8usize];
-    ["Alignment of lkNativeAudioSinkObserver"]
-        [::std::mem::align_of::<lkNativeAudioSinkObserver>() - 8usize];
-    ["Offset of field: lkNativeAudioSinkObserver::onAudioData"]
-        [::std::mem::offset_of!(lkNativeAudioSinkObserver, onAudioData) - 0usize];
-};
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
 pub struct lkDataChannelObserver {
     pub onStateChange: ::std::option::Option<
         unsafe extern "C" fn(userdata: *mut ::std::os::raw::c_void, state: lkDcState),
@@ -564,10 +542,18 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn lkCreateNativeAudioSink(
-        observer: *mut lkNativeAudioSinkObserver,
-        userdata: *mut ::std::os::raw::c_void,
         sample_rate: ::std::os::raw::c_int,
         num_channels: ::std::os::raw::c_int,
+        onAudioData: ::std::option::Option<
+            unsafe extern "C" fn(
+                audioData: *mut i16,
+                sampleRate: u32,
+                numberOfChannels: u32,
+                numberOfFrames: ::std::os::raw::c_int,
+                userdata: *mut ::std::os::raw::c_void,
+            ),
+        >,
+        userdata: *mut ::std::os::raw::c_void,
     ) -> *mut lkNativeAudioSink;
 }
 unsafe extern "C" {
@@ -613,5 +599,17 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn lkAudioTrackSourceGetNumChannels(
         source: *mut lkAudioTrackSource,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkAudioTrackSourceAddSink(
+        source: *mut lkAudioTrackSource,
+        sink: *mut lkNativeAudioSink,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkAudioTrackSourceRemoveSink(
+        source: *mut lkAudioTrackSource,
+        sink: *mut lkNativeAudioSink,
     ) -> ::std::os::raw::c_int;
 }

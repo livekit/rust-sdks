@@ -18,6 +18,11 @@
 namespace livekit {
 
 using CompleteCallback = void (*)(void* userdata);
+using AudioDataCallback = void (*)(int16_t* audioData,
+                                   uint32_t sampleRate,
+                                   uint32_t numberOfChannels,
+                                   int numberOfFrames,
+                                   void* userdata);
 
 class AudioTrack {};
 
@@ -25,7 +30,7 @@ class NativeAudioSink : public webrtc::RefCountInterface {
  protected:
   class InternalSink : public webrtc::AudioTrackSinkInterface {
    public:
-    InternalSink(lkNativeAudioSinkObserver* observer,
+    InternalSink(AudioDataCallback callback,
                  void* userdata,
                  int sample_rate,
                  size_t num_channels);
@@ -37,19 +42,21 @@ class NativeAudioSink : public webrtc::RefCountInterface {
                 size_t number_of_frames) override;
 
    private:
-    lkNativeAudioSinkObserver* observer_;
+    AudioDataCallback callback_;
     void* userdata_;
     int sample_rate_;
     size_t num_channels_;
     webrtc::AudioFrame frame_;
     webrtc::PushResampler<int16_t> resampler_;
+    std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter>
+        audio_queue_;
   };
 
  public:
-  explicit NativeAudioSink(lkNativeAudioSinkObserver* observer,
-                           void* userdata,
-                           int sample_rate,
-                           size_t num_channels);
+  explicit NativeAudioSink(int sample_rate,
+                           size_t num_channels,
+                           AudioDataCallback callback,
+                           void* userdata);
 
   webrtc::AudioTrackSinkInterface* audio_track_sink() {
     return &internal_sink_;

@@ -103,6 +103,18 @@ pub mod native {
             Self { ffi }
         }
 
+        pub fn add_sink(&self, sink: &sys::RefCounted<sys::lkNativeAudioSink>) {
+            unsafe {
+                sys::lkAudioTrackSourceAddSink(self.ffi.as_ptr(), sink.as_ptr());
+            }
+        }
+
+        pub fn remove_sink(&self, sink: &sys::RefCounted<sys::lkNativeAudioSink>) {
+            unsafe {
+                sys::lkAudioTrackSourceRemoveSink(self.ffi.as_ptr(), sink.as_ptr());
+            }
+        }
+
         pub fn clear_buffer(&self) {
             unsafe {
                 sys::lkAudioTrackSourceClearBuffer(self.ffi.as_ptr());
@@ -183,19 +195,16 @@ pub mod native {
             sample_rate: i32,
             number_of_channels: i32,
         ) -> Self {
-            let observer = sys::lkNativeAudioSinkObserver {
-                onAudioData: Some(NativeAudioSink::native_on_audio_data),
-            };
             let audio_sink_box: *mut Arc<AudioSinkWrapper> =
                 Box::into_raw(Box::new(audio_sink_wrapper.clone()));
             Self {
                 observer: audio_sink_wrapper,
                 ffi: unsafe {
                     let sink = sys::lkCreateNativeAudioSink(
-                        &observer as *const _ as *mut _,
-                        audio_sink_box as *mut ::std::os::raw::c_void,
                         sample_rate,
                         number_of_channels,
+                        Some(NativeAudioSink::native_on_audio_data),
+                        audio_sink_box as *mut ::std::os::raw::c_void,
                     );
                     sys::RefCounted::from_raw(sink)
                 },
@@ -203,7 +212,7 @@ pub mod native {
         }
 
         pub extern "C" fn native_on_audio_data(
-            audio_data: *const i16,
+            audio_data: *mut i16,
             sample_rate: u32,
             number_of_channels: u32,
             number_of_frames: ::std::os::raw::c_int,
@@ -261,7 +270,7 @@ mod tests {
             let (frame_tx, mut frame_rx) = mpsc::unbounded_channel();
             let observer = Arc::new(super::native::AudioTrackObserver { frame_tx });
             let audio_sink_wrapper = Arc::new(super::native::AudioSinkWrapper::new(observer));
-            let _sink = super::native::NativeAudioSink::new(audio_sink_wrapper, 48000, 2);
+            let _sink = super::native::NativeAudioSink::new(audio_sink_wrapper, 32000, 1);
 
             let _source = super::native::NativeAudioSource::new(
                 super::AudioSourceOptions::default(),
@@ -269,6 +278,8 @@ mod tests {
                 2,
                 100,
             );
+
+            _source.add_sink(&_sink.ffi);
 
             let options = _source.audio_options();
             println!("Audio source options: {:?}", options);
@@ -291,7 +302,11 @@ mod tests {
 
             println!("Audio source sample rate: {}, num channels: {}", sampe_rate, num_channels);
 
-            //let audio_frame = frame_rx.recv().await;
+            let audio_frame = frame_rx.recv().await;
+            println!("Received audio frame: {:?}", audio_frame);
+            assert_eq!(audio_frame.is_some(), true);
+            assert_eq!(audio_frame.clone().unwrap().sample_rate, 32000);
+            assert_eq!(audio_frame.unwrap().num_channels, 1);
         }
     }
 }

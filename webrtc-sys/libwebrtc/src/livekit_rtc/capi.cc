@@ -303,13 +303,17 @@ lkRtcAudioTrack* CreateAudioTrack(const char* id, lkAudioTrackSource* source) {
   return nullptr;
 }
 
-lkNativeAudioSink* lkCreateNativeAudioSink(lkNativeAudioSinkObserver* observer,
-                                           void* userdata,
-                                           int sample_rate,
-                                           int num_channels) {
+lkNativeAudioSink* lkCreateNativeAudioSink(
+    int sample_rate,
+    int num_channels,
+    void (*onAudioData)(int16_t* audioData,
+                        uint32_t sampleRate,
+                        uint32_t numberOfChannels,
+                        int numberOfFrames,
+                        void* userdata),
+    void* userdata) {
   return reinterpret_cast<lkNativeAudioSink*>(
-      webrtc::make_ref_counted<livekit::NativeAudioSink>(
-          observer, userdata, sample_rate, num_channels)
+      webrtc::make_ref_counted<livekit::NativeAudioSink>(sample_rate, num_channels, onAudioData, userdata)
           .release());
 }
 
@@ -358,4 +362,18 @@ int lkAudioTrackSourceGetSampleRate(lkAudioTrackSource* source) {
 
 int lkAudioTrackSourceGetNumChannels(lkAudioTrackSource* source) {
   return reinterpret_cast<livekit::AudioTrackSource*>(source)->num_channels();
+}
+
+int lkAudioTrackSourceAddSink(lkAudioTrackSource* source,
+                              lkNativeAudioSink* sink) {
+  reinterpret_cast<livekit::AudioTrackSource*>(source)->get()->AddSink(
+      reinterpret_cast<livekit::NativeAudioSink*>(sink)->audio_track_sink());
+  return 1;
+}
+
+int lkAudioTrackSourceRemoveSink(lkAudioTrackSource* source,
+                                 lkNativeAudioSink* sink) {
+  reinterpret_cast<livekit::AudioTrackSource*>(source)->get()->RemoveSink(
+      reinterpret_cast<livekit::NativeAudioSink*>(sink)->audio_track_sink());
+  return 1;
 }

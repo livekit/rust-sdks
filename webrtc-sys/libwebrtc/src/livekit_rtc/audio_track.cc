@@ -4,23 +4,26 @@
 
 namespace livekit {
 
-NativeAudioSink::NativeAudioSink(lkNativeAudioSinkObserver* observer,
-                                 void* userdata,
-                                 int sample_rate,
-                                 size_t num_channels)
-    : internal_sink_(observer, userdata, sample_rate, num_channels) {}
+NativeAudioSink::NativeAudioSink(int sample_rate,
+                                 size_t num_channels,
+                                 AudioDataCallback callback,
+                                 void* userdata)
+    : internal_sink_(callback, userdata, sample_rate, num_channels) {}
 
-NativeAudioSink::InternalSink::InternalSink(lkNativeAudioSinkObserver* observer,
+NativeAudioSink::InternalSink::InternalSink(AudioDataCallback callback,
                                             void* userdata,
                                             int sample_rate,
                                             size_t num_channels)
-    : userdata_(userdata),
+    : callback_(callback),
+      userdata_(userdata),
       sample_rate_(sample_rate),
       num_channels_(num_channels) {
   frame_.sample_rate_hz_ = sample_rate;
   frame_.num_channels_ = num_channels;
   frame_.samples_per_channel_ =
       webrtc::SampleRateToDefaultChannelSize(sample_rate);
+  audio_queue_ = GetGlobalTaskQueueFactory()->CreateTaskQueue(
+      "NativeAudioSink", webrtc::TaskQueueFactory::Priority::NORMAL);
 }
 
 void NativeAudioSink::InternalSink::OnData(const void* audio_data,
@@ -38,9 +41,10 @@ void NativeAudioSink::InternalSink::OnData(const void* audio_data,
     // resample/remix before capturing
     webrtc::voe::RemixAndResample(source, sample_rate, &resampler_, &frame_);
 
-    observer_->onAudioData((int16_t*)frame_.data(), frame_.sample_rate_hz(),
-                           frame_.num_channels(), frame_.samples_per_channel(),
-                           userdata_);
+    audio_queue_->PostTask([this]() {
+      callback_((int16_t*)frame_.data(), frame_.sample_rate_hz(),
+                frame_.num_channels(), frame_.samples_per_channel_, userdata_);
+    });
 
     // std::vector<int16_t> slice(
     //     (int16_t *)frame_.data(), frame_.num_channels() *
@@ -56,9 +60,10 @@ void NativeAudioSink::InternalSink::OnData(const void* audio_data,
     // observer_->on_data(slice, sample_rate, number_of_channels,
     //                    number_of_frames);
 
-    observer_->onAudioData((int16_t*)data, frame_.sample_rate_hz(),
-                           frame_.num_channels(), frame_.samples_per_channel(),
-                           userdata_);
+    audio_queue_->PostTask([this, data]() {
+      callback_((int16_t*)data, sample_rate_, num_channels_,
+                frame_.samples_per_channel_, userdata_);
+    });
   }
 }
 
@@ -248,7 +253,7 @@ bool AudioTrackSource::capture_frame(std::vector<int16_t> audio_data,
                                      uint32_t sample_rate,
                                      uint32_t number_of_channels,
                                      size_t number_of_frames,
-                                    void* ctx,
+                                     void* ctx,
                                      CompleteCallback on_complete) const {
   return source_->capture_frame(audio_data, sample_rate, number_of_channels,
                                 number_of_frames, ctx, on_complete);

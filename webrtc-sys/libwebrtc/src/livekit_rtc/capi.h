@@ -107,14 +107,6 @@ typedef struct {
 } lkPeerObserver;
 
 typedef struct {
-  void (*onAudioData)(const int16_t* audioData,
-                      uint32_t sampleRate,
-                      uint32_t numberOfChannels,
-                      int numberOfFrames,
-                      void* userdata);
-} lkNativeAudioSinkObserver;
-
-typedef struct {
   void (*onStateChange)(void* userdata, const lkDcState state);
   void (*onMessage)(const uint8_t* data,
                     uint64_t size,
@@ -303,10 +295,14 @@ LK_EXPORT int lkIceCandidateGetSdp(lkIceCandidate* candidate,
                                    int bufferSize);
 
 LK_EXPORT lkNativeAudioSink* lkCreateNativeAudioSink(
-    lkNativeAudioSinkObserver* observer,
-    void* userdata,
     int sample_rate,
-    int num_channels);
+    int num_channels,
+    void (*onAudioData)(int16_t* audioData,
+                        uint32_t sampleRate,
+                        uint32_t numberOfChannels,
+                        int numberOfFrames,
+                        void* userdata),
+    void* userdata);
 
 LK_EXPORT lkAudioTrackSource* lkCreateAudioTrackSource(
     lkAudioSourceOptions options,
@@ -317,7 +313,8 @@ LK_EXPORT lkAudioTrackSource* lkCreateAudioTrackSource(
 LK_EXPORT void lkAudioTrackSourceSetAudioOptions(
     lkAudioTrackSource* source, const lkAudioSourceOptions* options);
 
-LK_EXPORT lkAudioSourceOptions lkAudioTrackSourceGetAudioOptions(lkAudioTrackSource* source);
+LK_EXPORT lkAudioSourceOptions
+    lkAudioTrackSourceGetAudioOptions(lkAudioTrackSource* source);
 
 LK_EXPORT bool lkAudioTrackSourceCaptureFrame(
     lkAudioTrackSource* source,
@@ -333,6 +330,12 @@ LK_EXPORT void lkAudioTrackSourceClearBuffer(lkAudioTrackSource* source);
 LK_EXPORT int lkAudioTrackSourceGetSampleRate(lkAudioTrackSource* source);
 
 LK_EXPORT int lkAudioTrackSourceGetNumChannels(lkAudioTrackSource* source);
+
+LK_EXPORT int lkAudioTrackSourceAddSink(lkAudioTrackSource* source,
+                                        lkNativeAudioSink* sink);
+
+LK_EXPORT int lkAudioTrackSourceRemoveSink(lkAudioTrackSource* source,
+                                           lkNativeAudioSink* sink);
 
 #ifdef __cplusplus
 }
