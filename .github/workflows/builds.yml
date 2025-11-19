@@ -95,9 +95,7 @@ jobs:
             libxdamage-dev \
             libxrandr-dev \
             libxcomposite-dev \
-            libglib2.0-dev \
-            libgobject-2.0-dev \
-            libgio2.0-dev
+            libglib2.0-dev
 
       - name: Install VA-API/NVIDIA drivers for linux x64 build
         if: ${{ matrix.os == 'ubuntu-latest'}}
