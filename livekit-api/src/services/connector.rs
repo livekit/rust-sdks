@@ -126,7 +126,9 @@ impl ConnectorClient {
                     whatsapp_to_phone_number: to_phone_number.into(),
                     whatsapp_api_key: api_key.into(),
                     whatsapp_cloud_api_version: cloud_api_version.into(),
-                    whatsapp_biz_opaque_callback_data: options.biz_opaque_callback_data.unwrap_or_default(),
+                    whatsapp_biz_opaque_callback_data: options
+                        .biz_opaque_callback_data
+                        .unwrap_or_default(),
                     room_name: options.room_name.unwrap_or_default(),
                     agents: options.agents.unwrap_or_default(),
                     participant_identity: options.participant_identity.unwrap_or_default(),
@@ -228,7 +230,9 @@ impl ConnectorClient {
                     whatsapp_api_key: api_key.into(),
                     whatsapp_cloud_api_version: cloud_api_version.into(),
                     whatsapp_call_id: call_id.into(),
-                    whatsapp_biz_opaque_callback_data: options.biz_opaque_callback_data.unwrap_or_default(),
+                    whatsapp_biz_opaque_callback_data: options
+                        .biz_opaque_callback_data
+                        .unwrap_or_default(),
                     sdp: Some(sdp),
                     room_name: options.room_name.unwrap_or_default(),
                     agents: options.agents.unwrap_or_default(),
