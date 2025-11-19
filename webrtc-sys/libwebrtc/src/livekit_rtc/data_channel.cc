@@ -16,8 +16,7 @@ webrtc::DataChannelInit toNativeDataChannelInit(const lkDataChannelInit& init) {
 }
 
 void DataChannelObserver::OnStateChange() {
-  observer_->onStateChange(userdata_,
-                           static_cast<lkDcState>(data_channel_->state()));
+  observer_->onStateChange(userdata_, static_cast<lkDcState>(data_channel_->state()));
 }
 
 void DataChannelObserver::OnMessage(const webrtc::DataBuffer& buffer) {
@@ -32,8 +31,7 @@ void DataChannelObserver::OnBufferedAmountChange(uint64_t sentDataSize) {
 void DataChannel::RegisterObserver(const lkDataChannelObserver* observer,
                                    void* userdata) {
   webrtc::MutexLock lock(&mutex_);
-  observer_ =
-      std::make_unique<DataChannelObserver>(observer, data_channel_, userdata);
+  observer_ = std::make_unique<DataChannelObserver>(observer, data_channel_, userdata);
   data_channel_->RegisterObserver(observer_.get());
 }
 
@@ -43,36 +41,25 @@ void DataChannel::UnregisterObserver() {
   observer_ = nullptr;
 }
 
-class onCompleteHandler {
- public:
-  onCompleteHandler(void (*onComplete)(lkRtcError* error, void* userdata),
-                    void* userdata)
-      : onComplete_(onComplete), userdata_(userdata) {}
-
-  void onComplete(webrtc::RTCError err) {
-    if (err.ok()) {
-      //onComplete_(nullptr, userdata_);
-    } else {
-      lkRtcError lkErr = toRtcError(err);
-      //onComplete_(&lkErr, userdata_);
-    }
-  }
-
- private:
-  void (*onComplete_)(lkRtcError* error, void* userdata);
-  void* userdata_;
-};
-
 void DataChannel::SendAsync(const uint8_t* data,
                             uint64_t size,
                             bool binary,
                             void (*onComplete)(lkRtcError* error,
                                                void* userdata),
                             void* userdata) {
-  auto handler = onCompleteHandler(onComplete, userdata);
   data_channel_->SendAsync(
       webrtc::DataBuffer{webrtc::CopyOnWriteBuffer(data, size), binary},
-      [&](webrtc::RTCError err) { handler.onComplete(err); });
+      [&](webrtc::RTCError err) {
+        if(!onComplete) {
+          return;
+        }
+        if (err.ok()) {
+          onComplete(nullptr, userdata);
+        } else {
+          lkRtcError lkErr = toRtcError(err);
+          onComplete(&lkErr, userdata);
+        }
+      });
 }
 
 }  // namespace livekit

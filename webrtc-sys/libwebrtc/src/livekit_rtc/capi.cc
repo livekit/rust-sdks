@@ -149,7 +149,7 @@ int lkDcGetLabel(lkDataChannel* dc, char* buffer, int bufferSize) {
   return len;
 }
 
-LK_EXPORT uint64_t lkDcGetBufferedAmount(lkDataChannel* dc) {
+uint64_t lkDcGetBufferedAmount(lkDataChannel* dc) {
   return reinterpret_cast<livekit::DataChannel*>(dc)->buffered_amount();
 }
 
@@ -249,3 +249,31 @@ int lkIceCandidateGetSdp(lkIceCandidate* candidate,
   }
   return len;
 }
+
+ void lkPeerRestartIce(lkPeer* peer) {
+  reinterpret_cast<livekit::Peer*>(peer)->RestartIce();
+ }
+
+lkPeerState lkGetPeerState(lkPeer* peer) {
+  return static_cast<lkPeerState>(
+      reinterpret_cast<livekit::Peer*>(peer)->GetPeerState());
+}
+
+lkIceGatheringState lkPeerGetIceGatheringState(lkPeer* peer) {
+  return static_cast<lkIceGatheringState>(
+      reinterpret_cast<livekit::Peer*>(peer)->GetIceGatheringState());
+}
+
+lkIceState lkPeerGetIceConnectionState(lkPeer* peer) {
+  return static_cast<lkIceState>(
+      reinterpret_cast<livekit::Peer*>(peer)->GetIceConnectionState());
+}
+
+lkSignalingState lkPeerGetSignalingState(lkPeer* peer) {
+  return static_cast<lkSignalingState>(
+      reinterpret_cast<livekit::Peer*>(peer)->GetSignalingState());
+}
+
+const lkSessionDescription* lkPeerGetCurrentLocalDescription(lkPeer* peer);
+
+const lkSessionDescription* lkPeerGetCurrentRemoteDescription(lkPeer* peer);

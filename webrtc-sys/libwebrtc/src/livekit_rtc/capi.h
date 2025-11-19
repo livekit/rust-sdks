@@ -90,6 +90,9 @@ typedef struct {
   void (*onDataChannel)(const lkDataChannel* dc, void* userdata);
   void (*onTrack)(const lkRtpTransceiver* transceiver, void* userdata);
   void (*onConnectionChange)(lkPeerState state, void* userdata);
+  void (*onStandardizedIceConnectionChange)(lkIceState state, void* userdata);
+  void (*onIceGatheringChange)(lkIceGatheringState state, void* userdata);
+  void (*onRenegotiationNeeded)(void* userdata);
   void (*onIceCandidateError)(const char* address,
                               int port,
                               const char* url,
@@ -199,6 +202,20 @@ LK_EXPORT bool lkCreateAnswer(lkPeer* peer,
                               void* userdata);
 
 LK_EXPORT bool lkPeerSetConfig(lkPeer* peer, const lkRtcConfiguration* config);
+
+LK_EXPORT void lkPeerRestartIce(lkPeer* peer);
+
+LK_EXPORT lkPeerState lkGetPeerState(lkPeer* peer);
+
+LK_EXPORT lkIceGatheringState lkPeerGetIceGatheringState(lkPeer* peer);
+
+LK_EXPORT lkIceState lkPeerGetIceConnectionState(lkPeer* peer);
+
+LK_EXPORT lkSignalingState lkPeerGetSignalingState(lkPeer* peer);
+
+LK_EXPORT const lkSessionDescription* lkPeerGetCurrentLocalDescription(lkPeer* peer);
+
+LK_EXPORT const lkSessionDescription* lkPeerGetCurrentRemoteDescription(lkPeer* peer);
 
 LK_EXPORT bool lkPeerClose(lkPeer* peer);
 

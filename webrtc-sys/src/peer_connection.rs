@@ -160,7 +160,6 @@ pub struct PeerObserver {
     pub negotiation_needed_handler: Mutex<Option<OnNegotiationNeeded>>,
     pub signaling_change_handler: Mutex<Option<OnSignalingChange>>,
     pub track_handler: Mutex<Option<OnTrack>>,
-    sys_ffi: Option<sys::RefCounted<sys::lkPeer>>,
 }
 
 impl From<lkSignalingState> for SignalingState {
@@ -214,10 +213,7 @@ impl From<lkIceGatheringState> for IceGatheringState {
 }
 
 impl PeerObserver {
-    pub fn set_peer_connection(&mut self, ffi: sys::RefCounted<sys::lkPeer>) {
-        self.sys_ffi = Some(ffi);
-    }
-    pub extern "C" fn peer_on_signal_change(
+    pub extern "C" fn peer_on_signaling_change(
         state: lkSignalingState,
         userdata: *mut std::ffi::c_void,
     ) {
@@ -287,6 +283,42 @@ impl PeerObserver {
         }
     }
 
+    pub extern "C" fn peer_on_renegotiation_needed(userdata: *mut std::os::raw::c_void) {
+        let observer: &mut Mutex<PeerObserver> =
+            unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };
+        let binding = observer.lock().unwrap();
+        let mut handler = binding.negotiation_needed_handler.lock().unwrap();
+        if let Some(f) = handler.as_mut() {
+            f(0);
+        }
+    }
+
+    pub extern "C" fn peer_on_ice_gathering_change(
+        state: lkIceGatheringState,
+        userdata: *mut ::std::os::raw::c_void,
+    ) {
+        let observer: &mut Mutex<PeerObserver> =
+            unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };
+        let binding = observer.lock().unwrap();
+        let mut handler = binding.ice_gathering_change_handler.lock().unwrap();
+        if let Some(f) = handler.as_mut() {
+            f(state.into());
+        }
+    }
+
+    pub extern "C" fn peer_on_standardized_ice_connection_change(
+        state: lkIceState,
+        userdata: *mut ::std::os::raw::c_void,
+    ) {
+        let observer: &mut Mutex<PeerObserver> =
+            unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };
+        let binding = observer.lock().unwrap();
+        let mut handler = binding.ice_connection_change_handler.lock().unwrap();
+        if let Some(f) = handler.as_mut() {
+            f(state.into());
+        }
+    }
+
     pub extern "C" fn peer_on_ice_candidate_error(
         address: *const ::std::os::raw::c_char,
         port: ::std::os::raw::c_int,
@@ -312,67 +344,8 @@ impl PeerObserver {
         }
     }
 }
-/*   fn lk_on_signaling_change(&self, new_state : lkSignalingState) {
-    if let
-      Some(f) = self.signaling_change_handler.lock().as_mut() {
-        f(new_state.into());
-      }
-  }
 
-  fn lk_on_data_channel(&self, data_channel : lkDataChannel) {
-    if let
-      Some(f) = self.data_channel_handler.lock().as_mut() {
-        // f(DataChannel { handle: imp_dc::DataChannel::configure(data_channel)
-        // });
-      }
-  }
-
-  fn lk_on_renegotiation_needed(&self) {}
-
-  fn lk_on_negotiation_needed_event(&self, event : u32) {
-    if let
-      Some(f) = self.negotiation_needed_handler.lock().as_mut() {
-        f(event);
-      }
-  }
-
-  fn lk_on_ice_connection_change(&self, _new_state : lkIceState) {}
-
-  fn lk_on_standardized_ice_connection_change(&self, new_state : lkIceState) {
-    if let
-      Some(f) = self.ice_connection_change_handler.lock().as_mut() {
-        f(new_state.into());
-      }
-  }
-
-  fn lk_on_connection_change(&self, new_state : lkPeerState) {
-    if let
-      Some(f) = self.connection_change_handler.lock().as_mut() {
-        f(new_state.into());
-      }
-  }
-
-  fn lk_on_ice_gathering_change(&self, new_state : lkIceGatheringState) {
-    if let
-      Some(f) = self.ice_gathering_change_handler.lock().as_mut() {
-        f(new_state.into());
-      }
-  }
-
-  fn lk_on_ice_candidate(&self, cand : IceCandidate) {
-    if let
-      Some(f) = self.ice_candidate_handler.lock().as_mut() {
-        f(cand);
-      }
-  }
-
-  fn lk_on_ice_candidates_removed(&self, _removed : Vec<lkIceCandidate>, ) {}
-
-  fn lk_on_ice_connection_receiving_change(&self, _receiving : bool) {}
-
-  fn lk_on_ice_selected_candidate_pair_changed(
-      &self, _event : CandidatePairChangeEvent, ) {}
-
+/*
   fn lk_on_add_track(&self, _receiver : lkRtpReceiver,
                      _streams : Vec<lkMediaStream>, ) {}
 
@@ -402,8 +375,6 @@ impl PeerObserver {
   fn lk_on_remove_track(
       &self,
       _receiver : SharedPtr<webrtc_sys::rtp_receiver::ffi::RtpReceiver>) {}
-
-  fn lk_on_interesting_usage(&self, _usage_pattern : i32) {}
 }
 */
 
@@ -476,12 +447,10 @@ impl PeerConnection {
 
         let userdata = Box::into_raw(tx_box) as *mut std::ffi::c_void;
 
-        // Prepare observer callbacks
         unsafe extern "C" fn create_answer_on_success(
             desc: *mut lkSessionDescription,
             userdata: *mut std::ffi::c_void,
         ) {
-            //println!("create_answer_on_success called");
             let tx = *Box::from_raw(userdata as *mut CtxType);
             let _ = tx.blocking_send(Ok(SessionDescription {
                 ffi: unsafe { sys::RefCounted::from_raw(desc) },
@@ -492,7 +461,6 @@ impl PeerConnection {
             error: *const sys::lkRtcError,
             userdata: *mut std::ffi::c_void,
         ) {
-            //println!("create_answer_on_failure called with error: {:?}", (*error).message);
             let tx = *Box::from_raw(userdata as *mut CtxType);
             let _ = tx.blocking_send(Err(RtcError {
                 error_type: RtcErrorType::Internal,
@@ -517,9 +485,7 @@ impl PeerConnection {
         let tx_box = Box::new(tx);
         let userdata = Box::into_raw(tx_box) as *mut std::ffi::c_void;
 
-        // Prepare observer callbacks (can be None if not needed)
         unsafe extern "C" fn set_local_desc_on_success(userdata: *mut std::ffi::c_void) {
-            //println!("lkSetLocalDescription - OnSuccess");
             let tx: Box<mpsc::Sender<Result<(), RtcError>>> = Box::from_raw(userdata as *mut _);
             let _ = tx.blocking_send(Ok(()));
             // Box is dropped here
@@ -529,7 +495,6 @@ impl PeerConnection {
             userdata: *mut std::ffi::c_void,
         ) {
             let tx: Box<mpsc::Sender<Result<(), RtcError>>> = Box::from_raw(userdata as *mut _);
-            //println!("lkSetLocalDescription - OnFailure: {:?}", error);
             let _ = tx.blocking_send(Err(RtcError {
                 error_type: RtcErrorType::Internal,
                 message: format!("Failed to set local description: {:?}", error),
@@ -551,12 +516,8 @@ impl PeerConnection {
         let (tx, mut rx) = mpsc::channel::<Result<(), RtcError>>(1);
         let tx_box = Box::new(tx);
         let userdata = Box::into_raw(tx_box) as *mut std::ffi::c_void;
-
-        // Prepare observer callbacks (can be None if not needed)
         unsafe extern "C" fn set_remote_desc_on_success(userdata: *mut std::ffi::c_void) {
-            // Recover the Box and drop it after use
             let tx: Box<mpsc::Sender<Result<(), RtcError>>> = Box::from_raw(userdata as *mut _);
-            //println!("lkSetRemoteDescription - OnSuccess");
             let _ = tx.blocking_send(Ok(()));
             // Box is dropped here
         }
@@ -565,7 +526,6 @@ impl PeerConnection {
             userdata: *mut std::ffi::c_void,
         ) {
             let tx: Box<mpsc::Sender<Result<(), RtcError>>> = Box::from_raw(userdata as *mut _);
-            //println!("lkSetRemoteDescription - OnFailure: {:?}", error);
             let _ = tx.blocking_send(Err(RtcError {
                 error_type: RtcErrorType::Internal,
                 message: format!("Failed to set remote description: {:?}", error),
@@ -616,6 +576,50 @@ impl PeerConnection {
         rx.recv().await.unwrap()
     }
 
+    pub fn restart_ice(&self) {
+        unsafe {
+            sys::lkPeerRestartIce(self.ffi.as_ptr());
+        }
+    }
+
+    pub fn connection_state(&self) -> PeerConnectionState {
+        unsafe { sys::lkGetPeerState(self.ffi.as_ptr()).into() }
+    }
+
+    pub fn ice_connection_state(&self) -> IceConnectionState {
+        unsafe { sys::lkPeerGetIceConnectionState(self.ffi.as_ptr()).into() }
+    }
+
+    pub fn ice_gathering_state(&self) -> IceGatheringState {
+        unsafe { sys::lkPeerGetIceGatheringState(self.ffi.as_ptr()).into() }
+    }
+
+    pub fn signaling_state(&self) -> SignalingState {
+        unsafe { sys::lkPeerGetSignalingState(self.ffi.as_ptr()).into() }
+    }
+
+    pub fn current_local_description(&self) -> Option<SessionDescription> {
+        unsafe {
+            let desc_ptr = sys::lkPeerGetCurrentLocalDescription(self.ffi.as_ptr());
+            if desc_ptr.is_null() {
+                return None;
+            }
+
+            Some(SessionDescription { ffi: sys::RefCounted::from_raw(desc_ptr as *mut _) })
+        }
+    }
+
+    pub fn current_remote_description(&self) -> Option<SessionDescription> {
+        unsafe {
+            let desc_ptr = sys::lkPeerGetCurrentRemoteDescription(self.ffi.as_ptr());
+            if desc_ptr.is_null() {
+                return None;
+            }
+
+            Some(SessionDescription { ffi: sys::RefCounted::from_raw(desc_ptr as *mut _) })
+        }
+    }
+
     pub fn close(&self) {
         unsafe {
             sys::lkPeerClose(self.ffi.as_ptr());
@@ -645,6 +649,10 @@ impl PeerConnection {
         let dc = DataChannel::configure(unsafe { sys::RefCounted::from_raw(ffi) });
 
         Ok(dc)
+    }
+
+    pub fn observer(&self) -> Arc<Mutex<PeerObserver>> {
+        self.observer.clone()
     }
 
     /*
@@ -681,36 +689,6 @@ impl PeerConnection {
         self.sys_peer.add_transceiver_for_media(media_type, init)
     }
 
-
-
-    pub fn restart_ice(&self) {
-        self.sys_peer.restart_ice()
-    }
-
-    pub fn connection_state(&self) -> PeerConnectionState {
-        self.sys_peer.connection_state()
-    }
-
-    pub fn ice_connection_state(&self) -> IceConnectionState {
-        self.sys_peer.ice_connection_state()
-    }
-
-    pub fn ice_gathering_state(&self) -> IceGatheringState {
-        self.sys_peer.ice_gathering_state()
-    }
-
-    pub fn signaling_state(&self) -> SignalingState {
-        self.sys_peer.signaling_state()
-    }
-
-    pub fn current_local_description(&self) -> Option<SessionDescription> {
-        self.sys_peer.current_local_description()
-    }
-
-    pub fn current_remote_description(&self) -> Option<SessionDescription> {
-        self.sys_peer.current_remote_description()
-    }
-
     pub fn senders(&self) -> Vec<RtpSender> {
         self.sys_peer.senders()
     }
@@ -722,11 +700,8 @@ impl PeerConnection {
     pub fn transceivers(&self) -> Vec<RtpTransceiver> {
         self.sys_peer.transceivers()
     }
-
-    pub fn observer(&self) -> Arc<PeerObserver> {
-        self.observer.clone()
-    }
     */
+
     pub fn on_connection_state_change(&self, f: Option<OnConnectionChange>) {
         let binding = self.observer.lock().unwrap();
         let mut guard = binding.connection_change_handler.lock().unwrap();
@@ -785,26 +760,28 @@ impl PeerConnection {
 impl Debug for PeerConnection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PeerConnection")
-            //.field("state", &self.connection_state())
-            //.field("ice_state", &self.ice_connection_state())
+            .field("state", &self.connection_state())
+            .field("ice_state", &self.ice_connection_state())
             .finish()
     }
 }
 
 pub static PEER_OBSERVER: sys::lkPeerObserver = sys::lkPeerObserver {
-    onSignalingChange: Some(PeerObserver::peer_on_signal_change),
+    onSignalingChange: Some(PeerObserver::peer_on_signaling_change),
     onIceCandidate: Some(PeerObserver::peer_on_ice_candidate),
     onDataChannel: Some(PeerObserver::peer_on_data_channel),
     onTrack: Some(PeerObserver::peer_on_track),
     onConnectionChange: Some(PeerObserver::peer_on_connection_state_change),
+    onStandardizedIceConnectionChange: Some(
+        PeerObserver::peer_on_standardized_ice_connection_change,
+    ),
     onIceCandidateError: Some(PeerObserver::peer_on_ice_candidate_error),
+    onRenegotiationNeeded: Some(PeerObserver::peer_on_renegotiation_needed),
+    onIceGatheringChange: Some(PeerObserver::peer_on_ice_gathering_change),
 };
-
-
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
 
     use tokio::sync::mpsc;
 

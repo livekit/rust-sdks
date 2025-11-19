@@ -140,7 +140,6 @@ impl PeerConnectionFactory {
             });
         }
         let ffi = unsafe { sys::RefCounted::from_raw(sys_peer) };
-        observer.lock().unwrap().set_peer_connection(ffi.clone());
         let peer = PeerConnection {
             observer: observer,
             ffi: ffi,

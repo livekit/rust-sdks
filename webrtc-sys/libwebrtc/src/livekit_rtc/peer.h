@@ -36,6 +36,11 @@ class PeerObserver : public webrtc::PeerConnectionObserver,
   void OnConnectionChange(
       webrtc::PeerConnectionInterface::PeerConnectionState new_state) override;
 
+  void OnStandardizedIceConnectionChange(
+      webrtc::PeerConnectionInterface::IceConnectionState new_state) override;
+
+  void OnRenegotiationNeeded() override;
+
  private:
   const lkPeerObserver* observer_;
   void* userdata_;
@@ -71,6 +76,29 @@ class Peer : public webrtc::RefCountInterface {
                     void* userdata);
 
   bool SetConfig(const lkRtcConfiguration* config);
+
+  void RestartIce();
+
+  lkPeerState GetPeerState() const {
+    return static_cast<lkPeerState>(peer_connection_->peer_connection_state());
+  }
+
+  lkIceGatheringState GetIceGatheringState() const {
+    return static_cast<lkIceGatheringState>(
+        peer_connection_->ice_gathering_state());
+  }
+
+  lkIceState GetIceConnectionState() const {
+    return static_cast<lkIceState>(peer_connection_->ice_connection_state());
+  }
+
+  lkSignalingState GetSignalingState() const {
+    return static_cast<lkSignalingState>(peer_connection_->signaling_state());
+  }
+
+  lkSessionDescription* GetCurrentLocalDescription() const;
+
+  lkSessionDescription* GetCurrentRemoteDescription() const;
 
   bool Close();
 

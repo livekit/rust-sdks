@@ -26,7 +26,7 @@ class SessionDescription : public webrtc::RefCountInterface {
   }
 
   static webrtc::scoped_refptr<SessionDescription> Create(
-      webrtc::SessionDescriptionInterface* desc) {
+      const webrtc::SessionDescriptionInterface* desc) {
     std::string sdp;
     desc->ToString(&sdp);
     return webrtc::make_ref_counted<SessionDescription>(

@@ -95,6 +95,27 @@ mod tests {
         println!("SetSDP - OnFailure: {:?}", error);
     }
 
+    #[allow(non_snake_case)]
+    extern "C" fn onIceConnectionChange(
+        state: lkIceState,
+        _userdata: *mut ::std::os::raw::c_void,
+    ) {
+        println!("OnIceConnectionChange: {:?}", state);
+    }
+
+    #[allow(non_snake_case)]
+    extern "C" fn onIceGatheringChange(
+        state: lkIceGatheringState,
+        _userdata: *mut ::std::os::raw::c_void,
+    ) {
+        println!("OnIceGatheringChange: {:?}", state);
+    }
+
+    #[allow(non_snake_case)]
+    extern "C" fn onRenegotiationNeeded(_userdata: *mut ::std::os::raw::c_void) {
+        println!("OnRenegotiationNeeded");
+    }
+
     #[test]
     fn test_dc_link() {
         unsafe {
@@ -105,6 +126,9 @@ mod tests {
                 onTrack: Some(peerOnTrack),
                 onConnectionChange: Some(peerOnConnectionChange),
                 onIceCandidateError: Some(peerOnIceCandidateError),
+                onStandardizedIceConnectionChange: Some(onIceConnectionChange),
+                onIceGatheringChange: Some(onIceGatheringChange),
+                onRenegotiationNeeded: Some(onRenegotiationNeeded),
             };
 
             let create_sdp_observer = lkCreateSdpObserver {
@@ -130,7 +154,7 @@ mod tests {
                 maxRetransmits: -1,
             };
 
-            let dc = lkCreateDataChannel(peer, label.as_ptr(), &init);
+            let _ = lkCreateDataChannel(peer, label.as_ptr(), &init);
 
             let offer_answer_options = lkOfferAnswerOptions {
                 iceRestart: false,

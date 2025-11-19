@@ -101,6 +101,14 @@ pub struct lkPeerObserver {
     pub onConnectionChange: ::std::option::Option<
         unsafe extern "C" fn(state: lkPeerState, userdata: *mut ::std::os::raw::c_void),
     >,
+    pub onStandardizedIceConnectionChange: ::std::option::Option<
+        unsafe extern "C" fn(state: lkIceState, userdata: *mut ::std::os::raw::c_void),
+    >,
+    pub onIceGatheringChange: ::std::option::Option<
+        unsafe extern "C" fn(state: lkIceGatheringState, userdata: *mut ::std::os::raw::c_void),
+    >,
+    pub onRenegotiationNeeded:
+        ::std::option::Option<unsafe extern "C" fn(userdata: *mut ::std::os::raw::c_void)>,
     pub onIceCandidateError: ::std::option::Option<
         unsafe extern "C" fn(
             address: *const ::std::os::raw::c_char,
@@ -114,7 +122,7 @@ pub struct lkPeerObserver {
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of lkPeerObserver"][::std::mem::size_of::<lkPeerObserver>() - 48usize];
+    ["Size of lkPeerObserver"][::std::mem::size_of::<lkPeerObserver>() - 72usize];
     ["Alignment of lkPeerObserver"][::std::mem::align_of::<lkPeerObserver>() - 8usize];
     ["Offset of field: lkPeerObserver::onSignalingChange"]
         [::std::mem::offset_of!(lkPeerObserver, onSignalingChange) - 0usize];
@@ -126,8 +134,14 @@ const _: () = {
         [::std::mem::offset_of!(lkPeerObserver, onTrack) - 24usize];
     ["Offset of field: lkPeerObserver::onConnectionChange"]
         [::std::mem::offset_of!(lkPeerObserver, onConnectionChange) - 32usize];
+    ["Offset of field: lkPeerObserver::onStandardizedIceConnectionChange"]
+        [::std::mem::offset_of!(lkPeerObserver, onStandardizedIceConnectionChange) - 40usize];
+    ["Offset of field: lkPeerObserver::onIceGatheringChange"]
+        [::std::mem::offset_of!(lkPeerObserver, onIceGatheringChange) - 48usize];
+    ["Offset of field: lkPeerObserver::onRenegotiationNeeded"]
+        [::std::mem::offset_of!(lkPeerObserver, onRenegotiationNeeded) - 56usize];
     ["Offset of field: lkPeerObserver::onIceCandidateError"]
-        [::std::mem::offset_of!(lkPeerObserver, onIceCandidateError) - 40usize];
+        [::std::mem::offset_of!(lkPeerObserver, onIceCandidateError) - 64usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -377,6 +391,27 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn lkPeerSetConfig(peer: *mut lkPeer, config: *const lkRtcConfiguration) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkPeerRestartIce(peer: *mut lkPeer);
+}
+unsafe extern "C" {
+    pub fn lkGetPeerState(peer: *mut lkPeer) -> lkPeerState;
+}
+unsafe extern "C" {
+    pub fn lkPeerGetIceGatheringState(peer: *mut lkPeer) -> lkIceGatheringState;
+}
+unsafe extern "C" {
+    pub fn lkPeerGetIceConnectionState(peer: *mut lkPeer) -> lkIceState;
+}
+unsafe extern "C" {
+    pub fn lkPeerGetSignalingState(peer: *mut lkPeer) -> lkSignalingState;
+}
+unsafe extern "C" {
+    pub fn lkPeerGetCurrentLocalDescription(peer: *mut lkPeer) -> *const lkSessionDescription;
+}
+unsafe extern "C" {
+    pub fn lkPeerGetCurrentRemoteDescription(peer: *mut lkPeer) -> *const lkSessionDescription;
 }
 unsafe extern "C" {
     pub fn lkPeerClose(peer: *mut lkPeer) -> bool;

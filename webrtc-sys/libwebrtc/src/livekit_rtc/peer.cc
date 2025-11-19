@@ -116,7 +116,20 @@ void PeerObserver::OnDataChannel(
 }
 
 void PeerObserver::OnIceGatheringChange(
-    webrtc::PeerConnectionInterface::IceGatheringState new_state) {}
+    webrtc::PeerConnectionInterface::IceGatheringState new_state) {
+  observer_->onIceGatheringChange(static_cast<lkIceGatheringState>(new_state),
+                                  userdata_);
+}
+
+void PeerObserver::OnStandardizedIceConnectionChange(
+    webrtc::PeerConnectionInterface::IceConnectionState new_state) {
+  observer_->onStandardizedIceConnectionChange(static_cast<lkIceState>(new_state),
+                                   userdata_);
+}
+
+void PeerObserver::OnRenegotiationNeeded() {
+  observer_->onRenegotiationNeeded(userdata_);
+}
 
 void PeerObserver::OnIceCandidate(
     const webrtc::IceCandidateInterface* candidate) {
@@ -310,6 +323,28 @@ bool Peer::SetConfig(const lkRtcConfiguration* config) {
     return false;
   }
   return true;
+}
+
+void Peer::RestartIce() {
+  peer_connection_->RestartIce();
+}
+
+lkSessionDescription* Peer::GetCurrentLocalDescription() const {
+  auto desc = peer_connection_->current_local_description();
+  if (!desc) {
+    return nullptr;
+  }
+  return reinterpret_cast<lkSessionDescription*>(
+      SessionDescription::Create(desc).release());
+}
+
+lkSessionDescription* Peer::GetCurrentRemoteDescription() const {
+  auto desc = peer_connection_->current_remote_description();
+  if (!desc) {
+    return nullptr;
+  }
+  return reinterpret_cast<lkSessionDescription*>(
+      SessionDescription::Create(desc).release());
 }
 
 bool Peer::Close() {
