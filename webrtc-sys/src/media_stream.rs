@@ -12,38 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::impl_thread_safety;
+use crate::{
+    audio_track::{self, RtcAudioTrack},
+    sys::{self, lkMediaStream},
+    //video_track,
+};
 
-#[cxx::bridge(namespace = "livekit")]
-pub mod ffi {
-    extern "C++" {
-        include!("livekit/helper.h");
-        include!("livekit/media_stream_track.h");
-        include!("livekit/audio_track.h");
-        include!("livekit/video_track.h");
-
-        type MediaStreamTrack = crate::media_stream_track::ffi::MediaStreamTrack;
-        type AudioTrack = crate::audio_track::ffi::AudioTrack;
-        type VideoTrack = crate::video_track::ffi::VideoTrack;
-        type VideoTrackPtr = crate::helper::ffi::VideoTrackPtr;
-        type AudioTrackPtr = crate::helper::ffi::AudioTrackPtr;
-    }
-
-    unsafe extern "C++" {
-        include!("livekit/media_stream.h");
-
-        type MediaStream;
-
-        fn id(self: &MediaStream) -> String;
-        fn get_audio_tracks(self: &MediaStream) -> Vec<AudioTrackPtr>;
-        fn get_video_tracks(self: &MediaStream) -> Vec<VideoTrackPtr>;
-        fn find_audio_track(self: &MediaStream, track_id: String) -> SharedPtr<AudioTrack>;
-        fn find_video_track(self: &MediaStream, track_id: String) -> SharedPtr<VideoTrack>;
-        fn add_track(self: &MediaStream, audio_track: SharedPtr<MediaStreamTrack>) -> bool;
-        fn remove_track(self: &MediaStream, audio_track: SharedPtr<MediaStreamTrack>) -> bool;
-
-        fn _shared_media_stream() -> SharedPtr<MediaStream>;
-    }
+#[derive(Clone)]
+pub struct MediaStream {
+    pub(crate) ffi: sys::RefCounted<lkMediaStream>,
 }
 
-impl_thread_safety!(ffi::MediaStream, Send + Sync);
+impl MediaStream {
+    pub fn id(&self) -> String {
+        self.sys_handle.id()
+    }
+
+    pub fn audio_tracks(&self) -> Vec<audio_track::RtcAudioTrack> {
+        self.sys_handle
+            .get_audio_tracks()
+            .into_iter()
+            .map(|t| audio_track::RtcAudioTrack { handle: RtcAudioTrack { sys_handle: t.ptr } })
+            .collect()
+    }
+    /*
+    pub fn video_tracks(&self) -> Vec<video_track::RtcVideoTrack> {
+        self.sys_handle
+            .get_video_tracks()
+            .into_iter()
+            .map(|t| video_track::RtcVideoTrack { handle: RtcVideoTrack { sys_handle: t.ptr } })
+            .collect()
+    }*/
+}

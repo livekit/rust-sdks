@@ -12,187 +12,90 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub const DEFAULT_BITRATE_PRIORITY: f64 = 1.0;
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RtpTransceiverDirection {
+    SendRecv,
+    SendOnly,
+    RecvOnly,
+    Inactive,
+    Stopped,
+}
 
-#[cxx::bridge(namespace = "livekit")]
-pub mod ffi {
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Priority {
+    VeryLow,
+    Low,
+    Medium,
+    High,
+}
 
-    // Used to replace std::map
-    #[derive(Debug)]
-    pub struct StringKeyValue {
-        pub key: String,
-        pub value: String,
-    }
+#[derive(Debug, Clone)]
+pub struct RtpHeaderExtensionParameters {
+    pub uri: String,
+    pub id: i32,
+    pub encrypted: bool,
+}
 
-    #[derive(Debug)]
-    #[repr(i32)]
-    pub enum FecMechanism {
-        Red,
-        RedAndUlpfec,
-        FlexFec,
-    }
+#[derive(Debug, Clone, Default)]
+pub struct RtpParameters {
+    pub codecs: Vec<RtpCodecParameters>,
+    pub header_extensions: Vec<RtpHeaderExtensionParameters>,
+    pub rtcp: RtcpParameters,
+}
 
-    #[derive(Debug)]
-    #[repr(i32)]
-    pub enum RtcpFeedbackType {
-        Ccm,
-        Lntf,
-        Nack,
-        Remb,
-        TransportCC,
-    }
+#[derive(Debug, Clone, Default)]
+pub struct RtpCodecParameters {
+    pub payload_type: u8,
+    pub mime_type: String, // read-only
+    pub clock_rate: Option<u64>,
+    pub channels: Option<u16>,
+}
 
-    #[derive(Debug)]
-    #[repr(i32)]
-    pub enum RtcpFeedbackMessageType {
-        GenericNack,
-        Pli,
-        Fir,
-    }
+#[derive(Debug, Clone, Default)]
+pub struct RtcpParameters {
+    pub cname: String,
+    pub reduced_size: bool,
+}
 
-    #[derive(Debug)]
-    #[repr(i32)]
-    pub enum DegradationPreference {
-        Disabled,
-        MaintainFramerate,
-        MaintainResolution,
-        Balanced,
-    }
+#[derive(Debug, Clone)]
+pub struct RtpEncodingParameters {
+    pub active: bool,
+    pub max_bitrate: Option<u64>,
+    pub max_framerate: Option<f64>,
+    pub priority: Priority,
+    pub rid: String,
+    pub scale_resolution_down_by: Option<f64>,
+}
 
-    #[derive(Debug)]
-    pub struct RtcpFeedback {
-        pub feedback_type: RtcpFeedbackType,
-        pub has_message_type: bool,
-        pub message_type: RtcpFeedbackMessageType,
-    }
+#[derive(Debug, Clone)]
+pub struct RtpCodecCapability {
+    pub channels: Option<u16>,
+    pub clock_rate: Option<u64>,
+    pub mime_type: String,
+    pub sdp_fmtp_line: Option<String>,
+}
 
-    #[derive(Debug)]
-    pub struct RtpCodecCapability {
-        pub mime_type: String, // filled with mime_type fnc
-        pub name: String,
-        pub kind: MediaType,
-        pub has_clock_rate: bool,
-        pub clock_rate: i32,
-        pub has_preferred_payload_type: bool,
-        pub preferred_payload_type: i32,
-        pub has_num_channels: bool,
-        pub num_channels: i32,
-        pub rtcp_feedback: Vec<RtcpFeedback>,
-        pub parameters: Vec<StringKeyValue>,
-    }
+#[derive(Debug, Clone)]
+pub struct RtpHeaderExtensionCapability {
+    pub uri: String,
+    pub direction: RtpTransceiverDirection,
+}
 
-    #[derive(Debug)]
-    pub struct RtpHeaderExtensionCapability {
-        pub uri: String,
-        pub has_preferred_id: bool,
-        pub preferred_id: i32,
-        pub preferred_encrypt: bool,
-        pub direction: RtpTransceiverDirection,
-    }
+#[derive(Debug, Clone)]
+pub struct RtpCapabilities {
+    pub codecs: Vec<RtpCodecCapability>,
+    pub header_extensions: Vec<RtpHeaderExtensionCapability>,
+}
 
-    #[derive(Debug)]
-    #[repr(i32)]
-    pub enum RtpExtensionFilter {
-        DiscardEncryptedExtension,
-        PreferEncryptedExtension,
-        RequireEncryptedExtension,
-    }
-
-    #[derive(Debug)]
-    pub struct RtpExtension {
-        // TODO(theomonnom): export available URI inside api/rtp_parameters.h
-        pub uri: String,
-        pub id: i32,
-        pub encrypt: bool,
-    }
-
-    #[derive(Debug)]
-    pub struct RtpFecParameters {
-        pub has_ssrc: bool,
-        pub ssrc: u32,
-        pub mechanism: FecMechanism,
-    }
-
-    #[derive(Debug)]
-    pub struct RtpRtxParameters {
-        pub has_ssrc: bool,
-        pub ssrc: u32,
-    }
-
-    #[derive(Debug)]
-    pub struct RtpEncodingParameters {
-        pub has_ssrc: bool,
-        pub ssrc: u32,
-        pub bitrate_priority: f64,
-        pub network_priority: Priority, // Todo link type
-        pub has_max_bitrate_bps: bool,
-        pub max_bitrate_bps: i32,
-        pub has_min_bitrate_bps: bool,
-        pub min_bitrate_bps: i32,
-        pub has_max_framerate: bool,
-        pub max_framerate: f64,
-        pub has_num_temporal_layers: bool,
-        pub num_temporal_layers: i32,
-        pub has_scale_resolution_down_by: bool,
-        pub scale_resolution_down_by: f64,
-        pub has_scalability_mode: bool,
-        pub scalability_mode: String,
-        pub active: bool,
-        pub rid: String,
-        pub adaptive_ptime: bool,
-    }
-
-    #[derive(Debug)]
-    pub struct RtpCodecParameters {
-        pub mime_type: String, // filled with mime_type fnc
-        pub name: String,
-        pub kind: MediaType,
-        pub payload_type: i32,
-        pub has_clock_rate: bool,
-        pub clock_rate: i32,
-        pub has_num_channels: bool,
-        pub num_channels: i32,
-        pub has_max_ptime: bool,
-        pub max_ptime: i32,
-        pub has_ptime: bool,
-        pub ptime: i32,
-        pub rtcp_feedback: Vec<RtcpFeedback>,
-        pub parameters: Vec<StringKeyValue>,
-    }
-
-    #[derive(Debug)]
-    pub struct RtpCapabilities {
-        pub codecs: Vec<RtpCodecCapability>,
-        pub header_extensions: Vec<RtpHeaderExtensionCapability>,
-        pub fec: Vec<FecMechanism>,
-    }
-
-    #[derive(Debug)]
-    pub struct RtcpParameters {
-        pub has_ssrc: bool,
-        pub ssrc: u32,
-        pub cname: String,
-        pub reduced_size: bool,
-        pub mux: bool,
-    }
-
-    #[derive(Debug)]
-    pub struct RtpParameters {
-        pub transaction_id: String,
-        pub mid: String,
-        pub codecs: Vec<RtpCodecParameters>,
-        pub header_extensions: Vec<RtpExtension>,
-        pub encodings: Vec<RtpEncodingParameters>,
-        pub rtcp: RtcpParameters,
-        pub has_degradation_preference: bool,
-        pub degradation_preference: DegradationPreference,
-    }
-
-    extern "C++" {
-        include!("livekit/webrtc.h");
-
-        type Priority = crate::webrtc::ffi::Priority;
-        type MediaType = crate::webrtc::ffi::MediaType;
-        type RtpTransceiverDirection = crate::webrtc::ffi::RtpTransceiverDirection;
+impl Default for RtpEncodingParameters {
+    fn default() -> Self {
+        Self {
+            active: true,
+            max_bitrate: None,
+            max_framerate: None,
+            priority: Priority::Low,
+            rid: String::default(),
+            scale_resolution_down_by: None,
+        }
     }
 }

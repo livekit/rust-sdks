@@ -12,107 +12,274 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
-
 use crate::impl_thread_safety;
+use crate::sys::{self, lkDataChannelObserver, lkDcState};
+use std::{
+    str::Utf8Error,
+    sync::{Arc, Mutex},
+};
+use thiserror::Error;
+use tokio::sync::mpsc;
 
-#[cxx::bridge(namespace = "livekit")]
-pub mod ffi {
-    #[derive(Debug)]
-    #[repr(i32)]
-    pub enum Priority {
-        VeryLow,
-        Low,
-        Medium,
-        High,
-    }
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum DataChannelState {
+    Connecting,
+    Open,
+    Closing,
+    Closed,
+}
 
-    #[derive(Debug)]
-    pub struct DataChannelInit {
-        pub ordered: bool,
-        pub has_max_retransmit_time: bool,
-        pub max_retransmit_time: i32,
-        pub has_max_retransmits: bool,
-        pub max_retransmits: i32,
-        pub protocol: String,
-        pub negotiated: bool,
-        pub id: i32,
-        pub has_priority: bool,
-        pub priority: Priority,
-    }
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum Priority {
+    VeryLow,
+    Low,
+    Medium,
+    High,
+}
 
-    #[derive(Debug)]
-    pub struct DataBuffer {
-        pub ptr: *const u8,
-        pub len: usize,
-        pub binary: bool,
-    }
+#[derive(Debug)]
+pub struct DataBuffer<'a> {
+    pub data: &'a [u8],
+    pub binary: bool,
+}
 
-    #[derive(Debug)]
-    #[repr(i32)]
-    pub enum DataState {
-        Connecting,
-        Open,
-        Closing,
-        Closed,
-    }
+pub type OnStateChange = Box<dyn FnMut(DataChannelState) + Send + Sync>;
+pub type OnMessage = Box<dyn FnMut(DataBuffer) + Send + Sync>;
+pub type OnBufferedAmountChange = Box<dyn FnMut(u64) + Send + Sync>;
 
-    unsafe extern "C++" {
-        include!("livekit/data_channel.h");
+#[derive(Debug, Error)]
+pub enum DataChannelError {
+    #[error("failed to send data, dc not open? send buffer is full ?")]
+    Send,
+    #[error("only utf8 strings can be sent")]
+    Utf8(#[from] Utf8Error),
+}
 
-        type DataChannel;
+#[derive(Clone, Debug)]
+pub struct DataChannelInit {
+    pub ordered: bool,
+    pub reliable: bool,
+    pub max_retransmit_time: Option<i32>,
+    pub max_retransmits: Option<i32>,
+    pub protocol: String,
+    pub negotiated: bool,
+    pub id: i32,
+    pub priority: Option<Priority>,
+}
 
-        fn register_observer(self: &DataChannel, observer: Box<DataChannelObserverWrapper>);
-        fn unregister_observer(self: &DataChannel);
-
-        fn send(self: &DataChannel, data: &DataBuffer) -> bool;
-        fn id(self: &DataChannel) -> i32;
-        fn label(self: &DataChannel) -> String;
-        fn state(self: &DataChannel) -> DataState;
-        fn close(self: &DataChannel);
-        fn buffered_amount(self: &DataChannel) -> u64;
-
-        fn _shared_data_channel() -> SharedPtr<DataChannel>; // Ignore
-    }
-
-    extern "Rust" {
-        type DataChannelObserverWrapper;
-
-        fn on_state_change(self: &DataChannelObserverWrapper, state: DataState);
-        fn on_message(self: &DataChannelObserverWrapper, buffer: DataBuffer);
-        fn on_buffered_amount_change(self: &DataChannelObserverWrapper, sent_data_size: u64);
+impl Default for DataChannelInit {
+    fn default() -> Self {
+        Self {
+            ordered: true,
+            reliable: true,
+            max_retransmit_time: None,
+            max_retransmits: None,
+            protocol: String::new(),
+            negotiated: false,
+            id: -1,
+            priority: None,
+        }
     }
 }
 
-impl_thread_safety!(ffi::DataChannel, Send + Sync);
-
-pub trait DataChannelObserver: Send + Sync {
-    fn on_state_change(&self, state: ffi::DataState);
-    fn on_message(&self, data: &[u8], is_binary: bool);
-    fn on_buffered_amount_change(&self, sent_data_size: u64);
+impl From<lkDcState> for DataChannelState {
+    fn from(value: lkDcState) -> Self {
+        match value {
+            lkDcState::LK_DC_STATE_CONNECTING => Self::Connecting,
+            lkDcState::LK_DC_STATE_OPEN => Self::Open,
+            lkDcState::LK_DC_STATE_CLOSING => Self::Closing,
+            lkDcState::LK_DC_STATE_CLOSED => Self::Closed,
+        }
+    }
 }
 
-pub struct DataChannelObserverWrapper {
-    observer: Arc<dyn DataChannelObserver>,
+impl From<DataChannelInit> for sys::lkDataChannelInit {
+    fn from(value: DataChannelInit) -> Self {
+        sys::lkDataChannelInit {
+            ordered: value.ordered,
+            maxRetransmits: value.max_retransmits.unwrap_or(-1),
+            reliable: value.reliable,
+        }
+    }
 }
 
-impl DataChannelObserverWrapper {
-    pub fn new(observer: Arc<dyn DataChannelObserver>) -> Self {
-        Self { observer }
+#[derive(Clone)]
+pub struct DataChannel {
+    observer: Arc<DataChannelObserver>,
+    ffi: sys::RefCounted<sys::lkDataChannel>,
+}
+
+impl_thread_safety!(DataChannel, Send + Sync);
+
+static DC_OBSERVER: sys::lkDataChannelObserver = lkDataChannelObserver {
+    onStateChange: Some(DataChannelObserver::lk_on_state_change),
+    onMessage: Some(DataChannelObserver::lk_on_message),
+    onBufferedAmountChange: Some(DataChannelObserver::lk_on_buffered_amount_change),
+};
+
+impl DataChannel {
+    pub fn set_observer(&mut self, observer: Arc<DataChannelObserver>) {
+        self.observer = observer;
     }
 
-    fn on_state_change(&self, state: ffi::DataState) {
-        self.observer.on_state_change(state);
-    }
-
-    fn on_message(&self, buffer: ffi::DataBuffer) {
+    pub fn configure(sys_handle: sys::RefCounted<sys::lkDataChannel>) -> Self {
+        let observer = Arc::new(DataChannelObserver::default());
+        let observer_ptr = Arc::into_raw(observer.clone());
         unsafe {
-            let data = std::slice::from_raw_parts(buffer.ptr, buffer.len);
-            self.observer.on_message(data, buffer.binary);
+            sys::lkDcRegisterObserver(
+                sys_handle.as_ptr(),
+                &DC_OBSERVER,
+                observer_ptr as *mut ::std::os::raw::c_void,
+            );
+        }
+        Self { ffi: sys_handle, observer: observer }
+    }
+
+    pub fn send(&self, data: &[u8], binary: bool) -> Result<(), DataChannelError> {
+        if !binary {
+            str::from_utf8(data)?;
+        }
+        unsafe {
+            sys::lkDcSendAsync(
+                self.ffi.as_ptr(),
+                data.as_ptr() as *const u8,
+                data.len() as u64,
+                binary,
+                None,
+                std::ptr::null_mut(),
+            );
+        }
+        Ok(())
+    }
+
+    pub async fn send_async(&self, data: &[u8], binary: bool) -> Result<(), DataChannelError> {
+        let (tx, mut rx) = mpsc::channel::<Result<(), DataChannelError>>(1);
+        let tx_box = Box::new(tx);
+        let userdata = Box::into_raw(tx_box) as *mut std::ffi::c_void;
+
+        unsafe extern "C" fn on_complete(
+            error: *mut sys::lkRtcError,
+            userdata: *mut ::std::os::raw::c_void,
+        ) {
+            println!("on_complete called with error: {:?}", error);
+            let tx: Box<mpsc::Sender<Result<(), DataChannelError>>> =
+                Box::from_raw(userdata as *mut _);
+            if error.is_null() {
+                let _ = tx.blocking_send(Ok(()));
+                return;
+            }
+            let _ = tx.blocking_send(Err(DataChannelError::Send));
+        }
+
+        unsafe {
+            sys::lkDcSendAsync(
+                self.ffi.as_ptr(),
+                data.as_ptr() as *const u8,
+                data.len() as u64,
+                binary,
+                Some(on_complete),
+                userdata,
+            );
+        }
+
+        rx.recv().await.unwrap()
+    }
+
+    pub fn id(&self) -> i32 {
+        unsafe { sys::lkDcGetId(self.ffi.as_ptr()) }
+    }
+
+    pub fn label(&self) -> String {
+        unsafe {
+            let len = sys::lkDcGetLabelLength(self.ffi.as_ptr());
+            let mut buf = vec![0u8; len as usize + 1];
+            sys::lkDcGetLabel(self.ffi.as_ptr(), buf.as_mut_ptr() as *mut i8, len);
+            let cstr = std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8);
+            cstr.to_string_lossy().into_owned()
         }
     }
 
-    fn on_buffered_amount_change(&self, sent_data_size: u64) {
-        self.observer.on_buffered_amount_change(sent_data_size);
+    pub fn state(&self) -> DataChannelState {
+        let state = unsafe { sys::lkDcGetState(self.ffi.as_ptr()) };
+        state.into()
+    }
+
+    pub fn close(&self) {
+        unsafe { sys::lkDcClose(self.ffi.as_ptr()) };
+    }
+
+    pub fn buffered_amount(&self) -> u64 {
+        unsafe { sys::lkDcGetBufferedAmount(self.ffi.as_ptr()) }
+    }
+
+    pub fn on_state_change(&self, handler: Option<OnStateChange>) {
+        let mut guard = self.observer.state_change_handler.lock().unwrap();
+        guard.replace(handler.unwrap());
+    }
+
+    pub fn on_message(&self, handler: Option<OnMessage>) {
+        let mut guard = self.observer.message_handler.lock().unwrap();
+        guard.replace(handler.unwrap());
+    }
+
+    pub fn on_buffered_amount_change(&self, handler: Option<OnBufferedAmountChange>) {
+        let mut guard = self.observer.buffered_amount_change_handler.lock().unwrap();
+        guard.replace(handler.unwrap());
+    }
+}
+
+#[derive(Default)]
+pub struct DataChannelObserver {
+    state_change_handler: Mutex<Option<OnStateChange>>,
+    message_handler: Mutex<Option<OnMessage>>,
+    buffered_amount_change_handler: Mutex<Option<OnBufferedAmountChange>>,
+}
+
+impl DataChannelObserver {
+    pub extern "C" fn lk_on_state_change(userdata: *mut ::std::os::raw::c_void, state: lkDcState) {
+        println!(
+            "DataChannelObserver::lk_on_state_change called with state: {:?}, id {:?}",
+            state, userdata
+        );
+
+        let observer = unsafe { &*(userdata as *const DataChannelObserver) };
+        let mut handler = observer.state_change_handler.lock().unwrap();
+        if let Some(f) = handler.as_mut() {
+            f(state.into());
+        }
+    }
+
+    pub extern "C" fn lk_on_message(
+        data: *const u8,
+        size: u64,
+        binary: bool,
+        userdata: *mut ::std::os::raw::c_void,
+    ) {
+        println!(
+            "DataChannelObserver::lk_on_message called with size: {}, binary {}",
+            size, binary
+        );
+        let observer: &DataChannelObserver = unsafe { &*(userdata as *const DataChannelObserver) };
+        let mut handler = observer.message_handler.lock().unwrap();
+        if let Some(f) = handler.as_mut() {
+            let data_slice = unsafe { std::slice::from_raw_parts(data, size as usize) };
+            f(DataBuffer { data: data_slice, binary });
+        }
+    }
+
+    pub extern "C" fn lk_on_buffered_amount_change(
+        sent_data_size: u64,
+        userdata: *mut ::std::os::raw::c_void,
+    ) {
+        println!(
+            "DataChannelObserver::lk_on_buffered_amount_change called with size: {}",
+            sent_data_size
+        );
+
+        let observer = unsafe { &*(userdata as *const DataChannelObserver) };
+        let mut handler = observer.buffered_amount_change_handler.lock().unwrap();
+        if let Some(f) = handler.as_mut() {
+            f(sent_data_size);
+        }
     }
 }

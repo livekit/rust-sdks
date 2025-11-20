@@ -12,297 +12,204 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
-
-use cxx::SharedPtr;
-
-use crate::{
-    candidate::ffi::Candidate, data_channel::ffi::DataChannel, impl_thread_safety,
-    jsep::ffi::IceCandidate, media_stream::ffi::MediaStream, rtp_receiver::ffi::RtpReceiver,
-    rtp_transceiver::ffi::RtpTransceiver,
+use std::{
+    fmt::Debug,
+    rc::Rc,
+    sync::{Arc, Mutex},
 };
 
-#[cxx::bridge(namespace = "livekit")]
-pub mod ffi {
-    pub struct CandidatePair {
-        local: SharedPtr<Candidate>,
-        remote: SharedPtr<Candidate>,
-    }
+use crate::{
+    peer_connection::{PeerConnection, PeerObserver, PEER_OBSERVER},
+    rtp_parameters::RtpCapabilities,
+    sys::{self, lkRtcConfiguration},
+    MediaType, RtcError, RtcErrorType,
+};
 
-    pub struct CandidatePairChangeEvent {
-        selected_candidate_pair: CandidatePair,
-        last_data_received_ms: i64,
-        reason: String,
-        estimated_disconnected_time_ms: i64,
-    }
+#[derive(Debug, Clone)]
+pub struct IceServer {
+    pub urls: Vec<String>,
+    pub username: String,
+    pub password: String,
+}
 
-    extern "C++" {
-        include!("livekit/rtp_parameters.h");
-        include!("livekit/rtc_error.h");
-        include!("livekit/helper.h");
-        include!("livekit/candidate.h");
-        include!("livekit/media_stream.h");
-        include!("livekit/rtp_transceiver.h");
-        include!("livekit/rtp_sender.h");
-        include!("livekit/rtp_receiver.h");
-        include!("livekit/data_channel.h");
-        include!("livekit/jsep.h");
-        include!("livekit/webrtc.h");
-        include!("livekit/peer_connection.h");
-        include!("livekit/audio_track.h");
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum ContinualGatheringPolicy {
+    GatherOnce,
+    GatherContinually,
+}
 
-        type RtcConfiguration = crate::peer_connection::ffi::RtcConfiguration;
-        type PeerConnectionState = crate::peer_connection::ffi::PeerConnectionState;
-        type SignalingState = crate::peer_connection::ffi::SignalingState;
-        type IceConnectionState = crate::peer_connection::ffi::IceConnectionState;
-        type IceGatheringState = crate::peer_connection::ffi::IceGatheringState;
-        type AudioTrackSource = crate::audio_track::ffi::AudioTrackSource;
-        type VideoTrackSource = crate::video_track::ffi::VideoTrackSource;
-        type RtpCapabilities = crate::rtp_parameters::ffi::RtpCapabilities;
-        type AudioTrack = crate::audio_track::ffi::AudioTrack;
-        type VideoTrack = crate::video_track::ffi::VideoTrack;
-        type MediaStreamPtr = crate::helper::ffi::MediaStreamPtr;
-        type CandidatePtr = crate::helper::ffi::CandidatePtr;
-        type RtpSenderPtr = crate::helper::ffi::RtpSenderPtr;
-        type RtpReceiverPtr = crate::helper::ffi::RtpReceiverPtr;
-        type RtpTransceiverPtr = crate::helper::ffi::RtpTransceiverPtr;
-        type RtcError = crate::rtc_error::ffi::RtcError;
-        type Candidate = crate::candidate::ffi::Candidate;
-        type IceCandidate = crate::jsep::ffi::IceCandidate;
-        type DataChannel = crate::data_channel::ffi::DataChannel;
-        type DataChannelInit = crate::data_channel::ffi::DataChannelInit;
-        type RtpSender = crate::rtp_sender::ffi::RtpSender;
-        type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
-        type RtpTransceiver = crate::rtp_transceiver::ffi::RtpTransceiver;
-        type RtpTransceiverInit = crate::rtp_transceiver::ffi::RtpTransceiverInit;
-        type MediaStream = crate::media_stream::ffi::MediaStream;
-        type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
-        type SessionDescription = crate::jsep::ffi::SessionDescription;
-        type MediaType = crate::webrtc::ffi::MediaType;
-    }
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum IceTransportsType {
+    Relay,
+    NoHost,
+    All,
+}
 
-    unsafe extern "C++" {
-        include!("livekit/peer_connection_factory.h");
+#[derive(Debug, Clone)]
+pub struct RtcConfiguration {
+    pub ice_servers: Vec<IceServer>,
+    pub continual_gathering_policy: ContinualGatheringPolicy,
+    pub ice_transport_type: IceTransportsType,
+}
 
-        type PeerConnection = crate::peer_connection::ffi::PeerConnection;
-        type PeerConnectionFactory;
-
-        fn create_peer_connection_factory() -> SharedPtr<PeerConnectionFactory>;
-
-        fn create_peer_connection(
-            self: &PeerConnectionFactory,
-            config: RtcConfiguration,
-            observer: Box<PeerConnectionObserverWrapper>,
-        ) -> Result<SharedPtr<PeerConnection>>;
-
-        fn create_video_track(
-            self: &PeerConnectionFactory,
-            label: String,
-            source: SharedPtr<VideoTrackSource>,
-        ) -> SharedPtr<VideoTrack>;
-
-        fn create_audio_track(
-            self: &PeerConnectionFactory,
-            label: String,
-            source: SharedPtr<AudioTrackSource>,
-        ) -> SharedPtr<AudioTrack>;
-
-        fn rtp_sender_capabilities(
-            self: &PeerConnectionFactory,
-            kind: MediaType,
-        ) -> RtpCapabilities;
-
-        fn rtp_receiver_capabilities(
-            self: &PeerConnectionFactory,
-            kind: MediaType,
-        ) -> RtpCapabilities;
-    }
-
-    extern "Rust" {
-        type PeerConnectionObserverWrapper;
-
-        fn on_signaling_change(self: &PeerConnectionObserverWrapper, new_state: SignalingState);
-        fn on_add_stream(self: &PeerConnectionObserverWrapper, stream: SharedPtr<MediaStream>);
-        fn on_remove_stream(self: &PeerConnectionObserverWrapper, stream: SharedPtr<MediaStream>);
-        fn on_data_channel(
-            self: &PeerConnectionObserverWrapper,
-            data_channel: SharedPtr<DataChannel>,
-        );
-        fn on_renegotiation_needed(self: &PeerConnectionObserverWrapper);
-        fn on_negotiation_needed_event(self: &PeerConnectionObserverWrapper, event: u32);
-        fn on_ice_connection_change(
-            self: &PeerConnectionObserverWrapper,
-            new_state: IceConnectionState,
-        );
-        fn on_standardized_ice_connection_change(
-            self: &PeerConnectionObserverWrapper,
-            new_state: IceConnectionState,
-        );
-        fn on_connection_change(
-            self: &PeerConnectionObserverWrapper,
-            new_state: PeerConnectionState,
-        );
-        fn on_ice_gathering_change(
-            self: &PeerConnectionObserverWrapper,
-            new_state: IceGatheringState,
-        );
-        fn on_ice_candidate(
-            self: &PeerConnectionObserverWrapper,
-            candidate: SharedPtr<IceCandidate>,
-        );
-        fn on_ice_candidate_error(
-            self: &PeerConnectionObserverWrapper,
-            address: String,
-            port: i32,
-            url: String,
-            error_code: i32,
-            error_text: String,
-        );
-        fn on_ice_candidates_removed(
-            self: &PeerConnectionObserverWrapper,
-            removed: Vec<CandidatePtr>,
-        );
-        fn on_ice_connection_receiving_change(
-            self: &PeerConnectionObserverWrapper,
-            receiving: bool,
-        );
-        fn on_ice_selected_candidate_pair_changed(
-            self: &PeerConnectionObserverWrapper,
-            event: CandidatePairChangeEvent,
-        );
-        fn on_add_track(
-            self: &PeerConnectionObserverWrapper,
-            receiver: SharedPtr<RtpReceiver>,
-            streams: Vec<MediaStreamPtr>,
-        );
-        fn on_track(self: &PeerConnectionObserverWrapper, transceiver: SharedPtr<RtpTransceiver>);
-        fn on_remove_track(self: &PeerConnectionObserverWrapper, receiver: SharedPtr<RtpReceiver>);
-        fn on_interesting_usage(self: &PeerConnectionObserverWrapper, usage_pattern: i32);
+impl Default for RtcConfiguration {
+    fn default() -> Self {
+        Self {
+            ice_servers: vec![],
+            continual_gathering_policy: ContinualGatheringPolicy::GatherContinually,
+            ice_transport_type: IceTransportsType::All,
+        }
     }
 }
 
-impl_thread_safety!(ffi::PeerConnectionFactory, Send + Sync);
+impl From<RtcConfiguration> for lkRtcConfiguration {
+    fn from(config: RtcConfiguration) -> Self {
+        lkRtcConfiguration {
+            iceServersCount: config.ice_servers.len() as i32,
+            iceServers: std::ptr::null_mut(), // TODO: implement ice servers
+            iceTransportType: config.ice_transport_type.into(),
+            gatheringPolicy: config.continual_gathering_policy.into(),
+        }
+    }
+}
 
-pub trait PeerConnectionObserver: Send + Sync {
-    fn on_signaling_change(&self, new_state: ffi::SignalingState);
-    fn on_add_stream(&self, stream: SharedPtr<MediaStream>);
-    fn on_remove_stream(&self, stream: SharedPtr<MediaStream>);
-    fn on_data_channel(&self, data_channel: SharedPtr<DataChannel>);
-    fn on_renegotiation_needed(&self);
-    fn on_negotiation_needed_event(&self, event: u32);
-    fn on_ice_connection_change(&self, new_state: ffi::IceConnectionState);
-    fn on_standardized_ice_connection_change(&self, new_state: ffi::IceConnectionState);
-    fn on_connection_change(&self, new_state: ffi::PeerConnectionState);
-    fn on_ice_gathering_change(&self, new_state: ffi::IceGatheringState);
-    fn on_ice_candidate(&self, candidate: SharedPtr<IceCandidate>);
-    fn on_ice_candidate_error(
+#[derive(Clone)]
+pub struct PeerConnectionFactory {
+    pub(crate) ffi: sys::RefCounted<sys::lkPeerFactory>,
+}
+
+impl Default for PeerConnectionFactory {
+    fn default() -> Self {
+        unsafe {
+            let factory = sys::lkCreatePeerFactory();
+            Self { ffi: sys::RefCounted::from_raw(factory) }
+        }
+    }
+}
+
+impl Debug for PeerConnectionFactory {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.debug_struct("PeerConnectionFactory").finish()
+    }
+}
+
+impl From<IceTransportsType> for sys::lkIceTransportType {
+    fn from(itt: IceTransportsType) -> Self {
+        match itt {
+            IceTransportsType::Relay => sys::lkIceTransportType::LK_ICE_TRANSPORT_TYPE_RELAY,
+            IceTransportsType::NoHost => sys::lkIceTransportType::LK_ICE_TRANSPORT_TYPE_NO_HOST,
+            IceTransportsType::All => sys::lkIceTransportType::LK_ICE_TRANSPORT_TYPE_ALL,
+        }
+    }
+}
+
+impl From<ContinualGatheringPolicy> for sys::lkContinualGatheringPolicy {
+    fn from(cgp: ContinualGatheringPolicy) -> Self {
+        match cgp {
+            ContinualGatheringPolicy::GatherOnce => {
+                sys::lkContinualGatheringPolicy::LK_GATHERING_POLICY_ONCE
+            }
+            ContinualGatheringPolicy::GatherContinually => {
+                sys::lkContinualGatheringPolicy::LK_GATHERING_POLICY_CONTINUALLY
+            }
+        }
+    }
+}
+
+impl PeerConnectionFactory {
+    pub fn create_peer_connection(
         &self,
-        address: String,
-        port: i32,
-        url: String,
-        error_code: i32,
-        error_text: String,
-    );
-    fn on_ice_candidates_removed(&self, removed: Vec<SharedPtr<Candidate>>);
-    fn on_ice_connection_receiving_change(&self, receiving: bool);
-    fn on_ice_selected_candidate_pair_changed(&self, event: ffi::CandidatePairChangeEvent);
-    fn on_add_track(&self, receiver: SharedPtr<RtpReceiver>, streams: Vec<SharedPtr<MediaStream>>);
-    fn on_track(&self, transceiver: SharedPtr<RtpTransceiver>);
-    fn on_remove_track(&self, receiver: SharedPtr<RtpReceiver>);
-    fn on_interesting_usage(&self, usage_pattern: i32);
+        config: RtcConfiguration,
+    ) -> Result<PeerConnection, RtcError> {
+        let lk_config = sys::lkRtcConfiguration {
+            iceServersCount: config.ice_servers.len() as i32,
+            iceServers: sys::toLKIceServers(&config.ice_servers),
+            iceTransportType: config.ice_transport_type.into(),
+            gatheringPolicy: config.continual_gathering_policy.into(),
+        };
+        let observer = Arc::new(Mutex::new(PeerObserver::default()));
+        let observer_ptr = Arc::into_raw(observer.clone());
+        let sys_peer = unsafe {
+            sys::lkCreatePeer(
+                self.ffi.as_ptr(),
+                &lk_config,
+                &PEER_OBSERVER,
+                observer_ptr as *mut ::std::os::raw::c_void,
+            )
+        };
+        if sys_peer == std::ptr::null_mut() {
+            unsafe {
+                let _ = Rc::from_raw(observer_ptr);
+            }
+            return Err(RtcError {
+                error_type: RtcErrorType::Internal,
+                message: "Failed to create PeerConnection".to_owned(),
+            });
+        }
+        let ffi = unsafe { sys::RefCounted::from_raw(sys_peer) };
+        let peer = PeerConnection { observer: observer, ffi: ffi };
+        Ok(peer)
+    }
+
+    pub fn get_rtp_sender_capabilities(&self, _media_type: MediaType) -> RtpCapabilities {
+        todo!()
+    }
+
+    pub fn get_rtp_receiver_capabilities(&self, _media_type: MediaType) -> RtpCapabilities {
+        todo!()
+    }
 }
 
-// Wrapper for PeerConnectionObserver because cxx doesn't support dyn Trait on c++
-// https://github.com/dtolnay/cxx/issues/665
-pub struct PeerConnectionObserverWrapper {
-    observer: Arc<dyn PeerConnectionObserver>,
+pub mod native {
+    use crate::sys;
+    use crate::{
+        audio_source::native::NativeAudioSource, peer_connection_factory::PeerConnectionFactory,
+    };
+
+    use crate::{
+        audio_track::RtcAudioTrack,
+        //    video_source::native::NativeVideoSource, video_track::RtcVideoTrack,
+    };
+
+    pub trait PeerConnectionFactoryExt {
+        //fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;
+        fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack;
+    }
+
+    impl PeerConnectionFactoryExt for PeerConnectionFactory {
+        //fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack {
+        //    self.handle.create_video_track(label, source)
+        //}
+
+        fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack {
+            unsafe {
+                let sys_track = sys::lkPeerFactoryCreateAudioTrack(
+                    self.ffi.as_ptr(),
+                    std::ffi::CString::new(label).unwrap().as_ptr(),
+                    source.ffi.as_ptr(),
+                );
+                RtcAudioTrack { ffi: sys::RefCounted::from_raw(sys_track) }
+            }
+        }
+    }
 }
 
-impl PeerConnectionObserverWrapper {
-    pub fn new(observer: Arc<dyn PeerConnectionObserver>) -> Self {
-        Self { observer }
-    }
+#[cfg(test)]
+mod tests {
+    use crate::{
+        audio_source::{native::NativeAudioSource, AudioSourceOptions},
+        peer_connection_factory::native::PeerConnectionFactoryExt,
+    };
 
-    fn on_signaling_change(&self, new_state: ffi::SignalingState) {
-        self.observer.on_signaling_change(new_state);
-    }
-
-    fn on_add_stream(&self, stream: SharedPtr<MediaStream>) {
-        self.observer.on_add_stream(stream);
-    }
-
-    fn on_remove_stream(&self, stream: SharedPtr<MediaStream>) {
-        self.observer.on_remove_stream(stream);
-    }
-
-    fn on_data_channel(&self, data_channel: SharedPtr<DataChannel>) {
-        self.observer.on_data_channel(data_channel);
-    }
-
-    fn on_renegotiation_needed(&self) {
-        self.observer.on_renegotiation_needed();
-    }
-
-    fn on_negotiation_needed_event(&self, event: u32) {
-        self.observer.on_negotiation_needed_event(event);
-    }
-
-    fn on_ice_connection_change(&self, new_state: ffi::IceConnectionState) {
-        self.observer.on_ice_connection_change(new_state);
-    }
-
-    fn on_standardized_ice_connection_change(&self, new_state: ffi::IceConnectionState) {
-        self.observer.on_standardized_ice_connection_change(new_state);
-    }
-
-    fn on_connection_change(&self, new_state: ffi::PeerConnectionState) {
-        self.observer.on_connection_change(new_state);
-    }
-
-    fn on_ice_gathering_change(&self, new_state: ffi::IceGatheringState) {
-        self.observer.on_ice_gathering_change(new_state);
-    }
-
-    fn on_ice_candidate(&self, candidate: SharedPtr<IceCandidate>) {
-        self.observer.on_ice_candidate(candidate);
-    }
-
-    fn on_ice_candidate_error(
-        &self,
-        address: String,
-        port: i32,
-        url: String,
-        error_code: i32,
-        error_text: String,
-    ) {
-        self.observer.on_ice_candidate_error(address, port, url, error_code, error_text);
-    }
-
-    fn on_ice_candidates_removed(&self, candidates: Vec<ffi::CandidatePtr>) {
-        self.observer.on_ice_candidates_removed(candidates.into_iter().map(|v| v.ptr).collect());
-    }
-
-    fn on_ice_connection_receiving_change(&self, receiving: bool) {
-        self.observer.on_ice_connection_receiving_change(receiving);
-    }
-
-    fn on_ice_selected_candidate_pair_changed(&self, event: ffi::CandidatePairChangeEvent) {
-        self.observer.on_ice_selected_candidate_pair_changed(event);
-    }
-
-    fn on_add_track(&self, receiver: SharedPtr<RtpReceiver>, streams: Vec<ffi::MediaStreamPtr>) {
-        self.observer.on_add_track(receiver, streams.into_iter().map(|v| v.ptr).collect());
-    }
-
-    fn on_track(&self, transceiver: SharedPtr<RtpTransceiver>) {
-        self.observer.on_track(transceiver);
-    }
-
-    fn on_remove_track(&self, receiver: SharedPtr<RtpReceiver>) {
-        self.observer.on_remove_track(receiver);
-    }
-
-    fn on_interesting_usage(&self, usage_pattern: i32) {
-        self.observer.on_interesting_usage(usage_pattern);
+    #[tokio::test]
+    async fn create_audio_track_from_source() {
+        let _factory = crate::peer_connection_factory::PeerConnectionFactory::default();
+        let _source = NativeAudioSource::new(AudioSourceOptions::default(), 48000, 2, 100);
+        let _track = _factory.create_audio_track("audio_track_1", _source);
+        println!("Created audio track: {:?}", _track.id());
+        assert_eq!(_track.id(), "audio_track_1");
+        assert_eq!(_track.enabled(), true);
+        _track.set_enabled(true);
+        assert_eq!(_track.state(), crate::media_stream_track::RtcTrackState::Live);
     }
 }

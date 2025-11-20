@@ -89,16 +89,16 @@ gn gen "$OUTPUT_DIR" --root="src" \
   mac_deployment_target=\"10.15\" \
   treat_warnings_as_errors=false \
   rtc_enable_protobuf=false \
-  rtc_include_tests=false \
+  rtc_include_tests=true \
   rtc_build_examples=false \
   rtc_build_tools=false \
   rtc_libvpx_build_vp9=true \
   enable_libaom=true \
   is_component_build=false \
-  enable_stripping=true \
+  enable_stripping=false \
   rtc_enable_symbol_export=true \
   rtc_enable_objc_symbol_export=false \
-  rtc_include_dav1d_in_internal_decoder_factory = true \
+  rtc_include_dav1d_in_internal_decoder_factory=true \
   rtc_use_h264=true \
   rtc_use_h265=true \
   use_custom_libcxx=false \
@@ -107,19 +107,11 @@ gn gen "$OUTPUT_DIR" --root="src" \
   use_lld=false"
 
 # build static library
-ninja -C "$OUTPUT_DIR" :default \
-  api/audio_codecs:builtin_audio_decoder_factory \
-  api/task_queue:default_task_queue_factory \
-  sdk:native_api \
-  sdk:default_codec_factory_objc \
-  pc:peer_connection \
-  sdk:videocapture_objc \
-  sdk:mac_framework_objc \
-  desktop_capture_objc
+ninja -C "$OUTPUT_DIR" livekit_rtc
 
 # make libwebrtc.a
 # don't include nasm
-ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
+#ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR"
@@ -128,7 +120,10 @@ cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/obj/modules/desktop_capture/desktop_capture.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/liblivekit_rtc.dylib" "$ARTIFACTS_DIR/lib"
+mkdir -p "$ARTIFACTS_DIR/include"
+cp "src/livekit_rtc/capi.h" "$ARTIFACTS_DIR/include/livekit_rtc.h"
 
-cd src
-find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
-find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"
+#cd src
+#find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
+#find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"

@@ -12,28 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
+use std::borrow::Cow;
 
-use crate::{
-    media_stream_track::{media_stream_track, RtcTrackState},
-    sys,
-};
-
-#[derive(Clone)]
-pub struct RtcVideoTrack {
-    pub(crate) ffi: sys::RefCounted<sys::lkRtcVideoTrack>,
+#[derive(Debug, Clone)]
+pub struct AudioFrame<'a> {
+    pub data: Cow<'a, [i16]>,
+    pub sample_rate: u32,
+    pub num_channels: u32,
+    pub samples_per_channel: u32,
 }
 
-impl RtcVideoTrack {
-    media_stream_track!();
-}
-
-impl Debug for RtcVideoTrack {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RtcVideoTrack")
-            .field("id", &self.id())
-            .field("enabled", &self.enabled())
-            .field("state", &self.state())
-            .finish()
+impl AudioFrame<'_> {
+    // Owned
+    pub fn new(sample_rate: u32, num_channels: u32, samples_per_channel: u32) -> Self {
+        Self {
+            data: vec![0; (num_channels * samples_per_channel) as usize].into(),
+            sample_rate,
+            num_channels,
+            samples_per_channel,
+        }
     }
 }
