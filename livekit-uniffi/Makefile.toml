@@ -1,60 +1,250 @@
-
-# MARK: Common
+# Copyright 2025 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 
 [env]
 PACKAGES_DIR = "./packages"
+LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
 TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
-TARGET_TRIPLE = "${CARGO_MAKE_RUST_TARGET_TRIPLE}"
 
-[env.LIBRARY_EXTENSION]
+[config]
+skip_core_tasks = true
+
+# MARK: - Build
+
+[tasks.build.env.TARGET]
+value = "${CARGO_MAKE_RUST_TARGET_TRIPLE}"
+condition = { env_not_set = ["TARGET"] }
+# Set to target triple of the current platform is not explicitly set.
+
+[tasks.build]
+clear = true
+script_runner = "@duckscript"
+script = """
+echo "TARGET: ${TARGET}"
+# Ensure target is installed
+exec rustup target add ${TARGET}
+
+if not ${TIER_3}
+    exec cargo build --release --target ${TARGET}
+else
+    # Ensure nightly toolchain is installed
+    exec rustup component add rust-src --toolchain "nightly-${CARGO_MAKE_RUST_TARGET_TRIPLE}"
+    exec cargo +nightly build -Zbuild-std=std,panic_abort --release --target ${TARGET}
+end
+"""
+
+# MARK: - Build, specific platforms
+
+[tasks.build-macos-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-apple-darwin" }
+
+[tasks.build-macos-x64]
+extend = "build"
+env = { TARGET = "x86_64-apple-darwin" }
+
+[tasks.build-ios-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-apple-ios" }
+
+[tasks.build-ios-sim-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-apple-ios-sim" }
+
+[tasks.build-ios-x64]
+extend = "build"
+env = { TARGET = "x86_64-apple-ios" }
+
+[tasks.build-ios-macabi-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-apple-ios-macabi" }
+
+[tasks.build-ios-macabi-x64]
+extend = "build"
+env = { TARGET = "x86_64-apple-ios-macabi" }
+
+[tasks.build-tvos-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-apple-tvos", TIER_3 = true }
+
+[tasks.build-tvos-sim-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-apple-tvos-sim", TIER_3 = true }
+
+[tasks.build-visionos-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-apple-visionos", TIER_3 = true }
+
+[tasks.build-visionos-sim-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-apple-visionos-sim", TIER_3 = true }
+
+[tasks.build-windows-x64]
+extend = "build"
+env = { TARGET = "x86_64-pc-windows-msvc" }
+
+[tasks.build-windows-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-pc-windows-msvc" }
+
+[tasks.build-linux-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-unknown-linux-gnu" }
+
+[tasks.build-linux-x64]
+extend = "build"
+env = { TARGET = "x86_64-unknown-linux-gnu" }
+
+[tasks.build-android-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-linux-android" }
+
+[tasks.build-android-armv7]
+extend = "build"
+env = { TARGET = "armv7-linux-androideabi" }
+
+[tasks.build-android-x64]
+extend = "build"
+env = { TARGET = "x86_64-linux-android" }
+
+# MARK: - Build, platform groups
+
+[tasks.build-apple-platforms]
+description = "Build for iOS, macOS, tvOS, and visionOS"
+dependencies = [
+    "build-ios-aarch64",
+    "build-ios-macabi-aarch64",
+    "build-ios-macabi-x64",
+    "build-ios-sim-aarch64",
+    "build-ios-x64",
+    "build-macos-aarch64",
+    "build-macos-x64",
+    "build-tvos-aarch64",
+    "build-tvos-sim-aarch64",
+    "build-visionos-aarch64",
+    "build-visionos-sim-aarch64"
+]
+
+[tasks.build-windows-platforms]
+description = "Build for Windows"
+dependencies = [
+    "build-windows-x64",
+    "build-windows-aarch64"
+]
+
+[tasks.build-linux-platforms]
+description = "Build for generic Linux and Android"
+dependencies = [
+    "build-linux-aarch64",
+    "build-linux-x64",
+    "build-android-aarch64",
+    "build-android-armv7",
+    "build-android-x64"
+]
+
+# MARK: - Bindgen common
+
+[tasks.locate-lib.env.LIB_EXT]
 source = "${CARGO_MAKE_RUST_TARGET_OS}"
 mapping = { linux = "so", macos = "dylib", windows = "dll" }
 
-[tasks.locate-cdylib]
+[tasks.locate-lib]
 private = true
 script_runner = "@duckscript"
 script = """
-set_env CDYLIB_PATH "${TARGET_DIR}/${TARGET_TRIPLE}/release/liblivekit_uniffi.${LIBRARY_EXTENSION}"
+path = join_path ${TARGET_DIR} ${TARGET} release/ ${LIB_NAME}.${LIB_EXT}
+set_env LIB_PATH "${path}"
 """
-
-[tasks.build]
-args = ["build", "--release"]
 
 [tasks.uniffi-bindgen]
 private = true
-dependencies = ["build", "locate-cdylib"]
-script_runner = "@shell"
+description = "Generate bindings for core UniFFI languages"
+dependencies = ["build", "locate-lib"]
+script_runner = "@duckscript"
 script = """
-cargo run --bin uniffi-bindgen generate \
+out_dir = join_path ${PACKAGES_DIR} ${LANG}
+exec cargo run --bin uniffi-bindgen generate \
     --language ${LANG} \
-    --out-dir ${PACKAGES_DIR}/${LANG} \
-    --library ${CDYLIB_PATH}
+    --out-dir ${out_dir} \
+    --library ${LIB_PATH}
 """
 
 [tasks.bindgen]
 dependencies = [
-    "bindgen-swift",
+    "bindgen-kotlin",
     "bindgen-python",
-    "bindgen-kotlin"
+    "bindgen-swift"
 ]
 
-# MARK: Swift
-
-[tasks.bindgen-swift]
-extend = "uniffi-bindgen"
-private = false
-env = { LANG = "swift" }
-
-# MARK: Python
-
-[tasks.bindgen-python]
-extend = "uniffi-bindgen"
-private = false
-env = { LANG = "python" }
-
-# MARK: Kotlin
+# MARK: - Kotlin
 
 [tasks.bindgen-kotlin]
-extend = "uniffi-bindgen"
 private = false
+extend = "uniffi-bindgen"
 env = { LANG = "kotlin" }
+
+# MARK: - Python
+
+[tasks.bindgen-python]
+private = false
+extend = "uniffi-bindgen"
+env = { LANG = "python" }
+
+# MARK: - Swift
+
+[tasks.bindgen-swift]
+private = false
+extend = "uniffi-bindgen"
+env = { LANG = "swift" }
+
+[tasks.xcframework]
+dependencies = ["build-apple-platforms", "bindgen-swift"]
+script = """
+UNIVERSAL_BINARIES=(
+    "ios-simulator:aarch64-apple-ios-sim:x86_64-apple-ios"
+    "macos:aarch64-apple-darwin:x86_64-apple-darwin"
+    "ios-macabi:aarch64-apple-ios-macabi:x86_64-apple-ios-macabi"
+)
+for config in "${UNIVERSAL_BINARIES[@]}"; do
+    IFS=':' read -r output_dir arch1 arch2 <<< "$config"
+    mkdir -p "${TARGET_DIR}/${output_dir}/release"
+    lipo -create \
+        "${TARGET_DIR}/${arch1}/release/${LIB_NAME}.a" \
+        "${TARGET_DIR}/${arch2}/release/${LIB_NAME}.a" \
+        -output "${TARGET_DIR}/${output_dir}/release/${LIB_NAME}.a"
+done
+
+XCFRAMEWORK_LIBS=(
+    "${TARGET_DIR}/aarch64-apple-ios/release/${LIB_NAME}.a"
+    "${TARGET_DIR}/ios-simulator/release/${LIB_NAME}.a"
+    "${TARGET_DIR}/macos/release/${LIB_NAME}.a"
+    "${TARGET_DIR}/ios-macabi/release/${LIB_NAME}.a"
+    "${TARGET_DIR}/aarch64-apple-tvos/release/${LIB_NAME}.a"
+    "${TARGET_DIR}/aarch64-apple-visionos/release/${LIB_NAME}.a"
+    "${TARGET_DIR}/aarch64-apple-tvos-sim/release/${LIB_NAME}.a"
+    "${TARGET_DIR}/aarch64-apple-visionos-sim/release/${LIB_NAME}.a"
+)
+XCFRAMEWORK_ARGS=()
+for lib in "${XCFRAMEWORK_LIBS[@]}"; do
+    XCFRAMEWORK_ARGS+=(-library "$lib" -headers "${PACKAGES_DIR}/swift")
+done
+
+rm -rf "${TARGET_DIR}/${LIB_NAME}.xcframework"
+xcodebuild -create-xcframework \
+    "${XCFRAMEWORK_ARGS[@]}" \
+    -output "${TARGET_DIR}/${LIB_NAME}.xcframework"
+"""
+
+# Add other bindgen tasks here, following the same pattern
+# as above for the task name (e.g., "bindgen-<lang>").

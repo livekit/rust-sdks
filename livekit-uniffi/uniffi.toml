@@ -1,1 +1,4 @@
-# Configuration file for UniFFI binding generation; add options here as needed.
+[bindings.swift]
+ffi_module_filename = "module"
+# This renames the header and module map file, which is required
+# for generating an XCFramework.
