@@ -13,10 +13,12 @@ excludes = [
     "NOTICE",
     ".github",
     "*.toml",
+    "!Makefile.toml",
     "*.txt",
     # Generated files
     "livekit-protocol/src/livekit.rs",
     "livekit-protocol/src/livekit.serde.rs",
+    "livekit-uniffi/packages"
 ]
 
 [mapping.DOUBLESLASH_STYLE]
