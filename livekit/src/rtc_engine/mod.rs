@@ -766,10 +766,8 @@ impl EngineInner {
                 log::error!("resuming connection... attempt: {}", i);
                 if let Err(err) = self.try_resume_connection().await {
                     log::error!("resuming connection failed: {}", err);
-                    if !matches!(err, EngineError::Signal(_)) {
-                        let mut running_handle = self.running_handle.write();
-                        running_handle.full_reconnect = true;
-                    }
+                    let mut running_handle = self.running_handle.write();
+                    running_handle.full_reconnect = true;
                 } else {
                     let (tx, rx) = oneshot::channel();
                     let _ = self.engine_tx.send(EngineEvent::Resumed(tx));
