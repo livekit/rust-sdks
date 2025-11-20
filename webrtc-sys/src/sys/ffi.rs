@@ -85,6 +85,20 @@ pub enum lkDcState {
     LK_DC_STATE_CLOSING = 2,
     LK_DC_STATE_CLOSED = 3,
 }
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkRtcTrackState {
+    LK_RTC_TRACK_STATE_LIVE = 0,
+    LK_RTC_TRACK_STATE_ENDED = 1,
+}
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkMediaStreamTrackKind {
+    LK_MEDIA_STREAM_TRACK_KIND_AUDIO = 0,
+    LK_MEDIA_STREAM_TRACK_KIND_VIDEO = 1,
+    LK_MEDIA_STREAM_TRACK_KIND_DATA = 2,
+    LK_MEDIA_STREAM_TRACK_KIND_UNKNOWN = 3,
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct lkPeerObserver {
@@ -612,4 +626,26 @@ unsafe extern "C" {
         source: *mut lkAudioTrackSource,
         sink: *mut lkNativeAudioSink,
     ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkMediaStreamTrackGetIdLength(track: *mut lkMediaStreamTrack) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkMediaStreamTrackGetId(
+        track: *mut lkMediaStreamTrack,
+        buffer: *mut ::std::os::raw::c_char,
+        bufferSize: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkMediaStreamTrackIsEnabled(track: *mut lkMediaStreamTrack) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkMediaStreamTrackSetEnabled(track: *mut lkMediaStreamTrack, enabled: bool);
+}
+unsafe extern "C" {
+    pub fn lkMediaStreamTrackGetState(track: *mut lkMediaStreamTrack) -> lkRtcTrackState;
+}
+unsafe extern "C" {
+    pub fn lkMediaStreamTrackGetKind(track: *mut lkMediaStreamTrack) -> lkMediaStreamTrackKind;
 }

@@ -783,7 +783,7 @@ pub static PEER_OBSERVER: sys::lkPeerObserver = sys::lkPeerObserver {
 #[cfg(test)]
 mod tests {
 
-    use tokio::{signal, sync::mpsc};
+    use tokio::sync::mpsc;
 
     use crate::{data_channel::DataChannelInit, peer_connection::*, peer_connection_factory::*};
 

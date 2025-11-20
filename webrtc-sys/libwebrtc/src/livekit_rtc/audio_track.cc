@@ -45,21 +45,7 @@ void NativeAudioSink::InternalSink::OnData(const void* audio_data,
       callback_((int16_t*)frame_.data(), frame_.sample_rate_hz(),
                 frame_.num_channels(), frame_.samples_per_channel_, userdata_);
     });
-
-    // std::vector<int16_t> slice(
-    //     (int16_t *)frame_.data(), frame_.num_channels() *
-    //     frame_.samples_per_channel());
-
-    // observer_->on_data(slice, frame_.sample_rate_hz(),
-    //                    frame_.num_channels(), frame_.samples_per_channel());
-
   } else {
-    // std::vector<int16_t> rust_slice(data,
-    //                                number_of_channels * number_of_frames);
-
-    // observer_->on_data(slice, sample_rate, number_of_channels,
-    //                    number_of_frames);
-
     audio_queue_->PostTask([this, data]() {
       callback_((int16_t*)data, sample_rate_, num_channels_,
                 frame_.samples_per_channel_, userdata_);

@@ -4,6 +4,7 @@
 #include "livekit_rtc/audio_track.h"
 #include "livekit_rtc/data_channel.h"
 #include "livekit_rtc/ice_candidate.h"
+#include "livekit_rtc/media_stream_track.h"
 #include "livekit_rtc/peer.h"
 #include "livekit_rtc/session_description.h"
 #include "rtc_base/logging.h"
@@ -313,7 +314,8 @@ lkNativeAudioSink* lkCreateNativeAudioSink(
                         void* userdata),
     void* userdata) {
   return reinterpret_cast<lkNativeAudioSink*>(
-      webrtc::make_ref_counted<livekit::NativeAudioSink>(sample_rate, num_channels, onAudioData, userdata)
+      webrtc::make_ref_counted<livekit::NativeAudioSink>(
+          sample_rate, num_channels, onAudioData, userdata)
           .release());
 }
 
@@ -376,4 +378,47 @@ int lkAudioTrackSourceRemoveSink(lkAudioTrackSource* source,
   reinterpret_cast<livekit::AudioTrackSource*>(source)->get()->RemoveSink(
       reinterpret_cast<livekit::NativeAudioSink*>(sink)->audio_track_sink());
   return 1;
+}
+
+int lkMediaStreamTrackGetIdLength(lkMediaStreamTrack* track) {
+  auto id = reinterpret_cast<livekit::MediaStreamTrack*>(track)->id();
+  return static_cast<int>(id.size());
+}
+
+int lkMediaStreamTrackGetId(lkMediaStreamTrack* track,
+                            char* buffer,
+                            int bufferSize) {
+  auto id = reinterpret_cast<livekit::MediaStreamTrack*>(track)->id();
+  int len = static_cast<int>(id.size());
+  if (bufferSize > 0) {
+    int copySize = (len < bufferSize) ? len : bufferSize;
+    memcpy(buffer, id.c_str(), copySize);
+  }
+  return len;
+}
+
+bool lkMediaStreamTrackIsEnabled(lkMediaStreamTrack* track) {
+  return reinterpret_cast<livekit::MediaStreamTrack*>(track)->enabled();
+}
+
+void lkMediaStreamTrackSetEnabled(lkMediaStreamTrack* track, bool enabled) {
+  reinterpret_cast<livekit::MediaStreamTrack*>(track)->set_enabled(enabled);
+}
+
+lkRtcTrackState lkMediaStreamTrackGetState(lkMediaStreamTrack* track) {
+  return static_cast<lkRtcTrackState>(
+      reinterpret_cast<livekit::MediaStreamTrack*>(track)->state());
+}
+lkMediaStreamTrackKind lkMediaStreamTrackGetKind(
+    lkMediaStreamTrack* track) {
+  auto kind = reinterpret_cast<livekit::MediaStreamTrack*>(track)->kind();
+  if (kind == "audio") {
+    return lkMediaStreamTrackKind::LK_MEDIA_STREAM_TRACK_KIND_AUDIO;
+  } else if (kind == "video") {
+    return lkMediaStreamTrackKind::LK_MEDIA_STREAM_TRACK_KIND_VIDEO;
+  } else if (kind == "data") {
+    return lkMediaStreamTrackKind::LK_MEDIA_STREAM_TRACK_KIND_DATA;
+  } else {
+    return lkMediaStreamTrackKind::LK_MEDIA_STREAM_TRACK_KIND_UNKNOWN;
+  }
 }

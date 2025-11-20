@@ -89,6 +89,18 @@ typedef enum {
   LK_DC_STATE_CLOSED,
 } lkDcState;
 
+typedef enum {
+  LK_RTC_TRACK_STATE_LIVE,
+  LK_RTC_TRACK_STATE_ENDED,
+} lkRtcTrackState;
+
+typedef enum {
+  LK_MEDIA_STREAM_TRACK_KIND_AUDIO,
+  LK_MEDIA_STREAM_TRACK_KIND_VIDEO,
+  LK_MEDIA_STREAM_TRACK_KIND_DATA,
+  LK_MEDIA_STREAM_TRACK_KIND_UNKNOWN,
+} lkMediaStreamTrackKind;
+
 typedef struct {
   void (*onSignalingChange)(lkSignalingState state, void* userdata);
   void (*onIceCandidate)(lkIceCandidate* candidate, void* userdata);
@@ -336,6 +348,24 @@ LK_EXPORT int lkAudioTrackSourceAddSink(lkAudioTrackSource* source,
 
 LK_EXPORT int lkAudioTrackSourceRemoveSink(lkAudioTrackSource* source,
                                            lkNativeAudioSink* sink);
+
+
+LK_EXPORT int lkMediaStreamTrackGetIdLength(lkMediaStreamTrack* track);
+
+LK_EXPORT int lkMediaStreamTrackGetId(lkMediaStreamTrack* track,
+                                       char* buffer,
+                                       int bufferSize);
+
+LK_EXPORT bool lkMediaStreamTrackIsEnabled(lkMediaStreamTrack* track);
+
+LK_EXPORT void lkMediaStreamTrackSetEnabled(lkMediaStreamTrack* track,
+                                            bool enabled);
+
+LK_EXPORT lkRtcTrackState lkMediaStreamTrackGetState(lkMediaStreamTrack* track);
+
+LK_EXPORT lkMediaStreamTrackKind lkMediaStreamTrackGetKind(
+    lkMediaStreamTrack* track);
+
 
 #ifdef __cplusplus
 }

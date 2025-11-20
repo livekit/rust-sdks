@@ -15,22 +15,22 @@
 use std::fmt::Debug;
 
 use crate::{
-    media_stream_track::{media_stream_track, RtcTrackState},
     sys,
+    media_stream_track::{media_stream_track, RtcTrackState},
 };
 
 #[derive(Clone)]
-pub struct RtcAudioTrack {
-    pub(crate) ffi: sys::RefCounted<sys::lkRtcAudioTrack>,
+pub struct RtcVideoTrack {
+    pub(crate) ffi: sys::RefCounted<sys::lkRtcVideoTrack>,
 }
 
-impl RtcAudioTrack {
+impl RtcVideoTrack {
     media_stream_track!();
 }
 
-impl Debug for RtcAudioTrack {
+impl Debug for RtcVideoTrack {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RtcAudioTrack")
+        f.debug_struct("RtcVideoTrack")
             .field("id", &self.id())
             .field("enabled", &self.enabled())
             .field("state", &self.state())

@@ -10,6 +10,7 @@
 #include "audio/remix_resample.h"
 #include "common_audio/resampler/include/push_resampler.h"
 #include "livekit_rtc/capi.h"
+#include "livekit_rtc/media_stream_track.h"
 #include "pc/local_audio_source.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/task_utils/repeating_task.h"
@@ -23,8 +24,6 @@ using AudioDataCallback = void (*)(int16_t* audioData,
                                    uint32_t numberOfChannels,
                                    int numberOfFrames,
                                    void* userdata);
-
-class AudioTrack {};
 
 class NativeAudioSink : public webrtc::RefCountInterface {
  protected:
@@ -64,6 +63,37 @@ class NativeAudioSink : public webrtc::RefCountInterface {
 
  private:
   InternalSink internal_sink_;
+};
+
+class AudioTrack : public webrtc::RefCountInterface {
+ public:
+  explicit AudioTrack(webrtc::scoped_refptr<webrtc::AudioTrackInterface> track)
+      : track_(track) {}
+
+  ~AudioTrack() override {
+    webrtc::MutexLock lock(&mutex_);
+    for (auto& sink : sinks_) {
+      track_->RemoveSink(sink->audio_track_sink());
+    }
+  }
+
+  void add_sink(const webrtc::scoped_refptr<NativeAudioSink>& sink) const {
+    webrtc::MutexLock lock(&mutex_);
+    track_->AddSink(sink->audio_track_sink());
+    sinks_.push_back(sink);
+  }
+
+  void remove_sink(const webrtc::scoped_refptr<NativeAudioSink>& sink) const {
+    webrtc::MutexLock lock(&mutex_);
+    track_->RemoveSink(sink->audio_track_sink());
+    sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
+  }
+
+ private:
+  mutable webrtc::Mutex mutex_;
+  webrtc::scoped_refptr<webrtc::AudioTrackInterface> track_;
+  mutable std::vector<webrtc::scoped_refptr<NativeAudioSink>> sinks_
+      RTC_GUARDED_BY(mutex_);
 };
 
 class AudioTrackSource : public webrtc::RefCountInterface {

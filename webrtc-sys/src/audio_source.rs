@@ -14,7 +14,8 @@
 
 //use livekit_protocol::enum_dispatch;
 
-use crate::sys::lkAudioSourceOptions;
+use crate::{enum_dispatch, sys::lkAudioSourceOptions};
+use tokio::sync::oneshot;
 
 #[derive(Default, Debug)]
 pub struct AudioSourceOptions {
@@ -47,18 +48,17 @@ impl From<lkAudioSourceOptions> for AudioSourceOptions {
 #[derive(Debug, Clone)]
 pub enum RtcAudioSource {
     //#[cfg(not(target_arch = "wasm32"))]
-    //Native(native::NativeAudioSource),
+    Native(native::NativeAudioSource),
 }
 
 impl RtcAudioSource {
-    /*enum_dispatch!(
+    enum_dispatch!(
         [Native];
         fn set_audio_options(self: &Self, options: AudioSourceOptions) -> ();
         fn audio_options(self: &Self) -> AudioSourceOptions;
         fn sample_rate(self: &Self) -> u32;
         fn num_channels(self: &Self) -> u32;
     );
-    */
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -68,7 +68,7 @@ pub mod native {
         sync::Arc,
     };
 
-    use tokio::sync::mpsc;
+    use tokio::sync::{mpsc, oneshot};
 
     use crate::{
         audio_frame::AudioFrame, audio_source::AudioSourceOptions, sys, RtcError, RtcErrorType,
@@ -77,6 +77,9 @@ pub mod native {
     #[derive(Clone)]
     pub struct NativeAudioSource {
         pub(crate) ffi: sys::RefCounted<sys::lkAudioTrackSource>,
+        sample_rate: u32,
+        num_channels: u32,
+        queue_size_samples: u32,
     }
 
     impl Debug for NativeAudioSource {
@@ -86,6 +89,25 @@ pub mod native {
     }
 
     impl NativeAudioSource {
+        /// Creates a new [`NativeAudioSource`].
+        ///
+        /// # Arguments
+        /// * `options` – Configuration options for the source (e.g. echo cancellation, noise suppression).
+        /// * `sample_rate` – Sampling rate in Hz (for example, `48000`).
+        /// * `num_channels` – Number of audio channels (`1` for mono, `2` for stereo, etc.).
+        /// * `queue_size_ms` – Size of the internal buffering queue, in milliseconds.
+        ///
+        /// # Behavior
+        /// - If `queue_size_ms` is **zero**, buffering is **disabled** and audio frames are
+        ///   delivered directly to webrtc sinks. In this mode, the caller **must provide 10 ms frames**
+        ///   (i.e., `sample_rate / 100` samples per channel) when calling [`capture_frame`].
+        /// - If `queue_size_ms` is **non-zero**, buffering is enabled. The value must be a
+        ///   **multiple of 10**, representing the total buffering duration in milliseconds.
+        ///   Frames will be queued and flushed to sinks asynchronously once the buffer
+        ///   reaches the configured threshold.
+        ///
+        /// # Panics
+        /// assert if `queue_size_ms` is not a multiple of 10.
         pub fn new(
             options: AudioSourceOptions,
             sample_rate: u32,
@@ -100,7 +122,9 @@ pub mod native {
                     queue_size_ms as i32,
                 ))
             };
-            Self { ffi }
+            let queue_size_samples = queue_size_ms * (sample_rate / 1000) * num_channels;
+
+            Self { ffi, sample_rate, num_channels, queue_size_samples }
         }
 
         pub fn add_sink(&self, sink: &sys::RefCounted<sys::lkNativeAudioSink>) {
@@ -122,6 +146,87 @@ pub mod native {
         }
 
         pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {
+            if self.sample_rate != frame.sample_rate || self.num_channels != frame.num_channels {
+                return Err(RtcError {
+                    error_type: RtcErrorType::InvalidState,
+                    message: "sample_rate and num_channels don't match".to_owned(),
+                });
+            }
+
+            // Fast path: no buffering
+            if self.queue_size_samples == 0 {
+                // frame size must be 10ms for fast path
+                let expected_frames_per_ch = (self.sample_rate / 100) as usize;
+                if frame.data.len() % (self.num_channels as usize) != 0 {
+                    return Err(RtcError {
+                        error_type: RtcErrorType::InvalidState,
+                        message: "frame.data length not divisible by channel count".to_owned(),
+                    });
+                }
+                let nb_frames = frame.data.len() / (self.num_channels as usize);
+                if nb_frames != expected_frames_per_ch {
+                    return Err(RtcError {
+                        error_type: RtcErrorType::InvalidState,
+                        message: format!(
+                            "direct capture requires 10ms frames: got {} frames, expected {}",
+                            nb_frames, expected_frames_per_ch
+                        ),
+                    });
+                }
+
+                unsafe {
+                    // Pass null ctx + null callback; C++ ignores them in direct mode
+                    sys::lkAudioTrackSourceCaptureFrame(
+                        self.ffi.as_ptr(),
+                        frame.data.as_ptr() as *const i16,
+                        self.sample_rate,
+                        self.num_channels,
+                        nb_frames as i32,
+                        std::ptr::null_mut(),
+                        None,
+                    );
+                }
+                return Ok(());
+            }
+
+            // Buffered path.
+            extern "C" fn lk_audio_source_complete(userdata: *mut ::std::os::raw::c_void) {
+                let tx: Box<oneshot::Sender<()>> =
+                    unsafe { Box::from_raw(userdata as *mut oneshot::Sender<()>) };
+                let _ = tx.send(());
+            }
+
+            // iterate over chunks of self._queue_size_samples
+            for chunk in frame.data.chunks(self.queue_size_samples as usize) {
+                let nb_frames = chunk.len() / self.num_channels as usize;
+
+                let nb_frames = chunk.len() / self.num_channels as usize;
+                let (tx, rx) = oneshot::channel::<()>();
+                let ctx = Box::new(tx);
+                let userdata = Box::into_raw(ctx) as *mut std::ffi::c_void;
+
+                unsafe {
+                    sys::lkAudioTrackSourceCaptureFrame(
+                        self.ffi.as_ptr(),
+                        chunk.as_ptr() as *const i16,
+                        self.sample_rate,
+                        self.num_channels,
+                        nb_frames as i32,
+                        userdata,
+                        Some(lk_audio_source_complete),
+                    );
+                }
+
+                let _ = rx.await;
+            }
+
+            Ok(())
+        }
+
+        pub async fn capture_frame_no_buffering(
+            &self,
+            frame: &AudioFrame<'_>,
+        ) -> Result<(), RtcError> {
             let (tx, mut rx) = mpsc::channel::<Result<(), RtcError>>(1);
             let tx_box = Box::new(tx.clone());
             let userdata = Box::into_raw(tx_box) as *mut std::ffi::c_void;
@@ -262,7 +367,7 @@ mod tests {
 
     use tokio::sync::mpsc;
 
-    use crate::audio_frame::AudioFrame;
+    use crate::audio_frame::{self, AudioFrame};
 
     #[tokio::test]
     async fn create_audio_native_sink() {
@@ -298,15 +403,32 @@ mod tests {
 
             _source.clear_buffer();
 
-            _source.capture_frame(&AudioFrame::new(48000, 2, 960)).await.unwrap();
+            let mut audio_frame = AudioFrame::new(48000, 2, 4800);
+            audio_frame.data
+                .to_mut()
+                .iter_mut()
+                .enumerate()
+                .for_each(|(i, sample)| {
+                    *sample = (i as i16) % 100;
+                });
+            _source.capture_frame(&audio_frame).await.unwrap();
 
             println!("Audio source sample rate: {}, num channels: {}", sampe_rate, num_channels);
 
-            let audio_frame = frame_rx.recv().await;
-            println!("Received audio frame: {:?}", audio_frame);
-            assert_eq!(audio_frame.is_some(), true);
-            assert_eq!(audio_frame.clone().unwrap().sample_rate, 32000);
-            assert_eq!(audio_frame.unwrap().num_channels, 1);
+            for _i in 0..10 {
+                let audio_frame = frame_rx.recv().await;
+                println!(
+                    "Received audio frame: {:?} buf len {:?} count {:?}",
+                    audio_frame,
+                    audio_frame.as_ref().map(|f| f.data.len()),
+                    _i,
+                );
+                assert_eq!(audio_frame.is_some(), true);
+                assert_eq!(audio_frame.clone().unwrap().sample_rate, 32000);
+                assert_eq!(audio_frame.unwrap().num_channels, 1);
+            }
+
+            _source.remove_sink(&_sink.ffi);
         }
     }
 }

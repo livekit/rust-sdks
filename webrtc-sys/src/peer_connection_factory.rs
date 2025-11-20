@@ -151,11 +151,11 @@ impl PeerConnectionFactory {
         Ok(peer)
     }
 
-    pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
+    pub fn get_rtp_sender_capabilities(&self, _media_type: MediaType) -> RtpCapabilities {
         todo!()
     }
 
-    pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
+    pub fn get_rtp_receiver_capabilities(&self, _media_type: MediaType) -> RtpCapabilities {
         todo!()
     }
 }

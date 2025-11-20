@@ -24,6 +24,7 @@ lk_sources = [
   "ice_candidate.cc",
   "global_task_queue.cc",
   "audio_track.cc",
+  "media_stream_track.cc",
   #"android.cc",
 ]
 
