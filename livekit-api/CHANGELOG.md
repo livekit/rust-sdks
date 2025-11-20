@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.10](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.9...rust-sdks/livekit-api@0.4.10) - 2025-11-20
+
+### Added
+
+- add outbound trunk config for create_sip_participant. ([#771](https://github.com/livekit/rust-sdks/pull/771))
+
 ## [0.4.9](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.8...rust-sdks/livekit-api@0.4.9) - 2025-10-22
 
 ### Other

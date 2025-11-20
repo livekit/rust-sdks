@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.25](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.24...rust-sdks/livekit@0.7.25) - 2025-11-20
+
+### Other
+
+- perform full reconnect if resume fails ([#792](https://github.com/livekit/rust-sdks/pull/792))
+- E2E RPC tests ([#769](https://github.com/livekit/rust-sdks/pull/769))
+- Remove unused dependencies ([#761](https://github.com/livekit/rust-sdks/pull/761))
+
 ## [0.7.24](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.23...rust-sdks/livekit@0.7.24) - 2025-10-27
 
 ### Other
