@@ -32,10 +32,10 @@ clear = true
 script_runner = "@duckscript"
 script = """
 echo "TARGET: ${TARGET}"
-# Ensure target is installed
-exec rustup target add ${TARGET}
 
 if not ${TIER_3}
+    # Ensure target is installed
+    exec rustup target add ${TARGET}
     exec cargo build --release --target ${TARGET}
 else
     # Ensure nightly toolchain is installed
