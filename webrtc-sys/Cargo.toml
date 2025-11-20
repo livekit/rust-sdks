@@ -12,6 +12,7 @@ default = []
 static = []
 
 [dependencies]
+livekit-runtime = { workspace = true }
 log = "0.4"
 serde = "1.0.228"
 thiserror = "2.0.17"

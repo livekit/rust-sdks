@@ -25,6 +25,7 @@
 #include "livekit_rtc/utils.h"
 #include "livekit_rtc/video_decoder.h"
 #include "livekit_rtc/video_encoder.h"
+#include "livekit_rtc/audio_track.h"
 #include "media/engine/webrtc_media_engine.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ssl_adapter.h"
@@ -123,8 +124,8 @@ void PeerObserver::OnIceGatheringChange(
 
 void PeerObserver::OnStandardizedIceConnectionChange(
     webrtc::PeerConnectionInterface::IceConnectionState new_state) {
-  observer_->onStandardizedIceConnectionChange(static_cast<lkIceState>(new_state),
-                                   userdata_);
+  observer_->onStandardizedIceConnectionChange(
+      static_cast<lkIceState>(new_state), userdata_);
 }
 
 void PeerObserver::OnRenegotiationNeeded() {
@@ -227,6 +228,22 @@ webrtc::scoped_refptr<Peer> PeerFactory::CreatePeer(
   }
 
   return webrtc::make_ref_counted<Peer>(res.value(), obs);
+}
+
+lkRtcVideoTrack* PeerFactory::CreateVideoTrack(const char* id,
+                                               lkVideoTrackSource* source) {
+  return nullptr;
+}
+
+lkRtcAudioTrack* PeerFactory::CreateAudioTrack(const char* id,
+                                               lkAudioTrackSource* source) {
+  auto audioSource =
+      reinterpret_cast<livekit::AudioTrackSource*>(source);
+  auto track = peer_factory_->CreateAudioTrack(id, audioSource->audio_source());
+  if (track) {
+    return reinterpret_cast<lkRtcAudioTrack*>(webrtc::make_ref_counted<livekit::AudioTrack>(track).release());
+  }
+  return nullptr;
 }
 
 webrtc::scoped_refptr<DataChannel> Peer::CreateDataChannel(

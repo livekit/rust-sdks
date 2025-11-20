@@ -161,14 +161,16 @@ impl PeerConnectionFactory {
 }
 
 pub mod native {
-    use crate::{audio_source::native::NativeAudioSource, peer_connection_factory::PeerConnectionFactory};
+    use crate::sys;
+    use crate::{
+        audio_source::native::NativeAudioSource, peer_connection_factory::PeerConnectionFactory,
+    };
 
-    //use super::PeerConnectionFactory;
-    //use crate::{
-    //    audio_source::native::NativeAudioSource, audio_track::RtcAudioTrack,
-    //    video_source::native::NativeVideoSource, video_track::RtcVideoTrack,
-    //};
-/*
+    use crate::{
+        audio_track::RtcAudioTrack,
+        //    video_source::native::NativeVideoSource, video_track::RtcVideoTrack,
+    };
+
     pub trait PeerConnectionFactoryExt {
         //fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;
         fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack;
@@ -180,8 +182,34 @@ pub mod native {
         //}
 
         fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack {
-            self.handle.create_audio_track(label, source)
+            unsafe {
+                let sys_track = sys::lkPeerFactoryCreateAudioTrack(
+                    self.ffi.as_ptr(),
+                    std::ffi::CString::new(label).unwrap().as_ptr(),
+                    source.ffi.as_ptr(),
+                );
+                RtcAudioTrack { ffi: sys::RefCounted::from_raw(sys_track) }
+            }
         }
     }
-    */
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        audio_source::{native::NativeAudioSource, AudioSourceOptions},
+        peer_connection_factory::native::PeerConnectionFactoryExt,
+    };
+
+    #[tokio::test]
+    async fn create_audio_track_from_source() {
+        let _factory = crate::peer_connection_factory::PeerConnectionFactory::default();
+        let _source = NativeAudioSource::new(AudioSourceOptions::default(), 48000, 2, 100);
+        let _track = _factory.create_audio_track("audio_track_1", _source);
+        println!("Created audio track: {:?}", _track.id());
+        assert_eq!(_track.id(), "audio_track_1");
+        assert_eq!(_track.enabled(), true);
+        _track.set_enabled(true);
+        assert_eq!(_track.state(), crate::media_stream_track::RtcTrackState::Live);
+    }
 }

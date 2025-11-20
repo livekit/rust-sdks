@@ -15,8 +15,8 @@
 use std::fmt::Debug;
 
 use crate::{
-    sys,
     media_stream_track::{media_stream_track, RtcTrackState},
+    sys,
 };
 
 #[derive(Clone)]

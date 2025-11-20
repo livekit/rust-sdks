@@ -65,33 +65,36 @@ class NativeAudioSink : public webrtc::RefCountInterface {
   InternalSink internal_sink_;
 };
 
-class AudioTrack : public webrtc::RefCountInterface {
+class AudioTrack : public MediaStreamTrack {
  public:
   explicit AudioTrack(webrtc::scoped_refptr<webrtc::AudioTrackInterface> track)
-      : track_(track) {}
+      : MediaStreamTrack(track) {}
 
   ~AudioTrack() override {
     webrtc::MutexLock lock(&mutex_);
     for (auto& sink : sinks_) {
-      track_->RemoveSink(sink->audio_track_sink());
+      audio_track()->RemoveSink(sink->audio_track_sink());
     }
   }
 
   void add_sink(const webrtc::scoped_refptr<NativeAudioSink>& sink) const {
     webrtc::MutexLock lock(&mutex_);
-    track_->AddSink(sink->audio_track_sink());
+    audio_track()->AddSink(sink->audio_track_sink());
     sinks_.push_back(sink);
   }
 
   void remove_sink(const webrtc::scoped_refptr<NativeAudioSink>& sink) const {
     webrtc::MutexLock lock(&mutex_);
-    track_->RemoveSink(sink->audio_track_sink());
+    audio_track()->RemoveSink(sink->audio_track_sink());
     sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
+  }
+
+  webrtc::AudioTrackInterface* audio_track() const {
+    return reinterpret_cast<webrtc::AudioTrackInterface*>(track());
   }
 
  private:
   mutable webrtc::Mutex mutex_;
-  webrtc::scoped_refptr<webrtc::AudioTrackInterface> track_;
   mutable std::vector<webrtc::scoped_refptr<NativeAudioSink>> sinks_
       RTC_GUARDED_BY(mutex_);
 };
@@ -181,6 +184,8 @@ class AudioTrackSource : public webrtc::RefCountInterface {
   uint32_t sample_rate() const { return source_->sample_rate_; }
 
   uint32_t num_channels() const { return source_->num_channels_; }
+
+  webrtc::AudioSourceInterface* audio_source() const { return source_.get(); }
 
   webrtc::scoped_refptr<InternalSource> get() const;
 

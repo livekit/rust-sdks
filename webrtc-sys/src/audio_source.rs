@@ -15,7 +15,6 @@
 //use livekit_protocol::enum_dispatch;
 
 use crate::{enum_dispatch, sys::lkAudioSourceOptions};
-use tokio::sync::oneshot;
 
 #[derive(Default, Debug)]
 pub struct AudioSourceOptions {
@@ -404,13 +403,9 @@ mod tests {
             _source.clear_buffer();
 
             let mut audio_frame = AudioFrame::new(48000, 2, 4800);
-            audio_frame.data
-                .to_mut()
-                .iter_mut()
-                .enumerate()
-                .for_each(|(i, sample)| {
-                    *sample = (i as i16) % 100;
-                });
+            audio_frame.data.to_mut().iter_mut().enumerate().for_each(|(i, sample)| {
+                *sample = (i as i16) % 100;
+            });
             _source.capture_frame(&audio_frame).await.unwrap();
 
             println!("Audio source sample rate: {}, num channels: {}", sampe_rate, num_channels);

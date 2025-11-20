@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{env};
+use std::env;
 
 fn main() {
     if env::var("DOCS_RS").is_ok() {
@@ -42,4 +42,3 @@ fn main() {
         webrtc_sys_build::link_static_library(&webrtc_dir);
     }
 }
-

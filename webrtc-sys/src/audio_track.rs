@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
+use std::{fmt::Debug, sync::Arc};
 
 use crate::{
+    audio_source::native::NativeAudioSink,
     media_stream_track::{media_stream_track, RtcTrackState},
     sys,
 };
@@ -26,6 +27,21 @@ pub struct RtcAudioTrack {
 
 impl RtcAudioTrack {
     media_stream_track!();
+
+    pub fn add_sink(&self, sink: Arc<NativeAudioSink>) {
+        unsafe {
+            sys::lkAudioTrackAddSink(self.ffi.as_ptr(), sink.ffi.as_ptr() as *mut std::ffi::c_void);
+        }
+    }
+
+    pub fn remove_sink(&self, sink: Arc<NativeAudioSink>) {
+        unsafe {
+            sys::lkAudioTrackRemoveSink(
+                self.ffi.as_ptr(),
+                sink.ffi.as_ptr() as *mut std::ffi::c_void,
+            );
+        }
+    }
 }
 
 impl Debug for RtcAudioTrack {

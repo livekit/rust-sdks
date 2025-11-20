@@ -24,6 +24,8 @@ class MediaStreamTrack : public webrtc::RefCountInterface {
     return static_cast<lkRtcTrackState>(track_->state());
   }
 
+  webrtc::MediaStreamTrackInterface* track() const { return track_.get(); }
+
  private:
   webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track_;
 };

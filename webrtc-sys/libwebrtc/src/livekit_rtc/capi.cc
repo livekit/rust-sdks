@@ -409,8 +409,7 @@ lkRtcTrackState lkMediaStreamTrackGetState(lkMediaStreamTrack* track) {
   return static_cast<lkRtcTrackState>(
       reinterpret_cast<livekit::MediaStreamTrack*>(track)->state());
 }
-lkMediaStreamTrackKind lkMediaStreamTrackGetKind(
-    lkMediaStreamTrack* track) {
+lkMediaStreamTrackKind lkMediaStreamTrackGetKind(lkMediaStreamTrack* track) {
   auto kind = reinterpret_cast<livekit::MediaStreamTrack*>(track)->kind();
   if (kind == "audio") {
     return lkMediaStreamTrackKind::LK_MEDIA_STREAM_TRACK_KIND_AUDIO;
@@ -421,4 +420,22 @@ lkMediaStreamTrackKind lkMediaStreamTrackGetKind(
   } else {
     return lkMediaStreamTrackKind::LK_MEDIA_STREAM_TRACK_KIND_UNKNOWN;
   }
+}
+
+lkRtcAudioTrack* lkPeerFactoryCreateAudioTrack(lkPeerFactory* factory,
+                                               const char* id,
+                                               lkAudioTrackSource* source) {
+  return reinterpret_cast<livekit::PeerFactory*>(factory)->CreateAudioTrack(
+      id, source);
+}
+
+void lkAudioTrackAddSink(lkAudioTrackSource* source, lkNativeAudioSink* sink) {
+  reinterpret_cast<livekit::AudioTrackSource*>(source)->get()->AddSink(
+      reinterpret_cast<livekit::NativeAudioSink*>(sink)->audio_track_sink());
+  
+}
+
+void lkAudioTrackRemoveSink(lkAudioTrackSource* source, lkNativeAudioSink* sink) {
+  reinterpret_cast<livekit::AudioTrackSource*>(source)->get()->RemoveSink(
+      reinterpret_cast<livekit::NativeAudioSink*>(sink)->audio_track_sink());
 }

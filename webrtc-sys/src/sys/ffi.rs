@@ -17,6 +17,7 @@ pub type lkRtcAudioTrack = ::std::os::raw::c_void;
 pub type lkVideoTrackSource = ::std::os::raw::c_void;
 pub type lkAudioTrackSource = ::std::os::raw::c_void;
 pub type lkNativeAudioSink = ::std::os::raw::c_void;
+pub type lkNativeAudioStream = ::std::os::raw::c_void;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkIceTransportType {
@@ -648,4 +649,17 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn lkMediaStreamTrackGetKind(track: *mut lkMediaStreamTrack) -> lkMediaStreamTrackKind;
+}
+unsafe extern "C" {
+    pub fn lkPeerFactoryCreateAudioTrack(
+        factory: *mut lkPeerFactory,
+        id: *const ::std::os::raw::c_char,
+        source: *mut lkAudioTrackSource,
+    ) -> *mut lkRtcAudioTrack;
+}
+unsafe extern "C" {
+    pub fn lkAudioTrackAddSink(source: *mut lkAudioTrackSource, sink: *mut lkNativeAudioSink);
+}
+unsafe extern "C" {
+    pub fn lkAudioTrackRemoveSink(source: *mut lkAudioTrackSource, sink: *mut lkNativeAudioSink);
 }

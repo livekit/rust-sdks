@@ -28,6 +28,7 @@ typedef void lkRtcAudioTrack;
 typedef void lkVideoTrackSource;
 typedef void lkAudioTrackSource;
 typedef void lkNativeAudioSink;
+typedef void lkNativeAudioStream;
 
 typedef enum {
   LK_ICE_TRANSPORT_TYPE_NONE,
@@ -349,12 +350,11 @@ LK_EXPORT int lkAudioTrackSourceAddSink(lkAudioTrackSource* source,
 LK_EXPORT int lkAudioTrackSourceRemoveSink(lkAudioTrackSource* source,
                                            lkNativeAudioSink* sink);
 
-
 LK_EXPORT int lkMediaStreamTrackGetIdLength(lkMediaStreamTrack* track);
 
 LK_EXPORT int lkMediaStreamTrackGetId(lkMediaStreamTrack* track,
-                                       char* buffer,
-                                       int bufferSize);
+                                      char* buffer,
+                                      int bufferSize);
 
 LK_EXPORT bool lkMediaStreamTrackIsEnabled(lkMediaStreamTrack* track);
 
@@ -363,9 +363,19 @@ LK_EXPORT void lkMediaStreamTrackSetEnabled(lkMediaStreamTrack* track,
 
 LK_EXPORT lkRtcTrackState lkMediaStreamTrackGetState(lkMediaStreamTrack* track);
 
-LK_EXPORT lkMediaStreamTrackKind lkMediaStreamTrackGetKind(
-    lkMediaStreamTrack* track);
+LK_EXPORT lkMediaStreamTrackKind
+    lkMediaStreamTrackGetKind(lkMediaStreamTrack* track);
 
+LK_EXPORT lkRtcAudioTrack* lkPeerFactoryCreateAudioTrack(lkPeerFactory* factory,
+                                              const char* id,
+                                              lkAudioTrackSource* source);
+
+
+LK_EXPORT void lkAudioTrackAddSink(lkAudioTrackSource* source,
+                                        lkNativeAudioSink* sink);
+
+LK_EXPORT void lkAudioTrackRemoveSink(lkAudioTrackSource* source,
+                                           lkNativeAudioSink* sink);
 
 #ifdef __cplusplus
 }

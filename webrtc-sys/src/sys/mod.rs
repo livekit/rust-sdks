@@ -70,10 +70,8 @@ mod tests {
     ) {
         println!("CreateSdp - OnSuccess: {:?} ", desc);
         let peer = _userdata as *mut lkPeer;
-        let set_sdp_observer = lkSetSdpObserver {
-            onSuccess: Some(setSdpOnSuccess),
-            onFailure: Some(setSdpOnFailure),
-        };
+        let set_sdp_observer =
+            lkSetSdpObserver { onSuccess: Some(setSdpOnSuccess), onFailure: Some(setSdpOnFailure) };
         unsafe {
             assert!(lkSetLocalDescription(peer, desc, &set_sdp_observer, std::ptr::null_mut()));
         }
@@ -86,7 +84,7 @@ mod tests {
 
     // Set SDP observer
     #[allow(non_snake_case)]
-    extern "C" fn setSdpOnSuccess(_userdata: *mut ::std::os::raw::c_void ) {
+    extern "C" fn setSdpOnSuccess(_userdata: *mut ::std::os::raw::c_void) {
         println!(" SetSDP - OnSuccess");
     }
 
@@ -96,10 +94,7 @@ mod tests {
     }
 
     #[allow(non_snake_case)]
-    extern "C" fn onIceConnectionChange(
-        state: lkIceState,
-        _userdata: *mut ::std::os::raw::c_void,
-    ) {
+    extern "C" fn onIceConnectionChange(state: lkIceState, _userdata: *mut ::std::os::raw::c_void) {
         println!("OnIceConnectionChange: {:?}", state);
     }
 
@@ -148,11 +143,7 @@ mod tests {
             let peer = lkCreatePeer(factory, &rtc_config, &observer, std::ptr::null_mut());
 
             let label = std::ffi::CString::new("test_data_channel").unwrap();
-            let init = lkDataChannelInit {
-                ordered: true,
-                reliable: true,
-                maxRetransmits: -1,
-            };
+            let init = lkDataChannelInit { ordered: true, reliable: true, maxRetransmits: -1 };
 
             let _ = lkCreateDataChannel(peer, label.as_ptr(), &init);
 
