@@ -1,5 +1,5 @@
 module livekit_uniffiFFI {
-    header "livekit_uniffiFFI.h"
+    header "module.h"
     export *
     use "Darwin"
     use "_Builtin_stdbool"
