@@ -25,7 +25,7 @@ skip_core_tasks = true
 [tasks.build.env.TARGET]
 value = "${CARGO_MAKE_RUST_TARGET_TRIPLE}"
 condition = { env_not_set = ["TARGET"] }
-# Set to target triple of the current platform is not explicitly set.
+# Set to target triple of the current platform if not explicitly set.
 
 [tasks.build]
 clear = true
