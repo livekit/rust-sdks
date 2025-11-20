@@ -8,12 +8,15 @@ At this stage in development, this interface will not attempt to replace the exi
 
 - [x] Access token generation and verification
 
-## Generating bindings
+## Tasks
 
-Use the _bindgen.sh_ script to generate language bindings for Swift, Kotlin, and Python.
+Binding generation and multi-platform builds are handled by [_cargo-make_](https://github.com/sagiegurari/cargo-make)—please install on your system before proceeding. For a full list of available tasks, see [_Makefile.toml_](./Makefile.toml) or run `cargo make --list-all-steps`. The most important tasks are summarized below:
 
-Later, this script will integrate community binding generators to support more languages.
+### Swift
 
-## Python test
+Generate Swift bindings and build a multi-platform XCFramework:
+```
+cargo make xcframework
+```
 
-See the _python_test_ for a simple example of consuming the generated bindings. You will need to manually copy the compiled _livlivekit_uniffi_ to the same directory as the generated Python bindings before running—this will be automated shortly.
+TODO: other languages
