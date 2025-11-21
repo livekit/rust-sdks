@@ -28,7 +28,7 @@ use regex::Regex;
 use reqwest::StatusCode;
 
 pub const SCRATH_PATH: &str = "livekit_webrtc";
-pub const WEBRTC_TAG: &str = "webrtc-0001d84";
+pub const WEBRTC_TAG: &str = "webrtc-0001d84-2";
 pub const IGNORE_DEFINES: [&str; 2] = ["CR_CLANG_REVISION", "CR_XCODE_VERSION"];
 
 pub fn target_os() -> String {
@@ -118,14 +118,19 @@ pub fn webrtc_dir() -> path::PathBuf {
 pub fn webrtc_defines() -> Vec<(String, Option<String>)> {
     // read preprocessor definitions from webrtc.ninja
     let defines_re = Regex::new(r"-D(\w+)(?:=([^\s]+))?").unwrap();
+    let mut files = vec![webrtc_dir().join("webrtc.ninja")];
     // include desktop_capture.ninja to avoid ABI mismatch for DesktopCaptureOptions due to WEBRTC_USE_X11 missing
-    let files = vec![webrtc_dir().join("webrtc.ninja"), webrtc_dir().join("desktop_capture.ninja")];
+    // libwebrtc does not implement desktop capture on Android
+    if env::var("CARGO_CFG_TARGET_OS").unwrap() != "android" {
+        files.push(webrtc_dir().join("desktop_capture.ninja"));
+    }
 
     let mut seen = HashSet::new();
     let mut vec = Vec::new();
 
     for path in files {
-        let gni = fs::File::open(path).unwrap();
+        let gni = fs::File::open(&path)
+            .unwrap_or_else(|e| panic!("Could not open ninja file: {path:?}\n{e:?}"));
 
         let mut defines_line = String::default();
         io::BufReader::new(gni).read_line(&mut defines_line).unwrap();

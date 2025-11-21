@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 tokio = { version = "1", features = ["full"] }
 env_logger = "0.10"
-livekit = { workspace = true, features = ["native-tls"] }
+livekit = { workspace = true }
 livekit-api = { workspace = true }
 log = "0.4"
 clap = { version = "4.0", features = ["derive"] }
