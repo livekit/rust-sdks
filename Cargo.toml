@@ -23,6 +23,7 @@ members = [
     "examples/play_from_disk",
     "examples/rpc",
     "examples/save_to_disk",
+    "examples/screensharing",
     "examples/send_bytes",
     "examples/webhooks",
     "examples/wgpu_room",

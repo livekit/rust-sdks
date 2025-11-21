@@ -83,7 +83,20 @@ jobs:
         run: |
           sudo apt update -y
           # libasound2-dev is needed for local_audio example
-          sudo apt install -y libasound2-dev libssl-dev libx11-dev libgl1-mesa-dev libxext-dev
+          # libdrm, libgbm, libxfixes, libxdamage, libxrandr, libxcomposite and libglib are needed for DesktopCapturer
+          sudo apt install -y \
+            libasound2-dev \
+            libssl-dev \
+            libx11-dev \
+            libgl1-mesa-dev \
+            libxext-dev \
+            libdrm-dev \
+            libgbm-dev \
+            libxfixes-dev \
+            libxdamage-dev \
+            libxrandr-dev \
+            libxcomposite-dev \
+            libglib2.0-dev
 
       - name: Install VA-API/NVIDIA drivers for linux x64 build
         if: ${{ matrix.os == 'ubuntu-latest'}}
