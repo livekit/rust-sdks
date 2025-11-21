@@ -31,4 +31,7 @@ protoc \
     $PROTOCOL/livekit_room.proto \
     $PROTOCOL/livekit_webhook.proto \
     $PROTOCOL/livekit_sip.proto \
-    $PROTOCOL/livekit_models.proto
+    $PROTOCOL/livekit_models.proto \
+    $PROTOCOL/livekit_connector.proto \
+    $PROTOCOL/livekit_connector_whatsapp.proto \
+    $PROTOCOL/livekit_connector_twilio.proto
