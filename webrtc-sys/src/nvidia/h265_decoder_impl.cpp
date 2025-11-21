@@ -12,47 +12,6 @@
 
 namespace webrtc {
 
-// Fallback converter for P016 (16-bit NV12-like) to I420 (8-bit).
-// Downshifts 16-bit components to 8-bit by discarding the lower 8 bits.
-static int P016ToI420Fallback(const uint16_t* src_y,
-                              int src_stride_y_bytes,
-                              const uint16_t* src_uv,
-                              int src_stride_uv_bytes,
-                              uint8_t* dst_y,
-                              int dst_stride_y,
-                              uint8_t* dst_u,
-                              int dst_stride_u,
-                              uint8_t* dst_v,
-                              int dst_stride_v,
-                              int width,
-                              int height) {
-  for (int y = 0; y < height; ++y) {
-    const uint16_t* src_row = reinterpret_cast<const uint16_t*>(
-        reinterpret_cast<const uint8_t*>(src_y) + y * src_stride_y_bytes);
-    uint8_t* dst_row = dst_y + y * dst_stride_y;
-    for (int x = 0; x < width; ++x) {
-      dst_row[x] = static_cast<uint8_t>(src_row[x] >> 8);
-    }
-  }
-
-  const int chroma_height = height / 2;
-  const int chroma_width = width / 2;
-  for (int y = 0; y < chroma_height; ++y) {
-    const uint16_t* src_uv_row = reinterpret_cast<const uint16_t*>(
-        reinterpret_cast<const uint8_t*>(src_uv) + y * src_stride_uv_bytes);
-    uint8_t* dst_u_row = dst_u + y * dst_stride_u;
-    uint8_t* dst_v_row = dst_v + y * dst_stride_v;
-    for (int x = 0; x < chroma_width; ++x) {
-      const uint16_t u16 = src_uv_row[2 * x + 0];
-      const uint16_t v16 = src_uv_row[2 * x + 1];
-      dst_u_row[x] = static_cast<uint8_t>(u16 >> 8);
-      dst_v_row[x] = static_cast<uint8_t>(v16 >> 8);
-    }
-  }
-
-  return 0;
-}
-
 static ColorSpace ExtractColorSpaceFromFormat(const CUVIDEOFORMAT& format) {
   return ColorSpace(
       static_cast<ColorSpace::PrimaryID>(
@@ -152,10 +111,9 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
 
   is_configured_decoder_ = true;
 
-  const cudaVideoSurfaceFormat output_format = decoder_->GetOutputFormat();
-  if (output_format != cudaVideoSurfaceFormat_NV12 &&
-      output_format != cudaVideoSurfaceFormat_P016) {
-    RTC_LOG(LS_ERROR) << "not supported output format: " << output_format;
+  if (decoder_->GetOutputFormat() != cudaVideoSurfaceFormat_NV12) {
+    RTC_LOG(LS_ERROR) << "not supported output format: "
+                      << decoder_->GetOutputFormat();
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
 
@@ -172,30 +130,13 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
         buffer_pool_.CreateI420Buffer(decoder_->GetWidth(),
                                       decoder_->GetHeight());
 
-    int result = 0;
-    if (output_format == cudaVideoSurfaceFormat_NV12) {
-      result = libyuv::NV12ToI420(
-          pFrame, decoder_->GetDeviceFramePitch(),
-          pFrame + decoder_->GetHeight() * decoder_->GetDeviceFramePitch(),
-          decoder_->GetDeviceFramePitch(), i420_buffer->MutableDataY(),
-          i420_buffer->StrideY(), i420_buffer->MutableDataU(),
-          i420_buffer->StrideU(), i420_buffer->MutableDataV(),
-          i420_buffer->StrideV(), decoder_->GetWidth(),
-          decoder_->GetHeight());
-    } else {
-      // P016 output: use local 16->8 downshift and deinterleave UV.
-      result = P016ToI420Fallback(
-          reinterpret_cast<const uint16_t*>(pFrame),
-          decoder_->GetDeviceFramePitch(),
-          reinterpret_cast<const uint16_t*>(pFrame +
-                                            decoder_->GetHeight() *
-                                                decoder_->GetDeviceFramePitch()),
-          decoder_->GetDeviceFramePitch(), i420_buffer->MutableDataY(),
-          i420_buffer->StrideY(), i420_buffer->MutableDataU(),
-          i420_buffer->StrideU(), i420_buffer->MutableDataV(),
-          i420_buffer->StrideV(), decoder_->GetWidth(),
-          decoder_->GetHeight());
-    }
+    int result = libyuv::NV12ToI420(
+        pFrame, decoder_->GetDeviceFramePitch(),
+        pFrame + decoder_->GetHeight() * decoder_->GetDeviceFramePitch(),
+        decoder_->GetDeviceFramePitch(), i420_buffer->MutableDataY(),
+        i420_buffer->StrideY(), i420_buffer->MutableDataU(),
+        i420_buffer->StrideU(), i420_buffer->MutableDataV(),
+        i420_buffer->StrideV(), decoder_->GetWidth(), decoder_->GetHeight());
 
     if (result) {
       RTC_LOG(LS_INFO) << "libyuv::NV12ToI420 failed. error:" << result;
@@ -209,7 +150,7 @@ int32_t NvidiaH265DecoderImpl::Decode(const EncodedImage& input_image,
                                    .build();
 
     std::optional<int32_t> decodetime;
-    std::optional<int> qp;
+    std::optional<int> qp;  // Not parsed for H265 currently
     decoded_complete_callback_->Decoded(decoded_frame, decodetime, qp);
   }
 
