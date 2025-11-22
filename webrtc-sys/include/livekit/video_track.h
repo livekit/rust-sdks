@@ -99,11 +99,13 @@ class VideoTrackSource {
     bool remote() const override;
     VideoResolution video_resolution() const;
     bool on_captured_frame(const webrtc::VideoFrame& frame);
+    void set_is_screencast(bool is_screencast);
 
    private:
     mutable webrtc::Mutex mutex_;
     webrtc::TimestampAligner timestamp_aligner_;
     VideoResolution resolution_;
+    bool is_screencast_;
   };
 
  public:
@@ -115,6 +117,8 @@ class VideoTrackSource {
       const;  // frames pushed from Rust (+interior mutability)
 
   webrtc::scoped_refptr<InternalSource> get() const;
+
+  void set_is_screencast(bool is_screencast) const;
 
  private:
   webrtc::scoped_refptr<InternalSource> source_;
