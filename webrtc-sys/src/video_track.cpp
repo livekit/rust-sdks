@@ -48,9 +48,10 @@ VideoTrack::~VideoTrack() {
 
 void VideoTrack::add_sink(const std::shared_ptr<NativeVideoSink>& sink) const {
   webrtc::MutexLock lock(&mutex_);
-  track()->AddOrUpdateSink(sink.get(),
-                           webrtc::VideoSinkWants());  // TODO(theomonnom): Expose
-                                                    // VideoSinkWants to Rust?
+  track()->AddOrUpdateSink(
+      sink.get(),
+      webrtc::VideoSinkWants());  // TODO(theomonnom): Expose
+                                  // VideoSinkWants to Rust?
   sinks_.push_back(sink);
 }
 
@@ -106,12 +107,20 @@ std::shared_ptr<NativeVideoSink> new_native_video_sink(
 
 VideoTrackSource::InternalSource::InternalSource(
     const VideoResolution& resolution)
-    : webrtc::AdaptedVideoTrackSource(4), resolution_(resolution) {}
+    : webrtc::AdaptedVideoTrackSource(4),
+      resolution_(resolution),
+      is_screencast_(false) {}
 
 VideoTrackSource::InternalSource::~InternalSource() {}
 
 bool VideoTrackSource::InternalSource::is_screencast() const {
-  return false;
+  webrtc::MutexLock lock(&mutex_);
+  return is_screencast_;
+}
+
+void VideoTrackSource::InternalSource::set_is_screencast(bool is_screencast) {
+  webrtc::MutexLock lock(&mutex_);
+  is_screencast_ = is_screencast;
 }
 
 std::optional<bool> VideoTrackSource::InternalSource::needs_denoising() const {
@@ -187,6 +196,10 @@ bool VideoTrackSource::on_captured_frame(
     const std::unique_ptr<VideoFrame>& frame) const {
   auto rtc_frame = frame->get();
   return source_->on_captured_frame(rtc_frame);
+}
+
+void VideoTrackSource::set_is_screencast(bool is_screencast) const {
+  source_->set_is_screencast(is_screencast);
 }
 
 webrtc::scoped_refptr<VideoTrackSource::InternalSource> VideoTrackSource::get()
