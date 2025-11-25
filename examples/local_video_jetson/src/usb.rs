@@ -51,7 +51,7 @@ async fn main() -> Result<()> {
          appsink name=sink max-buffers=2 drop=true sync=false",
         args.device, width, height, fps
     );
-    let pipeline = gst::parse::launch(&pipeline_str)?
+    let pipeline = gst::parse_launch(&pipeline_str)?
         .downcast::<gst::Pipeline>()
         .expect("pipeline");
     let sink = pipeline
@@ -75,11 +75,14 @@ async fn main() -> Result<()> {
     }
     #[cfg(not(all(feature = "dmabuf", target_os = "linux")))]
     let mut pusher = {
-        let mut p = CpuNv12Pusher::new(width, height, info.stride(0) as u32, info.stride(1) as u32);
+        let strides = info.stride();
+        let stride_y = strides[0] as u32;
+        let stride_uv = strides[1] as u32;
+        let mut p = CpuNv12Pusher::new(width, height, stride_y, stride_uv);
         // process first sample
         {
             let buffer = sample.buffer().ok_or_else(|| anyhow::anyhow!("no buffer"))?;
-            let vframe = gst_video::VideoFrameRef::from_buffer_readable(buffer, &info)
+            let vframe = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
                 .map_err(|_| anyhow::anyhow!("map frame readable"))?;
             let y = vframe.plane_data(0).ok_or_else(|| anyhow::anyhow!("no Y plane"))?;
             let uv = vframe.plane_data(1).ok_or_else(|| anyhow::anyhow!("no UV plane"))?;
@@ -104,7 +107,7 @@ async fn main() -> Result<()> {
         }
         #[cfg(not(all(feature = "dmabuf", target_os = "linux")))]
         {
-            let vframe = gst_video::VideoFrameRef::from_buffer_readable(buffer, &info)
+            let vframe = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
                 .map_err(|_| anyhow::anyhow!("map frame readable"))?;
             let y = vframe.plane_data(0).ok_or_else(|| anyhow::anyhow!("no Y plane"))?;
             let uv = vframe.plane_data(1).ok_or_else(|| anyhow::anyhow!("no UV plane"))?;

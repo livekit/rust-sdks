@@ -60,7 +60,7 @@ pub unsafe fn push_dmabuf_nv12(
     buffer: &gst::BufferRef,
 ) -> anyhow::Result<()> {
     // Extract VideoMeta (strides/offsets).
-    let vmeta = gst_video::VideoMeta::from_buffer_readable(buffer)
+    let vmeta = gst_video::VideoMeta::from_buffer_ref_readable(buffer)
         .ok_or_else(|| anyhow::anyhow!("no VideoMeta on buffer"))?;
     let stride_y = vmeta.stride(0) as u32;
     let stride_uv = vmeta.stride(1) as u32;
