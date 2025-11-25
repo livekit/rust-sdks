@@ -7,6 +7,9 @@
  * found in the LICENSE.txt file.
  */
 
+#define lr x30
+#define ip0 x16
+
   .section .note.GNU-stack,"",@progbits
 
   .data
@@ -28,131 +31,51 @@ _libnvcuvid_so_tramp_table:
 _libnvcuvid_so_save_regs_and_resolve:
   .cfi_startproc
 
-#define PUSH_REG(reg) pushq %reg ; .cfi_adjust_cfa_offset 8; .cfi_rel_offset reg, 0
-#define POP_REG(reg) popq %reg ; .cfi_adjust_cfa_offset -8; .cfi_restore reg
-
-#define DEC_STACK(d) subq $d, %rsp; .cfi_adjust_cfa_offset d
-#define INC_STACK(d) addq $d, %rsp; .cfi_adjust_cfa_offset -d
-
-#define PUSH_MMX_REG(reg) DEC_STACK(8); movq %reg, (%rsp); .cfi_rel_offset reg, 0
-#define POP_MMX_REG(reg) movq (%rsp), %reg; .cfi_restore reg; INC_STACK(8)
-
-#define PUSH_XMM_REG(reg) DEC_STACK(16); movdqa %reg, (%rsp); .cfi_rel_offset reg, 0
-#define POP_XMM_REG(reg) movdqa (%rsp), %reg; .cfi_restore reg; INC_STACK(16)
-
-// TODO: cfi_offset/cfi_restore
-#define PUSH_YMM_REG(reg) DEC_STACK(32); vmovdqu %reg, (%rsp)
-#define POP_YMM_REG(reg) vmovdqu (%rsp), %reg; INC_STACK(32)
-
-// TODO: cfi_offset/cfi_restore
-#define PUSH_ZMM_REG(reg) DEC_STACK(64); vmovdqu32 %reg, (%rsp)
-#define POP_ZMM_REG(reg) vmovdqu32 (%rsp), %reg; INC_STACK(64)
-
   // Slow path which calls dlsym, taken only on first call.
-  // All registers are stored to handle arbitrary calling conventions
-  // (except x87 FPU registers which do not have to be preserved).
-  // For Dwarf directives, read https://www.imperialviolet.org/2017/01/18/cfi.html.
+  // Registers are saved according to "Procedure Call Standard for the Arm® 64-bit Architecture".
+  // For DWARF directives, read https://www.imperialviolet.org/2017/01/18/cfi.html.
 
-  .cfi_def_cfa_offset 8  // Return address
+  // Stack is aligned at 16 bytes
 
-  PUSH_REG(rdi)  // 16
-  mov 0x10(%rsp), %rdi
-  PUSH_REG(rbx)
-  PUSH_REG(rbx)  // 16
-  PUSH_REG(rcx)
-  PUSH_REG(rdx)  // 16
-  PUSH_REG(rbp)
-  PUSH_REG(rsi)  // 16
-  PUSH_REG(r8)
-  PUSH_REG(r9)  // 16
-  PUSH_REG(r10)
-  PUSH_REG(r11)  // 16
-  PUSH_REG(r12)
-  PUSH_REG(r13)  // 16
-  PUSH_REG(r14)
-  PUSH_REG(r15)  // 16
+#define PUSH_PAIR(reg1, reg2) stp reg1, reg2, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset reg1, 0; .cfi_rel_offset reg2, 8
+#define POP_PAIR(reg1, reg2) ldp reg1, reg2, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore reg2; .cfi_restore reg1
 
-  // Maybe use cpuid instead of macro to detect current vector size...
-#ifdef __AVX512F__
-  PUSH_ZMM_REG(zmm0)
-  PUSH_ZMM_REG(zmm1)
-  PUSH_ZMM_REG(zmm2)
-  PUSH_ZMM_REG(zmm3)
-  PUSH_ZMM_REG(zmm4)
-  PUSH_ZMM_REG(zmm5)
-  PUSH_ZMM_REG(zmm6)
-  PUSH_ZMM_REG(zmm7)
-#elif defined __AVX__
-  PUSH_YMM_REG(ymm0)
-  PUSH_YMM_REG(ymm1)
-  PUSH_YMM_REG(ymm2)
-  PUSH_YMM_REG(ymm3)
-  PUSH_YMM_REG(ymm4)
-  PUSH_YMM_REG(ymm5)
-  PUSH_YMM_REG(ymm6)
-  PUSH_YMM_REG(ymm7)
-#elif defined __SSE__
-  PUSH_XMM_REG(xmm0)
-  PUSH_XMM_REG(xmm1)
-  PUSH_XMM_REG(xmm2)
-  PUSH_XMM_REG(xmm3)
-  PUSH_XMM_REG(xmm4)
-  PUSH_XMM_REG(xmm5)
-  PUSH_XMM_REG(xmm6)
-  PUSH_XMM_REG(xmm7)
-#endif
+#define PUSH_WIDE_PAIR(reg1, reg2) stp reg1, reg2, [sp, #-32]!; .cfi_adjust_cfa_offset 32; .cfi_rel_offset reg1, 0; .cfi_rel_offset reg2, 16
+#define POP_WIDE_PAIR(reg1, reg2) ldp reg1, reg2, [sp], #32; .cfi_adjust_cfa_offset -32; .cfi_restore reg2; .cfi_restore reg1
 
-  // MMX registers are not used to pass arguments so we do not save them
+  // Save only arguments (and lr)
+  PUSH_PAIR(x0, x1)
+  PUSH_PAIR(x2, x3)
+  PUSH_PAIR(x4, x5)
+  PUSH_PAIR(x6, x7)
+  PUSH_PAIR(x8, lr)
 
-  // Stack is just 8-byte aligned but callee will re-align to 16
-  call _libnvcuvid_so_tramp_resolve
+  ldr x0, [sp, #80]  // 16*5
 
-#ifdef __AVX512F__
-  POP_ZMM_REG(zmm7)
-  POP_ZMM_REG(zmm6)
-  POP_ZMM_REG(zmm5)
-  POP_ZMM_REG(zmm4)
-  POP_ZMM_REG(zmm3)
-  POP_ZMM_REG(zmm2)
-  POP_ZMM_REG(zmm1)
-  POP_ZMM_REG(zmm0)  // 16
-#elif defined __AVX__
-  POP_YMM_REG(ymm7)
-  POP_YMM_REG(ymm6)
-  POP_YMM_REG(ymm5)
-  POP_YMM_REG(ymm4)
-  POP_YMM_REG(ymm3)
-  POP_YMM_REG(ymm2)
-  POP_YMM_REG(ymm1)
-  POP_YMM_REG(ymm0)  // 16
-#elif defined __SSE__
-  POP_XMM_REG(xmm7)
-  POP_XMM_REG(xmm6)
-  POP_XMM_REG(xmm5)
-  POP_XMM_REG(xmm4)
-  POP_XMM_REG(xmm3)
-  POP_XMM_REG(xmm2)
-  POP_XMM_REG(xmm1)
-  POP_XMM_REG(xmm0)  // 16
-#endif
+  PUSH_WIDE_PAIR(q0, q1)
+  PUSH_WIDE_PAIR(q2, q3)
+  PUSH_WIDE_PAIR(q4, q5)
+  PUSH_WIDE_PAIR(q6, q7)
 
-  POP_REG(r15)
-  POP_REG(r14)  // 16
-  POP_REG(r13)
-  POP_REG(r12)  // 16
-  POP_REG(r11)
-  POP_REG(r10)  // 16
-  POP_REG(r9)
-  POP_REG(r8)  // 16
-  POP_REG(rsi)
-  POP_REG(rbp)  // 16
-  POP_REG(rdx)
-  POP_REG(rcx)  // 16
-  POP_REG(rbx)
-  POP_REG(rbx)  // 16
-  POP_REG(rdi)
+  // Stack is aligned at 16 bytes
 
-  ret
+  bl _libnvcuvid_so_tramp_resolve
+  mov ip0, x0
+
+  // TODO: pop pc?
+
+  POP_WIDE_PAIR(q6, q7)
+  POP_WIDE_PAIR(q4, q5)
+  POP_WIDE_PAIR(q2, q3)
+  POP_WIDE_PAIR(q0, q1)
+
+  POP_PAIR(x8, lr)
+  POP_PAIR(x6, x7)
+  POP_PAIR(x4, x5)
+  POP_PAIR(x2, x3)
+  POP_PAIR(x0, x1)
+
+  br lr
 
   .cfi_endproc
 
@@ -173,21 +96,28 @@ _libnvcuvid_so_save_regs_and_resolve:
 #endif
 NvToolCreateInterface:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+0(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+0(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+0
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+0]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $0
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 0 & 0xffff
+#if 0 > 0xffff
+  movk ip0, 0 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -207,21 +137,28 @@ NvToolCreateInterface:
 #endif
 NvToolDestroyInterface:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+8(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+8(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+8
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+8]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $1
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 1 & 0xffff
+#if 1 > 0xffff
+  movk ip0, 1 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -241,21 +178,28 @@ NvToolDestroyInterface:
 #endif
 NvToolGetApiFunctionCount:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+16(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+16(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+16
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+16]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $2
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 2 & 0xffff
+#if 2 > 0xffff
+  movk ip0, 2 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -275,21 +219,28 @@ NvToolGetApiFunctionCount:
 #endif
 NvToolGetApiID:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+24(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+24(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+24
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+24]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $3
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 3 & 0xffff
+#if 3 > 0xffff
+  movk ip0, 3 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -309,21 +260,28 @@ NvToolGetApiID:
 #endif
 NvToolGetApiNames:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+32(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+32(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+32
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+32]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $4
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 4 & 0xffff
+#if 4 > 0xffff
+  movk ip0, 4 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -343,21 +301,28 @@ NvToolGetApiNames:
 #endif
 NvToolGetInterface:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+40(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+40(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+40
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+40]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $5
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 5 & 0xffff
+#if 5 > 0xffff
+  movk ip0, 5 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -377,21 +342,28 @@ NvToolGetInterface:
 #endif
 NvToolSetApiID:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+48(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+48(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+48
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+48]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $6
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 6 & 0xffff
+#if 6 > 0xffff
+  movk ip0, 6 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -411,21 +383,28 @@ NvToolSetApiID:
 #endif
 NvToolSetInterface:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+56(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+56(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+56
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+56]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $7
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 7 & 0xffff
+#if 7 > 0xffff
+  movk ip0, 7 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -445,21 +424,28 @@ NvToolSetInterface:
 #endif
 __std_1U4S4U_X02:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+64(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+64(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+64
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+64]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $8
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 8 & 0xffff
+#if 8 > 0xffff
+  movk ip0, 8 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -479,21 +465,28 @@ __std_1U4S4U_X02:
 #endif
 __std_2U4S4U_X08:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+72(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+72(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+72
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+72]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $9
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 9 & 0xffff
+#if 9 > 0xffff
+  movk ip0, 9 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -513,21 +506,28 @@ __std_2U4S4U_X08:
 #endif
 __std_4U4S4U_X04:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+80(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+80(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+80
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+80]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $10
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 10 & 0xffff
+#if 10 > 0xffff
+  movk ip0, 10 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -547,21 +547,28 @@ __std_4U4S4U_X04:
 #endif
 cuvidConvertYUVToRGB:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+88(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+88(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+88
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+88]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $11
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 11 & 0xffff
+#if 11 > 0xffff
+  movk ip0, 11 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -581,21 +588,28 @@ cuvidConvertYUVToRGB:
 #endif
 cuvidConvertYUVToRGBArray:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+96(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+96(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+96
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+96]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $12
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 12 & 0xffff
+#if 12 > 0xffff
+  movk ip0, 12 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -615,21 +629,28 @@ cuvidConvertYUVToRGBArray:
 #endif
 cuvidCreateDecoder:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+104(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+104(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+104
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+104]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $13
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 13 & 0xffff
+#if 13 > 0xffff
+  movk ip0, 13 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -649,21 +670,28 @@ cuvidCreateDecoder:
 #endif
 cuvidCreateVideoParser:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+112(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+112(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+112
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+112]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $14
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 14 & 0xffff
+#if 14 > 0xffff
+  movk ip0, 14 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -683,21 +711,28 @@ cuvidCreateVideoParser:
 #endif
 cuvidCreateVideoSource:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+120(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+120(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+120
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+120]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $15
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 15 & 0xffff
+#if 15 > 0xffff
+  movk ip0, 15 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -717,21 +752,28 @@ cuvidCreateVideoSource:
 #endif
 cuvidCreateVideoSourceW:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+128(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+128(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+128
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+128]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $16
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 16 & 0xffff
+#if 16 > 0xffff
+  movk ip0, 16 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -751,21 +793,28 @@ cuvidCreateVideoSourceW:
 #endif
 cuvidCtxLock:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+136(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+136(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+136
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+136]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $17
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 17 & 0xffff
+#if 17 > 0xffff
+  movk ip0, 17 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -785,21 +834,28 @@ cuvidCtxLock:
 #endif
 cuvidCtxLockCreate:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+144(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+144(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+144
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+144]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $18
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 18 & 0xffff
+#if 18 > 0xffff
+  movk ip0, 18 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -819,21 +875,28 @@ cuvidCtxLockCreate:
 #endif
 cuvidCtxLockDestroy:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+152(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+152(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+152
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+152]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $19
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 19 & 0xffff
+#if 19 > 0xffff
+  movk ip0, 19 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -853,21 +916,28 @@ cuvidCtxLockDestroy:
 #endif
 cuvidCtxUnlock:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+160(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+160(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+160
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+160]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $20
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 20 & 0xffff
+#if 20 > 0xffff
+  movk ip0, 20 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -887,21 +957,28 @@ cuvidCtxUnlock:
 #endif
 cuvidDecodePicture:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+168(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+168(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+168
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+168]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $21
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 21 & 0xffff
+#if 21 > 0xffff
+  movk ip0, 21 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -921,21 +998,28 @@ cuvidDecodePicture:
 #endif
 cuvidDestroyDecoder:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+176(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+176(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+176
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+176]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $22
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 22 & 0xffff
+#if 22 > 0xffff
+  movk ip0, 22 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -955,21 +1039,28 @@ cuvidDestroyDecoder:
 #endif
 cuvidDestroyVideoParser:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+184(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+184(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+184
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+184]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $23
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 23 & 0xffff
+#if 23 > 0xffff
+  movk ip0, 23 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -989,21 +1080,28 @@ cuvidDestroyVideoParser:
 #endif
 cuvidDestroyVideoSource:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+192(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+192(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+192
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+192]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $24
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 24 & 0xffff
+#if 24 > 0xffff
+  movk ip0, 24 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1023,21 +1121,28 @@ cuvidDestroyVideoSource:
 #endif
 cuvidGetDecodeStatus:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+200(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+200(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+200
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+200]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $25
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 25 & 0xffff
+#if 25 > 0xffff
+  movk ip0, 25 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1057,21 +1162,28 @@ cuvidGetDecodeStatus:
 #endif
 cuvidGetDecoderCaps:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+208(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+208(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+208
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+208]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $26
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 26 & 0xffff
+#if 26 > 0xffff
+  movk ip0, 26 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1091,21 +1203,28 @@ cuvidGetDecoderCaps:
 #endif
 cuvidGetSourceAudioFormat:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+216(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+216(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+216
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+216]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $27
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 27 & 0xffff
+#if 27 > 0xffff
+  movk ip0, 27 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1125,21 +1244,28 @@ cuvidGetSourceAudioFormat:
 #endif
 cuvidGetSourceVideoFormat:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+224(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+224(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+224
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+224]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $28
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 28 & 0xffff
+#if 28 > 0xffff
+  movk ip0, 28 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1159,21 +1285,28 @@ cuvidGetSourceVideoFormat:
 #endif
 cuvidGetVideoSourceState:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+232(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+232(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+232
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+232]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $29
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 29 & 0xffff
+#if 29 > 0xffff
+  movk ip0, 29 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1193,21 +1326,28 @@ cuvidGetVideoSourceState:
 #endif
 cuvidMapVideoFrame:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+240(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+240(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+240
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+240]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $30
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 30 & 0xffff
+#if 30 > 0xffff
+  movk ip0, 30 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1227,21 +1367,28 @@ cuvidMapVideoFrame:
 #endif
 cuvidMapVideoFrame64:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+248(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+248(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+248
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+248]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $31
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 31 & 0xffff
+#if 31 > 0xffff
+  movk ip0, 31 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1261,21 +1408,28 @@ cuvidMapVideoFrame64:
 #endif
 cuvidParseVideoData:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+256(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+256(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+256
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+256]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $32
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 32 & 0xffff
+#if 32 > 0xffff
+  movk ip0, 32 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1295,21 +1449,28 @@ cuvidParseVideoData:
 #endif
 cuvidPrivateOp:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+264(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+264(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+264
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+264]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $33
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 33 & 0xffff
+#if 33 > 0xffff
+  movk ip0, 33 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1329,21 +1490,28 @@ cuvidPrivateOp:
 #endif
 cuvidReconfigureDecoder:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+272(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+272(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+272
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+272]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $34
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 34 & 0xffff
+#if 34 > 0xffff
+  movk ip0, 34 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1363,21 +1531,28 @@ cuvidReconfigureDecoder:
 #endif
 cuvidSetVideoSourceState:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+280(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+280(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+280
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+280]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $35
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 35 & 0xffff
+#if 35 > 0xffff
+  movk ip0, 35 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1397,21 +1572,28 @@ cuvidSetVideoSourceState:
 #endif
 cuvidUnmapVideoFrame:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+288(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+288(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+288
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+288]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $36
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 36 & 0xffff
+#if 36 > 0xffff
+  movk ip0, 36 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
 /*
@@ -1431,20 +1613,27 @@ cuvidUnmapVideoFrame:
 #endif
 cuvidUnmapVideoFrame64:
   .cfi_startproc
-  .cfi_def_cfa_offset 8  // Return address
-  // Intel opt. manual says to
-  // "make the fall-through code following a conditional branch be the likely target for a branch with a forward target"
-  // to hint static predictor.
-  cmpq $0, _libnvcuvid_so_tramp_table+296(%rip)
-  je 2f
+
 1:
-  jmp *_libnvcuvid_so_tramp_table+296(%rip)
+  // Load address
+  // TODO: can we do this faster on newer ARMs?
+  adrp ip0, _libnvcuvid_so_tramp_table+296
+  ldr ip0, [ip0, #:lo12:_libnvcuvid_so_tramp_table+296]
+ 
+  cbz ip0, 2f
+
+  // Fast path
+  br ip0
+
 2:
-  pushq $37
-  .cfi_adjust_cfa_offset 8
-  call _libnvcuvid_so_save_regs_and_resolve
-  addq $8, %rsp
-  .cfi_adjust_cfa_offset -8
-  jmp *%rax
+  // Slow path
+  mov ip0, 37 & 0xffff
+#if 37 > 0xffff
+  movk ip0, 37 >> 16, lsl #16
+#endif
+  stp ip0, lr, [sp, #-16]!; .cfi_adjust_cfa_offset 16; .cfi_rel_offset lr, 8
+  bl _libnvcuvid_so_save_regs_and_resolve
+  ldp xzr, lr, [sp], #16; .cfi_adjust_cfa_offset -16; .cfi_restore lr
+  br ip0
   .cfi_endproc
 
