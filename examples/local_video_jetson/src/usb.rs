@@ -3,6 +3,7 @@ use clap::Parser;
 use gstreamer as gst;
 use gstreamer_app as gst_app;
 use gstreamer_video as gst_video;
+use gstreamer::prelude::*;
 use livekit::prelude::*;
 use log::{info, warn};
 
@@ -84,8 +85,8 @@ async fn main() -> Result<()> {
             let buffer = sample.buffer().ok_or_else(|| anyhow::anyhow!("no buffer"))?;
             let vframe = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
                 .map_err(|_| anyhow::anyhow!("map frame readable"))?;
-            let y = vframe.plane_data(0).ok_or_else(|| anyhow::anyhow!("no Y plane"))?;
-            let uv = vframe.plane_data(1).ok_or_else(|| anyhow::anyhow!("no UV plane"))?;
+            let y = vframe.plane_data(0).map_err(|_| anyhow::anyhow!("no Y plane"))?;
+            let uv = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no UV plane"))?;
             p.push(&rtc_source, y, uv);
         }
         p
@@ -109,8 +110,8 @@ async fn main() -> Result<()> {
         {
             let vframe = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
                 .map_err(|_| anyhow::anyhow!("map frame readable"))?;
-            let y = vframe.plane_data(0).ok_or_else(|| anyhow::anyhow!("no Y plane"))?;
-            let uv = vframe.plane_data(1).ok_or_else(|| anyhow::anyhow!("no UV plane"))?;
+            let y = vframe.plane_data(0).map_err(|_| anyhow::anyhow!("no Y plane"))?;
+            let uv = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no UV plane"))?;
             pusher.push(&rtc_source, y, uv);
         }
     }
