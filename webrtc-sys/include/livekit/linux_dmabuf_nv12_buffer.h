@@ -46,8 +46,9 @@ class LinuxDmaBufNV12Buffer : public webrtc::VideoFrameBuffer {
       int stride_uv,
       int offset_y,
       int offset_uv) {
-    return rtc::make_ref_counted<LinuxDmaBufNV12Buffer>(
-        fd, width, height, stride_y, stride_uv, offset_y, offset_uv);
+    return rtc::scoped_refptr<LinuxDmaBufNV12Buffer>(
+        new rtc::RefCountedObject<LinuxDmaBufNV12Buffer>(
+            fd, width, height, stride_y, stride_uv, offset_y, offset_uv));
   }
 
   LinuxDmaBufNV12Buffer(int fd,
