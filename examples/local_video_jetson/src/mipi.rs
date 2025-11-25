@@ -63,7 +63,11 @@ async fn main() -> Result<()> {
     pipeline.set_state(gst::State::Playing)?;
 
     // Determine strides from negotiated caps on first sample
-    let sample = sink.pull_sample().map_err(|_| anyhow::anyhow!("failed to pull sample"))?;
+    let sample = match sink.try_pull_sample(gst::ClockTime::from_seconds(2)) {
+        Ok(s) => s,
+        Err(gst::FlowError::Eos) => return Err(anyhow::anyhow!("pipeline EOS")),
+        Err(err) => return Err(anyhow::anyhow!("appsink error: {:?}", err)),
+    };
     let caps = sample.caps().ok_or_else(|| anyhow::anyhow!("no caps"))?;
     let info = gst_video::VideoInfo::from_caps(caps)?;
     if info.format() != gst_video::VideoFormat::Nv12 {
@@ -96,7 +100,7 @@ async fn main() -> Result<()> {
 
     // Main loop
     loop {
-        let sample = match sink.pull_sample() {
+        let sample = match sink.try_pull_sample(gst::ClockTime::from_seconds(2)) {
             Ok(s) => s,
             Err(gst::FlowError::Eos) => break,
             Err(err) => return Err(anyhow::anyhow!("appsink error: {:?}", err)),
