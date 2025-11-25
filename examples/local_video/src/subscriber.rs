@@ -57,8 +57,56 @@ struct SharedYuv {
     dirty: bool,
 }
 
+#[derive(Clone)]
+struct SimulcastState {
+    available: bool,
+    publication: Option<livekit::room::publication::RemoteTrackPublication>,
+    requested_quality: Option<livekit::track::VideoQuality>,
+    active_quality: Option<livekit::track::VideoQuality>,
+    full_dims: Option<(u32, u32)>,
+}
+
+impl Default for SimulcastState {
+    fn default() -> Self {
+        Self {
+            available: false,
+            publication: None,
+            requested_quality: None,
+            active_quality: None,
+            full_dims: None,
+        }
+    }
+}
+
+fn infer_quality_from_dims(
+    full_w: u32,
+    _full_h: u32,
+    cur_w: u32,
+    _cur_h: u32,
+) -> livekit::track::VideoQuality {
+    if full_w == 0 {
+        return livekit::track::VideoQuality::High;
+    }
+    let ratio = cur_w as f32 / full_w as f32;
+    if ratio >= 0.75 {
+        livekit::track::VideoQuality::High
+    } else if ratio >= 0.45 {
+        livekit::track::VideoQuality::Medium
+    } else {
+        livekit::track::VideoQuality::Low
+    }
+}
+
+fn simulcast_state_full_dims(
+    state: &Arc<Mutex<SimulcastState>>,
+) -> Option<(u32, u32)> {
+    let sc = state.lock();
+    sc.full_dims
+}
+
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
+    simulcast: Arc<Mutex<SimulcastState>>,
 }
 
 impl eframe::App for VideoApp {
@@ -77,6 +125,35 @@ impl eframe::App for VideoApp {
             );
             ui.painter().add(cb);
         });
+
+        // Simulcast layer controls: bottom-left overlay
+        egui::Area::new("simulcast_controls")
+            .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
+            .interactable(true)
+            .show(ctx, |ui| {
+                let mut sc = self.simulcast.lock();
+                if !sc.available {
+                    return;
+                }
+                let selected = sc.requested_quality.or(sc.active_quality);
+                ui.horizontal(|ui| {
+                    let choices = [
+                        (livekit::track::VideoQuality::Low, "Low"),
+                        (livekit::track::VideoQuality::Medium, "Med"),
+                        (livekit::track::VideoQuality::High, "High"),
+                    ];
+                    for (q, label) in choices {
+                        let is_selected = selected.is_some_and(|s| s == q);
+                        let resp = ui.selectable_label(is_selected, label);
+                        if resp.clicked() {
+                            if let Some(ref pub_remote) = sc.publication {
+                                pub_remote.set_video_quality(q);
+                                sc.requested_quality = Some(q);
+                            }
+                        }
+                    }
+                });
+            });
 
         ctx.request_repaint_after(Duration::from_millis(16));
     }
@@ -138,8 +215,11 @@ async fn main() -> Result<()> {
     let rt = tokio::runtime::Handle::current();
     // Track currently active video track SID to handle unpublish/unsubscribe
     let active_sid = Arc::new(Mutex::new(None::<TrackSid>));
+    // Shared simulcast UI/control state
+    let simulcast = Arc::new(Mutex::new(SimulcastState::default()));
     tokio::spawn(async move {
         let active_sid = active_sid.clone();
+        let simulcast = simulcast.clone();
         let mut events = room.subscribe();
         info!("Subscribed to room events");
         while let Some(evt) = events.recv().await {
@@ -225,11 +305,25 @@ async fn main() -> Result<()> {
                         let active_sid2 = active_sid.clone();
                         let my_sid = sid.clone();
                         let rt_clone = rt.clone();
+                        // Initialize simulcast state for this publication
+                        {
+                            let mut sc = simulcast.lock();
+                            sc.available = publication.simulcasted();
+                            sc.full_dims = Some(publication.dimension());
+                            sc.requested_quality = None;
+                            sc.active_quality = None;
+                            sc.publication = match publication.clone() {
+                                livekit::room::publication::TrackPublication::Remote(rp) => Some(rp),
+                                _ => None,
+                            };
+                        }
+                        let simulcast2 = simulcast.clone();
                         std::thread::spawn(move || {
                             let mut sink = NativeVideoStream::new(video_track.rtc_track());
                             let mut frames: u64 = 0;
                             let mut last_log = Instant::now();
                             let mut logged_first = false;
+                            let mut last_stats = Instant::now();
                             // YUV buffers reused to avoid per-frame allocations
                             let mut y_buf: Vec<u8> = Vec::new();
                             let mut u_buf: Vec<u8> = Vec::new();
@@ -284,6 +378,27 @@ async fn main() -> Result<()> {
                                     frames = 0;
                                     last_log = Instant::now();
                                 }
+                                // Periodically infer active simulcast quality from inbound stats
+                                if last_stats.elapsed() >= Duration::from_secs(1) {
+                                    if let Ok(stats) = rt_clone.block_on(video_track.get_stats()) {
+                                        let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> = None;
+                                        for s in stats.iter() {
+                                            if let livekit::webrtc::stats::RtcStats::InboundRtp(i) = s {
+                                                if i.stream.kind == "video" {
+                                                    inbound = Some(i.clone());
+                                                }
+                                            }
+                                        }
+                                        if let Some(i) = inbound {
+                                            if let Some((fw, fh)) = simulcast_state_full_dims(&simulcast2) {
+                                                let q = infer_quality_from_dims(fw, fh, i.inbound.frame_width as u32, i.inbound.frame_height as u32);
+                                                let mut sc = simulcast2.lock();
+                                                sc.active_quality = Some(q);
+                                            }
+                                        }
+                                    }
+                                    last_stats = Instant::now();
+                                }
                             }
                             info!("Video stream ended for {}", my_sid);
                             // Clear active sid if still ours
@@ -301,6 +416,9 @@ async fn main() -> Result<()> {
                         info!("Video track unsubscribed ({}), clearing active sink", sid);
                         *active = None;
                     }
+                    // Clear simulcast state
+                    let mut sc = simulcast.lock();
+                    *sc = SimulcastState::default();
                 }
                 RoomEvent::TrackUnpublished { publication, .. } => {
                     let sid = publication.sid().clone();
@@ -309,6 +427,9 @@ async fn main() -> Result<()> {
                         info!("Video track unpublished ({}), clearing active sink", sid);
                         *active = None;
                     }
+                    // Clear simulcast state
+                    let mut sc = simulcast.lock();
+                    *sc = SimulcastState::default();
                 }
                 _ => {}
             }
@@ -316,7 +437,7 @@ async fn main() -> Result<()> {
     });
 
     // Start UI
-    let app = VideoApp { shared };
+    let app = VideoApp { shared, simulcast };
     let native_options = eframe::NativeOptions::default();
     eframe::run_native("LiveKit Video Subscriber", native_options, Box::new(|_| Ok::<Box<dyn eframe::App>, _>(Box::new(app))))?;
 
