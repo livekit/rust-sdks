@@ -20,6 +20,7 @@ members = [
     "examples/encrypted_text_stream",
     "examples/local_audio",
     "examples/local_video",
+    "examples/local_video_jetson",
     "examples/mobile",
     "examples/play_from_disk",
     "examples/rpc",
