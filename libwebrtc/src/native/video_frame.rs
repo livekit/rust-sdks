@@ -166,6 +166,35 @@ impl NativeBuffer {
         unsafe { vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _ }
     }
 
+    /// Creates a `NativeBuffer` from a Linux dmabuf-backed NV12 surface.
+    ///
+    /// Safety: `fd` must reference a valid dmabuf whose lifetime outlives usage of the buffer,
+    /// and the provided geometry/strides/offsets must exactly describe the underlying memory.
+    #[cfg(all(target_os = "linux", not(target_arch = "wasm32")))]
+    pub unsafe fn from_dmabuf_nv12(
+        fd: std::os::unix::io::RawFd,
+        width: u32,
+        height: u32,
+        stride_y: u32,
+        stride_uv: u32,
+        offset_y: u32,
+        offset_uv: u32,
+    ) -> vf::native::NativeBuffer {
+        vf::native::NativeBuffer {
+            handle: NativeBuffer {
+                sys_handle: vfb_sys::ffi::new_native_buffer_from_dmabuf_nv12(
+                    fd,
+                    width,
+                    height,
+                    stride_y,
+                    stride_uv,
+                    offset_y,
+                    offset_uv,
+                ),
+            },
+        }
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         &self.sys_handle
     }

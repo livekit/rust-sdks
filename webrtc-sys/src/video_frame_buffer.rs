@@ -30,6 +30,8 @@ pub mod ffi {
 
     unsafe extern "C++" {
         include!("livekit/video_frame_buffer.h");
+        #[cfg(target_os = "linux")]
+        include!("livekit/linux_dmabuf_nv12_buffer.h");
 
         type VideoFrameBuffer;
         type PlanarYuvBuffer;
@@ -149,6 +151,18 @@ pub mod ffi {
         unsafe fn native_buffer_to_platform_image_buffer(
             buffer: &UniquePtr<VideoFrameBuffer>,
         ) -> *mut PlatformImageBuffer;
+
+        // Linux-only: create a Native VideoFrameBuffer from a dmabuf-backed NV12 surface.
+        // Returns nullptr on unsupported platforms.
+        unsafe fn new_native_buffer_from_dmabuf_nv12(
+            fd: i32,
+            width: u32,
+            height: u32,
+            stride_y: u32,
+            stride_uv: u32,
+            offset_y: u32,
+            offset_uv: u32,
+        ) -> UniquePtr<VideoFrameBuffer>;
 
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;

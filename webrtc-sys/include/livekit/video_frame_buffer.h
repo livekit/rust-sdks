@@ -222,6 +222,17 @@ std::unique_ptr<NV12Buffer> new_nv12_buffer(int width, int height, int stride_y,
 std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(PlatformImageBuffer *buffer);
 PlatformImageBuffer* native_buffer_to_platform_image_buffer(const std::unique_ptr<VideoFrameBuffer> &);
 
+// Linux-only: create a Native buffer from a dmabuf-backed NV12 surface.
+// Returns nullptr on unsupported platforms.
+std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_dmabuf_nv12(
+    int fd,
+    unsigned int width,
+    unsigned int height,
+    unsigned int stride_y,
+    unsigned int stride_uv,
+    unsigned int offset_y,
+    unsigned int offset_uv);
+
 static const VideoFrameBuffer* yuv_to_vfb(const PlanarYuvBuffer* yuv) {
   return yuv;
 }

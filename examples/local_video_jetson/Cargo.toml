@@ -1,0 +1,33 @@
+[package]
+name = "local_video_jetson"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+livekit = { path = "../../livekit" }
+livekit-api = { path = "../../livekit-api" }
+gstreamer = "0.21"
+gstreamer-app = "0.21"
+gstreamer-video = "0.21"
+gstreamer-allocators = "0.21"
+
+[features]
+default = []
+# Placeholder for future dmabuf-native path once C++ bridge is implemented
+dmabuf = []
+
+[[bin]]
+name = "mipi"
+path = "src/mipi.rs"
+
+[[bin]]
+name = "usb"
+path = "src/usb.rs"
+
+

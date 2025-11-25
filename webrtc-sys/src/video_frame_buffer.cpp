@@ -359,4 +359,25 @@ PlatformImageBuffer* native_buffer_to_platform_image_buffer(
 
 #endif
 
+std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_dmabuf_nv12(
+    int fd,
+    unsigned int width,
+    unsigned int height,
+    unsigned int stride_y,
+    unsigned int stride_uv,
+    unsigned int offset_y,
+    unsigned int offset_uv) {
+#if defined(__linux__)
+  // Wrap the dmabuf in a kNative buffer that can be consumed by platform encoders;
+  // ToI420() falls back to mapping and converting using libyuv.
+  auto native = livekit::LinuxDmaBufNV12Buffer::Create(
+      fd, static_cast<int>(width), static_cast<int>(height),
+      static_cast<int>(stride_y), static_cast<int>(stride_uv),
+      static_cast<int>(offset_y), static_cast<int>(offset_uv));
+  return std::make_unique<VideoFrameBuffer>(native);
+#else
+  return nullptr;
+#endif
+}
+
 }  // namespace livekit
