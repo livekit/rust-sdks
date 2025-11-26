@@ -175,8 +175,9 @@ VideoEncoder::EncoderInfo V4L2H264EncoderImpl::GetEncoderInfo() const {
 int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
   // See NVIDIA Jetson V4L2 encoder docs:
   // https://docs.nvidia.com/jetson/l4t-multimedia/group__V4L2Enc.html
-  // Default device node on Jetson is typically "/dev/v4l2-nvenc", but allow
-  // override via LK_V4L2_ENCODER_DEVICE for flexibility.
+  // Default device node on Jetson Jetpack 6 is "/dev/v4l2-nvenc".
+  // Older Jetpack versions may use "/dev/nvhost-msenc".
+  // Allow override via LK_V4L2_ENCODER_DEVICE for flexibility.
   const char* dev_path = std::getenv("LK_V4L2_ENCODER_DEVICE");
   if (!dev_path) {
     dev_path = "/dev/v4l2-nvenc";

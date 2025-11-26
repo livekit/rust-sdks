@@ -8,7 +8,7 @@ use gstreamer_video as gst_video;
 use gstreamer_allocators as gst_alloc;
 use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::prelude::*;
-use livekit::webrtc::video_frame::{NV12Buffer, VideoFrame, VideoRotation};
+use livekit::webrtc::video_frame::{I420Buffer, NV12Buffer, VideoFrame, VideoRotation};
 #[cfg(all(feature = "dmabuf", target_os = "linux"))]
 use livekit::webrtc::video_frame::native::NativeBuffer;
 use livekit::webrtc::video_source::native::NativeVideoSource;
@@ -229,6 +229,35 @@ impl CpuNv12Pusher {
         // Copy with identical stride layout
         dst_y.copy_from_slice(plane_y);
         dst_uv.copy_from_slice(plane_uv);
+        self.frame.timestamp_us = self.start_ts.elapsed().as_micros() as i64;
+        rtc_source.capture_frame(&self.frame);
+    }
+}
+
+pub struct CpuI420Pusher {
+    pub width: u32,
+    pub height: u32,
+    pub frame: VideoFrame<I420Buffer>,
+    pub start_ts: Instant,
+}
+
+impl CpuI420Pusher {
+    pub fn new(width: u32, height: u32, stride_y: u32, stride_u: u32, stride_v: u32) -> Self {
+        let buffer = I420Buffer::with_strides(width, height, stride_y, stride_u, stride_v);
+        let frame = VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
+            timestamp_us: 0,
+            buffer,
+        };
+        Self { width, height, frame, start_ts: Instant::now() }
+    }
+
+    pub fn push(&mut self, rtc_source: &NativeVideoSource, plane_y: &[u8], plane_u: &[u8], plane_v: &[u8]) {
+        let (dst_y, dst_u, dst_v) = self.frame.buffer.data_mut();
+        // Copy with identical stride layout
+        dst_y.copy_from_slice(plane_y);
+        dst_u.copy_from_slice(plane_u);
+        dst_v.copy_from_slice(plane_v);
         self.frame.timestamp_us = self.start_ts.elapsed().as_micros() as i64;
         rtc_source.capture_frame(&self.frame);
     }

@@ -8,11 +8,11 @@ use log::{debug, info, warn};
 use std::time::{Duration, Instant};
 
 mod common;
-use common::{connect_and_publish, BaseArgs, CpuNv12Pusher};
+use common::{connect_and_publish, BaseArgs, CpuI420Pusher};
 
 #[derive(Copy, Clone, Debug, ValueEnum)]
 enum CaptureFormat {
-    Nv12,
+    I420,
     /// V4L2 fourcc 'YUYV' (GStreamer caps name 'YUY2')
     #[value(alias = "yuy2")]
     Yuyv,
@@ -75,7 +75,7 @@ struct Args {
     /// V4L2 device path
     #[arg(long, default_value = "/dev/video0")]
     device: String,
-    /// Capture format to request from the camera (nv12, yuyv, mjpg)
+    /// Capture format to request from the camera (i420, yuyv, mjpg)
     #[arg(long, value_enum, default_value = "mjpg")]
     format: CaptureFormat,
 }
@@ -126,11 +126,11 @@ async fn main() -> Result<()> {
     let mut info: Option<gst_video::VideoInfo> = None;
 
     match args.format {
-        CaptureFormat::Nv12 => {
-            // Request NV12 directly from the camera.
+        CaptureFormat::I420 => {
+            // Request I420 directly from the camera.
             let pipeline_str = format!(
                 "v4l2src device={} ! \
-                 video/x-raw,format=NV12,width={},height={},framerate={}/1 ! \
+                 video/x-raw,format=I420,width={},height={},framerate={}/1 ! \
                  appsink name=sink max-buffers=2 drop=true sync=false",
                 args.device, width, height, fps
             );
@@ -138,7 +138,7 @@ async fn main() -> Result<()> {
                 if let Some(sample) = try_start_and_sample(&pipeline, &sink, 5) {
                     if let Some(caps) = sample.caps() {
                         if let Ok(vi) = gst_video::VideoInfo::from_caps(caps) {
-                            info!("Using NV12 pipeline");
+                            info!("Using I420 pipeline");
                             active_pipeline = Some(pipeline);
                             active_sink = Some(sink);
                             info = Some(vi);
@@ -150,11 +150,11 @@ async fn main() -> Result<()> {
             }
         }
         CaptureFormat::Yuyv => {
-            // Explicit YUYV (YUY2) -> NV12 via videoconvert.
+            // Explicit YUYV (YUY2) -> I420 via videoconvert.
             let pipeline_str = format!(
                 "v4l2src device={} ! \
                  video/x-raw,format=YUY2,width={},height={},framerate={}/1 ! \
-                 videoconvert ! video/x-raw,format=NV12 ! \
+                 videoconvert ! video/x-raw,format=I420 ! \
                  appsink name=sink max-buffers=2 drop=true sync=false",
                 args.device, width, height, fps
             );
@@ -174,11 +174,11 @@ async fn main() -> Result<()> {
             }
         }
         CaptureFormat::Mjpg => {
-            // MJPG -> jpegdec -> NV12
+            // MJPG -> jpegdec -> I420
             let pipeline_str = format!(
                 "v4l2src device={} ! \
                  image/jpeg,width={},height={},framerate={}/1 ! \
-                 jpegdec ! videoconvert ! video/x-raw,format=NV12 ! \
+                 jpegdec ! videoconvert ! video/x-raw,format=I420 ! \
                  appsink name=sink max-buffers=2 drop=true sync=false",
                 args.device, width, height, fps
             );
@@ -228,23 +228,25 @@ async fn main() -> Result<()> {
         Some(s) => s,
         None => return Err(anyhow::anyhow!("pipeline EOS or timeout")),
     };
-    if info.format() != gst_video::VideoFormat::Nv12 {
+    if info.format() != gst_video::VideoFormat::I420 {
         warn!(
-            "Negotiated format is {:?}, converting as NV12 copy",
+            "Negotiated format is {:?}, converting as I420 copy",
             info.format()
         );
     }
-    // Create CPU NV12 pusher and process the first sample to initialize buffer layout.
+    // Create CPU I420 pusher and process the first sample to initialize buffer layout.
     let strides = info.stride();
     let stride_y = strides[0] as u32;
-    let stride_uv = strides[1] as u32;
+    let stride_u = strides[1] as u32;
+    let stride_v = strides[2] as u32;
     let mut pusher = {
-        let mut p = CpuNv12Pusher::new(width, height, stride_y, stride_uv);
+        let mut p = CpuI420Pusher::new(width, height, stride_y, stride_u, stride_v);
         let buffer = sample.buffer().ok_or_else(|| anyhow::anyhow!("no buffer"))?;
         let vframe = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
             .map_err(|_| anyhow::anyhow!("map frame readable"))?;
         let y = vframe.plane_data(0).map_err(|_| anyhow::anyhow!("no Y plane"))?;
-        let uv = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no UV plane"))?;
+        let u = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no U plane"))?;
+        let v = vframe.plane_data(2).map_err(|_| anyhow::anyhow!("no V plane"))?;
         let (min_y, max_y, mean_y) = luma_stats(y);
         info!(
             "First frame Y stats: min={}, max={}, mean={:.1} ({} bytes)",
@@ -253,11 +255,11 @@ async fn main() -> Result<()> {
             mean_y,
             y.len()
         );
-        p.push(&rtc_source, y, uv);
+        p.push(&rtc_source, y, u, v);
         p
     };
 
-    info!("USB V4L2 capture started: {} ({}) {}x{} @ {} fps", args.device, "NV12", width, height, fps);
+    info!("USB V4L2 capture started: {} ({}) {}x{} @ {} fps", args.device, "I420", width, height, fps);
 
     // Main loop
     let mut frames: u64 = 0;
@@ -272,8 +274,9 @@ async fn main() -> Result<()> {
         let vframe = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
             .map_err(|_| anyhow::anyhow!("map frame readable"))?;
         let y = vframe.plane_data(0).map_err(|_| anyhow::anyhow!("no Y plane"))?;
-        let uv = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no UV plane"))?;
-        pusher.push(&rtc_source, y, uv);
+        let u = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no U plane"))?;
+        let v = vframe.plane_data(2).map_err(|_| anyhow::anyhow!("no V plane"))?;
+        pusher.push(&rtc_source, y, u, v);
 
         frames += 1;
         if last_log.elapsed().as_secs() >= 2 {
