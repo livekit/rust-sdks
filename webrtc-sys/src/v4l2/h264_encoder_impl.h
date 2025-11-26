@@ -58,8 +58,6 @@ class V4L2H264EncoderImpl : public VideoEncoder {
 
   int fd_ = -1;
   bool v4l2_initialized_ = false;
-  uint32_t width_ = 0;
-  uint32_t height_ = 0;
   std::vector<V4L2Buffer> output_buffers_;
   std::vector<V4L2Buffer> capture_buffers_;
 
@@ -69,6 +67,9 @@ class V4L2H264EncoderImpl : public VideoEncoder {
   int DrainEncodedFrame(EncodedImage& encoded_image);
   void CleanupV4L2();
 #endif
+
+  uint32_t width_ = 0;
+  uint32_t height_ = 0;
 
   // Software fallback encoder (OpenH264, etc.) used when V4L2 is unavailable or fails.
   std::unique_ptr<VideoEncoder> fallback_encoder_;

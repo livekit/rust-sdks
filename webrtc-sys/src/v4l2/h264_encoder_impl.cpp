@@ -6,6 +6,7 @@
 #include "api/video/nv12_buffer.h"
 #include "api/video/video_frame_buffer.h"
 #include "api/video_codecs/sdp_video_format.h"
+#include "api/video_codecs/video_codec.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
 #if defined(WEBRTC_USE_H264)
 #include "api/video_codecs/video_encoder_factory_template_open_h264_adapter.h"
@@ -77,15 +78,7 @@ int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
 
   // Software fallback.
   SoftwareFactory factory;
-  auto original_format = webrtc::FuzzyMatchSdpVideoFormat(
-      factory.GetSupportedFormats(), format_);
-  if (!original_format) {
-    RTC_LOG(LS_ERROR)
-        << "V4L2H264EncoderImpl: requested format not supported by software "
-           "factory";
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-  fallback_encoder_ = factory.Create(env_, *original_format);
+  fallback_encoder_ = factory.Create(env_, format_);
   if (!fallback_encoder_) {
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
@@ -148,7 +141,7 @@ void V4L2H264EncoderImpl::SetRates(
   fallback_encoder_->SetRates(rc_parameters);
 }
 
-EncoderInfo V4L2H264EncoderImpl::GetEncoderInfo() const {
+VideoEncoder::EncoderInfo V4L2H264EncoderImpl::GetEncoderInfo() const {
   VideoEncoder::EncoderInfo info;
 #if defined(__linux__)
   if (v4l2_initialized_) {
