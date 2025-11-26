@@ -5,6 +5,7 @@ use gstreamer_app as gst_app;
 use gstreamer_video as gst_video;
 use gstreamer::prelude::*;
 use log::{info, warn};
+use std::time::Instant;
 
 mod common;
 use common::{connect_and_publish, BaseArgs, CpuNv12Pusher};
@@ -204,6 +205,8 @@ async fn main() -> Result<()> {
     info!("USB V4L2 capture started: {} ({}) {}x{} @ {} fps", args.device, "NV12", width, height, fps);
 
     // Main loop
+    let mut frames: u64 = 0;
+    let mut last_log = Instant::now();
     loop {
         let sample = match sink.try_pull_sample(gst::ClockTime::from_seconds(2)) {
             Some(s) => s,
@@ -215,6 +218,14 @@ async fn main() -> Result<()> {
         let y = vframe.plane_data(0).map_err(|_| anyhow::anyhow!("no Y plane"))?;
         let uv = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no UV plane"))?;
         pusher.push(&rtc_source, y, uv);
+
+        frames += 1;
+        if last_log.elapsed().as_secs() >= 2 {
+            let fps = frames as f64 / last_log.elapsed().as_secs_f64().max(0.001);
+            info!("USB capture pushing ~{:.1} fps ({} frames total)", fps, frames);
+            last_log = Instant::now();
+            frames = 0;
+        }
     }
 
     pipeline.set_state(gst::State::Null)?;
