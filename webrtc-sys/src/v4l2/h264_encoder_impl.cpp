@@ -203,14 +203,18 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
+  // Format hex values as strings since RTC_LOG doesn't support std::hex manipulator
+  char caps_hex[32], device_caps_hex[32];
+  snprintf(caps_hex, sizeof(caps_hex), "0x%08x", caps.capabilities);
+  snprintf(device_caps_hex, sizeof(device_caps_hex), "0x%08x", caps.device_caps);
+  
   RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: opened device " << dev_path
                    << ", driver=\"" << reinterpret_cast<const char*>(caps.driver)
                    << "\", card=\"" << reinterpret_cast<const char*>(caps.card)
                    << "\", bus_info=\""
                    << reinterpret_cast<const char*>(caps.bus_info) << "\""
-                   << ", capabilities=0x" << std::hex << caps.capabilities
-                   << ", device_caps=0x" << std::hex << caps.device_caps
-                   << std::dec;
+                   << ", capabilities=" << caps_hex
+                   << ", device_caps=" << device_caps_hex;
 
   const bool has_m2m_mplane =
       (caps.device_caps & V4L2_CAP_VIDEO_M2M_MPLANE) != 0 ||
