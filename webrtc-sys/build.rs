@@ -174,7 +174,8 @@ fn main() {
                     .flag("-DUSE_VAAPI_VIDEO_CODEC=1");
             }
 
-            if x86 || arm {
+            // NVENC is only supported on x86_64
+            if x86 {
                 let cuda_home = PathBuf::from(match env::var("CUDA_HOME") {
                     Ok(p) => p,
                     Err(_) => "/usr/local/cuda".to_owned(),
@@ -205,6 +206,22 @@ fn main() {
                         .flag("-DUSE_NVIDIA_VIDEO_CODEC=1");
                 } else {
                     println!("cargo:warning=cuda.h not found; building without hardware accelerated video codec support for NVidia GPUs");
+                }
+            }
+
+            // V4L2 encoder for Jetson (arm64)
+            if arm {
+                // Check if this is a Jetson device by looking for the encoder device
+                let jetson_device = Path::new("/dev/nvhost-msenc");
+                if jetson_device.exists() {
+                    builder
+                        .file("src/v4l2/v4l2_h264_encoder_impl.cpp")
+                        .file("src/v4l2/v4l2_h265_encoder_impl.cpp")
+                        .file("src/v4l2/v4l2_encoder_factory.cpp")
+                        .flag("-DUSE_V4L2_VIDEO_CODEC=1");
+                    println!("cargo:warning=Building with V4L2 encoder support for Jetson");
+                } else {
+                    println!("cargo:warning=Jetson device not detected; building without V4L2 encoder support");
                 }
             }
 

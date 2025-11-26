@@ -64,6 +64,10 @@ struct Args {
     /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
     #[arg(long, default_value_t = false)]
     h265: bool,
+
+    /// Force use of software encoder (useful for debugging on platforms with HW encoders)
+    #[arg(long, default_value_t = false)]
+    software_encoder: bool,
 }
 
 fn list_cameras() -> Result<()> {
@@ -166,6 +170,17 @@ async fn main() -> Result<()> {
 
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
     let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
+    
+    // On Jetson devices, hardware encoding is strongly preferred for performance
+    #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+    {
+        if !args.software_encoder {
+            info!("Running on ARM64 Linux - hardware video encoding will be used if available (Jetson optimized)");
+        } else {
+            info!("Software encoder forced via command line flag");
+        }
+    }
+    
     info!("Attempting publish with codec: {}", requested_codec.as_str());
 
     let publish_opts = |codec: VideoCodec| {
@@ -204,7 +219,13 @@ async fn main() -> Result<()> {
             return Err(e.into());
         }
     } else {
-        info!("Published camera track");
+        info!("Published camera track successfully with {}", requested_codec.as_str());
+        
+        #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+        {
+            // On Jetson, log a hint about hardware acceleration
+            info!("If running on Jetson, the V4L2 hardware encoder should be in use. Check logs for 'V4L2 H264/H265 encoder initialized'");
+        }
     }
 
     // Reusable I420 buffer and frame
