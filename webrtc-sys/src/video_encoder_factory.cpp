@@ -66,7 +66,9 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
   factories_.push_back(CreateAndroidVideoEncoderFactory());
 #endif
 
-#if defined(USE_NVIDIA_VIDEO_CODEC)
+// On Linux x86 we may have both VAAPI and NVIDIA NVENC.
+// On Linux arm64 (Jetson, etc.), prefer V4L2 / software paths instead of NVENC.
+#if defined(USE_NVIDIA_VIDEO_CODEC) && !defined(__aarch64__) && !defined(__arm__)
   if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
     factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
   } else {
@@ -78,7 +80,7 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
     }
 #endif
 
-#if defined(USE_NVIDIA_VIDEO_CODEC)
+#if defined(USE_NVIDIA_VIDEO_CODEC) && !defined(__aarch64__) && !defined(__arm__)
   }
 #endif
 }
