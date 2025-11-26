@@ -45,6 +45,9 @@
 #include "vaapi/vaapi_encoder_factory.h"
 #endif
 
+// V4L2-backed encoder factory (currently Linux/ARM only).
+#include "v4l2/v4l2_encoder_factory.h"
+
 namespace livekit {
 
 using Factory = webrtc::VideoEncoderFactoryTemplate<
@@ -65,6 +68,11 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
 #ifdef WEBRTC_ANDROID
   factories_.push_back(CreateAndroidVideoEncoderFactory());
 #endif
+
+  // Prefer a V4L2-backed encoder on Linux/ARM (Jetson, etc.) when available.
+  if (webrtc::V4L2VideoEncoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::V4L2VideoEncoderFactory>());
+  }
 
 // On Linux x86 we may have both VAAPI and NVIDIA NVENC.
 // On Linux arm64 (Jetson, etc.), prefer V4L2 / software paths instead of NVENC.

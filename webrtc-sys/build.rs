@@ -201,6 +201,9 @@ fn main() {
                         .file("src/nvidia/implib/libcuda.so.tramp.S")
                         .file("src/nvidia/implib/libnvcuvid.so.init.c")
                         .file("src/nvidia/implib/libnvcuvid.so.tramp.S")
+                        // V4L2 encoder scaffold (currently software-backed).
+                        .file("src/v4l2/h264_encoder_impl.cpp")
+                        .file("src/v4l2/v4l2_encoder_factory.cpp")
                         .flag("-Wno-deprecated-declarations")
                         .flag("-DUSE_NVIDIA_VIDEO_CODEC=1");
                 } else {
