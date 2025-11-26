@@ -96,9 +96,8 @@ int32_t V4L2H264EncoderImpl::RegisterEncodeCompleteCallback(
     EncodedImageCallback* callback) {
 #if defined(__linux__)
   if (v4l2_initialized_) {
-    // V4L2 path delivers encoded frames synchronously via EncodeWithV4L2,
-    // so we just store the callback pointer from the base class.
-    return VideoEncoder::RegisterEncodeCompleteCallback(callback);
+    encoded_image_callback_ = callback;
+    return WEBRTC_VIDEO_CODEC_OK;
   }
 #endif
   if (!fallback_encoder_) {
@@ -150,7 +149,7 @@ void V4L2H264EncoderImpl::SetRates(
 }
 
 EncoderInfo V4L2H264EncoderImpl::GetEncoderInfo() const {
-  EncoderInfo info;
+  VideoEncoder::EncoderInfo info;
 #if defined(__linux__)
   if (v4l2_initialized_) {
     info.implementation_name = "V4L2 H264 Encoder";
@@ -425,11 +424,11 @@ int V4L2H264EncoderImpl::EncodeWithV4L2(
   CodecSpecificInfo codec_specific;
   codec_specific.codecType = kVideoCodecH264;
 
-  if (!EncodedImageCallback()) {
+  if (!encoded_image_callback_) {
     return WEBRTC_VIDEO_CODEC_OK;
   }
-  auto result = EncodedImageCallback()->OnEncodedImage(encoded_image,
-                                                       &codec_specific);
+  auto result =
+      encoded_image_callback_->OnEncodedImage(encoded_image, &codec_specific);
   if (result.error != EncodedImageCallback::Result::OK) {
     return WEBRTC_VIDEO_CODEC_ERROR;
   }

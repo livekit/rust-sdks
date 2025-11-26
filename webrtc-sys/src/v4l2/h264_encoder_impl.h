@@ -11,6 +11,7 @@
 #include <memory>
 #include <vector>
 
+#include "api/environment/environment.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 
@@ -70,7 +71,10 @@ class V4L2H264EncoderImpl : public VideoEncoder {
 #endif
 
   // Software fallback encoder (OpenH264, etc.) used when V4L2 is unavailable or fails.
-  std::unique_ptr<webrtc::VideoEncoder> fallback_encoder_;
+  std::unique_ptr<VideoEncoder> fallback_encoder_;
+
+  // Callback used by both the V4L2 and fallback paths.
+  EncodedImageCallback* encoded_image_callback_ = nullptr;
 };
 
 }  // namespace webrtc
