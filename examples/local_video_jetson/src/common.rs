@@ -109,6 +109,21 @@ pub async fn connect_and_publish(
         .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
         .expect("LIVEKIT_API_SECRET must be provided via --api-secret or env");
 
+    // Log auth inputs (mask secret)
+    let masked_secret = {
+        let s = &api_secret;
+        let len = s.len();
+        if len <= 8 {
+            "*".repeat(len)
+        } else {
+            format!("{}{}{}", &s[..4], "*".repeat(len.saturating_sub(8)), &s[len - 4..])
+        }
+    };
+    info!(
+        "Auth config: url='{}', api_key='{}', api_secret='{}'",
+        url, api_key, masked_secret
+    );
+
     let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
         .with_identity(&args.identity)
         .with_name(&args.identity)
