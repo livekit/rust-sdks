@@ -393,6 +393,9 @@ int V4L2H264EncoderImpl::EncodeWithV4L2(
   // For now we always send frames; keyframe control could be added via
   // encoder-specific controls.
   if (output_buffers_.empty() || capture_buffers_.empty()) {
+    RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: EncodeWithV4L2 called but buffers not ready: "
+                      << "output_buffers=" << output_buffers_.size() 
+                      << " capture_buffers=" << capture_buffers_.size();
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
@@ -401,6 +404,13 @@ int V4L2H264EncoderImpl::EncodeWithV4L2(
   if (!i420) {
     RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: unable to get I420 buffer";
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+  }
+  
+  // Log frame dimensions to verify they match encoder initialization
+  if (encode_count % 60 == 1) {
+    RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: Frame dimensions: " 
+                     << i420->width() << "x" << i420->height()
+                     << " (encoder expects " << width_ << "x" << height_ << ")";
   }
 
   // Get a free OUTPUT buffer by dequeuing; if none are queued yet, re-use index 0.
@@ -411,10 +421,11 @@ int V4L2H264EncoderImpl::EncodeWithV4L2(
   buf_out.length = 3;
   buf_out.m.planes = planes_out;
 
-  if (xioctl(fd_, VIDIOC_DQBUF, &buf_out) < 0) {
+  int dqbuf_result = xioctl(fd_, VIDIOC_DQBUF, &buf_out);
+  if (dqbuf_result < 0) {
     if (errno != EAGAIN) {
       RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: DQBUF OUTPUT failed: "
-                        << strerror(errno);
+                        << strerror(errno) << " (errno=" << errno << ")";
       return WEBRTC_VIDEO_CODEC_ERROR;
     }
     // No queued output buffers yet; use index 0.
@@ -422,7 +433,8 @@ int V4L2H264EncoderImpl::EncodeWithV4L2(
   }
 
   if (buf_out.index >= output_buffers_.size()) {
-    RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: invalid OUTPUT buffer index";
+    RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: invalid OUTPUT buffer index "
+                      << buf_out.index << " (have " << output_buffers_.size() << " buffers)";
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
@@ -457,9 +469,16 @@ int V4L2H264EncoderImpl::EncodeWithV4L2(
   planes_out[1].bytesused = cw * ch;
   planes_out[2].bytesused = cw * ch;
 
+  if (encode_count % 60 == 1) {
+    RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: QBUF OUTPUT buffer index=" << buf_out.index
+                     << " planes: Y=" << planes_out[0].bytesused 
+                     << " U=" << planes_out[1].bytesused
+                     << " V=" << planes_out[2].bytesused;
+  }
+
   if (xioctl(fd_, VIDIOC_QBUF, &buf_out) < 0) {
     RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: QBUF OUTPUT failed: "
-                      << strerror(errno);
+                      << strerror(errno) << " (errno=" << errno << ")";
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
@@ -467,6 +486,9 @@ int V4L2H264EncoderImpl::EncodeWithV4L2(
   EncodedImage encoded_image;
   int drain_res = DrainEncodedFrame(encoded_image);
   if (drain_res != WEBRTC_VIDEO_CODEC_OK) {
+    if (drain_res != WEBRTC_VIDEO_CODEC_NO_OUTPUT && encode_count % 60 == 1) {
+      RTC_LOG(LS_WARNING) << "V4L2H264EncoderImpl: DrainEncodedFrame returned " << drain_res;
+    }
     return drain_res;
   }
 
@@ -504,11 +526,12 @@ int V4L2H264EncoderImpl::DrainEncodedFrame(EncodedImage& encoded_image) {
       return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
     }
     RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: DQBUF CAPTURE failed: "
-                      << strerror(errno);
+                      << strerror(errno) << " (errno=" << errno << ")";
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
   if (buf_cap.index >= capture_buffers_.size()) {
-    RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: invalid CAPTURE buffer index";
+    RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: invalid CAPTURE buffer index "
+                      << buf_cap.index << " (have " << capture_buffers_.size() << " buffers)";
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
