@@ -16,6 +16,7 @@ enum CaptureFormat {
     #[value(alias = "yuy2")]
     Yuyv,
     Mjpg,
+}
 
 fn build_pipeline(
     pipeline_str: &str,
