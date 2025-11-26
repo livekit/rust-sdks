@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use gstreamer as gst;
 use gstreamer_app as gst_app;
 use gstreamer_video as gst_video;
@@ -8,8 +8,14 @@ use log::{info, warn};
 
 mod common;
 use common::{connect_and_publish, BaseArgs, CpuNv12Pusher};
-#[cfg(all(feature = "dmabuf", target_os = "linux"))]
-use common::push_dmabuf_nv12;
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum CaptureFormat {
+    Nv12,
+    /// V4L2 fourcc 'YUYV' (GStreamer caps name 'YUY2')
+    #[value(alias = "yuy2")]
+    Yuyv,
+    Mjpg,
 
 fn build_pipeline(
     pipeline_str: &str,
@@ -47,6 +53,9 @@ struct Args {
     /// V4L2 device path
     #[arg(long, default_value = "/dev/video0")]
     device: String,
+    /// Capture format to request from the camera (nv12, yuyv, mjpg)
+    #[arg(long, value_enum, default_value = "mjpg")]
+    format: CaptureFormat,
 }
 
 #[tokio::main]
@@ -62,108 +71,81 @@ async fn main() -> Result<()> {
     // Connect and publish
     let (_room, rtc_source, _track) = connect_and_publish(&args.base, width, height).await?;
 
-    // Build pipelines in order of preference and fallback if the device does not support them.
-    // Many USB webcams output MJPG or YUY2; handle both robustly before failing.
+    // Build pipeline for the explicitly requested format.
     let mut active_pipeline: Option<gst::Pipeline> = None;
     let mut active_sink: Option<gst_app::AppSink> = None;
     let mut info: Option<gst_video::VideoInfo> = None;
-    let mut used_dmabuf = false;
 
-    // Candidate 1: dmabuf NV12 (zero-copy), only when compiled with dmabuf feature on Linux.
-    #[cfg(all(feature = "dmabuf", target_os = "linux"))]
-    {
-        let pipeline_str = format!(
-            "v4l2src device={} io-mode=dmabuf ! \
-             video/x-raw(memory:DMABuf),format=NV12,width={},height={},framerate={}/1 ! \
-             identity name=ident ! \
-             appsink name=sink max-buffers=2 drop=true sync=false",
-            args.device, width, height, fps
-        );
-        if let Ok((pipeline, sink)) = build_pipeline(&pipeline_str) {
-            if let Some(sample) = try_start_and_sample(&pipeline, &sink, 5) {
-                if let Some(caps) = sample.caps() {
-                    if let Ok(vi) = gst_video::VideoInfo::from_caps(caps) {
-                        info!("Using DMABUF NV12 pipeline");
-                        used_dmabuf = true;
-                        active_pipeline = Some(pipeline);
-                        active_sink = Some(sink);
-                        info = Some(vi);
+    match args.format {
+        CaptureFormat::Nv12 => {
+            // Request NV12 directly from the camera.
+            let pipeline_str = format!(
+                "v4l2src device={} ! \
+                 video/x-raw,format=NV12,width={},height={},framerate={}/1 ! \
+                 appsink name=sink max-buffers=2 drop=true sync=false",
+                args.device, width, height, fps
+            );
+            if let Ok((pipeline, sink)) = build_pipeline(&pipeline_str) {
+                if let Some(sample) = try_start_and_sample(&pipeline, &sink, 5) {
+                    if let Some(caps) = sample.caps() {
+                        if let Ok(vi) = gst_video::VideoInfo::from_caps(caps) {
+                            info!("Using NV12 pipeline");
+                            active_pipeline = Some(pipeline);
+                            active_sink = Some(sink);
+                            info = Some(vi);
+                        }
                     }
+                } else {
+                    let _ = pipeline.set_state(gst::State::Null);
                 }
             }
         }
-    }
-
-    // Candidate 2: system-memory raw -> NV12 via videoconvert.
-    if active_pipeline.is_none() {
-        let pipeline_str = format!(
-            "v4l2src device={} ! \
-             videoconvert ! video/x-raw,format=NV12,width={},height={},framerate={}/1 ! \
-             appsink name=sink max-buffers=2 drop=true sync=false",
-            args.device, width, height, fps
-        );
-        if let Ok((pipeline, sink)) = build_pipeline(&pipeline_str) {
-            if let Some(sample) = try_start_and_sample(&pipeline, &sink, 5) {
-                if let Some(caps) = sample.caps() {
-                    if let Ok(vi) = gst_video::VideoInfo::from_caps(caps) {
-                        info!("Using system-memory NV12 (videoconvert) pipeline");
-                        active_pipeline = Some(pipeline);
-                        active_sink = Some(sink);
-                        info = Some(vi);
+        CaptureFormat::Yuyv => {
+            // Explicit YUYV (YUY2) -> NV12 via videoconvert.
+            let pipeline_str = format!(
+                "v4l2src device={} ! \
+                 video/x-raw,format=YUY2,width={},height={},framerate={}/1 ! \
+                 videoconvert ! video/x-raw,format=NV12 ! \
+                 appsink name=sink max-buffers=2 drop=true sync=false",
+                args.device, width, height, fps
+            );
+            if let Ok((pipeline, sink)) = build_pipeline(&pipeline_str) {
+                if let Some(sample) = try_start_and_sample(&pipeline, &sink, 5) {
+                    if let Some(caps) = sample.caps() {
+                        if let Ok(vi) = gst_video::VideoInfo::from_caps(caps) {
+                            info!("Using YUYV (YUY2) decode pipeline");
+                            active_pipeline = Some(pipeline);
+                            active_sink = Some(sink);
+                            info = Some(vi);
+                        }
                     }
+                } else {
+                    let _ = pipeline.set_state(gst::State::Null);
                 }
-            } else {
-                let _ = pipeline.set_state(gst::State::Null);
             }
         }
-    }
-
-    // Candidate 3: explicit YUYV (YUY2) -> NV12 via videoconvert. Many cameras expose YUYV.
-    if active_pipeline.is_none() {
-        let pipeline_str = format!(
-            "v4l2src device={} ! \
-             video/x-raw,format=YUY2,width={},height={},framerate={}/1 ! \
-             videoconvert ! video/x-raw,format=NV12 ! \
-             appsink name=sink max-buffers=2 drop=true sync=false",
-            args.device, width, height, fps
-        );
-        if let Ok((pipeline, sink)) = build_pipeline(&pipeline_str) {
-            if let Some(sample) = try_start_and_sample(&pipeline, &sink, 5) {
-                if let Some(caps) = sample.caps() {
-                    if let Ok(vi) = gst_video::VideoInfo::from_caps(caps) {
-                        info!("Using YUYV (YUY2) decode pipeline");
-                        active_pipeline = Some(pipeline);
-                        active_sink = Some(sink);
-                        info = Some(vi);
+        CaptureFormat::Mjpg => {
+            // MJPG -> jpegdec -> NV12
+            let pipeline_str = format!(
+                "v4l2src device={} ! \
+                 image/jpeg,width={},height={},framerate={}/1 ! \
+                 jpegdec ! videoconvert ! video/x-raw,format=NV12 ! \
+                 appsink name=sink max-buffers=2 drop=true sync=false",
+                args.device, width, height, fps
+            );
+            if let Ok((pipeline, sink)) = build_pipeline(&pipeline_str) {
+                if let Some(sample) = try_start_and_sample(&pipeline, &sink, 5) {
+                    if let Some(caps) = sample.caps() {
+                        if let Ok(vi) = gst_video::VideoInfo::from_caps(caps) {
+                            info!("Using MJPG decode pipeline");
+                            active_pipeline = Some(pipeline);
+                            active_sink = Some(sink);
+                            info = Some(vi);
+                        }
                     }
+                } else {
+                    let _ = pipeline.set_state(gst::State::Null);
                 }
-            } else {
-                let _ = pipeline.set_state(gst::State::Null);
-            }
-        }
-    }
-
-    // Candidate 4: MJPG -> jpegdec -> NV12
-    if active_pipeline.is_none() {
-        let pipeline_str = format!(
-            "v4l2src device={} ! \
-             image/jpeg,width={},height={},framerate={}/1 ! \
-             jpegdec ! videoconvert ! video/x-raw,format=NV12 ! \
-             appsink name=sink max-buffers=2 drop=true sync=false",
-            args.device, width, height, fps
-        );
-        if let Ok((pipeline, sink)) = build_pipeline(&pipeline_str) {
-            if let Some(sample) = try_start_and_sample(&pipeline, &sink, 5) {
-                if let Some(caps) = sample.caps() {
-                    if let Ok(vi) = gst_video::VideoInfo::from_caps(caps) {
-                        info!("Using MJPG decode pipeline");
-                        active_pipeline = Some(pipeline);
-                        active_sink = Some(sink);
-                        info = Some(vi);
-                    }
-                }
-            } else {
-                let _ = pipeline.set_state(gst::State::Null);
             }
         }
     }
@@ -172,7 +154,11 @@ async fn main() -> Result<()> {
         Some(p) => p,
         None => {
             return Err(anyhow::anyhow!(
-                "No working pipeline produced frames (tried dmabuf, raw+convert, and MJPG)"
+                "Failed to negotiate requested format {:?} at {}x{} @ {} fps",
+                args.format,
+                width,
+                height,
+                fps
             ))
         }
     };
@@ -199,43 +185,20 @@ async fn main() -> Result<()> {
             info.format()
         );
     }
-    #[cfg(all(feature = "dmabuf", target_os = "linux"))]
-    let mut cpu_pusher_opt: Option<CpuNv12Pusher> = None;
-    #[cfg(not(all(feature = "dmabuf", target_os = "linux")))]
-    let mut cpu_pusher_opt: Option<CpuNv12Pusher> = None;
-    {
+    // Create CPU NV12 pusher and process the first sample to initialize buffer layout.
+    let strides = info.stride();
+    let stride_y = strides[0] as u32;
+    let stride_uv = strides[1] as u32;
+    let mut pusher = {
+        let mut p = CpuNv12Pusher::new(width, height, stride_y, stride_uv);
         let buffer = sample.buffer().ok_or_else(|| anyhow::anyhow!("no buffer"))?;
-        #[cfg(all(feature = "dmabuf", target_os = "linux"))]
-        if used_dmabuf {
-            unsafe {
-                let _ = push_dmabuf_nv12(&rtc_source, &info, buffer);
-            }
-        } else {
-            let strides = info.stride();
-            let stride_y = strides[0] as u32;
-            let stride_uv = strides[1] as u32;
-            let mut p = CpuNv12Pusher::new(width, height, stride_y, stride_uv);
-            let vframe = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
-                .map_err(|_| anyhow::anyhow!("map frame readable"))?;
-            let y = vframe.plane_data(0).map_err(|_| anyhow::anyhow!("no Y plane"))?;
-            let uv = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no UV plane"))?;
-            p.push(&rtc_source, y, uv);
-            cpu_pusher_opt = Some(p);
-        }
-        #[cfg(not(all(feature = "dmabuf", target_os = "linux")))]
-        {
-            let strides = info.stride();
-            let stride_y = strides[0] as u32;
-            let stride_uv = strides[1] as u32;
-            let mut p = CpuNv12Pusher::new(width, height, stride_y, stride_uv);
-            let vframe = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
-                .map_err(|_| anyhow::anyhow!("map frame readable"))?;
-            let y = vframe.plane_data(0).map_err(|_| anyhow::anyhow!("no Y plane"))?;
-            let uv = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no UV plane"))?;
-            p.push(&rtc_source, y, uv);
-            cpu_pusher_opt = Some(p);
-        }
-    }
+        let vframe = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
+            .map_err(|_| anyhow::anyhow!("map frame readable"))?;
+        let y = vframe.plane_data(0).map_err(|_| anyhow::anyhow!("no Y plane"))?;
+        let uv = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no UV plane"))?;
+        p.push(&rtc_source, y, uv);
+        p
+    };
 
     info!("USB V4L2 capture started: {} ({}) {}x{} @ {} fps", args.device, "NV12", width, height, fps);
 
@@ -246,30 +209,11 @@ async fn main() -> Result<()> {
             None => break,
         };
         let buffer = sample.buffer().ok_or_else(|| anyhow::anyhow!("no buffer"))?;
-        #[cfg(all(feature = "dmabuf", target_os = "linux"))]
-        if used_dmabuf {
-            unsafe {
-                let _ = push_dmabuf_nv12(&rtc_source, &info, buffer);
-            }
-        } else {
-            let vframe = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
-                .map_err(|_| anyhow::anyhow!("map frame readable"))?;
-            let y = vframe.plane_data(0).map_err(|_| anyhow::anyhow!("no Y plane"))?;
-            let uv = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no UV plane"))?;
-            if let Some(ref mut pusher) = cpu_pusher_opt {
-                pusher.push(&rtc_source, y, uv);
-            }
-        }
-        #[cfg(not(all(feature = "dmabuf", target_os = "linux")))]
-        {
-            let vframe = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
-                .map_err(|_| anyhow::anyhow!("map frame readable"))?;
-            let y = vframe.plane_data(0).map_err(|_| anyhow::anyhow!("no Y plane"))?;
-            let uv = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no UV plane"))?;
-            if let Some(ref mut pusher) = cpu_pusher_opt {
-                pusher.push(&rtc_source, y, uv);
-            }
-        }
+        let vframe = gst_video::VideoFrameRef::from_buffer_ref_readable(buffer, &info)
+            .map_err(|_| anyhow::anyhow!("map frame readable"))?;
+        let y = vframe.plane_data(0).map_err(|_| anyhow::anyhow!("no Y plane"))?;
+        let uv = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no UV plane"))?;
+        pusher.push(&rtc_source, y, uv);
     }
 
     pipeline.set_state(gst::State::Null)?;
