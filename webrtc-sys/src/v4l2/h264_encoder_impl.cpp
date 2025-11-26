@@ -6,8 +6,8 @@
 #include "api/video/nv12_buffer.h"
 #include "api/video/video_frame_buffer.h"
 #include "api/video_codecs/sdp_video_format.h"
-#include "api/video_codecs/video_codec.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
+#include "modules/video_coding/include/video_codec_interface.h"
 #if defined(WEBRTC_USE_H264)
 #include "api/video_codecs/video_encoder_factory_template_open_h264_adapter.h"
 #endif
