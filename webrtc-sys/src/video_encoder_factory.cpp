@@ -61,20 +61,24 @@ using Factory = webrtc::VideoEncoderFactoryTemplate<
     webrtc::LibvpxVp9EncoderTemplateAdapter>;
 
 VideoEncoderFactory::InternalFactory::InternalFactory() {
+  RTC_LOG(LS_WARNING) << "*** VideoEncoderFactory::InternalFactory CONSTRUCTOR START ***";
+
 #ifdef __APPLE__
   factories_.push_back(livekit::CreateObjCVideoEncoderFactory());
+  RTC_LOG(LS_WARNING) << "VideoEncoderFactory: Added Apple ObjC encoder factory";
 #endif
 
 #ifdef WEBRTC_ANDROID
   factories_.push_back(CreateAndroidVideoEncoderFactory());
+  RTC_LOG(LS_WARNING) << "VideoEncoderFactory: Added Android encoder factory";
 #endif
 
   // Prefer a V4L2-backed encoder on Linux/ARM (Jetson, etc.) when available.
   if (webrtc::V4L2VideoEncoderFactory::IsSupported()) {
-    RTC_LOG(LS_INFO) << "VideoEncoderFactory: Adding V4L2VideoEncoderFactory to encoder chain";
+    RTC_LOG(LS_WARNING) << "VideoEncoderFactory: V4L2 IS SUPPORTED - Adding V4L2VideoEncoderFactory to encoder chain";
     factories_.push_back(std::make_unique<webrtc::V4L2VideoEncoderFactory>());
   } else {
-    RTC_LOG(LS_INFO) << "VideoEncoderFactory: V4L2VideoEncoderFactory not supported on this platform";
+    RTC_LOG(LS_WARNING) << "VideoEncoderFactory: V4L2 NOT SUPPORTED on this platform";
   }
 
 // On Linux x86 we may have both VAAPI and NVIDIA NVENC.
@@ -123,12 +127,12 @@ std::unique_ptr<webrtc::VideoEncoder>
 VideoEncoderFactory::InternalFactory::Create(
     const webrtc::Environment& env,
     const webrtc::SdpVideoFormat& format) {
-  RTC_LOG(LS_INFO) << "VideoEncoderFactory::InternalFactory::Create requested for codec: " << format.name;
+  RTC_LOG(LS_WARNING) << "*** VideoEncoderFactory::InternalFactory::Create requested for codec: " << format.name;
   
   for (const auto& factory : factories_) {
     for (const auto& supported_format : factory->GetSupportedFormats()) {
       if (supported_format.IsSameCodec(format)) {
-        RTC_LOG(LS_INFO) << "VideoEncoderFactory: Creating encoder via hardware/platform-specific factory for " << format.name;
+        RTC_LOG(LS_WARNING) << "*** VideoEncoderFactory: Creating encoder via hardware/platform-specific factory for " << format.name;
         return factory->Create(env, format);
       }
     }
@@ -138,7 +142,7 @@ VideoEncoderFactory::InternalFactory::Create(
       webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(), format);
 
   if (original_format) {
-    RTC_LOG(LS_INFO) << "VideoEncoderFactory: Creating encoder via software factory for " << format.name;
+    RTC_LOG(LS_WARNING) << "*** VideoEncoderFactory: Creating encoder via SOFTWARE factory for " << format.name;
     return Factory().Create(env, *original_format);
   }
 

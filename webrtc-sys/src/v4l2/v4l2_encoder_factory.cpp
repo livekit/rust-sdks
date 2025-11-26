@@ -8,6 +8,7 @@
 namespace webrtc {
 
 V4L2VideoEncoderFactory::V4L2VideoEncoderFactory() {
+  RTC_LOG(LS_WARNING) << "*** V4L2VideoEncoderFactory CONSTRUCTOR CALLED ***";
   // Only advertise baseline H.264 for now.
   std::map<std::string, std::string> baselineParameters = {
       {"profile-level-id", "42e01f"},
@@ -23,9 +24,10 @@ bool V4L2VideoEncoderFactory::IsSupported() {
 #if defined(__linux__) && (defined(__aarch64__) || defined(__arm__))
   // On Linux/ARM we assume that a V4L2-backed encoder is desirable.
   // A more robust implementation could probe for specific M2M encoder nodes.
-  RTC_LOG(LS_INFO) << "V4L2VideoEncoderFactory considered supported on Linux/ARM";
+  RTC_LOG(LS_WARNING) << "V4L2VideoEncoderFactory::IsSupported() = TRUE (Linux ARM/ARM64 detected)";
   return true;
 #else
+  RTC_LOG(LS_WARNING) << "V4L2VideoEncoderFactory::IsSupported() = FALSE (Not Linux ARM/ARM64)";
   return false;
 #endif
 }
@@ -33,10 +35,10 @@ bool V4L2VideoEncoderFactory::IsSupported() {
 std::unique_ptr<VideoEncoder> V4L2VideoEncoderFactory::Create(
     const Environment& env,
     const SdpVideoFormat& format) {
-  RTC_LOG(LS_INFO) << "V4L2VideoEncoderFactory::Create called for codec: " << format.name;
+  RTC_LOG(LS_WARNING) << "*** V4L2VideoEncoderFactory::Create called for codec: " << format.name;
   for (const auto& supported_format : supported_formats_) {
     if (format.IsSameCodec(supported_format)) {
-      RTC_LOG(LS_INFO) << "V4L2VideoEncoderFactory: Creating V4L2H264EncoderImpl for " << format.name;
+      RTC_LOG(LS_WARNING) << "*** V4L2VideoEncoderFactory: Creating V4L2H264EncoderImpl for " << format.name;
       return std::make_unique<V4L2H264EncoderImpl>(env, format);
     }
   }
