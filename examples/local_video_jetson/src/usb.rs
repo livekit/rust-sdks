@@ -4,8 +4,8 @@ use gstreamer as gst;
 use gstreamer_app as gst_app;
 use gstreamer_video as gst_video;
 use gstreamer::prelude::*;
-use log::{info, warn};
-use std::time::Instant;
+use log::{debug, info, warn};
+use std::time::{Duration, Instant};
 
 mod common;
 use common::{connect_and_publish, BaseArgs, CpuNv12Pusher};
@@ -17,6 +17,26 @@ enum CaptureFormat {
     #[value(alias = "yuy2")]
     Yuyv,
     Mjpg,
+}
+
+fn luma_stats(y: &[u8]) -> (u8, u8, f32) {
+    if y.is_empty() {
+        return (0, 0, 0.0);
+    }
+    let mut min_v = u8::MAX;
+    let mut max_v = u8::MIN;
+    let mut sum: u64 = 0;
+    for &v in y {
+        if v < min_v {
+            min_v = v;
+        }
+        if v > max_v {
+            max_v = v;
+        }
+        sum += v as u64;
+    }
+    let mean = sum as f32 / y.len() as f32;
+    (min_v, max_v, mean)
 }
 
 fn build_pipeline(
@@ -71,7 +91,34 @@ async fn main() -> Result<()> {
     let fps = args.base.fps;
 
     // Connect and publish
-    let (_room, rtc_source, _track) = connect_and_publish(&args.base, width, height).await?;
+    let (_room, rtc_source, track) = connect_and_publish(&args.base, width, height).await?;
+
+    // Periodically log outbound stats (encoder, resolution, fps, bitrate)
+    tokio::spawn({
+        let track = track.clone();
+        async move {
+            loop {
+                if let Ok(stats) = track.get_stats().await {
+                    for s in stats {
+                        if let livekit::webrtc::stats::RtcStats::OutboundRtp(o) = s {
+                            info!(
+                                "Outbound video stats: {}x{} ~{:.1} fps, target_bitrate={:.1} kbps, encoder='{}', active={}",
+                                o.outbound.frame_width,
+                                o.outbound.frame_height,
+                                o.outbound.frames_per_second,
+                                o.outbound.target_bitrate / 1000.0,
+                                o.outbound.encoder_implementation,
+                                o.outbound.active,
+                            );
+                        }
+                    }
+                } else {
+                    debug!("Failed to fetch outbound video stats");
+                }
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        }
+    });
 
     // Build pipeline for the explicitly requested format.
     let mut active_pipeline: Option<gst::Pipeline> = None;
@@ -198,6 +245,14 @@ async fn main() -> Result<()> {
             .map_err(|_| anyhow::anyhow!("map frame readable"))?;
         let y = vframe.plane_data(0).map_err(|_| anyhow::anyhow!("no Y plane"))?;
         let uv = vframe.plane_data(1).map_err(|_| anyhow::anyhow!("no UV plane"))?;
+        let (min_y, max_y, mean_y) = luma_stats(y);
+        info!(
+            "First frame Y stats: min={}, max={}, mean={:.1} ({} bytes)",
+            min_y,
+            max_y,
+            mean_y,
+            y.len()
+        );
         p.push(&rtc_source, y, uv);
         p
     };
@@ -207,6 +262,7 @@ async fn main() -> Result<()> {
     // Main loop
     let mut frames: u64 = 0;
     let mut last_log = Instant::now();
+    let mut last_luma_log = Instant::now();
     loop {
         let sample = match sink.try_pull_sample(gst::ClockTime::from_seconds(2)) {
             Some(s) => s,
@@ -225,6 +281,17 @@ async fn main() -> Result<()> {
             info!("USB capture pushing ~{:.1} fps ({} frames total)", fps, frames);
             last_log = Instant::now();
             frames = 0;
+        }
+
+        if last_luma_log.elapsed().as_secs() >= 5 {
+            let (min_y, max_y, mean_y) = luma_stats(y);
+            info!(
+                "Sampled frame Y stats: min={}, max={}, mean={:.1}",
+                min_y,
+                max_y,
+                mean_y
+            );
+            last_luma_log = Instant::now();
         }
     }
 
