@@ -156,7 +156,7 @@ async fn main() -> Result<()> {
             if let Some(sample) = try_start_and_sample(&pipeline, &sink, 5) {
                 if let Some(caps) = sample.caps() {
                     if let Ok(vi) = gst_video::VideoInfo::from_caps(caps) {
-                        info::info!("Using MJPG decode pipeline");
+                        info!("Using MJPG decode pipeline");
                         active_pipeline = Some(pipeline);
                         active_sink = Some(sink);
                         info = Some(vi);
@@ -179,13 +179,13 @@ async fn main() -> Result<()> {
     let sink = active_sink.expect("appsink exists");
     let info = info.expect("VideoInfo available");
 
-    // Log negotiated caps
-    if let Some(caps) = sink
-        .current_caps()
-        .or_else(|| pipeline.by_name("sink").and_then(|e| e.static_pad("sink")).and_then(|p| p.current_caps()))
-    {
-        info!("Negotiated caps: {:?}", caps);
-    }
+    // Log negotiated info derived from caps
+    info!(
+        "Negotiated video info: format={:?}, width={} height={}",
+        info.format(),
+        info.width(),
+        info.height()
+    );
 
     // We already pulled a sample to get caps for the chosen pipeline, but we didn't keep it.
     // Pull one more immediately to initialize the pusher path.
