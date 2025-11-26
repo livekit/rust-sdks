@@ -68,21 +68,30 @@ int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
   height_ = codec_settings->height;
 
 #if defined(__linux__)
+  RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl::InitEncode requested for H.264 "
+                   << width_ << "x" << height_
+                   << " maxFramerate=" << codec_settings->maxFramerate
+                   << " maxBitrate=" << codec_settings->maxBitrate
+                   << " minBitrate=" << codec_settings->minBitrate
+                   << " startBitrate=" << codec_settings->startBitrate;
+
   if (InitV4L2Device(codec_settings) == WEBRTC_VIDEO_CODEC_OK) {
     v4l2_initialized_ = true;
     return WEBRTC_VIDEO_CODEC_OK;
   }
-  RTC_LOG(LS_WARNING)
-      << "V4L2H264EncoderImpl: falling back to software H.264 encoder";
-#endif
-
-  // Software fallback.
+  RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: failed to initialize V4L2 "
+                       "H.264 encoder; not falling back to software encoder";
+  return WEBRTC_VIDEO_CODEC_ERROR;
+#else
+  // Software fallback is only used on non-Linux builds, where the V4L2 path is
+  // not available.
   SoftwareFactory factory;
   fallback_encoder_ = factory.Create(env_, format_);
   if (!fallback_encoder_) {
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
   return fallback_encoder_->InitEncode(codec_settings, settings);
+#endif
 }
 
 int32_t V4L2H264EncoderImpl::RegisterEncodeCompleteCallback(
@@ -173,10 +182,50 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
     dev_path = "/dev/v4l2-nvenc";
   }
 
+  RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: attempting to initialize V4L2 "
+                   << "encoder at " << dev_path;
+
   fd_ = open(dev_path, O_RDWR | O_NONBLOCK, 0);
   if (fd_ < 0) {
     RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: failed to open " << dev_path
                       << ": " << strerror(errno);
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  // Query capabilities so logs clearly show what the node supports.
+  v4l2_capability caps = {};
+  if (xioctl(fd_, VIDIOC_QUERYCAP, &caps) < 0) {
+    RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: VIDIOC_QUERYCAP failed for "
+                      << dev_path << ": " << strerror(errno);
+    CleanupV4L2();
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: opened device " << dev_path
+                   << ", driver=\"" << reinterpret_cast<const char*>(caps.driver)
+                   << "\", card=\"" << reinterpret_cast<const char*>(caps.card)
+                   << "\", bus_info=\""
+                   << reinterpret_cast<const char*>(caps.bus_info) << "\""
+                   << ", capabilities=0x" << std::hex << caps.capabilities
+                   << ", device_caps=0x" << std::hex << caps.device_caps
+                   << std::dec;
+
+  const bool has_m2m_mplane =
+      (caps.device_caps & V4L2_CAP_VIDEO_M2M_MPLANE) != 0 ||
+      (caps.capabilities & V4L2_CAP_VIDEO_M2M_MPLANE) != 0;
+  const bool has_capture_mplane =
+      (caps.device_caps & V4L2_CAP_VIDEO_CAPTURE_MPLANE) != 0 ||
+      (caps.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) != 0;
+  const bool has_output_mplane =
+      (caps.device_caps & V4L2_CAP_VIDEO_OUTPUT_MPLANE) != 0 ||
+      (caps.capabilities & V4L2_CAP_VIDEO_OUTPUT_MPLANE) != 0;
+
+  if (!has_m2m_mplane && !(has_capture_mplane && has_output_mplane)) {
+    RTC_LOG(LS_ERROR)
+        << "V4L2H264EncoderImpl: device " << dev_path
+        << " does not advertise VIDEO_M2M_MPLANE or separate "
+           "CAPTURE_MPLANE/OUTPUT_MPLANE capabilities; cannot use as encoder.";
+    CleanupV4L2();
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
@@ -219,7 +268,7 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
   req_out.memory = V4L2_MEMORY_MMAP;
   if (xioctl(fd_, VIDIOC_REQBUFS, &req_out) < 0 || req_out.count < 2) {
     RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: REQBUFS OUTPUT failed: "
-                      << strerror(errno);
+                      << strerror(errno) << ", count=" << req_out.count;
     CleanupV4L2();
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
@@ -263,7 +312,7 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
   req_cap.memory = V4L2_MEMORY_MMAP;
   if (xioctl(fd_, VIDIOC_REQBUFS, &req_cap) < 0 || req_cap.count < 2) {
     RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: REQBUFS CAPTURE failed: "
-                      << strerror(errno);
+                      << strerror(errno) << ", count=" << req_cap.count;
     CleanupV4L2();
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
