@@ -125,13 +125,29 @@ int32_t V4L2H264EncoderImpl::Release() {
 int32_t V4L2H264EncoderImpl::Encode(
     const VideoFrame& frame,
     const std::vector<VideoFrameType>* frame_types) {
+  static int call_count = 0;
+  call_count++;
+  
 #if defined(__linux__)
   if (v4l2_initialized_) {
+    if (call_count == 1) {
+      RTC_LOG(LS_WARNING) << "V4L2H264EncoderImpl::Encode: Using V4L2 hardware encoder path";
+    }
     return EncodeWithV4L2(frame, frame_types);
+  } else {
+    if (call_count == 1) {
+      RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl::Encode: v4l2_initialized_ is FALSE, cannot encode";
+    }
   }
 #endif
   if (!fallback_encoder_) {
+    if (call_count == 1) {
+      RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl::Encode: No fallback encoder available, returning ERROR";
+    }
     return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+  if (call_count == 1) {
+    RTC_LOG(LS_WARNING) << "V4L2H264EncoderImpl::Encode: Using fallback software encoder";
   }
   return fallback_encoder_->Encode(frame, frame_types);
 }
