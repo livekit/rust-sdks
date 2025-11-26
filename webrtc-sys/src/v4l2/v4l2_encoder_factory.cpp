@@ -1,9 +1,9 @@
-#include "v4l2/v4l2_encoder_factory.h"
+#include "v4l2_encoder_factory.h"
 
 #include <memory>
 
 #include "rtc_base/logging.h"
-#include "v4l2/h264_encoder_impl.h"
+#include "h264_encoder_impl.h"
 
 namespace webrtc {
 
