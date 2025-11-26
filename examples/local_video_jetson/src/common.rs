@@ -16,7 +16,7 @@ use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
 use log::{debug, info};
 use std::env;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

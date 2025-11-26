@@ -4,7 +4,6 @@ use gstreamer as gst;
 use gstreamer_app as gst_app;
 use gstreamer_video as gst_video;
 use gstreamer::prelude::*;
-use livekit::prelude::*;
 use log::{info, warn};
 
 mod common;
@@ -64,9 +63,8 @@ async fn main() -> Result<()> {
 
     // Determine strides from negotiated caps on first sample
     let sample = match sink.try_pull_sample(gst::ClockTime::from_seconds(2)) {
-        Ok(s) => s,
-        Err(gst::FlowError::Eos) => return Err(anyhow::anyhow!("pipeline EOS")),
-        Err(err) => return Err(anyhow::anyhow!("appsink error: {:?}", err)),
+        Some(s) => s,
+        None => return Err(anyhow::anyhow!("pipeline EOS or timeout")),
     };
     let caps = sample.caps().ok_or_else(|| anyhow::anyhow!("no caps"))?;
     let info = gst_video::VideoInfo::from_caps(caps)?;
@@ -101,9 +99,8 @@ async fn main() -> Result<()> {
     // Main loop
     loop {
         let sample = match sink.try_pull_sample(gst::ClockTime::from_seconds(2)) {
-            Ok(s) => s,
-            Err(gst::FlowError::Eos) => break,
-            Err(err) => return Err(anyhow::anyhow!("appsink error: {:?}", err)),
+            Some(s) => s,
+            None => break,
         };
         let buffer = sample.buffer().ok_or_else(|| anyhow::anyhow!("no buffer"))?;
         #[cfg(all(feature = "dmabuf", target_os = "linux"))]
