@@ -33,11 +33,14 @@ bool V4L2VideoEncoderFactory::IsSupported() {
 std::unique_ptr<VideoEncoder> V4L2VideoEncoderFactory::Create(
     const Environment& env,
     const SdpVideoFormat& format) {
+  RTC_LOG(LS_INFO) << "V4L2VideoEncoderFactory::Create called for codec: " << format.name;
   for (const auto& supported_format : supported_formats_) {
     if (format.IsSameCodec(supported_format)) {
+      RTC_LOG(LS_INFO) << "V4L2VideoEncoderFactory: Creating V4L2H264EncoderImpl for " << format.name;
       return std::make_unique<V4L2H264EncoderImpl>(env, format);
     }
   }
+  RTC_LOG(LS_WARNING) << "V4L2VideoEncoderFactory: No matching codec found for " << format.name;
   return nullptr;
 }
 

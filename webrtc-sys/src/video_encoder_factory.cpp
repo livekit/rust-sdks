@@ -71,7 +71,10 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
 
   // Prefer a V4L2-backed encoder on Linux/ARM (Jetson, etc.) when available.
   if (webrtc::V4L2VideoEncoderFactory::IsSupported()) {
+    RTC_LOG(LS_INFO) << "VideoEncoderFactory: Adding V4L2VideoEncoderFactory to encoder chain";
     factories_.push_back(std::make_unique<webrtc::V4L2VideoEncoderFactory>());
+  } else {
+    RTC_LOG(LS_INFO) << "VideoEncoderFactory: V4L2VideoEncoderFactory not supported on this platform";
   }
 
 // On Linux x86 we may have both VAAPI and NVIDIA NVENC.
@@ -120,10 +123,14 @@ std::unique_ptr<webrtc::VideoEncoder>
 VideoEncoderFactory::InternalFactory::Create(
     const webrtc::Environment& env,
     const webrtc::SdpVideoFormat& format) {
+  RTC_LOG(LS_INFO) << "VideoEncoderFactory::InternalFactory::Create requested for codec: " << format.name;
+  
   for (const auto& factory : factories_) {
     for (const auto& supported_format : factory->GetSupportedFormats()) {
-      if (supported_format.IsSameCodec(format))
+      if (supported_format.IsSameCodec(format)) {
+        RTC_LOG(LS_INFO) << "VideoEncoderFactory: Creating encoder via hardware/platform-specific factory for " << format.name;
         return factory->Create(env, format);
+      }
     }
   }
 
@@ -131,6 +138,7 @@ VideoEncoderFactory::InternalFactory::Create(
       webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(), format);
 
   if (original_format) {
+    RTC_LOG(LS_INFO) << "VideoEncoderFactory: Creating encoder via software factory for " << format.name;
     return Factory().Create(env, *original_format);
   }
 

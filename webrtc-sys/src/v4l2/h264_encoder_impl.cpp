@@ -185,12 +185,14 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
   RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: attempting to initialize V4L2 "
                    << "encoder at " << dev_path;
 
+  RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: Attempting to open encoder device: " << dev_path;
   fd_ = open(dev_path, O_RDWR | O_NONBLOCK, 0);
   if (fd_ < 0) {
     RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: failed to open " << dev_path
-                      << ": " << strerror(errno);
+                      << ": " << strerror(errno) << " (errno=" << errno << ")";
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
+  RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: Successfully opened encoder device: " << dev_path << " (fd=" << fd_ << ")";
 
   // Query capabilities so logs clearly show what the node supports.
   v4l2_capability caps = {};
@@ -369,14 +371,22 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
-  RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: initialized V4L2 encoder at "
-                   << dev_path << " (" << width_ << "x" << height_ << ")";
+  RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: *** SUCCESSFULLY INITIALIZED V4L2 HARDWARE ENCODER *** "
+                   << "device=" << dev_path << " resolution=" << width_ << "x" << height_ 
+                   << " output_buffers=" << output_buffers_.size() 
+                   << " capture_buffers=" << capture_buffers_.size();
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
 int V4L2H264EncoderImpl::EncodeWithV4L2(
     const VideoFrame& frame,
     const std::vector<VideoFrameType>* frame_types) {
+  // Log every 60 frames (~2 seconds at 30fps) to confirm V4L2 encoding is active
+  static int encode_count = 0;
+  if (++encode_count % 60 == 1) {
+    RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: Encoding with V4L2 hardware encoder (frame #" << encode_count << ")";
+  }
+  
   // For now we always send frames; keyframe control could be added via
   // encoder-specific controls.
   if (output_buffers_.empty() || capture_buffers_.empty()) {
