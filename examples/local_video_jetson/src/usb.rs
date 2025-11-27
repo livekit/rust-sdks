@@ -93,23 +93,33 @@ async fn main() -> Result<()> {
     // Connect and publish
     let (_room, rtc_source, track) = connect_and_publish(&args.base, width, height).await?;
 
-    // Periodically log outbound stats (encoder, resolution, fps, bitrate)
+    // Periodically log outbound stats (encoder, resolution, fps, bitrate).
+    // On Jetson with the V4L2 encoder path, encoder_implementation should be "V4L2 H264 Encoder".
     tokio::spawn({
         let track = track.clone();
         async move {
+            let mut logged_v4l2 = false;
             loop {
                 if let Ok(stats) = track.get_stats().await {
                     for s in stats {
                         if let livekit::webrtc::stats::RtcStats::OutboundRtp(o) = s {
+                            let impl_name = o.outbound.encoder_implementation;
                             info!(
                                 "Outbound video stats: {}x{} ~{:.1} fps, target_bitrate={:.1} kbps, encoder='{}', active={}",
                                 o.outbound.frame_width,
                                 o.outbound.frame_height,
                                 o.outbound.frames_per_second,
                                 o.outbound.target_bitrate / 1000.0,
-                                o.outbound.encoder_implementation,
+                                impl_name,
                                 o.outbound.active,
                             );
+                            if !logged_v4l2 && impl_name.contains("V4L2") {
+                                info!(
+                                    "Detected Jetson V4L2 hardware encoder in use (encoder_implementation='{}')",
+                                    impl_name
+                                );
+                                logged_v4l2 = true;
+                            }
                         }
                     }
                 } else {
