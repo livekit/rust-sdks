@@ -423,7 +423,9 @@ bool V4L2H265EncoderImpl::EncodeFrame(const VideoFrame& frame, bool is_keyframe)
 
   if (ioctl(device_fd_, VIDIOC_DQBUF, &buf) < 0) {
     if (errno == EAGAIN) {
-      return false;
+      // Non-blocking mode: no input buffer available yet, just skip this frame.
+      RTC_LOG(LS_VERBOSE) << "V4L2 H265: no input buffer available yet (EAGAIN)";
+      return true;
     }
     RTC_LOG(LS_ERROR) << "Failed to dequeue input buffer: " << strerror(errno);
     return false;
@@ -554,15 +556,18 @@ int32_t V4L2H265EncoderImpl::Encode(
   int32_t result = ProcessEncodedFrame(packet, input_frame);
 
   // Re-queue the output buffer
-  memset(&buf, 0, sizeof(buf));
-  memset(planes, 0, sizeof(planes));
-  buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-  buf.memory = V4L2_MEMORY_MMAP;
-  buf.index = buf.index;
-  buf.m.planes = planes;
-  buf.length = 1;
-  
-  if (ioctl(device_fd_, VIDIOC_QBUF, &buf) < 0) {
+  uint32_t buffer_index = buf.index;
+  struct v4l2_buffer requeue_buf;
+  struct v4l2_plane requeue_planes[1];
+  memset(&requeue_buf, 0, sizeof(requeue_buf));
+  memset(requeue_planes, 0, sizeof(requeue_planes));
+  requeue_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+  requeue_buf.memory = V4L2_MEMORY_MMAP;
+  requeue_buf.index = buffer_index;
+  requeue_buf.m.planes = requeue_planes;
+  requeue_buf.length = 1;
+
+  if (ioctl(device_fd_, VIDIOC_QBUF, &requeue_buf) < 0) {
     RTC_LOG(LS_ERROR) << "Failed to re-queue output buffer";
   }
 
