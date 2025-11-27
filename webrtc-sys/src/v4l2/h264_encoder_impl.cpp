@@ -246,50 +246,29 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
       << "*** V4L2H264EncoderImpl: Successfully opened encoder device: "
       << dev_path << " (fd=" << fd_ << ")";
 
-  // Query capabilities so logs clearly show what the node supports.
+  // Some Jetson encoder nodes do not implement VIDIOC_QUERYCAP in the same way
+  // as generic V4L2 devices. Per NVIDIA's encoder documentation
+  // (see https://docs.nvidia.com/jetson/l4t-multimedia/group__V4L2Enc.html)
+  // we don't rely on QUERYCAP for correctness, but we attempt it for logging
+  // only and treat failures as non-fatal.
   v4l2_capability caps = {};
-  if (xioctl(fd_, VIDIOC_QUERYCAP, &caps) < 0) {
-    RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: VIDIOC_QUERYCAP failed for "
-                      << dev_path << ": " << strerror(errno);
-    CleanupV4L2();
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
+  if (xioctl(fd_, VIDIOC_QUERYCAP, &caps) == 0) {
+    char caps_hex[32], device_caps_hex[32];
+    snprintf(caps_hex, sizeof(caps_hex), "0x%08x", caps.capabilities);
+    snprintf(device_caps_hex, sizeof(device_caps_hex), "0x%08x", caps.device_caps);
 
-  // Format hex values as strings since RTC_LOG doesn't support std::hex manipulator
-  char caps_hex[32], device_caps_hex[32];
-  snprintf(caps_hex, sizeof(caps_hex), "0x%08x", caps.capabilities);
-  snprintf(device_caps_hex, sizeof(device_caps_hex), "0x%08x", caps.device_caps);
-  
-  RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: opened device " << dev_path
-                   << ", driver=\"" << reinterpret_cast<const char*>(caps.driver)
-                   << "\", card=\"" << reinterpret_cast<const char*>(caps.card)
-                   << "\", bus_info=\""
-                   << reinterpret_cast<const char*>(caps.bus_info) << "\""
-                   << ", capabilities=" << caps_hex
-                   << ", device_caps=" << device_caps_hex;
-
-  const bool has_m2m_mplane =
-      (caps.device_caps & V4L2_CAP_VIDEO_M2M_MPLANE) != 0 ||
-      (caps.capabilities & V4L2_CAP_VIDEO_M2M_MPLANE) != 0;
-  const bool has_capture_mplane =
-      (caps.device_caps & V4L2_CAP_VIDEO_CAPTURE_MPLANE) != 0 ||
-      (caps.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE) != 0;
-  const bool has_output_mplane =
-      (caps.device_caps & V4L2_CAP_VIDEO_OUTPUT_MPLANE) != 0 ||
-      (caps.capabilities & V4L2_CAP_VIDEO_OUTPUT_MPLANE) != 0;
-
-  RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: capability summary: "
-                   << "has_m2m_mplane=" << has_m2m_mplane
-                   << " has_capture_mplane=" << has_capture_mplane
-                   << " has_output_mplane=" << has_output_mplane;
-
-  if (!has_m2m_mplane && !(has_capture_mplane && has_output_mplane)) {
-    RTC_LOG(LS_ERROR)
-        << "V4L2H264EncoderImpl: device " << dev_path
-        << " does not advertise VIDEO_M2M_MPLANE or separate "
-           "CAPTURE_MPLANE/OUTPUT_MPLANE capabilities; cannot use as encoder.";
-    CleanupV4L2();
-    return WEBRTC_VIDEO_CODEC_ERROR;
+    RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: QUERYCAP device " << dev_path
+                     << ", driver=\"" << reinterpret_cast<const char*>(caps.driver)
+                     << "\", card=\"" << reinterpret_cast<const char*>(caps.card)
+                     << "\", bus_info=\""
+                     << reinterpret_cast<const char*>(caps.bus_info) << "\""
+                     << ", capabilities=" << caps_hex
+                     << ", device_caps=" << device_caps_hex;
+  } else {
+    RTC_LOG(LS_WARNING)
+        << "V4L2H264EncoderImpl: VIDIOC_QUERYCAP not supported on " << dev_path
+        << " (errno=" << errno
+        << "); continuing configuration per NVIDIA Jetson encoder docs";
   }
 
   // NOTE: Per NVIDIA docs, capture plane format must be set BEFORE output
