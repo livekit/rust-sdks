@@ -6,6 +6,7 @@
 #include <unistd.h>
 #include <linux/videodev2.h>
 #include <string.h>
+#include <cstdio>
 
 #include <algorithm>
 #include <limits>
@@ -88,8 +89,10 @@ bool V4L2H265EncoderImpl::InitializeV4L2Device() {
   }
 
   if (!(cap.capabilities & V4L2_CAP_VIDEO_M2M_MPLANE)) {
-    RTC_LOG(LS_ERROR) << "Device does not support M2M MPLANE, capabilities=0x"
-                      << std::hex << cap.capabilities << std::dec
+    char caps_hex[32];
+    std::snprintf(caps_hex, sizeof(caps_hex), "0x%08x", cap.capabilities);
+    RTC_LOG(LS_ERROR) << "Device does not support M2M MPLANE, capabilities="
+                      << caps_hex
                       << " driver=" << reinterpret_cast<const char*>(cap.driver)
                       << " card=" << reinterpret_cast<const char*>(cap.card);
     close(device_fd_);
