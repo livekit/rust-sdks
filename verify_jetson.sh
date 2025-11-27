@@ -22,11 +22,11 @@ echo ""
 
 # Check for Jetson device files
 echo "Checking for Jetson encoder devices..."
-if [ -e /dev/nvhost-msenc ]; then
-    echo "✅ Found primary Jetson encoder device: /dev/nvhost-msenc"
-    ls -l /dev/nvhost-msenc
+if [ -e /dev/v4l2-nvenc ]; then
+    echo "✅ Found primary Jetson encoder device: /dev/v4l2-nvenc"
+    ls -l /dev/v4l2-nvenc
 else
-    echo "⚠️  Primary device /dev/nvhost-msenc not found"
+    echo "⚠️  Primary device /dev/v4l2-nvenc not found"
 fi
 echo ""
 
@@ -64,12 +64,12 @@ echo ""
 
 # Check if build will include V4L2 support
 echo "Build configuration check..."
-if [ -e /dev/nvhost-msenc ]; then
+if [ -e /dev/v4l2-nvenc ]; then
     echo "✅ V4L2 encoder will be enabled during build"
-    echo "   The build system will detect /dev/nvhost-msenc and enable USE_V4L2_VIDEO_CODEC"
+    echo "   The build system will detect /dev/v4l2-nvenc and enable USE_V4L2_VIDEO_CODEC"
 else
     echo "⚠️  V4L2 encoder may not be enabled during build"
-    echo "   Device /dev/nvhost-msenc not found"
+    echo "   Device /dev/v4l2-nvenc not found"
 fi
 echo ""
 
@@ -87,7 +87,7 @@ echo ""
 echo "=========================================="
 echo "Verification Summary"
 echo "=========================================="
-if [ -e /dev/nvhost-msenc ] && groups $CURRENT_USER | grep -q "\bvideo\b"; then
+if [ -e /dev/v4l2-nvenc ] && groups $CURRENT_USER | grep -q "\bvideo\b"; then
     echo "✅ System appears ready for V4L2 encoder"
     echo ""
     echo "Next steps:"
@@ -99,7 +99,7 @@ else
     echo "⚠️  System may need configuration"
     echo ""
     echo "Issues detected:"
-    if [ ! -e /dev/nvhost-msenc ]; then
+    if [ ! -e /dev/v4l2-nvenc ]; then
         echo "- Jetson encoder device not found"
     fi
     if ! groups $CURRENT_USER | grep -q "\bvideo\b"; then

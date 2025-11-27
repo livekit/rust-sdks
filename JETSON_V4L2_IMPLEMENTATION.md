@@ -36,7 +36,7 @@ Encoded H.264/H.265 bitstream
 ```
 
 ### Device Detection Priority
-1. `/dev/nvhost-msenc` - Primary Jetson encoder device
+1. `/dev/v4l2-nvenc` - Primary Jetson encoder device
 2. `/dev/video0-3` - Alternative V4L2 encoder devices
 
 ### Platform Conditional Compilation
@@ -155,8 +155,8 @@ The implementation includes comprehensive logging:
 
 Example logs:
 ```
-[INFO] V4L2 device opened successfully: nvhost-msenc
-[INFO] V4L2 H264 encoder initialized: 1280x720 @ 30fps, target_bps=2000000 using device /dev/nvhost-msenc
+[INFO] V4L2 device opened successfully: v4l2-nvenc
+[INFO] V4L2 H264 encoder initialized: 1280x720 @ 30fps, target_bps=2000000 using device /dev/v4l2-nvenc
 [INFO] Using V4L2 HW encoder for H264 (Jetson)
 ```
 

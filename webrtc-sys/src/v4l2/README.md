@@ -18,7 +18,7 @@ The V4L2 encoder provides hardware-accelerated H.264 and H.265/HEVC encoding on 
 
 The encoder factory attempts to find the V4L2 encoder device in the following order:
 
-1. `/dev/nvhost-msenc` - Primary Jetson encoder device
+1. `/dev/v4l2-nvenc` - Primary Jetson encoder device
 2. `/dev/video0` through `/dev/video3` - Generic V4L2 devices with encoding capability
 
 ## Requirements
@@ -26,7 +26,7 @@ The encoder factory attempts to find the V4L2 encoder device in the following or
 - NVIDIA Jetson device (Orin NX, Xavier NX, or similar)
 - JetPack 6.0 or later
 - Linux kernel with V4L2 M2M support
-- Access permissions to `/dev/nvhost-msenc` or `/dev/videoX` devices
+- Access permissions to `/dev/v4l2-nvenc` or `/dev/videoX` devices
 
 ## Building
 
@@ -75,7 +75,7 @@ When the V4L2 encoder is active, you should see log messages like:
 
 ```
 V4L2 device opened successfully: <device name>
-V4L2 H264 encoder initialized: 1280x720 @ 30fps, target_bps=2000000 using device /dev/nvhost-msenc
+V4L2 H264 encoder initialized: 1280x720 @ 30fps, target_bps=2000000 using device /dev/v4l2-nvenc
 Using V4L2 HW encoder for H264 (Jetson)
 ```
 
@@ -95,11 +95,11 @@ If the encoder device is not detected:
 
 ```bash
 # Check if encoder device exists
-ls -l /dev/nvhost-msenc /dev/video*
+ls -l /dev/v4l2-nvenc /dev/video*
 
 # Verify V4L2 capabilities
 v4l2-ctl --list-devices
-v4l2-ctl -d /dev/nvhost-msenc --list-formats-ext
+v4l2-ctl -d /dev/v4l2-nvenc --list-formats-ext
 ```
 
 ### Permission Denied

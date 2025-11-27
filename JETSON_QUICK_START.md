@@ -26,7 +26,7 @@ RUST_LOG=info ./target/release/examples/publisher --camera-index 0 --h265
 
 You should see logs like:
 ```
-[INFO] V4L2 device opened successfully: nvhost-msenc
+[INFO] V4L2 device opened successfully: v4l2-nvenc
 [INFO] V4L2 H264 encoder initialized: 1280x720 @ 30fps, target_bps=2000000
 [INFO] Using V4L2 HW encoder for H264 (Jetson)
 ```
@@ -47,9 +47,9 @@ You should see logs like:
 
 ### Build doesn't enable V4L2
 
-**Check**: Is `/dev/nvhost-msenc` present?
+**Check**: Is `/dev/v4l2-nvenc` present?
 ```bash
-ls -l /dev/nvhost-msenc
+ls -l /dev/v4l2-nvenc
 ```
 
 ### Encoder fails to initialize

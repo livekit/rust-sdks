@@ -1,0 +1,22 @@
+#!/bin/bash
+
+echo "=== Checking for Jetson Video Encoder Devices ==="
+echo ""
+echo "Looking for v4l2-nvenc device:"
+ls -la /dev/v4l2-nvenc 2>/dev/null || echo "  /dev/v4l2-nvenc NOT FOUND"
+echo ""
+echo "Looking for nvhost-* devices:"
+ls -la /dev/nvhost-* 2>/dev/null || echo "  No nvhost-* devices found"
+echo ""
+echo "Looking for video* devices:"
+ls -la /dev/video* 2>/dev/null || echo "  No video* devices found"
+echo ""
+echo "Checking for NVIDIA Tegra info:"
+cat /etc/nv_tegra_release 2>/dev/null || echo "  /etc/nv_tegra_release NOT FOUND"
+echo ""
+echo "Checking for device tree info:"
+cat /proc/device-tree/model 2>/dev/null || echo "  /proc/device-tree/model NOT FOUND"
+echo ""
+echo "Checking v4l2 devices:"
+v4l2-ctl --list-devices 2>/dev/null || echo "  v4l2-ctl not available or no devices"
+

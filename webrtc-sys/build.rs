@@ -212,7 +212,7 @@ fn main() {
             // V4L2 encoder for Jetson (arm64)
             if arm {
                 // Check if this is a Jetson device by looking for the encoder device
-                let jetson_device = Path::new("/dev/nvhost-msenc");
+                let jetson_device = Path::new("/dev/v4l2-nvenc");
                 if jetson_device.exists() {
                     builder
                         .file("src/v4l2/v4l2_h264_encoder_impl.cpp")

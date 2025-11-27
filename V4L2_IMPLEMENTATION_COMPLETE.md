@@ -20,7 +20,7 @@ All requested features have been implemented for the V4L2 M2M video encoder on N
 
 ### 2. ✅ Encoder Factory with Device Detection
 - **Factory**: `webrtc-sys/src/v4l2/v4l2_encoder_factory.{h,cpp}`
-  - Automatic device detection (tries `/dev/nvhost-msenc`, then `/dev/video0-3`)
+  - Automatic device detection (tries `/dev/v4l2-nvenc`, then `/dev/video0-3`)
   - Codec format detection and validation
   - Graceful fallback if device not available
 
@@ -102,8 +102,8 @@ RUST_LOG=info ./target/release/publisher --camera-index 0 --software-encoder
 ### 4. Verify Encoder Usage
 Look for these log messages:
 ```
-V4L2 device opened successfully: nvhost-msenc
-V4L2 H264 encoder initialized: 1280x720 @ 30fps, target_bps=2000000 using device /dev/nvhost-msenc
+V4L2 device opened successfully: v4l2-nvenc
+V4L2 H264 encoder initialized: 1280x720 @ 30fps, target_bps=2000000 using device /dev/v4l2-nvenc
 Using V4L2 HW encoder for H264 (Jetson)
 ```
 
@@ -208,7 +208,7 @@ These are **pre-existing issues** in the codebase and **not introduced by this i
 ## Success Criteria Met
 
 - ✅ V4L2 encoder implementation for H.264 and H.265
-- ✅ Device detection at /dev/nvhost-msenc (and fallbacks)
+- ✅ Device detection at /dev/v4l2-nvenc (and fallbacks)
 - ✅ NVENC excluded on ARM64 Linux
 - ✅ Standard video frame buffer support
 - ✅ Comprehensive logging
@@ -229,7 +229,7 @@ For issues or questions:
 1. Check `webrtc-sys/src/v4l2/README.md` for detailed documentation
 2. Run `verify_jetson.sh` to diagnose system issues
 3. Review logs with `RUST_LOG=info` for detailed diagnostics
-4. Check `/dev/nvhost-msenc` device permissions
+4. Check `/dev/v4l2-nvenc` device permissions
 
 ---
 

@@ -38,7 +38,7 @@ V4L2VideoEncoderFactory::~V4L2VideoEncoderFactory() {}
 
 std::string V4L2VideoEncoderFactory::GetDevicePath() {
   // Try the Jetson-specific device first
-  const char* jetson_device = "/dev/nvhost-msenc";
+  const char* jetson_device = "/dev/v4l2-nvenc";
   int fd = open(jetson_device, O_RDWR);
   if (fd >= 0) {
     close(fd);
