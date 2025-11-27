@@ -61,6 +61,9 @@ V4L2H264EncoderImpl::~V4L2H264EncoderImpl() {
 int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* codec_settings,
                                         const Settings& settings) {
   if (!codec_settings || codec_settings->codecType != kVideoCodecH264) {
+    RTC_LOG(LS_ERROR)
+        << "V4L2H264EncoderImpl::InitEncode called with invalid codec_settings: "
+        << (codec_settings ? codec_settings->codecType : -1);
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
 
@@ -275,6 +278,11 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
       (caps.device_caps & V4L2_CAP_VIDEO_OUTPUT_MPLANE) != 0 ||
       (caps.capabilities & V4L2_CAP_VIDEO_OUTPUT_MPLANE) != 0;
 
+  RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: capability summary: "
+                   << "has_m2m_mplane=" << has_m2m_mplane
+                   << " has_capture_mplane=" << has_capture_mplane
+                   << " has_output_mplane=" << has_output_mplane;
+
   if (!has_m2m_mplane && !(has_capture_mplane && has_output_mplane)) {
     RTC_LOG(LS_ERROR)
         << "V4L2H264EncoderImpl: device " << dev_path
@@ -392,6 +400,8 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
       output_buffers_[i].planes[p].length = buf.m.planes[p].length;
     }
   }
+  RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: initialized " << output_buffers_.size()
+                   << " OUTPUT buffers for resolution " << width_ << "x" << height_;
 
   // Request and mmap CAPTURE buffers.
   v4l2_requestbuffers req_cap = {};
@@ -440,6 +450,8 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
       return WEBRTC_VIDEO_CODEC_ERROR;
     }
   }
+  RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: initialized and queued "
+                   << capture_buffers_.size() << " CAPTURE buffers";
 
   // Start streaming on both queues.
   int type_out = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
@@ -626,6 +638,14 @@ int V4L2H264EncoderImpl::DrainEncodedFrame(EncodedImage& encoded_image) {
 
   uint8_t* src = static_cast<uint8_t*>(planes[0].start);
   size_t bytes_used = buf_cap.m.planes[0].bytesused;
+
+  static int drain_count = 0;
+  if (++drain_count % 60 == 1) {
+    RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: DrainEncodedFrame captured "
+                     << bytes_used << " bytes from CAPTURE buffer index "
+                     << buf_cap.index;
+  }
+
   auto buffer = EncodedImageBuffer::Create(bytes_used);
   memcpy(buffer->data(), src, bytes_used);
 

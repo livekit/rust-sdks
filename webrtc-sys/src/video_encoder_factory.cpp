@@ -109,6 +109,18 @@ VideoEncoderFactory::InternalFactory::GetSupportedFormats() const {
     formats.insert(formats.end(), supported_formats.begin(),
                    supported_formats.end());
   }
+
+  // Log the combined supported format list once to help debug codec negotiation.
+  static bool logged_formats = false;
+  if (!logged_formats) {
+    RTC_LOG(LS_INFO) << "VideoEncoderFactory::InternalFactory::GetSupportedFormats: "
+                     << "total formats=" << formats.size();
+    for (const auto& f : formats) {
+      RTC_LOG(LS_INFO) << "  supported format: " << f.name;
+    }
+    logged_formats = true;
+  }
+
   return formats;
 }
 
@@ -128,14 +140,18 @@ VideoEncoderFactory::InternalFactory::Create(
     const webrtc::Environment& env,
     const webrtc::SdpVideoFormat& format) {
   RTC_LOG(LS_WARNING) << "*** VideoEncoderFactory::InternalFactory::Create requested for codec: " << format.name;
-  
+  int factory_index = 0;
   for (const auto& factory : factories_) {
     for (const auto& supported_format : factory->GetSupportedFormats()) {
       if (supported_format.IsSameCodec(format)) {
-        RTC_LOG(LS_WARNING) << "*** VideoEncoderFactory: Creating encoder via hardware/platform-specific factory for " << format.name;
+        RTC_LOG(LS_WARNING)
+            << "*** VideoEncoderFactory: Creating encoder via hardware/platform-"
+               "specific factory index="
+            << factory_index << " for codec=" << format.name;
         return factory->Create(env, format);
       }
     }
+    ++factory_index;
   }
 
   auto original_format =
