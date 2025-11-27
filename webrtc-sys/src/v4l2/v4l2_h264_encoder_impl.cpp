@@ -81,22 +81,27 @@ bool V4L2H264EncoderImpl::InitializeV4L2Device() {
   
   device_fd_ = open(device_path_.c_str(), O_RDWR | O_NONBLOCK);
   if (device_fd_ < 0) {
-    RTC_LOG(LS_ERROR) << "Failed to open V4L2 device: " << device_path_ 
-                      << " error: " << strerror(errno);
+    RTC_LOG(LS_ERROR) << "Failed to open V4L2 device: " << device_path_
+                      << " (errno: " << errno << " - " << strerror(errno) << ")";
     return false;
   }
 
   // Query capabilities
   struct v4l2_capability cap;
   if (ioctl(device_fd_, VIDIOC_QUERYCAP, &cap) < 0) {
-    RTC_LOG(LS_ERROR) << "Failed to query V4L2 capabilities";
+    RTC_LOG(LS_ERROR) << "Failed to query V4L2 capabilities for device: "
+                      << device_path_
+                      << " (errno: " << errno << " - " << strerror(errno) << ")";
     close(device_fd_);
     device_fd_ = -1;
     return false;
   }
 
   if (!(cap.capabilities & V4L2_CAP_VIDEO_M2M_MPLANE)) {
-    RTC_LOG(LS_ERROR) << "Device does not support M2M MPLANE";
+    RTC_LOG(LS_ERROR) << "Device does not support M2M MPLANE, capabilities=0x"
+                      << std::hex << cap.capabilities << std::dec
+                      << " driver=" << reinterpret_cast<const char*>(cap.driver)
+                      << " card=" << reinterpret_cast<const char*>(cap.card);
     close(device_fd_);
     device_fd_ = -1;
     return false;
