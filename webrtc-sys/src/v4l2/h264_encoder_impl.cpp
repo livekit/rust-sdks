@@ -314,7 +314,7 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
                       << strerror(errno);
     CleanupV4L2();
     return WEBRTC_VIDEO_CODEC_ERROR;
-  }
+  } 
 
   // Configure encoder framerate via VIDIOC_S_PARM as recommended by
   // NVIDIA's V4L2 encoder documentation. This must be done after setting
