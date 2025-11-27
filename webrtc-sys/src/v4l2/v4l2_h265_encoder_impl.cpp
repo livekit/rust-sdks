@@ -295,7 +295,7 @@ int32_t V4L2H265EncoderImpl::InitEncode(
   capture_format_.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
   capture_format_.fmt.pix_mp.width = codec_.width;
   capture_format_.fmt.pix_mp.height = codec_.height;
-  capture_format_.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H265;
+  capture_format_.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_HEVC;
   capture_format_.fmt.pix_mp.field = V4L2_FIELD_ANY;
   capture_format_.fmt.pix_mp.num_planes = 1;
 

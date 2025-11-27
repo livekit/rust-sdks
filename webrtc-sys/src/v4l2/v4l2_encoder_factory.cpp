@@ -75,7 +75,7 @@ std::string V4L2VideoEncoderFactory::GetDevicePath() {
         bool is_encoder = false;
         while (ioctl(fd, VIDIOC_ENUM_FMT, &fmt) == 0) {
           if (fmt.pixelformat == V4L2_PIX_FMT_H264 ||
-              fmt.pixelformat == V4L2_PIX_FMT_H265) {
+              fmt.pixelformat == V4L2_PIX_FMT_HEVC) {
             is_encoder = true;
             break;
           }
