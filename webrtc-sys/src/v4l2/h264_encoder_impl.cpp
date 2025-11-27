@@ -191,23 +191,57 @@ VideoEncoder::EncoderInfo V4L2H264EncoderImpl::GetEncoderInfo() const {
 int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
   // See NVIDIA Jetson V4L2 encoder docs:
   // https://docs.nvidia.com/jetson/l4t-multimedia/group__V4L2Enc.html
-  // Default device node on Jetson Jetpack 6 is "/dev/v4l2-nvenc".
-  // Older Jetpack versions may use "/dev/nvhost-msenc".
-  // Allow override via LK_V4L2_ENCODER_DEVICE for flexibility.
-  const char* dev_path = std::getenv("LK_V4L2_ENCODER_DEVICE");
-  if (!dev_path) {
-    dev_path = "/dev/v4l2-nvenc";
+  //
+  // The historic device node is "/dev/nvhost-msenc" (Jetson Linux 32.x),
+  // while newer JetPack releases expose "/dev/v4l2-nvenc".
+  // Allow override via LK_V4L2_ENCODER_DEVICE for flexibility, and otherwise
+  // try both well-known nodes in order.
+  const char* env_path = std::getenv("LK_V4L2_ENCODER_DEVICE");
+  const char* dev_path = nullptr;
+
+  if (env_path && env_path[0] != '\0') {
+    dev_path = env_path;
+    RTC_LOG(LS_WARNING)
+        << "V4L2H264EncoderImpl: Using LK_V4L2_ENCODER_DEVICE override: "
+        << dev_path;
+    fd_ = open(dev_path, O_RDWR | O_NONBLOCK, 0);
+    if (fd_ < 0) {
+      RTC_LOG(LS_ERROR)
+          << "V4L2H264EncoderImpl: failed to open LK_V4L2_ENCODER_DEVICE '"
+          << dev_path << "': " << strerror(errno)
+          << " (errno=" << errno << ")";
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
+  } else {
+    const char* candidates[] = {"/dev/v4l2-nvenc", "/dev/nvhost-msenc"};
+    int last_errno = 0;
+    for (const char* candidate : candidates) {
+      RTC_LOG(LS_WARNING)
+          << "V4L2H264EncoderImpl: attempting to open encoder device "
+          << candidate;
+      fd_ = open(candidate, O_RDWR | O_NONBLOCK, 0);
+      if (fd_ >= 0) {
+        dev_path = candidate;
+        break;
+      }
+      last_errno = errno;
+      RTC_LOG(LS_WARNING)
+          << "V4L2H264EncoderImpl: open(" << candidate
+          << ") failed: " << strerror(errno) << " (errno=" << errno << ")";
+    }
+
+    if (fd_ < 0) {
+      RTC_LOG(LS_ERROR)
+          << "V4L2H264EncoderImpl: failed to open any known encoder device "
+             "nodes (/dev/v4l2-nvenc, /dev/nvhost-msenc); last errno="
+          << last_errno;
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
   }
 
-  RTC_LOG(LS_WARNING) << "*** V4L2H264EncoderImpl: INITIALIZING V4L2 encoder at " << dev_path;
-
-  fd_ = open(dev_path, O_RDWR | O_NONBLOCK, 0);
-  if (fd_ < 0) {
-    RTC_LOG(LS_ERROR) << "V4L2H264EncoderImpl: failed to open " << dev_path
-                      << ": " << strerror(errno) << " (errno=" << errno << ")";
-    return WEBRTC_VIDEO_CODEC_ERROR;
-  }
-  RTC_LOG(LS_WARNING) << "*** V4L2H264EncoderImpl: Successfully opened encoder device: " << dev_path << " (fd=" << fd_ << ")";
+  RTC_LOG(LS_WARNING)
+      << "*** V4L2H264EncoderImpl: Successfully opened encoder device: "
+      << dev_path << " (fd=" << fd_ << ")";
 
   // Query capabilities so logs clearly show what the node supports.
   v4l2_capability caps = {};
@@ -280,6 +314,39 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
                       << strerror(errno);
     CleanupV4L2();
     return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  // Configure encoder framerate via VIDIOC_S_PARM as recommended by
+  // NVIDIA's V4L2 encoder documentation. This must be done after setting
+  // formats on both planes and before requesting buffers.
+  //
+  // See "Setting Framerate" section in:
+  // https://docs.nvidia.com/jetson/l4t-multimedia/group__V4L2Enc.html
+  {
+    v4l2_streamparm stream_parm = {};
+    stream_parm.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+    // timeperframe = 1 / maxFramerate (fall back to 30fps if unset).
+    int max_fps =
+        (codec_settings && codec_settings->maxFramerate > 0)
+            ? codec_settings->maxFramerate
+            : 30;
+    if (max_fps <= 0) {
+      max_fps = 30;
+    }
+    stream_parm.parm.output.timeperframe.numerator = 1;
+    stream_parm.parm.output.timeperframe.denominator = max_fps;
+
+    if (xioctl(fd_, VIDIOC_S_PARM, &stream_parm) < 0) {
+      RTC_LOG(LS_ERROR)
+          << "V4L2H264EncoderImpl: VIDIOC_S_PARM (OUTPUT timeperframe) failed: "
+          << strerror(errno);
+      CleanupV4L2();
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
+
+    RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: configured encoder framerate to "
+                     << stream_parm.parm.output.timeperframe.denominator
+                     << " fps via VIDIOC_S_PARM";
   }
 
   // Request and mmap OUTPUT buffers.
