@@ -6,6 +6,8 @@
 #include <linux/videodev2.h>
 #include <memory>
 #include <iostream>
+#include <cstring>
+#include <cerrno>
 
 #include "v4l2_h264_encoder_impl.h"
 #include "v4l2_h265_encoder_impl.h"
@@ -104,23 +106,38 @@ bool V4L2VideoEncoderFactory::IsSupported() {
     return false;
   }
 
-  int fd = open(device_path.c_str(), O_RDWR);
+  int fd = open(device_path.c_str(), O_RDWR | O_NONBLOCK);
   if (fd < 0) {
-    RTC_LOG(LS_WARNING) << "Failed to open V4L2 device: " << device_path;
+    RTC_LOG(LS_WARNING) << "Failed to open V4L2 device: " << device_path 
+                        << " (errno: " << errno << " - " << strerror(errno) << ")";
     return false;
   }
 
+  // For Jetson-specific device, just check if we can open it
+  if (device_path == "/dev/v4l2-nvenc") {
+    close(fd);
+    RTC_LOG(LS_INFO) << "V4L2 Encoder is supported on Jetson device: " << device_path;
+    return true;
+  }
+
+  // For generic V4L2 devices, query capabilities
   struct v4l2_capability cap;
   if (ioctl(fd, VIDIOC_QUERYCAP, &cap) < 0) {
-    RTC_LOG(LS_WARNING) << "Failed to query V4L2 capabilities";
+    RTC_LOG(LS_WARNING) << "Failed to query V4L2 capabilities for " << device_path
+                        << " (errno: " << errno << " - " << strerror(errno) << ")";
     close(fd);
+    // For Jetson, still try to use it even if QUERYCAP fails
+    if (device_path.find("nvenc") != std::string::npos) {
+      RTC_LOG(LS_INFO) << "Assuming Jetson NVENC device is supported despite QUERYCAP failure";
+      return true;
+    }
     return false;
   }
 
   close(fd);
 
-  std::cout << "V4L2 Encoder is supported on device: " << device_path 
-            << " (" << cap.card << ")" << std::endl;
+  RTC_LOG(LS_INFO) << "V4L2 Encoder is supported on device: " << device_path 
+                   << " (" << cap.card << ")";
   return true;
 }
 
