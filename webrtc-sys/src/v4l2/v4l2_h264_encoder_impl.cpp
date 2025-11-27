@@ -89,7 +89,15 @@ bool V4L2H264EncoderImpl::InitializeV4L2Device() {
   // Query capabilities
   struct v4l2_capability cap;
   if (ioctl(device_fd_, VIDIOC_QUERYCAP, &cap) < 0) {
-    RTC_LOG(LS_ERROR) << "Failed to query V4L2 capabilities";
+    RTC_LOG(LS_ERROR) << "Failed to query V4L2 capabilities: " << strerror(errno);
+    
+    // For Jetson devices, sometimes QUERYCAP fails on the symlink or special device node
+    // but the device is still usable.
+    if (device_path_.find("nvenc") != std::string::npos) {
+      RTC_LOG(LS_WARNING) << "Ignoring QUERYCAP failure for Jetson NVENC device";
+      return true;
+    }
+
     close(device_fd_);
     device_fd_ = -1;
     return false;
@@ -97,6 +105,12 @@ bool V4L2H264EncoderImpl::InitializeV4L2Device() {
 
   if (!(cap.capabilities & V4L2_CAP_VIDEO_M2M_MPLANE)) {
     RTC_LOG(LS_ERROR) << "Device does not support M2M MPLANE";
+    
+    if (device_path_.find("nvenc") != std::string::npos) {
+      RTC_LOG(LS_WARNING) << "Ignoring missing M2M MPLANE capability for Jetson NVENC device";
+      return true;
+    }
+
     close(device_fd_);
     device_fd_ = -1;
     return false;
