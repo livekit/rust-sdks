@@ -561,23 +561,6 @@ int V4L2H264EncoderImpl::EncodeWithV4L2(
   uint8_t* dst_u = static_cast<uint8_t*>(planes[1].start);
   uint8_t* dst_v = static_cast<uint8_t*>(planes[2].start);
 
-  // If a keyframe was requested, ask the encoder to generate an IDR frame.
-  // This mirrors NvVideoEncoder::forceIDR() used in the reference app.
-  if (frame_types && !frame_types->empty() &&
-      (*frame_types)[0] == VideoFrameType::kVideoFrameKey) {
-    v4l2_control ctrl = {};
-    ctrl.id = V4L2_CID_MPEG_VIDEO_FORCE_IDR;
-    ctrl.value = 1;
-    if (xioctl(fd_, VIDIOC_S_CTRL, &ctrl) < 0) {
-      RTC_LOG(LS_WARNING)
-          << "V4L2H264EncoderImpl: V4L2_CID_MPEG_VIDEO_FORCE_IDR failed: "
-          << strerror(errno);
-    } else if (encode_count % 60 == 1) {
-      RTC_LOG(LS_INFO)
-          << "V4L2H264EncoderImpl: requested IDR frame via V4L2 control";
-    }
-  }
-
   // Y plane
   for (int y = 0; y < static_cast<int>(height_); ++y) {
     memcpy(dst_y + y * y_stride_dst, i420->DataY() + y * y_stride_src, width_);
