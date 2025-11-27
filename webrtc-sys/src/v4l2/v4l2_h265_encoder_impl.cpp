@@ -79,15 +79,7 @@ bool V4L2H265EncoderImpl::InitializeV4L2Device() {
   // Query capabilities
   struct v4l2_capability cap;
   if (ioctl(device_fd_, VIDIOC_QUERYCAP, &cap) < 0) {
-    RTC_LOG(LS_ERROR) << "Failed to query V4L2 capabilities: " << strerror(errno);
-    
-    // For Jetson devices, sometimes QUERYCAP fails on the symlink or special device node
-    // but the device is still usable.
-    if (device_path_.find("nvenc") != std::string::npos) {
-      RTC_LOG(LS_WARNING) << "Ignoring QUERYCAP failure for Jetson NVENC device";
-      return true;
-    }
-
+    RTC_LOG(LS_ERROR) << "Failed to query V4L2 capabilities";
     close(device_fd_);
     device_fd_ = -1;
     return false;
@@ -95,12 +87,6 @@ bool V4L2H265EncoderImpl::InitializeV4L2Device() {
 
   if (!(cap.capabilities & V4L2_CAP_VIDEO_M2M_MPLANE)) {
     RTC_LOG(LS_ERROR) << "Device does not support M2M MPLANE";
-
-    if (device_path_.find("nvenc") != std::string::npos) {
-      RTC_LOG(LS_WARNING) << "Ignoring missing M2M MPLANE capability for Jetson NVENC device";
-      return true;
-    }
-
     close(device_fd_);
     device_fd_ = -1;
     return false;
@@ -289,22 +275,12 @@ int32_t V4L2H265EncoderImpl::InitEncode(
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
 
-  // Set output format (raw YUV input to encoder)
-  memset(&output_format_, 0, sizeof(output_format_));
-  output_format_.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-  output_format_.fmt.pix_mp.width = codec_.width;
-  output_format_.fmt.pix_mp.height = codec_.height;
-  output_format_.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_YUV420M;
-  output_format_.fmt.pix_mp.field = V4L2_FIELD_ANY;
-  output_format_.fmt.pix_mp.num_planes = 3;
+  // NOTE: For NVIDIA's V4L2 encoder, the capture plane format MUST be set
+  // before the output plane format and only then request buffers on any
+  // of the planes. See:
+  // https://docs.nvidia.com/jetson/l4t-multimedia/group__V4L2Enc.html
 
-  if (ioctl(device_fd_, VIDIOC_S_FMT, &output_format_) < 0) {
-    RTC_LOG(LS_ERROR) << "Failed to set output format: " << strerror(errno);
-    CleanupV4L2Device();
-    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
-  }
-
-  // Set capture format (encoded H265 output from encoder)
+  // Set capture format (encoded H265 output from encoder) FIRST
   memset(&capture_format_, 0, sizeof(capture_format_));
   capture_format_.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
   capture_format_.fmt.pix_mp.width = codec_.width;
@@ -315,6 +291,21 @@ int32_t V4L2H265EncoderImpl::InitEncode(
 
   if (ioctl(device_fd_, VIDIOC_S_FMT, &capture_format_) < 0) {
     RTC_LOG(LS_ERROR) << "Failed to set capture format";
+    CleanupV4L2Device();
+    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+  }
+
+  // Set output format (raw YUV input to encoder) AFTER capture format
+  memset(&output_format_, 0, sizeof(output_format_));
+  output_format_.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+  output_format_.fmt.pix_mp.width = codec_.width;
+  output_format_.fmt.pix_mp.height = codec_.height;
+  output_format_.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_YUV420M;
+  output_format_.fmt.pix_mp.field = V4L2_FIELD_ANY;
+  output_format_.fmt.pix_mp.num_planes = 3;
+
+  if (ioctl(device_fd_, VIDIOC_S_FMT, &output_format_) < 0) {
+    RTC_LOG(LS_ERROR) << "Failed to set output format";
     CleanupV4L2Device();
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }

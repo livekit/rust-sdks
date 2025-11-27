@@ -43,16 +43,9 @@ std::string V4L2VideoEncoderFactory::GetDevicePath() {
   const char* jetson_device = "/dev/v4l2-nvenc";
   int fd = open(jetson_device, O_RDWR);
   if (fd >= 0) {
-    // Verify it's a valid V4L2 device that supports QUERYCAP
-    struct v4l2_capability cap;
-    if (ioctl(fd, VIDIOC_QUERYCAP, &cap) == 0) {
-      close(fd);
-      RTC_LOG(LS_INFO) << "Found Jetson encoder device: " << jetson_device;
-      return std::string(jetson_device);
-    } else {
-      RTC_LOG(LS_WARNING) << "Found " << jetson_device << " but QUERYCAP failed (errno: " << errno << " - " << strerror(errno) << "). Skipping.";
-    }
     close(fd);
+    RTC_LOG(LS_INFO) << "Found Jetson encoder device: " << jetson_device;
+    return std::string(jetson_device);
   }
 
   // Try alternate device paths
