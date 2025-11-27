@@ -207,8 +207,39 @@ async fn main() -> Result<()> {
         info!("Published camera track");
     }
 
+    // Periodically log outbound stats (encoder, resolution, fps, bitrate)
+    tokio::spawn({
+        let track = track.clone();
+        async move {
+            loop {
+                if let Ok(stats) = track.get_stats().await {
+                    for s in stats {
+                        if let livekit::webrtc::stats::RtcStats::OutboundRtp(o) = s {
+                            info!(
+                                "Outbound video stats: {}x{} ~{:.1} fps, target_bitrate={:.1} kbps, encoder='{}', active={}",
+                                o.outbound.frame_width,
+                                o.outbound.frame_height,
+                                o.outbound.frames_per_second,
+                                o.outbound.target_bitrate / 1000.0,
+                                o.outbound.encoder_implementation,
+                                o.outbound.active,
+                            );
+                        }
+                    }
+                } else {
+                    debug!("Failed to fetch outbound video stats");
+                }
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        }
+    });
+
     // Reusable I420 buffer and frame
-    let mut frame = VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: 0, buffer: I420Buffer::new(width, height) };
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        timestamp_us: 0,
+        buffer: I420Buffer::new(width, height),
+    };
     let is_yuyv = fmt.format() == FrameFormat::YUYV;
     info!(
         "Selected conversion path: {}",
