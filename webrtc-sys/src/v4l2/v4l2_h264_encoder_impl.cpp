@@ -87,30 +87,37 @@ bool V4L2H264EncoderImpl::InitializeV4L2Device() {
     return false;
   }
 
-  // Query capabilities
-  struct v4l2_capability cap;
-  if (ioctl(device_fd_, VIDIOC_QUERYCAP, &cap) < 0) {
-    RTC_LOG(LS_ERROR) << "Failed to query V4L2 capabilities for device: "
-                      << device_path_
-                      << " (errno: " << errno << " - " << strerror(errno) << ")";
-    close(device_fd_);
-    device_fd_ = -1;
-    return false;
+  if (device_path_ == "/dev/v4l2-nvenc") {
+    RTC_LOG(LS_INFO) << "Skipping QUERYCAP for Jetson-specific device " << device_path_;
+    RTC_LOG(LS_INFO) << "Assuming M2M MPLANE support for known Jetson encoder";
+  } else {
+    // Query capabilities
+    struct v4l2_capability cap;
+    memset(&cap, 0, sizeof(cap));  // Add this to clear cap
+    if (ioctl(device_fd_, VIDIOC_QUERYCAP, &cap) < 0) {
+      RTC_LOG(LS_ERROR) << "Failed to query V4L2 capabilities for device: "
+                        << device_path_
+                        << " (errno: " << errno << " - " << strerror(errno) << ")";
+      close(device_fd_);
+      device_fd_ = -1;
+      return false;
+    }
+
+    if (!(cap.capabilities & V4L2_CAP_VIDEO_M2M_MPLANE)) {
+      char caps_hex[32];
+      std::snprintf(caps_hex, sizeof(caps_hex), "0x%08x", cap.capabilities);
+      RTC_LOG(LS_ERROR) << "Device does not support M2M MPLANE, capabilities="
+                        << caps_hex
+                        << " driver=" << reinterpret_cast<const char*>(cap.driver)
+                        << " card=" << reinterpret_cast<const char*>(cap.card);
+      close(device_fd_);
+      device_fd_ = -1;
+      return false;
+    }
+
+    RTC_LOG(LS_INFO) << "V4L2 device opened successfully: " << cap.card;
   }
 
-  if (!(cap.capabilities & V4L2_CAP_VIDEO_M2M_MPLANE)) {
-    char caps_hex[32];
-    std::snprintf(caps_hex, sizeof(caps_hex), "0x%08x", cap.capabilities);
-    RTC_LOG(LS_ERROR) << "Device does not support M2M MPLANE, capabilities="
-                      << caps_hex
-                      << " driver=" << reinterpret_cast<const char*>(cap.driver)
-                      << " card=" << reinterpret_cast<const char*>(cap.card);
-    close(device_fd_);
-    device_fd_ = -1;
-    return false;
-  }
-
-  RTC_LOG(LS_INFO) << "V4L2 device opened successfully: " << cap.card;
   return true;
 }
 
