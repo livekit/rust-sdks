@@ -312,7 +312,7 @@ int32_t V4L2H264EncoderImpl::InitEncode(
   output_format_.fmt.pix_mp.num_planes = 3;
 
   if (ioctl(device_fd_, VIDIOC_S_FMT, &output_format_) < 0) {
-    RTC_LOG(LS_ERROR) << "Failed to set output format";
+    RTC_LOG(LS_ERROR) << "Failed to set output format: " << strerror(errno);
     CleanupV4L2Device();
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
