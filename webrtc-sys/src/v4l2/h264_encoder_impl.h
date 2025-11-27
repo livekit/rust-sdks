@@ -8,6 +8,7 @@
 #ifndef WEBRTC_V4L2_H264_ENCODER_IMPL_H_
 #define WEBRTC_V4L2_H264_ENCODER_IMPL_H_
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -60,6 +61,11 @@ class V4L2H264EncoderImpl : public VideoEncoder {
   bool v4l2_initialized_ = false;
   std::vector<V4L2Buffer> output_buffers_;
   std::vector<V4L2Buffer> capture_buffers_;
+
+  // Strides for the three OUTPUT YUV420M planes as reported by the driver.
+  // Jetson encoders often align these larger than the visible width, so we
+  // must honor them when copying I420 data into the mmap'd OUTPUT buffers.
+  std::array<uint32_t, 3> output_plane_strides_ = {0, 0, 0};
 
   int InitV4L2Device(const VideoCodec* codec_settings);
   int EncodeWithV4L2(const VideoFrame& frame,

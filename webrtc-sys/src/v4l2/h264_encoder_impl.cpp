@@ -301,7 +301,36 @@ int V4L2H264EncoderImpl::InitV4L2Device(const VideoCodec* codec_settings) {
                       << strerror(errno);
     CleanupV4L2();
     return WEBRTC_VIDEO_CODEC_ERROR;
-  } 
+  }
+
+  // Read back negotiated OUTPUT format so we honor driver-aligned strides.
+  if (xioctl(fd_, VIDIOC_G_FMT, &fmt_out) == 0) {
+    if (fmt_out.fmt.pix_mp.num_planes >= 3) {
+      output_plane_strides_[0] = fmt_out.fmt.pix_mp.plane_fmt[0].bytesperline;
+      output_plane_strides_[1] = fmt_out.fmt.pix_mp.plane_fmt[1].bytesperline;
+      output_plane_strides_[2] = fmt_out.fmt.pix_mp.plane_fmt[2].bytesperline;
+    } else {
+      RTC_LOG(LS_WARNING)
+          << "V4L2H264EncoderImpl: OUTPUT num_planes=" 
+          << fmt_out.fmt.pix_mp.num_planes
+          << " (expected 3); falling back to logical strides";
+      output_plane_strides_[0] = width_;
+      output_plane_strides_[1] = width_ / 2;
+      output_plane_strides_[2] = width_ / 2;
+    }
+    RTC_LOG(LS_INFO) << "V4L2H264EncoderImpl: negotiated OUTPUT strides Y="
+                     << output_plane_strides_[0]
+                     << " U=" << output_plane_strides_[1]
+                     << " V=" << output_plane_strides_[2];
+  } else {
+    RTC_LOG(LS_WARNING)
+        << "V4L2H264EncoderImpl: VIDIOC_G_FMT (OUTPUT) failed: "
+        << strerror(errno)
+        << "; falling back to logical strides (width, width/2, width/2)";
+    output_plane_strides_[0] = width_;
+    output_plane_strides_[1] = width_ / 2;
+    output_plane_strides_[2] = width_ / 2;
+  }
 
   // Configure encoder framerate via VIDIOC_S_PARM as recommended by
   // NVIDIA's V4L2 encoder documentation. This must be done after setting
@@ -523,20 +552,42 @@ int V4L2H264EncoderImpl::EncodeWithV4L2(
   const int y_stride_src = i420->StrideY();
   const int u_stride_src = i420->StrideU();
   const int v_stride_src = i420->StrideV();
+  const uint32_t y_stride_dst =
+      output_plane_strides_[0] ? output_plane_strides_[0] : width_;
+  const uint32_t uv_stride_dst =
+      output_plane_strides_[1] ? output_plane_strides_[1] : (width_ / 2);
+
   uint8_t* dst_y = static_cast<uint8_t*>(planes[0].start);
   uint8_t* dst_u = static_cast<uint8_t*>(planes[1].start);
   uint8_t* dst_v = static_cast<uint8_t*>(planes[2].start);
 
+  // If a keyframe was requested, ask the encoder to generate an IDR frame.
+  // This mirrors NvVideoEncoder::forceIDR() used in the reference app.
+  if (frame_types && !frame_types->empty() &&
+      (*frame_types)[0] == VideoFrameType::kVideoFrameKey) {
+    v4l2_control ctrl = {};
+    ctrl.id = V4L2_CID_MPEG_VIDEO_FORCE_IDR;
+    ctrl.value = 1;
+    if (xioctl(fd_, VIDIOC_S_CTRL, &ctrl) < 0) {
+      RTC_LOG(LS_WARNING)
+          << "V4L2H264EncoderImpl: V4L2_CID_MPEG_VIDEO_FORCE_IDR failed: "
+          << strerror(errno);
+    } else if (encode_count % 60 == 1) {
+      RTC_LOG(LS_INFO)
+          << "V4L2H264EncoderImpl: requested IDR frame via V4L2 control";
+    }
+  }
+
   // Y plane
   for (int y = 0; y < static_cast<int>(height_); ++y) {
-    memcpy(dst_y + y * width_, i420->DataY() + y * y_stride_src, width_);
+    memcpy(dst_y + y * y_stride_dst, i420->DataY() + y * y_stride_src, width_);
   }
   // U/V planes (width/2 x height/2)
   const int cw = width_ / 2;
   const int ch = height_ / 2;
   for (int y = 0; y < ch; ++y) {
-    memcpy(dst_u + y * cw, i420->DataU() + y * u_stride_src, cw);
-    memcpy(dst_v + y * cw, i420->DataV() + y * v_stride_src, cw);
+    memcpy(dst_u + y * uv_stride_dst, i420->DataU() + y * u_stride_src, cw);
+    memcpy(dst_v + y * uv_stride_dst, i420->DataV() + y * v_stride_src, cw);
   }
 
   planes_out[0].bytesused = width_ * height_;
