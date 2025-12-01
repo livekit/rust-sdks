@@ -339,15 +339,13 @@ async fn stream_audio_to_livekit_with_shared_apm(
     Ok(())
 }
 
-
-async fn handle_room_events(room: Arc<Room>,
-) -> Result<()> {
+async fn handle_room_events(room: Arc<Room>) -> Result<()> {
     let mut room_events = room.subscribe();
 
     while let Some(event) = room_events.recv().await {
         match event {
-                RoomEvent::TrackMuted { participant, publication} => {
-                    println!(
+            RoomEvent::TrackMuted { participant, publication } => {
+                println!(
                     "Track muted by {}: {} ({:?})",
                     participant.identity(),
                     publication.name(),
@@ -355,7 +353,7 @@ async fn handle_room_events(room: Arc<Room>,
                 );
             }
 
-            RoomEvent::TrackUnmuted { participant, publication} => {
+            RoomEvent::TrackUnmuted { participant, publication } => {
                 println!(
                     "Track unmuted by {}: {} ({:?})",
                     participant.identity(),
