@@ -149,6 +149,7 @@ impl RemoteParticipant {
                 name: remote_publication.name(),
                 r#type: proto::TrackType::from(remote_publication.kind()) as i32,
                 source: proto::TrackSource::from(remote_publication.source()) as i32,
+                muted: remote_publication.is_muted(),
                 ..Default::default()
             });
 

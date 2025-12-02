@@ -339,6 +339,38 @@ async fn stream_audio_to_livekit_with_shared_apm(
     Ok(())
 }
 
+async fn handle_room_events(room: Arc<Room>) -> Result<()> {
+    let mut room_events = room.subscribe();
+
+    while let Some(event) = room_events.recv().await {
+        match event {
+            RoomEvent::TrackMuted { participant, publication } => {
+                println!(
+                    "Track muted by {}: {} ({:?})",
+                    participant.identity(),
+                    publication.name(),
+                    publication.kind()
+                );
+            }
+
+            RoomEvent::TrackUnmuted { participant, publication } => {
+                println!(
+                    "Track unmuted by {}: {} ({:?})",
+                    participant.identity(),
+                    publication.name(),
+                    publication.kind()
+                );
+            }
+            _ => {
+                // Handle other room events as needed
+                debug!("Room event: {:?}", event);
+            }
+        }
+    }
+
+    Ok(())
+}
+
 async fn handle_remote_audio_streams(
     room: Arc<Room>,
     mixer: AudioMixer,
@@ -573,6 +605,9 @@ async fn main() -> Result<()> {
         1000, // 1 second buffer
     );
 
+    // Handle room events
+    tokio::spawn(handle_room_events(room.clone()));
+
     // Create and publish audio track
     let track = LocalAudioTrack::create_audio_track(
         "microphone",
@@ -581,7 +616,7 @@ async fn main() -> Result<()> {
 
     room.local_participant()
         .publish_track(
-            LocalTrack::Audio(track),
+            LocalTrack::Audio(track.clone()),
             TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
         )
         .await?;
@@ -701,6 +736,17 @@ async fn main() -> Result<()> {
         if args.input_device.is_some() { "Custom" } else { "Default" },
         if _audio_playback.is_some() { "Enabled" } else { "Disabled" }
     );
+
+    // Demonstrate muting/unmuting the microphone track
+    tokio::spawn(async move {
+        // Demonstrate muting/unmuting after some time
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        track.mute();
+        info!("Microphone muted for 5 seconds...");
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        track.unmute();
+        info!("Microphone unmuted.");
+    });
 
     // Wait for Ctrl+C
     tokio::signal::ctrl_c().await?;
