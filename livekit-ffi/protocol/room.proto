@@ -359,7 +359,6 @@ message RoomEvent {
     ParticipantMetadataChanged participant_metadata_changed = 17;
     ParticipantNameChanged participant_name_changed = 18;
     ParticipantAttributesChanged participant_attributes_changed = 19;
-    ParticipantEncryptionStatusChanged participant_encryption_status_changed = 39;
     ConnectionQualityChanged connection_quality_changed = 20;
     ConnectionStateChanged connection_state_changed = 21;
     // Connected connected = 21;
@@ -385,6 +384,8 @@ message RoomEvent {
     RoomInfo moved = 37;
     // carry over all participant info updates, including sid
     ParticipantsUpdated participants_updated = 38;
+    ParticipantEncryptionStatusChanged participant_encryption_status_changed = 39;
+    TokenRefreshed token_refreshed = 40;
   }
 }
 
@@ -560,6 +561,10 @@ message Disconnected {
 }
 message Reconnecting {}
 message Reconnected {}
+
+message TokenRefreshed {
+  required string token = 1;
+}
 
 message RoomEOS {}
 
