@@ -234,6 +234,9 @@ pub enum RoomEvent {
     ParticipantsUpdated {
         participants: Vec<Participant>,
     },
+    TokenRefreshed {
+        token: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1741,6 +1744,8 @@ impl RoomSession {
         for filter in registered_audio_filter_plugins().into_iter() {
             filter.update_token(url.clone(), token.clone());
         }
+        let event = RoomEvent::TokenRefreshed { token };
+        self.dispatcher.dispatch(&event);
     }
 }
 
