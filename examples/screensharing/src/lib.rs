@@ -68,16 +68,6 @@ mod test {
         env_logger::init();
         let args = Args::parse();
 
-        #[cfg(target_os = "linux")]
-        {
-            /* This is needed for getting the system picker for screen sharing. */
-            use glib::MainLoop;
-            let main_loop = MainLoop::new(None, false);
-            let _handle = std::thread::spawn(move || {
-                main_loop.run();
-            });
-        }
-
         let url = env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set");
         let api_key = env::var("LIVEKIT_API_KEY").expect("LIVEKIT_API_KEY is not set");
         let api_secret = env::var("LIVEKIT_API_SECRET").expect("LIVEKIT_API_SECRET is not set");

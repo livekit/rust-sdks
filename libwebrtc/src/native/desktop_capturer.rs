@@ -78,6 +78,8 @@ impl DesktopCapturerOptions {
 
 pub(crate) struct DesktopCapturer {
     sys_handle: UniquePtr<sys_dc::ffi::DesktopCapturer>,
+    #[cfg(all(any(target_os = "linux", target_os = "freebsd"), feature = "glib-main-loop"))]
+    glib_loop: Option<glib::MainLoop>,
 }
 
 impl DesktopCapturer {
@@ -86,7 +88,14 @@ impl DesktopCapturer {
         if sys_handle.is_null() {
             None
         } else {
-            Some(Self { sys_handle })
+            Some(Self {
+                sys_handle,
+                #[cfg(all(
+                    any(target_os = "linux", target_os = "freebsd"),
+                    feature = "glib-main-loop"
+                ))]
+                glib_loop: None,
+            })
         }
     }
 
@@ -98,6 +107,14 @@ impl DesktopCapturer {
     where
         T: FnMut(Result<DesktopFrame, CaptureError>) + Send + 'static,
     {
+        #[cfg(all(any(target_os = "linux", target_os = "freebsd"), feature = "glib-main-loop"))]
+        if std::env::var("WAYLAND_DISPLAY").is_ok() {
+            let main_loop = glib::MainLoop::new(None, false);
+            self.glib_loop = Some(main_loop.clone());
+            let _handle = std::thread::spawn(move || {
+                main_loop.run();
+            });
+        }
         let pin_handle = self.sys_handle.pin_mut();
         let callback = DesktopCallback::new(callback);
         let callback_wrapper = sys_dc::DesktopCapturerCallbackWrapper::new(Box::new(callback));
@@ -115,6 +132,15 @@ impl DesktopCapturer {
             sources.push(CaptureSource { sys_handle: source.clone() });
         }
         sources
+    }
+}
+
+#[cfg(all(any(target_os = "linux", target_os = "freebsd"), feature = "glib-main-loop"))]
+impl Drop for DesktopCapturer {
+    fn drop(&mut self) {
+        if let Some(glib_loop) = &self.glib_loop {
+            glib_loop.quit();
+        }
     }
 }
 
