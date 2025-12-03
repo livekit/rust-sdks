@@ -101,7 +101,7 @@ impl ConnectorClient {
     /// Dials a WhatsApp call
     ///
     /// # Arguments
-    /// * `phone_number_id` - The number of the business initiating the call
+    /// * `phone_number_id` - The identifier of the number for business initiating the call
     /// * `to_phone_number` - The number of the user that should receive the call
     /// * `api_key` - The API key of the business initiating the call
     /// * `cloud_api_version` - WhatsApp Cloud API version (e.g., "23.0", "24.0")
@@ -203,7 +203,7 @@ impl ConnectorClient {
     /// Accepts an incoming WhatsApp call
     ///
     /// # Arguments
-    /// * `phone_number_id` - The number of the business connecting the call
+    /// * `phone_number_id` - The identifier of the number for business initiating the call
     /// * `api_key` - The API key of the business connecting the call
     /// * `cloud_api_version` - WhatsApp Cloud API version (e.g., "23.0", "24.0")
     /// * `call_id` - Call ID sent by Meta
