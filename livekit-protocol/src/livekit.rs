@@ -12,7 +12,7 @@ pub struct MetricsBatch {
     /// This is useful for storing participant identities, track names, etc.
     /// There is also a predefined list of labels that can be used to reference common metrics.
     /// They have reserved indices from 0 to (METRIC_LABEL_PREDEFINED_MAX_VALUE - 1).
-    /// Indexes pointing at str_data should start from METRIC_LABEL_PREDEFINED_MAX_VALUE, 
+    /// Indexes pointing at str_data should start from METRIC_LABEL_PREDEFINED_MAX_VALUE,
     /// such that str_data\[0\] == index of METRIC_LABEL_PREDEFINED_MAX_VALUE.
     #[prost(string, repeated, tag="3")]
     pub str_data: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
@@ -77,6 +77,17 @@ pub struct EventMetric {
     /// index into 'str_data'
     #[prost(uint32, tag="9")]
     pub rid: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct MetricsRecordingHeader {
+    #[prost(string, tag="1")]
+    pub room_id: ::prost::alloc::string::String,
+    /// milliseconds
+    #[prost(uint64, tag="3")]
+    pub duration: u64,
+    #[prost(message, optional, tag="4")]
+    pub start_time: ::core::option::Option<::pbjson_types::Timestamp>,
 }
 //
 // Protocol used to record metrics for a specific session.
@@ -217,7 +228,7 @@ pub struct ListUpdate {
     pub add: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// delete items from a list
     #[prost(string, repeated, tag="3")]
-    pub del: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    pub remove: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// sets the list to an empty list
     #[prost(bool, tag="4")]
     pub clear: bool,
@@ -398,6 +409,10 @@ pub mod participant_info {
         Sip = 3,
         /// LiveKit agents
         Agent = 4,
+        /// Connectors participants
+        ///
+        /// NEXT_ID: 8
+        Connector = 7,
     }
     impl Kind {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -411,6 +426,7 @@ pub mod participant_info {
                 Kind::Egress => "EGRESS",
                 Kind::Sip => "SIP",
                 Kind::Agent => "AGENT",
+                Kind::Connector => "CONNECTOR",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -421,6 +437,7 @@ pub mod participant_info {
                 "EGRESS" => Some(Self::Egress),
                 "SIP" => Some(Self::Sip),
                 "AGENT" => Some(Self::Agent),
+                "CONNECTOR" => Some(Self::Connector),
                 _ => None,
             }
         }
@@ -430,6 +447,8 @@ pub mod participant_info {
     pub enum KindDetail {
         CloudAgent = 0,
         Forwarded = 1,
+        ConnectorWhatsapp = 2,
+        ConnectorTwilio = 3,
     }
     impl KindDetail {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -440,6 +459,8 @@ pub mod participant_info {
             match self {
                 KindDetail::CloudAgent => "CLOUD_AGENT",
                 KindDetail::Forwarded => "FORWARDED",
+                KindDetail::ConnectorWhatsapp => "CONNECTOR_WHATSAPP",
+                KindDetail::ConnectorTwilio => "CONNECTOR_TWILIO",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -447,6 +468,8 @@ pub mod participant_info {
             match value {
                 "CLOUD_AGENT" => Some(Self::CloudAgent),
                 "FORWARDED" => Some(Self::Forwarded),
+                "CONNECTOR_WHATSAPP" => Some(Self::ConnectorWhatsapp),
+                "CONNECTOR_TWILIO" => Some(Self::ConnectorTwilio),
                 _ => None,
             }
         }
@@ -521,11 +544,9 @@ pub struct TrackInfo {
     pub muted: bool,
     /// original width of video (unset for audio)
     /// clients may receive a lower resolution version with simulcast
-    #[deprecated]
     #[prost(uint32, tag="5")]
     pub width: u32,
     /// original height of video (unset for audio)
-    #[deprecated]
     #[prost(uint32, tag="6")]
     pub height: u32,
     /// true if track is simulcasted
@@ -601,6 +622,7 @@ pub mod video_layer {
         Unused = 0,
         OneSpatialLayerPerStream = 1,
         MultipleSpatialLayersPerStream = 2,
+        OneSpatialLayerPerStreamIncompleteRtcpSr = 3,
     }
     impl Mode {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -612,6 +634,7 @@ pub mod video_layer {
                 Mode::Unused => "MODE_UNUSED",
                 Mode::OneSpatialLayerPerStream => "ONE_SPATIAL_LAYER_PER_STREAM",
                 Mode::MultipleSpatialLayersPerStream => "MULTIPLE_SPATIAL_LAYERS_PER_STREAM",
+                Mode::OneSpatialLayerPerStreamIncompleteRtcpSr => "ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -620,6 +643,7 @@ pub mod video_layer {
                 "MODE_UNUSED" => Some(Self::Unused),
                 "ONE_SPATIAL_LAYER_PER_STREAM" => Some(Self::OneSpatialLayerPerStream),
                 "MULTIPLE_SPATIAL_LAYERS_PER_STREAM" => Some(Self::MultipleSpatialLayersPerStream),
+                "ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR" => Some(Self::OneSpatialLayerPerStreamIncompleteRtcpSr),
                 _ => None,
             }
         }
@@ -715,7 +739,7 @@ pub struct EncryptedPacket {
     pub iv: ::prost::alloc::vec::Vec<u8>,
     #[prost(uint32, tag="3")]
     pub key_index: u32,
-    /// This is an encrypted EncryptedPacketPayload message representation 
+    /// This is an encrypted EncryptedPacketPayload message representation
     #[prost(bytes="vec", tag="4")]
     pub encrypted_value: ::prost::alloc::vec::Vec<u8>,
 }
@@ -1440,11 +1464,29 @@ pub mod data_stream {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FilterParams {
+    #[prost(string, repeated, tag="1")]
+    pub include_events: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+    #[prost(string, repeated, tag="2")]
+    pub exclude_events: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WebhookConfig {
     #[prost(string, tag="1")]
     pub url: ::prost::alloc::string::String,
     #[prost(string, tag="2")]
     pub signing_key: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="3")]
+    pub filter_params: ::core::option::Option<FilterParams>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SubscribedAudioCodec {
+    #[prost(string, tag="1")]
+    pub codec: ::prost::alloc::string::String,
+    #[prost(bool, tag="2")]
+    pub enabled: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -1452,6 +1494,7 @@ pub enum AudioCodec {
     DefaultAc = 0,
     Opus = 1,
     Aac = 2,
+    AcMp3 = 3,
 }
 impl AudioCodec {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1463,6 +1506,7 @@ impl AudioCodec {
             AudioCodec::DefaultAc => "DEFAULT_AC",
             AudioCodec::Opus => "OPUS",
             AudioCodec::Aac => "AAC",
+            AudioCodec::AcMp3 => "AC_MP3",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1471,6 +1515,7 @@ impl AudioCodec {
             "DEFAULT_AC" => Some(Self::DefaultAc),
             "OPUS" => Some(Self::Opus),
             "AAC" => Some(Self::Aac),
+            "AC_MP3" => Some(Self::AcMp3),
             _ => None,
         }
     }
@@ -2563,6 +2608,10 @@ pub struct StreamInfo {
     pub status: i32,
     #[prost(string, tag="6")]
     pub error: ::prost::alloc::string::String,
+    #[prost(int64, tag="7")]
+    pub last_retry_at: i64,
+    #[prost(uint32, tag="8")]
+    pub retries: u32,
 }
 /// Nested message and enum types in `StreamInfo`.
 pub mod stream_info {
@@ -2703,6 +2752,7 @@ pub enum EncodedFileType {
     DefaultFiletype = 0,
     Mp4 = 1,
     Ogg = 2,
+    Mp3 = 3,
 }
 impl EncodedFileType {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -2714,6 +2764,7 @@ impl EncodedFileType {
             EncodedFileType::DefaultFiletype => "DEFAULT_FILETYPE",
             EncodedFileType::Mp4 => "MP4",
             EncodedFileType::Ogg => "OGG",
+            EncodedFileType::Mp3 => "MP3",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -2722,6 +2773,7 @@ impl EncodedFileType {
             "DEFAULT_FILETYPE" => Some(Self::DefaultFiletype),
             "MP4" => Some(Self::Mp4),
             "OGG" => Some(Self::Ogg),
+            "MP3" => Some(Self::Mp3),
             _ => None,
         }
     }
@@ -3056,7 +3108,7 @@ pub mod signal_request {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct SignalResponse {
-    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25")]
+    #[prost(oneof="signal_response::Message", tags="1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26")]
     pub message: ::core::option::Option<signal_response::Message>,
 }
 /// Nested message and enum types in `SignalResponse`.
@@ -3139,6 +3191,9 @@ pub mod signal_response {
         /// notify number of required media sections to satisfy subscribed tracks
         #[prost(message, tag="25")]
         MediaSectionsRequirement(super::MediaSectionsRequirement),
+        /// when audio subscription changes, used to enable simulcasting of audio codecs based on subscriptions
+        #[prost(message, tag="26")]
+        SubscribedAudioCodecUpdate(super::SubscribedAudioCodecUpdate),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3299,6 +3354,8 @@ pub struct SessionDescription {
     pub sdp: ::prost::alloc::string::String,
     #[prost(uint32, tag="3")]
     pub id: u32,
+    #[prost(map="string, string", tag="4")]
+    pub mid_to_track_id: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3520,6 +3577,14 @@ pub struct SubscribedQualityUpdate {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SubscribedAudioCodecUpdate {
+    #[prost(string, tag="1")]
+    pub track_sid: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="2")]
+    pub subscribed_audio_codecs: ::prost::alloc::vec::Vec<SubscribedAudioCodec>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrackPermission {
     /// permission could be granted either by participant sid or identity
     #[prost(string, tag="1")]
@@ -3697,6 +3762,8 @@ pub struct RequestResponse {
     pub reason: i32,
     #[prost(string, tag="3")]
     pub message: ::prost::alloc::string::String,
+    #[prost(oneof="request_response::Request", tags="4, 5, 6, 7, 8, 9")]
+    pub request: ::core::option::Option<request_response::Request>,
 }
 /// Nested message and enum types in `RequestResponse`.
 pub mod request_response {
@@ -3707,6 +3774,9 @@ pub mod request_response {
         NotFound = 1,
         NotAllowed = 2,
         LimitExceeded = 3,
+        Queued = 4,
+        UnsupportedType = 5,
+        UnclassifiedError = 6,
     }
     impl Reason {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -3719,6 +3789,9 @@ pub mod request_response {
                 Reason::NotFound => "NOT_FOUND",
                 Reason::NotAllowed => "NOT_ALLOWED",
                 Reason::LimitExceeded => "LIMIT_EXCEEDED",
+                Reason::Queued => "QUEUED",
+                Reason::UnsupportedType => "UNSUPPORTED_TYPE",
+                Reason::UnclassifiedError => "UNCLASSIFIED_ERROR",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -3728,9 +3801,28 @@ pub mod request_response {
                 "NOT_FOUND" => Some(Self::NotFound),
                 "NOT_ALLOWED" => Some(Self::NotAllowed),
                 "LIMIT_EXCEEDED" => Some(Self::LimitExceeded),
+                "QUEUED" => Some(Self::Queued),
+                "UNSUPPORTED_TYPE" => Some(Self::UnsupportedType),
+                "UNCLASSIFIED_ERROR" => Some(Self::UnclassifiedError),
                 _ => None,
             }
         }
+    }
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Request {
+        #[prost(message, tag="4")]
+        Trickle(super::TrickleRequest),
+        #[prost(message, tag="5")]
+        AddTrack(super::AddTrackRequest),
+        #[prost(message, tag="6")]
+        Mute(super::MuteTrackRequest),
+        #[prost(message, tag="7")]
+        UpdateMetadata(super::UpdateParticipantMetadata),
+        #[prost(message, tag="8")]
+        UpdateAudioTrack(super::UpdateLocalAudioTrack),
+        #[prost(message, tag="9")]
+        UpdateVideoTrack(super::UpdateLocalVideoTrack),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -3928,6 +4020,8 @@ pub struct Job {
     pub agent_name: ::prost::alloc::string::String,
     #[prost(message, optional, tag="8")]
     pub state: ::core::option::Option<JobState>,
+    #[prost(bool, tag="10")]
+    pub enable_recording: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4571,6 +4665,26 @@ pub struct MoveParticipantResponse {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PerformRpcRequest {
+    #[prost(string, tag="1")]
+    pub room: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub destination_identity: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub method: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub payload: ::prost::alloc::string::String,
+    #[prost(uint32, tag="5")]
+    pub response_timeout_ms: u32,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PerformRpcResponse {
+    #[prost(string, tag="1")]
+    pub payload: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CreateIngressRequest {
     #[prost(enumeration="IngressInput", tag="1")]
     pub input_type: i32,
@@ -5055,6 +5169,18 @@ pub struct CreateSipTrunkRequest {
     /// Optional user-defined metadata for the Trunk.
     #[prost(string, tag="11")]
     pub metadata: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ProviderInfo {
+    #[prost(string, tag="1")]
+    pub id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub name: ::prost::alloc::string::String,
+    #[prost(enumeration="ProviderType", tag="3")]
+    pub r#type: i32,
+    #[prost(bool, tag="4")]
+    pub prevent_transfer: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5715,10 +5841,19 @@ pub struct CreateSipParticipantRequest {
     #[prost(enumeration="SipMediaEncryption", tag="18")]
     pub media_encryption: i32,
     /// Wait for the answer for the call before returning.
-    ///
-    /// NEXT ID: 21
     #[prost(bool, tag="19")]
     pub wait_until_answered: bool,
+    /// Optional display name for the 'From' SIP header.
+    ///
+    /// Cases:
+    /// 1) Unspecified: Use legacy behavior - display name will be set to be the caller's number.
+    /// 2) Empty string: Do not send a display name, which will result in a CNAM lookup downstream.
+    /// 3) Non-empty: Use the specified value as the display name.
+    #[prost(string, optional, tag="21")]
+    pub display_name: ::core::option::Option<::prost::alloc::string::String>,
+    /// NEXT ID: 23
+    #[prost(message, optional, tag="22")]
+    pub destination: ::core::option::Option<Destination>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5806,6 +5941,12 @@ pub struct SipCallInfo {
     pub audio_codec: ::prost::alloc::string::String,
     #[prost(string, tag="21")]
     pub media_encryption: ::prost::alloc::string::String,
+    #[prost(string, tag="25")]
+    pub pcap_file_link: ::prost::alloc::string::String,
+    #[prost(message, repeated, tag="26")]
+    pub call_context: ::prost::alloc::vec::Vec<::pbjson_types::Any>,
+    #[prost(message, optional, tag="27")]
+    pub provider_info: ::core::option::Option<ProviderInfo>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5841,6 +5982,16 @@ pub struct SipUri {
     #[prost(enumeration="SipTransport", tag="5")]
     pub transport: i32,
 }
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Destination {
+    #[prost(string, tag="1")]
+    pub city: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub country: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub region: ::prost::alloc::string::String,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
 pub enum SipStatusCode {
@@ -5850,11 +6001,15 @@ pub enum SipStatusCode {
     SipStatusCallIsForwarded = 181,
     SipStatusQueued = 182,
     SipStatusSessionProgress = 183,
+    SipStatusEarlyDialogTerminated = 199,
     SipStatusOk = 200,
     SipStatusAccepted = 202,
+    SipStatusNoNotification = 204,
+    SipStatusMultipleChoices = 300,
     SipStatusMovedPermanently = 301,
     SipStatusMovedTemporarily = 302,
     SipStatusUseProxy = 305,
+    SipStatusAlternativeService = 380,
     SipStatusBadRequest = 400,
     SipStatusUnauthorized = 401,
     SipStatusPaymentRequired = 402,
@@ -5866,13 +6021,30 @@ pub enum SipStatusCode {
     SipStatusRequestTimeout = 408,
     SipStatusConflict = 409,
     SipStatusGone = 410,
+    SipStatusLengthRequired = 411,
+    SipStatusConditionalRequestFailed = 412,
     SipStatusRequestEntityTooLarge = 413,
     SipStatusRequestUriTooLong = 414,
     SipStatusUnsupportedMediaType = 415,
     SipStatusRequestedRangeNotSatisfiable = 416,
+    SipStatusUnknownResourcePriority = 417,
     SipStatusBadExtension = 420,
     SipStatusExtensionRequired = 421,
+    SipStatusSessionIntervalTooSmall = 422,
     SipStatusIntervalTooBrief = 423,
+    SipStatusBadLocationInformation = 424,
+    SipStatusBadAlertMessage = 425,
+    SipStatusUseIdentityHeader = 428,
+    SipStatusProvideReferrerIdentity = 429,
+    SipStatusFlowFailed = 430,
+    SipStatusAnonymityDisallowed = 433,
+    SipStatusBadIdentityInfo = 436,
+    SipStatusUnsupportedCertificate = 437,
+    SipStatusInvalidIdentityHeader = 438,
+    SipStatusFirstHopLacksOutboundSupport = 439,
+    SipStatusMaxBreadthExceeded = 440,
+    SipStatusBadInfoPackage = 469,
+    SipStatusConsentNeeded = 470,
     SipStatusTemporarilyUnavailable = 480,
     SipStatusCallTransactionDoesNotExists = 481,
     SipStatusLoopDetected = 482,
@@ -5882,6 +6054,10 @@ pub enum SipStatusCode {
     SipStatusBusyHere = 486,
     SipStatusRequestTerminated = 487,
     SipStatusNotAcceptableHere = 488,
+    SipStatusBadEvent = 489,
+    SipStatusRequestPending = 491,
+    SipStatusUndecipherable = 493,
+    SipStatusSecurityAgreementRequired = 494,
     SipStatusInternalServerError = 500,
     SipStatusNotImplemented = 501,
     SipStatusBadGateway = 502,
@@ -5893,6 +6069,8 @@ pub enum SipStatusCode {
     SipStatusGlobalDecline = 603,
     SipStatusGlobalDoesNotExistAnywhere = 604,
     SipStatusGlobalNotAcceptable = 606,
+    SipStatusGlobalUnwanted = 607,
+    SipStatusGlobalRejected = 608,
 }
 impl SipStatusCode {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -5907,11 +6085,15 @@ impl SipStatusCode {
             SipStatusCode::SipStatusCallIsForwarded => "SIP_STATUS_CALL_IS_FORWARDED",
             SipStatusCode::SipStatusQueued => "SIP_STATUS_QUEUED",
             SipStatusCode::SipStatusSessionProgress => "SIP_STATUS_SESSION_PROGRESS",
+            SipStatusCode::SipStatusEarlyDialogTerminated => "SIP_STATUS_EARLY_DIALOG_TERMINATED",
             SipStatusCode::SipStatusOk => "SIP_STATUS_OK",
             SipStatusCode::SipStatusAccepted => "SIP_STATUS_ACCEPTED",
+            SipStatusCode::SipStatusNoNotification => "SIP_STATUS_NO_NOTIFICATION",
+            SipStatusCode::SipStatusMultipleChoices => "SIP_STATUS_MULTIPLE_CHOICES",
             SipStatusCode::SipStatusMovedPermanently => "SIP_STATUS_MOVED_PERMANENTLY",
             SipStatusCode::SipStatusMovedTemporarily => "SIP_STATUS_MOVED_TEMPORARILY",
             SipStatusCode::SipStatusUseProxy => "SIP_STATUS_USE_PROXY",
+            SipStatusCode::SipStatusAlternativeService => "SIP_STATUS_ALTERNATIVE_SERVICE",
             SipStatusCode::SipStatusBadRequest => "SIP_STATUS_BAD_REQUEST",
             SipStatusCode::SipStatusUnauthorized => "SIP_STATUS_UNAUTHORIZED",
             SipStatusCode::SipStatusPaymentRequired => "SIP_STATUS_PAYMENT_REQUIRED",
@@ -5923,13 +6105,30 @@ impl SipStatusCode {
             SipStatusCode::SipStatusRequestTimeout => "SIP_STATUS_REQUEST_TIMEOUT",
             SipStatusCode::SipStatusConflict => "SIP_STATUS_CONFLICT",
             SipStatusCode::SipStatusGone => "SIP_STATUS_GONE",
+            SipStatusCode::SipStatusLengthRequired => "SIP_STATUS_LENGTH_REQUIRED",
+            SipStatusCode::SipStatusConditionalRequestFailed => "SIP_STATUS_CONDITIONAL_REQUEST_FAILED",
             SipStatusCode::SipStatusRequestEntityTooLarge => "SIP_STATUS_REQUEST_ENTITY_TOO_LARGE",
             SipStatusCode::SipStatusRequestUriTooLong => "SIP_STATUS_REQUEST_URI_TOO_LONG",
             SipStatusCode::SipStatusUnsupportedMediaType => "SIP_STATUS_UNSUPPORTED_MEDIA_TYPE",
             SipStatusCode::SipStatusRequestedRangeNotSatisfiable => "SIP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE",
+            SipStatusCode::SipStatusUnknownResourcePriority => "SIP_STATUS_UNKNOWN_RESOURCE_PRIORITY",
             SipStatusCode::SipStatusBadExtension => "SIP_STATUS_BAD_EXTENSION",
             SipStatusCode::SipStatusExtensionRequired => "SIP_STATUS_EXTENSION_REQUIRED",
+            SipStatusCode::SipStatusSessionIntervalTooSmall => "SIP_STATUS_SESSION_INTERVAL_TOO_SMALL",
             SipStatusCode::SipStatusIntervalTooBrief => "SIP_STATUS_INTERVAL_TOO_BRIEF",
+            SipStatusCode::SipStatusBadLocationInformation => "SIP_STATUS_BAD_LOCATION_INFORMATION",
+            SipStatusCode::SipStatusBadAlertMessage => "SIP_STATUS_BAD_ALERT_MESSAGE",
+            SipStatusCode::SipStatusUseIdentityHeader => "SIP_STATUS_USE_IDENTITY_HEADER",
+            SipStatusCode::SipStatusProvideReferrerIdentity => "SIP_STATUS_PROVIDE_REFERRER_IDENTITY",
+            SipStatusCode::SipStatusFlowFailed => "SIP_STATUS_FLOW_FAILED",
+            SipStatusCode::SipStatusAnonymityDisallowed => "SIP_STATUS_ANONYMITY_DISALLOWED",
+            SipStatusCode::SipStatusBadIdentityInfo => "SIP_STATUS_BAD_IDENTITY_INFO",
+            SipStatusCode::SipStatusUnsupportedCertificate => "SIP_STATUS_UNSUPPORTED_CERTIFICATE",
+            SipStatusCode::SipStatusInvalidIdentityHeader => "SIP_STATUS_INVALID_IDENTITY_HEADER",
+            SipStatusCode::SipStatusFirstHopLacksOutboundSupport => "SIP_STATUS_FIRST_HOP_LACKS_OUTBOUND_SUPPORT",
+            SipStatusCode::SipStatusMaxBreadthExceeded => "SIP_STATUS_MAX_BREADTH_EXCEEDED",
+            SipStatusCode::SipStatusBadInfoPackage => "SIP_STATUS_BAD_INFO_PACKAGE",
+            SipStatusCode::SipStatusConsentNeeded => "SIP_STATUS_CONSENT_NEEDED",
             SipStatusCode::SipStatusTemporarilyUnavailable => "SIP_STATUS_TEMPORARILY_UNAVAILABLE",
             SipStatusCode::SipStatusCallTransactionDoesNotExists => "SIP_STATUS_CALL_TRANSACTION_DOES_NOT_EXISTS",
             SipStatusCode::SipStatusLoopDetected => "SIP_STATUS_LOOP_DETECTED",
@@ -5939,6 +6138,10 @@ impl SipStatusCode {
             SipStatusCode::SipStatusBusyHere => "SIP_STATUS_BUSY_HERE",
             SipStatusCode::SipStatusRequestTerminated => "SIP_STATUS_REQUEST_TERMINATED",
             SipStatusCode::SipStatusNotAcceptableHere => "SIP_STATUS_NOT_ACCEPTABLE_HERE",
+            SipStatusCode::SipStatusBadEvent => "SIP_STATUS_BAD_EVENT",
+            SipStatusCode::SipStatusRequestPending => "SIP_STATUS_REQUEST_PENDING",
+            SipStatusCode::SipStatusUndecipherable => "SIP_STATUS_UNDECIPHERABLE",
+            SipStatusCode::SipStatusSecurityAgreementRequired => "SIP_STATUS_SECURITY_AGREEMENT_REQUIRED",
             SipStatusCode::SipStatusInternalServerError => "SIP_STATUS_INTERNAL_SERVER_ERROR",
             SipStatusCode::SipStatusNotImplemented => "SIP_STATUS_NOT_IMPLEMENTED",
             SipStatusCode::SipStatusBadGateway => "SIP_STATUS_BAD_GATEWAY",
@@ -5950,6 +6153,8 @@ impl SipStatusCode {
             SipStatusCode::SipStatusGlobalDecline => "SIP_STATUS_GLOBAL_DECLINE",
             SipStatusCode::SipStatusGlobalDoesNotExistAnywhere => "SIP_STATUS_GLOBAL_DOES_NOT_EXIST_ANYWHERE",
             SipStatusCode::SipStatusGlobalNotAcceptable => "SIP_STATUS_GLOBAL_NOT_ACCEPTABLE",
+            SipStatusCode::SipStatusGlobalUnwanted => "SIP_STATUS_GLOBAL_UNWANTED",
+            SipStatusCode::SipStatusGlobalRejected => "SIP_STATUS_GLOBAL_REJECTED",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -5961,11 +6166,15 @@ impl SipStatusCode {
             "SIP_STATUS_CALL_IS_FORWARDED" => Some(Self::SipStatusCallIsForwarded),
             "SIP_STATUS_QUEUED" => Some(Self::SipStatusQueued),
             "SIP_STATUS_SESSION_PROGRESS" => Some(Self::SipStatusSessionProgress),
+            "SIP_STATUS_EARLY_DIALOG_TERMINATED" => Some(Self::SipStatusEarlyDialogTerminated),
             "SIP_STATUS_OK" => Some(Self::SipStatusOk),
             "SIP_STATUS_ACCEPTED" => Some(Self::SipStatusAccepted),
+            "SIP_STATUS_NO_NOTIFICATION" => Some(Self::SipStatusNoNotification),
+            "SIP_STATUS_MULTIPLE_CHOICES" => Some(Self::SipStatusMultipleChoices),
             "SIP_STATUS_MOVED_PERMANENTLY" => Some(Self::SipStatusMovedPermanently),
             "SIP_STATUS_MOVED_TEMPORARILY" => Some(Self::SipStatusMovedTemporarily),
             "SIP_STATUS_USE_PROXY" => Some(Self::SipStatusUseProxy),
+            "SIP_STATUS_ALTERNATIVE_SERVICE" => Some(Self::SipStatusAlternativeService),
             "SIP_STATUS_BAD_REQUEST" => Some(Self::SipStatusBadRequest),
             "SIP_STATUS_UNAUTHORIZED" => Some(Self::SipStatusUnauthorized),
             "SIP_STATUS_PAYMENT_REQUIRED" => Some(Self::SipStatusPaymentRequired),
@@ -5977,13 +6186,30 @@ impl SipStatusCode {
             "SIP_STATUS_REQUEST_TIMEOUT" => Some(Self::SipStatusRequestTimeout),
             "SIP_STATUS_CONFLICT" => Some(Self::SipStatusConflict),
             "SIP_STATUS_GONE" => Some(Self::SipStatusGone),
+            "SIP_STATUS_LENGTH_REQUIRED" => Some(Self::SipStatusLengthRequired),
+            "SIP_STATUS_CONDITIONAL_REQUEST_FAILED" => Some(Self::SipStatusConditionalRequestFailed),
             "SIP_STATUS_REQUEST_ENTITY_TOO_LARGE" => Some(Self::SipStatusRequestEntityTooLarge),
             "SIP_STATUS_REQUEST_URI_TOO_LONG" => Some(Self::SipStatusRequestUriTooLong),
             "SIP_STATUS_UNSUPPORTED_MEDIA_TYPE" => Some(Self::SipStatusUnsupportedMediaType),
             "SIP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE" => Some(Self::SipStatusRequestedRangeNotSatisfiable),
+            "SIP_STATUS_UNKNOWN_RESOURCE_PRIORITY" => Some(Self::SipStatusUnknownResourcePriority),
             "SIP_STATUS_BAD_EXTENSION" => Some(Self::SipStatusBadExtension),
             "SIP_STATUS_EXTENSION_REQUIRED" => Some(Self::SipStatusExtensionRequired),
+            "SIP_STATUS_SESSION_INTERVAL_TOO_SMALL" => Some(Self::SipStatusSessionIntervalTooSmall),
             "SIP_STATUS_INTERVAL_TOO_BRIEF" => Some(Self::SipStatusIntervalTooBrief),
+            "SIP_STATUS_BAD_LOCATION_INFORMATION" => Some(Self::SipStatusBadLocationInformation),
+            "SIP_STATUS_BAD_ALERT_MESSAGE" => Some(Self::SipStatusBadAlertMessage),
+            "SIP_STATUS_USE_IDENTITY_HEADER" => Some(Self::SipStatusUseIdentityHeader),
+            "SIP_STATUS_PROVIDE_REFERRER_IDENTITY" => Some(Self::SipStatusProvideReferrerIdentity),
+            "SIP_STATUS_FLOW_FAILED" => Some(Self::SipStatusFlowFailed),
+            "SIP_STATUS_ANONYMITY_DISALLOWED" => Some(Self::SipStatusAnonymityDisallowed),
+            "SIP_STATUS_BAD_IDENTITY_INFO" => Some(Self::SipStatusBadIdentityInfo),
+            "SIP_STATUS_UNSUPPORTED_CERTIFICATE" => Some(Self::SipStatusUnsupportedCertificate),
+            "SIP_STATUS_INVALID_IDENTITY_HEADER" => Some(Self::SipStatusInvalidIdentityHeader),
+            "SIP_STATUS_FIRST_HOP_LACKS_OUTBOUND_SUPPORT" => Some(Self::SipStatusFirstHopLacksOutboundSupport),
+            "SIP_STATUS_MAX_BREADTH_EXCEEDED" => Some(Self::SipStatusMaxBreadthExceeded),
+            "SIP_STATUS_BAD_INFO_PACKAGE" => Some(Self::SipStatusBadInfoPackage),
+            "SIP_STATUS_CONSENT_NEEDED" => Some(Self::SipStatusConsentNeeded),
             "SIP_STATUS_TEMPORARILY_UNAVAILABLE" => Some(Self::SipStatusTemporarilyUnavailable),
             "SIP_STATUS_CALL_TRANSACTION_DOES_NOT_EXISTS" => Some(Self::SipStatusCallTransactionDoesNotExists),
             "SIP_STATUS_LOOP_DETECTED" => Some(Self::SipStatusLoopDetected),
@@ -5993,6 +6219,10 @@ impl SipStatusCode {
             "SIP_STATUS_BUSY_HERE" => Some(Self::SipStatusBusyHere),
             "SIP_STATUS_REQUEST_TERMINATED" => Some(Self::SipStatusRequestTerminated),
             "SIP_STATUS_NOT_ACCEPTABLE_HERE" => Some(Self::SipStatusNotAcceptableHere),
+            "SIP_STATUS_BAD_EVENT" => Some(Self::SipStatusBadEvent),
+            "SIP_STATUS_REQUEST_PENDING" => Some(Self::SipStatusRequestPending),
+            "SIP_STATUS_UNDECIPHERABLE" => Some(Self::SipStatusUndecipherable),
+            "SIP_STATUS_SECURITY_AGREEMENT_REQUIRED" => Some(Self::SipStatusSecurityAgreementRequired),
             "SIP_STATUS_INTERNAL_SERVER_ERROR" => Some(Self::SipStatusInternalServerError),
             "SIP_STATUS_NOT_IMPLEMENTED" => Some(Self::SipStatusNotImplemented),
             "SIP_STATUS_BAD_GATEWAY" => Some(Self::SipStatusBadGateway),
@@ -6004,6 +6234,8 @@ impl SipStatusCode {
             "SIP_STATUS_GLOBAL_DECLINE" => Some(Self::SipStatusGlobalDecline),
             "SIP_STATUS_GLOBAL_DOES_NOT_EXIST_ANYWHERE" => Some(Self::SipStatusGlobalDoesNotExistAnywhere),
             "SIP_STATUS_GLOBAL_NOT_ACCEPTABLE" => Some(Self::SipStatusGlobalNotAcceptable),
+            "SIP_STATUS_GLOBAL_UNWANTED" => Some(Self::SipStatusGlobalUnwanted),
+            "SIP_STATUS_GLOBAL_REJECTED" => Some(Self::SipStatusGlobalRejected),
             _ => None,
         }
     }
@@ -6100,6 +6332,37 @@ impl SipMediaEncryption {
             "SIP_MEDIA_ENCRYPT_DISABLE" => Some(Self::SipMediaEncryptDisable),
             "SIP_MEDIA_ENCRYPT_ALLOW" => Some(Self::SipMediaEncryptAllow),
             "SIP_MEDIA_ENCRYPT_REQUIRE" => Some(Self::SipMediaEncryptRequire),
+            _ => None,
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ProviderType {
+    Unknown = 0,
+    /// Internally implemented
+    Internal = 1,
+    /// Vendor provided
+    External = 2,
+}
+impl ProviderType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ProviderType::Unknown => "PROVIDER_TYPE_UNKNOWN",
+            ProviderType::Internal => "PROVIDER_TYPE_INTERNAL",
+            ProviderType::External => "PROVIDER_TYPE_EXTERNAL",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PROVIDER_TYPE_UNKNOWN" => Some(Self::Unknown),
+            "PROVIDER_TYPE_INTERNAL" => Some(Self::Internal),
+            "PROVIDER_TYPE_EXTERNAL" => Some(Self::External),
             _ => None,
         }
     }
@@ -6224,6 +6487,271 @@ impl SipCallDirection {
             "SCD_UNKNOWN" => Some(Self::ScdUnknown),
             "SCD_INBOUND" => Some(Self::ScdInbound),
             "SCD_OUTBOUND" => Some(Self::ScdOutbound),
+            _ => None,
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DialWhatsAppCallRequest {
+    /// Required - The number of the business that is initiating the call
+    #[prost(string, tag="1")]
+    pub whatsapp_phone_number_id: ::prost::alloc::string::String,
+    /// Required - The number of the user that is supossed to receive the call
+    #[prost(string, tag="2")]
+    pub whatsapp_to_phone_number: ::prost::alloc::string::String,
+    /// Required - The API key of the business that is initiating the call
+    #[prost(string, tag="3")]
+    pub whatsapp_api_key: ::prost::alloc::string::String,
+    /// Required - WhatsApp Cloud API version, eg: 23.0, 24.0, etc.
+    #[prost(string, tag="12")]
+    pub whatsapp_cloud_api_version: ::prost::alloc::string::String,
+    /// Optional - An arbitrary string you can pass in that is useful for tracking and logging purposes.
+    #[prost(string, tag="4")]
+    pub whatsapp_biz_opaque_callback_data: ::prost::alloc::string::String,
+    /// Optional - What LiveKit room should this participant be connected too
+    #[prost(string, tag="5")]
+    pub room_name: ::prost::alloc::string::String,
+    /// Optional - Agents to dispatch the call to
+    #[prost(message, repeated, tag="6")]
+    pub agents: ::prost::alloc::vec::Vec<RoomAgentDispatch>,
+    /// Optional - Identity of the participant in LiveKit room
+    #[prost(string, tag="7")]
+    pub participant_identity: ::prost::alloc::string::String,
+    /// Optional - Name of the participant in LiveKit room
+    #[prost(string, tag="8")]
+    pub participant_name: ::prost::alloc::string::String,
+    /// Optional - User-defined metadata. Will be attached to a created Participant in the room.
+    #[prost(string, tag="9")]
+    pub participant_metadata: ::prost::alloc::string::String,
+    /// Optional - User-defined attributes. Will be attached to a created Participant in the room.
+    #[prost(map="string, string", tag="10")]
+    pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Optional - Country where the call terminates as ISO 3166-1 alpha-2 (<https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>). This will be used by the livekit infrastructure to route calls.
+    ///
+    /// Next - 13
+    #[prost(string, tag="11")]
+    pub destination_country: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DialWhatsAppCallResponse {
+    /// Call ID sent by Meta
+    #[prost(string, tag="1")]
+    pub whatsapp_call_id: ::prost::alloc::string::String,
+    /// The name of the LiveKit room that the call is connected to
+    #[prost(string, tag="2")]
+    pub room_name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DisconnectWhatsAppCallRequest {
+    /// Required - Call ID sent by Meta
+    #[prost(string, tag="1")]
+    pub whatsapp_call_id: ::prost::alloc::string::String,
+    /// Required - The API key of the business that is disconnecting the call
+    #[prost(string, tag="2")]
+    pub whatsapp_api_key: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct DisconnectWhatsAppCallResponse {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectWhatsAppCallRequest {
+    /// Required - Call ID sent by Meta
+    #[prost(string, tag="1")]
+    pub whatsapp_call_id: ::prost::alloc::string::String,
+    /// Required - The call connect webhook comes with SDP from Meta
+    /// It is the answer SDP for a business initiated call
+    #[prost(message, optional, tag="2")]
+    pub sdp: ::core::option::Option<SessionDescription>,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectWhatsAppCallResponse {
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AcceptWhatsAppCallRequest {
+    /// Required - The number of the business that is conencting the call
+    #[prost(string, tag="1")]
+    pub whatsapp_phone_number_id: ::prost::alloc::string::String,
+    /// Required - The API key of the business that is connecting the call
+    #[prost(string, tag="2")]
+    pub whatsapp_api_key: ::prost::alloc::string::String,
+    /// Required - WhatsApp Cloud API version, eg: 23.0, 24.0, etc.
+    #[prost(string, tag="13")]
+    pub whatsapp_cloud_api_version: ::prost::alloc::string::String,
+    /// Required - Call ID sent by Meta
+    #[prost(string, tag="3")]
+    pub whatsapp_call_id: ::prost::alloc::string::String,
+    /// Optional - An arbitrary string you can pass in that is useful for tracking and logging purposes.
+    #[prost(string, tag="4")]
+    pub whatsapp_biz_opaque_callback_data: ::prost::alloc::string::String,
+    /// Required - The call accept webhook comes with SDP from Meta
+    /// It is the for a user initiated call
+    #[prost(message, optional, tag="5")]
+    pub sdp: ::core::option::Option<SessionDescription>,
+    /// Optional - What LiveKit room should this participant be connected too
+    #[prost(string, tag="6")]
+    pub room_name: ::prost::alloc::string::String,
+    /// Optional - Agents to dispatch the call to
+    #[prost(message, repeated, tag="7")]
+    pub agents: ::prost::alloc::vec::Vec<RoomAgentDispatch>,
+    /// Optional - Identity of the participant in LiveKit room
+    #[prost(string, tag="8")]
+    pub participant_identity: ::prost::alloc::string::String,
+    /// Optional - Name of the participant in LiveKit room
+    #[prost(string, tag="9")]
+    pub participant_name: ::prost::alloc::string::String,
+    /// Optional - User-defined metadata. Will be attached to a created Participant in the room.
+    #[prost(string, tag="10")]
+    pub participant_metadata: ::prost::alloc::string::String,
+    /// Optional - User-defined attributes. Will be attached to a created Participant in the room.
+    #[prost(map="string, string", tag="11")]
+    pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Optional - Country where the call terminates as ISO 3166-1 alpha-2 (<https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>). This will be used by the livekit infrastructure to route calls.
+    ///
+    /// Next - 14
+    #[prost(string, tag="12")]
+    pub destination_country: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AcceptWhatsAppCallResponse {
+    /// The name of the LiveKit room that the call is connected to
+    #[prost(string, tag="1")]
+    pub room_name: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct WhatsAppCall {
+    /// list of call ids that are currently active
+    #[prost(string, tag="1")]
+    pub whatsapp_call_id: ::prost::alloc::string::String,
+    /// Direction of the call
+    #[prost(enumeration="WhatsAppCallDirection", tag="2")]
+    pub direction: i32,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum WhatsAppCallDirection {
+    WhatsappCallDirectionInbound = 0,
+    WhatsappCallDirectionOutbound = 2,
+}
+impl WhatsAppCallDirection {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            WhatsAppCallDirection::WhatsappCallDirectionInbound => "WHATSAPP_CALL_DIRECTION_INBOUND",
+            WhatsAppCallDirection::WhatsappCallDirectionOutbound => "WHATSAPP_CALL_DIRECTION_OUTBOUND",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "WHATSAPP_CALL_DIRECTION_INBOUND" => Some(Self::WhatsappCallDirectionInbound),
+            "WHATSAPP_CALL_DIRECTION_OUTBOUND" => Some(Self::WhatsappCallDirectionOutbound),
+            _ => None,
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectTwilioCallRequest {
+    /// The Direction of the call
+    #[prost(enumeration="connect_twilio_call_request::TwilioCallDirection", tag="1")]
+    pub twilio_call_direction: i32,
+    /// What LiveKit room should this call be connected to
+    #[prost(string, tag="2")]
+    pub room_name: ::prost::alloc::string::String,
+    /// Optional agents to dispatch the call to
+    #[prost(message, repeated, tag="3")]
+    pub agents: ::prost::alloc::vec::Vec<RoomAgentDispatch>,
+    /// Optional identity of the participant in LiveKit room
+    #[prost(string, tag="4")]
+    pub participant_identity: ::prost::alloc::string::String,
+    /// Optional name of the participant in LiveKit room
+    #[prost(string, tag="5")]
+    pub participant_name: ::prost::alloc::string::String,
+    /// Optional user-defined metadata. Will be attached to a created Participant in the room.
+    #[prost(string, tag="6")]
+    pub participant_metadata: ::prost::alloc::string::String,
+    /// Optional user-defined attributes. Will be attached to a created Participant in the room.
+    #[prost(map="string, string", tag="7")]
+    pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Country where the call terminates as ISO 3166-1 alpha-2 (<https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>). This will be used by the livekit infrastructure to route calls.
+    #[prost(string, tag="8")]
+    pub destination_country: ::prost::alloc::string::String,
+}
+/// Nested message and enum types in `ConnectTwilioCallRequest`.
+pub mod connect_twilio_call_request {
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum TwilioCallDirection {
+        /// Call is inbound to LiveKit from Twilio
+        Inbound = 0,
+        /// Call is outbound from LiveKit to Twilio
+        Outbound = 1,
+    }
+    impl TwilioCallDirection {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                TwilioCallDirection::Inbound => "TWILIO_CALL_DIRECTION_INBOUND",
+                TwilioCallDirection::Outbound => "TWILIO_CALL_DIRECTION_OUTBOUND",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "TWILIO_CALL_DIRECTION_INBOUND" => Some(Self::Inbound),
+                "TWILIO_CALL_DIRECTION_OUTBOUND" => Some(Self::Outbound),
+                _ => None,
+            }
+        }
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ConnectTwilioCallResponse {
+    /// The websocket URL which twilio media stream will connect to
+    #[prost(string, tag="1")]
+    pub connect_url: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ConnectorType {
+    Unspecified = 0,
+    WhatsApp = 1,
+    Twilio = 2,
+}
+impl ConnectorType {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            ConnectorType::Unspecified => "Unspecified",
+            ConnectorType::WhatsApp => "WhatsApp",
+            ConnectorType::Twilio => "Twilio",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "Unspecified" => Some(Self::Unspecified),
+            "WhatsApp" => Some(Self::WhatsApp),
+            "Twilio" => Some(Self::Twilio),
             _ => None,
         }
     }

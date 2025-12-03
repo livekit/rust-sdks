@@ -1,4 +1,412 @@
 // @generated
+impl serde::Serialize for AcceptWhatsAppCallRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.whatsapp_phone_number_id.is_empty() {
+            len += 1;
+        }
+        if !self.whatsapp_api_key.is_empty() {
+            len += 1;
+        }
+        if !self.whatsapp_cloud_api_version.is_empty() {
+            len += 1;
+        }
+        if !self.whatsapp_call_id.is_empty() {
+            len += 1;
+        }
+        if !self.whatsapp_biz_opaque_callback_data.is_empty() {
+            len += 1;
+        }
+        if self.sdp.is_some() {
+            len += 1;
+        }
+        if !self.room_name.is_empty() {
+            len += 1;
+        }
+        if !self.agents.is_empty() {
+            len += 1;
+        }
+        if !self.participant_identity.is_empty() {
+            len += 1;
+        }
+        if !self.participant_name.is_empty() {
+            len += 1;
+        }
+        if !self.participant_metadata.is_empty() {
+            len += 1;
+        }
+        if !self.participant_attributes.is_empty() {
+            len += 1;
+        }
+        if !self.destination_country.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AcceptWhatsAppCallRequest", len)?;
+        if !self.whatsapp_phone_number_id.is_empty() {
+            struct_ser.serialize_field("whatsappPhoneNumberId", &self.whatsapp_phone_number_id)?;
+        }
+        if !self.whatsapp_api_key.is_empty() {
+            struct_ser.serialize_field("whatsappApiKey", &self.whatsapp_api_key)?;
+        }
+        if !self.whatsapp_cloud_api_version.is_empty() {
+            struct_ser.serialize_field("whatsappCloudApiVersion", &self.whatsapp_cloud_api_version)?;
+        }
+        if !self.whatsapp_call_id.is_empty() {
+            struct_ser.serialize_field("whatsappCallId", &self.whatsapp_call_id)?;
+        }
+        if !self.whatsapp_biz_opaque_callback_data.is_empty() {
+            struct_ser.serialize_field("whatsappBizOpaqueCallbackData", &self.whatsapp_biz_opaque_callback_data)?;
+        }
+        if let Some(v) = self.sdp.as_ref() {
+            struct_ser.serialize_field("sdp", v)?;
+        }
+        if !self.room_name.is_empty() {
+            struct_ser.serialize_field("roomName", &self.room_name)?;
+        }
+        if !self.agents.is_empty() {
+            struct_ser.serialize_field("agents", &self.agents)?;
+        }
+        if !self.participant_identity.is_empty() {
+            struct_ser.serialize_field("participantIdentity", &self.participant_identity)?;
+        }
+        if !self.participant_name.is_empty() {
+            struct_ser.serialize_field("participantName", &self.participant_name)?;
+        }
+        if !self.participant_metadata.is_empty() {
+            struct_ser.serialize_field("participantMetadata", &self.participant_metadata)?;
+        }
+        if !self.participant_attributes.is_empty() {
+            struct_ser.serialize_field("participantAttributes", &self.participant_attributes)?;
+        }
+        if !self.destination_country.is_empty() {
+            struct_ser.serialize_field("destinationCountry", &self.destination_country)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AcceptWhatsAppCallRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "whatsapp_phone_number_id",
+            "whatsappPhoneNumberId",
+            "whatsapp_api_key",
+            "whatsappApiKey",
+            "whatsapp_cloud_api_version",
+            "whatsappCloudApiVersion",
+            "whatsapp_call_id",
+            "whatsappCallId",
+            "whatsapp_biz_opaque_callback_data",
+            "whatsappBizOpaqueCallbackData",
+            "sdp",
+            "room_name",
+            "roomName",
+            "agents",
+            "participant_identity",
+            "participantIdentity",
+            "participant_name",
+            "participantName",
+            "participant_metadata",
+            "participantMetadata",
+            "participant_attributes",
+            "participantAttributes",
+            "destination_country",
+            "destinationCountry",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            WhatsappPhoneNumberId,
+            WhatsappApiKey,
+            WhatsappCloudApiVersion,
+            WhatsappCallId,
+            WhatsappBizOpaqueCallbackData,
+            Sdp,
+            RoomName,
+            Agents,
+            ParticipantIdentity,
+            ParticipantName,
+            ParticipantMetadata,
+            ParticipantAttributes,
+            DestinationCountry,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "whatsappPhoneNumberId" | "whatsapp_phone_number_id" => Ok(GeneratedField::WhatsappPhoneNumberId),
+                            "whatsappApiKey" | "whatsapp_api_key" => Ok(GeneratedField::WhatsappApiKey),
+                            "whatsappCloudApiVersion" | "whatsapp_cloud_api_version" => Ok(GeneratedField::WhatsappCloudApiVersion),
+                            "whatsappCallId" | "whatsapp_call_id" => Ok(GeneratedField::WhatsappCallId),
+                            "whatsappBizOpaqueCallbackData" | "whatsapp_biz_opaque_callback_data" => Ok(GeneratedField::WhatsappBizOpaqueCallbackData),
+                            "sdp" => Ok(GeneratedField::Sdp),
+                            "roomName" | "room_name" => Ok(GeneratedField::RoomName),
+                            "agents" => Ok(GeneratedField::Agents),
+                            "participantIdentity" | "participant_identity" => Ok(GeneratedField::ParticipantIdentity),
+                            "participantName" | "participant_name" => Ok(GeneratedField::ParticipantName),
+                            "participantMetadata" | "participant_metadata" => Ok(GeneratedField::ParticipantMetadata),
+                            "participantAttributes" | "participant_attributes" => Ok(GeneratedField::ParticipantAttributes),
+                            "destinationCountry" | "destination_country" => Ok(GeneratedField::DestinationCountry),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AcceptWhatsAppCallRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AcceptWhatsAppCallRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AcceptWhatsAppCallRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut whatsapp_phone_number_id__ = None;
+                let mut whatsapp_api_key__ = None;
+                let mut whatsapp_cloud_api_version__ = None;
+                let mut whatsapp_call_id__ = None;
+                let mut whatsapp_biz_opaque_callback_data__ = None;
+                let mut sdp__ = None;
+                let mut room_name__ = None;
+                let mut agents__ = None;
+                let mut participant_identity__ = None;
+                let mut participant_name__ = None;
+                let mut participant_metadata__ = None;
+                let mut participant_attributes__ = None;
+                let mut destination_country__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::WhatsappPhoneNumberId => {
+                            if whatsapp_phone_number_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappPhoneNumberId"));
+                            }
+                            whatsapp_phone_number_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::WhatsappApiKey => {
+                            if whatsapp_api_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappApiKey"));
+                            }
+                            whatsapp_api_key__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::WhatsappCloudApiVersion => {
+                            if whatsapp_cloud_api_version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappCloudApiVersion"));
+                            }
+                            whatsapp_cloud_api_version__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::WhatsappCallId => {
+                            if whatsapp_call_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappCallId"));
+                            }
+                            whatsapp_call_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::WhatsappBizOpaqueCallbackData => {
+                            if whatsapp_biz_opaque_callback_data__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappBizOpaqueCallbackData"));
+                            }
+                            whatsapp_biz_opaque_callback_data__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Sdp => {
+                            if sdp__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sdp"));
+                            }
+                            sdp__ = map_.next_value()?;
+                        }
+                        GeneratedField::RoomName => {
+                            if room_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomName"));
+                            }
+                            room_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Agents => {
+                            if agents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("agents"));
+                            }
+                            agents__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantIdentity => {
+                            if participant_identity__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantIdentity"));
+                            }
+                            participant_identity__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantName => {
+                            if participant_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantName"));
+                            }
+                            participant_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantMetadata => {
+                            if participant_metadata__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantMetadata"));
+                            }
+                            participant_metadata__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantAttributes => {
+                            if participant_attributes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantAttributes"));
+                            }
+                            participant_attributes__ = Some(
+                                map_.next_value::<std::collections::HashMap<_, _>>()?
+                            );
+                        }
+                        GeneratedField::DestinationCountry => {
+                            if destination_country__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("destinationCountry"));
+                            }
+                            destination_country__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AcceptWhatsAppCallRequest {
+                    whatsapp_phone_number_id: whatsapp_phone_number_id__.unwrap_or_default(),
+                    whatsapp_api_key: whatsapp_api_key__.unwrap_or_default(),
+                    whatsapp_cloud_api_version: whatsapp_cloud_api_version__.unwrap_or_default(),
+                    whatsapp_call_id: whatsapp_call_id__.unwrap_or_default(),
+                    whatsapp_biz_opaque_callback_data: whatsapp_biz_opaque_callback_data__.unwrap_or_default(),
+                    sdp: sdp__,
+                    room_name: room_name__.unwrap_or_default(),
+                    agents: agents__.unwrap_or_default(),
+                    participant_identity: participant_identity__.unwrap_or_default(),
+                    participant_name: participant_name__.unwrap_or_default(),
+                    participant_metadata: participant_metadata__.unwrap_or_default(),
+                    participant_attributes: participant_attributes__.unwrap_or_default(),
+                    destination_country: destination_country__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AcceptWhatsAppCallRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for AcceptWhatsAppCallResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.room_name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AcceptWhatsAppCallResponse", len)?;
+        if !self.room_name.is_empty() {
+            struct_ser.serialize_field("roomName", &self.room_name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AcceptWhatsAppCallResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "room_name",
+            "roomName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            RoomName,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "roomName" | "room_name" => Ok(GeneratedField::RoomName),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AcceptWhatsAppCallResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AcceptWhatsAppCallResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AcceptWhatsAppCallResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut room_name__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::RoomName => {
+                            if room_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomName"));
+                            }
+                            room_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AcceptWhatsAppCallResponse {
+                    room_name: room_name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AcceptWhatsAppCallResponse", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for ActiveSpeakerUpdate {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -959,6 +1367,7 @@ impl serde::Serialize for AudioCodec {
             Self::DefaultAc => "DEFAULT_AC",
             Self::Opus => "OPUS",
             Self::Aac => "AAC",
+            Self::AcMp3 => "AC_MP3",
         };
         serializer.serialize_str(variant)
     }
@@ -973,6 +1382,7 @@ impl<'de> serde::Deserialize<'de> for AudioCodec {
             "DEFAULT_AC",
             "OPUS",
             "AAC",
+            "AC_MP3",
         ];
 
         struct GeneratedVisitor;
@@ -1016,6 +1426,7 @@ impl<'de> serde::Deserialize<'de> for AudioCodec {
                     "DEFAULT_AC" => Ok(AudioCodec::DefaultAc),
                     "OPUS" => Ok(AudioCodec::Opus),
                     "AAC" => Ok(AudioCodec::Aac),
+                    "AC_MP3" => Ok(AudioCodec::AcMp3),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -3050,6 +3461,583 @@ impl<'de> serde::Deserialize<'de> for Codec {
         deserializer.deserialize_struct("livekit.Codec", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for ConnectTwilioCallRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.twilio_call_direction != 0 {
+            len += 1;
+        }
+        if !self.room_name.is_empty() {
+            len += 1;
+        }
+        if !self.agents.is_empty() {
+            len += 1;
+        }
+        if !self.participant_identity.is_empty() {
+            len += 1;
+        }
+        if !self.participant_name.is_empty() {
+            len += 1;
+        }
+        if !self.participant_metadata.is_empty() {
+            len += 1;
+        }
+        if !self.participant_attributes.is_empty() {
+            len += 1;
+        }
+        if !self.destination_country.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.ConnectTwilioCallRequest", len)?;
+        if self.twilio_call_direction != 0 {
+            let v = connect_twilio_call_request::TwilioCallDirection::try_from(self.twilio_call_direction)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.twilio_call_direction)))?;
+            struct_ser.serialize_field("twilioCallDirection", &v)?;
+        }
+        if !self.room_name.is_empty() {
+            struct_ser.serialize_field("roomName", &self.room_name)?;
+        }
+        if !self.agents.is_empty() {
+            struct_ser.serialize_field("agents", &self.agents)?;
+        }
+        if !self.participant_identity.is_empty() {
+            struct_ser.serialize_field("participantIdentity", &self.participant_identity)?;
+        }
+        if !self.participant_name.is_empty() {
+            struct_ser.serialize_field("participantName", &self.participant_name)?;
+        }
+        if !self.participant_metadata.is_empty() {
+            struct_ser.serialize_field("participantMetadata", &self.participant_metadata)?;
+        }
+        if !self.participant_attributes.is_empty() {
+            struct_ser.serialize_field("participantAttributes", &self.participant_attributes)?;
+        }
+        if !self.destination_country.is_empty() {
+            struct_ser.serialize_field("destinationCountry", &self.destination_country)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ConnectTwilioCallRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "twilio_call_direction",
+            "twilioCallDirection",
+            "room_name",
+            "roomName",
+            "agents",
+            "participant_identity",
+            "participantIdentity",
+            "participant_name",
+            "participantName",
+            "participant_metadata",
+            "participantMetadata",
+            "participant_attributes",
+            "participantAttributes",
+            "destination_country",
+            "destinationCountry",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            TwilioCallDirection,
+            RoomName,
+            Agents,
+            ParticipantIdentity,
+            ParticipantName,
+            ParticipantMetadata,
+            ParticipantAttributes,
+            DestinationCountry,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "twilioCallDirection" | "twilio_call_direction" => Ok(GeneratedField::TwilioCallDirection),
+                            "roomName" | "room_name" => Ok(GeneratedField::RoomName),
+                            "agents" => Ok(GeneratedField::Agents),
+                            "participantIdentity" | "participant_identity" => Ok(GeneratedField::ParticipantIdentity),
+                            "participantName" | "participant_name" => Ok(GeneratedField::ParticipantName),
+                            "participantMetadata" | "participant_metadata" => Ok(GeneratedField::ParticipantMetadata),
+                            "participantAttributes" | "participant_attributes" => Ok(GeneratedField::ParticipantAttributes),
+                            "destinationCountry" | "destination_country" => Ok(GeneratedField::DestinationCountry),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ConnectTwilioCallRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.ConnectTwilioCallRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ConnectTwilioCallRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut twilio_call_direction__ = None;
+                let mut room_name__ = None;
+                let mut agents__ = None;
+                let mut participant_identity__ = None;
+                let mut participant_name__ = None;
+                let mut participant_metadata__ = None;
+                let mut participant_attributes__ = None;
+                let mut destination_country__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::TwilioCallDirection => {
+                            if twilio_call_direction__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("twilioCallDirection"));
+                            }
+                            twilio_call_direction__ = Some(map_.next_value::<connect_twilio_call_request::TwilioCallDirection>()? as i32);
+                        }
+                        GeneratedField::RoomName => {
+                            if room_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomName"));
+                            }
+                            room_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Agents => {
+                            if agents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("agents"));
+                            }
+                            agents__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantIdentity => {
+                            if participant_identity__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantIdentity"));
+                            }
+                            participant_identity__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantName => {
+                            if participant_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantName"));
+                            }
+                            participant_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantMetadata => {
+                            if participant_metadata__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantMetadata"));
+                            }
+                            participant_metadata__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantAttributes => {
+                            if participant_attributes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantAttributes"));
+                            }
+                            participant_attributes__ = Some(
+                                map_.next_value::<std::collections::HashMap<_, _>>()?
+                            );
+                        }
+                        GeneratedField::DestinationCountry => {
+                            if destination_country__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("destinationCountry"));
+                            }
+                            destination_country__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ConnectTwilioCallRequest {
+                    twilio_call_direction: twilio_call_direction__.unwrap_or_default(),
+                    room_name: room_name__.unwrap_or_default(),
+                    agents: agents__.unwrap_or_default(),
+                    participant_identity: participant_identity__.unwrap_or_default(),
+                    participant_name: participant_name__.unwrap_or_default(),
+                    participant_metadata: participant_metadata__.unwrap_or_default(),
+                    participant_attributes: participant_attributes__.unwrap_or_default(),
+                    destination_country: destination_country__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.ConnectTwilioCallRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for connect_twilio_call_request::TwilioCallDirection {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Inbound => "TWILIO_CALL_DIRECTION_INBOUND",
+            Self::Outbound => "TWILIO_CALL_DIRECTION_OUTBOUND",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for connect_twilio_call_request::TwilioCallDirection {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "TWILIO_CALL_DIRECTION_INBOUND",
+            "TWILIO_CALL_DIRECTION_OUTBOUND",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = connect_twilio_call_request::TwilioCallDirection;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "TWILIO_CALL_DIRECTION_INBOUND" => Ok(connect_twilio_call_request::TwilioCallDirection::Inbound),
+                    "TWILIO_CALL_DIRECTION_OUTBOUND" => Ok(connect_twilio_call_request::TwilioCallDirection::Outbound),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ConnectTwilioCallResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.connect_url.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.ConnectTwilioCallResponse", len)?;
+        if !self.connect_url.is_empty() {
+            struct_ser.serialize_field("connectUrl", &self.connect_url)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ConnectTwilioCallResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "connect_url",
+            "connectUrl",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            ConnectUrl,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "connectUrl" | "connect_url" => Ok(GeneratedField::ConnectUrl),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ConnectTwilioCallResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.ConnectTwilioCallResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ConnectTwilioCallResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut connect_url__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::ConnectUrl => {
+                            if connect_url__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("connectUrl"));
+                            }
+                            connect_url__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ConnectTwilioCallResponse {
+                    connect_url: connect_url__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.ConnectTwilioCallResponse", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ConnectWhatsAppCallRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.whatsapp_call_id.is_empty() {
+            len += 1;
+        }
+        if self.sdp.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.ConnectWhatsAppCallRequest", len)?;
+        if !self.whatsapp_call_id.is_empty() {
+            struct_ser.serialize_field("whatsappCallId", &self.whatsapp_call_id)?;
+        }
+        if let Some(v) = self.sdp.as_ref() {
+            struct_ser.serialize_field("sdp", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ConnectWhatsAppCallRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "whatsapp_call_id",
+            "whatsappCallId",
+            "sdp",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            WhatsappCallId,
+            Sdp,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "whatsappCallId" | "whatsapp_call_id" => Ok(GeneratedField::WhatsappCallId),
+                            "sdp" => Ok(GeneratedField::Sdp),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ConnectWhatsAppCallRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.ConnectWhatsAppCallRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ConnectWhatsAppCallRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut whatsapp_call_id__ = None;
+                let mut sdp__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::WhatsappCallId => {
+                            if whatsapp_call_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappCallId"));
+                            }
+                            whatsapp_call_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Sdp => {
+                            if sdp__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sdp"));
+                            }
+                            sdp__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ConnectWhatsAppCallRequest {
+                    whatsapp_call_id: whatsapp_call_id__.unwrap_or_default(),
+                    sdp: sdp__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.ConnectWhatsAppCallRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ConnectWhatsAppCallResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let len = 0;
+        let struct_ser = serializer.serialize_struct("livekit.ConnectWhatsAppCallResponse", len)?;
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ConnectWhatsAppCallResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                            Ok(GeneratedField::__SkipField__)
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ConnectWhatsAppCallResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.ConnectWhatsAppCallResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ConnectWhatsAppCallResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                }
+                Ok(ConnectWhatsAppCallResponse {
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.ConnectWhatsAppCallResponse", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for ConnectionQuality {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -3504,6 +4492,80 @@ impl<'de> serde::Deserialize<'de> for ConnectionSettings {
             }
         }
         deserializer.deserialize_struct("livekit.ConnectionSettings", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ConnectorType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unspecified => "Unspecified",
+            Self::WhatsApp => "WhatsApp",
+            Self::Twilio => "Twilio",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for ConnectorType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "Unspecified",
+            "WhatsApp",
+            "Twilio",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ConnectorType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "Unspecified" => Ok(ConnectorType::Unspecified),
+                    "WhatsApp" => Ok(ConnectorType::WhatsApp),
+                    "Twilio" => Ok(ConnectorType::Twilio),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }
 impl serde::Serialize for CreateAgentDispatchRequest {
@@ -4759,6 +5821,12 @@ impl serde::Serialize for CreateSipParticipantRequest {
         if self.wait_until_answered {
             len += 1;
         }
+        if self.display_name.is_some() {
+            len += 1;
+        }
+        if self.destination.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.CreateSIPParticipantRequest", len)?;
         if !self.sip_trunk_id.is_empty() {
             struct_ser.serialize_field("sipTrunkId", &self.sip_trunk_id)?;
@@ -4824,6 +5892,12 @@ impl serde::Serialize for CreateSipParticipantRequest {
         if self.wait_until_answered {
             struct_ser.serialize_field("waitUntilAnswered", &self.wait_until_answered)?;
         }
+        if let Some(v) = self.display_name.as_ref() {
+            struct_ser.serialize_field("displayName", v)?;
+        }
+        if let Some(v) = self.destination.as_ref() {
+            struct_ser.serialize_field("destination", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -4871,6 +5945,9 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
             "mediaEncryption",
             "wait_until_answered",
             "waitUntilAnswered",
+            "display_name",
+            "displayName",
+            "destination",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -4895,6 +5972,8 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
             KrispEnabled,
             MediaEncryption,
             WaitUntilAnswered,
+            DisplayName,
+            Destination,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -4937,6 +6016,8 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                             "krispEnabled" | "krisp_enabled" => Ok(GeneratedField::KrispEnabled),
                             "mediaEncryption" | "media_encryption" => Ok(GeneratedField::MediaEncryption),
                             "waitUntilAnswered" | "wait_until_answered" => Ok(GeneratedField::WaitUntilAnswered),
+                            "displayName" | "display_name" => Ok(GeneratedField::DisplayName),
+                            "destination" => Ok(GeneratedField::Destination),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -4976,6 +6057,8 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                 let mut krisp_enabled__ = None;
                 let mut media_encryption__ = None;
                 let mut wait_until_answered__ = None;
+                let mut display_name__ = None;
+                let mut destination__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::SipTrunkId => {
@@ -5102,6 +6185,18 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                             }
                             wait_until_answered__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::DisplayName => {
+                            if display_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("displayName"));
+                            }
+                            display_name__ = map_.next_value()?;
+                        }
+                        GeneratedField::Destination => {
+                            if destination__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("destination"));
+                            }
+                            destination__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -5128,6 +6223,8 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                     krisp_enabled: krisp_enabled__.unwrap_or_default(),
                     media_encryption: media_encryption__.unwrap_or_default(),
                     wait_until_answered: wait_until_answered__.unwrap_or_default(),
+                    display_name: display_name__,
+                    destination: destination__,
                 })
             }
         }
@@ -7628,6 +8725,544 @@ impl<'de> serde::Deserialize<'de> for DeleteSipTrunkRequest {
         deserializer.deserialize_struct("livekit.DeleteSIPTrunkRequest", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for Destination {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.city.is_empty() {
+            len += 1;
+        }
+        if !self.country.is_empty() {
+            len += 1;
+        }
+        if !self.region.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.Destination", len)?;
+        if !self.city.is_empty() {
+            struct_ser.serialize_field("city", &self.city)?;
+        }
+        if !self.country.is_empty() {
+            struct_ser.serialize_field("country", &self.country)?;
+        }
+        if !self.region.is_empty() {
+            struct_ser.serialize_field("region", &self.region)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for Destination {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "city",
+            "country",
+            "region",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            City,
+            Country,
+            Region,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "city" => Ok(GeneratedField::City),
+                            "country" => Ok(GeneratedField::Country),
+                            "region" => Ok(GeneratedField::Region),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = Destination;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.Destination")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<Destination, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut city__ = None;
+                let mut country__ = None;
+                let mut region__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::City => {
+                            if city__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("city"));
+                            }
+                            city__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Country => {
+                            if country__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("country"));
+                            }
+                            country__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Region => {
+                            if region__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("region"));
+                            }
+                            region__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(Destination {
+                    city: city__.unwrap_or_default(),
+                    country: country__.unwrap_or_default(),
+                    region: region__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.Destination", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for DialWhatsAppCallRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.whatsapp_phone_number_id.is_empty() {
+            len += 1;
+        }
+        if !self.whatsapp_to_phone_number.is_empty() {
+            len += 1;
+        }
+        if !self.whatsapp_api_key.is_empty() {
+            len += 1;
+        }
+        if !self.whatsapp_cloud_api_version.is_empty() {
+            len += 1;
+        }
+        if !self.whatsapp_biz_opaque_callback_data.is_empty() {
+            len += 1;
+        }
+        if !self.room_name.is_empty() {
+            len += 1;
+        }
+        if !self.agents.is_empty() {
+            len += 1;
+        }
+        if !self.participant_identity.is_empty() {
+            len += 1;
+        }
+        if !self.participant_name.is_empty() {
+            len += 1;
+        }
+        if !self.participant_metadata.is_empty() {
+            len += 1;
+        }
+        if !self.participant_attributes.is_empty() {
+            len += 1;
+        }
+        if !self.destination_country.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.DialWhatsAppCallRequest", len)?;
+        if !self.whatsapp_phone_number_id.is_empty() {
+            struct_ser.serialize_field("whatsappPhoneNumberId", &self.whatsapp_phone_number_id)?;
+        }
+        if !self.whatsapp_to_phone_number.is_empty() {
+            struct_ser.serialize_field("whatsappToPhoneNumber", &self.whatsapp_to_phone_number)?;
+        }
+        if !self.whatsapp_api_key.is_empty() {
+            struct_ser.serialize_field("whatsappApiKey", &self.whatsapp_api_key)?;
+        }
+        if !self.whatsapp_cloud_api_version.is_empty() {
+            struct_ser.serialize_field("whatsappCloudApiVersion", &self.whatsapp_cloud_api_version)?;
+        }
+        if !self.whatsapp_biz_opaque_callback_data.is_empty() {
+            struct_ser.serialize_field("whatsappBizOpaqueCallbackData", &self.whatsapp_biz_opaque_callback_data)?;
+        }
+        if !self.room_name.is_empty() {
+            struct_ser.serialize_field("roomName", &self.room_name)?;
+        }
+        if !self.agents.is_empty() {
+            struct_ser.serialize_field("agents", &self.agents)?;
+        }
+        if !self.participant_identity.is_empty() {
+            struct_ser.serialize_field("participantIdentity", &self.participant_identity)?;
+        }
+        if !self.participant_name.is_empty() {
+            struct_ser.serialize_field("participantName", &self.participant_name)?;
+        }
+        if !self.participant_metadata.is_empty() {
+            struct_ser.serialize_field("participantMetadata", &self.participant_metadata)?;
+        }
+        if !self.participant_attributes.is_empty() {
+            struct_ser.serialize_field("participantAttributes", &self.participant_attributes)?;
+        }
+        if !self.destination_country.is_empty() {
+            struct_ser.serialize_field("destinationCountry", &self.destination_country)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DialWhatsAppCallRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "whatsapp_phone_number_id",
+            "whatsappPhoneNumberId",
+            "whatsapp_to_phone_number",
+            "whatsappToPhoneNumber",
+            "whatsapp_api_key",
+            "whatsappApiKey",
+            "whatsapp_cloud_api_version",
+            "whatsappCloudApiVersion",
+            "whatsapp_biz_opaque_callback_data",
+            "whatsappBizOpaqueCallbackData",
+            "room_name",
+            "roomName",
+            "agents",
+            "participant_identity",
+            "participantIdentity",
+            "participant_name",
+            "participantName",
+            "participant_metadata",
+            "participantMetadata",
+            "participant_attributes",
+            "participantAttributes",
+            "destination_country",
+            "destinationCountry",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            WhatsappPhoneNumberId,
+            WhatsappToPhoneNumber,
+            WhatsappApiKey,
+            WhatsappCloudApiVersion,
+            WhatsappBizOpaqueCallbackData,
+            RoomName,
+            Agents,
+            ParticipantIdentity,
+            ParticipantName,
+            ParticipantMetadata,
+            ParticipantAttributes,
+            DestinationCountry,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "whatsappPhoneNumberId" | "whatsapp_phone_number_id" => Ok(GeneratedField::WhatsappPhoneNumberId),
+                            "whatsappToPhoneNumber" | "whatsapp_to_phone_number" => Ok(GeneratedField::WhatsappToPhoneNumber),
+                            "whatsappApiKey" | "whatsapp_api_key" => Ok(GeneratedField::WhatsappApiKey),
+                            "whatsappCloudApiVersion" | "whatsapp_cloud_api_version" => Ok(GeneratedField::WhatsappCloudApiVersion),
+                            "whatsappBizOpaqueCallbackData" | "whatsapp_biz_opaque_callback_data" => Ok(GeneratedField::WhatsappBizOpaqueCallbackData),
+                            "roomName" | "room_name" => Ok(GeneratedField::RoomName),
+                            "agents" => Ok(GeneratedField::Agents),
+                            "participantIdentity" | "participant_identity" => Ok(GeneratedField::ParticipantIdentity),
+                            "participantName" | "participant_name" => Ok(GeneratedField::ParticipantName),
+                            "participantMetadata" | "participant_metadata" => Ok(GeneratedField::ParticipantMetadata),
+                            "participantAttributes" | "participant_attributes" => Ok(GeneratedField::ParticipantAttributes),
+                            "destinationCountry" | "destination_country" => Ok(GeneratedField::DestinationCountry),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DialWhatsAppCallRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.DialWhatsAppCallRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DialWhatsAppCallRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut whatsapp_phone_number_id__ = None;
+                let mut whatsapp_to_phone_number__ = None;
+                let mut whatsapp_api_key__ = None;
+                let mut whatsapp_cloud_api_version__ = None;
+                let mut whatsapp_biz_opaque_callback_data__ = None;
+                let mut room_name__ = None;
+                let mut agents__ = None;
+                let mut participant_identity__ = None;
+                let mut participant_name__ = None;
+                let mut participant_metadata__ = None;
+                let mut participant_attributes__ = None;
+                let mut destination_country__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::WhatsappPhoneNumberId => {
+                            if whatsapp_phone_number_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappPhoneNumberId"));
+                            }
+                            whatsapp_phone_number_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::WhatsappToPhoneNumber => {
+                            if whatsapp_to_phone_number__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappToPhoneNumber"));
+                            }
+                            whatsapp_to_phone_number__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::WhatsappApiKey => {
+                            if whatsapp_api_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappApiKey"));
+                            }
+                            whatsapp_api_key__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::WhatsappCloudApiVersion => {
+                            if whatsapp_cloud_api_version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappCloudApiVersion"));
+                            }
+                            whatsapp_cloud_api_version__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::WhatsappBizOpaqueCallbackData => {
+                            if whatsapp_biz_opaque_callback_data__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappBizOpaqueCallbackData"));
+                            }
+                            whatsapp_biz_opaque_callback_data__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RoomName => {
+                            if room_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomName"));
+                            }
+                            room_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Agents => {
+                            if agents__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("agents"));
+                            }
+                            agents__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantIdentity => {
+                            if participant_identity__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantIdentity"));
+                            }
+                            participant_identity__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantName => {
+                            if participant_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantName"));
+                            }
+                            participant_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantMetadata => {
+                            if participant_metadata__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantMetadata"));
+                            }
+                            participant_metadata__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ParticipantAttributes => {
+                            if participant_attributes__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("participantAttributes"));
+                            }
+                            participant_attributes__ = Some(
+                                map_.next_value::<std::collections::HashMap<_, _>>()?
+                            );
+                        }
+                        GeneratedField::DestinationCountry => {
+                            if destination_country__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("destinationCountry"));
+                            }
+                            destination_country__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(DialWhatsAppCallRequest {
+                    whatsapp_phone_number_id: whatsapp_phone_number_id__.unwrap_or_default(),
+                    whatsapp_to_phone_number: whatsapp_to_phone_number__.unwrap_or_default(),
+                    whatsapp_api_key: whatsapp_api_key__.unwrap_or_default(),
+                    whatsapp_cloud_api_version: whatsapp_cloud_api_version__.unwrap_or_default(),
+                    whatsapp_biz_opaque_callback_data: whatsapp_biz_opaque_callback_data__.unwrap_or_default(),
+                    room_name: room_name__.unwrap_or_default(),
+                    agents: agents__.unwrap_or_default(),
+                    participant_identity: participant_identity__.unwrap_or_default(),
+                    participant_name: participant_name__.unwrap_or_default(),
+                    participant_metadata: participant_metadata__.unwrap_or_default(),
+                    participant_attributes: participant_attributes__.unwrap_or_default(),
+                    destination_country: destination_country__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.DialWhatsAppCallRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for DialWhatsAppCallResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.whatsapp_call_id.is_empty() {
+            len += 1;
+        }
+        if !self.room_name.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.DialWhatsAppCallResponse", len)?;
+        if !self.whatsapp_call_id.is_empty() {
+            struct_ser.serialize_field("whatsappCallId", &self.whatsapp_call_id)?;
+        }
+        if !self.room_name.is_empty() {
+            struct_ser.serialize_field("roomName", &self.room_name)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DialWhatsAppCallResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "whatsapp_call_id",
+            "whatsappCallId",
+            "room_name",
+            "roomName",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            WhatsappCallId,
+            RoomName,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "whatsappCallId" | "whatsapp_call_id" => Ok(GeneratedField::WhatsappCallId),
+                            "roomName" | "room_name" => Ok(GeneratedField::RoomName),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DialWhatsAppCallResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.DialWhatsAppCallResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DialWhatsAppCallResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut whatsapp_call_id__ = None;
+                let mut room_name__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::WhatsappCallId => {
+                            if whatsapp_call_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappCallId"));
+                            }
+                            whatsapp_call_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::RoomName => {
+                            if room_name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomName"));
+                            }
+                            room_name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(DialWhatsAppCallResponse {
+                    whatsapp_call_id: whatsapp_call_id__.unwrap_or_default(),
+                    room_name: room_name__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.DialWhatsAppCallResponse", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for DirectFileOutput {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -8025,6 +9660,192 @@ impl<'de> serde::Deserialize<'de> for DisconnectReason {
             }
         }
         deserializer.deserialize_any(GeneratedVisitor)
+    }
+}
+impl serde::Serialize for DisconnectWhatsAppCallRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.whatsapp_call_id.is_empty() {
+            len += 1;
+        }
+        if !self.whatsapp_api_key.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.DisconnectWhatsAppCallRequest", len)?;
+        if !self.whatsapp_call_id.is_empty() {
+            struct_ser.serialize_field("whatsappCallId", &self.whatsapp_call_id)?;
+        }
+        if !self.whatsapp_api_key.is_empty() {
+            struct_ser.serialize_field("whatsappApiKey", &self.whatsapp_api_key)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DisconnectWhatsAppCallRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "whatsapp_call_id",
+            "whatsappCallId",
+            "whatsapp_api_key",
+            "whatsappApiKey",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            WhatsappCallId,
+            WhatsappApiKey,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "whatsappCallId" | "whatsapp_call_id" => Ok(GeneratedField::WhatsappCallId),
+                            "whatsappApiKey" | "whatsapp_api_key" => Ok(GeneratedField::WhatsappApiKey),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DisconnectWhatsAppCallRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.DisconnectWhatsAppCallRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DisconnectWhatsAppCallRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut whatsapp_call_id__ = None;
+                let mut whatsapp_api_key__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::WhatsappCallId => {
+                            if whatsapp_call_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappCallId"));
+                            }
+                            whatsapp_call_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::WhatsappApiKey => {
+                            if whatsapp_api_key__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappApiKey"));
+                            }
+                            whatsapp_api_key__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(DisconnectWhatsAppCallRequest {
+                    whatsapp_call_id: whatsapp_call_id__.unwrap_or_default(),
+                    whatsapp_api_key: whatsapp_api_key__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.DisconnectWhatsAppCallRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for DisconnectWhatsAppCallResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let len = 0;
+        let struct_ser = serializer.serialize_struct("livekit.DisconnectWhatsAppCallResponse", len)?;
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for DisconnectWhatsAppCallResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                            Ok(GeneratedField::__SkipField__)
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = DisconnectWhatsAppCallResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.DisconnectWhatsAppCallResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<DisconnectWhatsAppCallResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                while map_.next_key::<GeneratedField>()?.is_some() {
+                    let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                }
+                Ok(DisconnectWhatsAppCallResponse {
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.DisconnectWhatsAppCallResponse", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for EgressInfo {
@@ -8911,6 +10732,7 @@ impl serde::Serialize for EncodedFileType {
             Self::DefaultFiletype => "DEFAULT_FILETYPE",
             Self::Mp4 => "MP4",
             Self::Ogg => "OGG",
+            Self::Mp3 => "MP3",
         };
         serializer.serialize_str(variant)
     }
@@ -8925,6 +10747,7 @@ impl<'de> serde::Deserialize<'de> for EncodedFileType {
             "DEFAULT_FILETYPE",
             "MP4",
             "OGG",
+            "MP3",
         ];
 
         struct GeneratedVisitor;
@@ -8968,6 +10791,7 @@ impl<'de> serde::Deserialize<'de> for EncodedFileType {
                     "DEFAULT_FILETYPE" => Ok(EncodedFileType::DefaultFiletype),
                     "MP4" => Ok(EncodedFileType::Mp4),
                     "OGG" => Ok(EncodedFileType::Ogg),
+                    "MP3" => Ok(EncodedFileType::Mp3),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -10332,6 +12156,120 @@ impl<'de> serde::Deserialize<'de> for FileInfo {
             }
         }
         deserializer.deserialize_struct("livekit.FileInfo", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for FilterParams {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.include_events.is_empty() {
+            len += 1;
+        }
+        if !self.exclude_events.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.FilterParams", len)?;
+        if !self.include_events.is_empty() {
+            struct_ser.serialize_field("includeEvents", &self.include_events)?;
+        }
+        if !self.exclude_events.is_empty() {
+            struct_ser.serialize_field("excludeEvents", &self.exclude_events)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for FilterParams {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "include_events",
+            "includeEvents",
+            "exclude_events",
+            "excludeEvents",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            IncludeEvents,
+            ExcludeEvents,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "includeEvents" | "include_events" => Ok(GeneratedField::IncludeEvents),
+                            "excludeEvents" | "exclude_events" => Ok(GeneratedField::ExcludeEvents),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = FilterParams;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.FilterParams")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<FilterParams, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut include_events__ = None;
+                let mut exclude_events__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::IncludeEvents => {
+                            if include_events__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("includeEvents"));
+                            }
+                            include_events__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ExcludeEvents => {
+                            if exclude_events__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("excludeEvents"));
+                            }
+                            exclude_events__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(FilterParams {
+                    include_events: include_events__.unwrap_or_default(),
+                    exclude_events: exclude_events__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.FilterParams", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for ForwardParticipantRequest {
@@ -13656,6 +15594,9 @@ impl serde::Serialize for Job {
         if self.state.is_some() {
             len += 1;
         }
+        if self.enable_recording {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.Job", len)?;
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
@@ -13686,6 +15627,9 @@ impl serde::Serialize for Job {
         if let Some(v) = self.state.as_ref() {
             struct_ser.serialize_field("state", v)?;
         }
+        if self.enable_recording {
+            struct_ser.serialize_field("enableRecording", &self.enable_recording)?;
+        }
         struct_ser.end()
     }
 }
@@ -13707,6 +15651,8 @@ impl<'de> serde::Deserialize<'de> for Job {
             "agent_name",
             "agentName",
             "state",
+            "enable_recording",
+            "enableRecording",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -13720,6 +15666,7 @@ impl<'de> serde::Deserialize<'de> for Job {
             Metadata,
             AgentName,
             State,
+            EnableRecording,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -13751,6 +15698,7 @@ impl<'de> serde::Deserialize<'de> for Job {
                             "metadata" => Ok(GeneratedField::Metadata),
                             "agentName" | "agent_name" => Ok(GeneratedField::AgentName),
                             "state" => Ok(GeneratedField::State),
+                            "enableRecording" | "enable_recording" => Ok(GeneratedField::EnableRecording),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -13779,6 +15727,7 @@ impl<'de> serde::Deserialize<'de> for Job {
                 let mut metadata__ = None;
                 let mut agent_name__ = None;
                 let mut state__ = None;
+                let mut enable_recording__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -13835,6 +15784,12 @@ impl<'de> serde::Deserialize<'de> for Job {
                             }
                             state__ = map_.next_value()?;
                         }
+                        GeneratedField::EnableRecording => {
+                            if enable_recording__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("enableRecording"));
+                            }
+                            enable_recording__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -13850,6 +15805,7 @@ impl<'de> serde::Deserialize<'de> for Job {
                     metadata: metadata__.unwrap_or_default(),
                     agent_name: agent_name__.unwrap_or_default(),
                     state: state__,
+                    enable_recording: enable_recording__.unwrap_or_default(),
                 })
             }
         }
@@ -17209,7 +19165,7 @@ impl serde::Serialize for ListUpdate {
         if !self.add.is_empty() {
             len += 1;
         }
-        if !self.del.is_empty() {
+        if !self.remove.is_empty() {
             len += 1;
         }
         if self.clear {
@@ -17222,8 +19178,8 @@ impl serde::Serialize for ListUpdate {
         if !self.add.is_empty() {
             struct_ser.serialize_field("add", &self.add)?;
         }
-        if !self.del.is_empty() {
-            struct_ser.serialize_field("del", &self.del)?;
+        if !self.remove.is_empty() {
+            struct_ser.serialize_field("remove", &self.remove)?;
         }
         if self.clear {
             struct_ser.serialize_field("clear", &self.clear)?;
@@ -17240,7 +19196,7 @@ impl<'de> serde::Deserialize<'de> for ListUpdate {
         const FIELDS: &[&str] = &[
             "set",
             "add",
-            "del",
+            "remove",
             "clear",
         ];
 
@@ -17248,7 +19204,7 @@ impl<'de> serde::Deserialize<'de> for ListUpdate {
         enum GeneratedField {
             Set,
             Add,
-            Del,
+            Remove,
             Clear,
             __SkipField__,
         }
@@ -17274,7 +19230,7 @@ impl<'de> serde::Deserialize<'de> for ListUpdate {
                         match value {
                             "set" => Ok(GeneratedField::Set),
                             "add" => Ok(GeneratedField::Add),
-                            "del" => Ok(GeneratedField::Del),
+                            "remove" => Ok(GeneratedField::Remove),
                             "clear" => Ok(GeneratedField::Clear),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -17297,7 +19253,7 @@ impl<'de> serde::Deserialize<'de> for ListUpdate {
             {
                 let mut set__ = None;
                 let mut add__ = None;
-                let mut del__ = None;
+                let mut remove__ = None;
                 let mut clear__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -17313,11 +19269,11 @@ impl<'de> serde::Deserialize<'de> for ListUpdate {
                             }
                             add__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::Del => {
-                            if del__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("del"));
+                        GeneratedField::Remove => {
+                            if remove__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("remove"));
                             }
-                            del__ = Some(map_.next_value()?);
+                            remove__ = Some(map_.next_value()?);
                         }
                         GeneratedField::Clear => {
                             if clear__.is_some() {
@@ -17333,7 +19289,7 @@ impl<'de> serde::Deserialize<'de> for ListUpdate {
                 Ok(ListUpdate {
                     set: set__.unwrap_or_default(),
                     add: add__.unwrap_or_default(),
-                    del: del__.unwrap_or_default(),
+                    remove: remove__.unwrap_or_default(),
                     clear: clear__.unwrap_or_default(),
                 })
             }
@@ -17893,6 +19849,141 @@ impl<'de> serde::Deserialize<'de> for MetricsBatch {
             }
         }
         deserializer.deserialize_struct("livekit.MetricsBatch", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for MetricsRecordingHeader {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.room_id.is_empty() {
+            len += 1;
+        }
+        if self.duration != 0 {
+            len += 1;
+        }
+        if self.start_time.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.MetricsRecordingHeader", len)?;
+        if !self.room_id.is_empty() {
+            struct_ser.serialize_field("roomId", &self.room_id)?;
+        }
+        if self.duration != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("duration", ToString::to_string(&self.duration).as_str())?;
+        }
+        if let Some(v) = self.start_time.as_ref() {
+            struct_ser.serialize_field("startTime", v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for MetricsRecordingHeader {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "room_id",
+            "roomId",
+            "duration",
+            "start_time",
+            "startTime",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            RoomId,
+            Duration,
+            StartTime,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "roomId" | "room_id" => Ok(GeneratedField::RoomId),
+                            "duration" => Ok(GeneratedField::Duration),
+                            "startTime" | "start_time" => Ok(GeneratedField::StartTime),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = MetricsRecordingHeader;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.MetricsRecordingHeader")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<MetricsRecordingHeader, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut room_id__ = None;
+                let mut duration__ = None;
+                let mut start_time__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::RoomId => {
+                            if room_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("roomId"));
+                            }
+                            room_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Duration => {
+                            if duration__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("duration"));
+                            }
+                            duration__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::StartTime => {
+                            if start_time__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("startTime"));
+                            }
+                            start_time__ = map_.next_value()?;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(MetricsRecordingHeader {
+                    room_id: room_id__.unwrap_or_default(),
+                    duration: duration__.unwrap_or_default(),
+                    start_time: start_time__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.MetricsRecordingHeader", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for MigrateJobRequest {
@@ -19307,6 +21398,7 @@ impl serde::Serialize for participant_info::Kind {
             Self::Egress => "EGRESS",
             Self::Sip => "SIP",
             Self::Agent => "AGENT",
+            Self::Connector => "CONNECTOR",
         };
         serializer.serialize_str(variant)
     }
@@ -19323,6 +21415,7 @@ impl<'de> serde::Deserialize<'de> for participant_info::Kind {
             "EGRESS",
             "SIP",
             "AGENT",
+            "CONNECTOR",
         ];
 
         struct GeneratedVisitor;
@@ -19368,6 +21461,7 @@ impl<'de> serde::Deserialize<'de> for participant_info::Kind {
                     "EGRESS" => Ok(participant_info::Kind::Egress),
                     "SIP" => Ok(participant_info::Kind::Sip),
                     "AGENT" => Ok(participant_info::Kind::Agent),
+                    "CONNECTOR" => Ok(participant_info::Kind::Connector),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -19384,6 +21478,8 @@ impl serde::Serialize for participant_info::KindDetail {
         let variant = match self {
             Self::CloudAgent => "CLOUD_AGENT",
             Self::Forwarded => "FORWARDED",
+            Self::ConnectorWhatsapp => "CONNECTOR_WHATSAPP",
+            Self::ConnectorTwilio => "CONNECTOR_TWILIO",
         };
         serializer.serialize_str(variant)
     }
@@ -19397,6 +21493,8 @@ impl<'de> serde::Deserialize<'de> for participant_info::KindDetail {
         const FIELDS: &[&str] = &[
             "CLOUD_AGENT",
             "FORWARDED",
+            "CONNECTOR_WHATSAPP",
+            "CONNECTOR_TWILIO",
         ];
 
         struct GeneratedVisitor;
@@ -19439,6 +21537,8 @@ impl<'de> serde::Deserialize<'de> for participant_info::KindDetail {
                 match value {
                     "CLOUD_AGENT" => Ok(participant_info::KindDetail::CloudAgent),
                     "FORWARDED" => Ok(participant_info::KindDetail::Forwarded),
+                    "CONNECTOR_WHATSAPP" => Ok(participant_info::KindDetail::ConnectorWhatsapp),
+                    "CONNECTOR_TWILIO" => Ok(participant_info::KindDetail::ConnectorTwilio),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -19973,6 +22073,268 @@ impl<'de> serde::Deserialize<'de> for ParticipantUpdate {
         deserializer.deserialize_struct("livekit.ParticipantUpdate", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for PerformRpcRequest {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.room.is_empty() {
+            len += 1;
+        }
+        if !self.destination_identity.is_empty() {
+            len += 1;
+        }
+        if !self.method.is_empty() {
+            len += 1;
+        }
+        if !self.payload.is_empty() {
+            len += 1;
+        }
+        if self.response_timeout_ms != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.PerformRpcRequest", len)?;
+        if !self.room.is_empty() {
+            struct_ser.serialize_field("room", &self.room)?;
+        }
+        if !self.destination_identity.is_empty() {
+            struct_ser.serialize_field("destinationIdentity", &self.destination_identity)?;
+        }
+        if !self.method.is_empty() {
+            struct_ser.serialize_field("method", &self.method)?;
+        }
+        if !self.payload.is_empty() {
+            struct_ser.serialize_field("payload", &self.payload)?;
+        }
+        if self.response_timeout_ms != 0 {
+            struct_ser.serialize_field("responseTimeoutMs", &self.response_timeout_ms)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PerformRpcRequest {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "room",
+            "destination_identity",
+            "destinationIdentity",
+            "method",
+            "payload",
+            "response_timeout_ms",
+            "responseTimeoutMs",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Room,
+            DestinationIdentity,
+            Method,
+            Payload,
+            ResponseTimeoutMs,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "room" => Ok(GeneratedField::Room),
+                            "destinationIdentity" | "destination_identity" => Ok(GeneratedField::DestinationIdentity),
+                            "method" => Ok(GeneratedField::Method),
+                            "payload" => Ok(GeneratedField::Payload),
+                            "responseTimeoutMs" | "response_timeout_ms" => Ok(GeneratedField::ResponseTimeoutMs),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PerformRpcRequest;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.PerformRpcRequest")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<PerformRpcRequest, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut room__ = None;
+                let mut destination_identity__ = None;
+                let mut method__ = None;
+                let mut payload__ = None;
+                let mut response_timeout_ms__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Room => {
+                            if room__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("room"));
+                            }
+                            room__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::DestinationIdentity => {
+                            if destination_identity__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("destinationIdentity"));
+                            }
+                            destination_identity__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Method => {
+                            if method__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("method"));
+                            }
+                            method__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Payload => {
+                            if payload__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("payload"));
+                            }
+                            payload__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ResponseTimeoutMs => {
+                            if response_timeout_ms__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("responseTimeoutMs"));
+                            }
+                            response_timeout_ms__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(PerformRpcRequest {
+                    room: room__.unwrap_or_default(),
+                    destination_identity: destination_identity__.unwrap_or_default(),
+                    method: method__.unwrap_or_default(),
+                    payload: payload__.unwrap_or_default(),
+                    response_timeout_ms: response_timeout_ms__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.PerformRpcRequest", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for PerformRpcResponse {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.payload.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.PerformRpcResponse", len)?;
+        if !self.payload.is_empty() {
+            struct_ser.serialize_field("payload", &self.payload)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for PerformRpcResponse {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "payload",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Payload,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "payload" => Ok(GeneratedField::Payload),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = PerformRpcResponse;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.PerformRpcResponse")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<PerformRpcResponse, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut payload__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Payload => {
+                            if payload__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("payload"));
+                            }
+                            payload__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(PerformRpcResponse {
+                    payload: payload__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.PerformRpcResponse", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for Ping {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -20345,6 +22707,229 @@ impl<'de> serde::Deserialize<'de> for Pong {
             }
         }
         deserializer.deserialize_struct("livekit.Pong", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ProviderInfo {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.id.is_empty() {
+            len += 1;
+        }
+        if !self.name.is_empty() {
+            len += 1;
+        }
+        if self.r#type != 0 {
+            len += 1;
+        }
+        if self.prevent_transfer {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.ProviderInfo", len)?;
+        if !self.id.is_empty() {
+            struct_ser.serialize_field("id", &self.id)?;
+        }
+        if !self.name.is_empty() {
+            struct_ser.serialize_field("name", &self.name)?;
+        }
+        if self.r#type != 0 {
+            let v = ProviderType::try_from(self.r#type)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.r#type)))?;
+            struct_ser.serialize_field("type", &v)?;
+        }
+        if self.prevent_transfer {
+            struct_ser.serialize_field("preventTransfer", &self.prevent_transfer)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for ProviderInfo {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "id",
+            "name",
+            "type",
+            "prevent_transfer",
+            "preventTransfer",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Id,
+            Name,
+            Type,
+            PreventTransfer,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "id" => Ok(GeneratedField::Id),
+                            "name" => Ok(GeneratedField::Name),
+                            "type" => Ok(GeneratedField::Type),
+                            "preventTransfer" | "prevent_transfer" => Ok(GeneratedField::PreventTransfer),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ProviderInfo;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.ProviderInfo")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<ProviderInfo, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut id__ = None;
+                let mut name__ = None;
+                let mut r#type__ = None;
+                let mut prevent_transfer__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Id => {
+                            if id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("id"));
+                            }
+                            id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Name => {
+                            if name__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("name"));
+                            }
+                            name__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Type => {
+                            if r#type__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("type"));
+                            }
+                            r#type__ = Some(map_.next_value::<ProviderType>()? as i32);
+                        }
+                        GeneratedField::PreventTransfer => {
+                            if prevent_transfer__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("preventTransfer"));
+                            }
+                            prevent_transfer__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(ProviderInfo {
+                    id: id__.unwrap_or_default(),
+                    name: name__.unwrap_or_default(),
+                    r#type: r#type__.unwrap_or_default(),
+                    prevent_transfer: prevent_transfer__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.ProviderInfo", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for ProviderType {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::Unknown => "PROVIDER_TYPE_UNKNOWN",
+            Self::Internal => "PROVIDER_TYPE_INTERNAL",
+            Self::External => "PROVIDER_TYPE_EXTERNAL",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for ProviderType {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "PROVIDER_TYPE_UNKNOWN",
+            "PROVIDER_TYPE_INTERNAL",
+            "PROVIDER_TYPE_EXTERNAL",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = ProviderType;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "PROVIDER_TYPE_UNKNOWN" => Ok(ProviderType::Unknown),
+                    "PROVIDER_TYPE_INTERNAL" => Ok(ProviderType::Internal),
+                    "PROVIDER_TYPE_EXTERNAL" => Ok(ProviderType::External),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }
 impl serde::Serialize for ProxyConfig {
@@ -23217,6 +25802,9 @@ impl serde::Serialize for RequestResponse {
         if !self.message.is_empty() {
             len += 1;
         }
+        if self.request.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.RequestResponse", len)?;
         if self.request_id != 0 {
             struct_ser.serialize_field("requestId", &self.request_id)?;
@@ -23228,6 +25816,28 @@ impl serde::Serialize for RequestResponse {
         }
         if !self.message.is_empty() {
             struct_ser.serialize_field("message", &self.message)?;
+        }
+        if let Some(v) = self.request.as_ref() {
+            match v {
+                request_response::Request::Trickle(v) => {
+                    struct_ser.serialize_field("trickle", v)?;
+                }
+                request_response::Request::AddTrack(v) => {
+                    struct_ser.serialize_field("addTrack", v)?;
+                }
+                request_response::Request::Mute(v) => {
+                    struct_ser.serialize_field("mute", v)?;
+                }
+                request_response::Request::UpdateMetadata(v) => {
+                    struct_ser.serialize_field("updateMetadata", v)?;
+                }
+                request_response::Request::UpdateAudioTrack(v) => {
+                    struct_ser.serialize_field("updateAudioTrack", v)?;
+                }
+                request_response::Request::UpdateVideoTrack(v) => {
+                    struct_ser.serialize_field("updateVideoTrack", v)?;
+                }
+            }
         }
         struct_ser.end()
     }
@@ -23243,6 +25853,16 @@ impl<'de> serde::Deserialize<'de> for RequestResponse {
             "requestId",
             "reason",
             "message",
+            "trickle",
+            "add_track",
+            "addTrack",
+            "mute",
+            "update_metadata",
+            "updateMetadata",
+            "update_audio_track",
+            "updateAudioTrack",
+            "update_video_track",
+            "updateVideoTrack",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -23250,6 +25870,12 @@ impl<'de> serde::Deserialize<'de> for RequestResponse {
             RequestId,
             Reason,
             Message,
+            Trickle,
+            AddTrack,
+            Mute,
+            UpdateMetadata,
+            UpdateAudioTrack,
+            UpdateVideoTrack,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -23275,6 +25901,12 @@ impl<'de> serde::Deserialize<'de> for RequestResponse {
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
                             "reason" => Ok(GeneratedField::Reason),
                             "message" => Ok(GeneratedField::Message),
+                            "trickle" => Ok(GeneratedField::Trickle),
+                            "addTrack" | "add_track" => Ok(GeneratedField::AddTrack),
+                            "mute" => Ok(GeneratedField::Mute),
+                            "updateMetadata" | "update_metadata" => Ok(GeneratedField::UpdateMetadata),
+                            "updateAudioTrack" | "update_audio_track" => Ok(GeneratedField::UpdateAudioTrack),
+                            "updateVideoTrack" | "update_video_track" => Ok(GeneratedField::UpdateVideoTrack),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -23297,6 +25929,7 @@ impl<'de> serde::Deserialize<'de> for RequestResponse {
                 let mut request_id__ = None;
                 let mut reason__ = None;
                 let mut message__ = None;
+                let mut request__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::RequestId => {
@@ -23319,6 +25952,48 @@ impl<'de> serde::Deserialize<'de> for RequestResponse {
                             }
                             message__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Trickle => {
+                            if request__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("trickle"));
+                            }
+                            request__ = map_.next_value::<::std::option::Option<_>>()?.map(request_response::Request::Trickle)
+;
+                        }
+                        GeneratedField::AddTrack => {
+                            if request__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("addTrack"));
+                            }
+                            request__ = map_.next_value::<::std::option::Option<_>>()?.map(request_response::Request::AddTrack)
+;
+                        }
+                        GeneratedField::Mute => {
+                            if request__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("mute"));
+                            }
+                            request__ = map_.next_value::<::std::option::Option<_>>()?.map(request_response::Request::Mute)
+;
+                        }
+                        GeneratedField::UpdateMetadata => {
+                            if request__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("updateMetadata"));
+                            }
+                            request__ = map_.next_value::<::std::option::Option<_>>()?.map(request_response::Request::UpdateMetadata)
+;
+                        }
+                        GeneratedField::UpdateAudioTrack => {
+                            if request__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("updateAudioTrack"));
+                            }
+                            request__ = map_.next_value::<::std::option::Option<_>>()?.map(request_response::Request::UpdateAudioTrack)
+;
+                        }
+                        GeneratedField::UpdateVideoTrack => {
+                            if request__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("updateVideoTrack"));
+                            }
+                            request__ = map_.next_value::<::std::option::Option<_>>()?.map(request_response::Request::UpdateVideoTrack)
+;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -23328,6 +26003,7 @@ impl<'de> serde::Deserialize<'de> for RequestResponse {
                     request_id: request_id__.unwrap_or_default(),
                     reason: reason__.unwrap_or_default(),
                     message: message__.unwrap_or_default(),
+                    request: request__,
                 })
             }
         }
@@ -23345,6 +26021,9 @@ impl serde::Serialize for request_response::Reason {
             Self::NotFound => "NOT_FOUND",
             Self::NotAllowed => "NOT_ALLOWED",
             Self::LimitExceeded => "LIMIT_EXCEEDED",
+            Self::Queued => "QUEUED",
+            Self::UnsupportedType => "UNSUPPORTED_TYPE",
+            Self::UnclassifiedError => "UNCLASSIFIED_ERROR",
         };
         serializer.serialize_str(variant)
     }
@@ -23360,6 +26039,9 @@ impl<'de> serde::Deserialize<'de> for request_response::Reason {
             "NOT_FOUND",
             "NOT_ALLOWED",
             "LIMIT_EXCEEDED",
+            "QUEUED",
+            "UNSUPPORTED_TYPE",
+            "UNCLASSIFIED_ERROR",
         ];
 
         struct GeneratedVisitor;
@@ -23404,6 +26086,9 @@ impl<'de> serde::Deserialize<'de> for request_response::Reason {
                     "NOT_FOUND" => Ok(request_response::Reason::NotFound),
                     "NOT_ALLOWED" => Ok(request_response::Reason::NotAllowed),
                     "LIMIT_EXCEEDED" => Ok(request_response::Reason::LimitExceeded),
+                    "QUEUED" => Ok(request_response::Reason::Queued),
+                    "UNSUPPORTED_TYPE" => Ok(request_response::Reason::UnsupportedType),
+                    "UNCLASSIFIED_ERROR" => Ok(request_response::Reason::UnclassifiedError),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -26056,6 +28741,15 @@ impl serde::Serialize for SipCallInfo {
         if !self.media_encryption.is_empty() {
             len += 1;
         }
+        if !self.pcap_file_link.is_empty() {
+            len += 1;
+        }
+        if !self.call_context.is_empty() {
+            len += 1;
+        }
+        if self.provider_info.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.SIPCallInfo", len)?;
         if !self.call_id.is_empty() {
             struct_ser.serialize_field("callId", &self.call_id)?;
@@ -26151,6 +28845,15 @@ impl serde::Serialize for SipCallInfo {
         if !self.media_encryption.is_empty() {
             struct_ser.serialize_field("mediaEncryption", &self.media_encryption)?;
         }
+        if !self.pcap_file_link.is_empty() {
+            struct_ser.serialize_field("pcapFileLink", &self.pcap_file_link)?;
+        }
+        if !self.call_context.is_empty() {
+            struct_ser.serialize_field("callContext", &self.call_context)?;
+        }
+        if let Some(v) = self.provider_info.as_ref() {
+            struct_ser.serialize_field("providerInfo", v)?;
+        }
         struct_ser.end()
     }
 }
@@ -26207,6 +28910,12 @@ impl<'de> serde::Deserialize<'de> for SipCallInfo {
             "audioCodec",
             "media_encryption",
             "mediaEncryption",
+            "pcap_file_link",
+            "pcapFileLink",
+            "call_context",
+            "callContext",
+            "provider_info",
+            "providerInfo",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -26235,6 +28944,9 @@ impl<'de> serde::Deserialize<'de> for SipCallInfo {
             CallStatusCode,
             AudioCodec,
             MediaEncryption,
+            PcapFileLink,
+            CallContext,
+            ProviderInfo,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -26281,6 +28993,9 @@ impl<'de> serde::Deserialize<'de> for SipCallInfo {
                             "callStatusCode" | "call_status_code" => Ok(GeneratedField::CallStatusCode),
                             "audioCodec" | "audio_codec" => Ok(GeneratedField::AudioCodec),
                             "mediaEncryption" | "media_encryption" => Ok(GeneratedField::MediaEncryption),
+                            "pcapFileLink" | "pcap_file_link" => Ok(GeneratedField::PcapFileLink),
+                            "callContext" | "call_context" => Ok(GeneratedField::CallContext),
+                            "providerInfo" | "provider_info" => Ok(GeneratedField::ProviderInfo),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -26324,6 +29039,9 @@ impl<'de> serde::Deserialize<'de> for SipCallInfo {
                 let mut call_status_code__ = None;
                 let mut audio_codec__ = None;
                 let mut media_encryption__ = None;
+                let mut pcap_file_link__ = None;
+                let mut call_context__ = None;
+                let mut provider_info__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::CallId => {
@@ -26484,6 +29202,24 @@ impl<'de> serde::Deserialize<'de> for SipCallInfo {
                             }
                             media_encryption__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::PcapFileLink => {
+                            if pcap_file_link__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pcapFileLink"));
+                            }
+                            pcap_file_link__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::CallContext => {
+                            if call_context__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("callContext"));
+                            }
+                            call_context__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::ProviderInfo => {
+                            if provider_info__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("providerInfo"));
+                            }
+                            provider_info__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -26514,6 +29250,9 @@ impl<'de> serde::Deserialize<'de> for SipCallInfo {
                     call_status_code: call_status_code__,
                     audio_codec: audio_codec__.unwrap_or_default(),
                     media_encryption: media_encryption__.unwrap_or_default(),
+                    pcap_file_link: pcap_file_link__.unwrap_or_default(),
+                    call_context: call_context__.unwrap_or_default(),
+                    provider_info: provider_info__,
                 })
             }
         }
@@ -29437,11 +32176,15 @@ impl serde::Serialize for SipStatusCode {
             Self::SipStatusCallIsForwarded => "SIP_STATUS_CALL_IS_FORWARDED",
             Self::SipStatusQueued => "SIP_STATUS_QUEUED",
             Self::SipStatusSessionProgress => "SIP_STATUS_SESSION_PROGRESS",
+            Self::SipStatusEarlyDialogTerminated => "SIP_STATUS_EARLY_DIALOG_TERMINATED",
             Self::SipStatusOk => "SIP_STATUS_OK",
             Self::SipStatusAccepted => "SIP_STATUS_ACCEPTED",
+            Self::SipStatusNoNotification => "SIP_STATUS_NO_NOTIFICATION",
+            Self::SipStatusMultipleChoices => "SIP_STATUS_MULTIPLE_CHOICES",
             Self::SipStatusMovedPermanently => "SIP_STATUS_MOVED_PERMANENTLY",
             Self::SipStatusMovedTemporarily => "SIP_STATUS_MOVED_TEMPORARILY",
             Self::SipStatusUseProxy => "SIP_STATUS_USE_PROXY",
+            Self::SipStatusAlternativeService => "SIP_STATUS_ALTERNATIVE_SERVICE",
             Self::SipStatusBadRequest => "SIP_STATUS_BAD_REQUEST",
             Self::SipStatusUnauthorized => "SIP_STATUS_UNAUTHORIZED",
             Self::SipStatusPaymentRequired => "SIP_STATUS_PAYMENT_REQUIRED",
@@ -29453,13 +32196,30 @@ impl serde::Serialize for SipStatusCode {
             Self::SipStatusRequestTimeout => "SIP_STATUS_REQUEST_TIMEOUT",
             Self::SipStatusConflict => "SIP_STATUS_CONFLICT",
             Self::SipStatusGone => "SIP_STATUS_GONE",
+            Self::SipStatusLengthRequired => "SIP_STATUS_LENGTH_REQUIRED",
+            Self::SipStatusConditionalRequestFailed => "SIP_STATUS_CONDITIONAL_REQUEST_FAILED",
             Self::SipStatusRequestEntityTooLarge => "SIP_STATUS_REQUEST_ENTITY_TOO_LARGE",
             Self::SipStatusRequestUriTooLong => "SIP_STATUS_REQUEST_URI_TOO_LONG",
             Self::SipStatusUnsupportedMediaType => "SIP_STATUS_UNSUPPORTED_MEDIA_TYPE",
             Self::SipStatusRequestedRangeNotSatisfiable => "SIP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE",
+            Self::SipStatusUnknownResourcePriority => "SIP_STATUS_UNKNOWN_RESOURCE_PRIORITY",
             Self::SipStatusBadExtension => "SIP_STATUS_BAD_EXTENSION",
             Self::SipStatusExtensionRequired => "SIP_STATUS_EXTENSION_REQUIRED",
+            Self::SipStatusSessionIntervalTooSmall => "SIP_STATUS_SESSION_INTERVAL_TOO_SMALL",
             Self::SipStatusIntervalTooBrief => "SIP_STATUS_INTERVAL_TOO_BRIEF",
+            Self::SipStatusBadLocationInformation => "SIP_STATUS_BAD_LOCATION_INFORMATION",
+            Self::SipStatusBadAlertMessage => "SIP_STATUS_BAD_ALERT_MESSAGE",
+            Self::SipStatusUseIdentityHeader => "SIP_STATUS_USE_IDENTITY_HEADER",
+            Self::SipStatusProvideReferrerIdentity => "SIP_STATUS_PROVIDE_REFERRER_IDENTITY",
+            Self::SipStatusFlowFailed => "SIP_STATUS_FLOW_FAILED",
+            Self::SipStatusAnonymityDisallowed => "SIP_STATUS_ANONYMITY_DISALLOWED",
+            Self::SipStatusBadIdentityInfo => "SIP_STATUS_BAD_IDENTITY_INFO",
+            Self::SipStatusUnsupportedCertificate => "SIP_STATUS_UNSUPPORTED_CERTIFICATE",
+            Self::SipStatusInvalidIdentityHeader => "SIP_STATUS_INVALID_IDENTITY_HEADER",
+            Self::SipStatusFirstHopLacksOutboundSupport => "SIP_STATUS_FIRST_HOP_LACKS_OUTBOUND_SUPPORT",
+            Self::SipStatusMaxBreadthExceeded => "SIP_STATUS_MAX_BREADTH_EXCEEDED",
+            Self::SipStatusBadInfoPackage => "SIP_STATUS_BAD_INFO_PACKAGE",
+            Self::SipStatusConsentNeeded => "SIP_STATUS_CONSENT_NEEDED",
             Self::SipStatusTemporarilyUnavailable => "SIP_STATUS_TEMPORARILY_UNAVAILABLE",
             Self::SipStatusCallTransactionDoesNotExists => "SIP_STATUS_CALL_TRANSACTION_DOES_NOT_EXISTS",
             Self::SipStatusLoopDetected => "SIP_STATUS_LOOP_DETECTED",
@@ -29469,6 +32229,10 @@ impl serde::Serialize for SipStatusCode {
             Self::SipStatusBusyHere => "SIP_STATUS_BUSY_HERE",
             Self::SipStatusRequestTerminated => "SIP_STATUS_REQUEST_TERMINATED",
             Self::SipStatusNotAcceptableHere => "SIP_STATUS_NOT_ACCEPTABLE_HERE",
+            Self::SipStatusBadEvent => "SIP_STATUS_BAD_EVENT",
+            Self::SipStatusRequestPending => "SIP_STATUS_REQUEST_PENDING",
+            Self::SipStatusUndecipherable => "SIP_STATUS_UNDECIPHERABLE",
+            Self::SipStatusSecurityAgreementRequired => "SIP_STATUS_SECURITY_AGREEMENT_REQUIRED",
             Self::SipStatusInternalServerError => "SIP_STATUS_INTERNAL_SERVER_ERROR",
             Self::SipStatusNotImplemented => "SIP_STATUS_NOT_IMPLEMENTED",
             Self::SipStatusBadGateway => "SIP_STATUS_BAD_GATEWAY",
@@ -29480,6 +32244,8 @@ impl serde::Serialize for SipStatusCode {
             Self::SipStatusGlobalDecline => "SIP_STATUS_GLOBAL_DECLINE",
             Self::SipStatusGlobalDoesNotExistAnywhere => "SIP_STATUS_GLOBAL_DOES_NOT_EXIST_ANYWHERE",
             Self::SipStatusGlobalNotAcceptable => "SIP_STATUS_GLOBAL_NOT_ACCEPTABLE",
+            Self::SipStatusGlobalUnwanted => "SIP_STATUS_GLOBAL_UNWANTED",
+            Self::SipStatusGlobalRejected => "SIP_STATUS_GLOBAL_REJECTED",
         };
         serializer.serialize_str(variant)
     }
@@ -29497,11 +32263,15 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
             "SIP_STATUS_CALL_IS_FORWARDED",
             "SIP_STATUS_QUEUED",
             "SIP_STATUS_SESSION_PROGRESS",
+            "SIP_STATUS_EARLY_DIALOG_TERMINATED",
             "SIP_STATUS_OK",
             "SIP_STATUS_ACCEPTED",
+            "SIP_STATUS_NO_NOTIFICATION",
+            "SIP_STATUS_MULTIPLE_CHOICES",
             "SIP_STATUS_MOVED_PERMANENTLY",
             "SIP_STATUS_MOVED_TEMPORARILY",
             "SIP_STATUS_USE_PROXY",
+            "SIP_STATUS_ALTERNATIVE_SERVICE",
             "SIP_STATUS_BAD_REQUEST",
             "SIP_STATUS_UNAUTHORIZED",
             "SIP_STATUS_PAYMENT_REQUIRED",
@@ -29513,13 +32283,30 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
             "SIP_STATUS_REQUEST_TIMEOUT",
             "SIP_STATUS_CONFLICT",
             "SIP_STATUS_GONE",
+            "SIP_STATUS_LENGTH_REQUIRED",
+            "SIP_STATUS_CONDITIONAL_REQUEST_FAILED",
             "SIP_STATUS_REQUEST_ENTITY_TOO_LARGE",
             "SIP_STATUS_REQUEST_URI_TOO_LONG",
             "SIP_STATUS_UNSUPPORTED_MEDIA_TYPE",
             "SIP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE",
+            "SIP_STATUS_UNKNOWN_RESOURCE_PRIORITY",
             "SIP_STATUS_BAD_EXTENSION",
             "SIP_STATUS_EXTENSION_REQUIRED",
+            "SIP_STATUS_SESSION_INTERVAL_TOO_SMALL",
             "SIP_STATUS_INTERVAL_TOO_BRIEF",
+            "SIP_STATUS_BAD_LOCATION_INFORMATION",
+            "SIP_STATUS_BAD_ALERT_MESSAGE",
+            "SIP_STATUS_USE_IDENTITY_HEADER",
+            "SIP_STATUS_PROVIDE_REFERRER_IDENTITY",
+            "SIP_STATUS_FLOW_FAILED",
+            "SIP_STATUS_ANONYMITY_DISALLOWED",
+            "SIP_STATUS_BAD_IDENTITY_INFO",
+            "SIP_STATUS_UNSUPPORTED_CERTIFICATE",
+            "SIP_STATUS_INVALID_IDENTITY_HEADER",
+            "SIP_STATUS_FIRST_HOP_LACKS_OUTBOUND_SUPPORT",
+            "SIP_STATUS_MAX_BREADTH_EXCEEDED",
+            "SIP_STATUS_BAD_INFO_PACKAGE",
+            "SIP_STATUS_CONSENT_NEEDED",
             "SIP_STATUS_TEMPORARILY_UNAVAILABLE",
             "SIP_STATUS_CALL_TRANSACTION_DOES_NOT_EXISTS",
             "SIP_STATUS_LOOP_DETECTED",
@@ -29529,6 +32316,10 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
             "SIP_STATUS_BUSY_HERE",
             "SIP_STATUS_REQUEST_TERMINATED",
             "SIP_STATUS_NOT_ACCEPTABLE_HERE",
+            "SIP_STATUS_BAD_EVENT",
+            "SIP_STATUS_REQUEST_PENDING",
+            "SIP_STATUS_UNDECIPHERABLE",
+            "SIP_STATUS_SECURITY_AGREEMENT_REQUIRED",
             "SIP_STATUS_INTERNAL_SERVER_ERROR",
             "SIP_STATUS_NOT_IMPLEMENTED",
             "SIP_STATUS_BAD_GATEWAY",
@@ -29540,6 +32331,8 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
             "SIP_STATUS_GLOBAL_DECLINE",
             "SIP_STATUS_GLOBAL_DOES_NOT_EXIST_ANYWHERE",
             "SIP_STATUS_GLOBAL_NOT_ACCEPTABLE",
+            "SIP_STATUS_GLOBAL_UNWANTED",
+            "SIP_STATUS_GLOBAL_REJECTED",
         ];
 
         struct GeneratedVisitor;
@@ -29586,11 +32379,15 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
                     "SIP_STATUS_CALL_IS_FORWARDED" => Ok(SipStatusCode::SipStatusCallIsForwarded),
                     "SIP_STATUS_QUEUED" => Ok(SipStatusCode::SipStatusQueued),
                     "SIP_STATUS_SESSION_PROGRESS" => Ok(SipStatusCode::SipStatusSessionProgress),
+                    "SIP_STATUS_EARLY_DIALOG_TERMINATED" => Ok(SipStatusCode::SipStatusEarlyDialogTerminated),
                     "SIP_STATUS_OK" => Ok(SipStatusCode::SipStatusOk),
                     "SIP_STATUS_ACCEPTED" => Ok(SipStatusCode::SipStatusAccepted),
+                    "SIP_STATUS_NO_NOTIFICATION" => Ok(SipStatusCode::SipStatusNoNotification),
+                    "SIP_STATUS_MULTIPLE_CHOICES" => Ok(SipStatusCode::SipStatusMultipleChoices),
                     "SIP_STATUS_MOVED_PERMANENTLY" => Ok(SipStatusCode::SipStatusMovedPermanently),
                     "SIP_STATUS_MOVED_TEMPORARILY" => Ok(SipStatusCode::SipStatusMovedTemporarily),
                     "SIP_STATUS_USE_PROXY" => Ok(SipStatusCode::SipStatusUseProxy),
+                    "SIP_STATUS_ALTERNATIVE_SERVICE" => Ok(SipStatusCode::SipStatusAlternativeService),
                     "SIP_STATUS_BAD_REQUEST" => Ok(SipStatusCode::SipStatusBadRequest),
                     "SIP_STATUS_UNAUTHORIZED" => Ok(SipStatusCode::SipStatusUnauthorized),
                     "SIP_STATUS_PAYMENT_REQUIRED" => Ok(SipStatusCode::SipStatusPaymentRequired),
@@ -29602,13 +32399,30 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
                     "SIP_STATUS_REQUEST_TIMEOUT" => Ok(SipStatusCode::SipStatusRequestTimeout),
                     "SIP_STATUS_CONFLICT" => Ok(SipStatusCode::SipStatusConflict),
                     "SIP_STATUS_GONE" => Ok(SipStatusCode::SipStatusGone),
+                    "SIP_STATUS_LENGTH_REQUIRED" => Ok(SipStatusCode::SipStatusLengthRequired),
+                    "SIP_STATUS_CONDITIONAL_REQUEST_FAILED" => Ok(SipStatusCode::SipStatusConditionalRequestFailed),
                     "SIP_STATUS_REQUEST_ENTITY_TOO_LARGE" => Ok(SipStatusCode::SipStatusRequestEntityTooLarge),
                     "SIP_STATUS_REQUEST_URI_TOO_LONG" => Ok(SipStatusCode::SipStatusRequestUriTooLong),
                     "SIP_STATUS_UNSUPPORTED_MEDIA_TYPE" => Ok(SipStatusCode::SipStatusUnsupportedMediaType),
                     "SIP_STATUS_REQUESTED_RANGE_NOT_SATISFIABLE" => Ok(SipStatusCode::SipStatusRequestedRangeNotSatisfiable),
+                    "SIP_STATUS_UNKNOWN_RESOURCE_PRIORITY" => Ok(SipStatusCode::SipStatusUnknownResourcePriority),
                     "SIP_STATUS_BAD_EXTENSION" => Ok(SipStatusCode::SipStatusBadExtension),
                     "SIP_STATUS_EXTENSION_REQUIRED" => Ok(SipStatusCode::SipStatusExtensionRequired),
+                    "SIP_STATUS_SESSION_INTERVAL_TOO_SMALL" => Ok(SipStatusCode::SipStatusSessionIntervalTooSmall),
                     "SIP_STATUS_INTERVAL_TOO_BRIEF" => Ok(SipStatusCode::SipStatusIntervalTooBrief),
+                    "SIP_STATUS_BAD_LOCATION_INFORMATION" => Ok(SipStatusCode::SipStatusBadLocationInformation),
+                    "SIP_STATUS_BAD_ALERT_MESSAGE" => Ok(SipStatusCode::SipStatusBadAlertMessage),
+                    "SIP_STATUS_USE_IDENTITY_HEADER" => Ok(SipStatusCode::SipStatusUseIdentityHeader),
+                    "SIP_STATUS_PROVIDE_REFERRER_IDENTITY" => Ok(SipStatusCode::SipStatusProvideReferrerIdentity),
+                    "SIP_STATUS_FLOW_FAILED" => Ok(SipStatusCode::SipStatusFlowFailed),
+                    "SIP_STATUS_ANONYMITY_DISALLOWED" => Ok(SipStatusCode::SipStatusAnonymityDisallowed),
+                    "SIP_STATUS_BAD_IDENTITY_INFO" => Ok(SipStatusCode::SipStatusBadIdentityInfo),
+                    "SIP_STATUS_UNSUPPORTED_CERTIFICATE" => Ok(SipStatusCode::SipStatusUnsupportedCertificate),
+                    "SIP_STATUS_INVALID_IDENTITY_HEADER" => Ok(SipStatusCode::SipStatusInvalidIdentityHeader),
+                    "SIP_STATUS_FIRST_HOP_LACKS_OUTBOUND_SUPPORT" => Ok(SipStatusCode::SipStatusFirstHopLacksOutboundSupport),
+                    "SIP_STATUS_MAX_BREADTH_EXCEEDED" => Ok(SipStatusCode::SipStatusMaxBreadthExceeded),
+                    "SIP_STATUS_BAD_INFO_PACKAGE" => Ok(SipStatusCode::SipStatusBadInfoPackage),
+                    "SIP_STATUS_CONSENT_NEEDED" => Ok(SipStatusCode::SipStatusConsentNeeded),
                     "SIP_STATUS_TEMPORARILY_UNAVAILABLE" => Ok(SipStatusCode::SipStatusTemporarilyUnavailable),
                     "SIP_STATUS_CALL_TRANSACTION_DOES_NOT_EXISTS" => Ok(SipStatusCode::SipStatusCallTransactionDoesNotExists),
                     "SIP_STATUS_LOOP_DETECTED" => Ok(SipStatusCode::SipStatusLoopDetected),
@@ -29618,6 +32432,10 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
                     "SIP_STATUS_BUSY_HERE" => Ok(SipStatusCode::SipStatusBusyHere),
                     "SIP_STATUS_REQUEST_TERMINATED" => Ok(SipStatusCode::SipStatusRequestTerminated),
                     "SIP_STATUS_NOT_ACCEPTABLE_HERE" => Ok(SipStatusCode::SipStatusNotAcceptableHere),
+                    "SIP_STATUS_BAD_EVENT" => Ok(SipStatusCode::SipStatusBadEvent),
+                    "SIP_STATUS_REQUEST_PENDING" => Ok(SipStatusCode::SipStatusRequestPending),
+                    "SIP_STATUS_UNDECIPHERABLE" => Ok(SipStatusCode::SipStatusUndecipherable),
+                    "SIP_STATUS_SECURITY_AGREEMENT_REQUIRED" => Ok(SipStatusCode::SipStatusSecurityAgreementRequired),
                     "SIP_STATUS_INTERNAL_SERVER_ERROR" => Ok(SipStatusCode::SipStatusInternalServerError),
                     "SIP_STATUS_NOT_IMPLEMENTED" => Ok(SipStatusCode::SipStatusNotImplemented),
                     "SIP_STATUS_BAD_GATEWAY" => Ok(SipStatusCode::SipStatusBadGateway),
@@ -29629,6 +32447,8 @@ impl<'de> serde::Deserialize<'de> for SipStatusCode {
                     "SIP_STATUS_GLOBAL_DECLINE" => Ok(SipStatusCode::SipStatusGlobalDecline),
                     "SIP_STATUS_GLOBAL_DOES_NOT_EXIST_ANYWHERE" => Ok(SipStatusCode::SipStatusGlobalDoesNotExistAnywhere),
                     "SIP_STATUS_GLOBAL_NOT_ACCEPTABLE" => Ok(SipStatusCode::SipStatusGlobalNotAcceptable),
+                    "SIP_STATUS_GLOBAL_UNWANTED" => Ok(SipStatusCode::SipStatusGlobalUnwanted),
+                    "SIP_STATUS_GLOBAL_REJECTED" => Ok(SipStatusCode::SipStatusGlobalRejected),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -31986,6 +34806,9 @@ impl serde::Serialize for SessionDescription {
         if self.id != 0 {
             len += 1;
         }
+        if !self.mid_to_track_id.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.SessionDescription", len)?;
         if !self.r#type.is_empty() {
             struct_ser.serialize_field("type", &self.r#type)?;
@@ -31995,6 +34818,9 @@ impl serde::Serialize for SessionDescription {
         }
         if self.id != 0 {
             struct_ser.serialize_field("id", &self.id)?;
+        }
+        if !self.mid_to_track_id.is_empty() {
+            struct_ser.serialize_field("midToTrackId", &self.mid_to_track_id)?;
         }
         struct_ser.end()
     }
@@ -32009,6 +34835,8 @@ impl<'de> serde::Deserialize<'de> for SessionDescription {
             "type",
             "sdp",
             "id",
+            "mid_to_track_id",
+            "midToTrackId",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -32016,6 +34844,7 @@ impl<'de> serde::Deserialize<'de> for SessionDescription {
             Type,
             Sdp,
             Id,
+            MidToTrackId,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -32041,6 +34870,7 @@ impl<'de> serde::Deserialize<'de> for SessionDescription {
                             "type" => Ok(GeneratedField::Type),
                             "sdp" => Ok(GeneratedField::Sdp),
                             "id" => Ok(GeneratedField::Id),
+                            "midToTrackId" | "mid_to_track_id" => Ok(GeneratedField::MidToTrackId),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -32063,6 +34893,7 @@ impl<'de> serde::Deserialize<'de> for SessionDescription {
                 let mut r#type__ = None;
                 let mut sdp__ = None;
                 let mut id__ = None;
+                let mut mid_to_track_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Type => {
@@ -32085,6 +34916,14 @@ impl<'de> serde::Deserialize<'de> for SessionDescription {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::MidToTrackId => {
+                            if mid_to_track_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("midToTrackId"));
+                            }
+                            mid_to_track_id__ = Some(
+                                map_.next_value::<std::collections::HashMap<_, _>>()?
+                            );
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -32094,6 +34933,7 @@ impl<'de> serde::Deserialize<'de> for SessionDescription {
                     r#type: r#type__.unwrap_or_default(),
                     sdp: sdp__.unwrap_or_default(),
                     id: id__.unwrap_or_default(),
+                    mid_to_track_id: mid_to_track_id__.unwrap_or_default(),
                 })
             }
         }
@@ -32506,6 +35346,9 @@ impl serde::Serialize for SignalResponse {
                 signal_response::Message::MediaSectionsRequirement(v) => {
                     struct_ser.serialize_field("mediaSectionsRequirement", v)?;
                 }
+                signal_response::Message::SubscribedAudioCodecUpdate(v) => {
+                    struct_ser.serialize_field("subscribedAudioCodecUpdate", v)?;
+                }
             }
         }
         struct_ser.end()
@@ -32557,6 +35400,8 @@ impl<'de> serde::Deserialize<'de> for SignalResponse {
             "roomMoved",
             "media_sections_requirement",
             "mediaSectionsRequirement",
+            "subscribed_audio_codec_update",
+            "subscribedAudioCodecUpdate",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -32585,6 +35430,7 @@ impl<'de> serde::Deserialize<'de> for SignalResponse {
             TrackSubscribed,
             RoomMoved,
             MediaSectionsRequirement,
+            SubscribedAudioCodecUpdate,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -32631,6 +35477,7 @@ impl<'de> serde::Deserialize<'de> for SignalResponse {
                             "trackSubscribed" | "track_subscribed" => Ok(GeneratedField::TrackSubscribed),
                             "roomMoved" | "room_moved" => Ok(GeneratedField::RoomMoved),
                             "mediaSectionsRequirement" | "media_sections_requirement" => Ok(GeneratedField::MediaSectionsRequirement),
+                            "subscribedAudioCodecUpdate" | "subscribed_audio_codec_update" => Ok(GeneratedField::SubscribedAudioCodecUpdate),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -32817,6 +35664,13 @@ impl<'de> serde::Deserialize<'de> for SignalResponse {
                                 return Err(serde::de::Error::duplicate_field("mediaSectionsRequirement"));
                             }
                             message__ = map_.next_value::<::std::option::Option<_>>()?.map(signal_response::Message::MediaSectionsRequirement)
+;
+                        }
+                        GeneratedField::SubscribedAudioCodecUpdate => {
+                            if message__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("subscribedAudioCodecUpdate"));
+                            }
+                            message__ = map_.next_value::<::std::option::Option<_>>()?.map(signal_response::Message::SubscribedAudioCodecUpdate)
 ;
                         }
                         GeneratedField::__SkipField__ => {
@@ -34037,6 +36891,12 @@ impl serde::Serialize for StreamInfo {
         if !self.error.is_empty() {
             len += 1;
         }
+        if self.last_retry_at != 0 {
+            len += 1;
+        }
+        if self.retries != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.StreamInfo", len)?;
         if !self.url.is_empty() {
             struct_ser.serialize_field("url", &self.url)?;
@@ -34064,6 +36924,14 @@ impl serde::Serialize for StreamInfo {
         if !self.error.is_empty() {
             struct_ser.serialize_field("error", &self.error)?;
         }
+        if self.last_retry_at != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("lastRetryAt", ToString::to_string(&self.last_retry_at).as_str())?;
+        }
+        if self.retries != 0 {
+            struct_ser.serialize_field("retries", &self.retries)?;
+        }
         struct_ser.end()
     }
 }
@@ -34082,6 +36950,9 @@ impl<'de> serde::Deserialize<'de> for StreamInfo {
             "duration",
             "status",
             "error",
+            "last_retry_at",
+            "lastRetryAt",
+            "retries",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -34092,6 +36963,8 @@ impl<'de> serde::Deserialize<'de> for StreamInfo {
             Duration,
             Status,
             Error,
+            LastRetryAt,
+            Retries,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -34120,6 +36993,8 @@ impl<'de> serde::Deserialize<'de> for StreamInfo {
                             "duration" => Ok(GeneratedField::Duration),
                             "status" => Ok(GeneratedField::Status),
                             "error" => Ok(GeneratedField::Error),
+                            "lastRetryAt" | "last_retry_at" => Ok(GeneratedField::LastRetryAt),
+                            "retries" => Ok(GeneratedField::Retries),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -34145,6 +37020,8 @@ impl<'de> serde::Deserialize<'de> for StreamInfo {
                 let mut duration__ = None;
                 let mut status__ = None;
                 let mut error__ = None;
+                let mut last_retry_at__ = None;
+                let mut retries__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Url => {
@@ -34189,6 +37066,22 @@ impl<'de> serde::Deserialize<'de> for StreamInfo {
                             }
                             error__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::LastRetryAt => {
+                            if last_retry_at__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("lastRetryAt"));
+                            }
+                            last_retry_at__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Retries => {
+                            if retries__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("retries"));
+                            }
+                            retries__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -34201,6 +37094,8 @@ impl<'de> serde::Deserialize<'de> for StreamInfo {
                     duration: duration__.unwrap_or_default(),
                     status: status__.unwrap_or_default(),
                     error: error__.unwrap_or_default(),
+                    last_retry_at: last_retry_at__.unwrap_or_default(),
+                    retries: retries__.unwrap_or_default(),
                 })
             }
         }
@@ -34862,6 +37757,232 @@ impl<'de> serde::Deserialize<'de> for StreamStateUpdate {
             }
         }
         deserializer.deserialize_struct("livekit.StreamStateUpdate", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SubscribedAudioCodec {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.codec.is_empty() {
+            len += 1;
+        }
+        if self.enabled {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.SubscribedAudioCodec", len)?;
+        if !self.codec.is_empty() {
+            struct_ser.serialize_field("codec", &self.codec)?;
+        }
+        if self.enabled {
+            struct_ser.serialize_field("enabled", &self.enabled)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SubscribedAudioCodec {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "codec",
+            "enabled",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Codec,
+            Enabled,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "codec" => Ok(GeneratedField::Codec),
+                            "enabled" => Ok(GeneratedField::Enabled),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SubscribedAudioCodec;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.SubscribedAudioCodec")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SubscribedAudioCodec, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut codec__ = None;
+                let mut enabled__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Codec => {
+                            if codec__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("codec"));
+                            }
+                            codec__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Enabled => {
+                            if enabled__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("enabled"));
+                            }
+                            enabled__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SubscribedAudioCodec {
+                    codec: codec__.unwrap_or_default(),
+                    enabled: enabled__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.SubscribedAudioCodec", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for SubscribedAudioCodecUpdate {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.track_sid.is_empty() {
+            len += 1;
+        }
+        if !self.subscribed_audio_codecs.is_empty() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.SubscribedAudioCodecUpdate", len)?;
+        if !self.track_sid.is_empty() {
+            struct_ser.serialize_field("trackSid", &self.track_sid)?;
+        }
+        if !self.subscribed_audio_codecs.is_empty() {
+            struct_ser.serialize_field("subscribedAudioCodecs", &self.subscribed_audio_codecs)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for SubscribedAudioCodecUpdate {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "track_sid",
+            "trackSid",
+            "subscribed_audio_codecs",
+            "subscribedAudioCodecs",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            TrackSid,
+            SubscribedAudioCodecs,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "trackSid" | "track_sid" => Ok(GeneratedField::TrackSid),
+                            "subscribedAudioCodecs" | "subscribed_audio_codecs" => Ok(GeneratedField::SubscribedAudioCodecs),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = SubscribedAudioCodecUpdate;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.SubscribedAudioCodecUpdate")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SubscribedAudioCodecUpdate, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut track_sid__ = None;
+                let mut subscribed_audio_codecs__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::TrackSid => {
+                            if track_sid__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("trackSid"));
+                            }
+                            track_sid__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::SubscribedAudioCodecs => {
+                            if subscribed_audio_codecs__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("subscribedAudioCodecs"));
+                            }
+                            subscribed_audio_codecs__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(SubscribedAudioCodecUpdate {
+                    track_sid: track_sid__.unwrap_or_default(),
+                    subscribed_audio_codecs: subscribed_audio_codecs__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.SubscribedAudioCodecUpdate", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for SubscribedCodec {
@@ -41842,6 +44963,7 @@ impl serde::Serialize for video_layer::Mode {
             Self::Unused => "MODE_UNUSED",
             Self::OneSpatialLayerPerStream => "ONE_SPATIAL_LAYER_PER_STREAM",
             Self::MultipleSpatialLayersPerStream => "MULTIPLE_SPATIAL_LAYERS_PER_STREAM",
+            Self::OneSpatialLayerPerStreamIncompleteRtcpSr => "ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR",
         };
         serializer.serialize_str(variant)
     }
@@ -41856,6 +44978,7 @@ impl<'de> serde::Deserialize<'de> for video_layer::Mode {
             "MODE_UNUSED",
             "ONE_SPATIAL_LAYER_PER_STREAM",
             "MULTIPLE_SPATIAL_LAYERS_PER_STREAM",
+            "ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR",
         ];
 
         struct GeneratedVisitor;
@@ -41899,6 +45022,7 @@ impl<'de> serde::Deserialize<'de> for video_layer::Mode {
                     "MODE_UNUSED" => Ok(video_layer::Mode::Unused),
                     "ONE_SPATIAL_LAYER_PER_STREAM" => Ok(video_layer::Mode::OneSpatialLayerPerStream),
                     "MULTIPLE_SPATIAL_LAYERS_PER_STREAM" => Ok(video_layer::Mode::MultipleSpatialLayersPerStream),
+                    "ONE_SPATIAL_LAYER_PER_STREAM_INCOMPLETE_RTCP_SR" => Ok(video_layer::Mode::OneSpatialLayerPerStreamIncompleteRtcpSr),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }
@@ -42319,12 +45443,18 @@ impl serde::Serialize for WebhookConfig {
         if !self.signing_key.is_empty() {
             len += 1;
         }
+        if self.filter_params.is_some() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.WebhookConfig", len)?;
         if !self.url.is_empty() {
             struct_ser.serialize_field("url", &self.url)?;
         }
         if !self.signing_key.is_empty() {
             struct_ser.serialize_field("signingKey", &self.signing_key)?;
+        }
+        if let Some(v) = self.filter_params.as_ref() {
+            struct_ser.serialize_field("filterParams", v)?;
         }
         struct_ser.end()
     }
@@ -42339,12 +45469,15 @@ impl<'de> serde::Deserialize<'de> for WebhookConfig {
             "url",
             "signing_key",
             "signingKey",
+            "filter_params",
+            "filterParams",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             Url,
             SigningKey,
+            FilterParams,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -42369,6 +45502,7 @@ impl<'de> serde::Deserialize<'de> for WebhookConfig {
                         match value {
                             "url" => Ok(GeneratedField::Url),
                             "signingKey" | "signing_key" => Ok(GeneratedField::SigningKey),
+                            "filterParams" | "filter_params" => Ok(GeneratedField::FilterParams),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -42390,6 +45524,7 @@ impl<'de> serde::Deserialize<'de> for WebhookConfig {
             {
                 let mut url__ = None;
                 let mut signing_key__ = None;
+                let mut filter_params__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Url => {
@@ -42404,6 +45539,12 @@ impl<'de> serde::Deserialize<'de> for WebhookConfig {
                             }
                             signing_key__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::FilterParams => {
+                            if filter_params__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("filterParams"));
+                            }
+                            filter_params__ = map_.next_value()?;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -42412,6 +45553,7 @@ impl<'de> serde::Deserialize<'de> for WebhookConfig {
                 Ok(WebhookConfig {
                     url: url__.unwrap_or_default(),
                     signing_key: signing_key__.unwrap_or_default(),
+                    filter_params: filter_params__,
                 })
             }
         }
@@ -42657,6 +45799,192 @@ impl<'de> serde::Deserialize<'de> for WebhookEvent {
             }
         }
         deserializer.deserialize_struct("livekit.WebhookEvent", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for WhatsAppCall {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if !self.whatsapp_call_id.is_empty() {
+            len += 1;
+        }
+        if self.direction != 0 {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.WhatsAppCall", len)?;
+        if !self.whatsapp_call_id.is_empty() {
+            struct_ser.serialize_field("whatsappCallId", &self.whatsapp_call_id)?;
+        }
+        if self.direction != 0 {
+            let v = WhatsAppCallDirection::try_from(self.direction)
+                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.direction)))?;
+            struct_ser.serialize_field("direction", &v)?;
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for WhatsAppCall {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "whatsapp_call_id",
+            "whatsappCallId",
+            "direction",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            WhatsappCallId,
+            Direction,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "whatsappCallId" | "whatsapp_call_id" => Ok(GeneratedField::WhatsappCallId),
+                            "direction" => Ok(GeneratedField::Direction),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = WhatsAppCall;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.WhatsAppCall")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<WhatsAppCall, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut whatsapp_call_id__ = None;
+                let mut direction__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::WhatsappCallId => {
+                            if whatsapp_call_id__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("whatsappCallId"));
+                            }
+                            whatsapp_call_id__ = Some(map_.next_value()?);
+                        }
+                        GeneratedField::Direction => {
+                            if direction__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("direction"));
+                            }
+                            direction__ = Some(map_.next_value::<WhatsAppCallDirection>()? as i32);
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(WhatsAppCall {
+                    whatsapp_call_id: whatsapp_call_id__.unwrap_or_default(),
+                    direction: direction__.unwrap_or_default(),
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.WhatsAppCall", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for WhatsAppCallDirection {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::WhatsappCallDirectionInbound => "WHATSAPP_CALL_DIRECTION_INBOUND",
+            Self::WhatsappCallDirectionOutbound => "WHATSAPP_CALL_DIRECTION_OUTBOUND",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for WhatsAppCallDirection {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "WHATSAPP_CALL_DIRECTION_INBOUND",
+            "WHATSAPP_CALL_DIRECTION_OUTBOUND",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = WhatsAppCallDirection;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "WHATSAPP_CALL_DIRECTION_INBOUND" => Ok(WhatsAppCallDirection::WhatsappCallDirectionInbound),
+                    "WHATSAPP_CALL_DIRECTION_OUTBOUND" => Ok(WhatsAppCallDirection::WhatsappCallDirectionOutbound),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }
 impl serde::Serialize for WorkerMessage {
