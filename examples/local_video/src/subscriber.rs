@@ -60,7 +60,7 @@ struct SharedYuv {
 #[derive(Clone)]
 struct SimulcastState {
     available: bool,
-    publication: Option<livekit::room::publication::RemoteTrackPublication>,
+    publication: Option<RemoteTrackPublication>,
     requested_quality: Option<livekit::track::VideoQuality>,
     active_quality: Option<livekit::track::VideoQuality>,
     full_dims: Option<(u32, u32)>,
@@ -127,7 +127,7 @@ impl eframe::App for VideoApp {
         });
 
         // Simulcast layer controls: bottom-left overlay
-        egui::Area::new("simulcast_controls")
+        egui::Area::new("simulcast_controls".into())
             .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(10.0, -10.0))
             .interactable(true)
             .show(ctx, |ui| {
@@ -217,9 +217,10 @@ async fn main() -> Result<()> {
     let active_sid = Arc::new(Mutex::new(None::<TrackSid>));
     // Shared simulcast UI/control state
     let simulcast = Arc::new(Mutex::new(SimulcastState::default()));
+    let simulcast_events = simulcast.clone();
     tokio::spawn(async move {
         let active_sid = active_sid.clone();
-        let simulcast = simulcast.clone();
+        let simulcast = simulcast_events;
         let mut events = room.subscribe();
         info!("Subscribed to room events");
         while let Some(evt) = events.recv().await {
@@ -309,13 +310,11 @@ async fn main() -> Result<()> {
                         {
                             let mut sc = simulcast.lock();
                             sc.available = publication.simulcasted();
-                            sc.full_dims = Some(publication.dimension());
+                            let dim = publication.dimension();
+                            sc.full_dims = Some((dim.0, dim.1));
                             sc.requested_quality = None;
                             sc.active_quality = None;
-                            sc.publication = match publication.clone() {
-                                livekit::room::publication::TrackPublication::Remote(rp) => Some(rp),
-                                _ => None,
-                            };
+                            sc.publication = Some(publication.clone());
                         }
                         let simulcast2 = simulcast.clone();
                         std::thread::spawn(move || {
