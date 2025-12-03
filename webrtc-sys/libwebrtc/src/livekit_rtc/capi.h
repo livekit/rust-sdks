@@ -377,6 +377,16 @@ LK_EXPORT void lkAudioTrackAddSink(lkAudioTrackSource* source,
 LK_EXPORT void lkAudioTrackRemoveSink(lkAudioTrackSource* source,
                                            lkNativeAudioSink* sink);
 
+LK_EXPORT int lkMediaStreamGetIdLength(lkMediaStream* stream);
+
+LK_EXPORT int lkMediaStreamGetId(lkMediaStream* stream,
+                                  char* buffer,
+                                  int bufferSize);
+
+LK_EXPORT lkRtcAudioTrack** lkMediaStreamGetAudioTracks(lkMediaStream* stream, int* trackCount);
+
+LK_EXPORT lkRtcVideoTrack** lkMediaStreamGetVideoTracks(lkMediaStream* stream, int* trackCount);
+
 #ifdef __cplusplus
 }
 #endif

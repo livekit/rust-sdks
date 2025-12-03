@@ -4,6 +4,7 @@
 #include "livekit_rtc/audio_track.h"
 #include "livekit_rtc/data_channel.h"
 #include "livekit_rtc/ice_candidate.h"
+#include "livekit_rtc/media_stream.h"
 #include "livekit_rtc/media_stream_track.h"
 #include "livekit_rtc/peer.h"
 #include "livekit_rtc/session_description.h"
@@ -409,6 +410,7 @@ lkRtcTrackState lkMediaStreamTrackGetState(lkMediaStreamTrack* track) {
   return static_cast<lkRtcTrackState>(
       reinterpret_cast<livekit::MediaStreamTrack*>(track)->state());
 }
+
 lkMediaStreamTrackKind lkMediaStreamTrackGetKind(lkMediaStreamTrack* track) {
   auto kind = reinterpret_cast<livekit::MediaStreamTrack*>(track)->kind();
   if (kind == "audio") {
@@ -432,10 +434,64 @@ lkRtcAudioTrack* lkPeerFactoryCreateAudioTrack(lkPeerFactory* factory,
 void lkAudioTrackAddSink(lkAudioTrackSource* source, lkNativeAudioSink* sink) {
   reinterpret_cast<livekit::AudioTrackSource*>(source)->get()->AddSink(
       reinterpret_cast<livekit::NativeAudioSink*>(sink)->audio_track_sink());
-  
 }
 
-void lkAudioTrackRemoveSink(lkAudioTrackSource* source, lkNativeAudioSink* sink) {
+void lkAudioTrackRemoveSink(lkAudioTrackSource* source,
+                            lkNativeAudioSink* sink) {
   reinterpret_cast<livekit::AudioTrackSource*>(source)->get()->RemoveSink(
       reinterpret_cast<livekit::NativeAudioSink*>(sink)->audio_track_sink());
+}
+
+lkRtcAudioTrack** lkMediaStreamGetAudioTracks(lkMediaStream* stream,
+                                              int* trackCount) {
+  auto media_stream =
+      reinterpret_cast<livekit::MediaStream*>(stream)->media_stream();
+  auto audio_tracks = media_stream->GetAudioTracks();
+  *trackCount = static_cast<int>(audio_tracks.size());
+  if (*trackCount == 0) {
+    return nullptr;
+  }
+
+  lkRtcAudioTrack** track_array = new lkRtcAudioTrack*[*trackCount];
+  for (int i = 0; i < *trackCount; i++) {
+    track_array[i] = reinterpret_cast<lkRtcAudioTrack*>(
+        webrtc::make_ref_counted<livekit::AudioTrack>(audio_tracks[i])
+            .release());
+  }
+  return track_array;
+}
+
+lkRtcVideoTrack** lkMediaStreamGetVideoTracks(lkMediaStream* stream,
+                                              int* trackCount) {
+  auto media_stream =
+      reinterpret_cast<livekit::MediaStream*>(stream)->media_stream();
+  auto audio_tracks = media_stream->GetAudioTracks();
+  *trackCount = static_cast<int>(audio_tracks.size());
+  if (*trackCount == 0) {
+    return nullptr;
+  }
+
+  lkRtcVideoTrack** track_array = new lkRtcVideoTrack*[*trackCount];
+  /*
+  for (int i = 0; i < *trackCount; i++) {
+    track_array[i] = reinterpret_cast<lkRtcVideoTrack*>(
+        new livekit::RtcVideoTrack(audio_tracks[i]));
+  }
+  */
+  return track_array;
+}
+
+int lkMediaStreamGetIdLength(lkMediaStream* stream) {
+  auto id = reinterpret_cast<livekit::MediaStream*>(stream)->id();
+  return static_cast<int>(id.size());
+}
+
+int lkMediaStreamGetId(lkMediaStream* stream, char* buffer, int bufferSize) {
+  auto id = reinterpret_cast<livekit::MediaStream*>(stream)->id();
+  int len = static_cast<int>(id.size());
+  if (bufferSize > 0) {
+    int copySize = (len < bufferSize) ? len : bufferSize;
+    memcpy(buffer, id.c_str(), copySize);
+  }
+  return len;
 }

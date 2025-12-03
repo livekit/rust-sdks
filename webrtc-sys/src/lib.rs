@@ -52,6 +52,7 @@ pub mod rtp_parameters;
 pub mod session_description;
 pub mod sys;
 pub mod video_track;
+pub mod media_stream;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {

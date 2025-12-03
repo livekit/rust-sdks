@@ -13,34 +13,55 @@
 // limitations under the License.
 
 use crate::{
-    audio_track::{self, RtcAudioTrack},
+    audio_track::RtcAudioTrack,
+    video_track::RtcVideoTrack,
     sys::{self, lkMediaStream},
-    //video_track,
 };
 
 #[derive(Clone)]
 pub struct MediaStream {
-    pub(crate) ffi: sys::RefCounted<lkMediaStream>,
+  pub(crate) ffi : sys::RefCounted<lkMediaStream>,
 }
 
 impl MediaStream {
-    pub fn id(&self) -> String {
-        self.sys_handle.id()
+  pub fn id(&self) -> String {
+    unsafe {
+      let len = sys::lkMediaStreamGetIdLength(self.ffi.as_ptr());
+      let mut buf = vec ![0u8; len as usize + 1];
+      sys::lkMediaStreamGetId(self.ffi.as_ptr(), buf.as_mut_ptr() as * mut i8,
+                              len);
+      let cstr = std::ffi::CStr::from_ptr(buf.as_ptr() as* const i8);
+      cstr.to_string_lossy().into_owned()
     }
+  }
 
-    pub fn audio_tracks(&self) -> Vec<audio_track::RtcAudioTrack> {
-        self.sys_handle
-            .get_audio_tracks()
-            .into_iter()
-            .map(|t| audio_track::RtcAudioTrack { handle: RtcAudioTrack { sys_handle: t.ptr } })
-            .collect()
-    }
-    /*
-    pub fn video_tracks(&self) -> Vec<video_track::RtcVideoTrack> {
-        self.sys_handle
-            .get_video_tracks()
-            .into_iter()
-            .map(|t| video_track::RtcVideoTrack { handle: RtcVideoTrack { sys_handle: t.ptr } })
-            .collect()
-    }*/
+  pub fn audio_tracks(&self) -> Vec<RtcAudioTrack> {
+    let mut track_counts : ::std::os::raw::c_int = 0;
+    let lk_audio_tracks = unsafe{
+        sys::lkMediaStreamGetAudioTracks(self.ffi.as_ptr(), &mut track_counts)};
+    let mut tracks = Vec::new ();
+    for
+      i in 0..track_counts {
+        tracks.push(RtcAudioTrack{
+          ffi : unsafe{
+              sys::RefCounted::from_raw(*lk_audio_tracks.add(i as usize))},
+        });
+      }
+    tracks
+  }
+
+  pub fn video_tracks(&self) -> Vec<RtcVideoTrack> {
+    let mut track_counts : ::std::os::raw::c_int = 0;
+    let lk_video_tracks = unsafe{
+        sys::lkMediaStreamGetVideoTracks(self.ffi.as_ptr(), &mut track_counts)};
+    let mut tracks = Vec::new ();
+    for
+      i in 0..track_counts {
+        tracks.push(RtcVideoTrack{
+          ffi : unsafe{
+              sys::RefCounted::from_raw(*lk_video_tracks.add(i as usize))},
+        });
+      }
+    tracks
+  }
 }

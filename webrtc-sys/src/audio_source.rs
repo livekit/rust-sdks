@@ -366,7 +366,7 @@ mod tests {
 
     use tokio::sync::mpsc;
 
-    use crate::audio_frame::{self, AudioFrame};
+    use crate::audio_frame::{AudioFrame};
 
     #[tokio::test]
     async fn create_audio_native_sink() {

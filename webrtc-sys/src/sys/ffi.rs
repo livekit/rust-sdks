@@ -663,3 +663,25 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn lkAudioTrackRemoveSink(source: *mut lkAudioTrackSource, sink: *mut lkNativeAudioSink);
 }
+unsafe extern "C" {
+    pub fn lkMediaStreamGetIdLength(stream: *mut lkMediaStream) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkMediaStreamGetId(
+        stream: *mut lkMediaStream,
+        buffer: *mut ::std::os::raw::c_char,
+        bufferSize: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkMediaStreamGetAudioTracks(
+        stream: *mut lkMediaStream,
+        trackCount: *mut ::std::os::raw::c_int,
+    ) -> *mut *mut lkRtcAudioTrack;
+}
+unsafe extern "C" {
+    pub fn lkMediaStreamGetVideoTracks(
+        stream: *mut lkMediaStream,
+        trackCount: *mut ::std::os::raw::c_int,
+    ) -> *mut *mut lkRtcVideoTrack;
+}
