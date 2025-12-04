@@ -140,11 +140,6 @@ impl SensorTimestampHandler {
         if self.sys_handle.has_sensor_timestamp() {
             let ts = self.sys_handle.last_sensor_timestamp();
             if ts >= 0 {
-                log::info!(
-                    target: "sensor_timestamp",
-                    "last_sensor_timestamp: {}",
-                    ts
-                );
                 Some(ts)
             } else {
                 None

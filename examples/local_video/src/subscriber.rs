@@ -383,9 +383,20 @@ async fn main() -> Result<()> {
 
                                 // Log any parsed sensor timestamp for this frame if available.
                                 if let Some(ts) = video_track.last_sensor_timestamp() {
+                                    // Get the current system timestamp in microseconds
+                                    use std::time::{SystemTime, UNIX_EPOCH};
+                                    let now = SystemTime::now()
+                                        .duration_since(UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_micros() as i64;
+
+                                    // Calculate the latency in microseconds, then convert to milliseconds
+                                    let latency_us = now - ts;
+                                    let latency_ms = latency_us as f64 / 1000.0;
+
                                     info!(
-                                        "Subscriber: received frame {}x{} with sensor_timestamp_us={}",
-                                        w, h, ts
+                                        "Subscriber: decoded frame {}x{} sensor_timestamp={} latency={:.2} ms",
+                                        w, h, ts, latency_ms
                                     );
                                 }
 

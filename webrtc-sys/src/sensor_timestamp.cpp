@@ -19,6 +19,7 @@
 #include <cstring>
 #include <algorithm>
 #include <optional>
+#include <chrono>
 
 #include "api/make_ref_counted.h"
 #include "livekit/peer_connection_factory.h"
@@ -215,13 +216,18 @@ void SensorTimestampTransformer::TransformReceive(
   auto data = frame->GetData();
   std::vector<uint8_t> stripped_data;
 
-  RTC_LOG(LS_INFO) << "SensorTimestampTransformer::TransformReceive begin"
-                   << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp
-                   << " size=" << data.size();
-
   auto sensor_ts = ExtractTimestampTrailer(data, stripped_data);
 
   if (sensor_ts.has_value()) {
+    // Compute latency from embedded sensor timestamp to RTP receive
+    // time (both in microseconds since Unix epoch), so we can compare
+    // this with the latency logged after decode on the subscriber side.
+    int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+    double recv_latency_ms =
+        static_cast<double>(now_us - sensor_ts.value()) / 1000.0;
+
     // Store the extracted timestamp for later retrieval
     last_sensor_timestamp_.store(sensor_ts.value());
     has_last_sensor_timestamp_.store(true);
@@ -229,12 +235,10 @@ void SensorTimestampTransformer::TransformReceive(
     // Update frame with stripped data
     frame->SetData(rtc::ArrayView<const uint8_t>(stripped_data));
 
-    RTC_LOG(LS_INFO) << "SensorTimestampTransformer::TransformReceive extracted trailer"
-                     << " ts_us=" << sensor_ts.value()
+    RTC_LOG(LS_INFO) << "SensorTimestampTransformer"
+                     << " sensor_ts=" << sensor_ts.value()
                      << " rtp_ts=" << frame->GetTimestamp()
-                     << " ssrc=" << ssrc
-                     << " stripped_size=" << stripped_data.size()
-                     << " orig_size=" << data.size();
+                     << " recv_latency=" << recv_latency_ms << " ms";
   } else {
     // Log the last few bytes so we can see whether the magic marker is present.
     size_t log_len = std::min<size_t>(data.size(), 16);

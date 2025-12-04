@@ -383,7 +383,10 @@ async fn main() -> Result<()> {
         // Attach a static sensor timestamp for testing and push it into the
         // shared queue used by the sensor timestamp transformer.
         if let Some(store) = track.sensor_timestamp_store() {
-            let sensor_ts = 123_456; //frame.timestamp_us + 123_456; // simple fixed offset for visibility
+            let sensor_ts = std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .expect("SystemTime before UNIX EPOCH")
+                .as_micros() as i64;
             frame.sensor_timestamp_us = Some(sensor_ts);
             store.store(frame.timestamp_us, sensor_ts);
             info!(

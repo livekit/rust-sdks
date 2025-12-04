@@ -44,10 +44,19 @@ impl Default for PeerConnectionFactory {
     fn default() -> Self {
         let mut log_sink = LOG_SINK.lock();
         if log_sink.is_none() {
-            *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _| {
-                let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
+            *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _severity| {
+                let msg = msg
+                    .strip_suffix("\r\n")
+                    .or(msg.strip_suffix('\n'))
+                    .unwrap_or(&msg);
 
-                log::debug!(target: "libwebrtc", "{}", msg);
+                // Route sensor timestamp transformer logs to a dedicated target so they can
+                // be enabled independently from the very noisy general libwebrtc logs.
+                if msg.contains("SensorTimestampTransformer") {
+                    log::info!(target: "sensor_timestamp_rtp", "{}", msg);
+                } else {
+                    log::debug!(target: "libwebrtc", "{}", msg);
+                }
             }));
         }
 
