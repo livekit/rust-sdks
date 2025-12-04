@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.0](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.5.2...rust-sdks/livekit-protocol@0.6.0) - 2025-12-04
+
+### Added
+
+- *(connector)* initial service impl ([#790](https://github.com/livekit/rust-sdks/pull/790))
+
 ## [0.5.2](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.5.1...rust-sdks/livekit-protocol@0.5.2) - 2025-11-20
 
 ### Other

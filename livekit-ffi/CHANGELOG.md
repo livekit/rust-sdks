@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.41](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.40...rust-sdks/livekit-ffi@0.12.41) - 2025-12-04
+
+### Added
+
+- *(connector)* initial service impl ([#790](https://github.com/livekit/rust-sdks/pull/790))
+
+### Fixed
+
+- fix mute/unmute events for LocalTrack. ([#799](https://github.com/livekit/rust-sdks/pull/799))
+
+### Other
+
+- Add RoomEvent::TokenRefreshed ([#803](https://github.com/livekit/rust-sdks/pull/803))
+- Expose desktop capturer ([#725](https://github.com/livekit/rust-sdks/pull/725))
+
 ## [0.12.40](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.39...rust-sdks/livekit-ffi@0.12.40) - 2025-11-20
 
 ### Other
