@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
@@ -61,6 +62,10 @@ struct Args {
     #[arg(long)]
     api_secret: Option<String>,
 
+    /// Shared E2EE key (enables end-to-end encryption when set)
+    #[arg(long)]
+    e2ee_key: Option<String>,
+
     /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
     #[arg(long, default_value_t = false)]
     h265: bool,
@@ -111,6 +116,13 @@ async fn main() -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
+    if let Some(ref key) = args.e2ee_key {
+        let key_provider =
+            KeyProvider::with_shared_key(KeyProviderOptions::default(), key.clone().into_bytes());
+        room_options.encryption =
+            Some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
+        info!("E2EE enabled with provided shared key");
+    }
     let (room, _) = Room::connect(&url, &token, room_options).await?;
     let room = std::sync::Arc::new(room);
     info!("Connected: {} - {}", room.name(), room.sid().await);
@@ -371,7 +383,7 @@ async fn main() -> Result<()> {
         // Attach a static sensor timestamp for testing and push it into the
         // shared queue used by the sensor timestamp transformer.
         if let Some(store) = track.sensor_timestamp_store() {
-            let sensor_ts = frame.timestamp_us + 123_456; // simple fixed offset for visibility
+            let sensor_ts = 123_456; //frame.timestamp_us + 123_456; // simple fixed offset for visibility
             frame.sensor_timestamp_us = Some(sensor_ts);
             store.store(frame.timestamp_us, sensor_ts);
             info!(
