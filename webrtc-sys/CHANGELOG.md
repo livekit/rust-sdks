@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.18](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.17...rust-sdks/webrtc-sys@0.3.18) - 2025-12-04
+
+### Other
+
+- initialize frame_.samples_per_channel_ ([#779](https://github.com/livekit/rust-sdks/pull/779))
+- Expose desktop capturer ([#725](https://github.com/livekit/rust-sdks/pull/725))
+
 ## [0.3.17](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.16...rust-sdks/webrtc-sys@0.3.17) - 2025-11-20
 
 ### Fixed

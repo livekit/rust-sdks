@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.26](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.25...rust-sdks/livekit@0.7.26) - 2025-12-04
+
+### Added
+
+- *(connector)* initial service impl ([#790](https://github.com/livekit/rust-sdks/pull/790))
+
+### Fixed
+
+- fix mute/unmute events for LocalTrack. ([#799](https://github.com/livekit/rust-sdks/pull/799))
+
+### Other
+
+- Add RoomEvent::TokenRefreshed ([#803](https://github.com/livekit/rust-sdks/pull/803))
+
 ## [0.7.25](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.24...rust-sdks/livekit@0.7.25) - 2025-11-20
 
 ### Other
