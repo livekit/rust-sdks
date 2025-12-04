@@ -369,6 +369,14 @@ async fn main() -> Result<()> {
                                 std::mem::swap(&mut s.v, &mut v_buf);
                                 s.dirty = true;
 
+                                // Log any parsed sensor timestamp for this frame if available.
+                                if let Some(ts) = video_track.last_sensor_timestamp() {
+                                    info!(
+                                        "Subscriber: received frame {}x{} with sensor_timestamp_us={}",
+                                        w, h, ts
+                                    );
+                                }
+
                                 frames += 1;
                                 let elapsed = last_log.elapsed();
                                 if elapsed >= Duration::from_secs(2) {

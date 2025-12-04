@@ -14,8 +14,9 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use libwebrtc::{prelude::*, stats::RtcStats};
+use libwebrtc::{native::sensor_timestamp::SensorTimestampStore, prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
+use parking_lot::Mutex;
 
 use super::TrackInner;
 use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
@@ -24,6 +25,7 @@ use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 pub struct LocalVideoTrack {
     inner: Arc<TrackInner>,
     source: RtcVideoSource,
+    sensor_timestamp_store: Arc<Mutex<Option<SensorTimestampStore>>>,
 }
 
 impl Debug for LocalVideoTrack {
@@ -46,6 +48,7 @@ impl LocalVideoTrack {
                 MediaStreamTrack::Video(rtc_track),
             )),
             source,
+            sensor_timestamp_store: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -121,6 +124,18 @@ impl LocalVideoTrack {
 
     pub fn rtc_source(&self) -> RtcVideoSource {
         self.source.clone()
+    }
+
+    /// Returns the sensor timestamp store associated with this track, if any.
+    /// When present, callers can push per-frame sensor timestamps into the
+    /// outgoing queue which will then be embedded into encoded frames.
+    pub fn sensor_timestamp_store(&self) -> Option<SensorTimestampStore> {
+        self.sensor_timestamp_store.lock().clone()
+    }
+
+    /// Internal: set the sensor timestamp store used for this track.
+    pub(crate) fn set_sensor_timestamp_store(&self, store: SensorTimestampStore) {
+        *self.sensor_timestamp_store.lock() = Some(store);
     }
 
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {

@@ -36,6 +36,7 @@ pub mod video_source;
 pub mod video_stream;
 pub mod video_track;
 pub mod yuv_helper;
+pub mod sensor_timestamp;
 
 use webrtc_sys::{rtc_error as sys_err, webrtc as sys_rtc};
 

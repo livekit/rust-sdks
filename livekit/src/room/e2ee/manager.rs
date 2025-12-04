@@ -15,8 +15,11 @@
 use std::{collections::HashMap, sync::Arc};
 
 use libwebrtc::{
-    native::frame_cryptor::{
-        DataPacketCryptor, EncryptedPacket, EncryptionAlgorithm, EncryptionState, FrameCryptor,
+    native::{
+        frame_cryptor::{
+            DataPacketCryptor, EncryptedPacket, EncryptionAlgorithm, EncryptionState, FrameCryptor,
+        },
+        sensor_timestamp::{self, SensorTimestampStore},
     },
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
@@ -98,16 +101,24 @@ impl E2eeManager {
         publication: RemoteTrackPublication,
         participant: RemoteParticipant,
     ) {
-        if !self.initialized() {
-            return;
-        }
-
-        if publication.encryption_type() == EncryptionType::None {
-            return;
-        }
-
         let identity = participant.identity();
         let receiver = track.transceiver().unwrap().receiver();
+        // Always set up sensor timestamp extraction for remote video tracks.
+        if let RemoteTrack::Video(video_track) = &track {
+            let store = SensorTimestampStore::new();
+            let handler = sensor_timestamp::create_receiver_handler(
+                LkRuntime::instance().pc_factory(),
+                &store,
+                &receiver,
+            );
+            video_track.set_sensor_timestamp_handler(handler);
+        }
+
+        // E2EE frame cryptor is only created when encryption is configured.
+        if !self.initialized() || publication.encryption_type() == EncryptionType::None {
+            return;
+        }
+
         let frame_cryptor = self.setup_rtp_receiver(&identity, receiver);
         self.setup_cryptor(&frame_cryptor);
 
@@ -122,16 +133,27 @@ impl E2eeManager {
         publication: LocalTrackPublication,
         participant: LocalParticipant,
     ) {
-        if !self.initialized() {
-            return;
-        }
-
-        if publication.encryption_type() == EncryptionType::None {
-            return;
-        }
-
         let identity = participant.identity();
         let sender = track.transceiver().unwrap().sender();
+        // Always set up sensor timestamp embedding for local video tracks.
+        if let LocalTrack::Video(video_track) = &track {
+            let store = SensorTimestampStore::new();
+            video_track.set_sensor_timestamp_store(store.clone());
+            let _handler = sensor_timestamp::create_sender_handler(
+                LkRuntime::instance().pc_factory(),
+                &store,
+                &sender,
+            );
+            // We rely on the underlying WebRTC objects to hold references to the
+            // transformer; the Rust-side handler object is kept only for lifetime
+            // management when needed.
+        }
+
+        // E2EE frame cryptor is only created when encryption is configured.
+        if !self.initialized() || publication.encryption_type() == EncryptionType::None {
+            return;
+        }
+
         let frame_cryptor = self.setup_rtp_sender(&identity, sender);
         self.setup_cryptor(&frame_cryptor);
 

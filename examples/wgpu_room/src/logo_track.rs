@@ -116,8 +116,9 @@ impl LogoTrack {
             framebuffer: Arc::new(Mutex::new(vec![0u8; FB_WIDTH * FB_HEIGHT * 4])),
             video_frame: Arc::new(Mutex::new(VideoFrame {
                 rotation: VideoRotation::VideoRotation0,
-                buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
                 timestamp_us: 0,
+                sensor_timestamp_us: None,
+                buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
             })),
             pos: (0, 0),
             direction: (1, 1),

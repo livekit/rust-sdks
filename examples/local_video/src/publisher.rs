@@ -208,7 +208,12 @@ async fn main() -> Result<()> {
     }
 
     // Reusable I420 buffer and frame
-    let mut frame = VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: 0, buffer: I420Buffer::new(width, height) };
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        timestamp_us: 0,
+        sensor_timestamp_us: None,
+        buffer: I420Buffer::new(width, height),
+    };
     let is_yuyv = fmt.format() == FrameFormat::YUYV;
     info!(
         "Selected conversion path: {}",
@@ -362,6 +367,19 @@ async fn main() -> Result<()> {
 
         // Update RTP timestamp (monotonic, microseconds since start)
         frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
+
+        // Attach a static sensor timestamp for testing and push it into the
+        // shared queue used by the sensor timestamp transformer.
+        if let Some(store) = track.sensor_timestamp_store() {
+            let sensor_ts = frame.timestamp_us + 123_456; // simple fixed offset for visibility
+            frame.sensor_timestamp_us = Some(sensor_ts);
+            store.store(frame.timestamp_us, sensor_ts);
+            info!(
+                "Publisher: attached sensor_timestamp_us={} for capture_ts={}",
+                sensor_ts, frame.timestamp_us
+            );
+        }
+
         rtc_source.capture_frame(&frame);
         let t4 = Instant::now();
 
