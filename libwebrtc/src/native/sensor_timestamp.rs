@@ -53,6 +53,12 @@ impl SensorTimestampStore {
     /// The `capture_timestamp_us` should match the `timestamp_us` field
     /// of the VideoFrame.
     pub fn store(&self, capture_timestamp_us: i64, sensor_timestamp_us: i64) {
+        log::info!(
+            target: "sensor_timestamp",
+            "store: capture_ts_us={}, sensor_ts_us={}",
+            capture_timestamp_us,
+            sensor_timestamp_us
+        );
         self.sys_handle.store(capture_timestamp_us, sensor_timestamp_us);
     }
 
@@ -134,6 +140,11 @@ impl SensorTimestampHandler {
         if self.sys_handle.has_sensor_timestamp() {
             let ts = self.sys_handle.last_sensor_timestamp();
             if ts >= 0 {
+                log::info!(
+                    target: "sensor_timestamp",
+                    "last_sensor_timestamp: {}",
+                    ts
+                );
                 Some(ts)
             } else {
                 None
