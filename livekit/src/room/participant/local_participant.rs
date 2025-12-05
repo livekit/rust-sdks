@@ -262,6 +262,13 @@ impl LocalParticipant {
 
                 encodings = compute_video_encodings(req.width, req.height, &options);
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
+
+                match options.source {
+                    TrackSource::Screenshare => {
+                        video_track.rtc_source().set_is_screencast(true);
+                    }
+                    _ => {}
+                }
             }
             LocalTrack::Audio(_audio_track) => {
                 // Setup audio encoding
