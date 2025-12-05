@@ -125,6 +125,12 @@ class PeerFactory : public webrtc::RefCountInterface {
 
   lkRtcAudioTrack* CreateAudioTrack(const char* id, lkAudioTrackSource* source);
 
+  webrtc::Thread* network_thread() const { return network_thread_.get(); }
+
+  webrtc::Thread* worker_thread() const { return worker_thread_.get(); }
+
+  webrtc::Thread* signaling_thread() const { return signaling_thread_.get(); }
+
  private:
   std::unique_ptr<webrtc::Thread> network_thread_;
   std::unique_ptr<webrtc::Thread> worker_thread_;

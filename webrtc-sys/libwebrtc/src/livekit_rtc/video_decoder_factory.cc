@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "livekit_rtc/video_decoder.h"
+#include "livekit_rtc/video_decoder_factory.h"
 
 #include <modules/video_coding/codecs/av1/av1_svc_config.h>
 #include "api/environment/environment.h"
@@ -36,7 +36,7 @@
 #endif
 
 #if defined(USE_NVIDIA_VIDEO_CODEC)
-#include "nvidia/nvidia_decoder_factory.h"
+#include "livekit_rtc/nvidia/nvidia_decoder_factory.h"
 #endif
 
 namespace livekit {
@@ -113,13 +113,15 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
   if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName))
     return webrtc::H264Decoder::Create();
 
+
 #if defined(RTC_DAV1D_IN_INTERNAL_DECODER_FACTORY)
   if (absl::EqualsIgnoreCase(format.name, cricket::kAv1CodecName)) {
     return webrtc::CreateDav1dDecoder();
   }
 #endif
 
-  RTC_LOG(LS_ERROR) << "no VideoDecoder found for " << format.name;
+
+  RTC_LOG(LS_ERROR) << "No VideoDecoder found for " << format.name;
   return nullptr;
 }
 

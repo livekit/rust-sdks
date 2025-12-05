@@ -12,25 +12,39 @@ if (is_android) {
 }
 
 lk_sources = [
+  "apm.cc",
   "peer.cc",
   "audio_device.cc",
   "transceiver.cc",
   "utils.cc",
   "data_channel.cc",
   "capi.cc",
-  "video_encoder.cc",
-  "video_decoder.cc",
+  "video_encoder_factory.cc",
+  "video_decoder_factory.cc",
+  "video_track.cc",
+  "video_frame.cc",
+  "video_frame_buffer.cc",
   "session_description.cc",
   "ice_candidate.cc",
   "global_task_queue.cc",
   "audio_track.cc",
+  "media_stream.cc",
   "media_stream_track.cc",
-  #"android.cc",
+  "rtc_error.cc",
+  "audio_resampler.cc",
+  #"desktop_capturer.cc",
 ]
 
 if (is_mac) {
   lk_sources += [
     "objc_video_factory.mm",
+    "objc_video_frame_buffer.mm",
+  ]
+}
+
+if(is_android) {
+  lk_sources += [
+    "android.cc",
   ]
 }
 
@@ -44,6 +58,7 @@ rtc_shared_library("livekit_rtc") {
   defines = [
     "USE_LIBYUV",
     "WEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE",
+    "WEBRTC_APM_DEBUG_DUMP=0",
   ]
   cflags_cc = ["-Wno-sign-compare"]
   public_configs = [ ":livekit_config" ]
@@ -76,6 +91,7 @@ rtc_shared_library("livekit_rtc") {
   if (is_mac) {
     deps += [
       "../sdk:peerconnectionfactory_base_objc",
+      "../sdk:default_codec_factory_objc",
     ]
   }
 }

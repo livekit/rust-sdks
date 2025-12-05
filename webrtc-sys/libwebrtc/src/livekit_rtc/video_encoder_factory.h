@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-#ifndef LIVEKIT_VIDEO_ENCODER_H
-#define LIVEKIT_VIDEO_ENCODER_H
+#pragma once
 
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory.h"
@@ -55,5 +54,3 @@ class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
   std::unique_ptr<InternalFactory> internal_factory_;
 };
 }  // namespace livekit
-
-#endif  // LIVEKIT_VIDEO_ENCODER_H

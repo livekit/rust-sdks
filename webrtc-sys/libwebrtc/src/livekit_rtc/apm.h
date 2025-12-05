@@ -42,7 +42,7 @@ struct AudioProcessingConfig {
   }
 };
 
-class AudioProcessingModule {
+class AudioProcessingModule : public webrtc::RefCountInterface {
  public:
   AudioProcessingModule(const AudioProcessingConfig& config);
 
@@ -66,7 +66,7 @@ class AudioProcessingModule {
   webrtc::scoped_refptr<webrtc::AudioProcessing> apm_;
 };
 
-std::unique_ptr<AudioProcessingModule> create_apm(
+webrtc::scoped_refptr<AudioProcessingModule> create_apm(
     bool echo_canceller_enabled,
     bool gain_controller_enabled,
     bool high_pass_filter_enabled,

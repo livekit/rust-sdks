@@ -10,25 +10,44 @@
 extern "C" {
 #endif
 
+typedef void lkPlatformImageBuffer;
+
 // Opaque types, mapping to C++ classes
-typedef void lkRefCounted;
-typedef void lkPeerFactory;
-typedef void lkPeer;
-typedef void lkDataChannel;
-typedef void lkRtpTransceiver;
-typedef void lkRtpReceiver;
-typedef void lkRtpSender;
-typedef void lkMediaStreamTrack;
-typedef void lkMediaStream;
-typedef void lkSessionDescription;
-typedef void lkIceCandidate;
-typedef void lkRtpCapabilities;
-typedef void lkRtcVideoTrack;
-typedef void lkRtcAudioTrack;
-typedef void lkVideoTrackSource;
-typedef void lkAudioTrackSource;
-typedef void lkNativeAudioSink;
-typedef void lkNativeAudioStream;
+typedef void lkRefCountedObject;
+
+typedef lkRefCountedObject lkString;
+typedef lkRefCountedObject lkVector;
+typedef lkRefCountedObject lkPeerFactory;
+typedef lkRefCountedObject lkPeer;
+typedef lkRefCountedObject lkDataChannel;
+typedef lkRefCountedObject lkRtpTransceiver;
+typedef lkRefCountedObject lkRtpReceiver;
+typedef lkRefCountedObject lkRtpSender;
+typedef lkRefCountedObject lkMediaStreamTrack;
+typedef lkRefCountedObject lkMediaStream;
+typedef lkRefCountedObject lkSessionDescription;
+typedef lkRefCountedObject lkIceCandidate;
+typedef lkRefCountedObject lkRtpCapabilities;
+typedef lkRefCountedObject lkRtcVideoTrack;
+typedef lkRefCountedObject lkRtcAudioTrack;
+typedef lkRefCountedObject lkVideoTrackSource;
+typedef lkRefCountedObject lkAudioTrackSource;
+typedef lkRefCountedObject lkNativeAudioSink;
+typedef lkRefCountedObject lkNativeAudioStream;
+typedef lkRefCountedObject lkVideoFrame;
+typedef lkRefCountedObject lkVideoFrameBuffer;
+typedef lkRefCountedObject lkPlanarYuvBuffer;
+typedef lkRefCountedObject lkPlanarYuv8Buffer;
+typedef lkRefCountedObject lkBiplanarYuvBuffer;
+typedef lkRefCountedObject lkPlanarYuv16BBuffer;
+typedef lkRefCountedObject lkBiplanarYuv8Buffer;
+typedef lkRefCountedObject lkI420Buffer;
+typedef lkRefCountedObject lkI420ABuffer;
+typedef lkRefCountedObject lkI422Buffer;
+typedef lkRefCountedObject lkI444Buffer;
+typedef lkRefCountedObject lkI010Buffer;
+typedef lkRefCountedObject lkNV12Buffer;
+typedef lkRefCountedObject lkNativeVideoSink;
 
 typedef enum {
   LK_ICE_TRANSPORT_TYPE_NONE,
@@ -180,14 +199,56 @@ typedef struct {
   bool autoGainControl;
 } lkAudioSourceOptions;
 
+typedef struct {
+  int width;
+  int height;
+} lkVideoResolution;
+
+typedef enum {
+  LK_CONTENT_HINT_NONE,
+  LK_CONTENT_HINT_FLUID,
+  LK_CONTENT_HINT_DETAILed,
+  LK_CONTENT_HINT_TEXT,
+} lkContentHint;
+
+typedef struct {
+  double minFps;
+  double maxFps;
+} lkVideoTrackSourceConstraints;
+
+typedef struct {
+  void (*onFrame)(const lkVideoFrame* frame, void* userdata);
+  void (*onDiscardedFrame)(void* userdata);
+  void (*onConstraintsChanged)(lkVideoTrackSourceConstraints* resolution,
+                               void* userdata);
+} lkVideoSinkCallabacks;
+
+typedef enum {
+  LK_VIDEO_FRAME_BUFFER_TYPE_NATIVE,
+  LK_VIDEO_FRAME_BUFFER_TYPE_I420,
+  LK_VIDEO_FRAME_BUFFER_TYPE_I420A,
+  LK_VIDEO_FRAME_BUFFER_TYPE_I422,
+  LK_VIDEO_FRAME_BUFFER_TYPE_I444,
+  LK_VIDEO_FRAME_BUFFER_TYPE_I010,
+  LK_VIDEO_FRAME_BUFFER_TYPE_NV12,
+} lkVideoFrameBufferType;
+
+typedef enum {
+  LK_VIDEO_ROTATION_0,
+  LK_VIDEO_ROTATION_90,
+  LK_VIDEO_ROTATION_180,
+  LK_VIDEO_ROTATION_270,
+} lkVideoRotation;
+
 LK_EXPORT int lkInitialize();
+
 LK_EXPORT int lkDispose();
 
 /* PeerConnection API */
 
-LK_EXPORT void lkAddRef(lkRefCounted* rc);
+LK_EXPORT void lkAddRef(lkRefCountedObject* rc);
 
-LK_EXPORT void lkReleaseRef(lkRefCounted* rc);
+LK_EXPORT void lkReleaseRef(lkRefCountedObject* rc);
 
 LK_EXPORT lkPeerFactory* lkCreatePeerFactory();
 
@@ -366,26 +427,228 @@ LK_EXPORT lkRtcTrackState lkMediaStreamTrackGetState(lkMediaStreamTrack* track);
 LK_EXPORT lkMediaStreamTrackKind
     lkMediaStreamTrackGetKind(lkMediaStreamTrack* track);
 
-LK_EXPORT lkRtcAudioTrack* lkPeerFactoryCreateAudioTrack(lkPeerFactory* factory,
-                                              const char* id,
-                                              lkAudioTrackSource* source);
+LK_EXPORT lkRtcAudioTrack* lkPeerFactoryCreateAudioTrack(
+    lkPeerFactory* factory, const char* id, lkAudioTrackSource* source);
 
+LK_EXPORT lkRtcVideoTrack* lkPeerFactoryCreateVideoTrack(
+    lkPeerFactory* factory, const char* id, lkVideoTrackSource* source);
 
-LK_EXPORT void lkAudioTrackAddSink(lkAudioTrackSource* source,
-                                        lkNativeAudioSink* sink);
+LK_EXPORT void lkAudioTrackAddSink(lkRtcAudioTrack* track,
+                                   lkNativeAudioSink* sink);
 
-LK_EXPORT void lkAudioTrackRemoveSink(lkAudioTrackSource* source,
-                                           lkNativeAudioSink* sink);
+LK_EXPORT void lkAudioTrackRemoveSink(lkRtcVideoTrack* track,
+                                      lkNativeAudioSink* sink);
 
 LK_EXPORT int lkMediaStreamGetIdLength(lkMediaStream* stream);
 
 LK_EXPORT int lkMediaStreamGetId(lkMediaStream* stream,
-                                  char* buffer,
-                                  int bufferSize);
+                                 char* buffer,
+                                 int bufferSize);
 
-LK_EXPORT lkRtcAudioTrack** lkMediaStreamGetAudioTracks(lkMediaStream* stream, int* trackCount);
+LK_EXPORT lkRtcAudioTrack** lkMediaStreamGetAudioTracks(lkMediaStream* stream,
+                                                        int* trackCount);
 
-LK_EXPORT lkRtcVideoTrack** lkMediaStreamGetVideoTracks(lkMediaStream* stream, int* trackCount);
+LK_EXPORT lkRtcVideoTrack** lkMediaStreamGetVideoTracks(lkMediaStream* stream,
+                                                        int* trackCount);
+
+LK_EXPORT lkNativeVideoSink* lkCreateNativeVideoSink(
+    const lkVideoSinkCallabacks* callbacks, void* userdata);
+
+LK_EXPORT void lkVideoTrackAddSink(lkRtcVideoTrack* source,
+                                   lkNativeVideoSink* sink);
+
+LK_EXPORT void lkVideoTrackRemoveSink(lkRtcVideoTrack* source,
+                                      lkNativeVideoSink* sink);
+
+LK_EXPORT lkVideoTrackSource* lkCreateVideoTrackSource(
+    lkVideoResolution resolution);
+
+LK_EXPORT lkVideoFrameBufferType
+    lkVideoFrameBufferGetType(lkVideoFrameBuffer* frameBuffer);
+
+LK_EXPORT uint32_t lkVideoFrameBufferGetWidth(lkVideoFrameBuffer* frameBuffer);
+
+LK_EXPORT uint32_t lkVideoFrameBufferGetHeight(lkVideoFrameBuffer* frameBuffer);
+
+LK_EXPORT lkI420Buffer* lkI420BufferNew(uint32_t width,
+                                        uint32_t height,
+                                        uint32_t stride_y,
+                                        uint32_t stride_u,
+                                        uint32_t stride_v);
+
+LK_EXPORT lkI420Buffer* lkVideoFrameBufferToI420(
+    lkVideoFrameBuffer* frameBuffer);
+
+LK_EXPORT lkI420Buffer* lkVideoFrameBufferGetI420(
+    lkVideoFrameBuffer* frameBuffer);
+
+LK_EXPORT lkI420ABuffer* lkVideoFrameBufferGetI420A(
+    lkVideoFrameBuffer* frameBuffer);
+
+LK_EXPORT lkI422Buffer* lkVideoFrameBufferGetI422(
+    lkVideoFrameBuffer* frameBuffer);
+
+LK_EXPORT lkI444Buffer* lkVideoFrameBufferGetI444(
+    lkVideoFrameBuffer* frameBuffer);
+
+LK_EXPORT lkI010Buffer* lkVideoFrameBufferGetI010(
+    lkVideoFrameBuffer* frameBuffer);
+
+LK_EXPORT lkNV12Buffer* lkVideoFrameBufferGetNV12(
+    lkVideoFrameBuffer* frameBuffer);
+
+LK_EXPORT uint32_t lkI420BufferGetChromaWidth(lkI420Buffer* buffer);
+
+LK_EXPORT uint32_t lkI420BufferGetChromaHeight(lkI420Buffer* buffer);
+
+LK_EXPORT uint32_t lkI420BufferGetStrideY(lkI420Buffer* buffer);
+
+LK_EXPORT uint32_t lkI420BufferGetStrideU(lkI420Buffer* buffer);
+
+LK_EXPORT uint32_t lkI420BufferGetStrideV(lkI420Buffer* buffer);
+
+LK_EXPORT const uint8_t* lkI420BufferGetDataY(lkI420Buffer* buffer);
+
+LK_EXPORT const uint8_t* lkI420BufferGetDataU(lkI420Buffer* buffer);
+
+LK_EXPORT const uint8_t* lkI420BufferGetDataV(lkI420Buffer* buffer);
+
+LK_EXPORT lkI420Buffer* lkI420BufferScale(lkI420Buffer* buffer,
+                                          int scaledWidth,
+                                          int scaledHeight);
+
+LK_EXPORT uint32_t lkI420ABufferGetChromaWidth(lkI420ABuffer* buffer);
+
+LK_EXPORT uint32_t lkI420ABufferGetChromaHeight(lkI420ABuffer* buffer);
+
+LK_EXPORT uint32_t lkI420ABufferGetStrideY(lkI420ABuffer* buffer);
+
+LK_EXPORT uint32_t lkI420ABufferGetStrideU(lkI420ABuffer* buffer);
+
+LK_EXPORT uint32_t lkI420ABufferGetStrideV(lkI420ABuffer* buffer);
+
+LK_EXPORT uint32_t lkI420ABufferGetStrideA(lkI420ABuffer* buffer);
+
+LK_EXPORT const uint8_t* lkI420ABufferGetDataY(lkI420ABuffer* buffer);
+
+LK_EXPORT const uint8_t* lkI420ABufferGetDataU(lkI420ABuffer* buffer);
+
+LK_EXPORT const uint8_t* lkI420ABufferGetDataV(lkI420ABuffer* buffer);
+
+LK_EXPORT const uint8_t* lkI420ABufferGetDataA(lkI420ABuffer* buffer);
+
+LK_EXPORT lkI420ABuffer* lkI420ABufferScale(lkI420ABuffer* buffer,
+                                            int scaledWidth,
+                                            int scaledHeight);
+
+LK_EXPORT lkI422Buffer* lkI422BufferNew(uint32_t width,
+                                        uint32_t height,
+                                        uint32_t stride_y,
+                                        uint32_t stride_u,
+                                        uint32_t stride_v);
+
+LK_EXPORT uint32_t lkI422BufferGetChromaWidth(lkI422Buffer* buffer);
+
+LK_EXPORT uint32_t lkI422BufferGetChromaHeight(lkI422Buffer* buffer);
+
+LK_EXPORT uint32_t lkI422BufferGetStrideY(lkI422Buffer* buffer);
+
+LK_EXPORT uint32_t lkI422BufferGetStrideU(lkI422Buffer* buffer);
+
+LK_EXPORT uint32_t lkI422BufferGetStrideV(lkI422Buffer* buffer);
+
+LK_EXPORT const uint8_t* lkI422BufferGetDataY(lkI422Buffer* buffer);
+
+LK_EXPORT const uint8_t* lkI422BufferGetDataU(lkI422Buffer* buffer);
+
+LK_EXPORT const uint8_t* lkI422BufferGetDataV(lkI422Buffer* buffer);
+
+LK_EXPORT lkI422Buffer* lkI422BufferScale(lkI422Buffer* buffer,
+                                          int scaledWidth,
+                                          int scaledHeight);
+
+LK_EXPORT lkI444Buffer* lkI444BufferNew(uint32_t width,
+                                        uint32_t height,
+                                        uint32_t stride_y,
+                                        uint32_t stride_u,
+                                        uint32_t stride_v);
+LK_EXPORT uint32_t lkI444BufferGetChromaWidth(lkI444Buffer* buffer);
+
+LK_EXPORT uint32_t lkI444BufferGetChromaHeight(lkI444Buffer* buffer);
+
+LK_EXPORT uint32_t lkI444BufferGetStrideY(lkI444Buffer* buffer);
+
+LK_EXPORT uint32_t lkI444BufferGetStrideU(lkI444Buffer* buffer);
+
+LK_EXPORT uint32_t lkI444BufferGetStrideV(lkI444Buffer* buffer);
+
+LK_EXPORT const uint8_t* lkI444BufferGetDataY(lkI444Buffer* buffer);
+
+LK_EXPORT const uint8_t* lkI444BufferGetDataU(lkI444Buffer* buffer);
+
+LK_EXPORT const uint8_t* lkI444BufferGetDataV(lkI444Buffer* buffer);
+
+LK_EXPORT lkI444Buffer* lkI444BufferScale(lkI444Buffer* buffer,
+                                          int scaledWidth,
+                                          int scaledHeight);
+
+LK_EXPORT lkI010Buffer* lkI010BufferNew(uint32_t width,
+                                        uint32_t height,
+                                        uint32_t stride_y,
+                                        uint32_t stride_u,
+                                        uint32_t stride_v);
+LK_EXPORT uint32_t lkI010BufferGetChromaWidth(lkI010Buffer* buffer);
+
+LK_EXPORT uint32_t lkI010BufferGetChromaHeight(lkI010Buffer* buffer);
+
+LK_EXPORT uint32_t lkI010BufferGetStrideY(lkI010Buffer* buffer);
+
+LK_EXPORT uint32_t lkI010BufferGetStrideU(lkI010Buffer* buffer);
+
+LK_EXPORT uint32_t lkI010BufferGetStrideV(lkI010Buffer* buffer);
+
+LK_EXPORT const uint16_t* lkI010BufferGetDataY(lkI010Buffer* buffer);
+
+LK_EXPORT const uint16_t* lkI010BufferGetDataU(lkI010Buffer* buffer);
+
+LK_EXPORT const uint16_t* lkI010BufferGetDataV(lkI010Buffer* buffer);
+
+LK_EXPORT lkI010Buffer* lkI010BufferScale(lkI010Buffer* buffer,
+                                          int scaledWidth,
+                                          int scaledHeight);
+
+LK_EXPORT lkNV12Buffer* lkNV12BufferNew(uint32_t width,
+                                        uint32_t height,
+                                        uint32_t stride_y,
+                                        uint32_t stride_uv);
+
+LK_EXPORT uint32_t lkNV12BufferGetChromaWidth(lkNV12Buffer* buffer);
+
+LK_EXPORT uint32_t lkNV12BufferGetChromaHeight(lkNV12Buffer* buffer);
+
+LK_EXPORT uint32_t lkNV12BufferGetStrideY(lkNV12Buffer* buffer);
+
+LK_EXPORT uint32_t lkNV12BufferGetStrideUV(lkNV12Buffer* buffer);
+
+LK_EXPORT const uint8_t* lkNV12BufferGetDataY(lkNV12Buffer* buffer);
+
+LK_EXPORT const uint8_t* lkNV12BufferGetDataUV(lkNV12Buffer* buffer);
+
+LK_EXPORT lkNV12Buffer* lkNV12BufferScale(lkNV12Buffer* buffer,
+                                          int scaledWidth,
+                                          int scaledHeight);
+
+LK_EXPORT void lkVideoFrameBufferToARGB(lkVideoFrameBuffer* frameBuffer,
+                                        lkVideoFrameBufferType type,
+                                        uint8_t* argbBuffer,
+                                        uint32_t stride,
+                                        uint32_t width,
+                                        uint32_t height);
+LK_EXPORT lkVideoFrameBuffer* lkNewNativeBufferFromPlatformImageBuffer(
+    lkPlatformImageBuffer* buffer);
+
+LK_EXPORT lkPlatformImageBuffer* lkNativeBufferToPlatformImageBuffer(
+    lkVideoFrameBuffer* frameBuffer);
 
 #ifdef __cplusplus
 }

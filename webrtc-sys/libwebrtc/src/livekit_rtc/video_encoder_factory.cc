@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "livekit_rtc/video_encoder.h"
+#include "livekit_rtc/video_encoder_factory.h"
 
 #include "api/environment/environment_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
@@ -38,11 +38,11 @@
 #endif
 
 #if defined(USE_NVIDIA_VIDEO_CODEC)
-#include "nvidia/nvidia_encoder_factory.h"
+#include "livekit_rtc/nvidia/nvidia_encoder_factory.h"
 #endif
 
 #if defined(USE_VAAPI_VIDEO_CODEC)
-#include "vaapi/vaapi_encoder_factory.h"
+#include "livekit_rtc/vaapi/vaapi_encoder_factory.h"
 #endif
 
 namespace livekit {
