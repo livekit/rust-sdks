@@ -52,14 +52,10 @@ pub mod rtp_parameters;
 pub mod session_description;
 pub mod sys;
 pub mod video_track;
+pub mod video_source;
 pub mod media_stream;
-
-#[cfg(not(target_arch = "wasm32"))]
-pub mod native {
-    //pub use webrtc_sys::webrtc::ffi::create_random_uuid;
-
-    //pub use crate::imp::{apm, audio_resampler, frame_cryptor, yuv_helper};
-}
+pub mod video_frame;
+pub mod native;
 
 #[cfg(target_os = "android")]
 pub mod android {

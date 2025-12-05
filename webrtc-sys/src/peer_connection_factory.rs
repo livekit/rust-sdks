@@ -163,23 +163,27 @@ impl PeerConnectionFactory {
 pub mod native {
     use crate::sys;
     use crate::{
+        video_source::native::NativeVideoSource, video_track::RtcVideoTrack,
+        audio_track::RtcAudioTrack,
         audio_source::native::NativeAudioSource, peer_connection_factory::PeerConnectionFactory,
     };
 
-    use crate::{
-        audio_track::RtcAudioTrack,
-        //    video_source::native::NativeVideoSource, video_track::RtcVideoTrack,
-    };
-
     pub trait PeerConnectionFactoryExt {
-        //fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;
+        fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;
         fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack;
     }
 
     impl PeerConnectionFactoryExt for PeerConnectionFactory {
-        //fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack {
-        //    self.handle.create_video_track(label, source)
-        //}
+        fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack {
+            unsafe {
+                let sys_track = sys::lkPeerFactoryCreateVideoTrack(
+                    self.ffi.as_ptr(),
+                    std::ffi::CString::new(label).unwrap().as_ptr(),
+                    source.ffi.as_ptr(),
+                );
+                RtcVideoTrack { ffi: sys::RefCounted::from_raw(sys_track) }
+            }
+        }
 
         fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack {
             unsafe {
@@ -211,5 +215,19 @@ mod tests {
         assert_eq!(_track.enabled(), true);
         _track.set_enabled(true);
         assert_eq!(_track.state(), crate::media_stream_track::RtcTrackState::Live);
+    }
+
+    #[tokio::test]
+    async fn create_video_track_from_source() {
+        let factory = crate::peer_connection_factory::PeerConnectionFactory::default();
+        let source = crate::video_source::native::NativeVideoSource::new(
+            crate::video_source::VideoResolution { width: 640, height: 480 },
+        );
+        let track = factory.create_video_track("video_track_1", source);
+        println!("Created video track: {:?}", track.id());
+        assert_eq!(track.id(), "video_track_1");
+        assert_eq!(track.enabled(), true);
+        track.set_enabled(true);
+        assert_eq!(track.state(), crate::media_stream_track::RtcTrackState::Live);
     }
 }

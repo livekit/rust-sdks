@@ -16,7 +16,7 @@ use std::fmt::Debug;
 
 use thiserror::Error;
 
-use crate::imp::video_frame as vf_imp;
+use crate::native::video_frame as vf_imp;
 
 #[derive(Debug, Error)]
 pub enum SinkError {
@@ -130,7 +130,7 @@ macro_rules! new_buffer_type {
 
         impl $crate::video_frame::internal::BufferSealed for $type {
             #[cfg(not(target_arch = "wasm32"))]
-            fn sys_handle(&self) -> &webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer {
+            fn sys_handle(&self) -> &native::VideoFrameBuffer {
                 self.handle.sys_handle()
             }
 
