@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
@@ -61,6 +62,10 @@ struct Args {
     #[arg(long)]
     api_secret: Option<String>,
 
+    /// Shared E2EE key (enables end-to-end encryption when set)
+    #[arg(long)]
+    e2ee_key: Option<String>,
+
     /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
     #[arg(long, default_value_t = false)]
     h265: bool,
@@ -111,6 +116,13 @@ async fn main() -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
+    if let Some(ref key) = args.e2ee_key {
+        let key_provider =
+            KeyProvider::with_shared_key(KeyProviderOptions::default(), key.clone().into_bytes());
+        room_options.encryption =
+            Some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
+        info!("E2EE enabled with provided shared key");
+    }
     let (room, _) = Room::connect(&url, &token, room_options).await?;
     let room = std::sync::Arc::new(room);
     info!("Connected: {} - {}", room.name(), room.sid().await);
@@ -208,7 +220,12 @@ async fn main() -> Result<()> {
     }
 
     // Reusable I420 buffer and frame
-    let mut frame = VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: 0, buffer: I420Buffer::new(width, height) };
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        timestamp_us: 0,
+        sensor_timestamp_us: None,
+        buffer: I420Buffer::new(width, height),
+    };
     let is_yuyv = fmt.format() == FrameFormat::YUYV;
     info!(
         "Selected conversion path: {}",
@@ -362,6 +379,22 @@ async fn main() -> Result<()> {
 
         // Update RTP timestamp (monotonic, microseconds since start)
         frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
+
+        // Attach a static sensor timestamp for testing and push it into the
+        // shared queue used by the sensor timestamp transformer.
+        if let Some(store) = track.sensor_timestamp_store() {
+            let sensor_ts = std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .expect("SystemTime before UNIX EPOCH")
+                .as_micros() as i64;
+            frame.sensor_timestamp_us = Some(sensor_ts);
+            store.store(frame.timestamp_us, sensor_ts);
+            info!(
+                "Publisher: attached sensor_timestamp_us={} for capture_ts={}",
+                sensor_ts, frame.timestamp_us
+            );
+        }
+
         rtc_source.capture_frame(&frame);
         let t4 = Instant::now();
 

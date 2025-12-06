@@ -5,6 +5,7 @@ use egui_wgpu as egui_wgpu_backend;
 use egui_wgpu_backend::CallbackTrait;
 use eframe::wgpu::{self, util::DeviceExt};
 use futures::StreamExt;
+use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::prelude::*;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
@@ -39,6 +40,10 @@ struct Args {
     /// LiveKit API secret (can also be set via LIVEKIT_API_SECRET environment variable)
     #[arg(long)]
     api_secret: Option<String>,
+
+    /// Shared E2EE key (enables end-to-end encryption when set)
+    #[arg(long)]
+    e2ee_key: Option<String>,
 
     /// Only subscribe to video from this participant identity
     #[arg(long)]
@@ -192,6 +197,13 @@ async fn main() -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
+    if let Some(ref key) = args.e2ee_key {
+        let key_provider =
+            KeyProvider::with_shared_key(KeyProviderOptions::default(), key.clone().into_bytes());
+        room_options.encryption =
+            Some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
+        info!("E2EE enabled with provided shared key");
+    }
     let (room, _) = Room::connect(&url, &token, room_options).await?;
     let room = Arc::new(room);
     info!("Connected: {} - {}", room.name(), room.sid().await);
@@ -368,6 +380,25 @@ async fn main() -> Result<()> {
                                 std::mem::swap(&mut s.u, &mut u_buf);
                                 std::mem::swap(&mut s.v, &mut v_buf);
                                 s.dirty = true;
+
+                                // Log any parsed sensor timestamp for this frame if available.
+                                if let Some(ts) = video_track.last_sensor_timestamp() {
+                                    // Get the current system timestamp in microseconds
+                                    use std::time::{SystemTime, UNIX_EPOCH};
+                                    let now = SystemTime::now()
+                                        .duration_since(UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_micros() as i64;
+
+                                    // Calculate the latency in microseconds, then convert to milliseconds
+                                    let latency_us = now - ts;
+                                    let latency_ms = latency_us as f64 / 1000.0;
+
+                                    info!(
+                                        "Subscriber: decoded frame {}x{} sensor_timestamp={} latency={:.2} ms",
+                                        w, h, ts, latency_ms
+                                    );
+                                }
 
                                 frames += 1;
                                 let elapsed = last_log.elapsed();
