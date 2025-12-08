@@ -211,8 +211,7 @@ pub fn new_native_buffer_from_platform_image_buffer(
 VideoFrameBuffer;
 
 pub fn native_buffer_to_platform_image_buffer(buffer : &VideoFrameBuffer >,
-)
-        ->*mut PlatformImageBuffer;
+)->*mut PlatformImageBuffer;
 
 fn yuv_to_vfb(yuv : * const PlanarYuvBuffer) -> * const VideoFrameBuffer;
 fn biyuv_to_vfb(yuv : * const BiplanarYuvBuffer) -> * const VideoFrameBuffer;
@@ -236,10 +235,4 @@ impl_thread_safety !(PlanarYuv8Buffer, Send + Sync);
 impl_thread_safety !(PlanarYuv16BBuffer, Send + Sync);
 impl_thread_safety !(BiplanarYuvBuffer, Send + Sync);
 impl_thread_safety !(BiplanarYuv8Buffer, Send + Sync);
-impl_thread_safety !(I420Buffer, Send + Sync);
-impl_thread_safety !(I420ABuffer, Send + Sync);
-impl_thread_safety !(I422Buffer, Send + Sync);
-impl_thread_safety !(I444Buffer, Send + Sync);
-impl_thread_safety !(I010Buffer, Send + Sync);
-impl_thread_safety !(NV12Buffer, Send + Sync);
 */
