@@ -149,7 +149,7 @@ lkVideoResolution VideoTrackSource::video_resolution() const {
 
 bool VideoTrackSource::on_captured_frame(
     const webrtc::scoped_refptr<VideoFrame> frame) const {
-  auto rtc_frame = frame->rtc_frame();
+  auto rtc_frame = frame->get();
   return source_->on_captured_frame(rtc_frame);
 }
 

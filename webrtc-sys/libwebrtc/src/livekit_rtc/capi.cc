@@ -8,6 +8,7 @@
 #include "livekit_rtc/media_stream_track.h"
 #include "livekit_rtc/peer.h"
 #include "livekit_rtc/session_description.h"
+#include "livekit_rtc/video_frame.h"
 #include "livekit_rtc/video_frame_buffer.h"
 #include "livekit_rtc/video_track.h"
 #include "rtc_base/logging.h"
@@ -299,12 +300,18 @@ lkRtpCapabilities* lkGetRtpReceiverCapabilities(lkPeerFactory* factory) {
   return nullptr;
 }
 
-lkRtcVideoTrack* CreateVideoTrack(const char* id, lkVideoTrackSource* source) {
-  return nullptr;
+lkRtcVideoTrack* CreateVideoTrack(lkPeerFactory* factory,
+                                  const char* id,
+                                  lkVideoTrackSource* source) {
+  auto peer_factory = reinterpret_cast<livekit::PeerFactory*>(factory);
+  return peer_factory->CreateVideoTrack(id, source);
 }
 
-lkRtcAudioTrack* CreateAudioTrack(const char* id, lkAudioTrackSource* source) {
-  return nullptr;
+lkRtcAudioTrack* CreateAudioTrack(lkPeerFactory* factory,
+                                  const char* id,
+                                  lkAudioTrackSource* source) {
+  auto peer_factory = reinterpret_cast<livekit::PeerFactory*>(factory);
+  return peer_factory->CreateAudioTrack(id, source);
 }
 
 lkNativeAudioSink* lkCreateNativeAudioSink(
@@ -530,8 +537,12 @@ lkVideoTrackSource* lkCreateVideoTrackSource(lkVideoResolution resolution) {
           .release());
 }
 
-lkVideoFrameBufferType lkVideoFrameBufferGetType(
-    lkVideoFrameBuffer* frameBuffer) {
+lkVideoResolution lkVideoTrackSourceGetResolution(lkVideoTrackSource* source) {
+  return reinterpret_cast<livekit::VideoTrackSource*>(source)
+      ->video_resolution();
+}
+
+lkVideoBufferType lkVideoFrameBufferGetType(lkVideoFrameBuffer* frameBuffer) {
   return reinterpret_cast<livekit::VideoFrameBuffer*>(frameBuffer)
       ->buffer_type();
 }
@@ -544,8 +555,7 @@ uint32_t lkVideoFrameBufferGetHeight(lkVideoFrameBuffer* frameBuffer) {
   return reinterpret_cast<livekit::VideoFrameBuffer*>(frameBuffer)->height();
 }
 
-LK_EXPORT lkI420Buffer* lkVideoFrameBufferToI420(
-    lkVideoFrameBuffer* frameBuffer) {
+lkI420Buffer* lkVideoFrameBufferToI420(lkVideoFrameBuffer* frameBuffer) {
   auto i420_buffer =
       reinterpret_cast<livekit::VideoFrameBuffer*>(frameBuffer)->to_i420();
   if (!i420_buffer) {
@@ -596,11 +606,11 @@ lkNV12Buffer* lkVideoFrameBufferGetNV12(lkVideoFrameBuffer* frameBuffer) {
           .release());
 }
 
-LK_EXPORT lkI420Buffer* lkI420BufferNew(uint32_t width,
-                                        uint32_t height,
-                                        uint32_t stride_y,
-                                        uint32_t stride_u,
-                                        uint32_t stride_v) {
+lkI420Buffer* lkI420BufferNew(uint32_t width,
+                              uint32_t height,
+                              uint32_t stride_y,
+                              uint32_t stride_u,
+                              uint32_t stride_v) {
   return reinterpret_cast<lkI420Buffer*>(
       livekit::new_i420_buffer(width, height, stride_y, stride_u, stride_v)
           .release());
@@ -879,7 +889,7 @@ lkNV12Buffer* lkNV12BufferScale(lkNV12Buffer* buffer,
 }
 
 void lkVideoFrameBufferToARGB(lkVideoFrameBuffer* frameBuffer,
-                              lkVideoFrameBufferType type,
+                              lkVideoBufferType type,
                               uint8_t* argbBuffer,
                               uint32_t stride,
                               uint32_t width,
@@ -905,4 +915,69 @@ lkPlatformImageBuffer* lkNativeBufferToPlatformImageBuffer(
   return livekit::native_buffer_to_platform_image_buffer(
       webrtc::scoped_refptr<livekit::VideoFrameBuffer>(
           reinterpret_cast<livekit::VideoFrameBuffer*>(frameBuffer)));
+}
+
+lkVideoFrameBuilder* lkCreateVideoFrameBuilder() {
+  return reinterpret_cast<lkVideoFrameBuilder*>(
+      webrtc::make_ref_counted<livekit::VideoFrameBuilder>().release());
+}
+
+void lkVideoFrameBuilderSetVideoFrameBuffer(lkVideoFrameBuilder* builder,
+                                            lkVideoFrameBuffer* buffer) {
+  reinterpret_cast<livekit::VideoFrameBuilder*>(builder)
+      ->set_video_frame_buffer(
+          *webrtc::scoped_refptr<livekit::VideoFrameBuffer>(
+               reinterpret_cast<livekit::VideoFrameBuffer*>(buffer))
+               .get());
+}
+
+void lkVideoFrameBuilderSetTimestampUs(lkVideoFrameBuilder* builder,
+                                       int64_t timestampNs) {
+  reinterpret_cast<livekit::VideoFrameBuilder*>(builder)->set_timestamp_us(
+      timestampNs);
+}
+
+void lkVideoFrameBuilderSetRotation(lkVideoFrameBuilder* builder,
+                                    lkVideoRotation rotation) {
+  reinterpret_cast<livekit::VideoFrameBuilder*>(builder)->set_rotation(
+      rotation);
+}
+
+void lkVideoFrameBuilderSetId(lkVideoFrameBuilder* builder, uint16_t id) {
+  reinterpret_cast<livekit::VideoFrameBuilder*>(builder)->set_id(id);
+}
+
+lkVideoFrame* lkVideoFrameBuilderBuild(lkVideoFrameBuilder* builder) {
+  auto frame = reinterpret_cast<livekit::VideoFrameBuilder*>(builder)->build();
+  if (!frame) {
+    return nullptr;
+  }
+  return reinterpret_cast<lkVideoFrame*>(frame.release());
+}
+
+void lkVideoTrackSourceOnCaptureFrame(lkVideoTrackSource* source,
+                                      lkVideoFrame* frame) {
+  auto video_frame = webrtc::scoped_refptr<livekit::VideoFrame>(
+      reinterpret_cast<livekit::VideoFrame*>(frame));
+  reinterpret_cast<livekit::VideoTrackSource*>(source)->on_captured_frame(
+      video_frame);
+}
+
+lkVideoRotation lkVideoFrameGetRotation(const lkVideoFrame* frame) {
+  return static_cast<lkVideoRotation>(
+      reinterpret_cast<const livekit::VideoFrame*>(frame)->rotation());
+}
+
+int64_t lkVideoFrameGetTimestampUs(const lkVideoFrame* frame) {
+  return reinterpret_cast<const livekit::VideoFrame*>(frame)->timestamp_us();
+}
+
+uint16_t lkVideoFrameGetId(const lkVideoFrame* frame) {
+  return reinterpret_cast<const livekit::VideoFrame*>(frame)->id();
+}
+
+lkVideoFrameBuffer* lkVideoFrameGetBuffer(const lkVideoFrame* frame) {
+  return reinterpret_cast<lkVideoFrameBuffer*>(
+      reinterpret_cast<const livekit::VideoFrame*>(frame)
+          ->video_frame_buffer().release());
 }

@@ -7,6 +7,9 @@ pub struct RefCounted<T> {
     ptr: *mut T,
 }
 
+unsafe impl<T> Send for RefCounted<T> {}
+unsafe impl<T> Sync for RefCounted<T> {}
+
 impl<T> RefCounted<T> {
     /// # Safety
     /// The ptr must be owned and implement rtc::RefCountInterface

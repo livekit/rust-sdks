@@ -26,6 +26,7 @@
 #include "livekit_rtc/video_decoder_factory.h"
 #include "livekit_rtc/video_encoder_factory.h"
 #include "livekit_rtc/audio_track.h"
+#include "livekit_rtc/video_track.h"
 #include "media/engine/webrtc_media_engine.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ssl_adapter.h"
@@ -232,6 +233,12 @@ webrtc::scoped_refptr<Peer> PeerFactory::CreatePeer(
 
 lkRtcVideoTrack* PeerFactory::CreateVideoTrack(const char* id,
                                                lkVideoTrackSource* source) {
+  auto videoSource =
+      reinterpret_cast<livekit::VideoTrackSource*>(source);
+  auto track = peer_factory_->CreateVideoTrack(id, videoSource->video_source());
+  if (track) {
+    return reinterpret_cast<lkRtcVideoTrack*>(webrtc::make_ref_counted<livekit::VideoTrack>(track).release());
+  }
   return nullptr;
 }
 

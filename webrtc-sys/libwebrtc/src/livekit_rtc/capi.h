@@ -48,6 +48,7 @@ typedef lkRefCountedObject lkI444Buffer;
 typedef lkRefCountedObject lkI010Buffer;
 typedef lkRefCountedObject lkNV12Buffer;
 typedef lkRefCountedObject lkNativeVideoSink;
+typedef lkRefCountedObject lkVideoFrameBuilder;
 
 typedef enum {
   LK_ICE_TRANSPORT_TYPE_NONE,
@@ -200,8 +201,8 @@ typedef struct {
 } lkAudioSourceOptions;
 
 typedef struct {
-  int width;
-  int height;
+  uint32_t width;
+  uint32_t height;
 } lkVideoResolution;
 
 typedef enum {
@@ -224,14 +225,14 @@ typedef struct {
 } lkVideoSinkCallabacks;
 
 typedef enum {
-  LK_VIDEO_FRAME_BUFFER_TYPE_NATIVE,
-  LK_VIDEO_FRAME_BUFFER_TYPE_I420,
-  LK_VIDEO_FRAME_BUFFER_TYPE_I420A,
-  LK_VIDEO_FRAME_BUFFER_TYPE_I422,
-  LK_VIDEO_FRAME_BUFFER_TYPE_I444,
-  LK_VIDEO_FRAME_BUFFER_TYPE_I010,
-  LK_VIDEO_FRAME_BUFFER_TYPE_NV12,
-} lkVideoFrameBufferType;
+  LK_VIDEO_BUFFER_TYPE_NATIVE,
+  LK_VIDEO_BUFFER_TYPE_I420,
+  LK_VIDEO_BUFFER_TYPE_I420A,
+  LK_VIDEO_BUFFER_TYPE_I422,
+  LK_VIDEO_BUFFER_TYPE_I444,
+  LK_VIDEO_BUFFER_TYPE_I010,
+  LK_VIDEO_BUFFER_TYPE_NV12,
+} lkVideoBufferType;
 
 typedef enum {
   LK_VIDEO_ROTATION_0,
@@ -463,7 +464,13 @@ LK_EXPORT void lkVideoTrackRemoveSink(lkRtcVideoTrack* source,
 LK_EXPORT lkVideoTrackSource* lkCreateVideoTrackSource(
     lkVideoResolution resolution);
 
-LK_EXPORT lkVideoFrameBufferType
+LK_EXPORT lkVideoResolution
+    lkVideoTrackSourceGetResolution(lkVideoTrackSource* source);
+
+LK_EXPORT void lkVideoTrackSourceOnCaptureFrame(lkVideoTrackSource* source,
+                                                lkVideoFrame* frame);
+
+LK_EXPORT lkVideoBufferType
     lkVideoFrameBufferGetType(lkVideoFrameBuffer* frameBuffer);
 
 LK_EXPORT uint32_t lkVideoFrameBufferGetWidth(lkVideoFrameBuffer* frameBuffer);
@@ -639,16 +646,288 @@ LK_EXPORT lkNV12Buffer* lkNV12BufferScale(lkNV12Buffer* buffer,
                                           int scaledHeight);
 
 LK_EXPORT void lkVideoFrameBufferToARGB(lkVideoFrameBuffer* frameBuffer,
-                                        lkVideoFrameBufferType type,
+                                        lkVideoBufferType type,
                                         uint8_t* argbBuffer,
                                         uint32_t stride,
                                         uint32_t width,
                                         uint32_t height);
+
 LK_EXPORT lkVideoFrameBuffer* lkNewNativeBufferFromPlatformImageBuffer(
     lkPlatformImageBuffer* buffer);
 
 LK_EXPORT lkPlatformImageBuffer* lkNativeBufferToPlatformImageBuffer(
     lkVideoFrameBuffer* frameBuffer);
+
+LK_EXPORT void lkI420ToARGB(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_u,
+                            int src_stride_u,
+                            const uint8_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_argb,
+                            int dst_stride_argb,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkI420ToBGRA(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_u,
+                            int src_stride_u,
+                            const uint8_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_bgra,
+                            int dst_stride_bgra,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkI420ToABGR(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_u,
+                            int src_stride_u,
+                            const uint8_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_abgr,
+                            int dst_stride_abgr,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkI420ToRGBA(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_u,
+                            int src_stride_u,
+                            const uint8_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_rgba,
+                            int dst_stride_rgba,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkARGBToI420(const uint8_t* src_argb,
+                            int src_stride_argb,
+                            uint8_t* dst_y,
+                            int dst_stride_y,
+                            uint8_t* dst_u,
+                            int dst_stride_u,
+                            uint8_t* dst_v,
+                            int dst_stride_v,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkABGRToI420(const uint8_t* src_abgr,
+                            int src_stride_abgr,
+                            uint8_t* dst_y,
+                            int dst_stride_y,
+                            uint8_t* dst_u,
+                            int dst_stride_u,
+                            uint8_t* dst_v,
+                            int dst_stride_v,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkARGBToRGB24(const uint8_t* src_argb,
+                             int src_stride_argb,
+                             uint8_t* dst_rgb24,
+                             int dst_stride_rgb24,
+                             int width,
+                             int height);
+
+LK_EXPORT void lkI420ToNV12(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_u,
+                            int src_stride_u,
+                            const uint8_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_y,
+                            int dst_stride_y,
+                            uint8_t* dst_uv,
+                            int dst_stride_uv,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkNV12ToI420(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_uv,
+                            int src_stride_uv,
+                            uint8_t* dst_y,
+                            int dst_stride_y,
+                            uint8_t* dst_u,
+                            int dst_stride_u,
+                            uint8_t* dst_v,
+                            int dst_stride_v,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkI444ToI420(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_u,
+                            int src_stride_u,
+                            const uint8_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_y,
+                            int dst_stride_y,
+                            uint8_t* dst_u,
+                            int dst_stride_u,
+                            uint8_t* dst_v,
+                            int dst_stride_v,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkI422ToI420(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_u,
+                            int src_stride_u,
+                            const uint8_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_y,
+                            int dst_stride_y,
+                            uint8_t* dst_u,
+                            int dst_stride_u,
+                            uint8_t* dst_v,
+                            int dst_stride_v,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkI010ToI420(const uint16_t* src_y,
+                            int src_stride_y,
+                            const uint16_t* src_u,
+                            int src_stride_u,
+                            const uint16_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_y,
+                            int dst_stride_y,
+                            uint8_t* dst_u,
+                            int dst_stride_u,
+                            uint8_t* dst_v,
+                            int dst_stride_v,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkNV12ToARGB(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_uv,
+                            int src_stride_uv,
+                            uint8_t* dst_argb,
+                            int dst_stride_argb,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkNV12ToABGR(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_uv,
+                            int src_stride_uv,
+                            uint8_t* dst_abgr,
+                            int dst_stride_abgr,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkI444ToARGB(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_u,
+                            int src_stride_u,
+                            const uint8_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_abgr,
+                            int dst_stride_abgr,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkI444ToABGR(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_u,
+                            int src_stride_u,
+                            const uint8_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_abgr,
+                            int dst_stride_abgr,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkI422ToARGB(const uint8_t* src_y,
+                            int src_stride_y,
+                            const uint8_t* src_u,
+                            int src_stride_u,
+                            const uint8_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_argb,
+                            int dst_stride_argb,
+                            int width,
+                            int height);
+
+LK_EXPORT void lk422ToABGR(const uint8_t* src_y,
+                           int src_stride_y,
+                           const uint8_t* src_u,
+                           int src_stride_u,
+                           const uint8_t* src_v,
+                           int src_stride_v,
+                           uint8_t* dst_abgr,
+                           int dst_stride_abgr,
+                           int width,
+                           int height);
+
+LK_EXPORT void lkI010ToARGB(const uint16_t* src_y,
+                            int src_stride_y,
+                            const uint16_t* src_u,
+                            int src_stride_u,
+                            const uint16_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_argb,
+                            int dst_stride_argb,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkI010ToABGR(const uint16_t* src_y,
+                            int src_stride_y,
+                            const uint16_t* src_u,
+                            int src_stride_u,
+                            const uint16_t* src_v,
+                            int src_stride_v,
+                            uint8_t* dst_abgr,
+                            int dst_stride_abgr,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkABGRToNV12(const uint8_t* src_abgr,
+                            int src_stride_abgr,
+                            uint8_t* dst_y,
+                            int dst_stride_y,
+                            uint8_t* dst_uv,
+                            int dst_stride_uv,
+                            int width,
+                            int height);
+
+LK_EXPORT void lkARGBToNV12(const uint8_t* src_argb,
+                            int src_stride_argb,
+                            uint8_t* dst_y,
+                            int dst_stride_y,
+                            uint8_t* dst_uv,
+                            int dst_stride_uv,
+                            int width,
+                            int height);
+
+LK_EXPORT lkVideoFrameBuilder* lkCreateVideoFrameBuilder();
+
+LK_EXPORT void lkVideoFrameBuilderSetVideoFrameBuffer(
+    lkVideoFrameBuilder* builder, lkVideoFrameBuffer* buffer);
+
+LK_EXPORT void lkVideoFrameBuilderSetTimestampUs(lkVideoFrameBuilder* builder,
+                                                 int64_t timestampNs);
+
+LK_EXPORT void lkVideoFrameBuilderSetRotation(lkVideoFrameBuilder* builder,
+                                              lkVideoRotation rotation);
+
+LK_EXPORT void lkVideoFrameBuilderSetId(lkVideoFrameBuilder* builder,
+                                        uint16_t id);
+
+LK_EXPORT lkVideoFrame* lkVideoFrameBuilderBuild(lkVideoFrameBuilder* builder);
+
+LK_EXPORT lkVideoRotation lkVideoFrameGetRotation(const lkVideoFrame* frame);
+
+LK_EXPORT int64_t lkVideoFrameGetTimestampUs(const lkVideoFrame* frame);
+
+LK_EXPORT uint16_t lkVideoFrameGetId(const lkVideoFrame* frame);
+
+LK_EXPORT lkVideoFrameBuffer* lkVideoFrameGetBuffer(const lkVideoFrame* frame);
+
 
 #ifdef __cplusplus
 }

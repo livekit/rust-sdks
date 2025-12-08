@@ -24,8 +24,8 @@ VideoFrameBuffer::VideoFrameBuffer(
     webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer)
     : buffer_(std::move(buffer)) {}
 
-lkVideoFrameBufferType VideoFrameBuffer::buffer_type() const {
-  return static_cast<lkVideoFrameBufferType>(buffer_->type());
+lkVideoBufferType VideoFrameBuffer::buffer_type() const {
+  return static_cast<lkVideoBufferType>(buffer_->type());
 }
 
 unsigned int VideoFrameBuffer::width() const {

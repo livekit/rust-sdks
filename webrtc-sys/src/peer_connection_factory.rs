@@ -163,9 +163,9 @@ impl PeerConnectionFactory {
 pub mod native {
     use crate::sys;
     use crate::{
-        video_source::native::NativeVideoSource, video_track::RtcVideoTrack,
-        audio_track::RtcAudioTrack,
-        audio_source::native::NativeAudioSource, peer_connection_factory::PeerConnectionFactory,
+        audio_source::native::NativeAudioSource, audio_track::RtcAudioTrack,
+        peer_connection_factory::PeerConnectionFactory, video_source::native::NativeVideoSource,
+        video_track::RtcVideoTrack,
     };
 
     pub trait PeerConnectionFactoryExt {
@@ -200,9 +200,15 @@ pub mod native {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use tokio::sync::mpsc;
+
     use crate::{
-        audio_source::{native::NativeAudioSource, AudioSourceOptions},
+        audio_source::{AudioSourceOptions, native::NativeAudioSource},
         peer_connection_factory::native::PeerConnectionFactoryExt,
+        video_source::native::NativeVideoSink,
+        video_stream::{NativeVideoStream, VideoTrackObserver},
     };
 
     #[tokio::test]
@@ -223,11 +229,30 @@ mod tests {
         let source = crate::video_source::native::NativeVideoSource::new(
             crate::video_source::VideoResolution { width: 640, height: 480 },
         );
-        let track = factory.create_video_track("video_track_1", source);
+        let track = factory.create_video_track("video_track_1", source.clone());
         println!("Created video track: {:?}", track.id());
         assert_eq!(track.id(), "video_track_1");
         assert_eq!(track.enabled(), true);
         track.set_enabled(true);
         assert_eq!(track.state(), crate::media_stream_track::RtcTrackState::Live);
+
+        let mut stream = NativeVideoStream::new(track.clone());
+
+        source.capture_frame(crate::video_frame::VideoFrame {
+            buffer: Box::new(crate::video_frame::I420Buffer::new(640, 480)),
+            rotation: crate::video_frame::VideoRotation::VideoRotation0,
+            timestamp_us: 0,
+        });
+
+        if let Some(frame) = stream.frame_rx.recv().await {
+            println!("Received video frame with timestamp: {}", frame.timestamp_us);
+            assert_eq!(frame.buffer.width(), 640);
+            assert_eq!(frame.buffer.height(), 480);
+        } else {
+            panic!("Did not receive video frame");
+        }
+        assert_eq!(track.id(), "video_track_1");
+        //sleep to allow frame to be processed
+        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
 }

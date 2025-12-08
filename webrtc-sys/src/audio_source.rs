@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//use livekit_protocol::enum_dispatch;
+// use livekit_protocol::enum_dispatch;
 
 use crate::{enum_dispatch, sys::lkAudioSourceOptions};
 
@@ -46,18 +46,17 @@ impl From<lkAudioSourceOptions> for AudioSourceOptions {
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum RtcAudioSource {
-    //#[cfg(not(target_arch = "wasm32"))]
+    #[cfg(not(target_arch = "wasm32"))]
     Native(native::NativeAudioSource),
 }
 
 impl RtcAudioSource {
-    enum_dispatch!(
-        [Native];
-        fn set_audio_options(self: &Self, options: AudioSourceOptions) -> ();
-        fn audio_options(self: &Self) -> AudioSourceOptions;
-        fn sample_rate(self: &Self) -> u32;
-        fn num_channels(self: &Self) -> u32;
-    );
+    enum_dispatch !([Native]; fn set_audio_options(self : &Self,
+                                                 options : AudioSourceOptions)
+                                ->();
+                  fn audio_options(self : &Self)->AudioSourceOptions;
+                  fn sample_rate(self : &Self)->u32;
+                  fn num_channels(self : &Self)->u32;);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -91,19 +90,25 @@ pub mod native {
         /// Creates a new [`NativeAudioSource`].
         ///
         /// # Arguments
-        /// * `options` – Configuration options for the source (e.g. echo cancellation, noise suppression).
+        /// * `options` – Configuration options for the source (e.g. echo
+        /// cancellation, noise suppression).
         /// * `sample_rate` – Sampling rate in Hz (for example, `48000`).
-        /// * `num_channels` – Number of audio channels (`1` for mono, `2` for stereo, etc.).
-        /// * `queue_size_ms` – Size of the internal buffering queue, in milliseconds.
+        /// * `num_channels` – Number of audio channels (`1` for mono, `2` for
+        /// stereo, etc.).
+        /// * `queue_size_ms` – Size of the internal buffering queue, in
+        /// milliseconds.
         ///
         /// # Behavior
-        /// - If `queue_size_ms` is **zero**, buffering is **disabled** and audio frames are
-        ///   delivered directly to webrtc sinks. In this mode, the caller **must provide 10 ms frames**
-        ///   (i.e., `sample_rate / 100` samples per channel) when calling [`capture_frame`].
-        /// - If `queue_size_ms` is **non-zero**, buffering is enabled. The value must be a
-        ///   **multiple of 10**, representing the total buffering duration in milliseconds.
-        ///   Frames will be queued and flushed to sinks asynchronously once the buffer
-        ///   reaches the configured threshold.
+        /// - If `queue_size_ms` is **zero**, buffering is **disabled** and audio
+        /// frames are
+        ///   delivered directly to webrtc sinks. In this mode, the caller **must
+        ///   provide 10 ms frames** (i.e., `sample_rate / 100` samples per
+        ///   channel) when calling [`capture_frame`].
+        /// - If `queue_size_ms` is **non-zero**, buffering is enabled. The value
+        /// must be a
+        ///   **multiple of 10**, representing the total buffering duration in
+        ///   milliseconds. Frames will be queued and flushed to sinks
+        ///   asynchronously once the buffer reaches the configured threshold.
         ///
         /// # Panics
         /// assert if `queue_size_ms` is not a multiple of 10.
@@ -197,7 +202,7 @@ pub mod native {
 
             // iterate over chunks of self._queue_size_samples
             for chunk in frame.data.chunks(self.queue_size_samples as usize) {
-                let nb_frames = chunk.len() / self.num_channels as usize;
+                let _nb_frames = chunk.len() / self.num_channels as usize;
 
                 let nb_frames = chunk.len() / self.num_channels as usize;
                 let (tx, rx) = oneshot::channel::<()>();
@@ -366,7 +371,7 @@ mod tests {
 
     use tokio::sync::mpsc;
 
-    use crate::audio_frame::{AudioFrame};
+    use crate::audio_frame::AudioFrame;
 
     #[tokio::test]
     async fn create_audio_native_sink() {

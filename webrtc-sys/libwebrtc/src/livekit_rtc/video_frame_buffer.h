@@ -58,7 +58,7 @@ class VideoFrameBuffer : public webrtc::RefCountInterface {
   explicit VideoFrameBuffer(
       webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer);
 
-  lkVideoFrameBufferType buffer_type() const;
+  lkVideoBufferType buffer_type() const;
 
   unsigned int width() const;
   unsigned int height() const;

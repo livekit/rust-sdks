@@ -6,6 +6,7 @@
 #include "api/video/video_frame.h"
 #include "livekit_rtc/capi.h"
 #include "livekit_rtc/media_stream_track.h"
+#include "livekit_rtc/video_frame.h"
 #include "media/base/adapted_video_track_source.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/timestamp_aligner.h"
@@ -13,16 +14,6 @@
 namespace livekit {
 
 class NativeVideoSink;
-
-class VideoFrame : public webrtc::RefCountInterface {
- public:
-  explicit VideoFrame(const webrtc::VideoFrame& frame) : frame_(frame) {}
-
-  const webrtc::VideoFrame& rtc_frame() const { return frame_; }
-
- private:
-  webrtc::VideoFrame frame_;
-};
 
 class VideoTrack : public MediaStreamTrack {
  public:
@@ -39,7 +30,8 @@ class VideoTrack : public MediaStreamTrack {
 
  private:
   webrtc::VideoTrackInterface* track() const {
-    return static_cast<webrtc::VideoTrackInterface*>(MediaStreamTrack::track());
+    auto video_track = static_cast<webrtc::VideoTrackInterface*>(MediaStreamTrack::track());
+    return video_track;
   }
 
   mutable webrtc::Mutex mutex_;
@@ -65,7 +57,7 @@ class NativeVideoSink : public webrtc::VideoSinkInterface<webrtc::VideoFrame>,
   void* userdata_;
 };
 
-class VideoTrackSource {
+class VideoTrackSource : public webrtc::RefCountInterface {
   class InternalSource : public webrtc::AdaptedVideoTrackSource {
    public:
     InternalSource(const lkVideoResolution&
@@ -96,6 +88,8 @@ class VideoTrackSource {
       const;  // frames pushed from Rust (+interior mutability)
 
   webrtc::scoped_refptr<InternalSource> get() const;
+
+  webrtc::VideoTrackSourceInterface* video_source() const { return source_.get(); }
 
  private:
   webrtc::scoped_refptr<InternalSource> source_;

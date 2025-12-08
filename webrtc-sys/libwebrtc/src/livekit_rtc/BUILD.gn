@@ -33,6 +33,7 @@ lk_sources = [
   "rtc_error.cc",
   "audio_resampler.cc",
   #"desktop_capturer.cc",
+  "yuv_helper.cc",
 ]
 
 if (is_mac) {

@@ -35,6 +35,7 @@ pub type lkI444Buffer = lkRefCountedObject;
 pub type lkI010Buffer = lkRefCountedObject;
 pub type lkNV12Buffer = lkRefCountedObject;
 pub type lkNativeVideoSink = lkRefCountedObject;
+pub type lkVideoFrameBuilder = lkRefCountedObject;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkIceTransportType {
@@ -375,8 +376,8 @@ const _: () = {
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct lkVideoResolution {
-    pub width: ::std::os::raw::c_int,
-    pub height: ::std::os::raw::c_int,
+    pub width: u32,
+    pub height: u32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
@@ -441,14 +442,14 @@ const _: () = {
 };
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum lkVideoFrameBufferType {
-    LK_VIDEO_FRAME_BUFFER_TYPE_NATIVE = 0,
-    LK_VIDEO_FRAME_BUFFER_TYPE_I420 = 1,
-    LK_VIDEO_FRAME_BUFFER_TYPE_I420A = 2,
-    LK_VIDEO_FRAME_BUFFER_TYPE_I422 = 3,
-    LK_VIDEO_FRAME_BUFFER_TYPE_I444 = 4,
-    LK_VIDEO_FRAME_BUFFER_TYPE_I010 = 5,
-    LK_VIDEO_FRAME_BUFFER_TYPE_NV12 = 6,
+pub enum lkVideoBufferType {
+    LK_VIDEO_BUFFER_TYPE_NATIVE = 0,
+    LK_VIDEO_BUFFER_TYPE_I420 = 1,
+    LK_VIDEO_BUFFER_TYPE_I420A = 2,
+    LK_VIDEO_BUFFER_TYPE_I422 = 3,
+    LK_VIDEO_BUFFER_TYPE_I444 = 4,
+    LK_VIDEO_BUFFER_TYPE_I010 = 5,
+    LK_VIDEO_BUFFER_TYPE_NV12 = 6,
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -811,9 +812,16 @@ unsafe extern "C" {
     pub fn lkCreateVideoTrackSource(resolution: lkVideoResolution) -> *mut lkVideoTrackSource;
 }
 unsafe extern "C" {
-    pub fn lkVideoFrameBufferGetType(
-        frameBuffer: *mut lkVideoFrameBuffer,
-    ) -> lkVideoFrameBufferType;
+    pub fn lkVideoTrackSourceGetResolution(source: *mut lkVideoTrackSource) -> lkVideoResolution;
+}
+unsafe extern "C" {
+    pub fn lkVideoTrackSourceOnCaptureFrame(
+        source: *mut lkVideoTrackSource,
+        frame: *mut lkVideoFrame,
+    );
+}
+unsafe extern "C" {
+    pub fn lkVideoFrameBufferGetType(frameBuffer: *mut lkVideoFrameBuffer) -> lkVideoBufferType;
 }
 unsafe extern "C" {
     pub fn lkVideoFrameBufferGetWidth(frameBuffer: *mut lkVideoFrameBuffer) -> u32;
@@ -1075,7 +1083,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn lkVideoFrameBufferToARGB(
         frameBuffer: *mut lkVideoFrameBuffer,
-        type_: lkVideoFrameBufferType,
+        type_: lkVideoBufferType,
         argbBuffer: *mut u8,
         stride: u32,
         width: u32,
@@ -1091,4 +1099,352 @@ unsafe extern "C" {
     pub fn lkNativeBufferToPlatformImageBuffer(
         frameBuffer: *mut lkVideoFrameBuffer,
     ) -> *mut lkPlatformImageBuffer;
+}
+unsafe extern "C" {
+    pub fn lkI420ToARGB(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u8,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u8,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_argb: *mut u8,
+        dst_stride_argb: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkI420ToBGRA(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u8,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u8,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_bgra: *mut u8,
+        dst_stride_bgra: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkI420ToABGR(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u8,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u8,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_abgr: *mut u8,
+        dst_stride_abgr: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkI420ToRGBA(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u8,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u8,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_rgba: *mut u8,
+        dst_stride_rgba: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkARGBToI420(
+        src_argb: *const u8,
+        src_stride_argb: ::std::os::raw::c_int,
+        dst_y: *mut u8,
+        dst_stride_y: ::std::os::raw::c_int,
+        dst_u: *mut u8,
+        dst_stride_u: ::std::os::raw::c_int,
+        dst_v: *mut u8,
+        dst_stride_v: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkABGRToI420(
+        src_abgr: *const u8,
+        src_stride_abgr: ::std::os::raw::c_int,
+        dst_y: *mut u8,
+        dst_stride_y: ::std::os::raw::c_int,
+        dst_u: *mut u8,
+        dst_stride_u: ::std::os::raw::c_int,
+        dst_v: *mut u8,
+        dst_stride_v: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkARGBToRGB24(
+        src_argb: *const u8,
+        src_stride_argb: ::std::os::raw::c_int,
+        dst_rgb24: *mut u8,
+        dst_stride_rgb24: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkI420ToNV12(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u8,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u8,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_y: *mut u8,
+        dst_stride_y: ::std::os::raw::c_int,
+        dst_uv: *mut u8,
+        dst_stride_uv: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkNV12ToI420(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_uv: *const u8,
+        src_stride_uv: ::std::os::raw::c_int,
+        dst_y: *mut u8,
+        dst_stride_y: ::std::os::raw::c_int,
+        dst_u: *mut u8,
+        dst_stride_u: ::std::os::raw::c_int,
+        dst_v: *mut u8,
+        dst_stride_v: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkI444ToI420(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u8,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u8,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_y: *mut u8,
+        dst_stride_y: ::std::os::raw::c_int,
+        dst_u: *mut u8,
+        dst_stride_u: ::std::os::raw::c_int,
+        dst_v: *mut u8,
+        dst_stride_v: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkI422ToI420(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u8,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u8,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_y: *mut u8,
+        dst_stride_y: ::std::os::raw::c_int,
+        dst_u: *mut u8,
+        dst_stride_u: ::std::os::raw::c_int,
+        dst_v: *mut u8,
+        dst_stride_v: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkI010ToI420(
+        src_y: *const u16,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u16,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u16,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_y: *mut u8,
+        dst_stride_y: ::std::os::raw::c_int,
+        dst_u: *mut u8,
+        dst_stride_u: ::std::os::raw::c_int,
+        dst_v: *mut u8,
+        dst_stride_v: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkNV12ToARGB(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_uv: *const u8,
+        src_stride_uv: ::std::os::raw::c_int,
+        dst_argb: *mut u8,
+        dst_stride_argb: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkNV12ToABGR(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_uv: *const u8,
+        src_stride_uv: ::std::os::raw::c_int,
+        dst_abgr: *mut u8,
+        dst_stride_abgr: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkI444ToARGB(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u8,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u8,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_abgr: *mut u8,
+        dst_stride_abgr: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkI444ToABGR(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u8,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u8,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_abgr: *mut u8,
+        dst_stride_abgr: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkI422ToARGB(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u8,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u8,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_argb: *mut u8,
+        dst_stride_argb: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lk422ToABGR(
+        src_y: *const u8,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u8,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u8,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_abgr: *mut u8,
+        dst_stride_abgr: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkI010ToARGB(
+        src_y: *const u16,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u16,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u16,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_argb: *mut u8,
+        dst_stride_argb: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkI010ToABGR(
+        src_y: *const u16,
+        src_stride_y: ::std::os::raw::c_int,
+        src_u: *const u16,
+        src_stride_u: ::std::os::raw::c_int,
+        src_v: *const u16,
+        src_stride_v: ::std::os::raw::c_int,
+        dst_abgr: *mut u8,
+        dst_stride_abgr: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkABGRToNV12(
+        src_abgr: *const u8,
+        src_stride_abgr: ::std::os::raw::c_int,
+        dst_y: *mut u8,
+        dst_stride_y: ::std::os::raw::c_int,
+        dst_uv: *mut u8,
+        dst_stride_uv: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkARGBToNV12(
+        src_argb: *const u8,
+        src_stride_argb: ::std::os::raw::c_int,
+        dst_y: *mut u8,
+        dst_stride_y: ::std::os::raw::c_int,
+        dst_uv: *mut u8,
+        dst_stride_uv: ::std::os::raw::c_int,
+        width: ::std::os::raw::c_int,
+        height: ::std::os::raw::c_int,
+    );
+}
+unsafe extern "C" {
+    pub fn lkCreateVideoFrameBuilder() -> *mut lkVideoFrameBuilder;
+}
+unsafe extern "C" {
+    pub fn lkVideoFrameBuilderSetVideoFrameBuffer(
+        builder: *mut lkVideoFrameBuilder,
+        buffer: *mut lkVideoFrameBuffer,
+    );
+}
+unsafe extern "C" {
+    pub fn lkVideoFrameBuilderSetTimestampUs(builder: *mut lkVideoFrameBuilder, timestampNs: i64);
+}
+unsafe extern "C" {
+    pub fn lkVideoFrameBuilderSetRotation(
+        builder: *mut lkVideoFrameBuilder,
+        rotation: lkVideoRotation,
+    );
+}
+unsafe extern "C" {
+    pub fn lkVideoFrameBuilderSetId(builder: *mut lkVideoFrameBuilder, id: u16);
+}
+unsafe extern "C" {
+    pub fn lkVideoFrameBuilderBuild(builder: *mut lkVideoFrameBuilder) -> *mut lkVideoFrame;
+}
+unsafe extern "C" {
+    pub fn lkVideoFrameGetRotation(frame: *const lkVideoFrame) -> lkVideoRotation;
+}
+unsafe extern "C" {
+    pub fn lkVideoFrameGetTimestampUs(frame: *const lkVideoFrame) -> i64;
+}
+unsafe extern "C" {
+    pub fn lkVideoFrameGetId(frame: *const lkVideoFrame) -> u16;
+}
+unsafe extern "C" {
+    pub fn lkVideoFrameGetBuffer(frame: *const lkVideoFrame) -> *mut lkVideoFrameBuffer;
 }

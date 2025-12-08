@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::video_source::native::NativeVideoSink;
 use std::fmt::Debug;
+use std::sync::Arc;
 
 use crate::{
     media_stream_track::{media_stream_track, RtcTrackState},
@@ -21,25 +23,26 @@ use crate::{
 
 #[derive(Clone)]
 pub struct RtcVideoTrack {
-  pub(crate) ffi : sys::RefCounted<sys::lkRtcVideoTrack>,
+    pub(crate) ffi: sys::RefCounted<sys::lkRtcVideoTrack>,
 }
 
 impl RtcVideoTrack {
-  media_stream_track !();
+    media_stream_track!();
 
-  pub fn add_sink(&self, sink : Arc<NativeVideoSink>) {
-    unsafe {
-      sys::lkVideoTrackAddSink(self.ffi.as_ptr(),
-                               sink.ffi.as_ptr() as * mut std::ffi::c_void);
+    pub fn add_sink(&self, sink: Arc<NativeVideoSink>) {
+        unsafe {
+            sys::lkVideoTrackAddSink(self.ffi.as_ptr(), sink.ffi.as_ptr() as *mut std::ffi::c_void);
+        }
     }
-  }
 
-  pub fn remove_sink(&self, sink : Arc<NativeVideoSink>) {
-    unsafe {
-      sys::lkVideoTrackRemoveSink(
-          self.ffi.as_ptr(), sink.ffi.as_ptr() as * mut std::ffi::c_void, );
+    pub fn remove_sink(&self, sink: Arc<NativeVideoSink>) {
+        unsafe {
+            sys::lkVideoTrackRemoveSink(
+                self.ffi.as_ptr(),
+                sink.ffi.as_ptr() as *mut std::ffi::c_void,
+            );
+        }
     }
-  }
 }
 
 impl Debug for RtcVideoTrack {
@@ -49,5 +52,5 @@ impl Debug for RtcVideoTrack {
             .field("enabled", &self.enabled())
             .field("state", &self.state())
             .finish()
-}
+    }
 }

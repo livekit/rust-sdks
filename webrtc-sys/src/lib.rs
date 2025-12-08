@@ -45,17 +45,19 @@ pub mod audio_track;
 pub mod data_channel;
 pub mod enum_dispatch;
 pub mod ice_candidate;
+pub mod media_stream;
 pub mod media_stream_track;
 pub mod peer_connection;
 pub mod peer_connection_factory;
 pub mod rtp_parameters;
 pub mod session_description;
 pub mod sys;
-pub mod video_track;
-pub mod video_source;
-pub mod media_stream;
 pub mod video_frame;
-pub mod native;
+pub mod video_frame_buffer;
+pub mod video_frame_builder;
+pub mod video_source;
+pub mod video_stream;
+pub mod video_track;
 
 #[cfg(target_os = "android")]
 pub mod android {
