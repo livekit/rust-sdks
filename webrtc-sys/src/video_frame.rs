@@ -773,3 +773,52 @@ pub mod web {
 
     impl VideoFrameBuffer for WebGlBuffer {}
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::video_frame::internal::BufferSealed;
+
+    #[tokio::test]
+    async fn video_frame_convert_test() {
+        let mut i420 = super::I420Buffer::new(640, 480);
+
+        // copy data into i420
+        {
+            let (data_y, data_u, data_v) = i420.data_mut();
+            for i in 0..data_y.len() {
+                data_y[i] = 128;
+            }
+            for i in 0..data_u.len() {
+                data_u[i] = 64;
+            }
+            for i in 0..data_v.len() {
+                data_v[i] = 64;
+            }
+        }
+
+        assert_eq!(i420.buffer().width(), 640);
+        assert_eq!(i420.buffer().height(), 480);
+
+        let scaled = i420.scale(320, 240);
+
+        assert_eq!(scaled.buffer().width(), 320);
+        assert_eq!(scaled.buffer().height(), 240);
+
+        // check data in scaled
+        {
+            let (data_y, data_u, data_v) = scaled.data();
+            for i in 0..data_y.len() {
+                assert_eq!(data_y[i], 128);
+            }
+            for i in 0..data_u.len() {
+                assert_eq!(data_u[i], 64);
+            }
+            for i in 0..data_v.len() {
+                assert_eq!(data_v[i], 64);
+            }
+        }
+
+        let i444 = i420.buffer().as_i444();
+        assert!(i444.is_none());
+    }
+}

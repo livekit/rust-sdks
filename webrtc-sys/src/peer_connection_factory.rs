@@ -247,8 +247,10 @@ mod tests {
         let track = factory.create_video_track("video_track_1", source.clone());
         println!("Created video track: {:?}", track.id());
         assert_eq!(track.id(), "video_track_1");
-        assert_eq!(track.enabled(), true);
+        track.set_enabled(false);
+        assert_eq!(track.enabled(), false);
         track.set_enabled(true);
+        assert_eq!(track.enabled(), true);
         assert_eq!(track.state(), crate::media_stream_track::RtcTrackState::Live);
 
         let mut stream = NativeVideoStream::new(track.clone());
@@ -264,6 +266,7 @@ mod tests {
             assert_eq!(frame.buffer.width(), 640);
             assert_eq!(frame.buffer.height(), 480);
             assert_eq!(frame.rotation, crate::video_frame::VideoRotation::VideoRotation90);
+            assert_ne!(frame.timestamp_us, 0);
         } else {
             panic!("Did not receive video frame");
         }
