@@ -253,6 +253,35 @@ new_buffer_type!(I444Buffer, I444, as_i444);
 new_buffer_type!(I010Buffer, I010, as_i010);
 new_buffer_type!(NV12Buffer, NV12, as_nv12);
 
+macro_rules! impl_to_argb {
+    (I420Buffer [$($variant:ident: $fnc:ident),+], $format:ident, $self:ident, $dst:ident, $dst_stride:ident, $dst_width:ident, $dst_height:ident) => {
+        match $format {
+        $(
+            VideoFormatType::$variant => {
+                let (data_y, data_u, data_v) = $self.data();
+                unsafe {
+                    sys::$fnc(
+                        data_y.as_ptr() as *const u8,
+                        $self.stride_y() as ::std::os::raw::c_int,
+                        data_u.as_ptr() as *const u8,
+                        $self.stride_u() as ::std::os::raw::c_int,
+                        data_v.as_ptr() as *const u8,
+                        $self.stride_v() as ::std::os::raw::c_int,
+                        $dst,
+                        $dst_stride as ::std::os::raw::c_int,
+                        $dst_width,
+                        $dst_height,
+                    )
+                }
+            }
+        )+
+        }
+    };
+    (I420ABuffer) => {
+        todo!();
+    }
+}
+
 impl I420Buffer {
     pub fn with_strides(
         width: u32,
@@ -326,6 +355,27 @@ impl I420Buffer {
     pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I420Buffer {
         let ffi = unsafe { sys::lkI420BufferScale(self.ffi.as_ptr(), scaled_width, scaled_height) };
         I420Buffer { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
+    }
+
+    pub fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: u32,
+        dst_width: i32,
+        dst_height: i32,
+    ) {
+        let dst_ptr = dst.as_mut_ptr();
+        impl_to_argb!(
+            I420Buffer
+            [
+                ARGB: lkI420ToARGB,
+                BGRA: lkI420ToBGRA,
+                ABGR: lkI420ToABGR,
+                RGBA: lkI420ToRGBA
+            ],
+            format, self, dst_ptr, dst_stride, dst_width, dst_height
+        )
     }
 }
 
@@ -782,17 +832,17 @@ mod tests {
     async fn video_frame_convert_test() {
         let mut i420 = super::I420Buffer::new(640, 480);
 
-        // copy data into i420
+        // fill black data to i420
         {
             let (data_y, data_u, data_v) = i420.data_mut();
             for i in 0..data_y.len() {
-                data_y[i] = 128;
+                data_y[i] = 16;
             }
             for i in 0..data_u.len() {
-                data_u[i] = 64;
+                data_u[i] = 128;
             }
             for i in 0..data_v.len() {
-                data_v[i] = 64;
+                data_v[i] = 128;
             }
         }
 
@@ -808,14 +858,55 @@ mod tests {
         {
             let (data_y, data_u, data_v) = scaled.data();
             for i in 0..data_y.len() {
-                assert_eq!(data_y[i], 128);
+                assert_eq!(data_y[i], 16);
             }
             for i in 0..data_u.len() {
-                assert_eq!(data_u[i], 64);
+                assert_eq!(data_u[i], 128);
             }
             for i in 0..data_v.len() {
-                assert_eq!(data_v[i], 64);
+                assert_eq!(data_v[i], 128);
             }
+        }
+
+        let mut rgba = vec![0u8; (320 * 240 * 4) as usize];
+        i420.to_argb(super::VideoFormatType::ARGB, &mut rgba, 320 * 4, 320, 240);
+
+        // check rgba data
+        for i in 0..(320 * 240) as usize {
+            let r = rgba[i * 4];
+            let g = rgba[i * 4 + 1];
+            let b = rgba[i * 4 + 2];
+            let a = rgba[i * 4 + 3];
+            assert_eq!(r, 0);
+            assert_eq!(g, 0);
+            assert_eq!(b, 0);
+            assert_eq!(a, 255);
+        }
+
+        // fill green data to i420
+        {
+            let (data_y, data_u, data_v) = i420.data_mut();
+            for i in 0..data_y.len() {
+                data_y[i] = 145;
+            }
+            for i in 0..data_u.len() {
+                data_u[i] = 54;
+            }
+            for i in 0..data_v.len() {
+                data_v[i] = 34;
+            }
+        }
+
+        i420.to_argb(super::VideoFormatType::ARGB, &mut rgba, 320 * 4, 320, 240);
+
+        // check rgba data
+        for i in 0..(320 * 240) as usize {
+            let r = rgba[i * 4];
+            let g = rgba[i * 4 + 1];
+            let b = rgba[i * 4 + 2];
+            let a = rgba[i * 4 + 3];
+            assert_eq!(g, 255);
+            assert_eq!(a, 255);
         }
 
         let i444 = i420.buffer().as_i444();
