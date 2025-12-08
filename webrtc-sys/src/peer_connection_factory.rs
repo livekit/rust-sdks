@@ -200,27 +200,42 @@ pub mod native {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
-    use tokio::sync::mpsc;
-
     use crate::{
-        audio_source::{AudioSourceOptions, native::NativeAudioSource},
+        audio_frame::AudioFrame,
+        audio_source::{native::NativeAudioSource, AudioSourceOptions},
+        audio_stream::native::NativeAudioStream,
         peer_connection_factory::native::PeerConnectionFactoryExt,
-        video_source::native::NativeVideoSink,
-        video_stream::{NativeVideoStream, VideoTrackObserver},
+        video_stream::NativeVideoStream,
     };
 
     #[tokio::test]
     async fn create_audio_track_from_source() {
         let _factory = crate::peer_connection_factory::PeerConnectionFactory::default();
         let _source = NativeAudioSource::new(AudioSourceOptions::default(), 48000, 2, 100);
-        let _track = _factory.create_audio_track("audio_track_1", _source);
+        let _track = _factory.create_audio_track("audio_track_1", _source.clone());
         println!("Created audio track: {:?}", _track.id());
         assert_eq!(_track.id(), "audio_track_1");
         assert_eq!(_track.enabled(), true);
         _track.set_enabled(true);
         assert_eq!(_track.state(), crate::media_stream_track::RtcTrackState::Live);
+
+        let mut audio_stream = NativeAudioStream::new(_track.clone(), 48000, 2);
+
+        let mut audio_frame = AudioFrame::new(48000, 2, 4800);
+        audio_frame.data.to_mut().iter_mut().enumerate().for_each(|(i, sample)| {
+            *sample = (i as i16) % 100;
+        });
+
+        _source.capture_frame(&audio_frame).await.unwrap();
+
+        if let Some(frame) = audio_stream.frame_rx.recv().await {
+            println!("Received audio frame with sample rate: {}", frame.sample_rate);
+            assert_eq!(frame.sample_rate, 48000);
+            assert_eq!(frame.num_channels, 2);
+            assert_eq!(frame.samples_per_channel, 480);
+        } else {
+            panic!("Did not receive audio frame");
+        }
     }
 
     #[tokio::test]
@@ -240,7 +255,7 @@ mod tests {
 
         source.capture_frame(crate::video_frame::VideoFrame {
             buffer: Box::new(crate::video_frame::I420Buffer::new(640, 480)),
-            rotation: crate::video_frame::VideoRotation::VideoRotation0,
+            rotation: crate::video_frame::VideoRotation::VideoRotation90,
             timestamp_us: 0,
         });
 
@@ -248,11 +263,9 @@ mod tests {
             println!("Received video frame with timestamp: {}", frame.timestamp_us);
             assert_eq!(frame.buffer.width(), 640);
             assert_eq!(frame.buffer.height(), 480);
+            assert_eq!(frame.rotation, crate::video_frame::VideoRotation::VideoRotation90);
         } else {
             panic!("Did not receive video frame");
         }
-        assert_eq!(track.id(), "video_track_1");
-        //sleep to allow frame to be processed
-        tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
     }
 }

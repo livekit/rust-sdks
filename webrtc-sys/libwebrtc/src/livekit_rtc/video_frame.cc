@@ -19,10 +19,15 @@
 #include <memory>
 
 #include "api/video/video_frame.h"
+#include "rtc_base/logging.h"
 
 namespace livekit {
 VideoFrame::VideoFrame(const webrtc::VideoFrame& frame)
     : frame_(std::move(frame)) {}
+
+VideoFrame::~VideoFrame() {
+  RTC_LOG(LS_INFO) << "VideoFrame destroyed";
+}
 
 unsigned int VideoFrame::width() const {
   return frame_.width();

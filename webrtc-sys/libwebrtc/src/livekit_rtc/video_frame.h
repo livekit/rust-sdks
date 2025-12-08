@@ -32,6 +32,7 @@ namespace livekit {
 class VideoFrame : public webrtc::RefCountInterface {
  public:
   explicit VideoFrame(const webrtc::VideoFrame& frame);
+  ~VideoFrame();
 
   unsigned int width() const;
   unsigned int height() const;

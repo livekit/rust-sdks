@@ -32,8 +32,8 @@ pub mod native {
 
     pub struct NativeAudioStream {
         native_sink: Arc<NativeAudioSink>,
-        audio_track: RtcAudioTrack,
-        frame_rx: mpsc::UnboundedReceiver<AudioFrame<'static>>,
+        pub audio_track: RtcAudioTrack,
+        pub frame_rx: mpsc::UnboundedReceiver<AudioFrame<'static>>,
     }
 
     impl Debug for NativeAudioStream {
