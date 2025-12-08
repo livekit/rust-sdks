@@ -1,6 +1,6 @@
 [package]
 name = "livekit-protocol"
-version = "0.5.2"
+version = "0.6.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "Livekit protocol and utilities for the Rust SDK"

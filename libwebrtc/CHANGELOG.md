@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.21](https://github.com/livekit/rust-sdks/compare/rust-sdks/libwebrtc@0.3.20...rust-sdks/libwebrtc@0.3.21) - 2025-12-04
+
+### Other
+
+- move starting/stopping GLib event loop into libwebrtc crate ([#798](https://github.com/livekit/rust-sdks/pull/798))
+- Expose desktop capturer ([#725](https://github.com/livekit/rust-sdks/pull/725))
+
 ## [0.3.20](https://github.com/livekit/rust-sdks/compare/rust-sdks/libwebrtc@0.3.19...rust-sdks/libwebrtc@0.3.20) - 2025-11-20
 
 ### Other

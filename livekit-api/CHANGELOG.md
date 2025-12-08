@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.11](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.10...rust-sdks/livekit-api@0.4.11) - 2025-12-04
+
+### Added
+
+- *(connector)* initial service impl ([#790](https://github.com/livekit/rust-sdks/pull/790))
+
 ## [0.4.10](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.9...rust-sdks/livekit-api@0.4.10) - 2025-11-20
 
 ### Added
