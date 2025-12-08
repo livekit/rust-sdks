@@ -15,21 +15,16 @@
 use crate::sys::{self};
 use crate::video_frame::*;
 
-/// We don't use VideoFrameBuffer trait for the types inside this module to
-/// avoid confusion because directly using platform specific types is not valid
-/// (e.g user callback) All the types inside this module are only used
-/// internally. For public types, see the top level video_frame.rs
 pub fn new_video_frame_buffer(buffer: VideoFrameBuffer) -> Box<dyn VideoBuffer> {
     let buffer_type = buffer.buffer_type();
     match buffer_type {
-        // VideoBufferType::Native =>
-        // sys::lkVideoBufferType::LK_VIDEO_BUFFER_TYPE_NATIVE,
-        VideoBufferType::I420 => Box::new(buffer.get_i420()),
-        VideoBufferType::I420A => Box::new(buffer.get_i420a()),
-        VideoBufferType::I422 => Box::new(buffer.get_i422()),
-        VideoBufferType::I444 => Box::new(buffer.get_i444()),
-        VideoBufferType::I010 => Box::new(buffer.get_i010()),
-        VideoBufferType::NV12 => Box::new(buffer.get_nv12()),
+        VideoBufferType::Native => Box::new(buffer.as_native()),
+        VideoBufferType::I420 => Box::new(buffer.as_i420()),
+        VideoBufferType::I420A => Box::new(buffer.as_i420a()),
+        VideoBufferType::I422 => Box::new(buffer.as_i422()),
+        VideoBufferType::I444 => Box::new(buffer.as_i444()),
+        VideoBufferType::I010 => Box::new(buffer.as_i010()),
+        VideoBufferType::NV12 => Box::new(buffer.as_nv12()),
         _ => unreachable!(),
     }
 }
@@ -45,12 +40,6 @@ impl VideoFrameBuffer {
             t.into()
         }
     }
-    pub fn width(self: &VideoFrameBuffer) -> u32 {
-        unsafe { sys::lkVideoFrameBufferGetWidth(self.ffi.as_ptr()) as u32 }
-    }
-    pub fn height(self: &VideoFrameBuffer) -> u32 {
-        unsafe { sys::lkVideoFrameBufferGetHeight(self.ffi.as_ptr()) as u32 }
-    }
 
     /// # SAFETY
     /// If the buffer type is I420, the buffer must be cloned before
@@ -63,81 +52,84 @@ impl VideoFrameBuffer {
 
     /// # SAFETY
     /// The functions require ownership
-    pub fn get_i420(&self) -> I420Buffer {
+    pub fn as_i420(&self) -> I420Buffer {
         unsafe {
             let lk_i420 = sys::lkVideoFrameBufferGetI420(self.ffi.as_ptr());
             I420Buffer { ffi: sys::RefCounted::from_raw(lk_i420) }
         }
     }
-    pub fn get_i420a(&self) -> I420ABuffer {
+    pub fn as_i420a(&self) -> I420ABuffer {
         unsafe {
             let lk_i420a = sys::lkVideoFrameBufferGetI420A(self.ffi.as_ptr());
             I420ABuffer { ffi: sys::RefCounted::from_raw(lk_i420a) }
         }
     }
 
-    pub fn get_i422(&self) -> I422Buffer {
+    pub fn as_i422(&self) -> I422Buffer {
         unsafe {
             let lk_i422 = sys::lkVideoFrameBufferGetI422(self.ffi.as_ptr());
             I422Buffer { ffi: sys::RefCounted::from_raw(lk_i422) }
         }
     }
 
-    pub fn get_i444(&self) -> I444Buffer {
+    pub fn as_i444(&self) -> I444Buffer {
         unsafe {
             let lk_i444 = sys::lkVideoFrameBufferGetI444(self.ffi.as_ptr());
             I444Buffer { ffi: sys::RefCounted::from_raw(lk_i444) }
         }
     }
-    pub fn get_i010(&self) -> I010Buffer {
+    pub fn as_i010(&self) -> I010Buffer {
         unsafe {
             let lk_i010 = sys::lkVideoFrameBufferGetI010(self.ffi.as_ptr());
             I010Buffer { ffi: sys::RefCounted::from_raw(lk_i010) }
         }
     }
-    pub fn get_nv12(&self) -> NV12Buffer {
+    pub fn as_nv12(&self) -> NV12Buffer {
         unsafe {
             let lk_nv12 = sys::lkVideoFrameBufferGetNV12(self.ffi.as_ptr());
             NV12Buffer { ffi: sys::RefCounted::from_raw(lk_nv12) }
         }
     }
-}
 
+    pub fn as_native(&self) -> NativeBuffer {
+        unsafe {
+            let lk_native = sys::lkNativeBufferToPlatformImageBuffer(self.ffi.as_ptr());
+            NativeBuffer { ffi: sys::RefCounted::from_raw(lk_native) }
+        }
+    }
+}
 /*
 pub trait PlanarYuvBuffer {
-  fn chroma_width(&self)->i32;
-  fn chroma_height(&self)->i32;
-  fn stride_y(&self)->i32;
-  fn stride_u(&self)->i32;
-  fn stride_v(&self)->i32;
+    fn chroma_width(&self) -> u32;
+    fn chroma_height(&self) -> u32;
+    fn stride_y(&self) -> u32;
+    fn stride_u(&self) -> u32;
+    fn stride_v(&self) -> u32;
 }
 
 pub trait PlanarYuv8Buffer {
-  fn data_y(&self)->& [u8];
-  fn data_u(&self)->& [u8];
-  fn data_v(&self)->& [u8];
+    fn data_y(&self) -> &[u8];
+    fn data_u(&self) -> &[u8];
+    fn data_v(&self) -> &[u8];
 }
 
 pub trait PlanarYuv16BBuffer {
-  fn data_y(&self)->& [u16];
-  fn data_u(&self)->& [u16];
-  fn data_v(&self)->& [u16];
+    fn data_y(&self) -> &[u16];
+    fn data_u(&self) -> &[u16];
+    fn data_v(&self) -> &[u16];
 }
 
 pub trait BiplanarYuvBuffer {
-  fn chroma_width(&self)->i32;
-  fn chroma_height(&self)->i32;
-  fn stride_y(&self)->i32;
-  fn stride_uv(&self)->i32;
+    fn chroma_width(&self) -> i32;
+    fn chroma_height(&self) -> i32;
+    fn stride_y(&self) -> i32;
+    fn stride_uv(&self) -> i32;
 }
 
 pub trait BiplanarYuv8Buffer {
-  fn data_y(&self)->& [u8];
-  fn data_uv(&self)->& [u8];
+    fn data_y(&self) -> &[u8];
+    fn data_uv(&self) -> &[u8];
 }
-
-
-
 
 
   pub struct PlanarYuvBuffer {

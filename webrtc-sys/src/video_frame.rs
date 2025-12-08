@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::sys;
+use crate::{sys, video_frame::internal::BufferSealed};
 use std::fmt::Debug;
 use thiserror::Error;
 
@@ -106,7 +106,7 @@ pub trait VideoBuffer: internal::BufferSealed + Debug {
     fn ffi(&self) -> sys::RefCounted<sys::lkRefCountedObject>;
 
     #[cfg(not(target_arch = "wasm32"))]
-    fn as_native(&self) -> Option<&native::NativeBuffer> {
+    fn as_native(&self) -> Option<&NativeBuffer> {
         None
     }
 
@@ -195,8 +195,6 @@ macro_rules! new_buffer_type {
                 _width: i32,
                 _height: i32,
             ) {
-                // TODO:
-                // self.handle.to_argb(format, dst, stride, width, height)
                 todo!()
             }
         }
@@ -223,10 +221,6 @@ macro_rules! new_buffer_type {
             fn ffi(&self) -> sys::RefCounted<sys::lkRefCountedObject> {
                 self.ffi.clone()
             }
-
-            fn $as(&self) -> Option<&$type> {
-                Some(self)
-            }
         }
 
         impl Debug for $type {
@@ -252,6 +246,7 @@ new_buffer_type!(I422Buffer, I422, as_i422);
 new_buffer_type!(I444Buffer, I444, as_i444);
 new_buffer_type!(I010Buffer, I010, as_i010);
 new_buffer_type!(NV12Buffer, NV12, as_nv12);
+new_buffer_type!(NativeBuffer, Native, as_native);
 
 macro_rules! impl_to_argb {
     (I420Buffer [$($variant:ident: $fnc:ident),+], $format:ident, $self:ident, $dst:ident, $dst_stride:ident, $dst_width:ident, $dst_height:ident) => {
@@ -457,6 +452,17 @@ impl I420ABuffer {
             unsafe { sys::lkI420ABufferScale(self.ffi.as_ptr(), scaled_width, scaled_height) };
         I420ABuffer { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
     }
+
+    pub fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: u32,
+        dst_width: i32,
+        dst_height: i32,
+    ) {
+        self.buffer().to_i420().to_argb(format, dst, dst_stride, dst_width, dst_height)
+    }
 }
 
 impl I422Buffer {
@@ -532,6 +538,17 @@ impl I422Buffer {
     pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I422Buffer {
         let ffi = unsafe { sys::lkI422BufferScale(self.ffi.as_ptr(), scaled_width, scaled_height) };
         I422Buffer { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
+    }
+
+    pub fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: u32,
+        dst_width: i32,
+        dst_height: i32,
+    ) {
+        self.buffer().to_i420().to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
 }
 
@@ -609,6 +626,17 @@ impl I444Buffer {
     pub fn scale(&mut self, scaled_width: i32, scaled_height: i32) -> I444Buffer {
         let ffi = unsafe { sys::lkI444BufferScale(self.ffi.as_ptr(), scaled_width, scaled_height) };
         I444Buffer { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
+    }
+
+    pub fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: u32,
+        dst_width: i32,
+        dst_height: i32,
+    ) {
+        self.buffer().to_i420().to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
 }
 
@@ -688,6 +716,17 @@ impl I010Buffer {
         let ffi = unsafe { sys::lkI010BufferScale(self.ffi.as_ptr(), scaled_width, scaled_height) };
         I010Buffer { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
     }
+
+    pub fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: u32,
+        dst_width: i32,
+        dst_height: i32,
+    ) {
+        self.buffer().to_i420().to_argb(format, dst, dst_stride, dst_width, dst_height)
+    }
 }
 
 impl NV12Buffer {
@@ -748,69 +787,81 @@ impl NV12Buffer {
         let ffi = unsafe { sys::lkNV12BufferScale(self.ffi.as_ptr(), scaled_width, scaled_height) };
         NV12Buffer { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
     }
+
+    pub fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: u32,
+        dst_width: i32,
+        dst_height: i32,
+    ) {
+        self.buffer().to_i420().to_argb(format, dst, dst_stride, dst_width, dst_height)
+    }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub mod native {
-    use super::{I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType};
-    use crate::sys;
-    use crate::video_frame::internal;
-    use std::fmt::Debug;
-
-    new_buffer_type!(NativeBuffer, Native, as_native);
-
-    impl NativeBuffer {
-        /// Creates a `NativeBuffer` from a `CVPixelBufferRef` pointer.
-        ///
-        /// This function does not bump the reference count of the pixel buffer.
-        ///
-        /// Safety: The given pointer must be a valid `CVPixelBufferRef`.
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
-        pub unsafe fn from_cv_pixel_buffer(cv_pixel_buffer: *mut std::ffi::c_void) -> NativeBuffer {
-            let ffi = unsafe { sys::lkNewNativeBufferFromPlatformImageBuffer(cv_pixel_buffer) };
-            NativeBuffer { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
-        }
-        /// Returns the `CVPixelBufferRef` that backs this buffer, or `null` if
-        /// this buffer is not currently backed by a `CVPixelBufferRef`.
-        ///
-        /// This function does not bump the reference count of the pixel buffer.
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
-        pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
-            unsafe {
-                sys::lkNativeBufferToPlatformImageBuffer(
-                    self.ffi.as_ptr() as *mut sys::lkVideoFrameBuffer
-                )
-            }
+impl NativeBuffer {
+    /// Creates a `NativeBuffer` from a `CVPixelBufferRef` pointer.
+    ///
+    /// This function does not bump the reference count of the pixel buffer.
+    ///
+    /// Safety: The given pointer must be a valid `CVPixelBufferRef`.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    pub unsafe fn from_cv_pixel_buffer(cv_pixel_buffer: *mut std::ffi::c_void) -> NativeBuffer {
+        let ffi = unsafe { sys::lkNewNativeBufferFromPlatformImageBuffer(cv_pixel_buffer) };
+        NativeBuffer { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
+    }
+    /// Returns the `CVPixelBufferRef` that backs this buffer, or `null` if
+    /// this buffer is not currently backed by a `CVPixelBufferRef`.
+    ///
+    /// This function does not bump the reference count of the pixel buffer.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
+        unsafe {
+            sys::lkNativeBufferToPlatformImageBuffer(
+                self.ffi.as_ptr() as *mut sys::lkVideoFrameBuffer
+            )
         }
     }
 
-    pub trait VideoFrameBufferExt: VideoBuffer {
-        fn to_i420(&self) -> I420Buffer;
-        fn to_argb(
-            &self,
-            format: VideoFormatType,
-            dst: &mut [u8],
-            dst_stride: u32,
-            dst_width: i32,
-            dst_height: i32,
-        );
+    pub fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: u32,
+        dst_width: i32,
+        dst_height: i32,
+    ) {
+        self.buffer().to_i420().to_argb(format, dst, dst_stride, dst_width, dst_height)
+    }
+}
+
+pub trait VideoFrameBufferExt: VideoBuffer {
+    fn to_i420(&self) -> I420Buffer;
+    fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: u32,
+        dst_width: i32,
+        dst_height: i32,
+    );
+}
+
+impl<T: VideoBuffer> VideoFrameBufferExt for T {
+    fn to_i420(&self) -> I420Buffer {
+        self.to_i420()
     }
 
-    impl<T: VideoBuffer> VideoFrameBufferExt for T {
-        fn to_i420(&self) -> I420Buffer {
-            self.to_i420()
-        }
-
-        fn to_argb(
-            &self,
-            format: VideoFormatType,
-            dst: &mut [u8],
-            dst_stride: u32,
-            dst_width: i32,
-            dst_height: i32,
-        ) {
-            self.to_argb(format, dst, dst_stride, dst_width, dst_height)
-        }
+    fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: u32,
+        dst_width: i32,
+        dst_height: i32,
+    ) {
+        self.to_argb(format, dst, dst_stride, dst_width, dst_height)
     }
 }
 
@@ -901,9 +952,9 @@ mod tests {
 
         // check rgba data
         for i in 0..(320 * 240) as usize {
-            let r = rgba[i * 4];
+            //let r = rgba[i * 4];
             let g = rgba[i * 4 + 1];
-            let b = rgba[i * 4 + 2];
+            //let b = rgba[i * 4 + 2];
             let a = rgba[i * 4 + 3];
             assert_eq!(g, 255);
             assert_eq!(a, 255);
