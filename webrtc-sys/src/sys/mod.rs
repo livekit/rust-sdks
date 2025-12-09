@@ -11,6 +11,7 @@ mod utils;
 pub use conv::*;
 pub use ffi::*;
 pub use refcounted::*;
+pub use utils::*;
 
 #[cfg(test)]
 mod tests {

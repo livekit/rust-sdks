@@ -4,6 +4,7 @@
 #include "api/peer_connection_interface.h"
 #include "api/rtc_error.h"
 #include "livekit_rtc/capi.h"
+#include "rtc_base/logging.h"
 
 namespace livekit {
 
@@ -15,6 +16,7 @@ webrtc::PeerConnectionInterface::RTCOfferAnswerOptions
 class LKString : public webrtc::RefCountInterface {
  public:
   explicit LKString(const std::string& str) : str_(str) {}
+  ~LKString() { RTC_LOG(LS_INFO) << "LKString destroyed"; }
 
   std::string get() const { return str_; }
 
@@ -34,8 +36,10 @@ class LKData : public webrtc::RefCountInterface {
 
   explicit LKData(const std::vector<uint8_t>& data) : data_(data) {}
 
+  ~LKData() { RTC_LOG(LS_INFO) << "LKData destroyed"; }
+
   static webrtc::scoped_refptr<LKData> FromRaw(const uint8_t* data,
-                                              size_t size) {
+                                               size_t size) {
     std::vector<uint8_t> vec(data, data + size);
     return webrtc::make_ref_counted<LKData>(vec);
   }
@@ -60,6 +64,8 @@ class LKVector : public webrtc::RefCountInterface {
   explicit LKVector() = default;
 
   explicit LKVector(const std::vector<T>& vec) : vec_(vec) {}
+
+  ~LKVector() { RTC_LOG(LS_INFO) << "LKVector destroyed"; }
 
   std::vector<T> get() const { return vec_; }
 

@@ -22,32 +22,12 @@ impl RefCountedString {
     }
 }
 
-pub struct RefCountedVector<T> {
+pub struct RefCountedVector {
     pub ffi: sys::RefCounted<sys::lkVectorGeneric>,
-    pub vec: Vec<T>,
+    pub vec: Vec<crate::sys::RefCounted<sys::lkRefCountedObject>>,
 }
 
-impl<T> RefCountedVector<T> {
-    pub fn new() -> Self {
-        let ffi = unsafe { sys::lkCreateVectorGeneric() };
-        Self { ffi: unsafe { sys::RefCounted::from_raw(ffi) }, vec: Vec::new() }
-    }
-
-    pub fn from_vec(vec: Vec<T>) -> Self {
-        let ffi = unsafe { sys::lkCreateVectorGeneric() };
-        let rc_vector = Self { ffi: unsafe { sys::RefCounted::from_raw(ffi) }, vec };
-        for element in &rc_vector.vec {
-            let element_ptr = element as *const T as *mut sys::lkRefCountedObject;
-            unsafe {
-                sys::lkVectorGenericPushBack(
-                    rc_vector.ffi.as_ptr(),
-                    element_ptr as *mut std::ffi::c_void,
-                );
-            }
-        }
-        rc_vector
-    }
-
+impl RefCountedVector {
     pub fn from_native_vec(vec_ptr: *mut sys::lkVectorGeneric) -> Self {
         let ffi = unsafe { sys::RefCounted::from_raw(vec_ptr) };
 
@@ -56,12 +36,9 @@ impl<T> RefCountedVector<T> {
 
         for i in 0..size {
             let element_ptr = unsafe {
-                sys::lkVectorGenericGetAt(ffi.as_ptr(), i as u32)
-                    as *mut sys::lkRefCountedObject
+                sys::lkVectorGenericGetAt(ffi.as_ptr(), i as u32) as *mut sys::lkRefCountedObject
             };
-            // SAFETY: We are assuming that T can be safely constructed from a raw pointer.
-            let element = unsafe { std::mem::transmute_copy::<*mut sys::lkRefCountedObject, T>(&element_ptr) };
-            vec.push(element);
+            vec.push(unsafe { sys::RefCounted::from_raw(element_ptr) });
         }
 
         Self { ffi, vec }

@@ -823,16 +823,10 @@ unsafe extern "C" {
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn lkMediaStreamGetAudioTracks(
-        stream: *mut lkMediaStream,
-        trackCount: *mut ::std::os::raw::c_int,
-    ) -> *mut lkVectorGeneric;
+    pub fn lkMediaStreamGetAudioTracks(stream: *mut lkMediaStream) -> *mut lkVectorGeneric;
 }
 unsafe extern "C" {
-    pub fn lkMediaStreamGetVideoTracks(
-        stream: *mut lkMediaStream,
-        trackCount: *mut ::std::os::raw::c_int,
-    ) -> *mut lkVectorGeneric;
+    pub fn lkMediaStreamGetVideoTracks(stream: *mut lkMediaStream) -> *mut lkVectorGeneric;
 }
 unsafe extern "C" {
     pub fn lkCreateNativeVideoSink(

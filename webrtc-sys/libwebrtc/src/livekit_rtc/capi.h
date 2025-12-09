@@ -467,11 +467,9 @@ LK_EXPORT int lkMediaStreamGetId(lkMediaStream* stream,
                                  char* buffer,
                                  int bufferSize);
 
-LK_EXPORT lkVectorGeneric* lkMediaStreamGetAudioTracks(lkMediaStream* stream,
-                                                        int* trackCount);
+LK_EXPORT lkVectorGeneric* lkMediaStreamGetAudioTracks(lkMediaStream* stream);
 
-LK_EXPORT lkVectorGeneric* lkMediaStreamGetVideoTracks(lkMediaStream* stream,
-                                                        int* trackCount);
+LK_EXPORT lkVectorGeneric* lkMediaStreamGetVideoTracks(lkMediaStream* stream);
 
 LK_EXPORT lkNativeVideoSink* lkCreateNativeVideoSink(
     const lkVideoSinkCallabacks* callbacks, void* userdata);

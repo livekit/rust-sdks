@@ -35,27 +35,21 @@ impl MediaStream {
     }
 
     pub fn audio_tracks(&self) -> Vec<RtcAudioTrack> {
-        let mut track_counts: ::std::os::raw::c_int = 0;
-        let lk_audio_tracks =
-            unsafe { sys::lkMediaStreamGetAudioTracks(self.ffi.as_ptr(), &mut track_counts) };
+        let lk_vec = unsafe { sys::lkMediaStreamGetAudioTracks(self.ffi.as_ptr()) };
+        let track_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
         let mut tracks = Vec::new();
-        for i in 0..track_counts {
-            tracks.push(RtcAudioTrack {
-                ffi: unsafe { sys::RefCounted::from_raw(*lk_audio_tracks.add(i as usize)) },
-            });
+        for i in 0..track_ptrs.vec.len() as isize {
+            tracks.push(RtcAudioTrack { ffi: track_ptrs.vec[i as usize].clone() });
         }
         tracks
     }
 
     pub fn video_tracks(&self) -> Vec<RtcVideoTrack> {
-        let mut track_counts: ::std::os::raw::c_int = 0;
-        let lk_video_tracks =
-            unsafe { sys::lkMediaStreamGetVideoTracks(self.ffi.as_ptr(), &mut track_counts) };
+        let lk_vec = unsafe { sys::lkMediaStreamGetAudioTracks(self.ffi.as_ptr()) };
+        let track_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
         let mut tracks = Vec::new();
-        for i in 0..track_counts {
-            tracks.push(RtcVideoTrack {
-                ffi: unsafe { sys::RefCounted::from_raw(*lk_video_tracks.add(i as usize)) },
-            });
+        for i in 0..track_ptrs.vec.len() as isize {
+            tracks.push(RtcVideoTrack { ffi: track_ptrs.vec[i as usize].clone() });
         }
         tracks
     }

@@ -515,38 +515,36 @@ void lkAudioTrackRemoveSink(lkRtcAudioTrack* track, lkNativeAudioSink* sink) {
           reinterpret_cast<livekit::NativeAudioSink*>(sink)));
 }
 
-lkVectorGeneric* lkMediaStreamGetAudioTracks(lkMediaStream* stream,
-                                             int* trackCount) {
+lkVectorGeneric* lkMediaStreamGetAudioTracks(lkMediaStream* stream) {
   auto media_stream =
       reinterpret_cast<livekit::MediaStream*>(stream)->media_stream();
   auto audio_tracks = media_stream->GetAudioTracks();
-  *trackCount = static_cast<int>(audio_tracks.size());
-  if (*trackCount == 0) {
+  int trackCount = static_cast<int>(audio_tracks.size());
+  if (trackCount == 0) {
     return nullptr;
   }
   auto track_array = webrtc::make_ref_counted<
       livekit::LKVector<webrtc::scoped_refptr<livekit::AudioTrack>>>();
 
-  for (int i = 0; i < *trackCount; i++) {
+  for (int i = 0; i < trackCount; i++) {
     track_array->push_back(
         webrtc::make_ref_counted<livekit::AudioTrack>(audio_tracks[i]));
   }
   return reinterpret_cast<lkVectorGeneric*>(track_array.release());
 }
 
-lkVectorGeneric* lkMediaStreamGetVideoTracks(lkMediaStream* stream,
-                                             int* trackCount) {
+lkVectorGeneric* lkMediaStreamGetVideoTracks(lkMediaStream* stream) {
   auto media_stream =
       reinterpret_cast<livekit::MediaStream*>(stream)->media_stream();
   auto video_tracks = media_stream->GetVideoTracks();
-  *trackCount = static_cast<int>(video_tracks.size());
-  if (*trackCount == 0) {
+  int trackCount = static_cast<int>(video_tracks.size());
+  if (trackCount == 0) {
     return nullptr;
   }
   auto track_array = webrtc::make_ref_counted<
       livekit::LKVector<webrtc::scoped_refptr<livekit::VideoTrack>>>();
 
-  for (int i = 0; i < *trackCount; i++) {
+  for (int i = 0; i < trackCount; i++) {
     track_array->push_back(
         webrtc::make_ref_counted<livekit::VideoTrack>(video_tracks[i]));
   }
