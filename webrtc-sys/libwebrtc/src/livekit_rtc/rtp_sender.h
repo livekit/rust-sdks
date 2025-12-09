@@ -27,6 +27,23 @@
 
 namespace livekit {
 
+template <class T>  // Context type
+class NativeRtcStatsCollector : public webrtc::RTCStatsCollectorCallback {
+ public:
+  NativeRtcStatsCollector(rust::Box<T> ctx,
+                          rust::Fn<void(rust::Box<T>, rust::String)> on_stats)
+      : ctx_(std::move(ctx)), on_stats_(on_stats) {}
+
+  void OnStatsDelivered(
+      const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report) override {
+    on_stats_(std::move(ctx_), report->ToJson());
+  }
+
+ private:
+  rust::Box<T> ctx_;
+  rust::Fn<void(rust::Box<T>, rust::String)> on_stats_;
+};
+
 class RtpSender : public webrtc::RefCountInterface {
  public:
   RtpSender(
@@ -46,13 +63,13 @@ class RtpSender : public webrtc::RefCountInterface {
 
   MediaType media_type() const;
 
-  rust::String id() const;
+  std::string id() const;
 
-  rust::Vec<rust::String> stream_ids() const;
+  std::vector<std::string> stream_ids() const;
 
-  void set_streams(const rust::Vec<rust::String>& stream_ids) const;
+  void set_streams(const std::vector<std::string>& stream_ids) const;
 
-  rust::Vec<RtpEncodingParameters> init_send_encodings() const;
+  std::vector<RtpEncodingParameters> init_send_encodings() const;
 
   RtpParameters get_parameters() const;
 

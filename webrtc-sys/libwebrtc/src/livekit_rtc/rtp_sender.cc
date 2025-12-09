@@ -14,9 +14,7 @@
  * limitations under the License.
  */
 
-#include "livekit/rtp_sender.h"
-#include "livekit/jsep.h"
-
+#include "livekit_rtc/rtp_sender.h"
 
 namespace livekit {
 
@@ -52,25 +50,20 @@ MediaType RtpSender::media_type() const {
   return static_cast<MediaType>(sender_->media_type());
 }
 
-rust::String RtpSender::id() const {
+std::string RtpSender::id() const {
   return sender_->id();
 }
 
-rust::Vec<rust::String> RtpSender::stream_ids() const {
-  rust::Vec<rust::String> vec;
-  for (auto str : sender_->stream_ids())
-    vec.push_back(str);
-
-  return vec;
+std::vector<std::string> RtpSender::stream_ids() const {
+  return sender_->stream_ids();
 }
 
-void RtpSender::set_streams(const rust::Vec<rust::String>& stream_ids) const {
-  std::vector<std::string> std_stream_ids(stream_ids.begin(), stream_ids.end());
+void RtpSender::set_streams(const std::vector<std::string>& stream_ids) const {
   sender_->SetStreams(std_stream_ids);
 }
 
-rust::Vec<RtpEncodingParameters> RtpSender::init_send_encodings() const {
-  rust::Vec<RtpEncodingParameters> encodings;
+std::vector<RtpEncodingParameters> RtpSender::init_send_encodings() const {
+  std::vector<<RtpEncodingParameters> encodings;
   for (auto encoding : sender_->init_send_encodings())
     encodings.push_back(to_rust_rtp_encoding_parameters(encoding));
   return encodings;

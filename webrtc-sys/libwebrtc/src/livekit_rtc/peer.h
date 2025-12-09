@@ -10,6 +10,8 @@
 
 namespace livekit {
 
+class PeerFactory;
+
 webrtc::PeerConnectionInterface::RTCConfiguration toNativeConfig(
     const lkRtcConfiguration& config);
 
@@ -48,9 +50,10 @@ class PeerObserver : public webrtc::PeerConnectionObserver,
 
 class Peer : public webrtc::RefCountInterface {
  public:
-  Peer(webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc,
+  Peer(webrtc::scoped_refptr<PeerFactory> pc_factory,
+       webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc,
        webrtc::scoped_refptr<PeerObserver> observer)
-      : observer_(observer), peer_connection_(pc) {}
+      : pc_factory_(pc_factory), observer_(observer), peer_connection_(pc) {}
 
   webrtc::scoped_refptr<DataChannel> CreateDataChannel(
       const char* label, const lkDataChannelInit* init);
@@ -80,9 +83,9 @@ class Peer : public webrtc::RefCountInterface {
   void RestartIce();
 
   lkRtpSender* AddTrack(lkMediaStreamTrack* track,
-                         lkString** streamIds,
-                         int streamIdCount,
-                         lkRtcError** error);
+                        lkString** streamIds,
+                        int streamIdCount,
+                        lkRtcError** error);
 
   lkPeerState GetPeerState() const {
     return static_cast<lkPeerState>(peer_connection_->peer_connection_state());
@@ -108,6 +111,7 @@ class Peer : public webrtc::RefCountInterface {
   bool Close();
 
  private:
+  webrtc::scoped_refptr<PeerFactory> pc_factory_;
   webrtc::scoped_refptr<PeerObserver> observer_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };

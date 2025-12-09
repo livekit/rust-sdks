@@ -228,7 +228,8 @@ webrtc::scoped_refptr<Peer> PeerFactory::CreatePeer(
     return nullptr;
   }
 
-  return webrtc::make_ref_counted<Peer>(res.value(), obs);
+  return webrtc::make_ref_counted<Peer>(
+      webrtc::scoped_refptr<PeerFactory>(this), res.value(), obs);
 }
 
 lkRtcVideoTrack* PeerFactory::CreateVideoTrack(const char* id,

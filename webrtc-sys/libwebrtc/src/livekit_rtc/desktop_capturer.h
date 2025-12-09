@@ -27,10 +27,10 @@ class DesktopCapturerOptions;
 class Source;
 }  // namespace livekit
 
-
 namespace livekit {
 
-class DesktopCapturer : public webrtc::DesktopCapturer::Callback, public webrtc::RefCountInterface {
+class DesktopCapturer : public webrtc::DesktopCapturer::Callback,
+                        public webrtc::RefCountInterface {
  public:
   explicit DesktopCapturer(std::unique_ptr<webrtc::DesktopCapturer> capturer)
       : capturer(std::move(capturer)), callback(std::nullopt) {}
@@ -48,9 +48,10 @@ class DesktopCapturer : public webrtc::DesktopCapturer::Callback, public webrtc:
   std::optional<rust::Box<DesktopCapturerCallbackWrapper>> callback;
 };
 
-class DesktopFrame {
+class DesktopFrame : public webrtc::RefCountInterface {
  public:
-  DesktopFrame(std::unique_ptr<webrtc::DesktopFrame> frame) : frame(std::move(frame)) {}
+  DesktopFrame(std::unique_ptr<webrtc::DesktopFrame> frame)
+      : frame(std::move(frame)) {}
   int32_t width() const { return frame->size().width(); }
 
   int32_t height() const { return frame->size().height(); }
@@ -67,5 +68,6 @@ class DesktopFrame {
   std::unique_ptr<webrtc::DesktopFrame> frame;
 };
 
-webrtc::scoped_refptr<DesktopCapturer> new_desktop_capturer(DesktopCapturerOptions options);
+webrtc::scoped_refptr<DesktopCapturer> new_desktop_capturer(
+    DesktopCapturerOptions options);
 }  // namespace livekit
