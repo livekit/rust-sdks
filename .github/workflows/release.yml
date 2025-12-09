@@ -31,7 +31,7 @@ jobs:
       - name: Install VA-API/NVIDIA drivers and other dependencies for build
         run:  |
           sudo apt update -y
-          sudo apt install 
+          sudo apt install \
             libnvidia-compute-570 \
             libnvidia-decode-570 \
             nvidia-cuda-dev \
