@@ -79,6 +79,11 @@ class Peer : public webrtc::RefCountInterface {
 
   void RestartIce();
 
+  lkRtpSender* AddTrack(lkMediaStreamTrack* track,
+                         lkString** streamIds,
+                         int streamIdCount,
+                         lkRtcError** error);
+
   lkPeerState GetPeerState() const {
     return static_cast<lkPeerState>(peer_connection_->peer_connection_state());
   }

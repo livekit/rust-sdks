@@ -129,6 +129,14 @@ lkDataChannel* lkCreateDataChannel(lkPeer* peer,
                                               .release());
 }
 
+lkRtpSender* lkPeerAddTrack(lkPeer* peer,
+                            lkMediaStreamTrack* track,
+                            lkString** streamIds,
+                            int streamIdCount,
+                            lkRtcError** error) {
+  return nullptr;
+}
+
 bool lkAddIceCandidate(lkPeer* peer,
                        lkIceCandidate* candidate,
                        void (*onComplete)(lkRtcError* error, void* userdata),

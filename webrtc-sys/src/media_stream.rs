@@ -37,6 +37,9 @@ impl MediaStream {
     pub fn audio_tracks(&self) -> Vec<RtcAudioTrack> {
         let lk_vec = unsafe { sys::lkMediaStreamGetAudioTracks(self.ffi.as_ptr()) };
         let track_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
+        if track_ptrs.vec.is_empty() {
+            return Vec::new();
+        }
         let mut tracks = Vec::new();
         for i in 0..track_ptrs.vec.len() as isize {
             tracks.push(RtcAudioTrack { ffi: track_ptrs.vec[i as usize].clone() });
@@ -47,6 +50,9 @@ impl MediaStream {
     pub fn video_tracks(&self) -> Vec<RtcVideoTrack> {
         let lk_vec = unsafe { sys::lkMediaStreamGetAudioTracks(self.ffi.as_ptr()) };
         let track_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
+        if track_ptrs.vec.is_empty() {
+            return Vec::new();
+        }
         let mut tracks = Vec::new();
         for i in 0..track_ptrs.vec.len() as isize {
             tracks.push(RtcVideoTrack { ffi: track_ptrs.vec[i as usize].clone() });

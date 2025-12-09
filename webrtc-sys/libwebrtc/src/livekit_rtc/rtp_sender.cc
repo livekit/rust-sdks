@@ -17,18 +17,14 @@
 #include "livekit/rtp_sender.h"
 #include "livekit/jsep.h"
 
-#include "rust/cxx.h"
-#include "webrtc-sys/src/rtp_sender.rs.h"
 
 namespace livekit {
 
-
-
 RtpSender::RtpSender(
-    std::shared_ptr<RtcRuntime> rtc_runtime,
+    webrtc::scoped_refptr<PeerFactory> pc_factory,
     webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
     webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
-    : rtc_runtime_(rtc_runtime),
+    : pc_factory_(pc_factory),
       sender_(std::move(sender)),
       peer_connection_(std::move(peer_connection)) {}
 
@@ -37,7 +33,7 @@ bool RtpSender::set_track(std::shared_ptr<MediaStreamTrack> track) const {
 }
 
 std::shared_ptr<MediaStreamTrack> RtpSender::track() const {
-  return rtc_runtime_->get_or_create_media_stream_track(sender_->track());
+  return pc_factory_->get_or_create_media_stream_track(sender_->track());
 }
 
 uint32_t RtpSender::ssrc() const {

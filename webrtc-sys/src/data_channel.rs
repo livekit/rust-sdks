@@ -20,8 +20,10 @@ use std::{
 };
 use thiserror::Error;
 use tokio::sync::mpsc;
+use serde_derive::Deserialize;
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum DataChannelState {
     Connecting,
     Open,

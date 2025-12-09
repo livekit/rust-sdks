@@ -314,6 +314,12 @@ LK_EXPORT bool lkCreateAnswer(lkPeer* peer,
                               const lkCreateSdpObserver* observer,
                               void* userdata);
 
+LK_EXPORT lkRtpSender* lkPeerAddTrack(lkPeer* peer,
+                                    lkMediaStreamTrack* track,
+                                    lkString** streamIds,
+                                    int streamIdCount,
+                                    lkRtcError** error);
+
 LK_EXPORT bool lkPeerSetConfig(lkPeer* peer, const lkRtcConfiguration* config);
 
 LK_EXPORT void lkPeerRestartIce(lkPeer* peer);

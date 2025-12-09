@@ -26,17 +26,11 @@
 #include "livekit_rtc/rtp_parameters.h"
 
 namespace livekit {
-class RtpSender;
-}
-#include "webrtc-sys/src/rtp_sender.rs.h"
 
-namespace livekit {
-
-// TODO(theomonnom): FrameTransformer & FrameEncryptor interface
-class RtpSender {
+class RtpSender : public webrtc::RefCountInterface {
  public:
   RtpSender(
-      std::shared_ptr<RtcRuntime> rtc_runtime,
+      webrtc::scoped_refptr<PeerFactory> pc_factory,
       webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
       webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
@@ -69,7 +63,7 @@ class RtpSender {
   }
 
  private:
-  std::shared_ptr<RtcRuntime> rtc_runtime_;
+  webrtc::scoped_refptr<PeerFactory> pc_factory_;
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };

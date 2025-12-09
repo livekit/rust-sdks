@@ -17,6 +17,7 @@
 #include "api/set_remote_description_observer_interface.h"
 #include "api/task_queue/default_task_queue_factory.h"
 #include "livekit_rtc/audio_device.h"
+#include "livekit_rtc/audio_track.h"
 #include "livekit_rtc/capi.h"
 #include "livekit_rtc/data_channel.h"
 #include "livekit_rtc/ice_candidate.h"
@@ -25,7 +26,6 @@
 #include "livekit_rtc/utils.h"
 #include "livekit_rtc/video_decoder_factory.h"
 #include "livekit_rtc/video_encoder_factory.h"
-#include "livekit_rtc/audio_track.h"
 #include "livekit_rtc/video_track.h"
 #include "media/engine/webrtc_media_engine.h"
 #include "rtc_base/logging.h"
@@ -233,22 +233,22 @@ webrtc::scoped_refptr<Peer> PeerFactory::CreatePeer(
 
 lkRtcVideoTrack* PeerFactory::CreateVideoTrack(const char* id,
                                                lkVideoTrackSource* source) {
-  auto videoSource =
-      reinterpret_cast<livekit::VideoTrackSource*>(source);
+  auto videoSource = reinterpret_cast<livekit::VideoTrackSource*>(source);
   auto track = peer_factory_->CreateVideoTrack(id, videoSource->video_source());
   if (track) {
-    return reinterpret_cast<lkRtcVideoTrack*>(webrtc::make_ref_counted<livekit::VideoTrack>(track).release());
+    return reinterpret_cast<lkRtcVideoTrack*>(
+        webrtc::make_ref_counted<livekit::VideoTrack>(track).release());
   }
   return nullptr;
 }
 
 lkRtcAudioTrack* PeerFactory::CreateAudioTrack(const char* id,
                                                lkAudioTrackSource* source) {
-  auto audioSource =
-      reinterpret_cast<livekit::AudioTrackSource*>(source);
+  auto audioSource = reinterpret_cast<livekit::AudioTrackSource*>(source);
   auto track = peer_factory_->CreateAudioTrack(id, audioSource->audio_source());
   if (track) {
-    return reinterpret_cast<lkRtcAudioTrack*>(webrtc::make_ref_counted<livekit::AudioTrack>(track).release());
+    return reinterpret_cast<lkRtcAudioTrack*>(
+        webrtc::make_ref_counted<livekit::AudioTrack>(track).release());
   }
   return nullptr;
 }
@@ -268,6 +268,29 @@ webrtc::scoped_refptr<DataChannel> Peer::CreateDataChannel(
   }
 
   return webrtc::make_ref_counted<DataChannel>(res.value());
+}
+
+lkRtpSender* Peer::AddTrack(lkMediaStreamTrack* track,
+                            lkString** streamIds,
+                            int streamIdCount,
+                            lkRtcError** error) {
+  auto mediaTrack =
+      reinterpret_cast<livekit::MediaStreamTrack*>(track)->rtc_track();
+  std::vector<std::string> std_stream_ids;
+  for (int i = 0; i < streamIdCount; ++i) {
+    std_stream_ids.push_back(
+        reinterpret_cast<livekit::LKString*>(streamIds[i])->get());
+  }
+  webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> res =
+      peer_connection_->AddTrack(mediaTrack, std_stream_ids);
+  if (!res.ok()) {
+    lkRtcError err = toRtcError(res.error());
+    *error = reinterpret_cast<lkRtcError*>(new lkRtcError(err));
+    return nullptr;
+  }
+  // TODO: return reinterpret_cast<lkRtpSender*>(
+  //     livekit::RtpSender::Create(res.value()).release());
+  return nullptr;
 }
 
 bool Peer::AddIceCandidate(const lkIceCandidate* candidate,

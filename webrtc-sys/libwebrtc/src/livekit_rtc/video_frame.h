@@ -24,10 +24,6 @@
 #include "rtc_base/checks.h"
 
 namespace livekit {
-class VideoFrame;
-class VideoFrameBuilder;
-}  // namespace livekit
-namespace livekit {
 
 class VideoFrame : public webrtc::RefCountInterface {
  public:
@@ -51,13 +47,10 @@ class VideoFrame : public webrtc::RefCountInterface {
   webrtc::VideoFrame frame_;
 };
 
-// Allow to create VideoFrames from Rust,
-// the builder pattern will be redone in Rust
 class VideoFrameBuilder : webrtc::RefCountInterface {
  public:
   VideoFrameBuilder() = default;
 
-  // TODO(theomonnom): other setters?
   void set_video_frame_buffer(const VideoFrameBuffer& buffer);
   void set_timestamp_us(int64_t timestamp_us);
   void set_rotation(lkVideoRotation rotation);

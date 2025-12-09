@@ -576,6 +576,15 @@ unsafe extern "C" {
     ) -> bool;
 }
 unsafe extern "C" {
+    pub fn lkPeerAddTrack(
+        peer: *mut lkPeer,
+        track: *mut lkMediaStreamTrack,
+        streamIds: *mut *mut lkString,
+        streamIdCount: ::std::os::raw::c_int,
+        error: *mut *mut lkRtcError,
+    ) -> *mut lkRtpSender;
+}
+unsafe extern "C" {
     pub fn lkPeerSetConfig(peer: *mut lkPeer, config: *const lkRtcConfiguration) -> bool;
 }
 unsafe extern "C" {

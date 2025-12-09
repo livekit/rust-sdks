@@ -18,9 +18,14 @@ use tokio::sync::mpsc;
 
 use crate::data_channel::{DataChannel, DataChannelInit};
 use crate::ice_candidate::IceCandidate;
+use crate::media_stream_track::MediaStreamTrack;
+use crate::rtp_receiver::RtpReceiver;
+use crate::rtp_sender::RtpSender;
+use crate::rtp_transceiver::{RtpTransceiver, RtpTransceiverInit};
 use crate::session_description::SessionDescription;
+use crate::stats::RtcStats;
 use crate::sys::{self, *};
-use crate::{RtcError, RtcErrorType};
+use crate::{MediaType, RtcError, RtcErrorType};
 
 use crate::peer_connection_factory::RtcConfiguration;
 
@@ -655,22 +660,22 @@ impl PeerConnection {
         self.observer.clone()
     }
 
-    /*
-
     pub fn add_track<T: AsRef<str>>(
         &self,
         track: MediaStreamTrack,
         streams_ids: &[T],
     ) -> Result<RtpSender, RtcError> {
-        self.sys_peer.add_track(track, streams_ids)
+        //self.sys_peer.add_track(track, streams_ids)
+        todo!("add_track is not yet implemented")
     }
 
     pub fn remove_track(&self, sender: RtpSender) -> Result<(), RtcError> {
-        self.sys_peer.remove_track(sender)
+        //self.sys_peer.remove_track(sender)
+        todo!("add_track is not yet implemented")
     }
 
     pub async fn get_stats(&self) -> Result<Vec<RtcStats>, RtcError> {
-        self.sys_peer.get_stats().await
+        todo!("get_stats is not yet implemented")
     }
 
     pub fn add_transceiver(
@@ -678,7 +683,7 @@ impl PeerConnection {
         track: MediaStreamTrack,
         init: RtpTransceiverInit,
     ) -> Result<RtpTransceiver, RtcError> {
-        self.sys_peer.add_transceiver(track, init)
+        todo!()
     }
 
     pub fn add_transceiver_for_media(
@@ -686,22 +691,21 @@ impl PeerConnection {
         media_type: MediaType,
         init: RtpTransceiverInit,
     ) -> Result<RtpTransceiver, RtcError> {
-        self.sys_peer.add_transceiver_for_media(media_type, init)
+        todo!()
     }
 
     pub fn senders(&self) -> Vec<RtpSender> {
-        self.sys_peer.senders()
+        todo!()
     }
 
     pub fn receivers(&self) -> Vec<RtpReceiver> {
-        self.sys_peer.receivers()
+        todo!()
     }
 
     pub fn transceivers(&self) -> Vec<RtpTransceiver> {
-        self.sys_peer.transceivers()
+        todo!()
     }
-    */
-
+    
     pub fn on_connection_state_change(&self, f: Option<OnConnectionChange>) {
         let binding = self.observer.lock().unwrap();
         let mut guard = binding.connection_change_handler.lock().unwrap();

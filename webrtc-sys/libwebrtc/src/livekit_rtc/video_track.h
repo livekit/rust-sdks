@@ -30,7 +30,8 @@ class VideoTrack : public MediaStreamTrack {
 
  private:
   webrtc::VideoTrackInterface* track() const {
-    auto video_track = static_cast<webrtc::VideoTrackInterface*>(MediaStreamTrack::track());
+    auto video_track =
+        static_cast<webrtc::VideoTrackInterface*>(MediaStreamTrack::track());
     return video_track;
   }
 
@@ -45,7 +46,8 @@ class VideoTrack : public MediaStreamTrack {
 class NativeVideoSink : public webrtc::VideoSinkInterface<webrtc::VideoFrame>,
                         public webrtc::RefCountInterface {
  public:
-  explicit NativeVideoSink(const lkVideoSinkCallabacks* callbacks, void* userdata);
+  explicit NativeVideoSink(const lkVideoSinkCallabacks* callbacks,
+                           void* userdata);
 
   void OnFrame(const webrtc::VideoFrame& frame) override;
   void OnDiscardedFrame() override;
@@ -89,7 +91,9 @@ class VideoTrackSource : public webrtc::RefCountInterface {
 
   webrtc::scoped_refptr<InternalSource> get() const;
 
-  webrtc::VideoTrackSourceInterface* video_source() const { return source_.get(); }
+  webrtc::VideoTrackSourceInterface* video_source() const {
+    return source_.get();
+  }
 
  private:
   webrtc::scoped_refptr<InternalSource> source_;

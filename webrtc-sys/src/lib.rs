@@ -58,6 +58,10 @@ pub mod video_frame_builder;
 pub mod video_source;
 pub mod video_stream;
 pub mod video_track;
+pub mod rtp_sender;
+pub mod rtp_receiver;
+pub mod rtp_transceiver;
+pub mod stats;
 
 #[cfg(target_os = "android")]
 pub mod android {
