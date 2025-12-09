@@ -8,6 +8,7 @@
 #include "livekit_rtc/media_stream_track.h"
 #include "livekit_rtc/peer.h"
 #include "livekit_rtc/session_description.h"
+#include "livekit_rtc/utils.h"
 #include "livekit_rtc/video_frame.h"
 #include "livekit_rtc/video_frame_buffer.h"
 #include "livekit_rtc/video_track.h"
@@ -21,6 +22,61 @@ void lkAddRef(lkRefCountedObject* rc) {
 
 void lkReleaseRef(lkRefCountedObject* rc) {
   reinterpret_cast<webrtc::RefCountInterface*>(rc)->Release();
+}
+
+lkString* lkCreateString(const char* str) {
+  return reinterpret_cast<lkString*>(
+      webrtc::make_ref_counted<livekit::LKString>(str).release());
+}
+
+int lkStringGetLength(lkString* str) {
+  return reinterpret_cast<livekit::LKString*>(str)->length();
+}
+
+int lkStringGetData(lkString* str, char* buffer, int bufferSize) {
+  auto s = reinterpret_cast<livekit::LKString*>(str);
+  int len = static_cast<int>(s->length());
+  if (bufferSize > 0) {
+    int copySize = (len < bufferSize) ? len : bufferSize;
+    memcpy(buffer, s->data(), copySize);
+  }
+  return len;
+}
+
+lkData* lkCreateData(const uint8_t* data, uint32_t size) {
+  std::vector<uint8_t> vec(data, data + size);
+  return reinterpret_cast<lkData*>(
+      webrtc::make_ref_counted<livekit::LKData>(vec).release());
+}
+
+int lkDataGetSize(lkData* data) {
+  return reinterpret_cast<livekit::LKData*>(data)->size();
+}
+
+const uint8_t* lkDataGetData(lkData* data) {
+  return reinterpret_cast<livekit::LKData*>(data)->data();
+}
+
+lkVectorGeneric* lkCreateVectorGeneric() {
+  return reinterpret_cast<lkVectorGeneric*>(
+      webrtc::make_ref_counted<livekit::LKVector<lkRefCountedObject*>>()
+          .release());
+}
+
+uint32_t lkVectorGenericGetSize(lkVectorGeneric* vec) {
+  return reinterpret_cast<livekit::LKVector<lkRefCountedObject*>*>(vec)->size();
+}
+
+lkRefCountedObject* lkVectorGenericGetAt(lkVectorGeneric* vec, uint32_t index) {
+  return reinterpret_cast<livekit::LKVector<lkRefCountedObject*>*>(vec)->get_at(
+      index);
+}
+
+uint32_t lkVectorGenericPushBack(lkVectorGeneric* vec,
+                                 lkRefCountedObject* value) {
+  auto lkVec = reinterpret_cast<livekit::LKVector<lkRefCountedObject*>*>(vec);
+  lkVec->push_back(value);
+  return static_cast<uint32_t>(lkVec->size());
 }
 
 int lkInitialize() {
@@ -459,8 +515,8 @@ void lkAudioTrackRemoveSink(lkRtcAudioTrack* track, lkNativeAudioSink* sink) {
           reinterpret_cast<livekit::NativeAudioSink*>(sink)));
 }
 
-lkRtcAudioTrack** lkMediaStreamGetAudioTracks(lkMediaStream* stream,
-                                              int* trackCount) {
+lkVectorGeneric* lkMediaStreamGetAudioTracks(lkMediaStream* stream,
+                                             int* trackCount) {
   auto media_stream =
       reinterpret_cast<livekit::MediaStream*>(stream)->media_stream();
   auto audio_tracks = media_stream->GetAudioTracks();
@@ -468,18 +524,18 @@ lkRtcAudioTrack** lkMediaStreamGetAudioTracks(lkMediaStream* stream,
   if (*trackCount == 0) {
     return nullptr;
   }
+  auto track_array = webrtc::make_ref_counted<
+      livekit::LKVector<webrtc::scoped_refptr<livekit::AudioTrack>>>();
 
-  lkRtcAudioTrack** track_array = new lkRtcAudioTrack*[*trackCount];
   for (int i = 0; i < *trackCount; i++) {
-    track_array[i] = reinterpret_cast<lkRtcAudioTrack*>(
-        webrtc::make_ref_counted<livekit::AudioTrack>(audio_tracks[i])
-            .release());
+    track_array->push_back(
+        webrtc::make_ref_counted<livekit::AudioTrack>(audio_tracks[i]));
   }
-  return track_array;
+  return reinterpret_cast<lkVectorGeneric*>(track_array.release());
 }
 
-lkRtcVideoTrack** lkMediaStreamGetVideoTracks(lkMediaStream* stream,
-                                              int* trackCount) {
+lkVectorGeneric* lkMediaStreamGetVideoTracks(lkMediaStream* stream,
+                                             int* trackCount) {
   auto media_stream =
       reinterpret_cast<livekit::MediaStream*>(stream)->media_stream();
   auto video_tracks = media_stream->GetVideoTracks();
@@ -487,13 +543,14 @@ lkRtcVideoTrack** lkMediaStreamGetVideoTracks(lkMediaStream* stream,
   if (*trackCount == 0) {
     return nullptr;
   }
-  lkRtcVideoTrack** track_array = new lkRtcVideoTrack*[*trackCount];
+  auto track_array = webrtc::make_ref_counted<
+      livekit::LKVector<webrtc::scoped_refptr<livekit::VideoTrack>>>();
+
   for (int i = 0; i < *trackCount; i++) {
-    track_array[i] = reinterpret_cast<lkRtcVideoTrack*>(
-        webrtc::make_ref_counted<livekit::VideoTrack>(video_tracks[i])
-            .release());
+    track_array->push_back(
+        webrtc::make_ref_counted<livekit::VideoTrack>(video_tracks[i]));
   }
-  return track_array;
+  return reinterpret_cast<lkVectorGeneric*>(track_array.release());
 }
 
 int lkMediaStreamGetIdLength(lkMediaStream* stream) {
@@ -979,5 +1036,6 @@ uint16_t lkVideoFrameGetId(const lkVideoFrame* frame) {
 lkVideoFrameBuffer* lkVideoFrameGetBuffer(const lkVideoFrame* frame) {
   return reinterpret_cast<lkVideoFrameBuffer*>(
       reinterpret_cast<const livekit::VideoFrame*>(frame)
-          ->video_frame_buffer().release());
+          ->video_frame_buffer()
+          .release());
 }

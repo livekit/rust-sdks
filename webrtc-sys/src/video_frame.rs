@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::impl_thread_safety;
 use crate::{sys, video_frame::internal::BufferSealed};
 use std::fmt::Debug;
 use thiserror::Error;
-use crate::impl_thread_safety;
 
 #[derive(Debug, Error)]
 pub enum SinkError {
@@ -866,12 +866,12 @@ impl<T: VideoBuffer> VideoFrameBufferExt for T {
     }
 }
 
-impl_thread_safety !(I420Buffer, Send + Sync);
-impl_thread_safety !(I420ABuffer, Send + Sync);
-impl_thread_safety !(I422Buffer, Send + Sync);
-impl_thread_safety !(I444Buffer, Send + Sync);
-impl_thread_safety !(I010Buffer, Send + Sync);
-impl_thread_safety !(NV12Buffer, Send + Sync);
+impl_thread_safety!(I420Buffer, Send + Sync);
+impl_thread_safety!(I420ABuffer, Send + Sync);
+impl_thread_safety!(I422Buffer, Send + Sync);
+impl_thread_safety!(I444Buffer, Send + Sync);
+impl_thread_safety!(I010Buffer, Send + Sync);
+impl_thread_safety!(NV12Buffer, Send + Sync);
 
 #[cfg(target_arch = "wasm32")]
 pub mod web {

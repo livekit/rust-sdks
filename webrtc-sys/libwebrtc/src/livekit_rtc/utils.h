@@ -12,24 +12,62 @@ lkRtcError toRtcError(const webrtc::RTCError& error);
 webrtc::PeerConnectionInterface::RTCOfferAnswerOptions
     toNativeOfferAnswerOptions(const lkOfferAnswerOptions& options);
 
-class String : public webrtc::RefCountInterface {
+class LKString : public webrtc::RefCountInterface {
  public:
-  explicit String(const std::string& str) : str_(str) {}
+  explicit LKString(const std::string& str) : str_(str) {}
 
   std::string get() const { return str_; }
+
+  size_t length() const { return str_.size(); }
+
+  const uint8_t* data() const {
+    return reinterpret_cast<const uint8_t*>(str_.data());
+  }
 
  private:
   std::string str_;
 };
 
-template <typename T>
-class Vec : public webrtc::RefCountInterface {
+class LKData : public webrtc::RefCountInterface {
  public:
-  explicit Vec();
+  explicit LKData() = default;
 
-  explicit Vec(const std::vector<T>& vec) : vec_(vec) {}
+  explicit LKData(const std::vector<uint8_t>& data) : data_(data) {}
+
+  static webrtc::scoped_refptr<LKData> FromRaw(const uint8_t* data,
+                                              size_t size) {
+    std::vector<uint8_t> vec(data, data + size);
+    return webrtc::make_ref_counted<LKData>(vec);
+  }
+
+  std::vector<uint8_t> get() const { return data_; }
+
+  size_t size() const { return data_.size(); }
+
+  uint8_t get_at(size_t index) const { return data_.at(index); }
+
+  void push_back(const uint8_t& value) { data_.push_back(value); }
+
+  const uint8_t* data() const { return data_.data(); }
+
+ private:
+  std::vector<uint8_t> data_;
+};
+
+template <typename T>
+class LKVector : public webrtc::RefCountInterface {
+ public:
+  explicit LKVector() = default;
+
+  explicit LKVector(const std::vector<T>& vec) : vec_(vec) {}
 
   std::vector<T> get() const { return vec_; }
+
+  size_t size() const { return vec_.size(); }
+
+  T get_at(size_t index) const { return vec_.at(index); }
+
+  void push_back(const T& value) { vec_.push_back(value); }
 
  private:
   std::vector<T> vec_;

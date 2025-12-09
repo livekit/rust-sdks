@@ -3,7 +3,8 @@
 pub type lkPlatformImageBuffer = ::std::os::raw::c_void;
 pub type lkRefCountedObject = ::std::os::raw::c_void;
 pub type lkString = lkRefCountedObject;
-pub type lkVector = lkRefCountedObject;
+pub type lkData = lkRefCountedObject;
+pub type lkVectorGeneric = lkRefCountedObject;
 pub type lkPeerFactory = lkRefCountedObject;
 pub type lkPeer = lkRefCountedObject;
 pub type lkDataChannel = lkRefCountedObject;
@@ -472,6 +473,43 @@ unsafe extern "C" {
     pub fn lkReleaseRef(rc: *mut lkRefCountedObject);
 }
 unsafe extern "C" {
+    pub fn lkCreateString(str_: *const ::std::os::raw::c_char) -> *mut lkString;
+}
+unsafe extern "C" {
+    pub fn lkStringGetLength(str_: *mut lkString) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkStringGetData(
+        str_: *mut lkString,
+        buffer: *mut ::std::os::raw::c_char,
+        bufferSize: ::std::os::raw::c_int,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkCreateData(data: *const u8, size: u32) -> *mut lkData;
+}
+unsafe extern "C" {
+    pub fn lkDataGetSize(data: *mut lkData) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkDataGetData(data: *mut lkData) -> *const u8;
+}
+unsafe extern "C" {
+    pub fn lkCreateVectorGeneric() -> *mut lkVectorGeneric;
+}
+unsafe extern "C" {
+    pub fn lkVectorGenericGetSize(vec: *mut lkVectorGeneric) -> u32;
+}
+unsafe extern "C" {
+    pub fn lkVectorGenericGetAt(vec: *mut lkVectorGeneric, index: u32) -> *mut lkRefCountedObject;
+}
+unsafe extern "C" {
+    pub fn lkVectorGenericPushBack(
+        vec: *mut lkVectorGeneric,
+        value: *mut lkRefCountedObject,
+    ) -> u32;
+}
+unsafe extern "C" {
     pub fn lkCreatePeerFactory() -> *mut lkPeerFactory;
 }
 unsafe extern "C" {
@@ -788,13 +826,13 @@ unsafe extern "C" {
     pub fn lkMediaStreamGetAudioTracks(
         stream: *mut lkMediaStream,
         trackCount: *mut ::std::os::raw::c_int,
-    ) -> *mut *mut lkRtcAudioTrack;
+    ) -> *mut lkVectorGeneric;
 }
 unsafe extern "C" {
     pub fn lkMediaStreamGetVideoTracks(
         stream: *mut lkMediaStream,
         trackCount: *mut ::std::os::raw::c_int,
-    ) -> *mut *mut lkRtcVideoTrack;
+    ) -> *mut lkVectorGeneric;
 }
 unsafe extern "C" {
     pub fn lkCreateNativeVideoSink(

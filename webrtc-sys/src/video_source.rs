@@ -160,13 +160,13 @@ pub mod native {
             lkframe: *const sys::lkVideoFrame,
             userdata: *mut ::std::os::raw::c_void,
         ) {
-            let _video_sink_wrapper = unsafe { &*(userdata as *const Arc<dyn VideoSink>) };
+            let video_sink_wrapper = unsafe { &*(userdata as *const Arc<dyn VideoSink>) };
             let rotation = unsafe { sys::lkVideoFrameGetRotation(lkframe) };
             let timestamp_us = unsafe { sys::lkVideoFrameGetTimestampUs(lkframe) };
             let buffer = unsafe { sys::lkVideoFrameGetBuffer(lkframe) };
             let video_frame_buffer =
                 VideoFrameBuffer { ffi: unsafe { sys::RefCounted::from_raw(buffer) } };
-            _video_sink_wrapper.on_frame(VideoFrame {
+            video_sink_wrapper.on_frame(VideoFrame {
                 rotation: rotation.into(),
                 timestamp_us: timestamp_us,
                 buffer: new_video_frame_buffer(video_frame_buffer),

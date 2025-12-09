@@ -6,6 +6,7 @@
 mod conv;
 mod ffi;
 mod refcounted;
+mod utils;
 
 pub use conv::*;
 pub use ffi::*;

@@ -16,7 +16,8 @@ typedef void lkPlatformImageBuffer;
 typedef void lkRefCountedObject;
 
 typedef lkRefCountedObject lkString;
-typedef lkRefCountedObject lkVector;
+typedef lkRefCountedObject lkData;
+typedef lkRefCountedObject lkVectorGeneric;
 typedef lkRefCountedObject lkPeerFactory;
 typedef lkRefCountedObject lkPeer;
 typedef lkRefCountedObject lkDataChannel;
@@ -251,6 +252,26 @@ LK_EXPORT void lkAddRef(lkRefCountedObject* rc);
 
 LK_EXPORT void lkReleaseRef(lkRefCountedObject* rc);
 
+LK_EXPORT lkString* lkCreateString(const char* str);
+
+LK_EXPORT int lkStringGetLength(lkString *str);
+
+LK_EXPORT int lkStringGetData(lkString *str, char* buffer, int bufferSize);
+
+LK_EXPORT lkData* lkCreateData(const uint8_t* data, uint32_t size);
+
+LK_EXPORT int lkDataGetSize(lkData* data);
+
+LK_EXPORT const uint8_t* lkDataGetData(lkData* data);
+
+LK_EXPORT lkVectorGeneric* lkCreateVectorGeneric();
+
+LK_EXPORT uint32_t lkVectorGenericGetSize(lkVectorGeneric* vec);
+
+LK_EXPORT lkRefCountedObject* lkVectorGenericGetAt(lkVectorGeneric* vec, uint32_t index);
+
+LK_EXPORT uint32_t lkVectorGenericPushBack(lkVectorGeneric* vec, lkRefCountedObject* value);
+
 LK_EXPORT lkPeerFactory* lkCreatePeerFactory();
 
 LK_EXPORT lkRtpCapabilities* lkGetRtpSenderCapabilities(lkPeerFactory* factory);
@@ -446,10 +467,10 @@ LK_EXPORT int lkMediaStreamGetId(lkMediaStream* stream,
                                  char* buffer,
                                  int bufferSize);
 
-LK_EXPORT lkRtcAudioTrack** lkMediaStreamGetAudioTracks(lkMediaStream* stream,
+LK_EXPORT lkVectorGeneric* lkMediaStreamGetAudioTracks(lkMediaStream* stream,
                                                         int* trackCount);
 
-LK_EXPORT lkRtcVideoTrack** lkMediaStreamGetVideoTracks(lkMediaStream* stream,
+LK_EXPORT lkVectorGeneric* lkMediaStreamGetVideoTracks(lkMediaStream* stream,
                                                         int* trackCount);
 
 LK_EXPORT lkNativeVideoSink* lkCreateNativeVideoSink(
