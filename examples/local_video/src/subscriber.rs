@@ -49,6 +49,10 @@ struct Args {
     /// Only subscribe to video from this participant identity
     #[arg(long)]
     participant: Option<String>,
+
+    /// Show system time and delta vs sensor timestamp in the YUV viewer overlay
+    #[arg(long, default_value_t = false)]
+    show_sys_time: bool,
 }
 
 #[derive(Clone)]
@@ -112,9 +116,19 @@ fn format_sensor_timestamp(ts_micros: i64) -> Option<String> {
     dt.format(&format).ok()
 }
 
+fn now_unix_timestamp_micros() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .expect("SystemTime before UNIX EPOCH")
+        .as_micros() as i64
+}
+
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     simulcast: Arc<Mutex<SimulcastState>>,
+    show_sys_time: bool,
+    last_latency_ms: Option<i32>,
+    last_latency_update: Option<Instant>,
 }
 
 impl eframe::App for VideoApp {
@@ -134,25 +148,120 @@ impl eframe::App for VideoApp {
             ui.painter().add(cb);
         });
 
-        // Sensor timestamp overlay: top-left. Show nothing if no sensor timestamp parsed.
-        let sensor_timestamp_text = {
-            let shared = self.shared.lock();
-            shared
-                .sensor_timestamp
-                .and_then(format_sensor_timestamp)
-        };
-        if let Some(ts_text) = sensor_timestamp_text {
-            egui::Area::new("sensor_timestamp_overlay".into())
-                .anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
-                .interactable(false)
-                .show(ctx, |ui| {
-                    ui.label(
-                        egui::RichText::new(ts_text)
-                            .monospace()
-                            .size(22.0)
-                            .color(egui::Color32::WHITE),
-                    );
-                });
+        // Sensor timestamp / system time overlay: top-left.
+        //
+        // When `show_sys_time` is false, we only render the user (sensor) timestamp, if present.
+        //
+        // When `show_sys_time` is true:
+        //   - If there is a sensor timestamp, we render up to three rows:
+        //       1) "usr ts: yyyy-mm-dd hh:mm:ss:nnn"    (sensor timestamp)
+        //       2) "sys ts: yyyy-mm-dd hh:mm:ss:nnn"    (system timestamp)
+        //       3) "latency: xxxxms"                    (delta in ms, 4 digits, updated at 2 Hz)
+        //   - If there is no sensor timestamp, we render a single row:
+        //       "sys ts: yyyy-mm-dd hh:mm:ss:nnn"
+        if self.show_sys_time {
+            let (sensor_raw, sensor_text, sys_raw, sys_text_opt) = {
+                let shared = self.shared.lock();
+                let sensor_raw = shared.sensor_timestamp;
+                let sensor_text = sensor_raw.and_then(format_sensor_timestamp);
+                let sys_raw = now_unix_timestamp_micros();
+                let sys_text = format_sensor_timestamp(sys_raw);
+                (sensor_raw, sensor_text, sys_raw, sys_text)
+            };
+
+            if let Some(sys_text) = sys_text_opt {
+                // Latency: throttle updates to 2 Hz to reduce jitter in the display.
+                let latency_to_show = if let Some(sensor) = sensor_raw {
+                    let now = Instant::now();
+                    let needs_update = self
+                        .last_latency_update
+                        .map(|prev| now.duration_since(prev) >= Duration::from_millis(500))
+                        .unwrap_or(true);
+                    if needs_update {
+                        let delta_micros = sys_raw - sensor;
+                        let delta_ms = delta_micros as f64 / 1000.0;
+                        // Clamp to [0, 9999] ms to keep formatting consistent.
+                        let clamped = delta_ms.round().clamp(0.0, 9_999.0) as i32;
+                        self.last_latency_ms = Some(clamped);
+                        self.last_latency_update = Some(now);
+                    }
+                    self.last_latency_ms
+                } else {
+                    self.last_latency_ms = None;
+                    self.last_latency_update = None;
+                    None
+                };
+
+                egui::Area::new("sensor_sys_timestamp_overlay".into())
+                    .anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
+                    .interactable(false)
+                    .show(ctx, |ui| {
+                        ui.vertical(|ui| {
+                            if let Some(ts_text) = sensor_text {
+                                // First row: user (sensor) timestamp
+                                let usr_line = format!("usr ts: {ts_text}");
+                                ui.label(
+                                    egui::RichText::new(usr_line)
+                                        .monospace()
+                                        .size(22.0)
+                                        .color(egui::Color32::WHITE),
+                                );
+
+                                // Second row: system timestamp.
+                                let sys_line = format!("sys ts: {sys_text}");
+                                ui.label(
+                                    egui::RichText::new(sys_line)
+                                        .monospace()
+                                        .size(22.0)
+                                        .color(egui::Color32::WHITE),
+                                );
+
+                                // Third row: latency in milliseconds (if available).
+                                if let Some(latency_ms) = latency_to_show {
+                                    let latency_line =
+                                        format!("latency: {:04}ms", latency_ms.max(0));
+                                    ui.label(
+                                        egui::RichText::new(latency_line)
+                                            .monospace()
+                                            .size(22.0)
+                                            .color(egui::Color32::WHITE),
+                                    );
+                                }
+                            } else {
+                                // No sensor timestamp: only show system timestamp.
+                                let sys_line = format!("sys ts: {sys_text}");
+                                ui.label(
+                                    egui::RichText::new(sys_line)
+                                        .monospace()
+                                        .size(22.0)
+                                        .color(egui::Color32::WHITE),
+                                );
+                            }
+                        });
+                    });
+            }
+        } else {
+            // Original behavior: render only the user (sensor) timestamp, if present.
+            let sensor_timestamp_text = {
+                let shared = self.shared.lock();
+                shared
+                    .sensor_timestamp
+                    .and_then(format_sensor_timestamp)
+            };
+            if let Some(ts_text) = sensor_timestamp_text {
+                let usr_line = format!("usr ts: {ts_text}");
+                egui::Area::new("sensor_timestamp_overlay".into())
+                    .anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
+                    .interactable(false)
+                    .show(ctx, |ui| {
+                        ui.label(
+                            egui::RichText::new(usr_line)
+                                .monospace()
+                                .size(22.0)
+                                .color(egui::Color32::WHITE),
+                        );
+                    });
+            }
         }
 
         // Simulcast layer controls: bottom-left overlay
@@ -504,7 +613,13 @@ async fn main() -> Result<()> {
     });
 
     // Start UI
-    let app = VideoApp { shared, simulcast };
+    let app = VideoApp {
+        shared,
+        simulcast,
+        show_sys_time: args.show_sys_time,
+        last_latency_ms: None,
+        last_latency_update: None,
+    };
     let native_options = eframe::NativeOptions::default();
     eframe::run_native("LiveKit Video Subscriber", native_options, Box::new(|_| Ok::<Box<dyn eframe::App>, _>(Box::new(app))))?;
 

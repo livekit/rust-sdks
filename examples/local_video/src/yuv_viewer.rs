@@ -463,7 +463,7 @@ impl CallbackTrait for YuvPaintCallback {
             // prepare may not have created the state yet (race with first frame); skip this paint
             return;
         };
-
+        
         if state.dims != (shared.width, shared.height) {
             // We cannot rebuild here (no device access); skip drawing until next frame where prepare will rebuild
             return;

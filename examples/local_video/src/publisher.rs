@@ -35,6 +35,13 @@ fn format_sensor_timestamp(ts_micros: i64) -> Option<String> {
     dt.format(&format).ok()
 }
 
+fn now_unix_timestamp_micros() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .expect("SystemTime before UNIX EPOCH")
+        .as_micros() as i64
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -89,6 +96,10 @@ struct Args {
     /// Attach sensor timestamps to published frames (for testing)
     #[arg(long, default_value_t = false)]
     sensor_timestamp: bool,
+
+    /// Show system time and delta vs sensor timestamp in the preview overlay
+    #[arg(long, default_value_t = false)]
+    show_sys_time: bool,
 
     /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
     #[arg(long, default_value_t = false)]
@@ -317,6 +328,19 @@ async fn main() -> Result<()> {
             ticker.tick().await;
             let iter_start = Instant::now();
 
+            // Capture a sensor timestamp at the beginning of the loop so it reflects
+            // the scheduled capture time rather than the later capture_frame call.
+            let loop_sensor_ts = if show_sensor_ts {
+                Some(
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                        .expect("SystemTime before UNIX EPOCH")
+                        .as_micros() as i64,
+                )
+            } else {
+                None
+            };
+
             // Get frame as RGB24 (decoded by nokhwa if needed)
             let t0 = Instant::now();
             let frame_buf = camera.frame()?;
@@ -443,14 +467,10 @@ async fn main() -> Result<()> {
             // Update RTP timestamp (monotonic, microseconds since start)
             frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
 
-            // Optionally attach a sensor timestamp and push it into the shared queue
-            // used by the sensor timestamp transformer.
+            // Optionally attach a sensor timestamp captured at the top of the loop and
+            // push it into the shared queue used by the sensor timestamp transformer.
             if show_sensor_ts {
-                if let Some(store) = track.sensor_timestamp_store() {
-                    let sensor_ts = std::time::SystemTime::now()
-                        .duration_since(std::time::SystemTime::UNIX_EPOCH)
-                        .expect("SystemTime before UNIX EPOCH")
-                        .as_micros() as i64;
+                if let (Some(store), Some(sensor_ts)) = (track.sensor_timestamp_store(), loop_sensor_ts) {
                     frame.sensor_timestamp_us = Some(sensor_ts);
                     store.store(frame.timestamp_us, sensor_ts);
                     last_sensor_ts = Some(sensor_ts);
@@ -553,6 +573,9 @@ async fn main() -> Result<()> {
     if let Some(shared) = shared_preview {
         struct PreviewApp {
             shared: Arc<Mutex<SharedYuv>>,
+            show_sys_time: bool,
+            last_latency_ms: Option<i32>,
+            last_latency_update: Option<Instant>,
         }
 
         impl eframe::App for PreviewApp {
@@ -572,32 +595,132 @@ async fn main() -> Result<()> {
                     ui.painter().add(cb);
                 });
 
-                // Sensor timestamp overlay: top-left, same style as subscriber.
-                let sensor_timestamp_text = {
-                    let shared = self.shared.lock();
-                    shared
-                        .sensor_timestamp
-                        .and_then(format_sensor_timestamp)
-                };
-                if let Some(ts_text) = sensor_timestamp_text {
-                    egui::Area::new("publisher_sensor_timestamp_overlay".into())
-                        .anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
-                        .interactable(false)
-                        .show(ctx, |ui| {
-                            ui.label(
-                                egui::RichText::new(ts_text)
-                                    .monospace()
-                                    .size(22.0)
-                                    .color(egui::Color32::WHITE),
-                            );
-                        });
+                // Sensor timestamp / system time overlay for the local preview.
+                //
+                // When `show_sys_time` is false, we only render the user (sensor) timestamp, if present.
+                //
+                // When `show_sys_time` is true:
+                //   - If there is a sensor timestamp, we render up to three rows:
+                //       1) "usr ts: yyyy-mm-dd hh:mm:ss:nnn"    (sensor timestamp)
+                //       2) "sys ts: yyyy-mm-dd hh:mm:ss:nnn"    (system timestamp)
+                //       3) "latency: xxxxms"                    (delta in ms, 4 digits, updated at 2 Hz)
+                //   - If there is no sensor timestamp, we render a single row:
+                //       "sys ts: yyyy-mm-dd hh:mm:ss:nnn"
+                if self.show_sys_time {
+                    let (sensor_raw, sensor_text, sys_raw, sys_text_opt) = {
+                        let shared = self.shared.lock();
+                        let sensor_raw = shared.sensor_timestamp;
+                        let sensor_text = sensor_raw.and_then(format_sensor_timestamp);
+                        let sys_raw = now_unix_timestamp_micros();
+                        let sys_text = format_sensor_timestamp(sys_raw);
+                        (sensor_raw, sensor_text, sys_raw, sys_text)
+                    };
+
+                    if let Some(sys_text) = sys_text_opt {
+                        // Latency: throttle updates to 2 Hz to reduce jitter in the display.
+                        let latency_to_show = if let Some(sensor) = sensor_raw {
+                            let now = Instant::now();
+                            let needs_update = self
+                                .last_latency_update
+                                .map(|prev| now.duration_since(prev) >= Duration::from_millis(500))
+                                .unwrap_or(true);
+                            if needs_update {
+                                let delta_micros = sys_raw - sensor;
+                                let delta_ms = delta_micros as f64 / 1000.0;
+                                // Clamp to [0, 9999] ms to keep formatting consistent.
+                                let clamped = delta_ms.round().clamp(0.0, 9_999.0) as i32;
+                                self.last_latency_ms = Some(clamped);
+                                self.last_latency_update = Some(now);
+                            }
+                            self.last_latency_ms
+                        } else {
+                            self.last_latency_ms = None;
+                            self.last_latency_update = None;
+                            None
+                        };
+
+                        egui::Area::new("publisher_sensor_sys_timestamp_overlay".into())
+                            .anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
+                            .interactable(false)
+                            .show(ctx, |ui| {
+                                ui.vertical(|ui| {
+                                    if let Some(ts_text) = sensor_text {
+                                        // First row: user (sensor) timestamp
+                                        let usr_line = format!("usr ts: {ts_text}");
+                                        ui.label(
+                                            egui::RichText::new(usr_line)
+                                                .monospace()
+                                                .size(22.0)
+                                                .color(egui::Color32::WHITE),
+                                        );
+
+                                        // Second row: system timestamp.
+                                        let sys_line = format!("sys ts: {sys_text}");
+                                        ui.label(
+                                            egui::RichText::new(sys_line)
+                                                .monospace()
+                                                .size(22.0)
+                                                .color(egui::Color32::WHITE),
+                                        );
+
+                                        // Third row: latency in milliseconds (if available).
+                                        if let Some(latency_ms) = latency_to_show {
+                                            let latency_line =
+                                                format!("latency: {:04}ms", latency_ms.max(0));
+                                            ui.label(
+                                                egui::RichText::new(latency_line)
+                                                    .monospace()
+                                                    .size(22.0)
+                                                    .color(egui::Color32::WHITE),
+                                            );
+                                        }
+                                    } else {
+                                        // No sensor timestamp: only show system timestamp.
+                                        let sys_line = format!("sys ts: {sys_text}");
+                                        ui.label(
+                                            egui::RichText::new(sys_line)
+                                                .monospace()
+                                                .size(22.0)
+                                                .color(egui::Color32::WHITE),
+                                        );
+                                    }
+                                });
+                            });
+                    }
+                } else {
+                    // Original behavior: render only the user (sensor) timestamp, if present.
+                    let sensor_timestamp_text = {
+                        let shared = self.shared.lock();
+                        shared
+                            .sensor_timestamp
+                            .and_then(format_sensor_timestamp)
+                    };
+                    if let Some(ts_text) = sensor_timestamp_text {
+                        let usr_line = format!("usr ts: {ts_text}");
+                        egui::Area::new("publisher_sensor_timestamp_overlay".into())
+                            .anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
+                            .interactable(false)
+                            .show(ctx, |ui| {
+                                ui.label(
+                                    egui::RichText::new(usr_line)
+                                        .monospace()
+                                        .size(22.0)
+                                        .color(egui::Color32::WHITE),
+                                );
+                            });
+                    }
                 }
 
                 ctx.request_repaint_after(Duration::from_millis(16));
             }
         }
 
-        let app = PreviewApp { shared };
+        let app = PreviewApp {
+            shared,
+            show_sys_time: args.show_sys_time,
+            last_latency_ms: None,
+            last_latency_update: None,
+        };
         let native_options = eframe::NativeOptions::default();
         eframe::run_native(
             "LiveKit Camera Publisher Preview",
