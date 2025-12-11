@@ -15,6 +15,7 @@
 use livekit_api::access_token::{
     self, AccessToken, AccessTokenError, SIPGrants, TokenVerifier, VideoGrants,
 };
+use livekit_protocol::RoomAgentDispatch;
 use std::{collections::HashMap, time::Duration};
 
 /// An error that can occur during token generation or verification.
@@ -60,6 +61,49 @@ pub struct SIPGrants {
     pub call: bool,
 }
 
+/// Agent dispatch configuration
+///
+/// Defines which agents should be dispatched to a room.
+///
+#[uniffi::remote(Record)]
+pub struct RoomAgentDispatch {
+    pub agent_name: String,
+    pub metadata: String,
+}
+
+/// Room configuration
+///
+/// Configuration options for a room.
+///
+#[derive(uniffi::Record)]
+pub struct RoomConfiguration {
+    pub name: String,
+    pub empty_timeout: u32,
+    pub departure_timeout: u32,
+    pub max_participants: u32,
+    pub metadata: String,
+    pub min_playout_delay: u32,
+    pub max_playout_delay: u32,
+    pub sync_streams: bool,
+    pub agents: Vec<RoomAgentDispatch>,
+}
+
+impl From<livekit_protocol::RoomConfiguration> for RoomConfiguration {
+    fn from(config: livekit_protocol::RoomConfiguration) -> Self {
+        Self {
+            name: config.name,
+            empty_timeout: config.empty_timeout,
+            departure_timeout: config.departure_timeout,
+            max_participants: config.max_participants,
+            metadata: config.metadata,
+            min_playout_delay: config.min_playout_delay,
+            max_playout_delay: config.max_playout_delay,
+            sync_streams: config.sync_streams,
+            agents: config.agents,
+        }
+    }
+}
+
 /// Claims decoded from a valid access token.
 #[derive(uniffi::Record)]
 pub struct Claims {
@@ -73,15 +117,11 @@ pub struct Claims {
     pub sha256: String,
     pub metadata: String,
     pub attributes: HashMap<String, String>,
-
-    // Fields below have been flattened from the protocol-level `RoomConfiguration` message.
-    // Expose more fields as necessary for client use.
-    pub room_name: String,
+    pub room_configuration: Option<RoomConfiguration>,
 }
 
 impl From<livekit_api::access_token::Claims> for Claims {
     fn from(claims: livekit_api::access_token::Claims) -> Self {
-        let room_name = claims.room_config.map_or(String::default(), |config| config.name);
         Self {
             exp: claims.exp as u64,
             iss: claims.iss,
@@ -93,7 +133,7 @@ impl From<livekit_api::access_token::Claims> for Claims {
             sha256: claims.sha256,
             metadata: claims.metadata,
             attributes: claims.attributes,
-            room_name,
+            room_configuration: claims.room_config.map(Into::into),
         }
     }
 }
@@ -127,11 +167,8 @@ pub struct TokenOptions {
     attributes: Option<HashMap<String, String>>,
     #[uniffi(default)]
     sha256: Option<String>,
-
-    // Fields below have been flattened from the protocol-level `RoomConfiguration` message.
-    // Expose more fields as necessary for client use.
     #[uniffi(default)]
-    room_name: Option<String>,
+    room_configuration: Option<RoomConfiguration>,
 }
 
 /// Generates an access token.
@@ -174,11 +211,22 @@ pub fn token_generate(
     if let Some(sha256) = options.sha256 {
         token = token.with_sha256(&sha256);
     }
-    let room_config = livekit_protocol::RoomConfiguration {
-        name: options.room_name.unwrap_or_default(),
-        ..Default::default()
-    };
-    Ok(token.with_room_config(room_config).to_jwt()?)
+    if let Some(room_configuration) = options.room_configuration {
+        let room_config = livekit_protocol::RoomConfiguration {
+            name: room_configuration.name,
+            empty_timeout: room_configuration.empty_timeout,
+            departure_timeout: room_configuration.departure_timeout,
+            max_participants: room_configuration.max_participants,
+            metadata: room_configuration.metadata,
+            min_playout_delay: room_configuration.min_playout_delay,
+            max_playout_delay: room_configuration.max_playout_delay,
+            sync_streams: room_configuration.sync_streams,
+            agents: room_configuration.agents,
+            egress: None,
+        };
+        token = token.with_room_config(room_config);
+    }
+    Ok(token.to_jwt()?)
 }
 
 /// Verifies an access token.
