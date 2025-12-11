@@ -59,6 +59,10 @@ where
 {
     pub rotation: VideoRotation,
     pub timestamp_us: i64, // When the frame was captured in microseconds
+    /// Optional sensor timestamp in microseconds, if available.
+    /// This is typically a hardware or device timestamp that can be
+    /// propagated end-to-end through the media pipeline.
+    pub sensor_timestamp_us: Option<i64>,
     pub buffer: T,
 }
 

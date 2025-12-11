@@ -64,8 +64,9 @@ impl FfiVideoSource {
                 let buffer = colorcvt::to_libwebrtc_buffer(capture.buffer.clone());
                 let frame = VideoFrame {
                     rotation: capture.rotation().into(),
-                    timestamp_us: capture.timestamp_us,
                     buffer,
+                    timestamp_us: capture.timestamp_us,
+                    sensor_timestamp_us: None,
                 };
 
                 source.capture_frame(&frame);

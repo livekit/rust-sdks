@@ -2,9 +2,8 @@ use anyhow::Result;
 use clap::Parser;
 use eframe::egui;
 use egui_wgpu as egui_wgpu_backend;
-use egui_wgpu_backend::CallbackTrait;
-use eframe::wgpu::{self, util::DeviceExt};
 use futures::StreamExt;
+use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::prelude::*;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
@@ -16,6 +15,9 @@ use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+
+mod yuv_viewer;
+use yuv_viewer::{SharedYuv, YuvPaintCallback};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -40,21 +42,17 @@ struct Args {
     #[arg(long)]
     api_secret: Option<String>,
 
+    /// Shared E2EE key (enables end-to-end encryption when set)
+    #[arg(long)]
+    e2ee_key: Option<String>,
+
     /// Only subscribe to video from this participant identity
     #[arg(long)]
     participant: Option<String>,
-}
 
-struct SharedYuv {
-    width: u32,
-    height: u32,
-    stride_y: u32,
-    stride_u: u32,
-    stride_v: u32,
-    y: Vec<u8>,
-    u: Vec<u8>,
-    v: Vec<u8>,
-    dirty: bool,
+    /// Show system time and delta vs sensor timestamp in the YUV viewer overlay
+    #[arg(long, default_value_t = false)]
+    show_sys_time: bool,
 }
 
 #[derive(Clone)]
@@ -104,9 +102,33 @@ fn simulcast_state_full_dims(
     sc.full_dims
 }
 
+fn format_sensor_timestamp(ts_micros: i64) -> Option<String> {
+    if ts_micros == 0 {
+        // Treat 0 as "not set"
+        return None;
+    }
+    // Convert microseconds since UNIX epoch to `OffsetDateTime` in UTC, then format.
+    let nanos = i128::from(ts_micros).checked_mul(1_000)?;
+    let dt = time::OffsetDateTime::from_unix_timestamp_nanos(nanos).ok()?;
+    let format = time::macros::format_description!(
+        "[year]-[month]-[day] [hour]:[minute]:[second]:[subsecond digits:3]"
+    );
+    dt.format(&format).ok()
+}
+
+fn now_unix_timestamp_micros() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .expect("SystemTime before UNIX EPOCH")
+        .as_micros() as i64
+}
+
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     simulcast: Arc<Mutex<SimulcastState>>,
+    show_sys_time: bool,
+    last_latency_ms: Option<i32>,
+    last_latency_update: Option<Instant>,
 }
 
 impl eframe::App for VideoApp {
@@ -125,6 +147,122 @@ impl eframe::App for VideoApp {
             );
             ui.painter().add(cb);
         });
+
+        // Sensor timestamp / system time overlay: top-left.
+        //
+        // When `show_sys_time` is false, we only render the user (sensor) timestamp, if present.
+        //
+        // When `show_sys_time` is true:
+        //   - If there is a sensor timestamp, we render up to three rows:
+        //       1) "usr ts: yyyy-mm-dd hh:mm:ss:nnn"    (sensor timestamp)
+        //       2) "sys ts: yyyy-mm-dd hh:mm:ss:nnn"    (system timestamp)
+        //       3) "latency: xxxxms"                    (delta in ms, 4 digits, updated at 2 Hz)
+        //   - If there is no sensor timestamp, we render a single row:
+        //       "sys ts: yyyy-mm-dd hh:mm:ss:nnn"
+        if self.show_sys_time {
+            let (sensor_raw, sensor_text, sys_raw, sys_text_opt) = {
+                let shared = self.shared.lock();
+                let sensor_raw = shared.sensor_timestamp;
+                let sensor_text = sensor_raw.and_then(format_sensor_timestamp);
+                let sys_raw = now_unix_timestamp_micros();
+                let sys_text = format_sensor_timestamp(sys_raw);
+                (sensor_raw, sensor_text, sys_raw, sys_text)
+            };
+
+            if let Some(sys_text) = sys_text_opt {
+                // Latency: throttle updates to 2 Hz to reduce jitter in the display.
+                let latency_to_show = if let Some(sensor) = sensor_raw {
+                    let now = Instant::now();
+                    let needs_update = self
+                        .last_latency_update
+                        .map(|prev| now.duration_since(prev) >= Duration::from_millis(500))
+                        .unwrap_or(true);
+                    if needs_update {
+                        let delta_micros = sys_raw - sensor;
+                        let delta_ms = delta_micros as f64 / 1000.0;
+                        // Clamp to [0, 9999] ms to keep formatting consistent.
+                        let clamped = delta_ms.round().clamp(0.0, 9_999.0) as i32;
+                        self.last_latency_ms = Some(clamped);
+                        self.last_latency_update = Some(now);
+                    }
+                    self.last_latency_ms
+                } else {
+                    self.last_latency_ms = None;
+                    self.last_latency_update = None;
+                    None
+                };
+
+                egui::Area::new("sensor_sys_timestamp_overlay".into())
+                    .anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
+                    .interactable(false)
+                    .show(ctx, |ui| {
+                        ui.vertical(|ui| {
+                            if let Some(ts_text) = sensor_text {
+                                // First row: user (sensor) timestamp
+                                let usr_line = format!("usr ts: {ts_text}");
+                                ui.label(
+                                    egui::RichText::new(usr_line)
+                                        .monospace()
+                                        .size(22.0)
+                                        .color(egui::Color32::WHITE),
+                                );
+
+                                // Second row: system timestamp.
+                                let sys_line = format!("sys ts: {sys_text}");
+                                ui.label(
+                                    egui::RichText::new(sys_line)
+                                        .monospace()
+                                        .size(22.0)
+                                        .color(egui::Color32::WHITE),
+                                );
+
+                                // Third row: latency in milliseconds (if available).
+                                if let Some(latency_ms) = latency_to_show {
+                                    let latency_line =
+                                        format!("latency: {:04}ms", latency_ms.max(0));
+                                    ui.label(
+                                        egui::RichText::new(latency_line)
+                                            .monospace()
+                                            .size(22.0)
+                                            .color(egui::Color32::WHITE),
+                                    );
+                                }
+                            } else {
+                                // No sensor timestamp: only show system timestamp.
+                                let sys_line = format!("sys ts: {sys_text}");
+                                ui.label(
+                                    egui::RichText::new(sys_line)
+                                        .monospace()
+                                        .size(22.0)
+                                        .color(egui::Color32::WHITE),
+                                );
+                            }
+                        });
+                    });
+            }
+        } else {
+            // Original behavior: render only the user (sensor) timestamp, if present.
+            let sensor_timestamp_text = {
+                let shared = self.shared.lock();
+                shared
+                    .sensor_timestamp
+                    .and_then(format_sensor_timestamp)
+            };
+            if let Some(ts_text) = sensor_timestamp_text {
+                let usr_line = format!("usr ts: {ts_text}");
+                egui::Area::new("sensor_timestamp_overlay".into())
+                    .anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
+                    .interactable(false)
+                    .show(ctx, |ui| {
+                        ui.label(
+                            egui::RichText::new(usr_line)
+                                .monospace()
+                                .size(22.0)
+                                .color(egui::Color32::WHITE),
+                        );
+                    });
+            }
+        }
 
         // Simulcast layer controls: bottom-left overlay
         egui::Area::new("simulcast_controls".into())
@@ -192,6 +330,13 @@ async fn main() -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
+    if let Some(ref key) = args.e2ee_key {
+        let key_provider =
+            KeyProvider::with_shared_key(KeyProviderOptions::default(), key.clone().into_bytes());
+        room_options.encryption =
+            Some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
+        info!("E2EE enabled with provided shared key");
+    }
     let (room, _) = Room::connect(&url, &token, room_options).await?;
     let room = Arc::new(room);
     info!("Connected: {} - {}", room.name(), room.sid().await);
@@ -207,6 +352,7 @@ async fn main() -> Result<()> {
         u: Vec::new(),
         v: Vec::new(),
         dirty: false,
+        sensor_timestamp: None,
     }));
 
     // Subscribe to room events: on first video track, start sink task
@@ -357,17 +503,48 @@ async fn main() -> Result<()> {
                                 u_buf.copy_from_slice(du);
                                 v_buf.copy_from_slice(dv);
 
-                                // Swap buffers into shared state
-                                let mut s = shared2.lock();
-                                s.width = w as u32;
-                                s.height = h as u32;
-                                s.stride_y = sy as u32;
-                                s.stride_u = su as u32;
-                                s.stride_v = sv as u32;
-                                std::mem::swap(&mut s.y, &mut y_buf);
-                                std::mem::swap(&mut s.u, &mut u_buf);
-                                std::mem::swap(&mut s.v, &mut v_buf);
-                                s.dirty = true;
+                                // Fetch any parsed sensor timestamp for this frame, if available.
+                                // Treat 0 as "not set".
+                                let ts_opt = video_track
+                                    .last_sensor_timestamp()
+                                    .and_then(|ts| if ts == 0 { None } else { Some(ts) });
+
+                                // Swap buffers into shared state, and only update the
+                                // sensor timestamp when we actually have one. This
+                                // prevents the overlay from flickering on frames that
+                                // don't carry a parsed timestamp.
+                                {
+                                    let mut s = shared2.lock();
+                                    s.width = w as u32;
+                                    s.height = h as u32;
+                                    s.stride_y = sy as u32;
+                                    s.stride_u = su as u32;
+                                    s.stride_v = sv as u32;
+                                    std::mem::swap(&mut s.y, &mut y_buf);
+                                    std::mem::swap(&mut s.u, &mut u_buf);
+                                    std::mem::swap(&mut s.v, &mut v_buf);
+                                    s.dirty = true;
+                                    if let Some(ts) = ts_opt {
+                                        s.sensor_timestamp = Some(ts);
+                                    }
+                                }
+
+                                // Log sensor timestamp + derived latency if available.
+                                if let Some(ts) = ts_opt {
+                                    use std::time::{SystemTime, UNIX_EPOCH};
+                                    let now = SystemTime::now()
+                                        .duration_since(UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_micros() as i64;
+
+                                    let latency_us = now - ts;
+                                    let latency_ms = latency_us as f64 / 1000.0;
+
+                                    info!(
+                                        "Subscriber: decoded frame {}x{} sensor_timestamp={} latency={:.2} ms",
+                                        w, h, ts, latency_ms
+                                    );
+                                }
 
                                 frames += 1;
                                 let elapsed = last_log.elapsed();
@@ -436,327 +613,16 @@ async fn main() -> Result<()> {
     });
 
     // Start UI
-    let app = VideoApp { shared, simulcast };
+    let app = VideoApp {
+        shared,
+        simulcast,
+        show_sys_time: args.show_sys_time,
+        last_latency_ms: None,
+        last_latency_update: None,
+    };
     let native_options = eframe::NativeOptions::default();
     eframe::run_native("LiveKit Video Subscriber", native_options, Box::new(|_| Ok::<Box<dyn eframe::App>, _>(Box::new(app))))?;
 
     Ok(())
 }
-
-
-// ===== WGPU I420 renderer =====
-
-struct YuvPaintCallback {
-    shared: Arc<Mutex<SharedYuv>>,
-}
-
-struct YuvGpuState {
-    pipeline: wgpu::RenderPipeline,
-    sampler: wgpu::Sampler,
-    bind_layout: wgpu::BindGroupLayout,
-    y_tex: wgpu::Texture,
-    u_tex: wgpu::Texture,
-    v_tex: wgpu::Texture,
-    y_view: wgpu::TextureView,
-    u_view: wgpu::TextureView,
-    v_view: wgpu::TextureView,
-    bind_group: wgpu::BindGroup,
-    params_buf: wgpu::Buffer,
-    y_pad_w: u32,
-    uv_pad_w: u32,
-    dims: (u32, u32),
-}
-
-impl YuvGpuState {
-    fn create_textures(device: &wgpu::Device, _width: u32, height: u32, y_pad_w: u32, uv_pad_w: u32) -> (wgpu::Texture, wgpu::Texture, wgpu::Texture, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView) {
-        let y_size = wgpu::Extent3d { width: y_pad_w, height, depth_or_array_layers: 1 };
-        let uv_size = wgpu::Extent3d { width: uv_pad_w, height: (height + 1) / 2, depth_or_array_layers: 1 };
-        let usage = wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING;
-        let desc = |size: wgpu::Extent3d| wgpu::TextureDescriptor {
-            label: Some("yuv_plane"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage,
-            view_formats: &[],
-        };
-        let y_tex = device.create_texture(&desc(y_size));
-        let u_tex = device.create_texture(&desc(uv_size));
-        let v_tex = device.create_texture(&desc(uv_size));
-        let y_view = y_tex.create_view(&wgpu::TextureViewDescriptor::default());
-        let u_view = u_tex.create_view(&wgpu::TextureViewDescriptor::default());
-        let v_view = v_tex.create_view(&wgpu::TextureViewDescriptor::default());
-        (y_tex, u_tex, v_tex, y_view, u_view, v_view)
-    }
-}
-
-fn align_up(value: u32, alignment: u32) -> u32 {
-    ((value + alignment - 1) / alignment) * alignment
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct ParamsUniform {
-    src_w: u32,
-    src_h: u32,
-    y_tex_w: u32,
-    uv_tex_w: u32,
-}
-
-impl CallbackTrait for YuvPaintCallback {
-    fn prepare(&self, device: &wgpu::Device, queue: &wgpu::Queue, _screen_desc: &egui_wgpu_backend::ScreenDescriptor, _encoder: &mut wgpu::CommandEncoder, resources: &mut egui_wgpu_backend::CallbackResources) -> Vec<wgpu::CommandBuffer> {
-        // Initialize or update GPU state lazily based on current frame
-        let mut shared = self.shared.lock();
-
-        // Nothing to draw yet
-        if shared.width == 0 || shared.height == 0 {
-            return Vec::new();
-        }
-
-        // Fetch or create our GPU state
-        if resources.get::<YuvGpuState>().is_none() {
-            // Build pipeline and initial small textures; will be recreated on first upload
-            let shader_src = include_str!("yuv_shader.wgsl");
-            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("yuv_shader"),
-                source: wgpu::ShaderSource::Wgsl(shader_src.into()),
-            });
-
-            let bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("yuv_bind_layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
-                    wgpu::BindGroupLayoutEntry { binding: 3, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: Some(std::num::NonZeroU64::new(std::mem::size_of::<ParamsUniform>() as u64).unwrap()),
-                        },
-                        count: None,
-                    },
-                ],
-            });
-
-            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("yuv_pipeline_layout"),
-                bind_group_layouts: &[&bind_layout],
-                push_constant_ranges: &[],
-            });
-
-            let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("yuv_pipeline"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), buffers: &[], compilation_options: wgpu::PipelineCompilationOptions::default() },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: wgpu::TextureFormat::Bgra8Unorm,
-                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                    compilation_options: wgpu::PipelineCompilationOptions::default(),
-                }),
-                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, strip_index_format: None, front_face: wgpu::FrontFace::Ccw, cull_mode: None, unclipped_depth: false, polygon_mode: wgpu::PolygonMode::Fill, conservative: false },
-                depth_stencil: None,
-                multisample: wgpu::MultisampleState { count: 1, mask: !0, alpha_to_coverage_enabled: false },
-                multiview: None,
-                cache: None,
-            });
-
-            let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-                label: Some("yuv_sampler"),
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                address_mode_w: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                mipmap_filter: wgpu::FilterMode::Nearest,
-                ..Default::default()
-            });
-
-            let params_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("yuv_params"),
-                contents: bytemuck::bytes_of(&ParamsUniform { src_w: 1, src_h: 1, y_tex_w: 1, uv_tex_w: 1 }),
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            });
-
-            // Initial tiny textures
-            let (y_tex, u_tex, v_tex, y_view, u_view, v_view) = YuvGpuState::create_textures(device, 1, 1, 256, 256);
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("yuv_bind_group"),
-                layout: &bind_layout,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&sampler) },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&y_view) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&u_view) },
-                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&v_view) },
-                    wgpu::BindGroupEntry { binding: 4, resource: params_buf.as_entire_binding() },
-                ],
-            });
-
-            let new_state = YuvGpuState {
-                pipeline: render_pipeline,
-                sampler,
-                bind_layout,
-                y_tex,
-                u_tex,
-                v_tex,
-                y_view,
-                u_view,
-                v_view,
-                bind_group,
-                params_buf,
-                y_pad_w: 256,
-                uv_pad_w: 256,
-                dims: (0, 0),
-            };
-            resources.insert(new_state);
-        }
-        let state = resources.get_mut::<YuvGpuState>().unwrap();
-
-        // Upload planes when marked dirty
-        // Recreate textures/bind group on size change
-        if state.dims != (shared.width, shared.height) {
-            let y_pad_w = align_up(shared.width, 256);
-            let uv_w = (shared.width + 1) / 2;
-            let uv_pad_w = align_up(uv_w, 256);
-            let (y_tex, u_tex, v_tex, y_view, u_view, v_view) = YuvGpuState::create_textures(device, shared.width, shared.height, y_pad_w, uv_pad_w);
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("yuv_bind_group"),
-                layout: &state.bind_layout,
-                entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&state.sampler) },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&y_view) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&u_view) },
-                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&v_view) },
-                    wgpu::BindGroupEntry { binding: 4, resource: state.params_buf.as_entire_binding() },
-                ],
-            });
-            state.y_tex = y_tex;
-            state.u_tex = u_tex;
-            state.v_tex = v_tex;
-            state.y_view = y_view;
-            state.u_view = u_view;
-            state.v_view = v_view;
-            state.bind_group = bind_group;
-            state.y_pad_w = y_pad_w;
-            state.uv_pad_w = uv_pad_w;
-            state.dims = (shared.width, shared.height);
-        }
-
-        if shared.dirty {
-            let y_bytes_per_row = align_up(shared.width, 256);
-            let uv_w = (shared.width + 1) / 2;
-            let uv_h = (shared.height + 1) / 2;
-            let uv_bytes_per_row = align_up(uv_w, 256);
-
-            // Pack and upload Y
-            if shared.stride_y >= shared.width {
-                let mut packed = vec![0u8; (y_bytes_per_row * shared.height) as usize];
-                for row in 0..shared.height {
-                    let src = &shared.y[(row * shared.stride_y) as usize..][..shared.width as usize];
-                    let dst_off = (row * y_bytes_per_row) as usize;
-                    packed[dst_off..dst_off + shared.width as usize].copy_from_slice(src);
-                }
-                queue.write_texture(
-                    wgpu::ImageCopyTexture {
-                        texture: &state.y_tex,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    &packed,
-                    wgpu::ImageDataLayout {
-                        offset: 0,
-                        bytes_per_row: Some(y_bytes_per_row),
-                        rows_per_image: Some(shared.height),
-                    },
-                    wgpu::Extent3d { width: state.y_pad_w, height: shared.height, depth_or_array_layers: 1 },
-                );
-            }
-
-            // Pack and upload U,V
-            if shared.stride_u >= uv_w && shared.stride_v >= uv_w {
-                let mut packed_u = vec![0u8; (uv_bytes_per_row * uv_h) as usize];
-                let mut packed_v = vec![0u8; (uv_bytes_per_row * uv_h) as usize];
-                for row in 0..uv_h {
-                    let src_u = &shared.u[(row * shared.stride_u) as usize..][..uv_w as usize];
-                    let src_v = &shared.v[(row * shared.stride_v) as usize..][..uv_w as usize];
-                    let dst_off = (row * uv_bytes_per_row) as usize;
-                    packed_u[dst_off..dst_off + uv_w as usize].copy_from_slice(src_u);
-                    packed_v[dst_off..dst_off + uv_w as usize].copy_from_slice(src_v);
-                }
-                queue.write_texture(
-                    wgpu::ImageCopyTexture { texture: &state.u_tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-                    &packed_u,
-                    wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(uv_bytes_per_row), rows_per_image: Some(uv_h) },
-                    wgpu::Extent3d { width: state.uv_pad_w, height: uv_h, depth_or_array_layers: 1 },
-                );
-                queue.write_texture(
-                    wgpu::ImageCopyTexture { texture: &state.v_tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
-                    &packed_v,
-                    wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(uv_bytes_per_row), rows_per_image: Some(uv_h) },
-                    wgpu::Extent3d { width: state.uv_pad_w, height: uv_h, depth_or_array_layers: 1 },
-                );
-            }
-
-            // Update params uniform
-            let params = ParamsUniform { src_w: shared.width, src_h: shared.height, y_tex_w: state.y_pad_w, uv_tex_w: state.uv_pad_w };
-            queue.write_buffer(&state.params_buf, 0, bytemuck::bytes_of(&params));
-
-            shared.dirty = false;
-        }
-
-        Vec::new()
-    }
-
-    fn paint(&self, _info: egui::PaintCallbackInfo, render_pass: &mut wgpu::RenderPass<'static>, resources: &egui_wgpu_backend::CallbackResources) {
-        // Acquire device/queue via screen_descriptor? Not available; use resources to fetch our state
-        let shared = self.shared.lock();
-        if shared.width == 0 || shared.height == 0 {
-            return;
-        }
-
-        // Build pipeline and textures on first paint or on resize
-        let Some(state) = resources.get::<YuvGpuState>() else {
-            // prepare may not have created the state yet (race with first frame); skip this paint
-            return;
-        };
-
-        if state.dims != (shared.width, shared.height) {
-            // We cannot rebuild here (no device access); skip drawing until next frame where prepare will rebuild
-            return;
-        }
-
-        render_pass.set_pipeline(&state.pipeline);
-        render_pass.set_bind_group(0, &state.bind_group, &[]);
-        // Fullscreen triangle without vertex buffer
-        render_pass.draw(0..3, 0..1);
-    }
-}
-
-// Build or rebuild GPU state. This helper is intended to be called from prepare, but we lack device there in current API constraints.
-// Note: eframe/egui-wgpu provides device in paint via RenderPass context; however, to keep this example concise, we set up the state once externally.
 
