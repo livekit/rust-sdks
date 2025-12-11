@@ -14,7 +14,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use libwebrtc::{native::sensor_timestamp::SensorTimestampStore, prelude::*, stats::RtcStats};
+use libwebrtc::{native::user_timestamp::UserTimestampStore, prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 
@@ -25,7 +25,7 @@ use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 pub struct LocalVideoTrack {
     inner: Arc<TrackInner>,
     source: RtcVideoSource,
-    sensor_timestamp_store: Arc<Mutex<Option<SensorTimestampStore>>>,
+    user_timestamp_store: Arc<Mutex<Option<UserTimestampStore>>>,
 }
 
 impl Debug for LocalVideoTrack {
@@ -48,7 +48,7 @@ impl LocalVideoTrack {
                 MediaStreamTrack::Video(rtc_track),
             )),
             source,
-            sensor_timestamp_store: Arc::new(Mutex::new(None)),
+            user_timestamp_store: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -126,16 +126,16 @@ impl LocalVideoTrack {
         self.source.clone()
     }
 
-    /// Returns the sensor timestamp store associated with this track, if any.
-    /// When present, callers can push per-frame sensor timestamps into the
+    /// Returns the user timestamp store associated with this track, if any.
+    /// When present, callers can push per-frame user timestamps into the
     /// outgoing queue which will then be embedded into encoded frames.
-    pub fn sensor_timestamp_store(&self) -> Option<SensorTimestampStore> {
-        self.sensor_timestamp_store.lock().clone()
+    pub fn user_timestamp_store(&self) -> Option<UserTimestampStore> {
+        self.user_timestamp_store.lock().clone()
     }
 
-    /// Internal: set the sensor timestamp store used for this track.
-    pub(crate) fn set_sensor_timestamp_store(&self, store: SensorTimestampStore) {
-        *self.sensor_timestamp_store.lock() = Some(store);
+    /// Internal: set the user timestamp store used for this track.
+    pub(crate) fn set_user_timestamp_store(&self, store: UserTimestampStore) {
+        *self.user_timestamp_store.lock() = Some(store);
     }
 
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {

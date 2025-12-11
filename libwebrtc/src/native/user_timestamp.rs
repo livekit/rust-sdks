@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Sensor timestamp support for end-to-end timestamp propagation.
+//! User timestamp support for end-to-end timestamp propagation.
 //!
-//! This module provides functionality to embed sensor/hardware timestamps
+//! This module provides functionality to embed user-supplied timestamps
 //! in encoded video frames as trailers. The timestamps are preserved
 //! through the WebRTC pipeline and can be extracted on the receiver side.
 //!
@@ -22,7 +22,7 @@
 //! embedded even when encryption is disabled.
 
 use cxx::SharedPtr;
-use webrtc_sys::sensor_timestamp::ffi as sys_st;
+use webrtc_sys::user_timestamp::ffi as sys_ut;
 
 use crate::{
     peer_connection_factory::PeerConnectionFactory,
@@ -30,39 +30,39 @@ use crate::{
     rtp_sender::RtpSender,
 };
 
-/// Thread-safe store for mapping capture timestamps to sensor timestamps.
+/// Thread-safe store for mapping capture timestamps to user timestamps.
 ///
 /// Used on the sender side to correlate video frame capture time with
-/// the sensor timestamp that should be embedded in the encoded frame.
+/// the user timestamp that should be embedded in the encoded frame.
 #[derive(Clone)]
-pub struct SensorTimestampStore {
-    sys_handle: SharedPtr<sys_st::SensorTimestampStore>,
+pub struct UserTimestampStore {
+    sys_handle: SharedPtr<sys_ut::UserTimestampStore>,
 }
 
-impl SensorTimestampStore {
-    /// Create a new sensor timestamp store.
+impl UserTimestampStore {
+    /// Create a new user timestamp store.
     pub fn new() -> Self {
         Self {
-            sys_handle: sys_st::new_sensor_timestamp_store(),
+            sys_handle: sys_ut::new_user_timestamp_store(),
         }
     }
 
-    /// Store a sensor timestamp associated with a capture timestamp.
+    /// Store a user timestamp associated with a capture timestamp.
     ///
-    /// Call this when capturing a video frame with a sensor timestamp.
+    /// Call this when capturing a video frame with a user timestamp.
     /// The `capture_timestamp_us` should match the `timestamp_us` field
     /// of the VideoFrame.
-    pub fn store(&self, capture_timestamp_us: i64, sensor_timestamp_us: i64) {
+    pub fn store(&self, capture_timestamp_us: i64, user_timestamp_us: i64) {
         log::info!(
-            target: "sensor_timestamp",
-            "store: capture_ts_us={}, sensor_ts_us={}",
+            target: "user_timestamp",
+            "store: capture_ts_us={}, user_ts_us={}",
             capture_timestamp_us,
-            sensor_timestamp_us
+            user_timestamp_us
         );
-        self.sys_handle.store(capture_timestamp_us, sensor_timestamp_us);
+        self.sys_handle.store(capture_timestamp_us, user_timestamp_us);
     }
 
-    /// Lookup a sensor timestamp by capture timestamp (for debugging).
+    /// Lookup a user timestamp by capture timestamp (for debugging).
     /// Returns None if not found.
     pub fn lookup(&self, capture_timestamp_us: i64) -> Option<i64> {
         let result = self.sys_handle.lookup(capture_timestamp_us);
@@ -73,7 +73,7 @@ impl SensorTimestampStore {
         }
     }
 
-    /// Pop the oldest sensor timestamp from the queue.
+    /// Pop the oldest user timestamp from the queue.
     /// Returns None if the queue is empty.
     pub fn pop(&self) -> Option<i64> {
         let result = self.sys_handle.pop();
@@ -84,7 +84,7 @@ impl SensorTimestampStore {
         }
     }
 
-    /// Peek at the oldest sensor timestamp without removing it.
+    /// Peek at the oldest user timestamp without removing it.
     /// Returns None if the queue is empty.
     pub fn peek(&self) -> Option<i64> {
         let result = self.sys_handle.peek();
@@ -100,30 +100,30 @@ impl SensorTimestampStore {
         self.sys_handle.prune(max_age_us);
     }
 
-    pub(crate) fn sys_handle(&self) -> SharedPtr<sys_st::SensorTimestampStore> {
+    pub(crate) fn sys_handle(&self) -> SharedPtr<sys_ut::UserTimestampStore> {
         self.sys_handle.clone()
     }
 }
 
-impl Default for SensorTimestampStore {
+impl Default for UserTimestampStore {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Handler for sensor timestamp embedding/extraction on RTP streams.
+/// Handler for user timestamp embedding/extraction on RTP streams.
 ///
-/// For sender side: Embeds sensor timestamps as 12-byte trailers on
+/// For sender side: Embeds user timestamps as 12-byte trailers on
 /// encoded frames before they are sent.
 ///
-/// For receiver side: Extracts sensor timestamps from received frames
+/// For receiver side: Extracts user timestamps from received frames
 /// and makes them available for retrieval.
 #[derive(Clone)]
-pub struct SensorTimestampHandler {
-    sys_handle: SharedPtr<sys_st::SensorTimestampHandler>,
+pub struct UserTimestampHandler {
+    sys_handle: SharedPtr<sys_ut::UserTimestampHandler>,
 }
 
-impl SensorTimestampHandler {
+impl UserTimestampHandler {
     /// Enable or disable timestamp embedding/extraction.
     pub fn set_enabled(&self, enabled: bool) {
         self.sys_handle.set_enabled(enabled);
@@ -134,11 +134,11 @@ impl SensorTimestampHandler {
         self.sys_handle.enabled()
     }
 
-    /// Get the last received sensor timestamp (receiver side only).
+    /// Get the last received user timestamp (receiver side only).
     /// Returns None if no timestamp has been received yet.
-    pub fn last_sensor_timestamp(&self) -> Option<i64> {
-        if self.sys_handle.has_sensor_timestamp() {
-            let ts = self.sys_handle.last_sensor_timestamp();
+    pub fn last_user_timestamp(&self) -> Option<i64> {
+        if self.sys_handle.has_user_timestamp() {
+            let ts = self.sys_handle.last_user_timestamp();
             if ts >= 0 {
                 Some(ts)
             } else {
@@ -149,22 +149,22 @@ impl SensorTimestampHandler {
         }
     }
 
-    pub(crate) fn sys_handle(&self) -> SharedPtr<sys_st::SensorTimestampHandler> {
+    pub(crate) fn sys_handle(&self) -> SharedPtr<sys_ut::UserTimestampHandler> {
         self.sys_handle.clone()
     }
 }
 
-/// Create a sender-side sensor timestamp handler.
+/// Create a sender-side user timestamp handler.
 ///
-/// This handler will embed sensor timestamps from the provided store
+/// This handler will embed user timestamps from the provided store
 /// into encoded frames before they are packetized and sent.
 pub fn create_sender_handler(
     peer_factory: &PeerConnectionFactory,
-    store: &SensorTimestampStore,
+    store: &UserTimestampStore,
     sender: &RtpSender,
-) -> SensorTimestampHandler {
-    SensorTimestampHandler {
-        sys_handle: sys_st::new_sensor_timestamp_sender(
+) -> UserTimestampHandler {
+    UserTimestampHandler {
+        sys_handle: sys_ut::new_user_timestamp_sender(
             peer_factory.handle.sys_handle.clone(),
             store.sys_handle(),
             sender.handle.sys_handle.clone(),
@@ -172,21 +172,22 @@ pub fn create_sender_handler(
     }
 }
 
-/// Create a receiver-side sensor timestamp handler.
+/// Create a receiver-side user timestamp handler.
 ///
-/// This handler will extract sensor timestamps from received frames
-/// and make them available via `last_sensor_timestamp()`.
+/// This handler will extract user timestamps from received frames
+/// and make them available via `last_user_timestamp()`.
 pub fn create_receiver_handler(
     peer_factory: &PeerConnectionFactory,
-    store: &SensorTimestampStore,
+    store: &UserTimestampStore,
     receiver: &RtpReceiver,
-) -> SensorTimestampHandler {
-    SensorTimestampHandler {
-        sys_handle: sys_st::new_sensor_timestamp_receiver(
+) -> UserTimestampHandler {
+    UserTimestampHandler {
+        sys_handle: sys_ut::new_user_timestamp_receiver(
             peer_factory.handle.sys_handle.clone(),
             store.sys_handle(),
             receiver.handle.sys_handle.clone(),
         ),
     }
 }
+
 

@@ -50,10 +50,10 @@ impl Default for PeerConnectionFactory {
                     .or(msg.strip_suffix('\n'))
                     .unwrap_or(&msg);
 
-                // Route sensor timestamp transformer logs to a dedicated target so they can
+                // Route user timestamp transformer logs to a dedicated target so they can
                 // be enabled independently from the very noisy general libwebrtc logs.
-                if msg.contains("SensorTimestampTransformer") {
-                    log::info!(target: "sensor_timestamp_rtp", "{}", msg);
+                if msg.contains("UserTimestampTransformer") {
+                    log::info!(target: "user_timestamp_rtp", "{}", msg);
                 } else {
                     log::debug!(target: "libwebrtc", "{}", msg);
                 }

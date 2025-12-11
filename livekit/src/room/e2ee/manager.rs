@@ -19,7 +19,7 @@ use libwebrtc::{
         frame_cryptor::{
             DataPacketCryptor, EncryptedPacket, EncryptionAlgorithm, EncryptionState, FrameCryptor,
         },
-        sensor_timestamp::{self, SensorTimestampStore},
+        user_timestamp::{self, UserTimestampStore},
     },
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
@@ -38,8 +38,8 @@ use crate::{
 type StateChangedHandler = Box<dyn Fn(ParticipantIdentity, EncryptionState) + Send>;
 
 struct ManagerInner {
-    options: Option<E2eeOptions>, // If Some, it means the e2ee was initialized
-    enabled: bool,                // Used to enable/disable e2ee
+    options: Option<E2eeOptions>,
+    enabled: bool,
     dc_encryption_enabled: bool,
     frame_cryptors: HashMap<(ParticipantIdentity, TrackSid), FrameCryptor>,
     data_packet_cryptor: Option<DataPacketCryptor>,
@@ -52,18 +52,14 @@ pub struct E2eeManager {
 }
 
 impl E2eeManager {
-    /// E2eeOptions is an optional parameter. We may support to reconfigure e2ee after connect in
-    /// the future.
     pub(crate) fn new(options: Option<E2eeOptions>, with_dc_encryption: bool) -> Self {
-        // Create DataPacketCryptor whenever E2EE options are available
-        // This allows for decryption even if we're not encrypting our own data
         let data_packet_cryptor = options.as_ref().map(|opts| {
             DataPacketCryptor::new(EncryptionAlgorithm::AesGcm, opts.key_provider.handle.clone())
         });
 
         Self {
             inner: Arc::new(Mutex::new(ManagerInner {
-                enabled: options.is_some(), // Enabled by default if options is provided
+                enabled: options.is_some(),
                 dc_encryption_enabled: options.is_some() && with_dc_encryption,
                 options,
                 frame_cryptors: HashMap::new(),
@@ -81,8 +77,6 @@ impl E2eeManager {
         inner.frame_cryptors.clear();
     }
 
-    /// Register to e2ee state changes
-    /// Used by the room to dispatch the event to the room dispatcher
     pub(crate) fn on_state_changed(
         &self,
         handler: impl Fn(ParticipantIdentity, EncryptionState) + Send + 'static,
@@ -94,7 +88,6 @@ impl E2eeManager {
         self.inner.lock().options.is_some()
     }
 
-    /// Called by the room
     pub(crate) fn on_track_subscribed(
         &self,
         track: RemoteTrack,
@@ -103,18 +96,18 @@ impl E2eeManager {
     ) {
         let identity = participant.identity();
         let receiver = track.transceiver().unwrap().receiver();
-        // Always set up sensor timestamp extraction for remote video tracks.
+
+        // Always set up user timestamp extraction for remote video tracks.
         if let RemoteTrack::Video(video_track) = &track {
-            let store = SensorTimestampStore::new();
-            let handler = sensor_timestamp::create_receiver_handler(
+            let store = UserTimestampStore::new();
+            let handler = user_timestamp::create_receiver_handler(
                 LkRuntime::instance().pc_factory(),
                 &store,
                 &receiver,
             );
-            video_track.set_sensor_timestamp_handler(handler);
+            video_track.set_user_timestamp_handler(handler);
         }
 
-        // E2EE frame cryptor is only created when encryption is configured.
         if !self.initialized() || publication.encryption_type() == EncryptionType::None {
             return;
         }
@@ -126,7 +119,6 @@ impl E2eeManager {
         inner.frame_cryptors.insert((identity, publication.sid()), frame_cryptor.clone());
     }
 
-    /// Called by the room
     pub(crate) fn on_local_track_published(
         &self,
         track: LocalTrack,
@@ -135,21 +127,18 @@ impl E2eeManager {
     ) {
         let identity = participant.identity();
         let sender = track.transceiver().unwrap().sender();
-        // Always set up sensor timestamp embedding for local video tracks.
+
+        // Always set up user timestamp embedding for local video tracks.
         if let LocalTrack::Video(video_track) = &track {
-            let store = SensorTimestampStore::new();
-            video_track.set_sensor_timestamp_store(store.clone());
-            let _handler = sensor_timestamp::create_sender_handler(
+            let store = UserTimestampStore::new();
+            video_track.set_user_timestamp_store(store.clone());
+            let _handler = user_timestamp::create_sender_handler(
                 LkRuntime::instance().pc_factory(),
                 &store,
                 &sender,
             );
-            // We rely on the underlying WebRTC objects to hold references to the
-            // transformer; the Rust-side handler object is kept only for lifetime
-            // management when needed.
         }
 
-        // E2EE frame cryptor is only created when encryption is configured.
         if !self.initialized() || publication.encryption_type() == EncryptionType::None {
             return;
         }
@@ -170,7 +159,6 @@ impl E2eeManager {
         })));
     }
 
-    /// Called by the room
     pub(crate) fn on_local_track_unpublished(
         &self,
         publication: LocalTrackPublication,
@@ -179,7 +167,6 @@ impl E2eeManager {
         self.remove_frame_cryptor(participant.identity(), publication.sid());
     }
 
-    /// Called by the room
     pub(crate) fn on_track_unsubscribed(
         &self,
         _: RemoteTrack,
@@ -267,7 +254,6 @@ impl E2eeManager {
         inner.frame_cryptors.remove(&(participant_identity, track_sid));
     }
 
-    /// Decrypt data received from a data channel
     pub fn handle_encrypted_data(
         &self,
         data: &[u8],
@@ -276,7 +262,6 @@ impl E2eeManager {
         key_index: u32,
     ) -> Option<Vec<u8>> {
         let inner = self.inner.lock();
-
         let data_packet_cryptor = inner.data_packet_cryptor.as_ref()?;
 
         let encrypted_packet = EncryptedPacket { data: data.to_vec(), iv: iv.to_vec(), key_index };
@@ -290,7 +275,6 @@ impl E2eeManager {
         }
     }
 
-    /// Encrypt data for transmission over a data channel
     pub fn encrypt_data(
         &self,
         data: &[u8],

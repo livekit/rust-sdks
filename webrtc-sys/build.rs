@@ -49,7 +49,7 @@ fn main() {
         "src/android.rs",
         "src/prohibit_libsrtp_initialization.rs",
         "src/apm.rs",
-        "src/sensor_timestamp.rs",
+        "src/user_timestamp.rs",
     ]);
 
     builder.files(&[
@@ -78,7 +78,7 @@ fn main() {
         "src/global_task_queue.cpp",
         "src/prohibit_libsrtp_initialization.cpp",
         "src/apm.cpp",
-        "src/sensor_timestamp.cpp",
+        "src/user_timestamp.cpp",
     ]);
 
     let webrtc_dir = webrtc_sys_build::webrtc_dir();

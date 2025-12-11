@@ -39,32 +39,34 @@
 
 namespace livekit {
 
-// Magic bytes to identify sensor timestamp trailers: "LKTS" (LiveKit TimeStamp)
-constexpr uint8_t kSensorTimestampMagic[4] = {'L', 'K', 'T', 'S'};
-constexpr size_t kSensorTimestampTrailerSize = 12;  // 8 bytes timestamp + 4 bytes magic
+// Magic bytes to identify user timestamp trailers: "LKTS" (LiveKit TimeStamp)
+constexpr uint8_t kUserTimestampMagic[4] = {'L', 'K', 'T', 'S'};
+constexpr size_t kUserTimestampTrailerSize =
+    12;  // 8 bytes timestamp + 4 bytes magic
 
-/// Thread-safe FIFO queue for sensor timestamps.
-/// Used on the sender side to pass sensor timestamps to the transformer.
+/// Thread-safe FIFO queue for user timestamps.
+/// Used on the sender side to pass user timestamps to the transformer.
 /// Works on the assumption that frames are captured and encoded in order.
-class SensorTimestampStore {
+class UserTimestampStore {
  public:
-  SensorTimestampStore() = default;
-  ~SensorTimestampStore() = default;
+  UserTimestampStore() = default;
+  ~UserTimestampStore() = default;
 
-  /// Push a sensor timestamp to the queue.
-  /// Call this when capturing a video frame with a sensor timestamp.
-  void store(int64_t capture_timestamp_us, int64_t sensor_timestamp_us) const;
+  /// Push a user timestamp to the queue.
+  /// Call this when capturing a video frame with a user timestamp.
+  void store(int64_t capture_timestamp_us,
+             int64_t user_timestamp_us) const;
 
-  /// Pop and return the next sensor timestamp from the queue.
-  /// Returns -1 if the queue is empty.
+  /// Lookup a user timestamp by capture timestamp (for debugging).
+  /// Returns -1 if not found.
   int64_t lookup(int64_t capture_timestamp_us) const;
 
   /// Pop the oldest entry if the queue has entries.
-  /// Returns the sensor timestamp, or -1 if empty.
+  /// Returns the user timestamp, or -1 if empty.
   int64_t pop() const;
 
   /// Peek at the oldest entry without removing it.
-  /// Returns the sensor timestamp, or -1 if empty.
+  /// Returns the user timestamp, or -1 if empty.
   int64_t peek() const;
 
   /// Clear old entries (older than the given threshold in microseconds).
@@ -74,22 +76,21 @@ class SensorTimestampStore {
   mutable webrtc::Mutex mutex_;
   struct Entry {
     int64_t capture_timestamp_us;
-    int64_t sensor_timestamp_us;
+    int64_t user_timestamp_us;
   };
   mutable std::deque<Entry> entries_;
   static constexpr size_t kMaxEntries = 300;  // ~10 seconds at 30fps
 };
 
-/// Frame transformer that appends/extracts sensor timestamp trailers.
+/// Frame transformer that appends/extracts user timestamp trailers.
 /// This transformer can be used standalone or in conjunction with e2ee.
-class SensorTimestampTransformer
-    : public webrtc::FrameTransformerInterface {
+class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
  public:
   enum class Direction { kSend, kReceive };
 
-  SensorTimestampTransformer(Direction direction,
-                             std::shared_ptr<SensorTimestampStore> store);
-  ~SensorTimestampTransformer() override = default;
+  UserTimestampTransformer(Direction direction,
+                           std::shared_ptr<UserTimestampStore> store);
+  ~UserTimestampTransformer() override = default;
 
   // FrameTransformerInterface implementation
   void Transform(
@@ -106,8 +107,8 @@ class SensorTimestampTransformer
   void set_enabled(bool enabled);
   bool enabled() const;
 
-  /// Get the last received sensor timestamp (receiver side only)
-  std::optional<int64_t> last_sensor_timestamp() const;
+  /// Get the last received user timestamp (receiver side only)
+  std::optional<int64_t> last_user_timestamp() const;
 
  private:
   void TransformSend(
@@ -115,72 +116,75 @@ class SensorTimestampTransformer
   void TransformReceive(
       std::unique_ptr<webrtc::TransformableFrameInterface> frame);
 
-  /// Append sensor timestamp trailer to frame data
+  /// Append user timestamp trailer to frame data
   std::vector<uint8_t> AppendTimestampTrailer(
       rtc::ArrayView<const uint8_t> data,
-      int64_t sensor_timestamp_us);
+      int64_t user_timestamp_us);
 
-  /// Extract and remove sensor timestamp trailer from frame data
-  /// Returns the sensor timestamp if found, nullopt otherwise
+  /// Extract and remove user timestamp trailer from frame data
+  /// Returns the user timestamp if found, nullopt otherwise
   std::optional<int64_t> ExtractTimestampTrailer(
       rtc::ArrayView<const uint8_t> data,
       std::vector<uint8_t>& out_data);
 
   const Direction direction_;
-  std::shared_ptr<SensorTimestampStore> store_;
+  std::shared_ptr<UserTimestampStore> store_;
   std::atomic<bool> enabled_{true};
   mutable webrtc::Mutex mutex_;
   rtc::scoped_refptr<webrtc::TransformedFrameCallback> callback_;
   std::unordered_map<uint32_t,
                      rtc::scoped_refptr<webrtc::TransformedFrameCallback>>
       sink_callbacks_;
-  mutable std::atomic<int64_t> last_sensor_timestamp_{0};
-  mutable std::atomic<bool> has_last_sensor_timestamp_{false};
+  mutable std::atomic<int64_t> last_user_timestamp_{0};
+  mutable std::atomic<bool> has_last_user_timestamp_{false};
 };
 
-/// Wrapper class for Rust FFI that manages sensor timestamp transformers.
-class SensorTimestampHandler {
+/// Wrapper class for Rust FFI that manages user timestamp transformers.
+class UserTimestampHandler {
  public:
-  SensorTimestampHandler(std::shared_ptr<RtcRuntime> rtc_runtime,
-                         std::shared_ptr<SensorTimestampStore> store,
-                         rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
+  UserTimestampHandler(
+      std::shared_ptr<RtcRuntime> rtc_runtime,
+      std::shared_ptr<UserTimestampStore> store,
+      rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
 
-  SensorTimestampHandler(std::shared_ptr<RtcRuntime> rtc_runtime,
-                         std::shared_ptr<SensorTimestampStore> store,
-                         rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
+  UserTimestampHandler(
+      std::shared_ptr<RtcRuntime> rtc_runtime,
+      std::shared_ptr<UserTimestampStore> store,
+      rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
 
-  ~SensorTimestampHandler() = default;
+  ~UserTimestampHandler() = default;
 
   /// Enable/disable timestamp embedding
   void set_enabled(bool enabled) const;
   bool enabled() const;
 
-  /// Get the last received sensor timestamp (receiver side only)
+  /// Get the last received user timestamp (receiver side only)
   /// Returns -1 if no timestamp has been received yet
-  int64_t last_sensor_timestamp() const;
+  int64_t last_user_timestamp() const;
 
-  /// Check if a sensor timestamp has been received
-  bool has_sensor_timestamp() const;
+  /// Check if a user timestamp has been received
+  bool has_user_timestamp() const;
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  rtc::scoped_refptr<SensorTimestampTransformer> transformer_;
+  rtc::scoped_refptr<UserTimestampTransformer> transformer_;
   rtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
 };
 
 // Factory functions for Rust FFI
-std::shared_ptr<SensorTimestampStore> new_sensor_timestamp_store();
+std::shared_ptr<UserTimestampStore> new_user_timestamp_store();
 
-std::shared_ptr<SensorTimestampHandler> new_sensor_timestamp_sender(
+std::shared_ptr<UserTimestampHandler> new_user_timestamp_sender(
     std::shared_ptr<PeerConnectionFactory> peer_factory,
-    std::shared_ptr<SensorTimestampStore> store,
+    std::shared_ptr<UserTimestampStore> store,
     std::shared_ptr<RtpSender> sender);
 
-std::shared_ptr<SensorTimestampHandler> new_sensor_timestamp_receiver(
+std::shared_ptr<UserTimestampHandler> new_user_timestamp_receiver(
     std::shared_ptr<PeerConnectionFactory> peer_factory,
-    std::shared_ptr<SensorTimestampStore> store,
+    std::shared_ptr<UserTimestampStore> store,
     std::shared_ptr<RtpReceiver> receiver);
 
 }  // namespace livekit
+
 

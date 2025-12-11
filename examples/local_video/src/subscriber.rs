@@ -102,7 +102,7 @@ fn simulcast_state_full_dims(
     sc.full_dims
 }
 
-fn format_sensor_timestamp(ts_micros: i64) -> Option<String> {
+fn format_user_timestamp(ts_micros: i64) -> Option<String> {
     if ts_micros == 0 {
         // Treat 0 as "not set"
         return None;
@@ -162,10 +162,10 @@ impl eframe::App for VideoApp {
         if self.show_sys_time {
             let (sensor_raw, sensor_text, sys_raw, sys_text_opt) = {
                 let shared = self.shared.lock();
-                let sensor_raw = shared.sensor_timestamp;
-                let sensor_text = sensor_raw.and_then(format_sensor_timestamp);
+                let sensor_raw = shared.user_timestamp;
+                let sensor_text = sensor_raw.and_then(format_user_timestamp);
                 let sys_raw = now_unix_timestamp_micros();
-                let sys_text = format_sensor_timestamp(sys_raw);
+                let sys_text = format_user_timestamp(sys_raw);
                 (sensor_raw, sensor_text, sys_raw, sys_text)
             };
 
@@ -241,16 +241,16 @@ impl eframe::App for VideoApp {
                     });
             }
         } else {
-            // Original behavior: render only the user (sensor) timestamp, if present.
-            let sensor_timestamp_text = {
+            // Original behavior: render only the user (application) timestamp, if present.
+            let user_timestamp_text = {
                 let shared = self.shared.lock();
                 shared
-                    .sensor_timestamp
-                    .and_then(format_sensor_timestamp)
+                    .user_timestamp
+                    .and_then(format_user_timestamp)
             };
-            if let Some(ts_text) = sensor_timestamp_text {
+            if let Some(ts_text) = user_timestamp_text {
                 let usr_line = format!("usr ts: {ts_text}");
-                egui::Area::new("sensor_timestamp_overlay".into())
+                egui::Area::new("user_timestamp_overlay".into())
                     .anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
                     .interactable(false)
                     .show(ctx, |ui| {
@@ -352,7 +352,7 @@ async fn main() -> Result<()> {
         u: Vec::new(),
         v: Vec::new(),
         dirty: false,
-        sensor_timestamp: None,
+        user_timestamp: None,
     }));
 
     // Subscribe to room events: on first video track, start sink task
@@ -503,10 +503,10 @@ async fn main() -> Result<()> {
                                 u_buf.copy_from_slice(du);
                                 v_buf.copy_from_slice(dv);
 
-                                // Fetch any parsed sensor timestamp for this frame, if available.
+                                // Fetch any parsed user timestamp for this frame, if available.
                                 // Treat 0 as "not set".
                                 let ts_opt = video_track
-                                    .last_sensor_timestamp()
+                                    .last_user_timestamp()
                                     .and_then(|ts| if ts == 0 { None } else { Some(ts) });
 
                                 // Swap buffers into shared state, and only update the
@@ -525,11 +525,11 @@ async fn main() -> Result<()> {
                                     std::mem::swap(&mut s.v, &mut v_buf);
                                     s.dirty = true;
                                     if let Some(ts) = ts_opt {
-                                        s.sensor_timestamp = Some(ts);
+                                        s.user_timestamp = Some(ts);
                                     }
                                 }
 
-                                // Log sensor timestamp + derived latency if available.
+                                // Log user timestamp + derived latency if available.
                                 if let Some(ts) = ts_opt {
                                     use std::time::{SystemTime, UNIX_EPOCH};
                                     let now = SystemTime::now()
@@ -541,7 +541,7 @@ async fn main() -> Result<()> {
                                     let latency_ms = latency_us as f64 / 1000.0;
 
                                     info!(
-                                        "Subscriber: decoded frame {}x{} sensor_timestamp={} latency={:.2} ms",
+                                        "Subscriber: decoded frame {}x{} user_timestamp={} latency={:.2} ms",
                                         w, h, ts, latency_ms
                                     );
                                 }

@@ -84,7 +84,7 @@ impl sys_vt::VideoSink for VideoTrackObserver {
         let _ = self.frame_tx.send(VideoFrame {
             rotation: frame.rotation().into(),
             timestamp_us: frame.timestamp_us(),
-            sensor_timestamp_us: None,
+            user_timestamp_us: None,
             buffer: new_video_frame_buffer(unsafe { frame.video_frame_buffer() }),
         });
     }

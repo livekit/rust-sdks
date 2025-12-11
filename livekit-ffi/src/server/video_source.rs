@@ -66,7 +66,7 @@ impl FfiVideoSource {
                     rotation: capture.rotation().into(),
                     buffer,
                     timestamp_us: capture.timestamp_us,
-                    sensor_timestamp_us: None,
+                    user_timestamp_us: None,
                 };
 
                 source.capture_frame(&frame);

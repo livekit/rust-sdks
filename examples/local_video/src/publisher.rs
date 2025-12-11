@@ -22,7 +22,7 @@ use yuv_sys as yuv_sys;
 mod yuv_viewer;
 use yuv_viewer::{SharedYuv, YuvPaintCallback};
 
-fn format_sensor_timestamp(ts_micros: i64) -> Option<String> {
+fn format_user_timestamp(ts_micros: i64) -> Option<String> {
     if ts_micros == 0 {
         // Treat 0 as "not set"
         return None;
@@ -93,11 +93,11 @@ struct Args {
     #[arg(long)]
     e2ee_key: Option<String>,
 
-    /// Attach sensor timestamps to published frames (for testing)
+    /// Attach user timestamps to published frames (for testing)
     #[arg(long, default_value_t = false)]
-    sensor_timestamp: bool,
+    user_timestamp: bool,
 
-    /// Show system time and delta vs sensor timestamp in the preview overlay
+    /// Show system time and delta vs user timestamp in the preview overlay
     #[arg(long, default_value_t = false)]
     show_sys_time: bool,
 
@@ -270,7 +270,7 @@ async fn main() -> Result<()> {
             u: Vec::new(),
             v: Vec::new(),
             dirty: false,
-            sensor_timestamp: None,
+            user_timestamp: None,
         })))
     } else {
         None
@@ -279,13 +279,13 @@ async fn main() -> Result<()> {
     // Spawn the capture loop on the Tokio runtime so we can optionally run an egui
     // preview window on the main thread.
     let capture_shared = shared_preview.clone();
-    let show_sensor_ts = args.sensor_timestamp;
+    let show_sensor_ts = args.user_timestamp;
     let capture_handle = tokio::spawn(async move {
         // Reusable I420 buffer and frame
         let mut frame = VideoFrame {
             rotation: VideoRotation::VideoRotation0,
             timestamp_us: 0,
-            sensor_timestamp_us: None,
+            user_timestamp_us: None,
             buffer: I420Buffer::new(width, height),
         };
         let is_yuyv = fmt.format() == FrameFormat::YUYV;
@@ -467,15 +467,15 @@ async fn main() -> Result<()> {
             // Update RTP timestamp (monotonic, microseconds since start)
             frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
 
-            // Optionally attach a sensor timestamp captured at the top of the loop and
-            // push it into the shared queue used by the sensor timestamp transformer.
+            // Optionally attach a user timestamp captured at the top of the loop and
+            // push it into the shared queue used by the user timestamp transformer.
             if show_sensor_ts {
-                if let (Some(store), Some(sensor_ts)) = (track.sensor_timestamp_store(), loop_sensor_ts) {
-                    frame.sensor_timestamp_us = Some(sensor_ts);
+                if let (Some(store), Some(sensor_ts)) = (track.user_timestamp_store(), loop_sensor_ts) {
+                    frame.user_timestamp_us = Some(sensor_ts);
                     store.store(frame.timestamp_us, sensor_ts);
                     last_sensor_ts = Some(sensor_ts);
                     info!(
-                        "Publisher: attached sensor_timestamp_us={} for capture_ts={}",
+                        "Publisher: attached user_timestamp_us={} for capture_ts={}",
                         sensor_ts, frame.timestamp_us
                     );
                 }
@@ -512,7 +512,7 @@ async fn main() -> Result<()> {
                 std::mem::swap(&mut s.u, &mut u_buf);
                 std::mem::swap(&mut s.v, &mut v_buf);
                 s.dirty = true;
-                s.sensor_timestamp = last_sensor_ts;
+                s.user_timestamp = last_sensor_ts;
             }
 
             rtc_source.capture_frame(&frame);
@@ -609,10 +609,10 @@ async fn main() -> Result<()> {
                 if self.show_sys_time {
                     let (sensor_raw, sensor_text, sys_raw, sys_text_opt) = {
                         let shared = self.shared.lock();
-                        let sensor_raw = shared.sensor_timestamp;
-                        let sensor_text = sensor_raw.and_then(format_sensor_timestamp);
+                        let sensor_raw = shared.user_timestamp;
+                        let sensor_text = sensor_raw.and_then(format_user_timestamp);
                         let sys_raw = now_unix_timestamp_micros();
-                        let sys_text = format_sensor_timestamp(sys_raw);
+                        let sys_text = format_user_timestamp(sys_raw);
                         (sensor_raw, sensor_text, sys_raw, sys_text)
                     };
 
@@ -688,16 +688,16 @@ async fn main() -> Result<()> {
                             });
                     }
                 } else {
-                    // Original behavior: render only the user (sensor) timestamp, if present.
-                    let sensor_timestamp_text = {
+                    // Original behavior: render only the user (application) timestamp, if present.
+                    let user_timestamp_text = {
                         let shared = self.shared.lock();
                         shared
-                            .sensor_timestamp
-                            .and_then(format_sensor_timestamp)
+                            .user_timestamp
+                            .and_then(format_user_timestamp)
                     };
-                    if let Some(ts_text) = sensor_timestamp_text {
+                    if let Some(ts_text) = user_timestamp_text {
                         let usr_line = format!("usr ts: {ts_text}");
-                        egui::Area::new("publisher_sensor_timestamp_overlay".into())
+                        egui::Area::new("publisher_user_timestamp_overlay".into())
                             .anchor(egui::Align2::LEFT_TOP, egui::vec2(20.0, 20.0))
                             .interactable(false)
                             .show(ctx, |ui| {

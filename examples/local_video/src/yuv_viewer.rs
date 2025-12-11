@@ -16,8 +16,8 @@ pub struct SharedYuv {
     pub u: Vec<u8>,
     pub v: Vec<u8>,
     pub dirty: bool,
-    /// Optional sensor timestamp in microseconds since UNIX epoch.
-    pub sensor_timestamp: Option<i64>,
+    /// Optional user timestamp in microseconds since UNIX epoch.
+    pub user_timestamp: Option<i64>,
 }
 
 /// egui-wgpu callback that renders a fullscreen quad from a `SharedYuv` buffer.
