@@ -20,6 +20,7 @@ pub mod audio_source;
 pub mod audio_stream;
 pub mod audio_track;
 pub mod data_channel;
+pub mod desktop_capturer;
 pub mod frame_cryptor;
 pub mod ice_candidate;
 pub mod media_stream;

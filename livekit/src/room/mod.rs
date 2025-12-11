@@ -234,6 +234,9 @@ pub enum RoomEvent {
     ParticipantsUpdated {
         participants: Vec<Participant>,
     },
+    TokenRefreshed {
+        token: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1186,11 +1189,13 @@ impl RoomSession {
                 sdp: answer.to_string(),
                 r#type: answer.sdp_type().to_string(),
                 id: 0,
+                mid_to_track_id: Default::default(),
             }),
             offer: Some(proto::SessionDescription {
                 sdp: offer.to_string(),
                 r#type: offer.sdp_type().to_string(),
                 id: 0,
+                mid_to_track_id: Default::default(),
             }),
             track_sids_disabled: Vec::default(), // TODO: New protocol version
             subscription: Some(proto::UpdateSubscription {
@@ -1741,6 +1746,8 @@ impl RoomSession {
         for filter in registered_audio_filter_plugins().into_iter() {
             filter.update_token(url.clone(), token.clone());
         }
+        let event = RoomEvent::TokenRefreshed { token };
+        self.dispatcher.dispatch(&event);
     }
 }
 

@@ -278,6 +278,9 @@ impl LocalParticipant {
         let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
         track.update_info(track_info); // Update sid + source
 
+        // set track for publication to listen mute/unmute events
+        publication.set_track(Some(track.clone().into()));
+
         let transceiver =
             self.inner.rtc_engine.create_sender(track.clone(), options.clone(), encodings).await?;
 
