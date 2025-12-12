@@ -159,11 +159,8 @@ impl Claims {
         validation.set_required_spec_claims::<String>(&[]);
         validation.insecure_disable_signature_validation();
 
-        let token = jsonwebtoken::decode::<Claims>(
-            token,
-            &DecodingKey::from_secret(&[]),
-            &validation,
-        )?;
+        let token =
+            jsonwebtoken::decode::<Claims>(token, &DecodingKey::from_secret(&[]), &validation)?;
 
         Ok(token.claims)
     }
@@ -420,7 +417,11 @@ mod tests {
             .with_ttl(Duration::from_secs(60))
             .with_identity("test")
             .with_name("test")
-            .with_grants(VideoGrants { room_join: true, room: "test-room".to_string(), ..Default::default() })
+            .with_grants(VideoGrants {
+                room_join: true,
+                room: "test-room".to_string(),
+                ..Default::default()
+            })
             .to_jwt()
             .unwrap();
 
@@ -432,8 +433,9 @@ mod tests {
 
         let parts: Vec<&str> = token.split('.').collect();
         let malformed_token = format!("{}.{}.wrongsignature", parts[0], parts[1]);
-        
-        let claims = Claims::from_unverified(&malformed_token).expect("Failed to parse token with wrong signature");
+
+        let claims = Claims::from_unverified(&malformed_token)
+            .expect("Failed to parse token with wrong signature");
         assert_eq!(claims.sub, "test");
         assert_eq!(claims.name, "test");
     }
