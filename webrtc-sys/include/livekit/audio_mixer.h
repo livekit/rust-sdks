@@ -22,6 +22,7 @@
 #include "api/scoped_refptr.h"
 #include "modules/audio_mixer/audio_mixer_impl.h"
 #include "modules/audio_processing/audio_buffer.h"
+#include "rtc_base/synchronization/mutex.h"
 #include "rust/cxx.h"
 
 namespace livekit {
@@ -76,6 +77,7 @@ class AudioMixer {
   const int16_t* data() const;
 
  private:
+  mutable webrtc::Mutex sources_mutex_;
   webrtc::AudioFrame frame_;
   std::vector<std::shared_ptr<AudioMixerSource>> sources_;
   rtc::scoped_refptr<webrtc::AudioMixer> audio_mixer_;

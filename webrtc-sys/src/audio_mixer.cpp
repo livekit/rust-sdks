@@ -33,11 +33,13 @@ AudioMixer::AudioMixer() {
 void AudioMixer::add_source(rust::Box<AudioMixerSourceWrapper> source) {
   auto native_source = std::make_shared<AudioMixerSource>(std::move(source));
 
+  webrtc::MutexLock lock(&sources_mutex_);
   audio_mixer_->AddSource(native_source.get());
   sources_.push_back(native_source);
 }
 
 void AudioMixer::remove_source(int source_ssrc) {
+  webrtc::MutexLock lock(&sources_mutex_);
   auto it = std::find_if(
       sources_.begin(), sources_.end(),
       [source_ssrc](const auto& s) { return s->Ssrc() == source_ssrc; });
