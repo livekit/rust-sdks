@@ -162,7 +162,7 @@ cargo swift package \
 --platforms maccatalyst \
 --platforms visionos \
 --platforms tvos \
---lib-type dynamic \
+--lib-type static \
 ${SWIFT_RELEASE_FLAG}
 """
 
