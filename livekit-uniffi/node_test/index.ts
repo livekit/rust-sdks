@@ -34,14 +34,7 @@ async function main() {
 
   const jwt = tokenGenerate(
     {
-      ttl: undefined,
-      videoGrants: undefined,
-      sipGrants: undefined,
       identity: "some_participant",
-      name: undefined,
-      metadata: undefined,
-      attributes: undefined,
-      sha256: undefined,
       roomConfiguration: {
         name: "test",
         emptyTimeout: 1000,
