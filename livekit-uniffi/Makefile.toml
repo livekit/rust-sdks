@@ -151,7 +151,19 @@ private = true
 install_crate = { crate_name = "cargo-swift", version = "0.10.0", binary = "cargo-swift", test_arg = "--help" }
 install_crate_args = ["--force"]
 script_runner = "@shell"
-script = "cargo swift package --accept-all --name ${SPM_NAME} --xcframework-name Rust${SPM_NAME} --platforms macos ios maccatalyst tvos ${SWIFT_RELEASE_FLAG}"
+script = """
+cargo swift package \
+--accept-all \
+--name ${SPM_NAME} \
+--xcframework-name Rust${SPM_NAME} \
+--platforms macos \
+--platforms ios \
+--platforms maccatalyst \
+--platforms visionos \
+--platforms tvos \
+--lib-type static \
+${SWIFT_RELEASE_FLAG}
+"""
 
 [tasks.swift-move-to-packages]
 private = true

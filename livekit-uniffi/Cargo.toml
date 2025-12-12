@@ -1,5 +1,4 @@
 [lib]
-name = "livekit_uniffi"
 crate-type = ["cdylib", "staticlib", "lib"]
 
 [package]
@@ -25,3 +24,11 @@ uniffi = { version = "0.30.0", features = ["build", "scaffolding-ffi-buffer-fns"
 [[bin]]
 name = "uniffi-bindgen"
 path = "bindgen.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
