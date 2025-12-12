@@ -162,9 +162,13 @@ cargo swift package \
 --platforms maccatalyst \
 --platforms visionos \
 --platforms tvos \
---lib-type static \
+--lib-type dynamic \
 ${SWIFT_RELEASE_FLAG}
 """
+
+[tasks.swift-generate-manifest.env]
+SPM_URL = { value = "https://dummy.com" }
+SPM_CHECKSUM = { value = "1234" }
 
 [tasks.swift-generate-manifest]
 private = true

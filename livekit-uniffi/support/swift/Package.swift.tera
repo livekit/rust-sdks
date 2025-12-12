@@ -28,7 +28,11 @@ let package = Package(
             path: "./Rust{{ SPM_NAME }}.xcframework"
         )
         {%- elif CARGO_MAKE_PROFILE == "release" %}
-        // TODO: define binary target to download XCFramework, generate checksum
+        .binaryTarget(
+            name: "Rust{{ SPM_NAME }}",
+            url: "{{ SPM_URL }}",
+            checksum: "{{ SPM_CHECKSUM }}"
+        )
         {%- else %}
         {{ throw(message="Unsupported CARGO_MAKE_PROFILE") }}
         {%- endif %}
