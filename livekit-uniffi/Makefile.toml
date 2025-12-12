@@ -14,6 +14,7 @@
 
 [env]
 PACKAGES_DIR = "./packages"
+SUPPORT_DIR = "./support"
 LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
 TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
 SPM_NAME = "LiveKitUniFFI"
@@ -165,15 +166,30 @@ cargo swift package \
 ${SWIFT_RELEASE_FLAG}
 """
 
+[tasks.swift-generate-manifest]
+private = true
+install_crate = { crate_name = "tera-cli", binary = "tera", test_arg = "--version" }
+script_runner = "@shell"
+script = """
+tera  --env --file ${SUPPORT_DIR}/${LANG}/Package.swift.tera > ${SPM_NAME}/Package.swift
+tera  --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.0.swift.tera > ${SPM_NAME}/Package@swift-6.0.swift
+"""
+
 [tasks.swift-move-to-packages]
 private = true
 script_runner = "@shell"
-script = "rm -rf ${PACKAGES_DIR}/${SPM_NAME}; mv ${SPM_NAME} ${PACKAGES_DIR}"
+script = """
+out_dir="${PACKAGES_DIR}/${LANG}"
+rm -rf "${out_dir}"
+mkdir -p "${out_dir}"
+mv "${SPM_NAME}" "${out_dir}"
+"""
 
 [tasks.swift-package-flow]
 private = true
 dependencies = [
     "swift-xcframework",
+    "swift-generate-manifest",
     "swift-move-to-packages"
 ]
 

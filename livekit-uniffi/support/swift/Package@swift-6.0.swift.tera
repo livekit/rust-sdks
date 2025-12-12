@@ -1,0 +1,37 @@
+// swift-tools-version: 6.0
+// Generated from Rust template
+
+import PackageDescription
+
+let package = Package(
+    name: "{{ SPM_NAME }}",
+    platforms: [
+        .iOS(.v13),
+        .macOS(.v10_15),
+        .macCatalyst(.v14),
+        .visionOS(.v2),
+        .tvOS(.v17),
+    ],
+    products: [
+        .library(
+            name: "{{ SPM_NAME }}",
+            targets: ["{{ SPM_NAME }}"]
+        )
+    ],
+    targets: [
+        .target(
+            name: "{{ SPM_NAME }}",
+            dependencies: ["Rust{{ SPM_NAME }}"]
+        ),
+        {% if CARGO_MAKE_PROFILE == "development" -%}
+        .binaryTarget(
+            name: "Rust{{ SPM_NAME }}",
+            path: "./Rust{{ SPM_NAME }}.xcframework"
+        )
+        {%- elif CARGO_MAKE_PROFILE == "release" %}
+        // TODO: define binary target to download XCFramework, generate checksum
+        {%- else %}
+        {{ throw(message="Unsupported CARGO_MAKE_PROFILE") }}
+        {%- endif %}
+    ]
+)
