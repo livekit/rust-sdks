@@ -18,6 +18,11 @@ SUPPORT_DIR = "./support"
 LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
 TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
 SPM_NAME = "LiveKitUniFFI"
+NPM_NAME = "@livekit/uniffi"
+
+# Base URL for downloading release builds of the cdylib.
+# Currently, it is assumed the archives will be named "ffi-<platform>-<arch>.zip".
+CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/example/releases/download/example/build"
 
 [config]
 skip_core_tasks = true
@@ -122,6 +127,12 @@ exec cargo run --bin uniffi-bindgen generate \
     --library ${LIB_PATH}
 """
 
+[tasks.tera]
+private = true
+install_crate = { crate_name = "teracli", binary = "tera", test_arg = "--help" }
+install_crate_args = ["--git", "https://github.com/chevdor/tera-cli"]
+command = "tera"
+
 [tasks.bindgen]
 dependencies = [
     "bindgen-kotlin",
@@ -141,6 +152,90 @@ env = { LANG = "kotlin" }
 private = false
 extend = "uniffi-bindgen"
 env = { LANG = "python" }
+
+# MARK: - Node
+
+[tasks.node-bindgen]
+private = true
+dependencies = ["build", "locate-lib"]
+env = { CARGO_NET_GIT_FETCH_WITH_CLI = true }
+install_crate = { crate_name = "uniffi-bindgen-node", binary = "uniffi-bindgen-node", test_arg = "--help" }
+install_crate_args = ["--git", "https://github.com/livekit/uniffi-bindgen-node.git"]
+command = "uniffi-bindgen-node"
+args = [
+    "--out-dir", "${PACKAGES_DIR}/${LANG}",
+    "--out-dirname-api", "import-meta-url",
+    "--out-node-version", "^18",
+    "--out-verbose-logs",
+    "--crate-name", "${CARGO_MAKE_CRATE_FS_NAME}",
+    "${LIB_PATH}"
+]
+
+[tasks.node-format]
+private = true
+command = "npx"
+args = [
+    "--yes",
+    "prettier",
+    "--write", "${PACKAGES_DIR}/${LANG}"
+]
+
+[tasks.node-move-code-into-src]
+private = true
+script_runner = "@shell"
+script = """
+mkdir -p ${PACKAGES_DIR}/${LANG}/src
+mv ${PACKAGES_DIR}/${LANG}/*.ts ${PACKAGES_DIR}/${LANG}/src
+"""
+
+[tasks.node-generate-manifest]
+private = true
+extend = "tera"
+args = [
+    "--env",
+    "-t", "${SUPPORT_DIR}/${LANG}/package.json.tera",
+    "-o", "${PACKAGES_DIR}/${LANG}/package.json",
+    "${PACKAGES_DIR}/${LANG}/package.json"
+    # Provide original package.json as input
+]
+
+[tasks.node-copy-support-files]
+private = true
+script_runner = "@shell"
+script = """
+cp ${SUPPORT_DIR}/${LANG}/tsconfig.json ${PACKAGES_DIR}/${LANG}/tsconfig.json
+cp ${SUPPORT_DIR}/${LANG}/tsup.config.ts ${PACKAGES_DIR}/${LANG}/tsup.config.ts
+"""
+
+[tasks.node-generate-downloader]
+private = true
+condition = { profiles = ["release"] }
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/download-lib.ts.tera", "-o", "${PACKAGES_DIR}/${LANG}/download-lib.ts"]
+
+[tasks.node-link-lib]
+private = true
+condition = { profiles = ["development"] }
+script_runner = "@shell"
+script = """
+ln -sf ${LIB_PATH} ${PACKAGES_DIR}/${LANG}/src
+"""
+
+[tasks.node-package-flow]
+private = true
+dependencies = [
+    "node-bindgen",
+    "node-move-code-into-src",
+    "node-generate-manifest",
+    "node-generate-downloader",
+    "node-copy-support-files",
+    "node-format",
+    "node-link-lib"
+]
+
+[tasks.node-package]
+env = { LANG = "node" }
+run_task = "node-package-flow"
 
 # MARK: - Swift
 
