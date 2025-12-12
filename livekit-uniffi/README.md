@@ -6,6 +6,7 @@ At this stage in development, this interface will not attempt to replace the exi
 
 ## Functionality exposed
 
+- [x] Logging
 - [x] Access token generation and verification
 
 ## Tasks
@@ -16,7 +17,7 @@ Binding generation and multi-platform builds are handled by [_cargo-make_](https
 
 Generate Swift bindings and build a multi-platform XCFramework:
 ```
-cargo make xcframework
+cargo make swift-package
 ```
 
 TODO: other languages
