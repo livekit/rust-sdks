@@ -52,7 +52,7 @@ void AudioMixer::remove_source(int source_ssrc) {
 
 size_t AudioMixer::mix(size_t number_of_channels) {
   audio_mixer_->Mix(number_of_channels, &frame_);
-  return frame_.num_channels() * frame_.samples_per_channel() * sizeof(int16_t);
+  return frame_.num_channels() * frame_.samples_per_channel();
 }
 
 const int16_t* AudioMixer::data() const {
