@@ -29,6 +29,7 @@ use livekit::webrtc::{
 };
 use parking_lot::{deadlock, Mutex};
 use tokio::{sync::oneshot, task::JoinHandle};
+use metrics_logger::{metrics, MetricsLogger, LogMode};
 
 use crate::{proto, proto::FfiEvent, FfiError, FfiHandleId, FfiResult, INVALID_HANDLE};
 
@@ -100,6 +101,13 @@ impl Default for FfiServer {
 
         #[cfg(feature = "tracing")]
         console_subscriber::init();
+
+        let recorder = MetricsLogger::new(
+            LogMode::Periodic(10),
+            |logs| log::info!(target: "metrics", "{}", logs),
+            |err| log::error!(target: "metrics", "{}", err),
+        );
+        metrics::set_global_recorder(recorder).unwrap();
 
         // Create a background thread which checks for deadlocks every 10s
         thread::spawn(move || loop {

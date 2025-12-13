@@ -12,10 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Instant;
+
 use super::*;
 use crate::proto;
 use crate::{FfiError, FfiResult};
 use imgproc::colorcvt;
+use metrics_logger::metrics::histogram;
 
 pub unsafe fn cvt(
     buffer: proto::VideoBufferInfo,
@@ -312,16 +315,24 @@ pub unsafe fn cvt_i420(
         | proto::VideoBufferType::Abgr
         | proto::VideoBufferType::Argb
         | proto::VideoBufferType::Bgra => {
+
+            let start = Instant::now();
             let mut dst = vec![0u8; (width * height * 4) as usize].into_boxed_slice();
+            let delta = start.elapsed();
+            histogram!("dst_alloc").record(delta.as_millis() as f64);
+
             let stride = width * 4;
 
             macro_rules! cvt {
                 ($rgba:expr, $fnc:ident) => {
                     if dst_type == $rgba {
+                        let start = Instant::now();
                         colorcvt::$fnc(
                             data_y, c0.stride, data_u, c1.stride, data_v, c2.stride, &mut dst,
                             stride, width, height, flip_y,
                         );
+                        let delta = start.elapsed();
+                        histogram!(stringify!($fnc)).record(delta.as_millis() as f64);
                     }
                 };
             }
