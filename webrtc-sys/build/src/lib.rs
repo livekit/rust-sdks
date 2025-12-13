@@ -24,10 +24,13 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use fs2::FileExt;
+use hex_literal::hex;
 use regex::Regex;
 use reqwest::StatusCode;
+use sha2::{Digest, Sha256};
 
 pub const SCRATH_PATH: &str = "livekit_webrtc";
+// Update the hash values in download_webrtc function when updating the tag.
 pub const WEBRTC_TAG: &str = "webrtc-0001d84-2";
 pub const IGNORE_DEFINES: [&str; 2] = ["CR_CLANG_REVISION", "CR_XCODE_VERSION"];
 
@@ -224,6 +227,62 @@ pub fn download_webrtc() -> Result<()> {
         .open(&tmp_path)
         .context("Failed to create temporary file for WebRTC download")?;
     resp.copy_to(&mut file).context("Failed to write WebRTC download to temporary file")?;
+    drop(file);
+
+    let mut file = fs::File::open(&tmp_path)?;
+    let mut hasher = Sha256::new();
+    io::copy(&mut file, &mut hasher)?;
+    let hash = hasher.finalize();
+    // GitHub generates the SHA256 hashes of all artifacts attached to releases.
+    // Copy and paste those here when updating WEBRTC_TAG.
+    let expected_hash = match webrtc_triple().as_str() {
+        "android-arm-release" => {
+            hex!("9e0f49584e8fa2ed7b15e4921a8d630c1b88d891d150d7335fea91bb01844899")
+        }
+        "android-arm64-release" => {
+            hex!("76007fdd92f2eee53f68990890cc52cbd98a2f33df8569dc03a3fe57aba93908")
+        }
+        "android-x64-release" => {
+            hex!("fc551ce022fa69bfdb207b0878bb6d148cc5eebf283ffbf28600d25d6f97de38")
+        }
+        "ios-device-arm64-release" => {
+            hex!("4fcd722678c2ceed448ffbaeba8bb1ce2063ed8ca3d5f2318d6c371f20c43851")
+        }
+        "ios-simulator-arm64-release" => {
+            hex!("b9191da03c89ff39b23ee806d768f139a1b2ca0845597dd6dec2ac8500fa599b")
+        }
+        "linux-arm64-release" => {
+            hex!("d3181bd42900f9b3b15bec4669187861a226d6e8657734f2f51649f71c974bc0")
+        }
+        "linux-x64-release" => {
+            hex!("6a41ae5cdf27ea8fdfb7e2ae3d1abda6b74d8917b77beac5c63ee2b048e28ffd")
+        }
+        "mac-arm64-release" => {
+            hex!("9d7254202cf9b242f648421369d3f053091844e13a32690db5fd5c5b507253be")
+        }
+        "mac-x64-release" => {
+            hex!("d7612ca5626d3e4fc07cb7b6f2b07a9fd5184ffe3f0bba13b119b1116b4ddd9e")
+        }
+        "win-arm64-release" => {
+            hex!("d28480035dc8b83aef2e40ca49bd457bf58b781ebbf274ca90e224a1b29e37c7")
+        }
+        "win-x64-release" => {
+            hex!("16ebb2f7dc15db943313bd80b81bbd9689fa4cbf4bf65f3c407a93cc33d8afe8")
+        }
+        _ => panic!("Unsupported triple"),
+    };
+    // RustCrypto crypto-common traits are using an old version of generic-array
+    // https://github.com/fizyk20/generic-array/issues/158
+    #[allow(deprecated)]
+    if hash.as_slice() != expected_hash {
+        panic!(
+            "SHA256 hash of downloaded prebuilt libwebrtc C++ library did not match the expected value.
+Got:      {}
+Expected: {}",
+            hex::encode(hash.as_slice()),
+            hex::encode(expected_hash)
+        );
+    }
 
     let mut archive = zip::ZipArchive::new(file).context("Failed to open WebRTC zip archive")?;
     archive.extract(webrtc_dir.parent().unwrap()).context("Failed to extract WebRTC archive")?;
