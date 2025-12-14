@@ -2,7 +2,6 @@
 
 #include "api/data_channel_interface.h"
 #include "api/make_ref_counted.h"
-#include "livekit_rtc/capi.h"
 
 namespace livekit {
 

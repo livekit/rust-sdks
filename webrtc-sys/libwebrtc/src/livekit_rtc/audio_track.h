@@ -9,7 +9,7 @@
 #include "api/task_queue/task_queue_factory.h"
 #include "audio/remix_resample.h"
 #include "common_audio/resampler/include/push_resampler.h"
-#include "livekit_rtc/capi.h"
+#include "livekit_rtc/include/capi.h"
 #include "livekit_rtc/media_stream_track.h"
 #include "pc/local_audio_source.h"
 #include "rtc_base/synchronization/mutex.h"

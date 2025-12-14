@@ -4,7 +4,7 @@
 #include "api/peer_connection_interface.h"
 #include "api/ref_count.h"
 #include "api/rtc_error.h"
-#include "livekit_rtc/capi.h"
+#include "livekit_rtc/include/capi.h"
 #include "rtc_base/logging.h"
 
 namespace livekit {

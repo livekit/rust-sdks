@@ -15,7 +15,7 @@
  */
 
 #include "api/video/yuv_helper.h"
-#include "livekit_rtc/capi.h"
+#include "livekit_rtc/include/yuv_helper.h"
 
 #include <iostream>
 #include <memory>

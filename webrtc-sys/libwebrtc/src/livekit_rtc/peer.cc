@@ -18,7 +18,6 @@
 #include "api/task_queue/default_task_queue_factory.h"
 #include "livekit_rtc/audio_device.h"
 #include "livekit_rtc/audio_track.h"
-#include "livekit_rtc/capi.h"
 #include "livekit_rtc/data_channel.h"
 #include "livekit_rtc/ice_candidate.h"
 #include "livekit_rtc/rtp_receiver.h"

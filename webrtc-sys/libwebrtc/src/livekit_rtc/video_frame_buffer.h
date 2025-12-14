@@ -25,7 +25,7 @@
 #include "api/video/i444_buffer.h"
 #include "api/video/nv12_buffer.h"
 #include "api/video/video_frame_buffer.h"
-#include "livekit_rtc/capi.h"
+#include "livekit_rtc/include/capi.h"
 
 #ifdef __APPLE__
 #include <CoreVideo/CoreVideo.h>

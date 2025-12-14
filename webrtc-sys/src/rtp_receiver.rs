@@ -14,9 +14,10 @@
 
 use std::fmt::Debug;
 
+use tokio::sync::mpsc;
+
 use crate::{
-    media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters, stats::RtcStats, sys,
-    RtcError,
+    RtcError, RtcErrorType, media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters, stats::RtcStats, sys
 };
 
 #[derive(Clone)]
@@ -43,7 +44,38 @@ impl RtpReceiver {
     }
 
     pub async fn get_stats(&self) -> Result<Vec<RtcStats>, RtcError> {
-        todo!()
+        let (tx, mut rx) = mpsc::channel::<Result<Vec<RtcStats>, RtcError>>(1);
+        let tx_box = Box::new(tx.clone());
+        let userdata = Box::into_raw(tx_box) as *mut std::ffi::c_void;
+
+        unsafe extern "C" fn on_complete(
+            stats_json: *const ::std::os::raw::c_char,
+            userdata: *mut ::std::os::raw::c_void,
+        ) {
+            let tx: Box<mpsc::Sender<Result<Vec<RtcStats>, RtcError>>> = Box::from_raw(userdata as *mut _);
+            let stats = unsafe { std::ffi::CStr::from_ptr(stats_json) };
+
+            if stats.is_empty() {
+                let _ = tx.send(Ok(vec![]));
+                return;
+            }
+
+            let vec = serde_json::from_str(stats.to_str().unwrap()).unwrap();
+            let _ = tx.blocking_send(Ok(vec));
+        }
+
+        unsafe {
+            sys::lkRtpReceiverGetStats(
+                self.ffi.as_ptr(),
+                Some(on_complete),
+                userdata,
+            );
+        }
+
+        rx.recv().await.ok_or_else(|| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "get_stats cancelled".to_owned(),
+        })?
     }
 
     pub fn parameters(&self) -> RtpParameters {

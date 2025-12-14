@@ -80,11 +80,7 @@ impl RtpTransceiver {
     pub fn current_direction(&self) -> Option<RtpTransceiverDirection> {
         unsafe {
             let direction_ptr = sys::lkRtpTransceiverCurrentDirection(self.ffi.as_ptr());
-            if direction_ptr.is_null() {
-                None
-            } else {
-                Some((*direction_ptr).into())
-            }
+            Some(direction_ptr.into())
         }
     }
 

@@ -16,7 +16,7 @@
 
 #pragma once
 
-#include "livekit_rtc/capi.h"
+#include "livekit_rtc/include/capi.h"
 #include "livekit_rtc/video_frame_buffer.h"
 
 #include "api/scoped_refptr.h"

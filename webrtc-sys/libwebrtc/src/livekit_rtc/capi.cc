@@ -1,4 +1,4 @@
-#include "livekit_rtc/capi.h"
+#include "livekit_rtc/include/capi.h"
 
 #include "api/make_ref_counted.h"
 #include "livekit_rtc/audio_track.h"
@@ -1129,12 +1129,18 @@ lkRtpTransceiverInit* lkRtpTransceiverInitCreate() {
   return nullptr;
 }
 
-LK_EXPORT void lkRtpSenderGetStats(lkRtpSender* sender,
-                                   void (*onComplete)(const char* statsJson,
-                                                      void* userdata),
-                                   void* userdata) {}
+void lkRtpSenderGetStats(lkRtpSender* sender,
+                         void (*onComplete)(const char* statsJson,
+                                            void* userdata),
+                         void* userdata) {
+  reinterpret_cast<livekit::RtpSender*>(sender)->get_stats(onComplete,
+                                                           userdata);
+}
 
-LK_EXPORT void lkRtpReceiverGetStats(lkRtpReceiver* receiver,
-                                     void (*onComplete)(const char* statsJson,
-                                                        void* userdata),
-                                     void* userdata) {}
+void lkRtpReceiverGetStats(lkRtpReceiver* receiver,
+                           void (*onComplete)(const char* statsJson,
+                                              void* userdata),
+                           void* userdata) {
+  reinterpret_cast<livekit::RtpReceiver*>(receiver)->get_stats(onComplete,
+                                                               userdata);
+}

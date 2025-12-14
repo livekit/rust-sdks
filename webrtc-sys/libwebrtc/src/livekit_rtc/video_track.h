@@ -4,7 +4,7 @@
 #include "api/media_stream_interface.h"
 #include "api/scoped_refptr.h"
 #include "api/video/video_frame.h"
-#include "livekit_rtc/capi.h"
+#include "livekit_rtc/include/capi.h"
 #include "livekit_rtc/media_stream_track.h"
 #include "livekit_rtc/video_frame.h"
 #include "media/base/adapted_video_track_source.h"

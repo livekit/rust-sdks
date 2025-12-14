@@ -4,7 +4,7 @@
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
 #include "livekit_rtc/audio_device.h"
-#include "livekit_rtc/capi.h"
+#include "livekit_rtc/include/capi.h"
 #include "livekit_rtc/data_channel.h"
 #include "livekit_rtc/session_description.h"
 

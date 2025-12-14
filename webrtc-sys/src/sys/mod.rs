@@ -7,11 +7,13 @@ mod conv;
 mod ffi;
 mod refcounted;
 mod utils;
+mod yuv_helper;
 
 pub use conv::*;
 pub use ffi::*;
 pub use refcounted::*;
 pub use utils::*;
+pub use yuv_helper::*;
 
 #[cfg(test)]
 mod tests {
@@ -39,6 +41,9 @@ mod tests {
     #[allow(non_snake_case)]
     extern "C" fn peerOnTrack(
         transceiver: *const lkRtpTransceiver,
+        _receiver: *const lkRtpReceiver,
+        _streams: *const lkVectorGeneric,
+        _track: *const lkMediaStreamTrack,
         _userdata: *mut std::ffi::c_void,
     ) {
         println!("OnTrack: {:?}", transceiver);
@@ -121,6 +126,7 @@ mod tests {
                 onIceCandidate: Some(peerOnIceCandidate),
                 onDataChannel: Some(peerOnDataChannel),
                 onTrack: Some(peerOnTrack),
+                onRemoveTrack: None,
                 onConnectionChange: Some(peerOnConnectionChange),
                 onIceCandidateError: Some(peerOnIceCandidateError),
                 onStandardizedIceConnectionChange: Some(onIceConnectionChange),

@@ -3,7 +3,7 @@
 
 #include "api/data_channel_interface.h"
 #include "api/scoped_refptr.h"
-#include "livekit_rtc/capi.h"
+#include "livekit_rtc/include/capi.h"
 #include "livekit_rtc/utils.h"
 #include "rtc_base/copy_on_write_buffer.h"
 #include "rtc_base/ref_count.h"
