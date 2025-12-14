@@ -24,44 +24,27 @@
 #include "livekit_rtc/media_stream.h"
 #include "livekit_rtc/rtc_error.h"
 #include "livekit_rtc/rtp_parameters.h"
+#include "livekit_rtc/stats.h"
 
 namespace livekit {
 
-template <class T>  // Context type
-class NativeRtcStatsCollector : public webrtc::RTCStatsCollectorCallback {
- public:
-  NativeRtcStatsCollector(rust::Box<T> ctx,
-                          rust::Fn<void(rust::Box<T>, rust::String)> on_stats)
-      : ctx_(std::move(ctx)), on_stats_(on_stats) {}
-
-  void OnStatsDelivered(
-      const webrtc::scoped_refptr<const webrtc::RTCStatsReport>& report) override {
-    on_stats_(std::move(ctx_), report->ToJson());
-  }
-
- private:
-  rust::Box<T> ctx_;
-  rust::Fn<void(rust::Box<T>, rust::String)> on_stats_;
-};
+class PeerFactory;
+class MediaStreamTrack;
 
 class RtpSender : public webrtc::RefCountInterface {
  public:
-  RtpSender(
-      webrtc::scoped_refptr<PeerFactory> pc_factory,
-      webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
-      webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
+  RtpSender(webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
+            webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
-  bool set_track(std::shared_ptr<MediaStreamTrack> track) const;
+  bool set_track(webrtc::scoped_refptr<MediaStreamTrack> track) const;
 
-  std::shared_ptr<MediaStreamTrack> track() const;
+  webrtc::scoped_refptr<MediaStreamTrack> track() const;
 
   uint32_t ssrc() const;
 
-  void get_stats(
-      rust::Box<SenderContext> ctx,
-      rust::Fn<void(rust::Box<SenderContext>, rust::String)> on_stats) const;
+  void get_stats(onStatsDeliveredCallback on_stats, void* userdata) const;
 
-  MediaType media_type() const;
+  lkMediaType media_type() const;
 
   std::string id() const;
 
@@ -75,17 +58,11 @@ class RtpSender : public webrtc::RefCountInterface {
 
   void set_parameters(RtpParameters params) const;
 
-  webrtc::scoped_refptr<webrtc::RtpSenderInterface> rtc_sender() const {
-    return sender_;
-  }
+  webrtc::scoped_refptr<webrtc::RtpSenderInterface> rtc_sender() const { return sender_; }
 
  private:
-  webrtc::scoped_refptr<PeerFactory> pc_factory_;
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
-static std::shared_ptr<RtpSender> _shared_rtp_sender() {
-  return nullptr;  // Ignore
-}
 }  // namespace livekit

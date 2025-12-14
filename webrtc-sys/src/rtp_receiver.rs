@@ -15,18 +15,31 @@
 use std::fmt::Debug;
 
 use crate::{
-    sys,
-    media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters, stats::RtcStats, RtcError,
+    media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters, stats::RtcStats, sys,
+    RtcError,
 };
 
 #[derive(Clone)]
 pub struct RtpReceiver {
-    pub(crate) ffi: sys::RefCounted<crate::sys::lkRtpReceiver>,
+    pub ffi: sys::RefCounted<crate::sys::lkRtpReceiver>,
 }
 
 impl RtpReceiver {
+    pub fn from_native(ffi: sys::RefCounted<sys::lkRtpReceiver>) -> Self {
+        Self { ffi }
+    }
+
     pub fn track(&self) -> Option<MediaStreamTrack> {
-        todo!()
+        unsafe {
+            let track_ptr = sys::lkRtpReceiverGetTrack(self.ffi.as_ptr());
+            if track_ptr.is_null() {
+                None
+            } else {
+                Some(crate::media_stream_track::new_media_stream_track(unsafe {
+                    sys::RefCounted::from_raw(track_ptr)
+                }))
+            }
+        }
     }
 
     pub async fn get_stats(&self) -> Result<Vec<RtcStats>, RtcError> {

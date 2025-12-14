@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
 use serde_derive::Deserialize;
+use std::collections::HashMap;
 
 use crate::data_channel::DataChannelState;
 

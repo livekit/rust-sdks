@@ -18,7 +18,8 @@ use tokio::sync::mpsc;
 
 use crate::data_channel::{DataChannel, DataChannelInit};
 use crate::ice_candidate::IceCandidate;
-use crate::media_stream_track::MediaStreamTrack;
+use crate::media_stream::MediaStream;
+use crate::media_stream_track::{new_media_stream_track, MediaStreamTrack};
 use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_sender::RtpSender;
 use crate::rtp_transceiver::{RtpTransceiver, RtpTransceiverInit};
@@ -28,23 +29,6 @@ use crate::sys::{self, *};
 use crate::{MediaType, RtcError, RtcErrorType};
 
 use crate::peer_connection_factory::RtcConfiguration;
-
-/*
-use crate::{
-    data_channel::{DataChannel, DataChannelInit},
-    ice_candidate::IceCandidate,
-    imp::peer_connection as imp_pc,
-    media_stream::MediaStream,
-    media_stream_track::MediaStreamTrack,
-    peer_connection_factory::RtcConfiguration,
-    rtp_receiver::RtpReceiver,
-    rtp_sender::RtpSender,
-    rtp_transceiver::{RtpTransceiver, RtpTransceiverInit},
-    session_description::SessionDescription,
-    stats::RtcStats,
-    MediaType, RtcError,
-};
-*/
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PeerConnectionState {
@@ -138,10 +122,10 @@ pub struct IceCandidateError {
 }
 #[derive(Debug, Clone)]
 pub struct TrackEvent {
-    // pub receiver: RtpReceiver,
-    // pub streams: Vec<MediaStream>,
-    // pub track: MediaStreamTrack,
-    // pub transceiver: RtpTransceiver,
+    pub receiver: RtpReceiver,
+    pub streams: Vec<MediaStream>,
+    pub track: MediaStreamTrack,
+    pub transceiver: RtpTransceiver,
 }
 
 pub type OnConnectionChange = Box<dyn FnMut(PeerConnectionState) + Send + Sync>;
@@ -261,17 +245,46 @@ impl PeerObserver {
 
     pub extern "C" fn peer_on_track(
         transceiver: *const lkRtpTransceiver,
+        receiver: *const lkRtpReceiver,
+        streams: *const lkVectorGeneric,
+        track: *const lkMediaStreamTrack,
         userdata: *mut std::ffi::c_void,
     ) {
-        println!("pee_on_track called with transceiver: {:?}", transceiver);
+        let lk_transceiver =
+            RtpTransceiver { ffi: unsafe { sys::RefCounted::from_raw(transceiver as *mut _) } };
+        let lk_receiver =
+            RtpReceiver { ffi: unsafe { sys::RefCounted::from_raw(receiver as *mut _) } };
+        let lk_track =
+            new_media_stream_track(unsafe { sys::RefCounted::from_raw(track as *mut _) });
+        let mut lk_streams = Vec::new();
+        let stream_vec = sys::RefCountedVector::from_native_vec(streams as *mut _);
+        for i in 0..stream_vec.vec.len() as isize {
+            lk_streams.push(MediaStream { ffi: stream_vec.vec[i as usize].clone() });
+        }
+
         let observer: &mut Mutex<PeerObserver> =
             unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };
         let binding = observer.lock().unwrap();
         let mut handler = binding.track_handler.lock().unwrap();
-        if let Some(_) = handler.as_mut() {
-            //TODO: create TrackEvent from transceiver
-            println!("OnTrack: {:?}", transceiver);
+        if let Some(f) = handler.as_mut() {
+            f(TrackEvent {
+                transceiver: lk_transceiver,
+                receiver: lk_receiver,
+                streams: lk_streams,
+                track: lk_track,
+            });
         }
+    }
+
+    pub extern "C" fn peer_on_remove_track(
+        receiver: *const lkRtpReceiver,
+        userdata: *mut std::ffi::c_void,
+    ) {
+        let lk_receiver = RtpReceiver { ffi: unsafe { sys::RefCounted::from_raw(receiver as *mut _) } };
+        let observer: &mut Mutex<PeerObserver> =
+            unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };
+        let _binding = observer.lock().unwrap();
+        // Currently no handler for remove track
     }
 
     pub extern "C" fn peer_on_connection_state_change(
@@ -351,32 +364,6 @@ impl PeerObserver {
 }
 
 /*
-  fn lk_on_add_track(&self, _receiver : lkRtpReceiver,
-                     _streams : Vec<lkMediaStream>, ) {}
-
-  fn lk_on_track(&self, transceiver : lkRtpTransceiver) {
-    if let
-      Some(f) = self.track_handler.lock().as_mut() {
-        let receiver = transceiver.receiver();
-        let streams = receiver.streams();
-        let track = receiver.track();
-
-        f(TrackEvent{
-          receiver :
-          RtpReceiver{handle : imp_rr::RtpReceiver{sys_handle : receiver}},
-          streams : streams.into_iter()
-              .map(
-                  | s |
-                  MediaStream{handle : imp_ms::MediaStream{sys_handle : s.ptr}})
-              .collect(),
-          track : imp_mst::new_media_stream_track(track),
-          transceiver : RtpTransceiver{
-            handle : imp_rt::RtpTransceiver{sys_handle : transceiver},
-          },
-        });
-      }
-  }
-
   fn lk_on_remove_track(
       &self,
       _receiver : SharedPtr<webrtc_sys::rtp_receiver::ffi::RtpReceiver>) {}
@@ -660,18 +647,59 @@ impl PeerConnection {
         self.observer.clone()
     }
 
-    pub fn add_track<T: AsRef<str>>(
+    pub fn add_track(
         &self,
         track: MediaStreamTrack,
-        streams_ids: &[T],
+        stream_ids: &Vec<String>,
     ) -> Result<RtpSender, RtcError> {
-        //self.sys_peer.add_track(track, streams_ids)
-        todo!("add_track is not yet implemented")
+        let mut lk_err = sys::lkRtcError { message: std::ptr::null() };
+        unsafe {
+            let rtp_sender = sys::lkPeerAddTrack(
+                self.ffi.as_ptr(),
+                track.ffi().as_ptr(),
+                stream_ids
+                    .iter()
+                    .map(|s| std::ffi::CString::new(s.as_str()).unwrap())
+                    .collect::<Vec<std::ffi::CString>>()
+                    .iter()
+                    .map(|s| s.as_ptr())
+                    .collect::<Vec<*const std::os::raw::c_char>>()
+                    .as_ptr() as *mut _,
+                stream_ids.len() as i32,
+                &mut lk_err,
+            );
+
+            if !lk_err.message.is_null() {
+                return Err(RtcError {
+                    error_type: RtcErrorType::Internal,
+                    message: format!(
+                        "Failed to add track: {}",
+                        std::ffi::CStr::from_ptr(lk_err.message).to_str().unwrap()
+                    ),
+                });
+            }
+
+            Ok(RtpSender { ffi: sys::RefCounted::from_raw(rtp_sender) })
+        }
     }
 
     pub fn remove_track(&self, sender: RtpSender) -> Result<(), RtcError> {
-        //self.sys_peer.remove_track(sender)
-        todo!("add_track is not yet implemented")
+        let mut lk_err = sys::lkRtcError { message: std::ptr::null() };
+        unsafe {
+            sys::lkPeerRemoveTrack(self.ffi.as_ptr(), sender.ffi.as_ptr(), &mut lk_err);
+
+            if !lk_err.message.is_null() {
+                return Err(RtcError {
+                    error_type: RtcErrorType::Internal,
+                    message: format!(
+                        "Failed to remove track: {}",
+                        std::ffi::CStr::from_ptr(lk_err.message).to_str().unwrap()
+                    ),
+                });
+            }
+
+            Ok(())
+        }
     }
 
     pub async fn get_stats(&self) -> Result<Vec<RtcStats>, RtcError> {
@@ -683,6 +711,7 @@ impl PeerConnection {
         track: MediaStreamTrack,
         init: RtpTransceiverInit,
     ) -> Result<RtpTransceiver, RtcError> {
+        let rtc_err = &mut sys::lkRtcError { message: std::ptr::null() };
         todo!()
     }
 
@@ -695,17 +724,44 @@ impl PeerConnection {
     }
 
     pub fn senders(&self) -> Vec<RtpSender> {
-        todo!()
+        let lk_vec = unsafe { sys::lkPeerGetSenders(self.ffi.as_ptr()) };
+        let item_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
+        if item_ptrs.vec.is_empty() {
+            return Vec::new();
+        }
+        let mut items = Vec::new();
+        for i in 0..item_ptrs.vec.len() as isize {
+            items.push(RtpSender { ffi: item_ptrs.vec[i as usize].clone() });
+        }
+        items
     }
 
     pub fn receivers(&self) -> Vec<RtpReceiver> {
-        todo!()
+        let lk_vec = unsafe { sys::lkPeerGetReceivers(self.ffi.as_ptr()) };
+        let item_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
+        if item_ptrs.vec.is_empty() {
+            return Vec::new();
+        }
+        let mut items = Vec::new();
+        for i in 0..item_ptrs.vec.len() as isize {
+            items.push(RtpReceiver { ffi: item_ptrs.vec[i as usize].clone() });
+        }
+        items
     }
 
     pub fn transceivers(&self) -> Vec<RtpTransceiver> {
-        todo!()
+        let lk_vec = unsafe { sys::lkPeerGetTransceivers(self.ffi.as_ptr()) };
+        let item_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
+        if item_ptrs.vec.is_empty() {
+            return Vec::new();
+        }
+        let mut items = Vec::new();
+        for i in 0..item_ptrs.vec.len() as isize {
+            items.push(RtpTransceiver { ffi: item_ptrs.vec[i as usize].clone() });
+        }
+        items
     }
-    
+
     pub fn on_connection_state_change(&self, f: Option<OnConnectionChange>) {
         let binding = self.observer.lock().unwrap();
         let mut guard = binding.connection_change_handler.lock().unwrap();
@@ -775,6 +831,7 @@ pub static PEER_OBSERVER: sys::lkPeerObserver = sys::lkPeerObserver {
     onIceCandidate: Some(PeerObserver::peer_on_ice_candidate),
     onDataChannel: Some(PeerObserver::peer_on_data_channel),
     onTrack: Some(PeerObserver::peer_on_track),
+    onRemoveTrack: Some(PeerObserver::peer_on_remove_track),
     onConnectionChange: Some(PeerObserver::peer_on_connection_state_change),
     onStandardizedIceConnectionChange: Some(
         PeerObserver::peer_on_standardized_ice_connection_change,

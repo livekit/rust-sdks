@@ -11,12 +11,13 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 use crate::{
     audio_track::RtcAudioTrack,
+    impl_thread_safety,
     sys::{self, lkMediaStream},
     video_track::RtcVideoTrack,
 };
+use std::fmt::Debug;
 
 #[derive(Clone)]
 pub struct MediaStream {
@@ -36,27 +37,39 @@ impl MediaStream {
 
     pub fn audio_tracks(&self) -> Vec<RtcAudioTrack> {
         let lk_vec = unsafe { sys::lkMediaStreamGetAudioTracks(self.ffi.as_ptr()) };
-        let track_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
-        if track_ptrs.vec.is_empty() {
+        let item_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
+        if item_ptrs.vec.is_empty() {
             return Vec::new();
         }
-        let mut tracks = Vec::new();
-        for i in 0..track_ptrs.vec.len() as isize {
-            tracks.push(RtcAudioTrack { ffi: track_ptrs.vec[i as usize].clone() });
+        let mut items = Vec::new();
+        for i in 0..item_ptrs.vec.len() as isize {
+            items.push(RtcAudioTrack { ffi: item_ptrs.vec[i as usize].clone() });
         }
-        tracks
+        items
     }
 
     pub fn video_tracks(&self) -> Vec<RtcVideoTrack> {
         let lk_vec = unsafe { sys::lkMediaStreamGetAudioTracks(self.ffi.as_ptr()) };
-        let track_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
-        if track_ptrs.vec.is_empty() {
+        let item_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
+        if item_ptrs.vec.is_empty() {
             return Vec::new();
         }
-        let mut tracks = Vec::new();
-        for i in 0..track_ptrs.vec.len() as isize {
-            tracks.push(RtcVideoTrack { ffi: track_ptrs.vec[i as usize].clone() });
+        let mut items = Vec::new();
+        for i in 0..item_ptrs.vec.len() as isize {
+            items.push(RtcVideoTrack { ffi: item_ptrs.vec[i as usize].clone() });
         }
-        tracks
+        items
     }
 }
+
+impl Debug for MediaStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MediaStream")
+            .field("id", &self.id())
+            .field("audio_tracks", &self.audio_tracks())
+            .field("video_tracks", &self.video_tracks())
+            .finish()
+    }
+}
+
+impl_thread_safety!(MediaStream, Send + Sync);

@@ -12,18 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
+use crate::media_stream_track::new_media_stream_track;
 use crate::rtp_parameters::RtpParameters;
 use crate::stats::RtcStats;
 use crate::{media_stream_track::MediaStreamTrack, sys, RtcError};
+use std::fmt::Debug;
 
 #[derive(Clone)]
-pub(crate) struct RtpSender {
-    pub(crate) ffi: sys::RefCounted<sys::lkRtpSender>,
+pub struct RtpSender {
+    pub ffi: sys::RefCounted<sys::lkRtpSender>,
 }
 
 impl RtpSender {
-    pub(crate) fn from_native(ffi: sys::RefCounted<sys::lkRtpSender>) -> Self {
+    pub fn from_native(ffi: sys::RefCounted<sys::lkRtpSender>) -> Self {
         Self { ffi }
     }
 
@@ -32,11 +33,31 @@ impl RtpSender {
     }
 
     pub fn track(&self) -> Option<MediaStreamTrack> {
-        todo!()
+        unsafe {
+            let track_ptr = sys::lkRtpSenderGetTrack(self.ffi.as_ptr());
+            if track_ptr.is_null() {
+                None
+            } else {
+                Some(new_media_stream_track(unsafe { sys::RefCounted::from_raw(track_ptr) }))
+            }
+        }
     }
 
     pub fn set_track(&self, track: Option<MediaStreamTrack>) -> Result<(), RtcError> {
-        todo!()
+        unsafe {
+            let track_ptr = match track {
+                Some(t) => t.ffi().as_ptr(),
+                None => std::ptr::null_mut(),
+            };
+            let result = sys::lkRtpSenderSetTrack(self.ffi.as_ptr(), track_ptr);
+            if !result {
+                return Err(RtcError {
+                    error_type: crate::RtcErrorType::Internal,
+                    message: "Failed to set track".to_string(),
+                });
+            }
+            Ok(())
+        }
     }
 
     pub fn parameters(&self) -> RtpParameters {

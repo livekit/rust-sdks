@@ -14,13 +14,13 @@
 
 use crate::impl_thread_safety;
 use crate::sys::{self, lkDataChannelObserver, lkDcState};
+use serde_derive::Deserialize;
 use std::{
     str::Utf8Error,
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
 use tokio::sync::mpsc;
-use serde_derive::Deserialize;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]

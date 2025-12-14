@@ -91,9 +91,10 @@ class VideoTrackSource : public webrtc::RefCountInterface {
 
   webrtc::scoped_refptr<InternalSource> get() const;
 
-  webrtc::VideoTrackSourceInterface* video_source() const {
-    return source_.get();
+  webrtc::scoped_refptr<webrtc::VideoTrackSourceInterface> video_source() const {
+    return source_;
   }
+  
 
  private:
   webrtc::scoped_refptr<InternalSource> source_;

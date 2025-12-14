@@ -14,8 +14,7 @@
  * limitations under the License.
  */
 
-#include "livekit/rtp_receiver.h"
-#include "livekit/jsep.h"
+#include "livekit_rtc/rtp_receiver.h"
 
 #include <memory>
 
@@ -26,50 +25,44 @@
 namespace livekit {
 
 RtpReceiver::RtpReceiver(
-    std::shared_ptr<RtcRuntime> rtc_runtime,
     webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
     webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
-    : rtc_runtime_(rtc_runtime),
-      receiver_(std::move(receiver)),
+    : receiver_(std::move(receiver)),
       peer_connection_(std::move(peer_connection)) {}
 
-std::shared_ptr<MediaStreamTrack> RtpReceiver::track() const {
-  return rtc_runtime_->get_or_create_media_stream_track(receiver_->track());
+webrtc::scoped_refptr<MediaStreamTrack> RtpReceiver::track() const {
+  return webrtc::make_ref_counted<MediaStreamTrack>(receiver_->track());
+  //TODO: return rtc_runtime_->get_or_create_media_stream_track(receiver_->track());
 }
 
-rust::Vec<rust::String> RtpReceiver::stream_ids() const {
-  rust::Vec<rust::String> rust;
-  for (auto id : receiver_->stream_ids())
-    rust.push_back(id);
-  return rust;
+std::vector<std::string> RtpReceiver::stream_ids() const {
+  return receiver_->stream_ids();
 }
 
-void RtpReceiver::get_stats(
-    rust::Box<ReceiverContext> ctx,
-    rust::Fn<void(rust::Box<ReceiverContext>, rust::String)> on_stats) const {
-	auto observer = 
-      webrtc::make_ref_counted<NativeRtcStatsCollector<ReceiverContext>>(std::move(ctx), on_stats);
+void RtpReceiver::get_stats(onStatsDeliveredCallback on_stats,
+                            void* userdata) const {
+  auto observer =
+      webrtc::make_ref_counted<NativeRtcStatsCollector>(on_stats, userdata);
   peer_connection_->GetStats(receiver_, observer);
 }
 
-rust::Vec<MediaStreamPtr> RtpReceiver::streams() const {
-  rust::Vec<MediaStreamPtr> rust;
+std::vector<webrtc::scoped_refptr<MediaStream>> RtpReceiver::streams() const {
+  std::vector<webrtc::scoped_refptr<MediaStream>> vec;
   for (auto stream : receiver_->streams())
-    rust.push_back(
-        MediaStreamPtr{std::make_shared<MediaStream>(rtc_runtime_, stream)});
-  return rust;
+    vec.push_back(webrtc::make_ref_counted<MediaStream>(stream));
+  return vec;
 }
 
-MediaType RtpReceiver::media_type() const {
-  return static_cast<MediaType>(receiver_->media_type());
+lkMediaType RtpReceiver::media_type() const {
+  return static_cast<lkMediaType>(receiver_->media_type());
 }
 
-rust::String RtpReceiver::id() const {
+std::string RtpReceiver::id() const {
   return receiver_->id();
 }
 
 RtpParameters RtpReceiver::get_parameters() const {
-  return to_rust_rtp_parameters(receiver_->GetParameters());
+  return to_capi_rtp_parameters(receiver_->GetParameters());
 }
 
 void RtpReceiver::set_jitter_buffer_minimum_delay(bool is_some,

@@ -50,6 +50,15 @@ typedef lkRefCountedObject lkI010Buffer;
 typedef lkRefCountedObject lkNV12Buffer;
 typedef lkRefCountedObject lkNativeVideoSink;
 typedef lkRefCountedObject lkVideoFrameBuilder;
+typedef lkRefCountedObject lkRtpEncodingParameters;
+typedef lkRefCountedObject lkRtpTransceiverInit;
+
+typedef enum {
+  LK_MEDIA_TYPE_AUDIO,
+  LK_MEDIA_TYPE_VIDEO,
+  LK_MEDIA_TYPE_DATA,
+  LK_MEDIA_TYPE_UNSUPPORTED,
+} lkMediaType;
 
 typedef enum {
   LK_ICE_TRANSPORT_TYPE_NONE,
@@ -127,7 +136,12 @@ typedef struct {
   void (*onSignalingChange)(lkSignalingState state, void* userdata);
   void (*onIceCandidate)(lkIceCandidate* candidate, void* userdata);
   void (*onDataChannel)(const lkDataChannel* dc, void* userdata);
-  void (*onTrack)(const lkRtpTransceiver* transceiver, void* userdata);
+  void (*onTrack)(const lkRtpTransceiver* transceiver,
+                  const lkRtpReceiver* receiver,
+                  const lkVectorGeneric* streams,
+                  const lkMediaStreamTrack* track,
+                  void* userdata);
+  void (*onRemoveTrack)(const lkRtpReceiver* receiver, void* userdata);
   void (*onConnectionChange)(lkPeerState state, void* userdata);
   void (*onStandardizedIceConnectionChange)(lkIceState state, void* userdata);
   void (*onIceGatheringChange)(lkIceGatheringState state, void* userdata);
@@ -142,10 +156,7 @@ typedef struct {
 
 typedef struct {
   void (*onStateChange)(void* userdata, const lkDcState state);
-  void (*onMessage)(const uint8_t* data,
-                    uint64_t size,
-                    bool binary,
-                    void* userdata);
+  void (*onMessage)(const uint8_t* data, uint64_t size, bool binary, void* userdata);
   void (*onBufferedAmountChange)(uint64_t sentDataSize, void* userdata);
 } lkDataChannelObserver;
 
@@ -221,8 +232,7 @@ typedef struct {
 typedef struct {
   void (*onFrame)(const lkVideoFrame* frame, void* userdata);
   void (*onDiscardedFrame)(void* userdata);
-  void (*onConstraintsChanged)(lkVideoTrackSourceConstraints* resolution,
-                               void* userdata);
+  void (*onConstraintsChanged)(lkVideoTrackSourceConstraints* resolution, void* userdata);
 } lkVideoSinkCallabacks;
 
 typedef enum {
@@ -242,6 +252,14 @@ typedef enum {
   LK_VIDEO_ROTATION_270,
 } lkVideoRotation;
 
+typedef enum {
+  LK_RTP_TRANSCEIVER_DIRECTION_SENDRECV,
+  LK_RTP_TRANSCEIVER_DIRECTION_SENDONLY,
+  LK_RTP_TRANSCEIVER_DIRECTION_RECVONLY,
+  LK_RTP_TRANSCEIVER_DIRECTION_INACTIVE,
+  LK_RTP_TRANSCEIVER_DIRECTION_STOPPED,
+} lkRtpTransceiverDirection;
+
 LK_EXPORT int lkInitialize();
 
 LK_EXPORT int lkDispose();
@@ -254,9 +272,9 @@ LK_EXPORT void lkReleaseRef(lkRefCountedObject* rc);
 
 LK_EXPORT lkString* lkCreateString(const char* str);
 
-LK_EXPORT int lkStringGetLength(lkString *str);
+LK_EXPORT int lkStringGetLength(lkString* str);
 
-LK_EXPORT int lkStringGetData(lkString *str, char* buffer, int bufferSize);
+LK_EXPORT int lkStringGetData(lkString* str, char* buffer, int bufferSize);
 
 LK_EXPORT lkData* lkCreateData(const uint8_t* data, uint32_t size);
 
@@ -274,10 +292,9 @@ LK_EXPORT uint32_t lkVectorGenericPushBack(lkVectorGeneric* vec, lkRefCountedObj
 
 LK_EXPORT lkPeerFactory* lkCreatePeerFactory();
 
-LK_EXPORT lkRtpCapabilities* lkGetRtpSenderCapabilities(lkPeerFactory* factory);
+LK_EXPORT lkRtpCapabilities* lkGetRtpSenderCapabilities(lkPeerFactory* factory, lkMediaType type);
 
-LK_EXPORT lkRtpCapabilities* lkGetRtpReceiverCapabilities(
-    lkPeerFactory* factory);
+LK_EXPORT lkRtpCapabilities* lkGetRtpReceiverCapabilities(lkPeerFactory* factory, lkMediaType type);
 
 LK_EXPORT lkPeer* lkCreatePeer(lkPeerFactory* factory,
                                const lkRtcConfiguration* config,
@@ -290,8 +307,7 @@ LK_EXPORT lkDataChannel* lkCreateDataChannel(lkPeer* peer,
 
 LK_EXPORT bool lkAddIceCandidate(lkPeer* peer,
                                  lkIceCandidate* candidate,
-                                 void (*onComplete)(lkRtcError* error,
-                                                    void* userdata),
+                                 void (*onComplete)(lkRtcError* error, void* userdata),
                                  void* userdata);
 
 LK_EXPORT bool lkSetLocalDescription(lkPeer* peer,
@@ -315,10 +331,23 @@ LK_EXPORT bool lkCreateAnswer(lkPeer* peer,
                               void* userdata);
 
 LK_EXPORT lkRtpSender* lkPeerAddTrack(lkPeer* peer,
-                                    lkMediaStreamTrack* track,
-                                    lkString** streamIds,
-                                    int streamIdCount,
-                                    lkRtcError** error);
+                                      lkMediaStreamTrack* track,
+                                      const char** streamIds,
+                                      int streamIdCount,
+                                      lkRtcError* error);
+
+LK_EXPORT bool lkPeerRemoveTrack(lkPeer* peer, lkRtpSender* sender, lkRtcError* error);
+
+LK_EXPORT lkRtpTransceiver* lkPeerAddTransceiver(lkPeer* peer,
+                                                 lkMediaStreamTrack* track,
+                                                 lkRtpTransceiverInit* init,
+                                                 lkRtcError* error);
+
+LK_EXPORT lkVectorGeneric* lkPeerGetTransceivers(lkPeer* peer);
+
+LK_EXPORT lkVectorGeneric* lkPeerGetSenders(lkPeer* peer);
+
+LK_EXPORT lkVectorGeneric* lkPeerGetReceivers(lkPeer* peer);
 
 LK_EXPORT bool lkPeerSetConfig(lkPeer* peer, const lkRtcConfiguration* config);
 
@@ -332,11 +361,9 @@ LK_EXPORT lkIceState lkPeerGetIceConnectionState(lkPeer* peer);
 
 LK_EXPORT lkSignalingState lkPeerGetSignalingState(lkPeer* peer);
 
-LK_EXPORT const lkSessionDescription* lkPeerGetCurrentLocalDescription(
-    lkPeer* peer);
+LK_EXPORT const lkSessionDescription* lkPeerGetCurrentLocalDescription(lkPeer* peer);
 
-LK_EXPORT const lkSessionDescription* lkPeerGetCurrentRemoteDescription(
-    lkPeer* peer);
+LK_EXPORT const lkSessionDescription* lkPeerGetCurrentRemoteDescription(lkPeer* peer);
 
 LK_EXPORT bool lkPeerClose(lkPeer* peer);
 
@@ -361,71 +388,57 @@ LK_EXPORT void lkDcSendAsync(lkDataChannel* dc,
                              const uint8_t* data,
                              uint64_t size,
                              bool binary,
-                             void (*onComplete)(lkRtcError* error,
-                                                void* userdata),
+                             void (*onComplete)(lkRtcError* error, void* userdata),
                              void* userdata);
 
 LK_EXPORT void lkDcClose(lkDataChannel* dc);
 
-LK_EXPORT lkSessionDescription* lkCreateSessionDescription(lkSdpType type,
-                                                           const char* sdp);
+LK_EXPORT lkSessionDescription* lkCreateSessionDescription(lkSdpType type, const char* sdp);
 
 LK_EXPORT lkSdpType lkSessionDescriptionGetType(lkSessionDescription* desc);
 
 LK_EXPORT int lkSessionDescriptionGetSdpLength(lkSessionDescription* desc);
 
-LK_EXPORT int lkSessionDescriptionGetSdp(lkSessionDescription* desc,
-                                         char* buffer,
-                                         int bufferSize);
+LK_EXPORT int lkSessionDescriptionGetSdp(lkSessionDescription* desc, char* buffer, int bufferSize);
 
-LK_EXPORT lkIceCandidate* lkCreateIceCandidate(const char* mid,
-                                               int mlineIndex,
-                                               const char* sdp);
+LK_EXPORT lkIceCandidate* lkCreateIceCandidate(const char* mid, int mlineIndex, const char* sdp);
 
 LK_EXPORT int lkIceCandidateGetMlineIndex(lkIceCandidate* candidate);
 
 LK_EXPORT int lkIceCandidateGetMidLength(lkIceCandidate* candidate);
 
-LK_EXPORT int lkIceCandidateGetMid(lkIceCandidate* candidate,
-                                   char* buffer,
-                                   int bufferSize);
+LK_EXPORT int lkIceCandidateGetMid(lkIceCandidate* candidate, char* buffer, int bufferSize);
 
 LK_EXPORT int lkIceCandidateGetSdpLength(lkIceCandidate* candidate);
 
-LK_EXPORT int lkIceCandidateGetSdp(lkIceCandidate* candidate,
-                                   char* buffer,
-                                   int bufferSize);
+LK_EXPORT int lkIceCandidateGetSdp(lkIceCandidate* candidate, char* buffer, int bufferSize);
 
-LK_EXPORT lkNativeAudioSink* lkCreateNativeAudioSink(
-    int sample_rate,
-    int num_channels,
-    void (*onAudioData)(int16_t* audioData,
-                        uint32_t sampleRate,
-                        uint32_t numberOfChannels,
-                        int numberOfFrames,
-                        void* userdata),
-    void* userdata);
+LK_EXPORT lkNativeAudioSink* lkCreateNativeAudioSink(int sample_rate,
+                                                     int num_channels,
+                                                     void (*onAudioData)(int16_t* audioData,
+                                                                         uint32_t sampleRate,
+                                                                         uint32_t numberOfChannels,
+                                                                         int numberOfFrames,
+                                                                         void* userdata),
+                                                     void* userdata);
 
-LK_EXPORT lkAudioTrackSource* lkCreateAudioTrackSource(
-    lkAudioSourceOptions options,
-    int sample_rate,
-    int num_channels,
-    int queue_size_ms);
+LK_EXPORT lkAudioTrackSource* lkCreateAudioTrackSource(lkAudioSourceOptions options,
+                                                       int sample_rate,
+                                                       int num_channels,
+                                                       int queue_size_ms);
 
-LK_EXPORT void lkAudioTrackSourceSetAudioOptions(
-    lkAudioTrackSource* source, const lkAudioSourceOptions* options);
+LK_EXPORT void lkAudioTrackSourceSetAudioOptions(lkAudioTrackSource* source,
+                                                 const lkAudioSourceOptions* options);
 
-LK_EXPORT lkAudioSourceOptions
-    lkAudioTrackSourceGetAudioOptions(lkAudioTrackSource* source);
+LK_EXPORT lkAudioSourceOptions lkAudioTrackSourceGetAudioOptions(lkAudioTrackSource* source);
 
-LK_EXPORT bool lkAudioTrackSourceCaptureFrame(
-    lkAudioTrackSource* source,
-    const int16_t* audio_data,
-    uint32_t sample_rate,
-    uint32_t number_of_channels,
-    int number_of_frames,
-    void* userdata,
-    void (*onComplete)(void* userdata));
+LK_EXPORT bool lkAudioTrackSourceCaptureFrame(lkAudioTrackSource* source,
+                                              const int16_t* audio_data,
+                                              uint32_t sample_rate,
+                                              uint32_t number_of_channels,
+                                              int number_of_frames,
+                                              void* userdata,
+                                              void (*onComplete)(void* userdata));
 
 LK_EXPORT void lkAudioTrackSourceClearBuffer(lkAudioTrackSource* source);
 
@@ -433,101 +446,77 @@ LK_EXPORT int lkAudioTrackSourceGetSampleRate(lkAudioTrackSource* source);
 
 LK_EXPORT int lkAudioTrackSourceGetNumChannels(lkAudioTrackSource* source);
 
-LK_EXPORT int lkAudioTrackSourceAddSink(lkAudioTrackSource* source,
-                                        lkNativeAudioSink* sink);
+LK_EXPORT int lkAudioTrackSourceAddSink(lkAudioTrackSource* source, lkNativeAudioSink* sink);
 
-LK_EXPORT int lkAudioTrackSourceRemoveSink(lkAudioTrackSource* source,
-                                           lkNativeAudioSink* sink);
+LK_EXPORT int lkAudioTrackSourceRemoveSink(lkAudioTrackSource* source, lkNativeAudioSink* sink);
 
 LK_EXPORT int lkMediaStreamTrackGetIdLength(lkMediaStreamTrack* track);
 
-LK_EXPORT int lkMediaStreamTrackGetId(lkMediaStreamTrack* track,
-                                      char* buffer,
-                                      int bufferSize);
+LK_EXPORT int lkMediaStreamTrackGetId(lkMediaStreamTrack* track, char* buffer, int bufferSize);
 
 LK_EXPORT bool lkMediaStreamTrackIsEnabled(lkMediaStreamTrack* track);
 
-LK_EXPORT void lkMediaStreamTrackSetEnabled(lkMediaStreamTrack* track,
-                                            bool enabled);
+LK_EXPORT void lkMediaStreamTrackSetEnabled(lkMediaStreamTrack* track, bool enabled);
 
 LK_EXPORT lkRtcTrackState lkMediaStreamTrackGetState(lkMediaStreamTrack* track);
 
-LK_EXPORT lkMediaStreamTrackKind
-    lkMediaStreamTrackGetKind(lkMediaStreamTrack* track);
+LK_EXPORT lkMediaStreamTrackKind lkMediaStreamTrackGetKind(lkMediaStreamTrack* track);
 
-LK_EXPORT lkRtcAudioTrack* lkPeerFactoryCreateAudioTrack(
-    lkPeerFactory* factory, const char* id, lkAudioTrackSource* source);
+LK_EXPORT lkRtcAudioTrack* lkPeerFactoryCreateAudioTrack(lkPeerFactory* factory,
+                                                         const char* id,
+                                                         lkAudioTrackSource* source);
 
-LK_EXPORT lkRtcVideoTrack* lkPeerFactoryCreateVideoTrack(
-    lkPeerFactory* factory, const char* id, lkVideoTrackSource* source);
+LK_EXPORT lkRtcVideoTrack* lkPeerFactoryCreateVideoTrack(lkPeerFactory* factory,
+                                                         const char* id,
+                                                         lkVideoTrackSource* source);
 
-LK_EXPORT void lkAudioTrackAddSink(lkRtcAudioTrack* track,
-                                   lkNativeAudioSink* sink);
+LK_EXPORT void lkAudioTrackAddSink(lkRtcAudioTrack* track, lkNativeAudioSink* sink);
 
-LK_EXPORT void lkAudioTrackRemoveSink(lkRtcVideoTrack* track,
-                                      lkNativeAudioSink* sink);
+LK_EXPORT void lkAudioTrackRemoveSink(lkRtcVideoTrack* track, lkNativeAudioSink* sink);
 
 LK_EXPORT int lkMediaStreamGetIdLength(lkMediaStream* stream);
 
-LK_EXPORT int lkMediaStreamGetId(lkMediaStream* stream,
-                                 char* buffer,
-                                 int bufferSize);
+LK_EXPORT int lkMediaStreamGetId(lkMediaStream* stream, char* buffer, int bufferSize);
 
 LK_EXPORT lkVectorGeneric* lkMediaStreamGetAudioTracks(lkMediaStream* stream);
 
 LK_EXPORT lkVectorGeneric* lkMediaStreamGetVideoTracks(lkMediaStream* stream);
 
-LK_EXPORT lkNativeVideoSink* lkCreateNativeVideoSink(
-    const lkVideoSinkCallabacks* callbacks, void* userdata);
+LK_EXPORT lkNativeVideoSink* lkCreateNativeVideoSink(const lkVideoSinkCallabacks* callbacks,
+                                                     void* userdata);
 
-LK_EXPORT void lkVideoTrackAddSink(lkRtcVideoTrack* source,
-                                   lkNativeVideoSink* sink);
+LK_EXPORT void lkVideoTrackAddSink(lkRtcVideoTrack* source, lkNativeVideoSink* sink);
 
-LK_EXPORT void lkVideoTrackRemoveSink(lkRtcVideoTrack* source,
-                                      lkNativeVideoSink* sink);
+LK_EXPORT void lkVideoTrackRemoveSink(lkRtcVideoTrack* source, lkNativeVideoSink* sink);
 
-LK_EXPORT lkVideoTrackSource* lkCreateVideoTrackSource(
-    lkVideoResolution resolution);
+LK_EXPORT lkVideoTrackSource* lkCreateVideoTrackSource(lkVideoResolution resolution);
 
-LK_EXPORT lkVideoResolution
-    lkVideoTrackSourceGetResolution(lkVideoTrackSource* source);
+LK_EXPORT lkVideoResolution lkVideoTrackSourceGetResolution(lkVideoTrackSource* source);
 
-LK_EXPORT void lkVideoTrackSourceOnCaptureFrame(lkVideoTrackSource* source,
-                                                lkVideoFrame* frame);
+LK_EXPORT void lkVideoTrackSourceOnCaptureFrame(lkVideoTrackSource* source, lkVideoFrame* frame);
 
-LK_EXPORT lkVideoBufferType
-    lkVideoFrameBufferGetType(lkVideoFrameBuffer* frameBuffer);
+LK_EXPORT lkVideoBufferType lkVideoFrameBufferGetType(lkVideoFrameBuffer* frameBuffer);
 
 LK_EXPORT uint32_t lkVideoFrameBufferGetWidth(lkVideoFrameBuffer* frameBuffer);
 
 LK_EXPORT uint32_t lkVideoFrameBufferGetHeight(lkVideoFrameBuffer* frameBuffer);
 
-LK_EXPORT lkI420Buffer* lkI420BufferNew(uint32_t width,
-                                        uint32_t height,
-                                        uint32_t stride_y,
-                                        uint32_t stride_u,
-                                        uint32_t stride_v);
+LK_EXPORT lkI420Buffer* lkI420BufferNew(
+    uint32_t width, uint32_t height, uint32_t stride_y, uint32_t stride_u, uint32_t stride_v);
 
-LK_EXPORT lkI420Buffer* lkVideoFrameBufferToI420(
-    lkVideoFrameBuffer* frameBuffer);
+LK_EXPORT lkI420Buffer* lkVideoFrameBufferToI420(lkVideoFrameBuffer* frameBuffer);
 
-LK_EXPORT lkI420Buffer* lkVideoFrameBufferGetI420(
-    lkVideoFrameBuffer* frameBuffer);
+LK_EXPORT lkI420Buffer* lkVideoFrameBufferGetI420(lkVideoFrameBuffer* frameBuffer);
 
-LK_EXPORT lkI420ABuffer* lkVideoFrameBufferGetI420A(
-    lkVideoFrameBuffer* frameBuffer);
+LK_EXPORT lkI420ABuffer* lkVideoFrameBufferGetI420A(lkVideoFrameBuffer* frameBuffer);
 
-LK_EXPORT lkI422Buffer* lkVideoFrameBufferGetI422(
-    lkVideoFrameBuffer* frameBuffer);
+LK_EXPORT lkI422Buffer* lkVideoFrameBufferGetI422(lkVideoFrameBuffer* frameBuffer);
 
-LK_EXPORT lkI444Buffer* lkVideoFrameBufferGetI444(
-    lkVideoFrameBuffer* frameBuffer);
+LK_EXPORT lkI444Buffer* lkVideoFrameBufferGetI444(lkVideoFrameBuffer* frameBuffer);
 
-LK_EXPORT lkI010Buffer* lkVideoFrameBufferGetI010(
-    lkVideoFrameBuffer* frameBuffer);
+LK_EXPORT lkI010Buffer* lkVideoFrameBufferGetI010(lkVideoFrameBuffer* frameBuffer);
 
-LK_EXPORT lkNV12Buffer* lkVideoFrameBufferGetNV12(
-    lkVideoFrameBuffer* frameBuffer);
+LK_EXPORT lkNV12Buffer* lkVideoFrameBufferGetNV12(lkVideoFrameBuffer* frameBuffer);
 
 LK_EXPORT uint32_t lkI420BufferGetChromaWidth(lkI420Buffer* buffer);
 
@@ -545,9 +534,7 @@ LK_EXPORT const uint8_t* lkI420BufferGetDataU(lkI420Buffer* buffer);
 
 LK_EXPORT const uint8_t* lkI420BufferGetDataV(lkI420Buffer* buffer);
 
-LK_EXPORT lkI420Buffer* lkI420BufferScale(lkI420Buffer* buffer,
-                                          int scaledWidth,
-                                          int scaledHeight);
+LK_EXPORT lkI420Buffer* lkI420BufferScale(lkI420Buffer* buffer, int scaledWidth, int scaledHeight);
 
 LK_EXPORT uint32_t lkI420ABufferGetChromaWidth(lkI420ABuffer* buffer);
 
@@ -573,11 +560,8 @@ LK_EXPORT lkI420ABuffer* lkI420ABufferScale(lkI420ABuffer* buffer,
                                             int scaledWidth,
                                             int scaledHeight);
 
-LK_EXPORT lkI422Buffer* lkI422BufferNew(uint32_t width,
-                                        uint32_t height,
-                                        uint32_t stride_y,
-                                        uint32_t stride_u,
-                                        uint32_t stride_v);
+LK_EXPORT lkI422Buffer* lkI422BufferNew(
+    uint32_t width, uint32_t height, uint32_t stride_y, uint32_t stride_u, uint32_t stride_v);
 
 LK_EXPORT uint32_t lkI422BufferGetChromaWidth(lkI422Buffer* buffer);
 
@@ -595,15 +579,10 @@ LK_EXPORT const uint8_t* lkI422BufferGetDataU(lkI422Buffer* buffer);
 
 LK_EXPORT const uint8_t* lkI422BufferGetDataV(lkI422Buffer* buffer);
 
-LK_EXPORT lkI422Buffer* lkI422BufferScale(lkI422Buffer* buffer,
-                                          int scaledWidth,
-                                          int scaledHeight);
+LK_EXPORT lkI422Buffer* lkI422BufferScale(lkI422Buffer* buffer, int scaledWidth, int scaledHeight);
 
-LK_EXPORT lkI444Buffer* lkI444BufferNew(uint32_t width,
-                                        uint32_t height,
-                                        uint32_t stride_y,
-                                        uint32_t stride_u,
-                                        uint32_t stride_v);
+LK_EXPORT lkI444Buffer* lkI444BufferNew(
+    uint32_t width, uint32_t height, uint32_t stride_y, uint32_t stride_u, uint32_t stride_v);
 LK_EXPORT uint32_t lkI444BufferGetChromaWidth(lkI444Buffer* buffer);
 
 LK_EXPORT uint32_t lkI444BufferGetChromaHeight(lkI444Buffer* buffer);
@@ -620,15 +599,10 @@ LK_EXPORT const uint8_t* lkI444BufferGetDataU(lkI444Buffer* buffer);
 
 LK_EXPORT const uint8_t* lkI444BufferGetDataV(lkI444Buffer* buffer);
 
-LK_EXPORT lkI444Buffer* lkI444BufferScale(lkI444Buffer* buffer,
-                                          int scaledWidth,
-                                          int scaledHeight);
+LK_EXPORT lkI444Buffer* lkI444BufferScale(lkI444Buffer* buffer, int scaledWidth, int scaledHeight);
 
-LK_EXPORT lkI010Buffer* lkI010BufferNew(uint32_t width,
-                                        uint32_t height,
-                                        uint32_t stride_y,
-                                        uint32_t stride_u,
-                                        uint32_t stride_v);
+LK_EXPORT lkI010Buffer* lkI010BufferNew(
+    uint32_t width, uint32_t height, uint32_t stride_y, uint32_t stride_u, uint32_t stride_v);
 LK_EXPORT uint32_t lkI010BufferGetChromaWidth(lkI010Buffer* buffer);
 
 LK_EXPORT uint32_t lkI010BufferGetChromaHeight(lkI010Buffer* buffer);
@@ -645,9 +619,7 @@ LK_EXPORT const uint16_t* lkI010BufferGetDataU(lkI010Buffer* buffer);
 
 LK_EXPORT const uint16_t* lkI010BufferGetDataV(lkI010Buffer* buffer);
 
-LK_EXPORT lkI010Buffer* lkI010BufferScale(lkI010Buffer* buffer,
-                                          int scaledWidth,
-                                          int scaledHeight);
+LK_EXPORT lkI010Buffer* lkI010BufferScale(lkI010Buffer* buffer, int scaledWidth, int scaledHeight);
 
 LK_EXPORT lkNV12Buffer* lkNV12BufferNew(uint32_t width,
                                         uint32_t height,
@@ -666,9 +638,7 @@ LK_EXPORT const uint8_t* lkNV12BufferGetDataY(lkNV12Buffer* buffer);
 
 LK_EXPORT const uint8_t* lkNV12BufferGetDataUV(lkNV12Buffer* buffer);
 
-LK_EXPORT lkNV12Buffer* lkNV12BufferScale(lkNV12Buffer* buffer,
-                                          int scaledWidth,
-                                          int scaledHeight);
+LK_EXPORT lkNV12Buffer* lkNV12BufferScale(lkNV12Buffer* buffer, int scaledWidth, int scaledHeight);
 
 LK_EXPORT void lkVideoFrameBufferToARGB(lkVideoFrameBuffer* frameBuffer,
                                         lkVideoBufferType type,
@@ -931,17 +901,15 @@ LK_EXPORT void lkARGBToNV12(const uint8_t* src_argb,
 
 LK_EXPORT lkVideoFrameBuilder* lkCreateVideoFrameBuilder();
 
-LK_EXPORT void lkVideoFrameBuilderSetVideoFrameBuffer(
-    lkVideoFrameBuilder* builder, lkVideoFrameBuffer* buffer);
+LK_EXPORT void lkVideoFrameBuilderSetVideoFrameBuffer(lkVideoFrameBuilder* builder,
+                                                      lkVideoFrameBuffer* buffer);
 
-LK_EXPORT void lkVideoFrameBuilderSetTimestampUs(lkVideoFrameBuilder* builder,
-                                                 int64_t timestampNs);
+LK_EXPORT void lkVideoFrameBuilderSetTimestampUs(lkVideoFrameBuilder* builder, int64_t timestampNs);
 
 LK_EXPORT void lkVideoFrameBuilderSetRotation(lkVideoFrameBuilder* builder,
                                               lkVideoRotation rotation);
 
-LK_EXPORT void lkVideoFrameBuilderSetId(lkVideoFrameBuilder* builder,
-                                        uint16_t id);
+LK_EXPORT void lkVideoFrameBuilderSetId(lkVideoFrameBuilder* builder, uint16_t id);
 
 LK_EXPORT lkVideoFrame* lkVideoFrameBuilderBuild(lkVideoFrameBuilder* builder);
 
@@ -953,6 +921,35 @@ LK_EXPORT uint16_t lkVideoFrameGetId(const lkVideoFrame* frame);
 
 LK_EXPORT lkVideoFrameBuffer* lkVideoFrameGetBuffer(const lkVideoFrame* frame);
 
+LK_EXPORT lkMediaStreamTrack* lkRtpSenderGetTrack(lkRtpSender* sender);
+
+LK_EXPORT bool lkRtpSenderSetTrack(lkRtpSender* sender, lkMediaStreamTrack* track);
+
+LK_EXPORT lkString* lkRtpTransceiverGetMid(lkRtpTransceiver* transceiver);
+
+LK_EXPORT lkRtpTransceiverDirection lkRtpTransceiverGetDirection(lkRtpTransceiver* transceiver);
+
+LK_EXPORT lkRtpTransceiverDirection lkRtpTransceiverCurrentDirection(lkRtpTransceiver* transceiver);
+
+LK_EXPORT lkRtpSender* lkRtpTransceiverGetSender(lkRtpTransceiver* transceiver);
+
+LK_EXPORT lkRtpReceiver* lkRtpTransceiverGetReceiver(lkRtpTransceiver* transceiver);
+
+LK_EXPORT void lkRtpTransceiverStop(lkRtpTransceiver* transceiver);
+
+LK_EXPORT lkMediaStreamTrack* lkRtpReceiverGetTrack(lkRtpReceiver* receiver);
+
+LK_EXPORT lkRtpEncodingParameters* lkRtpEncodingParametersCreate();
+
+LK_EXPORT lkRtpTransceiverInit* lkRtpTransceiverInitCreate();
+
+LK_EXPORT void lkRtpSenderGetStats(lkRtpSender* sender,
+                                   void (*onComplete)(const char* statsJson, void* userdata),
+                                   void* userdata);
+
+LK_EXPORT void lkRtpReceiverGetStats(lkRtpReceiver* receiver,
+                                     void (*onComplete)(const char* statsJson, void* userdata),
+                                     void* userdata);
 
 #ifdef __cplusplus
 }

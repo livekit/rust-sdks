@@ -24,7 +24,6 @@
 #include "api/rtp_transceiver_interface.h"
 #include "api/scoped_refptr.h"
 #include "livekit_rtc/rtc_error.h"
-#include "livekit_rtc/rtp_parameters.h"
 #include "livekit_rtc/rtp_receiver.h"
 #include "livekit_rtc/rtp_sender.h"
 
@@ -34,56 +33,54 @@ class RtpTransceiver;
 
 namespace livekit {
 
-webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
-    RtpTransceiverInit init);
+webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(RtpTransceiverInit init);
 
 class RtpTransceiver : public webrtc::RefCountInterface {
  public:
-  RtpTransceiver(
-      webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver,
-      webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
+  RtpTransceiver(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver,
+                 webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
-  MediaType media_type() const;
+  virtual ~RtpTransceiver() = default;
 
-  rust::String mid() const;
+  lkMediaType media_type() const;
 
-  std::shared_ptr<RtpSender> sender() const;
+  std::string mid() const;
 
-  std::shared_ptr<RtpReceiver> receiver() const;
+  webrtc::scoped_refptr<RtpSender> sender() const;
+
+  webrtc::scoped_refptr<RtpReceiver> receiver() const;
 
   bool stopped() const;
 
   bool stopping() const;
 
-  RtpTransceiverDirection direction() const;
+  lkRtpTransceiverDirection direction() const;
 
-  void set_direction(RtpTransceiverDirection direction) const;
+  void set_direction(lkRtpTransceiverDirection direction) const;
 
-  RtpTransceiverDirection current_direction() const;
+  lkRtpTransceiverDirection current_direction() const;
 
-  RtpTransceiverDirection fired_direction() const;
+  lkRtpTransceiverDirection fired_direction() const;
 
   void stop_standard() const;
 
-  void set_codec_preferences(rust::Vec<RtpCodecCapability> codecs) const;
+  void set_codec_preferences(std::vector<RtpCodecCapability> codecs) const;
 
-  rust::Vec<RtpCodecCapability> codec_preferences() const;
+  std::vector<RtpCodecCapability> codec_preferences() const;
 
-  rust::Vec<RtpHeaderExtensionCapability> header_extensions_to_negotiate()
-      const;
+  std::vector<RtpHeaderExtensionCapability> header_extensions_to_negotiate() const;
 
-  rust::Vec<RtpHeaderExtensionCapability> negotiated_header_extensions() const;
+  std::vector<RtpHeaderExtensionCapability> negotiated_header_extensions() const;
 
   void set_header_extensions_to_negotiate(
-      rust::Vec<RtpHeaderExtensionCapability> header_extensions_to_offer) const;
-
+      std::vector<RtpHeaderExtensionCapability> header_extensions_to_offer) const;
+  
+  webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection() const {
+    return peer_connection_;
+  }
  private:
   webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
-
-static std::shared_ptr<RtpTransceiver> _shared_rtp_transceiver() {
-  return nullptr;
-}
 
 }  // namespace livekit

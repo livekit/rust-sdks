@@ -21,8 +21,10 @@
 #include "livekit_rtc/capi.h"
 #include "livekit_rtc/data_channel.h"
 #include "livekit_rtc/ice_candidate.h"
+#include "livekit_rtc/rtp_receiver.h"
+#include "livekit_rtc/rtp_sender.h"
+#include "livekit_rtc/rtp_transceiver.h"
 #include "livekit_rtc/session_description.h"
-#include "livekit_rtc/transceiver.h"
 #include "livekit_rtc/utils.h"
 #include "livekit_rtc/video_decoder_factory.h"
 #include "livekit_rtc/video_encoder_factory.h"
@@ -148,10 +150,33 @@ void PeerObserver::OnIceCandidate(
 void PeerObserver::OnTrack(
     webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) {
   webrtc::scoped_refptr<RtpTransceiver> lkTransceiver =
-      webrtc::make_ref_counted<RtpTransceiver>(transceiver);
+      webrtc::make_ref_counted<RtpTransceiver>(transceiver, peer_connection_);
+  webrtc::scoped_refptr<RtpReceiver> lkReceiver =
+      webrtc::make_ref_counted<RtpReceiver>(transceiver->receiver(),
+                                            peer_connection_);
+  webrtc::scoped_refptr<MediaStreamTrack> lkTrack =
+      webrtc::make_ref_counted<MediaStreamTrack>(
+          transceiver->receiver()->track());
+  auto lkStreamArray = webrtc::make_ref_counted<
+      livekit::LKVector<webrtc::scoped_refptr<livekit::MediaStream>>>();
+  auto streams = transceiver->receiver()->streams();
+  for (const auto& stream : streams) {
+    lkStreamArray->push_back(
+        webrtc::make_ref_counted<livekit::MediaStream>(stream));
+  }
+  observer_->onTrack(
+      reinterpret_cast<lkRtpTransceiver*>(lkTransceiver.release()),
+      reinterpret_cast<lkRtpReceiver*>(lkReceiver.release()),
+      reinterpret_cast<lkVectorGeneric*>(lkStreamArray.get()),
+      reinterpret_cast<lkMediaStreamTrack*>(lkTrack.release()), userdata_);
+}
 
-  observer_->onTrack(reinterpret_cast<lkRtpTransceiver*>(lkTransceiver.get()),
-                     userdata_);
+void PeerObserver::OnRemoveTrack(
+    webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) {
+  webrtc::scoped_refptr<RtpReceiver> lkReceiver =
+      webrtc::make_ref_counted<RtpReceiver>(receiver, peer_connection_);
+  observer_->onRemoveTrack(
+      reinterpret_cast<lkRtpReceiver*>(lkReceiver.release()), userdata_);
 }
 
 void PeerObserver::OnConnectionChange(
@@ -227,7 +252,7 @@ webrtc::scoped_refptr<Peer> PeerFactory::CreatePeer(
                           << res.error().message();
     return nullptr;
   }
-
+  obs->set_peer_connection(res.value());
   return webrtc::make_ref_counted<Peer>(
       webrtc::scoped_refptr<PeerFactory>(this), res.value(), obs);
 }
@@ -235,7 +260,7 @@ webrtc::scoped_refptr<Peer> PeerFactory::CreatePeer(
 lkRtcVideoTrack* PeerFactory::CreateVideoTrack(const char* id,
                                                lkVideoTrackSource* source) {
   auto videoSource = reinterpret_cast<livekit::VideoTrackSource*>(source);
-  auto track = peer_factory_->CreateVideoTrack(id, videoSource->video_source());
+  auto track = peer_factory_->CreateVideoTrack(videoSource->video_source(), id);
   if (track) {
     return reinterpret_cast<lkRtcVideoTrack*>(
         webrtc::make_ref_counted<livekit::VideoTrack>(track).release());
@@ -289,9 +314,10 @@ lkRtpSender* Peer::AddTrack(lkMediaStreamTrack* track,
     *error = reinterpret_cast<lkRtcError*>(new lkRtcError(err));
     return nullptr;
   }
-  // TODO: return reinterpret_cast<lkRtpSender*>(
-  //     livekit::RtpSender::Create(res.value()).release());
-  return nullptr;
+  return reinterpret_cast<lkRtpSender*>(
+      webrtc::make_ref_counted<livekit::RtpSender>(res.value(),
+                                                   peer_connection_)
+          .release());
 }
 
 bool Peer::AddIceCandidate(const lkIceCandidate* candidate,
@@ -393,6 +419,42 @@ lkSessionDescription* Peer::GetCurrentRemoteDescription() const {
   }
   return reinterpret_cast<lkSessionDescription*>(
       SessionDescription::Create(desc).release());
+}
+
+lkVectorGeneric* Peer::GetSenders() {
+  auto track_array =
+      webrtc::make_ref_counted<LKVector<webrtc::scoped_refptr<RtpSender>>>();
+  auto senders = peer_connection_->GetSenders();
+  for (const auto& sender : senders) {
+    webrtc::scoped_refptr<RtpSender> lkSender =
+        webrtc::make_ref_counted<RtpSender>(sender, peer_connection_);
+    track_array->push_back(lkSender);
+  }
+  return reinterpret_cast<lkVectorGeneric*>(track_array.release());
+}
+
+lkVectorGeneric* Peer::GetReceivers() {
+  auto track_array =
+      webrtc::make_ref_counted<LKVector<webrtc::scoped_refptr<RtpReceiver>>>();
+  auto receivers = peer_connection_->GetReceivers();
+  for (const auto& receiver : receivers) {
+    webrtc::scoped_refptr<RtpReceiver> lkReceiver =
+        webrtc::make_ref_counted<RtpReceiver>(receiver, peer_connection_);
+    track_array->push_back(lkReceiver);
+  }
+  return reinterpret_cast<lkVectorGeneric*>(track_array.release());
+}
+
+lkVectorGeneric* Peer::GetTransceivers() {
+  auto track_array = webrtc::make_ref_counted<
+      LKVector<webrtc::scoped_refptr<RtpTransceiver>>>();
+  auto transceivers = peer_connection_->GetTransceivers();
+  for (const auto& transceiver : transceivers) {
+    webrtc::scoped_refptr<RtpTransceiver> lkReceiver =
+        webrtc::make_ref_counted<RtpTransceiver>(transceiver, peer_connection_);
+    track_array->push_back(lkReceiver);
+  }
+  return reinterpret_cast<lkVectorGeneric*>(track_array.release());
 }
 
 bool Peer::Close() {

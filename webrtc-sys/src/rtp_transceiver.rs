@@ -15,7 +15,7 @@
 use std::fmt::Debug;
 
 use crate::{
-    rtp_parameters::{RtpCodecCapability, RtpEncodingParameters},
+    rtp_parameters::{RtpCodecCapability, RtpEncodingParameters, RtpTransceiverDirection},
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
     sys, RtcError,
@@ -28,39 +28,82 @@ pub struct RtpTransceiverInit {
     pub send_encodings: Vec<RtpEncodingParameters>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-pub enum RtpTransceiverDirection {
-    SendRecv,
-    SendOnly,
-    RecvOnly,
-    Inactive,
-    Stopped,
+impl From<sys::lkRtpTransceiverDirection> for RtpTransceiverDirection {
+    fn from(state: sys::lkRtpTransceiverDirection) -> Self {
+        match state {
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_SENDRECV => Self::SendRecv,
+
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_SENDONLY => Self::SendOnly,
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_RECVONLY => Self::RecvOnly,
+
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_INACTIVE => Self::Inactive,
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_STOPPED => Self::Stopped,
+        }
+    }
+}
+
+impl From<RtpTransceiverDirection> for sys::lkRtpTransceiverDirection {
+    fn from(state: RtpTransceiverDirection) -> Self {
+        match state {
+            RtpTransceiverDirection::SendRecv => Self::LK_RTP_TRANSCEIVER_DIRECTION_SENDRECV,
+            RtpTransceiverDirection::SendOnly => Self::LK_RTP_TRANSCEIVER_DIRECTION_SENDONLY,
+            RtpTransceiverDirection::RecvOnly => Self::LK_RTP_TRANSCEIVER_DIRECTION_RECVONLY,
+            RtpTransceiverDirection::Inactive => Self::LK_RTP_TRANSCEIVER_DIRECTION_INACTIVE,
+            RtpTransceiverDirection::Stopped => Self::LK_RTP_TRANSCEIVER_DIRECTION_STOPPED,
+        }
+    }
 }
 
 #[derive(Clone)]
 pub struct RtpTransceiver {
-    pub(crate) ffi: sys::RefCounted<crate::sys::lkRtpTransceiver>,
+    pub ffi: sys::RefCounted<crate::sys::lkRtpTransceiver>,
 }
 
 impl RtpTransceiver {
+    pub fn from_native(ffi: sys::RefCounted<crate::sys::lkRtpTransceiver>) -> Self {
+        Self { ffi }
+    }
+
     pub fn mid(&self) -> Option<String> {
-        todo!()
+        unsafe {
+            let mid_ptr = sys::lkRtpTransceiverGetMid(self.ffi.as_ptr());
+            if mid_ptr.is_null() {
+                None
+            } else {
+                let ref_counted_str =
+                    sys::RefCountedString { ffi: sys::RefCounted::from_raw(mid_ptr) };
+                Some(ref_counted_str.as_str())
+            }
+        }
     }
 
     pub fn current_direction(&self) -> Option<RtpTransceiverDirection> {
-        todo!()
+        unsafe {
+            let direction_ptr = sys::lkRtpTransceiverCurrentDirection(self.ffi.as_ptr());
+            if direction_ptr.is_null() {
+                None
+            } else {
+                Some((*direction_ptr).into())
+            }
+        }
     }
 
     pub fn direction(&self) -> RtpTransceiverDirection {
-        todo!()
+        unsafe { sys::lkRtpTransceiverGetDirection(self.ffi.as_ptr()).into() }
     }
 
     pub fn sender(&self) -> RtpSender {
-        todo!()
+        unsafe {
+            let sender_ptr = sys::lkRtpTransceiverGetSender(self.ffi.as_ptr());
+            RtpSender::from_native(unsafe { sys::RefCounted::from_raw(sender_ptr) })
+        }
     }
 
     pub fn receiver(&self) -> RtpReceiver {
-        todo!()
+        unsafe {
+            let receiver_ptr = sys::lkRtpTransceiverGetReceiver(self.ffi.as_ptr());
+            RtpReceiver::from_native(unsafe { sys::RefCounted::from_raw(receiver_ptr) })
+        }
     }
 
     pub fn set_codec_preferences(&self, codecs: Vec<RtpCodecCapability>) -> Result<(), RtcError> {

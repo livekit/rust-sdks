@@ -50,7 +50,11 @@ pub mod media_stream_track;
 pub mod peer_connection;
 pub mod peer_connection_factory;
 pub mod rtp_parameters;
+pub mod rtp_receiver;
+pub mod rtp_sender;
+pub mod rtp_transceiver;
 pub mod session_description;
+pub mod stats;
 pub mod sys;
 pub mod video_frame;
 pub mod video_frame_buffer;
@@ -58,10 +62,6 @@ pub mod video_frame_builder;
 pub mod video_source;
 pub mod video_stream;
 pub mod video_track;
-pub mod rtp_sender;
-pub mod rtp_receiver;
-pub mod rtp_transceiver;
-pub mod stats;
 
 #[cfg(target_os = "android")]
 pub mod android {

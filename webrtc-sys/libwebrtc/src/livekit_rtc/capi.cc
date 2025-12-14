@@ -7,6 +7,8 @@
 #include "livekit_rtc/media_stream.h"
 #include "livekit_rtc/media_stream_track.h"
 #include "livekit_rtc/peer.h"
+#include "livekit_rtc/rtp_sender.h"
+#include "livekit_rtc/rtp_transceiver.h"
 #include "livekit_rtc/session_description.h"
 #include "livekit_rtc/utils.h"
 #include "livekit_rtc/video_frame.h"
@@ -131,10 +133,18 @@ lkDataChannel* lkCreateDataChannel(lkPeer* peer,
 
 lkRtpSender* lkPeerAddTrack(lkPeer* peer,
                             lkMediaStreamTrack* track,
-                            lkString** streamIds,
+                            const char** streamIds,
                             int streamIdCount,
-                            lkRtcError** error) {
+                            lkRtcError* error) {
+  // TODO implement
   return nullptr;
+}
+
+LK_EXPORT bool lkPeerRemoveTrack(lkPeer* peer,
+                                 lkRtpSender* sender,
+                                 lkRtcError* error) {
+  // TODO implement
+  return false;
 }
 
 bool lkAddIceCandidate(lkPeer* peer,
@@ -183,6 +193,18 @@ bool lkPeerSetConfig(lkPeer* peer, const lkRtcConfiguration* config) {
 
 bool lkPeerClose(lkPeer* peer) {
   return reinterpret_cast<livekit::Peer*>(peer)->Close();
+}
+
+lkVectorGeneric* lkPeerGetTransceivers(lkPeer* peer) {
+  return reinterpret_cast<livekit::Peer*>(peer)->GetTransceivers();
+}
+
+lkVectorGeneric* lkPeerGetSenders(lkPeer* peer) {
+  return reinterpret_cast<livekit::Peer*>(peer)->GetSenders();
+}
+
+lkVectorGeneric* lkPeerGetReceivers(lkPeer* peer) {
+  return reinterpret_cast<livekit::Peer*>(peer)->GetReceivers();
 }
 
 void lkDcRegisterObserver(lkDataChannel* dc,
@@ -352,15 +374,15 @@ const lkSessionDescription* lkPeerGetCurrentRemoteDescription(lkPeer* peer) {
   return reinterpret_cast<livekit::Peer*>(peer)->GetCurrentRemoteDescription();
 }
 
-lkRtpCapabilities* lkGetRtpSenderCapabilities(lkPeerFactory* factory) {
-  auto peer_factory = reinterpret_cast<livekit::PeerFactory*>(factory)
-                          ->GetPeerConnectionFactory();
+lkRtpCapabilities* lkGetRtpSenderCapabilities(lkPeerFactory* factory,
+                                              lkMediaType type) {
+  // TODO implement
   return nullptr;
 }
 
-lkRtpCapabilities* lkGetRtpReceiverCapabilities(lkPeerFactory* factory) {
-  auto peer_factory = reinterpret_cast<livekit::PeerFactory*>(factory)
-                          ->GetPeerConnectionFactory();
+lkRtpCapabilities* lkGetRtpReceiverCapabilities(lkPeerFactory* factory,
+                                                lkMediaType type) {
+  // TODO implement
   return nullptr;
 }
 
@@ -1045,3 +1067,74 @@ lkVideoFrameBuffer* lkVideoFrameGetBuffer(const lkVideoFrame* frame) {
           ->video_frame_buffer()
           .release());
 }
+
+lkMediaStreamTrack* lkRtpSenderGetTrack(lkRtpSender* sender) {
+  return reinterpret_cast<lkMediaStreamTrack*>(
+      reinterpret_cast<livekit::RtpSender*>(sender)->track().release());
+}
+
+bool lkRtpSenderSetTrack(lkRtpSender* sender, lkMediaStreamTrack* track) {
+  return reinterpret_cast<livekit::RtpSender*>(sender)->set_track(
+      webrtc::scoped_refptr<livekit::MediaStreamTrack>(
+          reinterpret_cast<livekit::MediaStreamTrack*>(track)));
+}
+
+lkString* lkRtpTransceiverGetMid(lkRtpTransceiver* transceiver) {
+  auto mid = reinterpret_cast<livekit::RtpTransceiver*>(transceiver)->mid();
+  return reinterpret_cast<lkString*>(livekit::LKString::Create(mid).release());
+}
+
+lkRtpTransceiverDirection lkRtpTransceiverGetDirection(
+    lkRtpTransceiver* transceiver) {
+  return static_cast<lkRtpTransceiverDirection>(
+      reinterpret_cast<livekit::RtpTransceiver*>(transceiver)->direction());
+}
+
+lkRtpTransceiverDirection lkRtpTransceiverCurrentDirection(
+    lkRtpTransceiver* transceiver) {
+  return reinterpret_cast<livekit::RtpTransceiver*>(transceiver)
+      ->current_direction();
+}
+
+lkRtpSender* lkRtpTransceiverGetSender(lkRtpTransceiver* transceiver) {
+  return reinterpret_cast<lkRtpSender*>(
+      reinterpret_cast<livekit::RtpTransceiver*>(transceiver)
+          ->sender()
+          .release());
+}
+
+lkRtpReceiver* lkRtpTransceiverGetReceiver(lkRtpTransceiver* transceiver) {
+  return reinterpret_cast<lkRtpReceiver*>(
+      reinterpret_cast<livekit::RtpTransceiver*>(transceiver)
+          ->receiver()
+          .release());
+}
+
+void lkRtpTransceiverStop(lkRtpTransceiver* transceiver) {
+  reinterpret_cast<livekit::RtpTransceiver*>(transceiver)->stop_standard();
+}
+
+lkMediaStreamTrack* lkRtpReceiverGetTrack(lkRtpReceiver* receiver) {
+  return reinterpret_cast<lkMediaStreamTrack*>(
+      reinterpret_cast<livekit::RtpReceiver*>(receiver)->track().release());
+}
+
+lkRtpEncodingParameters* lkRtpEncodingParametersCreate() {
+  // TODO implement
+  return nullptr;
+}
+
+lkRtpTransceiverInit* lkRtpTransceiverInitCreate() {
+  // TODO implement
+  return nullptr;
+}
+
+LK_EXPORT void lkRtpSenderGetStats(lkRtpSender* sender,
+                                   void (*onComplete)(const char* statsJson,
+                                                      void* userdata),
+                                   void* userdata) {}
+
+LK_EXPORT void lkRtpReceiverGetStats(lkRtpReceiver* receiver,
+                                     void (*onComplete)(const char* statsJson,
+                                                        void* userdata),
+                                     void* userdata) {}

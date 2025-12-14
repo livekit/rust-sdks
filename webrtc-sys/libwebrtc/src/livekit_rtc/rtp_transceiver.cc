@@ -42,24 +42,24 @@ RtpTransceiver::RtpTransceiver(
     : transceiver_(std::move(transceiver)),
       peer_connection_(std::move(peer_connection)) {}
 
-MediaType RtpTransceiver::media_type() const {
-  return static_cast<MediaType>(transceiver_->media_type());
+lkMediaType RtpTransceiver::media_type() const {
+  return static_cast<lkMediaType>(transceiver_->media_type());
 }
 
-rust::String RtpTransceiver::mid() const {
+std::string RtpTransceiver::mid() const {
   // The error/Result is converted into an Option in Rust (Wait for Option
   // suport in cxx.rs) (value throws an error if there's no value)
   return transceiver_->mid().value();
 }
 
-std::shared_ptr<RtpSender> RtpTransceiver::sender() const {
-  return std::make_shared<RtpSender>(transceiver_->sender(),
-                                     peer_connection_);
+webrtc::scoped_refptr<RtpSender> RtpTransceiver::sender() const {
+  return webrtc::make_ref_counted<RtpSender>(transceiver_->sender(),
+                                             peer_connection_);
 }
 
-std::shared_ptr<RtpReceiver> RtpTransceiver::receiver() const {
-  return std::make_shared<RtpReceiver>(transceiver_->receiver(),
-                                       peer_connection_);
+webrtc::scoped_refptr<RtpReceiver> RtpTransceiver::receiver() const {
+  return webrtc::make_ref_counted<RtpReceiver>(transceiver_->receiver(),
+                                               peer_connection_);
 }
 
 bool RtpTransceiver::stopped() const {
@@ -70,83 +70,87 @@ bool RtpTransceiver::stopping() const {
   return transceiver_->stopping();
 }
 
-RtpTransceiverDirection RtpTransceiver::direction() const {
-  return static_cast<RtpTransceiverDirection>(transceiver_->direction());
+lkRtpTransceiverDirection RtpTransceiver::direction() const {
+  return static_cast<lkRtpTransceiverDirection>(transceiver_->direction());
 }
 
-void RtpTransceiver::set_direction(RtpTransceiverDirection direction) const {
+void RtpTransceiver::set_direction(lkRtpTransceiverDirection direction) const {
   auto error = transceiver_->SetDirectionWithError(
       static_cast<webrtc::RtpTransceiverDirection>(direction));
 
   if (!error.ok()) {
-    throw std::runtime_error(serialize_error(to_error(error)));
+    // throw std::runtime_error(serialize_error(to_error(error)));
   }
 }
 
-RtpTransceiverDirection RtpTransceiver::current_direction() const {
-  return static_cast<RtpTransceiverDirection>(
+lkRtpTransceiverDirection RtpTransceiver::current_direction() const {
+  return static_cast<lkRtpTransceiverDirection>(
       transceiver_->current_direction().value());
 }
 
-RtpTransceiverDirection RtpTransceiver::fired_direction() const {
-  return static_cast<RtpTransceiverDirection>(
+lkRtpTransceiverDirection RtpTransceiver::fired_direction() const {
+  return static_cast<lkRtpTransceiverDirection>(
       transceiver_->fired_direction().value());
 }
 
 void RtpTransceiver::stop_standard() const {
   auto error = transceiver_->StopStandard();
-  if (!error.ok())
-    throw std::runtime_error(serialize_error(to_error(error)));
+  if (!error.ok()) {
+    // throw std::runtime_error(serialize_error(to_error(error)));
+  }
 }
 
 void RtpTransceiver::set_codec_preferences(
-    rust::Vec<RtpCodecCapability> codecs) const {
+    std::vector<RtpCodecCapability> codecs) const {
   std::vector<webrtc::RtpCodecCapability> std_codecs;
 
   for (auto codec : codecs)
     std_codecs.push_back(to_native_rtp_codec_capability(codec));
 
   auto error = transceiver_->SetCodecPreferences(std_codecs);
-  if (!error.ok())
-    throw std::runtime_error(serialize_error(to_error(error)));
+  if (!error.ok()) {
+    // throw std::runtime_error(serialize_error(to_error(error)));
+  }
 }
 
-rust::Vec<RtpCodecCapability> RtpTransceiver::codec_preferences() const {
-  rust::Vec<RtpCodecCapability> rust;
+std::vector<RtpCodecCapability> RtpTransceiver::codec_preferences() const {
+  std::vector<RtpCodecCapability> rust;
   for (auto codec : transceiver_->codec_preferences())
-    rust.push_back(to_rust_rtp_codec_capability(codec));
+    rust.push_back(to_capi_rtp_codec_capability(codec));
 
   return rust;
 }
 
-rust::Vec<RtpHeaderExtensionCapability>
+std::vector<RtpHeaderExtensionCapability>
 RtpTransceiver::header_extensions_to_negotiate() const {
-  rust::Vec<RtpHeaderExtensionCapability> rust;
+  std::vector<RtpHeaderExtensionCapability> rust;
   for (auto header : transceiver_->GetHeaderExtensionsToNegotiate())
-    rust.push_back(to_rust_rtp_header_extension_capability(header));
+    rust.push_back(to_capi_rtp_header_extension_capability(header));
 
   return rust;
 }
 
-rust::Vec<RtpHeaderExtensionCapability>
+std::vector<RtpHeaderExtensionCapability>
 RtpTransceiver::negotiated_header_extensions() const {
-  rust::Vec<RtpHeaderExtensionCapability> rust;
+  std::vector<RtpHeaderExtensionCapability> rust;
   for (auto header : transceiver_->GetNegotiatedHeaderExtensions())
-    rust.push_back(to_rust_rtp_header_extension_capability(header));
+    rust.push_back(to_capi_rtp_header_extension_capability(header));
 
   return rust;
 }
 
 void RtpTransceiver::set_header_extensions_to_negotiate(
-    rust::Vec<RtpHeaderExtensionCapability> header_extensions_to_offer) const {
+    std::vector<RtpHeaderExtensionCapability> header_extensions_to_offer)
+    const {
   std::vector<webrtc::RtpHeaderExtensionCapability> headers;
 
   for (auto header : header_extensions_to_offer)
     headers.push_back(to_native_rtp_header_extension_capability(header));
 
   auto error = transceiver_->SetHeaderExtensionsToNegotiate(headers);
-  if (!error.ok())
-    throw std::runtime_error(serialize_error(to_error(error)));
+  if (!error.ok()) {
+    // throw std::runtime_error(serialize_error(to_error(error)));
+  }
 }
 
 }  // namespace livekit

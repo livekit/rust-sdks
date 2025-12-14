@@ -218,7 +218,7 @@ RtpCodecCapability to_capi_rtp_codec_capability(
   RtpCodecCapability capi{};
   capi.mime_type = capability.mime_type();
   capi.name = capability.name;
-  capi.kind = static_cast<MediaType>(capability.kind);
+  capi.kind = static_cast<lkMediaType>(capability.kind);
 
   if (capability.clock_rate.has_value()) {
     capi.has_clock_rate = true;
@@ -254,7 +254,7 @@ RtpHeaderExtensionCapability to_capi_rtp_header_extension_capability(
   }
 
   capi.preferred_encrypt = header.preferred_encrypt;
-  capi.direction = static_cast<RtpTransceiverDirection>(header.direction);
+  capi.direction = static_cast<lkRtpTransceiverDirection>(header.direction);
   return capi;
 }
 
@@ -337,7 +337,7 @@ RtpCodecParameters to_capi_rtp_codec_parameters(
   RtpCodecParameters capi{};
   capi.mime_type = params.mime_type();
   capi.name = params.name;
-  capi.kind = static_cast<MediaType>(params.kind);
+  capi.kind = static_cast<lkMediaType>(params.kind);
   capi.payload_type = params.payload_type;
   if (params.clock_rate.has_value()) {
     capi.has_clock_rate = true;
@@ -410,5 +410,6 @@ RtpParameters to_capi_rtp_parameters(webrtc::RtpParameters params) {
 
   return capi;
 }
+
 
 }  // namespace livekit

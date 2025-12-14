@@ -15,7 +15,6 @@ lk_sources = [
   "apm.cc",
   "peer.cc",
   "audio_device.cc",
-  "transceiver.cc",
   "utils.cc",
   "data_channel.cc",
   "capi.cc",
@@ -32,10 +31,13 @@ lk_sources = [
   "media_stream_track.cc",
   "rtc_error.cc",
   "audio_resampler.cc",
-  #"rtp_sender.cc",
+  "rtp_sender.cc",
+  "rtp_receiver.cc",
+  "rtp_transceiver.cc",
   #"desktop_capturer.cc",
   "yuv_helper.cc",
   "rtp_parameters.cc",
+  "stats.cc",
 ]
 
 if (is_mac) {

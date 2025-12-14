@@ -2,6 +2,7 @@
 #define LIVEKIT_UTILS_H
 
 #include "api/peer_connection_interface.h"
+#include "api/ref_count.h"
 #include "api/rtc_error.h"
 #include "livekit_rtc/capi.h"
 #include "rtc_base/logging.h"
@@ -10,21 +11,27 @@ namespace livekit {
 
 lkRtcError toRtcError(const webrtc::RTCError& error);
 
-webrtc::PeerConnectionInterface::RTCOfferAnswerOptions
-    toNativeOfferAnswerOptions(const lkOfferAnswerOptions& options);
+webrtc::PeerConnectionInterface::RTCOfferAnswerOptions toNativeOfferAnswerOptions(
+    const lkOfferAnswerOptions& options);
 
 class LKString : public webrtc::RefCountInterface {
  public:
   explicit LKString(const std::string& str) : str_(str) {}
   ~LKString() { RTC_LOG(LS_INFO) << "LKString destroyed"; }
 
+  static webrtc::scoped_refptr<LKString> Create(const char* str) {
+    return webrtc::make_ref_counted<LKString>(std::string(str));
+  }
+
+  static webrtc::scoped_refptr<LKString> Create(const std::string str) {
+    return webrtc::make_ref_counted<LKString>(str);
+  }
+
   std::string get() const { return str_; }
 
   size_t length() const { return str_.size(); }
 
-  const uint8_t* data() const {
-    return reinterpret_cast<const uint8_t*>(str_.data());
-  }
+  const uint8_t* data() const { return reinterpret_cast<const uint8_t*>(str_.data()); }
 
  private:
   std::string str_;
@@ -38,8 +45,7 @@ class LKData : public webrtc::RefCountInterface {
 
   ~LKData() { RTC_LOG(LS_INFO) << "LKData destroyed"; }
 
-  static webrtc::scoped_refptr<LKData> FromRaw(const uint8_t* data,
-                                               size_t size) {
+  static webrtc::scoped_refptr<LKData> FromRaw(const uint8_t* data, size_t size) {
     std::vector<uint8_t> vec(data, data + size);
     return webrtc::make_ref_counted<LKData>(vec);
   }
@@ -77,6 +83,21 @@ class LKVector : public webrtc::RefCountInterface {
 
  private:
   std::vector<T> vec_;
+};
+
+template <typename T>
+class LKRefCountedObject : public webrtc::RefCountInterface {
+ public:
+  explicit LKRefCountedObject(const T& value) : value_(value) {}
+
+  ~LKRefCountedObject() { RTC_LOG(LS_INFO) << "LKRefCountedObject destroyed"; }
+
+  T get() const { return value_; }
+
+  T& get_mut() { return value_; }
+
+ private:
+  T value_;
 };
 
 }  // namespace livekit

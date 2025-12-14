@@ -13,27 +13,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+#pragma once
+
 #include <string>
 #include <vector>
 
 #include "api/rtp_parameters.h"
-#include "livekit_rtc/capi.h"
+#include "livekit_rtc/utils.h"
 
 namespace livekit {
-
-typedef enum {
-  kAudio,
-  kVideo,
-  kData,
-} MediaType;
-
-typedef enum {
-  kSendRecv,
-  kSendOnly,
-  kRecvOnly,
-  kInactive,
-  kStopped,
-} RtpTransceiverDirection;
 
 typedef struct {
   uint8_t feedback_type;
@@ -57,7 +46,9 @@ typedef struct {
   bool has_num_channels;
   uint16_t num_channels;
   std::vector<RtcpFeedback> rtcp_feedback;
+  int rtcp_feedback_count;
   std::vector<StringKeyValue> parameters;
+  int parameters_count;
 } RtpCodecCapability;
 
 typedef struct {
@@ -122,6 +113,12 @@ typedef struct {
   RtpFecParameters fec;
   RtpRtxParameters rtx;
 } RtpEncodingParameters;
+
+typedef struct {
+  lkRtpTransceiverDirection direction;
+  std::vector<std::string> stream_ids;
+  std::vector<RtpEncodingParameters> send_encodings;
+} RtpTransceiverInit;
 
 typedef enum {
   RTCP_FEEDBACK_MESSAGE_TYPE_NONE = 0,
@@ -205,6 +202,8 @@ webrtc::RtpCodecParameters to_native_rtp_codec_parameters(
 webrtc::RtpCapabilities to_rtp_capabilities(RtpCapabilities capabilities);
 
 webrtc::RtcpParameters to_native_rtcp_paramaters(RtcpParameters params);
+
+webrtc::RtpParameters to_native_rtp_parameters(RtpParameters params);
 
 RtcpFeedback to_capi_rtcp_feedback(webrtc::RtcpFeedback feedback);
 

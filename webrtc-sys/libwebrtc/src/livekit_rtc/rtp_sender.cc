@@ -16,38 +16,39 @@
 
 #include "livekit_rtc/rtp_sender.h"
 
+#include "livekit_rtc/media_stream_track.h"
+#include "livekit_rtc/rtp_parameters.h"
+
 namespace livekit {
 
 RtpSender::RtpSender(
-    webrtc::scoped_refptr<PeerFactory> pc_factory,
     webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
     webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
-    : pc_factory_(pc_factory),
-      sender_(std::move(sender)),
+    : sender_(std::move(sender)),
       peer_connection_(std::move(peer_connection)) {}
 
-bool RtpSender::set_track(std::shared_ptr<MediaStreamTrack> track) const {
-  return sender_->SetTrack(track->rtc_track().get());
+bool RtpSender::set_track(webrtc::scoped_refptr<MediaStreamTrack> track) const {
+  return sender_->SetTrack(track->track());
 }
 
-std::shared_ptr<MediaStreamTrack> RtpSender::track() const {
-  return pc_factory_->get_or_create_media_stream_track(sender_->track());
+webrtc::scoped_refptr<MediaStreamTrack> RtpSender::track() const {
+  return webrtc::make_ref_counted<MediaStreamTrack>(sender_->track());
+  // return pc_factory_->get_or_create_media_stream_track(sender_->track());
 }
 
 uint32_t RtpSender::ssrc() const {
   return sender_->ssrc();
 }
 
-void RtpSender::get_stats(
-    rust::Box<SenderContext> ctx,
-    rust::Fn<void(rust::Box<SenderContext>, rust::String)> on_stats) const {
+void RtpSender::get_stats(onStatsDeliveredCallback on_stats,
+                          void* userdata) const {
   auto observer =
-      webrtc::make_ref_counted<NativeRtcStatsCollector<SenderContext>>(std::move(ctx), on_stats);
+      webrtc::make_ref_counted<NativeRtcStatsCollector>(on_stats, userdata);
   peer_connection_->GetStats(sender_, observer);
 }
 
-MediaType RtpSender::media_type() const {
-  return static_cast<MediaType>(sender_->media_type());
+lkMediaType RtpSender::media_type() const {
+  return static_cast<lkMediaType>(sender_->media_type());
 }
 
 std::string RtpSender::id() const {
@@ -59,24 +60,25 @@ std::vector<std::string> RtpSender::stream_ids() const {
 }
 
 void RtpSender::set_streams(const std::vector<std::string>& stream_ids) const {
-  sender_->SetStreams(std_stream_ids);
+  sender_->SetStreams(stream_ids);
 }
 
 std::vector<RtpEncodingParameters> RtpSender::init_send_encodings() const {
-  std::vector<<RtpEncodingParameters> encodings;
+  std::vector<RtpEncodingParameters> encodings;
   for (auto encoding : sender_->init_send_encodings())
-    encodings.push_back(to_rust_rtp_encoding_parameters(encoding));
+    encodings.push_back(to_capi_rtp_encoding_parameters(encoding));
   return encodings;
 }
 
 RtpParameters RtpSender::get_parameters() const {
-  return to_rust_rtp_parameters(sender_->GetParameters());
+  return to_capi_rtp_parameters(sender_->GetParameters());
 }
 
 void RtpSender::set_parameters(RtpParameters params) const {
   auto error = sender_->SetParameters(to_native_rtp_parameters(params));
-  if (!error.ok())
-    throw std::runtime_error(serialize_error(to_error(error)));
+  if (!error.ok()) {
+    // throw std::runtime_error(serialize_error(to_error(error)));
+  }
 }
 
 }  // namespace livekit

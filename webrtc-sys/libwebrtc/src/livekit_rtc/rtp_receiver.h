@@ -17,62 +17,46 @@
 #pragma once
 
 #include <memory>
+#include <vector>
 
 #include "api/peer_connection_interface.h"
 #include "api/rtp_receiver_interface.h"
 #include "api/scoped_refptr.h"
-#include "livekit_rtc/helper.h"
 #include "livekit_rtc/media_stream.h"
+#include "livekit_rtc/media_stream_track.h"
 #include "livekit_rtc/rtp_parameters.h"
-#include "livekit_rtc/webrtc.h"
+#include "livekit_rtc/stats.h"
 
 namespace livekit {
-class RtpReceiver;
-}
-#include "webrtc-sys/src/rtp_receiver.rs.h"
-namespace livekit {
 
-// TODO(theomonnom): Implement RtpReceiverObserverInterface?
-// TODO(theomonnom): RtpSource
-// TODO(theomonnom): FrameTransformer & FrameDecryptor interface
-class RtpReceiver {
+class RtpReceiver : public webrtc::RefCountInterface {
  public:
-  RtpReceiver(
-      std::shared_ptr<RtcRuntime> rtc_runtime,
-      webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
-      webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
+  RtpReceiver(webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver,
+              webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
 
-  std::shared_ptr<MediaStreamTrack> track() const;
+  virtual ~RtpReceiver() = default;
 
-  void get_stats(
-      rust::Box<ReceiverContext> ctx,
-      rust::Fn<void(rust::Box<ReceiverContext>, rust::String)> on_stats) const;
+  webrtc::scoped_refptr<MediaStreamTrack> track() const;
 
-  rust::Vec<rust::String> stream_ids() const;
-  rust::Vec<MediaStreamPtr> streams() const;
+  void get_stats(onStatsDeliveredCallback on_stats, void* userdata) const;
 
-  MediaType media_type() const;
-  rust::String id() const;
+  std::vector<std::string> stream_ids() const;
+  std::vector<webrtc::scoped_refptr<MediaStream>> streams() const;
+
+  lkMediaType media_type() const;
+  std::string id() const;
 
   RtpParameters get_parameters() const;
 
   // bool set_parameters(RtpParameters parameters) const; // Seems unsupported
 
-  void set_jitter_buffer_minimum_delay(bool is_some,
-                                       double delay_seconds) const;
+  void set_jitter_buffer_minimum_delay(bool is_some, double delay_seconds) const;
 
-  webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rtc_receiver() const {
-    return receiver_;
-  }
+  webrtc::scoped_refptr<webrtc::RtpReceiverInterface> rtc_receiver() const { return receiver_; }
 
  private:
-  std::shared_ptr<RtcRuntime> rtc_runtime_;
   webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
-
-static std::shared_ptr<RtpReceiver> _shared_rtp_receiver() {
-  return nullptr;
-}
 
 }  // namespace livekit

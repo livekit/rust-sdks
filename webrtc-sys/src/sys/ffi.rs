@@ -37,6 +37,8 @@ pub type lkI010Buffer = lkRefCountedObject;
 pub type lkNV12Buffer = lkRefCountedObject;
 pub type lkNativeVideoSink = lkRefCountedObject;
 pub type lkVideoFrameBuilder = lkRefCountedObject;
+pub type lkRtpEncodingParameters = lkRefCountedObject;
+pub type lkRtpTransceiverInit = lkRefCountedObject;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkIceTransportType {
@@ -134,8 +136,14 @@ pub struct lkPeerObserver {
     pub onTrack: ::std::option::Option<
         unsafe extern "C" fn(
             transceiver: *const lkRtpTransceiver,
+            receiver: *const lkRtpReceiver,
+            streams: *const lkVectorGeneric,
+            track: *const lkMediaStreamTrack,
             userdata: *mut ::std::os::raw::c_void,
         ),
+    >,
+    pub onRemoveTrack: ::std::option::Option<
+        unsafe extern "C" fn(receiver: *const lkRtpReceiver, userdata: *mut ::std::os::raw::c_void),
     >,
     pub onConnectionChange: ::std::option::Option<
         unsafe extern "C" fn(state: lkPeerState, userdata: *mut ::std::os::raw::c_void),
@@ -161,7 +169,7 @@ pub struct lkPeerObserver {
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of lkPeerObserver"][::std::mem::size_of::<lkPeerObserver>() - 72usize];
+    ["Size of lkPeerObserver"][::std::mem::size_of::<lkPeerObserver>() - 80usize];
     ["Alignment of lkPeerObserver"][::std::mem::align_of::<lkPeerObserver>() - 8usize];
     ["Offset of field: lkPeerObserver::onSignalingChange"]
         [::std::mem::offset_of!(lkPeerObserver, onSignalingChange) - 0usize];
@@ -171,16 +179,18 @@ const _: () = {
         [::std::mem::offset_of!(lkPeerObserver, onDataChannel) - 16usize];
     ["Offset of field: lkPeerObserver::onTrack"]
         [::std::mem::offset_of!(lkPeerObserver, onTrack) - 24usize];
+    ["Offset of field: lkPeerObserver::onRemoveTrack"]
+        [::std::mem::offset_of!(lkPeerObserver, onRemoveTrack) - 32usize];
     ["Offset of field: lkPeerObserver::onConnectionChange"]
-        [::std::mem::offset_of!(lkPeerObserver, onConnectionChange) - 32usize];
+        [::std::mem::offset_of!(lkPeerObserver, onConnectionChange) - 40usize];
     ["Offset of field: lkPeerObserver::onStandardizedIceConnectionChange"]
-        [::std::mem::offset_of!(lkPeerObserver, onStandardizedIceConnectionChange) - 40usize];
+        [::std::mem::offset_of!(lkPeerObserver, onStandardizedIceConnectionChange) - 48usize];
     ["Offset of field: lkPeerObserver::onIceGatheringChange"]
-        [::std::mem::offset_of!(lkPeerObserver, onIceGatheringChange) - 48usize];
+        [::std::mem::offset_of!(lkPeerObserver, onIceGatheringChange) - 56usize];
     ["Offset of field: lkPeerObserver::onRenegotiationNeeded"]
-        [::std::mem::offset_of!(lkPeerObserver, onRenegotiationNeeded) - 56usize];
+        [::std::mem::offset_of!(lkPeerObserver, onRenegotiationNeeded) - 64usize];
     ["Offset of field: lkPeerObserver::onIceCandidateError"]
-        [::std::mem::offset_of!(lkPeerObserver, onIceCandidateError) - 64usize];
+        [::std::mem::offset_of!(lkPeerObserver, onIceCandidateError) - 72usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -460,6 +470,15 @@ pub enum lkVideoRotation {
     LK_VIDEO_ROTATION_180 = 2,
     LK_VIDEO_ROTATION_270 = 3,
 }
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkRtpTransceiverDirection {
+    LK_RTP_TRANSCEIVER_DIRECTION_SENDRECV = 0,
+    LK_RTP_TRANSCEIVER_DIRECTION_SENDONLY = 1,
+    LK_RTP_TRANSCEIVER_DIRECTION_RECVONLY = 2,
+    LK_RTP_TRANSCEIVER_DIRECTION_INACTIVE = 3,
+    LK_RTP_TRANSCEIVER_DIRECTION_STOPPED = 4,
+}
 unsafe extern "C" {
     pub fn lkInitialize() -> ::std::os::raw::c_int;
 }
@@ -579,10 +598,34 @@ unsafe extern "C" {
     pub fn lkPeerAddTrack(
         peer: *mut lkPeer,
         track: *mut lkMediaStreamTrack,
-        streamIds: *mut *mut lkString,
+        streamIds: *mut *const ::std::os::raw::c_char,
         streamIdCount: ::std::os::raw::c_int,
-        error: *mut *mut lkRtcError,
+        error: *mut lkRtcError,
     ) -> *mut lkRtpSender;
+}
+unsafe extern "C" {
+    pub fn lkPeerRemoveTrack(
+        peer: *mut lkPeer,
+        sender: *mut lkRtpSender,
+        error: *mut lkRtcError,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkPeerAddTransceiver(
+        peer: *mut lkPeer,
+        track: *mut lkMediaStreamTrack,
+        init: *mut lkRtpTransceiverInit,
+        error: *mut lkRtcError,
+    ) -> *mut lkRtpTransceiver;
+}
+unsafe extern "C" {
+    pub fn lkPeerGetTransceivers(peer: *mut lkPeer) -> *mut lkVectorGeneric;
+}
+unsafe extern "C" {
+    pub fn lkPeerGetSenders(peer: *mut lkPeer) -> *mut lkVectorGeneric;
+}
+unsafe extern "C" {
+    pub fn lkPeerGetReceivers(peer: *mut lkPeer) -> *mut lkVectorGeneric;
 }
 unsafe extern "C" {
     pub fn lkPeerSetConfig(peer: *mut lkPeer, config: *const lkRtcConfiguration) -> bool;
@@ -1488,4 +1531,41 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn lkVideoFrameGetBuffer(frame: *const lkVideoFrame) -> *mut lkVideoFrameBuffer;
+}
+unsafe extern "C" {
+    pub fn lkRtpSenderGetTrack(sender: *mut lkRtpSender) -> *mut lkMediaStreamTrack;
+}
+unsafe extern "C" {
+    pub fn lkRtpSenderSetTrack(sender: *mut lkRtpSender, track: *mut lkMediaStreamTrack) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverGetMid(transceiver: *mut lkRtpTransceiver) -> *mut lkString;
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverGetDirection(
+        transceiver: *mut lkRtpTransceiver,
+    ) -> lkRtpTransceiverDirection;
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverCurrentDirection(
+        transceiver: *mut lkRtpTransceiver,
+    ) -> *mut lkRtpTransceiverDirection;
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverGetSender(transceiver: *mut lkRtpTransceiver) -> *mut lkRtpSender;
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverGetReceiver(transceiver: *mut lkRtpTransceiver) -> *mut lkRtpReceiver;
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverStop(transceiver: *mut lkRtpTransceiver);
+}
+unsafe extern "C" {
+    pub fn lkRtpReceiverGetTrack(receiver: *mut lkRtpReceiver) -> *mut lkMediaStreamTrack;
+}
+unsafe extern "C" {
+    pub fn lkRtpEncodingParametersCreate() -> *mut lkRtpEncodingParameters;
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverInitCreate() -> *mut lkRtpTransceiverInit;
 }

@@ -21,7 +21,7 @@ use std::{
 use crate::{
     peer_connection::{PeerConnection, PeerObserver, PEER_OBSERVER},
     rtp_parameters::RtpCapabilities,
-    sys::{self, lkRtcConfiguration},
+    sys::{self, lkRtcConfiguration, toLKIceServers},
     MediaType, RtcError, RtcErrorType,
 };
 
@@ -66,7 +66,7 @@ impl From<RtcConfiguration> for lkRtcConfiguration {
     fn from(config: RtcConfiguration) -> Self {
         lkRtcConfiguration {
             iceServersCount: config.ice_servers.len() as i32,
-            iceServers: std::ptr::null_mut(), // TODO: implement ice servers
+            iceServers: toLKIceServers(&config.ice_servers),
             iceTransportType: config.ice_transport_type.into(),
             gatheringPolicy: config.continual_gathering_policy.into(),
         }

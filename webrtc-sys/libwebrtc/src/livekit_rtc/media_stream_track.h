@@ -3,6 +3,7 @@
 
 #include "api/media_stream_interface.h"
 #include "api/scoped_refptr.h"
+#include "livekit_rtc/capi.h"
 
 namespace livekit {
 

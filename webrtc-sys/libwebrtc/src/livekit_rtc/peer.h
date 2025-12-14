@@ -12,40 +12,39 @@ namespace livekit {
 
 class PeerFactory;
 
-webrtc::PeerConnectionInterface::RTCConfiguration toNativeConfig(
-    const lkRtcConfiguration& config);
+webrtc::PeerConnectionInterface::RTCConfiguration toNativeConfig(const lkRtcConfiguration& config);
 
-class PeerObserver : public webrtc::PeerConnectionObserver,
-                     public webrtc::RefCountInterface {
+class PeerObserver : public webrtc::PeerConnectionObserver, public webrtc::RefCountInterface {
  public:
   PeerObserver(const lkPeerObserver* observer, void* userdata)
       : observer_(observer), userdata_(userdata) {}
 
-  void OnSignalingChange(
-      webrtc::PeerConnectionInterface::SignalingState new_state) override;
-  void OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface>
-                         data_channel) override;
-  void OnIceGatheringChange(
-      webrtc::PeerConnectionInterface::IceGatheringState new_state) override;
+  void OnSignalingChange(webrtc::PeerConnectionInterface::SignalingState new_state) override;
+  void OnDataChannel(webrtc::scoped_refptr<webrtc::DataChannelInterface> data_channel) override;
+  void OnIceGatheringChange(webrtc::PeerConnectionInterface::IceGatheringState new_state) override;
   void OnIceCandidate(const webrtc::IceCandidateInterface* candidate) override;
-  void OnTrack(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>
-                   transceiver) override;
+  void OnTrack(webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver) override;
+  void OnRemoveTrack(webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver) override;
   void OnIceCandidateError(const std::string& address,
                            int port,
                            const std::string& url,
                            int error_code,
                            const std::string& error_text) override;
-  void OnConnectionChange(
-      webrtc::PeerConnectionInterface::PeerConnectionState new_state) override;
+  void OnConnectionChange(webrtc::PeerConnectionInterface::PeerConnectionState new_state) override;
 
   void OnStandardizedIceConnectionChange(
       webrtc::PeerConnectionInterface::IceConnectionState new_state) override;
 
   void OnRenegotiationNeeded() override;
 
+  void set_peer_connection(webrtc::scoped_refptr<webrtc::PeerConnectionInterface> pc) {
+    peer_connection_ = pc;
+  }
+
  private:
   const lkPeerObserver* observer_;
   void* userdata_;
+  webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
 class Peer : public webrtc::RefCountInterface {
@@ -55,8 +54,8 @@ class Peer : public webrtc::RefCountInterface {
        webrtc::scoped_refptr<PeerObserver> observer)
       : pc_factory_(pc_factory), observer_(observer), peer_connection_(pc) {}
 
-  webrtc::scoped_refptr<DataChannel> CreateDataChannel(
-      const char* label, const lkDataChannelInit* init);
+  webrtc::scoped_refptr<DataChannel> CreateDataChannel(const char* label,
+                                                       const lkDataChannelInit* init);
 
   bool AddIceCandidate(const lkIceCandidate* candidate,
                        void (*onComplete)(lkRtcError* error, void* userdata),
@@ -92,8 +91,7 @@ class Peer : public webrtc::RefCountInterface {
   }
 
   lkIceGatheringState GetIceGatheringState() const {
-    return static_cast<lkIceGatheringState>(
-        peer_connection_->ice_gathering_state());
+    return static_cast<lkIceGatheringState>(peer_connection_->ice_gathering_state());
   }
 
   lkIceState GetIceConnectionState() const {
@@ -107,6 +105,12 @@ class Peer : public webrtc::RefCountInterface {
   lkSessionDescription* GetCurrentLocalDescription() const;
 
   lkSessionDescription* GetCurrentRemoteDescription() const;
+
+  lkVectorGeneric* GetSenders();
+
+  lkVectorGeneric* GetReceivers();
+
+  lkVectorGeneric* GetTransceivers();
 
   bool Close();
 
@@ -125,8 +129,7 @@ class PeerFactory : public webrtc::RefCountInterface {
                                          const lkPeerObserver* observer,
                                          void* userdata);
 
-  webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface>
-      GetPeerConnectionFactory() const {
+  webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> GetPeerConnectionFactory() const {
     return peer_factory_;
   }
 
