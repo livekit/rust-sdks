@@ -879,6 +879,8 @@ pub static PEER_OBSERVER: sys::lkPeerObserver = sys::lkPeerObserver {
 mod tests {
 
     use crate::peer_connection_factory::native::PeerConnectionFactoryExt;
+    use crate::rtp_parameters::{RtpEncodingParameters, RtpTransceiverDirection};
+    use crate::rtp_receiver;
     use crate::{data_channel::DataChannelInit, peer_connection::*, peer_connection_factory::*};
     use tokio::sync::mpsc;
 
@@ -1008,6 +1010,57 @@ mod tests {
         println!("RTP Sender: {:?}", rtp_sender);
 
         pc.remove_track(rtp_sender).unwrap();
+
+        pc.close();
+    }
+
+    #[tokio::test]
+    async fn add_transceiver() {
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let factory = PeerConnectionFactory::default();
+        let config = RtcConfiguration {
+            ice_servers: vec![IceServer {
+                urls: vec!["stun:stun1.l.google.com:19302".to_string()],
+                username: "".into(),
+                password: "".into(),
+            }],
+            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+            ice_transport_type: IceTransportsType::All,
+        };
+
+        let pc = factory.create_peer_connection(config.clone()).unwrap();
+
+        let source = crate::video_source::native::NativeVideoSource::new(
+            crate::video_source::VideoResolution { width: 640, height: 480 },
+        );
+        let track = factory.create_video_track("video_track_1", source.clone());
+        println!("Created video track: {:?}", track.id());
+
+        let rtp_transceiver = pc
+            .add_transceiver(
+                track.into(),
+                RtpTransceiverInit {
+                    direction: RtpTransceiverDirection::SendOnly,
+                    send_encodings: vec![RtpEncodingParameters {
+                        rid: "f".to_string(),
+                        ..Default::default()
+                    }],
+                    stream_ids: vec!["stream_1".to_string()],
+                },
+            )
+            .unwrap();
+
+        println!("RTP Transceiver: {:?}", rtp_transceiver);
+
+        let local_sdp = pc.create_offer(OfferOptions::default()).await.unwrap();
+        println!("Local SDP: {:?}", local_sdp.sdp());
+
+        let rtp_sender = rtp_transceiver.sender();
+        println!("RTP Sender from Transceiver: {:?}", rtp_sender);
+
+        let rtp_receiver = rtp_transceiver.receiver();
+        println!("RTP Receiver from Transceiver: {:?}", rtp_receiver);
 
         pc.close();
     }

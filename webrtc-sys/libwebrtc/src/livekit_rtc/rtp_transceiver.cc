@@ -31,10 +31,9 @@ lkMediaType RtpTransceiver::media_type() const {
   return static_cast<lkMediaType>(transceiver_->media_type());
 }
 
+
 std::string RtpTransceiver::mid() const {
-  // The error/Result is converted into an Option in Rust (Wait for Option
-  // suport in cxx.rs) (value throws an error if there's no value)
-  return transceiver_->mid().value();
+  return transceiver_->mid().value_or("");
 }
 
 webrtc::scoped_refptr<RtpSender> RtpTransceiver::sender() const {
