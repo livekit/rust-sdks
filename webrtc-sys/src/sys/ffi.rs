@@ -656,6 +656,14 @@ unsafe extern "C" {
     ) -> *mut lkRtpTransceiver;
 }
 unsafe extern "C" {
+    pub fn lkPeerAddTransceiverForMedia(
+        peer: *mut lkPeer,
+        type_: lkMediaType,
+        init: *mut lkRtpTransceiverInit,
+        error: *mut lkRtcError,
+    ) -> *mut lkRtpTransceiver;
+}
+unsafe extern "C" {
     pub fn lkPeerGetTransceivers(peer: *mut lkPeer) -> *mut lkVectorGeneric;
 }
 unsafe extern "C" {
@@ -1422,7 +1430,7 @@ unsafe extern "C" {
     pub fn lkRtpReceiverGetParameters(receiver: *mut lkRtpReceiver) -> *mut lkRtpParameters;
 }
 unsafe extern "C" {
-    pub fn lkCreateRtpTransceiverInit() -> *mut lkRtpTransceiverInit;
+    pub fn lkRtpTransceiverInitCreate() -> *mut lkRtpTransceiverInit;
 }
 unsafe extern "C" {
     pub fn lkRtpTransceiverInitSetDirection(
@@ -1459,4 +1467,109 @@ unsafe extern "C" {
         transceiver: *mut lkRtpTransceiver,
         error: *mut lkRtcError,
     ) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkRtpEncodingParametersCreate() -> *mut lkRtpEncodingParameters;
+}
+unsafe extern "C" {
+    pub fn lkRtpEncodingParametersSetActive(encoding: *mut lkRtpEncodingParameters, active: bool);
+}
+unsafe extern "C" {
+    pub fn lkRtpEncodingParametersSetMaxBitrateBps(
+        encoding: *mut lkRtpEncodingParameters,
+        maxBitrateBps: i64,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpEncodingParametersSetMinBitrateBps(
+        encoding: *mut lkRtpEncodingParameters,
+        minBitrateBps: i64,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpEncodingParametersSetMaxFramerate(
+        encoding: *mut lkRtpEncodingParameters,
+        maxFramerate: f64,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpEncodingParametersSetScaleResolutionDownBy(
+        encoding: *mut lkRtpEncodingParameters,
+        scaleResolutionDownBy: f64,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpEncodingParametersSetRid(
+        encoding: *mut lkRtpEncodingParameters,
+        rid: *const ::std::os::raw::c_char,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpEncodingParametersSetScalabilityMode(
+        encoding: *mut lkRtpEncodingParameters,
+        scalabilityMode: *const ::std::os::raw::c_char,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpParametersCreate() -> *mut lkRtpParameters;
+}
+unsafe extern "C" {
+    pub fn lkRtcpParametersCreate() -> *mut lkRtcpParameters;
+}
+unsafe extern "C" {
+    pub fn lkRtpParametersSetCodecs(params: *mut lkRtpParameters, codecs: *mut lkVectorGeneric);
+}
+unsafe extern "C" {
+    pub fn lkRtpParametersSetRtcp(params: *mut lkRtpParameters, rtcp: *mut lkRtcpParameters);
+}
+unsafe extern "C" {
+    pub fn lkRtcpParametersSetReducedSize(rtcp: *mut lkRtcpParameters, reducedSize: bool);
+}
+unsafe extern "C" {
+    pub fn lkRtcpParametersSetCname(
+        rtcp: *mut lkRtcpParameters,
+        cname: *const ::std::os::raw::c_char,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpParametersSetHeaderExtensions(
+        params: *mut lkRtpParameters,
+        headerExtensions: *mut lkVectorGeneric,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecParametersCreate() -> *mut lkRtpCodecParameters;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecParametersSetPayloadType(codec: *mut lkRtpCodecParameters, payloadType: u32);
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecParametersSetMimeType(
+        codec: *mut lkRtpCodecParameters,
+        mimeType: *const ::std::os::raw::c_char,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecParametersSetClockRate(codec: *mut lkRtpCodecParameters, clockRate: u32);
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecParametersSetChannels(codec: *mut lkRtpCodecParameters, channels: u32);
+}
+unsafe extern "C" {
+    pub fn lkRtpHeaderExtensionParametersCreate() -> *mut lkRtpHeaderExtensionParameters;
+}
+unsafe extern "C" {
+    pub fn lkRtpHeaderExtensionParametersSetUri(
+        ext: *mut lkRtpHeaderExtensionParameters,
+        uri: *const ::std::os::raw::c_char,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpHeaderExtensionParametersSetId(ext: *mut lkRtpHeaderExtensionParameters, id: u32);
+}
+unsafe extern "C" {
+    pub fn lkRtpHeaderExtensionParametersSetEncrypted(
+        ext: *mut lkRtpHeaderExtensionParameters,
+        encrypted: bool,
+    );
 }

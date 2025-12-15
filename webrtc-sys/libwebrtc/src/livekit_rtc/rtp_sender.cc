@@ -75,12 +75,15 @@ webrtc::scoped_refptr<RtpParameters> RtpSender::get_parameters() const {
   return RtpParameters::FromNative(sender_->GetParameters());
 }
 
-void RtpSender::set_parameters(
-    webrtc::scoped_refptr<RtpParameters> params) const {
-  auto error = sender_->SetParameters(params->rtc_parameters());
-  if (!error.ok()) {
-    // throw std::runtime_error(serialize_error(to_error(error)));
+bool RtpSender::set_parameters(webrtc::scoped_refptr<RtpParameters> params,
+                               lkRtcError* error) const {
+  auto err = sender_->SetParameters(params->rtc_parameters());
+  if (!err.ok()) {
+    //TODO: handle error
+    // *err_out = to_error(error);
+    return false;
   }
+  return true;
 }
 
 }  // namespace livekit

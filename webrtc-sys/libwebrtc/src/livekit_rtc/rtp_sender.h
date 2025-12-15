@@ -56,7 +56,7 @@ class RtpSender : public webrtc::RefCountInterface {
 
   webrtc::scoped_refptr<RtpParameters> get_parameters() const;
 
-  void set_parameters(webrtc::scoped_refptr<RtpParameters> params) const;
+  bool set_parameters(webrtc::scoped_refptr<RtpParameters> params, lkRtcError* error) const;
 
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> rtc_sender() const { return sender_; }
 

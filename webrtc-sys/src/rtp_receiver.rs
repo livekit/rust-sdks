@@ -37,9 +37,9 @@ impl RtpReceiver {
             if track_ptr.is_null() {
                 None
             } else {
-                Some(crate::media_stream_track::new_media_stream_track(unsafe {
-                    sys::RefCounted::from_raw(track_ptr)
-                }))
+                Some(crate::media_stream_track::new_media_stream_track(sys::RefCounted::from_raw(
+                    track_ptr,
+                )))
             }
         }
     }
@@ -79,7 +79,7 @@ impl RtpReceiver {
     pub fn parameters(&self) -> RtpParameters {
         unsafe {
             let params_ptr = sys::lkRtpReceiverGetParameters(self.ffi.as_ptr());
-            sys::RtpParametersFromNative(unsafe { sys::RefCounted::from_raw(params_ptr) })
+            sys::RtpParametersFromNative(sys::RefCounted::from_raw(params_ptr))
         }
     }
 }

@@ -15,44 +15,11 @@
 use std::fmt::Debug;
 
 use crate::{
-    rtp_parameters::{RtpCodecCapability, RtpEncodingParameters, RtpTransceiverDirection},
+    rtp_parameters::{RtpCodecCapability, RtpTransceiverDirection},
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
     sys, RtcError,
 };
-
-#[derive(Debug, Clone)]
-pub struct RtpTransceiverInit {
-    pub direction: RtpTransceiverDirection,
-    pub stream_ids: Vec<String>,
-    pub send_encodings: Vec<RtpEncodingParameters>,
-}
-
-impl From<sys::lkRtpTransceiverDirection> for RtpTransceiverDirection {
-    fn from(state: sys::lkRtpTransceiverDirection) -> Self {
-        match state {
-            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_SENDRECV => Self::SendRecv,
-
-            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_SENDONLY => Self::SendOnly,
-            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_RECVONLY => Self::RecvOnly,
-
-            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_INACTIVE => Self::Inactive,
-            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_STOPPED => Self::Stopped,
-        }
-    }
-}
-
-impl From<RtpTransceiverDirection> for sys::lkRtpTransceiverDirection {
-    fn from(state: RtpTransceiverDirection) -> Self {
-        match state {
-            RtpTransceiverDirection::SendRecv => Self::LK_RTP_TRANSCEIVER_DIRECTION_SENDRECV,
-            RtpTransceiverDirection::SendOnly => Self::LK_RTP_TRANSCEIVER_DIRECTION_SENDONLY,
-            RtpTransceiverDirection::RecvOnly => Self::LK_RTP_TRANSCEIVER_DIRECTION_RECVONLY,
-            RtpTransceiverDirection::Inactive => Self::LK_RTP_TRANSCEIVER_DIRECTION_INACTIVE,
-            RtpTransceiverDirection::Stopped => Self::LK_RTP_TRANSCEIVER_DIRECTION_STOPPED,
-        }
-    }
-}
 
 #[derive(Clone)]
 pub struct RtpTransceiver {
@@ -104,9 +71,6 @@ impl RtpTransceiver {
 
     pub fn set_codec_preferences(&self, codecs: Vec<RtpCodecCapability>) -> Result<(), RtcError> {
         unsafe {
-            let mut error: sys::RefCounted<sys::lkRtcError> =
-                sys::RefCounted::from_raw(std::ptr::null_mut());
-
             let mut native_codecs = sys::RefCountedVector::new();
 
             for c in codecs {
@@ -123,27 +87,26 @@ impl RtpTransceiver {
                     c.clock_rate.unwrap_or(0).try_into().unwrap(),
                 );
                 sys::lkRtpCodecCapabilitySetMimeType(cap, mime_type_cstr.as_ptr());
-
                 sys::lkRtpCodecCapabilitySetSdpFmtpLine(cap, sdp_fmtp_line_cstr.as_ptr());
 
                 native_codecs
                     .push_back(sys::RefCounted::from_raw(cap as *mut sys::lkRefCountedObject));
             }
 
-            sys::lkRtpTransceiverSetCodecPreferences(
+            let mut lk_err = sys::lkRtcError { message: std::ptr::null() };
+
+            if !sys::lkRtpTransceiverSetCodecPreferences(
                 self.ffi.as_ptr(),
                 native_codecs.ffi.as_ptr(),
-                error.as_ptr(),
-            );
-            if !error.is_null() {
+                &mut lk_err,
+            ) {
                 //TODO handle error
-                Err(RtcError {
+                return Err(RtcError {
                     error_type: crate::RtcErrorType::Internal,
                     message: "set_codec_preferences failed".to_owned(),
-                })
-            } else {
-                Ok(())
+                });
             }
+            Ok(())
         }
     }
 

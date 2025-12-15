@@ -88,7 +88,7 @@ void RtpTransceiver::stop_standard() const {
 bool RtpTransceiver::stop_with_error(lkRtcError* error) const {
   auto rtc_err = transceiver_->StopStandard();
   if (!rtc_err.ok()) {
-    //TODO:  *error = to_error(rtc_err);
+    // TODO:  *error = to_error(rtc_err);
     return false;
   }
   return true;
@@ -107,11 +107,28 @@ void RtpTransceiver::set_codec_preferences(
   }
 }
 
-bool RtpTransceiver::lk_set_codec_preferences(lkVectorGeneric* codecs, lkRtcError *err_out) const {
-  return false; //TODO: implement
+bool RtpTransceiver::lk_set_codec_preferences(lkVectorGeneric* codecs,
+                                              lkRtcError* err_out) const {
+  std::vector<webrtc::RtpCodecCapability> std_codecs;
+
+  auto vec =
+      reinterpret_cast<LKVector<webrtc::scoped_refptr<RtpCodecCapability>>*>(
+          codecs);
+  for (size_t i = 0; i < vec->size(); i++) {
+    std_codecs.push_back(vec->get_at(i)->rtc_capability);
+  }
+
+  auto error = transceiver_->SetCodecPreferences(std_codecs);
+  if (!error.ok()) {
+    //TODO: handle error
+    // *err_out = to_error(error);
+    return false;
+  }
+  return true;
 }
 
-std::vector<webrtc::scoped_refptr<RtpCodecCapability>> RtpTransceiver::codec_preferences() const {
+std::vector<webrtc::scoped_refptr<RtpCodecCapability>>
+RtpTransceiver::codec_preferences() const {
   std::vector<webrtc::scoped_refptr<RtpCodecCapability>> capi;
   for (auto codec : transceiver_->codec_preferences()) {
     capi.push_back(RtpCodecCapability::FromNative(codec));

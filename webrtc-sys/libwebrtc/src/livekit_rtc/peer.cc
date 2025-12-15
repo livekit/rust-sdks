@@ -319,6 +319,45 @@ lkRtpSender* Peer::AddTrack(lkMediaStreamTrack* track,
           .release());
 }
 
+lkRtpTransceiver* Peer::AddTransceiver(lkMediaStreamTrack* track,
+                                       lkRtpTransceiverInit* init,
+                                       lkRtcError* error) {
+  auto mediaTrack =
+      reinterpret_cast<livekit::MediaStreamTrack*>(track)->rtc_track();
+  auto transceiverInit = reinterpret_cast<livekit::RtpTransceiverInit*>(init);
+  webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>>
+      res = peer_connection_->AddTransceiver(mediaTrack,
+                                             transceiverInit->rtc_init);
+  if (!res.ok()) {
+    lkRtcError err = toRtcError(res.error());
+    *error = err;
+    return nullptr;
+  }
+  return reinterpret_cast<lkRtpTransceiver*>(
+      webrtc::make_ref_counted<livekit::RtpTransceiver>(res.value(),
+                                                        peer_connection_)
+          .release());
+}
+
+lkRtpTransceiver* Peer::AddTransceiverForMedia(lkMediaType type,
+                                               lkRtpTransceiverInit* init,
+                                               lkRtcError* error) {
+  auto mediaType = static_cast<webrtc::MediaType>(type);
+  auto transceiverInit = reinterpret_cast<livekit::RtpTransceiverInit*>(init);
+  webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>>
+      res = peer_connection_->AddTransceiver(mediaType,
+                                                    transceiverInit->rtc_init);
+  if (!res.ok()) {
+    lkRtcError err = toRtcError(res.error());
+    *error = err;
+    return nullptr;
+  }
+  return reinterpret_cast<lkRtpTransceiver*>(
+      webrtc::make_ref_counted<livekit::RtpTransceiver>(res.value(),
+                                                        peer_connection_)
+          .release());
+}
+
 bool Peer::AddIceCandidate(const lkIceCandidate* candidate,
                            void (*onComplete)(lkRtcError* error,
                                               void* userdata),
@@ -504,7 +543,5 @@ lkRtpCapabilities* PeerFactory::GetRtpReceiverCapabilities(lkMediaType type) {
   return reinterpret_cast<lkRtpCapabilities*>(
       livekit::RtpCapabilities::FromNative(rtc_caps).release());
 }
-
-
 
 }  // namespace livekit

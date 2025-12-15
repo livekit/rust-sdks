@@ -4,8 +4,8 @@
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
 #include "livekit_rtc/audio_device.h"
-#include "livekit_rtc/include/capi.h"
 #include "livekit_rtc/data_channel.h"
+#include "livekit_rtc/include/capi.h"
 #include "livekit_rtc/session_description.h"
 
 namespace livekit {
@@ -85,6 +85,14 @@ class Peer : public webrtc::RefCountInterface {
                         lkString** streamIds,
                         int streamIdCount,
                         lkRtcError** error);
+
+  lkRtpTransceiver* AddTransceiver(lkMediaStreamTrack* track,
+                                   lkRtpTransceiverInit* init,
+                                   lkRtcError* error);
+
+  lkRtpTransceiver* AddTransceiverForMedia(lkMediaType type,
+                                           lkRtpTransceiverInit* init,
+                                           lkRtcError* error);
 
   lkPeerState GetPeerState() const {
     return static_cast<lkPeerState>(peer_connection_->peer_connection_state());

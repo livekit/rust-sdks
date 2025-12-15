@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::sys;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RtpTransceiverDirection {
     SendRecv,
@@ -63,7 +65,6 @@ pub struct RtpEncodingParameters {
     pub max_bitrate: Option<u64>,
     pub min_bitrate: Option<u64>,
     pub max_framerate: Option<f64>,
-    pub priority: Priority,
     pub rid: String,
     pub scale_resolution_down_by: Option<f64>,
     pub scalability_mode: Option<String>,
@@ -96,10 +97,42 @@ impl Default for RtpEncodingParameters {
             min_bitrate: None,
             max_bitrate: None,
             max_framerate: None,
-            priority: Priority::Low,
             rid: String::default(),
             scale_resolution_down_by: None,
             scalability_mode: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RtpTransceiverInit {
+    pub direction: RtpTransceiverDirection,
+    pub stream_ids: Vec<String>,
+    pub send_encodings: Vec<RtpEncodingParameters>,
+}
+
+impl From<sys::lkRtpTransceiverDirection> for RtpTransceiverDirection {
+    fn from(state: sys::lkRtpTransceiverDirection) -> Self {
+        match state {
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_SENDRECV => Self::SendRecv,
+
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_SENDONLY => Self::SendOnly,
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_RECVONLY => Self::RecvOnly,
+
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_INACTIVE => Self::Inactive,
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_STOPPED => Self::Stopped,
+        }
+    }
+}
+
+impl From<RtpTransceiverDirection> for sys::lkRtpTransceiverDirection {
+    fn from(state: RtpTransceiverDirection) -> Self {
+        match state {
+            RtpTransceiverDirection::SendRecv => Self::LK_RTP_TRANSCEIVER_DIRECTION_SENDRECV,
+            RtpTransceiverDirection::SendOnly => Self::LK_RTP_TRANSCEIVER_DIRECTION_SENDONLY,
+            RtpTransceiverDirection::RecvOnly => Self::LK_RTP_TRANSCEIVER_DIRECTION_RECVONLY,
+            RtpTransceiverDirection::Inactive => Self::LK_RTP_TRANSCEIVER_DIRECTION_INACTIVE,
+            RtpTransceiverDirection::Stopped => Self::LK_RTP_TRANSCEIVER_DIRECTION_STOPPED,
         }
     }
 }

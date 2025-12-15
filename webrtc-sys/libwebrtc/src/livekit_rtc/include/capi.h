@@ -367,6 +367,11 @@ LK_EXPORT lkRtpTransceiver* lkPeerAddTransceiver(lkPeer* peer,
                                                  lkRtpTransceiverInit* init,
                                                  lkRtcError* error);
 
+LK_EXPORT lkRtpTransceiver* lkPeerAddTransceiverForMedia(lkPeer* peer,
+                                                         lkMediaType type,
+                                                         lkRtpTransceiverInit* init,
+                                                         lkRtcError* error);
+
 LK_EXPORT lkVectorGeneric* lkPeerGetTransceivers(lkPeer* peer);
 
 LK_EXPORT lkVectorGeneric* lkPeerGetSenders(lkPeer* peer);
@@ -800,7 +805,7 @@ LK_EXPORT bool lkRtpSenderSetParameters(lkRtpSender* sender,
 
 LK_EXPORT lkRtpParameters* lkRtpReceiverGetParameters(lkRtpReceiver* receiver);
 
-LK_EXPORT lkRtpTransceiverInit* lkCreateRtpTransceiverInit();
+LK_EXPORT lkRtpTransceiverInit* lkRtpTransceiverInitCreate();
 
 LK_EXPORT void lkRtpTransceiverInitSetDirection(lkRtpTransceiverInit* init,
                                                 lkRtpTransceiverDirection direction);
@@ -818,6 +823,64 @@ LK_EXPORT bool lkRtpTransceiverSetCodecPreferences(lkRtpTransceiver* transceiver
                                                    lkRtcError* error);
 
 LK_EXPORT bool lkRtpTransceiverStopWithError(lkRtpTransceiver* transceiver, lkRtcError* error);
+
+LK_EXPORT lkRtpEncodingParameters* lkRtpEncodingParametersCreate();
+
+LK_EXPORT void lkRtpEncodingParametersSetActive(lkRtpEncodingParameters* encoding, bool active);
+
+LK_EXPORT void lkRtpEncodingParametersSetMaxBitrateBps(lkRtpEncodingParameters* encoding,
+                                                       int64_t maxBitrateBps);
+
+LK_EXPORT void lkRtpEncodingParametersSetMinBitrateBps(lkRtpEncodingParameters* encoding,
+                                                       int64_t minBitrateBps);
+
+LK_EXPORT void lkRtpEncodingParametersSetMaxFramerate(lkRtpEncodingParameters* encoding,
+                                                      double maxFramerate);
+
+LK_EXPORT void lkRtpEncodingParametersSetScaleResolutionDownBy(lkRtpEncodingParameters* encoding,
+                                                               double scaleResolutionDownBy);
+
+LK_EXPORT void lkRtpEncodingParametersSetRid(lkRtpEncodingParameters* encoding, const char* rid);
+
+LK_EXPORT void lkRtpEncodingParametersSetScalabilityMode(lkRtpEncodingParameters* encoding,
+                                                         const char* scalabilityMode);
+
+LK_EXPORT lkRtpParameters* lkRtpParametersCreate();
+
+LK_EXPORT lkRtcpParameters* lkRtcpParametersCreate();
+
+LK_EXPORT void lkRtpParametersSetCodecs(lkRtpParameters* params, lkVectorGeneric* codecs);
+
+LK_EXPORT void lkRtpParametersSetRtcp(lkRtpParameters* params, lkRtcpParameters* rtcp);
+
+LK_EXPORT void lkRtcpParametersSetReducedSize(lkRtcpParameters* rtcp, bool reducedSize);
+
+LK_EXPORT void lkRtcpParametersSetCname(lkRtcpParameters* rtcp, const char* cname);
+
+LK_EXPORT void lkRtpParametersSetHeaderExtensions(lkRtpParameters* params,
+                                                  lkVectorGeneric* headerExtensions);
+
+LK_EXPORT lkRtpCodecParameters* lkRtpCodecParametersCreate();
+
+LK_EXPORT void lkRtpCodecParametersSetPayloadType(lkRtpCodecParameters* codec,
+                                                  uint32_t payloadType);
+
+LK_EXPORT void lkRtpCodecParametersSetMimeType(lkRtpCodecParameters* codec, const char* mimeType);
+
+LK_EXPORT void lkRtpCodecParametersSetClockRate(lkRtpCodecParameters* codec, uint32_t clockRate);
+
+LK_EXPORT void lkRtpCodecParametersSetChannels(lkRtpCodecParameters* codec, uint32_t channels);
+
+LK_EXPORT lkRtpHeaderExtensionParameters* lkRtpHeaderExtensionParametersCreate();
+
+LK_EXPORT void lkRtpHeaderExtensionParametersSetUri(lkRtpHeaderExtensionParameters* ext,
+                                                    const char* uri);
+
+LK_EXPORT void lkRtpHeaderExtensionParametersSetId(lkRtpHeaderExtensionParameters* ext,
+                                                   uint32_t id);
+
+LK_EXPORT void lkRtpHeaderExtensionParametersSetEncrypted(lkRtpHeaderExtensionParameters* ext,
+                                                          bool encrypted);
 
 #ifdef __cplusplus
 }

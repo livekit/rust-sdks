@@ -20,9 +20,10 @@ use crate::data_channel::{DataChannel, DataChannelInit};
 use crate::ice_candidate::IceCandidate;
 use crate::media_stream::MediaStream;
 use crate::media_stream_track::{new_media_stream_track, MediaStreamTrack};
+use crate::rtp_parameters::RtpTransceiverInit;
 use crate::rtp_receiver::RtpReceiver;
 use crate::rtp_sender::RtpSender;
-use crate::rtp_transceiver::{RtpTransceiver, RtpTransceiverInit};
+use crate::rtp_transceiver::RtpTransceiver;
 use crate::session_description::SessionDescription;
 use crate::stats::RtcStats;
 use crate::sys::{self, *};
@@ -705,8 +706,27 @@ impl PeerConnection {
         track: MediaStreamTrack,
         init: RtpTransceiverInit,
     ) -> Result<RtpTransceiver, RtcError> {
-        let rtc_err = &mut sys::lkRtcError { message: std::ptr::null() };
-        todo!()
+        unsafe {
+            let lk_init = sys::RtpTransceiverInitToNative(init);
+
+            let mut rtc_err = sys::lkRtcError { message: std::ptr::null() };
+
+            let lk_transceiver = sys::lkPeerAddTransceiver(
+                self.ffi.as_ptr(),
+                track.ffi().clone().as_ptr(),
+                lk_init.as_ptr(),
+                &mut rtc_err,
+            );
+
+            if lk_transceiver.is_null() {
+                return Err(RtcError {
+                    error_type: crate::RtcErrorType::Internal,
+                    message: "add_transceiver failed".to_owned(),
+                });
+            }
+
+            Ok(RtpTransceiver { ffi: sys::RefCounted::from_raw(lk_transceiver) })
+        }
     }
 
     pub fn add_transceiver_for_media(
@@ -714,7 +734,27 @@ impl PeerConnection {
         media_type: MediaType,
         init: RtpTransceiverInit,
     ) -> Result<RtpTransceiver, RtcError> {
-        todo!()
+        unsafe {
+            let lk_init = sys::RtpTransceiverInitToNative(init);
+
+            let mut rtc_err = sys::lkRtcError { message: std::ptr::null() };
+
+            let lk_transceiver = sys::lkPeerAddTransceiverForMedia(
+                self.ffi.as_ptr(),
+                media_type.into(),
+                lk_init.as_ptr(),
+                &mut rtc_err,
+            );
+
+            if lk_transceiver.is_null() {
+                return Err(RtcError {
+                    error_type: crate::RtcErrorType::Internal,
+                    message: "add_transceiver_for_media failed".to_owned(),
+                });
+            }
+
+            Ok(RtpTransceiver { ffi: sys::RefCounted::from_raw(lk_transceiver) })
+        }
     }
 
     pub fn senders(&self) -> Vec<RtpSender> {
@@ -838,9 +878,8 @@ pub static PEER_OBSERVER: sys::lkPeerObserver = sys::lkPeerObserver {
 #[cfg(test)]
 mod tests {
 
-    use tokio::sync::mpsc;
-
     use crate::{data_channel::DataChannelInit, peer_connection::*, peer_connection_factory::*};
+    use tokio::sync::mpsc;
 
     #[tokio::test]
     async fn create_pc() {

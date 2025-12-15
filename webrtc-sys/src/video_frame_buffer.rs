@@ -25,7 +25,6 @@ pub fn new_video_frame_buffer(buffer: VideoFrameBuffer) -> Box<dyn VideoBuffer> 
         VideoBufferType::I444 => Box::new(buffer.as_i444()),
         VideoBufferType::I010 => Box::new(buffer.as_i010()),
         VideoBufferType::NV12 => Box::new(buffer.as_nv12()),
-        _ => unreachable!(),
     }
 }
 

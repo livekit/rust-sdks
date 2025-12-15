@@ -1,4 +1,4 @@
-use crate::{peer_connection_factory::IceServer, rtp_parameters::*, sys};
+use crate::{peer_connection_factory::IceServer, rtp_parameters::*, sys}; // Ensure RtpTransceiverInit is imported
 
 // Helper function to convert Vec<IceServer> to *mut sys::lkIceServer
 pub fn toLKIceServers(servers: &Vec<IceServer>) -> *mut sys::lkIceServer {
@@ -169,4 +169,135 @@ pub fn RtpParametersFromNative(ffi: sys::RefCounted<sys::lkRtpParameters>) -> Rt
         }
     }
     params
+}
+
+pub fn RtpTransceiverInitToNative(
+    init: RtpTransceiverInit,
+) -> sys::RefCounted<sys::lkRtpTransceiverInit> {
+    unsafe {
+        let lk_init = sys::lkRtpTransceiverInitCreate();
+        sys::lkRtpTransceiverInitSetDirection(lk_init, init.direction.into());
+        let mut lk_stream_ids_vec = sys::RefCountedVector::new();
+        for stream_id in init.stream_ids.iter() {
+            let c_stream_id = sys::RefCountedString::new(stream_id);
+            lk_stream_ids_vec.push_back(c_stream_id.ffi.clone());
+        }
+        sys::lkRtpTransceiverInitSetStreamIds(lk_init, lk_stream_ids_vec.ffi.as_ptr());
+
+        let mut lk_send_encodings_vec = sys::RefCountedVector::new();
+        for encoding in init.send_encodings.iter() {
+            let ptr = sys::lkRtpEncodingParametersCreate();
+            let c_encoding = sys::RefCounted::from_raw(ptr);
+
+            sys::lkRtpEncodingParametersSetActive(c_encoding.as_ptr(), encoding.active);
+            if let Some(max_bitrate) = encoding.max_bitrate {
+                sys::lkRtpEncodingParametersSetMaxBitrateBps(
+                    c_encoding.as_ptr(),
+                    max_bitrate as i64,
+                );
+            }
+
+            if let Some(min_bitrate) = encoding.min_bitrate {
+                sys::lkRtpEncodingParametersSetMinBitrateBps(
+                    c_encoding.as_ptr(),
+                    min_bitrate as i64,
+                );
+            }
+
+            if let Some(max_framerate) = encoding.max_framerate {
+                sys::lkRtpEncodingParametersSetMaxFramerate(c_encoding.as_ptr(), max_framerate);
+            }
+
+            if let Some(scalability_mode) = &encoding.scalability_mode {
+                sys::lkRtpEncodingParametersSetScalabilityMode(
+                    c_encoding.as_ptr(),
+                    std::ffi::CString::new(scalability_mode.as_str()).unwrap().as_ptr(),
+                );
+            }
+
+            if let Some(scale_resolution_down_by) = encoding.scale_resolution_down_by {
+                sys::lkRtpEncodingParametersSetScaleResolutionDownBy(
+                    c_encoding.as_ptr(),
+                    scale_resolution_down_by,
+                );
+            }
+
+            sys::lkRtpEncodingParametersSetRid(
+                c_encoding.as_ptr(),
+                std::ffi::CString::new(encoding.rid.as_str()).unwrap().as_ptr(),
+            );
+
+            lk_send_encodings_vec.push_back(c_encoding);
+        }
+
+        sys::lkRtpTransceiverInitSetSendEncodingsdings(lk_init, lk_send_encodings_vec.ffi.as_ptr());
+
+        sys::RefCounted::from_raw(lk_init)
+    }
+}
+
+pub fn RtpParametersToNative(params: RtpParameters) -> sys::RefCounted<sys::lkRtpParameters> {
+    unsafe {
+        let lk_params = sys::lkRtpParametersCreate();
+
+        let mut lk_codecs_vec = sys::RefCountedVector::new();
+        for codec in params.codecs.iter() {
+            let ptr = sys::lkRtpCodecParametersCreate();
+            let c_codec = sys::RefCounted::from_raw(ptr);
+
+            sys::lkRtpCodecParametersSetPayloadType(
+                c_codec.as_ptr(),
+                codec.payload_type.try_into().unwrap(),
+            );
+            sys::lkRtpCodecParametersSetMimeType(
+                c_codec.as_ptr(),
+                std::ffi::CString::new(codec.mime_type.as_str()).unwrap().as_ptr(),
+            );
+            if let Some(clock_rate) = codec.clock_rate {
+                sys::lkRtpCodecParametersSetClockRate(
+                    c_codec.as_ptr(),
+                    clock_rate.try_into().unwrap(),
+                );
+            }
+            if let Some(channels) = codec.channels {
+                sys::lkRtpCodecParametersSetChannels(
+                    c_codec.as_ptr(),
+                    channels.try_into().unwrap(),
+                );
+            }
+
+            lk_codecs_vec.push_back(c_codec);
+        }
+        sys::lkRtpParametersSetCodecs(lk_params, lk_codecs_vec.ffi.as_ptr());
+
+        let rtcp_ptr = sys::lkRtcpParametersCreate();
+        sys::lkRtcpParametersSetCname(
+            rtcp_ptr,
+            std::ffi::CString::new(params.rtcp.cname.as_str()).unwrap().as_ptr(),
+        );
+        sys::lkRtcpParametersSetReducedSize(rtcp_ptr, params.rtcp.reduced_size);
+        sys::lkRtpParametersSetRtcp(lk_params, rtcp_ptr);
+
+        let mut lk_header_extensions_vec = sys::RefCountedVector::new();
+        for header_extension in params.header_extensions.iter() {
+            let ptr = sys::lkRtpHeaderExtensionParametersCreate();
+            let c_header_extension = sys::RefCounted::from_raw(ptr);
+
+            sys::lkRtpHeaderExtensionParametersSetUri(
+                c_header_extension.as_ptr(),
+                std::ffi::CString::new(header_extension.uri.as_str()).unwrap().as_ptr(),
+            );
+            sys::lkRtpHeaderExtensionParametersSetId(
+                c_header_extension.as_ptr(),
+                header_extension.id as u32,
+            );
+            sys::lkRtpHeaderExtensionParametersSetEncrypted(
+                c_header_extension.as_ptr(),
+                header_extension.encrypted,
+            );
+        }
+        sys::lkRtpParametersSetHeaderExtensions(lk_params, lk_header_extensions_vec.ffi.as_ptr());
+
+        sys::RefCounted::from_raw(lk_params)
+    }
 }

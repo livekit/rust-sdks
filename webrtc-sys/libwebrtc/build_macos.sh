@@ -121,7 +121,8 @@ cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/liblivekit_rtc.dylib" "$ARTIFACTS_DIR/lib"
 mkdir -p "$ARTIFACTS_DIR/include"
-cp "src/livekit_rtc/capi.h" "$ARTIFACTS_DIR/include/livekit_rtc.h"
+cp "src/livekit_rtc/include/capi.h" "$ARTIFACTS_DIR/include/livekit_rtc.h"
+cp "src/livekit_rtc/include/yuv_helper.h" "$ARTIFACTS_DIR/include/yuv_helper.h"
 
 #cd src
 #find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
