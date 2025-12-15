@@ -116,6 +116,17 @@ impl From<ContinualGatheringPolicy> for sys::lkContinualGatheringPolicy {
     }
 }
 
+impl From<MediaType> for sys::lkMediaType {
+    fn from(media_type: MediaType) -> Self {
+        match media_type {
+            MediaType::Audio => sys::lkMediaType::LK_MEDIA_TYPE_AUDIO,
+            MediaType::Video => sys::lkMediaType::LK_MEDIA_TYPE_VIDEO,
+            MediaType::Data => sys::lkMediaType::LK_MEDIA_TYPE_DATA,
+            MediaType::Unsupported => sys::lkMediaType::LK_MEDIA_TYPE_UNSUPPORTED,
+        }
+    }
+}
+
 impl PeerConnectionFactory {
     pub fn create_peer_connection(
         &self,
@@ -151,12 +162,18 @@ impl PeerConnectionFactory {
         Ok(peer)
     }
 
-    pub fn get_rtp_sender_capabilities(&self, _media_type: MediaType) -> RtpCapabilities {
-        todo!()
+    pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
+        let lk_caps =
+            unsafe { sys::lkGetRtpSenderCapabilities(self.ffi.as_ptr(), media_type.into()) };
+
+        sys::RtpCapabilitiesFromNative(unsafe { sys::RefCounted::from_raw(lk_caps) })
     }
 
-    pub fn get_rtp_receiver_capabilities(&self, _media_type: MediaType) -> RtpCapabilities {
-        todo!()
+    pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
+        let lk_caps =
+            unsafe { sys::lkGetRtpReceiverCapabilities(self.ffi.as_ptr(), media_type.into()) };
+
+        sys::RtpCapabilitiesFromNative(unsafe { sys::RefCounted::from_raw(lk_caps) })
     }
 }
 
@@ -269,6 +286,33 @@ mod tests {
             assert_ne!(frame.timestamp_us, 0);
         } else {
             panic!("Did not receive video frame");
+        }
+    }
+
+    #[tokio::test]
+    async fn get_capabilities() {
+        let _factory = crate::peer_connection_factory::PeerConnectionFactory::default();
+        let audio_caps = _factory.get_rtp_sender_capabilities(crate::MediaType::Audio);
+        println!("Audio Capabilities: {:?}", audio_caps);
+
+        for codec in audio_caps.codecs {
+            println!("Audio Codec: {:?}", codec);
+        }
+
+        for ext in audio_caps.header_extensions {
+            println!("Audio Header Extension: {:?}", ext);
+        }
+
+        let video_caps = _factory.get_rtp_receiver_capabilities(crate::MediaType::Video);
+
+        println!("Video Capabilities: {:?}", video_caps);
+
+        for codec in video_caps.codecs {
+            println!("Video Codec: {:?}", codec);
+        }
+
+        for ext in video_caps.header_extensions {
+            println!("Video Header Extension: {:?}", ext);
         }
     }
 }

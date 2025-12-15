@@ -5,6 +5,11 @@ pub struct RefCountedString {
 }
 
 impl RefCountedString {
+    pub fn from_native(vec_ptr: *mut sys::lkString) -> Self {
+        let ffi = unsafe { sys::RefCounted::from_raw(vec_ptr) };
+        Self { ffi }
+    }
+
     pub fn new(s: &str) -> Self {
         let c_string = std::ffi::CString::new(s).unwrap();
         let ffi = unsafe { sys::lkCreateString(c_string.as_ptr()) };
@@ -28,6 +33,18 @@ pub struct RefCountedVector {
 }
 
 impl RefCountedVector {
+    pub fn new() -> Self {
+        let ffi = unsafe { sys::lkCreateVectorGeneric() };
+        Self { ffi: unsafe { sys::RefCounted::from_raw(ffi) }, vec: Vec::new() }
+    }
+
+    pub fn push_back(&mut self, item: crate::sys::RefCounted<sys::lkRefCountedObject>) {
+        unsafe {
+            sys::lkVectorGenericPushBack(self.ffi.as_ptr(), item.as_ptr() as *mut _);
+        }
+        self.vec.push(item);
+    }
+
     pub fn from_native_vec(vec_ptr: *mut sys::lkVectorGeneric) -> Self {
         let ffi = unsafe { sys::RefCounted::from_raw(vec_ptr) };
 
@@ -38,6 +55,8 @@ impl RefCountedVector {
             let element_ptr = unsafe {
                 sys::lkVectorGenericGetAt(ffi.as_ptr(), i as u32) as *mut sys::lkRefCountedObject
             };
+            // sys::lkAddRef to increase the reference count, because ffi in native owns the vector.
+            unsafe { sys::lkAddRef(element_ptr as *mut _) }
             vec.push(unsafe { sys::RefCounted::from_raw(element_ptr) });
         }
 

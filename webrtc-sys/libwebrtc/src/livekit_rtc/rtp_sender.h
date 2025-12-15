@@ -52,11 +52,11 @@ class RtpSender : public webrtc::RefCountInterface {
 
   void set_streams(const std::vector<std::string>& stream_ids) const;
 
-  std::vector<RtpEncodingParameters> init_send_encodings() const;
+  std::vector<webrtc::scoped_refptr<RtpEncodingParameters>> init_send_encodings() const;
 
-  RtpParameters get_parameters() const;
+  webrtc::scoped_refptr<RtpParameters> get_parameters() const;
 
-  void set_parameters(RtpParameters params) const;
+  void set_parameters(webrtc::scoped_refptr<RtpParameters> params) const;
 
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> rtc_sender() const { return sender_; }
 

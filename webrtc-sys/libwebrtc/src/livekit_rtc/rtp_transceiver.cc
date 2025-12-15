@@ -21,21 +21,6 @@
 
 namespace livekit {
 
-webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
-    RtpTransceiverInit init) {
-  {
-    webrtc::RtpTransceiverInit native{};
-    native.direction =
-        static_cast<webrtc::RtpTransceiverDirection>(init.direction);
-    native.stream_ids = std::vector<std::string>(init.stream_ids.begin(),
-                                                 init.stream_ids.end());
-    for (auto encoding : init.send_encodings)
-      native.send_encodings.push_back(
-          to_native_rtp_encoding_paramters(encoding));
-    return native;
-  }
-}
-
 RtpTransceiver::RtpTransceiver(
     webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver,
     webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection)
@@ -100,12 +85,21 @@ void RtpTransceiver::stop_standard() const {
   }
 }
 
+bool RtpTransceiver::stop_with_error(lkRtcError* error) const {
+  auto rtc_err = transceiver_->StopStandard();
+  if (!rtc_err.ok()) {
+    //TODO:  *error = to_error(rtc_err);
+    return false;
+  }
+  return true;
+}
+
 void RtpTransceiver::set_codec_preferences(
-    std::vector<RtpCodecCapability> codecs) const {
+    std::vector<webrtc::scoped_refptr<RtpCodecCapability>> codecs) const {
   std::vector<webrtc::RtpCodecCapability> std_codecs;
 
   for (auto codec : codecs)
-    std_codecs.push_back(to_native_rtp_codec_capability(codec));
+    std_codecs.push_back(codec->rtc_capability);
 
   auto error = transceiver_->SetCodecPreferences(std_codecs);
   if (!error.ok()) {
@@ -113,44 +107,17 @@ void RtpTransceiver::set_codec_preferences(
   }
 }
 
-std::vector<RtpCodecCapability> RtpTransceiver::codec_preferences() const {
-  std::vector<RtpCodecCapability> rust;
-  for (auto codec : transceiver_->codec_preferences())
-    rust.push_back(to_capi_rtp_codec_capability(codec));
-
-  return rust;
+bool RtpTransceiver::lk_set_codec_preferences(lkVectorGeneric* codecs, lkRtcError *err_out) const {
+  return false; //TODO: implement
 }
 
-std::vector<RtpHeaderExtensionCapability>
-RtpTransceiver::header_extensions_to_negotiate() const {
-  std::vector<RtpHeaderExtensionCapability> rust;
-  for (auto header : transceiver_->GetHeaderExtensionsToNegotiate())
-    rust.push_back(to_capi_rtp_header_extension_capability(header));
-
-  return rust;
-}
-
-std::vector<RtpHeaderExtensionCapability>
-RtpTransceiver::negotiated_header_extensions() const {
-  std::vector<RtpHeaderExtensionCapability> rust;
-  for (auto header : transceiver_->GetNegotiatedHeaderExtensions())
-    rust.push_back(to_capi_rtp_header_extension_capability(header));
-
-  return rust;
-}
-
-void RtpTransceiver::set_header_extensions_to_negotiate(
-    std::vector<RtpHeaderExtensionCapability> header_extensions_to_offer)
-    const {
-  std::vector<webrtc::RtpHeaderExtensionCapability> headers;
-
-  for (auto header : header_extensions_to_offer)
-    headers.push_back(to_native_rtp_header_extension_capability(header));
-
-  auto error = transceiver_->SetHeaderExtensionsToNegotiate(headers);
-  if (!error.ok()) {
-    // throw std::runtime_error(serialize_error(to_error(error)));
+std::vector<webrtc::scoped_refptr<RtpCodecCapability>> RtpTransceiver::codec_preferences() const {
+  std::vector<webrtc::scoped_refptr<RtpCodecCapability>> capi;
+  for (auto codec : transceiver_->codec_preferences()) {
+    capi.push_back(RtpCodecCapability::FromNative(codec));
   }
+
+  return capi;
 }
 
 }  // namespace livekit

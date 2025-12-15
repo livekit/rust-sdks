@@ -17,7 +17,8 @@ use std::fmt::Debug;
 use tokio::sync::mpsc;
 
 use crate::{
-    RtcError, RtcErrorType, media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters, stats::RtcStats, sys
+    media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters, stats::RtcStats, sys,
+    RtcError, RtcErrorType,
 };
 
 #[derive(Clone)]
@@ -52,7 +53,8 @@ impl RtpReceiver {
             stats_json: *const ::std::os::raw::c_char,
             userdata: *mut ::std::os::raw::c_void,
         ) {
-            let tx: Box<mpsc::Sender<Result<Vec<RtcStats>, RtcError>>> = Box::from_raw(userdata as *mut _);
+            let tx: Box<mpsc::Sender<Result<Vec<RtcStats>, RtcError>>> =
+                Box::from_raw(userdata as *mut _);
             let stats = unsafe { std::ffi::CStr::from_ptr(stats_json) };
 
             if stats.is_empty() {
@@ -65,11 +67,7 @@ impl RtpReceiver {
         }
 
         unsafe {
-            sys::lkRtpReceiverGetStats(
-                self.ffi.as_ptr(),
-                Some(on_complete),
-                userdata,
-            );
+            sys::lkRtpReceiverGetStats(self.ffi.as_ptr(), Some(on_complete), userdata);
         }
 
         rx.recv().await.ok_or_else(|| RtcError {
@@ -79,7 +77,10 @@ impl RtpReceiver {
     }
 
     pub fn parameters(&self) -> RtpParameters {
-        todo!()
+        unsafe {
+            let params_ptr = sys::lkRtpReceiverGetParameters(self.ffi.as_ptr());
+            sys::RtpParametersFromNative(unsafe { sys::RefCounted::from_raw(params_ptr) })
+        }
     }
 }
 

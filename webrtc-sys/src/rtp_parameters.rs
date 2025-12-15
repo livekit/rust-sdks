@@ -61,10 +61,12 @@ pub struct RtcpParameters {
 pub struct RtpEncodingParameters {
     pub active: bool,
     pub max_bitrate: Option<u64>,
+    pub min_bitrate: Option<u64>,
     pub max_framerate: Option<f64>,
     pub priority: Priority,
     pub rid: String,
     pub scale_resolution_down_by: Option<f64>,
+    pub scalability_mode: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,11 +93,13 @@ impl Default for RtpEncodingParameters {
     fn default() -> Self {
         Self {
             active: true,
+            min_bitrate: None,
             max_bitrate: None,
             max_framerate: None,
             priority: Priority::Low,
             rid: String::default(),
             scale_resolution_down_by: None,
+            scalability_mode: None,
         }
     }
 }

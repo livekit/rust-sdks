@@ -46,9 +46,9 @@ class RtpReceiver : public webrtc::RefCountInterface {
   lkMediaType media_type() const;
   std::string id() const;
 
-  RtpParameters get_parameters() const;
+  webrtc::scoped_refptr<RtpParameters> get_parameters() const;
 
-  // bool set_parameters(RtpParameters parameters) const; // Seems unsupported
+  // bool set_parameters(webrtc::scoped_refptr<RtpParameters> parameters) const; // Seems unsupported
 
   void set_jitter_buffer_minimum_delay(bool is_some, double delay_seconds) const;
 

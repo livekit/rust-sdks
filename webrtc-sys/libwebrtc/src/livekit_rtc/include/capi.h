@@ -52,6 +52,14 @@ typedef lkRefCountedObject lkNativeVideoSink;
 typedef lkRefCountedObject lkVideoFrameBuilder;
 typedef lkRefCountedObject lkRtpEncodingParameters;
 typedef lkRefCountedObject lkRtpTransceiverInit;
+typedef lkRefCountedObject lkRtpCapabilities;
+typedef lkRefCountedObject lkRtpCodecCapability;
+typedef lkRefCountedObject lkRtpHeaderExtensionCapability;
+typedef lkRefCountedObject lkRtpParameters;
+typedef lkRefCountedObject lkRtpCodecParameters;
+typedef lkRefCountedObject lkRtpHeaderExtensionParameters;
+typedef lkRefCountedObject lkRtcpParameters;
+typedef lkRefCountedObject lkRtpTransceiverInit;
 
 typedef enum {
   LK_MEDIA_TYPE_AUDIO,
@@ -260,6 +268,18 @@ typedef enum {
   LK_RTP_TRANSCEIVER_DIRECTION_STOPPED,
 } lkRtpTransceiverDirection;
 
+typedef enum {
+  FEC_MECHANISM_ULPFEC = 1,
+  FEC_MECHANISM_RED = 2,
+} FecMechanism;
+
+typedef enum {
+  kVeryLow,
+  kLow,
+  kMedium,
+  kHigh,
+} lkNetworkPriority;
+
 LK_EXPORT int lkInitialize();
 
 LK_EXPORT int lkDispose();
@@ -295,6 +315,10 @@ LK_EXPORT lkPeerFactory* lkCreatePeerFactory();
 LK_EXPORT lkRtpCapabilities* lkGetRtpSenderCapabilities(lkPeerFactory* factory, lkMediaType type);
 
 LK_EXPORT lkRtpCapabilities* lkGetRtpReceiverCapabilities(lkPeerFactory* factory, lkMediaType type);
+
+LK_EXPORT lkVectorGeneric* lkRtpCapabilitiesGetCodecs(lkRtpCapabilities* capabilities);
+
+LK_EXPORT lkVectorGeneric* lkRtpCapabilitiesGetHeaderExtensions(lkRtpCapabilities* capabilities);
 
 LK_EXPORT lkPeer* lkCreatePeer(lkPeerFactory* factory,
                                const lkRtcConfiguration* config,
@@ -693,9 +717,9 @@ LK_EXPORT void lkRtpTransceiverStop(lkRtpTransceiver* transceiver);
 
 LK_EXPORT lkMediaStreamTrack* lkRtpReceiverGetTrack(lkRtpReceiver* receiver);
 
-LK_EXPORT lkRtpEncodingParameters* lkRtpEncodingParametersCreate();
-
-LK_EXPORT lkRtpTransceiverInit* lkRtpTransceiverInitCreate();
+LK_EXPORT void lkPeerGetStats(lkPeer* peer,
+                              void (*onComplete)(const char* statsJson, void* userdata),
+                              void* userdata);
 
 LK_EXPORT void lkRtpSenderGetStats(lkRtpSender* sender,
                                    void (*onComplete)(const char* statsJson, void* userdata),
@@ -704,6 +728,96 @@ LK_EXPORT void lkRtpSenderGetStats(lkRtpSender* sender,
 LK_EXPORT void lkRtpReceiverGetStats(lkRtpReceiver* receiver,
                                      void (*onComplete)(const char* statsJson, void* userdata),
                                      void* userdata);
+
+LK_EXPORT lkRtpCodecCapability* lkRtpCodecCapabilityCreate();
+
+LK_EXPORT void lkRtpCodecCapabilitySetMimeType(lkRtpCodecCapability* codec, const char* mimeType);
+
+LK_EXPORT void lkRtpCodecCapabilitySetClockRate(lkRtpCodecCapability* codec, uint32_t clockRate);
+
+LK_EXPORT void lkRtpCodecCapabilitySetChannels(lkRtpCodecCapability* codec, uint16_t channels);
+
+LK_EXPORT void lkRtpCodecCapabilitySetSdpFmtpLine(lkRtpCodecCapability* codec,
+                                                  const char* sdpFmtpLine);
+
+LK_EXPORT uint16_t lkRtpCodecCapabilityGetChannels(lkRtpCodecCapability* codec);
+
+LK_EXPORT uint32_t lkRtpCodecCapabilityGetClockRate(lkRtpCodecCapability* codec);
+
+LK_EXPORT lkString* lkRtpCodecCapabilityGetMimeType(lkRtpCodecCapability* codec);
+
+LK_EXPORT lkString* lkRtpCodecCapabilityGetSdpFmtpLine(lkRtpCodecCapability* codec);
+
+LK_EXPORT lkString* lkRtpHeaderExtensionCapabilityGetUri(lkRtpHeaderExtensionCapability* ext);
+
+LK_EXPORT lkRtpTransceiverDirection
+    lkRtpHeaderExtensionCapabilityGetDirection(lkRtpHeaderExtensionCapability* ext);
+
+/*
+lkRtcpParametersGetCname
+lkRtcpParametersGetReducedSize
+lkRtpCodecParametersGetPayloadType
+lkRtpCodecParametersGetMimeType
+lkRtpCodecParametersGetClockRate
+lkRtpCodecParametersGetChannels
+lkRtpHeaderExtensionParametersGetUri
+lkRtpHeaderExtensionParametersGetId
+lkRtpHeaderExtensionParametersGetEncrypted
+lkRtpParametersGetCodecs
+lkRtpParametersGetRtcp
+lkRtpParametersGetHeaderExtensions
+*/
+
+LK_EXPORT lkString* lkRtcpParametersGetCname(lkRtcpParameters* rtcp);
+
+LK_EXPORT bool lkRtcpParametersGetReducedSize(lkRtcpParameters* rtcp);
+
+LK_EXPORT uint8_t lkRtpCodecParametersGetPayloadType(lkRtpCodecParameters* codec);
+
+LK_EXPORT lkString* lkRtpCodecParametersGetMimeType(lkRtpCodecParameters* codec);
+
+LK_EXPORT uint32_t lkRtpCodecParametersGetClockRate(lkRtpCodecParameters* codec);
+
+LK_EXPORT uint16_t lkRtpCodecParametersGetChannels(lkRtpCodecParameters* codec);
+
+LK_EXPORT lkString* lkRtpHeaderExtensionParametersGetUri(lkRtpHeaderExtensionParameters* ext);
+
+LK_EXPORT uint8_t lkRtpHeaderExtensionParametersGetId(lkRtpHeaderExtensionParameters* ext);
+
+LK_EXPORT bool lkRtpHeaderExtensionParametersGetEncrypted(lkRtpHeaderExtensionParameters* ext);
+
+LK_EXPORT lkVectorGeneric* lkRtpParametersGetCodecs(lkRtpParameters* params);
+
+LK_EXPORT lkRtcpParameters* lkRtpParametersGetRtcp(lkRtpParameters* params);
+
+LK_EXPORT lkVectorGeneric* lkRtpParametersGetHeaderExtensions(lkRtpParameters* params);
+
+LK_EXPORT lkRtpParameters* lkRtpSenderGetParameters(lkRtpSender* sender);
+
+LK_EXPORT bool lkRtpSenderSetParameters(lkRtpSender* sender,
+                                        lkRtpParameters* params,
+                                        lkRtcError* error);
+
+LK_EXPORT lkRtpParameters* lkRtpReceiverGetParameters(lkRtpReceiver* receiver);
+
+LK_EXPORT lkRtpTransceiverInit* lkCreateRtpTransceiverInit();
+
+LK_EXPORT void lkRtpTransceiverInitSetDirection(lkRtpTransceiverInit* init,
+                                                lkRtpTransceiverDirection direction);
+
+LK_EXPORT void lkRtpTransceiverInitSetStreamIds(lkRtpTransceiverInit* init,
+                                                lkVectorGeneric* streamIds);
+
+LK_EXPORT lkRtpTransceiverDirection lkRtpTransceiverInitGetDirection(lkRtpTransceiverInit* init);
+
+LK_EXPORT void lkRtpTransceiverInitSetSendEncodingsdings(lkRtpTransceiverInit* init,
+                                                         lkVectorGeneric* encodings);
+
+LK_EXPORT bool lkRtpTransceiverSetCodecPreferences(lkRtpTransceiver* transceiver,
+                                                   lkVectorGeneric* codecs,
+                                                   lkRtcError* error);
+
+LK_EXPORT bool lkRtpTransceiverStopWithError(lkRtpTransceiver* transceiver, lkRtcError* error);
 
 #ifdef __cplusplus
 }

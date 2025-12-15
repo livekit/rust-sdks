@@ -140,9 +140,7 @@ lkRtpSender* lkPeerAddTrack(lkPeer* peer,
   return nullptr;
 }
 
-LK_EXPORT bool lkPeerRemoveTrack(lkPeer* peer,
-                                 lkRtpSender* sender,
-                                 lkRtcError* error) {
+bool lkPeerRemoveTrack(lkPeer* peer, lkRtpSender* sender, lkRtcError* error) {
   // TODO implement
   return false;
 }
@@ -376,14 +374,24 @@ const lkSessionDescription* lkPeerGetCurrentRemoteDescription(lkPeer* peer) {
 
 lkRtpCapabilities* lkGetRtpSenderCapabilities(lkPeerFactory* factory,
                                               lkMediaType type) {
-  // TODO implement
-  return nullptr;
+  auto peer_factory = reinterpret_cast<livekit::PeerFactory*>(factory);
+  return peer_factory->GetRtpSenderCapabilities(type);
 }
 
 lkRtpCapabilities* lkGetRtpReceiverCapabilities(lkPeerFactory* factory,
                                                 lkMediaType type) {
-  // TODO implement
-  return nullptr;
+  auto peer_factory = reinterpret_cast<livekit::PeerFactory*>(factory);
+  return peer_factory->GetRtpReceiverCapabilities(type);
+}
+
+lkVectorGeneric* lkRtpCapabilitiesGetCodecs(lkRtpCapabilities* capabilities) {
+  return reinterpret_cast<livekit::RtpCapabilities*>(capabilities)->GetCodecs();
+}
+
+lkVectorGeneric* lkRtpCapabilitiesGetHeaderExtensions(
+    lkRtpCapabilities* capabilities) {
+  return reinterpret_cast<livekit::RtpCapabilities*>(capabilities)
+      ->GetHeaderExtensions();
 }
 
 lkRtcVideoTrack* CreateVideoTrack(lkPeerFactory* factory,
@@ -1119,14 +1127,10 @@ lkMediaStreamTrack* lkRtpReceiverGetTrack(lkRtpReceiver* receiver) {
       reinterpret_cast<livekit::RtpReceiver*>(receiver)->track().release());
 }
 
-lkRtpEncodingParameters* lkRtpEncodingParametersCreate() {
-  // TODO implement
-  return nullptr;
-}
-
-lkRtpTransceiverInit* lkRtpTransceiverInitCreate() {
-  // TODO implement
-  return nullptr;
+void lkPeerGetStats(lkPeer* peer,
+                    void (*onComplete)(const char* statsJson, void* userdata),
+                    void* userdata) {
+  // TODO: implement
 }
 
 void lkRtpSenderGetStats(lkRtpSender* sender,
@@ -1143,4 +1147,196 @@ void lkRtpReceiverGetStats(lkRtpReceiver* receiver,
                            void* userdata) {
   reinterpret_cast<livekit::RtpReceiver*>(receiver)->get_stats(onComplete,
                                                                userdata);
+}
+
+uint16_t lkRtpCodecCapabilityGetChannels(lkRtpCodecCapability* codec) {
+  return reinterpret_cast<livekit::RtpCodecCapability*>(codec)->num_channels();
+}
+
+uint32_t lkRtpCodecCapabilityGetClockRate(lkRtpCodecCapability* codec) {
+  return reinterpret_cast<livekit::RtpCodecCapability*>(codec)->clock_rate();
+}
+
+lkString* lkRtpCodecCapabilityGetMimeType(lkRtpCodecCapability* codec) {
+  auto mime_type =
+      reinterpret_cast<livekit::RtpCodecCapability*>(codec)->mime_type();
+  return reinterpret_cast<lkString*>(
+      livekit::LKString::Create(mime_type).release());
+}
+
+lkString* lkRtpCodecCapabilityGetSdpFmtpLine(lkRtpCodecCapability* codec) {
+  auto sdp_fmtp_line =
+      reinterpret_cast<livekit::RtpCodecCapability*>(codec)->sdp_fmtp_line();
+  return reinterpret_cast<lkString*>(
+      livekit::LKString::Create(sdp_fmtp_line).release());
+}
+
+lkString* lkRtpHeaderExtensionCapabilityGetUri(
+    lkRtpHeaderExtensionCapability* ext) {
+  auto uri =
+      reinterpret_cast<livekit::RtpHeaderExtensionCapability*>(ext)->uri();
+  return reinterpret_cast<lkString*>(livekit::LKString::Create(uri).release());
+}
+
+lkRtpTransceiverDirection lkRtpHeaderExtensionCapabilityGetDirection(
+    lkRtpHeaderExtensionCapability* ext) {
+  return static_cast<lkRtpTransceiverDirection>(
+      reinterpret_cast<livekit::RtpHeaderExtensionCapability*>(ext)
+          ->direction());
+}
+
+lkString* lkRtcpParametersGetCname(lkRtcpParameters* rtcp) {
+  auto cname = reinterpret_cast<livekit::RtcpParameters*>(rtcp)->cname();
+  return reinterpret_cast<lkString*>(
+      livekit::LKString::Create(cname).release());
+}
+
+bool lkRtcpParametersGetReducedSize(lkRtcpParameters* rtcp) {
+  return reinterpret_cast<livekit::RtcpParameters*>(rtcp)->reduced_size();
+}
+
+uint8_t lkRtpCodecParametersGetPayloadType(lkRtpCodecParameters* codec) {
+  return reinterpret_cast<livekit::RtpCodecParameters*>(codec)->payload_type();
+}
+
+lkString* lkRtpCodecParametersGetMimeType(lkRtpCodecParameters* codec) {
+  auto mime_type =
+      reinterpret_cast<livekit::RtpCodecParameters*>(codec)->mime_type();
+  return reinterpret_cast<lkString*>(
+      livekit::LKString::Create(mime_type).release());
+}
+
+uint32_t lkRtpCodecParametersGetClockRate(lkRtpCodecParameters* codec) {
+  return reinterpret_cast<livekit::RtpCodecParameters*>(codec)->clock_rate();
+}
+
+uint16_t lkRtpCodecParametersGetChannels(lkRtpCodecParameters* codec) {
+  return reinterpret_cast<livekit::RtpCodecParameters*>(codec)->num_channels();
+}
+
+lkString* lkRtpHeaderExtensionParametersGetUri(
+    lkRtpHeaderExtensionParameters* ext) {
+  auto uri =
+      reinterpret_cast<livekit::RtpHeaderExtensionParameters*>(ext)->uri();
+  return reinterpret_cast<lkString*>(livekit::LKString::Create(uri).release());
+}
+
+uint8_t lkRtpHeaderExtensionParametersGetId(
+    lkRtpHeaderExtensionParameters* ext) {
+  return reinterpret_cast<livekit::RtpHeaderExtensionParameters*>(ext)->id();
+}
+
+bool lkRtpHeaderExtensionParametersGetEncrypted(
+    lkRtpHeaderExtensionParameters* ext) {
+  return reinterpret_cast<livekit::RtpHeaderExtensionParameters*>(ext)
+      ->encrypted();
+}
+
+lkVectorGeneric* lkRtpParametersGetCodecs(lkRtpParameters* params) {
+  return reinterpret_cast<livekit::RtpParameters*>(params)->GetCodecs();
+}
+
+lkRtcpParameters* lkRtpParametersGetRtcp(lkRtpParameters* params) {
+  webrtc::scoped_refptr<livekit::RtcpParameters> rtcp =
+      reinterpret_cast<livekit::RtpParameters*>(params)->rtcp;
+  return reinterpret_cast<lkRtcpParameters*>(rtcp.release());
+}
+
+lkVectorGeneric* lkRtpParametersGetHeaderExtensions(lkRtpParameters* params) {
+  return reinterpret_cast<livekit::RtpParameters*>(params)
+      ->GetHeaderExtensions();
+}
+
+lkRtpParameters* lkRtpSenderGetParameters(lkRtpSender* sender) {
+  return reinterpret_cast<lkRtpParameters*>(
+      reinterpret_cast<livekit::RtpSender*>(sender)
+          ->get_parameters()
+          .release());
+}
+
+bool lkRtpSenderSetParameters(lkRtpSender* sender,
+                              lkRtpParameters* params,
+                              lkRtcError* error) {
+  // TODO : implement
+  return false;
+}
+
+lkRtpParameters* lkRtpReceiverGetParameters(lkRtpReceiver* receiver) {
+  return reinterpret_cast<lkRtpParameters*>(
+      reinterpret_cast<livekit::RtpReceiver*>(receiver)
+          ->get_parameters()
+          .release());
+}
+
+LK_EXPORT lkRtpTransceiverInit* lkCreateRtpTransceiverInit() {
+  return reinterpret_cast<lkRtpTransceiverInit*>(
+      livekit::RtpTransceiverInit::Create().release());
+}
+
+LK_EXPORT void lkRtpTransceiverInitSetDirection(
+    lkRtpTransceiverInit* init,
+    lkRtpTransceiverDirection direction) {
+  reinterpret_cast<livekit::RtpTransceiverInit*>(init)->set_direction(
+      direction);
+}
+
+LK_EXPORT void lkRtpTransceiverInitSetStreamIds(lkRtpTransceiverInit* init,
+                                                lkVectorGeneric* streamIds) {
+  reinterpret_cast<livekit::RtpTransceiverInit*>(init)->set_lk_stream_ids(
+      streamIds);
+}
+
+LK_EXPORT lkRtpTransceiverDirection
+lkRtpTransceiverInitGetDirection(lkRtpTransceiverInit* init) {
+  return reinterpret_cast<livekit::RtpTransceiverInit*>(init)->direction();
+}
+
+LK_EXPORT void lkRtpTransceiverInitSetSendEncodingsdings(
+    lkRtpTransceiverInit* init,
+    lkVectorGeneric* encodings) {
+  reinterpret_cast<livekit::RtpTransceiverInit*>(init)->set_lk_send_encodings(
+      encodings);
+}
+
+LK_EXPORT bool lkRtpTransceiverSetCodecPreferences(
+    lkRtpTransceiver* transceiver,
+    lkVectorGeneric* codecs,
+    lkRtcError* error) {
+  return reinterpret_cast<livekit::RtpTransceiver*>(transceiver)
+      ->lk_set_codec_preferences(codecs, error);
+}
+
+bool lkRtpTransceiverStopWithError(lkRtpTransceiver* transceiver,
+                                   lkRtcError* error) {
+  return reinterpret_cast<livekit::RtpTransceiver*>(transceiver)
+      ->stop_with_error(error);
+}
+
+lkRtpCodecCapability* lkRtpCodecCapabilityCreate() {
+  return reinterpret_cast<lkRtpCodecCapability*>(
+      livekit::RtpCodecCapability::Create().release());
+}
+
+void lkRtpCodecCapabilitySetMimeType(lkRtpCodecCapability* codec,
+                                     const char* mimeType) {
+  reinterpret_cast<livekit::RtpCodecCapability*>(codec)->set_mime_type(
+      mimeType);
+}
+
+void lkRtpCodecCapabilitySetClockRate(lkRtpCodecCapability* codec,
+                                      uint32_t clockRate) {
+  reinterpret_cast<livekit::RtpCodecCapability*>(codec)->set_clock_rate(
+      clockRate);
+}
+
+void lkRtpCodecCapabilitySetChannels(lkRtpCodecCapability* codec,
+                                     uint16_t channels) {
+  reinterpret_cast<livekit::RtpCodecCapability*>(codec)->set_num_channels(
+      channels);
+}
+
+void lkRtpCodecCapabilitySetSdpFmtpLine(lkRtpCodecCapability* codec,
+                                        const char* sdpFmtpLine) {
+  reinterpret_cast<livekit::RtpCodecCapability*>(codec)->set_sdp_fmtp_line(
+      sdpFmtpLine);
 }

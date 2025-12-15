@@ -280,7 +280,8 @@ impl PeerObserver {
         receiver: *const lkRtpReceiver,
         userdata: *mut std::ffi::c_void,
     ) {
-        let _lk_receiver = RtpReceiver { ffi: unsafe { sys::RefCounted::from_raw(receiver as *mut _) } };
+        let _lk_receiver =
+            RtpReceiver { ffi: unsafe { sys::RefCounted::from_raw(receiver as *mut _) } };
         let observer: &mut Mutex<PeerObserver> =
             unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };
         let _binding = observer.lock().unwrap();
@@ -362,13 +363,6 @@ impl PeerObserver {
         }
     }
 }
-
-/*
-  fn lk_on_remove_track(
-      &self,
-      _receiver : SharedPtr<webrtc_sys::rtp_receiver::ffi::RtpReceiver>) {}
-}
-*/
 
 #[derive(Clone)]
 pub struct PeerConnection {

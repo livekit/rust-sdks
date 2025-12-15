@@ -32,7 +32,8 @@ RtpReceiver::RtpReceiver(
 
 webrtc::scoped_refptr<MediaStreamTrack> RtpReceiver::track() const {
   return webrtc::make_ref_counted<MediaStreamTrack>(receiver_->track());
-  //TODO: return rtc_runtime_->get_or_create_media_stream_track(receiver_->track());
+  // TODO: return
+  // rtc_runtime_->get_or_create_media_stream_track(receiver_->track());
 }
 
 std::vector<std::string> RtpReceiver::stream_ids() const {
@@ -61,8 +62,8 @@ std::string RtpReceiver::id() const {
   return receiver_->id();
 }
 
-RtpParameters RtpReceiver::get_parameters() const {
-  return to_capi_rtp_parameters(receiver_->GetParameters());
+webrtc::scoped_refptr<RtpParameters> RtpReceiver::get_parameters() const {
+  return RtpParameters::FromNative(receiver_->GetParameters());
 }
 
 void RtpReceiver::set_jitter_buffer_minimum_delay(bool is_some,

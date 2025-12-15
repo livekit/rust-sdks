@@ -102,4 +102,33 @@ class LKRefCountedObject : public webrtc::RefCountInterface {
 
 }  // namespace livekit
 
+inline std::vector<std::string> split(std::string s, std::string delimiter) {
+  std::vector<std::string> tokens;
+  size_t pos = 0;
+  std::string token;
+  while ((pos = s.find(delimiter)) != std::string::npos) {
+    token = s.substr(0, pos);
+    tokens.push_back(token);
+    s.erase(0, pos + delimiter.length());
+  }
+  if (int(s.length()) > 0) {
+    tokens.push_back(s);
+  }
+  return tokens;
+}
+
+template <class T>
+std::string join(T& val, std::string delim) {
+  std::string str;
+  typename T::iterator it;
+  const typename T::iterator itlast = val.end() - 1;
+  for (it = val.begin(); it != val.end(); it++) {
+    str += *it;
+    if (it != itlast) {
+      str += delim;
+    }
+  }
+  return str;
+}
+
 #endif  // LIVEKIT_UTILS_H

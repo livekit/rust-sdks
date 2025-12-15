@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use tokio::sync::mpsc;
 use serde_json;
+use tokio::sync::mpsc;
 
-use crate::RtcErrorType;
 use crate::media_stream_track::new_media_stream_track;
 use crate::rtp_parameters::RtpParameters;
 use crate::stats::RtcStats;
+use crate::RtcErrorType;
 use crate::{media_stream_track::MediaStreamTrack, sys, RtcError};
 use std::fmt::Debug;
 
@@ -41,7 +41,8 @@ impl RtpSender {
             stats_json: *const ::std::os::raw::c_char,
             userdata: *mut ::std::os::raw::c_void,
         ) {
-            let tx: Box<mpsc::Sender<Result<Vec<RtcStats>, RtcError>>> = Box::from_raw(userdata as *mut _);
+            let tx: Box<mpsc::Sender<Result<Vec<RtcStats>, RtcError>>> =
+                Box::from_raw(userdata as *mut _);
             let stats = unsafe { std::ffi::CStr::from_ptr(stats_json) };
 
             if stats.is_empty() {
@@ -54,11 +55,7 @@ impl RtpSender {
         }
 
         unsafe {
-            sys::lkRtpSenderGetStats(
-                self.ffi.as_ptr(),
-                Some(on_complete),
-                userdata,
-            );
+            sys::lkRtpSenderGetStats(self.ffi.as_ptr(), Some(on_complete), userdata);
         }
 
         rx.recv().await.ok_or_else(|| RtcError {
@@ -96,7 +93,10 @@ impl RtpSender {
     }
 
     pub fn parameters(&self) -> RtpParameters {
-        todo!()
+        unsafe {
+            let params_ptr = sys::lkRtpSenderGetParameters(self.ffi.as_ptr());
+            sys::RtpParametersFromNative(unsafe { sys::RefCounted::from_raw(params_ptr) })
+        }
     }
 
     pub fn set_parameters(&self, parameters: RtpParameters) -> Result<(), RtcError> {

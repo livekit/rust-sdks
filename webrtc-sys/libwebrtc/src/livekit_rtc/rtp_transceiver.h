@@ -28,12 +28,6 @@
 #include "livekit_rtc/rtp_sender.h"
 
 namespace livekit {
-class RtpTransceiver;
-}
-
-namespace livekit {
-
-webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(RtpTransceiverInit init);
 
 class RtpTransceiver : public webrtc::RefCountInterface {
  public:
@@ -64,20 +58,18 @@ class RtpTransceiver : public webrtc::RefCountInterface {
 
   void stop_standard() const;
 
-  void set_codec_preferences(std::vector<RtpCodecCapability> codecs) const;
+  bool stop_with_error(lkRtcError* error) const;
 
-  std::vector<RtpCodecCapability> codec_preferences() const;
+  void set_codec_preferences(std::vector<webrtc::scoped_refptr<RtpCodecCapability>> codecs) const;
 
-  std::vector<RtpHeaderExtensionCapability> header_extensions_to_negotiate() const;
+  bool lk_set_codec_preferences(lkVectorGeneric* codecs, lkRtcError *err_out) const;
 
-  std::vector<RtpHeaderExtensionCapability> negotiated_header_extensions() const;
+  std::vector<webrtc::scoped_refptr<RtpCodecCapability>> codec_preferences() const;
 
-  void set_header_extensions_to_negotiate(
-      std::vector<RtpHeaderExtensionCapability> header_extensions_to_offer) const;
-  
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection() const {
     return peer_connection_;
   }
+
  private:
   webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver_;
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;

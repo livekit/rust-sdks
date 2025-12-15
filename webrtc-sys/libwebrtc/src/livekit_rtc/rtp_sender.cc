@@ -63,19 +63,21 @@ void RtpSender::set_streams(const std::vector<std::string>& stream_ids) const {
   sender_->SetStreams(stream_ids);
 }
 
-std::vector<RtpEncodingParameters> RtpSender::init_send_encodings() const {
-  std::vector<RtpEncodingParameters> encodings;
+std::vector<webrtc::scoped_refptr<RtpEncodingParameters>>
+RtpSender::init_send_encodings() const {
+  std::vector<webrtc::scoped_refptr<RtpEncodingParameters>> encodings;
   for (auto encoding : sender_->init_send_encodings())
-    encodings.push_back(to_capi_rtp_encoding_parameters(encoding));
+    encodings.push_back(RtpEncodingParameters::FromNative(encoding));
   return encodings;
 }
 
-RtpParameters RtpSender::get_parameters() const {
-  return to_capi_rtp_parameters(sender_->GetParameters());
+webrtc::scoped_refptr<RtpParameters> RtpSender::get_parameters() const {
+  return RtpParameters::FromNative(sender_->GetParameters());
 }
 
-void RtpSender::set_parameters(RtpParameters params) const {
-  auto error = sender_->SetParameters(to_native_rtp_parameters(params));
+void RtpSender::set_parameters(
+    webrtc::scoped_refptr<RtpParameters> params) const {
+  auto error = sender_->SetParameters(params->rtc_parameters());
   if (!error.ok()) {
     // throw std::runtime_error(serialize_error(to_error(error)));
   }

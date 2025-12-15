@@ -489,4 +489,22 @@ webrtc::PeerConnectionInterface::RTCConfiguration toNativeConfig(
   return rtc_config;
 }
 
+lkRtpCapabilities* PeerFactory::GetRtpSenderCapabilities(lkMediaType type) {
+  auto rtc_caps = peer_factory_->GetRtpSenderCapabilities(
+      static_cast<webrtc::MediaType>(type));
+
+  return reinterpret_cast<lkRtpCapabilities*>(
+      livekit::RtpCapabilities::FromNative(rtc_caps).release());
+}
+
+lkRtpCapabilities* PeerFactory::GetRtpReceiverCapabilities(lkMediaType type) {
+  auto rtc_caps = peer_factory_->GetRtpReceiverCapabilities(
+      static_cast<webrtc::MediaType>(type));
+
+  return reinterpret_cast<lkRtpCapabilities*>(
+      livekit::RtpCapabilities::FromNative(rtc_caps).release());
+}
+
+
+
 }  // namespace livekit

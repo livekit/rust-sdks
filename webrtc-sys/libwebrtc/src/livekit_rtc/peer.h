@@ -143,12 +143,15 @@ class PeerFactory : public webrtc::RefCountInterface {
 
   webrtc::Thread* signaling_thread() const { return signaling_thread_.get(); }
 
+  lkRtpCapabilities* GetRtpSenderCapabilities(lkMediaType type);
+
+  lkRtpCapabilities* GetRtpReceiverCapabilities(lkMediaType type);
+
  private:
   std::unique_ptr<webrtc::Thread> network_thread_;
   std::unique_ptr<webrtc::Thread> worker_thread_;
   std::unique_ptr<webrtc::Thread> signaling_thread_;
   std::unique_ptr<webrtc::TaskQueueFactory> task_queue_factory_;
-
   webrtc::scoped_refptr<AudioDevice> audio_device_;
   webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
 };

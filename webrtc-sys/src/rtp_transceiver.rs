@@ -91,23 +91,68 @@ impl RtpTransceiver {
     pub fn sender(&self) -> RtpSender {
         unsafe {
             let sender_ptr = sys::lkRtpTransceiverGetSender(self.ffi.as_ptr());
-            RtpSender::from_native(unsafe { sys::RefCounted::from_raw(sender_ptr) })
+            RtpSender::from_native(sys::RefCounted::from_raw(sender_ptr))
         }
     }
 
     pub fn receiver(&self) -> RtpReceiver {
         unsafe {
             let receiver_ptr = sys::lkRtpTransceiverGetReceiver(self.ffi.as_ptr());
-            RtpReceiver::from_native(unsafe { sys::RefCounted::from_raw(receiver_ptr) })
+            RtpReceiver::from_native(sys::RefCounted::from_raw(receiver_ptr))
         }
     }
 
     pub fn set_codec_preferences(&self, codecs: Vec<RtpCodecCapability>) -> Result<(), RtcError> {
-        todo!()
+        unsafe {
+            let mut error: sys::RefCounted<sys::lkRtcError> =
+                sys::RefCounted::from_raw(std::ptr::null_mut());
+
+            let mut native_codecs = sys::RefCountedVector::new();
+
+            for c in codecs {
+                let mime_type_cstr = std::ffi::CString::new(c.mime_type.clone()).unwrap();
+                let sdp_fmtp_line_cstr = match &c.sdp_fmtp_line {
+                    Some(line) => std::ffi::CString::new(line.clone()).unwrap(),
+                    None => std::ffi::CString::new("").unwrap(),
+                };
+                let cap = sys::lkRtpCodecCapabilityCreate();
+
+                sys::lkRtpCodecCapabilitySetChannels(cap, c.channels.unwrap_or(1));
+                sys::lkRtpCodecCapabilitySetClockRate(
+                    cap,
+                    c.clock_rate.unwrap_or(0).try_into().unwrap(),
+                );
+                sys::lkRtpCodecCapabilitySetMimeType(cap, mime_type_cstr.as_ptr());
+
+                sys::lkRtpCodecCapabilitySetSdpFmtpLine(cap, sdp_fmtp_line_cstr.as_ptr());
+
+                native_codecs
+                    .push_back(sys::RefCounted::from_raw(cap as *mut sys::lkRefCountedObject));
+            }
+
+            sys::lkRtpTransceiverSetCodecPreferences(
+                self.ffi.as_ptr(),
+                native_codecs.ffi.as_ptr(),
+                error.as_ptr(),
+            );
+            if !error.is_null() {
+                //TODO handle error
+                Err(RtcError {
+                    error_type: crate::RtcErrorType::Internal,
+                    message: "set_codec_preferences failed".to_owned(),
+                })
+            } else {
+                Ok(())
+            }
+        }
     }
 
     pub fn stop(&self) -> Result<(), RtcError> {
-        todo!()
+        unsafe {
+            sys::lkRtpTransceiverStop(self.ffi.as_ptr());
+            //TODO: check for errors
+            Ok(())
+        }
     }
 }
 

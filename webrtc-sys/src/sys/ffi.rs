@@ -39,6 +39,12 @@ pub type lkNativeVideoSink = lkRefCountedObject;
 pub type lkVideoFrameBuilder = lkRefCountedObject;
 pub type lkRtpEncodingParameters = lkRefCountedObject;
 pub type lkRtpTransceiverInit = lkRefCountedObject;
+pub type lkRtpCodecCapability = lkRefCountedObject;
+pub type lkRtpHeaderExtensionCapability = lkRefCountedObject;
+pub type lkRtpParameters = lkRefCountedObject;
+pub type lkRtpCodecParameters = lkRefCountedObject;
+pub type lkRtpHeaderExtensionParameters = lkRefCountedObject;
+pub type lkRtcpParameters = lkRefCountedObject;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkMediaType {
@@ -487,6 +493,14 @@ pub enum lkRtpTransceiverDirection {
     LK_RTP_TRANSCEIVER_DIRECTION_INACTIVE = 3,
     LK_RTP_TRANSCEIVER_DIRECTION_STOPPED = 4,
 }
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkNetworkPriority {
+    kVeryLow = 0,
+    kLow = 1,
+    kMedium = 2,
+    kHigh = 3,
+}
 unsafe extern "C" {
     pub fn lkInitialize() -> ::std::os::raw::c_int;
 }
@@ -550,6 +564,15 @@ unsafe extern "C" {
         factory: *mut lkPeerFactory,
         type_: lkMediaType,
     ) -> *mut lkRtpCapabilities;
+}
+unsafe extern "C" {
+    pub fn lkRtpCapabilitiesGetCodecs(capabilities: *mut lkRtpCapabilities)
+        -> *mut lkVectorGeneric;
+}
+unsafe extern "C" {
+    pub fn lkRtpCapabilitiesGetHeaderExtensions(
+        capabilities: *mut lkRtpCapabilities,
+    ) -> *mut lkVectorGeneric;
 }
 unsafe extern "C" {
     pub fn lkCreatePeer(
@@ -1266,10 +1289,16 @@ unsafe extern "C" {
     pub fn lkRtpReceiverGetTrack(receiver: *mut lkRtpReceiver) -> *mut lkMediaStreamTrack;
 }
 unsafe extern "C" {
-    pub fn lkRtpEncodingParametersCreate() -> *mut lkRtpEncodingParameters;
-}
-unsafe extern "C" {
-    pub fn lkRtpTransceiverInitCreate() -> *mut lkRtpTransceiverInit;
+    pub fn lkPeerGetStats(
+        peer: *mut lkPeer,
+        onComplete: ::std::option::Option<
+            unsafe extern "C" fn(
+                statsJson: *const ::std::os::raw::c_char,
+                userdata: *mut ::std::os::raw::c_void,
+            ),
+        >,
+        userdata: *mut ::std::os::raw::c_void,
+    );
 }
 unsafe extern "C" {
     pub fn lkRtpSenderGetStats(
@@ -1294,4 +1323,140 @@ unsafe extern "C" {
         >,
         userdata: *mut ::std::os::raw::c_void,
     );
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilityCreate() -> *mut lkRtpCodecCapability;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilitySetMimeType(
+        codec: *mut lkRtpCodecCapability,
+        mimeType: *const ::std::os::raw::c_char,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilitySetClockRate(codec: *mut lkRtpCodecCapability, clockRate: u32);
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilitySetChannels(codec: *mut lkRtpCodecCapability, channels: u16);
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilitySetSdpFmtpLine(
+        codec: *mut lkRtpCodecCapability,
+        sdpFmtpLine: *const ::std::os::raw::c_char,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilityGetChannels(codec: *mut lkRtpCodecCapability) -> u16;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilityGetClockRate(codec: *mut lkRtpCodecCapability) -> u32;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilityGetMimeType(codec: *mut lkRtpCodecCapability) -> *mut lkString;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilityGetSdpFmtpLine(codec: *mut lkRtpCodecCapability) -> *mut lkString;
+}
+unsafe extern "C" {
+    pub fn lkRtpHeaderExtensionCapabilityGetUri(
+        ext: *mut lkRtpHeaderExtensionCapability,
+    ) -> *mut lkString;
+}
+unsafe extern "C" {
+    pub fn lkRtpHeaderExtensionCapabilityGetDirection(
+        ext: *mut lkRtpHeaderExtensionCapability,
+    ) -> lkRtpTransceiverDirection;
+}
+unsafe extern "C" {
+    pub fn lkRtcpParametersGetCname(rtcp: *mut lkRtcpParameters) -> *mut lkString;
+}
+unsafe extern "C" {
+    pub fn lkRtcpParametersGetReducedSize(rtcp: *mut lkRtcpParameters) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecParametersGetPayloadType(codec: *mut lkRtpCodecParameters) -> u8;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecParametersGetMimeType(codec: *mut lkRtpCodecParameters) -> *mut lkString;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecParametersGetClockRate(codec: *mut lkRtpCodecParameters) -> u32;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecParametersGetChannels(codec: *mut lkRtpCodecParameters) -> u16;
+}
+unsafe extern "C" {
+    pub fn lkRtpHeaderExtensionParametersGetUri(
+        ext: *mut lkRtpHeaderExtensionParameters,
+    ) -> *mut lkString;
+}
+unsafe extern "C" {
+    pub fn lkRtpHeaderExtensionParametersGetId(ext: *mut lkRtpHeaderExtensionParameters) -> u8;
+}
+unsafe extern "C" {
+    pub fn lkRtpHeaderExtensionParametersGetEncrypted(
+        ext: *mut lkRtpHeaderExtensionParameters,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkRtpParametersGetCodecs(params: *mut lkRtpParameters) -> *mut lkVectorGeneric;
+}
+unsafe extern "C" {
+    pub fn lkRtpParametersGetRtcp(params: *mut lkRtpParameters) -> *mut lkRtcpParameters;
+}
+unsafe extern "C" {
+    pub fn lkRtpParametersGetHeaderExtensions(params: *mut lkRtpParameters)
+        -> *mut lkVectorGeneric;
+}
+unsafe extern "C" {
+    pub fn lkRtpSenderGetParameters(sender: *mut lkRtpSender) -> *mut lkRtpParameters;
+}
+unsafe extern "C" {
+    pub fn lkRtpSenderSetParameters(
+        sender: *mut lkRtpSender,
+        params: *mut lkRtpParameters,
+        error: *mut lkRtcError,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkRtpReceiverGetParameters(receiver: *mut lkRtpReceiver) -> *mut lkRtpParameters;
+}
+unsafe extern "C" {
+    pub fn lkCreateRtpTransceiverInit() -> *mut lkRtpTransceiverInit;
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverInitSetDirection(
+        init: *mut lkRtpTransceiverInit,
+        direction: lkRtpTransceiverDirection,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverInitSetStreamIds(
+        init: *mut lkRtpTransceiverInit,
+        streamIds: *mut lkVectorGeneric,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverInitGetDirection(
+        init: *mut lkRtpTransceiverInit,
+    ) -> lkRtpTransceiverDirection;
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverInitSetSendEncodingsdings(
+        init: *mut lkRtpTransceiverInit,
+        encodings: *mut lkVectorGeneric,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverSetCodecPreferences(
+        transceiver: *mut lkRtpTransceiver,
+        codecs: *mut lkVectorGeneric,
+        error: *mut lkRtcError,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkRtpTransceiverStopWithError(
+        transceiver: *mut lkRtpTransceiver,
+        error: *mut lkRtcError,
+    ) -> bool;
 }
