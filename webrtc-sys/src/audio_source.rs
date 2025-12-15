@@ -51,12 +51,13 @@ pub enum RtcAudioSource {
 }
 
 impl RtcAudioSource {
-    enum_dispatch !([Native]; fn set_audio_options(self : &Self,
-                                                 options : AudioSourceOptions)
-                                ->();
-                  fn audio_options(self : &Self)->AudioSourceOptions;
-                  fn sample_rate(self : &Self)->u32;
-                  fn num_channels(self : &Self)->u32;);
+    enum_dispatch!(
+        [Native];
+        fn set_audio_options(self: &Self, options: AudioSourceOptions) -> ();
+        fn audio_options(self: &Self) -> AudioSourceOptions;
+        fn sample_rate(self: &Self) -> u32;
+        fn num_channels(self: &Self) -> u32;
+    );
 }
 
 #[cfg(not(target_arch = "wasm32"))]

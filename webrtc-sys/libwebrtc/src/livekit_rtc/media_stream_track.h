@@ -4,6 +4,7 @@
 #include "api/media_stream_interface.h"
 #include "api/scoped_refptr.h"
 #include "livekit_rtc/include/capi.h"
+#include "rtc_base/logging.h"
 
 namespace livekit {
 
@@ -12,6 +13,10 @@ class MediaStreamTrack : public webrtc::RefCountInterface {
   explicit MediaStreamTrack(
       webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track)
       : track_(track) {}
+    
+  virtual ~MediaStreamTrack() {
+    RTC_LOG(LS_INFO) << "MediaStreamTrack destroyed";
+  }
 
   std::string id() const { return track_->id(); }
 

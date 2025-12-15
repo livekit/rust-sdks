@@ -878,6 +878,7 @@ pub static PEER_OBSERVER: sys::lkPeerObserver = sys::lkPeerObserver {
 #[cfg(test)]
 mod tests {
 
+    use crate::peer_connection_factory::native::PeerConnectionFactoryExt;
     use crate::{data_channel::DataChannelInit, peer_connection::*, peer_connection_factory::*};
     use tokio::sync::mpsc;
 
@@ -977,5 +978,37 @@ mod tests {
 
         alice.close();
         bob.close();
+    }
+
+    #[tokio::test]
+    async fn add_track() {
+        let _ = env_logger::builder().is_test(true).try_init();
+
+        let factory = PeerConnectionFactory::default();
+        let config = RtcConfiguration {
+            ice_servers: vec![IceServer {
+                urls: vec!["stun:stun1.l.google.com:19302".to_string()],
+                username: "".into(),
+                password: "".into(),
+            }],
+            continual_gathering_policy: ContinualGatheringPolicy::GatherOnce,
+            ice_transport_type: IceTransportsType::All,
+        };
+
+        let pc = factory.create_peer_connection(config.clone()).unwrap();
+
+        let source = crate::video_source::native::NativeVideoSource::new(
+            crate::video_source::VideoResolution { width: 640, height: 480 },
+        );
+        let track = factory.create_video_track("video_track_1", source.clone());
+        println!("Created video track: {:?}", track.id());
+
+        let rtp_sender = pc.add_track(track.into(), &vec!["stream_1".to_string()]).unwrap();
+
+        println!("RTP Sender: {:?}", rtp_sender);
+
+        pc.remove_track(rtp_sender).unwrap();
+
+        pc.close();
     }
 }

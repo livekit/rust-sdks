@@ -136,13 +136,13 @@ lkRtpSender* lkPeerAddTrack(lkPeer* peer,
                             const char** streamIds,
                             int streamIdCount,
                             lkRtcError* error) {
-  // TODO implement
-  return nullptr;
+  return reinterpret_cast<livekit::Peer*>(peer)->AddTrack(track, streamIds,
+                                                          streamIdCount, error);
 }
 
 bool lkPeerRemoveTrack(lkPeer* peer, lkRtpSender* sender, lkRtcError* error) {
-  // TODO implement
-  return false;
+  return reinterpret_cast<livekit::Peer*>(peer)->RemoveTrack(
+      reinterpret_cast<livekit::RtpSender*>(sender), error);
 }
 
 bool lkAddIceCandidate(lkPeer* peer,

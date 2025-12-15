@@ -25,6 +25,7 @@
 #include "livekit_rtc/rtc_error.h"
 #include "livekit_rtc/rtp_parameters.h"
 #include "livekit_rtc/stats.h"
+#include "rtc_base/logging.h"
 
 namespace livekit {
 
@@ -35,6 +36,10 @@ class RtpSender : public webrtc::RefCountInterface {
  public:
   RtpSender(webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
             webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection);
+  
+  virtual ~RtpSender() {
+    RTC_LOG(LS_INFO) <<  "RtpSender destroyed";
+  }
 
   bool set_track(webrtc::scoped_refptr<MediaStreamTrack> track) const;
 

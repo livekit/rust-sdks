@@ -3,6 +3,7 @@
 
 #include "api/media_stream_interface.h"
 #include "api/scoped_refptr.h"
+#include "rtc_base/logging.h"
 
 namespace livekit {
 
@@ -11,6 +12,10 @@ class MediaStream : public webrtc::RefCountInterface {
   explicit MediaStream(
       webrtc::scoped_refptr<webrtc::MediaStreamInterface> stream)
       : stream_(stream) {}
+
+  virtual ~MediaStream() {
+    RTC_LOG(LS_INFO) << "MediaStream destroyed";
+  }
 
   std::string id() const { return stream_->id(); }
 

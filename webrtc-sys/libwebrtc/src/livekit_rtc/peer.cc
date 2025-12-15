@@ -296,27 +296,35 @@ webrtc::scoped_refptr<DataChannel> Peer::CreateDataChannel(
 }
 
 lkRtpSender* Peer::AddTrack(lkMediaStreamTrack* track,
-                            lkString** streamIds,
+                            const char** streamIds,
                             int streamIdCount,
-                            lkRtcError** error) {
+                            lkRtcError* error) {
   auto mediaTrack =
       reinterpret_cast<livekit::MediaStreamTrack*>(track)->rtc_track();
   std::vector<std::string> std_stream_ids;
   for (int i = 0; i < streamIdCount; ++i) {
-    std_stream_ids.push_back(
-        reinterpret_cast<livekit::LKString*>(streamIds[i])->get());
+    std_stream_ids.push_back(streamIds[i]);
   }
   webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpSenderInterface>> res =
       peer_connection_->AddTrack(mediaTrack, std_stream_ids);
   if (!res.ok()) {
-    lkRtcError err = toRtcError(res.error());
-    *error = reinterpret_cast<lkRtcError*>(new lkRtcError(err));
+    *error = toRtcError(res.error());
     return nullptr;
   }
   return reinterpret_cast<lkRtpSender*>(
       webrtc::make_ref_counted<livekit::RtpSender>(res.value(),
                                                    peer_connection_)
           .release());
+}
+
+bool Peer::RemoveTrack(lkRtpSender* sender, lkRtcError* error) {
+  auto rtcSender = reinterpret_cast<livekit::RtpSender*>(sender);
+  webrtc::RTCError err = peer_connection_->RemoveTrackOrError(rtcSender->rtc_sender());
+  if (!err.ok()) {
+    *error = toRtcError(err);
+    return false;
+  }
+  return true;
 }
 
 lkRtpTransceiver* Peer::AddTransceiver(lkMediaStreamTrack* track,
