@@ -44,19 +44,19 @@ impl TryFrom<u32> for TrackHandle {
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
         let value: u16 = value.try_into().map_err(|_| TrackHandleError::TooLarge)?;
-        Ok(value.try_into()?)
+        value.try_into()
     }
 }
 
-impl Into<u16> for TrackHandle {
-    fn into(self) -> u16 {
-        self.0
+impl From<TrackHandle> for u16 {
+    fn from(handle: TrackHandle) -> Self {
+        handle.0
     }
 }
 
-impl Into<u32> for TrackHandle {
-    fn into(self) -> u32 {
-        self.0 as u32
+impl From<TrackHandle> for u32 {
+    fn from(handle: TrackHandle) -> Self {
+        handle.0 as u32
     }
 }
 

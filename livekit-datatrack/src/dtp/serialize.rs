@@ -126,7 +126,7 @@ impl Header {
         let ext_len = self.ext_len();
         let ext_words = ext_len.div_ceil(4);
         assert!(ext_words <= u8::MAX.into());
-        let padding_len = (ext_words as usize * 4) - ext_len;
+        let padding_len = (ext_words * 4) - ext_len;
         let len = BASE_HEADER_LEN + ext_len + padding_len;
         HeaderMetrics {
             ext_words,

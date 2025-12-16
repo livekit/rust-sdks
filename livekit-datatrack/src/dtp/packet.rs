@@ -94,6 +94,6 @@ pub(crate) mod consts {
     pub const EXT_MARKER_USER_TIMESTAMP: u8 = ext_marker(EXT_ID_USER_TIMESTAMP, EXT_LEN_USER_TIMESTAMP as u8);
 
     const fn ext_marker(id: u8, len: u8) -> u8 {
-        (id << 4) | len - 1
+        (id << 4) | (len - 1)
     }
 }

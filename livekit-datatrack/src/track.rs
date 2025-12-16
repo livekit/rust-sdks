@@ -107,7 +107,7 @@ impl DataTrack<Local> {
 
     /// Publish a frame onto the track.
     pub fn publish(&self, frame: impl Into<DataTrackFrame>) -> Result<(), PublishFrameError> {
-        Ok(self.handle().publish(frame.into())?)
+        self.handle().publish(frame.into())
     }
 
     /// Whether or not the track is still published.

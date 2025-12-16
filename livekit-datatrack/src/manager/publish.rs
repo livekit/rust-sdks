@@ -88,7 +88,10 @@ impl TrackPubTask {
         let mut state = DataTrackState::Published;
         while matches!(state, DataTrackState::Published) {
             tokio::select! {
-                _ = self.state_rx.changed() => Ok(state = *self.state_rx.borrow()),
+                _ = self.state_rx.changed() => {
+                    let _: () = state = *self.state_rx.borrow();
+                    Ok(())
+                },
                 Some(frame) = self.frame_rx.recv() => self.publish_frame(frame),
                 else => break
             }
@@ -238,7 +241,7 @@ impl PubManagerTask {
             return Ok(());
         };
 
-        if !self.pending_publications.insert(handle, req.result_tx).is_none() {
+        if self.pending_publications.insert(handle, req.result_tx).is_some() {
             Err(anyhow!("Publication already pending for handle"))?
         }
 
@@ -265,7 +268,7 @@ impl PubManagerTask {
             Err(anyhow!("No pending track publication for {}", info.handle))?
         };
         let track = self.create_local_track(info);
-        res_tx.send(Ok(track));
+        let _ = res_tx.send(Ok(track));
         Ok(())
     }
 
@@ -390,12 +393,12 @@ impl DataTrackOptions {
     }
 }
 
-impl Into<PublishError> for proto::request_response::Reason {
-    fn into(self) -> PublishError {
+impl From<proto::request_response::Reason> for PublishError {
+    fn from(reason: proto::request_response::Reason) -> Self {
         use proto::request_response::Reason;
         // If new error cases are added in the future, consider if they should
         // be treated as internal errors or added to the public error enum.
-        match self {
+        match reason {
             Reason::NotAllowed => PublishError::NotAllowed,
             Reason::DuplicateName => PublishError::DuplicateName,
             other => PublishError::Internal(anyhow!("SFU rejected: {:?}", other).into()),
@@ -425,10 +428,10 @@ impl TryInto<DataTrackInfo> for proto::DataTrackInfo {
     }
 }
 
-impl Into<proto::signal_request::Message> for PubSignalOutput {
-    fn into(self) -> proto::signal_request::Message {
+impl From<PubSignalOutput> for proto::signal_request::Message {
+    fn from(output: PubSignalOutput) -> Self {
         use proto::signal_request::Message;
-        match self {
+        match output {
             PubSignalOutput::PublishRequest(req) => Message::PublishDataTrackRequest(req),
             PubSignalOutput::UnpublishRequest(req) => Message::UnpublishDataTrackRequest(req),
         }
