@@ -80,6 +80,7 @@ lkRtpTransceiverDirection RtpTransceiver::fired_direction() const {
 void RtpTransceiver::stop_standard() const {
   auto error = transceiver_->StopStandard();
   if (!error.ok()) {
+    // TODO: handle error
     // throw std::runtime_error(serialize_error(to_error(error)));
   }
 }
@@ -87,7 +88,8 @@ void RtpTransceiver::stop_standard() const {
 bool RtpTransceiver::stop_with_error(lkRtcError* error) const {
   auto rtc_err = transceiver_->StopStandard();
   if (!rtc_err.ok()) {
-    // TODO:  *error = to_error(rtc_err);
+    // TODO: handle error
+    // *error = to_error(rtc_err);
     return false;
   }
   return true;
@@ -102,6 +104,7 @@ void RtpTransceiver::set_codec_preferences(
 
   auto error = transceiver_->SetCodecPreferences(std_codecs);
   if (!error.ok()) {
+    //TODO: handle error
     // throw std::runtime_error(serialize_error(to_error(error)));
   }
 }

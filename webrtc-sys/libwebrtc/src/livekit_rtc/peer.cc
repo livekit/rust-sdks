@@ -166,7 +166,7 @@ void PeerObserver::OnTrack(
   observer_->onTrack(
       reinterpret_cast<lkRtpTransceiver*>(lkTransceiver.release()),
       reinterpret_cast<lkRtpReceiver*>(lkReceiver.release()),
-      reinterpret_cast<lkVectorGeneric*>(lkStreamArray.get()),
+      reinterpret_cast<lkVectorGeneric*>(lkStreamArray.release()),
       reinterpret_cast<lkMediaStreamTrack*>(lkTrack.release()), userdata_);
 }
 

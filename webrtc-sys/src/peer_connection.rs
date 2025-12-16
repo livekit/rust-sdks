@@ -99,17 +99,26 @@ impl From<OfferOptions> for lkOfferAnswerOptions {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct AnswerOptions {}
+#[derive(Debug, Clone)]
+pub struct AnswerOptions {
+    pub offer_to_receive_audio: bool,
+    pub offer_to_receive_video: bool,
+}
 
 impl From<AnswerOptions> for lkOfferAnswerOptions {
     fn from(_options: AnswerOptions) -> Self {
         lkOfferAnswerOptions {
             iceRestart: false,
             useRtpMux: true,
-            offerToReceiveAudio: false,
-            offerToReceiveVideo: false,
+            offerToReceiveAudio: _options.offer_to_receive_audio,
+            offerToReceiveVideo: _options.offer_to_receive_video,
         }
+    }
+}
+
+impl Default for AnswerOptions {
+    fn default() -> Self {
+        Self { offer_to_receive_audio: false, offer_to_receive_video: false }
     }
 }
 
@@ -513,9 +522,10 @@ impl PeerConnection {
             userdata: *mut std::ffi::c_void,
         ) {
             let tx: Box<mpsc::Sender<Result<(), RtcError>>> = Box::from_raw(userdata as *mut _);
+            let err_msg = unsafe { std::ffi::CStr::from_ptr((*error).message).to_str().unwrap() };
             let _ = tx.blocking_send(Err(RtcError {
                 error_type: RtcErrorType::Internal,
-                message: format!("Failed to set remote description: {:?}", error),
+                message: format!("Failed to set remote description: {:?}", err_msg),
             }));
             // Box is dropped here
         }
@@ -875,12 +885,13 @@ pub static PEER_OBSERVER: sys::lkPeerObserver = sys::lkPeerObserver {
     onIceGatheringChange: Some(PeerObserver::peer_on_ice_gathering_change),
 };
 
+use crate::session_description::SdpType;
+
 #[cfg(test)]
 mod tests {
 
     use crate::peer_connection_factory::native::PeerConnectionFactoryExt;
     use crate::rtp_parameters::{RtpEncodingParameters, RtpTransceiverDirection};
-    use crate::rtp_receiver;
     use crate::{data_channel::DataChannelInit, peer_connection::*, peer_connection_factory::*};
     use tokio::sync::mpsc;
 
@@ -1029,7 +1040,8 @@ mod tests {
             ice_transport_type: IceTransportsType::All,
         };
 
-        let pc = factory.create_peer_connection(config.clone()).unwrap();
+        let alice = factory.create_peer_connection(config.clone()).unwrap();
+        let bob = factory.create_peer_connection(config.clone()).unwrap();
 
         let source = crate::video_source::native::NativeVideoSource::new(
             crate::video_source::VideoResolution { width: 640, height: 480 },
@@ -1037,7 +1049,7 @@ mod tests {
         let track = factory.create_video_track("video_track_1", source.clone());
         println!("Created video track: {:?}", track.id());
 
-        let rtp_transceiver = pc
+        let rtp_transceiver = alice
             .add_transceiver(
                 track.into(),
                 RtpTransceiverInit {
@@ -1051,17 +1063,49 @@ mod tests {
             )
             .unwrap();
 
+        let alice_clone = alice.clone();
+        bob.on_ice_candidate(Some(Box::new(move |candidate| {
+            println!("Bob received ICE candidate: {:?}", candidate);
+            alice_clone.add_ice_candidate(candidate);
+        })));
+
+        let bob_clone = bob.clone();
+        alice.on_ice_candidate(Some(Box::new(move |candidate| {
+            println!("Alice received ICE candidate: {:?}", candidate);
+            bob_clone.add_ice_candidate(candidate);
+        })));
+
         println!("RTP Transceiver: {:?}", rtp_transceiver);
 
-        let local_sdp = pc.create_offer(OfferOptions::default()).await.unwrap();
-        println!("Local SDP: {:?}", local_sdp.sdp());
+        let pc1_offer = alice.create_offer(OfferOptions::default()).await.unwrap();
+        println!("Local SDP: {:?}", pc1_offer.sdp());
+        alice.set_local_description(pc1_offer.clone()).await.unwrap();
 
-        let rtp_sender = rtp_transceiver.sender();
-        println!("RTP Sender from Transceiver: {:?}", rtp_sender);
+        let remote_sdp =
+            SessionDescription::parse(&pc1_offer.sdp().to_string(), SdpType::Offer).unwrap();
 
-        let rtp_receiver = rtp_transceiver.receiver();
-        println!("RTP Receiver from Transceiver: {:?}", rtp_receiver);
+        bob.on_track(Some(Box::new(move |event: TrackEvent| {
+            println!(
+                "PC2 received track: {:?}, streams {:?}",
+                event.track.id(),
+                event.streams.iter().map(|s| s.id()).collect::<Vec<String>>()
+            );
+        })));
 
-        pc.close();
+        bob.set_remote_description(remote_sdp).await.unwrap();
+
+        let answer_sdp = bob.create_answer(AnswerOptions::default()).await.unwrap();
+        println!("Answer SDP: {:?}", answer_sdp.sdp());
+
+        bob.set_local_description(answer_sdp.clone()).await.unwrap();
+
+        alice.set_remote_description(answer_sdp).await.unwrap();
+
+        // clean up
+        let _ = rtp_transceiver.stop();
+        alice.close();
+        bob.close();
     }
+    #[tokio::test]
+    async fn audio_and_video_loopback() {}
 }

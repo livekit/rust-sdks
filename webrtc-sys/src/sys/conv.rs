@@ -278,7 +278,7 @@ pub fn RtpParametersToNative(params: RtpParameters) -> sys::RefCounted<sys::lkRt
         sys::lkRtcpParametersSetReducedSize(rtcp_ptr, params.rtcp.reduced_size);
         sys::lkRtpParametersSetRtcp(lk_params, rtcp_ptr);
 
-        let mut lk_header_extensions_vec = sys::RefCountedVector::new();
+        let lk_header_extensions_vec = sys::RefCountedVector::new();
         for header_extension in params.header_extensions.iter() {
             let ptr = sys::lkRtpHeaderExtensionParametersCreate();
             let c_header_extension = sys::RefCounted::from_raw(ptr);
