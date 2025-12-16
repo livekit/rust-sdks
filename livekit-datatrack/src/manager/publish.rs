@@ -320,7 +320,11 @@ impl PubManagerTask {
         &mut self,
         res: proto::UnpublishDataTrackResponse,
     ) -> Result<(), InternalError> {
-        let handle: TrackHandle = res.pub_handle.try_into().context("Invalid handle")?;
+        let handle = {
+            let info: DataTrackInfo =
+                res.info.context("Missing info")?.try_into().context("Invalid info")?;
+            info.handle
+        };
         let Some(state_tx) = self.active_publications.remove(&handle) else {
             Err(anyhow!("Cannot handle unpublish for unknown track {}", handle))?
         };
@@ -425,8 +429,8 @@ impl Into<proto::signal_request::Message> for PubSignalOutput {
     fn into(self) -> proto::signal_request::Message {
         use proto::signal_request::Message;
         match self {
-            PubSignalOutput::PublishRequest(req) => Message::PublishDataTrack(req),
-            PubSignalOutput::UnpublishRequest(req) => Message::UnpublishDataTrack(req),
+            PubSignalOutput::PublishRequest(req) => Message::PublishDataTrackRequest(req),
+            PubSignalOutput::UnpublishRequest(req) => Message::UnpublishDataTrackRequest(req),
         }
     }
 }
