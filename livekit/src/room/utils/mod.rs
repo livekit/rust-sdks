@@ -14,10 +14,22 @@
 
 use std::collections::HashMap;
 
+use livekit_protocol as proto;
+
+use crate::participant::ParticipantKindDetail;
+
 pub mod take_cell;
 pub(crate) mod ttl_map;
 pub(crate) mod tx_queue;
 pub mod utf8_chunk;
+
+pub(crate) fn convert_kind_details(kind_details: &[i32]) -> Vec<ParticipantKindDetail> {
+    kind_details
+        .iter()
+        .filter_map(|k| proto::participant_info::KindDetail::try_from(*k).ok())
+        .map(Into::into)
+        .collect()
+}
 
 pub fn calculate_changed_attributes(
     old_attributes: HashMap<String, String>,

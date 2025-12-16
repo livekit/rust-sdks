@@ -41,7 +41,7 @@ pub use utils::take_cell::TakeCell;
 pub use self::{
     data_stream::*,
     e2ee::{manager::E2eeManager, E2eeOptions},
-    participant::ParticipantKind,
+    participant::{ParticipantKind, ParticipantKindDetail},
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
@@ -498,6 +498,7 @@ impl Room {
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
             pi.kind().into(),
+            utils::convert_kind_details(&pi.kind_details),
             pi.sid.try_into().unwrap(),
             pi.identity.into(),
             pi.name,
@@ -642,6 +643,7 @@ impl Room {
                 let pi = pi.clone();
                 inner.create_participant(
                     pi.kind().into(),
+                    utils::convert_kind_details(&pi.kind_details),
                     pi.sid.try_into().unwrap(),
                     pi.identity.into(),
                     pi.name,
@@ -1000,6 +1002,7 @@ impl RoomSession {
                     let pi = pi.clone();
                     self.create_participant(
                         pi.kind().into(),
+                        utils::convert_kind_details(&pi.kind_details),
                         pi.sid.try_into().unwrap(),
                         pi.identity.into(),
                         pi.name,
@@ -1582,6 +1585,7 @@ impl RoomSession {
     fn create_participant(
         self: &Arc<Self>,
         kind: ParticipantKind,
+        kind_details: Vec<ParticipantKindDetail>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -1591,6 +1595,7 @@ impl RoomSession {
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
             kind,
+            kind_details,
             sid.clone(),
             identity.clone(),
             name,
