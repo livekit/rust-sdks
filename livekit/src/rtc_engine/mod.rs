@@ -185,6 +185,10 @@ pub enum EngineEvent {
         url: String,
         token: String,
     },
+    TrackMuted {
+        sid: String,
+        muted: bool,
+    }
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -601,6 +605,9 @@ impl EngineInner {
             }
             SessionEvent::RefreshToken { url, token } => {
                 let _ = self.engine_tx.send(EngineEvent::RefreshToken { url, token });
+            }
+            SessionEvent::TrackMuted { sid, muted } => {
+                let _ = self.engine_tx.send(EngineEvent::TrackMuted { sid, muted });
             }
         }
         Ok(())
