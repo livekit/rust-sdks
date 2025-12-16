@@ -913,6 +913,9 @@ impl RoomSession {
             EngineEvent::RefreshToken { url, token } => {
                 self.handle_refresh_token(url, token);
             }
+            EngineEvent::TrackMuted { sid, muted } => {
+                self.handle_server_initiated_mute_track(sid, muted);
+            }
             _ => {}
         }
 
@@ -1575,6 +1578,28 @@ impl RoomSession {
         }
         let event = RoomEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold };
         self.dispatcher.dispatch(&event);
+    }
+
+    fn handle_server_initiated_mute_track(&self, sid: String, muted: bool) {
+        let sid_for_log = sid.clone();
+        let track_sid = match sid.try_into() {
+            Ok(sid) => sid,
+            Err(_) => {
+                log::warn!("Invalid track sid in mute request: {}", sid_for_log);
+                return;
+            }
+        };
+
+        if let Some(publication) = self.local_participant.get_track_publication(&track_sid) {
+            if muted {
+                publication.mute();
+            } else {
+                publication.unmute();
+            }
+            return;
+        }
+
+        log::warn!("Track not found in mute request: {}", sid_for_log);
     }
 
     /// Create a new participant
