@@ -194,6 +194,10 @@ pub enum SessionEvent {
         url: String,
         token: String,
     },
+    TrackMuted {
+        sid: String,
+        muted: bool,
+    },
 }
 
 #[derive(Debug)]
@@ -1002,6 +1006,10 @@ impl SessionInner {
             proto::signal_response::Message::RefreshToken(ref token) => {
                 let url = self.signal_client.url();
                 let _ = self.emitter.send(SessionEvent::RefreshToken { url, token: token.clone() });
+            }
+            proto::signal_response::Message::Mute(req) => {
+                let _ =
+                    self.emitter.send(SessionEvent::TrackMuted { sid: req.sid, muted: req.muted });
             }
             _ => {}
         }
