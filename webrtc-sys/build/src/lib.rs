@@ -87,10 +87,19 @@ pub fn is_using_custom_webrtc() -> Option<path::PathBuf> {
 
 pub fn copy_dylib_to_target(rtc_path: &path::PathBuf) -> Result<(), Box<dyn Error>> {
     if let Some(target_dir) = find_target_dir() {
+        let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+        let livekit_lib = match target_os.as_str() {
+                        "windows" => "liblivekit_rtc.dll",
+                        "macos" => "liblivekit_rtc.dylib",
+                        "ios" => "liblivekit_rtc.a",
+                        "linux" => "liblivekit_rtc.so",
+                        "android" => "liblivekit_rtc.so",
+                        _ => "liblivekit_rtc.so",
+                    }.to_string();
         let build_mode = env::var("PROFILE").unwrap();
-        let source_dylib = rtc_path.join("lib").join("liblivekit_rtc.dylib");
+        let source_dylib = rtc_path.join("lib").join(livekit_lib.clone());
         println!("cargo:rerun-if-changed={}", source_dylib.display());
-        let target_dylib = target_dir.join(build_mode).join("liblivekit_rtc.dylib");
+        let target_dylib = target_dir.join(build_mode).join(livekit_lib);
         fs::copy(source_dylib, target_dylib)?;
         Ok(())
     } else {

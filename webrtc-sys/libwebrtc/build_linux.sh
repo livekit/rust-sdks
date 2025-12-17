@@ -71,25 +71,27 @@ git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --i
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
-cd build
+#cd build
 
-git apply "$COMMAND_DIR/patches/force_gcc.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+#git apply "$COMMAND_DIR/patches/force_gcc.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+#cd ..
+
+#cd third_party
+
+#git apply "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+#cd ../..
 
 cd ..
-
-cd third_party
-
-git apply "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-
-cd ../..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
 
 python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
 
-if [ "$arch" = "arm64" ]; then
-  sudo sed -i 's/__GLIBC_USE_ISOC2X[[:space:]]*1/__GLIBC_USE_ISOC2X\t0/' /usr/aarch64-linux-gnu/include/features.h
-fi
+#if [ "$arch" = "arm64" ]; then
+#  sudo sed -i 's/__GLIBC_USE_ISOC2X[[:space:]]*1/__GLIBC_USE_ISOC2X\t0/' /usr/aarch64-linux-gnu/include/features.h
+#fi
 
 debug="false"
 if [ "$profile" = "debug" ]; then
@@ -105,13 +107,13 @@ args="is_debug=$debug  \
   use_llvm_libatomic=false \
   use_libcxx_modules=false \
   use_custom_libcxx_for_host=false \
-  rtc_include_tests=false \
+  rtc_include_tests=true \
   rtc_build_tools=false \
   rtc_build_examples=false \
   rtc_libvpx_build_vp9=true \
   enable_libaom=true \
   is_component_build=false \
-  enable_stripping=true \
+  enable_stripping=false \
   ffmpeg_branding=\"Chrome\" \
   rtc_use_h264=true \
   rtc_use_h265=true \
@@ -119,27 +121,29 @@ args="is_debug=$debug  \
   symbol_level=0 \
   enable_iterator_debugging=false \
   use_rtti=true \
-  is_clang=false \
+  is_clang=true \
   rtc_use_x11=false"
 
 # generate ninja files
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 
 # build static library
-ninja -C "$OUTPUT_DIR" :default
+ninja -C "$OUTPUT_DIR" livekit_rtc
 
 # make libwebrtc.a
 # don't include nasm
-ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
+#ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
-  --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
+  --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR"
 
 cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/liblivekit_rtc.so" "$ARTIFACTS_DIR/lib"
+mkdir -p "$ARTIFACTS_DIR/include"
+cp "src/livekit_rtc/capi.h" "$ARTIFACTS_DIR/include/livekit_rtc.h"
 
-cd src
-find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
-find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"
+#cd src
+#find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
+#find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"
