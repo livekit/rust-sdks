@@ -4,6 +4,7 @@ excludes = [
     "soxr-sys/src",
     "webrtc-sys/libwebrtc",
     "webrtc-sys/test",
+    "webrtc-sys/‎src/lazy_load_so",
     "webrtc-sys/src/vaapi",
     "webrtc-sys/src/nvidia",
     "webrtc-sys/.clang-format",
