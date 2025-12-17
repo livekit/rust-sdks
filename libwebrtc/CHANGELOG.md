@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.22](https://github.com/livekit/rust-sdks/compare/rust-sdks/libwebrtc@0.3.21...rust-sdks/libwebrtc@0.3.22) - 2025-12-17
+
+### Other
+
+- Expose WebRTC's audio_mixer ([#806](https://github.com/livekit/rust-sdks/pull/806))
+
 ## [0.3.21](https://github.com/livekit/rust-sdks/compare/rust-sdks/libwebrtc@0.3.20...rust-sdks/libwebrtc@0.3.21) - 2025-12-04
 
 ### Other
