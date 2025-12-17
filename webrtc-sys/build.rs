@@ -188,7 +188,11 @@ fn main() {
                     .file("src/vaapi/h264_encoder_impl.cpp")
                     .flag("-DUSE_VAAPI_VIDEO_CODEC=1");
 
-                add_lazy_load_so(&mut builder, "vaapi", ["va", "va-drm"].map(String::from).to_vec());
+                add_lazy_load_so(
+                    &mut builder,
+                    "vaapi",
+                    ["va", "va-drm"].map(String::from).to_vec(),
+                );
             }
 
             if x86 || arm {
@@ -217,7 +221,11 @@ fn main() {
                         .flag("-Wno-deprecated-declarations")
                         .flag("-DUSE_NVIDIA_VIDEO_CODEC=1");
 
-                    add_lazy_load_so(&mut builder, "vaapi", ["cuda", "nvcuvid"].map(String::from).to_vec());
+                    add_lazy_load_so(
+                        &mut builder,
+                        "vaapi",
+                        ["cuda", "nvcuvid"].map(String::from).to_vec(),
+                    );
                 } else {
                     println!("cargo:warning=cuda.h not found; building without hardware accelerated video codec support for NVidia GPUs");
                 }
