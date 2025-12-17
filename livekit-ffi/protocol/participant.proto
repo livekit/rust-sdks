@@ -27,6 +27,7 @@ message ParticipantInfo {
   map<string, string> attributes = 5;
   required ParticipantKind kind = 6;
   required DisconnectReason disconnect_reason = 7;
+  repeated ParticipantKindDetail kind_details = 8;
 }
 
 message OwnedParticipant {
@@ -41,6 +42,13 @@ enum ParticipantKind {
   PARTICIPANT_KIND_SIP = 3;
   PARTICIPANT_KIND_AGENT = 4;
   PARTICIPANT_KIND_CONNECTOR = 5;
+}
+
+enum ParticipantKindDetail {
+  PARTICIPANT_KIND_DETAIL_CLOUD_AGENT = 0;
+  PARTICIPANT_KIND_DETAIL_FORWARDED = 1;
+  PARTICIPANT_KIND_DETAIL_CONNECTOR_WHATSAPP = 2;
+  PARTICIPANT_KIND_DETAIL_CONNECTOR_TWILIO = 3;
 }
 
 enum DisconnectReason {
