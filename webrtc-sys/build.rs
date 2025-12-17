@@ -393,7 +393,7 @@ fn add_lazy_load_so(builder: &mut cc::Build, name: &str, libraries: Vec<String>)
     let target_arch = webrtc_sys_build::target_arch();
     for lib_name in libraries {
         let mut arch_dir = "x86_64-linux-gnu";
-        if "aarch64" == target_arch {
+        if target_arch.contains("arm64") {
             arch_dir = "aarch64-linux-gnu";
         }
         let implib_file_c_name = "src/lazy_load_so/".to_owned()
