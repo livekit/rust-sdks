@@ -396,14 +396,14 @@ fn add_lazy_load_so(builder: &mut cc::Build, name: &str, libraries: Vec<String>)
         if target_arch.contains("arm64") {
             arch_dir = "aarch64-linux-gnu";
         }
-        let implib_file_c_name = "src/lazy_load_so/".to_owned()
+        let implib_file_c_name = "src/lazy_load_deps_for/".to_owned()
             + name
             + "/"
             + arch_dir
             + "/lib"
             + &lib_name
             + ".so.init.c";
-        let implib_file_asm_name = "src/lazy_load_so/".to_owned()
+        let implib_file_asm_name = "src/lazy_load_deps_for/".to_owned()
             + name
             + "/"
             + arch_dir
