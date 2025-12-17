@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.42](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.41...rust-sdks/livekit-ffi@0.12.42) - 2025-12-17
+
+### Other
+
+- Handle server initiated mute request ([#812](https://github.com/livekit/rust-sdks/pull/812))
+
 ## [0.12.41](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.40...rust-sdks/livekit-ffi@0.12.41) - 2025-12-04
 
 ### Added

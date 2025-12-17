@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.19](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.18...rust-sdks/webrtc-sys@0.3.19) - 2025-12-17
+
+### Fixed
+
+- lazy loading for additional dependencies. ([#814](https://github.com/livekit/rust-sdks/pull/814))
+
+### Other
+
+- Expose WebRTC's audio_mixer ([#806](https://github.com/livekit/rust-sdks/pull/806))
+
 ## [0.3.18](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.17...rust-sdks/webrtc-sys@0.3.18) - 2025-12-04
 
 ### Other
