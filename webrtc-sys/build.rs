@@ -223,7 +223,7 @@ fn main() {
 
                     add_lazy_load_so(
                         &mut builder,
-                        "vaapi",
+                        "nvidia",
                         ["cuda", "nvcuvid"].map(String::from).to_vec(),
                     );
                 } else {
