@@ -20,12 +20,12 @@ then
 fi
 
 generate_implib() {
-   libname=$1
-   deps=$2
+   category=$1
+   libname=$2
    arch=$3
-   echo "Generating implib for ${libname} - ${arch} ... deps: ${deps[@]}"
-   mkdir -p ${libname}/${arch}/
-   python3 $(pwd)/Implib.so/implib-gen.py /lib/x86_64-linux-gnu/${dep}.so --target ${arch} --outdir ${libname}/${arch}/
+   echo "Generating implib for category: ${category} libname: ${libname} - ${arch}, output to ${category}/${arch}/"
+   mkdir -p ${category}/${arch}/
+   python3 $(pwd)/Implib.so/implib-gen.py /lib/x86_64-linux-gnu/${libname}.so --target ${arch} --outdir ${category}/${arch}/
 }
 
 desktop_capturer_deps=("libdrm" "libgbm" "libXfixes" "libXdamage" "libXcomposite" "libXrandr" "libXext" "libX11")
