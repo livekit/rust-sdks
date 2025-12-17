@@ -19,35 +19,35 @@ then
   git clone --depth 1 https://github.com/yugr/Implib.so.git
 fi
 
-mkdir -p desktop_capturer/x86_64-linux-gnu/
-mkdir -p desktop_capturer/aarch64-linux-gnu/
+generate_implib() {
+   libname=$1
+   deps=$2
+   arch=$3
+   echo "Generating implib for ${libname} - ${arch} ... deps: ${deps[@]}"
+   mkdir -p ${libname}/${arch}/
+   python3 $(pwd)/Implib.so/implib-gen.py /lib/x86_64-linux-gnu/${dep}.so --target ${arch} --outdir ${libname}/${arch}/
+}
 
 desktop_capturer_deps=("libdrm" "libgbm" "libXfixes" "libXdamage" "libXcomposite" "libXrandr" "libXext" "libX11")
 
 for dep in "${desktop_capturer_deps[@]}"
 do
-  python3 $(pwd)/Implib.so/implib-gen.py /lib/x86_64-linux-gnu/${dep}.so --target x86_64-linux-gnu --outdir desktop_capturer/x86_64-linux-gnu/
-  python3 $(pwd)/Implib.so/implib-gen.py /lib/x86_64-linux-gnu/${dep}.so --target aarch64-linux-gnu --outdir desktop_capturer/aarch64-linux-gnu/
+  generate_implib "desktop_capturer" ${dep} "x86_64-linux-gnu"
+  generate_implib "desktop_capturer" ${dep} "aarch64-linux-gnu"
 done
-
-mkdir -p nvidia/x86_64-linux-gnu/
-mkdir -p nvidia/aarch64-linux-gnu/
 
 nvidia_deps=("libcuda" "libnvcuvid")
 
 for dep in "${nvidia_deps[@]}"
 do
-  python3 $(pwd)/Implib.so/implib-gen.py /usr/lib/x86_64-linux-gnu/${dep}.so --target x86_64-linux-gnu --outdir nvidia/x86_64-linux-gnu/
-  python3 $(pwd)/Implib.so/implib-gen.py /usr/lib/x86_64-linux-gnu/${dep}.so --target aarch64-linux-gnu --outdir nvidia/aarch64-linux-gnu/
-done    
+  generate_implib "nvidia" ${dep} "x86_64-linux-gnu"
+  generate_implib "nvidia" ${dep} "aarch64-linux-gnu"
+done
 
-mkdir -p vaapi/x86_64-linux-gnu/
-mkdir -p vaapi/aarch64-linux-gnu/
 
 vaapi_deps=("libva" "libva-drm")
 for dep in "${vaapi_deps[@]}"
 do
-    python3 $(pwd)/Implib.so/implib-gen.py /usr/lib/x86_64-linux-gnu/${dep}.so --target x86_64-linux-gnu --outdir vaapi/x86_64-linux-gnu/
-    python3 $(pwd)/Implib.so/implib-gen.py /usr/lib/x86_64-linux-gnu/${dep}.so --target aarch64-linux-gnu --outdir vaapi/aarch64-linux-gnu/
+  generate_implib "vaapi" ${dep} "x86_64-linux-gnu"
+  generate_implib "vaapi" ${dep} "aarch64-linux-gnu"
 done
-
