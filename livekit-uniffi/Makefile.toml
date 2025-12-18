@@ -278,6 +278,10 @@ tera  --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.0.swift.tera > ${SPM_N
 private = true
 script_runner = "@shell"
 script = """
+# Rename modules inside the xcframework to match the module name (fix for Swift >6.2)
+# Workaroud for cargo-swift v0.10.0 not supporting ffi_module_name
+find "${SPM_NAME}/Rust${SPM_NAME}.xcframework" -depth -type d -name "Rust${SPM_NAME}" -exec bash -c 'mv "$1" "${1%Rust'${SPM_NAME}'}livekit_uniffiFFI"' _ {} \; || true
+
 out_dir="${PACKAGES_DIR}/${LANG}"
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
