@@ -20,63 +20,40 @@ on:
   pull_request:
     branches: ["main"]
 
-env:
-  CARGO_TERM_COLOR: always
-  RUST_LOG: debug
-
 jobs:
-  build:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Platform supports is limited for tests (no aarch64)
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            e2e-testing: true
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            e2e-testing: true
-
-    name: Test (${{ matrix.target }})
-    runs-on: ${{ matrix.os }}
+          - { os: macos-latest, test-profile: ci }
+          - { os: ubuntu-latest, test-profile: ci }
+          - { os: windows-latest, test-profile: ci-skip-e2e }
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+      # Required for test reporting
     steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
+      - name: Checkout
+        uses: actions/checkout@v3
+        with: { submodules: true }
 
-      - name: Install Rust toolchain
-        run: |
-          rustup update --no-self-update nightly
-          rustup target add ${{ matrix.target }} --toolchain nightly
+      - name: Setup Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install Nextest
+        uses: taiki-e/install-action@v2
+        with: { tool: nextest@0.9.115 }
 
       - name: Install Protoc
         uses: arduino/setup-protoc@v2
         with:
           version: "25.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Cache Cargo registry
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
-
-      - name: Cache Cargo build
-        uses: actions/cache@v3
-        with:
-          path: target/
-          key: ${{ runner.os }}-cargo-build-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-${{ matrix.target }}-
-            ${{ runner.os }}-cargo-build-
 
       - name: Install linux dependencies
         if: ${{ matrix.os == 'ubuntu-latest' }}
@@ -103,7 +80,7 @@ jobs:
             libglib2.0-dev
 
       - name: Install LiveKit server
-        if: ${{ matrix.e2e-testing }}
+        if: ${{ matrix.test-profile == 'ci' }}
         run: |
           if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
             curl -sSL https://get.livekit.io | bash
@@ -112,17 +89,18 @@ jobs:
           fi
 
       - name: Run LiveKit server
-        if: ${{ matrix.e2e-testing }}
+        if: ${{ matrix.test-profile == 'ci' }}
         run: livekit-server --dev &
 
-      - name: Test (no E2E)
-        if: ${{ !matrix.e2e-testing }}
+      - name: Test (${{ matrix.test-profile }})
         env:
           RUST_LOG: info
-        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} -- --nocapture
+        run: cargo nextest run -P ${{ matrix.test-profile }} --no-capture
 
-      - name: Test (with E2E)
-        if: ${{ matrix.e2e-testing }}
-        env:
-          RUST_LOG: info
-        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} --features __lk-e2e-test -- --nocapture
+      - name: Test Report
+        uses: dorny/test-reporter@v2
+        if: ${{ !cancelled() }}
+        with:
+          name: Test Results
+          path: target/nextest/${{ matrix.test-profile }}/junit.xml
+          reporter: java-junit
