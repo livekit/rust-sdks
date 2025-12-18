@@ -19,14 +19,14 @@ fail-fast = false
 path = "junit.xml"
 
 [profile.ci-skip-e2e]
-inherit = "ci"
+inherits = "ci"
 default-filter = "not test(test_e2e)"
 
 [[profile.default.overrides]]
-filter = 'test(test_e2e)'
-test-group = 'e2e'
+filter = "test(test_e2e)"
+test-group = "e2e"
+retries = { backoff = "fixed", count = 4, delay = "1s" }
+slow-timeout = "60s"
 
 [test-groups.e2e]
-slow-timeout = "60s"
 max-threads = 1  # Run end-to-end tests serially
-retries = { backoff = "fixed", count = 4, delay = "1s" }
