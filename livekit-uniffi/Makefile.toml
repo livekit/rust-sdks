@@ -18,6 +18,7 @@ SUPPORT_DIR = "./support"
 LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
 TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
 SPM_NAME = "LiveKitUniFFI"
+XCFRAMEWORK_NAME = "Rust${SPM_NAME}"
 NPM_NAME = "@livekit/uniffi"
 
 # Base URL for downloading release builds of the cdylib.
@@ -251,7 +252,7 @@ script = """
 cargo swift package \
 --accept-all \
 --name ${SPM_NAME} \
---xcframework-name Rust${SPM_NAME} \
+--xcframework-name ${XCFRAMEWORK_NAME} \
 --platforms macos \
 --platforms ios \
 --platforms maccatalyst \
@@ -278,9 +279,19 @@ tera  --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.0.swift.tera > ${SPM_N
 private = true
 script_runner = "@shell"
 script = """
-# Rename modules inside the xcframework to match the module name (fix for Swift >6.2)
-# Workaroud for cargo-swift v0.10.0 not supporting ffi_module_name
-find "${SPM_NAME}/Rust${SPM_NAME}.xcframework" -depth -type d -name "Rust${SPM_NAME}" -exec bash -c 'mv "$1" "${1%Rust'${SPM_NAME}'}livekit_uniffiFFI"' _ {} \; || true
+# Patch the generated XCFramework and Swift sources to match the framework name
+# This ensures compatibility with Swift 6.2+ which requires the module name to match the framework name
+
+FFI_NAME="livekit_uniffiFFI"
+
+# 1. Rename header files inside the XCFramework
+find "${SPM_NAME}/${XCFRAMEWORK_NAME}.xcframework" -name "${FFI_NAME}.h" -exec bash -c 'mv "$1" "$(dirname "$1")/'"${XCFRAMEWORK_NAME}"'.h"' _ {} \\;
+
+# 2. Patch the modulemaps inside the XCFramework
+find "${SPM_NAME}/${XCFRAMEWORK_NAME}.xcframework" -name "module.modulemap" -exec sed -i '' "s/${FFI_NAME}/${XCFRAMEWORK_NAME}/g" {} +
+
+# 3. Patch the generated Swift sources
+find "${SPM_NAME}/Sources" -name "*.swift" -exec sed -i '' "s/${FFI_NAME}/${XCFRAMEWORK_NAME}/g" {} +
 
 out_dir="${PACKAGES_DIR}/${LANG}"
 rm -rf "${out_dir}"
