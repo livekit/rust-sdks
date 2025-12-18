@@ -1,0 +1,32 @@
+# Note: any test whose name starts with 'e2e' is considered an end-to-end test
+# and will be included or excluded based on the profile used.
+
+nextest-version = "0.9.115"
+
+[profile.default]
+default-filter = "not test(test_e2e)"
+# Skip end-to-end tests by default
+
+[profile.e2e]
+default-filter = "all()"
+
+[profile.ci]
+default-filter = "all()"
+slow-timeout = "20s"
+fail-fast = false
+
+[profile.ci.junit]
+path = "junit.xml"
+
+[profile.ci-skip-e2e]
+inherit = "ci"
+default-filter = "not test(test_e2e)"
+
+[[profile.default.overrides]]
+filter = 'test(test_e2e)'
+test-group = 'e2e'
+
+[test-groups.e2e]
+slow-timeout = "60s"
+max-threads = 1  # Run end-to-end tests serially
+retries = { backoff = "fixed", count = 4, delay = "1s" }
