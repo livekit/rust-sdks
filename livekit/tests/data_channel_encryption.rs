@@ -12,26 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "__lk-e2e-test")]
-use {
-    crate::common::test_rooms_with_options,
-    anyhow::{Ok, Result},
-    livekit::{
-        e2ee::{
-            key_provider::{KeyProvider, KeyProviderOptions},
-            EncryptionType,
-        },
-        DataPacket, E2eeOptions, RoomEvent, RoomOptions,
+use anyhow::{Ok, Result};
+use common::test_rooms_with_options;
+use livekit::{
+    e2ee::{
+        key_provider::{KeyProvider, KeyProviderOptions},
+        EncryptionType,
     },
-    std::time::Duration,
-    tokio::{time::timeout, try_join},
+    DataPacket, E2eeOptions, RoomEvent, RoomOptions,
 };
+use std::time::Duration;
+use tokio::{time::timeout, try_join};
 
 mod common;
 
-#[cfg(feature = "__lk-e2e-test")]
 #[tokio::test]
-async fn test_data_channel_encryption() -> Result<()> {
+async fn test_e2e_data_channel_encryption() -> Result<()> {
     const ITERATIONS: usize = 128;
     const PAYLOAD_SIZE: usize = 4096;
 

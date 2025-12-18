@@ -12,23 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "__lk-e2e-test")]
-use {
-    crate::common::test_rooms,
-    anyhow::{Ok, Result},
-    livekit::{DataPacket, RoomEvent, SimulateScenario},
-    std::{sync::Arc, time::Duration},
-    tokio::{
-        time::{self, timeout},
-        try_join,
-    },
+use anyhow::{Ok, Result};
+use common::test_rooms;
+use livekit::{DataPacket, RoomEvent, SimulateScenario};
+use std::{sync::Arc, time::Duration};
+use tokio::{
+    time::{self, timeout},
+    try_join,
 };
 
 mod common;
 
-#[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-async fn test_reliable_retry() -> Result<()> {
+async fn test_e2e_reliable_retry() -> Result<()> {
     use anyhow::Context;
 
     const ITERATIONS: usize = 128;

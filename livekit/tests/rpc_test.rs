@@ -12,19 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "__lk-e2e-test")]
-use {
-    anyhow::{Context, Result},
-    common::test_rooms,
-    livekit::prelude::PerformRpcData,
-    std::time::Duration,
-};
+use anyhow::{Context, Result};
+use common::test_rooms;
+use livekit::prelude::PerformRpcData;
+use std::time::Duration;
 
 mod common;
 
-#[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-pub async fn test_rpc_invocation() -> Result<()> {
+pub async fn test_e2e_rpc_invocation() -> Result<()> {
     let mut rooms = test_rooms(2).await?;
     let (caller_room, _) = rooms.pop().unwrap();
     let (callee_room, _) = rooms.pop().unwrap();
@@ -54,9 +50,8 @@ pub async fn test_rpc_invocation() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-pub async fn test_rpc_unregistered() -> Result<()> {
+pub async fn test_e2e_rpc_unregistered() -> Result<()> {
     let mut rooms = test_rooms(2).await?;
     let (caller_room, _) = rooms.pop().unwrap();
     let (callee_room, _) = rooms.pop().unwrap();
@@ -77,9 +72,8 @@ pub async fn test_rpc_unregistered() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-pub async fn test_rpc_unknown_destination() -> Result<()> {
+pub async fn test_e2e_rpc_unknown_destination() -> Result<()> {
     let mut rooms = test_rooms(1).await?;
     let (caller_room, _) = rooms.pop().unwrap();
 
