@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.28](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.27...rust-sdks/livekit@0.7.28) - 2025-12-19
+
+### Added
+
+- *(ParticipantInfo)* export kind details ([#813](https://github.com/livekit/rust-sdks/pull/813))
+
 ## [0.7.27](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.26...rust-sdks/livekit@0.7.27) - 2025-12-17
 
 ### Other
