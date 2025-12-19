@@ -17,6 +17,7 @@ mod packetizer;
 mod track_handle;
 mod deserialize;
 mod serialize;
+mod utils;
 
 pub use packet::*;
 pub use packetizer::*;
