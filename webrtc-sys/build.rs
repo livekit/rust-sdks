@@ -21,10 +21,14 @@ fn main() {
         return;
     }
 
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let is_desktop = target_os == "linux" || target_os == "windows" || target_os == "macos";
+
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
 
-    let mut builder = cxx_build::bridges([
+    let mut rust_files = vec![
         "src/peer_connection.rs",
         "src/peer_connection_factory.rs",
         "src/media_stream.rs",
@@ -49,9 +53,14 @@ fn main() {
         "src/android.rs",
         "src/prohibit_libsrtp_initialization.rs",
         "src/apm.rs",
-        "src/desktop_capturer.rs",
         "src/audio_mixer.rs",
-    ]);
+    ];
+
+    if is_desktop {
+        rust_files.push("src/desktop_capturer.rs");
+    }
+
+    let mut builder = cxx_build::bridges(rust_files);
 
     builder.files(&[
         "src/peer_connection.cpp",
@@ -79,9 +88,12 @@ fn main() {
         "src/global_task_queue.cpp",
         "src/prohibit_libsrtp_initialization.cpp",
         "src/apm.cpp",
-        "src/desktop_capturer.cpp",
         "src/audio_mixer.cpp",
     ]);
+
+    if is_desktop {
+        builder.file("src/desktop_capturer.cpp");
+    }
 
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
     let webrtc_include = webrtc_dir.join("include");
@@ -112,9 +124,6 @@ fn main() {
 
     // Link webrtc library
     println!("cargo:rustc-link-lib=static=webrtc");
-
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     match target_os.as_str() {
         "windows" => {
             println!("cargo:rustc-link-lib=dylib=msdmo");
