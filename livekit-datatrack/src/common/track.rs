@@ -14,8 +14,7 @@
 
 use from_variants::FromVariants;
 use std::{marker::PhantomData, sync::Arc};
-
-pub use crate::dtp::TrackHandle;
+use crate::dtp::TrackHandle;
 
 /// Information about a data track.
 #[derive(Debug, Clone)]

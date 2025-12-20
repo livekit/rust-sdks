@@ -15,8 +15,9 @@
 use super::Local;
 use crate::{
     dtp, DataTrack, DataTrackFrame, DataTrackInfo, DataTrackOptions, EncryptionProvider,
-    InternalError, PublishError, PublishFrameError, PublishFrameErrorReason, TrackHandle,
+    InternalError, PublishError, PublishFrameError, PublishFrameErrorReason,
 };
+use crate::dtp::TrackHandle;
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use from_variants::FromVariants;
