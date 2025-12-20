@@ -61,7 +61,6 @@ impl Packetizer {
     pub fn packetize(&mut self, frame: PacketizerFrame) -> Result<Vec<Dtp>, PacketizerError> {
         // TODO: consider using default
         let header = Header {
-            version: 0,
             is_final: false,
             track_handle: self.track_handle,
             sequence: 0,

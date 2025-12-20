@@ -85,7 +85,6 @@ impl Header {
         let extensions = Extensions::parse(ext_block)?;
 
         let header = Header {
-            version,
             is_final,
             track_handle,
             sequence,
@@ -190,7 +189,6 @@ mod tests {
         raw.put_slice(&[0x44, 0x22, 0x11, 0x88]); // Timestamp
 
         let dtp = Dtp::deserialize(raw.freeze()).unwrap();
-        assert_eq!(dtp.header.version, 0);
         assert_eq!(dtp.header.is_final, true);
         assert_eq!(dtp.header.track_handle, 0x8811u32.try_into().unwrap());
         assert_eq!(dtp.header.sequence, 0x4422);

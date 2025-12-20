@@ -26,7 +26,6 @@ pub struct Dtp {
 
 #[derive(Debug, Clone)]
 pub struct Header {
-    pub version: u8,
     pub is_final: bool,
     pub track_handle: TrackHandle,
     pub sequence: u16,

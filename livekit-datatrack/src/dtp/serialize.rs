@@ -143,7 +143,6 @@ mod tests {
     fn packet() -> Dtp {
         Dtp {
             header: Header {
-                version: 0,
                 is_final: true,
                 track_handle: 0x8811u32.try_into().unwrap(),
                 sequence: 0x4422,
