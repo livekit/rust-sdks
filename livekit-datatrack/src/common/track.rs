@@ -17,6 +17,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 pub use crate::dtp::TrackHandle;
 
+/// Information about a data track.
 #[derive(Debug, Clone)]
 pub struct DataTrackInfo {
     pub(crate) sid: String, // TODO: use shared ID type
@@ -26,12 +27,15 @@ pub struct DataTrackInfo {
 }
 
 impl DataTrackInfo {
-    pub fn sid(&self) -> &String {
+    /// Unique track identifier.
+    pub fn sid(&self) -> &str {
         &self.sid
     }
+    /// Name of the track assigned when published.
     pub fn name(&self) -> &str {
         &self.name
     }
+    /// Whether or not frames sent on the track use end-to-end encryption.
     pub fn uses_e2ee(&self) -> bool {
         self.uses_e2ee
     }
