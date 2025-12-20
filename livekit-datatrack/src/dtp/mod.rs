@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod deserialize;
 mod packet;
 mod packetizer;
-mod track_handle;
-mod deserialize;
 mod serialize;
 mod time;
+mod track_handle;
 
+pub use deserialize::*;
 pub use packet::*;
 pub use packetizer::*;
-pub use track_handle::*;
-pub use deserialize::*;
 pub use serialize::*;
+pub use track_handle::*;

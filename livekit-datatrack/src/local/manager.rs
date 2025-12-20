@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::Local;
 use crate::{
-    dtp,
-    error::{InternalError, PublishError, PublishFrameError, PublishFrameErrorReason},
-    frame::DataTrackFrame,
-    manager::e2ee::EncryptionProvider,
-    track::{DataTrack, DataTrackInfo, DataTrackOptions, Local, TrackHandle},
+    dtp, DataTrack, DataTrackFrame, DataTrackInfo, DataTrackOptions, EncryptionProvider,
+    InternalError, PublishError, PublishFrameError, PublishFrameErrorReason, TrackHandle,
 };
 use anyhow::{anyhow, Context};
 use bytes::Bytes;

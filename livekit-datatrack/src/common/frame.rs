@@ -46,10 +46,7 @@ impl DataTrackFrameBuilder {
     }
 
     pub fn build(self) -> DataTrackFrame {
-        DataTrackFrame {
-            payload: self.payload,
-            user_timestamp: self.user_timestamp
-        }
+        DataTrackFrame { payload: self.payload, user_timestamp: self.user_timestamp }
     }
 }
 

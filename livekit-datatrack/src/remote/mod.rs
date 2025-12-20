@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod e2ee;
-pub mod publish;
-// pub mod subscribe;
+use crate::DataTrack;
 
-pub use e2ee::*;
-pub use publish::*;
-// pub use subscribe::*;
+mod manager;
+
+/// Marker type indicating a [`DataTrack`] belongs to a remote participant.
+#[derive(Debug)]
+pub struct Remote;
+
+impl DataTrack<Remote> {}

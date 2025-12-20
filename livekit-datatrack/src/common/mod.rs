@@ -12,10 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// Utilities for working with [`Bytes::bytes`].
-mod bytes;
+use thiserror::Error;
 
-mod counter;
+pub mod e2ee;
+pub mod frame;
+pub mod track;
 
-pub use bytes::*;
-pub use counter::*;
+pub use {e2ee::*, frame::*, track::*};
+
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub struct InternalError(#[from] anyhow::Error);

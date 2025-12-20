@@ -13,8 +13,12 @@
 // limitations under the License.
 
 use bytes::Bytes;
-use std::fmt::Debug;
+use core::fmt::Debug;
 use thiserror::Error;
+
+#[derive(Debug, Error)]
+#[error("End-to-end encryption failed")]
+pub struct E2eeError;
 
 pub struct EncryptedPayload {
     pub payload: Bytes,
@@ -22,21 +26,13 @@ pub struct EncryptedPayload {
     pub key_index: u8,
 }
 
-#[derive(Debug, Error)]
-#[error("Encryption failed")]
-pub struct EncryptionError;
-
 pub trait EncryptionProvider: Send + Sync + Debug {
     /// Encrypt the given payload.
-    fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, EncryptionError>;
+    fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, E2eeError>;
 }
-
-#[derive(Debug, Error)]
-#[error("Decryption failed")]
-pub struct DecryptionError;
 
 pub trait DecryptionProvider: Send + Sync + Debug {
     /// Decrypt the given payload.
-    fn decrypt(&self, payload: EncryptedPayload) -> Result<Bytes, DecryptionError>;
+    fn decrypt(&self, payload: EncryptedPayload) -> Result<Bytes, E2eeError>;
     // TODO: handle publisher identity
 }

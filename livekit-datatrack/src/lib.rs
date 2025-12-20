@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod common;
+mod local;
+mod remote;
+
 mod dtp;
-pub mod error;
-pub mod frame;
-pub mod manager;
-pub mod track;
 mod utils;
+
+pub use {common::*, local::*, remote::*};

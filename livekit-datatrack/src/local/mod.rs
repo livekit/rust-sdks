@@ -12,9 +12,75 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::frame::DataTrackFrame;
-use core::fmt;
+use crate::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError};
+use std::{fmt, marker::PhantomData, sync::Arc};
 use thiserror::Error;
+
+pub(crate) mod manager;
+
+/// Marker type indicating a [`DataTrack`] belongs to the local participant.
+#[derive(Debug)]
+pub struct Local;
+
+impl DataTrack<Local> {
+    pub(crate) fn new(info: Arc<DataTrackInfo>, inner: manager::LocalDataTrackInner) -> Self {
+        Self { info, inner: inner.into(), _location: PhantomData }
+    }
+
+    fn inner(&self) -> &manager::LocalDataTrackInner {
+        match &self.inner {
+            DataTrackInner::Local(publisher) => publisher,
+            DataTrackInner::Remote(_) => unreachable!(), // Safe (type state)
+        }
+    }
+
+    /// Publish a frame onto the track.
+    pub fn publish(&self, frame: impl Into<DataTrackFrame>) -> Result<(), PublishFrameError> {
+        self.inner().publish(frame.into())
+    }
+
+    /// Whether or not the track is still published.
+    pub fn is_published(&self) -> bool {
+        self.inner().is_published()
+    }
+
+    /// Unpublish the track.
+    pub fn unpublish(self) {
+        self.inner().unpublish()
+    }
+}
+
+impl PublishFrameError {
+    pub(crate) fn new(frame: DataTrackFrame, reason: PublishFrameErrorReason) -> Self {
+        Self { frame, reason }
+    }
+
+    /// Consume the error, returning the frame that couldn't be published.
+    pub fn into_frame(self) -> DataTrackFrame {
+        self.frame
+    }
+
+    /// Returns the reason why the frame could not be published.
+    pub fn reason(&self) -> PublishFrameErrorReason {
+        self.reason
+    }
+}
+
+/// Options for publishing a data track.
+#[derive(Clone, Debug)]
+pub struct DataTrackOptions {
+    pub(crate) name: String,
+    pub(crate) disable_e2ee: bool,
+}
+
+impl DataTrackOptions {
+    pub fn with_name(name: impl Into<String>) -> Self {
+        Self { name: name.into(), disable_e2ee: false }
+    }
+    pub fn disable_e2ee(self, disabled: bool) -> Self {
+        Self { disable_e2ee: disabled, ..self }
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum PublishError {
@@ -32,31 +98,12 @@ pub enum PublishError {
     Internal(#[from] InternalError),
 }
 
-#[derive(Debug, Error)]
-pub enum SubscribeError {}
-
 /// An error that can occur when publishing a frame onto a data track.
 #[derive(Debug, Error)]
 #[error("Failed to publish frame: {reason}")]
 pub struct PublishFrameError {
     frame: DataTrackFrame,
     reason: PublishFrameErrorReason,
-}
-
-impl PublishFrameError {
-    pub(crate) fn new(frame: DataTrackFrame, reason: PublishFrameErrorReason) -> Self {
-        Self { frame, reason }
-    }
-
-    /// Consume the error, returning the frame that couldn't be published.
-    pub fn into_frame(self) -> DataTrackFrame {
-        self.frame
-    }
-
-    /// Returns the reason why the frame could not be published.
-    pub fn reason(&self) -> PublishFrameErrorReason {
-        self.reason
-    }
 }
 
 /// Reason why a data track frame could not be published.
@@ -78,7 +125,3 @@ impl fmt::Display for PublishFrameErrorReason {
         }
     }
 }
-
-#[derive(Debug, Error)]
-#[error(transparent)]
-pub struct InternalError(#[from] anyhow::Error);
