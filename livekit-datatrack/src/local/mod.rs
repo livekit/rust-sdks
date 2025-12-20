@@ -18,6 +18,9 @@ use thiserror::Error;
 
 pub(crate) mod manager;
 
+/// Data track published by the local participant.
+pub type LocalDataTrack = DataTrack<Local>;
+
 /// Marker type indicating a [`DataTrack`] belongs to the local participant.
 #[derive(Debug)]
 pub struct Local;

@@ -16,6 +16,9 @@ use crate::DataTrack;
 
 mod manager;
 
+/// Data track published by a remote participant.
+pub type RemoteDataTrack = DataTrack<Remote>;
+
 /// Marker type indicating a [`DataTrack`] belongs to a remote participant.
 #[derive(Debug)]
 pub struct Remote;
