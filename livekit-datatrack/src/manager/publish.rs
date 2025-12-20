@@ -31,6 +31,7 @@ use tokio::{
 };
 use tokio_stream::wrappers::ReceiverStream;
 
+// TODO: relocate
 #[derive(Debug, Clone, Copy)]
 pub enum DataTrackState {
     Published,
@@ -38,12 +39,12 @@ pub enum DataTrackState {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct PubHandle {
+pub(crate) struct LocalDataTrackInner {
     frame_tx: mpsc::Sender<DataTrackFrame>,
     state_tx: watch::Sender<DataTrackState>,
 }
 
-impl PubHandle {
+impl LocalDataTrackInner {
     pub fn publish(&self, frame: DataTrackFrame) -> Result<(), PublishFrameError> {
         if !self.is_published() {
             return Err(PublishFrameError::new(frame, PublishFrameErrorReason::TrackUnpublished));
@@ -65,7 +66,7 @@ impl PubHandle {
     }
 }
 
-impl Drop for PubHandle {
+impl Drop for LocalDataTrackInner {
     fn drop(&mut self) {
         // Implicit unpublish when handle dropped.
         self.unpublish();
@@ -291,7 +292,7 @@ impl PubManagerTask {
         livekit_runtime::spawn(task.run());
         self.active_publications.insert(info.handle, state_tx.clone());
 
-        let handle = PubHandle { frame_tx, state_tx };
+        let handle = LocalDataTrackInner { frame_tx, state_tx };
         DataTrack::new(info, handle)
     }
 

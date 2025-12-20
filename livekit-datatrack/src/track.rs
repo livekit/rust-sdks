@@ -82,8 +82,8 @@ pub struct DataTrack<L> {
 
 #[derive(Debug, Clone, FromVariants)]
 enum DataTrackInner {
-    Local(manager::PubHandle),
-    Remote(()), // TODO: add sub handle
+    Local(manager::LocalDataTrackInner),
+    Remote(()), // TODO: add sub inner
 }
 
 impl<L> DataTrack<L> {
@@ -94,11 +94,11 @@ impl<L> DataTrack<L> {
 }
 
 impl DataTrack<Local> {
-    pub(crate) fn new(info: Arc<DataTrackInfo>, handle: manager::PubHandle) -> Self {
-        Self { info, inner: handle.into(), _location: PhantomData }
+    pub(crate) fn new(info: Arc<DataTrackInfo>, inner: manager::LocalDataTrackInner) -> Self {
+        Self { info, inner: inner.into(), _location: PhantomData }
     }
 
-    fn handle(&self) -> &manager::PubHandle {
+    fn inner(&self) -> &manager::LocalDataTrackInner {
         match &self.inner {
             DataTrackInner::Local(publisher) => publisher,
             DataTrackInner::Remote(_) => unreachable!(), // Safe (type state)
@@ -107,17 +107,17 @@ impl DataTrack<Local> {
 
     /// Publish a frame onto the track.
     pub fn publish(&self, frame: impl Into<DataTrackFrame>) -> Result<(), PublishFrameError> {
-        self.handle().publish(frame.into())
+        self.inner().publish(frame.into())
     }
 
     /// Whether or not the track is still published.
     pub fn is_published(&self) -> bool {
-        self.handle().is_published()
+        self.inner().is_published()
     }
 
     /// Unpublish the track.
     pub fn unpublish(self) {
-        self.handle().unpublish()
+        self.inner().unpublish()
     }
 }
 
