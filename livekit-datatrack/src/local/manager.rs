@@ -37,12 +37,12 @@ pub enum DataTrackState {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct LocalDataTrackInner {
+pub(crate) struct TrackInner {
     frame_tx: mpsc::Sender<DataTrackFrame>,
     state_tx: watch::Sender<DataTrackState>,
 }
 
-impl LocalDataTrackInner {
+impl TrackInner {
     pub fn publish(&self, frame: DataTrackFrame) -> Result<(), PublishFrameError> {
         if !self.is_published() {
             return Err(PublishFrameError::new(frame, PublishFrameErrorReason::TrackUnpublished));
@@ -64,14 +64,15 @@ impl LocalDataTrackInner {
     }
 }
 
-impl Drop for LocalDataTrackInner {
+impl Drop for TrackInner {
     fn drop(&mut self) {
         // Implicit unpublish when handle dropped.
         self.unpublish();
     }
 }
 
-struct TrackPubTask {
+/// Task responsible for operating an individual published data track.
+struct TrackTask {
     // TODO: packetizer, e2ee_provider, rate tracking, etc.
     packetizer: dtp::Packetizer,
     encryption: Option<Arc<dyn EncryptionProvider>>,
@@ -82,7 +83,7 @@ struct TrackPubTask {
     signal_out_tx: mpsc::Sender<PubSignalOutput>,
 }
 
-impl TrackPubTask {
+impl TrackTask {
     async fn run(mut self) -> Result<(), InternalError> {
         let mut state = DataTrackState::Published;
         while matches!(state, DataTrackState::Published) {
@@ -144,18 +145,18 @@ pub struct PubManagerOptions {
 
 /// Manager for data track publications.
 #[derive(Debug, Clone)]
-pub struct PubManager {
+pub struct Manager {
     signal_in_tx: mpsc::Sender<PubSignalInput>,
     pub_req_tx: mpsc::Sender<PubRequest>,
 }
 
-impl PubManager {
+impl Manager {
     const CH_BUFFER_SIZE: usize = 4;
     const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 
     pub fn new(
         options: PubManagerOptions,
-    ) -> (Self, PubManagerTask, impl Stream<Item = PubSignalOutput>, impl Stream<Item = Bytes>)
+    ) -> (Self, ManagerTask, impl Stream<Item = PubSignalOutput>, impl Stream<Item = Bytes>)
     {
         let (pub_req_tx, pub_req_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
         let (signal_in_tx, signal_in_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
@@ -163,7 +164,7 @@ impl PubManager {
         let (packet_out_tx, packet_out_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
 
         let manager = Self { signal_in_tx, pub_req_tx };
-        let task = PubManagerTask {
+        let task = ManagerTask {
             encryption: options.encryption,
             pub_req_rx,
             signal_in_rx,
@@ -207,7 +208,12 @@ impl PubManager {
     }
 }
 
-pub struct PubManagerTask {
+struct PubRequest {
+    options: DataTrackOptions,
+    result_tx: oneshot::Sender<Result<DataTrack<Local>, PublishError>>,
+}
+
+pub struct ManagerTask {
     encryption: Option<Arc<dyn EncryptionProvider>>,
     pub_req_rx: mpsc::Receiver<PubRequest>,
     signal_in_rx: mpsc::Receiver<PubSignalInput>,
@@ -219,7 +225,7 @@ pub struct PubManagerTask {
     active_publications: HashMap<TrackHandle, watch::Sender<DataTrackState>>,
 }
 
-impl PubManagerTask {
+impl ManagerTask {
     pub async fn run(mut self) -> Result<(), InternalError> {
         loop {
             tokio::select! {
@@ -277,7 +283,7 @@ impl PubManagerTask {
         let (state_tx, state_rx) = watch::channel(DataTrackState::Published);
         let info = Arc::new(info);
 
-        let task = TrackPubTask {
+        let task = TrackTask {
             // TODO: handle cancellation
             packetizer: dtp::Packetizer::new(info.handle, 16_000),
             encryption: self.encryption.clone(),
@@ -290,7 +296,7 @@ impl PubManagerTask {
         livekit_runtime::spawn(task.run());
         self.active_publications.insert(info.handle, state_tx.clone());
 
-        let handle = LocalDataTrackInner { frame_tx, state_tx };
+        let handle = TrackInner { frame_tx, state_tx };
         DataTrack::new(info, handle)
     }
 
@@ -346,11 +352,6 @@ impl PubManagerTask {
         }
         Ok(())
     }
-}
-
-struct PubRequest {
-    options: DataTrackOptions,
-    result_tx: oneshot::Sender<Result<DataTrack<Local>, PublishError>>,
 }
 
 #[derive(Debug, FromVariants)]
