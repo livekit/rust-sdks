@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::dtp::time::Timestamp;
+
 use super::track_handle::TrackHandle;
 use bytes::Bytes;
 use core::fmt;
@@ -29,12 +31,12 @@ pub struct Header {
     pub track_handle: TrackHandle,
     pub sequence: u16,
     pub frame_number: u16,
-    pub timestamp: u32,
+    pub timestamp: Timestamp<90_000>,
     pub user_timestamp: Option<u64>,
     pub e2ee: Option<E2ee>,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct E2ee {
     pub key_index: u8,
     pub iv: [u8; 12],
@@ -91,7 +93,8 @@ pub(crate) mod consts {
     // Extension markers
     pub const EXT_MARKER_LEN: usize = 1;
     pub const EXT_MARKER_E2EE: u8 = ext_marker(EXT_ID_E2EE, EXT_LEN_E2EE as u8);
-    pub const EXT_MARKER_USER_TIMESTAMP: u8 = ext_marker(EXT_ID_USER_TIMESTAMP, EXT_LEN_USER_TIMESTAMP as u8);
+    pub const EXT_MARKER_USER_TIMESTAMP: u8 =
+        ext_marker(EXT_ID_USER_TIMESTAMP, EXT_LEN_USER_TIMESTAMP as u8);
 
     const fn ext_marker(id: u8, len: u8) -> u8 {
         (id << 4) | (len - 1)

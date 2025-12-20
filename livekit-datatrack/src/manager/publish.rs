@@ -124,7 +124,8 @@ impl TrackPubTask {
             e2ee,
             user_timestamp: frame.user_timestamp,
         };
-        for packet in self.packetizer.packetize(frame) {
+        let packets = self.packetizer.packetize(frame).context("Failed to packetize frame")?;
+        for packet in packets {
             let serialized = packet.serialize();
             self.packet_out_tx.try_send(serialized).context("Failed to send packet")?;
         }

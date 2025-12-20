@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::dtp::time::Timestamp;
+
 use super::{
-    packet::{Dtp, E2ee, Header, consts::*},
+    packet::{consts::*, Dtp, E2ee, Header},
     track_handle::{TrackHandle, TrackHandleError},
 };
 use bytes::{Buf, Bytes};
@@ -74,7 +76,7 @@ impl Header {
         let track_handle: TrackHandle = raw.get_u16().try_into()?;
         let sequence = raw.get_u16();
         let frame_number = raw.get_u16();
-        let timestamp = raw.get_u32();
+        let timestamp = Timestamp::from_ticks(raw.get_u32());
 
         if ext_len > raw.remaining() {
             Err(DeserializeError::HeaderOverrun)?
@@ -193,7 +195,7 @@ mod tests {
         assert_eq!(dtp.header.track_handle, 0x8811u32.try_into().unwrap());
         assert_eq!(dtp.header.sequence, 0x4422);
         assert_eq!(dtp.header.frame_number, 0x4411);
-        assert_eq!(dtp.header.timestamp, 0x44221188);
+        assert_eq!(dtp.header.timestamp, Timestamp::from_ticks(0x44221188));
         assert_eq!(dtp.header.user_timestamp, None);
         assert_eq!(dtp.header.e2ee, None);
     }
@@ -228,7 +230,7 @@ mod tests {
         raw.put_u8(0x27); // ID 2, length 7
         raw.put_slice(&[0x44, 0x11, 0x22, 0x11, 0x11, 0x11, 0x88, 0x11]); // User timestamp
         raw.put_bytes(0x00, 3); // Padding
-        // TODO: decreasing to 2 is header overrun (should be padding error)
+                                // TODO: decreasing to 2 is header overrun (should be padding error)
         let dtp = Dtp::deserialize(raw.freeze()).unwrap();
         assert_eq!(dtp.header.user_timestamp, Some(0x4411221111118811));
     }

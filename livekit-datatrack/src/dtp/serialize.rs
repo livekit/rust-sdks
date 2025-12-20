@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::packet::{Dtp, Header, consts::*};
+use super::packet::{consts::*, Dtp, Header};
 use bytes::{BufMut, Bytes, BytesMut};
 use thiserror::Error;
 
@@ -76,7 +76,7 @@ impl Header {
         buf.put_u16(self.track_handle.into());
         buf.put_u16(self.sequence);
         buf.put_u16(self.frame_number);
-        buf.put_u32(self.timestamp);
+        buf.put_u32(self.timestamp.as_ticks());
 
         if let Some(e2ee) = &self.e2ee {
             buf.put_u8(EXT_MARKER_E2EE);
@@ -105,7 +105,7 @@ struct HeaderMetrics {
 
 impl Header {
     /// Length of the serialized header in bytes.
-    fn serialized_len(&self) -> usize {
+    pub fn serialized_len(&self) -> usize {
         self.metrics().len
     }
 
@@ -128,17 +128,15 @@ impl Header {
         assert!(ext_words <= u8::MAX.into());
         let padding_len = (ext_words * 4) - ext_len;
         let len = BASE_HEADER_LEN + ext_len + padding_len;
-        HeaderMetrics {
-            ext_words,
-            padding_len,
-            len,
-        }
+        HeaderMetrics { ext_words, padding_len, len }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{*, super::packet::E2ee};
+    use crate::dtp::time::Timestamp;
+
+    use super::{super::packet::E2ee, *};
     use bytes::Buf;
 
     /// Constructed packet to use in tests.
@@ -150,13 +148,9 @@ mod tests {
                 track_handle: 0x8811u32.try_into().unwrap(),
                 sequence: 0x4422,
                 frame_number: 0x4411,
-                timestamp: 0x44221188,
+                timestamp: Timestamp::from_ticks(0x44221188),
                 user_timestamp: 0x4411221111118811.into(),
-                e2ee: E2ee {
-                    key_index: 0xFA,
-                    iv: [0x3C; 12],
-                }
-                .into(),
+                e2ee: E2ee { key_index: 0xFA, iv: [0x3C; 12] }.into(),
             },
             payload: vec![0xFA; 1024].into(),
         }
