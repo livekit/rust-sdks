@@ -14,44 +14,68 @@
  * limitations under the License.
  */
 
-#pragma once
+#ifndef LIVEKIT_DESKTOP_CAPTURER_H
+#define LIVEKIT_DESKTOP_CAPTURER_H
+
 #include <memory>
 
+#include "api/make_ref_counted.h"
 #include "api/scoped_refptr.h"
+#include "livekit_rtc/include/capi.h"
 #include "modules/desktop_capture/desktop_capturer.h"
 
 namespace livekit {
-class DesktopFrame;
-class DesktopCapturer;
-class DesktopCapturerOptions;
-class Source;
-}  // namespace livekit
 
-namespace livekit {
+typedef enum {
+  Screen,
+  Window,
+  Generic,
+} SourceType;
 
-class DesktopCapturer : public webrtc::DesktopCapturer::Callback,
-                        public webrtc::RefCountInterface {
+typedef enum {
+  Success,
+  ErrorPermanent,
+  ErrorTemporary,
+} CaptureResult;
+
+typedef struct {
+  bool allow_sck_system_picker;
+  SourceType source_type;
+  bool include_cursor;
+} DesktopCapturerOptions;
+
+typedef struct {
+  uint64_t source_id;
+  std::string title;
+  int64_t display_id;
+} Source;
+
+using lkDesktopCapturerCallback = void (*)(lkDesktopFrame* frame,
+                                           CaptureResult result,
+                                           void* userdata);
+
+class DesktopCapturer : public webrtc::RefCountInterface, public webrtc::DesktopCapturer::Callback {
  public:
   explicit DesktopCapturer(std::unique_ptr<webrtc::DesktopCapturer> capturer)
-      : capturer(std::move(capturer)), callback(std::nullopt) {}
+      : capturer(std::move(capturer)) {}
 
   void OnCaptureResult(webrtc::DesktopCapturer::Result result,
                        std::unique_ptr<webrtc::DesktopFrame> frame) final;
 
-  rust::Vec<Source> get_source_list() const;
+  std::vector<Source> get_source_list() const;
   bool select_source(uint64_t id) const { return capturer->SelectSource(id); }
-  void start(rust::Box<DesktopCapturerCallbackWrapper> callback);
+  void start(lkDesktopCapturerCallback callback, void* userdata);
   void capture_frame() const { capturer->CaptureFrame(); }
 
  private:
   std::unique_ptr<webrtc::DesktopCapturer> capturer;
-  std::optional<rust::Box<DesktopCapturerCallbackWrapper>> callback;
+  lkDesktopCapturerCallback callback_ = nullptr;
+  void* userdata_ = nullptr;
 };
 
 class DesktopFrame : public webrtc::RefCountInterface {
  public:
-  DesktopFrame(std::unique_ptr<webrtc::DesktopFrame> frame)
-      : frame(std::move(frame)) {}
+  DesktopFrame(std::unique_ptr<webrtc::DesktopFrame> frame) : frame(std::move(frame)) {}
   int32_t width() const { return frame->size().width(); }
 
   int32_t height() const { return frame->size().height(); }
@@ -68,6 +92,7 @@ class DesktopFrame : public webrtc::RefCountInterface {
   std::unique_ptr<webrtc::DesktopFrame> frame;
 };
 
-webrtc::scoped_refptr<DesktopCapturer> new_desktop_capturer(
-    DesktopCapturerOptions options);
+webrtc::scoped_refptr<DesktopCapturer> new_desktop_capturer(DesktopCapturerOptions options);
 }  // namespace livekit
+
+#endif  // LIVEKIT_DESKTOP_CAPTURER_H

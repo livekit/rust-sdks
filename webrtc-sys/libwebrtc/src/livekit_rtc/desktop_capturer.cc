@@ -74,9 +74,10 @@ webrtc::scoped_refptr<DesktopCapturer> new_desktop_capturer(
   return webrtc::make_ref_counted<DesktopCapturer>(std::move(capturer));
 }
 
-void DesktopCapturer::start(
-    rust::Box<DesktopCapturerCallbackWrapper> callback) {
-  this->callback = std::move(callback);
+void DesktopCapturer::start(lkDesktopCapturerCallback callback,
+                            void* userdata) {
+  userdata_ = userdata;
+  callback_ = callback;
   capturer->Start(this);
 }
 
@@ -97,16 +98,18 @@ void DesktopCapturer::OnCaptureResult(
     default:
       break;
   }
-  if (callback) {
-    (*callback)->on_capture_result(
-        ret_result, std::make_unique<DesktopFrame>(std::move(frame)));
+  if (callback_) {
+    callback_(
+        reinterpret_cast<lkDesktopFrame*>(
+            webrtc::make_ref_counted<livekit::DesktopFrame>(std::move(frame)).release()),
+        ret_result, userdata_);
   }
 }
 
-rust::Vec<Source> DesktopCapturer::get_source_list() const {
+std::vector<Source> DesktopCapturer::get_source_list() const {
   SourceList list{};
   bool res = capturer->GetSourceList(&list);
-  rust::Vec<Source> source_list{};
+  std::vector<Source> source_list{};
   if (res) {
     for (auto& source : list) {
       source_list.push_back(Source{static_cast<uint64_t>(source.id),
@@ -115,4 +118,5 @@ rust::Vec<Source> DesktopCapturer::get_source_list() const {
   }
   return source_list;
 }
+
 }  // namespace livekit

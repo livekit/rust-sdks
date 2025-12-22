@@ -38,6 +38,7 @@ lk_sources = [
   "yuv_helper.cc",
   "rtp_parameters.cc",
   "stats.cc",
+  "desktop_capturer.cc",
 ]
 
 if (is_mac) {
@@ -85,6 +86,7 @@ rtc_shared_library("livekit_rtc") {
     "../modules/audio_processing:api",
     "../modules/audio_processing:audio_processing",
     "../modules/video_capture:video_capture_module",
+    "../modules/desktop_capture",
     "../pc:libjingle_peerconnection",
     "../rtc_base:threading",
     "../sdk:media_constraints",

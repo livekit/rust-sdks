@@ -183,7 +183,7 @@ class NativeFrameCryptorObserver
   const FrameCryptor* fc_;
 };
 
-class DataPacketCryptor {
+class DataPacketCryptor : public webrtc::RefCountInterface {
  public:
   DataPacketCryptor(webrtc::FrameCryptorTransformer::Algorithm algorithm,
                    webrtc::scoped_refptr<webrtc::KeyProvider> key_provider);
