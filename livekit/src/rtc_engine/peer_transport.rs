@@ -26,6 +26,12 @@ use super::EngineResult;
 
 pub type OnOfferCreated = Box<dyn FnMut(SessionDescription) + Send + Sync>;
 
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+const DEFAULT_VP9_START_BITRATE_KBPS: u32 = 2500;
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+const DEFAULT_VP9_START_BITRATE_KBPS: u32 = 0; // 0 means “don’t apply”
+
 struct TransportInner {
     pending_candidates: Vec<IceCandidate>,
     renegotiate: bool,
@@ -127,6 +133,52 @@ impl PeerTransport {
         Ok(answer)
     }
 
+    fn munge_x_google_start_bitrate(sdp: &str, start_bitrate_kbps: u32) -> String {
+        // 1) Find payload types (PTs) for VP9 / AV1 from a=rtpmap:<pt> VP9/90000 etc
+        let mut target_pts: Vec<String> = Vec::new();
+        for line in sdp.lines() {
+            let l = line.trim();
+            if let Some(rest) = l.strip_prefix("a=rtpmap:") {
+                // rest looks like: "<pt> VP9/90000"
+                let mut it = rest.split_whitespace();
+                let pt = it.next().unwrap_or("");
+                let codec = it.next().unwrap_or("");
+                if codec.starts_with("VP9/90000") || codec.starts_with("AV1/90000") {
+                    if !pt.is_empty() {
+                        target_pts.push(pt.to_string());
+                    }
+                }
+            }
+        }
+        if target_pts.is_empty() {
+            return sdp.to_string();
+        }
+
+        // 2) For each PT, ensure a=fmtp:<pt> has x-google-start-bitrate=...
+        // We do a line-by-line rewrite. If there is no fmtp line for that PT, we leave it alone
+        // (safer; avoids adding new fmtp that might not be accepted).
+        let mut out: Vec<String> = Vec::with_capacity(sdp.lines().count());
+        for line in sdp.lines() {
+            let mut rewritten = line.to_string();
+
+            for pt in &target_pts {
+                let prefix = format!("a=fmtp:{pt} ");
+                if rewritten.starts_with(&prefix) {
+                    // Only append if not already present
+                    if !rewritten.contains("x-google-start-bitrate=") {
+                        rewritten
+                            .push_str(&format!(";x-google-start-bitrate={start_bitrate_kbps}"));
+                    }
+                    break;
+                }
+            }
+
+            out.push(rewritten);
+        }
+
+        out.join("\r\n")
+    }
+
     pub async fn create_and_send_offer(&self, options: OfferOptions) -> EngineResult<()> {
         let mut inner = self.inner.lock().await;
 
@@ -151,7 +203,25 @@ impl PeerTransport {
             return Ok(());
         }
 
-        let offer = self.peer_connection.create_offer(options).await?;
+        let mut offer = self.peer_connection.create_offer(options).await?;
+        let start_bitrate_kbps = DEFAULT_VP9_START_BITRATE_KBPS;
+        let sdp = offer.to_string();
+        // TODO, we should extend the codec support to AV1 ?
+        if start_bitrate_kbps > 0 && sdp.contains(" VP9/90000") {
+            let munged = Self::munge_x_google_start_bitrate(&sdp, start_bitrate_kbps);
+            if munged != sdp {
+                match SessionDescription::parse(&munged, offer.sdp_type()) {
+                    Ok(parsed) => {
+                        offer = parsed;
+                    }
+                    Err(e) => {
+                        log::warn!(
+                            "Failed to parse munged SDP, falling back to original offer: {e}"
+                        );
+                    }
+                }
+            }
+        }
         self.peer_connection.set_local_description(offer.clone()).await?;
 
         if let Some(handler) = self.on_offer_handler.lock().as_mut() {
