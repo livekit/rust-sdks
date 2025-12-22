@@ -20,9 +20,6 @@
 
 #include "absl/types/optional.h"
 #include "api/make_ref_counted.h"
-#include "livekit/peer_connection.h"
-#include "livekit/peer_connection_factory.h"
-#include "livekit/webrtc.h"
 #include "rtc_base/thread.h"
 
 namespace livekit {
@@ -56,12 +53,12 @@ KeyProvider::KeyProvider(KeyProviderOptions options) {
 }
 
 FrameCryptor::FrameCryptor(
-    std::shared_ptr<RtcRuntime> rtc_runtime,
+    webrtc::Thread* thread,
     const std::string participant_id,
     webrtc::FrameCryptorTransformer::Algorithm algorithm,
     rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
     rtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
-    : rtc_runtime_(rtc_runtime),
+    : thread_(thread),
       participant_id_(participant_id),
       key_provider_(key_provider),
       sender_(sender) {
@@ -70,7 +67,7 @@ FrameCryptor::FrameCryptor(
           ? webrtc::FrameCryptorTransformer::MediaType::kAudioFrame
           : webrtc::FrameCryptorTransformer::MediaType::kVideoFrame;
   e2ee_transformer_ = rtc::scoped_refptr<webrtc::FrameCryptorTransformer>(
-      new webrtc::FrameCryptorTransformer(rtc_runtime->signaling_thread(),
+      new webrtc::FrameCryptorTransformer(thread_,
                                           participant_id, mediaType, algorithm,
                                           key_provider_));
   sender->SetEncoderToPacketizerFrameTransformer(e2ee_transformer_);
@@ -106,10 +103,10 @@ FrameCryptor::~FrameCryptor() {
 }
 
 void FrameCryptor::register_observer(
-    rust::Box<RtcFrameCryptorObserverWrapper> observer) const {
+    RtcFrameCryptorObserverWrapper observer, void *userdata) {
   webrtc::MutexLock lock(&mutex_);
   observer_ = rtc::make_ref_counted<NativeFrameCryptorObserver>(
-      std::move(observer), this);
+      observer, this, userdata);
   e2ee_transformer_->RegisterFrameCryptorTransformerObserver(observer_);
 }
 
@@ -120,17 +117,18 @@ void FrameCryptor::unregister_observer() const {
 }
 
 NativeFrameCryptorObserver::NativeFrameCryptorObserver(
-    rust::Box<RtcFrameCryptorObserverWrapper> observer,
-    const FrameCryptor* fc)
-    : observer_(std::move(observer)), fc_(fc) {}
+    RtcFrameCryptorObserverWrapper observer,
+    const FrameCryptor* fc, 
+    void* userdata)
+    : observer_(std::move(observer)), fc_(fc), userdata_(userdata) {}
 
 NativeFrameCryptorObserver::~NativeFrameCryptorObserver() {}
 
 void NativeFrameCryptorObserver::OnFrameCryptionStateChanged(
     const std::string participant_id,
     webrtc::FrameCryptionState state) {
-  observer_->on_frame_cryption_state_change(
-      participant_id, static_cast<FrameCryptionState>(state));
+  //TODO: c_str
+  observer_(participant_id.c_str(), static_cast<FrameCryptionState>(state), static_cast<const lkFrameCryptor*>(fc_), userdata_);
 }
 
 void FrameCryptor::set_enabled(bool enabled) const {
@@ -159,9 +157,9 @@ DataPacketCryptor::DataPacketCryptor(webrtc::FrameCryptorTransformer::Algorithm 
           webrtc::make_ref_counted<webrtc::DataPacketCryptor>(algorithm, key_provider)) {}
 
 EncryptedPacket DataPacketCryptor::encrypt_data_packet(
-    const ::rust::String participant_id,
+    const std::string participant_id,
     uint32_t key_index,
-    rust::Vec<::std::uint8_t> data) const {
+    std::vector<::std::uint8_t> data) const {
   std::vector<uint8_t> data_vec;
   std::copy(data.begin(), data.end(), std::back_inserter(data_vec));
 
@@ -171,17 +169,17 @@ EncryptedPacket DataPacketCryptor::encrypt_data_packet(
       data_vec);
 
   if (!result.ok()) {
-    throw std::runtime_error(std::string("Failed to encrypt data packet: ") + result.error().message());
+    //TODO: throw std::runtime_error(std::string("Failed to encrypt data packet: ") + result.error().message());
   }
 
   auto& packet = result.value();
 
   EncryptedPacket encrypted_packet;
-  encrypted_packet.data = rust::Vec<uint8_t>();
+  encrypted_packet.data = std::vector<uint8_t>();
   std::copy(packet->data.begin(), packet->data.end(),
             std::back_inserter(encrypted_packet.data));
 
-  encrypted_packet.iv = rust::Vec<uint8_t>();
+  encrypted_packet.iv = std::vector<uint8_t>();
   std::copy(packet->iv.begin(), packet->iv.end(),
             std::back_inserter(encrypted_packet.iv));
 
@@ -190,8 +188,8 @@ EncryptedPacket DataPacketCryptor::encrypt_data_packet(
   return encrypted_packet;
 }
 
-rust::Vec<::std::uint8_t> DataPacketCryptor::decrypt_data_packet(
-    const ::rust::String participant_id,
+std::vector<::std::uint8_t> DataPacketCryptor::decrypt_data_packet(
+    const std::string participant_id,
     const EncryptedPacket& encrypted_packet) const {
   std::vector<uint8_t> data_vec;
   std::copy(encrypted_packet.data.begin(), encrypted_packet.data.end(),
@@ -209,51 +207,13 @@ rust::Vec<::std::uint8_t> DataPacketCryptor::decrypt_data_packet(
       native_encrypted_packet);
 
   if (!result.ok()) {
-    throw std::runtime_error(std::string("Failed to decrypt data packet: ") + result.error().message());
+    //TODO: throw std::runtime_error(std::string("Failed to decrypt data packet: ") + result.error().message());
   }
 
-  rust::Vec<uint8_t> decrypted_data;
+  std::vector<uint8_t> decrypted_data;
   auto& decrypted = result.value();
   std::copy(decrypted.begin(), decrypted.end(), std::back_inserter(decrypted_data));
   return decrypted_data;
-}
-
-std::shared_ptr<KeyProvider> new_key_provider(KeyProviderOptions options) {
-  return std::make_shared<KeyProvider>(options);
-}
-
-std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_sender(
-    std::shared_ptr<PeerConnectionFactory> peer_factory,
-    const ::rust::String participant_id,
-    Algorithm algorithm,
-    std::shared_ptr<KeyProvider> key_provider,
-    std::shared_ptr<RtpSender> sender) {
-  return std::make_shared<FrameCryptor>(
-      peer_factory->rtc_runtime(),
-      std::string(participant_id.data(), participant_id.size()),
-      AlgorithmToFrameCryptorAlgorithm(algorithm),
-      key_provider->rtc_key_provider(), sender->rtc_sender());
-}
-
-std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_receiver(
-    std::shared_ptr<PeerConnectionFactory> peer_factory,
-    const ::rust::String participant_id,
-    Algorithm algorithm,
-    std::shared_ptr<KeyProvider> key_provider,
-    std::shared_ptr<RtpReceiver> receiver) {
-  return std::make_shared<FrameCryptor>(
-      peer_factory->rtc_runtime(),
-      std::string(participant_id.data(), participant_id.size()),
-      AlgorithmToFrameCryptorAlgorithm(algorithm),
-      key_provider->rtc_key_provider(), receiver->rtc_receiver());
-}
-
-std::shared_ptr<DataPacketCryptor> new_data_packet_cryptor(
-    Algorithm algorithm,
-    std::shared_ptr<KeyProvider> key_provider) {
-  return std::make_shared<DataPacketCryptor>(
-      AlgorithmToFrameCryptorAlgorithm(algorithm),
-      key_provider->rtc_key_provider());
 }
 
 }  // namespace livekit

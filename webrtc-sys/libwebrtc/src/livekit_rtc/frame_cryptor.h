@@ -22,22 +22,47 @@
 #include <string>
 #include <vector>
 
+#include "livekit_rtc/include/capi.h"
 #include "api/crypto/frame_crypto_transformer.h"
 #include "api/scoped_refptr.h"
-
 #include "livekit_rtc/peer.h"
-#include "livekit/transceiver.h"
-
+#include "livekit_rtc/rtp_transceiver.h"
 #include "rtc_base/synchronization/mutex.h"
-
 
 namespace livekit {
 
-struct KeyProviderOptions;
-struct EncryptedPacket;
-enum class Algorithm : ::std::int32_t;
-class RtcFrameCryptorObserverWrapper;
-class NativeFrameCryptorObserver;
+typedef struct {
+  bool shared_key;
+  int32_t ratchet_window_size;
+  std::vector<uint8_t> ratchet_salt;
+  bool failure_tolerance;
+} KeyProviderOptions;
+
+typedef struct {
+  std::vector<uint8_t> data;
+  std::vector<uint8_t> iv;
+  uint32_t key_index;
+} EncryptedPacket;
+
+enum Algorithm {
+  AesGcm = 0,
+  AesCbc,
+};
+
+enum FrameCryptionState {
+  kNew,
+  kOk,
+  kEncryptionFailed,
+  kDecryptionFailed,
+  kMissingKey,
+  kKeyRatcheted,
+  kInternalError,
+};
+
+using RtcFrameCryptorObserverWrapper = void (*)(const char* participant_id,
+                                                FrameCryptionState state,
+                                                const lkFrameCryptor* fc,
+                                                void* userdata);
 
 /// Shared secret key for frame encryption.
 class KeyProvider {
@@ -45,28 +70,28 @@ class KeyProvider {
   KeyProvider(KeyProviderOptions options);
   ~KeyProvider() {}
 
-  bool set_shared_key(int32_t index, rust::Vec<::std::uint8_t> key) const {
+  bool set_shared_key(int32_t index, std::vector<::std::uint8_t> key) const {
     std::vector<uint8_t> key_vec;
     std::copy(key.begin(), key.end(), std::back_inserter(key_vec));
     return impl_->SetSharedKey(index, key_vec);
   }
 
-  rust::Vec<::std::uint8_t> ratchet_shared_key(int32_t key_index) const {
-    rust::Vec<uint8_t> vec;
+  std::vector<::std::uint8_t> ratchet_shared_key(int32_t key_index) const {
+    std::vector<uint8_t> vec;
     auto data = impl_->RatchetSharedKey(key_index);
     if (data.empty()) {
-      throw std::runtime_error("ratchet_shared_key failed");
+      // TODO: throw std::runtime_error("ratchet_shared_key failed");
     }
 
     std::move(data.begin(), data.end(), std::back_inserter(vec));
     return vec;
   }
 
-  rust::Vec<::std::uint8_t> get_shared_key(int32_t key_index) const {
-    rust::Vec<uint8_t> vec;
+  std::vector<::std::uint8_t> get_shared_key(int32_t key_index) const {
+    std::vector<uint8_t> vec;
     auto data = impl_->ExportSharedKey(key_index);
     if (data.empty()) {
-      throw std::runtime_error("get_shared_key failed");
+      // TODO: throw std::runtime_error("get_shared_key failed");
     }
 
     std::move(data.begin(), data.end(), std::back_inserter(vec));
@@ -74,43 +99,40 @@ class KeyProvider {
   }
 
   /// Set the key at the given index.
-  bool set_key(const ::rust::String participant_id,
+  bool set_key(const std::string participant_id,
                int32_t index,
-               rust::Vec<::std::uint8_t> key) const {
+               std::vector<::std::uint8_t> key) const {
     std::vector<uint8_t> key_vec;
     std::copy(key.begin(), key.end(), std::back_inserter(key_vec));
-    return impl_->SetKey(
-        std::string(participant_id.data(), participant_id.size()), index,
-        key_vec);
+    return impl_->SetKey(std::string(participant_id.data(), participant_id.size()), index, key_vec);
   }
 
-  rust::Vec<::std::uint8_t> ratchet_key(const ::rust::String participant_id,
-                                        int32_t key_index) const {
-    rust::Vec<uint8_t> vec;
-    auto data = impl_->RatchetKey(
-        std::string(participant_id.data(), participant_id.size()), key_index);
+  std::vector<::std::uint8_t> ratchet_key(const std::string participant_id,
+                                          int32_t key_index) const {
+    std::vector<uint8_t> vec;
+    auto data =
+        impl_->RatchetKey(std::string(participant_id.data(), participant_id.size()), key_index);
     if (data.empty()) {
-      throw std::runtime_error("ratchet_key failed");
+      // TODO: throw std::runtime_error("ratchet_key failed");
     }
 
     std::move(data.begin(), data.end(), std::back_inserter(vec));
     return vec;
   }
 
-  rust::Vec<::std::uint8_t> get_key(const ::rust::String participant_id,
-                                    int32_t key_index) const {
-    rust::Vec<uint8_t> vec;
-    auto data = impl_->ExportKey(
-        std::string(participant_id.data(), participant_id.size()), key_index);
+  std::vector<::std::uint8_t> get_key(const std::string participant_id, int32_t key_index) const {
+    std::vector<uint8_t> vec;
+    auto data =
+        impl_->ExportKey(std::string(participant_id.data(), participant_id.size()), key_index);
     if (data.empty()) {
-      throw std::runtime_error("get_key failed");
+      // TODO: throw std::runtime_error("get_key failed");
     }
 
     std::move(data.begin(), data.end(), std::back_inserter(vec));
     return vec;
   }
 
-  void set_sif_trailer(rust::Vec<::std::uint8_t> trailer) const {
+  void set_sif_trailer(std::vector<::std::uint8_t> trailer) const {
     std::vector<uint8_t> trailer_vec;
     std::copy(trailer.begin(), trailer.end(), std::back_inserter(trailer_vec));
     impl_->SetSifTrailer(trailer_vec);
@@ -122,7 +144,9 @@ class KeyProvider {
   webrtc::scoped_refptr<webrtc::DefaultKeyProviderImpl> impl_;
 };
 
-class FrameCryptor {
+class NativeFrameCryptorObserver;
+
+class FrameCryptor : public webrtc::RefCountInterface {
  public:
   FrameCryptor(webrtc::Thread* thread,
                const std::string participant_id,
@@ -150,16 +174,15 @@ class FrameCryptor {
   /// Get the key index for the sender or receiver.
   int32_t key_index() const;
 
-  rust::String participant_id() const { return participant_id_; }
+  std::string participant_id() const { return participant_id_; }
 
-  void register_observer(
-      rust::Box<RtcFrameCryptorObserverWrapper> observer) const;
+  void register_observer(RtcFrameCryptorObserverWrapper observer, void* userdata);
 
   void unregister_observer() const;
 
  private:
   webrtc::Thread* thread_;
-  const rust::String participant_id_;
+  const std::string participant_id_;
   mutable webrtc::Mutex mutex_;
   webrtc::scoped_refptr<webrtc::FrameCryptorTransformer> e2ee_transformer_;
   webrtc::scoped_refptr<webrtc::KeyProvider> key_provider_;
@@ -168,57 +191,36 @@ class FrameCryptor {
   mutable webrtc::scoped_refptr<NativeFrameCryptorObserver> observer_;
 };
 
-class NativeFrameCryptorObserver
-    : public webrtc::FrameCryptorTransformerObserver {
+class NativeFrameCryptorObserver : public webrtc::FrameCryptorTransformerObserver {
  public:
-  NativeFrameCryptorObserver(rust::Box<RtcFrameCryptorObserverWrapper> observer,
-                             const FrameCryptor* fc);
+  NativeFrameCryptorObserver(RtcFrameCryptorObserverWrapper observer,
+                             const FrameCryptor* fc,
+                             void* userdata);
   ~NativeFrameCryptorObserver();
 
   void OnFrameCryptionStateChanged(const std::string participant_id,
                                    webrtc::FrameCryptionState error) override;
 
  private:
-  rust::Box<RtcFrameCryptorObserverWrapper> observer_;
+  RtcFrameCryptorObserverWrapper observer_;
   const FrameCryptor* fc_;
+  void* userdata_;
 };
 
 class DataPacketCryptor : public webrtc::RefCountInterface {
  public:
   DataPacketCryptor(webrtc::FrameCryptorTransformer::Algorithm algorithm,
-                   webrtc::scoped_refptr<webrtc::KeyProvider> key_provider);
+                    webrtc::scoped_refptr<webrtc::KeyProvider> key_provider);
 
-  EncryptedPacket encrypt_data_packet(
-      const ::rust::String participant_id,
-      uint32_t key_index,
-      rust::Vec<::std::uint8_t> data) const;
+  EncryptedPacket encrypt_data_packet(const std::string participant_id,
+                                      uint32_t key_index,
+                                      std::vector<::std::uint8_t> data) const;
 
-  rust::Vec<::std::uint8_t> decrypt_data_packet(
-      const ::rust::String participant_id,
-      const EncryptedPacket& encrypted_packet) const;
+  std::vector<::std::uint8_t> decrypt_data_packet(const std::string participant_id,
+                                                  const EncryptedPacket& encrypted_packet) const;
 
  private:
   webrtc::scoped_refptr<webrtc::DataPacketCryptor> data_packet_cryptor_;
 };
-
-std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_sender(
-    webrtc::scoped_refptr<PeerFactory> peer_factory,
-    const ::rust::String participant_id,
-    Algorithm algorithm,
-    std::shared_ptr<KeyProvider> key_provider,
-    std::shared_ptr<RtpSender> sender);
-
-std::shared_ptr<FrameCryptor> new_frame_cryptor_for_rtp_receiver(
-    webrtc::scoped_refptr<PeerFactory> peer_factory,
-    const ::rust::String participant_id,
-    Algorithm algorithm,
-    std::shared_ptr<KeyProvider> key_provider,
-    std::shared_ptr<RtpReceiver> receiver);
-
-std::shared_ptr<KeyProvider> new_key_provider(KeyProviderOptions options);
-
-std::shared_ptr<DataPacketCryptor> new_data_packet_cryptor(
-    Algorithm algorithm,
-    std::shared_ptr<KeyProvider> key_provider);
 
 }  // namespace livekit

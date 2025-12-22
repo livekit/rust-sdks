@@ -34,11 +34,11 @@ lk_sources = [
   "rtp_sender.cc",
   "rtp_receiver.cc",
   "rtp_transceiver.cc",
-  #"desktop_capturer.cc",
   "yuv_helper.cc",
   "rtp_parameters.cc",
   "stats.cc",
   "desktop_capturer.cc",
+  "frame_cryptor.cc",
 ]
 
 if (is_mac) {

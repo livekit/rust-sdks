@@ -61,6 +61,7 @@ typedef lkRefCountedObject lkRtpHeaderExtensionParameters;
 typedef lkRefCountedObject lkRtcpParameters;
 typedef lkRefCountedObject lkRtpTransceiverInit;
 typedef lkRefCountedObject lkDesktopFrame;
+typedef lkRefCountedObject lkFrameCryptor;
 
 typedef enum {
   LK_MEDIA_TYPE_AUDIO,
