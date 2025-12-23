@@ -14,6 +14,10 @@
 
 use bytes::Bytes;
 
+/// Frame published on a data track containing metadata and a payload.
+///
+/// Construct using [`DataTrackFrameBuilder`].
+///
 #[derive(Debug)]
 pub struct DataTrackFrame {
     pub(crate) payload: Bytes,
@@ -21,14 +25,18 @@ pub struct DataTrackFrame {
 }
 
 impl DataTrackFrame {
+    /// Get the frame's payload.
     pub fn payload(&self) -> Bytes {
         self.payload.clone() // Cheap clone
     }
+
+    /// Get the frame's user timestamp, if attached.
     pub fn user_timestamp(&self) -> Option<u64> {
         self.user_timestamp
     }
 }
 
+/// Constructs a [`DataTrackFrame`].
 #[derive(Default)]
 pub struct DataTrackFrameBuilder {
     payload: Bytes,
