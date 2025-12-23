@@ -290,7 +290,7 @@ impl ManagerTask {
         self.active_publications.insert(info.handle, state_tx.clone());
 
         let handle = TrackInner { frame_tx, state_tx };
-        DataTrack::new(info, handle)
+        DataTrack::<Local>::new(info, handle)
     }
 
     fn handle_request_response(

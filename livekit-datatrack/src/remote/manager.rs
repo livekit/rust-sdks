@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[derive(Debug, Clone)]
+pub(crate) struct TrackInner {}
+
 // #[derive(Debug)]
 // pub struct SubManagerOptions {
 //     // Dependencies

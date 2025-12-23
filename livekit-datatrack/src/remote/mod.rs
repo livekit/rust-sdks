@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::DataTrack;
+use crate::{DataTrack, DataTrackInfo, DataTrackInner};
+use std::{marker::PhantomData, sync::Arc};
 
-mod manager;
+pub(crate) mod manager;
 
 /// Data track published by a remote participant.
 pub type RemoteDataTrack = DataTrack<Remote>;
@@ -23,4 +24,15 @@ pub type RemoteDataTrack = DataTrack<Remote>;
 #[derive(Debug)]
 pub struct Remote;
 
-impl DataTrack<Remote> {}
+impl DataTrack<Remote> {
+    pub(crate) fn new(info: Arc<DataTrackInfo>, inner: manager::TrackInner) -> Self {
+        Self { info, inner: inner.into(), _location: PhantomData }
+    }
+
+    fn inner(&self) -> &manager::TrackInner {
+        match &self.inner {
+            DataTrackInner::Remote(inner) => inner,
+            DataTrackInner::Local(_) => unreachable!(), // Safe (type state)
+        }
+    }
+}

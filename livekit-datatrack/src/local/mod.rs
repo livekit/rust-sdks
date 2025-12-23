@@ -32,7 +32,7 @@ impl DataTrack<Local> {
 
     fn inner(&self) -> &manager::TrackInner {
         match &self.inner {
-            DataTrackInner::Local(publisher) => publisher,
+            DataTrackInner::Local(track) => track,
             DataTrackInner::Remote(_) => unreachable!(), // Safe (type state)
         }
     }
