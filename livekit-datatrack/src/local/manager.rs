@@ -137,7 +137,7 @@ pub struct PubManagerOptions {
     pub encryption: Option<Arc<dyn EncryptionProvider>>,
 }
 
-/// Manager for data track publications.
+/// Manager for local data tracks.
 #[derive(Debug, Clone)]
 pub struct Manager {
     signal_in_tx: mpsc::Sender<PubSignalInput>,
