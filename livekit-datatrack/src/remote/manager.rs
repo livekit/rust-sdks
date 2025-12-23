@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
-
+use crate::{DataTrack, DecryptionProvider, InternalError, Remote};
 use anyhow::Context;
+use from_variants::FromVariants;
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_stream::Stream;
-
-use crate::{DataTrack, DecryptionProvider, InternalError, Remote};
+use livekit_protocol::{self as proto};
 
 #[derive(Debug, Clone)]
 pub(crate) struct TrackInner {
@@ -91,5 +91,16 @@ impl ManagerTask {
     }
 }
 
-pub enum SubSignalInput {}
-pub enum SubSignalOutput {}
+/// Signal message produced by [`SubManager`] to be forwarded to the SFU.
+#[derive(Debug, FromVariants)]
+pub enum SubSignalOutput {
+    UpdateSubscription(proto::UpdateDataSubscription)
+}
+
+/// Signal message received from the SFU handled by [`SubManager`].
+#[derive(Debug, FromVariants)]
+pub enum SubSignalInput {
+    ParticipantUpdate(proto::ParticipantUpdate),
+    UnpublishResponse(proto::UnpublishDataTrackResponse),
+    SubscriberHandles(proto::DataTrackSubscriberHandles)
+}
