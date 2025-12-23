@@ -22,7 +22,7 @@ use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use from_variants::FromVariants;
 use futures_util::Stream;
-use livekit_protocol::{self as proto};
+use livekit_protocol as proto;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{
     sync::{mpsc, oneshot, watch},

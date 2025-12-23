@@ -18,7 +18,7 @@ use from_variants::FromVariants;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio_stream::Stream;
-use livekit_protocol::{self as proto};
+use livekit_protocol as proto;
 
 #[derive(Debug, Clone)]
 pub(crate) struct TrackInner {
