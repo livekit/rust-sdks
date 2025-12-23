@@ -36,7 +36,9 @@ impl DataTrack<Local> {
             DataTrackInner::Remote(_) => unreachable!(), // Safe (type state)
         }
     }
+}
 
+impl DataTrack<Local> {
     /// Publish a frame onto the track.
     pub fn publish(&self, frame: impl Into<DataTrackFrame>) -> Result<(), PublishFrameError> {
         self.inner().publish(frame.into())
