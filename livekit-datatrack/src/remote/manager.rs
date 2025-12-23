@@ -12,39 +12,84 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
+use anyhow::Context;
+use tokio::sync::mpsc;
+use tokio_stream::Stream;
+
+use crate::{DataTrack, DecryptionProvider, InternalError, Remote};
+
 #[derive(Debug, Clone)]
-pub(crate) struct TrackInner {}
+pub(crate) struct TrackInner {
+    // frame_rx
+    // state...
+}
 
-// #[derive(Debug)]
-// pub struct SubManagerOptions {
-//     // Dependencies
-//     // - E2EE
-//     // - Signaling
-//     //   - Tx UpdateDataSubscription
-//     //   - Rx DataTrackPublishedResponse, DataTrackUnpublishedResponse,
-//     // - Data track channel
-//     //   - Rx
-// }
+impl TrackInner {
+    // manage subscription
+}
 
-// #[derive(Debug)]
-// pub struct SubManager {
-//     options: SubManagerOptions,
-//     sub_tracks: DashMap<TrackHandle, Descriptor>
-// }
+impl Drop for TrackInner {
+    fn drop(&mut self) {
+        // unsubscribe
+    }
+}
 
-// impl SubManager {
-//     pub fn new(options: SubManagerOptions) -> Self {
-//         Self { options, sub_tracks: DashMap::default() }
-//     }
-// }
+struct TrackTask {
+    // depacketizer
+    // decryption
+    // state_rx (from manager)
+    // frame_tx (to track inner)
+    // packet_in_rx
+    // signal_out_tx
+}
 
-// // handles: track published/unpublished
-// // maintains state
-// // creates DataTrack<Remote> when track published
-// // send signal to existing ones when track unpublished
+impl TrackTask {
+    async fn run(mut self) -> Result<(), InternalError> {
+        Ok(())
+    }
+}
 
-// #[derive(Debug)]
-// pub struct Descriptor {
-//     // tx
-//     // data channel -> dtp decode -> frame -> tx
-// }
+#[derive(Debug)]
+pub struct SubManagerOptions {
+    pub decryption: Option<Arc<dyn DecryptionProvider>>,
+}
+
+pub struct Manager {
+    signal_in_tx: mpsc::Sender<SubSignalInput>,
+    // sub request
+}
+
+impl Manager {
+    pub fn new(
+        options: SubManagerOptions,
+    ) -> (
+        Self,
+        ManagerTask, /*,impl Stream<Item = SubSignalOutput>, impl Stream<Item = DataTrack<Remote>>*/
+    ) {
+        todo!()
+    }
+
+    /// Handles a signal message from the SFU.
+    ///
+    /// In order to function correctly, all message types enumerated in [`SubSignalInput`]
+    /// must be forwarded here.
+    ///
+    pub fn handle_signal(&self, message: SubSignalInput) -> Result<(), InternalError> {
+        Ok(self.signal_in_tx.try_send(message).context("Failed to handle signal input")?)
+    }
+}
+
+pub struct ManagerTask {
+    decryption: Option<Arc<dyn DecryptionProvider>>,
+}
+
+impl ManagerTask {
+    pub async fn run(mut self) -> Result<(), InternalError> {
+        Ok(())
+    }
+}
+
+pub enum SubSignalInput {}
+pub enum SubSignalOutput {}
