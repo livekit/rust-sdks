@@ -255,6 +255,7 @@ impl ManagerTask {
             PubSignalInput::PublishResponse(res) => self.handle_publish_response(res),
             PubSignalInput::UnpublishResponse(res) => self.handle_unpublish_response(res),
             PubSignalInput::RequestResponse(res) => self.handle_request_response(res),
+            PubSignalInput::SyncState(res) => self.handle_sync_state(res),
         }
     }
 
@@ -345,6 +346,17 @@ impl ManagerTask {
         }
         Ok(())
     }
+
+    fn handle_sync_state(
+        &mut self,
+        res: proto::SyncState
+    ) -> Result<(), InternalError> {
+        for res in res.publish_data_tracks {
+            // Forward to standard response handler
+            self.handle_publish_response(res)?
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, FromVariants)]
@@ -366,6 +378,7 @@ pub enum PubSignalInput {
     PublishResponse(proto::PublishDataTrackResponse),
     UnpublishResponse(proto::UnpublishDataTrackResponse),
     RequestResponse(proto::RequestResponse),
+    SyncState(proto::SyncState)
 }
 
 impl DataTrackOptions {
