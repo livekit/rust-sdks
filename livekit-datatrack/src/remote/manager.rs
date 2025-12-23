@@ -15,10 +15,10 @@
 use crate::{DataTrack, DecryptionProvider, InternalError, Remote};
 use anyhow::Context;
 use from_variants::FromVariants;
+use livekit_protocol as proto;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-use tokio_stream::Stream;
-use livekit_protocol as proto;
+use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 #[derive(Debug, Clone)]
 pub(crate) struct TrackInner {
@@ -56,19 +56,39 @@ pub struct SubManagerOptions {
     pub decryption: Option<Arc<dyn DecryptionProvider>>,
 }
 
+/// Manager for remote data tracks.
 pub struct Manager {
     signal_in_tx: mpsc::Sender<SubSignalInput>,
     // sub request
 }
 
 impl Manager {
+    const CH_BUFFER_SIZE: usize = 4;
+
     pub fn new(
         options: SubManagerOptions,
     ) -> (
         Self,
-        ManagerTask, /*,impl Stream<Item = SubSignalOutput>, impl Stream<Item = DataTrack<Remote>>*/
+        ManagerTask,
+        impl Stream<Item = SubSignalOutput>,
+        impl Stream<Item = DataTrack<Remote>>,
     ) {
-        todo!()
+        let (signal_in_tx, signal_in_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
+        let (signal_out_tx, signal_out_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
+        let (track_out_tx, track_out_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
+
+        let manager = Manager { signal_in_tx };
+        let task = ManagerTask {
+            decryption: options.decryption,
+            signal_in_rx,
+            signal_out_tx,
+            track_out_tx,
+        };
+
+        let signal_out_stream = ReceiverStream::new(signal_out_rx);
+        let track_out_stream = ReceiverStream::new(track_out_rx);
+
+        (manager, task, signal_out_stream, track_out_stream)
     }
 
     /// Handles a signal message from the SFU.
@@ -83,6 +103,9 @@ impl Manager {
 
 pub struct ManagerTask {
     decryption: Option<Arc<dyn DecryptionProvider>>,
+    signal_in_rx: mpsc::Receiver<SubSignalInput>,
+    signal_out_tx: mpsc::Sender<SubSignalOutput>,
+    track_out_tx: mpsc::Sender<DataTrack<Remote>>,
 }
 
 impl ManagerTask {
@@ -94,7 +117,7 @@ impl ManagerTask {
 /// Signal message produced by [`SubManager`] to be forwarded to the SFU.
 #[derive(Debug, FromVariants)]
 pub enum SubSignalOutput {
-    UpdateSubscription(proto::UpdateDataSubscription)
+    UpdateSubscription(proto::UpdateDataSubscription),
 }
 
 /// Signal message received from the SFU handled by [`SubManager`].
@@ -102,5 +125,5 @@ pub enum SubSignalOutput {
 pub enum SubSignalInput {
     ParticipantUpdate(proto::ParticipantUpdate),
     UnpublishResponse(proto::UnpublishDataTrackResponse),
-    SubscriberHandles(proto::DataTrackSubscriberHandles)
+    SubscriberHandles(proto::DataTrackSubscriberHandles),
 }
