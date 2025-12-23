@@ -18,7 +18,7 @@ use bytes::Bytes;
 ///
 /// Construct using [`DataTrackFrameBuilder`].
 ///
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DataTrackFrame {
     pub(crate) payload: Bytes,
     pub(crate) user_timestamp: Option<u64>,
