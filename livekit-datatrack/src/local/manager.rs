@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use super::Local;
-use crate::{
-    dtp, DataTrack, DataTrackFrame, DataTrackInfo, DataTrackOptions, EncryptionProvider,
-    InternalError, PublishError, PublishFrameError, PublishFrameErrorReason,
-};
 use crate::dtp::TrackHandle;
+use crate::{
+    dtp, DataTrack, DataTrackFrame, DataTrackInfo, DataTrackOptions, DataTrackState,
+    EncryptionProvider, InternalError, PublishError, PublishFrameError, PublishFrameErrorReason,
+};
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use from_variants::FromVariants;
@@ -29,13 +29,6 @@ use tokio::{
     time::timeout,
 };
 use tokio_stream::wrappers::ReceiverStream;
-
-// TODO: relocate
-#[derive(Debug, Clone, Copy)]
-pub enum DataTrackState {
-    Published,
-    Unpublished { sfu_initiated: bool },
-}
 
 #[derive(Debug, Clone)]
 pub(crate) struct TrackInner {
@@ -157,8 +150,7 @@ impl Manager {
 
     pub fn new(
         options: PubManagerOptions,
-    ) -> (Self, ManagerTask, impl Stream<Item = PubSignalOutput>, impl Stream<Item = Bytes>)
-    {
+    ) -> (Self, ManagerTask, impl Stream<Item = PubSignalOutput>, impl Stream<Item = Bytes>) {
         let (pub_req_tx, pub_req_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
         let (signal_in_tx, signal_in_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
         let (signal_out_tx, signal_out_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);

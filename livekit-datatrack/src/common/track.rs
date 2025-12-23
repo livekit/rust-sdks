@@ -25,6 +25,12 @@ pub struct DataTrackInfo {
     pub(crate) uses_e2ee: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum DataTrackState {
+    Published,
+    Unpublished { sfu_initiated: bool },
+}
+
 impl DataTrackInfo {
     /// Unique track identifier.
     pub fn sid(&self) -> &str {
