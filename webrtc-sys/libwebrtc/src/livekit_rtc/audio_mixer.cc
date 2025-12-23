@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "livekit/audio_mixer.h"
+#include "livekit_rtc/audio_mixer.h"
 
 #include <iostream>
 #include <memory>
@@ -22,7 +22,6 @@
 #include "api/audio/audio_frame.h"
 #include "api/audio/audio_mixer.h"
 #include "modules/audio_mixer/audio_mixer_impl.h"
-#include "webrtc-sys/src/audio_mixer.rs.h"
 
 namespace livekit {
 
@@ -30,8 +29,8 @@ AudioMixer::AudioMixer() {
   audio_mixer_ = webrtc::AudioMixerImpl::Create();
 }
 
-void AudioMixer::add_source(rust::Box<AudioMixerSourceWrapper> source) {
-  auto native_source = std::make_shared<AudioMixerSource>(std::move(source));
+void AudioMixer::add_source(AudioMixerSourceWrapper* source, void* userdata) {
+  auto native_source = std::make_shared<AudioMixerSource>(source, userdata);
 
   webrtc::MutexLock lock(&sources_mutex_);
   audio_mixer_->AddSource(native_source.get());
@@ -63,15 +62,16 @@ std::unique_ptr<AudioMixer> create_audio_mixer() {
   return std::make_unique<AudioMixer>();
 }
 
-AudioMixerSource::AudioMixerSource(rust::Box<AudioMixerSourceWrapper> source)
-    : source_(std::move(source)) {}
+AudioMixerSource::AudioMixerSource(AudioMixerSourceWrapper* source,
+                                   void* userdata)
+    : source_(source), userdata_(userdata) {}
 
 int AudioMixerSource::Ssrc() const {
-  return source_->ssrc();
+  return source_->getSsrc(userdata_);
 }
 
 int AudioMixerSource::PreferredSampleRate() const {
-  return source_->preferred_sample_rate();
+  return source_->preferredSampleRate(userdata_);
 }
 
 webrtc::AudioMixer::Source::AudioFrameInfo
@@ -79,8 +79,8 @@ AudioMixerSource::GetAudioFrameWithInfo(int sample_rate,
                                         webrtc::AudioFrame* audio_frame) {
   NativeAudioFrame frame(audio_frame);
 
-  livekit::AudioFrameInfo result =
-      source_->get_audio_frame_with_info(sample_rate, frame);
+  livekit::AudioFrameInfo result = source_->getAudioFrameWithInfo(
+      sample_rate, static_cast<lkNativeAudioFrame*>(&frame), userdata_);
 
   if (result == livekit::AudioFrameInfo::Normal) {
     return webrtc::AudioMixer::Source::AudioFrameInfo::kNormal;

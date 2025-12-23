@@ -39,6 +39,7 @@ lk_sources = [
   "stats.cc",
   "desktop_capturer.cc",
   "frame_cryptor.cc",
+  "audio_mixer.cc",
 ]
 
 if (is_mac) {

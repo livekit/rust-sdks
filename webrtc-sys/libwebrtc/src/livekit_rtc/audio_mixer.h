@@ -1,0 +1,82 @@
+#ifndef LIVEKIT_AUDIO_MIXER_H
+#define LIVEKIT_AUDIO_MIXER_H
+
+#include <memory>
+
+#include "api/audio/audio_mixer.h"
+#include "api/scoped_refptr.h"
+#include "livekit_rtc/include/capi.h"
+#include "modules/audio_mixer/audio_mixer_impl.h"
+#include "modules/audio_processing/audio_buffer.h"
+#include "rtc_base/synchronization/mutex.h"
+
+namespace livekit {
+
+typedef enum {
+  Normal,
+  Muted,
+  Error,
+} AudioFrameInfo;
+
+typedef struct {
+  int32_t (*getSsrc)(void* userdata);
+  int32_t (*preferredSampleRate)(void* userdata);
+  AudioFrameInfo (*getAudioFrameWithInfo)(int32_t targetSampleRate,
+                                          lkNativeAudioFrame* frame,
+                                          void* userdata);
+} AudioMixerSourceWrapper;
+
+class NativeAudioFrame {
+ public:
+  NativeAudioFrame(webrtc::AudioFrame* frame) : frame_(frame) {}
+  void update_frame(uint32_t timestamp,
+                    const int16_t* data,
+                    size_t samples_per_channel,
+                    int sample_rate_hz,
+                    size_t num_channels);
+
+ private:
+  webrtc::AudioFrame* frame_;
+};
+
+class AudioMixerSource : public webrtc::AudioMixer::Source {
+ public:
+  AudioMixerSource(AudioMixerSourceWrapper* source, void* userdata);
+
+  AudioFrameInfo GetAudioFrameWithInfo(int sample_rate_hz,
+                                       webrtc::AudioFrame* audio_frame) override;
+
+  int Ssrc() const override;
+
+  int PreferredSampleRate() const override;
+
+  ~AudioMixerSource() {}
+
+ private:
+  AudioMixerSourceWrapper* source_;
+  void* userdata_;
+};
+
+class AudioMixer {
+ public:
+  AudioMixer();
+
+  void add_source(AudioMixerSourceWrapper* source, void* userdata);
+
+  void remove_source(int ssrc);
+
+  size_t mix(size_t num_channels);
+  const int16_t* data() const;
+
+ private:
+  mutable webrtc::Mutex sources_mutex_;
+  webrtc::AudioFrame frame_;
+  std::vector<std::shared_ptr<AudioMixerSource>> sources_;
+  rtc::scoped_refptr<webrtc::AudioMixer> audio_mixer_;
+};
+
+std::unique_ptr<AudioMixer> create_audio_mixer();
+
+}  // namespace livekit
+
+#endif  // LIVEKIT_AUDIO_MIXER_H
