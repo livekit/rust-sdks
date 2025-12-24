@@ -18,8 +18,8 @@ use super::{
 };
 use crate::dtp::TrackHandle;
 use crate::{
-    dtp, DataTrack, DataTrackFrame, DataTrackInfo, DataTrackOptions, DataTrackState,
-    EncryptionProvider, InternalError, PublishError, PublishFrameError, PublishFrameErrorReason,
+    dtp, DataTrack, DataTrackInfo, DataTrackOptions, DataTrackState, EncryptionProvider,
+    InternalError, PublishError,
 };
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
