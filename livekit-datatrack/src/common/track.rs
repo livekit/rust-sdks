@@ -16,7 +16,7 @@ use from_variants::FromVariants;
 use std::{marker::PhantomData, sync::Arc};
 use crate::dtp::TrackHandle;
 
-/// Information about a data track.
+/// Information about a published data track.
 #[derive(Debug, Clone)]
 pub struct DataTrackInfo {
     pub(crate) sid: String, // TODO: use shared ID type

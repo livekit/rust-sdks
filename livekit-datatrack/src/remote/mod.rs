@@ -16,12 +16,13 @@ use crate::{DataTrack, DataTrackInfo, DataTrackInner};
 use std::{marker::PhantomData, sync::Arc};
 
 pub(crate) mod manager;
+pub(crate) mod proto;
 
 /// Data track published by a remote participant.
 pub type RemoteDataTrack = DataTrack<Remote>;
 
 /// Marker type indicating a [`DataTrack`] belongs to a remote participant.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Remote;
 
 impl DataTrack<Remote> {

@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{DataTrack, DecryptionProvider, InternalError, Remote};
+use crate::{
+    dtp::TrackHandle, DataTrack, DataTrackInfo, DecryptionProvider, InternalError, Remote,
+};
 use anyhow::Context;
 use bytes::Bytes;
 use from_variants::FromVariants;
-use livekit_protocol as proto;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
@@ -53,115 +54,120 @@ impl TrackTask {
 }
 
 #[derive(Debug)]
-pub struct SubManagerOptions {
+pub struct ManagerOptions {
     pub decryption: Option<Arc<dyn DecryptionProvider>>,
 }
 
 /// Manager for remote data tracks.
 pub struct Manager {
-    signal_in_tx: mpsc::Sender<SubSignalInput>,
-    packet_in_tx: mpsc::Sender<Bytes>,
-    // sub request
+    event_in_tx: mpsc::Sender<InputEvent>, // sub request
 }
 
 impl Manager {
     const CH_BUFFER_SIZE: usize = 4;
 
-    pub fn new(
-        options: SubManagerOptions,
-    ) -> (
-        Self,
-        ManagerTask,
-        impl Stream<Item = SubSignalOutput>,
-        impl Stream<Item = DataTrack<Remote>>,
-    ) {
-        let (signal_in_tx, signal_in_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
-        let (signal_out_tx, signal_out_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
-        let (track_out_tx, track_out_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
-        let (packet_in_tx, packet_in_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
+    /// Creates a new manager with the specified options.
+    pub fn new(options: ManagerOptions) -> (Self, ManagerTask, impl Stream<Item = OutputEvent>) {
+        let (event_in_tx, event_in_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
+        let (event_out_tx, event_out_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
 
-        let manager = Manager { signal_in_tx, packet_in_tx };
-        let task = ManagerTask {
-            decryption: options.decryption,
-            signal_in_rx,
-            signal_out_tx,
-            track_out_tx,
-            packet_in_rx
-        };
+        let manager = Manager { event_in_tx };
+        let task = ManagerTask { decryption: options.decryption, event_in_rx, event_out_tx };
 
-        let signal_out_stream = ReceiverStream::new(signal_out_rx);
-        let track_out_stream = ReceiverStream::new(track_out_rx);
-
-        (manager, task, signal_out_stream, track_out_stream)
+        let event_out_stream = ReceiverStream::new(event_out_rx);
+        (manager, task, event_out_stream)
     }
 
-    /// Handles a signal message from the SFU.
-    ///
-    /// In order to function correctly, all message types enumerated in [`SubSignalInput`]
-    /// must be forwarded here.
-    ///
-    pub fn handle_signal(&self, message: SubSignalInput) -> Result<(), InternalError> {
-        Ok(self.signal_in_tx.try_send(message).context("Failed to handle signal input")?)
-    }
-
-    /// Handles a packet received over the transport.
-    pub fn handle_packet(&self, packet: Bytes) -> Result<(), InternalError> {
-        Ok(self.packet_in_tx.try_send(packet).context("Failed to packet")?)
+    /// Handles an external event.
+    pub fn handle_event(&self, event: InputEvent) -> Result<(), InternalError> {
+        Ok(self.event_in_tx.try_send(event).context("Failed to send input event")?)
     }
 }
 
 pub struct ManagerTask {
     decryption: Option<Arc<dyn DecryptionProvider>>,
-    signal_in_rx: mpsc::Receiver<SubSignalInput>,
-    signal_out_tx: mpsc::Sender<SubSignalOutput>,
-    track_out_tx: mpsc::Sender<DataTrack<Remote>>,
-    packet_in_rx: mpsc::Receiver<Bytes>
+    event_in_rx: mpsc::Receiver<InputEvent>,
+    event_out_tx: mpsc::Sender<OutputEvent>,
 }
 
 impl ManagerTask {
-    pub async fn run(mut self) -> Result<(), InternalError> {
-        loop {
-            tokio::select! {
-                biased; // Handle signal input first
-                // TODO: check cancellation
-                Some(signal) = self.signal_in_rx.recv() => self.handle_signal(signal),
-                Some(packet) = self.packet_in_rx.recv() => self.handle_packet(packet),
-                else => Ok(())
-            }
-            .inspect_err(|err| log::error!("{}", err))
-            .ok();
+    pub async fn run(mut self) {
+        // TODO: check cancellation
+        while let Some(event) = self.event_in_rx.recv().await {
+            let Err(err) = self.handle_event(event) else { continue };
+            log::error!("Failed to handle input event: {}", err);
         }
     }
 
-    fn handle_packet(&mut self, packet: Bytes) -> Result<(), InternalError> {
-        todo!()
-    }
-
-    fn handle_signal(&mut self, message: SubSignalInput) -> Result<(), InternalError> {
-        match message {
-            SubSignalInput::ParticipantUpdate(message) => self.handle_participant_update(message),
-            SubSignalInput::SubscriberHandles(message) => self.handle_subscriber_handles(message)
+    fn handle_event(&mut self, event: InputEvent) -> Result<(), InternalError> {
+        match event {
+            InputEvent::PublicationsUpdated(event) => self.handle_publications_updated(event),
+            InputEvent::SubscriberHandles(event) => self.handle_subscriber_handles(event),
+            InputEvent::PacketReceived(bytes) => self.handle_packet_received(bytes),
         }
     }
 
-    fn handle_participant_update(&mut self, message: proto::ParticipantUpdate) -> Result<(), InternalError> {
+    fn handle_publications_updated(
+        &mut self,
+        event: PublicationsUpdatedEvent,
+    ) -> Result<(), InternalError> {
         todo!()
     }
 
-    fn handle_subscriber_handles(&mut self, message: proto::DataTrackSubscriberHandles) -> Result<(), InternalError> {
+    fn handle_subscriber_handles(
+        &mut self,
+        event: SubscriberHandlesEvent,
+    ) -> Result<(), InternalError> {
+        todo!()
+    }
+
+    fn handle_packet_received(&mut self, bytes: Bytes) -> Result<(), InternalError> {
         todo!()
     }
 }
 
-/// Signal message produced by [`Manager`] to be forwarded to the SFU.
-#[derive(Debug, FromVariants)]
-pub enum SubSignalOutput {
-    UpdateSubscription(proto::UpdateDataSubscription),
+/// An external event handled by [`Manager`].
+#[derive(Debug, Clone, FromVariants)]
+pub enum InputEvent {
+    PublicationsUpdated(PublicationsUpdatedEvent),
+    SubscriberHandles(SubscriberHandlesEvent),
+    /// Packet has been received over the transport.
+    PacketReceived(Bytes),
 }
 
-/// Signal message received from the SFU handled by [`Manager`].
-#[derive(Debug, FromVariants)]
-pub enum SubSignalInput {
-    ParticipantUpdate(proto::ParticipantUpdate),
-    SubscriberHandles(proto::DataTrackSubscriberHandles),
+/// An event produced by [`Manager`] requiring external action.
+#[derive(Debug, Clone, FromVariants)]
+pub enum OutputEvent {
+    SubscriptionUpdated(SubscriptionUpdatedEvent),
+    /// Track has been published and a track object has been created for
+    /// the user to interact with.
+    TrackAvailable(DataTrack<Remote>),
+}
+
+/// Track publications updated for a specific participant.
+///
+/// This is used to detect newly published tracks as well as
+/// tracks that have been unpublished.
+///
+#[derive(Debug, Clone)]
+pub struct PublicationsUpdatedEvent {
+    /// Mapping between participant identity and data tracks published by that participant.
+    pub tracks_by_participant: HashMap<String, Vec<DataTrackInfo>>,
+}
+
+/// Subscriber handles available or updated.
+#[derive(Debug, Clone)]
+pub struct SubscriberHandlesEvent {
+    /// Mapping between track handles attached to incoming packets to the
+    /// track SIDs they belong to.
+    pub mapping: HashMap<TrackHandle, String>,
+}
+
+/// User subscribed or unsubscribed to a track.
+#[derive(Debug, Clone)]
+pub struct SubscriptionUpdatedEvent {
+    /// Identifier of the affected track.
+    pub track_sid: String,
+    /// Whether to subscribe or unsubscribe.
+    pub subscribe: bool,
 }

@@ -17,8 +17,9 @@ use thiserror::Error;
 pub mod e2ee;
 pub mod frame;
 pub mod track;
+pub mod proto;
 
-pub use {e2ee::*, frame::*, track::*};
+pub use {e2ee::*, frame::*, track::*, proto::*};
 
 #[derive(Debug, Error)]
 #[error(transparent)]

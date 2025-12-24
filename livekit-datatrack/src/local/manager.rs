@@ -414,24 +414,10 @@ impl From<proto::request_response::Reason> for PublishError {
 }
 
 impl TryInto<DataTrackInfo> for proto::PublishDataTrackResponse {
-    type Error = anyhow::Error;
+    type Error = InternalError;
     fn try_into(self) -> Result<DataTrackInfo, Self::Error> {
         let info = self.info.context("Missing info")?;
         info.try_into()
-    }
-}
-
-impl TryInto<DataTrackInfo> for proto::DataTrackInfo {
-    type Error = anyhow::Error;
-
-    fn try_into(self) -> Result<DataTrackInfo, Self::Error> {
-        let handle: TrackHandle = self.pub_handle.try_into()?;
-        let uses_e2ee = match self.encryption() {
-            proto::encryption::Type::None => false,
-            proto::encryption::Type::Gcm => true,
-            other => Err(anyhow!("Unsupported E2EE type: {:?}", other))?,
-        };
-        Ok(DataTrackInfo { handle, sid: self.sid, name: self.name, uses_e2ee })
     }
 }
 
