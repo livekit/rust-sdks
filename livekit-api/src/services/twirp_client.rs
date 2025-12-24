@@ -103,9 +103,8 @@ impl TwirpClient {
     ) -> TwirpResult<R> {
         let mut url = url::Url::parse(&self.host)?;
 
-        if let Ok(mut segs) = url.path_segments_mut() {
-            segs.push(&format!("{}/{}.{}/{}", self.prefix, self.pkg, service, method));
-        }
+        // Fix: Use set_path instead of path_segments_mut().push() to avoid URL-encoding slashes
+        url.set_path(&format!("{}/{}.{}/{}", self.prefix, self.pkg, service, method));
 
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/protobuf"));
 
