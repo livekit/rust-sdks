@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::{
-    track::{TrackInner, TrackTask},
+    track::{LocalTrackInner, LocalTrackTask},
     Local,
 };
 use crate::dtp::TrackHandle;
@@ -178,7 +178,7 @@ impl ManagerTask {
         let (state_tx, state_rx) = watch::channel(DataTrackState::Published);
         let info = Arc::new(info);
 
-        let task = TrackTask {
+        let task = LocalTrackTask {
             // TODO: handle cancellation
             packetizer: dtp::Packetizer::new(info.handle, 16_000),
             encryption: self.encryption.clone(),
@@ -191,7 +191,7 @@ impl ManagerTask {
         livekit_runtime::spawn(task.run());
         self.active_publications.insert(info.handle, state_tx.clone());
 
-        let handle = TrackInner { frame_tx, state_tx };
+        let handle = LocalTrackInner { frame_tx, state_tx };
         DataTrack::<Local>::new(info, handle)
     }
 

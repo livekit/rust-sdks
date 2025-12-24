@@ -27,11 +27,11 @@ pub type LocalDataTrack = DataTrack<Local>;
 pub struct Local;
 
 impl DataTrack<Local> {
-    pub(crate) fn new(info: Arc<DataTrackInfo>, inner: track::TrackInner) -> Self {
+    pub(crate) fn new(info: Arc<DataTrackInfo>, inner: track::LocalTrackInner) -> Self {
         Self { info, inner: inner.into(), _location: PhantomData }
     }
 
-    fn inner(&self) -> &track::TrackInner {
+    fn inner(&self) -> &track::LocalTrackInner {
         match &self.inner {
             DataTrackInner::Local(track) => track,
             DataTrackInner::Remote(_) => unreachable!(), // Safe (type state)

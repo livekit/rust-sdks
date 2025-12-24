@@ -15,22 +15,22 @@
 use crate::InternalError;
 
 #[derive(Debug, Clone)]
-pub(crate) struct TrackInner {
+pub(crate) struct RemoteTrackInner {
     // frame_rx
     // state...
 }
 
-impl TrackInner {
+impl RemoteTrackInner {
     // manage subscription
 }
 
-impl Drop for TrackInner {
+impl Drop for RemoteTrackInner {
     fn drop(&mut self) {
         // unsubscribe
     }
 }
 
-struct TrackTask {
+struct RemoteTrackTask {
     // depacketizer
     // decryption
     // state_rx (from manager)
@@ -39,7 +39,7 @@ struct TrackTask {
     // signal_out_tx
 }
 
-impl TrackTask {
+impl RemoteTrackTask {
     async fn run(mut self) -> Result<(), InternalError> {
         Ok(())
     }

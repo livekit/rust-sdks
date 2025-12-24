@@ -24,12 +24,12 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 
 #[derive(Debug, Clone)]
-pub(crate) struct TrackInner {
+pub(crate) struct LocalTrackInner {
     pub frame_tx: mpsc::Sender<DataTrackFrame>,
     pub state_tx: watch::Sender<DataTrackState>,
 }
 
-impl TrackInner {
+impl LocalTrackInner {
     pub fn publish(&self, frame: DataTrackFrame) -> Result<(), PublishFrameError> {
         if !self.is_published() {
             return Err(PublishFrameError::new(frame, PublishFrameErrorReason::TrackUnpublished));
@@ -51,7 +51,7 @@ impl TrackInner {
     }
 }
 
-impl Drop for TrackInner {
+impl Drop for LocalTrackInner {
     fn drop(&mut self) {
         // Implicit unpublish when handle dropped.
         self.unpublish();
@@ -59,7 +59,7 @@ impl Drop for TrackInner {
 }
 
 /// Task responsible for operating an individual published data track.
-pub(super) struct TrackTask {
+pub(super) struct LocalTrackTask {
     // TODO: packetizer, e2ee_provider, rate tracking, etc.
     pub packetizer: dtp::Packetizer,
     pub encryption: Option<Arc<dyn EncryptionProvider>>,
@@ -70,7 +70,7 @@ pub(super) struct TrackTask {
     pub signal_out_tx: mpsc::Sender<PubSignalOutput>,
 }
 
-impl TrackTask {
+impl LocalTrackTask {
     pub async fn run(mut self) -> Result<(), InternalError> {
         let mut state = DataTrackState::Published;
         while matches!(state, DataTrackState::Published) {
