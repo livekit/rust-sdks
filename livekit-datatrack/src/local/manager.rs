@@ -12,15 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
-    LocalTrackInner,
-    pipeline::{LocalTrackTask}
-};
-use crate::{LocalDataTrack, dtp::TrackHandle};
+use super::{pipeline::LocalTrackTask, LocalTrackInner};
 use crate::{
-    dtp, DataTrack, DataTrackInfo, DataTrackOptions, DataTrackState, EncryptionProvider,
-    InternalError, PublishError,
+    dtp, DataTrackInfo, DataTrackOptions, DataTrackState, EncryptionProvider, InternalError,
+    PublishError,
 };
+use crate::{dtp::TrackHandle, LocalDataTrack};
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use from_variants::FromVariants;
@@ -32,8 +29,6 @@ use tokio::{
     time::timeout,
 };
 use tokio_stream::wrappers::ReceiverStream;
-
-
 
 #[derive(Debug)]
 pub struct ManagerOptions {
