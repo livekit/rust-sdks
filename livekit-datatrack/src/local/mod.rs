@@ -31,11 +31,11 @@ pub struct Local;
 
 impl DataTrack<Local> {
     pub(crate) fn new(info: Arc<DataTrackInfo>, inner: LocalTrackInner) -> Self {
-        Self { info, inner: inner.into(), _location: PhantomData }
+        Self { info, inner: Arc::new(inner.into()), _location: PhantomData }
     }
 
     fn inner(&self) -> &LocalTrackInner {
-        match &self.inner {
+        match &*self.inner {
             DataTrackInner::Local(track) => track,
             DataTrackInner::Remote(_) => unreachable!(), // Safe (type state)
         }

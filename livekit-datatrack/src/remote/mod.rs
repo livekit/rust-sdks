@@ -30,11 +30,11 @@ pub struct Remote;
 
 impl DataTrack<Remote> {
     pub(crate) fn new(info: Arc<DataTrackInfo>, inner: RemoteTrackInner) -> Self {
-        Self { info, inner: inner.into(), _location: PhantomData }
+        Self { info, inner: Arc::new(inner.into()), _location: PhantomData }
     }
 
     fn inner(&self) -> &RemoteTrackInner {
-        match &self.inner {
+        match &*self.inner {
             DataTrackInner::Remote(inner) => inner,
             DataTrackInner::Local(_) => unreachable!(), // Safe (type state)
         }

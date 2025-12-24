@@ -49,7 +49,7 @@ impl DataTrackInfo {
 #[derive(Debug, Clone)]
 pub struct DataTrack<L> {
     pub(crate) info: Arc<DataTrackInfo>,
-    pub(crate) inner: DataTrackInner,
+    pub(crate) inner: Arc<DataTrackInner>,
     /// Marker indicating local or remote.
     pub(crate) _location: PhantomData<L>,
 }
