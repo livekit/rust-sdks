@@ -19,8 +19,6 @@ mod manager;
 mod proto;
 mod pipeline;
 
-pub(crate) use pipeline::RemoteTrackInner;
-
 /// Data track published by a remote participant.
 pub type RemoteDataTrack = DataTrack<Remote>;
 
@@ -42,3 +40,19 @@ impl DataTrack<Remote> {
 }
 
 impl DataTrack<Remote> {}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RemoteTrackInner {
+    // frame_rx
+    // state...
+}
+
+impl RemoteTrackInner {
+    // manage subscription
+}
+
+impl Drop for RemoteTrackInner {
+    fn drop(&mut self) {
+        // unsubscribe
+    }
+}

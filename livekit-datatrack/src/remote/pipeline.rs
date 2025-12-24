@@ -14,22 +14,6 @@
 
 use crate::InternalError;
 
-#[derive(Debug, Clone)]
-pub(crate) struct RemoteTrackInner {
-    // frame_rx
-    // state...
-}
-
-impl RemoteTrackInner {
-    // manage subscription
-}
-
-impl Drop for RemoteTrackInner {
-    fn drop(&mut self) {
-        // unsubscribe
-    }
-}
-
 struct RemoteTrackTask {
     // depacketizer
     // decryption
