@@ -15,7 +15,6 @@
 use super::manager::PubSignalOutput;
 use crate::{
     dtp, DataTrackFrame, DataTrackInfo, DataTrackState, EncryptionProvider, InternalError,
-    PublishFrameError, PublishFrameErrorReason,
 };
 use anyhow::Context;
 use bytes::Bytes;
@@ -23,44 +22,8 @@ use livekit_protocol as proto;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 
-#[derive(Debug, Clone)]
-pub(crate) struct LocalTrackInner {
-    pub(super) frame_tx: mpsc::Sender<DataTrackFrame>,
-    pub(super) state_tx: watch::Sender<DataTrackState>,
-}
-
-impl LocalTrackInner {
-    pub fn publish(&self, frame: DataTrackFrame) -> Result<(), PublishFrameError> {
-        if !self.is_published() {
-            return Err(PublishFrameError::new(frame, PublishFrameErrorReason::TrackUnpublished));
-        }
-        self.frame_tx.try_send(frame).map_err(|err| {
-            PublishFrameError::new(err.into_inner(), PublishFrameErrorReason::Dropped)
-        })
-    }
-
-    pub fn is_published(&self) -> bool {
-        matches!(*self.state_tx.borrow(), DataTrackState::Published)
-    }
-
-    pub fn unpublish(&self) {
-        self.state_tx
-            .send(DataTrackState::Unpublished { sfu_initiated: false })
-            .inspect_err(|err| log::error!("Failed to update state to unsubscribed: {err}"))
-            .ok();
-    }
-}
-
-impl Drop for LocalTrackInner {
-    fn drop(&mut self) {
-        // Implicit unpublish when handle dropped.
-        self.unpublish();
-    }
-}
-
 /// Task responsible for operating an individual published data track.
 pub(super) struct LocalTrackTask {
-    // TODO: packetizer, e2ee_provider, rate tracking, etc.
     pub packetizer: dtp::Packetizer,
     pub encryption: Option<Arc<dyn EncryptionProvider>>,
     pub info: Arc<DataTrackInfo>,

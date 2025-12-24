@@ -12,14 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError};
+use crate::{
+    DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, DataTrackState, InternalError,
+};
 use std::{fmt, marker::PhantomData, sync::Arc};
 use thiserror::Error;
+use tokio::sync::{mpsc, watch};
 
 mod manager;
 mod track;
-
-pub(crate) use track::LocalTrackInner;
 
 /// Data track published by the local participant.
 pub type LocalDataTrack = DataTrack<Local>;
@@ -44,17 +45,45 @@ impl DataTrack<Local> {
 impl DataTrack<Local> {
     /// Publish a frame onto the track.
     pub fn publish(&self, frame: impl Into<DataTrackFrame>) -> Result<(), PublishFrameError> {
-        self.inner().publish(frame.into())
+        let frame = frame.into();
+        if !self.is_published() {
+            return Err(PublishFrameError::new(frame, PublishFrameErrorReason::TrackUnpublished));
+        }
+        self.inner().frame_tx.try_send(frame).map_err(|err| {
+            PublishFrameError::new(err.into_inner(), PublishFrameErrorReason::Dropped)
+        })
     }
 
     /// Whether or not the track is still published.
     pub fn is_published(&self) -> bool {
-        self.inner().is_published()
+        matches!(*self.inner().state_tx.borrow(), DataTrackState::Published)
     }
 
     /// Unpublish the track.
     pub fn unpublish(self) {
-        self.inner().unpublish()
+        self.inner().local_unpublish();
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct LocalTrackInner {
+    pub frame_tx: mpsc::Sender<DataTrackFrame>,
+    pub state_tx: watch::Sender<DataTrackState>,
+}
+
+impl LocalTrackInner {
+    fn local_unpublish(&self) {
+        self.state_tx
+            .send(DataTrackState::Unpublished { sfu_initiated: false })
+            .inspect_err(|err| log::error!("Failed to update state to unsubscribed: {err}"))
+            .ok();
+    }
+}
+
+impl Drop for LocalTrackInner {
+    fn drop(&mut self) {
+        // Implicit unpublish when handle dropped.
+        self.local_unpublish();
     }
 }
 
