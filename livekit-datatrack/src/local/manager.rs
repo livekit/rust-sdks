@@ -14,7 +14,7 @@
 
 use super::{
     LocalTrackInner,
-    track::{LocalTrackTask},
+    pipeline::{LocalTrackTask},
     Local,
 };
 use crate::dtp::TrackHandle;

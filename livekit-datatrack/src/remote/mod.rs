@@ -17,9 +17,9 @@ use std::{marker::PhantomData, sync::Arc};
 
 mod manager;
 mod proto;
-mod track;
+mod pipeline;
 
-pub(crate) use track::RemoteTrackInner;
+pub(crate) use pipeline::RemoteTrackInner;
 
 /// Data track published by a remote participant.
 pub type RemoteDataTrack = DataTrack<Remote>;

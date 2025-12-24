@@ -20,7 +20,7 @@ use thiserror::Error;
 use tokio::sync::{mpsc, watch};
 
 mod manager;
-mod track;
+mod pipeline;
 
 /// Data track published by the local participant.
 pub type LocalDataTrack = DataTrack<Local>;
