@@ -56,8 +56,8 @@ pub struct DataTrack<L> {
 
 #[derive(Debug, Clone, FromVariants)]
 pub(crate) enum DataTrackInner {
-    Local(crate::local::track::LocalTrackInner),
-    Remote(crate::remote::track::RemoteTrackInner),
+    Local(crate::local::LocalTrackInner),
+    Remote(crate::remote::RemoteTrackInner),
 }
 
 impl<L> DataTrack<L> {

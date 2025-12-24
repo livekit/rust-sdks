@@ -15,9 +15,11 @@
 use crate::{DataTrack, DataTrackInfo, DataTrackInner};
 use std::{marker::PhantomData, sync::Arc};
 
-pub(crate) mod manager;
-pub(crate) mod proto;
-pub(crate) mod track;
+mod manager;
+mod proto;
+mod track;
+
+pub(crate) use track::RemoteTrackInner;
 
 /// Data track published by a remote participant.
 pub type RemoteDataTrack = DataTrack<Remote>;
@@ -27,11 +29,11 @@ pub type RemoteDataTrack = DataTrack<Remote>;
 pub struct Remote;
 
 impl DataTrack<Remote> {
-    pub(crate) fn new(info: Arc<DataTrackInfo>, inner: track::RemoteTrackInner) -> Self {
+    pub(crate) fn new(info: Arc<DataTrackInfo>, inner: RemoteTrackInner) -> Self {
         Self { info, inner: inner.into(), _location: PhantomData }
     }
 
-    fn inner(&self) -> &track::RemoteTrackInner {
+    fn inner(&self) -> &RemoteTrackInner {
         match &self.inner {
             DataTrackInner::Remote(inner) => inner,
             DataTrackInner::Local(_) => unreachable!(), // Safe (type state)

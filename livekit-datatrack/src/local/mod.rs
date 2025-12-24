@@ -16,8 +16,10 @@ use crate::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalEr
 use std::{fmt, marker::PhantomData, sync::Arc};
 use thiserror::Error;
 
-pub(crate) mod manager;
-pub(crate) mod track;
+mod manager;
+mod track;
+
+pub(crate) use track::LocalTrackInner;
 
 /// Data track published by the local participant.
 pub type LocalDataTrack = DataTrack<Local>;
@@ -27,11 +29,11 @@ pub type LocalDataTrack = DataTrack<Local>;
 pub struct Local;
 
 impl DataTrack<Local> {
-    pub(crate) fn new(info: Arc<DataTrackInfo>, inner: track::LocalTrackInner) -> Self {
+    pub(crate) fn new(info: Arc<DataTrackInfo>, inner: LocalTrackInner) -> Self {
         Self { info, inner: inner.into(), _location: PhantomData }
     }
 
-    fn inner(&self) -> &track::LocalTrackInner {
+    fn inner(&self) -> &LocalTrackInner {
         match &self.inner {
             DataTrackInner::Local(track) => track,
             DataTrackInner::Remote(_) => unreachable!(), // Safe (type state)

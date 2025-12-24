@@ -25,8 +25,8 @@ use tokio::sync::{mpsc, watch};
 
 #[derive(Debug, Clone)]
 pub(crate) struct LocalTrackInner {
-    pub frame_tx: mpsc::Sender<DataTrackFrame>,
-    pub state_tx: watch::Sender<DataTrackState>,
+    pub(super) frame_tx: mpsc::Sender<DataTrackFrame>,
+    pub(super) state_tx: watch::Sender<DataTrackState>,
 }
 
 impl LocalTrackInner {
