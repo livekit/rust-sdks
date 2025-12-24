@@ -14,12 +14,12 @@
 
 use thiserror::Error;
 
-pub mod e2ee;
-pub mod frame;
-pub mod proto;
-pub mod track;
+mod e2ee;
+mod frame;
+mod proto;
+mod track;
 
-pub use {e2ee::*, frame::*, proto::*, track::*};
+pub use {e2ee::*, frame::*, track::*};
 
 #[derive(Debug, Error)]
 #[error(transparent)]
