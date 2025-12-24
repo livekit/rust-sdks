@@ -35,7 +35,7 @@ pub enum InputEvent {
 #[derive(Debug, Clone, FromVariants)]
 pub enum OutputEvent {
     SubscriptionUpdated(SubscriptionUpdatedEvent),
-    /// Track has been published and a track object has been created for
+    /// Remote track has been published and a track object has been created for
     /// the user to interact with.
     TrackAvailable(DataTrack<Remote>),
 }

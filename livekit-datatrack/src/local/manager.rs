@@ -14,10 +14,9 @@
 
 use super::{
     LocalTrackInner,
-    pipeline::{LocalTrackTask},
-    Local,
+    pipeline::{LocalTrackTask}
 };
-use crate::dtp::TrackHandle;
+use crate::{LocalDataTrack, dtp::TrackHandle};
 use crate::{
     dtp, DataTrack, DataTrackInfo, DataTrackOptions, DataTrackState, EncryptionProvider,
     InternalError, PublishError,
@@ -37,7 +36,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 
 #[derive(Debug)]
-pub struct PubManagerOptions {
+pub struct ManagerOptions {
     pub encryption: Option<Arc<dyn EncryptionProvider>>,
 }
 
@@ -53,7 +52,7 @@ impl Manager {
     const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 
     pub fn new(
-        options: PubManagerOptions,
+        options: ManagerOptions,
     ) -> (Self, ManagerTask, impl Stream<Item = PubSignalOutput>, impl Stream<Item = Bytes>) {
         let (pub_req_tx, pub_req_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
         let (signal_in_tx, signal_in_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
@@ -91,7 +90,7 @@ impl Manager {
     pub async fn publish_track(
         &self,
         options: DataTrackOptions,
-    ) -> Result<DataTrack<Local>, PublishError> {
+    ) -> Result<LocalDataTrack, PublishError> {
         let (result_tx, result_rx) = oneshot::channel();
         let request = PubRequest { options, result_tx };
         self.pub_req_tx.try_send(request).map_err(|_| PublishError::Disconnected)?;
@@ -107,7 +106,7 @@ impl Manager {
 
 struct PubRequest {
     options: DataTrackOptions,
-    result_tx: oneshot::Sender<Result<DataTrack<Local>, PublishError>>,
+    result_tx: oneshot::Sender<Result<LocalDataTrack, PublishError>>,
 }
 
 pub struct ManagerTask {
@@ -118,7 +117,7 @@ pub struct ManagerTask {
     packet_out_tx: mpsc::Sender<Bytes>,
     handle_allocator: dtp::TrackHandleAllocator,
     pending_publications:
-        HashMap<TrackHandle, oneshot::Sender<Result<DataTrack<Local>, PublishError>>>,
+        HashMap<TrackHandle, oneshot::Sender<Result<LocalDataTrack, PublishError>>>,
     active_publications: HashMap<TrackHandle, watch::Sender<DataTrackState>>,
 }
 
@@ -176,7 +175,7 @@ impl ManagerTask {
         Ok(())
     }
 
-    fn create_local_track(&mut self, info: DataTrackInfo) -> DataTrack<Local> {
+    fn create_local_track(&mut self, info: DataTrackInfo) -> LocalDataTrack {
         let (frame_tx, frame_rx) = mpsc::channel(4); // TODO: tune
         let (state_tx, state_rx) = watch::channel(DataTrackState::Published);
         let info = Arc::new(info);
@@ -195,7 +194,7 @@ impl ManagerTask {
         self.active_publications.insert(info.handle, state_tx.clone());
 
         let handle = LocalTrackInner { frame_tx, state_tx };
-        DataTrack::<Local>::new(info, handle)
+        LocalDataTrack::new(info, handle)
     }
 
     fn handle_request_response(
