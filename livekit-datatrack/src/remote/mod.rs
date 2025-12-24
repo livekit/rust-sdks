@@ -17,6 +17,7 @@ use std::{marker::PhantomData, sync::Arc};
 
 pub(crate) mod manager;
 pub(crate) mod proto;
+pub(crate) mod track;
 
 /// Data track published by a remote participant.
 pub type RemoteDataTrack = DataTrack<Remote>;
@@ -26,11 +27,11 @@ pub type RemoteDataTrack = DataTrack<Remote>;
 pub struct Remote;
 
 impl DataTrack<Remote> {
-    pub(crate) fn new(info: Arc<DataTrackInfo>, inner: manager::TrackInner) -> Self {
+    pub(crate) fn new(info: Arc<DataTrackInfo>, inner: track::TrackInner) -> Self {
         Self { info, inner: inner.into(), _location: PhantomData }
     }
 
-    fn inner(&self) -> &manager::TrackInner {
+    fn inner(&self) -> &track::TrackInner {
         match &self.inner {
             DataTrackInner::Remote(inner) => inner,
             DataTrackInner::Local(_) => unreachable!(), // Safe (type state)
@@ -38,6 +39,4 @@ impl DataTrack<Remote> {
     }
 }
 
-impl DataTrack<Remote> {
-
-}
+impl DataTrack<Remote> {}

@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::dtp::TrackHandle;
 use from_variants::FromVariants;
 use std::{marker::PhantomData, sync::Arc};
-use crate::dtp::TrackHandle;
 
 /// Information about a published data track.
 #[derive(Debug, Clone)]
@@ -56,8 +56,8 @@ pub struct DataTrack<L> {
 
 #[derive(Debug, Clone, FromVariants)]
 pub(crate) enum DataTrackInner {
-    Local(crate::local::manager::TrackInner),
-    Remote(crate::remote::manager::TrackInner),
+    Local(crate::local::track::TrackInner),
+    Remote(crate::remote::track::TrackInner),
 }
 
 impl<L> DataTrack<L> {

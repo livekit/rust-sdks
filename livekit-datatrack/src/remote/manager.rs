@@ -22,35 +22,50 @@ use std::{collections::HashMap, sync::Arc};
 use tokio::sync::mpsc;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
+/// An external event handled by [`Manager`].
+#[derive(Debug, Clone, FromVariants)]
+pub enum InputEvent {
+    PublicationsUpdated(PublicationsUpdatedEvent),
+    SubscriberHandles(SubscriberHandlesEvent),
+    /// Packet has been received over the transport.
+    PacketReceived(Bytes),
+}
+
+/// An event produced by [`Manager`] requiring external action.
+#[derive(Debug, Clone, FromVariants)]
+pub enum OutputEvent {
+    SubscriptionUpdated(SubscriptionUpdatedEvent),
+    /// Track has been published and a track object has been created for
+    /// the user to interact with.
+    TrackAvailable(DataTrack<Remote>),
+}
+
+/// Track publications updated for a specific participant.
+///
+/// This is used to detect newly published tracks as well as
+/// tracks that have been unpublished.
+///
 #[derive(Debug, Clone)]
-pub(crate) struct TrackInner {
-    // frame_rx
-    // state...
+pub struct PublicationsUpdatedEvent {
+    /// Mapping between participant identity and data tracks published by that participant.
+    pub tracks_by_participant: HashMap<String, Vec<DataTrackInfo>>,
 }
 
-impl TrackInner {
-    // manage subscription
+/// Subscriber handles available or updated.
+#[derive(Debug, Clone)]
+pub struct SubscriberHandlesEvent {
+    /// Mapping between track handles attached to incoming packets to the
+    /// track SIDs they belong to.
+    pub mapping: HashMap<TrackHandle, String>,
 }
 
-impl Drop for TrackInner {
-    fn drop(&mut self) {
-        // unsubscribe
-    }
-}
-
-struct TrackTask {
-    // depacketizer
-    // decryption
-    // state_rx (from manager)
-    // frame_tx (to track inner)
-    // packet_in_rx
-    // signal_out_tx
-}
-
-impl TrackTask {
-    async fn run(mut self) -> Result<(), InternalError> {
-        Ok(())
-    }
+/// User subscribed or unsubscribed to a track.
+#[derive(Debug, Clone)]
+pub struct SubscriptionUpdatedEvent {
+    /// Identifier of the affected track.
+    pub track_sid: String,
+    /// Whether to subscribe or unsubscribe.
+    pub subscribe: bool,
 }
 
 #[derive(Debug)]
@@ -124,50 +139,4 @@ impl ManagerTask {
     fn handle_packet_received(&mut self, bytes: Bytes) -> Result<(), InternalError> {
         todo!()
     }
-}
-
-/// An external event handled by [`Manager`].
-#[derive(Debug, Clone, FromVariants)]
-pub enum InputEvent {
-    PublicationsUpdated(PublicationsUpdatedEvent),
-    SubscriberHandles(SubscriberHandlesEvent),
-    /// Packet has been received over the transport.
-    PacketReceived(Bytes),
-}
-
-/// An event produced by [`Manager`] requiring external action.
-#[derive(Debug, Clone, FromVariants)]
-pub enum OutputEvent {
-    SubscriptionUpdated(SubscriptionUpdatedEvent),
-    /// Track has been published and a track object has been created for
-    /// the user to interact with.
-    TrackAvailable(DataTrack<Remote>),
-}
-
-/// Track publications updated for a specific participant.
-///
-/// This is used to detect newly published tracks as well as
-/// tracks that have been unpublished.
-///
-#[derive(Debug, Clone)]
-pub struct PublicationsUpdatedEvent {
-    /// Mapping between participant identity and data tracks published by that participant.
-    pub tracks_by_participant: HashMap<String, Vec<DataTrackInfo>>,
-}
-
-/// Subscriber handles available or updated.
-#[derive(Debug, Clone)]
-pub struct SubscriberHandlesEvent {
-    /// Mapping between track handles attached to incoming packets to the
-    /// track SIDs they belong to.
-    pub mapping: HashMap<TrackHandle, String>,
-}
-
-/// User subscribed or unsubscribed to a track.
-#[derive(Debug, Clone)]
-pub struct SubscriptionUpdatedEvent {
-    /// Identifier of the affected track.
-    pub track_sid: String,
-    /// Whether to subscribe or unsubscribe.
-    pub subscribe: bool,
 }

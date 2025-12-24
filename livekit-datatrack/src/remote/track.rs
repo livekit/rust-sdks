@@ -12,15 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use thiserror::Error;
+use crate::InternalError;
 
-pub mod e2ee;
-pub mod frame;
-pub mod proto;
-pub mod track;
+#[derive(Debug, Clone)]
+pub(crate) struct TrackInner {
+    // frame_rx
+    // state...
+}
 
-pub use {e2ee::*, frame::*, proto::*, track::*};
+impl TrackInner {
+    // manage subscription
+}
 
-#[derive(Debug, Error)]
-#[error(transparent)]
-pub struct InternalError(#[from] anyhow::Error);
+impl Drop for TrackInner {
+    fn drop(&mut self) {
+        // unsubscribe
+    }
+}
+
+struct TrackTask {
+    // depacketizer
+    // decryption
+    // state_rx (from manager)
+    // frame_tx (to track inner)
+    // packet_in_rx
+    // signal_out_tx
+}
+
+impl TrackTask {
+    async fn run(mut self) -> Result<(), InternalError> {
+        Ok(())
+    }
+}
