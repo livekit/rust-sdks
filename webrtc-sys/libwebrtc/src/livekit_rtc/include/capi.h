@@ -410,9 +410,7 @@ LK_EXPORT lkDcState lkDcGetState(lkDataChannel* dc);
 
 LK_EXPORT int lkDcGetId(lkDataChannel* dc);
 
-LK_EXPORT int lkDcGetLabelLength(lkDataChannel* dc);
-
-LK_EXPORT int lkDcGetLabel(lkDataChannel* dc, char* buffer, int bufferSize);
+LK_EXPORT lkString* lkDcGetLabel(lkDataChannel* dc);
 
 LK_EXPORT uint64_t lkDcGetBufferedAmount(lkDataChannel* dc);
 
@@ -429,21 +427,15 @@ LK_EXPORT lkSessionDescription* lkCreateSessionDescription(lkSdpType type, const
 
 LK_EXPORT lkSdpType lkSessionDescriptionGetType(lkSessionDescription* desc);
 
-LK_EXPORT int lkSessionDescriptionGetSdpLength(lkSessionDescription* desc);
-
-LK_EXPORT int lkSessionDescriptionGetSdp(lkSessionDescription* desc, char* buffer, int bufferSize);
+LK_EXPORT lkString* lkSessionDescriptionGetSdp(lkSessionDescription* desc);
 
 LK_EXPORT lkIceCandidate* lkCreateIceCandidate(const char* mid, int mlineIndex, const char* sdp);
 
 LK_EXPORT int lkIceCandidateGetMlineIndex(lkIceCandidate* candidate);
 
-LK_EXPORT int lkIceCandidateGetMidLength(lkIceCandidate* candidate);
+LK_EXPORT lkString* lkIceCandidateGetMid(lkIceCandidate* candidate);
 
-LK_EXPORT int lkIceCandidateGetMid(lkIceCandidate* candidate, char* buffer, int bufferSize);
-
-LK_EXPORT int lkIceCandidateGetSdpLength(lkIceCandidate* candidate);
-
-LK_EXPORT int lkIceCandidateGetSdp(lkIceCandidate* candidate, char* buffer, int bufferSize);
+LK_EXPORT lkString* lkIceCandidateGetSdp(lkIceCandidate* candidate);
 
 LK_EXPORT lkNativeAudioSink* lkCreateNativeAudioSink(int sample_rate,
                                                      int num_channels,
@@ -482,9 +474,7 @@ LK_EXPORT int lkAudioTrackSourceAddSink(lkAudioTrackSource* source, lkNativeAudi
 
 LK_EXPORT int lkAudioTrackSourceRemoveSink(lkAudioTrackSource* source, lkNativeAudioSink* sink);
 
-LK_EXPORT int lkMediaStreamTrackGetIdLength(lkMediaStreamTrack* track);
-
-LK_EXPORT int lkMediaStreamTrackGetId(lkMediaStreamTrack* track, char* buffer, int bufferSize);
+LK_EXPORT lkString* lkMediaStreamTrackGetId(lkMediaStreamTrack* track);
 
 LK_EXPORT bool lkMediaStreamTrackIsEnabled(lkMediaStreamTrack* track);
 
@@ -506,9 +496,7 @@ LK_EXPORT void lkAudioTrackAddSink(lkRtcAudioTrack* track, lkNativeAudioSink* si
 
 LK_EXPORT void lkAudioTrackRemoveSink(lkRtcVideoTrack* track, lkNativeAudioSink* sink);
 
-LK_EXPORT int lkMediaStreamGetIdLength(lkMediaStream* stream);
-
-LK_EXPORT int lkMediaStreamGetId(lkMediaStream* stream, char* buffer, int bufferSize);
+LK_EXPORT lkString* lkMediaStreamGetId(lkMediaStream* stream);
 
 LK_EXPORT lkVectorGeneric* lkMediaStreamGetAudioTracks(lkMediaStream* stream);
 

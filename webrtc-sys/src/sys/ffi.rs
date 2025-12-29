@@ -45,6 +45,9 @@ pub type lkRtpParameters = lkRefCountedObject;
 pub type lkRtpCodecParameters = lkRefCountedObject;
 pub type lkRtpHeaderExtensionParameters = lkRefCountedObject;
 pub type lkRtcpParameters = lkRefCountedObject;
+pub type lkDesktopFrame = lkRefCountedObject;
+pub type lkFrameCryptor = lkRefCountedObject;
+pub type lkNativeAudioFrame = lkRefCountedObject;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkMediaType {
@@ -716,14 +719,7 @@ unsafe extern "C" {
     pub fn lkDcGetId(dc: *mut lkDataChannel) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn lkDcGetLabelLength(dc: *mut lkDataChannel) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    pub fn lkDcGetLabel(
-        dc: *mut lkDataChannel,
-        buffer: *mut ::std::os::raw::c_char,
-        bufferSize: ::std::os::raw::c_int,
-    ) -> ::std::os::raw::c_int;
+    pub fn lkDcGetLabel(dc: *mut lkDataChannel) -> *mut lkString;
 }
 unsafe extern "C" {
     pub fn lkDcGetBufferedAmount(dc: *mut lkDataChannel) -> u64;
@@ -753,16 +749,7 @@ unsafe extern "C" {
     pub fn lkSessionDescriptionGetType(desc: *mut lkSessionDescription) -> lkSdpType;
 }
 unsafe extern "C" {
-    pub fn lkSessionDescriptionGetSdpLength(
-        desc: *mut lkSessionDescription,
-    ) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    pub fn lkSessionDescriptionGetSdp(
-        desc: *mut lkSessionDescription,
-        buffer: *mut ::std::os::raw::c_char,
-        bufferSize: ::std::os::raw::c_int,
-    ) -> ::std::os::raw::c_int;
+    pub fn lkSessionDescriptionGetSdp(desc: *mut lkSessionDescription) -> *mut lkString;
 }
 unsafe extern "C" {
     pub fn lkCreateIceCandidate(
@@ -775,24 +762,10 @@ unsafe extern "C" {
     pub fn lkIceCandidateGetMlineIndex(candidate: *mut lkIceCandidate) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn lkIceCandidateGetMidLength(candidate: *mut lkIceCandidate) -> ::std::os::raw::c_int;
+    pub fn lkIceCandidateGetMid(candidate: *mut lkIceCandidate) -> *mut lkString;
 }
 unsafe extern "C" {
-    pub fn lkIceCandidateGetMid(
-        candidate: *mut lkIceCandidate,
-        buffer: *mut ::std::os::raw::c_char,
-        bufferSize: ::std::os::raw::c_int,
-    ) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    pub fn lkIceCandidateGetSdpLength(candidate: *mut lkIceCandidate) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    pub fn lkIceCandidateGetSdp(
-        candidate: *mut lkIceCandidate,
-        buffer: *mut ::std::os::raw::c_char,
-        bufferSize: ::std::os::raw::c_int,
-    ) -> ::std::os::raw::c_int;
+    pub fn lkIceCandidateGetSdp(candidate: *mut lkIceCandidate) -> *mut lkString;
 }
 unsafe extern "C" {
     pub fn lkCreateNativeAudioSink(
@@ -868,14 +841,7 @@ unsafe extern "C" {
     ) -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {
-    pub fn lkMediaStreamTrackGetIdLength(track: *mut lkMediaStreamTrack) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    pub fn lkMediaStreamTrackGetId(
-        track: *mut lkMediaStreamTrack,
-        buffer: *mut ::std::os::raw::c_char,
-        bufferSize: ::std::os::raw::c_int,
-    ) -> ::std::os::raw::c_int;
+    pub fn lkMediaStreamTrackGetId(track: *mut lkMediaStreamTrack) -> *mut lkString;
 }
 unsafe extern "C" {
     pub fn lkMediaStreamTrackIsEnabled(track: *mut lkMediaStreamTrack) -> bool;
@@ -910,14 +876,7 @@ unsafe extern "C" {
     pub fn lkAudioTrackRemoveSink(track: *mut lkRtcVideoTrack, sink: *mut lkNativeAudioSink);
 }
 unsafe extern "C" {
-    pub fn lkMediaStreamGetIdLength(stream: *mut lkMediaStream) -> ::std::os::raw::c_int;
-}
-unsafe extern "C" {
-    pub fn lkMediaStreamGetId(
-        stream: *mut lkMediaStream,
-        buffer: *mut ::std::os::raw::c_char,
-        bufferSize: ::std::os::raw::c_int,
-    ) -> ::std::os::raw::c_int;
+    pub fn lkMediaStreamGetId(stream: *mut lkMediaStream) -> *mut lkString;
 }
 unsafe extern "C" {
     pub fn lkMediaStreamGetAudioTracks(stream: *mut lkMediaStream) -> *mut lkVectorGeneric;

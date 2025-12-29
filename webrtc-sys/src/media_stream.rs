@@ -27,11 +27,9 @@ pub struct MediaStream {
 impl MediaStream {
     pub fn id(&self) -> String {
         unsafe {
-            let len = sys::lkMediaStreamGetIdLength(self.ffi.as_ptr());
-            let mut buf = vec![0u8; len as usize + 1];
-            sys::lkMediaStreamGetId(self.ffi.as_ptr(), buf.as_mut_ptr() as *mut i8, len);
-            let cstr = std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8);
-            cstr.to_string_lossy().into_owned()
+            let str_ptr = sys::lkMediaStreamGetId(self.ffi.as_ptr());
+            let ref_counted_str = sys::RefCountedString { ffi: sys::RefCounted::from_raw(str_ptr) };
+            ref_counted_str.as_str()
         }
     }
 

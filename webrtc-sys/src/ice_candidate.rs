@@ -49,11 +49,9 @@ impl IceCandidate {
 
     pub fn sdp_mid(&self) -> String {
         unsafe {
-            let sdp_len = sys::lkIceCandidateGetMidLength(self.ffi.as_ptr());
-            let mut buf = vec![0u8; sdp_len as usize + 1];
-            sys::lkIceCandidateGetMid(self.ffi.as_ptr(), buf.as_mut_ptr() as *mut i8, sdp_len);
-            let cstr = std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8);
-            cstr.to_string_lossy().into_owned()
+            let str_ptr = sys::lkIceCandidateGetMid(self.ffi.as_ptr());
+            let ref_counted_str = sys::RefCountedString { ffi: sys::RefCounted::from_raw(str_ptr) };
+            ref_counted_str.as_str()
         }
     }
 
@@ -63,11 +61,9 @@ impl IceCandidate {
 
     pub fn candidate(&self) -> String {
         unsafe {
-            let sdp_len = sys::lkIceCandidateGetSdpLength(self.ffi.as_ptr());
-            let mut buf = vec![0u8; sdp_len as usize + 1];
-            sys::lkIceCandidateGetSdp(self.ffi.as_ptr(), buf.as_mut_ptr() as *mut i8, sdp_len);
-            let cstr = std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8);
-            cstr.to_string_lossy().into_owned()
+            let str_ptr = sys::lkIceCandidateGetSdp(self.ffi.as_ptr());
+            let ref_counted_str = sys::RefCountedString { ffi: sys::RefCounted::from_raw(str_ptr) };
+            ref_counted_str.as_str()
         }
     }
 }

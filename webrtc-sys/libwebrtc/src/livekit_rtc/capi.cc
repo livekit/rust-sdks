@@ -224,19 +224,10 @@ int lkDcGetId(lkDataChannel* dc) {
   return reinterpret_cast<livekit::DataChannel*>(dc)->Id();
 }
 
-int lkDcGetLabelLength(lkDataChannel* dc) {
+lkString* lkDcGetLabel(lkDataChannel* dc) {
   auto label = reinterpret_cast<livekit::DataChannel*>(dc)->label();
-  return static_cast<int>(label.size());
-}
-
-int lkDcGetLabel(lkDataChannel* dc, char* buffer, int bufferSize) {
-  auto label = reinterpret_cast<livekit::DataChannel*>(dc)->label();
-  int len = static_cast<int>(label.size());
-  if (bufferSize > 0) {
-    int copySize = (len < bufferSize) ? len : bufferSize;
-    memcpy(buffer, label.c_str(), copySize);
-  }
-  return len;
+  return reinterpret_cast<lkString*>(
+      livekit::LKString::Create(label).release());
 }
 
 uint64_t lkDcGetBufferedAmount(lkDataChannel* dc) {
@@ -272,23 +263,10 @@ lkSdpType lkSessionDescriptionGetType(lkSessionDescription* desc) {
       reinterpret_cast<livekit::SessionDescription*>(desc)->GetType());
 }
 
-int lkSessionDescriptionGetSdpLength(lkSessionDescription* desc) {
+lkString* lkSessionDescriptionGetSdp(lkSessionDescription* desc) {
   std::string sdp =
       reinterpret_cast<livekit::SessionDescription*>(desc)->ToString();
-  return sdp.length();
-}
-
-int lkSessionDescriptionGetSdp(lkSessionDescription* desc,
-                               char* buffer,
-                               int bufferSize) {
-  std::string sdp =
-      reinterpret_cast<livekit::SessionDescription*>(desc)->ToString();
-  int len = static_cast<int>(sdp.size());
-  if (bufferSize > 0) {
-    int copySize = (len < bufferSize) ? len : bufferSize;
-    memcpy(buffer, sdp.c_str(), copySize);
-  }
-  return len;
+  return reinterpret_cast<lkString*>(livekit::LKString::Create(sdp).release());
 }
 
 lkIceCandidate* lkCreateIceCandidate(const char* mid,
@@ -311,33 +289,14 @@ int lkIceCandidateGetMidLength(lkIceCandidate* candidate) {
   return static_cast<int>(mid.size());
 }
 
-int lkIceCandidateGetMid(lkIceCandidate* candidate,
-                         char* buffer,
-                         int bufferSize) {
+lkString* lkIceCandidateGetMid(lkIceCandidate* candidate) {
   auto mid = reinterpret_cast<livekit::IceCandidate*>(candidate)->mid();
-  int len = static_cast<int>(mid.size());
-  if (bufferSize > 0) {
-    int copySize = (len < bufferSize) ? len : bufferSize;
-    memcpy(buffer, mid.c_str(), copySize);
-  }
-  return len;
+  return reinterpret_cast<lkString*>(livekit::LKString::Create(mid).release());
 }
 
-int lkIceCandidateGetSdpLength(lkIceCandidate* candidate) {
+lkString* lkIceCandidateGetSdp(lkIceCandidate* candidate) {
   std::string sdp = reinterpret_cast<livekit::IceCandidate*>(candidate)->sdp();
-  return sdp.length();
-}
-
-int lkIceCandidateGetSdp(lkIceCandidate* candidate,
-                         char* buffer,
-                         int bufferSize) {
-  std::string sdp = reinterpret_cast<livekit::IceCandidate*>(candidate)->sdp();
-  int len = static_cast<int>(sdp.size());
-  if (bufferSize > 0) {
-    int copySize = (len < bufferSize) ? len : bufferSize;
-    memcpy(buffer, sdp.c_str(), copySize);
-  }
-  return len;
+  return reinterpret_cast<lkString*>(livekit::LKString::Create(sdp).release());
 }
 
 void lkPeerRestartIce(lkPeer* peer) {
@@ -484,21 +443,9 @@ int lkAudioTrackSourceRemoveSink(lkAudioTrackSource* source,
   return 1;
 }
 
-int lkMediaStreamTrackGetIdLength(lkMediaStreamTrack* track) {
+lkString* lkMediaStreamTrackGetId(lkMediaStreamTrack* track) {
   auto id = reinterpret_cast<livekit::MediaStreamTrack*>(track)->id();
-  return static_cast<int>(id.size());
-}
-
-int lkMediaStreamTrackGetId(lkMediaStreamTrack* track,
-                            char* buffer,
-                            int bufferSize) {
-  auto id = reinterpret_cast<livekit::MediaStreamTrack*>(track)->id();
-  int len = static_cast<int>(id.size());
-  if (bufferSize > 0) {
-    int copySize = (len < bufferSize) ? len : bufferSize;
-    memcpy(buffer, id.c_str(), copySize);
-  }
-  return len;
+  return reinterpret_cast<lkString*>(livekit::LKString::Create(id).release());
 }
 
 bool lkMediaStreamTrackIsEnabled(lkMediaStreamTrack* track) {
@@ -589,19 +536,9 @@ lkVectorGeneric* lkMediaStreamGetVideoTracks(lkMediaStream* stream) {
   return reinterpret_cast<lkVectorGeneric*>(track_array.release());
 }
 
-int lkMediaStreamGetIdLength(lkMediaStream* stream) {
+lkString* lkMediaStreamGetId(lkMediaStream* stream) {
   auto id = reinterpret_cast<livekit::MediaStream*>(stream)->id();
-  return static_cast<int>(id.size());
-}
-
-int lkMediaStreamGetId(lkMediaStream* stream, char* buffer, int bufferSize) {
-  auto id = reinterpret_cast<livekit::MediaStream*>(stream)->id();
-  int len = static_cast<int>(id.size());
-  if (bufferSize > 0) {
-    int copySize = (len < bufferSize) ? len : bufferSize;
-    memcpy(buffer, id.c_str(), copySize);
-  }
-  return len;
+  return reinterpret_cast<lkString*>(livekit::LKString::Create(id).release()); 
 }
 
 lkNativeVideoSink* lkCreateNativeVideoSink(

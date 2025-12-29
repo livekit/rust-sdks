@@ -193,11 +193,9 @@ impl DataChannel {
 
     pub fn label(&self) -> String {
         unsafe {
-            let len = sys::lkDcGetLabelLength(self.ffi.as_ptr());
-            let mut buf = vec![0u8; len as usize + 1];
-            sys::lkDcGetLabel(self.ffi.as_ptr(), buf.as_mut_ptr() as *mut i8, len);
-            let cstr = std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8);
-            cstr.to_string_lossy().into_owned()
+            let str_ptr = sys::lkDcGetLabel(self.ffi.as_ptr());
+            let ref_counted_str = sys::RefCountedString { ffi: sys::RefCounted::from_raw(str_ptr) };
+            ref_counted_str.as_str()
         }
     }
 
