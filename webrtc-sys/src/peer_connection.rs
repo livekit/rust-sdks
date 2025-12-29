@@ -718,9 +718,7 @@ impl PeerConnection {
     ) -> Result<RtpTransceiver, RtcError> {
         unsafe {
             let lk_init = sys::RtpTransceiverInitToNative(init);
-
             let mut rtc_err = sys::lkRtcError { message: std::ptr::null() };
-
             let lk_transceiver = sys::lkPeerAddTransceiver(
                 self.ffi.as_ptr(),
                 track.ffi().clone().as_ptr(),
@@ -746,9 +744,7 @@ impl PeerConnection {
     ) -> Result<RtpTransceiver, RtcError> {
         unsafe {
             let lk_init = sys::RtpTransceiverInitToNative(init);
-
             let mut rtc_err = sys::lkRtcError { message: std::ptr::null() };
-
             let lk_transceiver = sys::lkPeerAddTransceiverForMedia(
                 self.ffi.as_ptr(),
                 media_type.into(),
@@ -885,13 +881,12 @@ pub static PEER_OBSERVER: sys::lkPeerObserver = sys::lkPeerObserver {
     onIceGatheringChange: Some(PeerObserver::peer_on_ice_gathering_change),
 };
 
-use crate::session_description::SdpType;
-
 #[cfg(test)]
 mod tests {
 
     use crate::peer_connection_factory::native::PeerConnectionFactoryExt;
     use crate::rtp_parameters::{RtpEncodingParameters, RtpTransceiverDirection};
+    use crate::session_description::SdpType;
     use crate::{data_channel::DataChannelInit, peer_connection::*, peer_connection_factory::*};
     use tokio::sync::mpsc;
 

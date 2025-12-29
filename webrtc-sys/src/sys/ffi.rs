@@ -48,6 +48,9 @@ pub type lkRtcpParameters = lkRefCountedObject;
 pub type lkDesktopFrame = lkRefCountedObject;
 pub type lkFrameCryptor = lkRefCountedObject;
 pub type lkNativeAudioFrame = lkRefCountedObject;
+pub type lkKeyProvider = lkRefCountedObject;
+pub type lkDataPacketCryptor = lkRefCountedObject;
+pub type lkEncryptedPacket = lkRefCountedObject;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkMediaType {
@@ -504,6 +507,47 @@ pub enum lkNetworkPriority {
     kMedium = 2,
     kHigh = 3,
 }
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkEncryptionAlgorithm {
+    AesGcm = 0,
+    AesCbc = 1,
+}
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkEncryptionState {
+    New = 0,
+    Ok = 1,
+    EncryptionFailed = 2,
+    DecryptionFailed = 3,
+    MissingKey = 4,
+    KeyRatcheted = 5,
+    InternalError = 6,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct lkKeyProviderOptions {
+    pub sharedKey: bool,
+    pub ratchetWindowSize: i32,
+    pub ratchetSaltLength: u32,
+    pub ratchetSalt: *const u8,
+    pub failureTolerance: i32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of lkKeyProviderOptions"][::std::mem::size_of::<lkKeyProviderOptions>() - 32usize];
+    ["Alignment of lkKeyProviderOptions"][::std::mem::align_of::<lkKeyProviderOptions>() - 8usize];
+    ["Offset of field: lkKeyProviderOptions::sharedKey"]
+        [::std::mem::offset_of!(lkKeyProviderOptions, sharedKey) - 0usize];
+    ["Offset of field: lkKeyProviderOptions::ratchetWindowSize"]
+        [::std::mem::offset_of!(lkKeyProviderOptions, ratchetWindowSize) - 4usize];
+    ["Offset of field: lkKeyProviderOptions::ratchetSaltLength"]
+        [::std::mem::offset_of!(lkKeyProviderOptions, ratchetSaltLength) - 8usize];
+    ["Offset of field: lkKeyProviderOptions::ratchetSalt"]
+        [::std::mem::offset_of!(lkKeyProviderOptions, ratchetSalt) - 16usize];
+    ["Offset of field: lkKeyProviderOptions::failureTolerance"]
+        [::std::mem::offset_of!(lkKeyProviderOptions, failureTolerance) - 24usize];
+};
 unsafe extern "C" {
     pub fn lkInitialize() -> ::std::os::raw::c_int;
 }
@@ -1531,4 +1575,144 @@ unsafe extern "C" {
         ext: *mut lkRtpHeaderExtensionParameters,
         encrypted: bool,
     );
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderCreate(options: *mut lkKeyProviderOptions) -> *mut lkKeyProvider;
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderSetSharedKey(
+        provider: *mut lkKeyProvider,
+        keyIndex: ::std::os::raw::c_int,
+        key: *const u8,
+        length: u32,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderRatchetSharedKey(
+        provider: *mut lkKeyProvider,
+        keyIndex: ::std::os::raw::c_int,
+    ) -> *mut lkData;
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderSetSifTrailer(provider: *mut lkKeyProvider, sif: *const u8, length: u32);
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderGetSharedKey(
+        provider: *mut lkKeyProvider,
+        keyIndex: ::std::os::raw::c_int,
+    ) -> *mut lkData;
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderSetKey(
+        provider: *mut lkKeyProvider,
+        participantId: *const u8,
+        keyIndex: ::std::os::raw::c_int,
+        key: *const u8,
+        length: u32,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderRatchetKey(
+        provider: *mut lkKeyProvider,
+        participantId: *const u8,
+        keyIndex: ::std::os::raw::c_int,
+    ) -> *mut lkData;
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderGetKey(
+        provider: *mut lkKeyProvider,
+        participantId: *const u8,
+        keyIndex: ::std::os::raw::c_int,
+    ) -> *mut lkData;
+}
+unsafe extern "C" {
+    pub fn lkNewFrameCryptorForRtpSender(
+        factory: *mut lkPeerFactory,
+        participantId: *const u8,
+        algorithm: lkEncryptionAlgorithm,
+        provider: *mut lkKeyProvider,
+        sender: *mut lkRtpSender,
+        onStateChanged: ::std::option::Option<
+            unsafe extern "C" fn(
+                participantId: *const ::std::os::raw::c_char,
+                state: lkEncryptionState,
+                userdata: *mut ::std::os::raw::c_void,
+            ),
+        >,
+        userdata: *mut ::std::os::raw::c_void,
+    ) -> *mut lkFrameCryptor;
+}
+unsafe extern "C" {
+    pub fn lkNewFrameCryptorForRtpReceiver(
+        factory: *mut lkPeerFactory,
+        participantId: *const u8,
+        algorithm: lkEncryptionAlgorithm,
+        provider: *mut lkKeyProvider,
+        receiver: *mut lkRtpReceiver,
+        onStateChanged: ::std::option::Option<
+            unsafe extern "C" fn(
+                participantId: *const ::std::os::raw::c_char,
+                state: lkEncryptionState,
+                userdata: *mut ::std::os::raw::c_void,
+            ),
+        >,
+        userdata: *mut ::std::os::raw::c_void,
+    ) -> *mut lkFrameCryptor;
+}
+unsafe extern "C" {
+    pub fn lkFrameCryptorSetEnabled(fc: *mut lkFrameCryptor, enabled: bool);
+}
+unsafe extern "C" {
+    pub fn lkFrameCryptorGetEnabled(fc: *mut lkFrameCryptor) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkFrameCryptorSetKeyIndex(fc: *mut lkFrameCryptor, keyIndex: ::std::os::raw::c_int);
+}
+unsafe extern "C" {
+    pub fn lkFrameCryptorGetKeyIndex(fc: *mut lkFrameCryptor) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkFrameCryptorGetParticipantId(fc: *mut lkFrameCryptor) -> *mut lkString;
+}
+unsafe extern "C" {
+    pub fn lkNewDataPacketCryptor(
+        algorithm: lkEncryptionAlgorithm,
+        provider: *mut lkKeyProvider,
+    ) -> *mut lkDataPacketCryptor;
+}
+unsafe extern "C" {
+    pub fn lkNewlkEncryptedPacket(
+        data: *const u8,
+        size: u32,
+        iv: *const u8,
+        iv_size: u32,
+        keyIndex: u32,
+    ) -> *mut lkEncryptedPacket;
+}
+unsafe extern "C" {
+    pub fn lkEncryptedPacketGetData(packet: *mut lkEncryptedPacket) -> *mut lkData;
+}
+unsafe extern "C" {
+    pub fn lkEncryptedPacketGetIv(packet: *mut lkEncryptedPacket) -> *mut lkData;
+}
+unsafe extern "C" {
+    pub fn lkEncryptedPacketGetKeyIndex(packet: *mut lkEncryptedPacket) -> u32;
+}
+unsafe extern "C" {
+    pub fn lkDataPacketCryptorEncrypt(
+        dc: *mut lkDataPacketCryptor,
+        participantId: *const ::std::os::raw::c_char,
+        keyIndex: u32,
+        data: *const ::std::os::raw::c_char,
+        data_size: u32,
+        errorOut: *mut lkRtcError,
+    ) -> *mut lkEncryptedPacket;
+}
+unsafe extern "C" {
+    pub fn lkDataPacketCryptorDecrypt(
+        dc: *mut lkDataPacketCryptor,
+        participantId: *const ::std::os::raw::c_char,
+        encryptedPacket: *mut lkEncryptedPacket,
+        errorOut: *mut lkRtcError,
+    ) -> *mut lkData;
 }

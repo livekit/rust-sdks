@@ -27,6 +27,34 @@ impl RefCountedString {
     }
 }
 
+pub struct RefCountedData {
+    pub ffi: sys::RefCounted<sys::lkData>,
+}
+
+impl RefCountedData {
+    pub fn from_native(vec_ptr: *mut sys::lkData) -> Self {
+        let ffi = unsafe { sys::RefCounted::from_raw(vec_ptr) };
+        Self { ffi }
+    }
+
+    pub fn new(vec: &[u8]) -> Self {
+        let ffi = unsafe {
+            sys::lkCreateData(vec.as_ptr() as *const u8, (vec.len() as u64).try_into().unwrap())
+        };
+        Self { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
+    }
+
+    pub fn as_bytes(&self) -> Vec<u8> {
+        unsafe {
+            let len = sys::lkDataGetSize(self.ffi.as_ptr());
+            let mut buf = vec![0u8; len as usize];
+            let buf_ptr = sys::lkDataGetData(self.ffi.as_ptr());
+            std::ptr::copy_nonoverlapping(buf_ptr as *const u8, buf.as_mut_ptr(), len as usize);
+            buf
+        }
+    }
+}
+
 pub struct RefCountedVector {
     pub ffi: sys::RefCounted<sys::lkVectorGeneric>,
     pub vec: Vec<crate::sys::RefCounted<sys::lkRefCountedObject>>,

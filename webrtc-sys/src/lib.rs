@@ -44,6 +44,7 @@ pub mod audio_stream;
 pub mod audio_track;
 pub mod data_channel;
 pub mod enum_dispatch;
+pub mod frame_cryptor;
 pub mod ice_candidate;
 pub mod media_stream;
 pub mod media_stream_track;
