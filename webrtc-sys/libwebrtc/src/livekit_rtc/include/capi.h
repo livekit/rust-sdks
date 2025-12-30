@@ -63,6 +63,7 @@ typedef lkRefCountedObject lkRtpTransceiverInit;
 typedef lkRefCountedObject lkDesktopFrame;
 typedef lkRefCountedObject lkFrameCryptor;
 typedef lkRefCountedObject lkNativeAudioFrame;
+typedef lkRefCountedObject lkKeyProviderOptions;
 typedef lkRefCountedObject lkKeyProvider;
 typedef lkRefCountedObject lkDataPacketCryptor;
 typedef lkRefCountedObject lkEncryptedPacket;
@@ -304,14 +305,6 @@ typedef enum {
   KeyRatcheted,
   InternalError,
 } lkEncryptionState;
-
-typedef struct {
-  bool sharedKey;
-  int32_t ratchetWindowSize;
-  uint32_t ratchetSaltLength;
-  const uint8_t* ratchetSalt;
-  int32_t failureTolerance;
-} lkKeyProviderOptions;
 
 LK_EXPORT int lkInitialize();
 
@@ -1003,6 +996,23 @@ LK_EXPORT void lkRtpHeaderExtensionParametersSetEncrypted(
     lkRtpHeaderExtensionParameters* ext,
     bool encrypted);
 
+LK_EXPORT lkKeyProviderOptions* lkKeyProviderOptionsCreate();
+
+LK_EXPORT void lkKeyProviderOptionsSetSharedKey(lkKeyProviderOptions* options,
+                                                bool sharedKey);
+
+LK_EXPORT void lkKeyProviderOptionsSetRatchetWindowSize(
+    lkKeyProviderOptions* options,
+    int32_t windowSize);
+
+LK_EXPORT void lkKeyProviderOptionsSetRatchetSalt(lkKeyProviderOptions* options,
+                                                  const uint8_t* salt,
+                                                  uint32_t length);
+
+LK_EXPORT void lkKeyProviderOptionsSetFailureTolerance(
+    lkKeyProviderOptions* options,
+    int32_t tolerance);
+
 LK_EXPORT lkKeyProvider* lkKeyProviderCreate(lkKeyProviderOptions* options);
 
 LK_EXPORT bool lkKeyProviderSetSharedKey(lkKeyProvider* provider,
@@ -1021,22 +1031,22 @@ LK_EXPORT lkData* lkKeyProviderGetSharedKey(lkKeyProvider* provider,
                                             int keyIndex);
 
 LK_EXPORT bool lkKeyProviderSetKey(lkKeyProvider* provider,
-                                   const uint8_t* participantId,
+                                   const char* participantId,
                                    int keyIndex,
                                    const uint8_t* key,
                                    uint32_t length);
 
 LK_EXPORT lkData* lkKeyProviderRatchetKey(lkKeyProvider* provider,
-                                          const uint8_t* participantId,
+                                          const char* participantId,
                                           int keyIndex);
 
 LK_EXPORT lkData* lkKeyProviderGetKey(lkKeyProvider* provider,
-                                      const uint8_t* participantId,
+                                      const char* participantId,
                                       int keyIndex);
 
 LK_EXPORT lkFrameCryptor* lkNewFrameCryptorForRtpSender(
     lkPeerFactory* factory,
-    const uint8_t* participantId,
+    const char* participantId,
     lkEncryptionAlgorithm algorithm,
     lkKeyProvider* provider,
     lkRtpSender* sender,
@@ -1047,7 +1057,7 @@ LK_EXPORT lkFrameCryptor* lkNewFrameCryptorForRtpSender(
 
 LK_EXPORT lkFrameCryptor* lkNewFrameCryptorForRtpReceiver(
     lkPeerFactory* factory,
-    const uint8_t* participantId,
+    const char* participantId,
     lkEncryptionAlgorithm algorithm,
     lkKeyProvider* provider,
     lkRtpReceiver* receiver,

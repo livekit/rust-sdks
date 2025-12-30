@@ -48,6 +48,7 @@ pub type lkRtcpParameters = lkRefCountedObject;
 pub type lkDesktopFrame = lkRefCountedObject;
 pub type lkFrameCryptor = lkRefCountedObject;
 pub type lkNativeAudioFrame = lkRefCountedObject;
+pub type lkKeyProviderOptions = lkRefCountedObject;
 pub type lkKeyProvider = lkRefCountedObject;
 pub type lkDataPacketCryptor = lkRefCountedObject;
 pub type lkEncryptedPacket = lkRefCountedObject;
@@ -524,30 +525,6 @@ pub enum lkEncryptionState {
     KeyRatcheted = 5,
     InternalError = 6,
 }
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct lkKeyProviderOptions {
-    pub sharedKey: bool,
-    pub ratchetWindowSize: i32,
-    pub ratchetSaltLength: u32,
-    pub ratchetSalt: *const u8,
-    pub failureTolerance: i32,
-}
-#[allow(clippy::unnecessary_operation, clippy::identity_op)]
-const _: () = {
-    ["Size of lkKeyProviderOptions"][::std::mem::size_of::<lkKeyProviderOptions>() - 32usize];
-    ["Alignment of lkKeyProviderOptions"][::std::mem::align_of::<lkKeyProviderOptions>() - 8usize];
-    ["Offset of field: lkKeyProviderOptions::sharedKey"]
-        [::std::mem::offset_of!(lkKeyProviderOptions, sharedKey) - 0usize];
-    ["Offset of field: lkKeyProviderOptions::ratchetWindowSize"]
-        [::std::mem::offset_of!(lkKeyProviderOptions, ratchetWindowSize) - 4usize];
-    ["Offset of field: lkKeyProviderOptions::ratchetSaltLength"]
-        [::std::mem::offset_of!(lkKeyProviderOptions, ratchetSaltLength) - 8usize];
-    ["Offset of field: lkKeyProviderOptions::ratchetSalt"]
-        [::std::mem::offset_of!(lkKeyProviderOptions, ratchetSalt) - 16usize];
-    ["Offset of field: lkKeyProviderOptions::failureTolerance"]
-        [::std::mem::offset_of!(lkKeyProviderOptions, failureTolerance) - 24usize];
-};
 unsafe extern "C" {
     pub fn lkInitialize() -> ::std::os::raw::c_int;
 }
@@ -1574,6 +1551,31 @@ unsafe extern "C" {
     pub fn lkRtpHeaderExtensionParametersSetEncrypted(
         ext: *mut lkRtpHeaderExtensionParameters,
         encrypted: bool,
+    );
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderOptionsCreate() -> *mut lkKeyProviderOptions;
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderOptionsSetSharedKey(options: *mut lkKeyProviderOptions, sharedKey: bool);
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderOptionsSetRatchetWindowSize(
+        options: *mut lkKeyProviderOptions,
+        windowSize: i32,
+    );
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderOptionsSetRatchetSalt(
+        options: *mut lkKeyProviderOptions,
+        salt: *const u8,
+        length: u32,
+    );
+}
+unsafe extern "C" {
+    pub fn lkKeyProviderOptionsSetFailureTolerance(
+        options: *mut lkKeyProviderOptions,
+        tolerance: i32,
     );
 }
 unsafe extern "C" {

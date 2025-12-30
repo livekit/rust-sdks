@@ -3,6 +3,7 @@
 #include "api/make_ref_counted.h"
 #include "livekit_rtc/audio_track.h"
 #include "livekit_rtc/data_channel.h"
+#include "livekit_rtc/frame_cryptor.h"
 #include "livekit_rtc/ice_candidate.h"
 #include "livekit_rtc/media_stream.h"
 #include "livekit_rtc/media_stream_track.h"
@@ -538,7 +539,7 @@ lkVectorGeneric* lkMediaStreamGetVideoTracks(lkMediaStream* stream) {
 
 lkString* lkMediaStreamGetId(lkMediaStream* stream) {
   auto id = reinterpret_cast<livekit::MediaStream*>(stream)->id();
-  return reinterpret_cast<lkString*>(livekit::LKString::Create(id).release()); 
+  return reinterpret_cast<lkString*>(livekit::LKString::Create(id).release());
 }
 
 lkNativeVideoSink* lkCreateNativeVideoSink(
@@ -1427,4 +1428,245 @@ void lkRtpHeaderExtensionParametersSetEncrypted(
     bool encrypted) {
   reinterpret_cast<livekit::RtpHeaderExtensionParameters*>(ext)->set_encrypted(
       encrypted);
+}
+
+lkKeyProviderOptions* lkKeyProviderOptionsCreate() {
+  return reinterpret_cast<lkKeyProviderOptions*>(
+      livekit::KeyProviderOptionsWrapper::Create().release());
+}
+
+void lkKeyProviderOptionsSetSharedKey(lkKeyProviderOptions* options,
+                                      bool sharedKey) {
+  reinterpret_cast<livekit::KeyProviderOptionsWrapper*>(options)
+      ->set_shared_key(sharedKey);
+}
+
+void lkKeyProviderOptionsSetRatchetWindowSize(lkKeyProviderOptions* options,
+                                              int32_t windowSize) {
+  reinterpret_cast<livekit::KeyProviderOptionsWrapper*>(options)
+      ->set_ratchet_window_size(windowSize);
+}
+
+void lkKeyProviderOptionsSetRatchetSalt(lkKeyProviderOptions* options,
+                                        const uint8_t* salt,
+                                        uint32_t length) {
+  auto salt_vec = std::vector<uint8_t>(salt, salt + length);
+  reinterpret_cast<livekit::KeyProviderOptionsWrapper*>(options)
+      ->set_ratchet_salt(salt_vec);
+}
+
+void lkKeyProviderOptionsSetFailureTolerance(lkKeyProviderOptions* options,
+                                             int32_t tolerance) {
+  reinterpret_cast<livekit::KeyProviderOptionsWrapper*>(options)
+      ->set_failure_tolerance(tolerance);
+}
+
+lkKeyProvider* lkKeyProviderCreate(lkKeyProviderOptions* options) {
+  return reinterpret_cast<lkKeyProvider*>(
+      livekit::KeyProvider::Create(
+          reinterpret_cast<livekit::KeyProviderOptionsWrapper*>(options))
+          .release());
+}
+
+bool lkKeyProviderSetSharedKey(lkKeyProvider* provider,
+                               int keyIndex,
+                               const uint8_t* key,
+                               uint32_t length) {
+  auto key_vec = std::vector<uint8_t>(key, key + length);
+  return reinterpret_cast<livekit::KeyProvider*>(provider)->set_shared_key(
+      keyIndex, key_vec);
+}
+
+lkData* lkKeyProviderRatchetSharedKey(lkKeyProvider* provider, int keyIndex) {
+  auto key =
+      reinterpret_cast<livekit::KeyProvider*>(provider)->ratchet_shared_key(
+          keyIndex);
+  if (key.size() == 0) {
+    return nullptr;
+  }
+  return lkCreateData(key.data(), static_cast<uint32_t>(key.size()));
+}
+
+void lkKeyProviderSetSifTrailer(lkKeyProvider* provider,
+                                const uint8_t* sif,
+                                uint32_t length) {
+  auto sif_vec = std::vector<uint8_t>(sif, sif + length);
+  reinterpret_cast<livekit::KeyProvider*>(provider)->set_sif_trailer(sif_vec);
+}
+
+lkData* lkKeyProviderGetSharedKey(lkKeyProvider* provider, int keyIndex) {
+  auto key = reinterpret_cast<livekit::KeyProvider*>(provider)->get_shared_key(
+      keyIndex);
+  if (key.size() == 0) {
+    return nullptr;
+  }
+  return lkCreateData(key.data(), static_cast<uint32_t>(key.size()));
+}
+
+bool lkKeyProviderSetKey(lkKeyProvider* provider,
+                         const char* participantId,
+                         int keyIndex,
+                         const uint8_t* key,
+                         uint32_t length) {
+  auto key_vec = std::vector<uint8_t>(key, key + length);
+  return reinterpret_cast<livekit::KeyProvider*>(provider)->set_key(
+      participantId, keyIndex, key_vec);
+}
+
+lkData* lkKeyProviderRatchetKey(lkKeyProvider* provider,
+                                const char* participantId,
+                                int keyIndex) {
+  auto key = reinterpret_cast<livekit::KeyProvider*>(provider)->ratchet_key(
+      participantId, keyIndex);
+  if (key.size() == 0) {
+    return nullptr;
+  }
+  return lkCreateData(key.data(), static_cast<uint32_t>(key.size()));
+}
+
+lkData* lkKeyProviderGetKey(lkKeyProvider* provider,
+                            const char* participantId,
+                            int keyIndex) {
+  auto key = reinterpret_cast<livekit::KeyProvider*>(provider)->get_key(
+      participantId, keyIndex);
+  if (key.size() == 0) {
+    return nullptr;
+  }
+  return lkCreateData(key.data(), static_cast<uint32_t>(key.size()));
+}
+
+lkFrameCryptor* lkNewFrameCryptorForRtpSender(
+    lkPeerFactory* factory,
+    const char* participantId,
+    lkEncryptionAlgorithm algorithm,
+    lkKeyProvider* provider,
+    lkRtpSender* sender,
+    void (*onStateChanged)(const char* participantId,
+                           lkEncryptionState state,
+                           void* userdata),
+    void* userdata) {
+  auto fc = webrtc::make_ref_counted<livekit::FrameCryptor>(
+      reinterpret_cast<livekit::PeerFactory*>(factory)->signaling_thread(),
+      participantId,
+      static_cast<webrtc::FrameCryptorTransformer::Algorithm>(algorithm),
+      reinterpret_cast<livekit::KeyProvider*>(provider)->rtc_key_provider(),
+      reinterpret_cast<livekit::RtpSender*>(sender)->rtc_sender());
+  fc->register_observer(onStateChanged, userdata);
+  return reinterpret_cast<lkFrameCryptor*>(fc.release());
+}
+
+lkFrameCryptor* lkNewFrameCryptorForRtpReceiver(
+    lkPeerFactory* factory,
+    const char* participantId,
+    lkEncryptionAlgorithm algorithm,
+    lkKeyProvider* provider,
+    lkRtpReceiver* receiver,
+    void (*onStateChanged)(const char* participantId,
+                           lkEncryptionState state,
+                           void* userdata),
+    void* userdata) {
+  auto fc = webrtc::make_ref_counted<livekit::FrameCryptor>(
+      reinterpret_cast<livekit::PeerFactory*>(factory)->signaling_thread(),
+      participantId,
+      static_cast<webrtc::FrameCryptorTransformer::Algorithm>(algorithm),
+      reinterpret_cast<livekit::KeyProvider*>(provider)->rtc_key_provider(),
+      reinterpret_cast<livekit::RtpReceiver*>(receiver)->rtc_receiver());
+  fc->register_observer(onStateChanged, userdata);
+  return reinterpret_cast<lkFrameCryptor*>(fc.release());
+}
+
+void lkFrameCryptorSetEnabled(lkFrameCryptor* fc, bool enabled) {
+  reinterpret_cast<livekit::FrameCryptor*>(fc)->set_enabled(enabled);
+}
+
+bool lkFrameCryptorGetEnabled(lkFrameCryptor* fc) {
+  return reinterpret_cast<livekit::FrameCryptor*>(fc)->enabled();
+}
+
+void lkFrameCryptorSetKeyIndex(lkFrameCryptor* fc, int keyIndex) {
+  reinterpret_cast<livekit::FrameCryptor*>(fc)->set_key_index(keyIndex);
+}
+
+int lkFrameCryptorGetKeyIndex(lkFrameCryptor* fc) {
+  return reinterpret_cast<livekit::FrameCryptor*>(fc)->key_index();
+}
+
+lkString* lkFrameCryptorGetParticipantId(lkFrameCryptor* fc) {
+  auto participantId =
+      reinterpret_cast<livekit::FrameCryptor*>(fc)->participant_id();
+  return reinterpret_cast<lkString*>(
+      livekit::LKString::Create(participantId).release());
+}
+
+lkDataPacketCryptor* lkNewDataPacketCryptor(lkEncryptionAlgorithm algorithm,
+                                            lkKeyProvider* provider) {
+  auto dc = webrtc::make_ref_counted<livekit::DataPacketCryptor>(
+      static_cast<webrtc::FrameCryptorTransformer::Algorithm>(algorithm),
+      reinterpret_cast<livekit::KeyProvider*>(provider)->rtc_key_provider());
+  return reinterpret_cast<lkDataPacketCryptor*>(dc.release());
+}
+
+lkEncryptedPacket* lkNewlkEncryptedPacket(const uint8_t* data,
+                                          uint32_t size,
+                                          const uint8_t* iv,
+                                          uint32_t iv_size,
+                                          uint32_t keyIndex) {
+  auto data_vec = std::vector<uint8_t>(data, data + size);
+  auto iv_vec = std::vector<uint8_t>(iv, iv + iv_size);
+  auto packet = livekit::EncryptedPacketWrapper::Create();
+  packet->set_data(data_vec);
+  packet->set_iv(iv_vec);
+  packet->set_key_index(keyIndex);
+  return reinterpret_cast<lkEncryptedPacket*>(packet.release());
+}
+
+lkData* lkEncryptedPacketGetData(lkEncryptedPacket* packet) {
+  auto data =
+      reinterpret_cast<livekit::EncryptedPacketWrapper*>(packet)->get_data();
+  return lkCreateData(data.data(), static_cast<uint32_t>(data.size()));
+}
+
+lkData* lkEncryptedPacketGetIv(lkEncryptedPacket* packet) {
+  auto iv =
+      reinterpret_cast<livekit::EncryptedPacketWrapper*>(packet)->get_iv();
+  return lkCreateData(iv.data(), static_cast<uint32_t>(iv.size()));
+}
+
+uint32_t lkEncryptedPacketGetKeyIndex(lkEncryptedPacket* packet) {
+  return reinterpret_cast<livekit::EncryptedPacketWrapper*>(packet)
+      ->get_key_index();
+}
+
+lkEncryptedPacket* lkDataPacketCryptorEncrypt(lkDataPacketCryptor* dc,
+                                              const char* participantId,
+                                              uint32_t keyIndex,
+                                              const char* data,
+                                              uint32_t data_size,
+                                              lkRtcError* errorOut) {
+  auto data_vec =
+      std::vector<uint8_t>(reinterpret_cast<const uint8_t*>(data),
+                           reinterpret_cast<const uint8_t*>(data) + data_size);
+  auto encryptedPacket =
+      reinterpret_cast<livekit::DataPacketCryptor*>(dc)->encrypt_data_packet(
+          participantId, keyIndex, data_vec);
+
+  auto packetWrapper = livekit::EncryptedPacketWrapper::Create(encryptedPacket);
+  return reinterpret_cast<lkEncryptedPacket*>(packetWrapper.release());
+}
+
+lkData* lkDataPacketCryptorDecrypt(lkDataPacketCryptor* dc,
+                                   const char* participantId,
+                                   lkEncryptedPacket* encryptedPacket,
+                                   lkRtcError* errorOut) {
+  auto encryptedPacketWrapper =
+      reinterpret_cast<livekit::EncryptedPacketWrapper*>(encryptedPacket);
+
+  auto decryptedData =
+      reinterpret_cast<livekit::DataPacketCryptor*>(dc)->decrypt_data_packet(
+          participantId, encryptedPacketWrapper->get_packet());
+  if (decryptedData.size() == 0) {
+    return nullptr;
+  }
+  return lkCreateData(decryptedData.data(),
+                      static_cast<uint32_t>(decryptedData.size()));
 }

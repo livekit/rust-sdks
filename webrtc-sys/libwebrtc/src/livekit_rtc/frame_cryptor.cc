@@ -127,8 +127,7 @@ NativeFrameCryptorObserver::~NativeFrameCryptorObserver() {}
 void NativeFrameCryptorObserver::OnFrameCryptionStateChanged(
     const std::string participant_id,
     webrtc::FrameCryptionState state) {
-  //TODO: c_str
-  observer_(participant_id.c_str(), static_cast<FrameCryptionState>(state), static_cast<const lkFrameCryptor*>(fc_), userdata_);
+  observer_(participant_id.c_str(), static_cast<lkEncryptionState>(state), userdata_);
 }
 
 void FrameCryptor::set_enabled(bool enabled) const {

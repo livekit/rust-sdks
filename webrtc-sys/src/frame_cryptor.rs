@@ -75,14 +75,25 @@ pub struct KeyProvider {
 impl KeyProvider {
     pub fn new(options: KeyProviderOptions) -> Self {
         unsafe {
-            let lk_options = sys::lkKeyProviderOptions {
-                sharedKey: options.shared_key,
-                ratchetWindowSize: options.ratchet_window_size,
-                ratchetSalt: options.ratchet_salt.as_ptr(),
-                ratchetSaltLength: options.ratchet_salt.len() as u32,
-                failureTolerance: options.failure_tolerance,
-            };
-            let ffi = sys::lkKeyProviderCreate(&lk_options as *const _ as *mut _);
+            let lk_options_ptr =  sys::lkKeyProviderOptionsCreate();
+            sys::lkKeyProviderOptionsSetSharedKey(lk_options_ptr, options.shared_key);
+            sys::lkKeyProviderOptionsSetRatchetWindowSize(
+                lk_options_ptr,
+                options.ratchet_window_size,
+            );
+            sys::lkKeyProviderOptionsSetRatchetSalt(
+                lk_options_ptr,
+                options.ratchet_salt.as_ptr(),
+                options.ratchet_salt.len() as u32,
+            );
+            sys::lkKeyProviderOptionsSetFailureTolerance(
+                lk_options_ptr,
+                options.failure_tolerance,
+            );
+        
+            let ffi = sys::lkKeyProviderCreate(lk_options_ptr);
+
+            let _ = sys::RefCounted::from_raw(lk_options_ptr);
             Self { ffi: sys::RefCounted::from_raw(ffi) }
         }
     }
