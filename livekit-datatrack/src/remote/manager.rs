@@ -29,6 +29,8 @@ pub enum InputEvent {
     SubscriberHandles(SubscriberHandlesEvent),
     /// Packet has been received over the transport.
     PacketReceived(Bytes),
+    /// Shutdown the manager, ending any subscriptions.
+    Shutdown,
 }
 
 /// An event produced by [`Manager`] requiring external action.
@@ -111,8 +113,10 @@ pub struct ManagerTask {
 
 impl ManagerTask {
     pub async fn run(mut self) {
-        // TODO: check cancellation
         while let Some(event) = self.event_in_rx.recv().await {
+            if matches!(event, InputEvent::Shutdown) {
+                break;
+            }
             let Err(err) = self.handle_event(event) else { continue };
             log::error!("Failed to handle input event: {}", err);
         }
@@ -123,6 +127,7 @@ impl ManagerTask {
             InputEvent::PublicationsUpdated(event) => self.handle_publications_updated(event),
             InputEvent::SubscriberHandles(event) => self.handle_subscriber_handles(event),
             InputEvent::PacketReceived(bytes) => self.handle_packet_received(bytes),
+            _ => Ok(())
         }
     }
 
