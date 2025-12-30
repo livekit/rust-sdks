@@ -14,8 +14,7 @@
 
 use super::{pipeline::LocalTrackTask, LocalTrackInner};
 use crate::{
-    dtp, DataTrackInfo, DataTrackOptions, DataTrackState, EncryptionProvider, InternalError,
-    PublishError,
+    dtp, DataTrackInfo, DataTrackOptions, EncryptionProvider, InternalError, PublishError,
 };
 use crate::{dtp::TrackHandle, LocalDataTrack};
 use anyhow::{anyhow, Context};
@@ -32,8 +31,9 @@ use tokio_stream::wrappers::ReceiverStream;
 pub enum InputEvent {
     Publish(PublishEvent),
     PublishResult(PublishResultEvent),
-    Unpublish(UnpublishEvent)
-    // TODO: add shutdown event
+    Unpublish(UnpublishEvent),
+    /// Shutdown the manager and all associated tracks.
+    Shutdown,
 }
 
 /// An event produced by [`Manager`] requiring external action.
@@ -95,6 +95,25 @@ pub struct PublishEvent {
 pub struct PublishTimeoutEvent {
     /// Publisher handle of the pending publication.
     handle: TrackHandle,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum UnpublishInitiator {
+    Client,
+    Sfu,
+    Shutdown,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum LocalTrackState {
+    Published,
+    Unpublished { initiator: UnpublishInitiator },
+}
+
+impl LocalTrackState {
+    pub fn is_published(&self) -> bool {
+        matches!(self, Self::Published)
+    }
 }
 
 #[derive(Debug)]
@@ -162,16 +181,19 @@ pub struct ManagerTask {
     handle_allocator: dtp::TrackHandleAllocator,
     pending_publications:
         HashMap<TrackHandle, oneshot::Sender<Result<LocalDataTrack, PublishError>>>,
-    active_publications: HashMap<TrackHandle, watch::Sender<DataTrackState>>,
+    active_publications: HashMap<TrackHandle, watch::Sender<LocalTrackState>>,
 }
 
 impl ManagerTask {
     pub async fn run(mut self) {
-        // TODO: check cancellation
         while let Some(event) = self.event_in_rx.recv().await {
+            if matches!(event, InputEvent::Shutdown) {
+                break;
+            }
             let Err(err) = self.handle_event(event) else { continue };
             log::error!("Failed to handle input event: {}", err);
         }
+        self.shutdown();
     }
 
     fn handle_event(&mut self, event: InputEvent) -> Result<(), InternalError> {
@@ -179,6 +201,7 @@ impl ManagerTask {
             InputEvent::Publish(event) => self.handle_publish_request(event),
             InputEvent::PublishResult(event) => self.handle_publish_result(event),
             InputEvent::Unpublish(event) => self.handle_unpublished(event),
+            _ => Ok(()),
         }
     }
 
@@ -231,7 +254,7 @@ impl ManagerTask {
 
     fn create_local_track(&mut self, info: DataTrackInfo) -> LocalDataTrack {
         let (frame_tx, frame_rx) = mpsc::channel(4); // TODO: tune
-        let (state_tx, state_rx) = watch::channel(DataTrackState::Published);
+        let (state_tx, state_rx) = watch::channel(LocalTrackState::Published);
         let info = Arc::new(info);
 
         let task = LocalTrackTask {
@@ -255,19 +278,26 @@ impl ManagerTask {
             Err(anyhow!("Cannot handle unpublish for unknown track {}", event.handle))?
         };
         let state = *state_tx.borrow();
-        match state {
-            DataTrackState::Published => {
-                state_tx
-                    .send(DataTrackState::Unpublished { sfu_initiated: true })
-                    .context("Failed to set state")?;
-            }
-            DataTrackState::Unpublished { sfu_initiated } => {
-                if sfu_initiated {
-                    Err(anyhow!("Received unpublish response for same track more than once"))?
-                }
-            }
+        if !matches!(state, LocalTrackState::Published) {
+            return Ok(());
         }
+        state_tx
+            .send(LocalTrackState::Unpublished { initiator: UnpublishInitiator::Sfu })
+            .context("Failed to set state")?;
         Ok(())
+    }
+
+    /// Performs cleanup before the task ends.
+    fn shutdown(self) {
+        // Resolve any pending track publications
+        for (_, result_tx) in self.pending_publications {
+            _ = result_tx.send(Err(PublishError::Disconnected));
+        }
+        // Mark all active publications as unpublished
+        for (_, state_tx) in self.active_publications {
+            _ = state_tx
+                .send(LocalTrackState::Unpublished { initiator: UnpublishInitiator::Shutdown });
+        }
     }
 
     /// How long to wait for an SFU response for a track publication before timeout.

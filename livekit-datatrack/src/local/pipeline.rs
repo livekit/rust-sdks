@@ -14,8 +14,8 @@
 
 use crate::{
     dtp,
-    local::manager::{OutputEvent, UnpublishRequestEvent},
-    DataTrackFrame, DataTrackInfo, DataTrackState, EncryptionProvider, InternalError,
+    local::manager::{LocalTrackState, OutputEvent, UnpublishInitiator, UnpublishRequestEvent},
+    DataTrackFrame, DataTrackInfo, EncryptionProvider, InternalError,
 };
 use anyhow::Context;
 use std::sync::Arc;
@@ -26,32 +26,29 @@ pub(super) struct LocalTrackTask {
     pub packetizer: dtp::Packetizer,
     pub encryption: Option<Arc<dyn EncryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
-    pub state_rx: watch::Receiver<DataTrackState>,
+    pub state_rx: watch::Receiver<LocalTrackState>,
     pub frame_rx: mpsc::Receiver<DataTrackFrame>,
     pub event_out_tx: mpsc::Sender<OutputEvent>,
 }
 
 impl LocalTrackTask {
-    pub async fn run(mut self) -> Result<(), InternalError> {
-        let mut state = DataTrackState::Published;
-        while matches!(state, DataTrackState::Published) {
+    pub async fn run(mut self) {
+        let mut state = *self.state_rx.borrow();
+        while state.is_published() {
             tokio::select! {
                 _ = self.state_rx.changed() => {
-                    let _: () = state = *self.state_rx.borrow();
-                    Ok(())
+                    state = *self.state_rx.borrow();
                 },
-                Some(frame) = self.frame_rx.recv() => self.publish_frame(frame),
+                Some(frame) = self.frame_rx.recv() => {
+                    _ = self.publish_frame(frame).inspect_err(|err| log::error!("{}", err));
+                },
                 else => break
             }
-            .inspect_err(|err| log::error!("{}", err))
-            .ok();
         }
-        if let DataTrackState::Unpublished { sfu_initiated } = state {
-            if !sfu_initiated {
-                self.send_local_unpublish()?;
-            }
+        if let LocalTrackState::Unpublished { initiator: UnpublishInitiator::Client } = state {
+            let event = UnpublishRequestEvent { handle: self.info.handle };
+            _ = self.event_out_tx.try_send(event.into());
         }
-        Ok(())
     }
 
     fn publish_frame(&mut self, mut frame: DataTrackFrame) -> Result<(), InternalError> {
@@ -78,10 +75,5 @@ impl LocalTrackTask {
             self.event_out_tx.try_send(serialized.into()).context("Failed to send packet")?;
         }
         Ok(())
-    }
-
-    fn send_local_unpublish(self) -> Result<(), InternalError> {
-        let event = UnpublishRequestEvent { handle: self.info.handle };
-        Ok(self.event_out_tx.try_send(event.into()).context("Failed to send unpublish")?)
     }
 }

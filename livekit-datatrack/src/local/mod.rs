@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, DataTrackState, InternalError,
+    DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError, local::manager::{LocalTrackState, UnpublishInitiator},
 };
 use std::{fmt, marker::PhantomData, sync::Arc};
 use thiserror::Error;
@@ -57,7 +57,7 @@ impl DataTrack<Local> {
 
     /// Whether or not the track is still published.
     pub fn is_published(&self) -> bool {
-        matches!(*self.inner().state_tx.borrow(), DataTrackState::Published)
+        self.inner().state_tx.borrow().is_published()
     }
 
     /// Unpublish the track.
@@ -69,13 +69,13 @@ impl DataTrack<Local> {
 #[derive(Debug, Clone)]
 pub(crate) struct LocalTrackInner {
     pub frame_tx: mpsc::Sender<DataTrackFrame>,
-    pub state_tx: watch::Sender<DataTrackState>,
+    pub state_tx: watch::Sender<LocalTrackState>,
 }
 
 impl LocalTrackInner {
     fn local_unpublish(&self) {
         self.state_tx
-            .send(DataTrackState::Unpublished { sfu_initiated: false })
+            .send(LocalTrackState::Unpublished { initiator: UnpublishInitiator::Client })
             .inspect_err(|err| log::error!("Failed to update state to unsubscribed: {err}"))
             .ok();
     }
