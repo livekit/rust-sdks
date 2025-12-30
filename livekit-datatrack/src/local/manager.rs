@@ -139,8 +139,7 @@ impl Manager {
             event_in_rx,
             event_out_tx,
             handle_allocator: dtp::TrackHandleAllocator::default(),
-            pending_publications: HashMap::new(),
-            active_publications: HashMap::new(),
+            descriptors: HashMap::new(),
         };
 
         let event_out_stream = ReceiverStream::new(signal_out_rx);
@@ -173,15 +172,28 @@ impl Manager {
     const OUTPUT_BUFFER_SIZE: usize = 4;
 }
 
+#[derive(Debug)]
+enum Descriptor {
+    /// Publication is awaiting SFU response.
+    ///
+    /// The associated channel is used to send a result to the user,
+    /// either the local track or a publish error.
+    ///
+    Pending(oneshot::Sender<Result<LocalDataTrack, PublishError>>),
+    /// Publication is active.
+    ///
+    /// The associated channel is used to send state updates to the track's task.
+    ///
+    Active(watch::Sender<LocalTrackState>),
+}
+
 pub struct ManagerTask {
     encryption: Option<Arc<dyn EncryptionProvider>>,
     event_in_tx: mpsc::WeakSender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
     handle_allocator: dtp::TrackHandleAllocator,
-    pending_publications:
-        HashMap<TrackHandle, oneshot::Sender<Result<LocalDataTrack, PublishError>>>,
-    active_publications: HashMap<TrackHandle, watch::Sender<LocalTrackState>>,
+    descriptors: HashMap<TrackHandle, Descriptor>,
 }
 
 impl ManagerTask {
@@ -211,13 +223,13 @@ impl ManagerTask {
             return Ok(());
         };
 
-        if self.pending_publications.contains_key(&handle) {
+        if self.descriptors.contains_key(&handle) {
             _ = event.result_tx.send(Err(PublishError::Internal(
-                anyhow!("Publication already pending for handle").into(),
+                anyhow!("Descriptor for handle already exists").into(),
             )));
             return Ok(());
         }
-        self.pending_publications.insert(handle, event.result_tx);
+        self.descriptors.insert(handle, Descriptor::Pending(event.result_tx));
 
         let publish_requested = PublishRequestEvent {
             handle,
@@ -241,9 +253,13 @@ impl ManagerTask {
     }
 
     fn handle_publish_result(&mut self, event: PublishResultEvent) -> Result<(), InternalError> {
-        let Some(result_tx) = self.pending_publications.remove(&event.handle) else {
-            Err(anyhow!("No pending track publication for {}", event.handle))?
+        let Some(descriptor) = self.descriptors.remove(&event.handle) else {
+            Err(anyhow!("No descriptor for {}", event.handle))?
         };
+        let Descriptor::Pending(result_tx) = descriptor else {
+            Err(anyhow!("Track {} already active", event.handle))?
+        };
+
         if result_tx.is_closed() {
             return Ok(());
         }
@@ -267,15 +283,18 @@ impl ManagerTask {
             event_out_tx: self.event_out_tx.clone(),
         };
         livekit_runtime::spawn(task.run());
-        self.active_publications.insert(info.handle, state_tx.clone());
+        self.descriptors.insert(info.handle, Descriptor::Active(state_tx.clone()));
 
         let inner = LocalTrackInner { frame_tx, state_tx };
         LocalDataTrack::new(info, inner)
     }
 
     fn handle_unpublished(&mut self, event: UnpublishEvent) -> Result<(), InternalError> {
-        let Some(state_tx) = self.active_publications.remove(&event.handle) else {
-            Err(anyhow!("Cannot handle unpublish for unknown track {}", event.handle))?
+        let Some(descriptor) = self.descriptors.remove(&event.handle) else {
+            Err(anyhow!("No descriptor for track {}", event.handle))?
+        };
+        let Descriptor::Active(state_tx) = descriptor else {
+            Err(anyhow!("Cannot unpublish pending track {}", event.handle))?
         };
         let state = *state_tx.borrow();
         if !matches!(state, LocalTrackState::Published) {
@@ -289,14 +308,17 @@ impl ManagerTask {
 
     /// Performs cleanup before the task ends.
     fn shutdown(self) {
-        // Resolve any pending track publications
-        for (_, result_tx) in self.pending_publications {
-            _ = result_tx.send(Err(PublishError::Disconnected));
-        }
-        // Mark all active publications as unpublished
-        for (_, state_tx) in self.active_publications {
-            _ = state_tx
-                .send(LocalTrackState::Unpublished { initiator: UnpublishInitiator::Shutdown });
+        for (_, descriptor) in self.descriptors {
+            match descriptor {
+                Descriptor::Pending(result_tx) => {
+                    _ = result_tx.send(Err(PublishError::Disconnected))
+                }
+                Descriptor::Active(state_tx) => {
+                    _ = state_tx.send(LocalTrackState::Unpublished {
+                        initiator: UnpublishInitiator::Shutdown,
+                    })
+                }
+            }
         }
     }
 
