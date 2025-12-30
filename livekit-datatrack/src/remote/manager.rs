@@ -75,16 +75,14 @@ pub struct ManagerOptions {
 
 /// Manager for remote data tracks.
 pub struct Manager {
-    event_in_tx: mpsc::Sender<InputEvent>, // sub request
+    event_in_tx: mpsc::Sender<InputEvent>,
 }
 
 impl Manager {
-    const CH_BUFFER_SIZE: usize = 4;
-
     /// Creates a new manager with the specified options.
     pub fn new(options: ManagerOptions) -> (Self, ManagerTask, impl Stream<Item = OutputEvent>) {
-        let (event_in_tx, event_in_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
-        let (event_out_tx, event_out_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
+        let (event_in_tx, event_in_rx) = mpsc::channel(Self::INPUT_BUFFER_SIZE);
+        let (event_out_tx, event_out_rx) = mpsc::channel(Self::OUTPUT_BUFFER_SIZE);
 
         let manager = Manager { event_in_tx };
         let task = ManagerTask { decryption: options.decryption, event_in_rx, event_out_tx };
@@ -97,6 +95,12 @@ impl Manager {
     pub fn handle_event(&self, event: InputEvent) -> Result<(), InternalError> {
         Ok(self.event_in_tx.try_send(event).context("Failed to send input event")?)
     }
+
+    /// Number of [`InputEvent`]s to buffer.
+    const INPUT_BUFFER_SIZE: usize = 4;
+
+    /// Number of [`OutputEvent`]s to buffer.
+    const OUTPUT_BUFFER_SIZE: usize = 4;
 }
 
 pub struct ManagerTask {
