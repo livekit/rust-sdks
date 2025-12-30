@@ -198,14 +198,14 @@ impl ManagerTask {
 
     fn handle_event(&mut self, event: InputEvent) -> Result<(), InternalError> {
         match event {
-            InputEvent::Publish(event) => self.handle_publish_request(event),
+            InputEvent::Publish(event) => self.handle_publish(event),
             InputEvent::PublishResult(event) => self.handle_publish_result(event),
             InputEvent::Unpublish(event) => self.handle_unpublished(event),
             _ => Ok(()),
         }
     }
 
-    fn handle_publish_request(&mut self, event: PublishEvent) -> Result<(), InternalError> {
+    fn handle_publish(&mut self, event: PublishEvent) -> Result<(), InternalError> {
         let Some(handle) = self.handle_allocator.get() else {
             _ = event.result_tx.send(Err(PublishError::LimitReached));
             return Ok(());
