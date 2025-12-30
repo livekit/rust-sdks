@@ -88,3 +88,98 @@ fn publish_results_from_sync_state(
         .map(TryInto::<PublishResultEvent>::try_into)
         .collect::<Result<Vec<_>, InternalError>>()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_publish_request_event() {
+        let event = PublishRequestEvent {
+            handle: 1u32.try_into().unwrap(),
+            name: "track".into(),
+            uses_e2ee: true,
+        };
+        let request: proto::PublishDataTrackRequest = event.into();
+        assert_eq!(request.pub_handle, 1);
+        assert_eq!(request.name, "track");
+        assert_eq!(request.encryption(), proto::encryption::Type::Gcm);
+    }
+
+    #[test]
+    fn test_from_unpublish_request_event() {
+        let event = UnpublishRequestEvent { handle: 1u32.try_into().unwrap() };
+        let request: proto::UnpublishDataTrackRequest = event.into();
+        assert_eq!(request.pub_handle, 1);
+    }
+
+    #[test]
+    fn test_from_publish_response() {
+        let response = proto::PublishDataTrackResponse {
+            info: proto::DataTrackInfo {
+                pub_handle: 1,
+                sid: "DTR_1234".into(),
+                name: "track".into(),
+                encryption: proto::encryption::Type::Gcm.into(),
+            }
+            .into(),
+        };
+        let event: PublishResultEvent = response.try_into().unwrap();
+        assert_eq!(event.handle, 1u32.try_into().unwrap());
+
+        let info = event.result.expect("Expected ok result");
+        assert_eq!(info.handle, 1u32.try_into().unwrap());
+        assert_eq!(info.sid, "DTR_1234");
+        assert_eq!(info.name, "track");
+        assert!(info.uses_e2ee);
+    }
+
+    #[test]
+    fn test_from_request_response() {
+        use proto::request_response::{Reason, Request};
+        let response = proto::RequestResponse {
+            request: Request::PublishDataTrack(proto::PublishDataTrackRequest {
+                pub_handle: 1,
+                ..Default::default()
+            })
+            .into(),
+            reason: Reason::NotAllowed.into(),
+            ..Default::default()
+        };
+
+        let event = publish_result_from_request_response(&response).expect("Expected event");
+        assert_eq!(event.handle, 1u32.try_into().unwrap());
+        assert!(matches!(event.result, Err(PublishError::NotAllowed)));
+    }
+
+    #[test]
+    fn test_from_sync_state() {
+        let mut sync_state = proto::SyncState {
+            publish_data_tracks: vec![
+                proto::PublishDataTrackResponse {
+                    info: proto::DataTrackInfo {
+                        pub_handle: 1,
+                        sid: "DTR_1234".into(),
+                        name: "track1".into(),
+                        encryption: proto::encryption::Type::Gcm.into(),
+                    }
+                    .into(),
+                },
+                proto::PublishDataTrackResponse {
+                    info: proto::DataTrackInfo {
+                        pub_handle: 2,
+                        sid: "DTR_4567".into(),
+                        name: "track2".into(),
+                        encryption: proto::encryption::Type::Gcm.into(),
+                    }
+                    .into(),
+                },
+            ],
+            ..Default::default()
+        };
+        let events = publish_results_from_sync_state(&mut sync_state).expect("Expected events");
+        assert_eq!(events.len(), 2);
+        assert!(sync_state.publish_data_tracks.is_empty(), "Expected original vec taken");
+        assert!(events.into_iter().all(|event| event.result.is_ok()));
+    }
+}

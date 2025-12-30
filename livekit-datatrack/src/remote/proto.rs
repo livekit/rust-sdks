@@ -88,3 +88,54 @@ impl From<SubscriptionUpdatedEvent> for proto::UpdateDataSubscription {
         Self { updates: vec![update] }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_from_subscriber_handles() {
+        let sub_handles = [
+            (
+                1,
+                proto::data_track_subscriber_handles::PublishedDataTrack {
+                    track_sid: "DTR_1234".into(),
+                    ..Default::default()
+                },
+            ),
+            (
+                2,
+                proto::data_track_subscriber_handles::PublishedDataTrack {
+                    track_sid: "DTR_4567".into(),
+                    ..Default::default()
+                },
+            ),
+        ];
+        let subscriber_handles =
+            proto::DataTrackSubscriberHandles { sub_handles: HashMap::from(sub_handles) };
+
+        let event: SubscriberHandlesEvent = subscriber_handles.try_into().unwrap();
+        assert_eq!(event.mapping.get(&1u32.try_into().unwrap()).unwrap(), "DTR_1234");
+        assert_eq!(event.mapping.get(&2u32.try_into().unwrap()).unwrap(), "DTR_4567");
+    }
+
+    #[test]
+    fn test_extract_track_info() {
+        let data_tracks = vec![proto::DataTrackInfo {
+            pub_handle: 1,
+            sid: "DTR_1234".into(),
+            name: "track1".into(),
+            encryption: proto::encryption::Type::Gcm.into(),
+        }];
+        let mut participant_info = proto::ParticipantInfo { data_tracks, ..Default::default() };
+
+        let track_info = extract_track_info(&mut participant_info).unwrap();
+        assert!(participant_info.data_tracks.is_empty(), "Expected original vec taken");
+        assert_eq!(track_info.len(), 1);
+
+        let first = track_info.first().unwrap();
+        assert_eq!(first.handle, 1u32.try_into().unwrap());
+        assert_eq!(first.name, "track1");
+        assert_eq!(first.sid, "DTR_1234");
+    }
+}
