@@ -296,8 +296,7 @@ impl ManagerTask {
         let Descriptor::Active(state_tx) = descriptor else {
             Err(anyhow!("Cannot unpublish pending track {}", event.handle))?
         };
-        let state = *state_tx.borrow();
-        if !matches!(state, LocalTrackState::Published) {
+        if !state_tx.borrow().is_published() {
             return Ok(());
         }
         state_tx
