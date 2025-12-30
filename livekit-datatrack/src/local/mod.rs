@@ -21,6 +21,7 @@ use tokio::sync::{mpsc, watch};
 
 mod manager;
 mod pipeline;
+mod proto;
 
 /// Data track published by the local participant.
 pub type LocalDataTrack = DataTrack<Local>;

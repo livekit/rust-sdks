@@ -16,7 +16,6 @@ use thiserror::Error;
 
 mod e2ee;
 mod frame;
-mod proto;
 mod track;
 
 pub use {e2ee::*, frame::*, track::*};

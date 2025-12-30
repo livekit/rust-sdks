@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::manager::PubSignalOutput;
 use crate::{
-    dtp, DataTrackFrame, DataTrackInfo, DataTrackState, EncryptionProvider, InternalError,
+    dtp,
+    local::manager::{OutputEvent, UnpublishRequestEvent},
+    DataTrackFrame, DataTrackInfo, DataTrackState, EncryptionProvider, InternalError,
 };
 use anyhow::Context;
-use bytes::Bytes;
-use livekit_protocol as proto;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 
@@ -29,8 +28,7 @@ pub(super) struct LocalTrackTask {
     pub info: Arc<DataTrackInfo>,
     pub state_rx: watch::Receiver<DataTrackState>,
     pub frame_rx: mpsc::Receiver<DataTrackFrame>,
-    pub packet_out_tx: mpsc::Sender<Bytes>,
-    pub signal_out_tx: mpsc::Sender<PubSignalOutput>,
+    pub event_out_tx: mpsc::Sender<OutputEvent>,
 }
 
 impl LocalTrackTask {
@@ -50,7 +48,7 @@ impl LocalTrackTask {
         }
         if let DataTrackState::Unpublished { sfu_initiated } = state {
             if !sfu_initiated {
-                self.send_unpublish_req()?;
+                self.send_local_unpublish()?;
             }
         }
         Ok(())
@@ -77,13 +75,13 @@ impl LocalTrackTask {
         let packets = self.packetizer.packetize(frame).context("Failed to packetize frame")?;
         for packet in packets {
             let serialized = packet.serialize();
-            self.packet_out_tx.try_send(serialized).context("Failed to send packet")?;
+            self.event_out_tx.try_send(serialized.into()).context("Failed to send packet")?;
         }
         Ok(())
     }
 
-    fn send_unpublish_req(self) -> Result<(), InternalError> {
-        let req = proto::UnpublishDataTrackRequest { pub_handle: self.info.handle.into() };
-        Ok(self.signal_out_tx.try_send(req.into()).context("Failed to send unpublish")?)
+    fn send_local_unpublish(self) -> Result<(), InternalError> {
+        let event = UnpublishRequestEvent { handle: self.info.handle };
+        Ok(self.event_out_tx.try_send(event.into()).context("Failed to send unpublish")?)
     }
 }

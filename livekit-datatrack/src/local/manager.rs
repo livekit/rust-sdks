@@ -22,13 +22,80 @@ use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use from_variants::FromVariants;
 use futures_util::Stream;
-use livekit_protocol as proto;
 use std::{collections::HashMap, sync::Arc, time::Duration};
-use tokio::{
-    sync::{mpsc, oneshot, watch},
-    time::timeout,
-};
+use tokio::sync::{mpsc, oneshot, watch};
+use tokio::time;
 use tokio_stream::wrappers::ReceiverStream;
+
+/// An external event handled by [`Manager`].
+#[derive(Debug, FromVariants)]
+pub enum InputEvent {
+    Publish(PublishEvent),
+    PublishResult(PublishResultEvent),
+    Unpublish(UnpublishEvent)
+    // TODO: add shutdown event
+}
+
+/// An event produced by [`Manager`] requiring external action.
+#[derive(Debug, FromVariants)]
+pub enum OutputEvent {
+    PublishRequest(PublishRequestEvent),
+    UnpublishRequest(UnpublishRequestEvent),
+    /// Encoded packet is ready to be sent over the transport.
+    PacketAvailable(Bytes),
+}
+
+/// Result of a publish request.
+#[derive(Debug)]
+pub struct PublishResultEvent {
+    /// Publisher handle of the track.
+    pub handle: TrackHandle,
+    /// Outcome of the publish request.
+    pub result: Result<DataTrackInfo, PublishError>,
+}
+
+/// SFU notification that a track published by the local participant
+/// has been unpublished.
+#[derive(Debug)]
+pub struct UnpublishEvent {
+    /// Publisher handle of the track that was unpublished.
+    handle: TrackHandle,
+}
+
+/// Local participant requested to publish a track.
+#[derive(Debug)]
+pub struct PublishRequestEvent {
+    pub handle: TrackHandle,
+    pub name: String,
+    pub uses_e2ee: bool,
+}
+
+/// Local participant unpublished a track.
+///
+/// This can either occur explicitly through user action or implicitly when the last
+/// reference to the track is dropped.
+///
+#[derive(Debug)]
+pub struct UnpublishRequestEvent {
+    /// Publisher handle of the track to unpublish.
+    pub handle: TrackHandle,
+}
+
+/// Request to publish a data track.
+#[derive(Debug)]
+pub struct PublishEvent {
+    /// Publish options.
+    options: DataTrackOptions,
+    /// Async completion channel.
+    result_tx: oneshot::Sender<Result<LocalDataTrack, PublishError>>,
+}
+
+/// Request to publish a data track timed-out.
+#[derive(Debug)]
+pub struct PublishTimeoutEvent {
+    /// Publisher handle of the pending publication.
+    handle: TrackHandle,
+}
 
 #[derive(Debug)]
 pub struct ManagerOptions {
@@ -38,47 +105,32 @@ pub struct ManagerOptions {
 /// Manager for local data tracks.
 #[derive(Debug, Clone)]
 pub struct Manager {
-    signal_in_tx: mpsc::Sender<PubSignalInput>,
-    pub_req_tx: mpsc::Sender<PubRequest>,
+    event_in_tx: mpsc::Sender<InputEvent>,
 }
 
 impl Manager {
-    const CH_BUFFER_SIZE: usize = 4;
-    const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
+    pub fn new(options: ManagerOptions) -> (Self, ManagerTask, impl Stream<Item = OutputEvent>) {
+        let (event_in_tx, event_in_rx) = mpsc::channel(Self::INPUT_BUFFER_SIZE);
+        let (event_out_tx, signal_out_rx) = mpsc::channel(Self::OUTPUT_BUFFER_SIZE);
 
-    pub fn new(
-        options: ManagerOptions,
-    ) -> (Self, ManagerTask, impl Stream<Item = PubSignalOutput>, impl Stream<Item = Bytes>) {
-        let (pub_req_tx, pub_req_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
-        let (signal_in_tx, signal_in_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
-        let (signal_out_tx, signal_out_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
-        let (packet_out_tx, packet_out_rx) = mpsc::channel(Self::CH_BUFFER_SIZE);
-
-        let manager = Self { signal_in_tx, pub_req_tx };
+        let manager = Self { event_in_tx: event_in_tx.clone() };
         let task = ManagerTask {
             encryption: options.encryption,
-            pub_req_rx,
-            signal_in_rx,
-            signal_out_tx,
-            packet_out_tx,
+            event_in_tx: event_in_tx.downgrade(),
+            event_in_rx,
+            event_out_tx,
             handle_allocator: dtp::TrackHandleAllocator::default(),
             pending_publications: HashMap::new(),
             active_publications: HashMap::new(),
         };
 
-        let signal_out_stream = ReceiverStream::new(signal_out_rx);
-        let packet_out_stream = ReceiverStream::new(packet_out_rx);
-
-        (manager, task, signal_out_stream, packet_out_stream)
+        let event_out_stream = ReceiverStream::new(signal_out_rx);
+        (manager, task, event_out_stream)
     }
 
-    /// Handles a signal message from the SFU.
-    ///
-    /// In order to function correctly, all message types enumerated in [`PubSignalInput`]
-    /// must be forwarded here.
-    ///
-    pub fn handle_signal(&self, message: PubSignalInput) -> Result<(), InternalError> {
-        Ok(self.signal_in_tx.try_send(message).context("Failed to handle signal input")?)
+    /// Handles an external event.
+    pub fn handle_event(&self, event: InputEvent) -> Result<(), InternalError> {
+        Ok(self.event_in_tx.try_send(event).context("Failed to handle input event")?)
     }
 
     /// Publishes a data track with the given options.
@@ -87,29 +139,26 @@ impl Manager {
         options: DataTrackOptions,
     ) -> Result<LocalDataTrack, PublishError> {
         let (result_tx, result_rx) = oneshot::channel();
-        let request = PubRequest { options, result_tx };
-        self.pub_req_tx.try_send(request).map_err(|_| PublishError::Disconnected)?;
+        let event = PublishEvent { options, result_tx };
 
-        // TODO: move timeout inside pub manager
-        let track = timeout(Self::PUBLISH_TIMEOUT, result_rx)
-            .await
-            .map_err(|_| PublishError::Timeout)?
-            .map_err(|_| PublishError::Disconnected)??;
+        self.event_in_tx.try_send(event.into()).map_err(|_| PublishError::Disconnected)?;
+        let track = result_rx.await.map_err(|_| PublishError::Disconnected)??;
+
         Ok(track)
     }
-}
 
-struct PubRequest {
-    options: DataTrackOptions,
-    result_tx: oneshot::Sender<Result<LocalDataTrack, PublishError>>,
+    /// Number of [`InputEvent`]s to buffer.
+    const INPUT_BUFFER_SIZE: usize = 4;
+
+    /// Number of [`OutputEvent`]s to buffer.
+    const OUTPUT_BUFFER_SIZE: usize = 4;
 }
 
 pub struct ManagerTask {
     encryption: Option<Arc<dyn EncryptionProvider>>,
-    pub_req_rx: mpsc::Receiver<PubRequest>,
-    signal_in_rx: mpsc::Receiver<PubSignalInput>,
-    signal_out_tx: mpsc::Sender<PubSignalOutput>,
-    packet_out_tx: mpsc::Sender<Bytes>,
+    event_in_tx: mpsc::WeakSender<InputEvent>,
+    event_in_rx: mpsc::Receiver<InputEvent>,
+    event_out_tx: mpsc::Sender<OutputEvent>,
     handle_allocator: dtp::TrackHandleAllocator,
     pending_publications:
         HashMap<TrackHandle, oneshot::Sender<Result<LocalDataTrack, PublishError>>>,
@@ -117,56 +166,66 @@ pub struct ManagerTask {
 }
 
 impl ManagerTask {
-    pub async fn run(mut self) -> Result<(), InternalError> {
-        loop {
-            tokio::select! {
-                biased; // Handle signal input before publish requests.
-                // TODO: check cancellation
-                Some(signal) = self.signal_in_rx.recv() => self.handle_signal(signal),
-                //Some(unpublish_req) = self.unpub_req_rx.recv() => self.handle_unpublish_req(unpublish_req),
-                Some(publish_req) = self.pub_req_rx.recv() => self.handle_publish_req(publish_req),
-                else => Ok(())
-            }
-            .inspect_err(|err| log::error!("{}", err))
-            .ok();
+    pub async fn run(mut self) {
+        // TODO: check cancellation
+        while let Some(event) = self.event_in_rx.recv().await {
+            let Err(err) = self.handle_event(event) else { continue };
+            log::error!("Failed to handle input event: {}", err);
         }
     }
 
-    fn handle_publish_req(&mut self, req: PubRequest) -> Result<(), InternalError> {
+    fn handle_event(&mut self, event: InputEvent) -> Result<(), InternalError> {
+        match event {
+            InputEvent::Publish(event) => self.handle_publish_request(event),
+            InputEvent::PublishResult(event) => self.handle_publish_result(event),
+            InputEvent::Unpublish(event) => self.handle_unpublished(event),
+        }
+    }
+
+    fn handle_publish_request(&mut self, event: PublishEvent) -> Result<(), InternalError> {
         let Some(handle) = self.handle_allocator.get() else {
-            _ = req.result_tx.send(Err(PublishError::LimitReached));
+            _ = event.result_tx.send(Err(PublishError::LimitReached));
             return Ok(());
         };
 
-        if self.pending_publications.insert(handle, req.result_tx).is_some() {
-            Err(anyhow!("Publication already pending for handle"))?
+        if self.pending_publications.contains_key(&handle) {
+            _ = event.result_tx.send(Err(PublishError::Internal(
+                anyhow!("Publication already pending for handle").into(),
+            )));
+            return Ok(());
         }
+        self.pending_publications.insert(handle, event.result_tx);
 
-        let use_e2ee = self.encryption.is_some() && !req.options.disable_e2ee;
-        let request = req.options.into_add_track_request(use_e2ee, handle);
-        self.signal_out_tx.try_send(request.into()).context("Failed to send add track")?;
+        let publish_requested = PublishRequestEvent {
+            handle,
+            name: event.options.name,
+            uses_e2ee: self.encryption.is_some() && !event.options.disable_e2ee,
+        };
+        _ = self.event_out_tx.try_send(publish_requested.into()); // TODO: check for error.
+        self.schedule_publish_timeout(handle);
         Ok(())
     }
 
-    fn handle_signal(&mut self, message: PubSignalInput) -> Result<(), InternalError> {
-        match message {
-            PubSignalInput::PublishResponse(res) => self.handle_publish_response(res),
-            PubSignalInput::UnpublishResponse(res) => self.handle_unpublish_response(res),
-            PubSignalInput::RequestResponse(res) => self.handle_request_response(res),
-            PubSignalInput::SyncState(res) => self.handle_sync_state(res),
-        }
+    fn schedule_publish_timeout(&self, handle: TrackHandle) {
+        let event_in_tx = self.event_in_tx.clone();
+        let emit_timeout = async move {
+            time::sleep(Self::PUBLISH_TIMEOUT).await;
+            let Some(tx) = event_in_tx.upgrade() else { return };
+            let event = PublishResultEvent { handle, result: Err(PublishError::Timeout) };
+            _ = tx.try_send(event.into())
+        };
+        livekit_runtime::spawn(emit_timeout);
     }
 
-    fn handle_publish_response(
-        &mut self,
-        res: proto::PublishDataTrackResponse,
-    ) -> Result<(), InternalError> {
-        let info: DataTrackInfo = res.try_into()?;
-        let Some(res_tx) = self.pending_publications.remove(&info.handle) else {
-            Err(anyhow!("No pending track publication for {}", info.handle))?
+    fn handle_publish_result(&mut self, event: PublishResultEvent) -> Result<(), InternalError> {
+        let Some(result_tx) = self.pending_publications.remove(&event.handle) else {
+            Err(anyhow!("No pending track publication for {}", event.handle))?
         };
-        let track = self.create_local_track(info);
-        let _ = res_tx.send(Ok(track));
+        if result_tx.is_closed() {
+            return Ok(());
+        }
+        let result = event.result.map(|track_info| self.create_local_track(track_info));
+        _ = result_tx.send(result);
         Ok(())
     }
 
@@ -177,57 +236,23 @@ impl ManagerTask {
 
         let task = LocalTrackTask {
             // TODO: handle cancellation
-            packetizer: dtp::Packetizer::new(info.handle, 16_000),
+            packetizer: dtp::Packetizer::new(info.handle, Self::TRANSPORT_MTU),
             encryption: self.encryption.clone(),
             info: info.clone(),
             frame_rx,
             state_rx,
-            packet_out_tx: self.packet_out_tx.clone(),
-            signal_out_tx: self.signal_out_tx.clone(),
+            event_out_tx: self.event_out_tx.clone(),
         };
         livekit_runtime::spawn(task.run());
         self.active_publications.insert(info.handle, state_tx.clone());
 
-        let handle = LocalTrackInner { frame_tx, state_tx };
-        LocalDataTrack::new(info, handle)
+        let inner = LocalTrackInner { frame_tx, state_tx };
+        LocalDataTrack::new(info, inner)
     }
 
-    fn handle_request_response(
-        &mut self,
-        res: proto::RequestResponse,
-    ) -> Result<(), InternalError> {
-        let reason = res.reason();
-        let req = res.request.context("Missing request")?;
-        use proto::request_response::Request;
-        match req {
-            Request::PublishDataTrack(req) => {
-                let handle: TrackHandle =
-                    req.pub_handle.try_into().context("Invalid track handle")?;
-                let Some(res_tx) = self.pending_publications.remove(&handle) else {
-                    Err(anyhow!("No pending publication for {}", req.pub_handle))?
-                };
-                let error: PublishError = reason.into();
-                _ = res_tx.send(Err(error));
-            }
-            Request::UnpublishDataTrack(req) => {
-                log::warn!("Unpublish failed for {}", req.pub_handle)
-            }
-            _ => {} // Not handled by this module
-        }
-        Ok(())
-    }
-
-    fn handle_unpublish_response(
-        &mut self,
-        res: proto::UnpublishDataTrackResponse,
-    ) -> Result<(), InternalError> {
-        let handle = {
-            let info: DataTrackInfo =
-                res.info.context("Missing info")?.try_into().context("Invalid info")?;
-            info.handle
-        };
-        let Some(state_tx) = self.active_publications.remove(&handle) else {
-            Err(anyhow!("Cannot handle unpublish for unknown track {}", handle))?
+    fn handle_unpublished(&mut self, event: UnpublishEvent) -> Result<(), InternalError> {
+        let Some(state_tx) = self.active_publications.remove(&event.handle) else {
+            Err(anyhow!("Cannot handle unpublish for unknown track {}", event.handle))?
         };
         let state = *state_tx.borrow();
         match state {
@@ -245,83 +270,9 @@ impl ManagerTask {
         Ok(())
     }
 
-    fn handle_sync_state(&mut self, res: proto::SyncState) -> Result<(), InternalError> {
-        for res in res.publish_data_tracks {
-            // Forward to standard response handler
-            self.handle_publish_response(res)?
-        }
-        Ok(())
-    }
-}
+    /// How long to wait for an SFU response for a track publication before timeout.
+    const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Debug, FromVariants)]
-pub enum PubManagerInput {
-    Signal(PubSignalInput),
-    Transport(Bytes),
-}
-
-/// Signal message produced by [`PubManager`] to be forwarded to the SFU.
-#[derive(Debug, FromVariants)]
-pub enum PubSignalOutput {
-    PublishRequest(proto::PublishDataTrackRequest),
-    UnpublishRequest(proto::UnpublishDataTrackRequest),
-}
-
-/// Signal message received from the SFU handled by [`PubManager`].
-#[derive(Debug, FromVariants)]
-pub enum PubSignalInput {
-    PublishResponse(proto::PublishDataTrackResponse),
-    UnpublishResponse(proto::UnpublishDataTrackResponse),
-    RequestResponse(proto::RequestResponse),
-    SyncState(proto::SyncState),
-}
-
-impl DataTrackOptions {
-    fn into_add_track_request(
-        self,
-        use_e2ee: bool,
-        handle: TrackHandle,
-    ) -> proto::PublishDataTrackRequest {
-        let encryption = if self.disable_e2ee || !use_e2ee {
-            proto::encryption::Type::None
-        } else {
-            proto::encryption::Type::Gcm
-        };
-        proto::PublishDataTrackRequest {
-            pub_handle: handle.into(),
-            name: self.name,
-            encryption: encryption.into(),
-        }
-    }
-}
-
-impl From<proto::request_response::Reason> for PublishError {
-    fn from(reason: proto::request_response::Reason) -> Self {
-        use proto::request_response::Reason;
-        // If new error cases are added in the future, consider if they should
-        // be treated as internal errors or added to the public error enum.
-        match reason {
-            Reason::NotAllowed => PublishError::NotAllowed,
-            Reason::DuplicateName => PublishError::DuplicateName,
-            other => PublishError::Internal(anyhow!("SFU rejected: {:?}", other).into()),
-        }
-    }
-}
-
-impl TryInto<DataTrackInfo> for proto::PublishDataTrackResponse {
-    type Error = InternalError;
-    fn try_into(self) -> Result<DataTrackInfo, Self::Error> {
-        let info = self.info.context("Missing info")?;
-        info.try_into()
-    }
-}
-
-impl From<PubSignalOutput> for proto::signal_request::Message {
-    fn from(output: PubSignalOutput) -> Self {
-        use proto::signal_request::Message;
-        match output {
-            PubSignalOutput::PublishRequest(req) => Message::PublishDataTrackRequest(req),
-            PubSignalOutput::UnpublishRequest(req) => Message::UnpublishDataTrackRequest(req),
-        }
-    }
+    /// MTU of the transport
+    const TRANSPORT_MTU: usize = 16_000;
 }
