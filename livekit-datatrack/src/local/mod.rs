@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use crate::{
-    DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError, local::manager::{LocalTrackState, UnpublishInitiator},
+    local::manager::{LocalTrackState, UnpublishInitiator},
+    DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError,
 };
 use std::{fmt, marker::PhantomData, sync::Arc};
 use thiserror::Error;

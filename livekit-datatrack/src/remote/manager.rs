@@ -13,13 +13,17 @@
 // limitations under the License.
 
 use crate::{
-    dtp::TrackHandle, DataTrack, DataTrackInfo, DecryptionProvider, InternalError, Remote,
+    dtp::TrackHandle, remote::pipeline::RemoteTrackTask, DataTrack, DataTrackInfo,
+    DecryptionProvider, InternalError, Remote, RemoteDataTrack, RemoteTrackInner,
 };
 use anyhow::Context;
 use bytes::Bytes;
 use from_variants::FromVariants;
-use std::{collections::HashMap, sync::Arc};
-use tokio::sync::mpsc;
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+use tokio::sync::{broadcast, mpsc};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 /// An external event handled by [`Manager`].
@@ -70,6 +74,25 @@ pub struct SubscriptionUpdatedEvent {
     pub subscribe: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TrackState {
+    Available,
+    Subscribed, // could include subscription details
+    Unpublished,
+}
+
+impl TrackState {
+    pub fn is_published(&self) -> bool {
+        !matches!(self, Self::Unpublished)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TrackSubscriptionEvent {
+    Subscribe, // TODO: include options
+    Unsubscribe,
+}
+
 #[derive(Debug)]
 pub struct ManagerOptions {
     pub decryption: Option<Arc<dyn DecryptionProvider>>,
@@ -87,7 +110,12 @@ impl Manager {
         let (event_out_tx, event_out_rx) = mpsc::channel(Self::OUTPUT_BUFFER_SIZE);
 
         let manager = Manager { event_in_tx };
-        let task = ManagerTask { decryption: options.decryption, event_in_rx, event_out_tx };
+        let task = ManagerTask {
+            decryption: options.decryption,
+            event_in_rx,
+            event_out_tx,
+            descriptors: Default::default(),
+        };
 
         let event_out_stream = ReceiverStream::new(event_out_rx);
         (manager, task, event_out_stream)
@@ -105,10 +133,19 @@ impl Manager {
     const OUTPUT_BUFFER_SIZE: usize = 4;
 }
 
+#[derive(Debug)]
+enum Descriptor {
+    Available { info: DataTrackInfo, publisher_identity: String },
+    Subscribed,
+}
+
 pub struct ManagerTask {
     decryption: Option<Arc<dyn DecryptionProvider>>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
+
+    // Mapping between SID and descriptor.
+    descriptors: HashMap<String, ()>,
 }
 
 impl ManagerTask {
@@ -127,7 +164,7 @@ impl ManagerTask {
             InputEvent::PublicationsUpdated(event) => self.handle_publications_updated(event),
             InputEvent::SubscriberHandles(event) => self.handle_subscriber_handles(event),
             InputEvent::PacketReceived(bytes) => self.handle_packet_received(bytes),
-            _ => Ok(())
+            _ => Ok(()),
         }
     }
 
@@ -135,7 +172,54 @@ impl ManagerTask {
         &mut self,
         event: PublicationsUpdatedEvent,
     ) -> Result<(), InternalError> {
-        todo!()
+        //  HashMap<String, (&str, DataTrackInfo)>
+
+        let tracks_by_sid: HashMap<&str, (&str, &DataTrackInfo)> = event
+            .tracks_by_participant
+            .iter()
+            .map(|(participant_identity, tracks)| {
+                tracks.iter().map(move |track_info| {
+                    (track_info.sid.as_str(), (participant_identity.as_str(), track_info))
+                })
+            })
+            .flatten()
+            .collect();
+
+        let existing_sids: HashSet<_> = self.descriptors.keys().map(|key| key.as_str()).collect();
+        let update_sids: HashSet<_> = tracks_by_sid.keys().map(|key| *key).collect();
+
+        for new_sid in update_sids.difference(&existing_sids) {
+            let Some((publisher_identity, info)) = tracks_by_sid.remove(new_sid) else { continue };
+            self.handle_track_published(publisher_identity, info);
+        }
+        for removed_sid in existing_sids.difference(&update_sids) {
+            // TODO: remove descriptor, set state to invalidate object/task
+        }
+        Ok(())
+    }
+
+    fn handle_track_published(&mut self, publisher_identity: String, info: DataTrackInfo) {
+        let (packet_tx, packet_rx) = mpsc::channel(4); // TODO: tune
+        let (frame_tx, frame_rx) = broadcast::channel(4);
+
+        let info = Arc::new(info);
+        let task = RemoteTrackTask {
+            decryption: self.decryption.clone(),
+            info: info.clone(),
+            packet_rx,
+            frame_tx,
+        };
+        livekit_runtime::spawn(task.run());
+        // - create & store descriptor
+        // include publisher identity and packet_tx
+
+        let inner = RemoteTrackInner { frame_rx };
+        let track = RemoteDataTrack::new(info, inner);
+        _ = self.event_out_tx.send(track.into());
+    }
+
+    fn handle_track_unpublished(&mut self, track_sid: String) {
+        // - end track task, invalidate object
     }
 
     fn handle_subscriber_handles(
@@ -146,6 +230,9 @@ impl ManagerTask {
     }
 
     fn handle_packet_received(&mut self, bytes: Bytes) -> Result<(), InternalError> {
+        // Decode packet
+        // Lookup handle
+        // Forward
         todo!()
     }
 }
