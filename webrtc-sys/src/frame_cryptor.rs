@@ -75,7 +75,7 @@ pub struct KeyProvider {
 impl KeyProvider {
     pub fn new(options: KeyProviderOptions) -> Self {
         unsafe {
-            let lk_options_ptr =  sys::lkKeyProviderOptionsCreate();
+            let lk_options_ptr = sys::lkKeyProviderOptionsCreate();
             sys::lkKeyProviderOptionsSetSharedKey(lk_options_ptr, options.shared_key);
             sys::lkKeyProviderOptionsSetRatchetWindowSize(
                 lk_options_ptr,
@@ -86,11 +86,8 @@ impl KeyProvider {
                 options.ratchet_salt.as_ptr(),
                 options.ratchet_salt.len() as u32,
             );
-            sys::lkKeyProviderOptionsSetFailureTolerance(
-                lk_options_ptr,
-                options.failure_tolerance,
-            );
-        
+            sys::lkKeyProviderOptionsSetFailureTolerance(lk_options_ptr, options.failure_tolerance);
+
             let ffi = sys::lkKeyProviderCreate(lk_options_ptr);
 
             let _ = sys::RefCounted::from_raw(lk_options_ptr);
@@ -424,5 +421,56 @@ impl From<sys::lkEncryptionState> for EncryptionState {
             sys::lkEncryptionState::InternalError => Self::InternalError,
             _ => panic!("unknown frame cyrptor FrameCryptionState"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::sys;
+
+    #[tokio::test]
+    async fn key_provider_options() {
+        let options = super::KeyProviderOptions {
+            shared_key: true,
+            ratchet_window_size: 20,
+            ratchet_salt: vec![1, 2, 3, 4],
+            failure_tolerance: 5,
+        };
+
+        unsafe {
+            let lk_options_ptr = sys::lkKeyProviderOptionsCreate();
+            sys::lkKeyProviderOptionsSetSharedKey(lk_options_ptr, options.shared_key);
+            sys::lkKeyProviderOptionsSetRatchetWindowSize(
+                lk_options_ptr,
+                options.ratchet_window_size,
+            );
+            sys::lkKeyProviderOptionsSetRatchetSalt(
+                lk_options_ptr,
+                options.ratchet_salt.as_ptr(),
+                options.ratchet_salt.len() as u32,
+            );
+            sys::lkKeyProviderOptionsSetFailureTolerance(lk_options_ptr, options.failure_tolerance);
+
+            let _ = sys::RefCounted::from_raw(lk_options_ptr);
+        }
+
+        let key_provider = super::KeyProvider::new(options);
+        assert!(!key_provider.ffi.as_ptr().is_null());
+
+        assert_eq!(key_provider.set_shared_key(1, vec![0; 16]), true);
+
+        assert_eq!(key_provider.get_shared_key(1), Some(vec![0; 16]));
+
+        assert_ne!(key_provider.ratchet_shared_key(1), Some(vec![0; 16]));
+
+        assert_eq!(key_provider.set_key("participant1".to_string(), 1, vec![1; 16]), true);
+
+        assert_eq!(key_provider.get_key("participant1".to_string(), 1), Some(vec![1; 16]));
+
+        assert_ne!(key_provider.ratchet_key("participant1".to_string(), 1), Some(vec![1; 16]));
+
+        key_provider.set_sif_trailer(vec![9, 8, 7, 6]);
+        
+
     }
 }
