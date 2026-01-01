@@ -13,16 +13,18 @@
 // limitations under the License.
 
 use crate::{
-    local::manager::{LocalTrackState, UnpublishInitiator},
-    DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError,
+    api::{DataTrack, DataTrackFrame, DataTrackInfo, InternalError},
+    track::DataTrackInner,
 };
+use manager::{LocalTrackState, UnpublishInitiator};
 use std::{fmt, marker::PhantomData, sync::Arc};
 use thiserror::Error;
 use tokio::sync::{mpsc, watch};
 
-mod manager;
+pub(crate) mod manager;
+pub(crate) mod proto;
+
 mod pipeline;
-mod proto;
 
 /// Data track published by the local participant.
 pub type LocalDataTrack = DataTrack<Local>;

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError};
+use crate::api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError};
 use anyhow::anyhow;
 use futures_util::StreamExt;
 use livekit_runtime::timeout;
@@ -22,9 +22,10 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 
-mod manager;
+pub(crate) mod manager;
+pub(crate) mod proto;
+
 mod pipeline;
-mod proto;
 
 /// Data track published by a remote participant.
 pub type RemoteDataTrack = DataTrack<Remote>;

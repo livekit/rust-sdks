@@ -12,11 +12,42 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod common;
+/// Common types for local and remote tracks.
+mod track;
+
+/// Local track publication.
 mod local;
+
+/// Remote track subscription.
 mod remote;
 
+/// Frame and frame builder.
+mod frame;
+
+/// End-to-end encryption.
+mod e2ee;
+
+/// Data track packet serialization & packetization.
 mod dtp;
+
+/// Common utilities.
 mod utils;
 
-pub use {common::*, local::*, remote::*};
+/// Internal error.
+mod error;
+
+/// Public APIs to be re-exported by the LiveKit crate.
+pub mod api {
+    pub use crate::{error::*, frame::*, local::*, remote::*, track::*};
+}
+
+/// Internal APIs for use within the LiveKit crate.
+pub mod internal {
+    pub use crate::e2ee::*;
+    pub mod local {
+        pub use crate::local::{manager::*, proto::*};
+    }
+    pub mod remote {
+        pub use crate::remote::{manager::*, proto::*};
+    }
+}

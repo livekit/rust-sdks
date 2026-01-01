@@ -14,9 +14,11 @@
 
 use super::{pipeline::LocalTrackTask, LocalTrackInner};
 use crate::{
-    dtp, DataTrackInfo, DataTrackOptions, EncryptionProvider, InternalError, PublishError,
+    api::{DataTrackInfo, DataTrackOptions, InternalError, PublishError},
+    dtp::{self, TrackHandle},
+    e2ee::EncryptionProvider,
+    local::LocalDataTrack,
 };
-use crate::{dtp::TrackHandle, LocalDataTrack};
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use from_variants::FromVariants;

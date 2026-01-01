@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use super::manager::{PublicationsUpdatedEvent, SubscriberHandlesEvent, SubscriptionUpdatedEvent};
-use crate::{dtp::TrackHandle, DataTrackInfo, InternalError};
+use crate::{
+    api::{DataTrackInfo, InternalError},
+    dtp::TrackHandle,
+};
 use livekit_protocol::{self as proto, ParticipantInfo};
 use std::{collections::HashMap, mem};
 

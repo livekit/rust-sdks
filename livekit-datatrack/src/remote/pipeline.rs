@@ -13,7 +13,11 @@
 // limitations under the License.
 
 use super::manager::TrackState;
-use crate::{dtp::Dtp, DataTrackFrame, DataTrackInfo, DecryptionProvider, EncryptedPayload};
+use crate::{
+    api::{DataTrackFrame, DataTrackInfo},
+    e2ee::{DecryptionProvider, EncryptedPayload},
+    dtp::Dtp,
+};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, watch};
 

@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Re-export data track API types.
-
-pub use livekit_datatrack::{error::*, frame::*, track::*};
-pub(crate) use livekit_datatrack::manager::*;
+// Re-export api types publicly, scope internal types to crate.
+pub use livekit_datatrack::api::*;
+pub(crate) use livekit_datatrack::internal;
