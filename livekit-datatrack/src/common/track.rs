@@ -20,7 +20,7 @@ use std::{marker::PhantomData, sync::Arc};
 #[derive(Debug, Clone)]
 pub struct DataTrackInfo {
     pub(crate) sid: String, // TODO: use shared ID type
-    pub(crate) handle: TrackHandle,
+    pub(crate) handle: TrackHandle, // TODO: consider removing (protocol level detail)
     pub(crate) name: String,
     pub(crate) uses_e2ee: bool,
 }

@@ -12,37 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::manager::{TrackState, TrackSubscriptionEvent};
-use crate::{DataTrackFrame, DataTrackInfo, DecryptionProvider, InternalError, dtp::Dtp};
+use super::manager::{TrackState};
+use crate::{DataTrackFrame, DataTrackInfo, DecryptionProvider, EncryptedPayload, InternalError, dtp::Dtp};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, watch};
-
-// pub enum RemoteTrackState {
-//     /// Track available to be subscribed to.
-//     Published,
-//     /// Local participant subscribed to the track.
-//     Subscribed,
-//     /// Track has been unpublished and is no longer available.
-//     Unpublished,
-// }
-
-// update_subscription_tx
-// state_rx
-
-
-
 
 pub(super) struct RemoteTrackTask {
     // pub depacketizer: dtp::Depacketizer,
     pub decryption: Option<Arc<dyn DecryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
-    //pub subscription_rx: mpsc::Receiver<>
     pub state_rx: watch::Receiver<TrackState>,
-    pub subscription_rx: mpsc::Receiver<TrackSubscriptionEvent>,
     pub packet_rx: mpsc::Receiver<Dtp>,
     pub frame_tx: broadcast::Sender<DataTrackFrame>,
-    pub event_out_tx: mpsc::Sender<super::manager::OutputEvent>,
-    // TODO: mechanism to update subscription?
+    pub event_out_tx: mpsc::WeakSender<super::manager::OutputEvent>,
 }
 
 impl RemoteTrackTask {
@@ -54,12 +36,38 @@ impl RemoteTrackTask {
                 _ = self.state_rx.changed() => {
                     state = *self.state_rx.borrow();
                 },
-                // Some(frame) = self.frame_rx.recv() => {
-                //     _ = self.publish_frame(frame).inspect_err(|err| log::error!("{}", err));
-                // },
+                Some(dtp) = self.packet_rx.recv() => {
+                    self.receive_packet(dtp);
+                },
                 else => break
             }
         }
+        // TODO: send unsubscribe if needed
         Ok(())
+    }
+
+    async fn receive_packet(&mut self, mut dtp: Dtp) {
+        if let Some(decryption) = &self.decryption {
+            debug_assert!(self.info.uses_e2ee);
+
+            let Some(e2ee_meta) = dtp.header.e2ee else {
+                log::error!("Missing E2EE meta");
+                return;
+            };
+            let encrypted_payload = EncryptedPayload {
+                payload: dtp.payload,
+                iv: e2ee_meta.iv,
+                key_index: e2ee_meta.key_index,
+            };
+            let decrypted_payload = match decryption.decrypt(encrypted_payload) {
+                Ok(decrypted_payload) => decrypted_payload,
+                Err(err) => {
+                    log::error!("Decryption failed: {}", err);
+                    return
+                }
+            };
+            dtp.payload = decrypted_payload;
+        }
+        // TODO: depacketize, emit complete frame
     }
 }
