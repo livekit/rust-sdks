@@ -172,29 +172,18 @@ pub struct ManagerTask {
 impl ManagerTask {
     pub async fn run(mut self) {
         while let Some(event) = self.event_in_rx.recv().await {
-            if matches!(event, InputEvent::Shutdown) {
-                break;
+            match event {
+                InputEvent::PublicationsUpdated(event) => self.handle_publications_updated(event),
+                InputEvent::Subscribe(event) => self.handle_subscribe(event),
+                InputEvent::SubscriberHandles(event) => self.handle_subscriber_handles(event),
+                InputEvent::PacketReceived(bytes) => self.handle_packet_received(bytes),
+                InputEvent::Shutdown => break,
             }
-            let Err(err) = self.handle_event(event) else { continue };
-            log::error!("Failed to handle input event: {}", err);
         }
         self.shutdown();
     }
 
-    fn handle_event(&mut self, event: InputEvent) -> Result<(), InternalError> {
-        match event {
-            InputEvent::PublicationsUpdated(event) => self.handle_publications_updated(event),
-            InputEvent::SubscriberHandles(event) => self.handle_subscriber_handles(event),
-            InputEvent::PacketReceived(bytes) => self.handle_packet_received(bytes),
-            InputEvent::Subscribe(event) => self.handle_subscribe(event),
-            _ => Ok(()),
-        }
-    }
-
-    fn handle_publications_updated(
-        &mut self,
-        event: PublicationsUpdatedEvent,
-    ) -> Result<(), InternalError> {
+    fn handle_publications_updated(&mut self, event: PublicationsUpdatedEvent) {
         // TODO: diff with descriptors
         // let tracks_by_sid: HashMap<&str, (&str, &DataTrackInfo)> = event
         //     .tracks_by_participant
@@ -239,7 +228,7 @@ impl ManagerTask {
             publisher_identity,
         };
         let track = RemoteDataTrack::new(info, inner);
-        self.event_out_tx.send(track.into());
+        _ = self.event_out_tx.send(track.into());
     }
 
     fn handle_track_unpublished(&mut self, track_sid: String) {
@@ -247,16 +236,16 @@ impl ManagerTask {
             log::error!("Unknown track {}", track_sid);
             return;
         };
-        descriptor.state_tx.send(TrackState::Unpublished);
+        _  = descriptor.state_tx.send(TrackState::Unpublished);
         // TODO: this should end the track task
     }
 
-    fn handle_subscribe(&mut self, event: SubscribeEvent) -> Result<(), InternalError> {
+    fn handle_subscribe(&mut self, event: SubscribeEvent) {
         let Some(descriptor) = self.descriptors.get_mut(event.track_sid.as_str()) else {
-            _ = event.result_tx.send(Err(SubscribeError::Internal(
-                anyhow!("Cannot subscribe to unknown track").into(),
-            )));
-            return Ok(());
+            let error =
+                SubscribeError::Internal(anyhow!("Cannot subscribe to unknown track").into());
+            _ = event.result_tx.send(Err(error));
+            return;
         };
         match &mut descriptor.state {
             DescriptorState::Available => {
@@ -276,17 +265,12 @@ impl ManagerTask {
                 _ = event.result_tx.send(Ok(frame_rx))
             }
         }
-        Ok(())
     }
 
-    fn handle_subscriber_handles(
-        &mut self,
-        event: SubscriberHandlesEvent,
-    ) -> Result<(), InternalError> {
+    fn handle_subscriber_handles(&mut self, event: SubscriberHandlesEvent) {
         for (handle, sid) in event.mapping {
             self.register_subscriber_handle(handle, sid);
         }
-        Ok(())
     }
 
     fn register_subscriber_handle(&mut self, handle: TrackHandle, sid: String) {
@@ -322,8 +306,14 @@ impl ManagerTask {
         }
     }
 
-    fn handle_packet_received(&mut self, bytes: Bytes) -> Result<(), InternalError> {
-        let dtp = Dtp::deserialize(bytes).context("Failed to deserialize packet")?;
+    fn handle_packet_received(&mut self, bytes: Bytes) {
+        let dtp = match Dtp::deserialize(bytes) {
+            Ok(dtp) => dtp,
+            Err(err) => {
+                log::error!("Failed to deserialize DTP: {}", err);
+                return;
+            }
+        };
 
         // TODO: this is O(n), use index instead
         let descriptor = self
@@ -338,17 +328,15 @@ impl ManagerTask {
             .map(|entry| entry.1);
 
         let Some(descriptor) = descriptor else {
-            Err(anyhow!("Received packet for unknown track {}", dtp.header.track_handle))?
+            log::warn!("Received packet for unknown track {}", dtp.header.track_handle);
+            return;
         };
         let DescriptorState::Subscribed { handle: _, packet_tx, frame_tx: _ } = &descriptor.state
         else {
-            Err(anyhow!(
-                "Received packet for track {} without subscription",
-                dtp.header.track_handle
-            ))?
+            log::warn!("Received packet for track {} without subscription", descriptor.info.sid);
+            return;
         };
-        packet_tx.send(dtp);
-        Ok(())
+        _ = packet_tx.send(dtp);
     }
 
     /// Performs cleanup before the task ends.
@@ -358,11 +346,11 @@ impl ManagerTask {
                 DescriptorState::Available | DescriptorState::Subscribed { .. } => {}
                 DescriptorState::Pending { result_txs } => {
                     for result_tx in result_txs {
-                        result_tx.send(Err(SubscribeError::Disconnected));
+                        _ = result_tx.send(Err(SubscribeError::Disconnected));
                     }
                 }
             }
-            descriptor.state_tx.send(TrackState::Unpublished);
+            _ = descriptor.state_tx.send(TrackState::Unpublished);
         }
     }
 }
