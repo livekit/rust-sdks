@@ -15,6 +15,7 @@
 use crate::{
     dtp::{Dtp, TrackHandle},
     remote::pipeline::RemoteTrackTask,
+    utils::HandleMap,
     DataTrackFrame, DataTrackInfo, DecryptionProvider, InternalError, RemoteDataTrack,
     RemoteTrackInner, SubscribeError,
 };
@@ -121,7 +122,8 @@ impl Manager {
             event_in_tx: event_in_tx.downgrade(),
             event_in_rx,
             event_out_tx,
-            descriptors: Default::default(),
+            descriptors: HashMap::default(),
+            sub_handles: HandleMap::default(),
         };
 
         let event_out_stream = ReceiverStream::new(event_out_rx);
@@ -155,7 +157,6 @@ enum DescriptorState {
             Vec<oneshot::Sender<Result<broadcast::Receiver<DataTrackFrame>, SubscribeError>>>,
     },
     Subscribed {
-        handle: TrackHandle,
         packet_tx: mpsc::Sender<Dtp>,
         frame_tx: broadcast::Sender<DataTrackFrame>,
     },
@@ -167,9 +168,10 @@ pub struct ManagerTask {
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
 
-    /// Mapping between SID and descriptor.
+    /// Mapping between track SID and descriptor.
     descriptors: HashMap<String, Descriptor>,
-    // TODO: create index for fast lookup by handle
+    /// Bidirectional mapping between track SID and subscriber handle.
+    sub_handles: HandleMap,
 }
 
 impl ManagerTask {
@@ -230,11 +232,12 @@ impl ManagerTask {
     }
 
     fn handle_track_unpublished(&mut self, track_sid: String) {
+        self.sub_handles.remove(&track_sid);
         let Some(descriptor) = self.descriptors.remove(&track_sid) else {
             log::error!("Unknown track {}", track_sid);
             return;
         };
-        _  = descriptor.state_tx.send(TrackState::Unpublished);
+        _ = descriptor.state_tx.send(TrackState::Unpublished);
         // TODO: this should end the track task
     }
 
@@ -258,7 +261,7 @@ impl ManagerTask {
             DescriptorState::Pending { result_txs } => {
                 result_txs.push(event.result_tx);
             }
-            DescriptorState::Subscribed { handle: _, packet_tx: _, frame_tx } => {
+            DescriptorState::Subscribed { packet_tx: _, frame_tx } => {
                 let frame_rx = frame_tx.subscribe();
                 _ = event.result_tx.send(Ok(frame_rx))
             }
@@ -292,14 +295,16 @@ impl ManagerTask {
                 };
                 // TODO: spawn task
 
-                descriptor.state = DescriptorState::Subscribed { handle, packet_tx, frame_tx };
+                descriptor.state = DescriptorState::Subscribed { packet_tx, frame_tx };
+                self.sub_handles.insert(handle, sid);
+
                 // TODO: send completion
                 // for result_tx in result_txs {
                 //     result_tx.send(Ok(frame_rx.resubscribe()));
                 // }
             }
-            DescriptorState::Subscribed { handle: existing_handle, packet_tx: _, frame_tx: _ } => {
-                *existing_handle = handle
+            DescriptorState::Subscribed { packet_tx: _, frame_tx: _ } => {
+                log::warn!("Handle reassignment not implemented");
             }
         }
     }
@@ -312,25 +317,15 @@ impl ManagerTask {
                 return;
             }
         };
-
-        // TODO: this is O(n), use index instead
-        let descriptor = self
-            .descriptors
-            .iter()
-            .find(|(_, descriptor)| match descriptor.state {
-                DescriptorState::Subscribed { handle, packet_tx: _, frame_tx: _ } => {
-                    dtp.header.track_handle == handle
-                }
-                _ => false,
-            })
-            .map(|entry| entry.1);
-
-        let Some(descriptor) = descriptor else {
-            log::warn!("Received packet for unknown track {}", dtp.header.track_handle);
+        let Some(sid) = self.sub_handles.get_sid(dtp.header.track_handle) else {
+            log::warn!("Unknown subscriber handle {}", dtp.header.track_handle);
             return;
         };
-        let DescriptorState::Subscribed { handle: _, packet_tx, frame_tx: _ } = &descriptor.state
-        else {
+        let Some(descriptor) = self.descriptors.get(sid) else {
+            log::warn!("Missing descriptor");
+            return;
+        };
+        let DescriptorState::Subscribed { packet_tx, frame_tx: _ } = &descriptor.state else {
             log::warn!("Received packet for track {} without subscription", descriptor.info.sid);
             return;
         };
