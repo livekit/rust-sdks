@@ -846,13 +846,17 @@ impl SessionInner {
                 self.signal_client
                     .send(proto::signal_request::Message::PublishDataTrackRequest(event.into()))
                     .await
-            },
+            }
             OutputEvent::UnpublishRequest(event) => {
                 self.signal_client
-                .send(proto::signal_request::Message::UnpublishDataTrackRequest(event.into()))
-                .await
-            },
-            OutputEvent::PacketAvailable(event) => todo!(), // forward on transport
+                    .send(proto::signal_request::Message::UnpublishDataTrackRequest(event.into()))
+                    .await
+            }
+            OutputEvent::PacketAvailable(packet) => {
+                _ = self.dt_transport.send(&packet, true).inspect_err(|e| {
+                    log::error!("Failed to send data track packet over transport: {}", e)
+                });
+            }
         }
     }
 
