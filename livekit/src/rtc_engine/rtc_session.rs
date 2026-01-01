@@ -23,11 +23,12 @@ use std::{
     time::Duration,
 };
 
+use crate::data_track::{internal as dt, DataTrackOptions, LocalDataTrack, PublishError};
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
-use livekit_datatrack::{error::PublishError, track::{DataTrack, DataTrackOptions, Local}};
+// use livekit_datatrack::{error::PublishError, track::{DataTrack, DataTrackOptions, Local}};
 use livekit_protocol::{self as proto};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
@@ -374,7 +375,9 @@ struct SessionInner {
 
     e2ee_manager: Option<E2eeManager>,
 
-    dt_pub_manager: data_track::PubManager,
+    // Data track managers
+    local_dt_manager: dt::local::Manager,
+    remote_dt_manager: dt::remote::Manager,
 }
 
 /// Information about the local participant needed for outgoing
@@ -415,8 +418,10 @@ struct SessionHandle {
     signal_task: JoinHandle<()>,
     rtc_task: JoinHandle<()>,
     dc_task: JoinHandle<()>,
-    dt_forward_task: JoinHandle<()>,
-    dt_pub_task: JoinHandle<Result<(), data_track::InternalError>>,
+    local_dt_task: JoinHandle<()>,
+    local_dt_forward_task: JoinHandle<()>,
+    remote_dt_task: JoinHandle<()>,
+    remote_dt_forward_task: JoinHandle<()>
 }
 
 impl RtcSession {
@@ -482,15 +487,23 @@ impl RtcSession {
         rtc_events::forward_dc_events(&mut lossy_dc, DataPacketKind::Lossy, rtc_emitter.clone());
         rtc_events::forward_dc_events(&mut reliable_dc, DataPacketKind::Reliable, rtc_emitter);
 
-        let dt_pub_options = data_track::PubManagerOptions {
+        let local_dt_options = dt::local::ManagerOptions {
             encryption: e2ee_manager
                 .clone()
                 .filter(|m| m.enabled())
-                .map(|m| Arc::new(m) as Arc<dyn data_track::EncryptionProvider>),
+                .map(|m| Arc::new(m) as Arc<dyn dt::EncryptionProvider>),
         };
+        let (local_dt_manager, local_dt_task, local_dt_events) =
+            dt::local::Manager::new(local_dt_options);
 
-        let (dt_pub_manager, dt_pub_task, dt_pub_signal_out, dt_pub_packet_out) =
-            data_track::PubManager::new(dt_pub_options);
+        let remote_dt_options = dt::remote::ManagerOptions {
+            decryption: e2ee_manager
+                .clone()
+                .filter(|m| m.enabled())
+                .map(|m| Arc::new(m) as Arc<dyn dt::DecryptionProvider>),
+        };
+        let (remote_dt_manager, remote_dt_task, remote_dt_events) =
+            dt::remote::Manager::new(remote_dt_options);
 
         let (close_tx, close_rx) = watch::channel(false);
 
@@ -523,7 +536,8 @@ impl RtcSession {
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
             e2ee_manager,
-            dt_pub_manager,
+            local_dt_manager,
+            remote_dt_manager,
         });
 
         // Start session tasks
@@ -533,20 +547,24 @@ impl RtcSession {
             livekit_runtime::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
         let dc_task =
             livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
-        let dt_forward_task = livekit_runtime::spawn(inner.clone().data_track_forward_task(
-            dt_pub_signal_out,
-            dt_pub_packet_out,
-            close_rx,
-        ));
-        let dt_pub_task = livekit_runtime::spawn(dt_pub_task.run());
+
+        let local_dt_forward_task = livekit_runtime::spawn(inner.clone().local_dt_forward_task(local_dt_events));
+        let local_dt_task = livekit_runtime::spawn(local_dt_task.run());
+
+        let remote_dt_forward_task = livekit_runtime::spawn(inner.clone().remote_dt_forward_task(remote_dt_events));
+        let remote_dt_task = livekit_runtime::spawn(remote_dt_task.run());
+
+        // TODO: closure.
 
         let handle = Mutex::new(Some(SessionHandle {
             close_tx,
             signal_task,
             rtc_task,
             dc_task,
-            dt_forward_task,
-            dt_pub_task,
+            local_dt_task,
+            local_dt_forward_task,
+            remote_dt_task,
+            remote_dt_forward_task
         }));
 
         Ok((Self { inner, handle }, join_response, session_events))
@@ -590,7 +608,14 @@ impl RtcSession {
             let _ = handle.rtc_task.await;
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
-            let _ = handle.dt_pub_task.await.inspect_err(|err| log::error!("{}", err));
+
+            _ = self.inner.local_dt_manager.handle_event(dt::local::InputEvent::Shutdown);
+            let _ = handle.local_dt_task.await;
+            let _ = handle.local_dt_forward_task.await;
+
+            _ = self.inner.remote_dt_manager.handle_event(dt::remote::InputEvent::Shutdown);
+            let _ = handle.remote_dt_task.await;
+            let _ = handle.remote_dt_forward_task.await;
         }
 
         // Close the PeerConnections after the task
@@ -601,7 +626,7 @@ impl RtcSession {
     pub async fn publish_data_track(
         &self,
         options: DataTrackOptions,
-    ) -> Result<DataTrack<Local>, PublishError> {
+    ) -> Result<LocalDataTrack, PublishError> {
         self.inner.publish_data_track(options).await
     }
 
@@ -789,26 +814,41 @@ impl SessionInner {
         log::debug!("closing signal_task");
     }
 
-    async fn data_track_forward_task(
+    async fn local_dt_forward_task(
         self: Arc<Self>,
-        signal_out: impl Stream<Item = data_track::PubSignalOutput>,
-        packet_out: impl Stream<Item = Bytes>,
-        mut close_rx: watch::Receiver<bool>,
+        mut events: impl Stream<Item = dt::local::OutputEvent> + Unpin
     ) {
-        tokio::pin!(signal_out);
-        tokio::pin!(packet_out);
-        loop {
-            tokio::select! {
-                Some(message) = signal_out.next() => {
-                    self.signal_client.send(message.into()).await
-                },
-                Some(packet) = packet_out.next() => {
-                    _ = self.dt_transport.send(&packet, true)
-                },
-                _ = close_rx.changed() => break
-            }
+        while let Some(event) = events.next().await {
+            self.clone().forward_local_dt_event(event).await;
         }
-        log::debug!("closing data_track_transport_task");
+        log::debug!("closing local_dt_forward_task");
+    }
+
+    async fn remote_dt_forward_task(
+        self: Arc<Self>,
+        mut events: impl Stream<Item = dt::remote::OutputEvent> + Unpin,
+    ) {
+        while let Some(event) = events.next().await {
+            self.clone().forward_remote_dt_event(event).await;
+        }
+        log::debug!("closing remote_dt_forward_task");
+    }
+
+    async fn forward_local_dt_event( self: Arc<Self>, event: dt::local::OutputEvent) {
+        use dt::local::OutputEvent;
+        match event {
+            OutputEvent::PublishRequest(event) => todo!(), // forward on signal
+            OutputEvent::UnpublishRequest(event) => todo!(), // forward on signal
+            OutputEvent::PacketAvailable(event) => todo!(), // forward on transport
+        }
+    }
+
+    async fn forward_remote_dt_event( self: Arc<Self>, event: dt::remote::OutputEvent) {
+        use dt::remote::OutputEvent;
+        match event {
+            OutputEvent::SubscriptionUpdated(event) => todo!(), // forward on signal
+            OutputEvent::TrackAvailable(event) => todo!(), // forward to room
+        }
     }
 
     async fn data_channel_task(
@@ -1553,8 +1593,8 @@ impl SessionInner {
     pub async fn publish_data_track(
         &self,
         options: DataTrackOptions,
-    ) -> Result<DataTrack<Local>, PublishError> {
-        self.dt_pub_manager.publish_track(options).await
+    ) -> Result<LocalDataTrack, PublishError> {
+        self.local_dt_manager.publish_track(options).await
     }
 
     async fn publish_data(
