@@ -23,7 +23,9 @@ use std::{
     time::Duration,
 };
 
-use crate::data_track::{internal as dt, DataTrackOptions, LocalDataTrack, RemoteDataTrack, PublishError};
+use crate::data_track::{
+    internal as dt, DataTrackOptions, LocalDataTrack, PublishError, RemoteDataTrack,
+};
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use libwebrtc::{prelude::*, stats::RtcStats};
@@ -200,7 +202,7 @@ pub enum SessionEvent {
         url: String,
         token: String,
     },
-    RemoteDataTrackPublished(RemoteDataTrack)
+    RemoteDataTrackPublished(RemoteDataTrack),
 }
 
 #[derive(Debug)]
@@ -422,7 +424,7 @@ struct SessionHandle {
     local_dt_task: JoinHandle<()>,
     local_dt_forward_task: JoinHandle<()>,
     remote_dt_task: JoinHandle<()>,
-    remote_dt_forward_task: JoinHandle<()>
+    remote_dt_forward_task: JoinHandle<()>,
 }
 
 impl RtcSession {
@@ -549,10 +551,12 @@ impl RtcSession {
         let dc_task =
             livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
 
-        let local_dt_forward_task = livekit_runtime::spawn(inner.clone().local_dt_forward_task(local_dt_events));
+        let local_dt_forward_task =
+            livekit_runtime::spawn(inner.clone().local_dt_forward_task(local_dt_events));
         let local_dt_task = livekit_runtime::spawn(local_dt_task.run());
 
-        let remote_dt_forward_task = livekit_runtime::spawn(inner.clone().remote_dt_forward_task(remote_dt_events));
+        let remote_dt_forward_task =
+            livekit_runtime::spawn(inner.clone().remote_dt_forward_task(remote_dt_events));
         let remote_dt_task = livekit_runtime::spawn(remote_dt_task.run());
 
         // TODO: closure.
@@ -565,7 +569,7 @@ impl RtcSession {
             local_dt_task,
             local_dt_forward_task,
             remote_dt_task,
-            remote_dt_forward_task
+            remote_dt_forward_task,
         }));
 
         Ok((Self { inner, handle }, join_response, session_events))
@@ -817,7 +821,7 @@ impl SessionInner {
 
     async fn local_dt_forward_task(
         self: Arc<Self>,
-        mut events: impl Stream<Item = dt::local::OutputEvent> + Unpin
+        mut events: impl Stream<Item = dt::local::OutputEvent> + Unpin,
     ) {
         while let Some(event) = events.next().await {
             self.clone().forward_local_dt_event(event).await;
@@ -835,19 +839,31 @@ impl SessionInner {
         log::debug!("closing remote_dt_forward_task");
     }
 
-    async fn forward_local_dt_event( self: Arc<Self>, event: dt::local::OutputEvent) {
+    async fn forward_local_dt_event(self: Arc<Self>, event: dt::local::OutputEvent) {
         use dt::local::OutputEvent;
         match event {
-            OutputEvent::PublishRequest(event) => todo!(), // forward on signal
-            OutputEvent::UnpublishRequest(event) => todo!(), // forward on signal
+            OutputEvent::PublishRequest(event) => {
+                self.signal_client
+                    .send(proto::signal_request::Message::PublishDataTrackRequest(event.into()))
+                    .await
+            },
+            OutputEvent::UnpublishRequest(event) => {
+                self.signal_client
+                .send(proto::signal_request::Message::UnpublishDataTrackRequest(event.into()))
+                .await
+            },
             OutputEvent::PacketAvailable(event) => todo!(), // forward on transport
         }
     }
 
-    async fn forward_remote_dt_event( self: Arc<Self>, event: dt::remote::OutputEvent) {
+    async fn forward_remote_dt_event(self: Arc<Self>, event: dt::remote::OutputEvent) {
         use dt::remote::OutputEvent;
         match event {
-            OutputEvent::SubscriptionUpdated(event) => todo!(), // forward on signal
+            OutputEvent::SubscriptionUpdated(event) => {
+                self.signal_client
+                    .send(proto::signal_request::Message::UpdateDataSubscription(event.into()))
+                    .await
+            }
             OutputEvent::TrackAvailable(track) => {
                 let _ = self.emitter.send(SessionEvent::RemoteDataTrackPublished(track));
             }
