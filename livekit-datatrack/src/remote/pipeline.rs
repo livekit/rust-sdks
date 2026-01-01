@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::manager::{TrackState};
-use crate::{DataTrackFrame, DataTrackInfo, DecryptionProvider, EncryptedPayload, InternalError, dtp::Dtp};
+use super::manager::TrackState;
+use crate::{dtp::Dtp, DataTrackFrame, DataTrackInfo, DecryptionProvider, EncryptedPayload};
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, watch};
 
@@ -28,7 +28,7 @@ pub(super) struct RemoteTrackTask {
 }
 
 impl RemoteTrackTask {
-    pub async fn run(mut self) -> Result<(), InternalError> {
+    pub async fn run(mut self) {
         let mut state = *self.state_rx.borrow();
         while state.is_published() {
             tokio::select! {
@@ -43,7 +43,6 @@ impl RemoteTrackTask {
             }
         }
         // TODO: send unsubscribe if needed
-        Ok(())
     }
 
     async fn receive_packet(&mut self, mut dtp: Dtp) {
@@ -63,7 +62,7 @@ impl RemoteTrackTask {
                 Ok(decrypted_payload) => decrypted_payload,
                 Err(err) => {
                     log::error!("Decryption failed: {}", err);
-                    return
+                    return;
                 }
             };
             dtp.payload = decrypted_payload;
