@@ -25,7 +25,6 @@ use parking_lot::Mutex;
 
 use super::{key_provider::KeyProvider, EncryptionType};
 use crate::{
-    data_track,
     e2ee::E2eeOptions,
     id::{ParticipantIdentity, TrackSid},
     participant::{LocalParticipant, RemoteParticipant},
@@ -291,23 +290,5 @@ impl Debug for E2eeManager {
         f.debug_struct("E2eeManager")
             .field("enabled", &self.inner.lock().enabled)
             .finish_non_exhaustive()
-    }
-}
-
-impl data_track::DecryptionProvider for E2eeManager {
-    fn decrypt(
-        &self,
-        payload: data_track::EncryptedPayload,
-    ) -> Result<bytes::Bytes, data_track::DecryptionError> {
-        todo!()
-    }
-}
-
-impl data_track::EncryptionProvider for E2eeManager {
-    fn encrypt(
-        &self,
-        payload: bytes::Bytes,
-    ) -> Result<data_track::EncryptedPayload, data_track::EncryptionError> {
-        todo!()
     }
 }

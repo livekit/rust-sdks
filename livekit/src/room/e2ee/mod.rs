@@ -19,6 +19,9 @@ use self::key_provider::KeyProvider;
 pub mod key_provider;
 pub mod manager;
 
+/// Provider implementations for data track.
+mod data_track;
+
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EncryptionType {
     #[default]
