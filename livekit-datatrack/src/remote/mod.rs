@@ -72,12 +72,19 @@ impl DataTrack<Remote> {
         Ok(frame_stream)
     }
 
+    /// Whether or not the track is still published.
+    ///
+    /// Once the track has been unpublished, calls to [`Self::subscribe()`] will
+    /// result in an error.
+    ///
+    pub fn is_published(&self) -> bool {
+        self.inner().state_rx.borrow().is_published()
+    }
+
     /// Identity of the participant who published the track.
     pub fn publisher_identity(&self) -> &str {
         &self.inner().publisher_identity
     }
-
-    // TODO: is_published
 }
 
 #[derive(Debug, Clone)]
