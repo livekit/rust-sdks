@@ -14,7 +14,7 @@
 
 use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 
-use crate::data_track::{self, DataTrackOptions, LocalDataTrack};
+use crate::data_track::{self, DataTrackOptions, LocalDataTrack, RemoteDataTrack};
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_protocol as proto;
@@ -186,6 +186,7 @@ pub enum EngineEvent {
         url: String,
         token: String,
     },
+    RemoteDataTrackPublished(RemoteDataTrack)
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -617,6 +618,9 @@ impl EngineInner {
             }
             SessionEvent::RefreshToken { url, token } => {
                 let _ = self.engine_tx.send(EngineEvent::RefreshToken { url, token });
+            }
+            SessionEvent::RemoteDataTrackPublished(track) => {
+                let _ = self.engine_tx.send(EngineEvent::RemoteDataTrackPublished(track));
             }
         }
         Ok(())

@@ -23,7 +23,7 @@ use std::{
     time::Duration,
 };
 
-use crate::data_track::{internal as dt, DataTrackOptions, LocalDataTrack, PublishError};
+use crate::data_track::{internal as dt, DataTrackOptions, LocalDataTrack, RemoteDataTrack, PublishError};
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use libwebrtc::{prelude::*, stats::RtcStats};
@@ -200,6 +200,7 @@ pub enum SessionEvent {
         url: String,
         token: String,
     },
+    RemoteDataTrackPublished(RemoteDataTrack)
 }
 
 #[derive(Debug)]
@@ -847,7 +848,9 @@ impl SessionInner {
         use dt::remote::OutputEvent;
         match event {
             OutputEvent::SubscriptionUpdated(event) => todo!(), // forward on signal
-            OutputEvent::TrackAvailable(event) => todo!(), // forward to room
+            OutputEvent::TrackAvailable(track) => {
+                let _ = self.emitter.send(SessionEvent::RemoteDataTrackPublished(track));
+            }
         }
     }
 

@@ -45,6 +45,7 @@ pub use self::{
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
+    data_track::RemoteDataTrack,
     participant::ConnectionQuality,
     prelude::*,
     registered_audio_filter_plugins,
@@ -235,6 +236,8 @@ pub enum RoomEvent {
     ParticipantsUpdated {
         participants: Vec<Participant>,
     },
+    /// A remote participant published a data track.
+    RemoteDataTrackPublished(RemoteDataTrack)
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -911,7 +914,9 @@ impl RoomSession {
             EngineEvent::RefreshToken { url, token } => {
                 self.handle_refresh_token(url, token);
             }
-            _ => {}
+            EngineEvent::RemoteDataTrackPublished(track) => {
+                self.dispatcher.dispatch(&RoomEvent::RemoteDataTrackPublished(track));
+            }
         }
 
         Ok(())
