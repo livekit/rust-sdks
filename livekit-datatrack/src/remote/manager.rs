@@ -21,7 +21,10 @@ use crate::{
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use from_variants::FromVariants;
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
@@ -184,30 +187,25 @@ impl ManagerTask {
     }
 
     fn handle_publications_updated(&mut self, event: PublicationsUpdatedEvent) {
-        // TODO: diff with descriptors
-        // let tracks_by_sid: HashMap<&str, (&str, &DataTrackInfo)> = event
-        //     .tracks_by_participant
-        //     .iter()
-        //     .map(|(participant_identity, tracks)| {
-        //         tracks.iter().map(move |track_info| {
-        //             (track_info.sid.as_str(), (participant_identity.as_str(), track_info))
-        //         })
-        //     })
-        //     .flatten()
-        //     .collect();
+        let mut sids_in_update = HashSet::new();
 
-        // let existing_sids: HashSet<_> = self.descriptors.keys().map(|key| key.as_str()).collect();
-        // let update_sids: HashSet<_> = tracks_by_sid.keys().map(|key| *key).collect();
+        // Detect published track
+        for (publisher_identity, tracks) in event.tracks_by_participant {
+            for info in tracks {
+                sids_in_update.insert(info.sid.clone());
+                if self.descriptors.contains_key(&info.sid) {
+                    continue;
+                }
+                self.handle_track_published(publisher_identity.clone(), info);
+            }
+        }
 
-        // for new_sid in update_sids.difference(&existing_sids) {
-        //     let Some((publisher_identity, info)) = tracks_by_sid.remove(new_sid) else { continue };
-        //     self.handle_track_published(publisher_identity, info);
-        // }
-        // for removed_sid in existing_sids.difference(&update_sids) {
-        //     // TODO: remove descriptor, set state to invalidate object/task
-        // }
-        // Ok(())
-        todo!()
+        // Detect unpublished tracks
+        let unpublished_sids: Vec<_> =
+            self.descriptors.keys().filter(|sid| !sids_in_update.contains(*sid)).cloned().collect();
+        for sid in unpublished_sids {
+            self.handle_track_unpublished(sid.clone());
+        }
     }
 
     fn handle_track_published(&mut self, publisher_identity: String, info: DataTrackInfo) {
