@@ -593,7 +593,7 @@ impl Room {
                 empty_timeout: room_info.empty_timeout,
                 departure_timeout: room_info.departure_timeout,
                 max_participants: room_info.max_participants,
-                creation_time: room_info.creation_time,
+                creation_time: room_info.creation_time_ms,
                 num_publishers: room_info.num_publishers,
                 num_participants: room_info.num_participants,
                 active_recording: room_info.active_recording,
