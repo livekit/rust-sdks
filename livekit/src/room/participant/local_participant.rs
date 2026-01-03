@@ -216,6 +216,13 @@ impl LocalParticipant {
         super::on_attributes_changed(&self.inner, handler)
     }
 
+    pub(crate) fn on_permission_changed(
+        &self,
+        handler: impl Fn(Participant, Option<proto::ParticipantPermission>) + Send + 'static,
+    ) {
+        super::on_permission_changed(&self.inner, handler)
+    }
+
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
         super::add_publication(&self.inner, &Participant::Local(self.clone()), publication);
     }
@@ -753,6 +760,10 @@ impl LocalParticipant {
 
     pub fn disconnect_reason(&self) -> DisconnectReason {
         self.inner.info.read().disconnect_reason
+    }
+
+    pub fn permission(&self) -> Option<proto::ParticipantPermission> {
+        self.inner.info.read().permission.clone()
     }
 
     pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {

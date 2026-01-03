@@ -153,6 +153,10 @@ pub enum RoomEvent {
         participant: Participant,
         is_encrypted: bool,
     },
+    ParticipantPermissionChanged {
+        participant: Participant,
+        permission: Option<proto::ParticipantPermission>,
+    },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,
     },
@@ -576,6 +580,14 @@ impl Room {
             move |participant, changed_attributes| {
                 let event =
                     RoomEvent::ParticipantAttributesChanged { participant, changed_attributes };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        local_participant.on_permission_changed({
+            let dispatcher = dispatcher.clone();
+            move |participant, permission| {
+                let event = RoomEvent::ParticipantPermissionChanged { participant, permission };
                 dispatcher.dispatch(&event);
             }
         });
@@ -1720,6 +1732,14 @@ impl RoomSession {
             move |participant, changed_attributes| {
                 let event =
                     RoomEvent::ParticipantAttributesChanged { participant, changed_attributes };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        participant.on_permission_changed({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, permission| {
+                let event = RoomEvent::ParticipantPermissionChanged { participant, permission };
                 dispatcher.dispatch(&event);
             }
         });

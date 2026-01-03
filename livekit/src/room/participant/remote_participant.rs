@@ -310,6 +310,13 @@ impl RemoteParticipant {
         super::on_attributes_changed(&self.inner, handler)
     }
 
+    pub(crate) fn on_permission_changed(
+        &self,
+        handler: impl Fn(Participant, Option<proto::ParticipantPermission>) + Send + 'static,
+    ) {
+        super::on_permission_changed(&self.inner, handler)
+    }
+
     pub(crate) fn on_encryption_status_changed(
         &self,
         handler: impl Fn(Participant, bool) + Send + 'static,
@@ -546,6 +553,10 @@ impl RemoteParticipant {
 
     pub fn disconnect_reason(&self) -> DisconnectReason {
         self.inner.info.read().disconnect_reason
+    }
+
+    pub fn permission(&self) -> Option<proto::ParticipantPermission> {
+        self.inner.info.read().permission.clone()
     }
 
     pub fn is_encrypted(&self) -> bool {
