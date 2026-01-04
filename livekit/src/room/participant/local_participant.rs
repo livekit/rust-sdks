@@ -116,6 +116,7 @@ impl LocalParticipant {
         metadata: String,
         attributes: HashMap<String, String>,
         encryption_type: EncryptionType,
+        permission: Option<proto::ParticipantPermission>,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -127,6 +128,7 @@ impl LocalParticipant {
                 attributes,
                 kind,
                 kind_details,
+                permission,
             ),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),

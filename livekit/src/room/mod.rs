@@ -509,6 +509,7 @@ impl Room {
             pi.metadata,
             pi.attributes,
             e2ee_manager.encryption_type(),
+            pi.permission,
         );
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
@@ -661,6 +662,7 @@ impl Room {
                     pi.name,
                     pi.metadata,
                     pi.attributes,
+                    pi.permission,
                 )
             };
             participant.update_info(pi.clone());
@@ -1023,6 +1025,7 @@ impl RoomSession {
                         pi.name,
                         pi.metadata,
                         pi.attributes,
+                        pi.permission,
                     )
                 };
 
@@ -1628,6 +1631,7 @@ impl RoomSession {
         name: String,
         metadata: String,
         attributes: HashMap<String, String>,
+        permission: Option<proto::ParticipantPermission>,
     ) -> RemoteParticipant {
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
@@ -1639,6 +1643,7 @@ impl RoomSession {
             metadata,
             attributes,
             self.options.auto_subscribe,
+            permission,
         );
 
         participant.on_track_published({

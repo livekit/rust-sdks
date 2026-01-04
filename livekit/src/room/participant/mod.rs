@@ -177,6 +177,7 @@ pub(super) fn new_inner(
     attributes: HashMap<String, String>,
     kind: ParticipantKind,
     kind_details: Vec<ParticipantKindDetail>,
+    permission: Option<proto::ParticipantPermission>,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
@@ -192,7 +193,7 @@ pub(super) fn new_inner(
             audio_level: 0.0,
             connection_quality: ConnectionQuality::Excellent,
             disconnect_reason: DisconnectReason::UnknownReason,
-            permission: None,
+            permission,
         }),
         track_publications: Default::default(),
         events: Default::default(),

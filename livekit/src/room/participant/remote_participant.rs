@@ -84,6 +84,7 @@ impl RemoteParticipant {
         metadata: String,
         attributes: HashMap<String, String>,
         auto_subscribe: bool,
+        permission: Option<proto::ParticipantPermission>,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -95,6 +96,7 @@ impl RemoteParticipant {
                 attributes,
                 kind,
                 kind_details,
+                permission,
             ),
             remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
         }
