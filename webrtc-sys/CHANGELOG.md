@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.20](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.19...rust-sdks/webrtc-sys@0.3.20) - 2025-12-19
+
+### Fixed
+
+- Exclude the desktop-capturer module link for mobile. ([#817](https://github.com/livekit/rust-sdks/pull/817))
+
+## [0.3.19](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.18...rust-sdks/webrtc-sys@0.3.19) - 2025-12-17
+
+### Fixed
+
+- lazy loading for additional dependencies. ([#814](https://github.com/livekit/rust-sdks/pull/814))
+
+### Other
+
+- Expose WebRTC's audio_mixer ([#806](https://github.com/livekit/rust-sdks/pull/806))
+
+## [0.3.18](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.17...rust-sdks/webrtc-sys@0.3.18) - 2025-12-04
+
+### Other
+
+- initialize frame_.samples_per_channel_ ([#779](https://github.com/livekit/rust-sdks/pull/779))
+- Expose desktop capturer ([#725](https://github.com/livekit/rust-sdks/pull/725))
+
+## [0.3.17](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.16...rust-sdks/webrtc-sys@0.3.17) - 2025-11-20
+
+### Fixed
+
+- fix Android libwebrtc builds ([#791](https://github.com/livekit/rust-sdks/pull/791))
+
+### Other
+
+- Enable H265 encoding & decoding on Nvidia GPU ([#776](https://github.com/livekit/rust-sdks/pull/776))
+- copy desktop_capture.ninja into C++ library archive ([#787](https://github.com/livekit/rust-sdks/pull/787))
+- enable Pipewire (Wayland) and X11 desktop capture ([#784](https://github.com/livekit/rust-sdks/pull/784))
+
 ## [0.3.16](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.15...rust-sdks/webrtc-sys@0.3.16) - 2025-10-27
 
 ### Fixed

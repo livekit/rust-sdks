@@ -22,7 +22,10 @@ use std::{
     time::Duration,
 };
 
-use super::{ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantTrackPermission};
+use super::{
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail,
+    ParticipantTrackPermission,
+};
 use crate::{
     data_stream::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
@@ -106,6 +109,7 @@ impl LocalParticipant {
     pub(crate) fn new(
         rtc_engine: Arc<RtcEngine>,
         kind: ParticipantKind,
+        kind_details: Vec<ParticipantKindDetail>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -114,7 +118,16 @@ impl LocalParticipant {
         encryption_type: EncryptionType,
     ) -> Self {
         Self {
-            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes, kind),
+            inner: super::new_inner(
+                rtc_engine,
+                sid,
+                identity,
+                name,
+                metadata,
+                attributes,
+                kind,
+                kind_details,
+            ),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
                 encryption_type,
@@ -277,6 +290,9 @@ impl LocalParticipant {
         let track_info = self.inner.rtc_engine.add_track(req).await?;
         let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
         track.update_info(track_info); // Update sid + source
+
+        // set track for publication to listen mute/unmute events
+        publication.set_track(Some(track.clone().into()));
 
         let transceiver =
             self.inner.rtc_engine.create_sender(track.clone(), options.clone(), encodings).await?;
@@ -729,6 +745,10 @@ impl LocalParticipant {
 
     pub fn kind(&self) -> ParticipantKind {
         self.inner.info.read().kind
+    }
+
+    pub fn kind_details(&self) -> Vec<ParticipantKindDetail> {
+        self.inner.info.read().kind_details.clone()
     }
 
     pub fn disconnect_reason(&self) -> DisconnectReason {

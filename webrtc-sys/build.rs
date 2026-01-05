@@ -19,12 +19,20 @@ fn main() {
         return;
     }
 
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let is_desktop = target_os == "linux" || target_os == "windows" || target_os == "macos";
+
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
 
     //let use_debug_lib = webrtc_sys_build::rtc_debug_enabled();
     let use_dylib = !cfg!(feature = "static");
     //let use_custom_rtc = webrtc_sys_build::is_using_custom_webrtc();
+
+    if is_desktop {
+        builder.file("src/desktop_capturer.cpp");
+    }
 
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
     //let webrtc_include = webrtc_dir.join("include");

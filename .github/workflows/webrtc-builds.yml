@@ -161,6 +161,18 @@ jobs:
         shell: bash
         working-directory: webrtc-sys/libwebrtc
 
+      - name: Free Disk Space (Ubuntu)
+        uses: jlumbroso/free-disk-space@main
+        if: ${{ matrix.target.os == 'ubuntu-latest' }}
+        with:
+          android: false
+          tool-cache: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
       - name: Build WebRTC
         run: ${{ matrix.target.cmd }} --arch ${{ matrix.target.arch }} --profile ${{ matrix.profile }} ${{ matrix.target.buildargs }}
         working-directory: webrtc-sys/libwebrtc

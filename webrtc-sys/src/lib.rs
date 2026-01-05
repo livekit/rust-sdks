@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+<<<<<<< HEAD
 use std::any::Any;
 
 use thiserror::Error;
@@ -42,10 +43,22 @@ pub mod audio_frame;
 pub mod audio_mixer;
 pub mod audio_source;
 pub mod audio_stream;
+=======
+#[cfg(target_os = "android")]
+pub mod android;
+pub mod apm;
+pub mod audio_mixer;
+pub mod audio_resampler;
+>>>>>>> main
 pub mod audio_track;
 pub mod data_channel;
+<<<<<<< HEAD
 pub mod desktop_capturer;
 pub mod enum_dispatch;
+=======
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+pub mod desktop_capturer;
+>>>>>>> main
 pub mod frame_cryptor;
 pub mod ice_candidate;
 pub mod media_stream;

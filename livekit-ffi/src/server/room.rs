@@ -1426,6 +1426,9 @@ async fn forward_event(
                 .into(),
             );
         }
+        RoomEvent::TokenRefreshed { token } => {
+            let _ = send_event(proto::TokenRefreshed { token: token.into() }.into());
+        }
         _ => {
             log::warn!("unhandled room event: {:?}", event);
         }

@@ -79,12 +79,12 @@ AudioMixerSource::GetAudioFrameWithInfo(int sample_rate,
                                         webrtc::AudioFrame* audio_frame) {
   NativeAudioFrame frame(audio_frame);
 
-  livekit::lkAudioFrameInfo result = source_->getAudioFrameWithInfo(
+  lkAudioFrameInfo result = source_->getAudioFrameWithInfo(
       sample_rate, static_cast<lkNativeAudioFrame*>(&frame), userdata_);
 
-  if (result == livekit::lkAudioFrameInfo::Normal) {
+  if (result == lkAudioFrameInfo::Normal) {
     return webrtc::AudioMixer::Source::AudioFrameInfo::kNormal;
-  } else if (result == livekit::lkAudioFrameInfo::Muted) {
+  } else if (result == lkAudioFrameInfo::Muted) {
     return webrtc::AudioMixer::Source::AudioFrameInfo::kMuted;
   } else {
     return webrtc::AudioMixer::Source::AudioFrameInfo::kError;

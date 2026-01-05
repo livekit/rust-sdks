@@ -24,7 +24,9 @@ use livekit_protocol as proto;
 use livekit_runtime::timeout;
 use parking_lot::Mutex;
 
-use super::{ConnectionQuality, ParticipantInner, ParticipantKind, TrackKind};
+use super::{
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail, TrackKind,
+};
 use crate::{
     prelude::*,
     rtc_engine::RtcEngine,
@@ -75,6 +77,7 @@ impl RemoteParticipant {
     pub(crate) fn new(
         rtc_engine: Arc<RtcEngine>,
         kind: ParticipantKind,
+        kind_details: Vec<ParticipantKindDetail>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -83,7 +86,16 @@ impl RemoteParticipant {
         auto_subscribe: bool,
     ) -> Self {
         Self {
-            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes, kind),
+            inner: super::new_inner(
+                rtc_engine,
+                sid,
+                identity,
+                name,
+                metadata,
+                attributes,
+                kind,
+                kind_details,
+            ),
             remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
         }
     }
@@ -149,6 +161,7 @@ impl RemoteParticipant {
                 name: remote_publication.name(),
                 r#type: proto::TrackType::from(remote_publication.kind()) as i32,
                 source: proto::TrackSource::from(remote_publication.source()) as i32,
+                muted: remote_publication.is_muted(),
                 ..Default::default()
             });
 
@@ -525,6 +538,10 @@ impl RemoteParticipant {
 
     pub fn kind(&self) -> ParticipantKind {
         self.inner.info.read().kind
+    }
+
+    pub fn kind_details(&self) -> Vec<ParticipantKindDetail> {
+        self.inner.info.read().kind_details.clone()
     }
 
     pub fn disconnect_reason(&self) -> DisconnectReason {
