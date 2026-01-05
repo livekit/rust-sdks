@@ -11,7 +11,7 @@ tracing = ["console-subscriber", "tokio/tracing"]
 [dependencies]
 tokio = { version = "1", features = ["full", "parking_lot"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"]}
-webrtc-sys = { workspace = true }
+libwebrtc = { workspace = true }
 futures = "0.3"
 winit = { version = "0.30.11", features = [ "android-native-activity" ] }
 parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }

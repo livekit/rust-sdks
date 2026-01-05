@@ -6,8 +6,8 @@
 #include <memory>
 #include <vector>
 
-#include "NvEncoder/NvEncoder.h"
-#include "NvEncoder/NvEncoderCuda.h"
+#include "livekit_rtc/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.h"
+#include "livekit_rtc/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.h"
 
 #include "absl/container/inlined_vector.h"
 #include "api/transport/rtp/dependency_descriptor.h"

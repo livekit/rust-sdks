@@ -1832,7 +1832,11 @@ unsafe extern "C" {
     pub fn lkCreateAudioMixer() -> *mut lkAudioMixer;
 }
 unsafe extern "C" {
-    pub fn lkAudioMixerAddSource(mixer: *mut lkAudioMixer, source: *mut lkAudioMixerSourceCallback);
+    pub fn lkAudioMixerAddSource(
+        mixer: *mut lkAudioMixer,
+        source: *const lkAudioMixerSourceCallback,
+        userdata: *mut ::std::os::raw::c_void,
+    );
 }
 unsafe extern "C" {
     pub fn lkAudioMixerRemoveSource(mixer: *mut lkAudioMixer, ssrc: i32);

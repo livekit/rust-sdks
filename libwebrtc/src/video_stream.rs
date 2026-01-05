@@ -12,55 +12,74 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::imp::video_stream as stream_imp;
+use std::{
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
-// There is no shared sink between native and web platforms.
-// Each platform requires different configuration (e.g: WebGlContext, ..)
+use livekit_runtime::Stream;
+use tokio::sync::mpsc;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub mod native {
-    use std::{
-        fmt::Debug,
-        pin::Pin,
-        task::{Context, Poll},
-    };
+use crate::{
+    video_frame::{BoxVideoFrame, VideoFrame},
+    video_source::{native::NativeVideoSink, native::VideoSink, VideoTrackSourceConstraints},
+    video_track::RtcVideoTrack,
+};
 
-    use super::stream_imp;
-    use crate::{video_frame::BoxVideoFrame, video_track::RtcVideoTrack};
-    use livekit_runtime::Stream;
+pub struct NativeVideoStream {
+    native_sink: Arc<NativeVideoSink>,
+    pub video_track: RtcVideoTrack,
+    pub frame_rx: mpsc::UnboundedReceiver<BoxVideoFrame>,
+}
 
-    pub struct NativeVideoStream {
-        pub(crate) handle: stream_imp::NativeVideoStream,
+impl NativeVideoStream {
+    pub fn new(video_track: RtcVideoTrack) -> Self {
+        let (frame_tx, frame_rx) = mpsc::unbounded_channel();
+        let native_sink = Arc::new(NativeVideoSink::new(Arc::new(VideoTrackObserver { frame_tx })));
+        video_track.add_sink(native_sink.clone());
+        Self { native_sink, video_track, frame_rx }
     }
 
-    impl Debug for NativeVideoStream {
-        fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-            f.debug_struct("NativeVideoStream").field("track", &self.track()).finish()
-        }
+    pub fn track(&self) -> RtcVideoTrack {
+        self.video_track.clone()
     }
 
-    impl NativeVideoStream {
-        pub fn new(video_track: RtcVideoTrack) -> Self {
-            Self { handle: stream_imp::NativeVideoStream::new(video_track) }
-        }
+    pub fn close(&mut self) {
+        self.video_track.remove_sink(self.native_sink.clone());
 
-        pub fn track(&self) -> RtcVideoTrack {
-            self.handle.track()
-        }
-
-        pub fn close(&mut self) {
-            self.handle.close();
-        }
-    }
-
-    impl Stream for NativeVideoStream {
-        type Item = BoxVideoFrame;
-
-        fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-            Pin::new(&mut self.get_mut().handle).poll_next(cx)
-        }
+        self.frame_rx.close();
     }
 }
 
-#[cfg(target_arch = "wasm32")]
-pub mod web {}
+impl Drop for NativeVideoStream {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+impl Stream for NativeVideoStream {
+    type Item = BoxVideoFrame;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+        self.frame_rx.poll_recv(cx)
+    }
+}
+
+pub struct VideoTrackObserver {
+    pub frame_tx: mpsc::UnboundedSender<BoxVideoFrame>,
+}
+
+impl VideoSink for VideoTrackObserver {
+    fn on_frame(&self, frame: VideoFrame) {
+        let _ = self.frame_tx.send(Box::new(VideoFrame {
+            rotation: frame.rotation.into(),
+            timestamp_us: frame.timestamp_us,
+            buffer: frame.buffer,
+        }));
+    }
+
+    fn on_discarded_frame(&self) {}
+
+    fn on_constraints_changed(&self, _constraints: VideoTrackSourceConstraints) {}
+}

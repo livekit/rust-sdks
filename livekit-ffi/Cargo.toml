@@ -20,7 +20,7 @@ tracing = ["tokio/tracing", "console-subscriber"]
 
 [dependencies]
 livekit = { workspace = true }
-webrtc-sys = { workspace = true }
+libwebrtc = { workspace = true }
 soxr-sys = { workspace = true }
 imgproc = { workspace = true }
 livekit-protocol = { workspace = true }

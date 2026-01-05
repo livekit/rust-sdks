@@ -4,11 +4,6 @@
 
 namespace livekit {
 
-const int kBytesPerSample = 2;
-const int kSampleRate = 48000;
-const int kChannels = 2;
-const int kSamplesPer10Ms = kSampleRate / 100;
-
 int32_t AudioDevice::Init() {
   webrtc::MutexLock lock(&mutex_);
   if (initialized_)

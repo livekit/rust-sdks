@@ -30,10 +30,6 @@ fn main() {
     let use_dylib = !cfg!(feature = "static");
     //let use_custom_rtc = webrtc_sys_build::is_using_custom_webrtc();
 
-    if is_desktop {
-        builder.file("src/desktop_capturer.cpp");
-    }
-
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
     //let webrtc_include = webrtc_dir.join("include");
     //let webrtc_lib = webrtc_dir.join("lib");

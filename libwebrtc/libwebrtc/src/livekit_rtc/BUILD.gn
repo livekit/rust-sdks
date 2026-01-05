@@ -50,7 +50,27 @@ if (is_mac) {
 }
 
 if (is_linux) {
-  
+  defines = [
+    "USE_NVIDIA_VIDEO_CODEC",
+    "USE_VAAPI_VIDEO_CODEC",
+  ]
+  lk_sources += [
+    "nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp",
+    "nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.cpp",
+    "nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp",
+    "nvidia/h264_encoder_impl.cpp",
+    "nvidia/h265_encoder_impl.cpp",
+    "nvidia/h264_decoder_impl.cpp",
+    "nvidia/h265_decoder_impl.cpp",
+    "nvidia/nvidia_decoder_factory.cpp",
+    "nvidia/nvidia_encoder_factory.cpp",
+    "nvidia/cuda_context.cpp",
+
+    "vaapi/vaapi_display_drm.cpp",
+    "vaapi/vaapi_h264_encoder_wrapper.cpp",
+    "vaapi/vaapi_encoder_factory.cpp",
+    "vaapi/h264_encoder_impl.cpp",
+  ]
 }
 
 if(is_android) {

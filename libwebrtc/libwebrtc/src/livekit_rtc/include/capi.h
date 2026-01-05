@@ -1169,7 +1169,7 @@ LK_EXPORT lkVectorGeneric* lkDesktopCapturerGetSourceList(
 LK_EXPORT lkAudioMixer* lkCreateAudioMixer();
 
 LK_EXPORT void lkAudioMixerAddSource(lkAudioMixer* mixer,
-                                     lkAudioMixerSourceCallback* source);
+                                     const lkAudioMixerSourceCallback* source, void* userdata);
 
 LK_EXPORT void lkAudioMixerRemoveSource(lkAudioMixer* mixer, int32_t ssrc);
 

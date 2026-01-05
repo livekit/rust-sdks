@@ -5,8 +5,8 @@
 #include <modules/video_coding/include/video_error_codes.h>
 #include <third_party/libyuv/include/libyuv/convert.h>
 
-#include "NvDecoder/NvDecoder.h"
-#include "Utils/NvCodecUtils.h"
+#include "livekit_rtc/nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.h"
+#include "livekit_rtc/nvidia/NvCodec/Include/Utils/NvCodecUtils.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
 

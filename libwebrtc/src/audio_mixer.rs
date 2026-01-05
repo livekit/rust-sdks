@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::audio_frame::AudioFrame;
-use crate::sys;
+use crate::{audio_frame::AudioFrame, sys};
 use std::sync::Arc;
 
 pub struct AudioMixer {
@@ -23,7 +22,10 @@ pub struct AudioMixer {
 pub trait AudioMixerSource {
     fn ssrc(&self) -> i32;
     fn preferred_sample_rate(&self) -> u32;
-    fn get_audio_frame_with_info(&self, target_sample_rate: u32) -> Option<AudioFrame>;
+    fn get_audio_frame_with_info(
+        &self,
+        target_sample_rate: u32,
+    ) -> Option<AudioFrame>;
 }
 
 struct AudioMixerSourceImpl<T> {
@@ -41,9 +43,8 @@ impl<T: AudioMixerSource> AudioMixerSource for AudioMixerSourceImpl<T> {
 
     fn get_audio_frame_with_info(
         &self,
-        target_sample_rate: i32,
-        native_frame: sys::NativeAudioFrame,
-    ) -> sys::lkAudioFrameInfo {
+        target_sample_rate: u32,
+    ) -> Option<AudioFrame> {
         if let Some(frame) = self.inner.get_audio_frame_with_info(target_sample_rate as u32) {
             let samples_count = (frame.sample_rate as usize / 100) as usize;
             assert_eq!(
@@ -76,17 +77,50 @@ impl<T: AudioMixerSource> AudioMixerSource for AudioMixerSourceImpl<T> {
     }
 }
 
+pub static SYS_AUDIO_MIXER_CALLBACKS: sys::lkAudioMixerSourceCallback =
+    sys::lkAudioMixerSourceCallback {
+        getSsrc: Some(AudioMixer::audio_mixer_source_get_ssrc),
+        preferredSampleRate: Some(AudioMixer::audio_mixer_source_get_preferred_sample_rate),
+        getAudioFrameWithInfo: Some(AudioMixer::audio_mixer_source_get_audio_frame_with_info),
+    };
+
 impl AudioMixer {
     pub fn new() -> Self {
         let ffi = unsafe { sys::lkCreateAudioMixer() };
         Self { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
     }
 
+    pub extern "C" fn audio_mixer_source_get_ssrc(userdata: *mut ::std::os::raw::c_void) -> i32 {
+        let source = unsafe { &*(userdata as *const AudioMixerSourceImpl<dyn AudioMixerSource>) };
+        source.ssrc()
+    }
+
+    pub extern "C" fn audio_mixer_source_get_preferred_sample_rate(
+        userdata: *mut ::std::os::raw::c_void,
+    ) -> i32 {
+        let source = unsafe { &*(userdata as *const AudioMixerSourceImpl<dyn AudioMixerSource>) };
+        source.preferred_sample_rate()
+    }
+
+    pub unsafe extern "C" fn audio_mixer_source_get_audio_frame_with_info(
+        target_sample_rate: i32,
+        native_frame: *mut sys::lkNativeAudioFrame,
+        userdata: *mut ::std::os::raw::c_void,
+    ) -> sys::lkAudioFrameInfo {
+        let native_frame = &*(native_frame as *const sys::lkNativeAudioFrame);
+        let source = unsafe { &*(userdata as *const AudioMixerSourceImpl<dyn AudioMixerSource>) };
+        source.get_audio_frame_with_info(target_sample_rate, native_frame)
+    }
+
     pub fn add_source(&mut self, source: impl AudioMixerSource + 'static) {
         let source_impl = AudioMixerSourceImpl { inner: source };
-        let wrapper = Box::new(sys::AudioMixerSourceWrapper::new(Arc::new(source_impl)));
+        let wrapper = Box::new(AudioMixerSourceWrapper::new(Arc::new(source_impl)));
         unsafe {
-            sys::lkAudioMixerAddSource(self.ffi.as_ptr(), wrapper);
+            sys::lkAudioMixerAddSource(
+                self.ffi.as_ptr(),
+                &SYS_AUDIO_MIXER_CALLBACKS,
+                wrapper.into_raw(),
+            );
         }
     }
 

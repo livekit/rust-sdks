@@ -4,57 +4,43 @@ version = "0.3.23"
 edition = "2021"
 homepage = "https://livekit.io"
 license = "Apache-2.0"
-description = "Livekit safe bindings to libwebrtc"
-repository = "https://github.com/livekit/rust-sdks"
+description = "Unsafe bindings to libwebrtc"
+repository = "https://github.com/livekit/client-sdk-rust"
 
 [features]
-default = [ "glib-main-loop" ]
-# On Wayland, libwebrtc uses GDBus to communicate with the XDG Desktop Portal.
-# GDBus requires a GLib event loop to be running. If you already have a GLib
-# event loop running in your application, for example if you are using the
-# GTK or GStreamer Rust bindings, disable this feature.
-glib-main-loop = [ "dep:glib" ]
+default = []
+static = []
 
 [dependencies]
-livekit-protocol = { workspace = true }
-log = "0.4"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-thiserror = "1.0"
-
-[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
-glib = { version = "0.21.3", optional = true }
-
-[target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
-
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-webrtc-sys = { workspace = true }
 livekit-runtime = { workspace = true }
-lazy_static = "1.4"
-parking_lot = { version = "0.12" }
-tokio = { version = "1", default-features = false, features = ["sync", "macros"] }
-cxx = "1.0"
+log = "0.4"
+parking_lot = "0.12.5"
+serde = "1.0.228"
+serde_derive = "1.0.228"
+serde_json = "1.0.145"
+thiserror = "2.0.17"
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1.17"
 
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-wasm-bindgen = "0.2"
-js-sys = "0.3"
-wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = [
-  "MessageEvent",
-  "RtcPeerConnection",
-  "RtcSignalingState",
-  "RtcSdpType",
-  "RtcSessionDescriptionInit",
-  "RtcPeerConnectionIceEvent",
-  "RtcIceCandidate",
-  "RtcDataChannel",
-  "RtcDataChannelEvent",
-  "RtcDataChannelState",
-  "EventTarget",
-  "WebGlRenderingContext",
-  "WebGlTexture",
-] }
+[dependencies.uuid]
+version = "1.19.0"
+# Lets you generate random UUIDs
+features = [
+    "v4",
+]
+
+[build-dependencies]
+webrtc-sys-build = { workspace = true }
+cxx-build = "1.0"
+glob = "0.3"
+cc = "1.0"
+pkg-config = "0.3.22"
+
+[target.'cfg(target_os = "linux")'.build-dependencies]
+pkg-config = "0.3.22"
 
 [dev-dependencies]
 env_logger = "0.10"
+
+[lib]
+crate-type = ["lib", "staticlib"]

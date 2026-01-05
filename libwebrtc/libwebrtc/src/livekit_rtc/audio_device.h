@@ -8,10 +8,17 @@
 
 namespace livekit {
 
+const int kSampleRate = 48000;
+const int kChannels = 2;
+const int kBytesPerSample = kChannels * sizeof(int16_t);
+const int kSamplesPer10Ms = kSampleRate / 100;
+
 class AudioDevice : public webrtc::AudioDeviceModule {
  public:
   AudioDevice(webrtc::TaskQueueFactory* task_queue_factory)
-      : task_queue_factory_(task_queue_factory) {}
+      : data_(kSamplesPer10Ms * kChannels),
+        task_queue_factory_(task_queue_factory)
+       {}
   ~AudioDevice() override { Terminate(); }
 
   int32_t Init() override;
