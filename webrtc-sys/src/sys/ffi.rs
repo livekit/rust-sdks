@@ -45,13 +45,16 @@ pub type lkRtpParameters = lkRefCountedObject;
 pub type lkRtpCodecParameters = lkRefCountedObject;
 pub type lkRtpHeaderExtensionParameters = lkRefCountedObject;
 pub type lkRtcpParameters = lkRefCountedObject;
-pub type lkDesktopFrame = lkRefCountedObject;
 pub type lkFrameCryptor = lkRefCountedObject;
 pub type lkNativeAudioFrame = lkRefCountedObject;
 pub type lkKeyProviderOptions = lkRefCountedObject;
 pub type lkKeyProvider = lkRefCountedObject;
 pub type lkDataPacketCryptor = lkRefCountedObject;
 pub type lkEncryptedPacket = lkRefCountedObject;
+pub type lkDesktopCapturer = lkRefCountedObject;
+pub type lkDesktopFrame = lkRefCountedObject;
+pub type lkDesktopSource = lkRefCountedObject;
+pub type lkAudioMixer = lkRefCountedObject;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkMediaType {
@@ -142,6 +145,41 @@ pub enum lkMediaStreamTrackKind {
     LK_MEDIA_STREAM_TRACK_KIND_DATA = 2,
     LK_MEDIA_STREAM_TRACK_KIND_UNKNOWN = 3,
 }
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkAudioFrameInfo {
+    Normal = 0,
+    Muted = 1,
+    Error = 2,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct lkAudioMixerSourceCallback {
+    pub getSsrc:
+        ::std::option::Option<unsafe extern "C" fn(userdata: *mut ::std::os::raw::c_void) -> i32>,
+    pub preferredSampleRate:
+        ::std::option::Option<unsafe extern "C" fn(userdata: *mut ::std::os::raw::c_void) -> i32>,
+    pub getAudioFrameWithInfo: ::std::option::Option<
+        unsafe extern "C" fn(
+            targetSampleRate: i32,
+            frame: *mut lkNativeAudioFrame,
+            userdata: *mut ::std::os::raw::c_void,
+        ) -> lkAudioFrameInfo,
+    >,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of lkAudioMixerSourceCallback"]
+        [::std::mem::size_of::<lkAudioMixerSourceCallback>() - 24usize];
+    ["Alignment of lkAudioMixerSourceCallback"]
+        [::std::mem::align_of::<lkAudioMixerSourceCallback>() - 8usize];
+    ["Offset of field: lkAudioMixerSourceCallback::getSsrc"]
+        [::std::mem::offset_of!(lkAudioMixerSourceCallback, getSsrc) - 0usize];
+    ["Offset of field: lkAudioMixerSourceCallback::preferredSampleRate"]
+        [::std::mem::offset_of!(lkAudioMixerSourceCallback, preferredSampleRate) - 8usize];
+    ["Offset of field: lkAudioMixerSourceCallback::getAudioFrameWithInfo"]
+        [::std::mem::offset_of!(lkAudioMixerSourceCallback, getAudioFrameWithInfo) - 16usize];
+};
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct lkPeerObserver {
@@ -524,6 +562,39 @@ pub enum lkEncryptionState {
     MissingKey = 4,
     KeyRatcheted = 5,
     InternalError = 6,
+}
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkSourceType {
+    Screen = 0,
+    Window = 1,
+    Generic = 2,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct lkDesktopCapturerOptions {
+    pub allow_sck_system_picker: bool,
+    pub source_type: lkSourceType,
+    pub include_cursor: bool,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of lkDesktopCapturerOptions"]
+        [::std::mem::size_of::<lkDesktopCapturerOptions>() - 12usize];
+    ["Alignment of lkDesktopCapturerOptions"]
+        [::std::mem::align_of::<lkDesktopCapturerOptions>() - 4usize];
+    ["Offset of field: lkDesktopCapturerOptions::allow_sck_system_picker"]
+        [::std::mem::offset_of!(lkDesktopCapturerOptions, allow_sck_system_picker) - 0usize];
+    ["Offset of field: lkDesktopCapturerOptions::source_type"]
+        [::std::mem::offset_of!(lkDesktopCapturerOptions, source_type) - 4usize];
+    ["Offset of field: lkDesktopCapturerOptions::include_cursor"]
+        [::std::mem::offset_of!(lkDesktopCapturerOptions, include_cursor) - 8usize];
+};
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkCaptureError {
+    Temporary = 0,
+    Permanent = 1,
 }
 unsafe extern "C" {
     pub fn lkInitialize() -> ::std::os::raw::c_int;
@@ -1607,7 +1678,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn lkKeyProviderSetKey(
         provider: *mut lkKeyProvider,
-        participantId: *const u8,
+        participantId: *const ::std::os::raw::c_char,
         keyIndex: ::std::os::raw::c_int,
         key: *const u8,
         length: u32,
@@ -1616,21 +1687,21 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn lkKeyProviderRatchetKey(
         provider: *mut lkKeyProvider,
-        participantId: *const u8,
+        participantId: *const ::std::os::raw::c_char,
         keyIndex: ::std::os::raw::c_int,
     ) -> *mut lkData;
 }
 unsafe extern "C" {
     pub fn lkKeyProviderGetKey(
         provider: *mut lkKeyProvider,
-        participantId: *const u8,
+        participantId: *const ::std::os::raw::c_char,
         keyIndex: ::std::os::raw::c_int,
     ) -> *mut lkData;
 }
 unsafe extern "C" {
     pub fn lkNewFrameCryptorForRtpSender(
         factory: *mut lkPeerFactory,
-        participantId: *const u8,
+        participantId: *const ::std::os::raw::c_char,
         algorithm: lkEncryptionAlgorithm,
         provider: *mut lkKeyProvider,
         sender: *mut lkRtpSender,
@@ -1647,7 +1718,7 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn lkNewFrameCryptorForRtpReceiver(
         factory: *mut lkPeerFactory,
-        participantId: *const u8,
+        participantId: *const ::std::os::raw::c_char,
         algorithm: lkEncryptionAlgorithm,
         provider: *mut lkKeyProvider,
         receiver: *mut lkRtpReceiver,
@@ -1717,4 +1788,58 @@ unsafe extern "C" {
         encryptedPacket: *mut lkEncryptedPacket,
         errorOut: *mut lkRtcError,
     ) -> *mut lkData;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetWidth(frame: *mut lkDesktopFrame) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetHeight(frame: *mut lkDesktopFrame) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetStride(frame: *mut lkDesktopFrame) -> u32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetLeft(frame: *mut lkDesktopFrame) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetTop(frame: *mut lkDesktopFrame) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetData(frame: *mut lkDesktopFrame) -> *mut lkData;
+}
+unsafe extern "C" {
+    pub fn lkCreateDesktopCapturer(
+        options: *const lkDesktopCapturerOptions,
+    ) -> *mut lkDesktopCapturer;
+}
+unsafe extern "C" {
+    pub fn lkDesktopSourceGetId(source: *mut lkDesktopSource) -> u64;
+}
+unsafe extern "C" {
+    pub fn lkDesktopSourceGetTitle(source: *mut lkDesktopSource) -> *mut lkString;
+}
+unsafe extern "C" {
+    pub fn lkDesktopSourceGetDisplayId(source: *mut lkDesktopSource) -> i64;
+}
+unsafe extern "C" {
+    pub fn lkDesktopCapturerSelectSource(capturer: *mut lkDesktopCapturer, id: u64) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkDesktopCapturerGetSourceList(capturer: *mut lkDesktopCapturer)
+        -> *mut lkVectorGeneric;
+}
+unsafe extern "C" {
+    pub fn lkCreateAudioMixer() -> *mut lkAudioMixer;
+}
+unsafe extern "C" {
+    pub fn lkAudioMixerAddSource(mixer: *mut lkAudioMixer, source: *mut lkAudioMixerSourceCallback);
+}
+unsafe extern "C" {
+    pub fn lkAudioMixerRemoveSource(mixer: *mut lkAudioMixer, ssrc: i32);
+}
+unsafe extern "C" {
+    pub fn lkAudioMixerMixFrame(mixer: *mut lkAudioMixer, number_of_channels: u32) -> u32;
+}
+unsafe extern "C" {
+    pub fn lkAudioMixerGetMixedFrame(mixer: *mut lkAudioMixer, len: u32) -> *mut lkData;
 }

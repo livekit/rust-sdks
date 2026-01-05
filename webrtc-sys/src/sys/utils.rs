@@ -53,6 +53,14 @@ impl RefCountedData {
             buf
         }
     }
+
+    pub fn as_ptr(&self) -> *const u8 {
+        unsafe { sys::lkDataGetData(self.ffi.as_ptr()) as *const u8 }
+    }
+
+    pub fn len(&self) -> usize {
+        unsafe { sys::lkDataGetSize(self.ffi.as_ptr()) as usize }
+    }
 }
 
 pub struct RefCountedVector {

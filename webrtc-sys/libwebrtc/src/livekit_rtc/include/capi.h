@@ -60,13 +60,16 @@ typedef lkRefCountedObject lkRtpCodecParameters;
 typedef lkRefCountedObject lkRtpHeaderExtensionParameters;
 typedef lkRefCountedObject lkRtcpParameters;
 typedef lkRefCountedObject lkRtpTransceiverInit;
-typedef lkRefCountedObject lkDesktopFrame;
 typedef lkRefCountedObject lkFrameCryptor;
 typedef lkRefCountedObject lkNativeAudioFrame;
 typedef lkRefCountedObject lkKeyProviderOptions;
 typedef lkRefCountedObject lkKeyProvider;
 typedef lkRefCountedObject lkDataPacketCryptor;
 typedef lkRefCountedObject lkEncryptedPacket;
+typedef lkRefCountedObject lkDesktopCapturer;
+typedef lkRefCountedObject lkDesktopFrame;
+typedef lkRefCountedObject lkDesktopSource;
+typedef lkRefCountedObject lkAudioMixer;
 
 typedef enum {
   LK_MEDIA_TYPE_AUDIO,
@@ -146,6 +149,20 @@ typedef enum {
   LK_MEDIA_STREAM_TRACK_KIND_DATA,
   LK_MEDIA_STREAM_TRACK_KIND_UNKNOWN,
 } lkMediaStreamTrackKind;
+
+typedef enum {
+  Normal,
+  Muted,
+  Error,
+} lkAudioFrameInfo;
+
+typedef struct {
+  int32_t (*getSsrc)(void* userdata);
+  int32_t (*preferredSampleRate)(void* userdata);
+  lkAudioFrameInfo (*getAudioFrameWithInfo)(int32_t targetSampleRate,
+                                            lkNativeAudioFrame* frame,
+                                            void* userdata);
+} lkAudioMixerSourceCallback;
 
 typedef struct {
   void (*onSignalingChange)(lkSignalingState state, void* userdata);
@@ -305,6 +322,23 @@ typedef enum {
   KeyRatcheted,
   InternalError,
 } lkEncryptionState;
+
+typedef enum {
+  Screen,
+  Window,
+  Generic,
+} lkSourceType;
+
+typedef struct {
+  bool allow_sck_system_picker;
+  lkSourceType source_type;
+  bool include_cursor;
+} lkDesktopCapturerOptions;
+
+typedef enum {
+  Temporary,
+  Permanent,
+} lkCaptureError;
 
 LK_EXPORT int lkInitialize();
 
@@ -1104,6 +1138,45 @@ LK_EXPORT lkData* lkDataPacketCryptorDecrypt(lkDataPacketCryptor* dc,
                                              const char* participantId,
                                              lkEncryptedPacket* encryptedPacket,
                                              lkRtcError* errorOut);
+
+LK_EXPORT int32_t lkDesktopFrameGetWidth(lkDesktopFrame* frame);
+
+LK_EXPORT int32_t lkDesktopFrameGetHeight(lkDesktopFrame* frame);
+
+LK_EXPORT uint32_t lkDesktopFrameGetStride(lkDesktopFrame* frame);
+
+LK_EXPORT int32_t lkDesktopFrameGetLeft(lkDesktopFrame* frame);
+
+LK_EXPORT int32_t lkDesktopFrameGetTop(lkDesktopFrame* frame);
+
+LK_EXPORT lkData* lkDesktopFrameGetData(lkDesktopFrame* frame);
+
+LK_EXPORT lkDesktopCapturer* lkCreateDesktopCapturer(
+    const lkDesktopCapturerOptions* options);
+
+LK_EXPORT uint64_t lkDesktopSourceGetId(lkDesktopSource* source);
+
+LK_EXPORT lkString* lkDesktopSourceGetTitle(lkDesktopSource* source);
+
+LK_EXPORT int64_t lkDesktopSourceGetDisplayId(lkDesktopSource* source);
+
+LK_EXPORT bool lkDesktopCapturerSelectSource(lkDesktopCapturer* capturer,
+                                             uint64_t id);
+
+LK_EXPORT lkVectorGeneric* lkDesktopCapturerGetSourceList(
+    lkDesktopCapturer* capturer);
+
+LK_EXPORT lkAudioMixer* lkCreateAudioMixer();
+
+LK_EXPORT void lkAudioMixerAddSource(lkAudioMixer* mixer,
+                                     lkAudioMixerSourceCallback* source);
+
+LK_EXPORT void lkAudioMixerRemoveSource(lkAudioMixer* mixer, int32_t ssrc);
+
+LK_EXPORT uint32_t lkAudioMixerMixFrame(lkAudioMixer* mixer,
+                                       uint32_t number_of_channels);
+
+LK_EXPORT lkData* lkAudioMixerGetMixedFrame(lkAudioMixer* mixer, uint32_t len);
 
 #ifdef __cplusplus
 }

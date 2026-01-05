@@ -13,16 +13,12 @@
 // limitations under the License.
 
 use crate::audio_frame::AudioFrame;
-use cxx::UniquePtr;
+use crate::sys;
 use std::sync::Arc;
-use webrtc_sys::audio_mixer as sys;
-use webrtc_sys::audio_mixer::ffi;
 
 pub struct AudioMixer {
-    sys_handle: UniquePtr<ffi::AudioMixer>,
+    ffi: sys::RefCounted<sys::lkAudioMixer>,
 }
-
-pub use ffi::AudioFrameInfo;
 
 pub trait AudioMixerSource {
     fn ssrc(&self) -> i32;
@@ -33,20 +29,21 @@ pub trait AudioMixerSource {
 struct AudioMixerSourceImpl<T> {
     inner: T,
 }
-impl<T: AudioMixerSource> sys::AudioMixerSource for AudioMixerSourceImpl<T> {
+
+impl<T: AudioMixerSource> AudioMixerSource for AudioMixerSourceImpl<T> {
     fn ssrc(&self) -> i32 {
         self.inner.ssrc()
     }
 
-    fn preferred_sample_rate(&self) -> i32 {
-        self.inner.preferred_sample_rate() as i32
+    fn preferred_sample_rate(&self) -> u32 {
+        self.inner.preferred_sample_rate()
     }
 
     fn get_audio_frame_with_info(
         &self,
         target_sample_rate: i32,
         native_frame: sys::NativeAudioFrame,
-    ) -> AudioFrameInfo {
+    ) -> sys::lkAudioFrameInfo {
         if let Some(frame) = self.inner.get_audio_frame_with_info(target_sample_rate as u32) {
             let samples_count = (frame.sample_rate as usize / 100) as usize;
             assert_eq!(
@@ -72,37 +69,44 @@ impl<T: AudioMixerSource> sys::AudioMixerSource for AudioMixerSourceImpl<T> {
                     frame.num_channels as usize,
                 );
             }
-            return ffi::AudioFrameInfo::Normal;
+            return sys::lkAudioFrameInfo::Normal;
         } else {
-            return ffi::AudioFrameInfo::Muted;
+            return sys::lkAudioFrameInfo::Muted;
         }
     }
 }
 
 impl AudioMixer {
     pub fn new() -> Self {
-        let sys_handle = ffi::create_audio_mixer();
-        Self { sys_handle }
+        let ffi = unsafe { sys::lkCreateAudioMixer() };
+        Self { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
     }
 
     pub fn add_source(&mut self, source: impl AudioMixerSource + 'static) {
         let source_impl = AudioMixerSourceImpl { inner: source };
         let wrapper = Box::new(sys::AudioMixerSourceWrapper::new(Arc::new(source_impl)));
         unsafe {
-            self.sys_handle.pin_mut().add_source(wrapper);
+            sys::lkAudioMixerAddSource(self.ffi.as_ptr(), wrapper);
         }
     }
 
     pub fn remove_source(&mut self, ssrc: i32) {
         unsafe {
-            self.sys_handle.pin_mut().remove_source(ssrc);
+            sys::lkAudioMixerRemoveSource(self.ffi.as_ptr(), ssrc);
         }
     }
 
     pub fn mix(&mut self, num_channels: usize) -> &[i16] {
         unsafe {
-            let len = self.sys_handle.pin_mut().mix(num_channels);
-            std::slice::from_raw_parts(self.sys_handle.data(), len)
+            let len =
+                sys::lkAudioMixerMixFrame(self.ffi.as_ptr(), num_channels.try_into().unwrap());
+            let lk_data = sys::lkAudioMixerGetMixedFrame(self.ffi.as_ptr(), len);
+            let data = sys::RefCountedData::from_native(lk_data);
+
+            std::slice::from_raw_parts(
+                data.as_ptr() as *const i16,
+                data.len() / std::mem::size_of::<i16>(),
+            )
         }
     }
 }

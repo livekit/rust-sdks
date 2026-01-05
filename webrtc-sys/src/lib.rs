@@ -39,10 +39,12 @@ pub struct RtcError {
 }
 
 pub mod audio_frame;
+pub mod audio_mixer;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod audio_track;
 pub mod data_channel;
+pub mod desktop_capturer;
 pub mod enum_dispatch;
 pub mod frame_cryptor;
 pub mod ice_candidate;

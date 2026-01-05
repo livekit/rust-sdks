@@ -437,23 +437,6 @@ mod tests {
             failure_tolerance: 5,
         };
 
-        unsafe {
-            let lk_options_ptr = sys::lkKeyProviderOptionsCreate();
-            sys::lkKeyProviderOptionsSetSharedKey(lk_options_ptr, options.shared_key);
-            sys::lkKeyProviderOptionsSetRatchetWindowSize(
-                lk_options_ptr,
-                options.ratchet_window_size,
-            );
-            sys::lkKeyProviderOptionsSetRatchetSalt(
-                lk_options_ptr,
-                options.ratchet_salt.as_ptr(),
-                options.ratchet_salt.len() as u32,
-            );
-            sys::lkKeyProviderOptionsSetFailureTolerance(lk_options_ptr, options.failure_tolerance);
-
-            let _ = sys::RefCounted::from_raw(lk_options_ptr);
-        }
-
         let key_provider = super::KeyProvider::new(options);
         assert!(!key_provider.ffi.as_ptr().is_null());
 
@@ -470,7 +453,5 @@ mod tests {
         assert_ne!(key_provider.ratchet_key("participant1".to_string(), 1), Some(vec![1; 16]));
 
         key_provider.set_sif_trailer(vec![9, 8, 7, 6]);
-        
-
     }
 }

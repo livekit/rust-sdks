@@ -3,6 +3,7 @@
 
 #include <memory>
 
+#include "livekit_rtc/include/capi.h"
 #include "api/audio/audio_mixer.h"
 #include "api/scoped_refptr.h"
 #include "livekit_rtc/include/capi.h"
@@ -11,20 +12,6 @@
 #include "rtc_base/synchronization/mutex.h"
 
 namespace livekit {
-
-typedef enum {
-  Normal,
-  Muted,
-  Error,
-} AudioFrameInfo;
-
-typedef struct {
-  int32_t (*getSsrc)(void* userdata);
-  int32_t (*preferredSampleRate)(void* userdata);
-  AudioFrameInfo (*getAudioFrameWithInfo)(int32_t targetSampleRate,
-                                          lkNativeAudioFrame* frame,
-                                          void* userdata);
-} AudioMixerSourceWrapper;
 
 class NativeAudioFrame {
  public:
@@ -41,7 +28,7 @@ class NativeAudioFrame {
 
 class AudioMixerSource : public webrtc::AudioMixer::Source {
  public:
-  AudioMixerSource(AudioMixerSourceWrapper* source, void* userdata);
+  AudioMixerSource(lkAudioMixerSourceCallback* source, void* userdata);
 
   AudioFrameInfo GetAudioFrameWithInfo(int sample_rate_hz,
                                        webrtc::AudioFrame* audio_frame) override;
@@ -53,7 +40,7 @@ class AudioMixerSource : public webrtc::AudioMixer::Source {
   ~AudioMixerSource() {}
 
  private:
-  AudioMixerSourceWrapper* source_;
+  lkAudioMixerSourceCallback* source_;
   void* userdata_;
 };
 
@@ -61,7 +48,7 @@ class AudioMixer {
  public:
   AudioMixer();
 
-  void add_source(AudioMixerSourceWrapper* source, void* userdata);
+  void add_source(lkAudioMixerSourceCallback* source, void* userdata);
 
   void remove_source(int ssrc);
 
