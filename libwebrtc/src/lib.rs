@@ -40,6 +40,7 @@ pub struct RtcError {
 
 pub mod audio_frame;
 //pub mod audio_mixer;
+pub mod audio_resampler;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod audio_track;
@@ -53,6 +54,7 @@ pub mod media_stream;
 pub mod media_stream_track;
 pub mod peer_connection;
 pub mod peer_connection_factory;
+pub mod prelude;
 pub mod rtp_parameters;
 pub mod rtp_receiver;
 pub mod rtp_sender;
@@ -66,7 +68,6 @@ pub mod video_frame_builder;
 pub mod video_source;
 pub mod video_stream;
 pub mod video_track;
-pub mod prelude;
 pub mod yuv_helper;
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -2,11 +2,7 @@ headerPath = "Apache-2.0.txt"
 excludes = [
     "yuv-sys/libyuv",
     "soxr-sys/src",
-    "webrtc-sys/libwebrtc",
-    "webrtc-sys/test",
-    "webrtc-sys/src/lazy_load_deps_for",
-    "webrtc-sys/src/vaapi",
-    "webrtc-sys/src/nvidia",
+    "libwebrtc/libwebrtc",
     "webrtc-sys/.clang-format",
     "livekit-protocol/protocol",
     "livekit-ffi/.cargo/config",

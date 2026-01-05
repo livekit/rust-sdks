@@ -16,12 +16,12 @@ use std::path::PathBuf;
 use std::{
     collections::HashSet,
     env,
+    error::Error,
+    ffi::OsStr,
     fs::{self, File},
     io::{self, BufRead, Write},
     path,
     process::Command,
-    error::Error,
-    ffi::OsStr,
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -90,13 +90,14 @@ pub fn copy_dylib_to_target(rtc_path: &path::PathBuf) -> Result<(), Box<dyn Erro
     if let Some(target_dir) = find_target_dir() {
         let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
         let livekit_lib = match target_os.as_str() {
-                        "windows" => "liblivekit_rtc.dll",
-                        "macos" => "liblivekit_rtc.dylib",
-                        "ios" => "liblivekit_rtc.a",
-                        "linux" => "liblivekit_rtc.so",
-                        "android" => "liblivekit_rtc.so",
-                        _ => "liblivekit_rtc.so",
-                    }.to_string();
+            "windows" => "liblivekit_rtc.dll",
+            "macos" => "liblivekit_rtc.dylib",
+            "ios" => "liblivekit_rtc.a",
+            "linux" => "liblivekit_rtc.so",
+            "android" => "liblivekit_rtc.so",
+            _ => "liblivekit_rtc.so",
+        }
+        .to_string();
         let build_mode = env::var("PROFILE").unwrap();
         let source_dylib = rtc_path.join("lib").join(livekit_lib.clone());
         println!("cargo:rerun-if-changed={}", source_dylib.display());

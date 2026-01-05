@@ -14,7 +14,10 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use crate::sys::{self, lkABGRToNV12, lkARGBToNV12, lkI010ToABGR, lkI010ToI420, lkI420ToNV12, lkI422ToI420, lkI444ToI420, lkNV12ToARGB, lkNV12ToI420};
+use crate::sys::{
+    self, lkABGRToNV12, lkARGBToNV12, lkI010ToABGR, lkI010ToI420, lkI420ToNV12, lkI422ToI420,
+    lkI444ToI420, lkNV12ToARGB, lkNV12ToI420,
+};
 
 fn argb_assert_safety(src: &[u8], src_stride: u32, _width: i32, height: i32) {
     let height_abs = height.unsigned_abs();
@@ -234,13 +237,13 @@ pub fn argb_to_rgb24(
 }
 
 // I420 <> RGB conversion
-rgba_to_i420!( argb_to_i420, lkARGBToI420 );
-rgba_to_i420!( abgr_to_i420, lkABGRToI420 );
+rgba_to_i420!(argb_to_i420, lkARGBToI420);
+rgba_to_i420!(abgr_to_i420, lkABGRToI420);
 
-i420_to_rgba!( i420_to_argb, lkI420ToARGB);
-i420_to_rgba!( i420_to_bgra, lkI420ToBGRA);
-i420_to_rgba!( i420_to_abgr, lkI420ToABGR);
-i420_to_rgba!( i420_to_rgba, lkI420ToRGBA);
+i420_to_rgba!(i420_to_argb, lkI420ToARGB);
+i420_to_rgba!(i420_to_bgra, lkI420ToBGRA);
+i420_to_rgba!(i420_to_abgr, lkI420ToABGR);
+i420_to_rgba!(i420_to_rgba, lkI420ToRGBA);
 
 pub fn i420_to_nv12(
     src_y: &[u8],
@@ -498,7 +501,6 @@ pub fn i010_to_i420(
             width,
             height,
         )
-        
     }
 }
 
@@ -581,7 +583,7 @@ pub fn i444_to_argb(
     argb_assert_safety(dst_argb, dst_stride_argb, width, height);
 
     unsafe {
-        sys::lkI444ToARGB (
+        sys::lkI444ToARGB(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),

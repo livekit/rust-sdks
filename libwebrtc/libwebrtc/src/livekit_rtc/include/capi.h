@@ -70,6 +70,7 @@ typedef lkRefCountedObject lkDesktopCapturer;
 typedef lkRefCountedObject lkDesktopFrame;
 typedef lkRefCountedObject lkDesktopSource;
 typedef lkRefCountedObject lkAudioMixer;
+typedef lkRefCountedObject lkAudioResampler;
 
 typedef enum {
   LK_MEDIA_TYPE_AUDIO,
@@ -1177,6 +1178,21 @@ LK_EXPORT uint32_t lkAudioMixerMixFrame(lkAudioMixer* mixer,
                                        uint32_t number_of_channels);
 
 LK_EXPORT lkData* lkAudioMixerGetMixedFrame(lkAudioMixer* mixer, uint32_t len);
+
+
+LK_EXPORT lkAudioResampler* lkAudioResamplerCreate();
+
+LK_EXPORT uint32_t lkAudioResamplerResample(lkAudioResampler* resampler,
+                                        const int16_t* input,
+                                        uint32_t samples_per_channel,
+                                        uint32_t num_channels,
+                                        uint32_t sample_rate,
+                                        uint32_t dst_num_channels,
+                                        uint32_t dst_sample_rate);
+
+
+LK_EXPORT const int16_t* lkAudioResamplerGetData(lkAudioResampler* resampler);
+
 
 #ifdef __cplusplus
 }

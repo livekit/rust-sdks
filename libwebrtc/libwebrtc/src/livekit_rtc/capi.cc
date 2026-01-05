@@ -1,6 +1,7 @@
 #include "livekit_rtc/include/capi.h"
 
 #include "api/make_ref_counted.h"
+#include "livekit_rtc/audio_resampler.h"
 #include "livekit_rtc/audio_track.h"
 #include "livekit_rtc/data_channel.h"
 #include "livekit_rtc/frame_cryptor.h"
@@ -491,14 +492,12 @@ lkRtcVideoTrack* lkPeerFactoryCreateVideoTrack(lkPeerFactory* factory,
 
 void lkAudioTrackAddSink(lkRtcAudioTrack* track, lkNativeAudioSink* sink) {
   reinterpret_cast<livekit::AudioTrack*>(track)->add_sink(
-      webrtc::scoped_refptr<livekit::NativeAudioSink>(
-          reinterpret_cast<livekit::NativeAudioSink*>(sink)));
+      reinterpret_cast<livekit::NativeAudioSink*>(sink));
 }
 
 void lkAudioTrackRemoveSink(lkRtcAudioTrack* track, lkNativeAudioSink* sink) {
   reinterpret_cast<livekit::AudioTrack*>(track)->remove_sink(
-      webrtc::scoped_refptr<livekit::NativeAudioSink>(
-          reinterpret_cast<livekit::NativeAudioSink*>(sink)));
+      reinterpret_cast<livekit::NativeAudioSink*>(sink));
 }
 
 lkVectorGeneric* lkMediaStreamGetAudioTracks(lkMediaStream* stream) {
@@ -1669,4 +1668,25 @@ lkData* lkDataPacketCryptorDecrypt(lkDataPacketCryptor* dc,
   }
   return lkCreateData(decryptedData.data(),
                       static_cast<uint32_t>(decryptedData.size()));
+}
+
+lkAudioResampler* lkAudioResamplerCreate() {
+  return reinterpret_cast<lkAudioResampler*>(
+      livekit::create_audio_resampler().release());
+}
+
+uint32_t lkAudioResamplerResample(lkAudioResampler* resampler,
+                                  const int16_t* input,
+                                  uint32_t samples_per_channel,
+                                  uint32_t num_channels,
+                                  uint32_t sample_rate,
+                                  uint32_t dst_num_channels,
+                                  uint32_t dst_sample_rate) {
+  return reinterpret_cast<livekit::AudioResampler*>(resampler)
+      ->remix_and_resample(input, samples_per_channel, num_channels,
+                           sample_rate, dst_num_channels, dst_sample_rate);
+}
+
+LK_EXPORT const int16_t* lkAudioResamplerGetData(lkAudioResampler* resampler) {
+  return reinterpret_cast<livekit::AudioResampler*>(resampler)->data();
 }

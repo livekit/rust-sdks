@@ -55,6 +55,7 @@ pub type lkDesktopCapturer = lkRefCountedObject;
 pub type lkDesktopFrame = lkRefCountedObject;
 pub type lkDesktopSource = lkRefCountedObject;
 pub type lkAudioMixer = lkRefCountedObject;
+pub type lkAudioResampler = lkRefCountedObject;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkMediaType {
@@ -1846,4 +1847,21 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn lkAudioMixerGetMixedFrame(mixer: *mut lkAudioMixer, len: u32) -> *mut lkData;
+}
+unsafe extern "C" {
+    pub fn lkAudioResamplerCreate() -> *mut lkAudioResampler;
+}
+unsafe extern "C" {
+    pub fn lkAudioResamplerResample(
+        resampler: *mut lkAudioResampler,
+        input: *const i16,
+        samples_per_channel: u32,
+        num_channels: u32,
+        sample_rate: u32,
+        dst_num_channels: u32,
+        dst_sample_rate: u32,
+    ) -> u32;
+}
+unsafe extern "C" {
+    pub fn lkAudioResamplerGetData(resampler: *mut lkAudioResampler) -> *const i16;
 }

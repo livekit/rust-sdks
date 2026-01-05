@@ -30,7 +30,7 @@ impl RtcAudioTrack {
 
     pub fn add_sink(&self, sink: Arc<NativeAudioSink>) {
         unsafe {
-            sys::lkAudioTrackAddSink(self.ffi.as_ptr(), sink.ffi.as_ptr() as *mut std::ffi::c_void);
+            sys::lkAudioTrackAddSink(self.ffi.as_ptr(), sink.ffi.as_ptr());
         }
     }
 
@@ -38,7 +38,7 @@ impl RtcAudioTrack {
         unsafe {
             sys::lkAudioTrackRemoveSink(
                 self.ffi.as_ptr(),
-                sink.ffi.as_ptr() as *mut std::ffi::c_void,
+                sink.ffi.as_ptr(),
             );
         }
     }

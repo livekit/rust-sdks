@@ -239,7 +239,6 @@ impl Debug for DataChannel {
     }
 }
 
-
 #[derive(Default)]
 pub struct DataChannelObserver {
     state_change_handler: Mutex<Option<OnStateChange>>,

@@ -77,16 +77,16 @@ class AudioTrack : public MediaStreamTrack {
     }
   }
 
-  void add_sink(const webrtc::scoped_refptr<NativeAudioSink>& sink) const {
+  void add_sink(NativeAudioSink* sink) const {
     webrtc::MutexLock lock(&mutex_);
     audio_track()->AddSink(sink->audio_track_sink());
-    sinks_.push_back(sink);
+    //sinks_.push_back(sink);
   }
 
-  void remove_sink(const webrtc::scoped_refptr<NativeAudioSink>& sink) const {
+  void remove_sink(NativeAudioSink* sink) const {
     webrtc::MutexLock lock(&mutex_);
     audio_track()->RemoveSink(sink->audio_track_sink());
-    sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
+    //sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
   }
 
   webrtc::AudioTrackInterface* audio_track() const {
@@ -95,7 +95,7 @@ class AudioTrack : public MediaStreamTrack {
 
  private:
   mutable webrtc::Mutex mutex_;
-  mutable std::vector<webrtc::scoped_refptr<NativeAudioSink>> sinks_
+  mutable std::vector<NativeAudioSink*> sinks_
       RTC_GUARDED_BY(mutex_);
 };
 

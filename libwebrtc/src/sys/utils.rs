@@ -54,6 +54,14 @@ impl RefCountedData {
         }
     }
 
+    pub fn as_slice(&self) -> &[i16] {
+        unsafe {
+            let len = sys::lkDataGetSize(self.ffi.as_ptr()) as usize;
+            let data_ptr = sys::lkDataGetData(self.ffi.as_ptr()) as *const u8;
+            std::slice::from_raw_parts(data_ptr as *const i16, len / 2)
+        }
+    }
+
     pub fn as_ptr(&self) -> *const u8 {
         unsafe { sys::lkDataGetData(self.ffi.as_ptr()) as *const u8 }
     }
