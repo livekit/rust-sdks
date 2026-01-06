@@ -482,6 +482,7 @@ impl RtcSession {
                 ..DataChannelInit::default()
             },
         )?;
+        dt_transport.on_message(|data| {}.into());
 
         // Forward events received inside the signaling thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
@@ -1970,8 +1971,6 @@ impl SessionInner {
         rx.await.unwrap()
     }
 }
-
-struct DataTrackTransportTask {}
 
 macro_rules! make_rtc_config {
     ($fncname:ident, $proto:ty) => {
