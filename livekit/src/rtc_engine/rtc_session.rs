@@ -436,7 +436,7 @@ impl RtcSession {
     ) -> EngineResult<(Self, proto::JoinResponse, SessionEvents)> {
         let (emitter, session_events) = mpsc::unbounded_channel();
 
-        let (signal_client, join_response, signal_events) =
+        let (signal_client, mut join_response, signal_events) =
             SignalClient::connect(url, token, options.signal_options.clone()).await?;
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
@@ -507,6 +507,9 @@ impl RtcSession {
         };
         let (remote_dt_manager, remote_dt_task, remote_dt_events) =
             dt::remote::Manager::new(remote_dt_options);
+        if let Ok(publications_updated) = dt::remote::event_from_join(&mut join_response) {
+            _ = remote_dt_manager.handle_event(publications_updated.into());
+        }
 
         let (close_tx, close_rx) = watch::channel(false);
 
@@ -1100,7 +1103,10 @@ impl SessionInner {
                     true,
                 );
             }
-            proto::signal_response::Message::Update(update) => {
+            proto::signal_response::Message::Update(mut update) => {
+                if let Ok(event) = dt::remote::event_from_participant_update(&mut update) {
+                    _ = self.remote_dt_manager.handle_event(event.into());
+                }
                 let _ = self
                     .emitter
                     .send(SessionEvent::ParticipantUpdate { updates: update.participants });
@@ -1132,10 +1138,26 @@ impl SessionInner {
                 });
             }
             proto::signal_response::Message::RequestResponse(request_response) => {
+                if let Some(event) = dt::local::publish_result_from_request_response(&request_response) {
+                    _ = self.local_dt_manager.handle_event(event.into());
+                    return Ok(());
+                }
                 let mut pending_requests = self.pending_requests.lock();
                 if let Some(tx) = pending_requests.remove(&request_response.request_id) {
                     let _ = tx.send(request_response);
                 }
+            }
+            proto::signal_response::Message::PublishDataTrackResponse(publish_res) => {
+                let event: dt::local::PublishResultEvent = publish_res.try_into()?;
+                _ = self.local_dt_manager.handle_event(event.into());
+            }
+            proto::signal_response::Message::UnpublishDataTrackResponse(unpublish_res) => {
+                let event: dt::local::UnpublishEvent = unpublish_res.try_into()?;
+                _ = self.local_dt_manager.handle_event(event.into());
+            }
+            proto::signal_response::Message::DataTrackSubscriberHandles(subscriber_handles) => {
+                let event: dt::remote::SubscriberHandlesEvent = subscriber_handles.try_into()?;
+                _ = self.remote_dt_manager.handle_event(event.into());
             }
             proto::signal_response::Message::RefreshToken(ref token) => {
                 let url = self.signal_client.url();

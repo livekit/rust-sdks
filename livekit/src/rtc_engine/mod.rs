@@ -872,3 +872,9 @@ impl EngineInner {
         session.wait_pc_connection().await
     }
 }
+
+impl From<crate::data_track::InternalError> for EngineError {
+    fn from(err: crate::data_track::InternalError) -> Self {
+        Self::Internal(err.to_string().into())
+    }
+}

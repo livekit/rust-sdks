@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::manager::{PublishRequestEvent, UnpublishRequestEvent};
+use super::manager::{PublishRequestEvent, UnpublishEvent, UnpublishRequestEvent};
 use crate::{
-    dtp::TrackHandle, local::manager::PublishResultEvent,
-    api::{DataTrackInfo, InternalError, PublishError}
+    api::{DataTrackInfo, InternalError, PublishError},
+    dtp::TrackHandle,
+    local::manager::PublishResultEvent,
 };
 use anyhow::{anyhow, Context};
 use livekit_protocol as proto;
@@ -48,6 +49,16 @@ impl TryFrom<proto::PublishDataTrackResponse> for PublishResultEvent {
     }
 }
 
+impl TryFrom<proto::UnpublishDataTrackResponse> for UnpublishEvent {
+    type Error = InternalError;
+
+    fn try_from(msg: proto::UnpublishDataTrackResponse) -> Result<Self, Self::Error> {
+        let handle: TrackHandle =
+            msg.info.context("Missing info")?.pub_handle.try_into().map_err(anyhow::Error::from)?;
+        Ok(Self { handle })
+    }
+}
+
 impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
     type Error = InternalError;
 
@@ -62,7 +73,7 @@ impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
     }
 }
 
-fn publish_result_from_request_response(
+pub fn publish_result_from_request_response(
     msg: &proto::RequestResponse,
 ) -> Option<PublishResultEvent> {
     use proto::request_response::{Reason, Request};
@@ -80,7 +91,7 @@ fn publish_result_from_request_response(
     Some(event)
 }
 
-fn publish_results_from_sync_state(
+pub fn publish_results_from_sync_state(
     msg: &mut proto::SyncState,
 ) -> Result<Vec<PublishResultEvent>, InternalError> {
     mem::take(&mut msg.publish_data_tracks)

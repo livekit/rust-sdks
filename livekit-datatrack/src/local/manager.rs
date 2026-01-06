@@ -61,7 +61,7 @@ pub struct PublishResultEvent {
 #[derive(Debug)]
 pub struct UnpublishEvent {
     /// Publisher handle of the track that was unpublished.
-    handle: TrackHandle,
+    pub handle: TrackHandle,
 }
 
 /// Local participant requested to publish a track.
