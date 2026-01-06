@@ -22,7 +22,7 @@ use crate::{
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
 use from_variants::FromVariants;
-use futures_util::Stream;
+use futures_core::Stream;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio::time;

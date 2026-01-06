@@ -1,12 +1,6 @@
 use anyhow::Result;
-use livekit::{
-    data_track::{DataTrack, DataTrackFrameBuilder, DataTrackOptions, Local},
-    prelude::*,
-};
-use std::{
-    env,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use livekit::prelude::*;
+use std::{env, time::Duration};
 use tokio::{signal, time};
 
 #[tokio::main]
@@ -16,9 +10,9 @@ async fn main() -> Result<()> {
     let url = env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set");
     let token = env::var("LIVEKIT_TOKEN").expect("LIVEKIT_TOKEN is not set");
 
-    let (room, rx) = Room::connect(&url, &token, RoomOptions::default()).await?;
+    let (room, _) = Room::connect(&url, &token, RoomOptions::default()).await?;
 
-    let options = DataTrackOptions::with_name("brightness");
+    let options = DataTrackOptions::with_name("my_sensor_data");
     let track = room.local_participant().publish_data_track(options).await?;
 
     tokio::select! {
@@ -28,9 +22,14 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn publish_frames(track: DataTrack<Local>) {
+async fn read_sensor() -> Vec<u8> {
+    vec![0xFA; 256]
+}
+
+async fn publish_frames(track: LocalDataTrack) {
     loop {
-        let frame = DataTrackFrameBuilder::new(vec![0xFA; 256]);
+        log::info!("Publishing frame");
+        let frame = DataTrackFrameBuilder::new(read_sensor().await);
         track
             .publish(frame.build())
             .inspect_err(|err| println!("Failed to publish frame: {}", err))
