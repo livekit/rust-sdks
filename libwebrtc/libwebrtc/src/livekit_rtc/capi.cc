@@ -1,6 +1,7 @@
 #include "livekit_rtc/include/capi.h"
 
 #include "api/make_ref_counted.h"
+#include "livekit_rtc/apm.h"
 #include "livekit_rtc/audio_resampler.h"
 #include "livekit_rtc/audio_track.h"
 #include "livekit_rtc/data_channel.h"
@@ -1687,6 +1688,47 @@ uint32_t lkAudioResamplerResample(lkAudioResampler* resampler,
                            sample_rate, dst_num_channels, dst_sample_rate);
 }
 
-LK_EXPORT const int16_t* lkAudioResamplerGetData(lkAudioResampler* resampler) {
+const int16_t* lkAudioResamplerGetData(lkAudioResampler* resampler) {
   return reinterpret_cast<livekit::AudioResampler*>(resampler)->data();
+}
+
+lkAudioProcessingModule* lkAudioProcessingModuleCreate(
+    bool echo_canceller_enabled,
+    bool gain_controller_enabled,
+    bool high_pass_filter_enabled,
+    bool noise_suppression_enabled) {
+  return reinterpret_cast<lkAudioProcessingModule*>(
+      livekit::create_apm(echo_canceller_enabled, gain_controller_enabled,
+                          high_pass_filter_enabled, noise_suppression_enabled)
+          .release());
+}
+
+int32_t lkAudioProcessingModuleProcessStream(lkAudioProcessingModule* apm,
+                                             const int16_t* src,
+                                             uint32_t src_len,
+                                             int16_t* dst,
+                                             uint32_t dst_len,
+                                             int32_t sample_rate,
+                                             int32_t num_channels) {
+  return reinterpret_cast<livekit::AudioProcessingModule*>(apm)->process_stream(
+      src, src_len, dst, dst_len, sample_rate, num_channels);
+}
+
+int32_t lkAudioProcessingModuleProcessReverseStream(
+    lkAudioProcessingModule* apm,
+    const int16_t* src,
+    uint32_t src_len,
+    int16_t* dst,
+    uint32_t dst_len,
+    int32_t sample_rate,
+    int32_t num_channels) {
+  return reinterpret_cast<livekit::AudioProcessingModule*>(apm)
+      ->process_reverse_stream(src, src_len, dst, dst_len, sample_rate,
+                               num_channels);
+}
+
+int32_t lkAudioProcessingModuleSetStreamDelayMs(lkAudioProcessingModule* apm,
+                                                int32_t delay) {
+  return reinterpret_cast<livekit::AudioProcessingModule*>(apm)
+      ->set_stream_delay_ms(delay);
 }

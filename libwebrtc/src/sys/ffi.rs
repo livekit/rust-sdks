@@ -56,6 +56,7 @@ pub type lkDesktopFrame = lkRefCountedObject;
 pub type lkDesktopSource = lkRefCountedObject;
 pub type lkAudioMixer = lkRefCountedObject;
 pub type lkAudioResampler = lkRefCountedObject;
+pub type lkAudioProcessingModule = lkRefCountedObject;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkMediaType {
@@ -1864,4 +1865,40 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn lkAudioResamplerGetData(resampler: *mut lkAudioResampler) -> *const i16;
+}
+unsafe extern "C" {
+    pub fn lkAudioProcessingModuleCreate(
+        echo_canceller_enabled: bool,
+        gain_controller_enabled: bool,
+        high_pass_filter_enabled: bool,
+        noise_suppression_enabled: bool,
+    ) -> *mut lkAudioProcessingModule;
+}
+unsafe extern "C" {
+    pub fn lkAudioProcessingModuleProcessStream(
+        apm: *mut lkAudioProcessingModule,
+        src: *const i16,
+        src_len: u32,
+        dst: *mut i16,
+        dst_len: u32,
+        sample_rate: i32,
+        num_channels: i32,
+    ) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkAudioProcessingModuleProcessReverseStream(
+        apm: *mut lkAudioProcessingModule,
+        src: *const i16,
+        src_len: u32,
+        dst: *mut i16,
+        dst_len: u32,
+        sample_rate: i32,
+        num_channels: i32,
+    ) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkAudioProcessingModuleSetStreamDelayMs(
+        apm: *mut lkAudioProcessingModule,
+        delay: i32,
+    ) -> i32;
 }

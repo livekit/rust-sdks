@@ -12,44 +12,104 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::RtcError;
+use crate::RtcErrorType;
 use crate::impl_thread_safety;
+use crate::sys;
 
-#[cxx::bridge(namespace = "livekit")]
-pub mod ffi {
-    unsafe extern "C++" {
-        include!("livekit/apm.h");
-
-        type AudioProcessingModule;
-
-        unsafe fn process_stream(
-            self: Pin<&mut AudioProcessingModule>,
-            src: *const i16,
-            src_len: usize,
-            dst: *mut i16,
-            dst_len: usize,
-            sample_rate: i32,
-            num_channels: i32,
-        ) -> i32;
-
-        unsafe fn process_reverse_stream(
-            self: Pin<&mut AudioProcessingModule>,
-            src: *const i16,
-            src_len: usize,
-            dst: *mut i16,
-            dst_len: usize,
-            sample_rate: i32,
-            num_channels: i32,
-        ) -> i32;
-
-        fn set_stream_delay_ms(self: Pin<&mut AudioProcessingModule>, delay: i32) -> i32;
-
-        fn create_apm(
-            echo_canceller_enabled: bool,
-            gain_controller_enabled: bool,
-            high_pass_filter_enabled: bool,
-            noise_suppression_enabled: bool,
-        ) -> UniquePtr<AudioProcessingModule>;
-    }
+pub struct AudioProcessingModule {
+    ffi: sys::RefCounted<sys::lkAudioProcessingModule>
 }
 
-impl_thread_safety!(ffi::AudioProcessingModule, Send + Sync);
+impl AudioProcessingModule {
+    pub fn new(
+        echo_canceller_enabled: bool,
+        gain_controller_enabled: bool,
+        high_pass_filter_enabled: bool,
+        noise_suppression_enabled: bool,
+    ) -> Self {
+        unsafe {
+            let ffi = sys::lkAudioProcessingModuleCreate(
+                echo_canceller_enabled,
+                gain_controller_enabled,
+                high_pass_filter_enabled,
+                noise_suppression_enabled,
+            );
+            Self { ffi: sys::RefCounted::from_raw(ffi) }
+        }
+    }
+    
+    pub fn process_stream(
+        self: &mut AudioProcessingModule,
+        data: &mut [i16],
+        sample_rate: i32,
+        num_channels: i32,
+    ) -> Result<(), RtcError> {
+        let samples_count = (sample_rate as usize / 100) * num_channels as usize;
+        assert_eq!(data.len(), samples_count, "slice must have 10ms worth of samples");
+
+        unsafe {
+            if sys::lkAudioProcessingModuleProcessStream(
+                self.ffi.as_ptr(),
+                data.as_mut_ptr(),
+                data.len() as u32,
+                data.as_mut_ptr(),
+                data.len() as u32,
+                sample_rate,
+                num_channels,
+            ) == 0 {
+                Ok(())
+            } else {
+                Err(RtcError {
+                    error_type: RtcErrorType::OperationError,
+                    message: "Failed to process stream".to_string(),
+                })
+            }
+        }
+    }
+
+     pub fn process_reverse_stream(
+        &mut self,
+        data: &mut [i16],
+        sample_rate: i32,
+        num_channels: i32,
+    ) -> Result<(), RtcError> {
+        let samples_count = (sample_rate as usize / 100) * num_channels as usize;
+        assert_eq!(data.len(), samples_count, "slice must have 10ms worth of samples");
+
+        unsafe {
+            if sys::lkAudioProcessingModuleProcessReverseStream(
+                self.ffi.as_ptr(),
+                data.as_mut_ptr(),
+                data.len() as u32,
+                data.as_mut_ptr(),
+                data.len() as u32,
+                sample_rate,
+                num_channels,
+            ) == 0 {
+                Ok(())
+            } else {
+                Err(RtcError {
+                    error_type: RtcErrorType::OperationError,
+                    message: "Failed to process reverse stream".to_string(),
+                })
+            }
+        }
+    }
+
+    pub fn set_stream_delay_ms(self: &mut AudioProcessingModule, delay: i32) -> Result<(), RtcError> {
+        unsafe {
+            if sys::lkAudioProcessingModuleSetStreamDelayMs(self.ffi.as_ptr(), delay) == 0 {
+                Ok(())
+            } else {
+                Err(RtcError {
+                    error_type: RtcErrorType::OperationError,
+                    message: "Failed to set stream delay".to_string(),
+                })
+            }
+        }
+    }
+
+}
+
+impl_thread_safety!(AudioProcessingModule, Send + Sync);

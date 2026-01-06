@@ -71,6 +71,7 @@ typedef lkRefCountedObject lkDesktopFrame;
 typedef lkRefCountedObject lkDesktopSource;
 typedef lkRefCountedObject lkAudioMixer;
 typedef lkRefCountedObject lkAudioResampler;
+typedef lkRefCountedObject lkAudioProcessingModule;
 
 typedef enum {
   LK_MEDIA_TYPE_AUDIO,
@@ -1170,29 +1171,55 @@ LK_EXPORT lkVectorGeneric* lkDesktopCapturerGetSourceList(
 LK_EXPORT lkAudioMixer* lkCreateAudioMixer();
 
 LK_EXPORT void lkAudioMixerAddSource(lkAudioMixer* mixer,
-                                     const lkAudioMixerSourceCallback* source, void* userdata);
+                                     const lkAudioMixerSourceCallback* source,
+                                     void* userdata);
 
 LK_EXPORT void lkAudioMixerRemoveSource(lkAudioMixer* mixer, int32_t ssrc);
 
 LK_EXPORT uint32_t lkAudioMixerMixFrame(lkAudioMixer* mixer,
-                                       uint32_t number_of_channels);
+                                        uint32_t number_of_channels);
 
 LK_EXPORT lkData* lkAudioMixerGetMixedFrame(lkAudioMixer* mixer, uint32_t len);
-
 
 LK_EXPORT lkAudioResampler* lkAudioResamplerCreate();
 
 LK_EXPORT uint32_t lkAudioResamplerResample(lkAudioResampler* resampler,
-                                        const int16_t* input,
-                                        uint32_t samples_per_channel,
-                                        uint32_t num_channels,
-                                        uint32_t sample_rate,
-                                        uint32_t dst_num_channels,
-                                        uint32_t dst_sample_rate);
-
+                                            const int16_t* input,
+                                            uint32_t samples_per_channel,
+                                            uint32_t num_channels,
+                                            uint32_t sample_rate,
+                                            uint32_t dst_num_channels,
+                                            uint32_t dst_sample_rate);
 
 LK_EXPORT const int16_t* lkAudioResamplerGetData(lkAudioResampler* resampler);
 
+LK_EXPORT lkAudioProcessingModule* lkAudioProcessingModuleCreate(
+    bool echo_canceller_enabled,
+    bool gain_controller_enabled,
+    bool high_pass_filter_enabled,
+    bool noise_suppression_enabled);
+
+LK_EXPORT int32_t lkAudioProcessingModuleProcessStream(
+    lkAudioProcessingModule* apm,
+    const int16_t* src,
+    uint32_t src_len,
+    int16_t* dst,
+    uint32_t dst_len,
+    int32_t sample_rate,
+    int32_t num_channels);
+
+LK_EXPORT int32_t lkAudioProcessingModuleProcessReverseStream(
+    lkAudioProcessingModule* apm,
+    const int16_t* src,
+    uint32_t src_len,
+    int16_t* dst,
+    uint32_t dst_len,
+    int32_t sample_rate,
+    int32_t num_channels);
+
+LK_EXPORT int32_t lkAudioProcessingModuleSetStreamDelayMs(
+    lkAudioProcessingModule* apm,
+    int32_t delay);
 
 #ifdef __cplusplus
 }

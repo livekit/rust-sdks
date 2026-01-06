@@ -36,10 +36,7 @@ impl RtcAudioTrack {
 
     pub fn remove_sink(&self, sink: Arc<NativeAudioSink>) {
         unsafe {
-            sys::lkAudioTrackRemoveSink(
-                self.ffi.as_ptr(),
-                sink.ffi.as_ptr(),
-            );
+            sys::lkAudioTrackRemoveSink(self.ffi.as_ptr(), sink.ffi.as_ptr());
         }
     }
 }

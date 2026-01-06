@@ -70,7 +70,7 @@ pub mod native {
     use tokio::sync::{mpsc, oneshot};
 
     use crate::{
-        audio_frame::AudioFrame, audio_source::AudioSourceOptions, sys, RtcError, RtcErrorType,
+        RtcError, RtcErrorType, audio_frame::AudioFrame, audio_source::AudioSourceOptions, impl_thread_safety, sys
     };
 
     #[derive(Clone)]
@@ -298,6 +298,8 @@ pub mod native {
         pub(crate) ffi: sys::RefCounted<sys::lkNativeAudioSink>,
         observer: Arc<AudioSinkWrapper>,
     }
+
+    impl_thread_safety!(NativeAudioSink, Send + Sync);
 
     impl NativeAudioSink {
         pub fn new(
