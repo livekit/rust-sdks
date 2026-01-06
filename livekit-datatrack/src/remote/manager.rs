@@ -148,7 +148,7 @@ impl Manager {
 struct Descriptor {
     info: Arc<DataTrackInfo>,
     state_tx: watch::Sender<TrackState>,
-    state: DescriptorState,
+    state: DescriptorState
 }
 
 #[derive(Debug)]
@@ -161,6 +161,7 @@ enum DescriptorState {
     Subscribed {
         packet_tx: mpsc::Sender<Dtp>,
         frame_tx: broadcast::Sender<DataTrackFrame>,
+        join_handle: livekit_runtime::JoinHandle<()>
     },
 }
 
@@ -187,7 +188,7 @@ impl ManagerTask {
                 InputEvent::Shutdown => break,
             }
         }
-        self.shutdown();
+        self.shutdown().await;
     }
 
     fn handle_publications_updated(&mut self, event: PublicationsUpdatedEvent) {
@@ -263,7 +264,7 @@ impl ManagerTask {
             DescriptorState::Pending { result_txs } => {
                 result_txs.push(event.result_tx);
             }
-            DescriptorState::Subscribed { packet_tx: _, frame_tx } => {
+            DescriptorState::Subscribed { frame_tx, .. } => {
                 let frame_rx = frame_tx.subscribe();
                 _ = event.result_tx.send(Ok(frame_rx))
             }
@@ -296,9 +297,9 @@ impl ManagerTask {
                     frame_tx: frame_tx.clone(),
                     event_out_tx: self.event_out_tx.downgrade(),
                 };
-                // TODO: spawn task
+                let join_handle = livekit_runtime::spawn(track_task.run());
 
-                descriptor.state = DescriptorState::Subscribed { packet_tx, frame_tx };
+                descriptor.state = DescriptorState::Subscribed { packet_tx, frame_tx, join_handle };
                 self.sub_handles.insert(handle, sid);
 
                 // TODO: send completion
@@ -306,7 +307,7 @@ impl ManagerTask {
                 //     result_tx.send(Ok(frame_rx.resubscribe()));
                 // }
             }
-            DescriptorState::Subscribed { packet_tx: _, frame_tx: _ } => {
+            DescriptorState::Subscribed { .. } => {
                 log::warn!("Handle reassignment not implemented");
             }
         }
@@ -328,7 +329,7 @@ impl ManagerTask {
             log::warn!("Missing descriptor");
             return;
         };
-        let DescriptorState::Subscribed { packet_tx, frame_tx: _ } = &descriptor.state else {
+        let DescriptorState::Subscribed { packet_tx, .. } = &descriptor.state else {
             log::warn!("Received packet for track {} without subscription", descriptor.info.sid);
             return;
         };
@@ -336,17 +337,20 @@ impl ManagerTask {
     }
 
     /// Performs cleanup before the task ends.
-    fn shutdown(self) {
+    async fn shutdown(self) {
         for (_, descriptor) in self.descriptors {
+            _ = descriptor.state_tx.send(TrackState::Unpublished);
             match descriptor.state {
-                DescriptorState::Available | DescriptorState::Subscribed { .. } => {}
+                DescriptorState::Available { .. } => {}
                 DescriptorState::Pending { result_txs } => {
                     for result_tx in result_txs {
                         _ = result_tx.send(Err(SubscribeError::Disconnected));
                     }
                 }
+                DescriptorState::Subscribed { join_handle, .. } => {
+                    join_handle.await
+                }
             }
-            _ = descriptor.state_tx.send(TrackState::Unpublished);
         }
     }
 }
