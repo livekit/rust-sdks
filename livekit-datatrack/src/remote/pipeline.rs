@@ -12,17 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::manager::TrackState;
+use super::{depacketizer::Depacketizer, manager::TrackState};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo},
-    e2ee::{DecryptionProvider, EncryptedPayload},
     dtp::Dtp,
+    e2ee::{DecryptionProvider, EncryptedPayload},
 };
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, watch};
 
 pub(super) struct RemoteTrackTask {
-    // pub depacketizer: dtp::Depacketizer,
+    pub depacketizer: Depacketizer,
     pub decryption: Option<Arc<dyn DecryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
     pub state_rx: watch::Receiver<TrackState>,
@@ -71,6 +71,8 @@ impl RemoteTrackTask {
             };
             dtp.payload = decrypted_payload;
         }
-        // TODO: depacketize, emit complete frame
+        if let Some(frame) = self.depacketizer.push(dtp) {
+            _ = self.frame_tx.send(frame);
+        }
     }
 }

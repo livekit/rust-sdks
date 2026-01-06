@@ -25,6 +25,7 @@ use tokio_stream::{wrappers::BroadcastStream, Stream};
 pub(crate) mod manager;
 pub(crate) mod proto;
 
+mod depacketizer;
 mod pipeline;
 
 /// Data track published by a remote participant.

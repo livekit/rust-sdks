@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{RemoteDataTrack, RemoteTrackInner};
+use super::{depacketizer::Depacketizer, RemoteDataTrack, RemoteTrackInner};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo, InternalError, SubscribeError},
     dtp::{Dtp, TrackHandle},
@@ -288,6 +288,7 @@ impl ManagerTask {
                 let (frame_tx, frame_rx) = broadcast::channel(4);
 
                 let track_task = RemoteTrackTask {
+                    depacketizer: Depacketizer::new(),
                     decryption: self.decryption.clone(),
                     info: descriptor.info.clone(),
                     state_rx: descriptor.state_tx.subscribe(),
