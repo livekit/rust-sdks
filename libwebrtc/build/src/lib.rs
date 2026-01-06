@@ -79,7 +79,7 @@ pub fn rtc_debug_enabled() -> bool {
 }
 
 /// The location of the custom build is defined by the user
-pub fn is_using_custom_webrtc() -> Option<path::PathBuf> {
+pub fn custom_webrtc_dir() -> Option<path::PathBuf> {
     if let Ok(path) = env::var("LK_CUSTOM_WEBRTC") {
         return Some(path::PathBuf::from(path));
     }
@@ -154,7 +154,7 @@ pub fn prebuilt_dir() -> path::PathBuf {
 
 pub fn download_url() -> String {
     format!(
-        "https://github.com/livekit/client-sdk-rust/releases/download/{}/{}.zip",
+        "https://github.com/livekit/rust-sdks/releases/download/{}/{}.zip",
         WEBRTC_TAG,
         format!("webrtc-{}", webrtc_triple())
     )
@@ -162,7 +162,7 @@ pub fn download_url() -> String {
 
 /// Used location of libwebrtc depending on whether it's a custom build or not
 pub fn webrtc_dir() -> path::PathBuf {
-    if let Some(path) = is_using_custom_webrtc() {
+    if let Some(path) = custom_webrtc_dir() {
         return path;
     }
 
