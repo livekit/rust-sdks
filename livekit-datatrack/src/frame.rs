@@ -14,48 +14,60 @@
 
 use bytes::Bytes;
 
-/// Frame published on a data track containing metadata and a payload.
-///
-/// Construct using [`DataTrackFrameBuilder`].
-///
-#[derive(Debug, Clone)]
+/// Application-level frame published to a data track.
+#[derive(Debug, Clone, Default)]
 pub struct DataTrackFrame {
     pub(crate) payload: Bytes,
     pub(crate) user_timestamp: Option<u64>,
 }
 
 impl DataTrackFrame {
-    /// Get the frame's payload.
+    /// Returns the frame's payload.
     pub fn payload(&self) -> Bytes {
         self.payload.clone() // Cheap clone
     }
 
-    /// Get the frame's user timestamp, if attached.
+    /// Returns the frame's user timestamp, if one is associated.
     pub fn user_timestamp(&self) -> Option<u64> {
         self.user_timestamp
     }
 }
 
-/// Constructs a [`DataTrackFrame`].
-#[derive(Default)]
-pub struct DataTrackFrameBuilder {
-    payload: Bytes,
-    user_timestamp: Option<u64>,
-}
-
-impl DataTrackFrameBuilder {
+impl DataTrackFrame {
+    /// Creates a data track frame with the given bytes.
     pub fn new(payload: impl Into<Bytes>) -> Self {
         Self { payload: payload.into(), ..Default::default() }
     }
 
-    pub fn user_timestamp(mut self, user_timestamp: u64) -> Self {
-        self.user_timestamp = Some(user_timestamp);
+    /// Associates a user timestamp with the frame.
+    pub fn with_user_timestamp(&mut self, value: u64) -> &mut Self {
+        self.user_timestamp = Some(value);
         self
-    }
-
-    pub fn build(self) -> DataTrackFrame {
-        DataTrackFrame { payload: self.payload, user_timestamp: self.user_timestamp }
     }
 }
 
-// TODO: just show payload length in debug.
+// MARK: - From implementations
+
+impl From<Bytes> for DataTrackFrame {
+    fn from(bytes: Bytes) -> Self {
+        Self { payload: bytes, ..Default::default() }
+    }
+}
+
+impl From<&'static [u8]> for DataTrackFrame {
+    fn from(slice: &'static [u8]) -> Self {
+        Self { payload: slice.into(), ..Default::default() }
+    }
+}
+
+impl From<Vec<u8>> for DataTrackFrame {
+    fn from(vec: Vec<u8>) -> Self {
+        Self { payload: vec.into(), ..Default::default() }
+    }
+}
+
+impl From<Box<[u8]>> for DataTrackFrame {
+    fn from(slice: Box<[u8]>) -> Self {
+        Self { payload: slice.into(), ..Default::default() }
+    }
+}

@@ -48,8 +48,7 @@ impl DataTrack<Local> {
 
 impl DataTrack<Local> {
     /// Publish a frame onto the track.
-    pub fn publish(&self, frame: impl Into<DataTrackFrame>) -> Result<(), PublishFrameError> {
-        let frame = frame.into();
+    pub fn publish(&self, frame: DataTrackFrame) -> Result<(), PublishFrameError> {
         if !self.is_published() {
             return Err(PublishFrameError::new(frame, PublishFrameErrorReason::TrackUnpublished));
         }

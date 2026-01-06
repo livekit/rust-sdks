@@ -23,15 +23,16 @@ async fn main() -> Result<()> {
 }
 
 async fn read_sensor() -> Vec<u8> {
+    // Dynamically read some sensor data...
     vec![0xFA; 256]
 }
 
 async fn publish_frames(track: LocalDataTrack) {
     loop {
         log::info!("Publishing frame");
-        let frame = DataTrackFrameBuilder::new(read_sensor().await);
+        let frame = read_sensor().await.into();
         track
-            .publish(frame.build())
+            .publish(frame)
             .inspect_err(|err| println!("Failed to publish frame: {}", err))
             .ok();
         time::sleep(Duration::from_millis(500)).await
