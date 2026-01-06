@@ -329,3 +329,78 @@ impl ManagerTask {
     /// MTU of the transport
     const TRANSPORT_MTU: usize = 16_000;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dtp::Dtp;
+    use futures_util::StreamExt;
+    use livekit_runtime::sleep;
+    use rstest::*;
+
+    #[tokio::test]
+    async fn test_task_shutdown() {
+        let options = ManagerOptions { encryption: None };
+        let (manager, manager_task, _) = Manager::new(options);
+
+        let join_handle = livekit_runtime::spawn(manager_task.run());
+        _ = manager.send(InputEvent::Shutdown);
+
+        time::timeout(Duration::from_secs(1), join_handle).await.unwrap();
+    }
+
+    #[rstest]
+    #[case("my_track", 10, 256)]
+    #[tokio::test]
+    async fn test_publish(
+        #[case] name: String,
+        #[case] packet_count: usize,
+        #[case] payload_size: usize,
+    ) {
+        let options = ManagerOptions { encryption: None };
+        let (manager, manager_task, mut output_events) = Manager::new(options);
+        livekit_runtime::spawn(manager_task.run());
+
+        let handle_events = async {
+            let mut packets_sent = 0;
+            while let Some(event) = output_events.next().await {
+                match event {
+                    OutputEvent::PublishRequest(event) => {
+                        // SFU accepts publication
+                        let info = DataTrackInfo {
+                            sid: "DTR_1234".into(),
+                            handle: 1u32.try_into().unwrap(),
+                            name: event.name,
+                            uses_e2ee: event.uses_e2ee,
+                        };
+                        let input_event =
+                            PublishResultEvent { handle: event.handle, result: Ok(info) };
+                        _ = manager.send(input_event.into());
+                    }
+                    OutputEvent::PacketAvailable(packet) => {
+                        let payload = Dtp::deserialize(packet).unwrap().payload;
+                        assert_eq!(payload.len(), payload_size);
+                        packets_sent += 1;
+                    }
+                    OutputEvent::UnpublishRequest(event) => {
+                        assert_eq!(event.handle, 1u32.try_into().unwrap());
+                        assert_eq!(packets_sent, packet_count);
+                        break;
+                    }
+                }
+            }
+        };
+        let publish_track = async {
+            let track_options = DataTrackOptions::with_name(name.clone());
+            let track = manager.publish_track(track_options).await.unwrap();
+            for _ in 0..packet_count {
+                track.publish(vec![0xFA; payload_size].into()).unwrap();
+                sleep(Duration::from_millis(10)).await;
+            }
+            // Only reference to track dropped here (unpublish)
+        };
+        time::timeout(Duration::from_secs(1), async { tokio::join!(publish_track, handle_events) })
+            .await
+            .unwrap();
+    }
+}

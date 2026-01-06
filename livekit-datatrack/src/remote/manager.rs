@@ -350,3 +350,21 @@ impl ManagerTask {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::time;
+
+    #[tokio::test]
+    async fn test_task_shutdown() {
+        let options = ManagerOptions { decryption: None };
+        let (manager, manager_task, _) = Manager::new(options);
+
+        let join_handle = livekit_runtime::spawn(manager_task.run());
+        _ = manager.send(InputEvent::Shutdown);
+
+        time::timeout(Duration::from_secs(1), join_handle).await.unwrap();
+    }
+}
