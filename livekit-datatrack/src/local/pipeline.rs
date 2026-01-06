@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::packetizer::{Packetizer, PacketizerFrame};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo, InternalError},
     dtp,
@@ -24,7 +25,7 @@ use tokio::sync::{mpsc, watch};
 
 /// Task responsible for operating an individual published data track.
 pub(super) struct LocalTrackTask {
-    pub packetizer: dtp::Packetizer,
+    pub packetizer: Packetizer,
     pub encryption: Option<Arc<dyn EncryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
     pub state_rx: watch::Receiver<LocalTrackState>,
@@ -66,11 +67,8 @@ impl LocalTrackTask {
             frame.payload = encrypted_payload.payload;
         }
 
-        let frame = dtp::PacketizerFrame {
-            payload: frame.payload,
-            e2ee,
-            user_timestamp: frame.user_timestamp,
-        };
+        let frame =
+            PacketizerFrame { payload: frame.payload, e2ee, user_timestamp: frame.user_timestamp };
         let packets = self.packetizer.packetize(frame).context("Failed to packetize frame")?;
         for packet in packets {
             let serialized = packet.serialize();

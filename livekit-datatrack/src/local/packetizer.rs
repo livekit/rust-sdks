@@ -14,7 +14,7 @@
 
 use crate::{
     dtp::{
-        time::{Clock, Timestamp},
+        Clock, Timestamp,
         Dtp, E2ee, Header, TrackHandle,
     },
     utils::{BytesChunkExt, Counter},

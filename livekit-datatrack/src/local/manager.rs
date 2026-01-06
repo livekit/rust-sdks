@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{pipeline::LocalTrackTask, LocalTrackInner};
+use super::{packetizer::Packetizer, pipeline::LocalTrackTask, LocalTrackInner};
 use crate::{
     api::{DataTrackInfo, DataTrackOptions, InternalError, PublishError},
     dtp::{self, TrackHandle},
@@ -277,7 +277,7 @@ impl ManagerTask {
 
         let task = LocalTrackTask {
             // TODO: handle cancellation
-            packetizer: dtp::Packetizer::new(info.handle, Self::TRANSPORT_MTU),
+            packetizer: Packetizer::new(info.handle, Self::TRANSPORT_MTU),
             encryption: self.encryption.clone(),
             info: info.clone(),
             frame_rx,

@@ -25,6 +25,7 @@ pub(crate) mod manager;
 pub(crate) mod proto;
 
 mod pipeline;
+mod packetizer;
 
 /// Data track published by the local participant.
 pub type LocalDataTrack = DataTrack<Local>;

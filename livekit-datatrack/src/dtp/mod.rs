@@ -14,13 +14,12 @@
 
 mod deserialize;
 mod packet;
-mod packetizer;
 mod serialize;
 mod time;
 mod track_handle;
 
 pub use deserialize::*;
 pub use packet::*;
-pub use packetizer::*;
+pub use time::*;
 pub use serialize::*;
 pub use track_handle::*;
