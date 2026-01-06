@@ -107,6 +107,7 @@ pub struct ManagerOptions {
 }
 
 /// Manager for remote data tracks.
+#[derive(Debug, Clone)]
 pub struct Manager {
     event_in_tx: mpsc::Sender<InputEvent>,
 }

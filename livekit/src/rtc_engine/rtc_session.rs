@@ -474,7 +474,7 @@ impl RtcSession {
             DataChannelInit { ordered: true, ..DataChannelInit::default() },
         )?;
 
-        let dt_transport = publisher_pc.peer_connection().create_data_channel(
+        let mut dt_transport = publisher_pc.peer_connection().create_data_channel(
             DATA_TRACK_DC_LABEL,
             DataChannelInit {
                 ordered: false,
@@ -482,7 +482,6 @@ impl RtcSession {
                 ..DataChannelInit::default()
             },
         )?;
-        dt_transport.on_message(|data| {}.into());
 
         // Forward events received inside the signaling thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
@@ -507,6 +506,7 @@ impl RtcSession {
         };
         let (remote_dt_manager, remote_dt_task, remote_dt_events) =
             dt::remote::Manager::new(remote_dt_options);
+        forward_incoming_dt_packets(&mut dt_transport, remote_dt_manager.clone());
         if let Ok(publications_updated) = dt::remote::event_from_join(&mut join_response) {
             _ = remote_dt_manager.send(publications_updated.into());
         }
@@ -1970,6 +1970,19 @@ impl SessionInner {
         self.pending_requests.lock().insert(request_id, tx);
         rx.await.unwrap()
     }
+}
+
+/// Sets up forwarding of incoming data track packets to the manager as input events.
+pub fn forward_incoming_dt_packets(dc: &mut DataChannel, manager: dt::remote::Manager) {
+    let on_message: libwebrtc::data_channel::OnMessage = Box::new(move |buffer: DataBuffer| {
+        if !buffer.binary {
+            log::error!("Received non-binary message");
+            return;
+        }
+        let packet: Bytes = buffer.data.to_vec().into(); // TODO: avoid clone if possible
+        _ = manager.send(packet.into());
+    });
+    dc.on_message(on_message.into());
 }
 
 macro_rules! make_rtc_config {
