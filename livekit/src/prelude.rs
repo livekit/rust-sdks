@@ -15,6 +15,10 @@
 pub use livekit_protocol::AudioTrackFeature;
 
 pub use crate::{
+    data_track::{
+        DataTrackFrame, DataTrackFrameBuilder, DataTrackInfo, DataTrackOptions, LocalDataTrack,
+        PublishError, PublishFrameError, PublishFrameErrorReason, RemoteDataTrack,
+    },
     id::*,
     participant::{
         ConnectionQuality, DisconnectReason, LocalParticipant, Participant, PerformRpcData,
