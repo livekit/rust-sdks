@@ -760,7 +760,7 @@ impl Room {
     pub fn max_participants(&self) -> u32 {
         self.inner.info.read().max_participants
     }
-
+    /// Returns the room creation time in milliseconds since Unix epoch.
     pub fn creation_time(&self) -> i64 {
         self.inner.info.read().creation_time
     }
