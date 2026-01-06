@@ -23,14 +23,14 @@ use std::{
     time::Duration,
 };
 
-use crate::data_track::{
-    internal as dt, DataTrackOptions, LocalDataTrack, PublishError, RemoteDataTrack,
-};
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
-// use livekit_datatrack::{error::PublishError, track::{DataTrack, DataTrackOptions, Local}};
+use livekit_datatrack::{
+    api::{DataTrackOptions, LocalDataTrack, PublishError, RemoteDataTrack},
+    internal as dt,
+};
 use livekit_protocol::{self as proto};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
@@ -44,7 +44,6 @@ use tokio::sync::{mpsc, oneshot, watch, Notify};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
-    data_track,
     id::ParticipantIdentity,
     utils::{
         ttl_map::TtlMap,
@@ -1138,7 +1137,9 @@ impl SessionInner {
                 });
             }
             proto::signal_response::Message::RequestResponse(request_response) => {
-                if let Some(event) = dt::local::publish_result_from_request_response(&request_response) {
+                if let Some(event) =
+                    dt::local::publish_result_from_request_response(&request_response)
+                {
                     _ = self.local_dt_manager.handle_event(event.into());
                     return Ok(());
                 }

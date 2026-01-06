@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
-
-use crate::data_track::{self, DataTrackOptions, LocalDataTrack, RemoteDataTrack};
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
+use livekit_datatrack::api::{DataTrackOptions, LocalDataTrack, PublishError, RemoteDataTrack};
 use livekit_protocol as proto;
 use livekit_runtime::{interval, Interval, JoinHandle};
 use parking_lot::{RwLock, RwLockReadGuard};
+use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{
     mpsc, oneshot, Mutex as AsyncMutex, Notify, RwLock as AsyncRwLock,
@@ -186,7 +185,7 @@ pub enum EngineEvent {
         url: String,
         token: String,
     },
-    RemoteDataTrackPublished(RemoteDataTrack)
+    RemoteDataTrackPublished(RemoteDataTrack),
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -272,13 +271,10 @@ impl RtcEngine {
     pub async fn publish_data_track(
         &self,
         options: DataTrackOptions,
-    ) -> Result<LocalDataTrack, data_track::PublishError> {
+    ) -> Result<LocalDataTrack, PublishError> {
         let (session, _r_lock) = {
-            let (handle, _r_lock) = self
-                .inner
-                .wait_reconnection()
-                .await
-                .map_err(|_| data_track::PublishError::Timeout)?;
+            let (handle, _r_lock) =
+                self.inner.wait_reconnection().await.map_err(|_| PublishError::Timeout)?;
             (handle.session.clone(), _r_lock)
         };
         session.publish_data_track(options).await
@@ -873,8 +869,8 @@ impl EngineInner {
     }
 }
 
-impl From<crate::data_track::InternalError> for EngineError {
-    fn from(err: crate::data_track::InternalError) -> Self {
+impl From<livekit_datatrack::api::InternalError> for EngineError {
+    fn from(err: livekit_datatrack::api::InternalError) -> Self {
         Self::Internal(err.to_string().into())
     }
 }

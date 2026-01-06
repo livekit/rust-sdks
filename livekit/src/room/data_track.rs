@@ -12,6 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Re-export api types publicly, scope internal types to crate.
+// Re-export everything in the "api" module publicly.
 pub use livekit_datatrack::api::*;
-pub(crate) use livekit_datatrack::internal;

@@ -25,6 +25,7 @@ use libwebrtc::{
 use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
 use livekit_protocol::observer::Dispatcher;
 use livekit_protocol::{self as proto, encryption};
+use livekit_datatrack::api::RemoteDataTrack;
 use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
@@ -45,7 +46,6 @@ pub use self::{
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
-    data_track::RemoteDataTrack,
     participant::ConnectionQuality,
     prelude::*,
     registered_audio_filter_plugins,

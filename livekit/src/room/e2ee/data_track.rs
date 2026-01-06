@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    data_track::internal::{DecryptionProvider, E2eeError, EncryptedPayload, EncryptionProvider},
-    E2eeManager,
+use crate::E2eeManager;
+use livekit_datatrack::internal::{
+    DecryptionProvider, E2eeError, EncryptedPayload, EncryptionProvider,
 };
 
 impl DecryptionProvider for E2eeManager {
