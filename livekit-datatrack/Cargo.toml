@@ -13,6 +13,7 @@ log = { version = "0.4.28" }
 thiserror = "2.0.17"
 tokio = { version = "1.48.0", default-features = false, features = ["sync"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+futures-core = "0.3.31"
 bytes = "1.10.1"
 from_variants = "1.0.2"
 tokio-stream = { version = "0.1.17", features = ["sync"] }

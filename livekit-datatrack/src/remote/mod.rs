@@ -70,7 +70,7 @@ impl DataTrack<Remote> {
 
         let frame_stream =
             BroadcastStream::new(frame_rx).filter_map(|result| async move { result.ok() });
-        Ok(frame_stream)
+        Ok(Box::pin(frame_stream))
     }
 
     /// Whether or not the track is still published.
