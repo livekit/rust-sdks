@@ -186,7 +186,10 @@ enum Descriptor {
     ///
     /// The associated channel is used to send state updates to the track's task.
     ///
-    Active(watch::Sender<LocalTrackState>),
+    Active {
+        state_tx: watch::Sender<LocalTrackState>,
+        join_handle: livekit_runtime::JoinHandle<()>
+    },
 }
 
 pub struct ManagerTask {
@@ -207,7 +210,7 @@ impl ManagerTask {
             let Err(err) = self.handle_event(event) else { continue };
             log::error!("Failed to handle input event: {}", err);
         }
-        self.shutdown();
+        self.shutdown().await;
     }
 
     fn handle_event(&mut self, event: InputEvent) -> Result<(), InternalError> {
@@ -284,8 +287,8 @@ impl ManagerTask {
             state_rx,
             event_out_tx: self.event_out_tx.clone(),
         };
-        livekit_runtime::spawn(task.run());
-        self.descriptors.insert(info.handle, Descriptor::Active(state_tx.clone()));
+        let join_handle = livekit_runtime::spawn(task.run());
+        self.descriptors.insert(info.handle, Descriptor::Active { state_tx: state_tx.clone(), join_handle });
 
         let inner = LocalTrackInner { frame_tx, state_tx };
         LocalDataTrack::new(info, inner)
@@ -295,7 +298,7 @@ impl ManagerTask {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
             Err(anyhow!("No descriptor for track {}", event.handle))?
         };
-        let Descriptor::Active(state_tx) = descriptor else {
+        let Descriptor::Active { state_tx, .. } = descriptor else {
             Err(anyhow!("Cannot unpublish pending track {}", event.handle))?
         };
         if !state_tx.borrow().is_published() {
@@ -308,16 +311,17 @@ impl ManagerTask {
     }
 
     /// Performs cleanup before the task ends.
-    fn shutdown(self) {
+    async fn shutdown(self) {
         for (_, descriptor) in self.descriptors {
             match descriptor {
                 Descriptor::Pending(result_tx) => {
                     _ = result_tx.send(Err(PublishError::Disconnected))
                 }
-                Descriptor::Active(state_tx) => {
+                Descriptor::Active { state_tx, join_handle } => {
                     _ = state_tx.send(LocalTrackState::Unpublished {
                         initiator: UnpublishInitiator::Shutdown,
-                    })
+                    });
+                    join_handle.await;
                 }
             }
         }
