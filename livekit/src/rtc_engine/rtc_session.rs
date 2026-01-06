@@ -507,7 +507,7 @@ impl RtcSession {
         let (remote_dt_manager, remote_dt_task, remote_dt_events) =
             dt::remote::Manager::new(remote_dt_options);
         if let Ok(publications_updated) = dt::remote::event_from_join(&mut join_response) {
-            _ = remote_dt_manager.handle_event(publications_updated.into());
+            _ = remote_dt_manager.send(publications_updated.into());
         }
 
         let (close_tx, close_rx) = watch::channel(false);
@@ -616,11 +616,11 @@ impl RtcSession {
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
 
-            _ = self.inner.local_dt_manager.handle_event(dt::local::InputEvent::Shutdown);
+            _ = self.inner.local_dt_manager.send(dt::local::InputEvent::Shutdown);
             let _ = handle.local_dt_task.await;
             let _ = handle.local_dt_forward_task.await;
 
-            _ = self.inner.remote_dt_manager.handle_event(dt::remote::InputEvent::Shutdown);
+            _ = self.inner.remote_dt_manager.send(dt::remote::InputEvent::Shutdown);
             let _ = handle.remote_dt_task.await;
             let _ = handle.remote_dt_forward_task.await;
         }
@@ -1104,7 +1104,7 @@ impl SessionInner {
             }
             proto::signal_response::Message::Update(mut update) => {
                 if let Ok(event) = dt::remote::event_from_participant_update(&mut update) {
-                    _ = self.remote_dt_manager.handle_event(event.into());
+                    _ = self.remote_dt_manager.send(event.into());
                 }
                 let _ = self
                     .emitter
@@ -1140,7 +1140,7 @@ impl SessionInner {
                 if let Some(event) =
                     dt::local::publish_result_from_request_response(&request_response)
                 {
-                    _ = self.local_dt_manager.handle_event(event.into());
+                    _ = self.local_dt_manager.send(event.into());
                     return Ok(());
                 }
                 let mut pending_requests = self.pending_requests.lock();
@@ -1150,15 +1150,15 @@ impl SessionInner {
             }
             proto::signal_response::Message::PublishDataTrackResponse(publish_res) => {
                 let event: dt::local::PublishResultEvent = publish_res.try_into()?;
-                _ = self.local_dt_manager.handle_event(event.into());
+                _ = self.local_dt_manager.send(event.into());
             }
             proto::signal_response::Message::UnpublishDataTrackResponse(unpublish_res) => {
                 let event: dt::local::UnpublishEvent = unpublish_res.try_into()?;
-                _ = self.local_dt_manager.handle_event(event.into());
+                _ = self.local_dt_manager.send(event.into());
             }
             proto::signal_response::Message::DataTrackSubscriberHandles(subscriber_handles) => {
                 let event: dt::remote::SubscriberHandlesEvent = subscriber_handles.try_into()?;
-                _ = self.remote_dt_manager.handle_event(event.into());
+                _ = self.remote_dt_manager.send(event.into());
             }
             proto::signal_response::Message::RefreshToken(ref token) => {
                 let url = self.signal_client.url();

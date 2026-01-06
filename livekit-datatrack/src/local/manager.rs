@@ -148,8 +148,8 @@ impl Manager {
         (manager, task, event_out_stream)
     }
 
-    /// Handles an external event.
-    pub fn handle_event(&self, event: InputEvent) -> Result<(), InternalError> {
+    /// Sends an input event to the manager's task to be processed.
+    pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
         Ok(self.event_in_tx.try_send(event).context("Failed to handle input event")?)
     }
 
