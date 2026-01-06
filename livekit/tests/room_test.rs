@@ -33,7 +33,7 @@ async fn test_connect() -> Result<()> {
     assert!(room.name().starts_with("test_room_"));
     assert!(room.remote_participants().is_empty());
 
-    let creation_time = Utc.timestamp_opt(room.creation_time(), 0).unwrap();
+    let creation_time = Utc.timestamp_millis_opt(room.creation_time()).unwrap();
     assert!(creation_time.signed_duration_since(Utc::now()).abs() <= TimeDelta::seconds(10));
 
     let local_participant = room.local_participant();
