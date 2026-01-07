@@ -25,6 +25,7 @@ use bytes::Bytes;
 use from_variants::FromVariants;
 use std::{
     collections::{HashMap, HashSet},
+    mem,
     sync::Arc,
 };
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
@@ -134,6 +135,7 @@ impl Manager {
 
     /// Sends an input event to the manager's task to be processed.
     pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
+        // TODO: try_send for data
         Ok(self.event_in_tx.try_send(event).context("Failed to send input event")?)
     }
 
@@ -148,20 +150,20 @@ impl Manager {
 struct Descriptor {
     info: Arc<DataTrackInfo>,
     state_tx: watch::Sender<TrackState>,
-    state: DescriptorState
+    state: DescriptorState,
 }
 
 #[derive(Debug)]
 enum DescriptorState {
     Available,
-    Pending {
+    PendingSubscriberHandle {
         result_txs:
             Vec<oneshot::Sender<Result<broadcast::Receiver<DataTrackFrame>, SubscribeError>>>,
     },
     Subscribed {
         packet_tx: mpsc::Sender<Dtp>,
         frame_tx: broadcast::Sender<DataTrackFrame>,
-        join_handle: livekit_runtime::JoinHandle<()>
+        join_handle: livekit_runtime::JoinHandle<()>,
     },
 }
 
@@ -181,8 +183,10 @@ impl ManagerTask {
     pub async fn run(mut self) {
         while let Some(event) = self.event_in_rx.recv().await {
             match event {
-                InputEvent::PublicationsUpdated(event) => self.handle_publications_updated(event),
-                InputEvent::Subscribe(event) => self.handle_subscribe(event),
+                InputEvent::PublicationsUpdated(event) => {
+                    self.handle_publications_updated(event).await
+                }
+                InputEvent::Subscribe(event) => self.handle_subscribe(event).await,
                 InputEvent::SubscriberHandles(event) => self.handle_subscriber_handles(event),
                 InputEvent::PacketReceived(bytes) => self.handle_packet_received(bytes),
                 InputEvent::Shutdown => break,
@@ -191,7 +195,7 @@ impl ManagerTask {
         self.shutdown().await;
     }
 
-    fn handle_publications_updated(&mut self, event: PublicationsUpdatedEvent) {
+    async fn handle_publications_updated(&mut self, event: PublicationsUpdatedEvent) {
         let mut sids_in_update = HashSet::new();
 
         // Detect published track
@@ -201,7 +205,7 @@ impl ManagerTask {
                 if self.descriptors.contains_key(&info.sid) {
                     continue;
                 }
-                self.handle_track_published(publisher_identity.clone(), info);
+                self.handle_track_published(publisher_identity.clone(), info).await;
             }
         }
 
@@ -213,7 +217,7 @@ impl ManagerTask {
         }
     }
 
-    fn handle_track_published(&mut self, publisher_identity: String, info: DataTrackInfo) {
+    async fn handle_track_published(&mut self, publisher_identity: String, info: DataTrackInfo) {
         if self.descriptors.contains_key(&info.sid) {
             log::error!("Existing descriptor for track {}", info.sid);
             return;
@@ -231,7 +235,7 @@ impl ManagerTask {
             publisher_identity,
         };
         let track = RemoteDataTrack::new(info, inner);
-        _ = self.event_out_tx.send(track.into());
+        _ = self.event_out_tx.send(track.into()).await;
     }
 
     fn handle_track_unpublished(&mut self, track_sid: String) {
@@ -244,7 +248,7 @@ impl ManagerTask {
         // TODO: this should end the track task
     }
 
-    fn handle_subscribe(&mut self, event: SubscribeEvent) {
+    async fn handle_subscribe(&mut self, event: SubscribeEvent) {
         let Some(descriptor) = self.descriptors.get_mut(event.track_sid.as_str()) else {
             let error =
                 SubscribeError::Internal(anyhow!("Cannot subscribe to unknown track").into());
@@ -257,11 +261,12 @@ impl ManagerTask {
                     track_sid: event.track_sid.to_string(),
                     subscribe: true,
                 };
-                _ = self.event_out_tx.send(update_event.into());
-                descriptor.state = DescriptorState::Pending { result_txs: vec![event.result_tx] };
+                _ = self.event_out_tx.send(update_event.into()).await;
+                descriptor.state =
+                    DescriptorState::PendingSubscriberHandle { result_txs: vec![event.result_tx] };
                 // TODO: schedule timeout internally
             }
-            DescriptorState::Pending { result_txs } => {
+            DescriptorState::PendingSubscriberHandle { result_txs } => {
                 result_txs.push(event.result_tx);
             }
             DescriptorState::Subscribed { frame_tx, .. } => {
@@ -282,34 +287,37 @@ impl ManagerTask {
             log::warn!("Unknown track: {}", sid);
             return;
         };
-        match &mut descriptor.state {
-            DescriptorState::Available => log::warn!("No subscription"),
-            DescriptorState::Pending { result_txs } => {
-                let (packet_tx, packet_rx) = mpsc::channel(4); // TODO: tune
-                let (frame_tx, frame_rx) = broadcast::channel(4);
-
-                let track_task = RemoteTrackTask {
-                    depacketizer: Depacketizer::new(),
-                    decryption: self.decryption.clone(),
-                    info: descriptor.info.clone(),
-                    state_rx: descriptor.state_tx.subscribe(),
-                    packet_rx,
-                    frame_tx: frame_tx.clone(),
-                    event_out_tx: self.event_out_tx.downgrade(),
-                };
-                let join_handle = livekit_runtime::spawn(track_task.run());
-
-                descriptor.state = DescriptorState::Subscribed { packet_tx, frame_tx, join_handle };
-                self.sub_handles.insert(handle, sid);
-
-                // TODO: send completion
-                // for result_tx in result_txs {
-                //     result_tx.send(Ok(frame_rx.resubscribe()));
-                // }
+        let result_txs = match &mut descriptor.state {
+            DescriptorState::Available => {
+                log::warn!("No subscription");
+                return;
             }
             DescriptorState::Subscribed { .. } => {
                 log::warn!("Handle reassignment not implemented");
+                return;
             }
+            DescriptorState::PendingSubscriberHandle { result_txs } => mem::take(result_txs),
+        };
+
+        let (packet_tx, packet_rx) = mpsc::channel(4); // TODO: tune
+        let (frame_tx, frame_rx) = broadcast::channel(4);
+
+        let track_task = RemoteTrackTask {
+            depacketizer: Depacketizer::new(),
+            decryption: self.decryption.clone(),
+            info: descriptor.info.clone(),
+            state_rx: descriptor.state_tx.subscribe(),
+            packet_rx,
+            frame_tx: frame_tx.clone(),
+            event_out_tx: self.event_out_tx.downgrade(),
+        };
+        let join_handle = livekit_runtime::spawn(track_task.run());
+
+        descriptor.state = DescriptorState::Subscribed { packet_tx, frame_tx, join_handle };
+        self.sub_handles.insert(handle, sid);
+
+        for result_tx in result_txs {
+            _ = result_tx.send(Ok(frame_rx.resubscribe()));
         }
     }
 
@@ -342,14 +350,12 @@ impl ManagerTask {
             _ = descriptor.state_tx.send(TrackState::Unpublished);
             match descriptor.state {
                 DescriptorState::Available { .. } => {}
-                DescriptorState::Pending { result_txs } => {
+                DescriptorState::PendingSubscriberHandle { result_txs } => {
                     for result_tx in result_txs {
                         _ = result_tx.send(Err(SubscribeError::Disconnected));
                     }
                 }
-                DescriptorState::Subscribed { join_handle, .. } => {
-                    join_handle.await
-                }
+                DescriptorState::Subscribed { join_handle, .. } => join_handle.await,
             }
         }
     }
@@ -358,7 +364,9 @@ impl ManagerTask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    use futures_util::StreamExt;
+    use rstest::*;
+    use std::{collections::HashMap, time::Duration};
     use tokio::time;
 
     #[tokio::test]
@@ -370,5 +378,74 @@ mod tests {
         _ = manager.send(InputEvent::Shutdown);
 
         time::timeout(Duration::from_secs(1), join_handle).await.unwrap();
+    }
+
+    #[rstest]
+    #[case("my_track", "some_identity")]
+    #[tokio::test]
+    async fn test_subscribe(#[case] name: String, #[case] publisher_identity: String) {
+        let options = ManagerOptions { decryption: None };
+        let (manager, manager_task, mut output_events) = Manager::new(options);
+        livekit_runtime::spawn(manager_task.run());
+
+        // Simulate track published
+        let event = PublicationsUpdatedEvent {
+            tracks_by_participant: HashMap::from([(
+                publisher_identity.clone(),
+                vec![DataTrackInfo {
+                    sid: "DTR_1234".try_into().unwrap(),
+                    handle: 1024u32.try_into().unwrap(),
+                    name: name.clone(),
+                    uses_e2ee: false,
+                }],
+            )]),
+        };
+        _ = manager.send(event.into());
+
+        let wait_for_track = async {
+            while let Some(event) = output_events.next().await {
+                match event {
+                    OutputEvent::TrackAvailable(track) => return track,
+                    _ => continue,
+                }
+            }
+            panic!("No track received");
+        };
+
+        let track = wait_for_track.await;
+        assert!(track.is_published());
+        assert_eq!(track.info().name, name);
+        assert_eq!(track.publisher_identity(), publisher_identity);
+
+        let simulate_subscriber_handles = async {
+            while let Some(event) = output_events.next().await {
+                match event {
+                    OutputEvent::SubscriptionUpdated(event) => {
+                        assert!(event.subscribe);
+                        assert_eq!(event.track_sid, "DTR_1234");
+                        time::sleep(Duration::from_millis(20)).await;
+
+                        // Simulate SFU reply
+                        let event = SubscriberHandlesEvent {
+                            mapping: HashMap::from([(
+                                64u32.try_into().unwrap(),
+                                "DTR_1234".to_string(),
+                            )]),
+                        };
+                        _ = manager.send(event.into());
+                    }
+                    _ => {}
+                }
+            }
+        };
+
+        time::timeout(Duration::from_secs(10), async {
+            tokio::select! {
+                _ = simulate_subscriber_handles => {}
+                _ = track.subscribe() => {}
+            }
+        })
+        .await
+        .unwrap();
     }
 }
