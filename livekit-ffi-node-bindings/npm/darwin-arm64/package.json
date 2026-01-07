@@ -1,0 +1,23 @@
+{
+  "name": "@livekit/rtc-node-darwin-arm64",
+  "version": "0.13.22",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/livekit/node-sdks.git",
+    "directory": "packages/livekit-rtc/darwin-arm64"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
+  "main": "rtc-node.darwin-arm64.node",
+  "files": [
+    "rtc-node.darwin-arm64.node"
+  ],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">= 10"
+  }
+}
