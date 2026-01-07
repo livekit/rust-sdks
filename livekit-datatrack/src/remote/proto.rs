@@ -14,7 +14,7 @@
 
 use super::manager::{PublicationsUpdatedEvent, SubscriberHandlesEvent, SubscriptionUpdatedEvent};
 use crate::{
-    api::{DataTrackInfo, InternalError},
+    api::{DataTrackInfo, DataTrackSid, InternalError},
     dtp::Handle,
 };
 use livekit_protocol::{self as proto, ParticipantInfo};
@@ -30,10 +30,11 @@ impl TryFrom<proto::DataTrackSubscriberHandles> for SubscriberHandlesEvent {
             .sub_handles
             .into_iter()
             .map(|(handle, info)| -> Result<_, InternalError> {
-                let handle = Handle::try_from(handle).map_err(anyhow::Error::from)?;
-                Ok((handle, info.track_sid))
+                let handle: Handle = handle.try_into().map_err(anyhow::Error::from)?;
+                let sid: DataTrackSid = info.track_sid.try_into().map_err(anyhow::Error::from)?;
+                Ok((handle, sid))
             })
-            .collect::<Result<HashMap<Handle, String>, _>>()?;
+            .collect::<Result<HashMap<Handle, DataTrackSid>, _>>()?;
         Ok(SubscriberHandlesEvent { mapping })
     }
 }
@@ -84,7 +85,7 @@ fn extract_track_info(msg: &mut ParticipantInfo) -> Result<Vec<DataTrackInfo>, I
 impl From<SubscriptionUpdatedEvent> for proto::UpdateDataSubscription {
     fn from(event: SubscriptionUpdatedEvent) -> Self {
         let update = proto::update_data_subscription::Update {
-            track_sid: event.track_sid,
+            track_sid: event.sid.into(),
             subscribe: event.subscribe,
             options: Default::default(), // TODO: pass through options
         };
@@ -118,8 +119,14 @@ mod tests {
             proto::DataTrackSubscriberHandles { sub_handles: HashMap::from(sub_handles) };
 
         let event: SubscriberHandlesEvent = subscriber_handles.try_into().unwrap();
-        assert_eq!(event.mapping.get(&1u32.try_into().unwrap()).unwrap(), "DTR_1234");
-        assert_eq!(event.mapping.get(&2u32.try_into().unwrap()).unwrap(), "DTR_4567");
+        assert_eq!(
+            event.mapping.get(&1u32.try_into().unwrap()).unwrap(),
+            &"DTR_1234".to_string().try_into().unwrap()
+        );
+        assert_eq!(
+            event.mapping.get(&2u32.try_into().unwrap()).unwrap(),
+            &"DTR_4567".to_string().try_into().unwrap()
+        );
     }
 
     #[test]
@@ -139,6 +146,6 @@ mod tests {
         let first = track_info.first().unwrap();
         assert_eq!(first.handle, 1u32.try_into().unwrap());
         assert_eq!(first.name, "track1");
-        assert_eq!(first.sid, "DTR_1234");
+        assert_eq!(first.sid, "DTR_1234".to_string().try_into().unwrap());
     }
 }

@@ -372,7 +372,7 @@ mod tests {
                     OutputEvent::PublishRequest(event) => {
                         // SFU accepts publication
                         let info = DataTrackInfo {
-                            sid: "DTR_1234".into(),
+                            sid: "DTR_1234".to_string().try_into().unwrap(),
                             handle: 1u32.try_into().unwrap(),
                             name: event.name,
                             uses_e2ee: event.uses_e2ee,

@@ -52,7 +52,7 @@ impl DataTrack<Remote> {
     /// Subscribe to the data track to receive frames.
     pub async fn subscribe(&self) -> Result<impl Stream<Item = DataTrackFrame>, SubscribeError> {
         let (result_tx, result_rx) = oneshot::channel();
-        let subscribe_event = SubscribeEvent { track_sid: self.info.sid.clone(), result_tx };
+        let subscribe_event = SubscribeEvent { sid: self.info.sid.clone(), result_tx };
         self.inner()
             .event_in_tx
             .upgrade()

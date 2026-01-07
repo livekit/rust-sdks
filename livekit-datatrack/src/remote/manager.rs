@@ -14,7 +14,7 @@
 
 use super::{depacketizer::Depacketizer, RemoteDataTrack, RemoteTrackInner};
 use crate::{
-    api::{DataTrackFrame, DataTrackInfo, InternalError, SubscribeError},
+    api::{DataTrackFrame, DataTrackInfo, DataTrackSid, InternalError, SubscribeError},
     dtp::{Dtp, Handle},
     e2ee::DecryptionProvider,
     remote::pipeline::RemoteTrackTask,
@@ -68,7 +68,7 @@ pub struct PublicationsUpdatedEvent {
 pub struct SubscriberHandlesEvent {
     /// Mapping between track handles attached to incoming packets to the
     /// track SIDs they belong to.
-    pub mapping: HashMap<Handle, String>,
+    pub mapping: HashMap<Handle, DataTrackSid>,
 }
 
 type SubscribeResult = Result<broadcast::Receiver<DataTrackFrame>, SubscribeError>;
@@ -77,7 +77,7 @@ type SubscribeResult = Result<broadcast::Receiver<DataTrackFrame>, SubscribeErro
 #[derive(Debug)]
 pub struct SubscribeEvent {
     /// Identifier of the track.
-    pub(super) track_sid: String,
+    pub(super) sid: DataTrackSid,
     /// Async completion channel.
     pub(super) result_tx: oneshot::Sender<SubscribeResult>,
 }
@@ -86,7 +86,7 @@ pub struct SubscribeEvent {
 #[derive(Debug)]
 pub struct SubscriptionUpdatedEvent {
     /// Identifier of the affected track.
-    pub track_sid: String,
+    pub sid: DataTrackSid,
     /// Whether to subscribe or unsubscribe.
     pub subscribe: bool,
 }
@@ -174,7 +174,7 @@ pub struct ManagerTask {
     event_out_tx: mpsc::Sender<OutputEvent>,
 
     /// Mapping between track SID and descriptor.
-    descriptors: HashMap<String, Descriptor>,
+    descriptors: HashMap<DataTrackSid, Descriptor>,
     /// Bidirectional mapping between track SID and subscriber handle.
     sub_handles: HandleMap,
 }
@@ -238,10 +238,10 @@ impl ManagerTask {
         _ = self.event_out_tx.send(track.into()).await;
     }
 
-    fn handle_track_unpublished(&mut self, track_sid: String) {
-        self.sub_handles.remove(&track_sid);
-        let Some(descriptor) = self.descriptors.remove(&track_sid) else {
-            log::error!("Unknown track {}", track_sid);
+    fn handle_track_unpublished(&mut self, sid: DataTrackSid) {
+        self.sub_handles.remove(&sid);
+        let Some(descriptor) = self.descriptors.remove(&sid) else {
+            log::error!("Unknown track {}", sid);
             return;
         };
         _ = descriptor.state_tx.send(TrackState::Unpublished);
@@ -249,7 +249,7 @@ impl ManagerTask {
     }
 
     async fn handle_subscribe(&mut self, event: SubscribeEvent) {
-        let Some(descriptor) = self.descriptors.get_mut(event.track_sid.as_str()) else {
+        let Some(descriptor) = self.descriptors.get_mut(&event.sid) else {
             let error =
                 SubscribeError::Internal(anyhow!("Cannot subscribe to unknown track").into());
             _ = event.result_tx.send(Err(error));
@@ -258,7 +258,7 @@ impl ManagerTask {
         match &mut descriptor.state {
             DescriptorState::Available => {
                 let update_event = SubscriptionUpdatedEvent {
-                    track_sid: event.track_sid.to_string(),
+                    sid: event.sid.clone(),
                     subscribe: true,
                 };
                 _ = self.event_out_tx.send(update_event.into()).await;
@@ -282,7 +282,7 @@ impl ManagerTask {
         }
     }
 
-    fn register_subscriber_handle(&mut self, handle: Handle, sid: String) {
+    fn register_subscriber_handle(&mut self, handle: Handle, sid: DataTrackSid) {
         let Some(descriptor) = self.descriptors.get_mut(&sid) else {
             log::warn!("Unknown track: {}", sid);
             return;
@@ -393,7 +393,7 @@ mod tests {
             tracks_by_participant: HashMap::from([(
                 publisher_identity.clone(),
                 vec![DataTrackInfo {
-                    sid: "DTR_1234".try_into().unwrap(),
+                    sid: "DTR_1234".to_string().try_into().unwrap(),
                     handle: 1024u32.try_into().unwrap(),
                     name: name.clone(),
                     uses_e2ee: false,
@@ -422,14 +422,14 @@ mod tests {
                 match event {
                     OutputEvent::SubscriptionUpdated(event) => {
                         assert!(event.subscribe);
-                        assert_eq!(event.track_sid, "DTR_1234");
+                        assert_eq!(event.sid, "DTR_1234".to_string().try_into().unwrap());
                         time::sleep(Duration::from_millis(20)).await;
 
                         // Simulate SFU reply
                         let event = SubscriberHandlesEvent {
                             mapping: HashMap::from([(
                                 64u32.try_into().unwrap(),
-                                "DTR_1234".to_string(),
+                                "DTR_1234".to_string().try_into().unwrap(),
                             )]),
                         };
                         _ = manager.send(event.into());

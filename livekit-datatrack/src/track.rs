@@ -14,12 +14,13 @@
 
 use crate::dtp::Handle;
 use from_variants::FromVariants;
-use std::{marker::PhantomData, sync::Arc};
+use std::{fmt::Display, marker::PhantomData, ops::Deref, sync::Arc};
+use thiserror::Error;
 
 /// Information about a published data track.
 #[derive(Debug, Clone)]
 pub struct DataTrackInfo {
-    pub(crate) sid: String, // TODO: use shared ID type
+    pub(crate) sid: DataTrackSid,
     pub(crate) handle: Handle, // TODO: consider removing (protocol level detail)
     pub(crate) name: String,
     pub(crate) uses_e2ee: bool,
@@ -27,7 +28,7 @@ pub struct DataTrackInfo {
 
 impl DataTrackInfo {
     /// Unique track identifier.
-    pub fn sid(&self) -> &str {
+    pub fn sid(&self) -> &DataTrackSid {
         &self.sid
     }
     /// Name of the track assigned when published.
@@ -58,5 +59,49 @@ impl<L> DataTrack<L> {
     /// Information about the data track such as name.
     pub fn info(&self) -> &DataTrackInfo {
         &self.info
+    }
+}
+
+/// SFU-assigned identifier uniquely identifying a data track.
+#[derive(Clone, Debug, Eq, Hash, PartialEq, PartialOrd, Ord)]
+pub struct DataTrackSid(String);
+
+#[derive(Debug, Error)]
+#[error("Invalid data track SID")]
+pub struct DataTrackSidError;
+
+impl DataTrackSid {
+    const PREFIX: &str = "DTR_";
+}
+
+impl TryFrom<String> for DataTrackSid {
+    type Error = DataTrackSidError;
+
+    fn try_from(raw_id: String) -> Result<Self, Self::Error> {
+        if raw_id.starts_with(Self::PREFIX) {
+            Ok(Self(raw_id))
+        } else {
+            Err(DataTrackSidError)
+        }
+    }
+}
+
+impl From<DataTrackSid> for String {
+    fn from(id: DataTrackSid) -> Self {
+        id.0
+    }
+}
+
+impl Deref for DataTrackSid {
+    type Target = str;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Display for DataTrackSid {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

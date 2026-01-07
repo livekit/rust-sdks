@@ -14,7 +14,7 @@
 
 use super::manager::{PublishRequestEvent, UnpublishEvent, UnpublishRequestEvent};
 use crate::{
-    api::{DataTrackInfo, InternalError, PublishError},
+    api::{DataTrackInfo, DataTrackSid, InternalError, PublishError},
     dtp::Handle,
     local::manager::PublishResultEvent,
 };
@@ -69,7 +69,8 @@ impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
             proto::encryption::Type::Gcm => true,
             other => Err(anyhow!("Unsupported E2EE type: {:?}", other))?,
         };
-        Ok(Self { handle, sid: msg.sid, name: msg.name, uses_e2ee })
+        let sid: DataTrackSid = msg.sid.try_into().map_err(anyhow::Error::from)?;
+        Ok(Self { handle, sid, name: msg.name, uses_e2ee })
     }
 }
 
@@ -140,7 +141,7 @@ mod tests {
 
         let info = event.result.expect("Expected ok result");
         assert_eq!(info.handle, 1u32.try_into().unwrap());
-        assert_eq!(info.sid, "DTR_1234");
+        assert_eq!(info.sid, "DTR_1234".to_string().try_into().unwrap());
         assert_eq!(info.name, "track");
         assert!(info.uses_e2ee);
     }
