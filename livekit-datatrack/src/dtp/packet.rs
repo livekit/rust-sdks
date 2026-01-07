@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::dtp::time::Timestamp;
-
-use super::track_handle::TrackHandle;
+use super::{TrackHandle, Timestamp};
 use bytes::Bytes;
 use core::fmt;
 

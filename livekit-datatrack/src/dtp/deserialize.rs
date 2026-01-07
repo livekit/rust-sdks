@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::dtp::time::Timestamp;
-
-use super::{
-    packet::{consts::*, Dtp, E2ee, Header},
-    track_handle::{TrackHandle, TrackHandleError},
-};
+use super::{consts::*, Dtp, E2ee, Header, Timestamp, TrackHandle, TrackHandleError};
 use bytes::{Buf, Bytes};
 use thiserror::Error;
 
