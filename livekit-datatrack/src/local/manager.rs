@@ -207,32 +207,31 @@ impl ManagerTask {
             if matches!(event, InputEvent::Shutdown) {
                 break;
             }
-            let Err(err) = self.handle_event(event) else { continue };
-            log::error!("Failed to handle input event: {}", err);
+            self.handle_event(event);
         }
         self.shutdown().await;
     }
 
-    fn handle_event(&mut self, event: InputEvent) -> Result<(), InternalError> {
+    fn handle_event(&mut self, event: InputEvent) {
         match event {
             InputEvent::Publish(event) => self.handle_publish(event),
             InputEvent::PublishResult(event) => self.handle_publish_result(event),
             InputEvent::Unpublish(event) => self.handle_unpublished(event),
-            _ => Ok(()),
+            _ => {}
         }
     }
 
-    fn handle_publish(&mut self, event: PublishEvent) -> Result<(), InternalError> {
+    fn handle_publish(&mut self, event: PublishEvent) {
         let Some(handle) = self.handle_allocator.get() else {
             _ = event.result_tx.send(Err(PublishError::LimitReached));
-            return Ok(());
+            return;
         };
 
         if self.descriptors.contains_key(&handle) {
             _ = event.result_tx.send(Err(PublishError::Internal(
                 anyhow!("Descriptor for handle already exists").into(),
             )));
-            return Ok(());
+            return;
         }
         self.descriptors.insert(handle, Descriptor::Pending(event.result_tx));
 
@@ -243,7 +242,6 @@ impl ManagerTask {
         };
         _ = self.event_out_tx.try_send(publish_requested.into()); // TODO: check for error.
         self.schedule_publish_timeout(handle);
-        Ok(())
     }
 
     fn schedule_publish_timeout(&self, handle: Handle) {
@@ -257,20 +255,21 @@ impl ManagerTask {
         livekit_runtime::spawn(emit_timeout);
     }
 
-    fn handle_publish_result(&mut self, event: PublishResultEvent) -> Result<(), InternalError> {
+    fn handle_publish_result(&mut self, event: PublishResultEvent) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
-            Err(anyhow!("No descriptor for {}", event.handle))?
+            log::warn!("No descriptor for {}", event.handle);
+            return
         };
         let Descriptor::Pending(result_tx) = descriptor else {
-            Err(anyhow!("Track {} already active", event.handle))?
+            log::warn!("Track {} already active", event.handle);
+            return
         };
 
         if result_tx.is_closed() {
-            return Ok(());
+            return;
         }
         let result = event.result.map(|track_info| self.create_local_track(track_info));
         _ = result_tx.send(result);
-        Ok(())
     }
 
     fn create_local_track(&mut self, info: DataTrackInfo) -> LocalDataTrack {
@@ -294,20 +293,20 @@ impl ManagerTask {
         LocalDataTrack::new(info, inner)
     }
 
-    fn handle_unpublished(&mut self, event: UnpublishEvent) -> Result<(), InternalError> {
+    fn handle_unpublished(&mut self, event: UnpublishEvent) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
-            Err(anyhow!("No descriptor for track {}", event.handle))?
+            log::warn!("No descriptor for track {}", event.handle);
+            return
         };
         let Descriptor::Active { state_tx, .. } = descriptor else {
-            Err(anyhow!("Cannot unpublish pending track {}", event.handle))?
+            log::warn!("Cannot unpublish pending track {}", event.handle);
+            return
         };
         if !state_tx.borrow().is_published() {
-            return Ok(());
+            return
         }
-        state_tx
-            .send(LocalTrackState::Unpublished { initiator: UnpublishInitiator::Sfu })
-            .context("Failed to set state")?;
-        Ok(())
+        _ = state_tx
+            .send(LocalTrackState::Unpublished { initiator: UnpublishInitiator::Sfu });
     }
 
     /// Performs cleanup before the task ends.

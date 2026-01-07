@@ -14,12 +14,11 @@
 
 use super::packetizer::{Packetizer, PacketizerFrame};
 use crate::{
-    api::{DataTrackFrame, DataTrackInfo, InternalError},
+    api::{DataTrackFrame, DataTrackInfo},
     dtp,
     e2ee::EncryptionProvider,
     local::manager::{LocalTrackState, OutputEvent, UnpublishInitiator, UnpublishRequestEvent},
 };
-use anyhow::Context;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 
@@ -43,7 +42,7 @@ impl LocalTrackTask {
                     state = *self.state_rx.borrow();
                 },
                 Some(frame) = self.frame_rx.recv() => {
-                    _ = self.publish_frame(frame).inspect_err(|err| log::error!("{}", err));
+                    self.publish_frame(frame);
                 },
                 else => break
             }
@@ -54,12 +53,17 @@ impl LocalTrackTask {
         }
     }
 
-    fn publish_frame(&mut self, mut frame: DataTrackFrame) -> Result<(), InternalError> {
+    fn publish_frame(&mut self, mut frame: DataTrackFrame) {
         let mut e2ee: Option<dtp::E2ee> = None;
         if let Some(encryption) = &self.encryption {
             debug_assert!(self.info.uses_e2ee);
-            let encrypted_payload =
-                encryption.encrypt(frame.payload).context("Failed to encrypt frame")?;
+            let encrypted_payload = match encryption.encrypt(frame.payload) {
+                Ok(payload) => payload,
+                Err(err) => {
+                    log::error!("Failed to encrypt frame: {}", err);
+                    return;
+                }
+            };
             e2ee = Some(dtp::E2ee {
                 key_index: encrypted_payload.key_index,
                 iv: encrypted_payload.iv,
@@ -69,11 +73,17 @@ impl LocalTrackTask {
 
         let frame =
             PacketizerFrame { payload: frame.payload, e2ee, user_timestamp: frame.user_timestamp };
-        let packets = self.packetizer.packetize(frame).context("Failed to packetize frame")?;
+
+        let packets = match self.packetizer.packetize(frame) {
+            Ok(packets) => packets,
+            Err(err) => {
+                log::error!("Failed to packetize frame: {}", err);
+                return;
+            }
+        };
         for packet in packets {
             let serialized = packet.serialize();
-            self.event_out_tx.try_send(serialized.into()).context("Failed to send packet")?;
+            _ = self.event_out_tx.try_send(serialized.into());
         }
-        Ok(())
     }
 }
