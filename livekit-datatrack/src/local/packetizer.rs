@@ -15,7 +15,7 @@
 use crate::{
     dtp::{
         Clock, Timestamp,
-        Dtp, E2ee, Header, TrackHandle,
+        Dtp, E2ee, Header, Handle,
     },
     utils::{BytesChunkExt, Counter},
 };
@@ -25,7 +25,7 @@ use thiserror::Error;
 /// Converts application-level frames into packets for transport.
 #[derive(Debug)]
 pub struct Packetizer {
-    track_handle: TrackHandle,
+    handle: Handle,
     mtu_size: usize,
     sequence: Counter<u16>,
     frame_number: Counter<u16>,
@@ -47,9 +47,9 @@ pub enum PacketizerError {
 
 impl Packetizer {
     /// Creates a new packetizer.
-    pub fn new(track_handle: TrackHandle, mtu_size: usize) -> Self {
+    pub fn new(track_handle: Handle, mtu_size: usize) -> Self {
         Self {
-            track_handle,
+            handle: track_handle,
             mtu_size,
             sequence: Default::default(),
             frame_number: Default::default(),
@@ -62,7 +62,7 @@ impl Packetizer {
         // TODO: consider using default
         let header = Header {
             is_final: false,
-            track_handle: self.track_handle,
+            track_handle: self.handle,
             sequence: 0,
             frame_number: self.frame_number.get_then_increment(),
             timestamp: self.clock.now(),

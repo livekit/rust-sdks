@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::dtp::TrackHandle;
+use crate::dtp::Handle;
 use from_variants::FromVariants;
 use std::{marker::PhantomData, sync::Arc};
 
@@ -20,7 +20,7 @@ use std::{marker::PhantomData, sync::Arc};
 #[derive(Debug, Clone)]
 pub struct DataTrackInfo {
     pub(crate) sid: String, // TODO: use shared ID type
-    pub(crate) handle: TrackHandle, // TODO: consider removing (protocol level detail)
+    pub(crate) handle: Handle, // TODO: consider removing (protocol level detail)
     pub(crate) name: String,
     pub(crate) uses_e2ee: bool,
 }

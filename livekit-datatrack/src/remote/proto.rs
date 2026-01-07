@@ -15,7 +15,7 @@
 use super::manager::{PublicationsUpdatedEvent, SubscriberHandlesEvent, SubscriptionUpdatedEvent};
 use crate::{
     api::{DataTrackInfo, InternalError},
-    dtp::TrackHandle,
+    dtp::Handle,
 };
 use livekit_protocol::{self as proto, ParticipantInfo};
 use std::{collections::HashMap, mem};
@@ -30,10 +30,10 @@ impl TryFrom<proto::DataTrackSubscriberHandles> for SubscriberHandlesEvent {
             .sub_handles
             .into_iter()
             .map(|(handle, info)| -> Result<_, InternalError> {
-                let handle = TrackHandle::try_from(handle).map_err(anyhow::Error::from)?;
+                let handle = Handle::try_from(handle).map_err(anyhow::Error::from)?;
                 Ok((handle, info.track_sid))
             })
-            .collect::<Result<HashMap<TrackHandle, String>, _>>()?;
+            .collect::<Result<HashMap<Handle, String>, _>>()?;
         Ok(SubscriberHandlesEvent { mapping })
     }
 }

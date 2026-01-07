@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{TrackHandle, Timestamp};
+use super::{Handle, Timestamp};
 use bytes::Bytes;
 use core::fmt;
 
@@ -25,7 +25,7 @@ pub struct Dtp {
 #[derive(Debug, Clone)]
 pub struct Header {
     pub is_final: bool,
-    pub track_handle: TrackHandle,
+    pub track_handle: Handle,
     pub sequence: u16,
     pub frame_number: u16,
     pub timestamp: Timestamp<90_000>,

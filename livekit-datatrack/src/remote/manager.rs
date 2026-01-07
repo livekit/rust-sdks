@@ -15,7 +15,7 @@
 use super::{depacketizer::Depacketizer, RemoteDataTrack, RemoteTrackInner};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo, InternalError, SubscribeError},
-    dtp::{Dtp, TrackHandle},
+    dtp::{Dtp, Handle},
     e2ee::DecryptionProvider,
     remote::pipeline::RemoteTrackTask,
     utils::HandleMap,
@@ -68,7 +68,7 @@ pub struct PublicationsUpdatedEvent {
 pub struct SubscriberHandlesEvent {
     /// Mapping between track handles attached to incoming packets to the
     /// track SIDs they belong to.
-    pub mapping: HashMap<TrackHandle, String>,
+    pub mapping: HashMap<Handle, String>,
 }
 
 type SubscribeResult = Result<broadcast::Receiver<DataTrackFrame>, SubscribeError>;
@@ -282,7 +282,7 @@ impl ManagerTask {
         }
     }
 
-    fn register_subscriber_handle(&mut self, handle: TrackHandle, sid: String) {
+    fn register_subscriber_handle(&mut self, handle: Handle, sid: String) {
         let Some(descriptor) = self.descriptors.get_mut(&sid) else {
             log::warn!("Unknown track: {}", sid);
             return;

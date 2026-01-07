@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::dtp::TrackHandle;
+use crate::dtp::Handle;
 use std::collections::HashMap;
 
 /// Map between track handle and SID.
@@ -21,8 +21,8 @@ use std::collections::HashMap;
 ///
 #[derive(Debug, Default)]
 pub struct HandleMap {
-    sid_to_handle: HashMap<String, TrackHandle>,
-    handle_to_sid: HashMap<TrackHandle, String>,
+    sid_to_handle: HashMap<String, Handle>,
+    handle_to_sid: HashMap<Handle, String>,
 }
 
 impl HandleMap {
@@ -31,7 +31,7 @@ impl HandleMap {
     /// Returns a Boolean indicating whether the entry was inserted.
     /// Insertion will fail if the mapping already exists in either direction.
     ///
-    pub fn insert(&mut self, handle: TrackHandle, sid: String) -> bool {
+    pub fn insert(&mut self, handle: Handle, sid: String) -> bool {
         if self.sid_to_handle.contains_key(&sid) || self.handle_to_sid.contains_key(&handle) {
             return false;
         }
@@ -41,7 +41,7 @@ impl HandleMap {
     }
 
     /// Get the SID associated with the given handle.
-    pub fn get_sid(&self, handle: TrackHandle) -> Option<&String> {
+    pub fn get_sid(&self, handle: Handle) -> Option<&String> {
         self.handle_to_sid.get(&handle)
     }
 

@@ -17,10 +17,10 @@ use thiserror::Error;
 
 /// Handle identifying a data track at the transport level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct TrackHandle(u16);
+pub struct Handle(u16);
 
 #[derive(Debug, Error)]
-pub enum TrackHandleError {
+pub enum HandleError {
     #[error("{0:#X} is reserved")]
     Reserved(u16),
 
@@ -28,39 +28,39 @@ pub enum TrackHandleError {
     TooLarge,
 }
 
-impl TryFrom<u16> for TrackHandle {
-    type Error = TrackHandleError;
+impl TryFrom<u16> for Handle {
+    type Error = HandleError;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         if value == 0 {
-            Err(TrackHandleError::Reserved(value))?
+            Err(HandleError::Reserved(value))?
         }
         Ok(Self(value))
     }
 }
 
-impl TryFrom<u32> for TrackHandle {
-    type Error = TrackHandleError;
+impl TryFrom<u32> for Handle {
+    type Error = HandleError;
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
-        let value: u16 = value.try_into().map_err(|_| TrackHandleError::TooLarge)?;
+        let value: u16 = value.try_into().map_err(|_| HandleError::TooLarge)?;
         value.try_into()
     }
 }
 
-impl From<TrackHandle> for u16 {
-    fn from(handle: TrackHandle) -> Self {
+impl From<Handle> for u16 {
+    fn from(handle: Handle) -> Self {
         handle.0
     }
 }
 
-impl From<TrackHandle> for u32 {
-    fn from(handle: TrackHandle) -> Self {
+impl From<Handle> for u32 {
+    fn from(handle: Handle) -> Self {
         handle.0 as u32
     }
 }
 
-impl Display for TrackHandle {
+impl Display for Handle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{0:#X}", self.0)
     }
@@ -68,15 +68,15 @@ impl Display for TrackHandle {
 
 /// Utility for allocating unique track handles to use for publishing tracks.
 #[derive(Debug, Default)]
-pub struct TrackHandleAllocator {
+pub struct HandleAllocator {
     /// Next handle value.
     value: u16,
 }
 
-impl TrackHandleAllocator {
+impl HandleAllocator {
     /// Returns a unique track handle for the next publication, if one can be obtained.
-    pub fn get(&mut self) -> Option<TrackHandle> {
+    pub fn get(&mut self) -> Option<Handle> {
         let value = self.value.checked_add(1)?;
-        TrackHandle(value).into()
+        Handle(value).into()
     }
 }

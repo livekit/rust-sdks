@@ -15,7 +15,7 @@
 use super::manager::{PublishRequestEvent, UnpublishEvent, UnpublishRequestEvent};
 use crate::{
     api::{DataTrackInfo, InternalError, PublishError},
-    dtp::TrackHandle,
+    dtp::Handle,
     local::manager::PublishResultEvent,
 };
 use anyhow::{anyhow, Context};
@@ -53,7 +53,7 @@ impl TryFrom<proto::UnpublishDataTrackResponse> for UnpublishEvent {
     type Error = InternalError;
 
     fn try_from(msg: proto::UnpublishDataTrackResponse) -> Result<Self, Self::Error> {
-        let handle: TrackHandle =
+        let handle: Handle =
             msg.info.context("Missing info")?.pub_handle.try_into().map_err(anyhow::Error::from)?;
         Ok(Self { handle })
     }
@@ -63,7 +63,7 @@ impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
     type Error = InternalError;
 
     fn try_from(msg: proto::DataTrackInfo) -> Result<Self, Self::Error> {
-        let handle: TrackHandle = msg.pub_handle.try_into().map_err(anyhow::Error::from)?;
+        let handle: Handle = msg.pub_handle.try_into().map_err(anyhow::Error::from)?;
         let uses_e2ee = match msg.encryption() {
             proto::encryption::Type::None => false,
             proto::encryption::Type::Gcm => true,
@@ -79,7 +79,7 @@ pub fn publish_result_from_request_response(
     use proto::request_response::{Reason, Request};
     let Some(request) = &msg.request else { return None };
     let Request::PublishDataTrack(request) = request else { return None };
-    let Ok(handle) = TryInto::<TrackHandle>::try_into(request.pub_handle) else { return None };
+    let Ok(handle) = TryInto::<Handle>::try_into(request.pub_handle) else { return None };
     let error = match msg.reason() {
         // If new error reasons are introduced in the future, consider adding them
         // to the public error enum if they are useful to the user.

@@ -15,7 +15,7 @@
 use super::{packetizer::Packetizer, pipeline::LocalTrackTask, LocalTrackInner};
 use crate::{
     api::{DataTrackInfo, DataTrackOptions, InternalError, PublishError},
-    dtp::{self, TrackHandle},
+    dtp::{self, Handle},
     e2ee::EncryptionProvider,
     local::LocalDataTrack,
 };
@@ -51,7 +51,7 @@ pub enum OutputEvent {
 #[derive(Debug)]
 pub struct PublishResultEvent {
     /// Publisher handle of the track.
-    pub handle: TrackHandle,
+    pub handle: Handle,
     /// Outcome of the publish request.
     pub result: Result<DataTrackInfo, PublishError>,
 }
@@ -61,13 +61,13 @@ pub struct PublishResultEvent {
 #[derive(Debug)]
 pub struct UnpublishEvent {
     /// Publisher handle of the track that was unpublished.
-    pub handle: TrackHandle,
+    pub handle: Handle,
 }
 
 /// Local participant requested to publish a track.
 #[derive(Debug)]
 pub struct PublishRequestEvent {
-    pub handle: TrackHandle,
+    pub handle: Handle,
     pub name: String,
     pub uses_e2ee: bool,
 }
@@ -80,7 +80,7 @@ pub struct PublishRequestEvent {
 #[derive(Debug)]
 pub struct UnpublishRequestEvent {
     /// Publisher handle of the track to unpublish.
-    pub handle: TrackHandle,
+    pub handle: Handle,
 }
 
 /// Request to publish a data track.
@@ -96,7 +96,7 @@ pub struct PublishEvent {
 #[derive(Debug)]
 pub struct PublishTimeoutEvent {
     /// Publisher handle of the pending publication.
-    handle: TrackHandle,
+    handle: Handle,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -140,7 +140,7 @@ impl Manager {
             event_in_tx: event_in_tx.downgrade(),
             event_in_rx,
             event_out_tx,
-            handle_allocator: dtp::TrackHandleAllocator::default(),
+            handle_allocator: dtp::HandleAllocator::default(),
             descriptors: HashMap::new(),
         };
 
@@ -197,8 +197,8 @@ pub struct ManagerTask {
     event_in_tx: mpsc::WeakSender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
-    handle_allocator: dtp::TrackHandleAllocator,
-    descriptors: HashMap<TrackHandle, Descriptor>,
+    handle_allocator: dtp::HandleAllocator,
+    descriptors: HashMap<Handle, Descriptor>,
 }
 
 impl ManagerTask {
@@ -246,7 +246,7 @@ impl ManagerTask {
         Ok(())
     }
 
-    fn schedule_publish_timeout(&self, handle: TrackHandle) {
+    fn schedule_publish_timeout(&self, handle: Handle) {
         let event_in_tx = self.event_in_tx.clone();
         let emit_timeout = async move {
             time::sleep(Self::PUBLISH_TIMEOUT).await;

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{consts::*, Dtp, E2ee, Header, Timestamp, TrackHandle, TrackHandleError};
+use super::{consts::*, Dtp, E2ee, Header, Timestamp, Handle, HandleError};
 use bytes::{Buf, Bytes};
 use thiserror::Error;
 
@@ -28,7 +28,7 @@ pub enum DeserializeError {
     UnsupportedVersion(u8),
 
     #[error("invalid track handle: {0}")]
-    InvalidTrackHandle(#[from] TrackHandleError),
+    InvalidHandle(#[from] HandleError),
 
     #[error("extension with id {0} is malformed")]
     MalformedExt(u8),
@@ -68,7 +68,7 @@ impl Header {
         let extension_words = raw.get_u8();
         let ext_len = 4 * extension_words as usize;
 
-        let track_handle: TrackHandle = raw.get_u16().try_into()?;
+        let track_handle: Handle = raw.get_u16().try_into()?;
         let sequence = raw.get_u16();
         let frame_number = raw.get_u16();
         let timestamp = Timestamp::from_ticks(raw.get_u32());
