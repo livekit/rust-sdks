@@ -42,7 +42,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require("./rtc-node.android-arm64.node");
           } else {
-            nativeBinding = require("@livekit/rtc-node-bindings-android-arm64");
+            nativeBinding = require("@livekit/rtc-ffi-bindings-android-arm64");
           }
         } catch (e) {
           loadError = e;
@@ -56,7 +56,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require("./rtc-node.android-arm-eabi.node");
           } else {
-            nativeBinding = require("@livekit/rtc-node-bindings-android-arm-eabi");
+            nativeBinding = require("@livekit/rtc-ffi-bindings-android-arm-eabi");
           }
         } catch (e) {
           loadError = e;
@@ -76,7 +76,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require("./rtc-node.win32-x64-msvc.node");
           } else {
-            nativeBinding = require("@livekit/rtc-node-bindings-win32-x64-msvc");
+            nativeBinding = require("@livekit/rtc-ffi-bindings-win32-x64-msvc");
           }
         } catch (e) {
           loadError = e;
@@ -90,7 +90,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require("./rtc-node.win32-ia32-msvc.node");
           } else {
-            nativeBinding = require("@livekit/rtc-node-bindings-win32-ia32-msvc");
+            nativeBinding = require("@livekit/rtc-ffi-bindings-win32-ia32-msvc");
           }
         } catch (e) {
           loadError = e;
@@ -104,7 +104,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require("./rtc-node.win32-arm64-msvc.node");
           } else {
-            nativeBinding = require("@livekit/rtc-node-bindings-win32-arm64-msvc");
+            nativeBinding = require("@livekit/rtc-ffi-bindings-win32-arm64-msvc");
           }
         } catch (e) {
           loadError = e;
@@ -122,7 +122,7 @@ switch (platform) {
       if (localFileExisted) {
         nativeBinding = require("./rtc-node.darwin-universal.node");
       } else {
-        nativeBinding = require("@livekit/rtc-node-bindings-darwin-universal");
+        nativeBinding = require("@livekit/rtc-ffi-bindings-darwin-universal");
       }
       break;
     } catch {}
@@ -135,7 +135,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require("./rtc-node.darwin-x64.node");
           } else {
-            nativeBinding = require("@livekit/rtc-node-bindings-darwin-x64");
+            nativeBinding = require("@livekit/rtc-ffi-bindings-darwin-x64");
           }
         } catch (e) {
           loadError = e;
@@ -149,7 +149,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require("./rtc-node.darwin-arm64.node");
           } else {
-            nativeBinding = require("@livekit/rtc-node-bindings-darwin-arm64");
+            nativeBinding = require("@livekit/rtc-ffi-bindings-darwin-arm64");
           }
         } catch (e) {
           loadError = e;
@@ -168,7 +168,7 @@ switch (platform) {
       if (localFileExisted) {
         nativeBinding = require("./rtc-node.freebsd-x64.node");
       } else {
-        nativeBinding = require("@livekit/rtc-node-bindings-freebsd-x64");
+        nativeBinding = require("@livekit/rtc-ffi-bindings-freebsd-x64");
       }
     } catch (e) {
       loadError = e;
@@ -185,7 +185,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require("./rtc-node.linux-x64-musl.node");
             } else {
-              nativeBinding = require("@livekit/rtc-node-bindings-linux-x64-musl");
+              nativeBinding = require("@livekit/rtc-ffi-bindings-linux-x64-musl");
             }
           } catch (e) {
             loadError = e;
@@ -198,7 +198,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require("./rtc-node.linux-x64-gnu.node");
             } else {
-              nativeBinding = require("@livekit/rtc-node-bindings-linux-x64-gnu");
+              nativeBinding = require("@livekit/rtc-ffi-bindings-linux-x64-gnu");
             }
           } catch (e) {
             loadError = e;
@@ -214,7 +214,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require("./rtc-node.linux-arm64-musl.node");
             } else {
-              nativeBinding = require("@livekit/rtc-node-bindings-linux-arm64-musl");
+              nativeBinding = require("@livekit/rtc-ffi-bindings-linux-arm64-musl");
             }
           } catch (e) {
             loadError = e;
@@ -227,7 +227,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require("./rtc-node.linux-arm64-gnu.node");
             } else {
-              nativeBinding = require("@livekit/rtc-node-bindings-linux-arm64-gnu");
+              nativeBinding = require("@livekit/rtc-ffi-bindings-linux-arm64-gnu");
             }
           } catch (e) {
             loadError = e;
@@ -243,7 +243,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require("./rtc-node.linux-arm-musleabihf.node");
             } else {
-              nativeBinding = require("@livekit/rtc-node-bindings-linux-arm-musleabihf");
+              nativeBinding = require("@livekit/rtc-ffi-bindings-linux-arm-musleabihf");
             }
           } catch (e) {
             loadError = e;
@@ -256,7 +256,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require("./rtc-node.linux-arm-gnueabihf.node");
             } else {
-              nativeBinding = require("@livekit/rtc-node-bindings-linux-arm-gnueabihf");
+              nativeBinding = require("@livekit/rtc-ffi-bindings-linux-arm-gnueabihf");
             }
           } catch (e) {
             loadError = e;
@@ -272,7 +272,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require("./rtc-node.linux-riscv64-musl.node");
             } else {
-              nativeBinding = require("@livekit/rtc-node-bindings-linux-riscv64-musl");
+              nativeBinding = require("@livekit/rtc-ffi-bindings-linux-riscv64-musl");
             }
           } catch (e) {
             loadError = e;
@@ -285,7 +285,7 @@ switch (platform) {
             if (localFileExisted) {
               nativeBinding = require("./rtc-node.linux-riscv64-gnu.node");
             } else {
-              nativeBinding = require("@livekit/rtc-node-bindings-linux-riscv64-gnu");
+              nativeBinding = require("@livekit/rtc-ffi-bindings-linux-riscv64-gnu");
             }
           } catch (e) {
             loadError = e;
@@ -300,7 +300,7 @@ switch (platform) {
           if (localFileExisted) {
             nativeBinding = require("./rtc-node.linux-s390x-gnu.node");
           } else {
-            nativeBinding = require("@livekit/rtc-node-bindings-linux-s390x-gnu");
+            nativeBinding = require("@livekit/rtc-ffi-bindings-linux-s390x-gnu");
           }
         } catch (e) {
           loadError = e;
