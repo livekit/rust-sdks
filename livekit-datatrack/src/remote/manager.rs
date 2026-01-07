@@ -71,14 +71,15 @@ pub struct SubscriberHandlesEvent {
     pub mapping: HashMap<TrackHandle, String>,
 }
 
+type SubscribeResult = Result<broadcast::Receiver<DataTrackFrame>, SubscribeError>;
+
 /// User requested to subscribe to a track.
 #[derive(Debug)]
 pub struct SubscribeEvent {
     /// Identifier of the track.
     pub(super) track_sid: String,
     /// Async completion channel.
-    pub(super) result_tx:
-        oneshot::Sender<Result<broadcast::Receiver<DataTrackFrame>, SubscribeError>>,
+    pub(super) result_tx: oneshot::Sender<SubscribeResult>,
 }
 
 /// User subscribed or unsubscribed to a track.
@@ -157,8 +158,7 @@ struct Descriptor {
 enum DescriptorState {
     Available,
     PendingSubscriberHandle {
-        result_txs:
-            Vec<oneshot::Sender<Result<broadcast::Receiver<DataTrackFrame>, SubscribeError>>>,
+        result_txs: Vec<oneshot::Sender<SubscribeResult>>,
     },
     Subscribed {
         packet_tx: mpsc::Sender<Dtp>,
