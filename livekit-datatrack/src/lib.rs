@@ -27,7 +27,7 @@ mod frame;
 /// End-to-end encryption.
 mod e2ee;
 
-/// Data track packet serialization & packetization.
+/// Data track packet format.
 mod dtp;
 
 /// Common utilities.
