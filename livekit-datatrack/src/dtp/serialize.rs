@@ -134,9 +134,7 @@ impl Header {
 
 #[cfg(test)]
 mod tests {
-    use crate::dtp::time::Timestamp;
-
-    use super::{super::packet::E2ee, *};
+    use crate::dtp::{Dtp, Header, E2ee, Timestamp};
     use bytes::Buf;
 
     /// Constructed packet to use in tests.
