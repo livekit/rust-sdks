@@ -53,14 +53,14 @@ impl RemoteTrackTask {
         if let Some(decryption) = &self.decryption {
             debug_assert!(self.info.uses_e2ee);
 
-            let Some(e2ee_meta) = dtp.header.e2ee else {
+            let Some(e2ee) = dtp.header.extensions.e2ee else {
                 log::error!("Missing E2EE meta");
                 return;
             };
             let encrypted_payload = EncryptedPayload {
                 payload: dtp.payload,
-                iv: e2ee_meta.iv,
-                key_index: e2ee_meta.key_index,
+                iv: e2ee.iv,
+                key_index: e2ee.key_index,
             };
             let decrypted_payload = match decryption.decrypt(encrypted_payload) {
                 Ok(decrypted_payload) => decrypted_payload,

@@ -15,7 +15,7 @@
 use super::packetizer::{Packetizer, PacketizerFrame};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo},
-    dtp,
+    dtp::{self, Extensions, UserTimestampExt},
     e2ee::EncryptionProvider,
     local::manager::{LocalTrackState, OutputEvent, UnpublishInitiator, UnpublishRequestEvent},
 };
@@ -54,7 +54,7 @@ impl LocalTrackTask {
     }
 
     fn publish_frame(&mut self, mut frame: DataTrackFrame) {
-        let mut e2ee: Option<dtp::E2ee> = None;
+        let mut e2ee: Option<dtp::E2eeExt> = None;
         if let Some(encryption) = &self.encryption {
             debug_assert!(self.info.uses_e2ee);
             let encrypted_payload = match encryption.encrypt(frame.payload) {
@@ -64,15 +64,20 @@ impl LocalTrackTask {
                     return;
                 }
             };
-            e2ee = Some(dtp::E2ee {
+            e2ee = Some(dtp::E2eeExt {
                 key_index: encrypted_payload.key_index,
                 iv: encrypted_payload.iv,
             });
             frame.payload = encrypted_payload.payload;
         }
 
-        let frame =
-            PacketizerFrame { payload: frame.payload, e2ee, user_timestamp: frame.user_timestamp };
+        let frame = PacketizerFrame {
+            payload: frame.payload,
+            extensions: Extensions {
+                e2ee,
+                user_timestamp: frame.user_timestamp.map(|v| UserTimestampExt(v)),
+            },
+        };
 
         let packets = match self.packetizer.packetize(frame) {
             Ok(packets) => packets,

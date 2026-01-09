@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{consts::*, Dtp, FrameMarker, Header};
+use super::{consts::*, Dtp, E2eeExt, Extensions, FrameMarker, Header, UserTimestampExt};
 use bytes::{BufMut, Bytes, BytesMut};
 use thiserror::Error;
 
@@ -83,18 +83,36 @@ impl Header {
         buf.put_u16(self.frame_number);
         buf.put_u32(self.timestamp.as_ticks());
 
-        if let Some(e2ee) = &self.e2ee {
-            buf.put_u8(EXT_MARKER_E2EE);
-            buf.put_u8(e2ee.key_index);
-            buf.put_slice(&e2ee.iv);
-        }
-        if let Some(user_timestamp) = self.user_timestamp {
-            buf.put_u8(EXT_MARKER_USER_TIMESTAMP);
-            buf.put_u64(user_timestamp);
-        }
+        self.extensions.serialize_into(buf);
         buf.put_bytes(0, metrics.padding_len);
 
         Ok(metrics.len)
+    }
+}
+
+impl Extensions {
+    fn serialize_into(self, buf: &mut impl BufMut) {
+        if let Some(e2ee) = self.e2ee {
+            e2ee.serialize_into(buf);
+        }
+        if let Some(user_timestamp) = self.user_timestamp {
+            user_timestamp.serialize_into(buf);
+        }
+    }
+}
+
+impl E2eeExt {
+    fn serialize_into(self, buf: &mut impl BufMut) {
+        buf.put_u8(EXT_MARKER_E2EE);
+        buf.put_u8(self.key_index);
+        buf.put_slice(&self.iv);
+    }
+}
+
+impl UserTimestampExt {
+    fn serialize_into(self, buf: &mut impl BufMut) {
+        buf.put_u8(EXT_MARKER_USER_TIMESTAMP);
+        buf.put_u64(self.0);
     }
 }
 
@@ -117,10 +135,10 @@ impl Header {
     /// Length of all extensions not including padding.
     fn ext_len(&self) -> usize {
         let mut len = 0;
-        if self.e2ee.is_some() {
+        if self.extensions.e2ee.is_some() {
             len += EXT_MARKER_LEN + EXT_LEN_E2EE;
         }
-        if self.user_timestamp.is_some() {
+        if self.extensions.user_timestamp.is_some() {
             len += EXT_MARKER_LEN + EXT_LEN_USER_TIMESTAMP;
         }
         len
@@ -139,7 +157,7 @@ impl Header {
 
 #[cfg(test)]
 mod tests {
-    use crate::dtp::{Dtp, E2ee, FrameMarker, Header, Timestamp};
+    use crate::dtp::{Dtp, E2eeExt, Extensions, FrameMarker, Header, Timestamp, UserTimestampExt};
     use bytes::Buf;
 
     /// Constructed packet to use in tests.
@@ -151,8 +169,10 @@ mod tests {
                 sequence: 0x4422,
                 frame_number: 0x4411,
                 timestamp: Timestamp::from_ticks(0x44221188),
-                user_timestamp: 0x4411221111118811.into(),
-                e2ee: E2ee { key_index: 0xFA, iv: [0x3C; 12] }.into(),
+                extensions: Extensions {
+                    user_timestamp: UserTimestampExt(0x4411221111118811).into(),
+                    e2ee: E2eeExt { key_index: 0xFA, iv: [0x3C; 12] }.into(),
+                }
             },
             payload: vec![0xFA; 1024].into(),
         }

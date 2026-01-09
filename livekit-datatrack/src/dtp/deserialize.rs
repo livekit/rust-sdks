@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{consts::*, Dtp, E2ee, FrameMarker, Handle, HandleError, Header, Timestamp};
+use super::{
+    consts::*, Dtp, E2eeExt, Extensions, FrameMarker, Handle, HandleError, Header, Timestamp,
+    UserTimestampExt,
+};
 use bytes::{Buf, Bytes};
 use thiserror::Error;
 
@@ -37,11 +40,11 @@ pub enum DeserializeError {
     InvalidExtId(u8),
 }
 
-#[derive(Debug, Default)]
-struct Extensions {
-    user_timestamp: Option<u64>,
-    e2ee: Option<E2ee>,
-}
+// #[derive(Debug, Default)]
+// struct Extensions {
+//     user_timestamp: Option<u64>,
+//     e2ee: Option<E2eeExt>,
+// }
 
 impl Dtp {
     pub fn deserialize(mut raw: Bytes) -> Result<Self, DeserializeError> {
@@ -81,23 +84,16 @@ impl Header {
             Err(DeserializeError::HeaderOverrun)?
         }
         let ext_block = raw.copy_to_bytes(ext_len);
-        let extensions = Extensions::parse(ext_block)?;
+        let extensions = Extensions::deserialize(ext_block)?;
 
-        let header = Header {
-            frame_marker,
-            track_handle,
-            sequence,
-            frame_number,
-            timestamp,
-            user_timestamp: extensions.user_timestamp,
-            e2ee: extensions.e2ee,
-        };
+        let header =
+            Header { frame_marker, track_handle, sequence, frame_number, timestamp, extensions };
         Ok(header)
     }
 }
 
 impl Extensions {
-    fn parse(mut raw: impl Buf) -> Result<Self, DeserializeError> {
+    fn deserialize(mut raw: impl Buf) -> Result<Self, DeserializeError> {
         let mut extensions = Self::default();
         while raw.remaining() > 0 {
             let initial = raw.get_u8();
@@ -114,13 +110,13 @@ impl Extensions {
                     let key_index = raw.get_u8();
                     let mut iv = [0u8; 12];
                     raw.copy_to_slice(&mut iv);
-                    extensions.e2ee = E2ee { key_index, iv }.into();
+                    extensions.e2ee = E2eeExt { key_index, iv }.into();
                 }
                 EXT_ID_USER_TIMESTAMP => {
                     if raw.remaining() < EXT_LEN_USER_TIMESTAMP {
                         Err(DeserializeError::MalformedExt(ext_id))?
                     }
-                    extensions.user_timestamp = raw.get_u64().into()
+                    extensions.user_timestamp = UserTimestampExt(raw.get_u64()).into()
                 }
                 EXT_ID_INVALID => Err(DeserializeError::InvalidExtId(EXT_ID_INVALID))?,
                 _ => {
@@ -193,8 +189,8 @@ mod tests {
         assert_eq!(dtp.header.sequence, 0x4422);
         assert_eq!(dtp.header.frame_number, 0x4411);
         assert_eq!(dtp.header.timestamp, Timestamp::from_ticks(0x44221188));
-        assert_eq!(dtp.header.user_timestamp, None);
-        assert_eq!(dtp.header.e2ee, None);
+        assert_eq!(dtp.header.extensions.user_timestamp, None);
+        assert_eq!(dtp.header.extensions.e2ee, None);
     }
 
     #[test]
@@ -215,7 +211,7 @@ mod tests {
         raw.put_bytes(0x00, 2); // Padding
 
         let dtp = Dtp::deserialize(raw.freeze()).unwrap();
-        let e2ee = dtp.header.e2ee.unwrap();
+        let e2ee = dtp.header.extensions.e2ee.unwrap();
         assert_eq!(e2ee.key_index, 0xFA);
         assert_eq!(e2ee.iv, [0x3C; 12]);
     }
@@ -229,7 +225,7 @@ mod tests {
         raw.put_bytes(0x00, 3); // Padding
                                 // TODO: decreasing to 2 is header overrun (should be padding error)
         let dtp = Dtp::deserialize(raw.freeze()).unwrap();
-        assert_eq!(dtp.header.user_timestamp, Some(0x4411221111118811));
+        assert_eq!(dtp.header.extensions.user_timestamp, UserTimestampExt(0x4411221111118811).into());
     }
 
     #[test]

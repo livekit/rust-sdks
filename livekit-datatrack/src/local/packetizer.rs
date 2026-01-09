@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    dtp::{Clock, Dtp, E2ee, FrameMarker, Handle, Header, Timestamp},
+    dtp::{Clock, Dtp, Extensions, FrameMarker, Handle, Header, Timestamp},
     utils::{BytesChunkExt, Counter},
 };
 use bytes::Bytes;
@@ -32,8 +32,7 @@ pub struct Packetizer {
 /// Frame packetized by [`Packetizer`].
 pub struct PacketizerFrame {
     pub payload: Bytes,
-    pub e2ee: Option<E2ee>,
-    pub user_timestamp: Option<u64>,
+    pub extensions: Extensions,
 }
 
 #[derive(Error, Debug)]
@@ -63,8 +62,7 @@ impl Packetizer {
             sequence: 0,
             frame_number: self.frame_number.get_then_increment(),
             timestamp: self.clock.now(),
-            user_timestamp: frame.user_timestamp,
-            e2ee: frame.e2ee,
+            extensions: frame.extensions,
         };
         let max_payload_size = self.mtu_size.saturating_sub(header.serialized_len());
         if max_payload_size == 0 {
@@ -80,6 +78,7 @@ impl Packetizer {
                 header: Header {
                     frame_marker: Self::frame_marker(index, packet_count),
                     sequence: self.sequence.get_then_increment(),
+                    extensions: header.extensions.clone(),
                     ..header
                 },
                 payload,
@@ -95,7 +94,7 @@ impl Packetizer {
         match index {
             0 => FrameMarker::Start,
             _ if index == packet_count - 1 => FrameMarker::Final,
-            _ => FrameMarker::Inter
+            _ => FrameMarker::Inter,
         }
     }
 }
@@ -103,6 +102,7 @@ impl Packetizer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dtp::{E2eeExt, UserTimestampExt};
     use rstest::rstest;
 
     #[rstest]
@@ -112,15 +112,17 @@ mod tests {
         #[values(true, false)] with_exts: bool,
     ) {
         let handle = 1u32.try_into().unwrap();
-        let e2ee = E2ee { key_index: 255, iv: [0xCD; 12] };
-        let user_timestamp = u64::MAX;
+        let e2ee = E2eeExt { key_index: 255, iv: [0xCD; 12] };
+        let user_timestamp = UserTimestampExt(u64::MAX);
 
         let mut packetizer = Packetizer::new(handle, mtu_size);
 
         let frame = PacketizerFrame {
             payload: Bytes::from(vec![0xAB; payload_size]),
-            e2ee: with_exts.then_some(e2ee),
-            user_timestamp: with_exts.then_some(user_timestamp),
+            extensions: Extensions {
+                e2ee: with_exts.then_some(e2ee),
+                user_timestamp: with_exts.then_some(user_timestamp),
+            },
         };
         let packets = packetizer.packetize(frame).expect("Failed to packetize");
 
@@ -132,8 +134,11 @@ mod tests {
         for (index, packet) in packets.iter().enumerate() {
             assert_eq!(packet.header.frame_number, 0);
             assert_eq!(packet.header.sequence, index as u16);
-            assert_eq!(packet.header.e2ee, with_exts.then_some(e2ee));
-            assert_eq!(packet.header.user_timestamp, with_exts.then_some(user_timestamp));
+            assert_eq!(packet.header.extensions.e2ee, with_exts.then_some(e2ee));
+            assert_eq!(
+                packet.header.extensions.user_timestamp,
+                with_exts.then_some(user_timestamp)
+            );
         }
         assert_eq!(packets.last().unwrap().header.frame_marker, FrameMarker::Final);
     }
