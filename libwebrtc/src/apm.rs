@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::RtcError;
-use crate::RtcErrorType;
 use crate::impl_thread_safety;
 use crate::sys;
+use crate::RtcError;
+use crate::RtcErrorType;
 
 pub struct AudioProcessingModule {
-    ffi: sys::RefCounted<sys::lkAudioProcessingModule>
+    ffi: sys::RefCounted<sys::lkAudioProcessingModule>,
 }
 
 impl AudioProcessingModule {
@@ -38,7 +38,7 @@ impl AudioProcessingModule {
             Self { ffi: sys::RefCounted::from_raw(ffi) }
         }
     }
-    
+
     pub fn process_stream(
         self: &mut AudioProcessingModule,
         data: &mut [i16],
@@ -57,7 +57,8 @@ impl AudioProcessingModule {
                 data.len() as u32,
                 sample_rate,
                 num_channels,
-            ) == 0 {
+            ) == 0
+            {
                 Ok(())
             } else {
                 Err(RtcError {
@@ -68,7 +69,7 @@ impl AudioProcessingModule {
         }
     }
 
-     pub fn process_reverse_stream(
+    pub fn process_reverse_stream(
         &mut self,
         data: &mut [i16],
         sample_rate: i32,
@@ -86,7 +87,8 @@ impl AudioProcessingModule {
                 data.len() as u32,
                 sample_rate,
                 num_channels,
-            ) == 0 {
+            ) == 0
+            {
                 Ok(())
             } else {
                 Err(RtcError {
@@ -97,7 +99,10 @@ impl AudioProcessingModule {
         }
     }
 
-    pub fn set_stream_delay_ms(self: &mut AudioProcessingModule, delay: i32) -> Result<(), RtcError> {
+    pub fn set_stream_delay_ms(
+        self: &mut AudioProcessingModule,
+        delay: i32,
+    ) -> Result<(), RtcError> {
         unsafe {
             if sys::lkAudioProcessingModuleSetStreamDelayMs(self.ffi.as_ptr(), delay) == 0 {
                 Ok(())
@@ -109,7 +114,6 @@ impl AudioProcessingModule {
             }
         }
     }
-
 }
 
 impl_thread_safety!(AudioProcessingModule, Send + Sync);

@@ -135,15 +135,19 @@ pub trait VideoBuffer: internal::BufferSealed + Debug {
         None
     }
 }
+
 #[derive(Debug)]
-pub struct VideoFrame {
+pub struct VideoFrame<T>
+where
+    T: AsRef<dyn VideoBuffer>,
+{
     pub rotation: VideoRotation,
     pub timestamp_us: i64, // When the frame was captured in microseconds
-    pub buffer: Box<dyn VideoBuffer>,
+    pub buffer: T,
 }
 
 pub type BoxVideoBuffer = Box<dyn VideoBuffer>;
-pub type BoxVideoFrame = Box<VideoFrame>;
+pub type BoxVideoFrame = VideoFrame<BoxVideoBuffer>;
 
 pub(crate) mod internal {
     use super::{I420Buffer, VideoBuffer, VideoFormatType};
@@ -292,6 +296,10 @@ impl I420Buffer {
 
     pub fn new(width: u32, height: u32) -> I420Buffer {
         Self::with_strides(width, height, width, (width + 1) / 2, (width + 1) / 2)
+    }
+
+    pub fn new_boxed(width: u32, height: u32) -> Box<I420Buffer> {
+        Box::new(Self::new(width, height))
     }
 
     pub fn chroma_width(&self) -> u32 {

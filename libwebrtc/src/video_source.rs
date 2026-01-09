@@ -15,7 +15,8 @@
 use crate::enum_dispatch;
 use crate::sys;
 use crate::video_frame::{VideoBuffer, VideoFrame};
-use crate::video_frame_buffer::{new_video_frame_buffer, VideoFrameBuffer};
+use crate::video_frame_buffer::NativeVideoFrame;
+use crate::video_frame_buffer::VideoFrameBuffer;
 use crate::video_frame_builder::new_video_frame_builder;
 use crate::video_source::native::NativeVideoSource;
 
@@ -73,7 +74,7 @@ impl RtcVideoSource {
 pub mod native {
     use std::fmt::{Debug, Formatter};
 
-    use crate::impl_thread_safety;
+    use crate::{impl_thread_safety, video_frame_buffer::NativeVideoFrame};
 
     use super::*;
 
@@ -108,7 +109,7 @@ pub mod native {
     }
 
     pub trait VideoSink: Send {
-        fn on_frame(&self, frame: VideoFrame);
+        fn on_frame(&self, frame: NativeVideoFrame);
         fn on_discarded_frame(&self);
         fn on_constraints_changed(&self, constraints: VideoTrackSourceConstraints);
     }
@@ -121,7 +122,7 @@ pub mod native {
         pub fn new(observer: Arc<dyn VideoSink>) -> Self {
             Self { observer }
         }
-        pub fn on_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: VideoFrame) {
+        pub fn on_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: NativeVideoFrame) {
             self.observer.on_frame(frame);
         }
 
@@ -144,6 +145,8 @@ pub mod native {
         pub ffi: sys::RefCounted<sys::lkNativeVideoSink>,
         pub observer: Arc<dyn VideoSink>,
     }
+
+    impl_thread_safety!(NativeVideoSink, Send + Sync);
 
     impl NativeVideoSink {
         pub fn new(video_sink_wrapper: Arc<dyn VideoSink>) -> Self {
@@ -180,16 +183,12 @@ pub mod native {
             userdata: *mut ::std::os::raw::c_void,
         ) {
             let video_sink_wrapper = unsafe { &*(userdata as *const Arc<dyn VideoSink>) };
-            let rotation = unsafe { sys::lkVideoFrameGetRotation(lkframe) };
-            let timestamp_us = unsafe { sys::lkVideoFrameGetTimestampUs(lkframe) };
-            let buffer = unsafe { sys::lkVideoFrameGetBuffer(lkframe) };
-            let video_frame_buffer =
-                VideoFrameBuffer { ffi: unsafe { sys::RefCounted::from_raw(buffer) } };
-            video_sink_wrapper.on_frame(VideoFrame {
-                rotation: rotation.into(),
-                timestamp_us: timestamp_us,
-                buffer: new_video_frame_buffer(video_frame_buffer),
-            })
+
+            let native_frame = NativeVideoFrame {
+                ffi: unsafe { sys::RefCounted::from_raw(lkframe as *mut sys::lkVideoFrame) },
+            };
+
+            video_sink_wrapper.on_frame(native_frame)
         }
     }
 
@@ -238,7 +237,7 @@ impl NativeVideoSource {
 
                     let mut builder = new_video_frame_builder();
                     builder.set_rotation(VideoRotation::VideoRotation0);
-                    builder.set_video_frame_buffer(i420.ffi.clone());
+                    builder.set_video_frame_buffer_ptr(i420.ffi.clone());
 
                     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
                     builder.set_timestamp_us(now.as_micros() as i64);
@@ -246,7 +245,7 @@ impl NativeVideoSource {
                     unsafe {
                         sys::lkVideoTrackSourceOnCaptureFrame(
                             clone_source.ffi.as_ptr(),
-                            frame.as_ptr(),
+                            frame.ffi.as_ptr(),
                         )
                     }
                 }
@@ -260,13 +259,14 @@ impl NativeVideoSource {
         VideoTrackSource { ffi: self.ffi.clone() }
     }
 
-    pub fn capture_frame(&self, frame: &VideoFrame) {
+    pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
+
         let mut inner = self.inner.lock();
         inner.captured_frames += 1;
 
         let mut builder = new_video_frame_builder();
-        builder.set_rotation(frame.rotation.into());
-        builder.set_video_frame_buffer(frame.buffer.ffi().clone());
+        builder.set_rotation(frame.rotation);
+        builder.set_video_frame_buffer_ptr(frame.buffer.as_ref().ffi().clone());
 
         if frame.timestamp_us == 0 {
             // If the timestamp is set to 0, default to now
@@ -277,8 +277,28 @@ impl NativeVideoSource {
         }
 
         let frame = builder.build();
-        unsafe { sys::lkVideoTrackSourceOnCaptureFrame(self.ffi.as_ptr(), frame.as_ptr()) }
+        unsafe { sys::lkVideoTrackSourceOnCaptureFrame(self.ffi.as_ptr(), frame.ffi.as_ptr()) }
     }
+    /*
+    pub fn capture_frame_native(&self, frame: NativeVideoFrame) {
+        let mut inner = self.inner.lock();
+        inner.captured_frames += 1;
+
+        let mut builder = new_video_frame_builder();
+        builder.set_rotation(frame.rotation());
+        builder.set_video_frame_buffer(frame.to_video_frame_buffer().as_i420());
+
+        if frame.timestamp_us() == 0 {
+            // If the timestamp is set to 0, default to now
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+            builder.set_timestamp_us(now.as_micros() as i64);
+        } else {
+            builder.set_timestamp_us(frame.timestamp_us());
+        }
+
+        let frame = builder.build();
+        unsafe { sys::lkVideoTrackSourceOnCaptureFrame(self.ffi.as_ptr(), frame.ffi.as_ptr()) }
+    }*/
 
     pub fn video_resolution(&self) -> VideoResolution {
         unsafe { sys::lkVideoTrackSourceGetResolution(self.ffi.as_ptr()).into() }

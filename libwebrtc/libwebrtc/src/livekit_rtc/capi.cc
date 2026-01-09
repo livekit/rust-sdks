@@ -688,6 +688,22 @@ lkI420Buffer* lkI420BufferScale(lkI420Buffer* buffer,
           .release());
 }
 
+const uint8_t* lkI420ABufferGetDataY(lkI420ABuffer* buffer) {
+  return reinterpret_cast<livekit::I420ABuffer*>(buffer)->data_y();
+}
+
+const uint8_t* lkI420ABufferGetDataU(lkI420ABuffer* buffer) {
+  return reinterpret_cast<livekit::I420ABuffer*>(buffer)->data_u();
+}
+
+const uint8_t* lkI420ABufferGetDataV(lkI420ABuffer* buffer) {
+  return reinterpret_cast<livekit::I420ABuffer*>(buffer)->data_v();
+}
+
+const uint8_t* lkI420ABufferGetDataA(lkI420ABuffer* buffer) {
+  return reinterpret_cast<livekit::I420ABuffer*>(buffer)->data_a();
+}
+
 uint32_t lkI420ABufferGetChromaWidth(lkI420ABuffer* buffer) {
   return reinterpret_cast<livekit::I420ABuffer*>(buffer)->chroma_width();
 }
@@ -710,10 +726,6 @@ uint32_t lkI420ABufferGetStrideV(lkI420ABuffer* buffer) {
 
 uint32_t lkI420ABufferGetStrideA(lkI420ABuffer* buffer) {
   return reinterpret_cast<livekit::I420ABuffer*>(buffer)->stride_a();
-}
-
-const uint8_t* lkI420ABufferGetDataA(lkI420ABuffer* buffer) {
-  return reinterpret_cast<livekit::I420ABuffer*>(buffer)->data_a();
 }
 
 lkI420ABuffer* lkI420ABufferScale(lkI420ABuffer* buffer,

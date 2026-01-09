@@ -22,8 +22,13 @@ use livekit_runtime::Stream;
 use tokio::sync::mpsc;
 
 use crate::{
+    prelude::I420Buffer,
     video_frame::{BoxVideoFrame, VideoFrame},
-    video_source::{native::NativeVideoSink, native::VideoSink, VideoTrackSourceConstraints},
+    video_frame_buffer::{new_video_frame_buffer, NativeVideoFrame, VideoFrameBuffer},
+    video_source::{
+        native::{NativeVideoSink, VideoSink},
+        VideoTrackSourceConstraints,
+    },
     video_track::RtcVideoTrack,
 };
 
@@ -71,12 +76,12 @@ pub struct VideoTrackObserver {
 }
 
 impl VideoSink for VideoTrackObserver {
-    fn on_frame(&self, frame: VideoFrame) {
-        let _ = self.frame_tx.send(Box::new(VideoFrame {
-            rotation: frame.rotation.into(),
-            timestamp_us: frame.timestamp_us,
-            buffer: frame.buffer,
-        }));
+    fn on_frame(&self, native_frame: NativeVideoFrame) {
+        let _ = self.frame_tx.send(VideoFrame {
+            rotation: native_frame.rotation(),
+            timestamp_us: native_frame.timestamp_us(),
+            buffer: new_video_frame_buffer(native_frame.to_video_frame_buffer()),
+        });
     }
 
     fn on_discarded_frame(&self) {}

@@ -70,7 +70,8 @@ pub mod native {
     use tokio::sync::{mpsc, oneshot};
 
     use crate::{
-        RtcError, RtcErrorType, audio_frame::AudioFrame, audio_source::AudioSourceOptions, impl_thread_safety, sys
+        audio_frame::AudioFrame, audio_source::AudioSourceOptions, impl_thread_safety, sys,
+        RtcError, RtcErrorType,
     };
 
     #[derive(Clone)]

@@ -41,11 +41,11 @@ pub struct RtcError {
 
 pub mod audio_frame;
 //pub mod audio_mixer;
+pub mod apm;
 pub mod audio_resampler;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod audio_track;
-pub mod apm;
 pub mod data_channel;
 //#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 //pub mod desktop_capturer;

@@ -12,8 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use core::time;
+
 use crate::sys::{self};
 use crate::video_frame::*;
+
+pub struct NativeVideoFrame {
+    pub ffi: sys::RefCounted<sys::lkVideoFrame>,
+}
+
+impl NativeVideoFrame {
+    pub fn to_video_frame_buffer(self: &NativeVideoFrame) -> VideoFrameBuffer {
+        unsafe {
+            let lk_vfb = sys::lkVideoFrameGetBuffer(self.ffi.as_ptr());
+            VideoFrameBuffer { ffi: sys::RefCounted::from_raw(lk_vfb) }
+        }
+    }
+
+    pub fn rotation(self: &NativeVideoFrame) -> VideoRotation {
+        unsafe {
+            let rotation = sys::lkVideoFrameGetRotation(self.ffi.as_ptr());
+            rotation.into()
+        }
+    }
+
+    pub fn timestamp_us(self: &NativeVideoFrame) -> i64 {
+        unsafe { sys::lkVideoFrameGetTimestampUs(self.ffi.as_ptr()) }
+    }
+}
 
 pub fn new_video_frame_buffer(buffer: VideoFrameBuffer) -> Box<dyn VideoBuffer> {
     let buffer_type = buffer.buffer_type();
@@ -26,6 +52,14 @@ pub fn new_video_frame_buffer(buffer: VideoFrameBuffer) -> Box<dyn VideoBuffer> 
         VideoBufferType::I010 => Box::new(buffer.as_i010()),
         VideoBufferType::NV12 => Box::new(buffer.as_nv12()),
     }
+}
+
+pub fn new_native_video_frame(
+    buffer: I420Buffer,
+    rotation: VideoRotation,
+    timestamp_us: i64,
+) -> NativeVideoFrame {
+    todo!()
 }
 
 pub struct VideoFrameBuffer {

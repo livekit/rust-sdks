@@ -19,14 +19,14 @@ void VideoTrack::add_sink(
       sink.get(),
       webrtc::VideoSinkWants());  // TODO(theomonnom): Expose
                                   // VideoSinkWants to Rust?
-  sinks_.push_back(sink);
+  //sinks_.push_back(sink);
 }
 
 void VideoTrack::remove_sink(
     const webrtc::scoped_refptr<NativeVideoSink>& sink) const {
   webrtc::MutexLock lock(&mutex_);
   track()->RemoveSink(sink.get());
-  sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
+  //sinks_.erase(std::remove(sinks_.begin(), sinks_.end(), sink), sinks_.end());
 }
 
 void VideoTrack::set_should_receive(bool should_receive) const {

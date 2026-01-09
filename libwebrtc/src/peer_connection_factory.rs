@@ -223,6 +223,7 @@ mod tests {
         audio_stream::native::NativeAudioStream,
         peer_connection_factory::native::PeerConnectionFactoryExt,
         video_stream::NativeVideoStream,
+        video_frame::{I420Buffer, VideoFrame, VideoRotation},
     };
 
     #[tokio::test]
@@ -271,12 +272,12 @@ mod tests {
         assert_eq!(track.state(), crate::media_stream_track::RtcTrackState::Live);
 
         let mut stream = NativeVideoStream::new(track.clone());
-
-        source.capture_frame(crate::video_frame::VideoFrame {
-            buffer: Box::new(crate::video_frame::I420Buffer::new(640, 480)),
-            rotation: crate::video_frame::VideoRotation::VideoRotation90,
+        let video_frame = VideoFrame {
+            buffer: I420Buffer::new(640, 480),
+            rotation:  VideoRotation::VideoRotation90,
             timestamp_us: 0,
-        });
+        };
+        source.capture_frame(&video_frame);
 
         if let Some(frame) = stream.frame_rx.recv().await {
             println!("Received video frame with timestamp: {}", frame.timestamp_us);
