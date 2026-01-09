@@ -66,13 +66,6 @@ pub struct E2ee {
     pub iv: [u8; 12],
 }
 
-impl Dtp {
-    /// Whether the packet's payload is encrypted.
-    pub fn is_encrypted(&self) -> bool {
-        self.header.e2ee.is_some()
-    }
-}
-
 impl fmt::Debug for Dtp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Dtp")
