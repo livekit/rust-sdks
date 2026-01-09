@@ -42,21 +42,16 @@ pub struct Header {
     pub e2ee: Option<E2ee>,
 }
 
+/// Marker indicating a packet's position in relation to a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameMarker {
     /// Packet is within a frame.
-    ///
-    /// This corresponds to neither the start nor final flag being set.
-    ///
     Inter,
     /// Packet is the last in a frame.
     Final,
     /// Packet is the first in a frame.
     Start,
-    /// Packet is the only one in the frame.
-    ///
-    /// This corresponds to both the start and final flag being set.
-    ///
+    /// Packet is the only one in a frame.
     Single
 }
 
