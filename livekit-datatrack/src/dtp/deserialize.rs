@@ -40,12 +40,6 @@ pub enum DeserializeError {
     InvalidExtId(u8),
 }
 
-// #[derive(Debug, Default)]
-// struct Extensions {
-//     user_timestamp: Option<u64>,
-//     e2ee: Option<E2eeExt>,
-// }
-
 impl Dtp {
     pub fn deserialize(mut raw: Bytes) -> Result<Self, DeserializeError> {
         let header = Header::deserialize(&mut raw)?;
