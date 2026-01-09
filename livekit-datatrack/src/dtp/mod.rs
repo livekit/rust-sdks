@@ -15,11 +15,13 @@
 use bytes::Bytes;
 use core::fmt;
 
+mod extension;
 mod deserialize;
 mod handle;
 mod serialize;
 mod time;
 
+pub use extension::*;
 pub use deserialize::*;
 pub use handle::*;
 pub use serialize::*;
@@ -55,34 +57,12 @@ pub enum FrameMarker {
     Single
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct Extensions {
-    pub user_timestamp: Option<UserTimestampExt>,
-    pub e2ee: Option<E2eeExt>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct UserTimestampExt(pub u64);
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct E2eeExt {
-    pub key_index: u8,
-    pub iv: [u8; 12],
-}
-
 impl fmt::Debug for Dtp {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Dtp")
             .field("header", &self.header)
             .field("payload_len", &self.payload.len())
             .finish()
-    }
-}
-
-impl fmt::Debug for E2eeExt {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // For security, do not include fields in debug.
-        f.debug_struct("E2ee").finish()
     }
 }
 
