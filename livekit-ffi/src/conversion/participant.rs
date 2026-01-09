@@ -16,6 +16,7 @@ use crate::{proto, server::participant::FfiParticipant};
 use livekit::prelude::*;
 use livekit::DisconnectReason;
 use livekit::ParticipantKind;
+use livekit::ParticipantKindDetail;
 
 impl From<&FfiParticipant> for proto::ParticipantInfo {
     fn from(value: &FfiParticipant) -> Self {
@@ -34,6 +35,11 @@ impl From<&Participant> for proto::ParticipantInfo {
             kind: proto::ParticipantKind::from(participant.kind()).into(),
             disconnect_reason: proto::DisconnectReason::from(participant.disconnect_reason())
                 .into(),
+            kind_details: participant
+                .kind_details()
+                .into_iter()
+                .map(|k| proto::ParticipantKindDetail::from(k).into())
+                .collect(),
         }
     }
 }
@@ -46,6 +52,20 @@ impl From<ParticipantKind> for proto::ParticipantKind {
             ParticipantKind::Ingress => proto::ParticipantKind::Ingress,
             ParticipantKind::Egress => proto::ParticipantKind::Egress,
             ParticipantKind::Agent => proto::ParticipantKind::Agent,
+            ParticipantKind::Connector => proto::ParticipantKind::Connector,
+        }
+    }
+}
+
+impl From<ParticipantKindDetail> for proto::ParticipantKindDetail {
+    fn from(kind_detail: ParticipantKindDetail) -> Self {
+        match kind_detail {
+            ParticipantKindDetail::CloudAgent => proto::ParticipantKindDetail::CloudAgent,
+            ParticipantKindDetail::Forwarded => proto::ParticipantKindDetail::Forwarded,
+            ParticipantKindDetail::ConnectorWhatsapp => {
+                proto::ParticipantKindDetail::ConnectorWhatsapp
+            }
+            ParticipantKindDetail::ConnectorTwilio => proto::ParticipantKindDetail::ConnectorTwilio,
         }
     }
 }

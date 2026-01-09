@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.28](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.27...rust-sdks/livekit@0.7.28) - 2025-12-19
+
+### Added
+
+- *(ParticipantInfo)* export kind details ([#813](https://github.com/livekit/rust-sdks/pull/813))
+
+## [0.7.27](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.26...rust-sdks/livekit@0.7.27) - 2025-12-17
+
+### Other
+
+- Handle server initiated mute request ([#812](https://github.com/livekit/rust-sdks/pull/812))
+
+## [0.7.26](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.25...rust-sdks/livekit@0.7.26) - 2025-12-04
+
+### Added
+
+- *(connector)* initial service impl ([#790](https://github.com/livekit/rust-sdks/pull/790))
+
+### Fixed
+
+- fix mute/unmute events for LocalTrack. ([#799](https://github.com/livekit/rust-sdks/pull/799))
+
+### Other
+
+- Add RoomEvent::TokenRefreshed ([#803](https://github.com/livekit/rust-sdks/pull/803))
+
+## [0.7.25](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.24...rust-sdks/livekit@0.7.25) - 2025-11-20
+
+### Other
+
+- perform full reconnect if resume fails ([#792](https://github.com/livekit/rust-sdks/pull/792))
+- E2E RPC tests ([#769](https://github.com/livekit/rust-sdks/pull/769))
+- Remove unused dependencies ([#761](https://github.com/livekit/rust-sdks/pull/761))
+
 ## [0.7.24](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.23...rust-sdks/livekit@0.7.24) - 2025-10-27
 
 ### Other

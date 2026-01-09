@@ -194,6 +194,10 @@ pub enum SessionEvent {
         url: String,
         token: String,
     },
+    TrackMuted {
+        sid: String,
+        muted: bool,
+    },
 }
 
 #[derive(Debug)]
@@ -932,6 +936,7 @@ impl SessionInner {
                         r#type: "answer".to_string(),
                         sdp: answer.to_string(),
                         id: 0,
+                        mid_to_track_id: Default::default(),
                     }))
                     .await;
             }
@@ -1002,6 +1007,10 @@ impl SessionInner {
                 let url = self.signal_client.url();
                 let _ = self.emitter.send(SessionEvent::RefreshToken { url, token: token.clone() });
             }
+            proto::signal_response::Message::Mute(req) => {
+                let _ =
+                    self.emitter.send(SessionEvent::TrackMuted { sid: req.sid, muted: req.muted });
+            }
             _ => {}
         }
 
@@ -1056,6 +1065,7 @@ impl SessionInner {
                         r#type: "offer".to_string(),
                         sdp: offer.to_string(),
                         id: 0,
+                        mid_to_track_id: Default::default(),
                     }))
                     .await;
             }

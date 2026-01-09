@@ -7,6 +7,18 @@
             "name": "wgpu_room(debug)",
             "program": "${workspaceFolder}/examples/target/debug/wgpu_room",
             "preLaunchTask": "build"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "local_audio(debug)",
+            "program": "${workspaceFolder}/target/debug/local_audio",
+            "preLaunchTask": "build",
+            "env": {
+                "LIVEKIT_URL": "ws://localhost:7880",
+                "LIVEKIT_API_KEY": "testkey",
+                "LIVEKIT_API_SECRET": "testsecret",
+            },
         }
     ]
 }
