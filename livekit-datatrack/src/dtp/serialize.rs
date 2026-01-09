@@ -68,13 +68,13 @@ impl Header {
 
         let mut initial = SUPPORTED_VERSION << VERSION_SHIFT;
 
-        let frame_marker = match self.frame_marker {
+        let marker = match self.marker {
             FrameMarker::Inter => FRAME_MARKER_INTER,
             FrameMarker::Final => FRAME_MARKER_FINAL,
             FrameMarker::Start => FRAME_MARKER_START,
             FrameMarker::Single => FRAME_MARKER_SINGLE,
         };
-        initial |= frame_marker << FRAME_MARKER_SHIFT;
+        initial |= marker << FRAME_MARKER_SHIFT;
         buf.put_u8(initial);
         buf.put_u8(metrics.ext_words as u8);
 
@@ -164,7 +164,7 @@ mod tests {
     fn packet() -> Dtp {
         Dtp {
             header: Header {
-                frame_marker: FrameMarker::Final,
+                marker: FrameMarker::Final,
                 track_handle: 0x8811u32.try_into().unwrap(),
                 sequence: 0x4422,
                 frame_number: 0x4411,

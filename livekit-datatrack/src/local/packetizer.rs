@@ -57,7 +57,7 @@ impl Packetizer {
     pub fn packetize(&mut self, frame: PacketizerFrame) -> Result<Vec<Dtp>, PacketizerError> {
         // TODO: consider using default
         let header = Header {
-            frame_marker: FrameMarker::Inter,
+            marker: FrameMarker::Inter,
             track_handle: self.handle,
             sequence: 0,
             frame_number: self.frame_number.get_then_increment(),
@@ -76,7 +76,7 @@ impl Packetizer {
             .enumerate()
             .map(|(index, payload)| Dtp {
                 header: Header {
-                    frame_marker: Self::frame_marker(index, packet_count),
+                    marker: Self::frame_marker(index, packet_count),
                     sequence: self.sequence.get_then_increment(),
                     extensions: header.extensions.clone(),
                     ..header
@@ -140,6 +140,6 @@ mod tests {
                 with_exts.then_some(user_timestamp)
             );
         }
-        assert_eq!(packets.last().unwrap().header.frame_marker, FrameMarker::Final);
+        assert_eq!(packets.last().unwrap().header.marker, FrameMarker::Final);
     }
 }

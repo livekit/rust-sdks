@@ -33,7 +33,7 @@ pub struct Dtp {
 
 #[derive(Debug, Clone)]
 pub struct Header {
-    pub frame_marker: FrameMarker,
+    pub marker: FrameMarker,
     pub track_handle: Handle,
     pub sequence: u16,
     pub frame_number: u16,
