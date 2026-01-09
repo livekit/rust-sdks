@@ -13,10 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    dtp::{
-        Clock, Timestamp,
-        Dtp, E2ee, Header, Handle,
-    },
+    dtp::{Clock, Dtp, E2ee, FrameMarker, Handle, Header, Timestamp},
     utils::{BytesChunkExt, Counter},
 };
 use bytes::Bytes;
@@ -61,7 +58,7 @@ impl Packetizer {
     pub fn packetize(&mut self, frame: PacketizerFrame) -> Result<Vec<Dtp>, PacketizerError> {
         // TODO: consider using default
         let header = Header {
-            is_final: false,
+            frame_marker: FrameMarker::Inter,
             track_handle: self.handle,
             sequence: 0,
             frame_number: self.frame_number.get_then_increment(),
@@ -81,7 +78,7 @@ impl Packetizer {
             .enumerate()
             .map(|(index, payload)| Dtp {
                 header: Header {
-                    is_final: index == packet_count - 1,
+                    frame_marker: Self::frame_marker(index, packet_count),
                     sequence: self.sequence.get_then_increment(),
                     ..header
                 },
@@ -89,6 +86,17 @@ impl Packetizer {
             })
             .collect();
         Ok(packets)
+    }
+
+    fn frame_marker(index: usize, packet_count: usize) -> FrameMarker {
+        if packet_count == 1 {
+            return FrameMarker::Single;
+        }
+        match index {
+            0 => FrameMarker::Start,
+            _ if index == packet_count - 1 => FrameMarker::Final,
+            _ => FrameMarker::Inter
+        }
     }
 }
 
@@ -127,6 +135,6 @@ mod tests {
             assert_eq!(packet.header.e2ee, with_exts.then_some(e2ee));
             assert_eq!(packet.header.user_timestamp, with_exts.then_some(user_timestamp));
         }
-        assert!(packets.last().unwrap().is_final());
+        assert_eq!(packets.last().unwrap().header.frame_marker, FrameMarker::Final);
     }
 }

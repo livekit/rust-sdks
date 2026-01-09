@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{consts::*, Dtp, Header};
+use super::{consts::*, Dtp, FrameMarker, Header};
 use bytes::{BufMut, Bytes, BytesMut};
 use thiserror::Error;
 
@@ -67,9 +67,14 @@ impl Header {
         }
 
         let mut initial = SUPPORTED_VERSION << VERSION_SHIFT;
-        if self.is_final {
-            initial |= 1 << FINAL_FLAG_SHIFT;
-        }
+
+        let frame_marker = match self.frame_marker {
+            FrameMarker::Inter => FRAME_MARKER_INTER,
+            FrameMarker::Final => FRAME_MARKER_FINAL,
+            FrameMarker::Start => FRAME_MARKER_START,
+            FrameMarker::Single => FRAME_MARKER_SINGLE,
+        };
+        initial |= frame_marker << FRAME_MARKER_SHIFT;
         buf.put_u8(initial);
         buf.put_u8(metrics.ext_words as u8);
 
@@ -134,14 +139,14 @@ impl Header {
 
 #[cfg(test)]
 mod tests {
-    use crate::dtp::{Dtp, Header, E2ee, Timestamp};
+    use crate::dtp::{Dtp, E2ee, FrameMarker, Header, Timestamp};
     use bytes::Buf;
 
     /// Constructed packet to use in tests.
     fn packet() -> Dtp {
         Dtp {
             header: Header {
-                is_final: true,
+                frame_marker: FrameMarker::Final,
                 track_handle: 0x8811u32.try_into().unwrap(),
                 sequence: 0x4422,
                 frame_number: 0x4411,
@@ -167,7 +172,7 @@ mod tests {
         assert_eq!(buf.len(), 1060);
 
         // Base header
-        assert_eq!(buf.get_u8(), 0x10); // Version 0, final flag set
+        assert_eq!(buf.get_u8(), 0x8); // Version 0, final flag set
         assert_eq!(buf.get_u8(), 6); // Extension words
         assert_eq!(buf.get_u16(), 0x8811); // Track handle
         assert_eq!(buf.get_u16(), 0x4422); // Sequence

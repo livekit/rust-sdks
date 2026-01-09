@@ -33,13 +33,31 @@ pub struct Dtp {
 
 #[derive(Debug, Clone)]
 pub struct Header {
-    pub is_final: bool,
+    pub frame_marker: FrameMarker,
     pub track_handle: Handle,
     pub sequence: u16,
     pub frame_number: u16,
     pub timestamp: Timestamp<90_000>,
     pub user_timestamp: Option<u64>,
     pub e2ee: Option<E2ee>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrameMarker {
+    /// Packet is within a frame.
+    ///
+    /// This corresponds to neither the start nor final flag being set.
+    ///
+    Inter,
+    /// Packet is the last in a frame.
+    Final,
+    /// Packet is the first in a frame.
+    Start,
+    /// Packet is the only one in the frame.
+    ///
+    /// This corresponds to both the start and final flag being set.
+    ///
+    Single
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -49,11 +67,6 @@ pub struct E2ee {
 }
 
 impl Dtp {
-    /// Whether the packet is the final one in a frame.
-    pub fn is_final(&self) -> bool {
-        self.header.is_final
-    }
-
     /// Whether the packet's payload is encrypted.
     pub fn is_encrypted(&self) -> bool {
         self.header.e2ee.is_some()
@@ -76,7 +89,7 @@ impl fmt::Debug for E2ee {
     }
 }
 
-/// Constants used in sterilization and deserialization.
+/// Constants used for serialization and deserialization.
 pub(crate) mod consts {
     pub const SUPPORTED_VERSION: u8 = 0;
     pub const BASE_HEADER_LEN: usize = 12;
@@ -84,8 +97,14 @@ pub(crate) mod consts {
     // Bitfield shifts and masks for header flags
     pub const VERSION_SHIFT: u8 = 5;
     pub const VERSION_MASK: u8 = 0x07;
-    pub const FINAL_FLAG_SHIFT: u8 = 4;
-    pub const FINAL_FLAG_MASK: u8 = 0x01;
+
+    pub const FRAME_MARKER_SHIFT: u8 = 3;
+    pub const FRAME_MARKER_MASK: u8 = 0x3;
+
+    pub const FRAME_MARKER_START: u8 = 0x2;
+    pub const FRAME_MARKER_FINAL: u8 = 0x1;
+    pub const FRAME_MARKER_INTER: u8 = 0x0;
+    pub const FRAME_MARKER_SINGLE: u8 = 0x3;
 
     // Extension IDs
     pub const EXT_ID_E2EE: u8 = 0x1;

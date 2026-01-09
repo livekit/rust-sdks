@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{consts::*, Dtp, E2ee, Header, Timestamp, Handle, HandleError};
+use super::{consts::*, Dtp, E2ee, FrameMarker, Handle, HandleError, Header, Timestamp};
 use bytes::{Buf, Bytes};
 use thiserror::Error;
 
@@ -63,8 +63,12 @@ impl Header {
         if version > SUPPORTED_VERSION {
             Err(DeserializeError::UnsupportedVersion(version))?
         }
-        let is_final = (initial >> FINAL_FLAG_SHIFT & FINAL_FLAG_MASK) > 0;
-
+        let frame_marker = match initial >> FRAME_MARKER_SHIFT & FRAME_MARKER_MASK {
+            FRAME_MARKER_START => FrameMarker::Start,
+            FRAME_MARKER_FINAL => FrameMarker::Final,
+            FRAME_MARKER_SINGLE => FrameMarker::Single,
+            _ => FrameMarker::Inter,
+        };
         let extension_words = raw.get_u8();
         let ext_len = 4 * extension_words as usize;
 
@@ -80,7 +84,7 @@ impl Header {
         let extensions = Extensions::parse(ext_block)?;
 
         let header = Header {
-            is_final,
+            frame_marker,
             track_handle,
             sequence,
             frame_number,
@@ -176,7 +180,7 @@ mod tests {
     #[test]
     fn test_base_header() {
         let mut raw = BytesMut::new();
-        raw.put_u8(0x10); // Version 0, final flag set
+        raw.put_u8(0x8); // Version 0, start flag set
         raw.put_u8(0x0); // No extension words
         raw.put_slice(&[0x88, 0x11]); // Track ID
         raw.put_slice(&[0x44, 0x22]); // Sequence
@@ -184,7 +188,7 @@ mod tests {
         raw.put_slice(&[0x44, 0x22, 0x11, 0x88]); // Timestamp
 
         let dtp = Dtp::deserialize(raw.freeze()).unwrap();
-        assert_eq!(dtp.header.is_final, true);
+        assert_eq!(dtp.header.frame_marker, FrameMarker::Final);
         assert_eq!(dtp.header.track_handle, 0x8811u32.try_into().unwrap());
         assert_eq!(dtp.header.sequence, 0x4422);
         assert_eq!(dtp.header.frame_number, 0x4411);
