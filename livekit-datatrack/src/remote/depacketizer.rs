@@ -12,11 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{dtp::Dtp, frame::DataTrackFrame};
+use crate::dtp::{Dtp, Extensions, FrameMarker};
+use bytes::Bytes;
 
+/// Converts packets into application-level frames.
 pub struct Depacketizer;
 
-// TODO: implement depacketizer
+/// Output of [`Depacketizer`].
+pub struct DepacketizerFrame {
+    pub payload: Bytes,
+    pub extensions: Extensions,
+}
 
 impl Depacketizer {
     /// Creates a new depacketizer.
@@ -25,7 +31,12 @@ impl Depacketizer {
     }
 
     /// Push a packet into the depacketizer, returning a complete frame if one is available.
-    pub fn push(&mut self, dtp: Dtp) -> Option<DataTrackFrame> {
-        todo!()
+    pub fn push(&mut self, dtp: Dtp) -> Option<DepacketizerFrame> {
+        match dtp.header.marker {
+            FrameMarker::Single => {
+                DepacketizerFrame { payload: dtp.payload, extensions: dtp.header.extensions }.into()
+            }
+            _ => unimplemented!("Multi-packet frames not supported yet"),
+        }
     }
 }

@@ -17,6 +17,7 @@ use crate::{
     api::{DataTrackFrame, DataTrackInfo},
     dtp::Dtp,
     e2ee::{DecryptionProvider, EncryptedPayload},
+    remote::depacketizer::DepacketizerFrame,
 };
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, watch};
@@ -49,19 +50,17 @@ impl RemoteTrackTask {
         // TODO: send unsubscribe if needed
     }
 
-    async fn receive_packet(&mut self, mut dtp: Dtp) {
+    fn receive_packet(&mut self, dtp: Dtp) {
+        let Some(mut frame) = self.depacketizer.push(dtp) else { return };
         if let Some(decryption) = &self.decryption {
             debug_assert!(self.info.uses_e2ee);
 
-            let Some(e2ee) = dtp.header.extensions.e2ee else {
+            let Some(e2ee) = frame.extensions.e2ee else {
                 log::error!("Missing E2EE meta");
                 return;
             };
-            let encrypted_payload = EncryptedPayload {
-                payload: dtp.payload,
-                iv: e2ee.iv,
-                key_index: e2ee.key_index,
-            };
+            let encrypted_payload =
+                EncryptedPayload { payload: frame.payload, iv: e2ee.iv, key_index: e2ee.key_index };
             let decrypted_payload = match decryption.decrypt(encrypted_payload) {
                 Ok(decrypted_payload) => decrypted_payload,
                 Err(err) => {
@@ -69,10 +68,17 @@ impl RemoteTrackTask {
                     return;
                 }
             };
-            dtp.payload = decrypted_payload;
+            frame.payload = decrypted_payload;
         }
-        if let Some(frame) = self.depacketizer.push(dtp) {
-            _ = self.frame_tx.send(frame);
+        _ = self.frame_tx.send(frame.into());
+    }
+}
+
+impl From<DepacketizerFrame> for DataTrackFrame {
+    fn from(frame: DepacketizerFrame) -> Self {
+        Self {
+            payload: frame.payload,
+            user_timestamp: frame.extensions.user_timestamp.map(|v| v.0),
         }
     }
 }
