@@ -22,7 +22,7 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 
-/// Task responsible for operating an individual published data track.
+/// Task responsible for publishing frames for an individual data track.
 pub(super) struct LocalTrackTask {
     pub packetizer: Packetizer,
     pub encryption: Option<Arc<dyn EncryptionProvider>>,

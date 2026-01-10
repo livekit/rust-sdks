@@ -22,6 +22,7 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, watch};
 
+/// Task responsible for receiving frames for a subscribed data track.
 pub(super) struct RemoteTrackTask {
     pub depacketizer: Depacketizer,
     pub decryption: Option<Arc<dyn DecryptionProvider>>,
