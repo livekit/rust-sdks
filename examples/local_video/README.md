@@ -42,7 +42,7 @@ Subscriber usage:
    --identity viewer-1 \
    --url https://your.livekit.server \
    --api-key YOUR_KEY \
-    --api-secret YOUR_SECRET
+   --api-secret YOUR_SECRET
 
   # subscribe to a specific participant's video only
   cargo run -p local_video --bin subscriber -- \
