@@ -22,6 +22,7 @@ async fn main() -> Result<()> {
 
 /// Waits for the first data track to be published and returns it.
 async fn wait_for_publication(mut rx: UnboundedReceiver<RoomEvent>) -> Option<RemoteDataTrack> {
+    log::info!("Waiting for publication…");
     while let Some(event) = rx.recv().await {
         match event {
             RoomEvent::RemoteDataTrackPublished(track) => return Some(track),
