@@ -460,28 +460,21 @@ impl RtcSession {
             proto::SignalTarget::Subscriber,
         );
 
-        let mut lossy_dc = publisher_pc.peer_connection().create_data_channel(
-            LOSSY_DC_LABEL,
-            DataChannelInit {
-                ordered: false,
-                max_retransmits: Some(0),
-                ..DataChannelInit::default()
-            },
-        )?;
-
         let mut reliable_dc = publisher_pc.peer_connection().create_data_channel(
             RELIABLE_DC_LABEL,
-            DataChannelInit { ordered: true, ..DataChannelInit::default() },
+            DataChannelInit { ordered: true, ..Default::default() },
         )?;
 
-        let mut dt_transport = publisher_pc.peer_connection().create_data_channel(
-            DATA_TRACK_DC_LABEL,
-            DataChannelInit {
-                ordered: false,
-                max_retransmits: Some(0),
-                ..DataChannelInit::default()
-            },
-        )?;
+        let lossy_options =
+            DataChannelInit { ordered: false, max_retransmits: Some(0), ..Default::default() };
+
+        let mut lossy_dc = publisher_pc
+            .peer_connection()
+            .create_data_channel(LOSSY_DC_LABEL, lossy_options.clone())?;
+
+        let mut dt_transport = publisher_pc
+            .peer_connection()
+            .create_data_channel(DATA_TRACK_DC_LABEL, lossy_options)?;
 
         // Forward events received inside the signaling thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
