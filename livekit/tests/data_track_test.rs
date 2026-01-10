@@ -16,7 +16,10 @@
 use {
     anyhow::{Ok, Result},
     common::test_rooms,
-    livekit::data_track::{schema, Mime},
+    futures_util::StreamExt,
+    livekit::{data_track::DataTrackOptions, RoomEvent},
+    std::time::Duration,
+    tokio::{time::timeout, try_join},
 };
 
 mod common;
@@ -24,25 +27,52 @@ mod common;
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
 async fn test_data_track() -> Result<()> {
-    use livekit::data_track::DataTrackOptions;
+    let mut rooms = test_rooms(2).await?;
+    let (pub_room, _) = rooms.pop().unwrap();
+    let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
+    let pub_identity = pub_room.local_participant().identity();
 
-    let (room, mut event_rx) = test_rooms(1).await?.pop().unwrap();
+    const FRAME_COUNT: usize = 16;
+    const FRAME_PAYLOAD: &[u8] = &[0xFA; 256];
 
-    let options = DataTrackOptions::with_name("led_color")
-        .mime(Mime::JSON)
-        .disable_e2ee(false);
+    let publish_track = async move {
+        let track = pub_room
+            .local_participant()
+            .publish_data_track(DataTrackOptions::with_name("my_track"))
+            .await?;
 
-    let track = room.local_participant().publish_data_track(options).await?;
-    for idx in 1..25 {
-        // track.publish()
-    }
+        assert!(track.is_published());
+        assert!(track.info().sid().starts_with("DTR_"));
+        assert!(!track.info().uses_e2ee());
+        assert_eq!(track.info().name(), "my_track");
 
-    while let Some(event) = event_rx.recv().await {
-        use livekit::RoomEvent;
-        let RoomEvent::TrackPublished { publication, participant } = event else { continue };
+        for _ in 0..FRAME_COUNT {
+            track.publish(FRAME_PAYLOAD.into())?;
+        }
+        Ok(())
+    };
 
-    }
+    let subscribe_to_track = async move {
+        while let Some(event) = sub_room_event_rx.recv().await {
+            let RoomEvent::RemoteDataTrackPublished(track) = event else {
+                continue;
+            };
+            assert!(track.is_published());
+            assert!(track.info().sid().starts_with("DTR_"));
+            assert!(!track.info().uses_e2ee());
+            assert_eq!(track.info().name(), "my_track");
+            assert_eq!(track.publisher_identity(), pub_identity.as_str());
 
-
+            let mut frame_stream = track.subscribe().await?;
+            while let Some(frame) = frame_stream.next().await {
+                assert_eq!(frame.payload(), FRAME_PAYLOAD);
+                assert_eq!(frame.user_timestamp(), None);
+            }
+            break;
+        }
+        Ok(())
+    };
+    timeout(Duration::from_secs(5), async { try_join!(publish_track, subscribe_to_track) })
+        .await??;
     Ok(())
 }
