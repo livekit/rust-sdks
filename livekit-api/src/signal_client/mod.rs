@@ -256,7 +256,7 @@ impl SignalInner {
                 if let SignalError::TokenFormat = err {
                     return Err(err);
                 }
-                // Connection failed, try to retrieve more informations
+                // Connection failed, try to retrieve more information
                 Self::validate(lk_url).await?;
                 return Err(err);
             }
@@ -280,14 +280,10 @@ impl SignalInner {
     }
 
     /// Validate the connection by calling rtc/validate
-    async fn validate(mut ws_url: url::Url) -> SignalResult<()> {
-        ws_url.set_scheme(if ws_url.scheme() == "wss" { "https" } else { "http" }).unwrap();
+    async fn validate(ws_url: url::Url) -> SignalResult<()> {
+        let validate_url = get_validate_url(ws_url);
 
-        if let Ok(mut segs) = ws_url.path_segments_mut() {
-            segs.extend(&["rtc", "validate"]);
-        }
-
-        if let Ok(res) = http_client::get(ws_url.as_str()).await {
+        if let Ok(res) = http_client::get(validate_url.as_str()).await {
             let status = res.status();
             let body = res.text().await.ok().unwrap_or_default();
 
@@ -497,6 +493,16 @@ fn get_livekit_url(url: &str, options: &SignalOptions) -> SignalResult<url::Url>
     Ok(lk_url)
 }
 
+/// Convert a WebSocket URL (with /rtc path) to the validate endpoint URL
+fn get_validate_url(mut ws_url: url::Url) -> url::Url {
+    ws_url.set_scheme(if ws_url.scheme() == "wss" { "https" } else { "http" }).unwrap();
+    // ws_url already has /rtc from get_livekit_url, so only append /validate
+    if let Ok(mut segs) = ws_url.path_segments_mut() {
+        segs.push("validate");
+    }
+    ws_url
+}
+
 macro_rules! get_async_message {
     ($fnc:ident, $pattern:pat => $result:expr, $ty:ty) => {
         async fn $fnc(
@@ -545,5 +551,16 @@ mod tests {
         assert_eq!(get_livekit_url("wss://localhost:7880", &io).unwrap().scheme(), "wss");
         assert_eq!(get_livekit_url("ws://localhost:7880", &io).unwrap().scheme(), "ws");
         assert!(get_livekit_url("ftp://localhost:7880", &io).is_err());
+    }
+
+    #[test]
+    fn validate_url_test() {
+        let io = SignalOptions::default();
+        let lk_url = get_livekit_url("wss://localhost:7880", &io).unwrap();
+        let validate_url = get_validate_url(lk_url);
+
+        // Should be /rtc/validate, not /rtc/rtc/validate
+        assert_eq!(validate_url.path(), "/rtc/validate");
+        assert_eq!(validate_url.scheme(), "https");
     }
 }
