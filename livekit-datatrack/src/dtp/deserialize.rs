@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use super::{
-    consts::*, Dtp, E2eeExt, Extensions, FrameMarker, Handle, HandleError, Header, Timestamp,
-    UserTimestampExt,
+    consts::*, Dtp, E2eeExt, ExtensionTag, Extensions, FrameMarker, Handle, HandleError, Header,
+    Timestamp, UserTimestampExt,
 };
 use bytes::{Buf, Bytes};
 use thiserror::Error;
@@ -27,17 +27,17 @@ pub enum DeserializeError {
     #[error("header exceeds total packet length")]
     HeaderOverrun,
 
+    #[error("extension word indicator is missing")]
+    MissingExtWords,
+
     #[error("unsupported version {0}")]
     UnsupportedVersion(u8),
 
     #[error("invalid track handle: {0}")]
     InvalidHandle(#[from] HandleError),
 
-    #[error("extension with id {0} is malformed")]
-    MalformedExt(u8),
-
-    #[error("{0} is not a valid extension id")]
-    InvalidExtId(u8),
+    #[error("extension with tag {0} is malformed")]
+    MalformedExt(ExtensionTag),
 }
 
 impl Dtp {
@@ -66,22 +66,30 @@ impl Header {
             FRAME_MARKER_SINGLE => FrameMarker::Single,
             _ => FrameMarker::Inter,
         };
-        let extension_words = raw.get_u8();
-        let ext_len = 4 * extension_words as usize;
+        let ext_flag = (initial >> EXT_FLAG_SHIFT & EXT_FLAG_MASK) > 0;
+        raw.advance(1); // Reserved
 
         let track_handle: Handle = raw.get_u16().try_into()?;
         let sequence = raw.get_u16();
         let frame_number = raw.get_u16();
         let timestamp = Timestamp::from_ticks(raw.get_u32());
 
-        if ext_len > raw.remaining() {
-            Err(DeserializeError::HeaderOverrun)?
-        }
-        let ext_block = raw.copy_to_bytes(ext_len);
-        let extensions = Extensions::deserialize(ext_block)?;
+        let mut extensions = Extensions::default();
+        if ext_flag {
+            if raw.remaining() < 2 {
+                Err(DeserializeError::MissingExtWords)?;
+            }
+            let ext_words = raw.get_u16();
 
-        let header =
-            Header { marker, track_handle, sequence, frame_number, timestamp, extensions };
+            let ext_len = 4 * ext_words as usize;
+            if ext_len > raw.remaining() {
+                Err(DeserializeError::HeaderOverrun)?
+            }
+            let ext_block = raw.copy_to_bytes(ext_len);
+            extensions = Extensions::deserialize(ext_block)?;
+        }
+
+        let header = Header { marker, track_handle, sequence, frame_number, timestamp, extensions };
         Ok(header)
     }
 }
@@ -89,37 +97,35 @@ impl Header {
 impl Extensions {
     fn deserialize(mut raw: impl Buf) -> Result<Self, DeserializeError> {
         let mut extensions = Self::default();
-        while raw.remaining() > 0 {
-            let initial = raw.get_u8();
-            if initial == 0 {
+        while raw.remaining() >= 4 {
+            let tag = raw.get_u16();
+            let len = raw.get_u16() as usize;
+            if tag == EXT_TAG_PADDING {
                 // Skip padding
                 continue;
             }
-            let ext_id = initial >> 4;
-            match ext_id {
-                EXT_ID_E2EE => {
-                    if raw.remaining() < EXT_LEN_E2EE {
-                        Err(DeserializeError::MalformedExt(ext_id))?
+            match tag {
+                E2eeExt::TAG => {
+                    if raw.remaining() < E2eeExt::LEN {
+                        Err(DeserializeError::MalformedExt(tag))?
                     }
                     let key_index = raw.get_u8();
                     let mut iv = [0u8; 12];
                     raw.copy_to_slice(&mut iv);
                     extensions.e2ee = E2eeExt { key_index, iv }.into();
                 }
-                EXT_ID_USER_TIMESTAMP => {
-                    if raw.remaining() < EXT_LEN_USER_TIMESTAMP {
-                        Err(DeserializeError::MalformedExt(ext_id))?
+                UserTimestampExt::TAG => {
+                    if raw.remaining() < UserTimestampExt::LEN {
+                        Err(DeserializeError::MalformedExt(tag))?
                     }
                     extensions.user_timestamp = UserTimestampExt(raw.get_u64()).into()
                 }
-                EXT_ID_INVALID => Err(DeserializeError::InvalidExtId(EXT_ID_INVALID))?,
                 _ => {
                     // Skip over unknown extensions (forward compatible).
-                    let ext_len = ((initial & (0xFF ^ 0xF0)) + 1) as usize;
-                    if raw.remaining() < ext_len {
-                        Err(DeserializeError::MalformedExt(ext_id))?
+                    if raw.remaining() < len {
+                        Err(DeserializeError::MalformedExt(tag))?
                     }
-                    raw.advance(ext_len);
+                    raw.advance(len);
                     continue;
                 }
             }
@@ -132,11 +138,12 @@ impl Extensions {
 mod tests {
     use super::*;
     use bytes::{BufMut, BytesMut};
+    use rstest::*;
 
     /// Returns the simplest valid packet to use in test.
     fn valid_packet() -> BytesMut {
         let mut raw = BytesMut::zeroed(12); // Base header
-        raw[3] = 1; // Non-zero track ID
+        raw[3] = 1; // Non-zero track handle
         raw
     }
 
@@ -150,9 +157,20 @@ mod tests {
     }
 
     #[test]
+    fn test_missing_ext_words() {
+        let mut raw = valid_packet();
+        raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
+                                       // Should have ext word indicator here
+
+        let dtp = Dtp::deserialize(raw.freeze());
+        assert!(matches!(dtp, Err(DeserializeError::MissingExtWords)));
+    }
+
+    #[test]
     fn test_header_overrun() {
         let mut raw = valid_packet();
-        raw[1] = 1; // 1 extension word, would overrun buffer
+        raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
+        raw.put_u16(1); // One extension word
 
         let dtp = Dtp::deserialize(raw.freeze());
         assert!(matches!(dtp, Err(DeserializeError::HeaderOverrun)));
@@ -170,8 +188,8 @@ mod tests {
     #[test]
     fn test_base_header() {
         let mut raw = BytesMut::new();
-        raw.put_u8(0x8); // Version 0, start flag set
-        raw.put_u8(0x0); // No extension words
+        raw.put_u8(0x8); // Version 0, final flag set, no extensions
+        raw.put_u8(0x0); // Reserved
         raw.put_slice(&[0x88, 0x11]); // Track ID
         raw.put_slice(&[0x44, 0x22]); // Sequence
         raw.put_slice(&[0x44, 0x11]); // Frame number
@@ -187,22 +205,29 @@ mod tests {
         assert_eq!(dtp.header.extensions.e2ee, None);
     }
 
-    #[test]
-    fn test_ext_skips_padding() {
+    #[rstest]
+    fn test_ext_skips_padding(#[values(0, 1, 24)] ext_words: usize) {
         let mut raw = valid_packet();
-        raw[1] = 4; // 1 extension word
-        raw.put_bytes(0x00, 32 * 4); // Padding
-        Dtp::deserialize(raw.freeze()).unwrap();
+        raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
+
+        raw.put_u16(ext_words as u16); // 4 extension word
+        raw.put_bytes(0, ext_words * 4); // Padding
+
+        let dtp = Dtp::deserialize(raw.freeze()).unwrap();
+        assert_eq!(dtp.payload.len(), 0);
     }
 
     #[test]
     fn test_ext_e2ee() {
         let mut raw = valid_packet();
-        raw[1] = 4; // 4 extension words
-        raw.put_u8(0x1C); // ID 1, length 12
+        raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
+        raw.put_u16(5); // Extension words
+
+        raw.put_u16(1); // ID 1
+        raw.put_u16(12); // Length 12
         raw.put_u8(0xFA); // Key index
         raw.put_bytes(0x3C, 12); // IV
-        raw.put_bytes(0x00, 2); // Padding
+        raw.put_bytes(0, 3); // Padding
 
         let dtp = Dtp::deserialize(raw.freeze()).unwrap();
         let e2ee = dtp.header.extensions.e2ee.unwrap();
@@ -213,40 +238,37 @@ mod tests {
     #[test]
     fn test_ext_user_timestamp() {
         let mut raw = valid_packet();
-        raw[1] = 3; // 3 extension words
-        raw.put_u8(0x27); // ID 2, length 7
+        raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
+        raw.put_u16(3); // Extension words
+
+        raw.put_u16(2);
+        raw.put_u16(7);
         raw.put_slice(&[0x44, 0x11, 0x22, 0x11, 0x11, 0x11, 0x88, 0x11]); // User timestamp
-        raw.put_bytes(0x00, 3); // Padding
-                                // TODO: decreasing to 2 is header overrun (should be padding error)
+
         let dtp = Dtp::deserialize(raw.freeze()).unwrap();
-        assert_eq!(dtp.header.extensions.user_timestamp, UserTimestampExt(0x4411221111118811).into());
+        assert_eq!(
+            dtp.header.extensions.user_timestamp,
+            UserTimestampExt(0x4411221111118811).into()
+        );
     }
 
     #[test]
     fn test_ext_unknown() {
         let mut raw = valid_packet();
-        raw[1] = 1; // 1 extension word
-        raw.put_u8(0x80); // ID 8 (unknown)
-        raw.put_bytes(0x00, 3); // Padding
+        raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
+        raw.put_u16(2); // Extension words
+
+        raw.put_u16(8); // ID 8 (unknown)
+        raw.put_bytes(0, 6);
         Dtp::deserialize(raw.freeze()).expect("Should skip unknown extension");
-    }
-
-    #[test]
-    fn test_ext_id_invalid() {
-        let mut raw = valid_packet();
-        raw[1] = 1; // 1 extension word
-        raw.put_u8(0xF0); // ID 15, invalid
-        raw.put_bytes(0x00, 3); // Padding
-
-        let dtp = Dtp::deserialize(raw.freeze());
-        assert!(matches!(dtp, Err(DeserializeError::InvalidExtId(15))));
     }
 
     #[test]
     fn test_ext_required_word_alignment() {
         let mut raw = valid_packet();
-        raw[1] = 1; // 1 extension word
-        raw.put_bytes(0x00, 3); // Padding, missing one byte
+        raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
+        raw.put_u16(1); // Extension words
+        raw.put_bytes(0, 3); // Padding, missing one byte
 
         assert!(Dtp::deserialize(raw.freeze()).is_err());
     }

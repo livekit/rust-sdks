@@ -83,22 +83,9 @@ pub(crate) mod consts {
     pub const FRAME_MARKER_INTER: u8 = 0x0;
     pub const FRAME_MARKER_SINGLE: u8 = 0x3;
 
-    // Extension IDs
-    pub const EXT_ID_E2EE: u8 = 0x1;
-    pub const EXT_ID_USER_TIMESTAMP: u8 = 0x2;
-    pub const EXT_ID_INVALID: u8 = 0xF;
-
-    // Extension lengths
-    pub const EXT_LEN_E2EE: usize = 13;
-    pub const EXT_LEN_USER_TIMESTAMP: usize = 8;
-
-    // Extension markers
-    pub const EXT_MARKER_LEN: usize = 1;
-    pub const EXT_MARKER_E2EE: u8 = ext_marker(EXT_ID_E2EE, EXT_LEN_E2EE as u8);
-    pub const EXT_MARKER_USER_TIMESTAMP: u8 =
-        ext_marker(EXT_ID_USER_TIMESTAMP, EXT_LEN_USER_TIMESTAMP as u8);
-
-    const fn ext_marker(id: u8, len: u8) -> u8 {
-        (id << 4) | (len - 1)
-    }
+    pub const EXT_WORDS_INDICATOR_SIZE: usize = 2;
+    pub const EXT_FLAG_SHIFT: u8 = 0x2;
+    pub const EXT_FLAG_MASK: u8 = 0x1;
+    pub const EXT_MARKER_LEN: usize = 4;
+    pub const EXT_TAG_PADDING: u16 = 0;
 }

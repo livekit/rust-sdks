@@ -35,3 +35,15 @@ impl fmt::Debug for E2eeExt {
         f.debug_struct("E2ee").finish()
     }
 }
+
+pub(super) type ExtensionTag = u16;
+
+impl UserTimestampExt {
+    pub(super) const TAG: ExtensionTag = 2;
+    pub(super) const LEN: usize = 8;
+}
+
+impl E2eeExt {
+    pub(super) const TAG: ExtensionTag = 1;
+    pub(super) const LEN: usize = 13;
+}

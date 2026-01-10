@@ -26,14 +26,9 @@ pub enum SerializeError {
 }
 
 impl Dtp {
-    /// Serialize the packet into a new buffer.
-    pub fn serialize(self) -> Bytes {
-        let len = self.serialized_len();
-        let mut buf = BytesMut::with_capacity(len);
-
-        let written = self.serialize_into(&mut buf).unwrap();
-        assert_eq!(written, len);
-        buf.freeze()
+    /// Length of the serialized packet in bytes.
+    pub fn serialized_len(&self) -> usize {
+        self.header.serialized_len() + self.payload.len()
     }
 
     /// Serialize the packet into the given buffer.
@@ -44,30 +39,59 @@ impl Dtp {
     pub fn serialize_into(self, buf: &mut impl BufMut) -> Result<usize, SerializeError> {
         let payload_len = self.payload.len();
         let header_len = self.header.serialize_into(buf)?;
-        if buf.remaining_mut() < self.payload.len() {
+        if buf.remaining_mut() < payload_len {
             Err(SerializeError::TooSmallForPayload)?
         }
         buf.put(self.payload);
         Ok(header_len + payload_len)
     }
+
+    /// Serialize the packet into a new buffer.
+    pub fn serialize(self) -> Bytes {
+        let len = self.serialized_len();
+        let mut buf = BytesMut::with_capacity(len);
+
+        let written = self.serialize_into(&mut buf).unwrap();
+        assert_eq!(written, len);
+        buf.freeze()
+    }
 }
 
-impl Dtp {
-    /// Length of the serialized packet in bytes.
-    pub fn serialized_len(&self) -> usize {
-        self.header.serialized_len() + self.payload.len()
+struct HeaderMetrics {
+    ext_len: usize,
+    ext_words: usize,
+    padding_len: usize,
+}
+
+impl HeaderMetrics {
+    fn serialized_len(&self) -> usize {
+        BASE_HEADER_LEN + EXT_WORDS_INDICATOR_SIZE + self.ext_len + self.padding_len
     }
 }
 
 impl Header {
+    /// Lengths of individual elements in the serialized header.
+    fn metrics(&self) -> HeaderMetrics {
+        let ext_len = self.extensions.serialized_len();
+        let ext_words = ext_len.div_ceil(4);
+        let padding_len = (ext_words * 4) - ext_len;
+        HeaderMetrics { ext_len, ext_words, padding_len }
+    }
+
+    /// Length of the serialized header in bytes.
+    pub fn serialized_len(&self) -> usize {
+        self.metrics().serialized_len()
+    }
+
     fn serialize_into(self, buf: &mut impl BufMut) -> Result<usize, SerializeError> {
         let metrics = self.metrics();
-        if buf.remaining_mut() < metrics.len {
+        let serialized_len = metrics.serialized_len();
+
+        if buf.remaining_mut() < serialized_len {
             Err(SerializeError::TooSmallForHeader)?
         }
 
         let mut initial = SUPPORTED_VERSION << VERSION_SHIFT;
-
         let marker = match self.marker {
             FrameMarker::Inter => FRAME_MARKER_INTER,
             FrameMarker::Final => FRAME_MARKER_FINAL,
@@ -75,22 +99,42 @@ impl Header {
             FrameMarker::Single => FRAME_MARKER_SINGLE,
         };
         initial |= marker << FRAME_MARKER_SHIFT;
+
+        if metrics.ext_len > 0 {
+            initial |= 1 << EXT_FLAG_SHIFT;
+        }
         buf.put_u8(initial);
-        buf.put_u8(metrics.ext_words as u8);
+        buf.put_u8(0); // Reserved
 
         buf.put_u16(self.track_handle.into());
         buf.put_u16(self.sequence);
         buf.put_u16(self.frame_number);
         buf.put_u32(self.timestamp.as_ticks());
 
-        self.extensions.serialize_into(buf);
-        buf.put_bytes(0, metrics.padding_len);
+        if metrics.ext_len > 0 {
+            buf.put_u16(metrics.ext_words as u16);
+            self.extensions.serialize_into(buf);
+            buf.put_bytes(0, metrics.padding_len);
+        }
 
-        Ok(metrics.len)
+        // TODO: length assertion
+        Ok(serialized_len)
     }
 }
 
 impl Extensions {
+    /// Length of extensions excluding padding.
+    fn serialized_len(&self) -> usize {
+        let mut len = 0;
+        if self.e2ee.is_some() {
+            len += EXT_MARKER_LEN + E2eeExt::LEN;
+        }
+        if self.user_timestamp.is_some() {
+            len += EXT_MARKER_LEN + UserTimestampExt::LEN;
+        }
+        len
+    }
+
     fn serialize_into(self, buf: &mut impl BufMut) {
         if let Some(e2ee) = self.e2ee {
             e2ee.serialize_into(buf);
@@ -103,7 +147,8 @@ impl Extensions {
 
 impl E2eeExt {
     fn serialize_into(self, buf: &mut impl BufMut) {
-        buf.put_u8(EXT_MARKER_E2EE);
+        buf.put_u16(Self::TAG);
+        buf.put_u16(Self::LEN as u16 - 1);
         buf.put_u8(self.key_index);
         buf.put_slice(&self.iv);
     }
@@ -111,47 +156,9 @@ impl E2eeExt {
 
 impl UserTimestampExt {
     fn serialize_into(self, buf: &mut impl BufMut) {
-        buf.put_u8(EXT_MARKER_USER_TIMESTAMP);
+        buf.put_u16(Self::TAG);
+        buf.put_u16(Self::LEN as u16 - 1);
         buf.put_u64(self.0);
-    }
-}
-
-#[derive(Debug)]
-struct HeaderMetrics {
-    /// Number of 32-bit extension words.
-    ext_words: usize,
-    /// Number of padding bytes needed to align extension block.
-    padding_len: usize,
-    /// Total size of the serialized header in bytes
-    len: usize,
-}
-
-impl Header {
-    /// Length of the serialized header in bytes.
-    pub fn serialized_len(&self) -> usize {
-        self.metrics().len
-    }
-
-    /// Length of all extensions not including padding.
-    fn ext_len(&self) -> usize {
-        let mut len = 0;
-        if self.extensions.e2ee.is_some() {
-            len += EXT_MARKER_LEN + EXT_LEN_E2EE;
-        }
-        if self.extensions.user_timestamp.is_some() {
-            len += EXT_MARKER_LEN + EXT_LEN_USER_TIMESTAMP;
-        }
-        len
-    }
-
-    /// Header metrics required for buffer sizing and serialization.
-    fn metrics(&self) -> HeaderMetrics {
-        let ext_len = self.ext_len();
-        let ext_words = ext_len.div_ceil(4);
-        assert!(ext_words <= u8::MAX.into());
-        let padding_len = (ext_words * 4) - ext_len;
-        let len = BASE_HEADER_LEN + ext_len + padding_len;
-        HeaderMetrics { ext_words, padding_len, len }
     }
 }
 
@@ -172,7 +179,7 @@ mod tests {
                 extensions: Extensions {
                     user_timestamp: UserTimestampExt(0x4411221111118811).into(),
                     e2ee: E2eeExt { key_index: 0xFA, iv: [0x3C; 12] }.into(),
-                }
+                },
             },
             payload: vec![0xFA; 1024].into(),
         }
@@ -181,34 +188,45 @@ mod tests {
     #[test]
     fn test_header_metrics() {
         let metrics = packet().header.metrics();
-        assert_eq!(metrics.ext_words, 6);
-        assert_eq!(metrics.padding_len, 1);
-        assert_eq!(metrics.len, 36);
+        assert_eq!(metrics.ext_len, 29);
+        assert_eq!(metrics.ext_words, 8);
+        assert_eq!(metrics.padding_len, 3);
+    }
+
+    #[test]
+    fn test_serialized_length() {
+        let dtp = packet();
+        assert_eq!(dtp.serialized_len(), 1070);
+        assert_eq!(dtp.header.serialized_len(), 46);
+        assert_eq!(dtp.header.extensions.serialized_len(), 29);
     }
 
     #[test]
     fn test_serialize() {
         let mut buf = packet().serialize().try_into_mut().unwrap();
-        assert_eq!(buf.len(), 1060);
+        assert_eq!(buf.len(), 1070);
 
         // Base header
-        assert_eq!(buf.get_u8(), 0x8); // Version 0, final flag set
-        assert_eq!(buf.get_u8(), 6); // Extension words
+        assert_eq!(buf.get_u8(), 0xC); // Version 0, final, extension
+        assert_eq!(buf.get_u8(), 0); // Reserved
         assert_eq!(buf.get_u16(), 0x8811); // Track handle
         assert_eq!(buf.get_u16(), 0x4422); // Sequence
         assert_eq!(buf.get_u16(), 0x4411); // Frame number
         assert_eq!(buf.get_u32(), 0x44221188); // Timestamp
+        assert_eq!(buf.get_u16(), 8); // Extension words
 
         // E2EE extension
-        assert_eq!(buf.get_u8(), 0x1C); // ID 1, length 12
+        assert_eq!(buf.get_u16(), 1); // ID 1,
+        assert_eq!(buf.get_u16(), 12); // Length 12
         assert_eq!(buf.get_u8(), 0xFA); // Key index
         assert_eq!(buf.copy_to_bytes(12), vec![0x3C; 12]);
 
         // User timestamp extension
-        assert_eq!(buf.get_u8(), 0x27); // ID 2, length 7
+        assert_eq!(buf.get_u16(), 2); // ID 2
+        assert_eq!(buf.get_u16(), 7); // Length 7
         assert_eq!(buf.get_u64(), 0x4411221111118811);
 
-        assert_eq!(buf.get_u8(), 0); // Padding
+        assert_eq!(buf.copy_to_bytes(3), vec![0; 3]); // Padding
         assert_eq!(buf.copy_to_bytes(1024), vec![0xFA; 1024]); // Payload
 
         assert_eq!(buf.remaining(), 0);
