@@ -135,12 +135,11 @@ fn main() {
     }
 
     // Try to detect system libjpeg (or libjpeg-turbo) via pkg-config to enable MJPEG fast path
-    let jpeg_pkg =
-        pkg_config::Config::new()
-            .probe("libjpeg")
-            .or_else(|_| pkg_config::Config::new().probe("libjpeg-turbo"))
-            .or_else(|_| pkg_config::Config::new().probe("jpeg"))
-            .ok();
+    let jpeg_pkg = pkg_config::Config::new()
+        .probe("libjpeg")
+        .or_else(|_| pkg_config::Config::new().probe("libjpeg-turbo"))
+        .or_else(|_| pkg_config::Config::new().probe("jpeg"))
+        .ok();
 
     let mut build = cc::Build::new();
     build
