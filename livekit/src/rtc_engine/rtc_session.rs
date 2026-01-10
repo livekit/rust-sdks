@@ -1636,9 +1636,13 @@ impl SessionInner {
     }
 
     pub async fn publish_data_track(
-        &self,
+        self: &Arc<Self>,
         options: DataTrackOptions,
     ) -> Result<LocalDataTrack, PublishError> {
+        self.ensure_publisher_connected_with_dc(self.dt_transport.clone())
+            .await
+            .inspect_err(|err| log::debug!("Data track transport not connected: {}", err))
+            .map_err(|_| PublishError::Disconnected)?; // TODO: better error mapping
         self.local_dt_manager.publish_track(options).await
     }
 
@@ -1894,11 +1898,23 @@ impl SessionInner {
         }
     }
 
-    /// Ensure the Publisher PC is connected, if not, start the negotiation
-    /// This is required when sending data to the server
+    /// Ensure the publisher peer connection and data channel for the specified packet
+    /// type are connected. If not, start the negotiation.
+    ///
+    /// This is required when sending data to the server.
+    ///
     async fn ensure_publisher_connected(
         self: &Arc<Self>,
         kind: DataPacketKind,
+    ) -> EngineResult<()> {
+        let required_dc = self.data_channel(SignalTarget::Publisher, kind).unwrap();
+        self.ensure_publisher_connected_with_dc(required_dc).await?;
+        Ok(())
+    }
+
+    async fn ensure_publisher_connected_with_dc(
+        self: &Arc<Self>,
+        required_dc: DataChannel,
     ) -> EngineResult<()> {
         if !self.has_published.load(Ordering::Acquire) {
             // The publisher has never been connected, start the negotiation
@@ -1906,14 +1922,14 @@ impl SessionInner {
             self.publisher_negotiation_needed();
         }
 
-        let dc = self.data_channel(SignalTarget::Publisher, kind).unwrap();
-        if dc.state() == DataChannelState::Open {
+        if required_dc.state() == DataChannelState::Open {
             return Ok(());
         }
 
         // Wait until the PeerConnection is connected
         let wait_connected = async {
-            while !self.publisher_pc.is_connected() || dc.state() != DataChannelState::Open {
+            while !self.publisher_pc.is_connected() || required_dc.state() != DataChannelState::Open
+            {
                 if self.closed.load(Ordering::Acquire) {
                     return Err(EngineError::Connection("closed".into()));
                 }
