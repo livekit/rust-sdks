@@ -1,9 +1,9 @@
 use anyhow::Result;
 use clap::Parser;
 use eframe::egui;
+use eframe::wgpu::{self, util::DeviceExt};
 use egui_wgpu as egui_wgpu_backend;
 use egui_wgpu_backend::CallbackTrait;
-use eframe::wgpu::{self, util::DeviceExt};
 use futures::StreamExt;
 use livekit::prelude::*;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
@@ -30,11 +30,11 @@ async fn wait_for_shutdown(flag: Arc<AtomicBool>) {
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// LiveKit participant identity
-    #[arg(long, default_value = "rust-video-subscriber")] 
+    #[arg(long, default_value = "rust-video-subscriber")]
     identity: String,
 
     /// LiveKit room name
-    #[arg(long, default_value = "video-room")] 
+    #[arg(long, default_value = "video-room")]
     room_name: String,
 
     /// LiveKit server URL
@@ -63,6 +63,8 @@ struct SharedYuv {
     y: Vec<u8>,
     u: Vec<u8>,
     v: Vec<u8>,
+    codec: String,
+    fps: f32,
     dirty: bool,
 }
 
@@ -87,6 +89,12 @@ impl Default for SimulcastState {
     }
 }
 
+fn codec_label(mime: &str) -> String {
+    let base = mime.split(';').next().unwrap_or(mime).trim();
+    let last = base.rsplit('/').next().unwrap_or(base).trim();
+    last.to_ascii_uppercase()
+}
+
 fn infer_quality_from_dims(
     full_w: u32,
     _full_h: u32,
@@ -106,9 +114,7 @@ fn infer_quality_from_dims(
     }
 }
 
-fn simulcast_state_full_dims(
-    state: &Arc<Mutex<SimulcastState>>,
-) -> Option<(u32, u32)> {
+fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
     let sc = state.lock();
     sc.full_dims
 }
@@ -118,7 +124,6 @@ struct VideoApp {
     simulcast: Arc<Mutex<SimulcastState>>,
     ctrl_c_received: Arc<AtomicBool>,
     locked_aspect: Option<f32>,
-    last_inner_size: Option<egui::Vec2>,
 }
 
 impl eframe::App for VideoApp {
@@ -128,8 +133,7 @@ impl eframe::App for VideoApp {
             return;
         }
 
-        // Lock aspect ratio based on the first received video frame, then keep the window snapped
-        // to sizes matching that ratio.
+        // Lock aspect ratio based on the first received video frame.
         if self.locked_aspect.is_none() {
             let s = self.shared.lock();
             if s.width > 0 && s.height > 0 {
@@ -137,57 +141,59 @@ impl eframe::App for VideoApp {
             }
         }
 
-        if let Some(aspect) = self.locked_aspect {
-            let (inner_rect, maximized, fullscreen) = ctx.input(|i| {
-                let vp = i.viewport();
-                (vp.inner_rect, vp.maximized, vp.fullscreen)
-            });
-
-            // Don't fight the OS when maximized/fullscreen.
-            if maximized != Some(true) && fullscreen != Some(true) {
-                if let Some(rect) = inner_rect {
-                    let cur = rect.size();
-                    let prev = self.last_inner_size.unwrap_or(cur);
-                    let dw = (cur.x - prev.x).abs();
-                    let dh = (cur.y - prev.y).abs();
-
-                    // Determine which axis the user most likely dragged, and adjust the other.
-                    let mut target = cur;
-                    const MIN_W: f32 = 320.0;
-                    const MIN_H: f32 = 240.0;
-                    if dw >= dh {
-                        target.x = target.x.max(MIN_W);
-                        target.y = (target.x / aspect).max(MIN_H);
-                    } else {
-                        target.y = target.y.max(MIN_H);
-                        target.x = (target.y * aspect).max(MIN_W);
-                    }
-
-                    // Avoid resize feedback loops by only issuing a command when we are meaningfully off.
-                    if (cur.x - target.x).abs() > 0.5 || (cur.y - target.y).abs() > 0.5 {
-                        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(target));
-                        self.last_inner_size = Some(target);
-                    } else {
-                        self.last_inner_size = Some(cur);
-                    }
-                }
-            }
-        }
-
         egui::CentralPanel::default().show(ctx, |ui| {
-            let available = ui.available_size();
-            let rect = egui::Rect::from_min_size(ui.min_rect().min, available);
-
-            // Ensure we keep repainting for smooth playback
+            // Ensure we keep repainting for smooth playback.
             ui.ctx().request_repaint();
 
-            // Add a custom wgpu paint callback that renders I420 directly
-            let cb = egui_wgpu_backend::Callback::new_paint_callback(
-                rect,
-                YuvPaintCallback { shared: self.shared.clone() },
+            // Render into a centered rect that matches the source aspect ratio. This keeps resize
+            // smooth (no feedback loop) and avoids stretching/distortion while dragging.
+            let available = ui.available_size();
+            let size = if let Some(aspect) = self.locked_aspect {
+                let mut w = available.x.max(1.0);
+                let mut h = (w / aspect).max(1.0);
+                if h > available.y.max(1.0) {
+                    h = available.y.max(1.0);
+                    w = (h * aspect).max(1.0);
+                }
+                egui::vec2(w, h)
+            } else {
+                egui::vec2(available.x.max(1.0), available.y.max(1.0))
+            };
+
+            ui.with_layout(
+                egui::Layout::centered_and_justified(egui::Direction::LeftToRight),
+                |ui| {
+                    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                    let cb = egui_wgpu_backend::Callback::new_paint_callback(
+                        rect,
+                        YuvPaintCallback { shared: self.shared.clone() },
+                    );
+                    ui.painter().add(cb);
+                },
             );
-            ui.painter().add(cb);
         });
+
+        // Resolution/FPS overlay: top-left
+        egui::Area::new("video_hud".into())
+            .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                let s = self.shared.lock();
+                if s.width == 0 || s.height == 0 || s.fps <= 0.0 || s.codec.is_empty() {
+                    return;
+                }
+                let text = format!("{} {}x{} {:.1}fps", s.codec, s.width, s.height, s.fps);
+                egui::Frame::NONE
+                    .fill(egui::Color32::from_black_alpha(140))
+                    .corner_radius(egui::CornerRadius::same(4))
+                    .inner_margin(egui::Margin::same(6))
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(egui::RichText::new(text).color(egui::Color32::WHITE))
+                                .extend(),
+                        );
+                    });
+            });
 
         // Simulcast layer controls: bottom-left overlay
         egui::Area::new("simulcast_controls".into())
@@ -237,10 +243,9 @@ async fn main() -> Result<()> {
     });
 
     // LiveKit connection details (prefer CLI args, fallback to env vars)
-    let url = args
-        .url
-        .or_else(|| env::var("LIVEKIT_URL").ok())
-        .expect("LiveKit URL must be provided via --url argument or LIVEKIT_URL environment variable");
+    let url = args.url.or_else(|| env::var("LIVEKIT_URL").ok()).expect(
+        "LiveKit URL must be provided via --url argument or LIVEKIT_URL environment variable",
+    );
     let api_key = args
         .api_key
         .or_else(|| env::var("LIVEKIT_API_KEY").ok())
@@ -278,6 +283,8 @@ async fn main() -> Result<()> {
         y: Vec::new(),
         u: Vec::new(),
         v: Vec::new(),
+        codec: String::new(),
+        fps: 0.0,
         dirty: false,
     }));
 
@@ -303,17 +310,25 @@ async fn main() -> Result<()> {
                     // If a participant filter is set, skip others
                     if let Some(ref allow) = allowed_identity {
                         if participant.identity().as_str() != allow {
-                            debug!("Skipping track from '{}' (filter set to '{}')", participant.identity(), allow);
+                            debug!(
+                                "Skipping track from '{}' (filter set to '{}')",
+                                participant.identity(),
+                                allow
+                            );
                             continue;
                         }
                     }
                     if let livekit::track::RemoteTrack::Video(video_track) = track {
                         let sid = publication.sid().clone();
+                        let codec = codec_label(&publication.mime_type());
                         // Only handle if we don't already have an active video track
                         {
                             let mut active = active_sid.lock();
                             if active.as_ref() == Some(&sid) {
-                                debug!("Track {} already active, ignoring duplicate subscribe", sid);
+                                debug!(
+                                    "Track {} already active, ignoring duplicate subscribe",
+                                    sid
+                                );
                                 continue;
                             }
                             if active.is_some() {
@@ -321,6 +336,12 @@ async fn main() -> Result<()> {
                                 continue;
                             }
                             *active = Some(sid.clone());
+                        }
+
+                        // Update HUD codec label early (before first frame arrives)
+                        {
+                            let mut s = shared_clone.lock();
+                            s.codec = codec;
                         }
 
                         info!(
@@ -337,14 +358,19 @@ async fn main() -> Result<()> {
                         // Try to fetch inbound RTP/codec stats for more details
                         match video_track.get_stats().await {
                             Ok(stats) => {
-                                let mut codec_by_id: HashMap<String, (String, String)> = HashMap::new();
-                                let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> = None;
+                                let mut codec_by_id: HashMap<String, (String, String)> =
+                                    HashMap::new();
+                                let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> =
+                                    None;
                                 for s in stats.iter() {
                                     match s {
                                         livekit::webrtc::stats::RtcStats::Codec(c) => {
                                             codec_by_id.insert(
                                                 c.rtc.id.clone(),
-                                                (c.codec.mime_type.clone(), c.codec.sdp_fmtp_line.clone()),
+                                                (
+                                                    c.codec.mime_type.clone(),
+                                                    c.codec.sdp_fmtp_line.clone(),
+                                                ),
                                             );
                                         }
                                         livekit::webrtc::stats::RtcStats::InboundRtp(i) => {
@@ -357,7 +383,8 @@ async fn main() -> Result<()> {
                                 }
 
                                 if let Some(i) = inbound {
-                                    if let Some((mime, fmtp)) = codec_by_id.get(&i.stream.codec_id) {
+                                    if let Some((mime, fmtp)) = codec_by_id.get(&i.stream.codec_id)
+                                    {
                                         info!("Inbound codec: {} (fmtp: {})", mime, fmtp);
                                     } else {
                                         info!("Inbound codec id: {}", i.stream.codec_id);
@@ -397,6 +424,9 @@ async fn main() -> Result<()> {
                             let mut last_log = Instant::now();
                             let mut logged_first = false;
                             let mut last_stats = Instant::now();
+                            let mut fps_window_frames: u64 = 0;
+                            let mut fps_window_start = Instant::now();
+                            let mut fps_smoothed: f32 = 0.0;
                             // YUV buffers reused to avoid per-frame allocations
                             let mut y_buf: Vec<u8> = Vec::new();
                             let mut u_buf: Vec<u8> = Vec::new();
@@ -418,7 +448,9 @@ async fn main() -> Result<()> {
                                 if !logged_first {
                                     debug!(
                                         "First frame: {}x{}, type {:?}",
-                                        w, h, frame.buffer.buffer_type()
+                                        w,
+                                        h,
+                                        frame.buffer.buffer_type()
                                     );
                                     logged_first = true;
                                 }
@@ -434,9 +466,15 @@ async fn main() -> Result<()> {
                                 let y_size = (sy * h) as usize;
                                 let u_size = (su * ch) as usize;
                                 let v_size = (sv * ch) as usize;
-                                if y_buf.len() != y_size { y_buf.resize(y_size, 0); }
-                                if u_buf.len() != u_size { u_buf.resize(u_size, 0); }
-                                if v_buf.len() != v_size { v_buf.resize(v_size, 0); }
+                                if y_buf.len() != y_size {
+                                    y_buf.resize(y_size, 0);
+                                }
+                                if u_buf.len() != u_size {
+                                    u_buf.resize(u_size, 0);
+                                }
+                                if v_buf.len() != v_size {
+                                    v_buf.resize(v_size, 0);
+                                }
                                 y_buf.copy_from_slice(dy);
                                 u_buf.copy_from_slice(du);
                                 v_buf.copy_from_slice(dv);
@@ -453,6 +491,23 @@ async fn main() -> Result<()> {
                                 std::mem::swap(&mut s.v, &mut v_buf);
                                 s.dirty = true;
 
+                                // Update smoothed FPS (~500ms window)
+                                fps_window_frames += 1;
+                                let win_elapsed = fps_window_start.elapsed();
+                                if win_elapsed >= Duration::from_millis(500) {
+                                    let inst_fps = (fps_window_frames as f32)
+                                        / (win_elapsed.as_secs_f32().max(0.001));
+                                    fps_smoothed = if fps_smoothed <= 0.0 {
+                                        inst_fps
+                                    } else {
+                                        // light EMA smoothing to reduce jitter
+                                        (fps_smoothed * 0.7) + (inst_fps * 0.3)
+                                    };
+                                    s.fps = fps_smoothed;
+                                    fps_window_frames = 0;
+                                    fps_window_start = Instant::now();
+                                }
+
                                 frames += 1;
                                 let elapsed = last_log.elapsed();
                                 if elapsed >= Duration::from_secs(2) {
@@ -464,17 +519,28 @@ async fn main() -> Result<()> {
                                 // Periodically infer active simulcast quality from inbound stats
                                 if last_stats.elapsed() >= Duration::from_secs(1) {
                                     if let Ok(stats) = rt_clone.block_on(video_track.get_stats()) {
-                                        let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> = None;
+                                        let mut inbound: Option<
+                                            livekit::webrtc::stats::InboundRtpStats,
+                                        > = None;
                                         for s in stats.iter() {
-                                            if let livekit::webrtc::stats::RtcStats::InboundRtp(i) = s {
+                                            if let livekit::webrtc::stats::RtcStats::InboundRtp(i) =
+                                                s
+                                            {
                                                 if i.stream.kind == "video" {
                                                     inbound = Some(i.clone());
                                                 }
                                             }
                                         }
                                         if let Some(i) = inbound {
-                                            if let Some((fw, fh)) = simulcast_state_full_dims(&simulcast2) {
-                                                let q = infer_quality_from_dims(fw, fh, i.inbound.frame_width as u32, i.inbound.frame_height as u32);
+                                            if let Some((fw, fh)) =
+                                                simulcast_state_full_dims(&simulcast2)
+                                            {
+                                                let q = infer_quality_from_dims(
+                                                    fw,
+                                                    fh,
+                                                    i.inbound.frame_width as u32,
+                                                    i.inbound.frame_height as u32,
+                                                );
                                                 let mut sc = simulcast2.lock();
                                                 sc.active_quality = Some(q);
                                             }
@@ -499,6 +565,12 @@ async fn main() -> Result<()> {
                         info!("Video track unsubscribed ({}), clearing active sink", sid);
                         *active = None;
                     }
+                    // Clear HUD codec
+                    {
+                        let mut s = shared_clone.lock();
+                        s.codec.clear();
+                        s.fps = 0.0;
+                    }
                     // Clear simulcast state
                     let mut sc = simulcast.lock();
                     *sc = SimulcastState::default();
@@ -509,6 +581,12 @@ async fn main() -> Result<()> {
                     if active.as_ref() == Some(&sid) {
                         info!("Video track unpublished ({}), clearing active sink", sid);
                         *active = None;
+                    }
+                    // Clear HUD codec
+                    {
+                        let mut s = shared_clone.lock();
+                        s.codec.clear();
+                        s.fps = 0.0;
                     }
                     // Clear simulcast state
                     let mut sc = simulcast.lock();
@@ -525,17 +603,19 @@ async fn main() -> Result<()> {
         simulcast,
         ctrl_c_received: ctrl_c_received.clone(),
         locked_aspect: None,
-        last_inner_size: None,
     };
     let native_options = eframe::NativeOptions::default();
-    eframe::run_native("LiveKit Video Subscriber", native_options, Box::new(|_| Ok::<Box<dyn eframe::App>, _>(Box::new(app))))?;
+    eframe::run_native(
+        "LiveKit Video Subscriber",
+        native_options,
+        Box::new(|_| Ok::<Box<dyn eframe::App>, _>(Box::new(app))),
+    )?;
 
     // If the window was closed manually, still signal shutdown to background threads.
     ctrl_c_received.store(true, Ordering::Release);
 
     Ok(())
 }
-
 
 // ===== WGPU I420 renderer =====
 
@@ -561,9 +641,23 @@ struct YuvGpuState {
 }
 
 impl YuvGpuState {
-    fn create_textures(device: &wgpu::Device, _width: u32, height: u32, y_pad_w: u32, uv_pad_w: u32) -> (wgpu::Texture, wgpu::Texture, wgpu::Texture, wgpu::TextureView, wgpu::TextureView, wgpu::TextureView) {
+    fn create_textures(
+        device: &wgpu::Device,
+        _width: u32,
+        height: u32,
+        y_pad_w: u32,
+        uv_pad_w: u32,
+    ) -> (
+        wgpu::Texture,
+        wgpu::Texture,
+        wgpu::Texture,
+        wgpu::TextureView,
+        wgpu::TextureView,
+        wgpu::TextureView,
+    ) {
         let y_size = wgpu::Extent3d { width: y_pad_w, height, depth_or_array_layers: 1 };
-        let uv_size = wgpu::Extent3d { width: uv_pad_w, height: (height + 1) / 2, depth_or_array_layers: 1 };
+        let uv_size =
+            wgpu::Extent3d { width: uv_pad_w, height: (height + 1) / 2, depth_or_array_layers: 1 };
         let usage = wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING;
         let desc = |size: wgpu::Extent3d| wgpu::TextureDescriptor {
             label: Some("yuv_plane"),
@@ -599,7 +693,14 @@ struct ParamsUniform {
 }
 
 impl CallbackTrait for YuvPaintCallback {
-    fn prepare(&self, device: &wgpu::Device, queue: &wgpu::Queue, _screen_desc: &egui_wgpu_backend::ScreenDescriptor, _encoder: &mut wgpu::CommandEncoder, resources: &mut egui_wgpu_backend::CallbackResources) -> Vec<wgpu::CommandBuffer> {
+    fn prepare(
+        &self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        _screen_desc: &egui_wgpu_backend::ScreenDescriptor,
+        _encoder: &mut wgpu::CommandEncoder,
+        resources: &mut egui_wgpu_backend::CallbackResources,
+    ) -> Vec<wgpu::CommandBuffer> {
         // Initialize or update GPU state lazily based on current frame
         let mut shared = self.shared.lock();
 
@@ -636,15 +737,38 @@ impl CallbackTrait for YuvPaintCallback {
                         },
                         count: None,
                     },
-                    wgpu::BindGroupLayoutEntry { binding: 2, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
-                    wgpu::BindGroupLayoutEntry { binding: 3, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false }, count: None },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
                     wgpu::BindGroupLayoutEntry {
                         binding: 4,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Uniform,
                             has_dynamic_offset: false,
-                            min_binding_size: Some(std::num::NonZeroU64::new(std::mem::size_of::<ParamsUniform>() as u64).unwrap()),
+                            min_binding_size: Some(
+                                std::num::NonZeroU64::new(
+                                    std::mem::size_of::<ParamsUniform>() as u64
+                                )
+                                .unwrap(),
+                            ),
                         },
                         count: None,
                     },
@@ -660,7 +784,12 @@ impl CallbackTrait for YuvPaintCallback {
             let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("yuv_pipeline"),
                 layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState { module: &shader, entry_point: Some("vs_main"), buffers: &[], compilation_options: wgpu::PipelineCompilationOptions::default() },
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs_main"),
+                    buffers: &[],
+                    compilation_options: wgpu::PipelineCompilationOptions::default(),
+                },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
                     entry_point: Some("fs_main"),
@@ -671,9 +800,21 @@ impl CallbackTrait for YuvPaintCallback {
                     })],
                     compilation_options: wgpu::PipelineCompilationOptions::default(),
                 }),
-                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, strip_index_format: None, front_face: wgpu::FrontFace::Ccw, cull_mode: None, unclipped_depth: false, polygon_mode: wgpu::PolygonMode::Fill, conservative: false },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    unclipped_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
                 depth_stencil: None,
-                multisample: wgpu::MultisampleState { count: 1, mask: !0, alpha_to_coverage_enabled: false },
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
                 multiview: None,
                 cache: None,
             });
@@ -691,20 +832,38 @@ impl CallbackTrait for YuvPaintCallback {
 
             let params_buf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("yuv_params"),
-                contents: bytemuck::bytes_of(&ParamsUniform { src_w: 1, src_h: 1, y_tex_w: 1, uv_tex_w: 1 }),
+                contents: bytemuck::bytes_of(&ParamsUniform {
+                    src_w: 1,
+                    src_h: 1,
+                    y_tex_w: 1,
+                    uv_tex_w: 1,
+                }),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
             // Initial tiny textures
-            let (y_tex, u_tex, v_tex, y_view, u_view, v_view) = YuvGpuState::create_textures(device, 1, 1, 256, 256);
+            let (y_tex, u_tex, v_tex, y_view, u_view, v_view) =
+                YuvGpuState::create_textures(device, 1, 1, 256, 256);
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("yuv_bind_group"),
                 layout: &bind_layout,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&sampler) },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&y_view) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&u_view) },
-                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&v_view) },
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&y_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&u_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(&v_view),
+                    },
                     wgpu::BindGroupEntry { binding: 4, resource: params_buf.as_entire_binding() },
                 ],
             });
@@ -735,16 +894,37 @@ impl CallbackTrait for YuvPaintCallback {
             let y_pad_w = align_up(shared.width, 256);
             let uv_w = (shared.width + 1) / 2;
             let uv_pad_w = align_up(uv_w, 256);
-            let (y_tex, u_tex, v_tex, y_view, u_view, v_view) = YuvGpuState::create_textures(device, shared.width, shared.height, y_pad_w, uv_pad_w);
+            let (y_tex, u_tex, v_tex, y_view, u_view, v_view) = YuvGpuState::create_textures(
+                device,
+                shared.width,
+                shared.height,
+                y_pad_w,
+                uv_pad_w,
+            );
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("yuv_bind_group"),
                 layout: &state.bind_layout,
                 entries: &[
-                    wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::Sampler(&state.sampler) },
-                    wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::TextureView(&y_view) },
-                    wgpu::BindGroupEntry { binding: 2, resource: wgpu::BindingResource::TextureView(&u_view) },
-                    wgpu::BindGroupEntry { binding: 3, resource: wgpu::BindingResource::TextureView(&v_view) },
-                    wgpu::BindGroupEntry { binding: 4, resource: state.params_buf.as_entire_binding() },
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::Sampler(&state.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(&y_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&u_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::TextureView(&v_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: state.params_buf.as_entire_binding(),
+                    },
                 ],
             });
             state.y_tex = y_tex;
@@ -769,7 +949,8 @@ impl CallbackTrait for YuvPaintCallback {
             if shared.stride_y >= shared.width {
                 let mut packed = vec![0u8; (y_bytes_per_row * shared.height) as usize];
                 for row in 0..shared.height {
-                    let src = &shared.y[(row * shared.stride_y) as usize..][..shared.width as usize];
+                    let src =
+                        &shared.y[(row * shared.stride_y) as usize..][..shared.width as usize];
                     let dst_off = (row * y_bytes_per_row) as usize;
                     packed[dst_off..dst_off + shared.width as usize].copy_from_slice(src);
                 }
@@ -786,7 +967,11 @@ impl CallbackTrait for YuvPaintCallback {
                         bytes_per_row: Some(y_bytes_per_row),
                         rows_per_image: Some(shared.height),
                     },
-                    wgpu::Extent3d { width: state.y_pad_w, height: shared.height, depth_or_array_layers: 1 },
+                    wgpu::Extent3d {
+                        width: state.y_pad_w,
+                        height: shared.height,
+                        depth_or_array_layers: 1,
+                    },
                 );
             }
 
@@ -802,21 +987,52 @@ impl CallbackTrait for YuvPaintCallback {
                     packed_v[dst_off..dst_off + uv_w as usize].copy_from_slice(src_v);
                 }
                 queue.write_texture(
-                    wgpu::ImageCopyTexture { texture: &state.u_tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                    wgpu::ImageCopyTexture {
+                        texture: &state.u_tex,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
                     &packed_u,
-                    wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(uv_bytes_per_row), rows_per_image: Some(uv_h) },
-                    wgpu::Extent3d { width: state.uv_pad_w, height: uv_h, depth_or_array_layers: 1 },
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(uv_bytes_per_row),
+                        rows_per_image: Some(uv_h),
+                    },
+                    wgpu::Extent3d {
+                        width: state.uv_pad_w,
+                        height: uv_h,
+                        depth_or_array_layers: 1,
+                    },
                 );
                 queue.write_texture(
-                    wgpu::ImageCopyTexture { texture: &state.v_tex, mip_level: 0, origin: wgpu::Origin3d::ZERO, aspect: wgpu::TextureAspect::All },
+                    wgpu::ImageCopyTexture {
+                        texture: &state.v_tex,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d::ZERO,
+                        aspect: wgpu::TextureAspect::All,
+                    },
                     &packed_v,
-                    wgpu::ImageDataLayout { offset: 0, bytes_per_row: Some(uv_bytes_per_row), rows_per_image: Some(uv_h) },
-                    wgpu::Extent3d { width: state.uv_pad_w, height: uv_h, depth_or_array_layers: 1 },
+                    wgpu::ImageDataLayout {
+                        offset: 0,
+                        bytes_per_row: Some(uv_bytes_per_row),
+                        rows_per_image: Some(uv_h),
+                    },
+                    wgpu::Extent3d {
+                        width: state.uv_pad_w,
+                        height: uv_h,
+                        depth_or_array_layers: 1,
+                    },
                 );
             }
 
             // Update params uniform
-            let params = ParamsUniform { src_w: shared.width, src_h: shared.height, y_tex_w: state.y_pad_w, uv_tex_w: state.uv_pad_w };
+            let params = ParamsUniform {
+                src_w: shared.width,
+                src_h: shared.height,
+                y_tex_w: state.y_pad_w,
+                uv_tex_w: state.uv_pad_w,
+            };
             queue.write_buffer(&state.params_buf, 0, bytemuck::bytes_of(&params));
 
             shared.dirty = false;
@@ -825,7 +1041,12 @@ impl CallbackTrait for YuvPaintCallback {
         Vec::new()
     }
 
-    fn paint(&self, _info: egui::PaintCallbackInfo, render_pass: &mut wgpu::RenderPass<'static>, resources: &egui_wgpu_backend::CallbackResources) {
+    fn paint(
+        &self,
+        _info: egui::PaintCallbackInfo,
+        render_pass: &mut wgpu::RenderPass<'static>,
+        resources: &egui_wgpu_backend::CallbackResources,
+    ) {
         // Acquire device/queue via screen_descriptor? Not available; use resources to fetch our state
         let shared = self.shared.lock();
         if shared.width == 0 || shared.height == 0 {

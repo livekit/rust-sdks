@@ -7,9 +7,11 @@ use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
 use log::{debug, info};
-use yuv_sys as yuv_sys;
 use nokhwa::pixel_format::RgbFormat;
-use nokhwa::utils::{ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution};
+use nokhwa::utils::{
+    ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
+    Resolution,
+};
 use nokhwa::Camera;
 use std::env;
 use std::sync::{
@@ -17,6 +19,7 @@ use std::sync::{
     Arc,
 };
 use std::time::{Duration, Instant};
+use yuv_sys;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -46,11 +49,11 @@ struct Args {
     max_bitrate: Option<u64>,
 
     /// LiveKit participant identity
-    #[arg(long, default_value = "rust-camera-pub")] 
+    #[arg(long, default_value = "rust-camera-pub")]
     identity: String,
 
     /// LiveKit room name
-    #[arg(long, default_value = "video-room")] 
+    #[arg(long, default_value = "video-room")]
     room_name: String,
 
     /// LiveKit server URL
@@ -98,9 +101,10 @@ async fn main() -> Result<()> {
     }
 
     // LiveKit connection details
-    let url = args.url.or_else(|| env::var("LIVEKIT_URL").ok()).expect(
-        "LIVEKIT_URL must be provided via --url or env",
-    );
+    let url = args
+        .url
+        .or_else(|| env::var("LIVEKIT_URL").ok())
+        .expect("LIVEKIT_URL must be provided via --url or env");
     let api_key = args
         .api_key
         .or_else(|| env::var("LIVEKIT_API_KEY").ok())
@@ -142,23 +146,24 @@ async fn main() -> Result<()> {
 
     // Setup camera
     let index = CameraIndex::Index(args.camera_index as u32);
-    let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
+    let requested =
+        RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
     let mut camera = Camera::new(index, requested)?;
     // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
-    let wanted = CameraFormat::new(
-        Resolution::new(args.width, args.height),
-        FrameFormat::YUYV,
-        args.fps,
-    );
+    let wanted =
+        CameraFormat::new(Resolution::new(args.width, args.height), FrameFormat::YUYV, args.fps);
     let mut using_fmt = "YUYV";
-    if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(wanted))) {
+    if let Err(_) = camera
+        .set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(wanted)))
+    {
         let alt = CameraFormat::new(
             Resolution::new(args.width, args.height),
             FrameFormat::MJPEG,
             args.fps,
         );
         using_fmt = "MJPEG";
-        let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
+        let _ = camera
+            .set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
     }
     camera.open_stream()?;
     let fmt = camera.camera_format();
@@ -172,10 +177,8 @@ async fn main() -> Result<()> {
 
     // Create LiveKit video source and track
     let rtc_source = NativeVideoSource::new(VideoResolution { width, height });
-    let track = LocalVideoTrack::create_video_track(
-        "camera",
-        RtcVideoSource::Native(rtc_source.clone()),
-    );
+    let track =
+        LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(rtc_source.clone()));
 
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
     let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
@@ -189,10 +192,8 @@ async fn main() -> Result<()> {
             ..Default::default()
         };
         if let Some(bitrate) = args.max_bitrate {
-            opts.video_encoding = Some(VideoEncoding {
-                max_bitrate: bitrate,
-                max_framerate: args.fps as f64,
-            });
+            opts.video_encoding =
+                Some(VideoEncoding { max_bitrate: bitrate, max_framerate: args.fps as f64 });
         }
         opts
     };
@@ -204,12 +205,8 @@ async fn main() -> Result<()> {
 
     if let Err(e) = publish_result {
         if matches!(requested_codec, VideoCodec::H265) {
-            log::warn!(
-                "H.265 publish failed ({}). Falling back to H.264...",
-                e
-            );
-            room
-                .local_participant()
+            log::warn!("H.265 publish failed ({}). Falling back to H.264...", e);
+            room.local_participant()
                 .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
                 .await?;
             info!("Published camera track with H.264 fallback");
@@ -221,7 +218,11 @@ async fn main() -> Result<()> {
     }
 
     // Reusable I420 buffer and frame
-    let mut frame = VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: 0, buffer: I420Buffer::new(width, height) };
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        timestamp_us: 0,
+        buffer: I420Buffer::new(width, height),
+    };
     let is_yuyv = fmt.format() == FrameFormat::YUYV;
     info!(
         "Selected conversion path: {}",
@@ -326,7 +327,12 @@ async fn main() -> Result<()> {
                         width as i32,
                         height as i32,
                     );
-                    if ret == 0 { used_fast_mjpeg = true; Instant::now() } else { t1 }
+                    if ret == 0 {
+                        used_fast_mjpeg = true;
+                        Instant::now()
+                    } else {
+                        t1
+                    }
                 };
                 if used_fast_mjpeg {
                     t2_try
@@ -431,5 +437,3 @@ async fn main() -> Result<()> {
 
     Ok(())
 }
-
-
