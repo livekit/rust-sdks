@@ -365,6 +365,7 @@ struct SessionInner {
     // so we can receive data from other participants
     sub_lossy_dc: Mutex<Option<DataChannel>>,
     sub_reliable_dc: Mutex<Option<DataChannel>>,
+    sub_dt_transport: Mutex<Option<DataChannel>>,
 
     closed: AtomicBool,
     emitter: SessionEmitter,
@@ -528,6 +529,7 @@ impl RtcSession {
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
+            sub_dt_transport: Mutex::new(None),
             closed: Default::default(),
             emitter,
             options,
@@ -1196,13 +1198,16 @@ impl SessionInner {
             }
             RtcEvent::DataChannel { data_channel, target } => {
                 log::debug!("received data channel: {:?} {:?}", data_channel, target);
-                if target == SignalTarget::Subscriber {
-                    if data_channel.label() == LOSSY_DC_LABEL {
-                        self.sub_lossy_dc.lock().replace(data_channel);
-                    } else if data_channel.label() == RELIABLE_DC_LABEL {
-                        self.sub_reliable_dc.lock().replace(data_channel);
-                    }
+                if target != SignalTarget::Subscriber {
+                    return Ok(());
                 }
+                let dc_ref = match data_channel.label().as_str() {
+                    LOSSY_DC_LABEL => &self.sub_lossy_dc,
+                    RELIABLE_DC_LABEL => &self.sub_reliable_dc,
+                    DATA_TRACK_DC_LABEL => &self.sub_dt_transport,
+                    _ => return Ok(()),
+                };
+                dc_ref.lock().replace(data_channel);
             }
             RtcEvent::Offer { offer, target: _ } => {
                 // Send the publisher offer to the server
