@@ -117,6 +117,8 @@ struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     simulcast: Arc<Mutex<SimulcastState>>,
     ctrl_c_received: Arc<AtomicBool>,
+    locked_aspect: Option<f32>,
+    last_inner_size: Option<egui::Vec2>,
 }
 
 impl eframe::App for VideoApp {
@@ -124,6 +126,52 @@ impl eframe::App for VideoApp {
         if self.ctrl_c_received.load(Ordering::Acquire) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
+        }
+
+        // Lock aspect ratio based on the first received video frame, then keep the window snapped
+        // to sizes matching that ratio.
+        if self.locked_aspect.is_none() {
+            let s = self.shared.lock();
+            if s.width > 0 && s.height > 0 {
+                self.locked_aspect = Some(s.width as f32 / s.height as f32);
+            }
+        }
+
+        if let Some(aspect) = self.locked_aspect {
+            let (inner_rect, maximized, fullscreen) = ctx.input(|i| {
+                let vp = i.viewport();
+                (vp.inner_rect, vp.maximized, vp.fullscreen)
+            });
+
+            // Don't fight the OS when maximized/fullscreen.
+            if maximized != Some(true) && fullscreen != Some(true) {
+                if let Some(rect) = inner_rect {
+                    let cur = rect.size();
+                    let prev = self.last_inner_size.unwrap_or(cur);
+                    let dw = (cur.x - prev.x).abs();
+                    let dh = (cur.y - prev.y).abs();
+
+                    // Determine which axis the user most likely dragged, and adjust the other.
+                    let mut target = cur;
+                    const MIN_W: f32 = 320.0;
+                    const MIN_H: f32 = 240.0;
+                    if dw >= dh {
+                        target.x = target.x.max(MIN_W);
+                        target.y = (target.x / aspect).max(MIN_H);
+                    } else {
+                        target.y = target.y.max(MIN_H);
+                        target.x = (target.y * aspect).max(MIN_W);
+                    }
+
+                    // Avoid resize feedback loops by only issuing a command when we are meaningfully off.
+                    if (cur.x - target.x).abs() > 0.5 || (cur.y - target.y).abs() > 0.5 {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(target));
+                        self.last_inner_size = Some(target);
+                    } else {
+                        self.last_inner_size = Some(cur);
+                    }
+                }
+            }
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -476,6 +524,8 @@ async fn main() -> Result<()> {
         shared,
         simulcast,
         ctrl_c_received: ctrl_c_received.clone(),
+        locked_aspect: None,
+        last_inner_size: None,
     };
     let native_options = eframe::NativeOptions::default();
     eframe::run_native("LiveKit Video Subscriber", native_options, Box::new(|_| Ok::<Box<dyn eframe::App>, _>(Box::new(app))))?;
@@ -799,7 +849,3 @@ impl CallbackTrait for YuvPaintCallback {
         render_pass.draw(0..3, 0..1);
     }
 }
-
-// Build or rebuild GPU state. This helper is intended to be called from prepare, but we lack device there in current API constraints.
-// Note: eframe/egui-wgpu provides device in paint via RenderPass context; however, to keep this example concise, we set up the state once externally.
-
