@@ -142,12 +142,12 @@ impl eframe::App for VideoApp {
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            // Ensure we keep repainting for smooth playback.
-            ui.ctx().request_repaint();
-
             // Render into a centered rect that matches the source aspect ratio. This keeps resize
             // smooth (no feedback loop) and avoids stretching/distortion while dragging.
             let available = ui.available_size();
+            let size = if let Some(aspect) = self.locked_aspect {
+                let mut w = available.x.max(1.0);
+                let mut h = (w / aspect).max(1.0);
             let size = if let Some(aspect) = self.locked_aspect {
                 let mut w = available.x.max(1.0);
                 let mut h = (w / aspect).max(1.0);
