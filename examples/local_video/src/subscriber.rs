@@ -13,9 +13,18 @@ use parking_lot::Mutex;
 use std::{
     collections::HashMap,
     env,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
+
+async fn wait_for_shutdown(flag: Arc<AtomicBool>) {
+    while !flag.load(Ordering::Acquire) {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -107,10 +116,16 @@ fn simulcast_state_full_dims(
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     simulcast: Arc<Mutex<SimulcastState>>,
+    ctrl_c_received: Arc<AtomicBool>,
 }
 
 impl eframe::App for VideoApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.ctrl_c_received.load(Ordering::Acquire) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+
         egui::CentralPanel::default().show(ctx, |ui| {
             let available = ui.available_size();
             let rect = egui::Rect::from_min_size(ui.min_rect().min, available);
@@ -163,6 +178,15 @@ impl eframe::App for VideoApp {
 async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
+
+    let ctrl_c_received = Arc::new(AtomicBool::new(false));
+    tokio::spawn({
+        let ctrl_c_received = ctrl_c_received.clone();
+        async move {
+            tokio::signal::ctrl_c().await.unwrap();
+            ctrl_c_received.store(true, Ordering::Release);
+        }
+    });
 
     // LiveKit connection details (prefer CLI args, fallback to env vars)
     let url = args
@@ -218,6 +242,7 @@ async fn main() -> Result<()> {
     // Shared simulcast UI/control state
     let simulcast = Arc::new(Mutex::new(SimulcastState::default()));
     let simulcast_events = simulcast.clone();
+    let ctrl_c_events = ctrl_c_received.clone();
     tokio::spawn(async move {
         let active_sid = active_sid.clone();
         let simulcast = simulcast_events;
@@ -306,6 +331,7 @@ async fn main() -> Result<()> {
                         let active_sid2 = active_sid.clone();
                         let my_sid = sid.clone();
                         let rt_clone = rt.clone();
+                        let ctrl_c_sink = ctrl_c_events.clone();
                         // Initialize simulcast state for this publication
                         {
                             let mut sc = simulcast.lock();
@@ -327,7 +353,17 @@ async fn main() -> Result<()> {
                             let mut y_buf: Vec<u8> = Vec::new();
                             let mut u_buf: Vec<u8> = Vec::new();
                             let mut v_buf: Vec<u8> = Vec::new();
-                            while let Some(frame) = rt_clone.block_on(sink.next()) {
+                            loop {
+                                if ctrl_c_sink.load(Ordering::Acquire) {
+                                    break;
+                                }
+                                let next = rt_clone.block_on(async {
+                                    tokio::select! {
+                                        _ = wait_for_shutdown(ctrl_c_sink.clone()) => None,
+                                        frame = sink.next() => frame,
+                                    }
+                                });
+                                let Some(frame) = next else { break };
                                 let w = frame.buffer.width();
                                 let h = frame.buffer.height();
 
@@ -436,9 +472,16 @@ async fn main() -> Result<()> {
     });
 
     // Start UI
-    let app = VideoApp { shared, simulcast };
+    let app = VideoApp {
+        shared,
+        simulcast,
+        ctrl_c_received: ctrl_c_received.clone(),
+    };
     let native_options = eframe::NativeOptions::default();
     eframe::run_native("LiveKit Video Subscriber", native_options, Box::new(|_| Ok::<Box<dyn eframe::App>, _>(Box::new(app))))?;
+
+    // If the window was closed manually, still signal shutdown to background threads.
+    ctrl_c_received.store(true, Ordering::Release);
 
     Ok(())
 }

@@ -12,6 +12,10 @@ use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType, Resolution};
 use nokhwa::Camera;
 use std::env;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::{Duration, Instant};
 
 #[derive(Parser, Debug)]
@@ -79,6 +83,15 @@ fn list_cameras() -> Result<()> {
 async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
+
+    let ctrl_c_received = Arc::new(AtomicBool::new(false));
+    tokio::spawn({
+        let ctrl_c_received = ctrl_c_received.clone();
+        async move {
+            tokio::signal::ctrl_c().await.unwrap();
+            ctrl_c_received.store(true, Ordering::Release);
+        }
+    });
 
     if args.list_cameras {
         return list_cameras();
@@ -237,6 +250,10 @@ async fn main() -> Result<()> {
     let mut sum_iter_ms = 0.0;
     let mut logged_mjpeg_fallback = false;
     loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            info!("Ctrl-C received, exiting...");
+            break;
+        }
         // Wait until the scheduled next frame time
         let wait_start = Instant::now();
         ticker.tick().await;
@@ -411,6 +428,8 @@ async fn main() -> Result<()> {
             last_fps_log = Instant::now();
         }
     }
+
+    Ok(())
 }
 
 
