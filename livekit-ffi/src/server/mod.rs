@@ -25,7 +25,7 @@ use std::{
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::{
-    native::apm::AudioProcessingModule, native::audio_resampler::AudioResampler, prelude::*,
+    apm::AudioProcessingModule, audio_resampler::AudioResampler, prelude::*,
 };
 use parking_lot::{deadlock, Mutex};
 use tokio::{sync::oneshot, task::JoinHandle};

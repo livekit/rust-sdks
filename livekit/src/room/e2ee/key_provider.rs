@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use libwebrtc::native::frame_cryptor as fc;
+use libwebrtc::frame_cryptor as fc;
+
 use std::sync::{
     atomic::{AtomicI32, Ordering},
     Arc,

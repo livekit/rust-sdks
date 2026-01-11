@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use thiserror::Error;
+use std::any::Any;
 
-#[cfg_attr(target_arch = "wasm32", path = "web/mod.rs")]
-#[cfg_attr(not(target_arch = "wasm32"), path = "native/mod.rs")]
-mod imp;
+use thiserror::Error;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum MediaType {
@@ -31,6 +29,7 @@ pub enum RtcErrorType {
     Internal,
     InvalidSdp,
     InvalidState,
+    OperationError,
 }
 
 #[derive(Error, Debug)]
@@ -41,12 +40,17 @@ pub struct RtcError {
 }
 
 pub mod audio_frame;
+//pub mod audio_mixer;
+pub mod apm;
+pub mod audio_resampler;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod audio_track;
 pub mod data_channel;
-#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
-pub mod desktop_capturer;
+//#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+//pub mod desktop_capturer;
+pub mod enum_dispatch;
+pub mod frame_cryptor;
 pub mod ice_candidate;
 pub mod media_stream;
 pub mod media_stream_track;
@@ -59,19 +63,40 @@ pub mod rtp_sender;
 pub mod rtp_transceiver;
 pub mod session_description;
 pub mod stats;
+pub mod sys;
 pub mod video_frame;
+pub mod video_frame_buffer;
+pub mod video_frame_builder;
 pub mod video_source;
 pub mod video_stream;
 pub mod video_track;
+pub mod yuv_helper;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
-    pub use webrtc_sys::webrtc::ffi::create_random_uuid;
-
-    pub use crate::imp::{apm, audio_mixer, audio_resampler, frame_cryptor, yuv_helper};
+    pub fn create_random_uuid() -> String {
+        use uuid::Uuid;
+        Uuid::new_v4().to_string()
+    }
 }
 
 #[cfg(target_os = "android")]
 pub mod android {
     pub use crate::imp::android::*;
 }
+
+macro_rules! impl_thread_safety {
+    ($obj:ty, Send) => {
+        unsafe impl Send for $obj {}
+    };
+
+    ($obj:ty, Send + Sync) => {
+        unsafe impl Send for $obj {}
+        unsafe impl Sync for $obj {}
+    };
+}
+
+pub(crate) use impl_thread_safety;
+
+#[repr(transparent)]
+pub struct PeerContext(pub Box<dyn Any + Send>);
