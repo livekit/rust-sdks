@@ -1,0 +1,24 @@
+{
+  "name": "@livekit/rtc-node-darwin-x64",
+  "author": "LiveKit",
+  "version": "0.13.22",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/livekit/node-sdks.git",
+    "directory": "packages/livekit-rtc/darwin-x64"
+  },
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "rtc-node.darwin-x64.node",
+  "files": [
+    "rtc-node.darwin-x64.node"
+  ],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">= 10"
+  }
+}
