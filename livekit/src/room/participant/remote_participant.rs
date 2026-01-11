@@ -84,6 +84,7 @@ impl RemoteParticipant {
         metadata: String,
         attributes: HashMap<String, String>,
         auto_subscribe: bool,
+        permission: Option<proto::ParticipantPermission>,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -95,6 +96,7 @@ impl RemoteParticipant {
                 attributes,
                 kind,
                 kind_details,
+                permission,
             ),
             remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
         }
@@ -308,6 +310,13 @@ impl RemoteParticipant {
         handler: impl Fn(Participant, HashMap<String, String>) + Send + 'static,
     ) {
         super::on_attributes_changed(&self.inner, handler)
+    }
+
+    pub(crate) fn on_permission_changed(
+        &self,
+        handler: impl Fn(Participant, Option<proto::ParticipantPermission>) + Send + 'static,
+    ) {
+        super::on_permission_changed(&self.inner, handler)
     }
 
     pub(crate) fn on_encryption_status_changed(
@@ -546,6 +555,10 @@ impl RemoteParticipant {
 
     pub fn disconnect_reason(&self) -> DisconnectReason {
         self.inner.info.read().disconnect_reason
+    }
+
+    pub fn permission(&self) -> Option<proto::ParticipantPermission> {
+        self.inner.info.read().permission.clone()
     }
 
     pub fn is_encrypted(&self) -> bool {
