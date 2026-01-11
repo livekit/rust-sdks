@@ -1,0 +1,1 @@
+patch type="fixed" package="livekit" "Emit TrackMuted/TrackUnmuted events for local publications"
