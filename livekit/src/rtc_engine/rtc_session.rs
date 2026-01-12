@@ -1333,6 +1333,16 @@ impl SessionInner {
         options: TrackPublishOptions,
         encodings: Vec<RtpEncodingParameters>,
     ) -> EngineResult<RtpTransceiver> {
+        // If video track, derive "ultimate" bitrate from encodings and stash it for offer munging.
+        // Must be done before encodings is moved into RtpTransceiverInit.
+        if track.kind() == TrackKind::Video {
+            let ultimate_bps: Option<u64> = {
+                let sum: u64 = encodings.iter().filter_map(|e| e.max_bitrate).sum();
+                (sum > 0).then_some(sum)
+            };
+            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps).await;
+        }
+
         let init = RtpTransceiverInit {
             direction: RtpTransceiverDirection::SendOnly,
             stream_ids: Default::default(),
