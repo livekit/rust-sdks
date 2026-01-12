@@ -178,6 +178,12 @@ jobs:
       - working-directory: livekit-ffi-node-bindings
         run: pnpm install
 
+     - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "25.1"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
