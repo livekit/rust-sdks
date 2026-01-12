@@ -34,7 +34,6 @@ lk_sources = [
   "rtp_sender.cc",
   "rtp_receiver.cc",
   "rtp_transceiver.cc",
-  "yuv_helper.cc",
   "rtp_parameters.cc",
   "stats.cc",
   "desktop_capturer.cc",

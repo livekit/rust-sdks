@@ -14,10 +14,7 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use crate::sys::{
-    self, lkABGRToNV12, lkARGBToNV12, lkI010ToABGR, lkI010ToI420, lkI420ToNV12, lkI422ToI420,
-    lkI444ToI420, lkNV12ToARGB, lkNV12ToI420,
-};
+use yuv_sys::rs_ABGRToNV12;
 
 fn argb_assert_safety(src: &[u8], src_stride: u32, _width: i32, height: i32) {
     let height_abs = height.unsigned_abs();
@@ -126,8 +123,8 @@ fn i010_assert_safety(
 }
 
 macro_rules! i420_to_rgba {
-    ($x:ident, $f:ident) => {
-        pub fn $x(
+    ($rust_fnc:ident, $yuv_sys_fnc:ident) => {
+        pub fn $rust_fnc(
             src_y: &[u8],
             src_stride_y: u32,
             src_u: &[u8],
@@ -152,7 +149,7 @@ macro_rules! i420_to_rgba {
             argb_assert_safety(dst, dst_stride, width, height);
 
             unsafe {
-                sys::$f(
+                yuv_sys::$yuv_sys_fnc(
                     src_y.as_ptr(),
                     src_stride_y as i32,
                     src_u.as_ptr(),
@@ -163,15 +160,15 @@ macro_rules! i420_to_rgba {
                     dst_stride as i32,
                     width,
                     height,
-                )
+                );
             }
         }
     };
 }
 
 macro_rules! rgba_to_i420 {
-    ($x:ident, $f:ident) => {
-        pub fn $x(
+    ($rust_fnc:ident, $yuv_sys_fnc:ident) => {
+        pub fn $rust_fnc(
             src_argb: &[u8],
             src_stride_argb: u32,
             dst_y: &mut [u8],
@@ -196,7 +193,7 @@ macro_rules! rgba_to_i420 {
             argb_assert_safety(src_argb, src_stride_argb, width, height);
 
             unsafe {
-                sys::$f(
+                yuv_sys::$yuv_sys_fnc(
                     src_argb.as_ptr(),
                     src_stride_argb as i32,
                     dst_y.as_mut_ptr(),
@@ -207,7 +204,7 @@ macro_rules! rgba_to_i420 {
                     dst_stride_v as i32,
                     width,
                     height,
-                )
+                );
             }
         }
     };
@@ -225,25 +222,25 @@ pub fn argb_to_rgb24(
     argb_assert_safety(dst_rgb24, dst_stride_rgb24, width, height);
 
     unsafe {
-        sys::lkARGBToRGB24(
+        yuv_sys::rs_ARGBToRGB24(
             src_argb.as_ptr(),
             src_stride_argb as i32,
             dst_rgb24.as_mut_ptr(),
             dst_stride_rgb24 as i32,
             width,
             height,
-        )
+        );
     }
 }
 
 // I420 <> RGB conversion
-rgba_to_i420!(argb_to_i420, lkARGBToI420);
-rgba_to_i420!(abgr_to_i420, lkABGRToI420);
+rgba_to_i420!(argb_to_i420, rs_ARGBToI420);
+rgba_to_i420!(abgr_to_i420, rs_ABGRToI420);
 
-i420_to_rgba!(i420_to_argb, lkI420ToARGB);
-i420_to_rgba!(i420_to_bgra, lkI420ToBGRA);
-i420_to_rgba!(i420_to_abgr, lkI420ToABGR);
-i420_to_rgba!(i420_to_rgba, lkI420ToRGBA);
+i420_to_rgba!(i420_to_argb, rs_I420ToRGBA);
+i420_to_rgba!(i420_to_bgra, rs_I420ToBGRA);
+i420_to_rgba!(i420_to_abgr, rs_I420ToABGR);
+i420_to_rgba!(i420_to_rgba, rs_I420ToARGB);
 
 pub fn i420_to_nv12(
     src_y: &[u8],
@@ -272,7 +269,7 @@ pub fn i420_to_nv12(
     nv12_assert_safety(dst_y, dst_stride_y, dst_uv, dst_stride_uv, width, height);
 
     unsafe {
-        sys::lkI420ToNV12(
+        yuv_sys::rs_I420ToNV12(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -285,7 +282,7 @@ pub fn i420_to_nv12(
             dst_stride_uv as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -316,7 +313,7 @@ pub fn nv12_to_i420(
     );
 
     unsafe {
-        sys::lkNV12ToI420(
+        yuv_sys::rs_NV12ToI420(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_uv.as_ptr(),
@@ -329,7 +326,7 @@ pub fn nv12_to_i420(
             dst_stride_v as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -371,7 +368,7 @@ pub fn i444_to_i420(
     );
 
     unsafe {
-        sys::lkI444ToI420(
+        yuv_sys::rs_I444ToI420(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -386,7 +383,7 @@ pub fn i444_to_i420(
             dst_stride_v as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -428,7 +425,7 @@ pub fn i422_to_i420(
     );
 
     unsafe {
-        sys::lkI422ToI420(
+        yuv_sys::rs_I422ToI420(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -443,7 +440,7 @@ pub fn i422_to_i420(
             dst_stride_v as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -485,7 +482,7 @@ pub fn i010_to_i420(
     );
 
     unsafe {
-        sys::lkI010ToI420(
+        yuv_sys::rs_I010ToI420(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -500,7 +497,7 @@ pub fn i010_to_i420(
             dst_stride_v as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -518,7 +515,7 @@ pub fn nv12_to_argb(
     argb_assert_safety(dst_argb, dst_stride_argb, width, height);
 
     unsafe {
-        sys::lkNV12ToARGB(
+        yuv_sys::rs_NV12ToARGB(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_uv.as_ptr(),
@@ -545,7 +542,7 @@ pub fn nv12_to_abgr(
     argb_assert_safety(dst_abgr, dst_stride_abgr, width, height);
 
     unsafe {
-        sys::lkNV12ToABGR(
+        yuv_sys::rs_NV12ToABGR(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_uv.as_ptr(),
@@ -554,7 +551,7 @@ pub fn nv12_to_abgr(
             dst_stride_abgr as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -583,7 +580,7 @@ pub fn i444_to_argb(
     argb_assert_safety(dst_argb, dst_stride_argb, width, height);
 
     unsafe {
-        sys::lkI444ToARGB(
+        yuv_sys::rs_I444ToARGB(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -594,7 +591,7 @@ pub fn i444_to_argb(
             dst_stride_argb as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -623,7 +620,7 @@ pub fn i444_to_abgr(
     argb_assert_safety(dst_abgr, dst_stride_abgr, width, height);
 
     unsafe {
-        sys::lkI444ToABGR(
+        yuv_sys::rs_I444ToABGR(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -634,7 +631,7 @@ pub fn i444_to_abgr(
             dst_stride_abgr as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -663,7 +660,7 @@ pub fn i422_to_argb(
     argb_assert_safety(dst_argb, dst_stride_argb, width, height);
 
     unsafe {
-        sys::lkI422ToARGB(
+        yuv_sys::rs_I422ToARGB(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -674,7 +671,7 @@ pub fn i422_to_argb(
             dst_stride_argb as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -703,7 +700,7 @@ pub fn i422_to_abgr(
     argb_assert_safety(dst_abgr, dst_stride_abgr, width, height);
 
     unsafe {
-        sys::lkI422ToARGB(
+        yuv_sys::rs_I422ToABGR(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -714,7 +711,7 @@ pub fn i422_to_abgr(
             dst_stride_abgr as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -743,7 +740,7 @@ pub fn i010_to_argb(
     argb_assert_safety(dst_argb, dst_stride_argb, width, height);
 
     unsafe {
-        sys::lkI010ToARGB(
+        yuv_sys::rs_I010ToARGB (
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -754,7 +751,7 @@ pub fn i010_to_argb(
             dst_stride_argb as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -783,7 +780,7 @@ pub fn i010_to_abgr(
     argb_assert_safety(dst_abgr, dst_stride_abgr, width, height);
 
     unsafe {
-        sys::lkI010ToABGR(
+        yuv_sys::rs_I010ToABGR(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -794,7 +791,7 @@ pub fn i010_to_abgr(
             dst_stride_abgr as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -812,7 +809,7 @@ pub fn abgr_to_nv12(
     nv12_assert_safety(dst_y, dst_stride_y, dst_uv, dst_stride_uv, width, height);
 
     unsafe {
-        sys::lkABGRToNV12(
+        yuv_sys::rs_ABGRToNV12(
             src_abgr.as_ptr(),
             src_stride_abgr as i32,
             dst_y.as_mut_ptr(),
@@ -821,7 +818,7 @@ pub fn abgr_to_nv12(
             dst_stride_uv as i32,
             width,
             height,
-        )
+        );
     }
 }
 
@@ -839,7 +836,7 @@ pub fn argb_to_nv12(
     nv12_assert_safety(dst_y, dst_stride_y, dst_uv, dst_stride_uv, width, height);
 
     unsafe {
-        sys::lkARGBToNV12(
+        yuv_sys::rs_ARGBToNV12(
             src_argb.as_ptr(),
             src_stride_argb as i32,
             dst_y.as_mut_ptr(),
@@ -848,6 +845,6 @@ pub fn argb_to_nv12(
             dst_stride_uv as i32,
             width,
             height,
-        )
+        );
     }
 }
