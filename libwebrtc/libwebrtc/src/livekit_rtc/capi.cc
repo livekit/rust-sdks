@@ -69,16 +69,25 @@ lkVectorGeneric* lkCreateVectorGeneric() {
 }
 
 uint32_t lkVectorGenericGetSize(lkVectorGeneric* vec) {
+  if( vec == nullptr) {
+    return 0;
+  }
   return reinterpret_cast<livekit::LKVector<lkRefCountedObject*>*>(vec)->size();
 }
 
 lkRefCountedObject* lkVectorGenericGetAt(lkVectorGeneric* vec, uint32_t index) {
+  if (vec == nullptr) {
+    return nullptr;
+  }
   return reinterpret_cast<livekit::LKVector<lkRefCountedObject*>*>(vec)->get_at(
       index);
 }
 
 uint32_t lkVectorGenericPushBack(lkVectorGeneric* vec,
                                  lkRefCountedObject* value) {
+  if( vec == nullptr || value == nullptr) {
+    return -1;
+  }
   auto lkVec = reinterpret_cast<livekit::LKVector<lkRefCountedObject*>*>(vec);
   lkVec->push_back(value);
   return static_cast<uint32_t>(lkVec->size());

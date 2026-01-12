@@ -426,7 +426,6 @@ impl From<sys::lkEncryptionState> for EncryptionState {
 
 #[cfg(test)]
 mod tests {
-    use crate::sys;
 
     #[tokio::test]
     async fn key_provider_options() {
