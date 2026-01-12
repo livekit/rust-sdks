@@ -1373,7 +1373,7 @@ impl SessionInner {
 
             matched.append(&mut partial_matched);
 
-            transceiver.set_codec_preferences(matched)?;
+            //transceiver.set_codec_preferences(matched)?;
         }
 
         Ok(transceiver)

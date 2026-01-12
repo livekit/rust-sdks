@@ -7,13 +7,11 @@ mod conv;
 mod ffi;
 mod refcounted;
 mod utils;
-mod yuv_helper;
 
 pub use conv::*;
 pub use ffi::*;
 pub use refcounted::*;
 pub use utils::*;
-pub use yuv_helper::*;
 
 #[cfg(test)]
 mod tests {

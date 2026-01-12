@@ -259,7 +259,7 @@ webrtc::scoped_refptr<Peer> PeerFactory::CreatePeer(
 lkRtcVideoTrack* PeerFactory::CreateVideoTrack(const char* id,
                                                lkVideoTrackSource* source) {
   auto videoSource = reinterpret_cast<livekit::VideoTrackSource*>(source);
-  auto track = peer_factory_->CreateVideoTrack(videoSource->video_source(), id);
+  auto track = peer_factory_->CreateVideoTrack(videoSource->get(), id);
   if (track) {
     return reinterpret_cast<lkRtcVideoTrack*>(
         webrtc::make_ref_counted<livekit::VideoTrack>(track).release());

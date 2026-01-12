@@ -46,6 +46,7 @@ pub fn RtpCodecCapabilityFromNative(ffi: *mut sys::lkRtpCodecCapability) -> RtpC
             let ptr = sys::lkRtpCodecCapabilityGetSdpFmtpLine(ffi);
             sys::RefCountedString::from_native(ptr).as_str()
         }),
+        rtcp_feedback: vec![], // TODO: implement rtcp_feedback conversion
     }
 }
 

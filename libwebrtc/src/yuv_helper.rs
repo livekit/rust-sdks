@@ -14,8 +14,6 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use yuv_sys::rs_ABGRToNV12;
-
 fn argb_assert_safety(src: &[u8], src_stride: u32, _width: i32, height: i32) {
     let height_abs = height.unsigned_abs();
     let min = (src_stride * height_abs) as usize;

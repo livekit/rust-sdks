@@ -27,7 +27,7 @@ const FB_HEIGHT: usize = 720;
 struct FrameData {
     image: Arc<RgbaImage>,
     framebuffer: Arc<Mutex<Vec<u8>>>,
-    video_frame: Arc<Mutex<VideoFrame>>,
+    video_frame: Arc<Mutex<VideoFrame<I420Buffer>>>,
     pos: (i32, i32),
     direction: (i32, i32),
 }
@@ -78,7 +78,7 @@ impl LogoTrack {
                 TrackPublishOptions {
                     source: TrackSource::Camera,
                     simulcast: true,
-                    video_codec: VideoCodec::H265,
+                    video_codec: VideoCodec::VP8,
                     ..Default::default()
                 },
             )
@@ -116,7 +116,7 @@ impl LogoTrack {
             framebuffer: Arc::new(Mutex::new(vec![0u8; FB_WIDTH * FB_HEIGHT * 4])),
             video_frame: Arc::new(Mutex::new(VideoFrame {
                 rotation: VideoRotation::VideoRotation0,
-                buffer: Box::new(I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32)),
+                buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
                 timestamp_us: 0,
             })),
             pos: (0, 0),
@@ -152,8 +152,8 @@ impl LogoTrack {
                 move || {
                     let image = data.image.as_raw();
                     let mut framebuffer = data.framebuffer.lock();
-                    let video_frame = data.video_frame.lock();
-                    let i420_buffer = video_frame.buffer.as_i420().expect("Failed to get mutable I420 buffer");
+                    let mut video_frame = data.video_frame.lock();
+                    let i420_buffer = &mut video_frame.buffer;
 
                     let (stride_y, stride_u, stride_v) = i420_buffer.strides();
                     let (data_y, data_u, data_v) = i420_buffer.data_mut();

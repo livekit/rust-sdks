@@ -260,7 +260,6 @@ impl NativeVideoSource {
     }
 
     pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
-
         let mut inner = self.inner.lock();
         inner.captured_frames += 1;
 

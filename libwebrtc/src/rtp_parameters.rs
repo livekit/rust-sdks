@@ -71,11 +71,35 @@ pub struct RtpEncodingParameters {
 }
 
 #[derive(Debug, Clone)]
+pub enum RtcpFeedbackMessageType {
+    GenericNack,
+    Pli,
+    Fir,
+}
+
+#[derive(Debug, Clone)]
+pub enum RtcpFeedbackType {
+    Ccm,
+    Lntf,
+    Nack,
+    Remb,
+    TransportCC
+}
+
+#[derive(Debug, Clone)]
+pub struct RtcpFeedback {
+    pub feedback_type: RtcpFeedbackType,
+    pub has_message_type: bool,
+    pub message_type: RtcpFeedbackMessageType,
+}
+
+#[derive(Debug, Clone)]
 pub struct RtpCodecCapability {
     pub channels: Option<u16>,
     pub clock_rate: Option<u64>,
     pub mime_type: String,
     pub sdp_fmtp_line: Option<String>,
+    pub rtcp_feedback: Vec<RtcpFeedback>,
 }
 
 #[derive(Debug, Clone)]

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::impl_thread_safety;
-use crate::{sys, video_frame::internal::BufferSealed};
+use crate::{sys, yuv_helper, video_frame::internal::BufferSealed};
 use std::fmt::Debug;
 use thiserror::Error;
 
@@ -260,15 +260,15 @@ macro_rules! impl_to_argb {
             VideoFormatType::$variant => {
                 let (data_y, data_u, data_v) = $self.data();
                 unsafe {
-                    sys::$fnc(
-                        data_y.as_ptr() as *const u8,
-                        $self.stride_y() as ::std::os::raw::c_int,
-                        data_u.as_ptr() as *const u8,
-                        $self.stride_u() as ::std::os::raw::c_int,
-                        data_v.as_ptr() as *const u8,
-                        $self.stride_v() as ::std::os::raw::c_int,
+                    yuv_helper::$fnc(
+                        data_y,
+                        $self.stride_y(),
+                        data_u,
+                        $self.stride_u(),
+                        data_v,
+                        $self.stride_v(),
                         $dst,
-                        $dst_stride as ::std::os::raw::c_int,
+                        $dst_stride,
                         $dst_width,
                         $dst_height,
                     )
@@ -369,16 +369,15 @@ impl I420Buffer {
         dst_width: i32,
         dst_height: i32,
     ) {
-        let dst_ptr = dst.as_mut_ptr();
         impl_to_argb!(
             I420Buffer
             [
-                ARGB: lkI420ToARGB,
-                BGRA: lkI420ToBGRA,
-                ABGR: lkI420ToABGR,
-                RGBA: lkI420ToRGBA
+                ARGB: i420_to_argb,
+                BGRA: i420_to_bgra,
+                ABGR: i420_to_abgr,
+                RGBA: i420_to_rgba
             ],
-            format, self, dst_ptr, dst_stride, dst_width, dst_height
+            format, self, dst, dst_stride, dst_width, dst_height
         )
     }
 }
