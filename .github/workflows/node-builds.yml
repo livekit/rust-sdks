@@ -59,7 +59,6 @@ jobs:
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: livekit-ffi-node-bindings/package.json
-          run_install: true
 
       - name: Setup node
         uses: actions/setup-node@v6
@@ -67,6 +66,9 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: livekit-ffi-node-bindings/pnpm-lock.yaml
+
+      - run: pnpm install
+        working-directory: livekit-ffi-node-bindings
 
       - uses: dtolnay/rust-toolchain@stable
         with:
