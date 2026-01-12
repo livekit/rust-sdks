@@ -1,7 +1,7 @@
 {
   "name": "@livekit/rtc-node-win32-x64-msvc",
   "author": "LiveKit",
-  "version": "0.13.22",
+  "version": "0.12.43",
   "repository": {
     "type": "git",
     "url": "https://github.com/livekit/node-sdks.git",

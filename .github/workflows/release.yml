@@ -29,7 +29,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
       - name: Install VA-API/NVIDIA drivers and other dependencies for build
-        run:  |
+        run: |
           sudo apt update -y
           sudo apt install \
             libnvidia-compute-570 \
@@ -71,6 +71,14 @@ jobs:
     name: Call FFI Builds
     if: ${{ needs.release-plz-release.outputs.ffi_tag != '' }}
     uses: ./.github/workflows/ffi-builds.yml
+    needs: release-plz-release
+    with:
+      tag: ${{ needs.release-plz-release.outputs.ffi_tag }}
+
+  call-node-ffi:
+    name: Call node FFI Builds
+    if: ${{ needs.release-plz-release.outputs.ffi_tag != '' }}
+    uses: ./.github/workflows/node-builds.yml
     needs: release-plz-release
     with:
       tag: ${{ needs.release-plz-release.outputs.ffi_tag }}
