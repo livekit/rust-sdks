@@ -20,6 +20,7 @@ Publisher usage:
    --camera-index 0 \
    --room-name demo \
    --identity cam-1 \
+   --simulcast \
    --h265 \
    --max-bitrate 1500000 \
    --url https://your.livekit.server \
@@ -29,7 +30,8 @@ Publisher usage:
 
 Publisher flags (in addition to the common connection flags above):
 - `--h265`: Use H.265/HEVC encoding if supported (falls back to H.264 on failure).
-- `--max-bitrate <bps>`: Max video bitrate for the main layer in bits per second (e.g. `1500000`).
+- `--simulcast`: Publish simulcast video (multiple layers when the resolution is large enough).
+- `--max-bitrate <bps>`: Max video bitrate for the main (highest) layer in bits per second (e.g. `1500000`).
 
 Subscriber usage:
 ```

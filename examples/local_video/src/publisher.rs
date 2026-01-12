@@ -48,6 +48,10 @@ struct Args {
     #[arg(long)]
     max_bitrate: Option<u64>,
 
+    /// Enable simulcast publishing (low/medium/high layers as appropriate)
+    #[arg(long, default_value_t = false)]
+    simulcast: bool,
+
     /// LiveKit participant identity
     #[arg(long, default_value = "rust-camera-pub")]
     identity: String,
@@ -187,7 +191,7 @@ async fn main() -> Result<()> {
     let publish_opts = |codec: VideoCodec| {
         let mut opts = TrackPublishOptions {
             source: TrackSource::Camera,
-            simulcast: false,
+            simulcast: args.simulcast,
             video_codec: codec,
             ..Default::default()
         };
