@@ -111,10 +111,7 @@ pub struct FfiHandle {
 impl FfiHandle {
     #[napi(constructor)]
     pub fn new(handle: BigInt) -> Self {
-        Self {
-            handle,
-            disposed: false,
-        }
+        Self { handle, disposed: false }
     }
 
     #[napi]
