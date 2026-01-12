@@ -57,13 +57,17 @@ jobs:
         with:
           submodules: recursive
 
-      - uses: pnpm/action-setup@v4
-
       - name: Setup node
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: livekit-ffi-node-bindings/pnpm-lock.yaml
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: livekit-ffi-node-bindings/package.json
+          run_install: true
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -86,10 +90,6 @@ jobs:
             packages/livekit-ffi/.cargo-cache
             packages/livekit-ffi/target/
           key: ${{ matrix.target }}-cargo-${{ matrix.os }}
-
-      - name: Install dependencies
-        working-directory: livekit-ffi-node-bindings
-        run: pnpm install
 
       - name: Build (Linux)
         if: ${{ matrix.platform == 'linux' }}
