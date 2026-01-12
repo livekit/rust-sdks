@@ -167,7 +167,7 @@ jobs:
 
   release:
     needs: build
-    if: github.ref == 'refs/heads/main'
+    ## if: github.ref == 'refs/heads/main'
     name: Release
     runs-on: ubuntu-latest
     steps:
@@ -189,14 +189,6 @@ jobs:
         with:
           path: livekit-ffi-node-bindings/artifacts
 
-      - name: Move artifacts
-        run: pnpm artifacts
-        working-directory: livekit-ffi-node-bindings
-
-      - name: List packages
-        run: ls -R ./livekit-ffi-node-bindings/npm
-        shell: bash
-
       - name: Set package version from tag
         working-directory: livekit-ffi-node-bindings
         run: |
@@ -211,6 +203,14 @@ jobs:
         run: |
           ./generate_proto.sh
           pnpm build:ts
+
+      - name: Move artifacts
+        run: pnpm artifacts
+        working-directory: livekit-ffi-node-bindings
+
+      - name: List packages
+        run: ls -R ./livekit-ffi-node-bindings/npm
+        shell: bash
 
       - name: Publish
         working-directory: livekit-ffi-node-bindings
