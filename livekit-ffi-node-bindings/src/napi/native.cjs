@@ -1,19 +1,3 @@
-/*
- * Copyright 2025 LiveKit, Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 /* tslint:disable */
 /* eslint-disable */
 /* prettier-ignore */
@@ -52,7 +36,7 @@ switch (platform) {
     switch (arch) {
       case "arm64":
         localFileExisted = existsSync(
-          join(__dirname, "rtc-node.android-arm64.node"),
+          join(__dirname, "rtc-node.android-arm64.node")
         );
         try {
           if (localFileExisted) {
@@ -66,7 +50,7 @@ switch (platform) {
         break;
       case "arm":
         localFileExisted = existsSync(
-          join(__dirname, "rtc-node.android-arm-eabi.node"),
+          join(__dirname, "rtc-node.android-arm-eabi.node")
         );
         try {
           if (localFileExisted) {
@@ -86,7 +70,7 @@ switch (platform) {
     switch (arch) {
       case "x64":
         localFileExisted = existsSync(
-          join(__dirname, "rtc-node.win32-x64-msvc.node"),
+          join(__dirname, "rtc-node.win32-x64-msvc.node")
         );
         try {
           if (localFileExisted) {
@@ -100,7 +84,7 @@ switch (platform) {
         break;
       case "ia32":
         localFileExisted = existsSync(
-          join(__dirname, "rtc-node.win32-ia32-msvc.node"),
+          join(__dirname, "rtc-node.win32-ia32-msvc.node")
         );
         try {
           if (localFileExisted) {
@@ -114,7 +98,7 @@ switch (platform) {
         break;
       case "arm64":
         localFileExisted = existsSync(
-          join(__dirname, "rtc-node.win32-arm64-msvc.node"),
+          join(__dirname, "rtc-node.win32-arm64-msvc.node")
         );
         try {
           if (localFileExisted) {
@@ -132,7 +116,7 @@ switch (platform) {
     break;
   case "darwin":
     localFileExisted = existsSync(
-      join(__dirname, "rtc-node.darwin-universal.node"),
+      join(__dirname, "rtc-node.darwin-universal.node")
     );
     try {
       if (localFileExisted) {
@@ -145,7 +129,7 @@ switch (platform) {
     switch (arch) {
       case "x64":
         localFileExisted = existsSync(
-          join(__dirname, "rtc-node.darwin-x64.node"),
+          join(__dirname, "rtc-node.darwin-x64.node")
         );
         try {
           if (localFileExisted) {
@@ -159,7 +143,7 @@ switch (platform) {
         break;
       case "arm64":
         localFileExisted = existsSync(
-          join(__dirname, "rtc-node.darwin-arm64.node"),
+          join(__dirname, "rtc-node.darwin-arm64.node")
         );
         try {
           if (localFileExisted) {
@@ -195,7 +179,7 @@ switch (platform) {
       case "x64":
         if (isMusl()) {
           localFileExisted = existsSync(
-            join(__dirname, "rtc-node.linux-x64-musl.node"),
+            join(__dirname, "rtc-node.linux-x64-musl.node")
           );
           try {
             if (localFileExisted) {
@@ -208,7 +192,7 @@ switch (platform) {
           }
         } else {
           localFileExisted = existsSync(
-            join(__dirname, "rtc-node.linux-x64-gnu.node"),
+            join(__dirname, "rtc-node.linux-x64-gnu.node")
           );
           try {
             if (localFileExisted) {
@@ -224,7 +208,7 @@ switch (platform) {
       case "arm64":
         if (isMusl()) {
           localFileExisted = existsSync(
-            join(__dirname, "rtc-node.linux-arm64-musl.node"),
+            join(__dirname, "rtc-node.linux-arm64-musl.node")
           );
           try {
             if (localFileExisted) {
@@ -237,7 +221,7 @@ switch (platform) {
           }
         } else {
           localFileExisted = existsSync(
-            join(__dirname, "rtc-node.linux-arm64-gnu.node"),
+            join(__dirname, "rtc-node.linux-arm64-gnu.node")
           );
           try {
             if (localFileExisted) {
@@ -253,7 +237,7 @@ switch (platform) {
       case "arm":
         if (isMusl()) {
           localFileExisted = existsSync(
-            join(__dirname, "rtc-node.linux-arm-musleabihf.node"),
+            join(__dirname, "rtc-node.linux-arm-musleabihf.node")
           );
           try {
             if (localFileExisted) {
@@ -266,7 +250,7 @@ switch (platform) {
           }
         } else {
           localFileExisted = existsSync(
-            join(__dirname, "rtc-node.linux-arm-gnueabihf.node"),
+            join(__dirname, "rtc-node.linux-arm-gnueabihf.node")
           );
           try {
             if (localFileExisted) {
@@ -282,7 +266,7 @@ switch (platform) {
       case "riscv64":
         if (isMusl()) {
           localFileExisted = existsSync(
-            join(__dirname, "rtc-node.linux-riscv64-musl.node"),
+            join(__dirname, "rtc-node.linux-riscv64-musl.node")
           );
           try {
             if (localFileExisted) {
@@ -295,7 +279,7 @@ switch (platform) {
           }
         } else {
           localFileExisted = existsSync(
-            join(__dirname, "rtc-node.linux-riscv64-gnu.node"),
+            join(__dirname, "rtc-node.linux-riscv64-gnu.node")
           );
           try {
             if (localFileExisted) {
@@ -310,7 +294,7 @@ switch (platform) {
         break;
       case "s390x":
         localFileExisted = existsSync(
-          join(__dirname, "rtc-node.linux-s390x-gnu.node"),
+          join(__dirname, "rtc-node.linux-s390x-gnu.node")
         );
         try {
           if (localFileExisted) {

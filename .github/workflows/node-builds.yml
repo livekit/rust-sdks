@@ -1,4 +1,4 @@
-name: node ffi binding build
+name: Node FFI binding build and release
 
 permissions:
   id-token: write # Required for OIDC
@@ -36,9 +36,9 @@ jobs:
             platform: macos
             target: aarch64-apple-darwin
             macosx_deployment_target: "11.0"
-          #   - os: windows-latest
-          #     platform: windows
-          #     target: x86_64-pc-windows-msvc
+          - os: windows-latest
+            platform: windows
+            target: x86_64-pc-windows-msvc
           - os: ubuntu-latest
             platform: linux
             target: x86_64-unknown-linux-gnu
@@ -158,7 +158,6 @@ jobs:
 
   release:
     needs: build
-    ## if: github.ref == 'refs/heads/main'
     name: Release
     runs-on: ubuntu-latest
     steps:
