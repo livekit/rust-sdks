@@ -75,6 +75,8 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
 
+      - uses: Swatinem/rust-cache@v2.8.2
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
