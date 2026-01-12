@@ -140,8 +140,8 @@ impl PeerTransport {
         if ultimate_kbps == 0 {
             return None;
         }
-        // JS uses ~80% of ultimate; 100% is also reasonable per feedback.
-        let start_kbps = (ultimate_kbps as f64 * 0.8).round() as u32;
+        // JS / Flutter uses ~70% of ultimate; 100% is also reasonable per feedback.
+        let start_kbps = (ultimate_kbps as f64 * 0.7).round() as u32;
 
         // Clamp: avoid silly low/high values
         Some(start_kbps.clamp(300, ultimate_kbps))
