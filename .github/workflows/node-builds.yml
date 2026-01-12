@@ -56,6 +56,10 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: livekit-ffi-node-bindings/package.json
+          run_install: true
 
       - name: Setup node
         uses: actions/setup-node@v6
@@ -63,11 +67,6 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: livekit-ffi-node-bindings/pnpm-lock.yaml
-
-      - uses: pnpm/action-setup@v4
-        with:
-          package_json_file: livekit-ffi-node-bindings/package.json
-          run_install: true
 
       - uses: dtolnay/rust-toolchain@stable
         with:
