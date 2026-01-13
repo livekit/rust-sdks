@@ -35,6 +35,7 @@ pub(super) struct RemoteTrackTask {
 
 impl RemoteTrackTask {
     pub async fn run(mut self) {
+        log::debug!("Task started: sid={}", self.info.sid);
         let mut state = *self.state_rx.borrow();
         while state.is_published() {
             tokio::select! {
@@ -48,6 +49,7 @@ impl RemoteTrackTask {
                 else => break
             }
         }
+        log::debug!("Task ended: sid={}", self.info.sid);
         // TODO: send unsubscribe if needed
     }
 

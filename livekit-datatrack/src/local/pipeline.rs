@@ -34,6 +34,7 @@ pub(super) struct LocalTrackTask {
 
 impl LocalTrackTask {
     pub async fn run(mut self) {
+        log::debug!("Task started: sid={}", self.info.sid);
         let mut state = *self.state_rx.borrow();
         while state.is_published() {
             tokio::select! {
@@ -51,6 +52,7 @@ impl LocalTrackTask {
             let event = UnpublishRequestEvent { handle: self.info.handle };
             _ = self.event_out_tx.try_send(event.into());
         }
+        log::debug!("Task ended: sid={}", self.info.sid);
     }
 
     fn publish_frame(&mut self, mut frame: DataTrackFrame) {

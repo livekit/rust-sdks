@@ -181,7 +181,9 @@ pub struct ManagerTask {
 
 impl ManagerTask {
     pub async fn run(mut self) {
+        log::debug!("Task started");
         while let Some(event) = self.event_in_rx.recv().await {
+            log::debug!("Input event: {:?}", event);
             match event {
                 InputEvent::PublicationsUpdated(event) => {
                     self.handle_publications_updated(event).await
@@ -193,6 +195,7 @@ impl ManagerTask {
             }
         }
         self.shutdown().await;
+        log::debug!("Task ended");
     }
 
     async fn handle_publications_updated(&mut self, event: PublicationsUpdatedEvent) {
@@ -218,6 +221,7 @@ impl ManagerTask {
     }
 
     async fn handle_track_published(&mut self, publisher_identity: String, info: DataTrackInfo) {
+        log::debug!("Track published: sid={}", info.sid);
         if self.descriptors.contains_key(&info.sid) {
             log::error!("Existing descriptor for track {}", info.sid);
             return;
@@ -239,6 +243,7 @@ impl ManagerTask {
     }
 
     fn handle_track_unpublished(&mut self, sid: DataTrackSid) {
+        log::debug!("Track unpublished: sid={}", sid);
         self.sub_handles.remove(&sid);
         let Some(descriptor) = self.descriptors.remove(&sid) else {
             log::error!("Unknown track {}", sid);

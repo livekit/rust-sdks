@@ -203,13 +203,16 @@ pub struct ManagerTask {
 
 impl ManagerTask {
     pub async fn run(mut self) {
+        log::debug!("Task started");
         while let Some(event) = self.event_in_rx.recv().await {
+            log::debug!("Input event: {:?}", event);
             if matches!(event, InputEvent::Shutdown) {
                 break;
             }
             self.handle_event(event);
         }
         self.shutdown().await;
+        log::debug!("Task ended");
     }
 
     fn handle_event(&mut self, event: InputEvent) {
