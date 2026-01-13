@@ -25,10 +25,57 @@
 
 namespace livekit {
 
+class RtcpFeedback : public webrtc::RefCountInterface {
+ public:
+  RtcpFeedback() = default;
+  virtual ~RtcpFeedback() = default;
+
+  static webrtc::scoped_refptr<RtcpFeedback> Create() {
+    return webrtc::make_ref_counted<RtcpFeedback>();
+  }
+
+  static webrtc::scoped_refptr<RtcpFeedback> Create(
+      webrtc::RtcpFeedbackType type,
+      bool has_message_type,
+      webrtc::RtcpFeedbackMessageType message_type) {
+    auto ptr = webrtc::make_ref_counted<RtcpFeedback>();
+    ptr->rtc_feedback.type = type;
+    if (has_message_type) {
+      ptr->rtc_feedback.message_type = message_type;
+    }
+    return ptr;
+  }
+
+  static webrtc::scoped_refptr<RtcpFeedback> FromNative(
+      const webrtc::RtcpFeedback& native) {
+    auto feedback = webrtc::make_ref_counted<RtcpFeedback>();
+    feedback->rtc_feedback = native;
+    return feedback;
+  }
+
+  lkRtcpFeedbackType type() const {
+    return static_cast<lkRtcpFeedbackType>(rtc_feedback.type);
+  }
+
+  bool has_message_type() const {
+    return rtc_feedback.message_type.has_value();
+  }
+
+  lkRtcpFeedbackMessageType message_type() const {
+    return static_cast<lkRtcpFeedbackMessageType>(
+        rtc_feedback.message_type.value_or(
+            webrtc::RtcpFeedbackMessageType::GENERIC_NACK));
+  }
+
+  webrtc::RtcpFeedback rtc_feedback;
+};
+
 class RtpCodecCapability : public webrtc::RefCountInterface {
  public:
   RtpCodecCapability() = default;
-  virtual ~RtpCodecCapability() { RTC_LOG(LS_INFO) << "RtpCodecCapability destroyed"; }
+  virtual ~RtpCodecCapability() {
+    RTC_LOG(LS_INFO) << "RtpCodecCapability destroyed";
+  }
 
   static webrtc::scoped_refptr<RtpCodecCapability> Create() {
     return webrtc::make_ref_counted<RtpCodecCapability>();
@@ -45,19 +92,32 @@ class RtpCodecCapability : public webrtc::RefCountInterface {
 
   void set_mime_type(const std::string& mime_type) {
     std::vector<std::string> parts = split(mime_type, "/");
-    rtc_capability.name = parts[0];
-    rtc_capability.kind = parts[1] == "audio" ? webrtc::MediaType::AUDIO : webrtc::MediaType::VIDEO;
+    rtc_capability.kind = parts[0] == "audio" ? webrtc::MediaType::AUDIO
+                                              : webrtc::MediaType::VIDEO;
+    rtc_capability.name = parts[1];
   }
 
   uint32_t clock_rate() const { return rtc_capability.clock_rate.value_or(0); }
 
-  void set_clock_rate(uint32_t clock_rate) { rtc_capability.clock_rate = clock_rate; }
+  void set_clock_rate(uint32_t clock_rate) {
+    rtc_capability.clock_rate = clock_rate;
+  }
 
-  uint8_t num_channels() const { return rtc_capability.num_channels.value_or(1); }
+  uint8_t num_channels() const {
+    return rtc_capability.num_channels.value_or(0);
+  }
 
-  void set_num_channels(uint8_t num_channels) { rtc_capability.num_channels = num_channels; }
+  void set_num_channels(uint8_t num_channels) {
+    rtc_capability.num_channels = num_channels;
+  }
 
-  lkMediaType kind() const { return static_cast<lkMediaType>(rtc_capability.kind); }
+  lkMediaType kind() const {
+    return static_cast<lkMediaType>(rtc_capability.kind);
+  }
+
+  bool has_sdp_fmtp_line() const {
+    return !rtc_capability.parameters.empty();
+  }
 
   std::string sdp_fmtp_line() const {
     std::vector<std::string> strarr;
@@ -83,6 +143,42 @@ class RtpCodecCapability : public webrtc::RefCountInterface {
     }
   }
 
+  void set_preferred_payload_type(int payload_type) {
+    rtc_capability.preferred_payload_type = payload_type;
+  }
+
+  bool has_preferred_payload_type() const {
+    return rtc_capability.preferred_payload_type.has_value();
+  }
+
+  int preferred_payload_type() const {
+    return rtc_capability.preferred_payload_type.value();
+  }
+
+  lkVectorGeneric* rtcp_feedbacks() const {
+    auto feedback_vec = webrtc::make_ref_counted<
+        LKVector<webrtc::scoped_refptr<RtcpFeedback>>>();
+    for (const auto& feedback : rtc_capability.rtcp_feedback) {
+      feedback_vec->push_back(RtcpFeedback::FromNative(feedback));
+    }
+    return reinterpret_cast<lkVectorGeneric*>(feedback_vec.release());
+  }
+
+  int set_rtcp_feedbacks(lkVectorGeneric* feedbacks) {
+    if (feedbacks == nullptr) {
+      return 0;
+    }
+    rtc_capability.rtcp_feedback.clear();
+    auto feedback_vec =
+        reinterpret_cast<livekit::LKVector<lkRefCountedObject*>*>(feedbacks);
+    for (size_t i = 0; i < feedback_vec->size(); i++) {
+      auto feedback =
+          reinterpret_cast<livekit::RtcpFeedback*>(feedback_vec->get_at(i));
+      rtc_capability.rtcp_feedback.push_back(feedback->rtc_feedback);
+    }
+    return static_cast<int>(rtc_capability.rtcp_feedback.size());
+  }
+
   webrtc::RtpCodecCapability rtc_capability;
 };
 
@@ -104,14 +200,17 @@ class RtpCodecParameters : public webrtc::RefCountInterface {
 
   uint8_t payload_type() const { return rtc_parameters.payload_type; }
 
-  void set_payload_type(uint8_t payload_type) { rtc_parameters.payload_type = payload_type; }
+  void set_payload_type(uint8_t payload_type) {
+    rtc_parameters.payload_type = payload_type;
+  }
 
   std::string mime_type() const { return rtc_parameters.mime_type(); }
 
   void set_mime_type(const std::string& mime_type) {
     std::vector<std::string> parts = split(mime_type, "/");
     rtc_parameters.name = parts[0];
-    rtc_parameters.kind = parts[1] == "audio" ? webrtc::MediaType::AUDIO : webrtc::MediaType::VIDEO;
+    rtc_parameters.kind = parts[1] == "audio" ? webrtc::MediaType::AUDIO
+                                              : webrtc::MediaType::VIDEO;
   }
 
   const char* name() const { return rtc_parameters.name.c_str(); }
@@ -122,15 +221,25 @@ class RtpCodecParameters : public webrtc::RefCountInterface {
 
   bool has_clock_rate() const { return rtc_parameters.clock_rate.has_value(); }
 
-  void set_clock_rate(uint32_t clock_rate) { rtc_parameters.clock_rate = clock_rate; }
+  void set_clock_rate(uint32_t clock_rate) {
+    rtc_parameters.clock_rate = clock_rate;
+  }
 
-  uint8_t num_channels() const { return rtc_parameters.num_channels.value_or(1); }
+  uint8_t num_channels() const {
+    return rtc_parameters.num_channels.value_or(1);
+  }
 
-  bool has_num_channels() const { return rtc_parameters.num_channels.has_value(); }
+  bool has_num_channels() const {
+    return rtc_parameters.num_channels.has_value();
+  }
 
-  void set_num_channels(uint8_t num_channels) { rtc_parameters.num_channels = num_channels; }
+  void set_num_channels(uint8_t num_channels) {
+    rtc_parameters.num_channels = num_channels;
+  }
 
-  lkMediaType kind() const { return static_cast<lkMediaType>(rtc_parameters.kind); }
+  lkMediaType kind() const {
+    return static_cast<lkMediaType>(rtc_parameters.kind);
+  }
 
   webrtc::RtpCodecParameters rtc_parameters;
 };
@@ -144,7 +253,8 @@ class RtcpParameters : public webrtc::RefCountInterface {
     return webrtc::make_ref_counted<RtcpParameters>();
   }
 
-  static webrtc::scoped_refptr<RtcpParameters> FromNative(const webrtc::RtcpParameters& native) {
+  static webrtc::scoped_refptr<RtcpParameters> FromNative(
+      const webrtc::RtcpParameters& native) {
     auto rtcp = webrtc::make_ref_counted<RtcpParameters>();
     rtcp->rtc_parameters = native;
     return rtcp;
@@ -152,11 +262,15 @@ class RtcpParameters : public webrtc::RefCountInterface {
 
   const char* cname() const { return rtc_parameters.cname.c_str(); }
 
-  void set_cname(const char* cname) { rtc_parameters.cname = std::string(cname); }
+  void set_cname(const char* cname) {
+    rtc_parameters.cname = std::string(cname);
+  }
 
   bool reduced_size() const { return rtc_parameters.reduced_size; }
 
-  void set_reduced_size(bool reduced_size) { rtc_parameters.reduced_size = reduced_size; }
+  void set_reduced_size(bool reduced_size) {
+    rtc_parameters.reduced_size = reduced_size;
+  }
 
   webrtc::RtcpParameters rtc_parameters;
 };
@@ -181,23 +295,39 @@ class RtpEncodingParameters : public webrtc::RefCountInterface {
 
   void set_active(bool active) { rtc_parameters.active = active; }
 
-  bool has_max_bitrate_bps() const { return rtc_parameters.max_bitrate_bps.has_value(); }
+  bool has_max_bitrate_bps() const {
+    return rtc_parameters.max_bitrate_bps.has_value();
+  }
 
-  uint32_t max_bitrate_bps() const { return rtc_parameters.max_bitrate_bps.value(); }
+  uint32_t max_bitrate_bps() const {
+    return rtc_parameters.max_bitrate_bps.value();
+  }
 
-  void set_max_bitrate_bps(uint32_t bitrate) { rtc_parameters.max_bitrate_bps = bitrate; }
+  void set_max_bitrate_bps(uint32_t bitrate) {
+    rtc_parameters.max_bitrate_bps = bitrate;
+  }
 
-  bool has_min_bitrate_bps() const { return rtc_parameters.min_bitrate_bps.has_value(); }
+  bool has_min_bitrate_bps() const {
+    return rtc_parameters.min_bitrate_bps.has_value();
+  }
 
-  uint32_t min_bitrate_bps() const { return rtc_parameters.min_bitrate_bps.value(); }
+  uint32_t min_bitrate_bps() const {
+    return rtc_parameters.min_bitrate_bps.value();
+  }
 
-  void set_min_bitrate_bps(uint32_t bitrate) { rtc_parameters.min_bitrate_bps = bitrate; }
+  void set_min_bitrate_bps(uint32_t bitrate) {
+    rtc_parameters.min_bitrate_bps = bitrate;
+  }
 
-  bool has_max_framerate() const { return rtc_parameters.max_framerate.has_value(); }
+  bool has_max_framerate() const {
+    return rtc_parameters.max_framerate.has_value();
+  }
 
   double max_framerate() const { return rtc_parameters.max_framerate.value(); }
 
-  void set_max_framerate(double framerate) { rtc_parameters.max_framerate = framerate; }
+  void set_max_framerate(double framerate) {
+    rtc_parameters.max_framerate = framerate;
+  }
 
   bool has_scale_resolution_down_by() const {
     return rtc_parameters.scale_resolution_down_by.has_value();
@@ -211,9 +341,13 @@ class RtpEncodingParameters : public webrtc::RefCountInterface {
     rtc_parameters.scale_resolution_down_by = scale;
   }
 
-  bool has_num_temporal_layers() const { return rtc_parameters.num_temporal_layers.has_value(); }
+  bool has_num_temporal_layers() const {
+    return rtc_parameters.num_temporal_layers.has_value();
+  }
 
-  uint8_t num_temporal_layers() const { return rtc_parameters.num_temporal_layers.value(); }
+  uint8_t num_temporal_layers() const {
+    return rtc_parameters.num_temporal_layers.value();
+  }
 
   void set_num_temporal_layers(uint8_t num_layers) {
     rtc_parameters.num_temporal_layers = num_layers;
@@ -223,9 +357,13 @@ class RtpEncodingParameters : public webrtc::RefCountInterface {
 
   uint32_t ssrc() const { return rtc_parameters.ssrc.value(); }
 
-  bool has_scalability_mode() const { return rtc_parameters.scalability_mode.has_value(); }
+  bool has_scalability_mode() const {
+    return rtc_parameters.scalability_mode.has_value();
+  }
 
-  const char* scalability_mode() const { return rtc_parameters.scalability_mode.value().c_str(); }
+  const char* scalability_mode() const {
+    return rtc_parameters.scalability_mode.value().c_str();
+  }
 
   void set_scalability_mode(const char* mode) {
     rtc_parameters.scalability_mode = std::string(mode);
@@ -262,7 +400,9 @@ class RtpHeaderExtensionCapability : public webrtc::RefCountInterface {
 
   int preferred_id() const { return rtc_capability.preferred_id.value(); }
 
-  bool has_preferred_id() const { return rtc_capability.preferred_id.has_value(); }
+  bool has_preferred_id() const {
+    return rtc_capability.preferred_id.has_value();
+  }
 
   void set_preferred_id(int id) { rtc_capability.preferred_id = id; }
 
@@ -271,7 +411,8 @@ class RtpHeaderExtensionCapability : public webrtc::RefCountInterface {
   }
 
   void set_direction(lkRtpTransceiverDirection direction) {
-    rtc_capability.direction = static_cast<webrtc::RtpTransceiverDirection>(direction);
+    rtc_capability.direction =
+        static_cast<webrtc::RtpTransceiverDirection>(direction);
   }
 
   webrtc::RtpHeaderExtensionCapability rtc_capability;
@@ -280,33 +421,37 @@ class RtpHeaderExtensionCapability : public webrtc::RefCountInterface {
 class RtpCapabilities : public webrtc::RefCountInterface {
  public:
   RtpCapabilities() = default;
-  virtual ~RtpCapabilities() { RTC_LOG(LS_INFO) << "RtpCapabilities destroyed"; }
+  virtual ~RtpCapabilities() {
+    RTC_LOG(LS_INFO) << "RtpCapabilities destroyed";
+  }
 
   static webrtc::scoped_refptr<RtpCapabilities> Create() {
     return webrtc::make_ref_counted<RtpCapabilities>();
   }
 
-  static webrtc::scoped_refptr<RtpCapabilities> FromNative(const webrtc::RtpCapabilities& native) {
+  static webrtc::scoped_refptr<RtpCapabilities> FromNative(
+      const webrtc::RtpCapabilities& native) {
     auto caps = webrtc::make_ref_counted<RtpCapabilities>();
     for (const auto& codec : native.codecs) {
       caps->codecs.push_back(RtpCodecCapability::FromNative(codec));
     }
     for (const auto& ext : native.header_extensions) {
-      caps->header_extensions.push_back(RtpHeaderExtensionCapability::FromNative(ext));
+      caps->header_extensions.push_back(
+          RtpHeaderExtensionCapability::FromNative(ext));
     }
     return caps;
   }
 
   lkVectorGeneric* GetCodecs() {
-    auto vec =
-        webrtc::make_ref_counted<LKVector<webrtc::scoped_refptr<RtpCodecCapability>>>(codecs);
+    auto vec = webrtc::make_ref_counted<
+        LKVector<webrtc::scoped_refptr<RtpCodecCapability>>>(codecs);
     return reinterpret_cast<lkVectorGeneric*>(vec.release());
   }
 
   lkVectorGeneric* GetHeaderExtensions() {
-    auto vec =
-        webrtc::make_ref_counted<LKVector<webrtc::scoped_refptr<RtpHeaderExtensionCapability>>>(
-            header_extensions);
+    auto vec = webrtc::make_ref_counted<
+        LKVector<webrtc::scoped_refptr<RtpHeaderExtensionCapability>>>(
+        header_extensions);
     return reinterpret_cast<lkVectorGeneric*>(vec.release());
   }
 
@@ -315,13 +460,15 @@ class RtpCapabilities : public webrtc::RefCountInterface {
     return static_cast<int>(codecs.size());
   }
 
-  int add_header_extension(webrtc::scoped_refptr<RtpHeaderExtensionCapability> header_extension) {
+  int add_header_extension(
+      webrtc::scoped_refptr<RtpHeaderExtensionCapability> header_extension) {
     header_extensions.push_back(header_extension);
     return static_cast<int>(header_extensions.size());
   }
 
   std::vector<webrtc::scoped_refptr<RtpCodecCapability>> codecs;
-  std::vector<webrtc::scoped_refptr<RtpHeaderExtensionCapability>> header_extensions;
+  std::vector<webrtc::scoped_refptr<RtpHeaderExtensionCapability>>
+      header_extensions;
 };
 
 class RtpHeaderExtensionParameters : public webrtc::RefCountInterface {
@@ -364,14 +511,16 @@ class RtpParameters : public webrtc::RefCountInterface {
     return webrtc::make_ref_counted<RtpParameters>();
   }
 
-  static webrtc::scoped_refptr<RtpParameters> FromNative(const webrtc::RtpParameters& native) {
+  static webrtc::scoped_refptr<RtpParameters> FromNative(
+      const webrtc::RtpParameters& native) {
     auto params = webrtc::make_ref_counted<RtpParameters>();
     for (const auto& codec : native.codecs) {
       params->codecs.push_back(RtpCodecParameters::FromNative(codec));
     }
 
     for (const auto& ext : native.header_extensions) {
-      params->header_extensions.push_back(RtpHeaderExtensionParameters::FromNative(ext));
+      params->header_extensions.push_back(
+          RtpHeaderExtensionParameters::FromNative(ext));
     }
     params->rtcp = RtcpParameters::FromNative(native.rtcp);
     return params;
@@ -393,7 +542,9 @@ class RtpParameters : public webrtc::RefCountInterface {
 
   void set_lk_codecs(lkVectorGeneric* lk_codecs) {
     codecs.clear();
-    auto vec = reinterpret_cast<LKVector<webrtc::scoped_refptr<RtpCodecParameters>>*>(lk_codecs);
+    auto vec =
+        reinterpret_cast<LKVector<webrtc::scoped_refptr<RtpCodecParameters>>*>(
+            lk_codecs);
     for (size_t i = 0; i < vec->size(); i++) {
       codecs.push_back(vec->get_at(i));
     }
@@ -405,29 +556,30 @@ class RtpParameters : public webrtc::RefCountInterface {
 
   void set_lk_header_extensions(lkVectorGeneric* lk_header_extensions) {
     header_extensions.clear();
-    auto vec =
-        reinterpret_cast<LKVector<webrtc::scoped_refptr<RtpHeaderExtensionParameters>>*>(
-            lk_header_extensions);
+    auto vec = reinterpret_cast<
+        LKVector<webrtc::scoped_refptr<RtpHeaderExtensionParameters>>*>(
+        lk_header_extensions);
     for (size_t i = 0; i < vec->size(); i++) {
       header_extensions.push_back(vec->get_at(i));
     }
   }
 
   lkVectorGeneric* GetCodecs() {
-    auto vec =
-        webrtc::make_ref_counted<LKVector<webrtc::scoped_refptr<RtpCodecParameters>>>(codecs);
+    auto vec = webrtc::make_ref_counted<
+        LKVector<webrtc::scoped_refptr<RtpCodecParameters>>>(codecs);
     return reinterpret_cast<lkVectorGeneric*>(vec.release());
   }
 
   lkVectorGeneric* GetHeaderExtensions() {
-    auto vec =
-        webrtc::make_ref_counted<LKVector<webrtc::scoped_refptr<RtpHeaderExtensionParameters>>>(
-            header_extensions);
+    auto vec = webrtc::make_ref_counted<
+        LKVector<webrtc::scoped_refptr<RtpHeaderExtensionParameters>>>(
+        header_extensions);
     return reinterpret_cast<lkVectorGeneric*>(vec.release());
   }
 
   std::vector<webrtc::scoped_refptr<RtpCodecParameters>> codecs;
-  std::vector<webrtc::scoped_refptr<RtpHeaderExtensionParameters>> header_extensions;
+  std::vector<webrtc::scoped_refptr<RtpHeaderExtensionParameters>>
+      header_extensions;
   webrtc::scoped_refptr<RtcpParameters> rtcp;
 };
 
@@ -445,7 +597,8 @@ class RtpTransceiverInit : public webrtc::RefCountInterface {
   }
 
   void set_direction(lkRtpTransceiverDirection direction) {
-    rtc_init.direction = static_cast<webrtc::RtpTransceiverDirection>(direction);
+    rtc_init.direction =
+        static_cast<webrtc::RtpTransceiverDirection>(direction);
   }
 
   void set_stream_ids(const std::vector<std::string>& stream_ids) {
@@ -454,13 +607,15 @@ class RtpTransceiverInit : public webrtc::RefCountInterface {
 
   void set_lk_stream_ids(lkVectorGeneric* stream_ids) {
     rtc_init.stream_ids.clear();
-    auto vec = reinterpret_cast<LKVector<webrtc::scoped_refptr<LKString>>*>(stream_ids);
+    auto vec = reinterpret_cast<LKVector<webrtc::scoped_refptr<LKString>>*>(
+        stream_ids);
     for (size_t i = 0; i < vec->size(); i++) {
       rtc_init.stream_ids.push_back(vec->get_at(i)->get());
     }
   }
 
-  void set_send_encodings(const std::vector<RtpEncodingParameters>& send_encodings) {
+  void set_send_encodings(
+      const std::vector<RtpEncodingParameters>& send_encodings) {
     for (const auto& encoding : send_encodings) {
       rtc_init.send_encodings.push_back(encoding.rtc_parameters);
     }
@@ -468,8 +623,9 @@ class RtpTransceiverInit : public webrtc::RefCountInterface {
 
   void set_lk_send_encodings(lkVectorGeneric* send_encodings) {
     rtc_init.send_encodings.clear();
-    auto vec =
-        reinterpret_cast<LKVector<webrtc::scoped_refptr<RtpEncodingParameters>>*>(send_encodings);
+    auto vec = reinterpret_cast<
+        LKVector<webrtc::scoped_refptr<RtpEncodingParameters>>*>(
+        send_encodings);
     for (size_t i = 0; i < vec->size(); i++) {
       rtc_init.send_encodings.push_back(vec->get_at(i)->rtc_parameters);
     }

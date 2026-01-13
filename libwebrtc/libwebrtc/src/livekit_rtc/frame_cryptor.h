@@ -278,7 +278,6 @@ class NativeFrameCryptorObserver
     : public webrtc::FrameCryptorTransformerObserver {
  public:
   NativeFrameCryptorObserver(RtcFrameCryptorObserverWrapper observer,
-                             const FrameCryptor* fc,
                              void* userdata);
   ~NativeFrameCryptorObserver();
 
@@ -287,7 +286,6 @@ class NativeFrameCryptorObserver
 
  private:
   RtcFrameCryptorObserverWrapper observer_;
-  const FrameCryptor* fc_;
   void* userdata_;
 };
 

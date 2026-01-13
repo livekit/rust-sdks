@@ -40,13 +40,59 @@ pub fn RtpCodecCapabilityFromNative(ffi: *mut sys::lkRtpCodecCapability) -> RtpC
             let ptr = sys::lkRtpCodecCapabilityGetMimeType(ffi);
             sys::RefCountedString::from_native(ptr).as_str()
         },
-        clock_rate: Some(unsafe { sys::lkRtpCodecCapabilityGetClockRate(ffi) as u64 }),
-        channels: Some(unsafe { sys::lkRtpCodecCapabilityGetChannels(ffi) as u16 }),
-        sdp_fmtp_line: Some(unsafe {
-            let ptr = sys::lkRtpCodecCapabilityGetSdpFmtpLine(ffi);
-            sys::RefCountedString::from_native(ptr).as_str()
-        }),
-        rtcp_feedback: vec![], // TODO: implement rtcp_feedback conversion
+        clock_rate: unsafe {
+            let cr = sys::lkRtpCodecCapabilityGetClockRate(ffi) as u64;
+            if cr > 0 {
+                Some(sys::lkRtpCodecCapabilityGetClockRate(ffi) as u64)
+            } else {
+                None
+            }
+        },
+        channels: unsafe {
+            let ch = sys::lkRtpCodecCapabilityGetChannels(ffi) as u16;
+            if ch > 0 {
+                Some(sys::lkRtpCodecCapabilityGetChannels(ffi) as u16)
+            } else {
+                None
+            }
+        },
+        sdp_fmtp_line: unsafe {
+            if sys::lkRtpCodecCapabilityHasSdpFmtpLine(ffi) {
+                let ptr = sys::lkRtpCodecCapabilityGetSdpFmtpLine(ffi);
+                Some(sys::RefCountedString::from_native(ptr).as_str())
+            } else {
+                None
+            }
+        },
+        preferred_payload_type: unsafe {
+            if sys::lkRtpCodecCapabilityHasPreferredPayloadType(ffi) {
+                Some(sys::lkRtpCodecCapabilityGetPreferredPayloadType(ffi) as u8)
+            } else {
+                None
+            }
+        },
+        rtcp_feedback: unsafe {
+            let vec_ptr = sys::lkRtpCodecCapabilityGetRtcpFeedbacks(ffi);
+            let feedback_vec = sys::RefCountedVector::from_native_vec(vec_ptr);
+            let mut items = Vec::new();
+            for i in 0..feedback_vec.vec.len() as isize {
+                let lk_feedback_type = sys::lkRtcpFeedbackGetType(
+                    feedback_vec.vec[i as usize].as_ptr() as *mut sys::lkRtcpFeedback,
+                );
+                let has_feedback_message_type = sys::lkRtcpFeedbackHasMessageType(
+                    feedback_vec.vec[i as usize].as_ptr() as *mut sys::lkRtcpFeedback,
+                );
+                let lk_message_type = sys::lkRtcpFeedbackGetMessageType(
+                    feedback_vec.vec[i as usize].as_ptr() as *mut sys::lkRtcpFeedback,
+                );
+                items.push(RtcpFeedback {
+                    feedback_type: lk_feedback_type.into(),
+                    has_message_type: has_feedback_message_type,
+                    message_type: lk_message_type.into(),
+                });
+            }
+            items
+        },
     }
 }
 
@@ -97,7 +143,7 @@ pub fn RtpCapabilitiesFromNative(ffi: sys::RefCounted<sys::lkRtpCapabilities>) -
 pub fn RtcpParametersFromNative(ffi: *mut sys::lkRtcpParameters) -> RtcpParameters {
     RtcpParameters {
         cname: unsafe {
-            let ptr = sys::lkRtcpParametersGetCname(ffi);
+            let ptr: *mut std::ffi::c_void = sys::lkRtcpParametersGetCname(ffi);
             sys::RefCountedString::from_native(ptr).as_str()
         },
         reduced_size: unsafe { sys::lkRtcpParametersGetReducedSize(ffi) },

@@ -106,7 +106,7 @@ void FrameCryptor::register_observer(
     RtcFrameCryptorObserverWrapper observer, void *userdata) {
   webrtc::MutexLock lock(&mutex_);
   observer_ = rtc::make_ref_counted<NativeFrameCryptorObserver>(
-      observer, this, userdata);
+      observer, userdata);
   e2ee_transformer_->RegisterFrameCryptorTransformerObserver(observer_);
 }
 
@@ -118,9 +118,8 @@ void FrameCryptor::unregister_observer() const {
 
 NativeFrameCryptorObserver::NativeFrameCryptorObserver(
     RtcFrameCryptorObserverWrapper observer,
-    const FrameCryptor* fc, 
     void* userdata)
-    : observer_(std::move(observer)), fc_(fc), userdata_(userdata) {}
+    : observer_(std::move(observer)), userdata_(userdata) {}
 
 NativeFrameCryptorObserver::~NativeFrameCryptorObserver() {}
 

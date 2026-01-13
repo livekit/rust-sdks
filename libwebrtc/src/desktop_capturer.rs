@@ -101,7 +101,9 @@ impl DesktopCapturer {
     }
 
     pub(crate) fn capture_frame(&self) {
-        self.sys_handle.capture_frame();
+        unsafe {
+            sys::lkDesktopCapturerCaptureFrame(self.ffi.as_ptr());
+        }
     }
 
     pub(crate) fn start<T>(&mut self, callback: T)
@@ -145,6 +147,25 @@ impl Drop for DesktopCapturer {
         }
     }
 }
+
+pub struct DesktopCapturerCallbackWrapper {
+    callback: Box<dyn sys_dc::DesktopCapturerCallback + Send>,
+}
+
+impl DesktopCapturerCallbackWrapper {
+    fn new(callback: Box<dyn sys_dc::DesktopCapturerCallback + Send>) -> Self {
+        Self { callback }
+    }
+
+    fn on_capture_result(
+        self: &mut DesktopCapturerCallbackWrapper,
+        result: CaptureResult,
+        frame: UniquePtr<DesktopFrame>,
+    ) {
+        self.callback.on_capture_result(result, frame);
+    }
+}
+
 
 pub(crate) struct DesktopFrame {
     ffi: sys::RefCounted<sys::lkDesktopFrame>,

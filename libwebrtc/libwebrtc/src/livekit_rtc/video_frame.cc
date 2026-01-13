@@ -26,7 +26,7 @@ VideoFrame::VideoFrame(const webrtc::VideoFrame& frame)
     : frame_(std::move(frame)) {}
 
 VideoFrame::~VideoFrame() {
-  RTC_LOG(LS_INFO) << "VideoFrame destroyed";
+  //RTC_LOG(LS_INFO) << "VideoFrame destroyed";
 }
 
 unsigned int VideoFrame::width() const {

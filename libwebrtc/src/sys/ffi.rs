@@ -57,6 +57,7 @@ pub type lkDesktopSource = lkRefCountedObject;
 pub type lkAudioMixer = lkRefCountedObject;
 pub type lkAudioResampler = lkRefCountedObject;
 pub type lkAudioProcessingModule = lkRefCountedObject;
+pub type lkRtcpFeedback = lkRefCountedObject;
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkMediaType {
@@ -542,11 +543,25 @@ pub enum lkRtpTransceiverDirection {
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum lkNetworkPriority {
-    kVeryLow = 0,
-    kLow = 1,
-    kMedium = 2,
-    kHigh = 3,
+pub enum lkFecMechanism {
+    FEC_MECHANISM_ULPFEC = 1,
+    FEC_MECHANISM_RED = 2,
+}
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkRtcpFeedbackMessageType {
+    RTCP_FEEDBACK_MESSAGE_TYPE_GENERIC_NACK = 0,
+    RTCP_FEEDBACK_MESSAGE_TYPE_PLI = 1,
+    RTCP_FEEDBACK_MESSAGE_TYPE_FIR = 2,
+}
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkRtcpFeedbackType {
+    RTCP_FEEDBACK_TYPE_CCM = 0,
+    RTCP_FEEDBACK_TYPE_LNTP = 1,
+    RTCP_FEEDBACK_TYPE_NACK = 2,
+    RTCP_FEEDBACK_TYPE_REMB = 3,
+    RTCP_FEEDBACK_TYPE_TRANSPORT_CC = 4,
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -1401,13 +1416,21 @@ unsafe extern "C" {
     pub fn lkRtpCodecCapabilitySetChannels(codec: *mut lkRtpCodecCapability, channels: u16);
 }
 unsafe extern "C" {
-    pub fn lkRtpCodecCapabilitySetSdpFmtpLine(
-        codec: *mut lkRtpCodecCapability,
-        sdpFmtpLine: *const ::std::os::raw::c_char,
-    );
+    pub fn lkRtpCodecCapabilityGetChannels(codec: *mut lkRtpCodecCapability) -> u16;
 }
 unsafe extern "C" {
-    pub fn lkRtpCodecCapabilityGetChannels(codec: *mut lkRtpCodecCapability) -> u16;
+    pub fn lkRtpCodecCapabilityGetPreferredPayloadType(
+        codec: *mut lkRtpCodecCapability,
+    ) -> ::std::os::raw::c_int;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilityHasPreferredPayloadType(codec: *mut lkRtpCodecCapability) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilitySetPreferredPayloadType(
+        codec: *mut lkRtpCodecCapability,
+        payloadType: ::std::os::raw::c_int,
+    );
 }
 unsafe extern "C" {
     pub fn lkRtpCodecCapabilityGetClockRate(codec: *mut lkRtpCodecCapability) -> u32;
@@ -1416,7 +1439,44 @@ unsafe extern "C" {
     pub fn lkRtpCodecCapabilityGetMimeType(codec: *mut lkRtpCodecCapability) -> *mut lkString;
 }
 unsafe extern "C" {
+    pub fn lkRtpCodecCapabilityHasSdpFmtpLine(codec: *mut lkRtpCodecCapability) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilitySetSdpFmtpLine(
+        codec: *mut lkRtpCodecCapability,
+        sdpFmtpLine: *const ::std::os::raw::c_char,
+    );
+}
+unsafe extern "C" {
     pub fn lkRtpCodecCapabilityGetSdpFmtpLine(codec: *mut lkRtpCodecCapability) -> *mut lkString;
+}
+unsafe extern "C" {
+    pub fn lkRtcpFeedbackCreate(
+        type_: lkRtcpFeedbackType,
+        hasMessageType: bool,
+        messageType: lkRtcpFeedbackMessageType,
+    ) -> *mut lkRtcpFeedback;
+}
+unsafe extern "C" {
+    pub fn lkRtcpFeedbackGetType(feedback: *mut lkRtcpFeedback) -> lkRtcpFeedbackType;
+}
+unsafe extern "C" {
+    pub fn lkRtcpFeedbackHasMessageType(feedback: *mut lkRtcpFeedback) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkRtcpFeedbackGetMessageType(feedback: *mut lkRtcpFeedback)
+        -> lkRtcpFeedbackMessageType;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilityGetRtcpFeedbacks(
+        codec: *mut lkRtpCodecCapability,
+    ) -> *mut lkVectorGeneric;
+}
+unsafe extern "C" {
+    pub fn lkRtpCodecCapabilitySetRtcpFeedbacks(
+        codec: *mut lkRtpCodecCapability,
+        rtcpFeedbacks: *mut lkVectorGeneric,
+    );
 }
 unsafe extern "C" {
     pub fn lkRtpHeaderExtensionCapabilityGetUri(

@@ -75,19 +75,44 @@ impl RtpTransceiver {
 
             for c in codecs {
                 let mime_type_cstr = std::ffi::CString::new(c.mime_type.clone()).unwrap();
-                let sdp_fmtp_line_cstr = match &c.sdp_fmtp_line {
-                    Some(line) => std::ffi::CString::new(line.clone()).unwrap(),
-                    None => std::ffi::CString::new("").unwrap(),
-                };
                 let cap = sys::lkRtpCodecCapabilityCreate();
 
-                sys::lkRtpCodecCapabilitySetChannels(cap, c.channels.unwrap_or(1));
-                sys::lkRtpCodecCapabilitySetClockRate(
-                    cap,
-                    c.clock_rate.unwrap_or(0).try_into().unwrap(),
-                );
+                if let Some(ch) = c.channels {
+                    sys::lkRtpCodecCapabilitySetChannels(cap, ch.try_into().unwrap());
+                }
+
+                if let Some(sdp_fmtp_line) = &c.sdp_fmtp_line {
+                    let str =   std::ffi::CString::new(sdp_fmtp_line.clone()).unwrap();
+                    sys::lkRtpCodecCapabilitySetSdpFmtpLine(
+                        cap,
+                        str.as_ptr(),
+                    );
+                }
+
+                if let Some(clock_rate) = c.clock_rate {
+                    sys::lkRtpCodecCapabilitySetClockRate(cap, clock_rate.try_into().unwrap());
+                }
+
                 sys::lkRtpCodecCapabilitySetMimeType(cap, mime_type_cstr.as_ptr());
-                sys::lkRtpCodecCapabilitySetSdpFmtpLine(cap, sdp_fmtp_line_cstr.as_ptr());
+        
+                if let Some(payload_type) = c.preferred_payload_type {
+                    sys::lkRtpCodecCapabilitySetPreferredPayloadType(cap, payload_type as i32);
+                }
+
+                let mut rtcp_feedbacks = sys::RefCountedVector::new();
+
+                for fb in c.rtcp_feedback {
+                    let rtcp_fb = sys::lkRtcpFeedbackCreate(
+                        fb.feedback_type.into(),
+                        fb.has_message_type,
+                        fb.message_type.into(),
+                    );
+                    rtcp_feedbacks.push_back(sys::RefCounted::from_raw(
+                        rtcp_fb as *mut sys::lkRefCountedObject,
+                    ));
+                }
+
+                sys::lkRtpCodecCapabilitySetRtcpFeedbacks(cap, rtcp_feedbacks.ffi.as_ptr());
 
                 native_codecs
                     .push_back(sys::RefCounted::from_raw(cap as *mut sys::lkRefCountedObject));

@@ -72,6 +72,7 @@ typedef lkRefCountedObject lkDesktopSource;
 typedef lkRefCountedObject lkAudioMixer;
 typedef lkRefCountedObject lkAudioResampler;
 typedef lkRefCountedObject lkAudioProcessingModule;
+typedef lkRefCountedObject lkRtcpFeedback;
 
 typedef enum {
   LK_MEDIA_TYPE_AUDIO,
@@ -301,14 +302,21 @@ typedef enum {
 typedef enum {
   FEC_MECHANISM_ULPFEC = 1,
   FEC_MECHANISM_RED = 2,
-} FecMechanism;
+} lkFecMechanism;
 
-typedef enum {
-  kVeryLow,
-  kLow,
-  kMedium,
-  kHigh,
-} lkNetworkPriority;
+typedef enum  {
+  RTCP_FEEDBACK_MESSAGE_TYPE_GENERIC_NACK = 0,
+  RTCP_FEEDBACK_MESSAGE_TYPE_PLI = 1,
+  RTCP_FEEDBACK_MESSAGE_TYPE_FIR = 2,
+} lkRtcpFeedbackMessageType;
+
+typedef enum  {
+  RTCP_FEEDBACK_TYPE_CCM,
+  RTCP_FEEDBACK_TYPE_LNTP,
+  RTCP_FEEDBACK_TYPE_NACK,
+  RTCP_FEEDBACK_TYPE_REMB,
+  RTCP_FEEDBACK_TYPE_TRANSPORT_CC,
+} lkRtcpFeedbackType;
 
 typedef enum {
   AesGcm,
@@ -871,10 +879,17 @@ LK_EXPORT void lkRtpCodecCapabilitySetClockRate(lkRtpCodecCapability* codec,
 LK_EXPORT void lkRtpCodecCapabilitySetChannels(lkRtpCodecCapability* codec,
                                                uint16_t channels);
 
-LK_EXPORT void lkRtpCodecCapabilitySetSdpFmtpLine(lkRtpCodecCapability* codec,
-                                                  const char* sdpFmtpLine);
-
 LK_EXPORT uint16_t lkRtpCodecCapabilityGetChannels(lkRtpCodecCapability* codec);
+
+LK_EXPORT int lkRtpCodecCapabilityGetPreferredPayloadType(
+    lkRtpCodecCapability* codec);
+
+LK_EXPORT bool lkRtpCodecCapabilityHasPreferredPayloadType(
+    lkRtpCodecCapability* codec);
+
+LK_EXPORT void lkRtpCodecCapabilitySetPreferredPayloadType(
+    lkRtpCodecCapability* codec,
+    int payloadType);
 
 LK_EXPORT uint32_t
 lkRtpCodecCapabilityGetClockRate(lkRtpCodecCapability* codec);
@@ -882,8 +897,31 @@ lkRtpCodecCapabilityGetClockRate(lkRtpCodecCapability* codec);
 LK_EXPORT lkString* lkRtpCodecCapabilityGetMimeType(
     lkRtpCodecCapability* codec);
 
+LK_EXPORT bool lkRtpCodecCapabilityHasSdpFmtpLine(lkRtpCodecCapability* codec);
+
+LK_EXPORT void lkRtpCodecCapabilitySetSdpFmtpLine(lkRtpCodecCapability* codec,
+                                                  const char* sdpFmtpLine);
+
 LK_EXPORT lkString* lkRtpCodecCapabilityGetSdpFmtpLine(
     lkRtpCodecCapability* codec);
+
+LK_EXPORT lkRtcpFeedback* lkRtcpFeedbackCreate(lkRtcpFeedbackType type,
+                                               bool hasMessageType,
+                                               lkRtcpFeedbackMessageType messageType);
+
+LK_EXPORT lkRtcpFeedbackType lkRtcpFeedbackGetType(lkRtcpFeedback* feedback);
+
+LK_EXPORT bool lkRtcpFeedbackHasMessageType(lkRtcpFeedback* feedback);
+
+LK_EXPORT lkRtcpFeedbackMessageType lkRtcpFeedbackGetMessageType(
+    lkRtcpFeedback* feedback);
+
+LK_EXPORT lkVectorGeneric* lkRtpCodecCapabilityGetRtcpFeedbacks(
+    lkRtpCodecCapability* codec);
+
+LK_EXPORT void lkRtpCodecCapabilitySetRtcpFeedbacks(
+    lkRtpCodecCapability* codec,
+    lkVectorGeneric* rtcpFeedbacks);
 
 LK_EXPORT lkString* lkRtpHeaderExtensionCapabilityGetUri(
     lkRtpHeaderExtensionCapability* ext);
@@ -1220,6 +1258,7 @@ LK_EXPORT int32_t lkAudioProcessingModuleProcessReverseStream(
 LK_EXPORT int32_t lkAudioProcessingModuleSetStreamDelayMs(
     lkAudioProcessingModule* apm,
     int32_t delay);
+
 
 #ifdef __cplusplus
 }

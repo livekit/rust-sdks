@@ -77,6 +77,28 @@ pub enum RtcpFeedbackMessageType {
     Fir,
 }
 
+impl From<RtcpFeedbackMessageType> for sys::lkRtcpFeedbackMessageType {
+    fn from(state: RtcpFeedbackMessageType) -> Self {
+        match state {
+            RtcpFeedbackMessageType::GenericNack => Self::RTCP_FEEDBACK_MESSAGE_TYPE_GENERIC_NACK,
+            RtcpFeedbackMessageType::Pli => Self::RTCP_FEEDBACK_MESSAGE_TYPE_PLI,
+            RtcpFeedbackMessageType::Fir => Self::RTCP_FEEDBACK_MESSAGE_TYPE_FIR,
+        }
+    }
+}
+
+impl From<sys::lkRtcpFeedbackMessageType> for RtcpFeedbackMessageType {
+    fn from(state: sys::lkRtcpFeedbackMessageType) -> Self {
+        match state {
+            sys::lkRtcpFeedbackMessageType::RTCP_FEEDBACK_MESSAGE_TYPE_GENERIC_NACK => {
+                Self::GenericNack
+            }
+            sys::lkRtcpFeedbackMessageType::RTCP_FEEDBACK_MESSAGE_TYPE_PLI => Self::Pli,
+            sys::lkRtcpFeedbackMessageType::RTCP_FEEDBACK_MESSAGE_TYPE_FIR => Self::Fir,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RtcpFeedbackType {
     Ccm,
@@ -84,6 +106,30 @@ pub enum RtcpFeedbackType {
     Nack,
     Remb,
     TransportCC,
+}
+
+impl From<sys::lkRtcpFeedbackType> for RtcpFeedbackType {
+    fn from(state: sys::lkRtcpFeedbackType) -> Self {
+        match state {
+            sys::lkRtcpFeedbackType::RTCP_FEEDBACK_TYPE_CCM => Self::Ccm,
+            sys::lkRtcpFeedbackType::RTCP_FEEDBACK_TYPE_LNTP => Self::Lntf,
+            sys::lkRtcpFeedbackType::RTCP_FEEDBACK_TYPE_NACK => Self::Nack,
+            sys::lkRtcpFeedbackType::RTCP_FEEDBACK_TYPE_REMB => Self::Remb,
+            sys::lkRtcpFeedbackType::RTCP_FEEDBACK_TYPE_TRANSPORT_CC => Self::TransportCC,
+        }
+    }
+}
+
+impl From<RtcpFeedbackType> for sys::lkRtcpFeedbackType {
+    fn from(state: RtcpFeedbackType) -> Self {
+        match state {
+            RtcpFeedbackType::Ccm => Self::RTCP_FEEDBACK_TYPE_CCM,
+            RtcpFeedbackType::Lntf => Self::RTCP_FEEDBACK_TYPE_LNTP,
+            RtcpFeedbackType::Nack => Self::RTCP_FEEDBACK_TYPE_NACK,
+            RtcpFeedbackType::Remb => Self::RTCP_FEEDBACK_TYPE_REMB,
+            RtcpFeedbackType::TransportCC => Self::RTCP_FEEDBACK_TYPE_TRANSPORT_CC,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +144,7 @@ pub struct RtpCodecCapability {
     pub channels: Option<u16>,
     pub clock_rate: Option<u64>,
     pub mime_type: String,
+    pub preferred_payload_type: Option<u8>,
     pub sdp_fmtp_line: Option<String>,
     pub rtcp_feedback: Vec<RtcpFeedback>,
 }

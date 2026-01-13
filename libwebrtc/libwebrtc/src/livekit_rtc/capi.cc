@@ -69,7 +69,7 @@ lkVectorGeneric* lkCreateVectorGeneric() {
 }
 
 uint32_t lkVectorGenericGetSize(lkVectorGeneric* vec) {
-  if( vec == nullptr) {
+  if (vec == nullptr) {
     return 0;
   }
   return reinterpret_cast<livekit::LKVector<lkRefCountedObject*>*>(vec)->size();
@@ -85,7 +85,7 @@ lkRefCountedObject* lkVectorGenericGetAt(lkVectorGeneric* vec, uint32_t index) {
 
 uint32_t lkVectorGenericPushBack(lkVectorGeneric* vec,
                                  lkRefCountedObject* value) {
-  if( vec == nullptr || value == nullptr) {
+  if (vec == nullptr || value == nullptr) {
     return -1;
   }
   auto lkVec = reinterpret_cast<livekit::LKVector<lkRefCountedObject*>*>(vec);
@@ -1123,6 +1123,11 @@ lkString* lkRtpCodecCapabilityGetMimeType(lkRtpCodecCapability* codec) {
       livekit::LKString::Create(mime_type).release());
 }
 
+bool lkRtpCodecCapabilityHasSdpFmtpLine(lkRtpCodecCapability* codec) {
+  return reinterpret_cast<livekit::RtpCodecCapability*>(codec)
+      ->has_sdp_fmtp_line();
+}
+
 lkString* lkRtpCodecCapabilityGetSdpFmtpLine(lkRtpCodecCapability* codec) {
   auto sdp_fmtp_line =
       reinterpret_cast<livekit::RtpCodecCapability*>(codec)->sdp_fmtp_line();
@@ -1297,6 +1302,23 @@ void lkRtpCodecCapabilitySetSdpFmtpLine(lkRtpCodecCapability* codec,
                                         const char* sdpFmtpLine) {
   reinterpret_cast<livekit::RtpCodecCapability*>(codec)->set_sdp_fmtp_line(
       sdpFmtpLine);
+}
+
+int lkRtpCodecCapabilityGetPreferredPayloadType(
+    lkRtpCodecCapability* codec) {
+  return reinterpret_cast<livekit::RtpCodecCapability*>(codec)
+      ->preferred_payload_type();
+}
+
+bool lkRtpCodecCapabilityHasPreferredPayloadType(lkRtpCodecCapability* codec) {
+  return reinterpret_cast<livekit::RtpCodecCapability*>(codec)
+      ->has_preferred_payload_type();
+}
+
+void lkRtpCodecCapabilitySetPreferredPayloadType(lkRtpCodecCapability* codec,
+                                                 int payloadType) {
+  reinterpret_cast<livekit::RtpCodecCapability*>(codec)
+      ->set_preferred_payload_type(payloadType);
 }
 
 lkRtpEncodingParameters* lkRtpEncodingParametersCreate() {
@@ -1752,4 +1774,41 @@ int32_t lkAudioProcessingModuleSetStreamDelayMs(lkAudioProcessingModule* apm,
                                                 int32_t delay) {
   return reinterpret_cast<livekit::AudioProcessingModule*>(apm)
       ->set_stream_delay_ms(delay);
+}
+
+lkRtcpFeedback* lkRtcpFeedbackCreate(lkRtcpFeedbackType type,
+                                     bool hasMessageType,
+                                     lkRtcpFeedbackMessageType messageType) {
+  return reinterpret_cast<lkRtcpFeedback*>(
+      livekit::RtcpFeedback::Create(
+          static_cast<webrtc::RtcpFeedbackType>(type), hasMessageType,
+          static_cast<webrtc::RtcpFeedbackMessageType>(messageType))
+          .release());
+}
+
+lkRtcpFeedbackType lkRtcpFeedbackGetType(lkRtcpFeedback* feedback) {
+  return static_cast<lkRtcpFeedbackType>(
+      reinterpret_cast<livekit::RtcpFeedback*>(feedback)->type());
+}
+
+bool lkRtcpFeedbackHasMessageType(lkRtcpFeedback* feedback) {
+  return reinterpret_cast<livekit::RtcpFeedback*>(feedback)->has_message_type();
+}
+
+lkRtcpFeedbackMessageType lkRtcpFeedbackGetMessageType(
+    lkRtcpFeedback* feedback) {
+  return static_cast<lkRtcpFeedbackMessageType>(
+      reinterpret_cast<livekit::RtcpFeedback*>(feedback)->message_type());
+}
+
+void lkRtpCodecCapabilitySetRtcpFeedbacks(lkRtpCodecCapability* codec,
+                                          lkVectorGeneric* rtcpFeedbacks) {
+  reinterpret_cast<livekit::RtpCodecCapability*>(codec)->set_rtcp_feedbacks(
+      rtcpFeedbacks);
+}
+
+lkVectorGeneric* lkRtpCodecCapabilityGetRtcpFeedbacks(
+    lkRtpCodecCapability* codec) {
+  return reinterpret_cast<livekit::RtpCodecCapability*>(codec)
+      ->rtcp_feedbacks();
 }
