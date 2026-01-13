@@ -4,15 +4,15 @@ mod test {
     use livekit::options::{TrackPublishOptions, VideoCodec};
     use livekit::prelude::*;
     use livekit::track::{LocalTrack, LocalVideoTrack, TrackSource};
-    use livekit::webrtc::native::desktop_capturer::{
+    use livekit::webrtc::desktop_capturer::{
         CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
         DesktopFrame,
     };
+    use livekit::webrtc::native::yuv_helper;
     use livekit::webrtc::prelude::{
         I420Buffer, RtcVideoSource, VideoBuffer, VideoFrame, VideoResolution, VideoRotation,
     };
     use livekit::webrtc::video_source::native::NativeVideoSource;
-    use livekit::webrtc::native::yuv_helper;
     use livekit_api::access_token;
     use std::env;
     use std::sync::mpsc::{self, RecvTimeoutError, Sender};
