@@ -20,7 +20,7 @@
 #include <sstream>
 #include <string>
 
-namespace livekit {
+namespace livekit_ffi {
 
 RtcError to_error(const webrtc::RTCError& error) {
   RtcError lk_error;
@@ -65,4 +65,4 @@ void throw_error() {
 }
 #endif
 
-}  // namespace livekit
+}  // namespace livekit_ffi

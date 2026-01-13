@@ -29,14 +29,14 @@
 #include "rtc_base/timestamp_aligner.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class VideoTrack;
 class NativeVideoSink;
 class VideoTrackSource;
-}  // namespace livekit
+}  // namespace livekit_ffi
 #include "webrtc-sys/src/video_track.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class VideoTrack : public MediaStreamTrack {
  private:
@@ -137,4 +137,4 @@ static std::shared_ptr<VideoTrack> _shared_video_track() {
   return nullptr;  // Ignore
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

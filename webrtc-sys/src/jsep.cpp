@@ -23,7 +23,7 @@
 #include "rtc_base/ref_counted_object.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 std::string serialize_sdp_error(webrtc::SdpParseError error) {
   std::stringstream ss;
@@ -148,4 +148,4 @@ void NativeSetRemoteSdpObserver::OnSetRemoteDescriptionComplete(
     webrtc::RTCError error) {
   on_complete_(std::move(ctx_), to_error(error));
 }
-}  // namespace livekit
+}  // namespace livekit_ffi

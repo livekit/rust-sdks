@@ -22,7 +22,7 @@
 #include "sdk/objc/native/api/video_decoder_factory.h"
 #include "sdk/objc/native/api/video_encoder_factory.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 std::unique_ptr<webrtc::VideoEncoderFactory> CreateObjCVideoEncoderFactory() {
   RTCDefaultVideoEncoderFactory* encoderFactory = [[RTCDefaultVideoEncoderFactory alloc] init];
@@ -35,4 +35,4 @@ std::unique_ptr<webrtc::VideoDecoderFactory> CreateObjCVideoDecoderFactory() {
   return webrtc::ObjCToNativeVideoDecoderFactory([[RTCDefaultVideoDecoderFactory alloc] init]);
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

@@ -33,17 +33,17 @@
 #include "rtc_base/thread_annotations.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class AudioTrack;
 class NativeAudioSink;
 class AudioTrackSource;
 class SourceContext;
 
-using CompleteCallback = void (*)(const livekit::SourceContext*);
-}  // namespace livekit
+using CompleteCallback = void (*)(const livekit_ffi::SourceContext*);
+}  // namespace livekit_ffi
 #include "webrtc-sys/src/audio_track.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class AudioTrack : public MediaStreamTrack {
  private:
@@ -198,4 +198,4 @@ static std::shared_ptr<AudioTrackSource> _shared_audio_track_source() {
   return nullptr;  // Ignore
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

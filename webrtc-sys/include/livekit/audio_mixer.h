@@ -25,14 +25,14 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class AudioMixer;
 class NativeAudioFrame;
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #include "webrtc-sys/src/audio_mixer.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class NativeAudioFrame {
  public:
@@ -85,4 +85,4 @@ class AudioMixer {
 
 std::unique_ptr<AudioMixer> create_audio_mixer();
 
-}  // namespace livekit
+}  // namespace livekit_ffi

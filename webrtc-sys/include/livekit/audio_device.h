@@ -24,7 +24,7 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/task_utils/repeating_task.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class AudioDevice : public webrtc::AudioDeviceModule {
  public:
@@ -126,4 +126,4 @@ class AudioDevice : public webrtc::AudioDeviceModule {
   bool playing_{false};
   bool initialized_{false};
 };
-}  // namespace livekit
+}  // namespace livekit_ffi

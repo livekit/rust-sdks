@@ -16,6 +16,6 @@
 
 #pragma once
 
-namespace livekit {
+namespace livekit_ffi {
 void ProhibitLibsrtpInitialization();
 }

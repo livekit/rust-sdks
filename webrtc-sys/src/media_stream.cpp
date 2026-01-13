@@ -29,7 +29,7 @@
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/time_utils.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 MediaStream::MediaStream(
     std::shared_ptr<RtcRuntime> rtc_runtime,
@@ -98,4 +98,4 @@ bool MediaStream::remove_track(std::shared_ptr<MediaStreamTrack> track) const {
   }
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

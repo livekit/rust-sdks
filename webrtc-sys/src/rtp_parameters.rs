@@ -14,7 +14,7 @@
 
 pub const DEFAULT_BITRATE_PRIORITY: f64 = 1.0;
 
-#[cxx::bridge(namespace = "livekit")]
+#[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
 
     // Used to replace std::map

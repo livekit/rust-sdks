@@ -16,7 +16,7 @@
 
 #include "livekit/candidate.h"
 
-namespace livekit {
+namespace livekit_ffi {
 Candidate::Candidate(const cricket::Candidate& candidate)
     : candidate_(candidate) {}
-}  // namespace livekit
+}  // namespace livekit_ffi

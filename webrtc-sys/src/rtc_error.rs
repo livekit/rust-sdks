@@ -20,7 +20,7 @@ use std::{
 // cxx doesn't support custom Exception type, so we serialize RtcError inside the cxx::Exception
 // "what" string
 
-#[cxx::bridge(namespace = "livekit")]
+#[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
     #[derive(Debug)]
     #[repr(i32)]
@@ -100,7 +100,7 @@ impl Display for ffi::RtcError {
 mod tests {
     use crate::rtc_error::ffi::{RtcError, RtcErrorDetailType, RtcErrorType};
 
-    #[cxx::bridge(namespace = "livekit")]
+    #[cxx::bridge(namespace = "livekit_ffi")]
     pub mod ffi {
         unsafe extern "C++" {
             include!("livekit/rtc_error.h");
