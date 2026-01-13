@@ -1099,7 +1099,8 @@ impl SessionInner {
                 );
             }
             proto::signal_response::Message::Update(mut update) => {
-                if let Ok(event) = dt::remote::event_from_participant_update(&mut update) {
+                let local_participant_identity = self.participant_info.identity.as_str().into();
+                if let Ok(event) = dt::remote::event_from_participant_update(&mut update, local_participant_identity) {
                     _ = self.remote_dt_manager.send(event.into());
                 }
                 let _ = self

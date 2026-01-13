@@ -47,7 +47,7 @@ impl TryFrom<proto::DataTrackSubscriberHandles> for SubscriberHandlesEvent {
 pub fn event_from_join(
     msg: &mut proto::JoinResponse,
 ) -> Result<PublicationsUpdatedEvent, InternalError> {
-    event_from_participant_info(&mut msg.other_participants)
+    event_from_participant_info(&mut msg.other_participants, None)
 }
 
 /// Extracts a [`PublicationsUpdatedEvent`] from a participant update.
@@ -57,15 +57,26 @@ pub fn event_from_join(
 ///
 pub fn event_from_participant_update(
     msg: &mut proto::ParticipantUpdate,
+    local_participant_identity: &str,
 ) -> Result<PublicationsUpdatedEvent, InternalError> {
-    event_from_participant_info(&mut msg.participants)
+    // TODO: is there a better way to exclude the local participant?
+    event_from_participant_info(&mut msg.participants, local_participant_identity.into())
 }
 
+/// Extracts a [`PublicationsUpdatedEvent`] from a participant info list.
+///
+/// Tracks published by the local participant will be filtered out if the local
+/// participant identity is set.
+///
 fn event_from_participant_info(
     msg: &mut Vec<ParticipantInfo>,
+    local_participant_identity: Option<&str>,
 ) -> Result<PublicationsUpdatedEvent, InternalError> {
     let tracks_by_participant = msg
         .iter_mut()
+        .filter(|participant| {
+            local_participant_identity.map_or(true, |identity| participant.identity != identity)
+        })
         .map(|participant| -> Result<_, InternalError> {
             Ok((participant.identity.clone(), extract_track_info(participant)?))
         })
