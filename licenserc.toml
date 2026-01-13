@@ -3,6 +3,7 @@ excludes = [
     "yuv-sys/libyuv",
     "soxr-sys/src",
     "libwebrtc/libwebrtc",
+    "libwebrtc/src/sys/ffi.rs",
     "webrtc-sys/.clang-format",
     "livekit-protocol/protocol",
     "livekit-ffi/.cargo/config",
