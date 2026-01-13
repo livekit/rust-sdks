@@ -95,13 +95,13 @@ impl RtpSender {
     pub fn parameters(&self) -> RtpParameters {
         unsafe {
             let params_ptr = sys::lkRtpSenderGetParameters(self.ffi.as_ptr());
-            sys::RtpParametersFromNative(sys::RefCounted::from_raw(params_ptr))
+            sys::rtp_parameters_from_native(sys::RefCounted::from_raw(params_ptr))
         }
     }
 
     pub fn set_parameters(&self, parameters: RtpParameters) -> Result<(), RtcError> {
         unsafe {
-            let lk_params = sys::RtpParametersToNative(parameters);
+            let lk_params = sys::rtp_parameters_to_native(parameters);
             let mut lk_err = sys::lkRtcError { message: std::ptr::null() };
             if !sys::lkRtpSenderSetParameters(self.ffi.as_ptr(), lk_params.as_ptr(), &mut lk_err) {
                 //TODO handle error

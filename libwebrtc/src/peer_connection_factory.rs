@@ -21,7 +21,7 @@ use std::{
 use crate::{
     peer_connection::{PeerConnection, PeerObserver, PEER_OBSERVER},
     rtp_parameters::RtpCapabilities,
-    sys::{self, lkRtcConfiguration, toLKIceServers},
+    sys::{self, ice_servers_to_native, lkRtcConfiguration},
     MediaType, RtcError, RtcErrorType,
 };
 
@@ -66,7 +66,7 @@ impl From<RtcConfiguration> for lkRtcConfiguration {
     fn from(config: RtcConfiguration) -> Self {
         lkRtcConfiguration {
             iceServersCount: config.ice_servers.len() as i32,
-            iceServers: toLKIceServers(&config.ice_servers),
+            iceServers: ice_servers_to_native(&config.ice_servers),
             iceTransportType: config.ice_transport_type.into(),
             gatheringPolicy: config.continual_gathering_policy.into(),
         }
@@ -134,7 +134,7 @@ impl PeerConnectionFactory {
     ) -> Result<PeerConnection, RtcError> {
         let lk_config = sys::lkRtcConfiguration {
             iceServersCount: config.ice_servers.len() as i32,
-            iceServers: sys::toLKIceServers(&config.ice_servers),
+            iceServers: sys::ice_servers_to_native(&config.ice_servers),
             iceTransportType: config.ice_transport_type.into(),
             gatheringPolicy: config.continual_gathering_policy.into(),
         };
@@ -166,14 +166,14 @@ impl PeerConnectionFactory {
         let lk_caps =
             unsafe { sys::lkGetRtpSenderCapabilities(self.ffi.as_ptr(), media_type.into()) };
 
-        sys::RtpCapabilitiesFromNative(unsafe { sys::RefCounted::from_raw(lk_caps) })
+        sys::rtp_capabilities_from_native(unsafe { sys::RefCounted::from_raw(lk_caps) })
     }
 
     pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         let lk_caps =
             unsafe { sys::lkGetRtpReceiverCapabilities(self.ffi.as_ptr(), media_type.into()) };
 
-        sys::RtpCapabilitiesFromNative(unsafe { sys::RefCounted::from_raw(lk_caps) })
+        sys::rtp_capabilities_from_native(unsafe { sys::RefCounted::from_raw(lk_caps) })
     }
 }
 

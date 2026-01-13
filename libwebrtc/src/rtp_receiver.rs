@@ -79,7 +79,7 @@ impl RtpReceiver {
     pub fn parameters(&self) -> RtpParameters {
         unsafe {
             let params_ptr = sys::lkRtpReceiverGetParameters(self.ffi.as_ptr());
-            sys::RtpParametersFromNative(sys::RefCounted::from_raw(params_ptr))
+            sys::rtp_parameters_from_native(sys::RefCounted::from_raw(params_ptr))
         }
     }
 }

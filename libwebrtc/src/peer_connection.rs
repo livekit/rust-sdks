@@ -717,7 +717,7 @@ impl PeerConnection {
         init: RtpTransceiverInit,
     ) -> Result<RtpTransceiver, RtcError> {
         unsafe {
-            let lk_init = sys::RtpTransceiverInitToNative(init);
+            let lk_init = sys::rtp_transceiver_init_to_native(init);
             let mut rtc_err = sys::lkRtcError { message: std::ptr::null() };
             let lk_transceiver = sys::lkPeerAddTransceiver(
                 self.ffi.as_ptr(),
@@ -743,7 +743,7 @@ impl PeerConnection {
         init: RtpTransceiverInit,
     ) -> Result<RtpTransceiver, RtcError> {
         unsafe {
-            let lk_init = sys::RtpTransceiverInitToNative(init);
+            let lk_init = sys::rtp_transceiver_init_to_native(init);
             let mut rtc_err = sys::lkRtcError { message: std::ptr::null() };
             let lk_transceiver = sys::lkPeerAddTransceiverForMedia(
                 self.ffi.as_ptr(),

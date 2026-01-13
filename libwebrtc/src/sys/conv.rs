@@ -1,7 +1,6 @@
-use crate::{peer_connection_factory::IceServer, rtp_parameters::*, sys}; // Ensure RtpTransceiverInit is imported
+use crate::{peer_connection_factory::IceServer, rtp_parameters::*, sys};
 
-// Helper function to convert Vec<IceServer> to *mut sys::lkIceServer
-pub fn toLKIceServers(servers: &Vec<IceServer>) -> *mut sys::lkIceServer {
+pub fn ice_servers_to_native(servers: &Vec<IceServer>) -> *mut sys::lkIceServer {
     if servers.is_empty() {
         return std::ptr::null_mut();
     }
@@ -34,7 +33,7 @@ pub fn toLKIceServers(servers: &Vec<IceServer>) -> *mut sys::lkIceServer {
     ptr
 }
 
-pub fn RtpCodecCapabilityFromNative(ffi: *mut sys::lkRtpCodecCapability) -> RtpCodecCapability {
+pub fn rtp_codec_capability_from_native(ffi: *mut sys::lkRtpCodecCapability) -> RtpCodecCapability {
     RtpCodecCapability {
         mime_type: unsafe {
             let ptr = sys::lkRtpCodecCapabilityGetMimeType(ffi);
@@ -96,7 +95,7 @@ pub fn RtpCodecCapabilityFromNative(ffi: *mut sys::lkRtpCodecCapability) -> RtpC
     }
 }
 
-pub fn RtpHeaderExtensionCapabilityFromNative(
+pub fn rtp_header_extension_capability_from_native(
     ffi: *mut sys::lkRtpHeaderExtensionCapability,
 ) -> RtpHeaderExtensionCapability {
     RtpHeaderExtensionCapability {
@@ -108,7 +107,9 @@ pub fn RtpHeaderExtensionCapabilityFromNative(
     }
 }
 
-pub fn RtpCapabilitiesFromNative(ffi: sys::RefCounted<sys::lkRtpCapabilities>) -> RtpCapabilities {
+pub fn rtp_capabilities_from_native(
+    ffi: sys::RefCounted<sys::lkRtpCapabilities>,
+) -> RtpCapabilities {
     let mut caps = RtpCapabilities { codecs: vec![], header_extensions: vec![] };
     {
         let lk_codecs_vec = unsafe { sys::lkRtpCapabilitiesGetCodecs(ffi.as_ptr()) };
@@ -116,7 +117,7 @@ pub fn RtpCapabilitiesFromNative(ffi: sys::RefCounted<sys::lkRtpCapabilities>) -
         if !codecs_ptrs.vec.is_empty() {
             let mut items = Vec::new();
             for i in 0..codecs_ptrs.vec.len() as isize {
-                items.push(RtpCodecCapabilityFromNative(
+                items.push(rtp_codec_capability_from_native(
                     codecs_ptrs.vec[i as usize].as_ptr() as *mut sys::lkRtpCodecCapability
                 ));
             }
@@ -129,7 +130,7 @@ pub fn RtpCapabilitiesFromNative(ffi: sys::RefCounted<sys::lkRtpCapabilities>) -
         if !header_extensions_ptrs.vec.is_empty() {
             let mut items = Vec::new();
             for i in 0..header_extensions_ptrs.vec.len() as isize {
-                items.push(RtpHeaderExtensionCapabilityFromNative(
+                items.push(rtp_header_extension_capability_from_native(
                     header_extensions_ptrs.vec[i as usize].as_ptr()
                         as *mut sys::lkRtpCodecCapability,
                 ));
@@ -140,7 +141,7 @@ pub fn RtpCapabilitiesFromNative(ffi: sys::RefCounted<sys::lkRtpCapabilities>) -
     caps
 }
 
-pub fn RtcpParametersFromNative(ffi: *mut sys::lkRtcpParameters) -> RtcpParameters {
+pub fn rtcp_parameters_from_native(ffi: *mut sys::lkRtcpParameters) -> RtcpParameters {
     RtcpParameters {
         cname: unsafe {
             let ptr: *mut std::ffi::c_void = sys::lkRtcpParametersGetCname(ffi);
@@ -150,7 +151,7 @@ pub fn RtcpParametersFromNative(ffi: *mut sys::lkRtcpParameters) -> RtcpParamete
     }
 }
 
-pub fn RtpCodecParametersFromNative(ffi: *mut sys::lkRtpCodecParameters) -> RtpCodecParameters {
+pub fn rtp_codec_parameters_from_native(ffi: *mut sys::lkRtpCodecParameters) -> RtpCodecParameters {
     RtpCodecParameters {
         payload_type: unsafe { sys::lkRtpCodecParametersGetPayloadType(ffi) as u8 },
         mime_type: unsafe {
@@ -162,7 +163,7 @@ pub fn RtpCodecParametersFromNative(ffi: *mut sys::lkRtpCodecParameters) -> RtpC
     }
 }
 
-pub fn RtpHeaderExtensionParametersFromNative(
+pub fn rtp_header_extension_parameters_from_native(
     ffi: *mut sys::lkRtpHeaderExtensionParameters,
 ) -> RtpHeaderExtensionParameters {
     RtpHeaderExtensionParameters {
@@ -175,7 +176,7 @@ pub fn RtpHeaderExtensionParametersFromNative(
     }
 }
 
-pub fn RtpParametersFromNative(ffi: sys::RefCounted<sys::lkRtpParameters>) -> RtpParameters {
+pub fn rtp_parameters_from_native(ffi: sys::RefCounted<sys::lkRtpParameters>) -> RtpParameters {
     let mut params = RtpParameters {
         codecs: vec![],
         header_extensions: vec![],
@@ -187,7 +188,7 @@ pub fn RtpParametersFromNative(ffi: sys::RefCounted<sys::lkRtpParameters>) -> Rt
         if !codecs_ptrs.vec.is_empty() {
             let mut items = Vec::new();
             for i in 0..codecs_ptrs.vec.len() as isize {
-                items.push(RtpCodecParametersFromNative(
+                items.push(rtp_codec_parameters_from_native(
                     codecs_ptrs.vec[i as usize].as_ptr() as *mut sys::lkRtpCodecParameters
                 ));
             }
@@ -197,7 +198,7 @@ pub fn RtpParametersFromNative(ffi: sys::RefCounted<sys::lkRtpParameters>) -> Rt
     {
         let rtcp_ptr = unsafe { sys::lkRtpParametersGetRtcp(ffi.as_ptr()) };
         if !rtcp_ptr.is_null() {
-            params.rtcp = RtcpParametersFromNative(rtcp_ptr);
+            params.rtcp = rtcp_parameters_from_native(rtcp_ptr);
         }
     }
 
@@ -207,7 +208,7 @@ pub fn RtpParametersFromNative(ffi: sys::RefCounted<sys::lkRtpParameters>) -> Rt
         if !header_extensions_ptrs.vec.is_empty() {
             let mut items = Vec::new();
             for i in 0..header_extensions_ptrs.vec.len() as isize {
-                items.push(RtpHeaderExtensionParametersFromNative(
+                items.push(rtp_header_extension_parameters_from_native(
                     header_extensions_ptrs.vec[i as usize].as_ptr()
                         as *mut sys::lkRtpHeaderExtensionParameters,
                 ));
@@ -218,7 +219,7 @@ pub fn RtpParametersFromNative(ffi: sys::RefCounted<sys::lkRtpParameters>) -> Rt
     params
 }
 
-pub fn RtpTransceiverInitToNative(
+pub fn rtp_transceiver_init_to_native(
     init: RtpTransceiverInit,
 ) -> sys::RefCounted<sys::lkRtpTransceiverInit> {
     unsafe {
@@ -230,12 +231,10 @@ pub fn RtpTransceiverInitToNative(
             lk_stream_ids_vec.push_back(c_stream_id.ffi.clone());
         }
         sys::lkRtpTransceiverInitSetStreamIds(lk_init, lk_stream_ids_vec.ffi.as_ptr());
-
         let mut lk_send_encodings_vec = sys::RefCountedVector::new();
         for encoding in init.send_encodings.iter() {
             let ptr = sys::lkRtpEncodingParametersCreate();
             let c_encoding = sys::RefCounted::from_raw(ptr);
-
             sys::lkRtpEncodingParametersSetActive(c_encoding.as_ptr(), encoding.active);
             if let Some(max_bitrate) = encoding.max_bitrate {
                 sys::lkRtpEncodingParametersSetMaxBitrateBps(
@@ -243,37 +242,31 @@ pub fn RtpTransceiverInitToNative(
                     max_bitrate as i64,
                 );
             }
-
             if let Some(min_bitrate) = encoding.min_bitrate {
                 sys::lkRtpEncodingParametersSetMinBitrateBps(
                     c_encoding.as_ptr(),
                     min_bitrate as i64,
                 );
             }
-
             if let Some(max_framerate) = encoding.max_framerate {
                 sys::lkRtpEncodingParametersSetMaxFramerate(c_encoding.as_ptr(), max_framerate);
             }
-
             if let Some(scalability_mode) = &encoding.scalability_mode {
                 sys::lkRtpEncodingParametersSetScalabilityMode(
                     c_encoding.as_ptr(),
                     std::ffi::CString::new(scalability_mode.as_str()).unwrap().as_ptr(),
                 );
             }
-
             if let Some(scale_resolution_down_by) = encoding.scale_resolution_down_by {
                 sys::lkRtpEncodingParametersSetScaleResolutionDownBy(
                     c_encoding.as_ptr(),
                     scale_resolution_down_by,
                 );
             }
-
             sys::lkRtpEncodingParametersSetRid(
                 c_encoding.as_ptr(),
                 std::ffi::CString::new(encoding.rid.as_str()).unwrap().as_ptr(),
             );
-
             lk_send_encodings_vec.push_back(c_encoding);
         }
 
@@ -283,10 +276,9 @@ pub fn RtpTransceiverInitToNative(
     }
 }
 
-pub fn RtpParametersToNative(params: RtpParameters) -> sys::RefCounted<sys::lkRtpParameters> {
+pub fn rtp_parameters_to_native(params: RtpParameters) -> sys::RefCounted<sys::lkRtpParameters> {
     unsafe {
         let lk_params = sys::lkRtpParametersCreate();
-
         let mut lk_codecs_vec = sys::RefCountedVector::new();
         for codec in params.codecs.iter() {
             let ptr = sys::lkRtpCodecParametersCreate();
@@ -312,7 +304,6 @@ pub fn RtpParametersToNative(params: RtpParameters) -> sys::RefCounted<sys::lkRt
                     channels.try_into().unwrap(),
                 );
             }
-
             lk_codecs_vec.push_back(c_codec);
         }
         sys::lkRtpParametersSetCodecs(lk_params, lk_codecs_vec.ffi.as_ptr());
@@ -344,7 +335,6 @@ pub fn RtpParametersToNative(params: RtpParameters) -> sys::RefCounted<sys::lkRt
             );
         }
         sys::lkRtpParametersSetHeaderExtensions(lk_params, lk_header_extensions_vec.ffi.as_ptr());
-
         sys::RefCounted::from_raw(lk_params)
     }
 }

@@ -82,11 +82,8 @@ impl RtpTransceiver {
                 }
 
                 if let Some(sdp_fmtp_line) = &c.sdp_fmtp_line {
-                    let str =   std::ffi::CString::new(sdp_fmtp_line.clone()).unwrap();
-                    sys::lkRtpCodecCapabilitySetSdpFmtpLine(
-                        cap,
-                        str.as_ptr(),
-                    );
+                    let str = std::ffi::CString::new(sdp_fmtp_line.clone()).unwrap();
+                    sys::lkRtpCodecCapabilitySetSdpFmtpLine(cap, str.as_ptr());
                 }
 
                 if let Some(clock_rate) = c.clock_rate {
@@ -94,7 +91,7 @@ impl RtpTransceiver {
                 }
 
                 sys::lkRtpCodecCapabilitySetMimeType(cap, mime_type_cstr.as_ptr());
-        
+
                 if let Some(payload_type) = c.preferred_payload_type {
                     sys::lkRtpCodecCapabilitySetPreferredPayloadType(cap, payload_type as i32);
                 }
