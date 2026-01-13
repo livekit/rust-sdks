@@ -3,7 +3,6 @@ name: Node FFI binding build and release
 permissions:
   id-token: write # Required for OIDC
   contents: write # Required to create GH releases
-  pull-requests: write # Required to interact with PRs
 
 on:
   workflow_dispatch:
