@@ -222,8 +222,8 @@ mod tests {
         audio_source::{native::NativeAudioSource, AudioSourceOptions},
         audio_stream::native::NativeAudioStream,
         peer_connection_factory::native::PeerConnectionFactoryExt,
-        video_stream::NativeVideoStream,
         video_frame::{I420Buffer, VideoFrame, VideoRotation},
+        video_stream::native::NativeVideoStream,
     };
 
     #[tokio::test]
@@ -274,7 +274,7 @@ mod tests {
         let mut stream = NativeVideoStream::new(track.clone());
         let video_frame = VideoFrame {
             buffer: I420Buffer::new(640, 480),
-            rotation:  VideoRotation::VideoRotation90,
+            rotation: VideoRotation::VideoRotation90,
             timestamp_us: 0,
         };
         source.capture_frame(&video_frame);

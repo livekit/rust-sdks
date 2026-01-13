@@ -18,7 +18,7 @@ use colorcvt::cvtimpl;
 use livekit::{
     prelude::*,
     register_audio_filter_plugin,
-    webrtc::{apm, audio_resampler, prelude::*},
+    webrtc::{native::apm, native::audio_resampler, prelude::*},
     AudioFilterPlugin,
 };
 use parking_lot::Mutex;

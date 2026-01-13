@@ -12,7 +12,7 @@ use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, SampleRate, StreamConfig};
 use db_meter::display_dual_db_meters;
 use futures_util::StreamExt;
-use libwebrtc::apm::AudioProcessingModule;
+use libwebrtc::native::apm::AudioProcessingModule;
 use livekit::{
     options::TrackPublishOptions,
     track::{LocalAudioTrack, LocalTrack, TrackSource},

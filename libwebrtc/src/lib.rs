@@ -41,8 +41,6 @@ pub struct RtcError {
 
 pub mod audio_frame;
 //pub mod audio_mixer;
-pub mod apm;
-pub mod audio_resampler;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod audio_track;
@@ -54,6 +52,7 @@ pub mod frame_cryptor;
 pub mod ice_candidate;
 pub mod media_stream;
 pub mod media_stream_track;
+pub mod native;
 pub mod peer_connection;
 pub mod peer_connection_factory;
 pub mod prelude;
@@ -70,15 +69,6 @@ pub mod video_frame_builder;
 pub mod video_source;
 pub mod video_stream;
 pub mod video_track;
-pub mod yuv_helper;
-
-#[cfg(not(target_arch = "wasm32"))]
-pub mod native {
-    pub fn create_random_uuid() -> String {
-        use uuid::Uuid;
-        Uuid::new_v4().to_string()
-    }
-}
 
 #[cfg(target_os = "android")]
 pub mod android {

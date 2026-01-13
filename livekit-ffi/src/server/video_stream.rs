@@ -15,7 +15,7 @@
 use futures_util::StreamExt;
 use livekit::{
     prelude::Track,
-    webrtc::{prelude::*, video_stream::NativeVideoStream},
+    webrtc::{prelude::*, video_stream::native::NativeVideoStream},
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 

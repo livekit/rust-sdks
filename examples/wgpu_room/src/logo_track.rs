@@ -6,9 +6,9 @@ use livekit::prelude::*;
 use livekit::webrtc::video_source::RtcVideoSource;
 use livekit::webrtc::video_source::VideoResolution;
 use livekit::webrtc::{
-    yuv_helper,
     video_frame::{I420Buffer, VideoFrame, VideoRotation},
     video_source::native::NativeVideoSource,
+    native::yuv_helper,
 };
 use parking_lot::Mutex;
 use std::sync::Arc;

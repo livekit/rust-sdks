@@ -4,15 +4,15 @@ mod test {
     use livekit::options::{TrackPublishOptions, VideoCodec};
     use livekit::prelude::*;
     use livekit::track::{LocalTrack, LocalVideoTrack, TrackSource};
-    use livekit::webrtc::desktop_capturer::{
+    use livekit::webrtc::native::desktop_capturer::{
         CaptureError, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
         DesktopFrame,
     };
-    use livekit::webrtc::yuv_helper;
     use livekit::webrtc::prelude::{
         I420Buffer, RtcVideoSource, VideoBuffer, VideoFrame, VideoResolution, VideoRotation,
     };
     use livekit::webrtc::video_source::native::NativeVideoSource;
+    use livekit::webrtc::native::yuv_helper;
     use livekit_api::access_token;
     use std::env;
     use std::sync::mpsc::{self, RecvTimeoutError, Sender};
@@ -185,7 +185,7 @@ mod test {
         let callback = {
             let mut frame_buffer = VideoFrame {
                 rotation: VideoRotation::VideoRotation0,
-                buffer: Box::new(I420Buffer::new(1, 1)),
+                buffer: I420Buffer::new(1, 1),
                 timestamp_us: 0,
             };
             move |result: Result<DesktopFrame, CaptureError>| {
@@ -218,13 +218,12 @@ mod test {
 
                 let buffer_width = frame_buffer.buffer.width() as i32;
                 let buffer_height = frame_buffer.buffer.height() as i32;
-                let i420_buffer = I420Buffer::new(width as u32, height as u32);
                 if buffer_width != width || buffer_height != height {
-                    frame_buffer.buffer = Box::new(i420_buffer);
+                    frame_buffer.buffer = I420Buffer::new(width as u32, height as u32);
                 }
 
-                let (stride_y, stride_u, stride_v) = i420_buffer.strides();
-                let (y_plane, u_plane, v_plane) = i420_buffer.data_mut();
+                let (stride_y, stride_u, stride_v) = frame_buffer.buffer.strides();
+                let (y_plane, u_plane, v_plane) = frame_buffer.buffer.data_mut();
                 yuv_helper::argb_to_i420(
                     data, stride, y_plane, stride_y, u_plane, stride_u, v_plane, stride_v, width,
                     height,

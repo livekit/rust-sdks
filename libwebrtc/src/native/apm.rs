@@ -14,8 +14,7 @@
 
 use crate::impl_thread_safety;
 use crate::sys;
-use crate::RtcError;
-use crate::RtcErrorType;
+use crate::{RtcError, RtcErrorType};
 
 pub struct AudioProcessingModule {
     ffi: sys::RefCounted<sys::lkAudioProcessingModule>,

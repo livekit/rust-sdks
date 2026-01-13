@@ -83,7 +83,7 @@ pub enum RtcpFeedbackType {
     Lntf,
     Nack,
     Remb,
-    TransportCC
+    TransportCC,
 }
 
 #[derive(Debug, Clone)]

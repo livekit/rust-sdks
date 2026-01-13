@@ -738,7 +738,7 @@ pub fn i010_to_argb(
     argb_assert_safety(dst_argb, dst_stride_argb, width, height);
 
     unsafe {
-        yuv_sys::rs_I010ToARGB (
+        yuv_sys::rs_I010ToARGB(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),

@@ -1,7 +1,7 @@
 use crate::sys;
 
-use crate::video_frame::{VideoRotation};
-use crate::video_frame_buffer::{NativeVideoFrame};
+use crate::video_frame::VideoRotation;
+use crate::video_frame_buffer::NativeVideoFrame;
 
 pub struct VideoFrameBuilder {
     pub ffi: sys::RefCounted<sys::lkRefCountedObject>,
@@ -15,10 +15,7 @@ pub fn new_video_frame_builder() -> VideoFrameBuilder {
 impl VideoFrameBuilder {
     pub fn set_video_frame_buffer_ptr(&mut self, ffi: sys::RefCounted<sys::lkRefCountedObject>) {
         unsafe {
-            sys::lkVideoFrameBuilderSetVideoFrameBuffer(
-                self.ffi.as_ptr(),
-                ffi.as_ptr(),
-            );
+            sys::lkVideoFrameBuilderSetVideoFrameBuffer(self.ffi.as_ptr(), ffi.as_ptr());
         }
     }
 

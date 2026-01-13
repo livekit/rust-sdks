@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::impl_thread_safety;
-use crate::{sys, yuv_helper, video_frame::internal::BufferSealed};
+use crate::{native::yuv_helper, sys, video_frame::internal::BufferSealed};
 use std::fmt::Debug;
 use thiserror::Error;
 

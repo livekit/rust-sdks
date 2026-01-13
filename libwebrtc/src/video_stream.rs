@@ -12,65 +12,69 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
-
-use livekit_runtime::Stream;
 use tokio::sync::mpsc;
 
 use crate::{
-    prelude::I420Buffer,
     video_frame::{BoxVideoFrame, VideoFrame},
-    video_frame_buffer::{new_video_frame_buffer, NativeVideoFrame, VideoFrameBuffer},
-    video_source::{
-        native::{NativeVideoSink, VideoSink},
-        VideoTrackSourceConstraints,
-    },
-    video_track::RtcVideoTrack,
+    video_frame_buffer::{new_video_frame_buffer, NativeVideoFrame},
+    video_source::{native::VideoSink, VideoTrackSourceConstraints},
 };
 
-pub struct NativeVideoStream {
-    native_sink: Arc<NativeVideoSink>,
-    pub video_track: RtcVideoTrack,
-    pub frame_rx: mpsc::UnboundedReceiver<BoxVideoFrame>,
+pub mod native {
+    use tokio::sync::mpsc;
+    use tokio_stream::Stream;
+
+    use crate::{
+        prelude::{BoxVideoFrame, RtcVideoTrack},
+        video_source::native::NativeVideoSink,
+        video_stream::VideoTrackObserver,
+    };
+    use std::{
+        pin::Pin,
+        sync::Arc,
+        task::{Context, Poll},
+    };
+
+    pub struct NativeVideoStream {
+        native_sink: Arc<NativeVideoSink>,
+        pub video_track: RtcVideoTrack,
+        pub frame_rx: mpsc::UnboundedReceiver<BoxVideoFrame>,
+    }
+
+    impl NativeVideoStream {
+        pub fn new(video_track: RtcVideoTrack) -> Self {
+            let (frame_tx, frame_rx) = mpsc::unbounded_channel();
+            let native_sink =
+                Arc::new(NativeVideoSink::new(Arc::new(VideoTrackObserver { frame_tx })));
+            video_track.add_sink(native_sink.clone());
+            Self { native_sink, video_track, frame_rx }
+        }
+
+        pub fn track(&self) -> RtcVideoTrack {
+            self.video_track.clone()
+        }
+
+        pub fn close(&mut self) {
+            self.video_track.remove_sink(self.native_sink.clone());
+
+            self.frame_rx.close();
+        }
+    }
+
+    impl Drop for NativeVideoStream {
+        fn drop(&mut self) {
+            self.close();
+        }
+    }
+
+    impl Stream for NativeVideoStream {
+        type Item = BoxVideoFrame;
+
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
+            self.frame_rx.poll_recv(cx)
+        }
+    }
 }
-
-impl NativeVideoStream {
-    pub fn new(video_track: RtcVideoTrack) -> Self {
-        let (frame_tx, frame_rx) = mpsc::unbounded_channel();
-        let native_sink = Arc::new(NativeVideoSink::new(Arc::new(VideoTrackObserver { frame_tx })));
-        video_track.add_sink(native_sink.clone());
-        Self { native_sink, video_track, frame_rx }
-    }
-
-    pub fn track(&self) -> RtcVideoTrack {
-        self.video_track.clone()
-    }
-
-    pub fn close(&mut self) {
-        self.video_track.remove_sink(self.native_sink.clone());
-
-        self.frame_rx.close();
-    }
-}
-
-impl Drop for NativeVideoStream {
-    fn drop(&mut self) {
-        self.close();
-    }
-}
-
-impl Stream for NativeVideoStream {
-    type Item = BoxVideoFrame;
-
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
-        self.frame_rx.poll_recv(cx)
-    }
-}
-
 pub struct VideoTrackObserver {
     pub frame_tx: mpsc::UnboundedSender<BoxVideoFrame>,
 }
