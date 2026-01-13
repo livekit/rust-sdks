@@ -48,7 +48,6 @@ pub mod data_channel;
 //#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 //pub mod desktop_capturer;
 pub mod enum_dispatch;
-pub mod frame_cryptor;
 pub mod ice_candidate;
 pub mod media_stream;
 pub mod media_stream_track;

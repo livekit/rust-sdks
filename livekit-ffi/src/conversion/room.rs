@@ -21,7 +21,7 @@ use livekit::{
     options::{AudioEncoding, TrackPublishOptions, VideoEncoding},
     prelude::*,
     webrtc::{
-        frame_cryptor::EncryptionState,
+        native::frame_cryptor::EncryptionState,
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
     },
     RoomInfo,

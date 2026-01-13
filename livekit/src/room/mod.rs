@@ -14,7 +14,7 @@
 
 use bmrng::unbounded::UnboundedRequestReceiver;
 use libwebrtc::{
-    frame_cryptor::EncryptionState,
+    native::frame_cryptor::EncryptionState,
     prelude::{
         ContinualGatheringPolicy, IceTransportsType, MediaStream, MediaStreamTrack,
         RtcConfiguration,

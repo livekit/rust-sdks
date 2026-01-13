@@ -15,7 +15,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use libwebrtc::{
-    frame_cryptor::{
+    native::frame_cryptor::{
         DataPacketCryptor, EncryptedPacket, EncryptionAlgorithm, EncryptionState, FrameCryptor,
     },
     rtp_receiver::RtpReceiver,
