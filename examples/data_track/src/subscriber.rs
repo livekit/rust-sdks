@@ -11,7 +11,9 @@ async fn main() -> Result<()> {
     let url = env::var("LIVEKIT_URL").expect("LIVEKIT_URL is not set");
     let token = env::var("LIVEKIT_TOKEN").expect("LIVEKIT_TOKEN is not set");
 
-    let (_, rx) = Room::connect(&url, &token, RoomOptions::default()).await?;
+    let mut options = RoomOptions::default();
+    options.auto_subscribe = false;
+    let (_, rx) = Room::connect(&url, &token, options).await?;
 
     tokio::select! {
         Some(track) = wait_for_publication(rx) => subscribe(track).await?,
