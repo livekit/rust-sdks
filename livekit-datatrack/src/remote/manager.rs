@@ -34,7 +34,7 @@ use tokio_stream::{wrappers::ReceiverStream, Stream};
 /// An external event handled by [`Manager`].
 #[derive(Debug, FromVariants)]
 pub enum InputEvent {
-    PublicationsUpdated(PublicationsUpdatedEvent),
+    PublicationUpdates(PublicationUpdatesEvent),
     Subscribe(SubscribeEvent),
     SubscriberHandles(SubscriberHandlesEvent),
     /// Packet has been received over the transport.
@@ -52,15 +52,15 @@ pub enum OutputEvent {
     TrackAvailable(RemoteDataTrack),
 }
 
-/// Track publications updated for a specific participant.
+/// Track publications by remote participants updated.
 ///
 /// This is used to detect newly published tracks as well as
 /// tracks that have been unpublished.
 ///
 #[derive(Debug)]
-pub struct PublicationsUpdatedEvent {
+pub struct PublicationUpdatesEvent {
     /// Mapping between participant identity and data tracks published by that participant.
-    pub tracks_by_participant: HashMap<String, Vec<DataTrackInfo>>,
+    pub updates: HashMap<String, Vec<DataTrackInfo>>,
 }
 
 /// Subscriber handles available or updated.
@@ -185,8 +185,8 @@ impl ManagerTask {
         while let Some(event) = self.event_in_rx.recv().await {
             log::debug!("Input event: {:?}", event);
             match event {
-                InputEvent::PublicationsUpdated(event) => {
-                    self.handle_publications_updated(event).await
+                InputEvent::PublicationUpdates(event) => {
+                    self.handle_publication_updates(event).await
                 }
                 InputEvent::Subscribe(event) => self.handle_subscribe(event).await,
                 InputEvent::SubscriberHandles(event) => self.handle_subscriber_handles(event),
@@ -198,11 +198,14 @@ impl ManagerTask {
         log::debug!("Task ended");
     }
 
-    async fn handle_publications_updated(&mut self, event: PublicationsUpdatedEvent) {
+    async fn handle_publication_updates(&mut self, event: PublicationUpdatesEvent) {
+        if event.updates.is_empty() {
+            return;
+        }
         let mut sids_in_update = HashSet::new();
 
         // Detect published track
-        for (publisher_identity, tracks) in event.tracks_by_participant {
+        for (publisher_identity, tracks) in event.updates {
             for info in tracks {
                 sids_in_update.insert(info.sid.clone());
                 if self.descriptors.contains_key(&info.sid) {
@@ -262,10 +265,8 @@ impl ManagerTask {
         };
         match &mut descriptor.state {
             DescriptorState::Available => {
-                let update_event = SubscriptionUpdatedEvent {
-                    sid: event.sid.clone(),
-                    subscribe: true,
-                };
+                let update_event =
+                    SubscriptionUpdatedEvent { sid: event.sid.clone(), subscribe: true };
                 _ = self.event_out_tx.send(update_event.into()).await;
                 descriptor.state =
                     DescriptorState::PendingSubscriberHandle { result_txs: vec![event.result_tx] };
@@ -394,8 +395,8 @@ mod tests {
         livekit_runtime::spawn(manager_task.run());
 
         // Simulate track published
-        let event = PublicationsUpdatedEvent {
-            tracks_by_participant: HashMap::from([(
+        let event = PublicationUpdatesEvent {
+            updates: HashMap::from([(
                 publisher_identity.clone(),
                 vec![DataTrackInfo {
                     sid: "DTR_1234".to_string().try_into().unwrap(),

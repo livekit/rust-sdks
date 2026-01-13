@@ -501,8 +501,8 @@ impl RtcSession {
         let (remote_dt_manager, remote_dt_task, remote_dt_events) =
             dt::remote::Manager::new(remote_dt_options);
         forward_incoming_dt_packets(&mut dt_transport, remote_dt_manager.clone());
-        if let Ok(publications_updated) = dt::remote::event_from_join(&mut join_response) {
-            _ = remote_dt_manager.send(publications_updated.into());
+        if let Ok(initial_publications) = dt::remote::event_from_join(&mut join_response) {
+            _ = remote_dt_manager.send(initial_publications.into());
         }
 
         let (close_tx, close_rx) = watch::channel(false);

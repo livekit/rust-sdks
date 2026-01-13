@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::manager::{PublicationsUpdatedEvent, SubscriberHandlesEvent, SubscriptionUpdatedEvent};
+use super::manager::{PublicationUpdatesEvent, SubscriberHandlesEvent, SubscriptionUpdatedEvent};
 use crate::{
     api::{DataTrackInfo, DataTrackSid, InternalError},
     dtp::Handle,
@@ -46,7 +46,7 @@ impl TryFrom<proto::DataTrackSubscriberHandles> for SubscriberHandlesEvent {
 ///
 pub fn event_from_join(
     msg: &mut proto::JoinResponse,
-) -> Result<PublicationsUpdatedEvent, InternalError> {
+) -> Result<PublicationUpdatesEvent, InternalError> {
     event_from_participant_info(&mut msg.other_participants, None)
 }
 
@@ -58,7 +58,7 @@ pub fn event_from_join(
 pub fn event_from_participant_update(
     msg: &mut proto::ParticipantUpdate,
     local_participant_identity: &str,
-) -> Result<PublicationsUpdatedEvent, InternalError> {
+) -> Result<PublicationUpdatesEvent, InternalError> {
     // TODO: is there a better way to exclude the local participant?
     event_from_participant_info(&mut msg.participants, local_participant_identity.into())
 }
@@ -71,8 +71,8 @@ pub fn event_from_participant_update(
 fn event_from_participant_info(
     msg: &mut Vec<ParticipantInfo>,
     local_participant_identity: Option<&str>,
-) -> Result<PublicationsUpdatedEvent, InternalError> {
-    let tracks_by_participant = msg
+) -> Result<PublicationUpdatesEvent, InternalError> {
+    let updates = msg
         .iter_mut()
         .filter(|participant| {
             local_participant_identity.map_or(true, |identity| participant.identity != identity)
@@ -81,7 +81,7 @@ fn event_from_participant_info(
             Ok((participant.identity.clone(), extract_track_info(participant)?))
         })
         .collect::<Result<HashMap<String, Vec<DataTrackInfo>>, _>>()?;
-    Ok(PublicationsUpdatedEvent { tracks_by_participant })
+    Ok(PublicationUpdatesEvent { updates })
 }
 
 fn extract_track_info(msg: &mut ParticipantInfo) -> Result<Vec<DataTrackInfo>, InternalError> {
