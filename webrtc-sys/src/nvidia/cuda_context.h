@@ -3,7 +3,7 @@
 
 #include <cuda.h>
 
-namespace livekit {
+namespace livekit_ffi {
 
 class CudaContext {
  public:
@@ -24,6 +24,6 @@ class CudaContext {
   CUcontext cu_context_ = nullptr;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // WEBRTC_SYS_NVIDIA_CUDA_CONTEXT_H

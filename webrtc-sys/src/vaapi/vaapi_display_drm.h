@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <va/va.h>
 
-namespace livekit {
+namespace livekit_ffi {
 
 // VAAPI drm display wrapper class
 class VaapiDisplayDrm {
@@ -30,6 +30,6 @@ class VaapiDisplayDrm {
   int drm_fd_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // VAAPI_DISPLAY_DRM_H_

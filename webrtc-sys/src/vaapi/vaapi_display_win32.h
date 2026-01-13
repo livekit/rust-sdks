@@ -4,7 +4,7 @@
 #include <va/va.h>
 #include <va/va_win32.h>
 
-namespace livekit {
+namespace livekit_ffi {
 
 // VAAPI win32 display wrapper class
 class VaapiDisplayWin32 {
@@ -28,6 +28,6 @@ class VaapiDisplayWin32 {
   VADisplay va_display_ = nullptr;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // VAAPI_DISPLAY_WIN32_H_

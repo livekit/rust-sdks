@@ -21,7 +21,7 @@ const int kChannels = 2;
 const int kBytesPerSample = kChannels * sizeof(int16_t);
 const int kSamplesPer10Ms = kSampleRate / 100;
 
-namespace livekit {
+namespace livekit_ffi {
 
 AudioDevice::AudioDevice(webrtc::TaskQueueFactory* task_queue_factory)
     : task_queue_factory_(task_queue_factory),
@@ -332,4 +332,4 @@ int32_t AudioDevice::SetObserver(webrtc::AudioDeviceObserver* observer) {
   return 0;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

@@ -20,7 +20,7 @@
 #include "rust/cxx.h"
 #include "webrtc-sys/src/rtc_error.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 RtcError to_error(const webrtc::RTCError& error);
 std::string serialize_error(
@@ -31,4 +31,4 @@ rust::String serialize_deserialize();
 void throw_error();
 #endif
 
-}  // namespace livekit
+}  // namespace livekit_ffi

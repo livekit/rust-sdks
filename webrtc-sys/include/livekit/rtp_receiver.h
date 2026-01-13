@@ -27,11 +27,11 @@
 #include "livekit/webrtc.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class RtpReceiver;
 }
 #include "webrtc-sys/src/rtp_receiver.rs.h"
-namespace livekit {
+namespace livekit_ffi {
 
 // TODO(theomonnom): Implement RtpReceiverObserverInterface?
 // TODO(theomonnom): RtpSource
@@ -76,4 +76,4 @@ static std::shared_ptr<RtpReceiver> _shared_rtp_receiver() {
   return nullptr;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

@@ -36,7 +36,7 @@
 #include "rust/cxx.h"
 #include "webrtc-sys/src/audio_track.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 inline cricket::AudioOptions to_native_audio_options(
     const AudioSourceOptions& options) {
@@ -323,4 +323,4 @@ webrtc::scoped_refptr<AudioTrackSource::InternalSource> AudioTrackSource::get()
   return source_;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

@@ -23,12 +23,12 @@
 #include "livekit/webrtc.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class MediaStreamTrack;
-}  // namespace livekit
+}  // namespace livekit_ffi
 #include "webrtc-sys/src/media_stream_track.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class MediaStreamTrack {
  protected:
@@ -57,4 +57,4 @@ static std::shared_ptr<MediaStreamTrack> _shared_media_stream_track() {
   return nullptr;  // Ignore
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

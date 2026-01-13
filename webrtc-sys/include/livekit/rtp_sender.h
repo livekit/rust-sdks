@@ -26,12 +26,12 @@
 #include "livekit/rtp_parameters.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class RtpSender;
 }
 #include "webrtc-sys/src/rtp_sender.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 // TODO(theomonnom): FrameTransformer & FrameEncryptor interface
 class RtpSender {
@@ -78,4 +78,4 @@ class RtpSender {
 static std::shared_ptr<RtpSender> _shared_rtp_sender() {
   return nullptr;  // Ignore
 }
-}  // namespace livekit
+}  // namespace livekit_ffi

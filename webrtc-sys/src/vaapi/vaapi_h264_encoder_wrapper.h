@@ -11,10 +11,10 @@
 
 #if defined(WIN32)
 #include "vaapi_display_win32.h"
-using VaapiDisplay = livekit::VaapiDisplayWin32;
+using VaapiDisplay = livekit_ffi::VaapiDisplayWin32;
 #elif defined(__linux__)
 #include "vaapi_display_drm.h"
-using VaapiDisplay = livekit::VaapiDisplayDrm ;
+using VaapiDisplay = livekit_ffi::VaapiDisplayDrm ;
 #endif
 #define SURFACE_NUM 16 /* 16 surfaces for reference */
 
@@ -76,7 +76,7 @@ typedef struct {
   VA264Config config;
 } VA264Context;
 
-namespace livekit {
+namespace livekit_ffi {
 
 class VaapiH264EncoderWrapper {
  public:
@@ -122,6 +122,6 @@ class VaapiH264EncoderWrapper {
   bool initialized_ = false;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // VAAPI_H264_ENCODER_WRAPPER_H_

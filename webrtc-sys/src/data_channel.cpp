@@ -21,7 +21,7 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "webrtc-sys/src/data_channel.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::DataChannelInit to_native_data_channel_init(DataChannelInit init) {
   webrtc::DataChannelInit rtc_init{};
@@ -118,4 +118,4 @@ void NativeDataChannelObserver::OnBufferedAmountChange(
   observer_->on_buffered_amount_change(sent_data_size);
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

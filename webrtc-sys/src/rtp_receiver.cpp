@@ -23,7 +23,7 @@
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 RtpReceiver::RtpReceiver(
     std::shared_ptr<RtcRuntime> rtc_runtime,
@@ -78,4 +78,4 @@ void RtpReceiver::set_jitter_buffer_minimum_delay(bool is_some,
       is_some ? absl::make_optional(delay_seconds) : absl::nullopt);
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

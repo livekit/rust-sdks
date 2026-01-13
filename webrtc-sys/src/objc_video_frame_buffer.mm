@@ -20,7 +20,7 @@
 #import <sdk/objc/components/video_frame_buffer/RTCCVPixelBuffer.h>
 #include "sdk/objc/native/api/video_frame_buffer.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(
     CVPixelBufferRef pixelBuffer
@@ -45,4 +45,4 @@ CVPixelBufferRef native_buffer_to_platform_image_buffer(
     }
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

@@ -20,7 +20,7 @@
 
 using SourceList = webrtc::DesktopCapturer::SourceList;
 
-namespace livekit {
+namespace livekit_ffi {
 
 std::unique_ptr<DesktopCapturer> new_desktop_capturer(
     DesktopCapturerOptions options) {
@@ -115,4 +115,4 @@ rust::Vec<Source> DesktopCapturer::get_source_list() const {
   }
   return source_list;
 }
-}  // namespace livekit
+}  // namespace livekit_ffi

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cxx::bridge(namespace = "livekit")]
+#[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
     unsafe extern "C++" {
         include!("livekit/prohibit_libsrtp_initialization.h");
