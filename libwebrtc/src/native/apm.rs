@@ -12,13 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use cxx::UniquePtr;
-use webrtc_sys::apm::ffi as sys_apm;
-
+use crate::impl_thread_safety;
+use crate::sys;
 use crate::{RtcError, RtcErrorType};
 
 pub struct AudioProcessingModule {
-    sys_handle: UniquePtr<sys_apm::AudioProcessingModule>,
+    ffi: sys::RefCounted<sys::lkAudioProcessingModule>,
 }
 
 impl AudioProcessingModule {
@@ -28,20 +27,19 @@ impl AudioProcessingModule {
         high_pass_filter_enabled: bool,
         noise_suppression_enabled: bool,
     ) -> Self {
-        Self {
-            sys_handle: unsafe {
-                sys_apm::create_apm(
-                    echo_canceller_enabled,
-                    gain_controller_enabled,
-                    high_pass_filter_enabled,
-                    noise_suppression_enabled,
-                )
-            },
+        unsafe {
+            let ffi = sys::lkAudioProcessingModuleCreate(
+                echo_canceller_enabled,
+                gain_controller_enabled,
+                high_pass_filter_enabled,
+                noise_suppression_enabled,
+            );
+            Self { ffi: sys::RefCounted::from_raw(ffi) }
         }
     }
 
     pub fn process_stream(
-        &mut self,
+        self: &mut AudioProcessingModule,
         data: &mut [i16],
         sample_rate: i32,
         num_channels: i32,
@@ -49,24 +47,24 @@ impl AudioProcessingModule {
         let samples_count = (sample_rate as usize / 100) * num_channels as usize;
         assert_eq!(data.len(), samples_count, "slice must have 10ms worth of samples");
 
-        if unsafe {
-            // using the same slice for src and dst is safe
-            self.sys_handle.pin_mut().process_stream(
+        unsafe {
+            if sys::lkAudioProcessingModuleProcessStream(
+                self.ffi.as_ptr(),
                 data.as_mut_ptr(),
-                data.len(),
+                data.len() as u32,
                 data.as_mut_ptr(),
-                data.len(),
+                data.len() as u32,
                 sample_rate,
                 num_channels,
-            )
-        } == 0
-        {
-            Ok(())
-        } else {
-            Err(RtcError {
-                error_type: RtcErrorType::Internal,
-                message: "Failed to process stream".to_string(),
-            })
+            ) == 0
+            {
+                Ok(())
+            } else {
+                Err(RtcError {
+                    error_type: RtcErrorType::OperationError,
+                    message: "Failed to process stream".to_string(),
+                })
+            }
         }
     }
 
@@ -79,35 +77,42 @@ impl AudioProcessingModule {
         let samples_count = (sample_rate as usize / 100) * num_channels as usize;
         assert_eq!(data.len(), samples_count, "slice must have 10ms worth of samples");
 
-        if unsafe {
-            // using the same slice for src and dst is safe
-            self.sys_handle.pin_mut().process_reverse_stream(
+        unsafe {
+            if sys::lkAudioProcessingModuleProcessReverseStream(
+                self.ffi.as_ptr(),
                 data.as_mut_ptr(),
-                data.len(),
+                data.len() as u32,
                 data.as_mut_ptr(),
-                data.len(),
+                data.len() as u32,
                 sample_rate,
                 num_channels,
-            )
-        } == 0
-        {
-            Ok(())
-        } else {
-            Err(RtcError {
-                error_type: RtcErrorType::Internal,
-                message: "Failed to process reverse stream".to_string(),
-            })
+            ) == 0
+            {
+                Ok(())
+            } else {
+                Err(RtcError {
+                    error_type: RtcErrorType::OperationError,
+                    message: "Failed to process reverse stream".to_string(),
+                })
+            }
         }
     }
 
-    pub fn set_stream_delay_ms(&mut self, delay_ms: i32) -> Result<(), RtcError> {
-        if self.sys_handle.pin_mut().set_stream_delay_ms(delay_ms) == 0 {
-            Ok(())
-        } else {
-            Err(RtcError {
-                error_type: RtcErrorType::Internal,
-                message: "Failed to set stream delay".to_string(),
-            })
+    pub fn set_stream_delay_ms(
+        self: &mut AudioProcessingModule,
+        delay: i32,
+    ) -> Result<(), RtcError> {
+        unsafe {
+            if sys::lkAudioProcessingModuleSetStreamDelayMs(self.ffi.as_ptr(), delay) == 0 {
+                Ok(())
+            } else {
+                Err(RtcError {
+                    error_type: RtcErrorType::OperationError,
+                    message: "Failed to set stream delay".to_string(),
+                })
+            }
         }
     }
 }
+
+impl_thread_safety!(AudioProcessingModule, Send + Sync);
