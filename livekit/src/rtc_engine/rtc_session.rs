@@ -500,7 +500,6 @@ impl RtcSession {
         };
         let (remote_dt_manager, remote_dt_task, remote_dt_events) =
             dt::remote::Manager::new(remote_dt_options);
-        forward_incoming_dt_packets(&mut dt_transport, remote_dt_manager.clone());
         if let Ok(initial_publications) = dt::remote::event_from_join(&mut join_response) {
             _ = remote_dt_manager.send(initial_publications.into());
         }
@@ -1205,7 +1204,10 @@ impl SessionInner {
                 let dc_ref = match data_channel.label().as_str() {
                     LOSSY_DC_LABEL => &self.sub_lossy_dc,
                     RELIABLE_DC_LABEL => &self.sub_reliable_dc,
-                    DATA_TRACK_DC_LABEL => &self.sub_dt_transport,
+                    DATA_TRACK_DC_LABEL => {
+                        handle_remote_dt_packets(&data_channel, self.remote_dt_manager.clone());
+                        &self.sub_dt_transport
+                    },
                     _ => return Ok(()),
                 };
                 dc_ref.lock().replace(data_channel);
@@ -1987,8 +1989,8 @@ impl SessionInner {
     }
 }
 
-/// Sets up forwarding of incoming data track packets to the manager as input events.
-pub fn forward_incoming_dt_packets(dc: &mut DataChannel, manager: dt::remote::Manager) {
+/// Forward remote data track packets to the remote track manager.
+pub fn handle_remote_dt_packets(dc: &DataChannel, manager: dt::remote::Manager) {
     let on_message: libwebrtc::data_channel::OnMessage = Box::new(move |buffer: DataBuffer| {
         if !buffer.binary {
             log::error!("Received non-binary message");
