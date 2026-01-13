@@ -207,9 +207,7 @@ jobs:
 
       - name: Build TS parts
         working-directory: livekit-ffi-node-bindings
-        run: |
-          ./generate_proto.sh
-          pnpm build:ts
+        run: pnpm build:ts
 
       - name: Move artifacts
         run: pnpm artifacts

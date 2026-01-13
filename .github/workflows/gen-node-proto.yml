@@ -1,0 +1,55 @@
+name: Generate FFI Proto (Node)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - livekit-ffi/**
+      - livekit-ffi-node-bindings/**
+  pull_request:
+    branches:
+      - main
+    paths:
+      - livekit-ffi/**
+      - livekit-ffi-node-bindings/**
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  PACKAGE_DIR: ./livekit-ffi-node-bindings
+
+jobs:
+  generate_protobuf:
+    runs-on: ubuntu-latest
+    name: Generating protobuf
+    if: github.event_name == 'pull_request'
+
+    defaults:
+      run:
+        working-directory: ${{ env.PACKAGE_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "25.1"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: generate JS stubs
+        run: ./generate_proto.sh
+
+      - name: Add changes
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: '["livekit-ffi-node-bindings/src/proto"]'
+          default_author: github_actions
+          message: generated protobuf

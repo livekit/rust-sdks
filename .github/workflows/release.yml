@@ -11,6 +11,11 @@ on:
       - main
 
 jobs:
+  # ensure node ffi is up to date before releasing
+  generate-node-proto-stubs:
+    name: Generate node FFI proto stubs
+    uses: ./gen-node-proto.yml
+
   # Release unpublished packages.
   release-plz-release:
     name: Release-plz release
@@ -79,7 +84,7 @@ jobs:
     name: Call node FFI Builds
     if: ${{ needs.release-plz-release.outputs.ffi_tag != '' }}
     uses: ./.github/workflows/node-builds.yml
-    needs: release-plz-release
+    needs: ["generate-node-proto-stubs", "release-plz-release"]
     with:
       tag: ${{ needs.release-plz-release.outputs.ffi_tag }}
 
