@@ -14,6 +14,11 @@
 
 use thiserror::Error;
 
+/// Internal data track error.
+///
+/// Occurrences of this error type are unexpected and likely indicate
+/// a bug. If encountered, please report on GitHub and include the full error description.
+///
 #[derive(Debug, Error)]
 #[error(transparent)]
 pub struct InternalError(#[from] anyhow::Error);

@@ -21,16 +21,16 @@ mod local;
 /// Remote track subscription.
 mod remote;
 
-/// Frame and frame builder.
+/// Application-level frame.
 mod frame;
 
-/// End-to-end encryption.
+/// Provider for end-to-end encryption/decryption.
 mod e2ee;
 
-/// Data track packet format.
+/// Data track packet (DTP) format.
 mod dtp;
 
-/// Common utilities.
+/// Internal utilities.
 mod utils;
 
 /// Internal error.
