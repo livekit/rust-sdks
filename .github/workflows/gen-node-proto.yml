@@ -1,12 +1,6 @@
 name: Generate FFI Proto (Node)
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - livekit-ffi/**
-      - livekit-ffi-node-bindings/**
   pull_request:
     branches:
       - main
