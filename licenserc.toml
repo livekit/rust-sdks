@@ -2,6 +2,7 @@ headerPath = "Apache-2.0.txt"
 excludes = [
     "yuv-sys/libyuv",
     "soxr-sys/src",
+    "libwebrtc/*.sh",
     "libwebrtc/libwebrtc",
     "libwebrtc/src/sys/ffi.rs",
     "webrtc-sys/.clang-format",
