@@ -20,7 +20,7 @@
 
 using SourceList = webrtc::DesktopCapturer::SourceList;
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::scoped_refptr<DesktopCapturer> new_desktop_capturer(
     DesktopCapturerOptions options) {
@@ -101,7 +101,7 @@ void DesktopCapturer::OnCaptureResult(
   if (callback_) {
     callback_(
         reinterpret_cast<lkDesktopFrame*>(
-            webrtc::make_ref_counted<livekit::DesktopFrame>(std::move(frame)).release()),
+            webrtc::make_ref_counted<livekit_ffi::DesktopFrame>(std::move(frame)).release()),
         ret_result, userdata_);
   }
 }
@@ -119,4 +119,4 @@ std::vector<Source> DesktopCapturer::get_source_list() const {
   return source_list;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

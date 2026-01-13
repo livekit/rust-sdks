@@ -7,7 +7,7 @@
 #include "api/make_ref_counted.h"
 #include "api/scoped_refptr.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class SessionDescription : public webrtc::RefCountInterface {
  public:
@@ -52,6 +52,6 @@ class SessionDescription : public webrtc::RefCountInterface {
   std::string sdp_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // LIVEKIT_SESSION_DESCRIPTION_H

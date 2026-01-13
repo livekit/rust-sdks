@@ -18,7 +18,7 @@
 
 #include "api/rtc_error.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 enum RtcErrorType {
   RtcErrorTypeNone,
@@ -63,4 +63,4 @@ rust::String serialize_deserialize();
 void throw_error();
 #endif
 
-}  // namespace livekit
+}  // namespace livekit_ffi

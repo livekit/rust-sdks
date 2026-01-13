@@ -19,7 +19,7 @@
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 RtpTransceiver::RtpTransceiver(
     webrtc::scoped_refptr<webrtc::RtpTransceiverInterface> transceiver,
@@ -139,4 +139,4 @@ RtpTransceiver::codec_preferences() const {
   return capi;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

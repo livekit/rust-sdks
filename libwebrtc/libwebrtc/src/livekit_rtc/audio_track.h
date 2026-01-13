@@ -16,7 +16,7 @@
 #include "rtc_base/task_utils/repeating_task.h"
 #include "rtc_base/thread_annotations.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 using CompleteCallback = void (*)(void* userdata);
 using AudioDataCallback = void (*)(int16_t* audioData,
@@ -184,6 +184,6 @@ class AudioTrackSource : public webrtc::RefCountInterface {
   webrtc::scoped_refptr<InternalSource> source_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // LIVEKIT_AUDIO_TRACK_H

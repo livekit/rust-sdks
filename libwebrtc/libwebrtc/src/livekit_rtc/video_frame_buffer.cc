@@ -18,7 +18,7 @@
 
 #include "api/make_ref_counted.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 VideoFrameBuffer::VideoFrameBuffer(
     webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer)
@@ -359,4 +359,4 @@ lkPlatformImageBuffer* native_buffer_to_platform_image_buffer(
 
 #endif
 
-}  // namespace livekit
+}  // namespace livekit_ffi

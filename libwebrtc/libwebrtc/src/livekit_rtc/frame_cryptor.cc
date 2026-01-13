@@ -22,7 +22,7 @@
 #include "api/make_ref_counted.h"
 #include "rtc_base/thread.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::FrameCryptorTransformer::Algorithm AlgorithmToFrameCryptorAlgorithm(
     Algorithm algorithm) {
@@ -214,4 +214,4 @@ std::vector<::std::uint8_t> DataPacketCryptor::decrypt_data_packet(
   return decrypted_data;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

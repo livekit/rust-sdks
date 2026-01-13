@@ -34,7 +34,7 @@ class NvidiaVideoEncoderFactory : public VideoEncoderFactory {
 
  private:
   std::vector<SdpVideoFormat> supported_formats_;
-  livekit::CudaContext* cu_context_ = nullptr;
+  livekit_ffi::CudaContext* cu_context_ = nullptr;
 };
 
 }  // namespace webrtc

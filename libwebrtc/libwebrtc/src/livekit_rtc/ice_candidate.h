@@ -7,7 +7,7 @@
 #include "api/make_ref_counted.h"
 #include "api/scoped_refptr.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class IceCandidate : public webrtc::RefCountInterface {
  public:
@@ -54,6 +54,6 @@ class IceCandidate : public webrtc::RefCountInterface {
   std::unique_ptr<webrtc::IceCandidateInterface> candidate_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // LIVEKIT_RTC_ICE_CANDIDATE_H_

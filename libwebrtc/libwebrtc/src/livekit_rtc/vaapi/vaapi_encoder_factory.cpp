@@ -8,10 +8,10 @@
 
 #if defined(WIN32)
 #include "vaapi_display_win32.h"
-using VaapiDisplay = livekit::VaapiDisplayWin32;
+using VaapiDisplay = livekit_ffi::VaapiDisplayWin32;
 #elif defined(__linux__)
 #include "vaapi_display_drm.h"
-using VaapiDisplay = livekit::VaapiDisplayDrm;
+using VaapiDisplay = livekit_ffi::VaapiDisplayDrm;
 #endif
 
 namespace webrtc {

@@ -6,7 +6,7 @@
 #include "livekit_rtc/include/capi.h"
 #include "rtc_base/logging.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class MediaStreamTrack : public webrtc::RefCountInterface {
  public:
@@ -40,6 +40,6 @@ class MediaStreamTrack : public webrtc::RefCountInterface {
   webrtc::scoped_refptr<webrtc::MediaStreamTrackInterface> track_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // LIVEKIT_RTC_MEDIA_STREAM_TRACK_H

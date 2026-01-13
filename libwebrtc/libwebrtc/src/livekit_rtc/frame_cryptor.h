@@ -29,7 +29,7 @@
 #include "livekit_rtc/rtp_transceiver.h"
 #include "rtc_base/synchronization/mutex.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 typedef struct {
   bool shared_key;
@@ -306,4 +306,4 @@ class DataPacketCryptor : public webrtc::RefCountInterface {
   webrtc::scoped_refptr<webrtc::DataPacketCryptor> data_packet_cryptor_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi

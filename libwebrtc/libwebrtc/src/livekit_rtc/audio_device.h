@@ -6,7 +6,7 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/task_utils/repeating_task.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 const int kSampleRate = 48000;
 const int kChannels = 2;
@@ -152,6 +152,6 @@ class AudioDevice : public webrtc::AudioDeviceModule {
   bool initialized_{false};
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // LIVEKIT_AUDIO_DEVICE_H

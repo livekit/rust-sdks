@@ -27,7 +27,7 @@
 #include "sdk/android/native_api/jni/scoped_java_ref.h"
 #include "sdk/android/src/jni/jni_helpers.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 void init_android(void* jvm) {
   webrtc::InitAndroid(jvm);
@@ -62,4 +62,4 @@ CreateAndroidVideoDecoderFactory() {
   return webrtc::JavaToNativeVideoDecoderFactory(env, decoder_factory);
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

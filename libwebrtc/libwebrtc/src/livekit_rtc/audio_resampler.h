@@ -22,7 +22,7 @@
 #include "api/data_channel_interface.h"
 #include "common_audio/resampler/include/push_resampler.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class AudioResampler : public webrtc::RefCountInterface {
  public:
@@ -42,4 +42,4 @@ class AudioResampler : public webrtc::RefCountInterface {
 
 webrtc::scoped_refptr<AudioResampler> create_audio_resampler();
 
-}  // namespace livekit
+}  // namespace livekit_ffi

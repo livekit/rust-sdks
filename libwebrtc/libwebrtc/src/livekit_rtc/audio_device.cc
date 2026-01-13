@@ -2,7 +2,7 @@
 
 #include <memory>
 
-namespace livekit {
+namespace livekit_ffi {
 
 int32_t AudioDevice::Init() {
   webrtc::MutexLock lock(&mutex_);
@@ -46,4 +46,4 @@ int32_t AudioDevice::Terminate() {
   return 0;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

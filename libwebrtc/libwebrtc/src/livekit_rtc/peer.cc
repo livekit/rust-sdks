@@ -38,7 +38,7 @@
 #include "rtc_base/win32_socket_init.h"
 #endif
 
-namespace livekit {
+namespace livekit_ffi {
 
 class SetRemoteSdpObserver
     : public webrtc::SetRemoteDescriptionObserverInterface {
@@ -157,11 +157,11 @@ void PeerObserver::OnTrack(
       webrtc::make_ref_counted<MediaStreamTrack>(
           transceiver->receiver()->track());
   auto lkStreamArray = webrtc::make_ref_counted<
-      livekit::LKVector<webrtc::scoped_refptr<livekit::MediaStream>>>();
+      livekit_ffi::LKVector<webrtc::scoped_refptr<livekit_ffi::MediaStream>>>();
   auto streams = transceiver->receiver()->streams();
   for (const auto& stream : streams) {
     lkStreamArray->push_back(
-        webrtc::make_ref_counted<livekit::MediaStream>(stream));
+        webrtc::make_ref_counted<livekit_ffi::MediaStream>(stream));
   }
   observer_->onTrack(
       reinterpret_cast<lkRtpTransceiver*>(lkTransceiver.release()),
@@ -206,7 +206,7 @@ PeerFactory::PeerFactory() {
   signaling_thread_->Start();
 
   worker_thread_->BlockingCall([&] {
-    audio_device_ = webrtc::make_ref_counted<livekit::AudioDevice>(
+    audio_device_ = webrtc::make_ref_counted<livekit_ffi::AudioDevice>(
         task_queue_factory_.get());
   });
 
@@ -214,8 +214,8 @@ PeerFactory::PeerFactory() {
       network_thread_.get(), worker_thread_.get(), signaling_thread_.get(),
       audio_device_, webrtc::CreateBuiltinAudioEncoderFactory(),
       webrtc::CreateBuiltinAudioDecoderFactory(),
-      std::make_unique<livekit::VideoEncoderFactory>(),
-      std::make_unique<livekit::VideoDecoderFactory>(), nullptr,
+      std::make_unique<livekit_ffi::VideoEncoderFactory>(),
+      std::make_unique<livekit_ffi::VideoDecoderFactory>(), nullptr,
       nullptr /*TODO: add cusom audio processor */, nullptr, nullptr);
 
   if (!peer_factory_) {
@@ -258,22 +258,22 @@ webrtc::scoped_refptr<Peer> PeerFactory::CreatePeer(
 
 lkRtcVideoTrack* PeerFactory::CreateVideoTrack(const char* id,
                                                lkVideoTrackSource* source) {
-  auto videoSource = reinterpret_cast<livekit::VideoTrackSource*>(source);
+  auto videoSource = reinterpret_cast<livekit_ffi::VideoTrackSource*>(source);
   auto track = peer_factory_->CreateVideoTrack(videoSource->get(), id);
   if (track) {
     return reinterpret_cast<lkRtcVideoTrack*>(
-        webrtc::make_ref_counted<livekit::VideoTrack>(track).release());
+        webrtc::make_ref_counted<livekit_ffi::VideoTrack>(track).release());
   }
   return nullptr;
 }
 
 lkRtcAudioTrack* PeerFactory::CreateAudioTrack(const char* id,
                                                lkAudioTrackSource* source) {
-  auto audioSource = reinterpret_cast<livekit::AudioTrackSource*>(source);
+  auto audioSource = reinterpret_cast<livekit_ffi::AudioTrackSource*>(source);
   auto track = peer_factory_->CreateAudioTrack(id, audioSource->audio_source());
   if (track) {
     return reinterpret_cast<lkRtcAudioTrack*>(
-        webrtc::make_ref_counted<livekit::AudioTrack>(track).release());
+        webrtc::make_ref_counted<livekit_ffi::AudioTrack>(track).release());
   }
   return nullptr;
 }
@@ -300,7 +300,7 @@ lkRtpSender* Peer::AddTrack(lkMediaStreamTrack* track,
                             int streamIdCount,
                             lkRtcError* error) {
   auto mediaTrack =
-      reinterpret_cast<livekit::MediaStreamTrack*>(track)->rtc_track();
+      reinterpret_cast<livekit_ffi::MediaStreamTrack*>(track)->rtc_track();
   std::vector<std::string> std_stream_ids;
   for (int i = 0; i < streamIdCount; ++i) {
     std_stream_ids.push_back(streamIds[i]);
@@ -312,13 +312,13 @@ lkRtpSender* Peer::AddTrack(lkMediaStreamTrack* track,
     return nullptr;
   }
   return reinterpret_cast<lkRtpSender*>(
-      webrtc::make_ref_counted<livekit::RtpSender>(res.value(),
+      webrtc::make_ref_counted<livekit_ffi::RtpSender>(res.value(),
                                                    peer_connection_)
           .release());
 }
 
 bool Peer::RemoveTrack(lkRtpSender* sender, lkRtcError* error) {
-  auto rtcSender = reinterpret_cast<livekit::RtpSender*>(sender);
+  auto rtcSender = reinterpret_cast<livekit_ffi::RtpSender*>(sender);
   webrtc::RTCError err = peer_connection_->RemoveTrackOrError(rtcSender->rtc_sender());
   if (!err.ok()) {
     *error = toRtcError(err);
@@ -331,8 +331,8 @@ lkRtpTransceiver* Peer::AddTransceiver(lkMediaStreamTrack* track,
                                        lkRtpTransceiverInit* init,
                                        lkRtcError* error) {
   auto mediaTrack =
-      reinterpret_cast<livekit::MediaStreamTrack*>(track)->rtc_track();
-  auto transceiverInit = reinterpret_cast<livekit::RtpTransceiverInit*>(init);
+      reinterpret_cast<livekit_ffi::MediaStreamTrack*>(track)->rtc_track();
+  auto transceiverInit = reinterpret_cast<livekit_ffi::RtpTransceiverInit*>(init);
   webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>>
       res = peer_connection_->AddTransceiver(mediaTrack,
                                              transceiverInit->rtc_init);
@@ -342,7 +342,7 @@ lkRtpTransceiver* Peer::AddTransceiver(lkMediaStreamTrack* track,
     return nullptr;
   }
   return reinterpret_cast<lkRtpTransceiver*>(
-      webrtc::make_ref_counted<livekit::RtpTransceiver>(res.value(),
+      webrtc::make_ref_counted<livekit_ffi::RtpTransceiver>(res.value(),
                                                         peer_connection_)
           .release());
 }
@@ -351,7 +351,7 @@ lkRtpTransceiver* Peer::AddTransceiverForMedia(lkMediaType type,
                                                lkRtpTransceiverInit* init,
                                                lkRtcError* error) {
   auto mediaType = static_cast<webrtc::MediaType>(type);
-  auto transceiverInit = reinterpret_cast<livekit::RtpTransceiverInit*>(init);
+  auto transceiverInit = reinterpret_cast<livekit_ffi::RtpTransceiverInit*>(init);
   webrtc::RTCErrorOr<webrtc::scoped_refptr<webrtc::RtpTransceiverInterface>>
       res = peer_connection_->AddTransceiver(mediaType,
                                                     transceiverInit->rtc_init);
@@ -361,7 +361,7 @@ lkRtpTransceiver* Peer::AddTransceiverForMedia(lkMediaType type,
     return nullptr;
   }
   return reinterpret_cast<lkRtpTransceiver*>(
-      webrtc::make_ref_counted<livekit::RtpTransceiver>(res.value(),
+      webrtc::make_ref_counted<livekit_ffi::RtpTransceiver>(res.value(),
                                                         peer_connection_)
           .release());
 }
@@ -371,7 +371,7 @@ bool Peer::AddIceCandidate(const lkIceCandidate* candidate,
                                               void* userdata),
                            void* userdata) {
   auto lkCandidatePtr =
-      reinterpret_cast<const livekit::IceCandidate*>(candidate);
+      reinterpret_cast<const livekit_ffi::IceCandidate*>(candidate);
 
   peer_connection_->AddIceCandidate(lkCandidatePtr->Clone(),
                                     [&](webrtc::RTCError err) {
@@ -388,7 +388,7 @@ bool Peer::AddIceCandidate(const lkIceCandidate* candidate,
 bool Peer::SetLocalDescription(const lkSessionDescription* desc,
                                const lkSetSdpObserver* observer,
                                void* userdata) {
-  auto jsepDesc = reinterpret_cast<const livekit::SessionDescription*>(desc);
+  auto jsepDesc = reinterpret_cast<const livekit_ffi::SessionDescription*>(desc);
 
   peer_connection_->SetLocalDescription(
       jsepDesc->Clone(),
@@ -399,7 +399,7 @@ bool Peer::SetLocalDescription(const lkSessionDescription* desc,
 bool Peer::SetRemoteDescription(const lkSessionDescription* desc,
                                 const lkSetSdpObserver* observer,
                                 void* userdata) {
-  auto jsepDesc = reinterpret_cast<const livekit::SessionDescription*>(desc);
+  auto jsepDesc = reinterpret_cast<const livekit_ffi::SessionDescription*>(desc);
   peer_connection_->SetRemoteDescription(
       jsepDesc->Clone(),
       webrtc::make_ref_counted<SetRemoteSdpObserver>(observer, userdata));
@@ -541,7 +541,7 @@ lkRtpCapabilities* PeerFactory::GetRtpSenderCapabilities(lkMediaType type) {
       static_cast<webrtc::MediaType>(type));
 
   return reinterpret_cast<lkRtpCapabilities*>(
-      livekit::RtpCapabilities::FromNative(rtc_caps).release());
+      livekit_ffi::RtpCapabilities::FromNative(rtc_caps).release());
 }
 
 lkRtpCapabilities* PeerFactory::GetRtpReceiverCapabilities(lkMediaType type) {
@@ -549,7 +549,7 @@ lkRtpCapabilities* PeerFactory::GetRtpReceiverCapabilities(lkMediaType type) {
       static_cast<webrtc::MediaType>(type));
 
   return reinterpret_cast<lkRtpCapabilities*>(
-      livekit::RtpCapabilities::FromNative(rtc_caps).release());
+      livekit_ffi::RtpCapabilities::FromNative(rtc_caps).release());
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

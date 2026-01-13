@@ -8,7 +8,7 @@
 #include "test/gmock.h"
 #include "test/gtest.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 void onSuccessCb0(void* userdata) {
   RTC_LOG(LS_INFO) << "SetDescription onSuccess called";
@@ -45,7 +45,7 @@ void onTrackCb(const lkRtpTransceiver* transceiver, void* userdata) {
 
 TEST(LIVEKIT_RTC, ConstructDestruct) {
   RTC_LOG(LS_INFO) << "PeerFactory() called";
-  auto peer_factory = webrtc::make_ref_counted<livekit::PeerFactory>();
+  auto peer_factory = webrtc::make_ref_counted<livekit_ffi::PeerFactory>();
   EXPECT_NE(peer_factory, nullptr);
 
   const lkPeerObserver callbacks = {
@@ -93,4 +93,4 @@ TEST(LIVEKIT_RTC, ConstructDestruct) {
   RTC_LOG(LS_INFO) << "PeerFactory() destroyed";
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

@@ -2,7 +2,7 @@
 
 #include "livekit_rtc/global_task_queue.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 NativeAudioSink::NativeAudioSink(int sample_rate,
                                  size_t num_channels,
@@ -264,4 +264,4 @@ webrtc::scoped_refptr<AudioTrackSource::InternalSource> AudioTrackSource::get()
   return source_;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

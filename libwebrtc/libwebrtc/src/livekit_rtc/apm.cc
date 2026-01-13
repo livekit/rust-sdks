@@ -22,7 +22,7 @@
 #include <iostream>
 #include <memory>
 
-namespace livekit {
+namespace livekit_ffi {
 
 AudioProcessingModule::AudioProcessingModule(
     const AudioProcessingConfig& config) {
@@ -70,4 +70,4 @@ webrtc::scoped_refptr<AudioProcessingModule> create_apm(
   return webrtc::make_ref_counted<AudioProcessingModule>(config);
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

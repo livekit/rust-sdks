@@ -5,7 +5,7 @@
 #include "api/scoped_refptr.h"
 #include "rtc_base/logging.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class MediaStream : public webrtc::RefCountInterface {
  public:

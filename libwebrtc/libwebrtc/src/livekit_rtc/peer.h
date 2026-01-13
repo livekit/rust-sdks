@@ -8,7 +8,7 @@
 #include "livekit_rtc/include/capi.h"
 #include "livekit_rtc/session_description.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class PeerFactory;
 
@@ -166,6 +166,6 @@ class PeerFactory : public webrtc::RefCountInterface {
   webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // LIVEKIT_PEER_H

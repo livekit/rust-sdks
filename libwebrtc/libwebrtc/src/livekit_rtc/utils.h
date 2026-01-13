@@ -7,7 +7,7 @@
 #include "livekit_rtc/include/capi.h"
 #include "rtc_base/logging.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 lkRtcError toRtcError(const webrtc::RTCError& error);
 
@@ -100,7 +100,7 @@ class LKRefCountedObject : public webrtc::RefCountInterface {
   T value_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 inline std::vector<std::string> split(std::string s, std::string delimiter) {
   std::vector<std::string> tokens;

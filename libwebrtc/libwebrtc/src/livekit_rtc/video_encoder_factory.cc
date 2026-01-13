@@ -45,7 +45,7 @@
 #include "livekit_rtc/vaapi/vaapi_encoder_factory.h"
 #endif
 
-namespace livekit {
+namespace livekit_ffi {
 
 using Factory = webrtc::VideoEncoderFactoryTemplate<
     webrtc::LibvpxVp8EncoderTemplateAdapter,
@@ -59,7 +59,7 @@ using Factory = webrtc::VideoEncoderFactoryTemplate<
 
 VideoEncoderFactory::InternalFactory::InternalFactory() {
 #ifdef __APPLE__
-  factories_.push_back(livekit::CreateObjCVideoEncoderFactory());
+  factories_.push_back(livekit_ffi::CreateObjCVideoEncoderFactory());
 #endif
 
 #ifdef WEBRTC_ANDROID
@@ -155,4 +155,4 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
   return encoder;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

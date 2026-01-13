@@ -27,7 +27,7 @@
 #include "livekit_rtc/stats.h"
 #include "rtc_base/logging.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class PeerFactory;
 class MediaStreamTrack;
@@ -70,4 +70,4 @@ class RtpSender : public webrtc::RefCountInterface {
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi

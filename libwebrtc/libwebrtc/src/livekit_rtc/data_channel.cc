@@ -3,7 +3,7 @@
 #include "api/data_channel_interface.h"
 #include "api/make_ref_counted.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::DataChannelInit toNativeDataChannelInit(const lkDataChannelInit& init) {
   webrtc::DataChannelInit nativeInit{};
@@ -63,4 +63,4 @@ void DataChannel::SendAsync(const uint8_t* data,
       });
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

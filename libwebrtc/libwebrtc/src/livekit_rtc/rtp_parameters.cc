@@ -16,6 +16,6 @@
 
 #include "livekit_rtc/rtp_parameters.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
-}  // namespace livekit
+}  // namespace livekit_ffi

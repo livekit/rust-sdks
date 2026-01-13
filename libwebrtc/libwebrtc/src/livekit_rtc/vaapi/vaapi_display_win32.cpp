@@ -162,7 +162,7 @@ static VADisplay va_open_display_win32(void) {
 
 static void va_close_display_win32(VADisplay va_dpy) {}
 
-namespace livekit {
+namespace livekit_ffi {
 
 VaapiDisplayWin32::VaapiDisplayWin32() : va_display_(nullptr) {
   putenv("LIBVA_DRIVER_NAME=vaon12");
@@ -189,4 +189,4 @@ void VaapiDisplayWin32::Close() {
   }
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

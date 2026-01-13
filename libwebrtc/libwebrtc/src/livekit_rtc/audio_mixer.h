@@ -11,7 +11,7 @@
 #include "modules/audio_processing/audio_buffer.h"
 #include "rtc_base/synchronization/mutex.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class NativeAudioFrame {
  public:
@@ -64,6 +64,6 @@ class AudioMixer {
 
 std::unique_ptr<AudioMixer> create_audio_mixer();
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // LIVEKIT_AUDIO_MIXER_H

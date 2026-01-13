@@ -27,7 +27,7 @@
 #include "livekit_rtc/rtp_receiver.h"
 #include "livekit_rtc/rtp_sender.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class RtpTransceiver : public webrtc::RefCountInterface {
  public:
@@ -75,4 +75,4 @@ class RtpTransceiver : public webrtc::RefCountInterface {
   webrtc::scoped_refptr<webrtc::PeerConnectionInterface> peer_connection_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi

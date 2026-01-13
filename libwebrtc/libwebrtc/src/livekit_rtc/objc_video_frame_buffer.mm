@@ -22,7 +22,7 @@
 #include "api/scoped_refptr.h"
 #include "api/make_ref_counted.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::scoped_refptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(
     CVPixelBufferRef pixelBuffer
@@ -48,4 +48,4 @@ CVPixelBufferRef native_buffer_to_platform_image_buffer(
     }
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

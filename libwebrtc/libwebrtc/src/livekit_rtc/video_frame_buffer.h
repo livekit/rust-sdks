@@ -29,16 +29,16 @@
 
 #ifdef __APPLE__
 #include <CoreVideo/CoreVideo.h>
-namespace livekit {
+namespace livekit_ffi {
 typedef __CVBuffer PlatformImageBuffer;
-}  // namespace livekit
+}  // namespace livekit_ffi
 #else
-namespace livekit {
+namespace livekit_ffi {
 typedef void PlatformImageBuffer;
-}  // namespace livekit
+}  // namespace livekit_ffi
 #endif
 
-namespace livekit {
+namespace livekit_ffi {
 
 class VideoFrameBuffer;
 class PlanarYuvBuffer;
@@ -249,4 +249,4 @@ PlatformImageBuffer* native_buffer_to_platform_image_buffer(
     const webrtc::scoped_refptr<VideoFrameBuffer>&);
 #endif
 
-}  // namespace livekit
+}  // namespace livekit_ffi

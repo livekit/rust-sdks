@@ -11,7 +11,7 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/timestamp_aligner.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class NativeVideoSink;
 
@@ -100,6 +100,6 @@ class VideoTrackSource : public webrtc::RefCountInterface {
   webrtc::scoped_refptr<InternalSource> source_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // LIVEKIT_RTC_VIDEO_TRACK_H

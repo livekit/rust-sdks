@@ -23,7 +23,7 @@
 #include "api/video/video_frame.h"
 #include "rtc_base/checks.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class VideoFrame : public webrtc::RefCountInterface {
  public:
@@ -63,4 +63,4 @@ class VideoFrameBuilder : webrtc::RefCountInterface {
 
 webrtc::scoped_refptr<VideoFrameBuilder> new_video_frame_builder();
 
-}  // namespace livekit
+}  // namespace livekit_ffi

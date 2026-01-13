@@ -21,7 +21,7 @@
 #include "api/video/video_frame.h"
 #include "rtc_base/logging.h"
 
-namespace livekit {
+namespace livekit_ffi {
 VideoFrame::VideoFrame(const webrtc::VideoFrame& frame)
     : frame_(std::move(frame)) {}
 
@@ -87,4 +87,4 @@ webrtc::scoped_refptr<VideoFrameBuilder> new_video_frame_builder() {
   return webrtc::make_ref_counted<VideoFrameBuilder>();
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

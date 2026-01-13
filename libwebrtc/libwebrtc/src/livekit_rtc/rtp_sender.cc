@@ -19,7 +19,7 @@
 #include "livekit_rtc/media_stream_track.h"
 #include "livekit_rtc/rtp_parameters.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 RtpSender::RtpSender(
     webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender,
@@ -86,4 +86,4 @@ bool RtpSender::set_parameters(webrtc::scoped_refptr<RtpParameters> params,
   return true;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

@@ -24,7 +24,7 @@
 #include "livekit_rtc/include/capi.h"
 #include "modules/desktop_capture/desktop_capturer.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 typedef enum {
   Screen,
@@ -93,6 +93,6 @@ class DesktopFrame : public webrtc::RefCountInterface {
 };
 
 webrtc::scoped_refptr<DesktopCapturer> new_desktop_capturer(DesktopCapturerOptions options);
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // LIVEKIT_DESKTOP_CAPTURER_H

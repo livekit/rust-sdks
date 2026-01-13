@@ -2,7 +2,7 @@
 
 #include "api/peer_connection_interface.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 lkRtcError toRtcError(const webrtc::RTCError& error) {
   lkRtcError err{};
@@ -20,4 +20,4 @@ toNativeOfferAnswerOptions(const lkOfferAnswerOptions& options) {
   return nativeOptions;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

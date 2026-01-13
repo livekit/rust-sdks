@@ -22,7 +22,7 @@
 #include "api/audio/audio_view.h"
 #include "api/audio/audio_frame.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 size_t AudioResampler::remix_and_resample(const int16_t* src,
                                           size_t samples_per_channel,
@@ -49,4 +49,4 @@ webrtc::scoped_refptr<AudioResampler> create_audio_resampler() {
   return webrtc::make_ref_counted<AudioResampler>();
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

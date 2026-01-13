@@ -23,7 +23,7 @@
 #include "api/audio/audio_mixer.h"
 #include "modules/audio_mixer/audio_mixer_impl.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 AudioMixer::AudioMixer() {
   audio_mixer_ = webrtc::AudioMixerImpl::Create();
@@ -102,4 +102,4 @@ void NativeAudioFrame::update_frame(uint32_t timestamp,
                       num_channels);
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

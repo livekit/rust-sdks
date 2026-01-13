@@ -1,5 +1,5 @@
 #include "livekit_rtc/session_description.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
-}  // namespace livekit
+}  // namespace livekit_ffi

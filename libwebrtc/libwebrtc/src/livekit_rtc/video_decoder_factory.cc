@@ -39,11 +39,11 @@
 #include "livekit_rtc/nvidia/nvidia_decoder_factory.h"
 #endif
 
-namespace livekit {
+namespace livekit_ffi {
 
 VideoDecoderFactory::VideoDecoderFactory() {
 #ifdef __APPLE__
-  factories_.push_back(livekit::CreateObjCVideoDecoderFactory());
+  factories_.push_back(livekit_ffi::CreateObjCVideoDecoderFactory());
 #endif
 
 #ifdef WEBRTC_ANDROID
@@ -125,4 +125,4 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
   return nullptr;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

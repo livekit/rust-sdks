@@ -1,6 +1,6 @@
 #include "livekit_rtc/video_track.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 VideoTrack::VideoTrack(webrtc::scoped_refptr<webrtc::VideoTrackInterface> track)
     : MediaStreamTrack(std::move(track)) {}
@@ -158,4 +158,4 @@ webrtc::scoped_refptr<VideoTrackSource::InternalSource> VideoTrackSource::get()
   return source_;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

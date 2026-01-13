@@ -2,7 +2,7 @@
 
 #include "api/stats/rtc_stats_collector_callback.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 using onStatsDeliveredCallback = void (*)(const char* statsJson, void* userdata);
 
@@ -23,4 +23,4 @@ class NativeRtcStatsCollector : public webrtc::RTCStatsCollectorCallback {
   onStatsDeliveredCallback on_stats_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi

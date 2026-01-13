@@ -23,7 +23,7 @@
 #include "livekit_rtc/utils.h"
 #include "rtc_base/logging.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class RtcpFeedback : public webrtc::RefCountInterface {
  public:
@@ -170,10 +170,10 @@ class RtpCodecCapability : public webrtc::RefCountInterface {
     }
     rtc_capability.rtcp_feedback.clear();
     auto feedback_vec =
-        reinterpret_cast<livekit::LKVector<lkRefCountedObject*>*>(feedbacks);
+        reinterpret_cast<livekit_ffi::LKVector<lkRefCountedObject*>*>(feedbacks);
     for (size_t i = 0; i < feedback_vec->size(); i++) {
       auto feedback =
-          reinterpret_cast<livekit::RtcpFeedback*>(feedback_vec->get_at(i));
+          reinterpret_cast<livekit_ffi::RtcpFeedback*>(feedback_vec->get_at(i));
       rtc_capability.rtcp_feedback.push_back(feedback->rtc_feedback);
     }
     return static_cast<int>(rtc_capability.rtcp_feedback.size());
@@ -634,4 +634,4 @@ class RtpTransceiverInit : public webrtc::RefCountInterface {
   webrtc::RtpTransceiverInit rtc_init;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi

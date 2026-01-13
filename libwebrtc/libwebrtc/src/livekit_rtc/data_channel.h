@@ -9,7 +9,7 @@
 #include "rtc_base/ref_count.h"
 #include "rtc_base/synchronization/mutex.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::DataChannelInit toNativeDataChannelInit(const lkDataChannelInit& init);
 class DataChannel;
@@ -68,6 +68,6 @@ class DataChannel : public webrtc::RefCountInterface {
   std::unique_ptr<DataChannelObserver> observer_ = nullptr;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #endif  // LIVEKIT_DATA_CHANNEL_H
