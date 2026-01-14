@@ -347,7 +347,9 @@ impl ManagerTask {
             log::warn!("Received packet for track {} without subscription", descriptor.info.sid);
             return;
         };
-        _ = packet_tx.send(dtp);
+        _ = packet_tx
+            .try_send(dtp)
+            .inspect_err(|_| log::warn!("Track task saturated, dropping packet"));
     }
 
     /// Performs cleanup before the task ends.
