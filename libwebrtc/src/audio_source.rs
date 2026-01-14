@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// use livekit_protocol::enum_dispatch;
-
 use crate::{enum_dispatch, sys::lkAudioSourceOptions};
 
 #[derive(Default, Debug)]
@@ -196,7 +194,7 @@ pub mod native {
             }
 
             // Buffered path.
-            extern "C" fn lk_audio_source_complete(userdata: *mut ::std::os::raw::c_void) {
+            extern "C" fn audio_source_complete(userdata: *mut ::std::os::raw::c_void) {
                 let tx: Box<oneshot::Sender<()>> =
                     unsafe { Box::from_raw(userdata as *mut oneshot::Sender<()>) };
                 let _ = tx.send(());
@@ -219,7 +217,7 @@ pub mod native {
                         self.num_channels,
                         nb_frames as i32,
                         userdata,
-                        Some(lk_audio_source_complete),
+                        Some(audio_source_complete),
                     );
                 }
 

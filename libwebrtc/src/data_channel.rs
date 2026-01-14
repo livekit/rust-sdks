@@ -115,9 +115,9 @@ pub struct DataChannel {
 impl_thread_safety!(DataChannel, Send + Sync);
 
 static DC_OBSERVER: sys::lkDataChannelObserver = lkDataChannelObserver {
-    onStateChange: Some(DataChannelObserver::lk_on_state_change),
-    onMessage: Some(DataChannelObserver::lk_on_message),
-    onBufferedAmountChange: Some(DataChannelObserver::lk_on_buffered_amount_change),
+    onStateChange: Some(DataChannelObserver::on_state_change),
+    onMessage: Some(DataChannelObserver::on_message),
+    onBufferedAmountChange: Some(DataChannelObserver::on_buffered_amount_change),
 };
 
 impl DataChannel {
@@ -247,9 +247,9 @@ pub struct DataChannelObserver {
 }
 
 impl DataChannelObserver {
-    pub extern "C" fn lk_on_state_change(userdata: *mut ::std::os::raw::c_void, state: lkDcState) {
+    pub extern "C" fn on_state_change(userdata: *mut ::std::os::raw::c_void, state: lkDcState) {
         println!(
-            "DataChannelObserver::lk_on_state_change called with state: {:?}, id {:?}",
+            "DataChannelObserver::on_state_change called with state: {:?}, id {:?}",
             state, userdata
         );
 
@@ -260,16 +260,13 @@ impl DataChannelObserver {
         }
     }
 
-    pub extern "C" fn lk_on_message(
+    pub extern "C" fn on_message(
         data: *const u8,
         size: u64,
         binary: bool,
         userdata: *mut ::std::os::raw::c_void,
     ) {
-        println!(
-            "DataChannelObserver::lk_on_message called with size: {}, binary {}",
-            size, binary
-        );
+        println!("DataChannelObserver::on_message called with size: {}, binary {}", size, binary);
         let observer: &DataChannelObserver = unsafe { &*(userdata as *const DataChannelObserver) };
         let mut handler = observer.message_handler.lock().unwrap();
         if let Some(f) = handler.as_mut() {
@@ -278,12 +275,12 @@ impl DataChannelObserver {
         }
     }
 
-    pub extern "C" fn lk_on_buffered_amount_change(
+    pub extern "C" fn on_buffered_amount_change(
         sent_data_size: u64,
         userdata: *mut ::std::os::raw::c_void,
     ) {
         println!(
-            "DataChannelObserver::lk_on_buffered_amount_change called with size: {}",
+            "DataChannelObserver::on_buffered_amount_change called with size: {}",
             sent_data_size
         );
 
