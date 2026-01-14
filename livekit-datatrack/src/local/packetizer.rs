@@ -88,7 +88,7 @@ impl Packetizer {
     }
 
     fn frame_marker(index: usize, packet_count: usize) -> FrameMarker {
-        if packet_count == 1 {
+        if packet_count <= 1 {
             return FrameMarker::Single;
         }
         match index {
@@ -103,14 +103,18 @@ impl Packetizer {
 mod tests {
     use super::*;
     use crate::dtp::{E2eeExt, UserTimestampExt};
-    use rstest::rstest;
+    use test_case::test_matrix;
 
-    #[rstest]
-    fn test_packetize(
-        #[values(0, 32, 784)] payload_size: usize,
-        #[values(256, 1024)] mtu_size: usize,
-        #[values(true, false)] with_exts: bool,
-    ) {
+    #[test]
+    fn test_frame_marker() {
+        assert_eq!(Packetizer::frame_marker(0, 1), FrameMarker::Single);
+        assert_eq!(Packetizer::frame_marker(0, 10), FrameMarker::Start);
+        assert_eq!(Packetizer::frame_marker(4, 10), FrameMarker::Inter);
+        assert_eq!(Packetizer::frame_marker(9, 10), FrameMarker::Final);
+    }
+
+    #[test_matrix([0, 128, 784], [256, 1024], [true, false])]
+    fn test_packetize(payload_size: usize, mtu_size: usize, with_exts: bool) {
         let handle = 1u32.try_into().unwrap();
         let e2ee = E2eeExt { key_index: 255, iv: [0xCD; 12] };
         let user_timestamp = UserTimestampExt(u64::MAX);
@@ -132,6 +136,7 @@ mod tests {
         }
 
         for (index, packet) in packets.iter().enumerate() {
+            assert_eq!(packet.header.marker, Packetizer::frame_marker(index, packets.len()));
             assert_eq!(packet.header.frame_number, 0);
             assert_eq!(packet.header.sequence, index as u16);
             assert_eq!(packet.header.extensions.e2ee, with_exts.then_some(e2ee));
@@ -140,6 +145,5 @@ mod tests {
                 with_exts.then_some(user_timestamp)
             );
         }
-        assert_eq!(packets.last().unwrap().header.marker, FrameMarker::Final);
     }
 }

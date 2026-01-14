@@ -372,8 +372,11 @@ impl ManagerTask {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fake::{
+        faker::{internet::en::SafeEmail, lorem::en::Word},
+        Fake,
+    };
     use futures_util::StreamExt;
-    use rstest::*;
     use std::{collections::HashMap, time::Duration};
     use tokio::time;
 
@@ -388,10 +391,11 @@ mod tests {
         time::timeout(Duration::from_secs(1), join_handle).await.unwrap();
     }
 
-    #[rstest]
-    #[case("my_track", "some_identity")]
     #[tokio::test]
-    async fn test_subscribe(#[case] name: String, #[case] publisher_identity: String) {
+    async fn test_subscribe() {
+        let publisher_identity: String = SafeEmail().fake();
+        let track_name: String = Word().fake();
+
         let options = ManagerOptions { decryption: None };
         let (manager, manager_task, mut output_events) = Manager::new(options);
         livekit_runtime::spawn(manager_task.run());
@@ -403,7 +407,7 @@ mod tests {
                 vec![DataTrackInfo {
                     sid: "DTR_1234".to_string().try_into().unwrap(),
                     handle: 1024u32.try_into().unwrap(),
-                    name: name.clone(),
+                    name: track_name.clone(),
                     uses_e2ee: false,
                 }],
             )]),
@@ -422,7 +426,7 @@ mod tests {
 
         let track = wait_for_track.await;
         assert!(track.is_published());
-        assert_eq!(track.info().name, name);
+        assert_eq!(track.info().name, track_name);
         assert_eq!(track.publisher_identity(), publisher_identity);
 
         let simulate_subscriber_handles = async {

@@ -138,7 +138,7 @@ impl Extensions {
 mod tests {
     use super::*;
     use bytes::{BufMut, BytesMut};
-    use rstest::*;
+    use test_case::test_matrix;
 
     /// Returns the simplest valid packet to use in test.
     fn valid_packet() -> BytesMut {
@@ -205,8 +205,8 @@ mod tests {
         assert_eq!(dtp.header.extensions.e2ee, None);
     }
 
-    #[rstest]
-    fn test_ext_skips_padding(#[values(0, 1, 24)] ext_words: usize) {
+    #[test_matrix([0, 1, 24])]
+    fn test_ext_skips_padding(ext_words: usize) {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
 

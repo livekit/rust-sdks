@@ -342,7 +342,7 @@ mod tests {
     use crate::dtp::Dtp;
     use futures_util::StreamExt;
     use livekit_runtime::sleep;
-    use rstest::*;
+    use fake::{Fake, faker::lorem::en::Word};
 
     #[tokio::test]
     async fn test_task_shutdown() {
@@ -355,23 +355,25 @@ mod tests {
         time::timeout(Duration::from_secs(1), join_handle).await.unwrap();
     }
 
-    #[rstest]
-    #[case("my_track", 10, 256)]
     #[tokio::test]
-    async fn test_publish(
-        #[case] name: String,
-        #[case] packet_count: usize,
-        #[case] payload_size: usize,
-    ) {
+    async fn test_publish() {
+        let payload_size = 256;
+        let packet_count = 10;
+        let track_name: String = Word().fake();
+
         let options = ManagerOptions { encryption: None };
         let (manager, manager_task, mut output_events) = Manager::new(options);
         livekit_runtime::spawn(manager_task.run());
 
+        let track_name_clone = track_name.clone();
         let handle_events = async {
             let mut packets_sent = 0;
             while let Some(event) = output_events.next().await {
                 match event {
                     OutputEvent::PublishRequest(event) => {
+                        assert!(!event.uses_e2ee);
+                        assert_eq!(event.name, track_name_clone);
+
                         // SFU accepts publication
                         let info = DataTrackInfo {
                             sid: "DTR_1234".to_string().try_into().unwrap(),
@@ -397,7 +399,7 @@ mod tests {
             }
         };
         let publish_track = async {
-            let track_options = DataTrackOptions::with_name(name.clone());
+            let track_options = DataTrackOptions::with_name(track_name);
             let track = manager.publish_track(track_options).await.unwrap();
             for _ in 0..packet_count {
                 track.publish(vec![0xFA; payload_size].into()).unwrap();

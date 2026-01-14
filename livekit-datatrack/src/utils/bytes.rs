@@ -55,7 +55,7 @@ impl Iterator for ChunkIter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rstest::rstest;
+    use test_case::test_matrix;
 
     #[test]
     fn test_empty_source() {
@@ -64,10 +64,10 @@ mod tests {
         assert!(chunks.is_empty())
     }
 
-    #[rstest]
+    #[test_matrix([1, 128, 333], [1, 64, 128, 256, 123])]
     fn test_chunks(
-        #[values(1, 128, 333)] chunk_size: usize,
-        #[values(1, 64, 128, 256, 123)] source_size: usize,
+        chunk_size: usize,
+        source_size: usize,
     ) {
         let source = Bytes::from(vec![0xCC; source_size]);
         let chunks: Vec<_> = source.into_chunks(chunk_size).collect();
