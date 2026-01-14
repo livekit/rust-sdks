@@ -18,7 +18,7 @@ members = [
     "examples/api",
     "examples/basic_room",
     "examples/basic_text_stream",
-    "examples/data_track",
+    "examples/basic_data_track",
     "examples/encrypted_text_stream",
     "examples/local_audio",
     "examples/mobile",
