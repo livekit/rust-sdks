@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use bytes::Bytes;
+use core::fmt;
 
 /// Application-level frame published to a data track.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct DataTrackFrame {
     pub(crate) payload: Bytes,
     pub(crate) user_timestamp: Option<u64>,
@@ -43,6 +44,15 @@ impl DataTrackFrame {
     pub fn with_user_timestamp(&mut self, value: u64) -> &mut Self {
         self.user_timestamp = Some(value);
         self
+    }
+}
+
+impl fmt::Debug for DataTrackFrame {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("DataTrackFrame")
+            .field("payload_len", &self.payload.len())
+            .field("user_timestamp", &self.user_timestamp)
+            .finish()
     }
 }
 
