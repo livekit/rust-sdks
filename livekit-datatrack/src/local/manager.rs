@@ -339,10 +339,10 @@ impl ManagerTask {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dtp::Dtp;
+    use crate::{api::DataTrackSid, dtp::Dtp};
     use futures_util::StreamExt;
     use livekit_runtime::sleep;
-    use fake::{Fake, faker::lorem::en::Word};
+    use fake::{Fake, Faker, faker::lorem::en::Word};
 
     #[tokio::test]
     async fn test_task_shutdown() {
@@ -359,7 +359,10 @@ mod tests {
     async fn test_publish() {
         let payload_size = 256;
         let packet_count = 10;
+
         let track_name: String = Word().fake();
+        let track_sid: DataTrackSid = Faker.fake();
+        let handle: Handle = Faker.fake();
 
         let options = ManagerOptions { encryption: None };
         let (manager, manager_task, mut output_events) = Manager::new(options);
@@ -376,8 +379,8 @@ mod tests {
 
                         // SFU accepts publication
                         let info = DataTrackInfo {
-                            sid: "DTR_1234".to_string().try_into().unwrap(),
-                            handle: 1u32.try_into().unwrap(),
+                            sid: track_sid.clone(),
+                            handle,
                             name: event.name,
                             uses_e2ee: event.uses_e2ee,
                         };
@@ -391,7 +394,7 @@ mod tests {
                         packets_sent += 1;
                     }
                     OutputEvent::UnpublishRequest(event) => {
-                        assert_eq!(event.handle, 1u32.try_into().unwrap());
+                        assert_eq!(event.handle, handle);
                         assert_eq!(packets_sent, packet_count);
                         break;
                     }
@@ -399,8 +402,12 @@ mod tests {
             }
         };
         let publish_track = async {
-            let track_options = DataTrackOptions::with_name(track_name);
+            let track_options = DataTrackOptions::with_name(track_name.clone());
             let track = manager.publish_track(track_options).await.unwrap();
+            assert!(!track.info().uses_e2ee());
+            assert_eq!(track.info().name(), track_name);
+            assert_eq!(*track.info().sid(), track_sid);
+
             for _ in 0..packet_count {
                 track.publish(vec![0xFA; payload_size].into()).unwrap();
                 sleep(Duration::from_millis(10)).await;

@@ -102,7 +102,8 @@ impl Packetizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dtp::{E2eeExt, UserTimestampExt};
+    use crate::dtp::{E2eeExt, UserTimestampExt, Handle};
+    use fake::{Fake, Faker};
     use test_case::test_matrix;
 
     #[test]
@@ -115,9 +116,9 @@ mod tests {
 
     #[test_matrix([0, 128, 784], [256, 1024], [true, false])]
     fn test_packetize(payload_size: usize, mtu_size: usize, with_exts: bool) {
-        let handle = 1u32.try_into().unwrap();
-        let e2ee = E2eeExt { key_index: 255, iv: [0xCD; 12] };
-        let user_timestamp = UserTimestampExt(u64::MAX);
+        let handle: Handle = Faker.fake();
+        let e2ee: E2eeExt = Faker.fake();
+        let user_timestamp: UserTimestampExt = Faker.fake();
 
         let mut packetizer = Packetizer::new(handle, mtu_size);
 

@@ -15,14 +15,14 @@
 use bytes::Bytes;
 use core::fmt;
 
-mod extension;
 mod deserialize;
+mod extension;
 mod handle;
 mod serialize;
 mod time;
 
-pub use extension::*;
 pub use deserialize::*;
+pub use extension::*;
 pub use handle::*;
 pub use serialize::*;
 pub use time::*;
@@ -34,18 +34,19 @@ pub struct Dtp {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Header {
     pub marker: FrameMarker,
     pub track_handle: Handle,
     pub sequence: u16,
     pub frame_number: u16,
     pub timestamp: Timestamp<90_000>,
-    pub extensions: Extensions
+    pub extensions: Extensions,
 }
-
 
 /// Marker indicating a packet's position in relation to a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub enum FrameMarker {
     /// Packet is within a frame.
     Inter,
@@ -54,7 +55,7 @@ pub enum FrameMarker {
     /// Packet is the first in a frame.
     Start,
     /// Packet is the only one in a frame.
-    Single
+    Single,
 }
 
 impl fmt::Debug for Dtp {

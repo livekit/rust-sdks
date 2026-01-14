@@ -105,3 +105,18 @@ impl Display for DataTrackSid {
         write!(f, "{}", self.0)
     }
 }
+
+#[cfg(test)]
+impl fake::Dummy<fake::Faker> for DataTrackSid {
+    fn dummy_with_rng<R: rand::Rng + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
+        const BASE_57_ALPHABET: &[u8; 57] =
+            b"23456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+        let random_id: String = (0..12)
+            .map(|_| {
+                let idx = rng.random_range(0..BASE_57_ALPHABET.len());
+                BASE_57_ALPHABET[idx] as char
+            })
+            .collect();
+        Self::try_from(format!("{}{}", Self::PREFIX, random_id)).unwrap()
+    }
+}

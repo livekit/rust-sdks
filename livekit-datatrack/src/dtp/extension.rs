@@ -14,16 +14,19 @@
 
 use core::fmt;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct Extensions {
     pub user_timestamp: Option<UserTimestampExt>,
     pub e2ee: Option<E2eeExt>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct UserTimestampExt(pub u64);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct E2eeExt {
     pub key_index: u8,
     pub iv: [u8; 12],

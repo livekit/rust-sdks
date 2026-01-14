@@ -375,6 +375,7 @@ mod tests {
     use fake::{
         faker::{internet::en::SafeEmail, lorem::en::Word},
         Fake,
+        Faker
     };
     use futures_util::StreamExt;
     use std::{collections::HashMap, time::Duration};
@@ -395,6 +396,8 @@ mod tests {
     async fn test_subscribe() {
         let publisher_identity: String = SafeEmail().fake();
         let track_name: String = Word().fake();
+        let track_sid: DataTrackSid = Faker.fake();
+        let sub_handle: Handle = Faker.fake();
 
         let options = ManagerOptions { decryption: None };
         let (manager, manager_task, mut output_events) = Manager::new(options);
@@ -405,8 +408,8 @@ mod tests {
             updates: HashMap::from([(
                 publisher_identity.clone(),
                 vec![DataTrackInfo {
-                    sid: "DTR_1234".to_string().try_into().unwrap(),
-                    handle: 1024u32.try_into().unwrap(),
+                    sid: track_sid.clone(),
+                    handle: Faker.fake(), // Pub handle
                     name: track_name.clone(),
                     uses_e2ee: false,
                 }],
@@ -427,6 +430,7 @@ mod tests {
         let track = wait_for_track.await;
         assert!(track.is_published());
         assert_eq!(track.info().name, track_name);
+        assert_eq!(*track.info().sid(), track_sid);
         assert_eq!(track.publisher_identity(), publisher_identity);
 
         let simulate_subscriber_handles = async {
@@ -434,14 +438,14 @@ mod tests {
                 match event {
                     OutputEvent::SubscriptionUpdated(event) => {
                         assert!(event.subscribe);
-                        assert_eq!(event.sid, "DTR_1234".to_string().try_into().unwrap());
+                        assert_eq!(event.sid, track_sid);
                         time::sleep(Duration::from_millis(20)).await;
 
                         // Simulate SFU reply
                         let event = SubscriberHandlesEvent {
                             mapping: HashMap::from([(
-                                64u32.try_into().unwrap(),
-                                "DTR_1234".to_string().try_into().unwrap(),
+                                sub_handle,
+                                track_sid.clone()
                             )]),
                         };
                         _ = manager.send(event.into());
@@ -451,7 +455,7 @@ mod tests {
             }
         };
 
-        time::timeout(Duration::from_secs(10), async {
+        time::timeout(Duration::from_secs(1), async {
             tokio::select! {
                 _ = simulate_subscriber_handles => {}
                 _ = track.subscribe() => {}

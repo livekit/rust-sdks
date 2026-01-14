@@ -114,3 +114,10 @@ mod tests {
         assert_eq!(clock.at(t1).as_ticks(), clock.at(t0).as_ticks(), "Clock went backwards");
     }
 }
+
+#[cfg(test)]
+impl<const RATE: u32> fake::Dummy<fake::Faker> for Timestamp<RATE> {
+    fn dummy_with_rng<R: rand::Rng + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
+        Self(rng.random())
+    }
+}
