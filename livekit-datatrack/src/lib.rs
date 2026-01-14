@@ -36,7 +36,7 @@ mod utils;
 /// Internal error.
 mod error;
 
-/// Public APIs to be re-exported by the LiveKit crate.
+/// Public APIs re-exported by the LiveKit crate.
 pub mod api {
     pub use crate::{error::*, frame::*, local::*, remote::*, track::*};
 }
