@@ -1,5 +1,5 @@
 [package]
-name = "data_track"
+name = "basic_data_track"
 version = "0.1.0"
 edition = "2021"
 publish = false
