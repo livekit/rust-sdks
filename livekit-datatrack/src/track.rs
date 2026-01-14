@@ -21,7 +21,7 @@ use thiserror::Error;
 #[derive(Debug, Clone)]
 pub struct DataTrackInfo {
     pub(crate) sid: DataTrackSid,
-    pub(crate) handle: Handle, // TODO: consider removing (protocol level detail)
+    pub(crate) pub_handle: Handle,
     pub(crate) name: String,
     pub(crate) uses_e2ee: bool,
 }

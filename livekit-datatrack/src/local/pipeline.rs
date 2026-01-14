@@ -49,7 +49,7 @@ impl LocalTrackTask {
             }
         }
         if let LocalTrackState::Unpublished { initiator: UnpublishInitiator::Client } = state {
-            let event = UnpublishRequestEvent { handle: self.info.handle };
+            let event = UnpublishRequestEvent { handle: self.info.pub_handle };
             _ = self.event_out_tx.try_send(event.into());
         }
         log::debug!("Task ended: sid={}", self.info.sid);

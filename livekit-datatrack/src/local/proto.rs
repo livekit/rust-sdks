@@ -45,7 +45,7 @@ impl TryFrom<proto::PublishDataTrackResponse> for PublishResultEvent {
 
     fn try_from(msg: proto::PublishDataTrackResponse) -> Result<Self, Self::Error> {
         let info: DataTrackInfo = msg.info.context("Missing info")?.try_into()?;
-        Ok(Self { handle: info.handle, result: Ok(info) })
+        Ok(Self { handle: info.pub_handle, result: Ok(info) })
     }
 }
 
@@ -70,7 +70,7 @@ impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
             other => Err(anyhow!("Unsupported E2EE type: {:?}", other))?,
         };
         let sid: DataTrackSid = msg.sid.try_into().map_err(anyhow::Error::from)?;
-        Ok(Self { handle, sid, name: msg.name, uses_e2ee })
+        Ok(Self { pub_handle: handle, sid, name: msg.name, uses_e2ee })
     }
 }
 
@@ -140,7 +140,7 @@ mod tests {
         assert_eq!(event.handle, 1u32.try_into().unwrap());
 
         let info = event.result.expect("Expected ok result");
-        assert_eq!(info.handle, 1u32.try_into().unwrap());
+        assert_eq!(info.pub_handle, 1u32.try_into().unwrap());
         assert_eq!(info.sid, "DTR_1234".to_string().try_into().unwrap());
         assert_eq!(info.name, "track");
         assert!(info.uses_e2ee);

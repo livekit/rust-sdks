@@ -409,7 +409,7 @@ mod tests {
                 publisher_identity.clone(),
                 vec![DataTrackInfo {
                     sid: track_sid.clone(),
-                    handle: Faker.fake(), // Pub handle
+                    pub_handle: Faker.fake(), // Pub handle
                     name: track_name.clone(),
                     uses_e2ee: false,
                 }],

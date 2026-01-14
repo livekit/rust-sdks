@@ -282,7 +282,7 @@ impl ManagerTask {
 
         let task = LocalTrackTask {
             // TODO: handle cancellation
-            packetizer: Packetizer::new(info.handle, Self::TRANSPORT_MTU),
+            packetizer: Packetizer::new(info.pub_handle, Self::TRANSPORT_MTU),
             encryption: self.encryption.clone(),
             info: info.clone(),
             frame_rx,
@@ -290,7 +290,7 @@ impl ManagerTask {
             event_out_tx: self.event_out_tx.clone(),
         };
         let join_handle = livekit_runtime::spawn(task.run());
-        self.descriptors.insert(info.handle, Descriptor::Active { state_tx: state_tx.clone(), join_handle });
+        self.descriptors.insert(info.pub_handle, Descriptor::Active { state_tx: state_tx.clone(), join_handle });
 
         let inner = LocalTrackInner { frame_tx, state_tx };
         LocalDataTrack::new(info, inner)
@@ -362,7 +362,7 @@ mod tests {
 
         let track_name: String = Word().fake();
         let track_sid: DataTrackSid = Faker.fake();
-        let handle: Handle = Faker.fake();
+        let pub_handle: Handle = Faker.fake();
 
         let options = ManagerOptions { encryption: None };
         let (manager, manager_task, mut output_events) = Manager::new(options);
@@ -380,7 +380,7 @@ mod tests {
                         // SFU accepts publication
                         let info = DataTrackInfo {
                             sid: track_sid.clone(),
-                            handle,
+                            pub_handle,
                             name: event.name,
                             uses_e2ee: event.uses_e2ee,
                         };
@@ -394,7 +394,7 @@ mod tests {
                         packets_sent += 1;
                     }
                     OutputEvent::UnpublishRequest(event) => {
-                        assert_eq!(event.handle, handle);
+                        assert_eq!(event.handle, pub_handle);
                         assert_eq!(packets_sent, packet_count);
                         break;
                     }
