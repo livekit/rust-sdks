@@ -349,7 +349,7 @@ impl ManagerTask {
         };
         _ = packet_tx
             .try_send(dtp)
-            .inspect_err(|_| log::warn!("Track task saturated, dropping packet"));
+            .inspect_err(|err| log::debug!("Cannot send packet to track task: {}", err));
     }
 
     /// Performs cleanup before the task ends.
