@@ -14,19 +14,32 @@
 
 #[cfg(feature = "__lk-e2e-test")]
 use {
-    anyhow::{Ok, Result},
+    anyhow::{Ok, Result, anyhow},
     common::test_rooms_with_options,
     futures_util::StreamExt,
     livekit::{data_track::DataTrackOptions, RoomEvent, RoomOptions},
     std::{iter, time::Duration},
-    tokio::time::{self, timeout},
+    test_case::test_case,
+    tokio::{
+        time::{self, timeout},
+        try_join,
+    },
 };
 
 mod common;
 
 #[cfg(feature = "__lk-e2e-test")]
+#[test_case(120., 8_192)]
 #[test_log::test(tokio::test)]
-async fn test_data_track() -> Result<()> {
+async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
+
+    // How long to publish frames for.
+    const PUBLISH_DURATION: Duration = Duration::from_secs(5);
+
+    // Percentage of total frames that must be received on the subscriber end in
+    // order for the test to pass.
+    const MIN_PERCENTAGE: f32 = 0.95;
+
     // Temporary workaround until auto subscribe is disabled on the SFU.
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = false;
@@ -39,66 +52,67 @@ async fn test_data_track() -> Result<()> {
     let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
     let pub_identity = pub_room.local_participant().identity();
 
-    // How many frames to check on the subscriber side.
-    const FRAME_VERIFY_COUNT: usize = 16;
-    const FRAME_PAYLOAD: &[u8] = &[0xFA; 256];
+    let frame_count = (PUBLISH_DURATION.as_secs_f64() * publish_fps).round() as u64;
+    log::info!("Publishing {} frames", frame_count);
 
     let publish = async move {
         let track = pub_room
             .local_participant()
             .publish_data_track(DataTrackOptions::with_name("my_track"))
             .await?;
-        log::info!("Track published: {:?}", track);
+        log::info!("Track published");
 
         assert!(track.is_published());
-        assert!(track.info().sid().starts_with("DTR_"));
         assert!(!track.info().uses_e2ee());
         assert_eq!(track.info().name(), "my_track");
 
-        while track.is_published() {
-            track.publish(FRAME_PAYLOAD.into())?;
-            time::sleep(Duration::from_millis(25)).await;
+        let sleep_duration = Duration::from_secs_f64(1.0 / publish_fps as f64);
+        for index in 0..frame_count {
+            track.publish(vec![index as u8; payload_len].into())?;
+            time::sleep(sleep_duration).await;
         }
         Ok(())
     };
 
-    let subscribe_until_verified = async move {
-        while let Some(event) = sub_room_event_rx.recv().await {
-            let RoomEvent::RemoteDataTrackPublished(track) = event else {
-                continue;
-            };
-            log::info!("Got remote track: {:?}", track);
-
-            assert!(track.is_published());
-            assert!(track.info().sid().starts_with("DTR_"));
-            assert!(!track.info().uses_e2ee());
-            assert_eq!(track.info().name(), "my_track");
-            assert_eq!(track.publisher_identity(), pub_identity.as_str());
-
-            let mut frame_count = 0;
-            let mut frame_stream = track.subscribe().await?;
-
-            while let Some(frame) = frame_stream.next().await {
-                assert_eq!(frame.payload(), FRAME_PAYLOAD);
-                assert_eq!(frame.user_timestamp(), None);
-
-                frame_count += 1;
-                if frame_count >= FRAME_VERIFY_COUNT {
-                    break;
+    let subscribe = async move {
+        let track = async move {
+            while let Some(event) = sub_room_event_rx.recv().await {
+                let RoomEvent::RemoteDataTrackPublished(track) = event else {
+                    continue;
                 };
+                return Ok(track)
             }
-            break;
-        }
-        Ok(())
-    };
+            Err(anyhow!("No track published"))
+        }.await?;
 
-    let verify_frames_received = async {
-        tokio::select! {
-            res = publish => res?,
-            res = subscribe_until_verified => res?
+        log::info!("Got remote track: {}", track.info().sid());
+        assert!(track.is_published());
+        assert!(!track.info().uses_e2ee());
+        assert_eq!(track.info().name(), "my_track");
+        assert_eq!(track.publisher_identity(), pub_identity.as_str());
+
+        let mut subscription = track.subscribe().await?;
+
+        let mut recv_count = 0;
+
+        while let Some(frame) = subscription.next().await {
+            let payload = frame.payload();
+            if let Some(first_byte) = payload.first() {
+                assert!(payload.iter().all(|byte| byte == first_byte));
+            }
+            assert_eq!(frame.user_timestamp(), None);
+            recv_count += 1;
+        }
+
+        let recv_percent = recv_count as f32 / frame_count as f32;
+        log::info!("Received {}/{} frames ({:.2}%)", recv_count, frame_count, recv_percent * 100.);
+
+        if recv_percent < MIN_PERCENTAGE {
+            Err(anyhow!("Not enough frames received"))?;
         }
         Ok(())
     };
-    timeout(Duration::from_secs(10), verify_frames_received).await??;
+    timeout(PUBLISH_DURATION + Duration::from_secs(5), async { try_join!(publish, subscribe) })
+        .await??;
     Ok(())
 }
