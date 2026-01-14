@@ -44,7 +44,7 @@ pub enum ParticipantKind {
     Egress,
     Sip,
     Agent,
-    Connector
+    Connector,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]

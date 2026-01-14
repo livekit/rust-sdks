@@ -14,7 +14,7 @@
 
 #[cfg(feature = "__lk-e2e-test")]
 use {
-    anyhow::{Ok, Result, anyhow},
+    anyhow::{anyhow, Ok, Result},
     common::test_rooms_with_options,
     futures_util::StreamExt,
     livekit::{data_track::DataTrackOptions, RoomEvent, RoomOptions},
@@ -32,7 +32,6 @@ mod common;
 #[test_case(120., 8_192)]
 #[test_log::test(tokio::test)]
 async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
-
     // How long to publish frames for.
     const PUBLISH_DURATION: Duration = Duration::from_secs(5);
 
@@ -80,10 +79,11 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
                 let RoomEvent::RemoteDataTrackPublished(track) = event else {
                     continue;
                 };
-                return Ok(track)
+                return Ok(track);
             }
             Err(anyhow!("No track published"))
-        }.await?;
+        }
+        .await?;
 
         log::info!("Got remote track: {}", track.info().sid());
         assert!(track.is_published());

@@ -1099,7 +1099,10 @@ impl SessionInner {
             }
             proto::signal_response::Message::Update(mut update) => {
                 let local_participant_identity = self.participant_info.identity.as_str().into();
-                if let Ok(event) = dt::remote::event_from_participant_update(&mut update, local_participant_identity) {
+                if let Ok(event) = dt::remote::event_from_participant_update(
+                    &mut update,
+                    local_participant_identity,
+                ) {
                     _ = self.remote_dt_manager.send(event.into());
                 }
                 let _ = self
@@ -1207,7 +1210,7 @@ impl SessionInner {
                     DATA_TRACK_DC_LABEL => {
                         handle_remote_dt_packets(&data_channel, self.remote_dt_manager.clone());
                         &self.sub_dt_transport
-                    },
+                    }
                     _ => return Ok(()),
                 };
                 dc_ref.lock().replace(data_channel);

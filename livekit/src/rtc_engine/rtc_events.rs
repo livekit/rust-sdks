@@ -98,8 +98,12 @@ fn on_data_channel(
 ) -> rtc::peer_connection::OnDataChannel {
     Box::new(move |data_channel| {
         match data_channel.label().as_str() {
-            RELIABLE_DC_LABEL => data_channel.on_message(Some(on_message(emitter.clone(), DataPacketKind::Reliable))),
-            LOSSY_DC_LABEL => data_channel.on_message(Some(on_message(emitter.clone(), DataPacketKind::Lossy))),
+            RELIABLE_DC_LABEL => {
+                data_channel.on_message(Some(on_message(emitter.clone(), DataPacketKind::Reliable)))
+            }
+            LOSSY_DC_LABEL => {
+                data_channel.on_message(Some(on_message(emitter.clone(), DataPacketKind::Lossy)))
+            }
             _ => {}
         }
         let _ = emitter.send(RtcEvent::DataChannel { data_channel, target });

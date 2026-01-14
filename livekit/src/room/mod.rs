@@ -23,9 +23,9 @@ use libwebrtc::{
     RtcError,
 };
 use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
+use livekit_datatrack::api::RemoteDataTrack;
 use livekit_protocol::observer::Dispatcher;
 use livekit_protocol::{self as proto, encryption};
-use livekit_datatrack::api::RemoteDataTrack;
 use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
@@ -55,8 +55,8 @@ use crate::{
     },
 };
 
-pub mod data_track;
 pub mod data_stream;
+pub mod data_track;
 pub mod e2ee;
 pub mod id;
 pub mod options;
@@ -82,7 +82,7 @@ pub enum RoomError {
     #[error("already closed")]
     AlreadyClosed,
     #[error("request error: {reason:?} - {message}")]
-    Request { reason: proto::request_response::Reason, message: String }
+    Request { reason: proto::request_response::Reason, message: String },
 }
 
 #[derive(Clone, Debug)]
@@ -237,7 +237,7 @@ pub enum RoomEvent {
         participants: Vec<Participant>,
     },
     /// A remote participant published a data track.
-    RemoteDataTrackPublished(RemoteDataTrack)
+    RemoteDataTrackPublished(RemoteDataTrack),
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
