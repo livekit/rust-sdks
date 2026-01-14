@@ -16,22 +16,22 @@ async fn main() -> Result<()> {
     let (_, rx) = Room::connect(&url, &token, options).await?;
 
     tokio::select! {
-        Some(track) = wait_for_publication(rx) => subscribe(track).await?,
+        _ = handle_first_publication(rx) => {}
         _ = signal::ctrl_c() => {}
     }
     Ok(())
 }
 
-/// Waits for the first data track to be published and returns it.
-async fn wait_for_publication(mut rx: UnboundedReceiver<RoomEvent>) -> Option<RemoteDataTrack> {
-    log::info!("Waiting for publication…");
+/// Subscribe to the first data track published.
+async fn handle_first_publication(mut rx: UnboundedReceiver<RoomEvent>) -> Result<()> {
     while let Some(event) = rx.recv().await {
+        log::info!("Waiting for publication…");
         match event {
-            RoomEvent::RemoteDataTrackPublished(track) => return Some(track),
+            RoomEvent::RemoteDataTrackPublished(track) => subscribe(track).await?,
             _ => continue,
         }
     }
-    None
+    Ok(())
 }
 
 /// Subscribes to the given data track and logs received frames.
@@ -45,5 +45,6 @@ async fn subscribe(track: RemoteDataTrack) -> Result<()> {
     while let Some(frame) = frame_steam.next().await {
         log::info!("Received {} bytes", frame.payload().len());
     }
+    log::info!("Unsubscribed");
     Ok(())
 }
