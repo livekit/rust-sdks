@@ -42,3 +42,11 @@ soxr-sys = { version = "0.1.1", path = "soxr-sys" }
 webrtc-sys = { version = "0.3.20", path = "webrtc-sys" }
 webrtc-sys-build = { version = "0.3.12", path = "webrtc-sys/build" }
 yuv-sys = { version = "0.3.10", path = "yuv-sys" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
