@@ -3094,6 +3094,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "test-case",
  "test-log",
  "thiserror 1.0.69",
  "tokio",
