@@ -24,8 +24,8 @@ use tokio::sync::{mpsc, watch};
 pub(crate) mod manager;
 pub(crate) mod proto;
 
-mod pipeline;
 mod packetizer;
+mod pipeline;
 
 /// Data track published by the local participant.
 pub type LocalDataTrack = DataTrack<Local>;
@@ -48,7 +48,35 @@ impl DataTrack<Local> {
 }
 
 impl DataTrack<Local> {
-    /// Publish a frame onto the track.
+    /// Publishes a frame to the track.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use livekit_datatrack::api::{LocalDataTrack, DataTrackFrame, PublishFrameError};
+    /// # fn example(track: LocalDataTrack) -> Result<(), PublishFrameError> {
+    /// fn read_sensor() -> Vec<u8> {
+    ///     // Read some sensor data...
+    ///     vec![0xFA; 16]
+    /// }
+    ///
+    /// let frame = read_sensor().into(); // Convert to frame
+    /// track.publish(frame)?;
+    ///
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// See [`DataTrackFrame`] for more ways to construct a frame and how to attach metadata.
+    ///
+    /// # Errors
+    ///
+    /// Publishing a frame can fail for several reasons:
+    ///
+    /// - The track has been unpublished by the local participant or SFU
+    /// - The room is no longer connected
+    /// - Frames are being published too fast
+    ///
     pub fn publish(&self, frame: DataTrackFrame) -> Result<(), PublishFrameError> {
         if !self.is_published() {
             return Err(PublishFrameError::new(frame, PublishFrameErrorReason::TrackUnpublished));
@@ -59,11 +87,14 @@ impl DataTrack<Local> {
     }
 
     /// Whether or not the track is still published.
+    ///
+    /// Once the track has been unpublished, calls to [`Self::publish`] will fail.
+    ///
     pub fn is_published(&self) -> bool {
         self.inner().state_tx.borrow().is_published()
     }
 
-    /// Unpublish the track.
+    /// Unpublishes the track.
     pub fn unpublish(self) {
         self.inner().local_unpublish();
     }
@@ -108,6 +139,14 @@ impl PublishFrameError {
 }
 
 /// Options for publishing a data track.
+///
+/// Create options for publishing a track named "my_track" with end-to-end encryption disabled:
+/// ```
+/// # use livekit_datatrack::api::DataTrackOptions;
+/// let options = DataTrackOptions::with_name("my_track")
+///     .disable_e2ee(true);
+/// ```
+///
 #[derive(Clone, Debug)]
 pub struct DataTrackOptions {
     pub(crate) name: String,
@@ -115,9 +154,22 @@ pub struct DataTrackOptions {
 }
 
 impl DataTrackOptions {
+    /// Creates options with the given track name.
+    ///
+    /// The track name is used to identify the track to other participants.
+    ///
+    /// # Requirements
+    /// - Must not be empty
+    /// - Must be unique per publisher
+    ///
     pub fn with_name(name: impl Into<String>) -> Self {
         Self { name: name.into(), disable_e2ee: false }
     }
+
+    /// Disable end-to-end encryption.
+    ///
+    /// By default, room settings are used.
+    ///
     pub fn disable_e2ee(self, disabled: bool) -> Self {
         Self { disable_e2ee: disabled, ..self }
     }
@@ -139,7 +191,7 @@ pub enum PublishError {
     Internal(#[from] InternalError),
 }
 
-/// An error that can occur when publishing a frame onto a data track.
+/// Frame could not be published to the track.
 #[derive(Debug, Error)]
 #[error("Failed to publish frame: {reason}")]
 pub struct PublishFrameError {

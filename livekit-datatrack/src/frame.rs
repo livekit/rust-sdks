@@ -15,7 +15,7 @@
 use bytes::Bytes;
 use core::fmt;
 
-/// Application-level frame published to a data track.
+/// Frame published over a data track containing a payload and optional metadata.
 #[derive(Clone, Default)]
 pub struct DataTrackFrame {
     pub(crate) payload: Bytes,
@@ -35,7 +35,15 @@ impl DataTrackFrame {
 }
 
 impl DataTrackFrame {
-    /// Creates a data track frame with the given bytes.
+    /// Creates a data track frame with the given payload.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # use livekit_datatrack::api::DataTrackFrame;
+    /// let frame = DataTrackFrame::new(vec![0xFA; 256]);
+    /// ```
+    ///
     pub fn new(payload: impl Into<Bytes>) -> Self {
         Self { payload: payload.into(), ..Default::default() }
     }

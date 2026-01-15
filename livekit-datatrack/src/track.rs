@@ -17,30 +17,7 @@ use from_variants::FromVariants;
 use std::{fmt::Display, marker::PhantomData, ops::Deref, sync::Arc};
 use thiserror::Error;
 
-/// Information about a published data track.
-#[derive(Debug, Clone)]
-pub struct DataTrackInfo {
-    pub(crate) sid: DataTrackSid,
-    pub(crate) pub_handle: Handle,
-    pub(crate) name: String,
-    pub(crate) uses_e2ee: bool,
-}
-
-impl DataTrackInfo {
-    /// Unique track identifier.
-    pub fn sid(&self) -> &DataTrackSid {
-        &self.sid
-    }
-    /// Name of the track assigned when published.
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-    /// Whether or not frames sent on the track use end-to-end encryption.
-    pub fn uses_e2ee(&self) -> bool {
-        self.uses_e2ee
-    }
-}
-
+/// Track for communicating application-specific data between participants in room.
 #[derive(Debug, Clone)]
 pub struct DataTrack<L> {
     pub(crate) info: Arc<DataTrackInfo>,
@@ -56,9 +33,33 @@ pub(crate) enum DataTrackInner {
 }
 
 impl<L> DataTrack<L> {
-    /// Information about the data track such as name.
+    /// Information about the data track.
     pub fn info(&self) -> &DataTrackInfo {
         &self.info
+    }
+}
+
+/// Information about a published data track.
+#[derive(Debug, Clone)]
+pub struct DataTrackInfo {
+    pub(crate) sid: DataTrackSid,
+    pub(crate) pub_handle: Handle,
+    pub(crate) name: String,
+    pub(crate) uses_e2ee: bool,
+}
+
+impl DataTrackInfo {
+    /// Unique track identifier.
+    pub fn sid(&self) -> &DataTrackSid {
+        &self.sid
+    }
+    /// Name of the track assigned by the publisher.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+    /// Whether or not frames sent on the track use end-to-end encryption.
+    pub fn uses_e2ee(&self) -> bool {
+        self.uses_e2ee
     }
 }
 
