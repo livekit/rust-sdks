@@ -15,10 +15,10 @@
 #[cfg(feature = "__lk-e2e-test")]
 use {
     anyhow::{anyhow, Ok, Result},
-    common::{TestRoomOptions, test_rooms_with_options},
+    common::test_rooms,
     futures_util::StreamExt,
-    livekit::{data_track::DataTrackOptions, RoomEvent, RoomOptions},
-    std::{iter, time::Duration},
+    livekit::{data_track::DataTrackOptions, RoomEvent},
+    std::time::Duration,
     test_case::test_case,
     tokio::{
         time::{self, timeout},
@@ -40,14 +40,7 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
     // order for the test to pass.
     const MIN_PERCENTAGE: f32 = 0.95;
 
-    // Temporary workaround until auto subscribe is disabled on the SFU.
-    let mut room_options = RoomOptions::default();
-    room_options.auto_subscribe = false;
-    let room_options: TestRoomOptions = room_options.into();
-
-    let mut rooms = test_rooms_with_options(iter::repeat(room_options.clone()).take(2)).await?;
-
-    // let mut rooms = test_rooms(2).await?;
+    let mut rooms = test_rooms(2).await?;
 
     let (pub_room, _) = rooms.pop().unwrap();
     let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
