@@ -43,8 +43,8 @@ pub enum InputEvent {
 pub enum OutputEvent {
     PublishRequest(PublishRequestEvent),
     UnpublishRequest(UnpublishRequestEvent),
-    /// Encoded packet is ready to be sent over the transport.
-    PacketAvailable(Bytes),
+    /// Serialized packets are ready to be sent over the transport.
+    PacketsAvailable(Vec<Bytes>),
 }
 
 /// Result of a publish request.
@@ -388,7 +388,8 @@ mod tests {
                             PublishResultEvent { handle: event.handle, result: Ok(info) };
                         _ = manager.send(input_event.into());
                     }
-                    OutputEvent::PacketAvailable(packet) => {
+                    OutputEvent::PacketsAvailable(packets) => {
+                        let packet = packets.into_iter().nth(0).unwrap();
                         let payload = Dtp::deserialize(packet).unwrap().payload;
                         assert_eq!(payload.len(), payload_size);
                         packets_sent += 1;

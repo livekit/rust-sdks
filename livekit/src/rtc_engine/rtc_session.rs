@@ -849,10 +849,13 @@ impl SessionInner {
                     .send(proto::signal_request::Message::UnpublishDataTrackRequest(event.into()))
                     .await
             }
-            OutputEvent::PacketAvailable(packet) => {
-                _ = self.dt_transport.send(&packet, true).inspect_err(|e| {
-                    log::error!("Failed to send data track packet over transport: {}", e)
-                });
+            OutputEvent::PacketsAvailable(packets) => {
+                for packet in packets {
+                    if let Err(err) = self.dt_transport.send(&packet, true) {
+                        log::error!("Failed to send packet over transport: {}", err);
+                        break; // Drop the rest of the batch
+                    }
+                }
             }
         }
     }

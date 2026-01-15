@@ -88,9 +88,11 @@ impl LocalTrackTask {
                 return;
             }
         };
-        for packet in packets {
-            let serialized = packet.serialize();
-            _ = self.event_out_tx.try_send(serialized.into());
-        }
+
+        let packets: Vec<_> = packets.into_iter().map(|dtp| dtp.serialize()).collect();
+        _ = self
+            .event_out_tx
+            .try_send(packets.into())
+            .inspect_err(|err| log::debug!("Cannot send packet to transport: {}", err));
     }
 }
