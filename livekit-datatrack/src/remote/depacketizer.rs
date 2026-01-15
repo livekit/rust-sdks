@@ -167,6 +167,7 @@ struct PartialFrame {
 mod tests {
     use super::*;
     use fake::{Fake, Faker};
+    use test_case::test_case;
 
     #[test]
     fn test_single_packet() {
@@ -180,9 +181,10 @@ mod tests {
         assert_eq!(frame.extensions, dtp.header.extensions);
     }
 
-    #[test]
-    fn test_multi_packet() {
-        const INTER_FRAMES: usize = 8;
+    #[test_case(0)]
+    #[test_case(8)]
+    #[test_case(Depacketizer::MAX_BUFFER_PACKETS - 2 ; "buffer_limit")]
+    fn test_multi_packet(inter_packets: usize) {
         let mut depacketizer = Depacketizer::new();
 
         let mut dtp: Dtp = Faker.fake();
@@ -190,7 +192,7 @@ mod tests {
 
         assert!(depacketizer.push(dtp.clone()).is_none());
 
-        for _ in 0..INTER_FRAMES {
+        for _ in 0..inter_packets {
             dtp.header.marker = FrameMarker::Inter;
             dtp.header.sequence += 1;
             assert!(depacketizer.push(dtp.clone()).is_none());
@@ -201,7 +203,7 @@ mod tests {
 
         let frame = depacketizer.push(dtp.clone()).unwrap();
         assert_eq!(frame.extensions, dtp.header.extensions);
-        assert_eq!(frame.payload.len(), dtp.payload.len() * (INTER_FRAMES + 2)); // 1 start, 8 inter, 1 end
+        assert_eq!(frame.payload.len(), dtp.payload.len() * (inter_packets + 2));
     }
 
     impl fake::Dummy<fake::Faker> for Dtp {

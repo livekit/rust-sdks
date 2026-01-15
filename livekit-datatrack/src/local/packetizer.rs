@@ -102,32 +102,31 @@ impl Packetizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dtp::{E2eeExt, UserTimestampExt, Handle};
+    use crate::dtp::Handle;
     use fake::{Fake, Faker};
-    use test_case::test_matrix;
+    use test_case::test_case;
 
-    #[test]
-    fn test_frame_marker() {
-        assert_eq!(Packetizer::frame_marker(0, 1), FrameMarker::Single);
-        assert_eq!(Packetizer::frame_marker(0, 10), FrameMarker::Start);
-        assert_eq!(Packetizer::frame_marker(4, 10), FrameMarker::Inter);
-        assert_eq!(Packetizer::frame_marker(9, 10), FrameMarker::Final);
+    #[test_case(0, 1, FrameMarker::Single)]
+    #[test_case(0, 10, FrameMarker::Start)]
+    #[test_case(4, 10, FrameMarker::Inter)]
+    #[test_case(9, 10, FrameMarker::Final)]
+    fn test_frame_marker(index: usize, packet_count: usize, expected_marker: FrameMarker) {
+        assert_eq!(Packetizer::frame_marker(index, packet_count), expected_marker);
     }
 
-    #[test_matrix([0, 128, 784], [256, 1024], [true, false])]
-    fn test_packetize(payload_size: usize, mtu_size: usize, with_exts: bool) {
+    #[test_case(0, 1_024 ; "zero_payload")]
+    #[test_case(128, 1_024 ; "single_packet")]
+    #[test_case(20_480, 1_024 ; "multi_packet")]
+    #[test_case(40_960, 16_000 ; "multi_packet_mtu_16000")]
+    fn test_packetize(payload_size: usize, mtu_size: usize) {
         let handle: Handle = Faker.fake();
-        let e2ee: E2eeExt = Faker.fake();
-        let user_timestamp: UserTimestampExt = Faker.fake();
+        let extensions: Extensions = Faker.fake();
 
         let mut packetizer = Packetizer::new(handle, mtu_size);
 
         let frame = PacketizerFrame {
             payload: Bytes::from(vec![0xAB; payload_size]),
-            extensions: Extensions {
-                e2ee: with_exts.then_some(e2ee),
-                user_timestamp: with_exts.then_some(user_timestamp),
-            },
+            extensions: extensions.clone(),
         };
         let packets = packetizer.packetize(frame).expect("Failed to packetize");
 
@@ -139,12 +138,9 @@ mod tests {
         for (index, packet) in packets.iter().enumerate() {
             assert_eq!(packet.header.marker, Packetizer::frame_marker(index, packets.len()));
             assert_eq!(packet.header.frame_number, 0);
+            assert_eq!(packet.header.track_handle, handle);
             assert_eq!(packet.header.sequence, index as u16);
-            assert_eq!(packet.header.extensions.e2ee, with_exts.then_some(e2ee));
-            assert_eq!(
-                packet.header.extensions.user_timestamp,
-                with_exts.then_some(user_timestamp)
-            );
+            assert_eq!(packet.header.extensions, extensions);
         }
     }
 }
