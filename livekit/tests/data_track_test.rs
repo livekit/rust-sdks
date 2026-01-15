@@ -15,7 +15,7 @@
 #[cfg(feature = "__lk-e2e-test")]
 use {
     anyhow::{anyhow, Ok, Result},
-    common::test_rooms_with_options,
+    common::{TestRoomOptions, test_rooms_with_options},
     futures_util::StreamExt,
     livekit::{data_track::DataTrackOptions, RoomEvent, RoomOptions},
     std::{iter, time::Duration},
@@ -43,6 +43,7 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
     // Temporary workaround until auto subscribe is disabled on the SFU.
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = false;
+    let room_options: TestRoomOptions = room_options.into();
 
     let mut rooms = test_rooms_with_options(iter::repeat(room_options.clone()).take(2)).await?;
 
