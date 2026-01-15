@@ -1,6 +1,7 @@
 name: Release
 
 permissions:
+  id-token: write # Required for OIDC
   pull-requests: write
   contents: write
   actions: write

@@ -100,12 +100,14 @@ jobs:
 
       - name: Install VA-API/NVIDIA drivers for linux x64 build
         if: ${{ matrix.os == 'ubuntu-latest'}}
-        run:  |
+        run: |
           sudo apt install -y libva-dev libdrm-dev libnvidia-compute-570 libnvidia-decode-570 nvidia-cuda-dev -y
 
       - name: Install Rust toolchain.
         run: |
           rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2.8.2
 
       - name: Build (Cargo)
         if: ${{ !contains(matrix.target, 'android') }}

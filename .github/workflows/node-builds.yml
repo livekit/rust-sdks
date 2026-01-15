@@ -1,9 +1,8 @@
-name: node ffi binding build
+name: Node FFI binding build and release
 
 permissions:
   id-token: write # Required for OIDC
   contents: write # Required to create GH releases
-  pull-requests: write # Required to interact with PRs
 
 on:
   workflow_dispatch:
@@ -56,40 +55,32 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
-
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: livekit-ffi-node-bindings/package.json
 
       - name: Setup node
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: livekit-ffi-node-bindings/pnpm-lock.yaml
+
+      - run: pnpm install
+        working-directory: livekit-ffi-node-bindings
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
 
+      - uses: Swatinem/rust-cache@v2.8.2
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v3
         with:
           version: "25.1"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            packages/livekit-ffi/.cargo-cache
-            packages/livekit-ffi/target/
-          key: ${{ matrix.target }}-cargo-${{ matrix.os }}
-
-      - name: Install dependencies
-        working-directory: livekit-ffi-node-bindings
-        run: pnpm install
 
       - name: Build (Linux)
         if: ${{ matrix.platform == 'linux' }}
@@ -166,35 +157,35 @@ jobs:
 
   release:
     needs: build
-    if: github.ref == 'refs/heads/main'
     name: Release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
       - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: livekit-ffi-node-bindings/package.json
 
       - name: Setup node
         uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: livekit-ffi-node-bindings/pnpm-lock.yaml
 
-      - name: Install dependencies
+      - working-directory: livekit-ffi-node-bindings
         run: pnpm install
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "25.1"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: livekit-ffi-node-bindings/artifacts
-
-      - name: Move artifacts
-        run: pnpm artifacts
-        working-directory: livekit-ffi-node-bindings
-
-      - name: List packages
-        run: ls -R ./livekit-ffi-node-bindings/npm
-        shell: bash
 
       - name: Set package version from tag
         working-directory: livekit-ffi-node-bindings
@@ -205,9 +196,25 @@ jobs:
           npm version $VERSION --no-git-tag-version
           pnpm run version
 
+      - name: Commit and push versioning changes
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          git commit -m "chore: update livekit-ffi-node-bindings version to $(echo "${{ env.TAG_NAME }}" | sed 's/.*@//')" || echo "No changes to commit"
+          git push origin HEAD
+
       - name: Build TS parts
         working-directory: livekit-ffi-node-bindings
         run: pnpm build:ts
+
+      - name: Move artifacts
+        run: pnpm artifacts
+        working-directory: livekit-ffi-node-bindings
+
+      - name: List packages
+        run: ls -R ./livekit-ffi-node-bindings/npm
+        shell: bash
 
       - name: Publish
         working-directory: livekit-ffi-node-bindings
