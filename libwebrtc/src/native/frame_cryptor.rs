@@ -393,8 +393,8 @@ impl RtcFrameCryptorObserver {
 impl From<sys::lkEncryptionAlgorithm> for EncryptionAlgorithm {
     fn from(value: sys::lkEncryptionAlgorithm) -> Self {
         match value {
-            sys::lkEncryptionAlgorithm::AesGcm => Self::AesGcm,
-            sys::lkEncryptionAlgorithm::AesCbc => Self::AesCbc,
+            sys::lkEncryptionAlgorithm::ENCRYPTION_ALGORITHM_AES_GCM => Self::AesGcm,
+            sys::lkEncryptionAlgorithm::ENCRYPTION_ALGORITHM_AES_CBC => Self::AesCbc,
             _ => panic!("unknown frame cyrptor Algorithm"),
         }
     }
@@ -403,8 +403,8 @@ impl From<sys::lkEncryptionAlgorithm> for EncryptionAlgorithm {
 impl From<EncryptionAlgorithm> for sys::lkEncryptionAlgorithm {
     fn from(value: EncryptionAlgorithm) -> Self {
         match value {
-            EncryptionAlgorithm::AesGcm => Self::AesGcm,
-            EncryptionAlgorithm::AesCbc => Self::AesCbc,
+            EncryptionAlgorithm::AesGcm => Self::ENCRYPTION_ALGORITHM_AES_GCM,
+            EncryptionAlgorithm::AesCbc => Self::ENCRYPTION_ALGORITHM_AES_CBC,
         }
     }
 }
@@ -412,13 +412,13 @@ impl From<EncryptionAlgorithm> for sys::lkEncryptionAlgorithm {
 impl From<sys::lkEncryptionState> for EncryptionState {
     fn from(value: sys::lkEncryptionState) -> Self {
         match value {
-            sys::lkEncryptionState::New => Self::New,
-            sys::lkEncryptionState::Ok => Self::Ok,
-            sys::lkEncryptionState::EncryptionFailed => Self::EncryptionFailed,
-            sys::lkEncryptionState::DecryptionFailed => Self::DecryptionFailed,
-            sys::lkEncryptionState::MissingKey => Self::MissingKey,
-            sys::lkEncryptionState::KeyRatcheted => Self::KeyRatcheted,
-            sys::lkEncryptionState::InternalError => Self::InternalError,
+            sys::lkEncryptionState::ENCRYPTION_STATE_NEW => Self::New,
+            sys::lkEncryptionState::ENCRYPTION_STATE_OK => Self::Ok,
+            sys::lkEncryptionState::ENCRYPTION_STATE_ENCRYPTION_FAILED => Self::EncryptionFailed,
+            sys::lkEncryptionState::ENCRYPTION_STATE_DECRYPTION_FAILED => Self::DecryptionFailed,
+            sys::lkEncryptionState::ENCRYPTION_STATE_MISSING_KEY => Self::MissingKey,
+            sys::lkEncryptionState::ENCRYPTION_STATE_KEY_RATCHETED => Self::KeyRatcheted,
+            sys::lkEncryptionState::ENCRYPTION_STATE_INTERNAL_ERROR => Self::InternalError,
             _ => panic!("unknown frame cyrptor FrameCryptionState"),
         }
     }

@@ -12,18 +12,93 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::sys;
+use crate::{impl_thread_safety, sys};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
-pub(crate) enum SourceType {
+pub enum DesktopCaptureSourceType {
     Screen,
     Window,
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
     Generic,
 }
 
+impl From<DesktopCaptureSourceType> for sys::lkSourceType {
+    fn from(t: DesktopCaptureSourceType) -> Self {
+        match t {
+            DesktopCaptureSourceType::Screen => Self::SOURCE_TYPE_SCREEN,
+            DesktopCaptureSourceType::Window => Self::SOURCE_TYPE_WINDOW,
+            #[cfg(any(target_os = "macos", target_os = "linux"))]
+            DesktopCaptureSourceType::Generic => Self::SOURCE_TYPE_GENERIC,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum CaptureError {
+    Temporary,
+    Permanent,
+}
+
+pub enum CaptureResult {
+    Success,
+    ErrorTemporary,
+    ErrorPermanent,
+}
+
+impl From<CaptureResult> for sys::lkCaptureResult {
+    fn from(t: CaptureResult) -> Self {
+        match t {
+            CaptureResult::Success => Self::CAPTURE_RESULT_SUCCESS,
+            CaptureResult::ErrorTemporary => Self::CAPTURE_RESULT_ERROR_TEMPORARY,
+            CaptureResult::ErrorPermanent => Self::CAPTURE_RESULT_ERROR_PERMANENT,
+        }
+    }
+}
+
+pub struct DesktopFrame {
+    pub ffi: sys::RefCounted<sys::lkDesktopFrame>,
+}
+
+impl DesktopFrame {
+    pub fn new(ffi: sys::RefCounted<sys::lkDesktopFrame>) -> Self {
+        Self { ffi }
+    }
+
+    pub fn width(&self) -> i32 {
+        unsafe { sys::lkDesktopFrameGetWidth(self.ffi.as_ptr()) }
+    }
+
+    pub fn height(&self) -> i32 {
+        unsafe { sys::lkDesktopFrameGetHeight(self.ffi.as_ptr()) }
+    }
+
+    pub fn stride(&self) -> u32 {
+        unsafe { sys::lkDesktopFrameGetStride(self.ffi.as_ptr()) }
+    }
+
+    pub fn left(&self) -> i32 {
+        unsafe { sys::lkDesktopFrameGetLeft(self.ffi.as_ptr()) }
+    }
+
+    pub fn top(&self) -> i32 {
+        unsafe { sys::lkDesktopFrameGetTop(self.ffi.as_ptr()) }
+    }
+
+    pub fn data(&self) -> &[u8] {
+        unsafe {
+            let lk_data =
+                sys::RefCountedData::from_native(sys::lkDesktopFrameGetData(self.ffi.as_ptr()));
+            std::slice::from_raw_parts(
+                lk_data.as_bytes().as_ptr(),
+                self.stride() as usize * self.height() as usize,
+            )
+        }
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
-pub(crate) struct DesktopCapturerOptions {
-    source_type: SourceType,
+pub struct DesktopCapturerOptions {
+    source_type: DesktopCaptureSourceType,
     include_cursor: bool,
     #[cfg(target_os = "macos")]
     allow_sck_system_picker: bool,
@@ -32,7 +107,7 @@ pub(crate) struct DesktopCapturerOptions {
 impl Default for DesktopCapturerOptions {
     fn default() -> Self {
         Self {
-            source_type: SourceType::Screen,
+            source_type: DesktopCaptureSourceType::Screen,
             include_cursor: false,
             #[cfg(target_os = "macos")]
             allow_sck_system_picker: true,
@@ -41,29 +116,24 @@ impl Default for DesktopCapturerOptions {
 }
 
 impl DesktopCapturerOptions {
-    pub(crate) fn new(source_type: SourceType) -> Self {
+    pub fn new(source_type: DesktopCaptureSourceType) -> Self {
         Self { source_type, ..Default::default() }
     }
 
-    pub(crate) fn with_cursor(mut self, include: bool) -> Self {
+    pub fn set_include_cursor(mut self, include: bool) -> Self {
         self.include_cursor = include;
         self
     }
 
     #[cfg(target_os = "macos")]
-    pub(crate) fn with_sck_system_picker(mut self, allow_sck_system_picker: bool) -> Self {
+    pub fn set_sck_system_picker(mut self, allow_sck_system_picker: bool) -> Self {
         self.allow_sck_system_picker = allow_sck_system_picker;
         self
     }
 
-    pub(crate) fn to_sys_options(&self) -> sys::lkDesktopCapturerOptions {
-        let source_type = match self.source_type {
-            SourceType::Screen => sys::lkSourceType::Screen,
-            SourceType::Window => sys::lkSourceType::Window,
-            SourceType::Generic => sys::lkSourceType::Generic,
-        };
+    pub fn to_sys_options(&self) -> sys::lkDesktopCapturerOptions {
         let mut sys_options = sys::lkDesktopCapturerOptions {
-            source_type,
+            source_type: self.source_type.into(),
             include_cursor: self.include_cursor,
             allow_sck_system_picker: false,
         };
@@ -75,14 +145,14 @@ impl DesktopCapturerOptions {
     }
 }
 
-pub(crate) struct DesktopCapturer {
+pub struct DesktopCapturer {
     ffi: sys::RefCounted<sys::lkDesktopCapturer>,
     #[cfg(all(any(target_os = "linux", target_os = "freebsd"), feature = "glib-main-loop"))]
     glib_loop: Option<glib::MainLoop>,
 }
 
 impl DesktopCapturer {
-    pub(crate) fn new(options: DesktopCapturerOptions) -> Option<Self> {
+    pub fn new(options: DesktopCapturerOptions) -> Option<Self> {
         unsafe {
             let ffi = sys::lkCreateDesktopCapturer(&options.to_sys_options());
             if ffi.is_null() {
@@ -100,13 +170,13 @@ impl DesktopCapturer {
         }
     }
 
-    pub(crate) fn capture_frame(&self) {
+    pub fn capture_frame(&self) {
         unsafe {
             sys::lkDesktopCapturerCaptureFrame(self.ffi.as_ptr());
         }
     }
 
-    pub(crate) fn start<T>(&mut self, callback: T)
+    pub fn start_capture<T>(&mut self, source: Option<CaptureSource>, callback: T)
     where
         T: FnMut(Result<DesktopFrame, CaptureError>) + Send + 'static,
     {
@@ -118,17 +188,23 @@ impl DesktopCapturer {
                 main_loop.run();
             });
         }
-        let pin_handle = self.sys_handle.pin_mut();
         let callback = DesktopCallback::new(callback);
         let callback_wrapper = DesktopCapturerCallbackWrapper::new(Box::new(callback));
-        pin_handle.start(Box::new(callback_wrapper));
+        let callback_ptr = Box::into_raw(Box::new(callback_wrapper));
+        unsafe {
+            sys::lkDesktopCapturerStart(
+                self.ffi.as_ptr(),
+                Some(DesktopCapturerCallbackWrapper::on_capture_result),
+                callback_ptr as *mut ::std::os::raw::c_void,
+            );
+        }
     }
 
-    pub(crate) fn select_source(&self, id: u64) -> bool {
+    pub fn select_source(&self, id: u64) -> bool {
         unsafe { sys::lkDesktopCapturerSelectSource(self.ffi.as_ptr(), id) }
     }
 
-    pub(crate) fn get_source_list(&self) -> Vec<CaptureSource> {
+    pub fn get_source_list(&self) -> Vec<CaptureSource> {
         let mut sources = Vec::new();
         let lk_vec = unsafe { sys::lkDesktopCapturerGetSourceList(self.ffi.as_ptr()) };
         let source_list = crate::sys::RefCountedVector::from_native_vec(lk_vec);
@@ -149,65 +225,43 @@ impl Drop for DesktopCapturer {
 }
 
 pub struct DesktopCapturerCallbackWrapper {
-    callback: Box<dyn sys_dc::DesktopCapturerCallback + Send>,
+    callback: Box<dyn DesktopCapturerCallback + Send>,
 }
 
 impl DesktopCapturerCallbackWrapper {
-    fn new(callback: Box<dyn sys_dc::DesktopCapturerCallback + Send>) -> Self {
+    pub fn new(callback: Box<dyn DesktopCapturerCallback + Send>) -> Self {
         Self { callback }
     }
 
-    fn on_capture_result(
-        self: &mut DesktopCapturerCallbackWrapper,
-        result: CaptureResult,
-        frame: UniquePtr<DesktopFrame>,
+    pub extern "C" fn on_capture_result(
+        frame: *mut sys::lkDesktopFrame,
+        result: sys::lkCaptureResult,
+        userdata: *mut ::std::os::raw::c_void,
     ) {
-        self.callback.on_capture_result(result, frame);
-    }
-}
-
-
-pub(crate) struct DesktopFrame {
-    ffi: sys::RefCounted<sys::lkDesktopFrame>,
-}
-
-impl DesktopFrame {
-    fn new(ffi: sys::RefCounted<sys::lkDesktopFrame>) -> Self {
-        Self { ffi }
-    }
-
-    pub(crate) fn width(&self) -> i32 {
-        unsafe { sys::lkDesktopFrameGetWidth(self.ffi.as_ptr()) }
-    }
-
-    pub(crate) fn height(&self) -> i32 {
-        unsafe { sys::lkDesktopFrameGetHeight(self.ffi.as_ptr()) }
-    }
-
-    pub(crate) fn stride(&self) -> u32 {
-        unsafe { sys::lkDesktopFrameGetStride(self.ffi.as_ptr()) }
-    }
-
-    pub(crate) fn left(&self) -> i32 {
-        unsafe { sys::lkDesktopFrameGetLeft(self.ffi.as_ptr()) }
-    }
-
-    pub(crate) fn top(&self) -> i32 {
-        unsafe { sys::lkDesktopFrameGetTop(self.ffi.as_ptr()) }
-    }
-
-    pub(crate) fn data(&self) -> &[u8] {
-        unsafe {
-            let lk_data =
-                sys::RefCountedData::from_native(sys::lkDesktopFrameGetData(self.ffi.as_ptr()));
-            &lk_data.as_bytes()
+        let callback_wrapper = unsafe { &mut *(userdata as *mut DesktopCapturerCallbackWrapper) };
+        match result {
+            sys::lkCaptureResult::CAPTURE_RESULT_SUCCESS => {
+                let dc_frame = DesktopFrame { ffi: unsafe { sys::RefCounted::from_raw(frame) } };
+                callback_wrapper.callback.on_capture_result(Ok(dc_frame))
+            }
+            sys::lkCaptureResult::CAPTURE_RESULT_ERROR_TEMPORARY => {
+                callback_wrapper.callback.on_capture_result(Err(CaptureError::Temporary))
+            }
+            sys::lkCaptureResult::CAPTURE_RESULT_ERROR_PERMANENT => {
+                callback_wrapper.callback.on_capture_result(Err(CaptureError::Permanent))
+            }
+            _ => callback_wrapper.callback.on_capture_result(Err(CaptureError::Permanent)),
         }
     }
 }
 
-struct DesktopCallback<
-    T: FnMut(Result<sys::RefCounted<sys::lkDesktopFrame>, sys::lkCaptureError>) + Send,
-> {
+impl_thread_safety!(DesktopCapturer, Send + Sync);
+
+pub trait DesktopCapturerCallback: Send {
+    fn on_capture_result(&mut self, result: Result<DesktopFrame, CaptureError>);
+}
+
+struct DesktopCallback<T: FnMut(Result<DesktopFrame, CaptureError>) + Send> {
     callback: T,
 }
 
@@ -220,41 +274,35 @@ where
     }
 
     fn capture_result_from_sys(
-        result: Result<sys::RefCounted<sys::lkDesktopFrame>, sys::lkCaptureError>,
+        result: Result<DesktopFrame, CaptureError>,
     ) -> Result<DesktopFrame, CaptureError> {
         match result {
-            Ok(frame) => Ok(DesktopFrame::new(frame)),
-            Err(error) => Err(match error {
-                sys::lkCaptureError::Temporary => CaptureError::Temporary,
-                sys::lkCaptureError::Permanent => CaptureError::Permanent,
-            }),
+            Ok(frame) => Ok(frame),
+            Err(err) => Err(err),
         }
     }
 }
 
-impl<T> sys_dc::DesktopCapturerCallback for DesktopCallback<T>
+impl<T> DesktopCapturerCallback for DesktopCallback<T>
 where
     T: FnMut(Result<DesktopFrame, CaptureError>) + Send,
 {
-    fn on_capture_result(
-        &mut self,
-        result: Result<sys::RefCounted<sys::lkDesktopFrame>, sys::lkCaptureError>,
-    ) {
+    fn on_capture_result(&mut self, result: Result<DesktopFrame, CaptureError>) {
         (self.callback)(DesktopCallback::<T>::capture_result_from_sys(result));
     }
 }
 
 #[derive(Clone)]
-pub(crate) struct CaptureSource {
+pub struct CaptureSource {
     ffi: sys::RefCounted<sys::lkDesktopSource>,
 }
 
 impl CaptureSource {
-    pub(crate) fn id(&self) -> u64 {
+    pub fn id(&self) -> u64 {
         unsafe { sys::lkDesktopSourceGetId(self.ffi.as_ptr()) }
     }
 
-    pub(crate) fn title(&self) -> String {
+    pub fn title(&self) -> String {
         unsafe {
             let lk_str = sys::lkDesktopSourceGetTitle(self.ffi.as_ptr());
             if lk_str.is_null() {
@@ -265,12 +313,7 @@ impl CaptureSource {
         }
     }
 
-    pub(crate) fn display_id(&self) -> i64 {
+    pub fn display_id(&self) -> i64 {
         unsafe { sys::lkDesktopSourceGetDisplayId(self.ffi.as_ptr()) }
     }
-}
-
-pub(crate) enum CaptureError {
-    Temporary,
-    Permanent,
 }

@@ -15,8 +15,6 @@
 use crate::enum_dispatch;
 use crate::sys;
 use crate::video_frame::{VideoBuffer, VideoFrame};
-use crate::video_frame_buffer::NativeVideoFrame;
-use crate::video_frame_buffer::VideoFrameBuffer;
 use crate::video_frame_builder::new_video_frame_builder;
 use crate::video_source::native::NativeVideoSource;
 
@@ -136,9 +134,9 @@ pub mod native {
     }
 
     pub static VIDEO_SINK_OBSERVER: sys::lkVideoSinkCallabacks = sys::lkVideoSinkCallabacks {
-        onFrame: Some(NativeVideoSink::lk_on_frame),
-        onDiscardedFrame: Some(NativeVideoSink::lk_on_discared_frame),
-        onConstraintsChanged: Some(NativeVideoSink::lk_on_constraints_changed),
+        onFrame: Some(NativeVideoSink::on_frame),
+        onDiscardedFrame: Some(NativeVideoSink::on_discared_frame),
+        onConstraintsChanged: Some(NativeVideoSink::on_constraints_changed),
     };
 
     pub struct NativeVideoSink {
@@ -161,7 +159,7 @@ pub mod native {
             Self { ffi: unsafe { sys::RefCounted::from_raw(ffi) }, observer: video_sink_wrapper }
         }
 
-        pub extern "C" fn lk_on_constraints_changed(
+        pub extern "C" fn on_constraints_changed(
             constraints: *mut sys::lkVideoTrackSourceConstraints,
             userdata: *mut ::std::os::raw::c_void,
         ) {
@@ -173,12 +171,12 @@ pub mod native {
             video_sink_wrapper.on_constraints_changed(constraints);
         }
 
-        pub extern "C" fn lk_on_discared_frame(userdata: *mut ::std::os::raw::c_void) {
+        pub extern "C" fn on_discared_frame(userdata: *mut ::std::os::raw::c_void) {
             let video_sink_wrapper = unsafe { &*(userdata as *const Arc<dyn VideoSink>) };
             video_sink_wrapper.on_discarded_frame();
         }
 
-        pub extern "C" fn lk_on_frame(
+        pub extern "C" fn on_frame(
             lkframe: *const sys::lkVideoFrame,
             userdata: *mut ::std::os::raw::c_void,
         ) {

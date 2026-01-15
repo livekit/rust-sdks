@@ -566,26 +566,26 @@ pub enum lkRtcpFeedbackType {
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkEncryptionAlgorithm {
-    AesGcm = 0,
-    AesCbc = 1,
+    ENCRYPTION_ALGORITHM_AES_GCM = 0,
+    ENCRYPTION_ALGORITHM_AES_CBC = 1,
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkEncryptionState {
-    New = 0,
-    Ok = 1,
-    EncryptionFailed = 2,
-    DecryptionFailed = 3,
-    MissingKey = 4,
-    KeyRatcheted = 5,
-    InternalError = 6,
+    ENCRYPTION_STATE_NEW = 0,
+    ENCRYPTION_STATE_OK = 1,
+    ENCRYPTION_STATE_ENCRYPTION_FAILED = 2,
+    ENCRYPTION_STATE_DECRYPTION_FAILED = 3,
+    ENCRYPTION_STATE_MISSING_KEY = 4,
+    ENCRYPTION_STATE_KEY_RATCHETED = 5,
+    ENCRYPTION_STATE_INTERNAL_ERROR = 6,
 }
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkSourceType {
-    Screen = 0,
-    Window = 1,
-    Generic = 2,
+    SOURCE_TYPE_SCREEN = 0,
+    SOURCE_TYPE_WINDOW = 1,
+    SOURCE_TYPE_GENERIC = 2,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -609,9 +609,16 @@ const _: () = {
 };
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkCaptureResult {
+    CAPTURE_RESULT_SUCCESS = 0,
+    CAPTURE_RESULT_ERROR_TEMPORARY = 1,
+    CAPTURE_RESULT_ERROR_PERMANENT = 2,
+}
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkCaptureError {
-    Temporary = 0,
-    Permanent = 1,
+    CAPTURE_ERROR_TEMPORARY = 0,
+    CAPTURE_ERROR_PERMANENT = 1,
 }
 unsafe extern "C" {
     pub fn lkInitialize() -> ::std::os::raw::c_int;
@@ -1852,45 +1859,6 @@ unsafe extern "C" {
     ) -> *mut lkData;
 }
 unsafe extern "C" {
-    pub fn lkDesktopFrameGetWidth(frame: *mut lkDesktopFrame) -> i32;
-}
-unsafe extern "C" {
-    pub fn lkDesktopFrameGetHeight(frame: *mut lkDesktopFrame) -> i32;
-}
-unsafe extern "C" {
-    pub fn lkDesktopFrameGetStride(frame: *mut lkDesktopFrame) -> u32;
-}
-unsafe extern "C" {
-    pub fn lkDesktopFrameGetLeft(frame: *mut lkDesktopFrame) -> i32;
-}
-unsafe extern "C" {
-    pub fn lkDesktopFrameGetTop(frame: *mut lkDesktopFrame) -> i32;
-}
-unsafe extern "C" {
-    pub fn lkDesktopFrameGetData(frame: *mut lkDesktopFrame) -> *mut lkData;
-}
-unsafe extern "C" {
-    pub fn lkCreateDesktopCapturer(
-        options: *const lkDesktopCapturerOptions,
-    ) -> *mut lkDesktopCapturer;
-}
-unsafe extern "C" {
-    pub fn lkDesktopSourceGetId(source: *mut lkDesktopSource) -> u64;
-}
-unsafe extern "C" {
-    pub fn lkDesktopSourceGetTitle(source: *mut lkDesktopSource) -> *mut lkString;
-}
-unsafe extern "C" {
-    pub fn lkDesktopSourceGetDisplayId(source: *mut lkDesktopSource) -> i64;
-}
-unsafe extern "C" {
-    pub fn lkDesktopCapturerSelectSource(capturer: *mut lkDesktopCapturer, id: u64) -> bool;
-}
-unsafe extern "C" {
-    pub fn lkDesktopCapturerGetSourceList(capturer: *mut lkDesktopCapturer)
-        -> *mut lkVectorGeneric;
-}
-unsafe extern "C" {
     pub fn lkCreateAudioMixer() -> *mut lkAudioMixer;
 }
 unsafe extern "C" {
@@ -1961,4 +1929,59 @@ unsafe extern "C" {
         apm: *mut lkAudioProcessingModule,
         delay: i32,
     ) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetWidth(frame: *mut lkDesktopFrame) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetHeight(frame: *mut lkDesktopFrame) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetStride(frame: *mut lkDesktopFrame) -> u32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetLeft(frame: *mut lkDesktopFrame) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetTop(frame: *mut lkDesktopFrame) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetData(frame: *mut lkDesktopFrame) -> *mut lkData;
+}
+unsafe extern "C" {
+    pub fn lkCreateDesktopCapturer(
+        options: *const lkDesktopCapturerOptions,
+    ) -> *mut lkDesktopCapturer;
+}
+unsafe extern "C" {
+    pub fn lkDesktopSourceGetId(source: *mut lkDesktopSource) -> u64;
+}
+unsafe extern "C" {
+    pub fn lkDesktopSourceGetTitle(source: *mut lkDesktopSource) -> *mut lkString;
+}
+unsafe extern "C" {
+    pub fn lkDesktopSourceGetDisplayId(source: *mut lkDesktopSource) -> i64;
+}
+unsafe extern "C" {
+    pub fn lkDesktopCapturerSelectSource(capturer: *mut lkDesktopCapturer, id: u64) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkDesktopCapturerGetSourceList(capturer: *mut lkDesktopCapturer)
+        -> *mut lkVectorGeneric;
+}
+unsafe extern "C" {
+    pub fn lkDesktopCapturerStart(
+        capturer: *mut lkDesktopCapturer,
+        callback: ::std::option::Option<
+            unsafe extern "C" fn(
+                frame: *mut lkDesktopFrame,
+                result: lkCaptureResult,
+                userdata: *mut ::std::os::raw::c_void,
+            ),
+        >,
+        userdata: *mut ::std::os::raw::c_void,
+    );
+}
+unsafe extern "C" {
+    pub fn lkDesktopCapturerCaptureFrame(capturer: *mut lkDesktopCapturer);
 }

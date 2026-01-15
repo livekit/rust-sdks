@@ -304,13 +304,13 @@ typedef enum {
   FEC_MECHANISM_RED = 2,
 } lkFecMechanism;
 
-typedef enum  {
+typedef enum {
   RTCP_FEEDBACK_MESSAGE_TYPE_GENERIC_NACK = 0,
   RTCP_FEEDBACK_MESSAGE_TYPE_PLI = 1,
   RTCP_FEEDBACK_MESSAGE_TYPE_FIR = 2,
 } lkRtcpFeedbackMessageType;
 
-typedef enum  {
+typedef enum {
   RTCP_FEEDBACK_TYPE_CCM,
   RTCP_FEEDBACK_TYPE_LNTP,
   RTCP_FEEDBACK_TYPE_NACK,
@@ -319,24 +319,24 @@ typedef enum  {
 } lkRtcpFeedbackType;
 
 typedef enum {
-  AesGcm,
-  AesCbc,
+  ENCRYPTION_ALGORITHM_AES_GCM,
+  ENCRYPTION_ALGORITHM_AES_CBC,
 } lkEncryptionAlgorithm;
 
 typedef enum {
-  New,
-  Ok,
-  EncryptionFailed,
-  DecryptionFailed,
-  MissingKey,
-  KeyRatcheted,
-  InternalError,
+  ENCRYPTION_STATE_NEW,
+  ENCRYPTION_STATE_OK,
+  ENCRYPTION_STATE_ENCRYPTION_FAILED,
+  ENCRYPTION_STATE_DECRYPTION_FAILED,
+  ENCRYPTION_STATE_MISSING_KEY,
+  ENCRYPTION_STATE_KEY_RATCHETED,
+  ENCRYPTION_STATE_INTERNAL_ERROR,
 } lkEncryptionState;
 
 typedef enum {
-  Screen,
-  Window,
-  Generic,
+  SOURCE_TYPE_SCREEN,
+  SOURCE_TYPE_WINDOW,
+  SOURCE_TYPE_GENERIC,
 } lkSourceType;
 
 typedef struct {
@@ -346,8 +346,14 @@ typedef struct {
 } lkDesktopCapturerOptions;
 
 typedef enum {
-  Temporary,
-  Permanent,
+  CAPTURE_RESULT_SUCCESS,
+  CAPTURE_RESULT_ERROR_TEMPORARY,
+  CAPTURE_RESULT_ERROR_PERMANENT,
+} lkCaptureResult;
+
+typedef enum {
+  CAPTURE_ERROR_TEMPORARY,
+  CAPTURE_ERROR_PERMANENT,
 } lkCaptureError;
 
 LK_EXPORT int lkInitialize();
@@ -905,16 +911,17 @@ LK_EXPORT void lkRtpCodecCapabilitySetSdpFmtpLine(lkRtpCodecCapability* codec,
 LK_EXPORT lkString* lkRtpCodecCapabilityGetSdpFmtpLine(
     lkRtpCodecCapability* codec);
 
-LK_EXPORT lkRtcpFeedback* lkRtcpFeedbackCreate(lkRtcpFeedbackType type,
-                                               bool hasMessageType,
-                                               lkRtcpFeedbackMessageType messageType);
+LK_EXPORT lkRtcpFeedback* lkRtcpFeedbackCreate(
+    lkRtcpFeedbackType type,
+    bool hasMessageType,
+    lkRtcpFeedbackMessageType messageType);
 
 LK_EXPORT lkRtcpFeedbackType lkRtcpFeedbackGetType(lkRtcpFeedback* feedback);
 
 LK_EXPORT bool lkRtcpFeedbackHasMessageType(lkRtcpFeedback* feedback);
 
-LK_EXPORT lkRtcpFeedbackMessageType lkRtcpFeedbackGetMessageType(
-    lkRtcpFeedback* feedback);
+LK_EXPORT lkRtcpFeedbackMessageType
+lkRtcpFeedbackGetMessageType(lkRtcpFeedback* feedback);
 
 LK_EXPORT lkVectorGeneric* lkRtpCodecCapabilityGetRtcpFeedbacks(
     lkRtpCodecCapability* codec);
@@ -1179,33 +1186,6 @@ LK_EXPORT lkData* lkDataPacketCryptorDecrypt(lkDataPacketCryptor* dc,
                                              lkEncryptedPacket* encryptedPacket,
                                              lkRtcError* errorOut);
 
-LK_EXPORT int32_t lkDesktopFrameGetWidth(lkDesktopFrame* frame);
-
-LK_EXPORT int32_t lkDesktopFrameGetHeight(lkDesktopFrame* frame);
-
-LK_EXPORT uint32_t lkDesktopFrameGetStride(lkDesktopFrame* frame);
-
-LK_EXPORT int32_t lkDesktopFrameGetLeft(lkDesktopFrame* frame);
-
-LK_EXPORT int32_t lkDesktopFrameGetTop(lkDesktopFrame* frame);
-
-LK_EXPORT lkData* lkDesktopFrameGetData(lkDesktopFrame* frame);
-
-LK_EXPORT lkDesktopCapturer* lkCreateDesktopCapturer(
-    const lkDesktopCapturerOptions* options);
-
-LK_EXPORT uint64_t lkDesktopSourceGetId(lkDesktopSource* source);
-
-LK_EXPORT lkString* lkDesktopSourceGetTitle(lkDesktopSource* source);
-
-LK_EXPORT int64_t lkDesktopSourceGetDisplayId(lkDesktopSource* source);
-
-LK_EXPORT bool lkDesktopCapturerSelectSource(lkDesktopCapturer* capturer,
-                                             uint64_t id);
-
-LK_EXPORT lkVectorGeneric* lkDesktopCapturerGetSourceList(
-    lkDesktopCapturer* capturer);
-
 LK_EXPORT lkAudioMixer* lkCreateAudioMixer();
 
 LK_EXPORT void lkAudioMixerAddSource(lkAudioMixer* mixer,
@@ -1237,28 +1217,62 @@ LK_EXPORT lkAudioProcessingModule* lkAudioProcessingModuleCreate(
     bool high_pass_filter_enabled,
     bool noise_suppression_enabled);
 
-LK_EXPORT int32_t lkAudioProcessingModuleProcessStream(
-    lkAudioProcessingModule* apm,
-    const int16_t* src,
-    uint32_t src_len,
-    int16_t* dst,
-    uint32_t dst_len,
-    int32_t sample_rate,
-    int32_t num_channels);
+LK_EXPORT int32_t
+lkAudioProcessingModuleProcessStream(lkAudioProcessingModule* apm,
+                                     const int16_t* src,
+                                     uint32_t src_len,
+                                     int16_t* dst,
+                                     uint32_t dst_len,
+                                     int32_t sample_rate,
+                                     int32_t num_channels);
 
-LK_EXPORT int32_t lkAudioProcessingModuleProcessReverseStream(
-    lkAudioProcessingModule* apm,
-    const int16_t* src,
-    uint32_t src_len,
-    int16_t* dst,
-    uint32_t dst_len,
-    int32_t sample_rate,
-    int32_t num_channels);
+LK_EXPORT int32_t
+lkAudioProcessingModuleProcessReverseStream(lkAudioProcessingModule* apm,
+                                            const int16_t* src,
+                                            uint32_t src_len,
+                                            int16_t* dst,
+                                            uint32_t dst_len,
+                                            int32_t sample_rate,
+                                            int32_t num_channels);
 
-LK_EXPORT int32_t lkAudioProcessingModuleSetStreamDelayMs(
-    lkAudioProcessingModule* apm,
-    int32_t delay);
+LK_EXPORT int32_t
+lkAudioProcessingModuleSetStreamDelayMs(lkAudioProcessingModule* apm,
+                                        int32_t delay);
 
+LK_EXPORT int32_t lkDesktopFrameGetWidth(lkDesktopFrame* frame);
+
+LK_EXPORT int32_t lkDesktopFrameGetHeight(lkDesktopFrame* frame);
+
+LK_EXPORT uint32_t lkDesktopFrameGetStride(lkDesktopFrame* frame);
+
+LK_EXPORT int32_t lkDesktopFrameGetLeft(lkDesktopFrame* frame);
+
+LK_EXPORT int32_t lkDesktopFrameGetTop(lkDesktopFrame* frame);
+
+LK_EXPORT lkData* lkDesktopFrameGetData(lkDesktopFrame* frame);
+
+LK_EXPORT lkDesktopCapturer* lkCreateDesktopCapturer(
+    const lkDesktopCapturerOptions* options);
+
+LK_EXPORT uint64_t lkDesktopSourceGetId(lkDesktopSource* source);
+
+LK_EXPORT lkString* lkDesktopSourceGetTitle(lkDesktopSource* source);
+
+LK_EXPORT int64_t lkDesktopSourceGetDisplayId(lkDesktopSource* source);
+
+LK_EXPORT bool lkDesktopCapturerSelectSource(lkDesktopCapturer* capturer,
+                                             uint64_t id);
+
+LK_EXPORT lkVectorGeneric* lkDesktopCapturerGetSourceList(
+    lkDesktopCapturer* capturer);
+
+LK_EXPORT void lkDesktopCapturerStart(lkDesktopCapturer* capturer,
+                                      void (*callback)(lkDesktopFrame* frame,
+                                                       lkCaptureResult result,
+                                                       void* userdata),
+                                      void* userdata);
+
+LK_EXPORT void lkDesktopCapturerCaptureFrame(lkDesktopCapturer* capturer);
 
 #ifdef __cplusplus
 }
