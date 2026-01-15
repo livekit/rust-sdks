@@ -211,11 +211,6 @@ jobs:
           name: ffi-builds-${{ matrix.target }}
           path: ${{ matrix.name }}.zip
 
-  build_node:
-    name: Build node bindings
-    runs-on: ubuntu-latest
-    steps:
-
   release:
     name: Release to GH (Draft)
     runs-on: ubuntu-latest
