@@ -61,7 +61,7 @@ impl Depacketizer {
         debug_assert!(dtp.header.marker == FrameMarker::Single);
 
         if self.partial.is_some() {
-            println!("Drop: interrupted");
+            log::trace!("Drop: interrupted");
             self.partial = None;
         }
         DepacketizerFrame { payload: dtp.payload, extensions: dtp.header.extensions }
@@ -72,7 +72,7 @@ impl Depacketizer {
         debug_assert!(dtp.header.marker == FrameMarker::Start);
 
         if self.partial.is_some() {
-            println!("Drop: interrupted");
+            log::trace!("Drop: interrupted");
             self.partial = None;
         }
         let start_sequence = dtp.header.sequence;
@@ -94,15 +94,15 @@ impl Depacketizer {
         debug_assert!(matches!(dtp.header.marker, FrameMarker::Inter | FrameMarker::Final));
 
         let Some(mut partial) = self.partial.take() else {
-            println!("Drop: unknown frame");
+            log::trace!("Drop: unknown frame");
             return;
         };
         if dtp.header.frame_number != partial.frame_number {
-            println!("Drop: interrupted");
+            log::trace!("Drop: interrupted");
             return;
         }
         if partial.payloads.len() == Self::MAX_BUFFER_PACKETS {
-            println!("Drop: buffer full");
+            log::trace!("Drop: buffer full");
             return;
         }
 

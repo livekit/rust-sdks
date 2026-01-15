@@ -852,7 +852,7 @@ impl SessionInner {
             OutputEvent::PacketsAvailable(packets) => {
                 for packet in packets {
                     if let Err(err) = self.dt_transport.send(&packet, true) {
-                        log::error!("Failed to send packet over transport: {}", err);
+                        log::trace!("Failed to send packet over transport: {}", err);
                         break; // Drop the rest of the batch
                     }
                 }
