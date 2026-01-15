@@ -29,7 +29,8 @@ use {
 mod common;
 
 #[cfg(feature = "__lk-e2e-test")]
-#[test_case(120., 8_192)]
+#[test_case(120., 8_192 ; "high_fps_single_packet")]
+#[test_case(10., 196_608 ; "low_fps_multi_packet")]
 #[test_log::test(tokio::test)]
 async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
     // How long to publish frames for.
