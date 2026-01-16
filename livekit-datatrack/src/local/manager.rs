@@ -121,20 +121,20 @@ pub struct Manager {
 
 impl Manager {
 
-    /// Creates a new manager task.
+    /// Creates a new manager.
     ///
     /// Returns a tuple containing the following:
     ///
-    /// - The manager task itself to be spawned by the caller (see [`Manager::run`]).
-    /// - Channel for sending [`InputEvent`]s to be processed by the manager task.
-    /// - Stream for receiving [`OutputEvent`]s produced by the manager task.
+    /// - The manager itself to be spawned by the caller (see [`Manager::run`]).
+    /// - Channel for sending [`InputEvent`]s to be processed by the manager.
+    /// - Stream for receiving [`OutputEvent`]s produced by the manager.
     ///
     pub fn new(options: ManagerOptions) -> (Self, ManagerInput, impl Stream<Item = OutputEvent>) {
         let (event_in_tx, event_in_rx) = mpsc::channel(4); // TODO: tune buffer size
-        let (event_out_tx, signal_out_rx) = mpsc::channel(4);
+        let (event_out_tx, event_out_rx) = mpsc::channel(4);
 
         let event_in = ManagerInput { event_in_tx: event_in_tx.clone() };
-        let task = Manager {
+        let manager = Manager {
             encryption: options.encryption,
             event_in_tx: event_in_tx.downgrade(),
             event_in_rx,
@@ -143,8 +143,8 @@ impl Manager {
             descriptors: HashMap::new(),
         };
 
-        let event_out_stream = ReceiverStream::new(signal_out_rx);
-        (task, event_in, event_out_stream)
+        let event_out = ReceiverStream::new(event_out_rx);
+        (manager, event_in, event_out)
     }
 
     /// Run the manager task, consuming self.
@@ -155,22 +155,15 @@ impl Manager {
         log::debug!("Task started");
         while let Some(event) = self.event_in_rx.recv().await {
             log::debug!("Input event: {:?}", event);
-            if matches!(event, InputEvent::Shutdown) {
-                break;
+            match event {
+                InputEvent::Publish(event) => self.handle_publish(event),
+                InputEvent::PublishResult(event) => self.handle_publish_result(event),
+                InputEvent::Unpublish(event) => self.handle_unpublished(event),
+                InputEvent::Shutdown => break,
             }
-            self.handle_event(event);
         }
         self.shutdown().await;
         log::debug!("Task ended");
-    }
-
-    fn handle_event(&mut self, event: InputEvent) {
-        match event {
-            InputEvent::Publish(event) => self.handle_publish(event),
-            InputEvent::PublishResult(event) => self.handle_publish_result(event),
-            InputEvent::Unpublish(event) => self.handle_unpublished(event),
-            _ => {}
-        }
     }
 
     fn handle_publish(&mut self, event: PublishEvent) {
