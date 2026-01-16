@@ -380,7 +380,7 @@ struct SessionInner {
 
     // Data track managers
     local_dt_input: dt::local::ManagerInput,
-    remote_dt_manager: dt::remote::Manager,
+    remote_dt_input: dt::remote::ManagerInput,
 }
 
 /// Information about the local participant needed for outgoing
@@ -498,10 +498,10 @@ impl RtcSession {
                 .filter(|m| m.enabled())
                 .map(|m| Arc::new(m) as Arc<dyn dt::DecryptionProvider>),
         };
-        let (remote_dt_manager, remote_dt_task, remote_dt_events) =
+        let (remote_dt_manager, remote_dt_input, remote_dt_output) =
             dt::remote::Manager::new(remote_dt_options);
         if let Ok(initial_publications) = dt::remote::event_from_join(&mut join_response) {
-            _ = remote_dt_manager.send(initial_publications.into());
+            _ = remote_dt_input.send(initial_publications.into());
         }
 
         let (close_tx, close_rx) = watch::channel(false);
@@ -537,7 +537,7 @@ impl RtcSession {
             pending_requests: Default::default(),
             e2ee_manager,
             local_dt_input,
-            remote_dt_manager,
+            remote_dt_input
         });
 
         // Start session tasks
@@ -553,8 +553,8 @@ impl RtcSession {
         let local_dt_task = livekit_runtime::spawn(local_dt_manager.run());
 
         let remote_dt_forward_task =
-            livekit_runtime::spawn(inner.clone().remote_dt_forward_task(remote_dt_events));
-        let remote_dt_task = livekit_runtime::spawn(remote_dt_task.run());
+            livekit_runtime::spawn(inner.clone().remote_dt_forward_task(remote_dt_output));
+        let remote_dt_task = livekit_runtime::spawn(remote_dt_manager.run());
 
         // TODO: closure.
 
@@ -615,7 +615,7 @@ impl RtcSession {
             let _ = handle.local_dt_task.await;
             let _ = handle.local_dt_forward_task.await;
 
-            _ = self.inner.remote_dt_manager.send(dt::remote::InputEvent::Shutdown);
+            _ = self.inner.remote_dt_input.send(dt::remote::InputEvent::Shutdown);
             let _ = handle.remote_dt_task.await;
             let _ = handle.remote_dt_forward_task.await;
         }
@@ -1106,7 +1106,7 @@ impl SessionInner {
                     &mut update,
                     local_participant_identity,
                 ) {
-                    _ = self.remote_dt_manager.send(event.into());
+                    _ = self.remote_dt_input.send(event.into());
                 }
                 let _ = self
                     .emitter
@@ -1160,7 +1160,7 @@ impl SessionInner {
             }
             proto::signal_response::Message::DataTrackSubscriberHandles(subscriber_handles) => {
                 let event: dt::remote::SubscriberHandlesEvent = subscriber_handles.try_into()?;
-                _ = self.remote_dt_manager.send(event.into());
+                _ = self.remote_dt_input.send(event.into());
             }
             proto::signal_response::Message::RefreshToken(ref token) => {
                 let url = self.signal_client.url();
@@ -1211,7 +1211,7 @@ impl SessionInner {
                     LOSSY_DC_LABEL => &self.sub_lossy_dc,
                     RELIABLE_DC_LABEL => &self.sub_reliable_dc,
                     DATA_TRACK_DC_LABEL => {
-                        handle_remote_dt_packets(&data_channel, self.remote_dt_manager.clone());
+                        handle_remote_dt_packets(&data_channel, self.remote_dt_input.clone());
                         &self.sub_dt_transport
                     }
                     _ => return Ok(()),
@@ -1996,7 +1996,7 @@ impl SessionInner {
 }
 
 /// Forward remote data track packets to the remote track manager.
-pub fn handle_remote_dt_packets(dc: &DataChannel, manager: dt::remote::Manager) {
+pub fn handle_remote_dt_packets(dc: &DataChannel, manager: dt::remote::ManagerInput) {
     let on_message: libwebrtc::data_channel::OnMessage = Box::new(move |buffer: DataBuffer| {
         if !buffer.binary {
             log::error!("Received non-binary message");

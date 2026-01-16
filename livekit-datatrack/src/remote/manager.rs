@@ -91,83 +91,19 @@ pub struct SubscriptionUpdatedEvent {
     pub subscribe: bool,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum TrackState {
-    Published,
-    Unpublished,
-}
-
-impl TrackState {
-    pub fn is_published(&self) -> bool {
-        !matches!(self, Self::Unpublished)
-    }
-}
-
+/// Options for creating a [`Manager`].
 #[derive(Debug)]
 pub struct ManagerOptions {
+    /// Provider to use for decrypting incoming frame payloads.
+    ///
+    /// If none, remote tracks using end-to-end encryption will not be available
+    /// for subscription.
+    ///
     pub decryption: Option<Arc<dyn DecryptionProvider>>,
 }
 
-/// Manager for remote data tracks.
-#[derive(Debug, Clone)]
+/// System for managing data track subscriptions.
 pub struct Manager {
-    event_in_tx: mpsc::Sender<InputEvent>,
-}
-
-impl Manager {
-    /// Creates a new manager with the specified options.
-    pub fn new(options: ManagerOptions) -> (Self, ManagerTask, impl Stream<Item = OutputEvent>) {
-        let (event_in_tx, event_in_rx) = mpsc::channel(Self::INPUT_BUFFER_SIZE);
-        let (event_out_tx, event_out_rx) = mpsc::channel(Self::OUTPUT_BUFFER_SIZE);
-
-        let manager = Manager { event_in_tx: event_in_tx.clone() };
-        let task = ManagerTask {
-            decryption: options.decryption,
-            event_in_tx: event_in_tx.downgrade(),
-            event_in_rx,
-            event_out_tx,
-            descriptors: HashMap::default(),
-            sub_handles: HandleMap::default(),
-        };
-
-        let event_out_stream = ReceiverStream::new(event_out_rx);
-        (manager, task, event_out_stream)
-    }
-
-    /// Sends an input event to the manager's task to be processed.
-    pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
-        // TODO: try_send for data
-        Ok(self.event_in_tx.try_send(event).context("Failed to send input event")?)
-    }
-
-    /// Number of [`InputEvent`]s to buffer.
-    const INPUT_BUFFER_SIZE: usize = 4;
-
-    /// Number of [`OutputEvent`]s to buffer.
-    const OUTPUT_BUFFER_SIZE: usize = 4;
-}
-
-#[derive(Debug)]
-struct Descriptor {
-    info: Arc<DataTrackInfo>,
-    state_tx: watch::Sender<TrackState>,
-    state: DescriptorState,
-}
-
-#[derive(Debug)]
-enum DescriptorState {
-    Available,
-    PendingSubscriberHandle {
-        result_txs: Vec<oneshot::Sender<SubscribeResult>>,
-    },
-    Subscribed {
-        packet_tx: mpsc::Sender<Dtp>,
-        frame_tx: broadcast::Sender<DataTrackFrame>,
-        join_handle: livekit_runtime::JoinHandle<()>,
-    },
-}
-
-pub struct ManagerTask {
     decryption: Option<Arc<dyn DecryptionProvider>>,
     event_in_tx: mpsc::WeakSender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
@@ -179,7 +115,38 @@ pub struct ManagerTask {
     sub_handles: HandleMap,
 }
 
-impl ManagerTask {
+impl Manager {
+
+    /// Creates a new manager.
+    ///
+    /// Returns a tuple containing the following:
+    ///
+    /// - The manager itself to be spawned by the caller (see [`Manager::run`]).
+    /// - Channel for sending [`InputEvent`]s to be processed by the manager.
+    /// - Stream for receiving [`OutputEvent`]s produced by the manager.
+    ///
+    pub fn new(options: ManagerOptions) -> (Self, ManagerInput, impl Stream<Item = OutputEvent>) {
+        let (event_in_tx, event_in_rx) = mpsc::channel(4); // TODO: tune buffer size
+        let (event_out_tx, event_out_rx) = mpsc::channel(4);
+
+        let event_in = ManagerInput { event_in_tx: event_in_tx.clone() };
+        let manager = Manager {
+            decryption: options.decryption,
+            event_in_tx: event_in_tx.downgrade(),
+            event_in_rx,
+            event_out_tx,
+            descriptors: HashMap::default(),
+            sub_handles: HandleMap::default(),
+        };
+
+        let event_out = ReceiverStream::new(event_out_rx);
+        (manager, event_in, event_out)
+    }
+
+    /// Run the manager task, consuming self.
+    ///
+    /// The manager will continue running until receiving [`InputEvent::Shutdown`].
+    ///
     pub async fn run(mut self) {
         log::debug!("Task started");
         while let Some(event) = self.event_in_rx.recv().await {
@@ -369,6 +336,51 @@ impl ManagerTask {
     }
 }
 
+#[derive(Debug)]
+struct Descriptor {
+    info: Arc<DataTrackInfo>,
+    state_tx: watch::Sender<TrackState>,
+    state: DescriptorState,
+}
+
+#[derive(Debug)]
+enum DescriptorState {
+    Available,
+    PendingSubscriberHandle {
+        result_txs: Vec<oneshot::Sender<SubscribeResult>>,
+    },
+    Subscribed {
+        packet_tx: mpsc::Sender<Dtp>,
+        frame_tx: broadcast::Sender<DataTrackFrame>,
+        join_handle: livekit_runtime::JoinHandle<()>,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum TrackState {
+    Published,
+    Unpublished,
+}
+
+impl TrackState {
+    pub fn is_published(&self) -> bool {
+        !matches!(self, Self::Unpublished)
+    }
+}
+
+/// Channel for sending [`InputEvent`]s to [`Manager`].
+#[derive(Debug, Clone)]
+pub struct ManagerInput {
+    event_in_tx: mpsc::Sender<InputEvent>,
+}
+
+impl ManagerInput {
+    /// Sends an input event to the manager's task to be processed.
+    pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
+        Ok(self.event_in_tx.try_send(event).context("Failed to send input event")?)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -384,10 +396,10 @@ mod tests {
     #[tokio::test]
     async fn test_task_shutdown() {
         let options = ManagerOptions { decryption: None };
-        let (manager, manager_task, _) = Manager::new(options);
+        let (manager, input, _) = Manager::new(options);
 
-        let join_handle = livekit_runtime::spawn(manager_task.run());
-        _ = manager.send(InputEvent::Shutdown);
+        let join_handle = livekit_runtime::spawn(manager.run());
+        _ = input.send(InputEvent::Shutdown);
 
         time::timeout(Duration::from_secs(1), join_handle).await.unwrap();
     }
@@ -400,8 +412,8 @@ mod tests {
         let sub_handle: Handle = Faker.fake();
 
         let options = ManagerOptions { decryption: None };
-        let (manager, manager_task, mut output_events) = Manager::new(options);
-        livekit_runtime::spawn(manager_task.run());
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
 
         // Simulate track published
         let event = PublicationUpdatesEvent {
@@ -415,10 +427,10 @@ mod tests {
                 }],
             )]),
         };
-        _ = manager.send(event.into());
+        _ = input.send(event.into());
 
         let wait_for_track = async {
-            while let Some(event) = output_events.next().await {
+            while let Some(event) = output.next().await {
                 match event {
                     OutputEvent::TrackAvailable(track) => return track,
                     _ => continue,
@@ -434,7 +446,7 @@ mod tests {
         assert_eq!(track.publisher_identity(), publisher_identity);
 
         let simulate_subscriber_handles = async {
-            while let Some(event) = output_events.next().await {
+            while let Some(event) = output.next().await {
                 match event {
                     OutputEvent::SubscriptionUpdated(event) => {
                         assert!(event.subscribe);
@@ -448,7 +460,7 @@ mod tests {
                                 track_sid.clone()
                             )]),
                         };
-                        _ = manager.send(event.into());
+                        _ = input.send(event.into());
                     }
                     _ => {}
                 }
