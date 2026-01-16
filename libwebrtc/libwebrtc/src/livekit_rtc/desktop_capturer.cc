@@ -15,6 +15,7 @@
  */
 
 #include "livekit_rtc/desktop_capturer.h"
+#include "livekit_rtc/utils.h"
 
 #include "modules/desktop_capture/desktop_capture_options.h"
 
@@ -23,12 +24,12 @@ using SourceList = webrtc::DesktopCapturer::SourceList;
 namespace livekit_ffi {
 
 webrtc::scoped_refptr<DesktopCapturer> new_desktop_capturer(
-    DesktopCapturerOptions options) {
+    const lkDesktopCapturerOptions* options) {
   webrtc::DesktopCaptureOptions webrtc_options =
       webrtc::DesktopCaptureOptions::CreateDefault();
 #if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
   webrtc_options.set_allow_sck_capturer(true);
-  webrtc_options.set_allow_sck_system_picker(options.allow_sck_system_picker);
+  webrtc_options.set_allow_sck_system_picker(options->allow_sck_system_picker);
 #endif /* defined(WEBRTC_MAC) && !defined(WEBRTC_IOS) */
 #ifdef _WIN64
   switch (options.source_type) {
@@ -51,17 +52,17 @@ webrtc::scoped_refptr<DesktopCapturer> new_desktop_capturer(
 
   // prefer_cursor_embedded indicate that the capturer should try to include the
   // cursor in the frame
-  webrtc_options.set_prefer_cursor_embedded(options.include_cursor);
+  webrtc_options.set_prefer_cursor_embedded(options->include_cursor);
 
   std::unique_ptr<webrtc::DesktopCapturer> capturer = nullptr;
-  switch (options.source_type) {
-    case SourceType::Window:
+  switch (options->source_type) {
+    case lkSourceType::SOURCE_TYPE_WINDOW:
       capturer = webrtc::DesktopCapturer::CreateWindowCapturer(webrtc_options);
       break;
-    case SourceType::Screen:
+    case lkSourceType::SOURCE_TYPE_SCREEN:
       capturer = webrtc::DesktopCapturer::CreateScreenCapturer(webrtc_options);
       break;
-    case SourceType::Generic:
+    case lkSourceType::SOURCE_TYPE_GENERIC:
       capturer = webrtc::DesktopCapturer::CreateGenericCapturer(webrtc_options);
       break;
     default:
@@ -99,24 +100,26 @@ void DesktopCapturer::OnCaptureResult(
       break;
   }
   if (callback_) {
-    callback_(
-        reinterpret_cast<lkDesktopFrame*>(
-            webrtc::make_ref_counted<livekit_ffi::DesktopFrame>(std::move(frame)).release()),
-        ret_result, userdata_);
+    callback_(reinterpret_cast<lkDesktopFrame*>(
+                  webrtc::make_ref_counted<livekit_ffi::DesktopFrame>(
+                      std::move(frame))
+                      .release()),
+              static_cast<lkCaptureResult>(ret_result), userdata_);
   }
 }
 
-std::vector<Source> DesktopCapturer::get_source_list() const {
+lkVectorGeneric* DesktopCapturer::get_source_list() const {
   SourceList list{};
   bool res = capturer->GetSourceList(&list);
-  std::vector<Source> source_list{};
+  auto source_list = webrtc::make_ref_counted<
+      LKVector<webrtc::scoped_refptr<DesktopSource>>>();
   if (res) {
     for (auto& source : list) {
-      source_list.push_back(Source{static_cast<uint64_t>(source.id),
-                                   source.title, source.display_id});
+      source_list->push_back(webrtc::make_ref_counted<DesktopSource>(
+          source.id, source.title, source.display_id));
     }
   }
-  return source_list;
+  return reinterpret_cast<lkVectorGeneric*>(source_list.release());
 }
 
 }  // namespace livekit_ffi

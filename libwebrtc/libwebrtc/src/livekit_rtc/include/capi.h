@@ -1239,18 +1239,6 @@ LK_EXPORT int32_t
 lkAudioProcessingModuleSetStreamDelayMs(lkAudioProcessingModule* apm,
                                         int32_t delay);
 
-LK_EXPORT int32_t lkDesktopFrameGetWidth(lkDesktopFrame* frame);
-
-LK_EXPORT int32_t lkDesktopFrameGetHeight(lkDesktopFrame* frame);
-
-LK_EXPORT uint32_t lkDesktopFrameGetStride(lkDesktopFrame* frame);
-
-LK_EXPORT int32_t lkDesktopFrameGetLeft(lkDesktopFrame* frame);
-
-LK_EXPORT int32_t lkDesktopFrameGetTop(lkDesktopFrame* frame);
-
-LK_EXPORT lkData* lkDesktopFrameGetData(lkDesktopFrame* frame);
-
 LK_EXPORT lkDesktopCapturer* lkCreateDesktopCapturer(
     const lkDesktopCapturerOptions* options);
 
@@ -1273,6 +1261,18 @@ LK_EXPORT void lkDesktopCapturerStart(lkDesktopCapturer* capturer,
                                       void* userdata);
 
 LK_EXPORT void lkDesktopCapturerCaptureFrame(lkDesktopCapturer* capturer);
+
+LK_EXPORT int32_t lkDesktopFrameGetWidth(lkDesktopFrame* frame);
+
+LK_EXPORT int32_t lkDesktopFrameGetHeight(lkDesktopFrame* frame);
+
+LK_EXPORT uint32_t lkDesktopFrameGetStride(lkDesktopFrame* frame);
+
+LK_EXPORT int32_t lkDesktopFrameGetLeft(lkDesktopFrame* frame);
+
+LK_EXPORT int32_t lkDesktopFrameGetTop(lkDesktopFrame* frame);
+
+LK_EXPORT const uint8_t* lkDesktopFrameGetData(lkDesktopFrame* frame);
 
 #ifdef __cplusplus
 }

@@ -5,6 +5,7 @@
 #include "livekit_rtc/audio_resampler.h"
 #include "livekit_rtc/audio_track.h"
 #include "livekit_rtc/data_channel.h"
+#include "livekit_rtc/desktop_capturer.h"
 #include "livekit_rtc/frame_cryptor.h"
 #include "livekit_rtc/ice_candidate.h"
 #include "livekit_rtc/media_stream.h"
@@ -72,15 +73,16 @@ uint32_t lkVectorGenericGetSize(lkVectorGeneric* vec) {
   if (vec == nullptr) {
     return 0;
   }
-  return reinterpret_cast<livekit_ffi::LKVector<lkRefCountedObject*>*>(vec)->size();
+  return reinterpret_cast<livekit_ffi::LKVector<lkRefCountedObject*>*>(vec)
+      ->size();
 }
 
 lkRefCountedObject* lkVectorGenericGetAt(lkVectorGeneric* vec, uint32_t index) {
   if (vec == nullptr) {
     return nullptr;
   }
-  return reinterpret_cast<livekit_ffi::LKVector<lkRefCountedObject*>*>(vec)->get_at(
-      index);
+  return reinterpret_cast<livekit_ffi::LKVector<lkRefCountedObject*>*>(vec)
+      ->get_at(index);
 }
 
 uint32_t lkVectorGenericPushBack(lkVectorGeneric* vec,
@@ -88,7 +90,8 @@ uint32_t lkVectorGenericPushBack(lkVectorGeneric* vec,
   if (vec == nullptr || value == nullptr) {
     return -1;
   }
-  auto lkVec = reinterpret_cast<livekit_ffi::LKVector<lkRefCountedObject*>*>(vec);
+  auto lkVec =
+      reinterpret_cast<livekit_ffi::LKVector<lkRefCountedObject*>*>(vec);
   lkVec->push_back(value);
   return static_cast<uint32_t>(lkVec->size());
 }
@@ -138,9 +141,10 @@ lkPeer* lkCreatePeer(lkPeerFactory* factory,
 lkDataChannel* lkCreateDataChannel(lkPeer* peer,
                                    const char* label,
                                    const lkDataChannelInit* init) {
-  return reinterpret_cast<lkDataChannel*>(reinterpret_cast<livekit_ffi::Peer*>(peer)
-                                              ->CreateDataChannel(label, init)
-                                              .release());
+  return reinterpret_cast<lkDataChannel*>(
+      reinterpret_cast<livekit_ffi::Peer*>(peer)
+          ->CreateDataChannel(label, init)
+          .release());
 }
 
 lkRtpSender* lkPeerAddTrack(lkPeer* peer,
@@ -148,8 +152,8 @@ lkRtpSender* lkPeerAddTrack(lkPeer* peer,
                             const char** streamIds,
                             int streamIdCount,
                             lkRtcError* error) {
-  return reinterpret_cast<livekit_ffi::Peer*>(peer)->AddTrack(track, streamIds,
-                                                          streamIdCount, error);
+  return reinterpret_cast<livekit_ffi::Peer*>(peer)->AddTrack(
+      track, streamIds, streamIdCount, error);
 }
 
 bool lkPeerRemoveTrack(lkPeer* peer, lkRtpSender* sender, lkRtcError* error) {
@@ -185,8 +189,8 @@ bool lkCreateOffer(lkPeer* peer,
                    const lkOfferAnswerOptions* options,
                    const lkCreateSdpObserver* observer,
                    void* userdata) {
-  return reinterpret_cast<livekit_ffi::Peer*>(peer)->CreateOffer(*options, observer,
-                                                             userdata);
+  return reinterpret_cast<livekit_ffi::Peer*>(peer)->CreateOffer(
+      *options, observer, userdata);
 }
 
 bool lkCreateAnswer(lkPeer* peer,
@@ -221,7 +225,7 @@ void lkDcRegisterObserver(lkDataChannel* dc,
                           const lkDataChannelObserver* observer,
                           void* userdata) {
   reinterpret_cast<livekit_ffi::DataChannel*>(dc)->RegisterObserver(observer,
-                                                                userdata);
+                                                                    userdata);
 }
 
 void lkDcUnregisterObserver(lkDataChannel* dc) {
@@ -252,8 +256,8 @@ void lkDcSendAsync(lkDataChannel* dc,
                    bool binary,
                    void (*onComplete)(lkRtcError* error, void* userdata),
                    void* userdata) {
-  reinterpret_cast<livekit_ffi::DataChannel*>(dc)->SendAsync(data, size, binary,
-                                                         onComplete, userdata);
+  reinterpret_cast<livekit_ffi::DataChannel*>(dc)->SendAsync(
+      data, size, binary, onComplete, userdata);
 }
 
 void lkDcClose(lkDataChannel* dc) {
@@ -278,14 +282,15 @@ lkSdpType lkSessionDescriptionGetType(lkSessionDescription* desc) {
 lkString* lkSessionDescriptionGetSdp(lkSessionDescription* desc) {
   std::string sdp =
       reinterpret_cast<livekit_ffi::SessionDescription*>(desc)->ToString();
-  return reinterpret_cast<lkString*>(livekit_ffi::LKString::Create(sdp).release());
+  return reinterpret_cast<lkString*>(
+      livekit_ffi::LKString::Create(sdp).release());
 }
 
 lkIceCandidate* lkCreateIceCandidate(const char* mid,
                                      int mlineIndex,
                                      const char* sdp) {
-  auto candidate = livekit_ffi::IceCandidate::Create(std::string(mid), mlineIndex,
-                                                 std::string(sdp));
+  auto candidate = livekit_ffi::IceCandidate::Create(
+      std::string(mid), mlineIndex, std::string(sdp));
   if (!candidate) {
     return nullptr;
   }
@@ -303,12 +308,15 @@ int lkIceCandidateGetMidLength(lkIceCandidate* candidate) {
 
 lkString* lkIceCandidateGetMid(lkIceCandidate* candidate) {
   auto mid = reinterpret_cast<livekit_ffi::IceCandidate*>(candidate)->mid();
-  return reinterpret_cast<lkString*>(livekit_ffi::LKString::Create(mid).release());
+  return reinterpret_cast<lkString*>(
+      livekit_ffi::LKString::Create(mid).release());
 }
 
 lkString* lkIceCandidateGetSdp(lkIceCandidate* candidate) {
-  std::string sdp = reinterpret_cast<livekit_ffi::IceCandidate*>(candidate)->sdp();
-  return reinterpret_cast<lkString*>(livekit_ffi::LKString::Create(sdp).release());
+  std::string sdp =
+      reinterpret_cast<livekit_ffi::IceCandidate*>(candidate)->sdp();
+  return reinterpret_cast<lkString*>(
+      livekit_ffi::LKString::Create(sdp).release());
 }
 
 void lkPeerRestartIce(lkPeer* peer) {
@@ -336,11 +344,13 @@ lkSignalingState lkPeerGetSignalingState(lkPeer* peer) {
 }
 
 const lkSessionDescription* lkPeerGetCurrentLocalDescription(lkPeer* peer) {
-  return reinterpret_cast<livekit_ffi::Peer*>(peer)->GetCurrentLocalDescription();
+  return reinterpret_cast<livekit_ffi::Peer*>(peer)
+      ->GetCurrentLocalDescription();
 }
 
 const lkSessionDescription* lkPeerGetCurrentRemoteDescription(lkPeer* peer) {
-  return reinterpret_cast<livekit_ffi::Peer*>(peer)->GetCurrentRemoteDescription();
+  return reinterpret_cast<livekit_ffi::Peer*>(peer)
+      ->GetCurrentRemoteDescription();
 }
 
 lkRtpCapabilities* lkGetRtpSenderCapabilities(lkPeerFactory* factory,
@@ -356,7 +366,8 @@ lkRtpCapabilities* lkGetRtpReceiverCapabilities(lkPeerFactory* factory,
 }
 
 lkVectorGeneric* lkRtpCapabilitiesGetCodecs(lkRtpCapabilities* capabilities) {
-  return reinterpret_cast<livekit_ffi::RtpCapabilities*>(capabilities)->GetCodecs();
+  return reinterpret_cast<livekit_ffi::RtpCapabilities*>(capabilities)
+      ->GetCodecs();
 }
 
 lkVectorGeneric* lkRtpCapabilitiesGetHeaderExtensions(
@@ -400,7 +411,7 @@ lkAudioTrackSource* lkCreateAudioTrackSource(lkAudioSourceOptions options,
                                              int queue_size_ms) {
   return reinterpret_cast<lkAudioTrackSource*>(
       livekit_ffi::AudioTrackSource::Create(options, sample_rate, num_channels,
-                                        queue_size_ms)
+                                            queue_size_ms)
           .release());
 }
 
@@ -412,7 +423,8 @@ void lkAudioTrackSourceSetAudioOptions(lkAudioTrackSource* source,
 
 lkAudioSourceOptions lkAudioTrackSourceGetAudioOptions(
     lkAudioTrackSource* source) {
-  return reinterpret_cast<livekit_ffi::AudioTrackSource*>(source)->audio_options();
+  return reinterpret_cast<livekit_ffi::AudioTrackSource*>(source)
+      ->audio_options();
 }
 
 bool lkAudioTrackSourceCaptureFrame(lkAudioTrackSource* source,
@@ -424,9 +436,9 @@ bool lkAudioTrackSourceCaptureFrame(lkAudioTrackSource* source,
                                     void (*onComplete)(void* userdata)) {
   std::vector<int16_t> audio_vector(
       audio_data, audio_data + number_of_channels * number_of_frames);
-  return reinterpret_cast<livekit_ffi::AudioTrackSource*>(source)->capture_frame(
-      audio_vector, sample_rate, number_of_channels, number_of_frames, userdata,
-      onComplete);
+  return reinterpret_cast<livekit_ffi::AudioTrackSource*>(source)
+      ->capture_frame(audio_vector, sample_rate, number_of_channels,
+                      number_of_frames, userdata, onComplete);
 }
 
 void lkAudioTrackSourceClearBuffer(lkAudioTrackSource* source) {
@@ -434,30 +446,35 @@ void lkAudioTrackSourceClearBuffer(lkAudioTrackSource* source) {
 }
 
 int lkAudioTrackSourceGetSampleRate(lkAudioTrackSource* source) {
-  return reinterpret_cast<livekit_ffi::AudioTrackSource*>(source)->sample_rate();
+  return reinterpret_cast<livekit_ffi::AudioTrackSource*>(source)
+      ->sample_rate();
 }
 
 int lkAudioTrackSourceGetNumChannels(lkAudioTrackSource* source) {
-  return reinterpret_cast<livekit_ffi::AudioTrackSource*>(source)->num_channels();
+  return reinterpret_cast<livekit_ffi::AudioTrackSource*>(source)
+      ->num_channels();
 }
 
 int lkAudioTrackSourceAddSink(lkAudioTrackSource* source,
                               lkNativeAudioSink* sink) {
   reinterpret_cast<livekit_ffi::AudioTrackSource*>(source)->get()->AddSink(
-      reinterpret_cast<livekit_ffi::NativeAudioSink*>(sink)->audio_track_sink());
+      reinterpret_cast<livekit_ffi::NativeAudioSink*>(sink)
+          ->audio_track_sink());
   return 1;
 }
 
 int lkAudioTrackSourceRemoveSink(lkAudioTrackSource* source,
                                  lkNativeAudioSink* sink) {
   reinterpret_cast<livekit_ffi::AudioTrackSource*>(source)->get()->RemoveSink(
-      reinterpret_cast<livekit_ffi::NativeAudioSink*>(sink)->audio_track_sink());
+      reinterpret_cast<livekit_ffi::NativeAudioSink*>(sink)
+          ->audio_track_sink());
   return 1;
 }
 
 lkString* lkMediaStreamTrackGetId(lkMediaStreamTrack* track) {
   auto id = reinterpret_cast<livekit_ffi::MediaStreamTrack*>(track)->id();
-  return reinterpret_cast<lkString*>(livekit_ffi::LKString::Create(id).release());
+  return reinterpret_cast<lkString*>(
+      livekit_ffi::LKString::Create(id).release());
 }
 
 bool lkMediaStreamTrackIsEnabled(lkMediaStreamTrack* track) {
@@ -548,14 +565,16 @@ lkVectorGeneric* lkMediaStreamGetVideoTracks(lkMediaStream* stream) {
 
 lkString* lkMediaStreamGetId(lkMediaStream* stream) {
   auto id = reinterpret_cast<livekit_ffi::MediaStream*>(stream)->id();
-  return reinterpret_cast<lkString*>(livekit_ffi::LKString::Create(id).release());
+  return reinterpret_cast<lkString*>(
+      livekit_ffi::LKString::Create(id).release());
 }
 
 lkNativeVideoSink* lkCreateNativeVideoSink(
     const lkVideoSinkCallabacks* callbacks,
     void* userdata) {
   return reinterpret_cast<lkNativeVideoSink*>(
-      webrtc::make_ref_counted<livekit_ffi::NativeVideoSink>(callbacks, userdata)
+      webrtc::make_ref_counted<livekit_ffi::NativeVideoSink>(callbacks,
+                                                             userdata)
           .release());
 }
 
@@ -592,7 +611,8 @@ uint32_t lkVideoFrameBufferGetWidth(lkVideoFrameBuffer* frameBuffer) {
 }
 
 uint32_t lkVideoFrameBufferGetHeight(lkVideoFrameBuffer* frameBuffer) {
-  return reinterpret_cast<livekit_ffi::VideoFrameBuffer*>(frameBuffer)->height();
+  return reinterpret_cast<livekit_ffi::VideoFrameBuffer*>(frameBuffer)
+      ->height();
 }
 
 lkI420Buffer* lkVideoFrameBufferToI420(lkVideoFrameBuffer* frameBuffer) {
@@ -904,7 +924,8 @@ lkNV12Buffer* lkNV12BufferNew(uint32_t width,
                               uint32_t stride_y,
                               uint32_t stride_uv) {
   return reinterpret_cast<lkNV12Buffer*>(
-      livekit_ffi::new_nv12_buffer(width, height, stride_y, stride_uv).release());
+      livekit_ffi::new_nv12_buffer(width, height, stride_y, stride_uv)
+          .release());
 }
 
 uint32_t lkNV12BufferGetChromaWidth(lkNV12Buffer* buffer) {
@@ -1000,7 +1021,8 @@ void lkVideoFrameBuilderSetId(lkVideoFrameBuilder* builder, uint16_t id) {
 }
 
 lkVideoFrame* lkVideoFrameBuilderBuild(lkVideoFrameBuilder* builder) {
-  auto frame = reinterpret_cast<livekit_ffi::VideoFrameBuilder*>(builder)->build();
+  auto frame =
+      reinterpret_cast<livekit_ffi::VideoFrameBuilder*>(builder)->build();
   if (!frame) {
     return nullptr;
   }
@@ -1021,7 +1043,8 @@ lkVideoRotation lkVideoFrameGetRotation(const lkVideoFrame* frame) {
 }
 
 int64_t lkVideoFrameGetTimestampUs(const lkVideoFrame* frame) {
-  return reinterpret_cast<const livekit_ffi::VideoFrame*>(frame)->timestamp_us();
+  return reinterpret_cast<const livekit_ffi::VideoFrame*>(frame)
+      ->timestamp_us();
 }
 
 uint16_t lkVideoFrameGetId(const lkVideoFrame* frame) {
@@ -1048,7 +1071,8 @@ bool lkRtpSenderSetTrack(lkRtpSender* sender, lkMediaStreamTrack* track) {
 
 lkString* lkRtpTransceiverGetMid(lkRtpTransceiver* transceiver) {
   auto mid = reinterpret_cast<livekit_ffi::RtpTransceiver*>(transceiver)->mid();
-  return reinterpret_cast<lkString*>(livekit_ffi::LKString::Create(mid).release());
+  return reinterpret_cast<lkString*>(
+      livekit_ffi::LKString::Create(mid).release());
 }
 
 lkRtpTransceiverDirection lkRtpTransceiverGetDirection(
@@ -1097,7 +1121,7 @@ void lkRtpSenderGetStats(lkRtpSender* sender,
                                             void* userdata),
                          void* userdata) {
   reinterpret_cast<livekit_ffi::RtpSender*>(sender)->get_stats(onComplete,
-                                                           userdata);
+                                                               userdata);
 }
 
 void lkRtpReceiverGetStats(lkRtpReceiver* receiver,
@@ -1105,15 +1129,17 @@ void lkRtpReceiverGetStats(lkRtpReceiver* receiver,
                                               void* userdata),
                            void* userdata) {
   reinterpret_cast<livekit_ffi::RtpReceiver*>(receiver)->get_stats(onComplete,
-                                                               userdata);
+                                                                   userdata);
 }
 
 uint16_t lkRtpCodecCapabilityGetChannels(lkRtpCodecCapability* codec) {
-  return reinterpret_cast<livekit_ffi::RtpCodecCapability*>(codec)->num_channels();
+  return reinterpret_cast<livekit_ffi::RtpCodecCapability*>(codec)
+      ->num_channels();
 }
 
 uint32_t lkRtpCodecCapabilityGetClockRate(lkRtpCodecCapability* codec) {
-  return reinterpret_cast<livekit_ffi::RtpCodecCapability*>(codec)->clock_rate();
+  return reinterpret_cast<livekit_ffi::RtpCodecCapability*>(codec)
+      ->clock_rate();
 }
 
 lkString* lkRtpCodecCapabilityGetMimeType(lkRtpCodecCapability* codec) {
@@ -1129,8 +1155,8 @@ bool lkRtpCodecCapabilityHasSdpFmtpLine(lkRtpCodecCapability* codec) {
 }
 
 lkString* lkRtpCodecCapabilityGetSdpFmtpLine(lkRtpCodecCapability* codec) {
-  auto sdp_fmtp_line =
-      reinterpret_cast<livekit_ffi::RtpCodecCapability*>(codec)->sdp_fmtp_line();
+  auto sdp_fmtp_line = reinterpret_cast<livekit_ffi::RtpCodecCapability*>(codec)
+                           ->sdp_fmtp_line();
   return reinterpret_cast<lkString*>(
       livekit_ffi::LKString::Create(sdp_fmtp_line).release());
 }
@@ -1139,7 +1165,8 @@ lkString* lkRtpHeaderExtensionCapabilityGetUri(
     lkRtpHeaderExtensionCapability* ext) {
   auto uri =
       reinterpret_cast<livekit_ffi::RtpHeaderExtensionCapability*>(ext)->uri();
-  return reinterpret_cast<lkString*>(livekit_ffi::LKString::Create(uri).release());
+  return reinterpret_cast<lkString*>(
+      livekit_ffi::LKString::Create(uri).release());
 }
 
 lkRtpTransceiverDirection lkRtpHeaderExtensionCapabilityGetDirection(
@@ -1160,7 +1187,8 @@ bool lkRtcpParametersGetReducedSize(lkRtcpParameters* rtcp) {
 }
 
 uint8_t lkRtpCodecParametersGetPayloadType(lkRtpCodecParameters* codec) {
-  return reinterpret_cast<livekit_ffi::RtpCodecParameters*>(codec)->payload_type();
+  return reinterpret_cast<livekit_ffi::RtpCodecParameters*>(codec)
+      ->payload_type();
 }
 
 lkString* lkRtpCodecParametersGetMimeType(lkRtpCodecParameters* codec) {
@@ -1171,23 +1199,27 @@ lkString* lkRtpCodecParametersGetMimeType(lkRtpCodecParameters* codec) {
 }
 
 uint32_t lkRtpCodecParametersGetClockRate(lkRtpCodecParameters* codec) {
-  return reinterpret_cast<livekit_ffi::RtpCodecParameters*>(codec)->clock_rate();
+  return reinterpret_cast<livekit_ffi::RtpCodecParameters*>(codec)
+      ->clock_rate();
 }
 
 uint16_t lkRtpCodecParametersGetChannels(lkRtpCodecParameters* codec) {
-  return reinterpret_cast<livekit_ffi::RtpCodecParameters*>(codec)->num_channels();
+  return reinterpret_cast<livekit_ffi::RtpCodecParameters*>(codec)
+      ->num_channels();
 }
 
 lkString* lkRtpHeaderExtensionParametersGetUri(
     lkRtpHeaderExtensionParameters* ext) {
   auto uri =
       reinterpret_cast<livekit_ffi::RtpHeaderExtensionParameters*>(ext)->uri();
-  return reinterpret_cast<lkString*>(livekit_ffi::LKString::Create(uri).release());
+  return reinterpret_cast<lkString*>(
+      livekit_ffi::LKString::Create(uri).release());
 }
 
 uint8_t lkRtpHeaderExtensionParametersGetId(
     lkRtpHeaderExtensionParameters* ext) {
-  return reinterpret_cast<livekit_ffi::RtpHeaderExtensionParameters*>(ext)->id();
+  return reinterpret_cast<livekit_ffi::RtpHeaderExtensionParameters*>(ext)
+      ->id();
 }
 
 bool lkRtpHeaderExtensionParametersGetEncrypted(
@@ -1223,8 +1255,8 @@ bool lkRtpSenderSetParameters(lkRtpSender* sender,
                               lkRtcError* error) {
   auto p = webrtc::scoped_refptr<livekit_ffi::RtpParameters>(
       reinterpret_cast<livekit_ffi::RtpParameters*>(params));
-  return reinterpret_cast<livekit_ffi::RtpSender*>(sender)->set_parameters(p,
-                                                                       error);
+  return reinterpret_cast<livekit_ffi::RtpSender*>(sender)->set_parameters(
+      p, error);
 }
 
 lkRtpParameters* lkRtpReceiverGetParameters(lkRtpReceiver* receiver) {
@@ -1258,8 +1290,8 @@ lkRtpTransceiverDirection lkRtpTransceiverInitGetDirection(
 
 void lkRtpTransceiverInitSetSendEncodingsdings(lkRtpTransceiverInit* init,
                                                lkVectorGeneric* encodings) {
-  reinterpret_cast<livekit_ffi::RtpTransceiverInit*>(init)->set_lk_send_encodings(
-      encodings);
+  reinterpret_cast<livekit_ffi::RtpTransceiverInit*>(init)
+      ->set_lk_send_encodings(encodings);
 }
 
 bool lkRtpTransceiverSetCodecPreferences(lkRtpTransceiver* transceiver,
@@ -1304,8 +1336,7 @@ void lkRtpCodecCapabilitySetSdpFmtpLine(lkRtpCodecCapability* codec,
       sdpFmtpLine);
 }
 
-int lkRtpCodecCapabilityGetPreferredPayloadType(
-    lkRtpCodecCapability* codec) {
+int lkRtpCodecCapabilityGetPreferredPayloadType(lkRtpCodecCapability* codec) {
   return reinterpret_cast<livekit_ffi::RtpCodecCapability*>(codec)
       ->preferred_payload_type();
 }
@@ -1374,7 +1405,7 @@ lkRtpTransceiver* lkPeerAddTransceiver(lkPeer* peer,
                                        lkRtpTransceiverInit* init,
                                        lkRtcError* error) {
   return reinterpret_cast<livekit_ffi::Peer*>(peer)->AddTransceiver(track, init,
-                                                                error);
+                                                                    error);
 }
 
 lkRtpTransceiver* lkPeerAddTransceiverForMedia(lkPeer* peer,
@@ -1412,8 +1443,8 @@ void lkRtcpParametersSetCname(lkRtcpParameters* rtcp, const char* cname) {
 
 void lkRtpParametersSetHeaderExtensions(lkRtpParameters* params,
                                         lkVectorGeneric* headerExtensions) {
-  reinterpret_cast<livekit_ffi::RtpParameters*>(params)->set_lk_header_extensions(
-      headerExtensions);
+  reinterpret_cast<livekit_ffi::RtpParameters*>(params)
+      ->set_lk_header_extensions(headerExtensions);
 }
 
 lkRtpCodecParameters* lkRtpCodecParametersCreate() {
@@ -1457,7 +1488,8 @@ lkRtpHeaderExtensionParameters* lkRtpHeaderExtensionParametersCreate() {
 
 void lkRtpHeaderExtensionParametersSetUri(lkRtpHeaderExtensionParameters* ext,
                                           const char* uri) {
-  reinterpret_cast<livekit_ffi::RtpHeaderExtensionParameters*>(ext)->set_uri(uri);
+  reinterpret_cast<livekit_ffi::RtpHeaderExtensionParameters*>(ext)->set_uri(
+      uri);
 }
 
 void lkRtpHeaderExtensionParametersSetId(lkRtpHeaderExtensionParameters* ext,
@@ -1469,8 +1501,8 @@ void lkRtpHeaderExtensionParametersSetId(lkRtpHeaderExtensionParameters* ext,
 void lkRtpHeaderExtensionParametersSetEncrypted(
     lkRtpHeaderExtensionParameters* ext,
     bool encrypted) {
-  reinterpret_cast<livekit_ffi::RtpHeaderExtensionParameters*>(ext)->set_encrypted(
-      encrypted);
+  reinterpret_cast<livekit_ffi::RtpHeaderExtensionParameters*>(ext)
+      ->set_encrypted(encrypted);
 }
 
 lkKeyProviderOptions* lkKeyProviderOptionsCreate() {
@@ -1534,12 +1566,14 @@ void lkKeyProviderSetSifTrailer(lkKeyProvider* provider,
                                 const uint8_t* sif,
                                 uint32_t length) {
   auto sif_vec = std::vector<uint8_t>(sif, sif + length);
-  reinterpret_cast<livekit_ffi::KeyProvider*>(provider)->set_sif_trailer(sif_vec);
+  reinterpret_cast<livekit_ffi::KeyProvider*>(provider)->set_sif_trailer(
+      sif_vec);
 }
 
 lkData* lkKeyProviderGetSharedKey(lkKeyProvider* provider, int keyIndex) {
-  auto key = reinterpret_cast<livekit_ffi::KeyProvider*>(provider)->get_shared_key(
-      keyIndex);
+  auto key =
+      reinterpret_cast<livekit_ffi::KeyProvider*>(provider)->get_shared_key(
+          keyIndex);
   if (key.size() == 0) {
     return nullptr;
   }
@@ -1645,7 +1679,8 @@ lkDataPacketCryptor* lkNewDataPacketCryptor(lkEncryptionAlgorithm algorithm,
                                             lkKeyProvider* provider) {
   auto dc = webrtc::make_ref_counted<livekit_ffi::DataPacketCryptor>(
       static_cast<webrtc::FrameCryptorTransformer::Algorithm>(algorithm),
-      reinterpret_cast<livekit_ffi::KeyProvider*>(provider)->rtc_key_provider());
+      reinterpret_cast<livekit_ffi::KeyProvider*>(provider)
+          ->rtc_key_provider());
   return reinterpret_cast<lkDataPacketCryptor*>(dc.release());
 }
 
@@ -1664,8 +1699,8 @@ lkEncryptedPacket* lkNewlkEncryptedPacket(const uint8_t* data,
 }
 
 lkData* lkEncryptedPacketGetData(lkEncryptedPacket* packet) {
-  auto data =
-      reinterpret_cast<livekit_ffi::EncryptedPacketWrapper*>(packet)->get_data();
+  auto data = reinterpret_cast<livekit_ffi::EncryptedPacketWrapper*>(packet)
+                  ->get_data();
   return lkCreateData(data.data(), static_cast<uint32_t>(data.size()));
 }
 
@@ -1690,10 +1725,11 @@ lkEncryptedPacket* lkDataPacketCryptorEncrypt(lkDataPacketCryptor* dc,
       std::vector<uint8_t>(reinterpret_cast<const uint8_t*>(data),
                            reinterpret_cast<const uint8_t*>(data) + data_size);
   auto encryptedPacket =
-      reinterpret_cast<livekit_ffi::DataPacketCryptor*>(dc)->encrypt_data_packet(
-          participantId, keyIndex, data_vec);
+      reinterpret_cast<livekit_ffi::DataPacketCryptor*>(dc)
+          ->encrypt_data_packet(participantId, keyIndex, data_vec);
 
-  auto packetWrapper = livekit_ffi::EncryptedPacketWrapper::Create(encryptedPacket);
+  auto packetWrapper =
+      livekit_ffi::EncryptedPacketWrapper::Create(encryptedPacket);
   return reinterpret_cast<lkEncryptedPacket*>(packetWrapper.release());
 }
 
@@ -1705,8 +1741,9 @@ lkData* lkDataPacketCryptorDecrypt(lkDataPacketCryptor* dc,
       reinterpret_cast<livekit_ffi::EncryptedPacketWrapper*>(encryptedPacket);
 
   auto decryptedData =
-      reinterpret_cast<livekit_ffi::DataPacketCryptor*>(dc)->decrypt_data_packet(
-          participantId, encryptedPacketWrapper->get_packet());
+      reinterpret_cast<livekit_ffi::DataPacketCryptor*>(dc)
+          ->decrypt_data_packet(participantId,
+                                encryptedPacketWrapper->get_packet());
   if (decryptedData.size() == 0) {
     return nullptr;
   }
@@ -1742,7 +1779,8 @@ lkAudioProcessingModule* lkAudioProcessingModuleCreate(
     bool noise_suppression_enabled) {
   return reinterpret_cast<lkAudioProcessingModule*>(
       livekit_ffi::create_apm(echo_canceller_enabled, gain_controller_enabled,
-                          high_pass_filter_enabled, noise_suppression_enabled)
+                              high_pass_filter_enabled,
+                              noise_suppression_enabled)
           .release());
 }
 
@@ -1753,8 +1791,8 @@ int32_t lkAudioProcessingModuleProcessStream(lkAudioProcessingModule* apm,
                                              uint32_t dst_len,
                                              int32_t sample_rate,
                                              int32_t num_channels) {
-  return reinterpret_cast<livekit_ffi::AudioProcessingModule*>(apm)->process_stream(
-      src, src_len, dst, dst_len, sample_rate, num_channels);
+  return reinterpret_cast<livekit_ffi::AudioProcessingModule*>(apm)
+      ->process_stream(src, src_len, dst, dst_len, sample_rate, num_channels);
 }
 
 int32_t lkAudioProcessingModuleProcessReverseStream(
@@ -1792,7 +1830,8 @@ lkRtcpFeedbackType lkRtcpFeedbackGetType(lkRtcpFeedback* feedback) {
 }
 
 bool lkRtcpFeedbackHasMessageType(lkRtcpFeedback* feedback) {
-  return reinterpret_cast<livekit_ffi::RtcpFeedback*>(feedback)->has_message_type();
+  return reinterpret_cast<livekit_ffi::RtcpFeedback*>(feedback)
+      ->has_message_type();
 }
 
 lkRtcpFeedbackMessageType lkRtcpFeedbackGetMessageType(
@@ -1811,4 +1850,71 @@ lkVectorGeneric* lkRtpCodecCapabilityGetRtcpFeedbacks(
     lkRtpCodecCapability* codec) {
   return reinterpret_cast<livekit_ffi::RtpCodecCapability*>(codec)
       ->rtcp_feedbacks();
+}
+
+lkDesktopCapturer* lkCreateDesktopCapturer(
+    const lkDesktopCapturerOptions* options) {
+  auto capturer = livekit_ffi::new_desktop_capturer(options);
+  return reinterpret_cast<lkDesktopCapturer*>(capturer.release());
+}
+
+uint64_t lkDesktopSourceGetId(lkDesktopSource* source) {
+  return reinterpret_cast<livekit_ffi::DesktopSource*>(source)->id();
+}
+
+lkString* lkDesktopSourceGetTitle(lkDesktopSource* source) {
+  auto title = reinterpret_cast<livekit_ffi::DesktopSource*>(source)->title();
+  return reinterpret_cast<lkString*>(
+      livekit_ffi::LKString::Create(title).release());
+}
+
+int64_t lkDesktopSourceGetDisplayId(lkDesktopSource* source) {
+  return reinterpret_cast<livekit_ffi::DesktopSource*>(source)->display_id();
+}
+
+bool lkDesktopCapturerSelectSource(lkDesktopCapturer* capturer, uint64_t id) {
+  return reinterpret_cast<livekit_ffi::DesktopCapturer*>(capturer)
+      ->select_source(id);
+}
+
+lkVectorGeneric* lkDesktopCapturerGetSourceList(lkDesktopCapturer* capturer) {
+  return reinterpret_cast<livekit_ffi::DesktopCapturer*>(capturer)
+      ->get_source_list();
+}
+
+void lkDesktopCapturerStart(lkDesktopCapturer* capturer,
+                            void (*callback)(lkDesktopFrame* frame,
+                                             lkCaptureResult result,
+                                             void* userdata),
+                            void* userdata) {
+  reinterpret_cast<livekit_ffi::DesktopCapturer*>(capturer)->start(callback,
+                                                                   userdata);
+}
+
+void lkDesktopCapturerCaptureFrame(lkDesktopCapturer* capturer) {
+  reinterpret_cast<livekit_ffi::DesktopCapturer*>(capturer)->capture_frame();
+}
+
+int32_t lkDesktopFrameGetWidth(lkDesktopFrame* frame) {
+  return reinterpret_cast<livekit_ffi::DesktopFrame*>(frame)->width();
+}
+
+int32_t lkDesktopFrameGetHeight(lkDesktopFrame* frame) {
+  return reinterpret_cast<livekit_ffi::DesktopFrame*>(frame)->height();
+}
+
+uint32_t lkDesktopFrameGetStride(lkDesktopFrame* frame) {
+  return reinterpret_cast<livekit_ffi::DesktopFrame*>(frame)->stride();
+}
+
+int32_t lkDesktopFrameGetLeft(lkDesktopFrame* frame) {
+  return reinterpret_cast<livekit_ffi::DesktopFrame*>(frame)->left();
+}
+
+int32_t lkDesktopFrameGetTop(lkDesktopFrame* frame) {
+  return reinterpret_cast<livekit_ffi::DesktopFrame*>(frame)->top();
+}
+
+const uint8_t* lkDesktopFrameGetData(lkDesktopFrame* frame) {
+  return reinterpret_cast<livekit_ffi::DesktopFrame*>(frame)->data();
 }

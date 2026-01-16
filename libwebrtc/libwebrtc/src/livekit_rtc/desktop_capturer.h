@@ -44,17 +44,27 @@ typedef struct {
   bool include_cursor;
 } DesktopCapturerOptions;
 
-typedef struct {
-  uint64_t source_id;
-  std::string title;
-  int64_t display_id;
-} Source;
+class DesktopSource : public webrtc::RefCountInterface {
+ public:
+  DesktopSource(uint64_t id, const std::string& title, int64_t display_id)
+      : id_(id), title_(title), display_id_(display_id) {}
+
+  uint64_t id() const { return id_; }
+  std::string title() const { return title_; }
+  int64_t display_id() const { return display_id_; }
+
+ private:
+  uint64_t id_;
+  std::string title_;
+  int64_t display_id_;
+};
 
 using lkDesktopCapturerCallback = void (*)(lkDesktopFrame* frame,
-                                           CaptureResult result,
+                                           lkCaptureResult result,
                                            void* userdata);
 
-class DesktopCapturer : public webrtc::RefCountInterface, public webrtc::DesktopCapturer::Callback {
+class DesktopCapturer : public webrtc::RefCountInterface,
+                        public webrtc::DesktopCapturer::Callback {
  public:
   explicit DesktopCapturer(std::unique_ptr<webrtc::DesktopCapturer> capturer)
       : capturer(std::move(capturer)) {}
@@ -62,7 +72,7 @@ class DesktopCapturer : public webrtc::RefCountInterface, public webrtc::Desktop
   void OnCaptureResult(webrtc::DesktopCapturer::Result result,
                        std::unique_ptr<webrtc::DesktopFrame> frame) final;
 
-  std::vector<Source> get_source_list() const;
+  lkVectorGeneric* get_source_list() const;
   bool select_source(uint64_t id) const { return capturer->SelectSource(id); }
   void start(lkDesktopCapturerCallback callback, void* userdata);
   void capture_frame() const { capturer->CaptureFrame(); }
@@ -75,7 +85,8 @@ class DesktopCapturer : public webrtc::RefCountInterface, public webrtc::Desktop
 
 class DesktopFrame : public webrtc::RefCountInterface {
  public:
-  DesktopFrame(std::unique_ptr<webrtc::DesktopFrame> frame) : frame(std::move(frame)) {}
+  DesktopFrame(std::unique_ptr<webrtc::DesktopFrame> frame)
+      : frame(std::move(frame)) {}
   int32_t width() const { return frame->size().width(); }
 
   int32_t height() const { return frame->size().height(); }
@@ -92,7 +103,8 @@ class DesktopFrame : public webrtc::RefCountInterface {
   std::unique_ptr<webrtc::DesktopFrame> frame;
 };
 
-webrtc::scoped_refptr<DesktopCapturer> new_desktop_capturer(DesktopCapturerOptions options);
+webrtc::scoped_refptr<DesktopCapturer> new_desktop_capturer(
+    const lkDesktopCapturerOptions* options);
 }  // namespace livekit_ffi
 
 #endif  // LIVEKIT_DESKTOP_CAPTURER_H

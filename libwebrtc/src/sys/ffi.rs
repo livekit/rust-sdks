@@ -1931,24 +1931,6 @@ unsafe extern "C" {
     ) -> i32;
 }
 unsafe extern "C" {
-    pub fn lkDesktopFrameGetWidth(frame: *mut lkDesktopFrame) -> i32;
-}
-unsafe extern "C" {
-    pub fn lkDesktopFrameGetHeight(frame: *mut lkDesktopFrame) -> i32;
-}
-unsafe extern "C" {
-    pub fn lkDesktopFrameGetStride(frame: *mut lkDesktopFrame) -> u32;
-}
-unsafe extern "C" {
-    pub fn lkDesktopFrameGetLeft(frame: *mut lkDesktopFrame) -> i32;
-}
-unsafe extern "C" {
-    pub fn lkDesktopFrameGetTop(frame: *mut lkDesktopFrame) -> i32;
-}
-unsafe extern "C" {
-    pub fn lkDesktopFrameGetData(frame: *mut lkDesktopFrame) -> *mut lkData;
-}
-unsafe extern "C" {
     pub fn lkCreateDesktopCapturer(
         options: *const lkDesktopCapturerOptions,
     ) -> *mut lkDesktopCapturer;
@@ -1984,4 +1966,22 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn lkDesktopCapturerCaptureFrame(capturer: *mut lkDesktopCapturer);
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetWidth(frame: *mut lkDesktopFrame) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetHeight(frame: *mut lkDesktopFrame) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetStride(frame: *mut lkDesktopFrame) -> u32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetLeft(frame: *mut lkDesktopFrame) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetTop(frame: *mut lkDesktopFrame) -> i32;
+}
+unsafe extern "C" {
+    pub fn lkDesktopFrameGetData(frame: *mut lkDesktopFrame) -> *const u8;
 }
