@@ -1217,6 +1217,15 @@ async fn forward_event(
                 .into(),
             );
         }
+        RoomEvent::ParticipantPermissionChanged { participant, permission } => {
+            let _ = send_event(
+                proto::ParticipantPermissionChanged {
+                    participant_identity: participant.identity().to_string(),
+                    permission: permission.map(|p| (&p).into()),
+                }
+                .into(),
+            );
+        }
         RoomEvent::ActiveSpeakersChanged { speakers } => {
             let participant_identities =
                 speakers.iter().map(|p| p.identity().to_string()).collect::<Vec<_>>();
