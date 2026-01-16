@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.44](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.43...rust-sdks/livekit-ffi@0.12.44) - 2026-01-15
+
+### Fixed
+
+- ensure Room.creation_time is ms ([#822](https://github.com/livekit/rust-sdks/pull/822))
+
+### Other
+
+- try setting x-google-start-bitrate for vp9 ([#820](https://github.com/livekit/rust-sdks/pull/820))
+
 ## [0.12.43](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.42...rust-sdks/livekit-ffi@0.12.43) - 2025-12-19
 
 ### Added
