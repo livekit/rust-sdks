@@ -15,7 +15,7 @@
 use std::fmt::Display;
 use thiserror::Error;
 
-/// Handle identifying a data track at the transport level.
+/// Value identifying which data track a packet belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Handle(u16);
 
