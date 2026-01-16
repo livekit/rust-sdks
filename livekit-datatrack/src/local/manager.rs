@@ -99,43 +99,42 @@ pub struct PublishTimeoutEvent {
     handle: Handle,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum UnpublishInitiator {
-    Client,
-    Sfu,
-    Shutdown,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum LocalTrackState {
-    Published,
-    Unpublished { initiator: UnpublishInitiator },
-}
-
-impl LocalTrackState {
-    pub fn is_published(&self) -> bool {
-        matches!(self, Self::Published)
-    }
-}
-
+/// Options for creating a [`Manager`].
 #[derive(Debug)]
 pub struct ManagerOptions {
+    /// Provider to use for encrypting outgoing frame payloads.
+    ///
+    /// If none, end-to-end encryption will be disabled for all published tracks.
+    ///
     pub encryption: Option<Arc<dyn EncryptionProvider>>,
 }
 
-/// Manager for local data tracks.
-#[derive(Debug, Clone)]
+/// System for managing data track publications.
 pub struct Manager {
-    event_in_tx: mpsc::Sender<InputEvent>,
+    encryption: Option<Arc<dyn EncryptionProvider>>,
+    event_in_tx: mpsc::WeakSender<InputEvent>,
+    event_in_rx: mpsc::Receiver<InputEvent>,
+    event_out_tx: mpsc::Sender<OutputEvent>,
+    handle_allocator: dtp::HandleAllocator,
+    descriptors: HashMap<Handle, Descriptor>,
 }
 
 impl Manager {
-    pub fn new(options: ManagerOptions) -> (Self, ManagerTask, impl Stream<Item = OutputEvent>) {
-        let (event_in_tx, event_in_rx) = mpsc::channel(Self::INPUT_BUFFER_SIZE);
-        let (event_out_tx, signal_out_rx) = mpsc::channel(Self::OUTPUT_BUFFER_SIZE);
 
-        let manager = Self { event_in_tx: event_in_tx.clone() };
-        let task = ManagerTask {
+    /// Creates a new manager task.
+    ///
+    /// Returns a tuple containing the following:
+    ///
+    /// - The manager task itself to be spawned by the caller (see [`Manager::run`]).
+    /// - Channel for sending [`InputEvent`]s to be processed by the manager task.
+    /// - Stream for receiving [`OutputEvent`]s produced by the manager task.
+    ///
+    pub fn new(options: ManagerOptions) -> (Self, ManagerInput, impl Stream<Item = OutputEvent>) {
+        let (event_in_tx, event_in_rx) = mpsc::channel(4); // TODO: tune buffer size
+        let (event_out_tx, signal_out_rx) = mpsc::channel(4);
+
+        let event_in = ManagerInput { event_in_tx: event_in_tx.clone() };
+        let task = Manager {
             encryption: options.encryption,
             event_in_tx: event_in_tx.downgrade(),
             event_in_rx,
@@ -145,63 +144,13 @@ impl Manager {
         };
 
         let event_out_stream = ReceiverStream::new(signal_out_rx);
-        (manager, task, event_out_stream)
+        (task, event_in, event_out_stream)
     }
 
-    /// Sends an input event to the manager's task to be processed.
-    pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
-        Ok(self.event_in_tx.try_send(event).context("Failed to handle input event")?)
-    }
-
-    /// Publishes a data track with the given options.
-    pub async fn publish_track(
-        &self,
-        options: DataTrackOptions,
-    ) -> Result<LocalDataTrack, PublishError> {
-        let (result_tx, result_rx) = oneshot::channel();
-        let event = PublishEvent { options, result_tx };
-
-        self.event_in_tx.try_send(event.into()).map_err(|_| PublishError::Disconnected)?;
-        let track = result_rx.await.map_err(|_| PublishError::Disconnected)??;
-
-        Ok(track)
-    }
-
-    /// Number of [`InputEvent`]s to buffer.
-    const INPUT_BUFFER_SIZE: usize = 4;
-
-    /// Number of [`OutputEvent`]s to buffer.
-    const OUTPUT_BUFFER_SIZE: usize = 4;
-}
-
-#[derive(Debug)]
-enum Descriptor {
-    /// Publication is awaiting SFU response.
+    /// Run the manager task, consuming self.
     ///
-    /// The associated channel is used to send a result to the user,
-    /// either the local track or a publish error.
+    /// The manager will continue running until receiving [`InputEvent::Shutdown`].
     ///
-    Pending(oneshot::Sender<Result<LocalDataTrack, PublishError>>),
-    /// Publication is active.
-    ///
-    /// The associated channel is used to send state updates to the track's task.
-    ///
-    Active {
-        state_tx: watch::Sender<LocalTrackState>,
-        join_handle: livekit_runtime::JoinHandle<()>
-    },
-}
-
-pub struct ManagerTask {
-    encryption: Option<Arc<dyn EncryptionProvider>>,
-    event_in_tx: mpsc::WeakSender<InputEvent>,
-    event_in_rx: mpsc::Receiver<InputEvent>,
-    event_out_tx: mpsc::Sender<OutputEvent>,
-    handle_allocator: dtp::HandleAllocator,
-    descriptors: HashMap<Handle, Descriptor>,
-}
-
-impl ManagerTask {
     pub async fn run(mut self) {
         log::debug!("Task started");
         while let Some(event) = self.event_in_rx.recv().await {
@@ -336,6 +285,71 @@ impl ManagerTask {
     const TRANSPORT_MTU: usize = 16_000;
 }
 
+#[derive(Debug)]
+enum Descriptor {
+    /// Publication is awaiting SFU response.
+    ///
+    /// The associated channel is used to send a result to the user,
+    /// either the local track or a publish error.
+    ///
+    Pending(oneshot::Sender<Result<LocalDataTrack, PublishError>>),
+    /// Publication is active.
+    ///
+    /// The associated channel is used to send state updates to the track's task.
+    ///
+    Active {
+        state_tx: watch::Sender<LocalTrackState>,
+        join_handle: livekit_runtime::JoinHandle<()>
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum UnpublishInitiator {
+    Client,
+    Sfu,
+    Shutdown,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum LocalTrackState {
+    Published,
+    Unpublished { initiator: UnpublishInitiator },
+}
+
+impl LocalTrackState {
+    pub fn is_published(&self) -> bool {
+        matches!(self, Self::Published)
+    }
+}
+
+/// Channel for sending [`InputEvent`]s to [`Manager`].
+#[derive(Debug, Clone)]
+pub struct ManagerInput {
+    event_in_tx: mpsc::Sender<InputEvent>,
+}
+
+impl ManagerInput {
+
+    /// Sends an input event to the manager's task to be processed.
+    pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
+        Ok(self.event_in_tx.try_send(event).context("Failed to handle input event")?)
+    }
+
+    /// Publishes a data track with given options.
+    pub async fn publish_track(
+        &self,
+        options: DataTrackOptions,
+    ) -> Result<LocalDataTrack, PublishError> {
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = PublishEvent { options, result_tx };
+
+        self.event_in_tx.try_send(event.into()).map_err(|_| PublishError::Disconnected)?;
+        let track = result_rx.await.map_err(|_| PublishError::Disconnected)??;
+
+        Ok(track)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -347,10 +361,10 @@ mod tests {
     #[tokio::test]
     async fn test_task_shutdown() {
         let options = ManagerOptions { encryption: None };
-        let (manager, manager_task, _) = Manager::new(options);
+        let (manager, input, _) = Manager::new(options);
 
-        let join_handle = livekit_runtime::spawn(manager_task.run());
-        _ = manager.send(InputEvent::Shutdown);
+        let join_handle = livekit_runtime::spawn(manager.run());
+        _ = input.send(InputEvent::Shutdown);
 
         time::timeout(Duration::from_secs(1), join_handle).await.unwrap();
     }
@@ -365,13 +379,13 @@ mod tests {
         let pub_handle: Handle = Faker.fake();
 
         let options = ManagerOptions { encryption: None };
-        let (manager, manager_task, mut output_events) = Manager::new(options);
-        livekit_runtime::spawn(manager_task.run());
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
 
         let track_name_clone = track_name.clone();
         let handle_events = async {
             let mut packets_sent = 0;
-            while let Some(event) = output_events.next().await {
+            while let Some(event) = output.next().await {
                 match event {
                     OutputEvent::PublishRequest(event) => {
                         assert!(!event.uses_e2ee);
@@ -386,7 +400,7 @@ mod tests {
                         };
                         let input_event =
                             PublishResultEvent { handle: event.handle, result: Ok(info) };
-                        _ = manager.send(input_event.into());
+                        _ = input.send(input_event.into());
                     }
                     OutputEvent::PacketsAvailable(packets) => {
                         let packet = packets.into_iter().nth(0).unwrap();
@@ -404,7 +418,7 @@ mod tests {
         };
         let publish_track = async {
             let track_options = DataTrackOptions::with_name(track_name.clone());
-            let track = manager.publish_track(track_options).await.unwrap();
+            let track = input.publish_track(track_options).await.unwrap();
             assert!(!track.info().uses_e2ee());
             assert_eq!(track.info().name(), track_name);
             assert_eq!(*track.info().sid(), track_sid);

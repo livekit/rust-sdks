@@ -379,7 +379,7 @@ struct SessionInner {
     e2ee_manager: Option<E2eeManager>,
 
     // Data track managers
-    local_dt_manager: dt::local::Manager,
+    local_dt_input: dt::local::ManagerInput,
     remote_dt_manager: dt::remote::Manager,
 }
 
@@ -489,7 +489,7 @@ impl RtcSession {
                 .filter(|m| m.enabled())
                 .map(|m| Arc::new(m) as Arc<dyn dt::EncryptionProvider>),
         };
-        let (local_dt_manager, local_dt_task, local_dt_events) =
+        let (local_dt_manager, local_dt_input, local_dt_output) =
             dt::local::Manager::new(local_dt_options);
 
         let remote_dt_options = dt::remote::ManagerOptions {
@@ -536,7 +536,7 @@ impl RtcSession {
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
             e2ee_manager,
-            local_dt_manager,
+            local_dt_input,
             remote_dt_manager,
         });
 
@@ -549,8 +549,8 @@ impl RtcSession {
             livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
 
         let local_dt_forward_task =
-            livekit_runtime::spawn(inner.clone().local_dt_forward_task(local_dt_events));
-        let local_dt_task = livekit_runtime::spawn(local_dt_task.run());
+            livekit_runtime::spawn(inner.clone().local_dt_forward_task(local_dt_output));
+        let local_dt_task = livekit_runtime::spawn(local_dt_manager.run());
 
         let remote_dt_forward_task =
             livekit_runtime::spawn(inner.clone().remote_dt_forward_task(remote_dt_events));
@@ -611,7 +611,7 @@ impl RtcSession {
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
 
-            _ = self.inner.local_dt_manager.send(dt::local::InputEvent::Shutdown);
+            _ = self.inner.local_dt_input.send(dt::local::InputEvent::Shutdown);
             let _ = handle.local_dt_task.await;
             let _ = handle.local_dt_forward_task.await;
 
@@ -1142,7 +1142,7 @@ impl SessionInner {
                 if let Some(event) =
                     dt::local::publish_result_from_request_response(&request_response)
                 {
-                    _ = self.local_dt_manager.send(event.into());
+                    _ = self.local_dt_input.send(event.into());
                     return Ok(());
                 }
                 let mut pending_requests = self.pending_requests.lock();
@@ -1152,11 +1152,11 @@ impl SessionInner {
             }
             proto::signal_response::Message::PublishDataTrackResponse(publish_res) => {
                 let event: dt::local::PublishResultEvent = publish_res.try_into()?;
-                _ = self.local_dt_manager.send(event.into());
+                _ = self.local_dt_input.send(event.into());
             }
             proto::signal_response::Message::UnpublishDataTrackResponse(unpublish_res) => {
                 let event: dt::local::UnpublishEvent = unpublish_res.try_into()?;
-                _ = self.local_dt_manager.send(event.into());
+                _ = self.local_dt_input.send(event.into());
             }
             proto::signal_response::Message::DataTrackSubscriberHandles(subscriber_handles) => {
                 let event: dt::remote::SubscriberHandlesEvent = subscriber_handles.try_into()?;
@@ -1652,7 +1652,7 @@ impl SessionInner {
             .await
             .inspect_err(|err| log::debug!("Data track transport not connected: {}", err))
             .map_err(|_| PublishError::Disconnected)?; // TODO: better error mapping
-        self.local_dt_manager.publish_track(options).await
+        self.local_dt_input.publish_track(options).await
     }
 
     async fn publish_data(
