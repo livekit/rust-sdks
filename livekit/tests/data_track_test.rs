@@ -17,8 +17,8 @@ use {
     anyhow::{anyhow, Ok, Result},
     common::test_rooms,
     futures_util::StreamExt,
-    livekit::{data_track::DataTrackOptions, RoomEvent},
-    std::time::Duration,
+    livekit::prelude::*,
+    std::time::{Instant, Duration},
     test_case::test_case,
     tokio::{
         time::{self, timeout},
@@ -109,5 +109,45 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
     };
     timeout(PUBLISH_DURATION + Duration::from_secs(5), async { try_join!(publish, subscribe) })
         .await??;
+    Ok(())
+}
+
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_publish_many_tracks() -> Result<()> {
+    const TRACK_COUNT: usize = 256;
+
+    let (room, _) = test_rooms(1).await?.pop().unwrap();
+
+    let publish_tracks = async {
+        let mut tracks = Vec::with_capacity(TRACK_COUNT);
+        let start = Instant::now();
+
+        for idx in 0..TRACK_COUNT {
+            let name = format!("track_{}", idx);
+            let options = DataTrackOptions::with_name(name.clone());
+            let track = room.local_participant().publish_data_track(options).await?;
+
+            assert!(track.is_published());
+            assert_eq!(track.info().name(), name);
+
+            tracks.push(track);
+        }
+
+        let elapsed = start.elapsed();
+        log::info!(
+            "Publishing {} tracks took {:.2?} (average {:.2?} per track)",
+            TRACK_COUNT,
+            elapsed,
+            elapsed / TRACK_COUNT as u32
+        );
+        Ok(tracks)
+    };
+
+    let tracks = timeout(Duration::from_secs(5), publish_tracks).await??;
+    for track in &tracks {
+        // Publish a single large frame per track.
+        track.publish(vec![0xFA; 196_608].into())?;
+    }
     Ok(())
 }
