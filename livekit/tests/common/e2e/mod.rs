@@ -91,7 +91,6 @@ pub async fn test_rooms_with_options(
         .map(|(id, mut options)| -> Result<(String, RoomOptions)> {
             options.grants.room = room_name.clone();
 
-            log::info!("{:?}", options);
             let token = AccessToken::with_api_key(&test_env.api_key, &test_env.api_secret)
                 .with_ttl(Duration::from_secs(30 * 60)) // 30 minutes
                 .with_grants(options.grants)
