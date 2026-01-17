@@ -410,7 +410,7 @@ mod tests {
             }
         };
         let publish_track = async {
-            let track_options = DataTrackOptions::with_name(track_name.clone());
+            let track_options = DataTrackOptions::new(track_name.clone());
             let track = input.publish_track(track_options).await.unwrap();
             assert!(!track.info().uses_e2ee());
             assert_eq!(track.info().name(), track_name);
