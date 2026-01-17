@@ -16,7 +16,7 @@ use crate::dtp::{Dtp, Extensions, FrameMarker};
 use bytes::{Bytes, BytesMut};
 use std::collections::BTreeMap;
 
-/// Assembles packets into frames.
+/// Reassembles packets into frames.
 #[derive(Debug)]
 pub struct Depacketizer {
     /// Partial frame currently being assembled.

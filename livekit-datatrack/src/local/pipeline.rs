@@ -38,7 +38,7 @@ impl LocalTrackTask {
         let mut state = *self.state_rx.borrow();
         while state.is_published() {
             tokio::select! {
-                biased;
+                biased;  // State updates take priority
                 _ = self.state_rx.changed() => {
                     state = *self.state_rx.borrow();
                 },
