@@ -106,12 +106,12 @@ pub struct ManagerOptions {
     ///
     /// If none, end-to-end encryption will be disabled for all published tracks.
     ///
-    pub encryption: Option<Arc<dyn EncryptionProvider>>,
+    pub e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
 }
 
 /// System for managing data track publications.
 pub struct Manager {
-    encryption: Option<Arc<dyn EncryptionProvider>>,
+    e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
     event_in_tx: mpsc::WeakSender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
@@ -120,7 +120,6 @@ pub struct Manager {
 }
 
 impl Manager {
-
     /// Creates a new manager.
     ///
     /// Returns a tuple containing the following:
@@ -135,7 +134,7 @@ impl Manager {
 
         let event_in = ManagerInput { event_in_tx: event_in_tx.clone() };
         let manager = Manager {
-            encryption: options.encryption,
+            e2ee_provider: options.e2ee_provider,
             event_in_tx: event_in_tx.downgrade(),
             event_in_rx,
             event_out_tx,
@@ -183,7 +182,7 @@ impl Manager {
         let publish_requested = PublishRequestEvent {
             handle,
             name: event.options.name,
-            uses_e2ee: self.encryption.is_some() && !event.options.disable_e2ee,
+            uses_e2ee: self.e2ee_provider.is_some() && !event.options.disable_e2ee,
         };
         _ = self.event_out_tx.try_send(publish_requested.into()); // TODO: check for error.
         self.schedule_publish_timeout(handle);
@@ -203,11 +202,11 @@ impl Manager {
     fn handle_publish_result(&mut self, event: PublishResultEvent) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
             log::warn!("No descriptor for {}", event.handle);
-            return
+            return;
         };
         let Descriptor::Pending(result_tx) = descriptor else {
             log::warn!("Track {} already active", event.handle);
-            return
+            return;
         };
 
         if result_tx.is_closed() {
@@ -222,17 +221,25 @@ impl Manager {
         let (state_tx, state_rx) = watch::channel(LocalTrackState::Published);
         let info = Arc::new(info);
 
+        let e2ee_provider = if info.uses_e2ee() {
+            self.e2ee_provider.as_ref().map(Arc::clone)
+        } else {
+            None
+        };
         let task = LocalTrackTask {
             // TODO: handle cancellation
             packetizer: Packetizer::new(info.pub_handle, Self::TRANSPORT_MTU),
-            encryption: self.encryption.clone(),
+            e2ee_provider,
             info: info.clone(),
             frame_rx,
             state_rx,
             event_out_tx: self.event_out_tx.clone(),
         };
         let join_handle = livekit_runtime::spawn(task.run());
-        self.descriptors.insert(info.pub_handle, Descriptor::Active { state_tx: state_tx.clone(), join_handle });
+        self.descriptors.insert(
+            info.pub_handle,
+            Descriptor::Active { state_tx: state_tx.clone(), join_handle },
+        );
 
         let inner = LocalTrackInner { frame_tx, state_tx };
         LocalDataTrack::new(info, inner)
@@ -241,17 +248,16 @@ impl Manager {
     fn handle_unpublished(&mut self, event: UnpublishEvent) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
             log::warn!("No descriptor for track {}", event.handle);
-            return
+            return;
         };
         let Descriptor::Active { state_tx, .. } = descriptor else {
             log::warn!("Cannot unpublish pending track {}", event.handle);
-            return
+            return;
         };
         if !state_tx.borrow().is_published() {
-            return
+            return;
         }
-        _ = state_tx
-            .send(LocalTrackState::Unpublished { initiator: UnpublishInitiator::Sfu });
+        _ = state_tx.send(LocalTrackState::Unpublished { initiator: UnpublishInitiator::Sfu });
     }
 
     /// Performs cleanup before the task ends.
@@ -292,7 +298,7 @@ enum Descriptor {
     ///
     Active {
         state_tx: watch::Sender<LocalTrackState>,
-        join_handle: livekit_runtime::JoinHandle<()>
+        join_handle: livekit_runtime::JoinHandle<()>,
     },
 }
 
@@ -322,7 +328,6 @@ pub struct ManagerInput {
 }
 
 impl ManagerInput {
-
     /// Sends an input event to the manager's task to be processed.
     pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
         Ok(self.event_in_tx.try_send(event).context("Failed to handle input event")?)
@@ -347,13 +352,13 @@ impl ManagerInput {
 mod tests {
     use super::*;
     use crate::{api::DataTrackSid, dtp::Dtp};
+    use fake::{faker::lorem::en::Word, Fake, Faker};
     use futures_util::StreamExt;
     use livekit_runtime::sleep;
-    use fake::{Fake, Faker, faker::lorem::en::Word};
 
     #[tokio::test]
     async fn test_task_shutdown() {
-        let options = ManagerOptions { encryption: None };
+        let options = ManagerOptions { e2ee_provider: None };
         let (manager, input, _) = Manager::new(options);
 
         let join_handle = livekit_runtime::spawn(manager.run());
@@ -371,7 +376,7 @@ mod tests {
         let track_sid: DataTrackSid = Faker.fake();
         let pub_handle: Handle = Faker.fake();
 
-        let options = ManagerOptions { encryption: None };
+        let options = ManagerOptions { e2ee_provider: None };
         let (manager, input, mut output) = Manager::new(options);
         livekit_runtime::spawn(manager.run());
 

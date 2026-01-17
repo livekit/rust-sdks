@@ -25,7 +25,7 @@ use tokio::sync::{mpsc, watch};
 /// Task responsible for publishing frames for an individual data track.
 pub(super) struct LocalTrackTask {
     pub packetizer: Packetizer,
-    pub encryption: Option<Arc<dyn EncryptionProvider>>,
+    pub e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
     pub state_rx: watch::Receiver<LocalTrackState>,
     pub frame_rx: mpsc::Receiver<DataTrackFrame>,
@@ -57,9 +57,9 @@ impl LocalTrackTask {
 
     fn publish_frame(&mut self, mut frame: DataTrackFrame) {
         let mut e2ee: Option<dtp::E2eeExt> = None;
-        if let Some(encryption) = &self.encryption {
+        if let Some(e2ee_provider) = &self.e2ee_provider {
             debug_assert!(self.info.uses_e2ee);
-            let encrypted_payload = match encryption.encrypt(frame.payload) {
+            let encrypted_payload = match e2ee_provider.encrypt(frame.payload) {
                 Ok(payload) => payload,
                 Err(err) => {
                     log::error!("Failed to encrypt frame: {}", err);

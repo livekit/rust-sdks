@@ -28,7 +28,7 @@ use tokio::sync::{broadcast, mpsc, watch};
 /// Task responsible for receiving frames for a subscribed data track.
 pub(super) struct RemoteTrackTask {
     pub depacketizer: Depacketizer,
-    pub decryption: Option<Arc<dyn DecryptionProvider>>,
+    pub e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
     pub publisher_identity: Arc<str>,
     pub state_rx: watch::Receiver<TrackState>,
@@ -59,7 +59,7 @@ impl RemoteTrackTask {
 
     fn receive_packet(&mut self, dtp: Dtp) {
         let Some(mut frame) = self.depacketizer.push(dtp) else { return };
-        if let Some(decryption) = &self.decryption {
+        if let Some(decryption) = &self.e2ee_provider {
             debug_assert!(self.info.uses_e2ee);
 
             let Some(e2ee) = frame.extensions.e2ee else {

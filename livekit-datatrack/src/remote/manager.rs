@@ -99,12 +99,12 @@ pub struct ManagerOptions {
     /// If none, remote tracks using end-to-end encryption will not be available
     /// for subscription.
     ///
-    pub decryption: Option<Arc<dyn DecryptionProvider>>,
+    pub e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
 }
 
 /// System for managing data track subscriptions.
 pub struct Manager {
-    decryption: Option<Arc<dyn DecryptionProvider>>,
+    e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
     event_in_tx: mpsc::WeakSender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
@@ -130,7 +130,7 @@ impl Manager {
 
         let event_in = ManagerInput { event_in_tx: event_in_tx.clone() };
         let manager = Manager {
-            decryption: options.decryption,
+            e2ee_provider: options.e2ee_provider,
             event_in_tx: event_in_tx.downgrade(),
             event_in_rx,
             event_out_tx,
@@ -279,9 +279,14 @@ impl Manager {
         let (packet_tx, packet_rx) = mpsc::channel(4); // TODO: tune
         let (frame_tx, frame_rx) = broadcast::channel(4);
 
+        let e2ee_provider = if descriptor.info.uses_e2ee() {
+            self.e2ee_provider.as_ref().map(Arc::clone)
+        } else {
+            None
+        };
         let track_task = RemoteTrackTask {
             depacketizer: Depacketizer::new(),
-            decryption: self.decryption.clone(),
+            e2ee_provider,
             info: descriptor.info.clone(),
             publisher_identity: descriptor.publisher_identity.clone(),
             state_rx: descriptor.state_tx.subscribe(),
@@ -400,7 +405,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_shutdown() {
-        let options = ManagerOptions { decryption: None };
+        let options = ManagerOptions { e2ee_provider: None };
         let (manager, input, _) = Manager::new(options);
 
         let join_handle = livekit_runtime::spawn(manager.run());
@@ -416,7 +421,7 @@ mod tests {
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
 
-        let options = ManagerOptions { decryption: None };
+        let options = ManagerOptions { e2ee_provider: None };
         let (manager, input, mut output) = Manager::new(options);
         livekit_runtime::spawn(manager.run());
 

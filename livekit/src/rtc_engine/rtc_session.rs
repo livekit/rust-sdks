@@ -485,7 +485,7 @@ impl RtcSession {
         rtc_events::forward_dc_events(&mut reliable_dc, DataPacketKind::Reliable, rtc_emitter);
 
         let local_dt_options = dt::local::ManagerOptions {
-            encryption: e2ee_manager.clone().filter(|m| m.enabled()).map(|m| {
+            e2ee_provider: e2ee_manager.clone().filter(|m| m.enabled()).map(|m| {
                 Arc::new(DataTrackEncryptionProvider::new(m, participant_info.identity.clone()))
                     as Arc<dyn dt::EncryptionProvider>
             }),
@@ -494,7 +494,7 @@ impl RtcSession {
             dt::local::Manager::new(local_dt_options);
 
         let remote_dt_options = dt::remote::ManagerOptions {
-            decryption: e2ee_manager.clone().filter(|m| m.enabled()).map(|m| {
+            e2ee_provider: e2ee_manager.clone().filter(|m| m.enabled()).map(|m| {
                 Arc::new(DataTrackDecryptionProvider::new(m)) as Arc<dyn dt::DecryptionProvider>
             }),
         };
