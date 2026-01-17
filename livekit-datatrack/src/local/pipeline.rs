@@ -29,7 +29,7 @@ pub(super) struct Pipeline {
     pub info: Arc<DataTrackInfo>,
     pub state_rx: watch::Receiver<LocalTrackState>,
     pub frame_rx: mpsc::Receiver<DataTrackFrame>,
-    pub event_out_tx: mpsc::Sender<OutputEvent>,
+    pub event_out_tx: mpsc::WeakSender<OutputEvent>,
 }
 
 impl Pipeline {
@@ -51,7 +51,9 @@ impl Pipeline {
         }
         if let LocalTrackState::Unpublished { initiator: UnpublishInitiator::Client } = state {
             let event = UnpublishRequestEvent { handle: self.info.pub_handle };
-            _ = self.event_out_tx.try_send(event.into());
+            if let Some(event_out_tx) = self.event_out_tx.upgrade() {
+                _ = event_out_tx.try_send(event.into());
+            }
         }
         log::debug!("Pipeline task ended: sid={}", self.info.sid);
     }
@@ -91,9 +93,10 @@ impl Pipeline {
         };
 
         let packets: Vec<_> = packets.into_iter().map(|dtp| dtp.serialize()).collect();
-        _ = self
-            .event_out_tx
-            .try_send(packets.into())
-            .inspect_err(|err| log::debug!("Cannot send packet to transport: {}", err));
+        if let Some(event_out_tx) = self.event_out_tx.upgrade() {
+            _ = event_out_tx
+                .try_send(packets.into())
+                .inspect_err(|err| log::debug!("Cannot send packet to transport: {}", err));
+        }
     }
 }

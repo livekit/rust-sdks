@@ -233,7 +233,7 @@ impl Manager {
             info: info.clone(),
             frame_rx,
             state_rx,
-            event_out_tx: self.event_out_tx.clone(),
+            event_out_tx: self.event_out_tx.downgrade(),
         };
         let pipeline_handle = livekit_runtime::spawn(pipeline.run());
         self.descriptors.insert(
