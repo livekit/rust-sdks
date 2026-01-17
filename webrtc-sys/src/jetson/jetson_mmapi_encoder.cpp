@@ -209,7 +209,7 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
   encoder_->setRateControlMode(V4L2_MPEG_VIDEO_BITRATE_MODE_CBR);
   encoder_->setIDRInterval(keyframe_interval_);
   encoder_->setIFrameInterval(keyframe_interval_);
-  encoder_->setInsertSpsPpsAtIdr(true);
+  encoder_->setInsertSpsPpsAtIdrEnabled(true);
 
   if (codec_ == JetsonCodec::kH264) {
     encoder_->setProfile(V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE);

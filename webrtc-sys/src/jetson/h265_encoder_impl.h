@@ -1,13 +1,16 @@
 #ifndef WEBRTC_JETSON_H265_ENCODER_IMPL_H_
 #define WEBRTC_JETSON_H265_ENCODER_IMPL_H_
 
+#include <cstdint>
 #include <memory>
 #include <vector>
 
 #include "absl/container/inlined_vector.h"
+#include "api/environment/environment.h"
 #include "api/transport/rtp/dependency_descriptor.h"
 #include "api/video/i420_buffer.h"
 #include "api/video/video_codec_constants.h"
+#include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/scalability_mode.h"
 #include "api/video_codecs/video_encoder.h"
 #include "modules/video_coding/svc/scalable_video_controller.h"

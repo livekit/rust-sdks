@@ -266,7 +266,7 @@ int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(
 VideoEncoder::EncoderInfo JetsonH264EncoderImpl::GetEncoderInfo() const {
   EncoderInfo info;
   info.supports_native_handle = false;
-  info.implementation_name = "Jetson V4L2 H264 Encoder";
+  info.implementation_name = "Jetson MMAPI H264 Encoder";
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
