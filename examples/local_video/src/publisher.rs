@@ -95,11 +95,16 @@ async fn main() -> Result<()> {
     tokio::spawn({
         let ctrl_c_received = ctrl_c_received.clone();
         async move {
-            tokio::signal::ctrl_c().await.unwrap();
+            let _ = tokio::signal::ctrl_c().await;
             ctrl_c_received.store(true, Ordering::Release);
+            info!("Ctrl-C received, exiting...");
         }
     });
 
+    run(args, ctrl_c_received).await
+}
+
+async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if args.list_cameras {
         return list_cameras();
     }
@@ -256,7 +261,6 @@ async fn main() -> Result<()> {
     let mut logged_mjpeg_fallback = false;
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
-            info!("Ctrl-C received, exiting...");
             break;
         }
         // Wait until the scheduled next frame time

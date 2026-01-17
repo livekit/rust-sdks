@@ -237,11 +237,16 @@ async fn main() -> Result<()> {
     tokio::spawn({
         let ctrl_c_received = ctrl_c_received.clone();
         async move {
-            tokio::signal::ctrl_c().await.unwrap();
+            let _ = tokio::signal::ctrl_c().await;
             ctrl_c_received.store(true, Ordering::Release);
+            info!("Ctrl-C received, exiting...");
         }
     });
 
+    run(args, ctrl_c_received).await
+}
+
+async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // LiveKit connection details (prefer CLI args, fallback to env vars)
     let url = args.url.or_else(|| env::var("LIVEKIT_URL").ok()).expect(
         "LiveKit URL must be provided via --url argument or LIVEKIT_URL environment variable",
