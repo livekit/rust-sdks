@@ -1,7 +1,8 @@
 # local_video
 
-Two examples demonstrating capturing frames from a local camera video and publishing to LiveKit, and subscribing to render video in a window.
+Three examples demonstrating capturing frames from a local camera video and publishing to LiveKit, listing camera capabilities, and subscribing to render video in a window.
 
+- list_devices: enumerate available cameras and their capabilities
 - publisher: capture from a selected camera and publish a video track
 - subscriber: connect to a room, subscribe to video tracks, and display in a window
 
@@ -26,6 +27,11 @@ Publisher usage:
    --url https://your.livekit.server \
    --api-key YOUR_KEY \
    --api-secret YOUR_SECRET
+```
+
+List devices usage:
+```
+ cargo run -p local_video --bin list_devices
 ```
 
 Publisher flags (in addition to the common connection flags above):

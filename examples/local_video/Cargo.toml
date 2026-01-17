@@ -12,6 +12,10 @@ path = "src/publisher.rs"
 name = "subscriber"
 path = "src/subscriber.rs"
 
+[[bin]]
+name = "list_devices"
+path = "src/list_devices.rs"
+
 [dependencies]
 tokio = { version = "1", features = ["full", "parking_lot"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
@@ -36,5 +40,6 @@ bytemuck = { version = "1.16", features = ["derive"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
+nokhwa-bindings-macos = "0.2"
 
 

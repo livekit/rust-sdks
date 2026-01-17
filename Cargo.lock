@@ -3360,6 +3360,7 @@ dependencies = [
  "livekit-api",
  "log",
  "nokhwa",
+ "nokhwa-bindings-macos",
  "objc2 0.6.3",
  "parking_lot",
  "tokio",
