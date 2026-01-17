@@ -170,3 +170,17 @@ async fn test_publish_unauthorized() -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_publish_duplicate_name() -> Result<()> {
+    let (room, _) = test_rooms(1).await?.pop().unwrap();
+
+    #[allow(unused)]
+    let first = room.local_participant().publish_data_track(DataTrackOptions::with_name("first")).await?;
+
+    let second_result = room.local_participant().publish_data_track(DataTrackOptions::with_name("first")).await;
+    assert!(matches!(second_result, Err(PublishError::DuplicateName)));
+
+    Ok(())
+}
