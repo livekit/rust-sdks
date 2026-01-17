@@ -31,6 +31,9 @@ mod pipeline;
 pub type LocalDataTrack = DataTrack<Local>;
 
 /// Marker type indicating a [`DataTrack`] belongs to the local participant.
+///
+/// See also: [`LocalDataTrack`]
+///
 #[derive(Debug)]
 pub struct Local;
 

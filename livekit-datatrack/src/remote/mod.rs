@@ -32,6 +32,9 @@ mod pipeline;
 pub type RemoteDataTrack = DataTrack<Remote>;
 
 /// Marker type indicating a [`DataTrack`] belongs to a remote participant.
+///
+/// See also: [`RemoteDataTrack`]
+///
 #[derive(Debug, Clone)]
 pub struct Remote;
 
@@ -49,7 +52,25 @@ impl DataTrack<Remote> {
 }
 
 impl DataTrack<Remote> {
-    /// Subscribe to the data track to receive frames.
+    /// Subscribes to the data track to receive frames.
+    ///
+    /// # Returns
+    ///
+    /// A stream that yields [`DataTrackFrame`]s as they arrive.
+    ///
+    /// # Multiple Subscriptions
+    ///
+    /// An application may call `subscribe` more than once to process frames in
+    /// multiple places. For example, one async task might plot values on a graph
+    /// while another writes them to a file.
+    ///
+    /// Internally, only the first call to `subscribe` communicates with the SFU and
+    /// allocates the resources required to receive frames. Additional subscriptions
+    /// reuse the same underlying pipeline and do not trigger additional signaling.
+    ///
+    /// Note that newly created subscriptions only receive frames published after
+    /// the subscription is established.
+    ///
     pub async fn subscribe(&self) -> Result<impl Stream<Item = DataTrackFrame>, SubscribeError> {
         let (result_tx, result_rx) = oneshot::channel();
         let subscribe_event = SubscribeEvent { sid: self.info.sid.clone(), result_tx };

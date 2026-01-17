@@ -228,7 +228,44 @@ impl LocalParticipant {
         vec
     }
 
-    /// Publish a data track.
+    /// Publishes a data track.
+    ///
+    /// # Returns
+    ///
+    /// The published data track if successful. Use [`LocalDataTrack::publish`]
+    /// to send data frames on the track.
+    ///
+    /// # Examples
+    ///
+    /// Publish a track named "my_track" using default options:
+    ///
+    /// ```
+    /// # use livekit::prelude::*;
+    /// # async fn with_room(room: Room) -> Result<(), PublishError> {
+    /// let track = room
+    ///     .local_participant()
+    ///     .publish_data_track("my_track")
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Publish a track named "my_track" with custom options:
+    ///
+    /// ```
+    /// # use livekit::prelude::*;
+    /// # async fn with_room(room: Room) -> Result<(), PublishError> {
+    /// let options = DataTrackOptions::new("my_track")
+    ///     .disable_e2ee(true); // Disable end-to-end encryption for this track
+    ///
+    /// let track = room
+    ///     .local_participant()
+    ///     .publish_data_track(options)
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     pub async fn publish_data_track(
         &self,
         options: impl Into<DataTrackOptions>,
@@ -236,7 +273,7 @@ impl LocalParticipant {
         self.inner.rtc_engine.publish_data_track(options.into()).await
     }
 
-    /// Publish a media track.
+    /// Publishes a media track.
     pub async fn publish_track(
         &self,
         track: LocalTrack,
@@ -490,6 +527,11 @@ impl LocalParticipant {
         self.inner.rtc_engine.publish_data(packet, kind, true).await.map_err(Into::into)
     }
 
+    /// Publishes a data packet.
+    ///
+    /// This API will be deprecated in the near future. For new applications,
+    /// please consider using data tracks (see [`LocalParticipant::publish_data_track`]).
+    ///
     pub async fn publish_data(&self, packet: DataPacket) -> RoomResult<()> {
         let kind = match packet.reliable {
             true => DataPacketKind::Reliable,
