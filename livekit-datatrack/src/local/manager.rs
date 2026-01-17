@@ -279,9 +279,6 @@ impl Manager {
 
     /// How long to wait for an SFU response for a track publication before timeout.
     const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
-
-    /// MTU of the transport
-    const TRANSPORT_MTU: usize = 16_000;
 }
 
 #[derive(Debug)]
