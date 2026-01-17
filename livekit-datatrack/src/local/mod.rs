@@ -122,22 +122,6 @@ impl Drop for LocalTrackInner {
     }
 }
 
-impl PublishFrameError {
-    pub(crate) fn new(frame: DataTrackFrame, reason: PublishFrameErrorReason) -> Self {
-        Self { frame, reason }
-    }
-
-    /// Consume the error, returning the frame that couldn't be published.
-    pub fn into_frame(self) -> DataTrackFrame {
-        self.frame
-    }
-
-    /// Returns the reason why the frame could not be published.
-    pub fn reason(&self) -> PublishFrameErrorReason {
-        self.reason
-    }
-}
-
 /// Options for publishing a data track.
 ///
 /// # Examples
@@ -230,6 +214,10 @@ pub struct PublishFrameError {
 }
 
 impl PublishFrameError {
+    pub(crate) fn new(frame: DataTrackFrame, reason: PublishFrameErrorReason) -> Self {
+        Self { frame, reason }
+    }
+
     /// Returns the reason the frame could not be published.
     pub fn reason(&self) -> PublishFrameErrorReason {
         self.reason
