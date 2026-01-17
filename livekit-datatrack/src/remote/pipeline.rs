@@ -59,27 +59,31 @@ impl Pipeline {
     }
 
     fn receive_packet(&mut self, dtp: Dtp) {
-        let Some(mut frame) = self.depacketizer.push(dtp) else { return };
-        if let Some(decryption) = &self.e2ee_provider {
-            debug_assert!(self.info.uses_e2ee);
-
-            let Some(e2ee) = frame.extensions.e2ee else {
-                log::error!("Missing E2EE meta");
-                return;
-            };
-            let encrypted_payload =
-                EncryptedPayload { payload: frame.payload, iv: e2ee.iv, key_index: e2ee.key_index };
-            let decrypted_payload =
-                match decryption.decrypt(encrypted_payload, &self.publisher_identity) {
-                    Ok(decrypted_payload) => decrypted_payload,
-                    Err(err) => {
-                        log::error!("{}", err);
-                        return;
-                    }
-                };
-            frame.payload = decrypted_payload;
-        }
+        let Some(frame) = self.depacketizer.push(dtp) else { return };
+        let Some(frame) = self.decrypt_if_needed(frame) else { return };
         _ = self.frame_tx.send(frame.into());
+    }
+
+    /// Decrypt the frame's payload if E2EE is enabled for this track.
+    fn decrypt_if_needed(&self, mut frame: DepacketizerFrame) -> Option<DepacketizerFrame> {
+        let Some(decryption) = &self.e2ee_provider else { return frame.into() };
+        debug_assert!(self.info.uses_e2ee);
+
+        let Some(e2ee) = frame.extensions.e2ee else {
+            log::error!("Missing E2EE meta");
+            return None;
+        };
+
+        let encrypted =
+            EncryptedPayload { payload: frame.payload, iv: e2ee.iv, key_index: e2ee.key_index };
+        frame.payload = match decryption.decrypt(encrypted, &self.publisher_identity) {
+            Ok(decrypted) => decrypted,
+            Err(err) => {
+                log::error!("{}", err);
+                return None;
+            }
+        };
+        frame.into()
     }
 }
 

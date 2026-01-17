@@ -58,31 +58,8 @@ impl Pipeline {
         log::debug!("Pipeline task ended: sid={}", self.info.sid);
     }
 
-    fn publish_frame(&mut self, mut frame: DataTrackFrame) {
-        let mut e2ee: Option<dtp::E2eeExt> = None;
-        if let Some(e2ee_provider) = &self.e2ee_provider {
-            debug_assert!(self.info.uses_e2ee);
-            let encrypted_payload = match e2ee_provider.encrypt(frame.payload) {
-                Ok(payload) => payload,
-                Err(err) => {
-                    log::error!("{}", err);
-                    return;
-                }
-            };
-            e2ee = Some(dtp::E2eeExt {
-                key_index: encrypted_payload.key_index,
-                iv: encrypted_payload.iv,
-            });
-            frame.payload = encrypted_payload.payload;
-        }
-
-        let frame = PacketizerFrame {
-            payload: frame.payload,
-            extensions: Extensions {
-                e2ee,
-                user_timestamp: frame.user_timestamp.map(|v| UserTimestampExt(v)),
-            },
-        };
+    fn publish_frame(&mut self, frame: DataTrackFrame) {
+        let Some(frame) = self.encrypt_if_needed(frame.into()) else { return };
 
         let packets = match self.packetizer.packetize(frame) {
             Ok(packets) => packets,
@@ -91,12 +68,42 @@ impl Pipeline {
                 return;
             }
         };
-
         let packets: Vec<_> = packets.into_iter().map(|dtp| dtp.serialize()).collect();
         if let Some(event_out_tx) = self.event_out_tx.upgrade() {
             _ = event_out_tx
                 .try_send(packets.into())
                 .inspect_err(|err| log::debug!("Cannot send packet to transport: {}", err));
+        }
+    }
+
+    /// Encrypt the frame's payload if E2EE is enabled for this track.
+    fn encrypt_if_needed(&self, mut frame: PacketizerFrame) -> Option<PacketizerFrame> {
+        let Some(e2ee_provider) = &self.e2ee_provider else { return frame.into() };
+        debug_assert!(self.info.uses_e2ee);
+
+        let encrypted = match e2ee_provider.encrypt(frame.payload) {
+            Ok(payload) => payload,
+            Err(err) => {
+                log::error!("{}", err);
+                return None;
+            }
+        };
+
+        frame.payload = encrypted.payload;
+        frame.extensions.e2ee =
+            dtp::E2eeExt { key_index: encrypted.key_index, iv: encrypted.iv }.into();
+        frame.into()
+    }
+}
+
+impl From<DataTrackFrame> for PacketizerFrame {
+    fn from(frame: DataTrackFrame) -> Self {
+        Self {
+            payload: frame.payload,
+            extensions: Extensions {
+                user_timestamp: frame.user_timestamp.map(|v| UserTimestampExt(v)),
+                e2ee: None,
+            },
         }
     }
 }
