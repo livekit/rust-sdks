@@ -264,9 +264,40 @@ fn main() {
                         .file("src/jetson/h265_encoder_impl.cpp")
                         .flag("-DUSE_JETSON_MMAPI_ENCODER=1");
 
-                    println!("cargo:rustc-link-lib=dylib=nvbuf_utils");
-                    println!("cargo:rustc-link-lib=dylib=nvbufsurface");
-                    println!("cargo:rustc-link-lib=dylib=nvbufsurftransform");
+                    let tegra_lib = PathBuf::from("/usr/lib/aarch64-linux-gnu/tegra");
+                    if tegra_lib.exists() {
+                        println!("cargo:rustc-link-search=native={}", tegra_lib.display());
+                    }
+
+                    let extra_lib_dirs = [
+                        "/usr/lib/aarch64-linux-gnu",
+                        "/usr/lib/aarch64-linux-gnu/tegra",
+                        "/usr/lib",
+                    ];
+                    for dir in extra_lib_dirs {
+                        if PathBuf::from(dir).exists() {
+                            println!("cargo:rustc-link-search=native={}", dir);
+                        }
+                    }
+
+                    let mut linked = false;
+                    for lib in ["nvbuf_utils", "nvbufsurface", "nvbufsurftransform"] {
+                        let mut found = false;
+                        for dir in extra_lib_dirs {
+                            if PathBuf::from(dir).join(format!("lib{}.so", lib)).exists() {
+                                found = true;
+                                break;
+                            }
+                        }
+                        if found {
+                            println!("cargo:rustc-link-lib=dylib={}", lib);
+                            linked = true;
+                        }
+                    }
+                    if !linked {
+                        println!("cargo:warning=Jetson MMAPI libs not found in standard locations; verify nvbuf_utils/nvbufsurface/nvbufsurftransform");
+                    }
+
                     println!("cargo:rustc-link-lib=dylib=v4l2");
                 } else {
                     println!(
