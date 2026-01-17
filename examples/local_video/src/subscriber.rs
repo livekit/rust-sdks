@@ -119,6 +119,299 @@ fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32,
     sc.full_dims
 }
 
+async fn handle_track_subscribed(
+    track: livekit::track::RemoteTrack,
+    publication: RemoteTrackPublication,
+    participant: RemoteParticipant,
+    allowed_identity: &Option<String>,
+    shared: &Arc<Mutex<SharedYuv>>,
+    rt: &tokio::runtime::Handle,
+    active_sid: &Arc<Mutex<Option<TrackSid>>>,
+    ctrl_c_received: &Arc<AtomicBool>,
+    simulcast: &Arc<Mutex<SimulcastState>>,
+) {
+    // If a participant filter is set, skip others
+    if let Some(ref allow) = allowed_identity {
+        if participant.identity().as_str() != allow {
+            debug!(
+                "Skipping track from '{}' (filter set to '{}')",
+                participant.identity(),
+                allow
+            );
+            return;
+        }
+    }
+
+    let livekit::track::RemoteTrack::Video(video_track) = track else {
+        return;
+    };
+
+    let sid = publication.sid().clone();
+    let codec = codec_label(&publication.mime_type());
+    // Only handle if we don't already have an active video track
+    {
+        let mut active = active_sid.lock();
+        if active.as_ref() == Some(&sid) {
+            debug!("Track {} already active, ignoring duplicate subscribe", sid);
+            return;
+        }
+        if active.is_some() {
+            debug!(
+                "A video track is already active ({}), ignoring new subscribe {}",
+                active.as_ref().unwrap(),
+                sid
+            );
+            return;
+        }
+        *active = Some(sid.clone());
+    }
+
+    // Update HUD codec label early (before first frame arrives)
+    {
+        let mut s = shared.lock();
+        s.codec = codec;
+    }
+
+    info!(
+        "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}",
+        publication.name(),
+        publication.sid(),
+        participant.identity(),
+        publication.mime_type(),
+        publication.simulcasted(),
+        publication.dimension().0,
+        publication.dimension().1
+    );
+
+    // Try to fetch inbound RTP/codec stats for more details
+    match video_track.get_stats().await {
+        Ok(stats) => {
+            let mut codec_by_id: HashMap<String, (String, String)> = HashMap::new();
+            let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> = None;
+            for s in stats.iter() {
+                match s {
+                    livekit::webrtc::stats::RtcStats::Codec(c) => {
+                        codec_by_id.insert(
+                            c.rtc.id.clone(),
+                            (c.codec.mime_type.clone(), c.codec.sdp_fmtp_line.clone()),
+                        );
+                    }
+                    livekit::webrtc::stats::RtcStats::InboundRtp(i) => {
+                        if i.stream.kind == "video" {
+                            inbound = Some(i.clone());
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if let Some(i) = inbound {
+                if let Some((mime, fmtp)) = codec_by_id.get(&i.stream.codec_id) {
+                    info!("Inbound codec: {} (fmtp: {})", mime, fmtp);
+                } else {
+                    info!("Inbound codec id: {}", i.stream.codec_id);
+                }
+                info!(
+                    "Inbound current layer: {}x{} ~{:.1} fps, decoder: {}, power_efficient: {}",
+                    i.inbound.frame_width,
+                    i.inbound.frame_height,
+                    i.inbound.frames_per_second,
+                    i.inbound.decoder_implementation,
+                    i.inbound.power_efficient_decoder
+                );
+            }
+        }
+        Err(e) => debug!("Failed to get stats for video track: {:?}", e),
+    }
+
+    // Start background sink thread
+    let shared2 = shared.clone();
+    let active_sid2 = active_sid.clone();
+    let my_sid = sid.clone();
+    let rt_clone = rt.clone();
+    let ctrl_c_sink = ctrl_c_received.clone();
+    // Initialize simulcast state for this publication
+    {
+        let mut sc = simulcast.lock();
+        sc.available = publication.simulcasted();
+        let dim = publication.dimension();
+        sc.full_dims = Some((dim.0, dim.1));
+        sc.requested_quality = None;
+        sc.active_quality = None;
+        sc.publication = Some(publication.clone());
+    }
+    let simulcast2 = simulcast.clone();
+    std::thread::spawn(move || {
+        let mut sink = NativeVideoStream::new(video_track.rtc_track());
+        let mut frames: u64 = 0;
+        let mut last_log = Instant::now();
+        let mut logged_first = false;
+        let mut last_stats = Instant::now();
+        let mut fps_window_frames: u64 = 0;
+        let mut fps_window_start = Instant::now();
+        let mut fps_smoothed: f32 = 0.0;
+        // YUV buffers reused to avoid per-frame allocations
+        let mut y_buf: Vec<u8> = Vec::new();
+        let mut u_buf: Vec<u8> = Vec::new();
+        let mut v_buf: Vec<u8> = Vec::new();
+        loop {
+            if ctrl_c_sink.load(Ordering::Acquire) {
+                break;
+            }
+            let next = rt_clone.block_on(async {
+                tokio::select! {
+                    _ = wait_for_shutdown(ctrl_c_sink.clone()) => None,
+                    frame = sink.next() => frame,
+                }
+            });
+            let Some(frame) = next else { break };
+            let w = frame.buffer.width();
+            let h = frame.buffer.height();
+
+            if !logged_first {
+                debug!("First frame: {}x{}, type {:?}", w, h, frame.buffer.buffer_type());
+                logged_first = true;
+            }
+
+            // Convert to I420 on CPU, but keep planes separate for GPU sampling
+            let i420 = frame.buffer.to_i420();
+            let (sy, su, sv) = i420.strides();
+            let (dy, du, dv) = i420.data();
+
+            let ch = (h + 1) / 2;
+
+            // Ensure capacity and copy full plane slices
+            let y_size = (sy * h) as usize;
+            let u_size = (su * ch) as usize;
+            let v_size = (sv * ch) as usize;
+            if y_buf.len() != y_size {
+                y_buf.resize(y_size, 0);
+            }
+            if u_buf.len() != u_size {
+                u_buf.resize(u_size, 0);
+            }
+            if v_buf.len() != v_size {
+                v_buf.resize(v_size, 0);
+            }
+            y_buf.copy_from_slice(dy);
+            u_buf.copy_from_slice(du);
+            v_buf.copy_from_slice(dv);
+
+            // Swap buffers into shared state
+            let mut s = shared2.lock();
+            s.width = w as u32;
+            s.height = h as u32;
+            s.stride_y = sy as u32;
+            s.stride_u = su as u32;
+            s.stride_v = sv as u32;
+            std::mem::swap(&mut s.y, &mut y_buf);
+            std::mem::swap(&mut s.u, &mut u_buf);
+            std::mem::swap(&mut s.v, &mut v_buf);
+            s.dirty = true;
+
+            // Update smoothed FPS (~500ms window)
+            fps_window_frames += 1;
+            let win_elapsed = fps_window_start.elapsed();
+            if win_elapsed >= Duration::from_millis(500) {
+                let inst_fps = (fps_window_frames as f32) / (win_elapsed.as_secs_f32().max(0.001));
+                fps_smoothed = if fps_smoothed <= 0.0 {
+                    inst_fps
+                } else {
+                    // light EMA smoothing to reduce jitter
+                    (fps_smoothed * 0.7) + (inst_fps * 0.3)
+                };
+                s.fps = fps_smoothed;
+                fps_window_frames = 0;
+                fps_window_start = Instant::now();
+            }
+
+            frames += 1;
+            let elapsed = last_log.elapsed();
+            if elapsed >= Duration::from_secs(2) {
+                let fps = frames as f64 / elapsed.as_secs_f64();
+                info!("Receiving video: {}x{}, ~{:.1} fps", w, h, fps);
+                frames = 0;
+                last_log = Instant::now();
+            }
+            // Periodically infer active simulcast quality from inbound stats
+            if last_stats.elapsed() >= Duration::from_secs(1) {
+                if let Ok(stats) = rt_clone.block_on(video_track.get_stats()) {
+                    let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> = None;
+                    for s in stats.iter() {
+                        if let livekit::webrtc::stats::RtcStats::InboundRtp(i) = s {
+                            if i.stream.kind == "video" {
+                                inbound = Some(i.clone());
+                            }
+                        }
+                    }
+                    if let Some(i) = inbound {
+                        if let Some((fw, fh)) = simulcast_state_full_dims(&simulcast2) {
+                            let q = infer_quality_from_dims(
+                                fw,
+                                fh,
+                                i.inbound.frame_width as u32,
+                                i.inbound.frame_height as u32,
+                            );
+                            let mut sc = simulcast2.lock();
+                            sc.active_quality = Some(q);
+                        }
+                    }
+                }
+                last_stats = Instant::now();
+            }
+        }
+        info!("Video stream ended for {}", my_sid);
+        // Clear active sid if still ours
+        let mut active = active_sid2.lock();
+        if active.as_ref() == Some(&my_sid) {
+            *active = None;
+        }
+    });
+}
+
+fn clear_hud_and_simulcast(
+    shared: &Arc<Mutex<SharedYuv>>,
+    simulcast: &Arc<Mutex<SimulcastState>>,
+) {
+    {
+        let mut s = shared.lock();
+        s.codec.clear();
+        s.fps = 0.0;
+    }
+    let mut sc = simulcast.lock();
+    *sc = SimulcastState::default();
+}
+
+fn handle_track_unsubscribed(
+    publication: RemoteTrackPublication,
+    shared: &Arc<Mutex<SharedYuv>>,
+    active_sid: &Arc<Mutex<Option<TrackSid>>>,
+    simulcast: &Arc<Mutex<SimulcastState>>,
+) {
+    let sid = publication.sid().clone();
+    let mut active = active_sid.lock();
+    if active.as_ref() == Some(&sid) {
+        info!("Video track unsubscribed ({}), clearing active sink", sid);
+        *active = None;
+    }
+    clear_hud_and_simulcast(shared, simulcast);
+}
+
+fn handle_track_unpublished(
+    publication: RemoteTrackPublication,
+    shared: &Arc<Mutex<SharedYuv>>,
+    active_sid: &Arc<Mutex<Option<TrackSid>>>,
+    simulcast: &Arc<Mutex<SimulcastState>>,
+) {
+    let sid = publication.sid().clone();
+    let mut active = active_sid.lock();
+    if active.as_ref() == Some(&sid) {
+        info!("Video track unpublished ({}), clearing active sink", sid);
+        *active = None;
+    }
+    clear_hud_and_simulcast(shared, simulcast);
+}
+
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     simulcast: Arc<Mutex<SimulcastState>>,
@@ -312,290 +605,34 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             debug!("Room event: {:?}", evt);
             match evt {
                 RoomEvent::TrackSubscribed { track, publication, participant } => {
-                    // If a participant filter is set, skip others
-                    if let Some(ref allow) = allowed_identity {
-                        if participant.identity().as_str() != allow {
-                            debug!(
-                                "Skipping track from '{}' (filter set to '{}')",
-                                participant.identity(),
-                                allow
-                            );
-                            continue;
-                        }
-                    }
-                    if let livekit::track::RemoteTrack::Video(video_track) = track {
-                        let sid = publication.sid().clone();
-                        let codec = codec_label(&publication.mime_type());
-                        // Only handle if we don't already have an active video track
-                        {
-                            let mut active = active_sid.lock();
-                            if active.as_ref() == Some(&sid) {
-                                debug!(
-                                    "Track {} already active, ignoring duplicate subscribe",
-                                    sid
-                                );
-                                continue;
-                            }
-                            if active.is_some() {
-                                debug!("A video track is already active ({}), ignoring new subscribe {}", active.as_ref().unwrap(), sid);
-                                continue;
-                            }
-                            *active = Some(sid.clone());
-                        }
-
-                        // Update HUD codec label early (before first frame arrives)
-                        {
-                            let mut s = shared_clone.lock();
-                            s.codec = codec;
-                        }
-
-                        info!(
-                            "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}",
-                            publication.name(),
-                            publication.sid(),
-                            participant.identity(),
-                            publication.mime_type(),
-                            publication.simulcasted(),
-                            publication.dimension().0,
-                            publication.dimension().1
-                        );
-
-                        // Try to fetch inbound RTP/codec stats for more details
-                        match video_track.get_stats().await {
-                            Ok(stats) => {
-                                let mut codec_by_id: HashMap<String, (String, String)> =
-                                    HashMap::new();
-                                let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> =
-                                    None;
-                                for s in stats.iter() {
-                                    match s {
-                                        livekit::webrtc::stats::RtcStats::Codec(c) => {
-                                            codec_by_id.insert(
-                                                c.rtc.id.clone(),
-                                                (
-                                                    c.codec.mime_type.clone(),
-                                                    c.codec.sdp_fmtp_line.clone(),
-                                                ),
-                                            );
-                                        }
-                                        livekit::webrtc::stats::RtcStats::InboundRtp(i) => {
-                                            if i.stream.kind == "video" {
-                                                inbound = Some(i.clone());
-                                            }
-                                        }
-                                        _ => {}
-                                    }
-                                }
-
-                                if let Some(i) = inbound {
-                                    if let Some((mime, fmtp)) = codec_by_id.get(&i.stream.codec_id)
-                                    {
-                                        info!("Inbound codec: {} (fmtp: {})", mime, fmtp);
-                                    } else {
-                                        info!("Inbound codec id: {}", i.stream.codec_id);
-                                    }
-                                    info!(
-                                        "Inbound current layer: {}x{} ~{:.1} fps, decoder: {}, power_efficient: {}",
-                                        i.inbound.frame_width,
-                                        i.inbound.frame_height,
-                                        i.inbound.frames_per_second,
-                                        i.inbound.decoder_implementation,
-                                        i.inbound.power_efficient_decoder
-                                    );
-                                }
-                            }
-                            Err(e) => debug!("Failed to get stats for video track: {:?}", e),
-                        }
-                        // Start background sink thread
-                        let shared2 = shared_clone.clone();
-                        let active_sid2 = active_sid.clone();
-                        let my_sid = sid.clone();
-                        let rt_clone = rt.clone();
-                        let ctrl_c_sink = ctrl_c_events.clone();
-                        // Initialize simulcast state for this publication
-                        {
-                            let mut sc = simulcast.lock();
-                            sc.available = publication.simulcasted();
-                            let dim = publication.dimension();
-                            sc.full_dims = Some((dim.0, dim.1));
-                            sc.requested_quality = None;
-                            sc.active_quality = None;
-                            sc.publication = Some(publication.clone());
-                        }
-                        let simulcast2 = simulcast.clone();
-                        std::thread::spawn(move || {
-                            let mut sink = NativeVideoStream::new(video_track.rtc_track());
-                            let mut frames: u64 = 0;
-                            let mut last_log = Instant::now();
-                            let mut logged_first = false;
-                            let mut last_stats = Instant::now();
-                            let mut fps_window_frames: u64 = 0;
-                            let mut fps_window_start = Instant::now();
-                            let mut fps_smoothed: f32 = 0.0;
-                            // YUV buffers reused to avoid per-frame allocations
-                            let mut y_buf: Vec<u8> = Vec::new();
-                            let mut u_buf: Vec<u8> = Vec::new();
-                            let mut v_buf: Vec<u8> = Vec::new();
-                            loop {
-                                if ctrl_c_sink.load(Ordering::Acquire) {
-                                    break;
-                                }
-                                let next = rt_clone.block_on(async {
-                                    tokio::select! {
-                                        _ = wait_for_shutdown(ctrl_c_sink.clone()) => None,
-                                        frame = sink.next() => frame,
-                                    }
-                                });
-                                let Some(frame) = next else { break };
-                                let w = frame.buffer.width();
-                                let h = frame.buffer.height();
-
-                                if !logged_first {
-                                    debug!(
-                                        "First frame: {}x{}, type {:?}",
-                                        w,
-                                        h,
-                                        frame.buffer.buffer_type()
-                                    );
-                                    logged_first = true;
-                                }
-
-                                // Convert to I420 on CPU, but keep planes separate for GPU sampling
-                                let i420 = frame.buffer.to_i420();
-                                let (sy, su, sv) = i420.strides();
-                                let (dy, du, dv) = i420.data();
-
-                                let ch = (h + 1) / 2;
-
-                                // Ensure capacity and copy full plane slices
-                                let y_size = (sy * h) as usize;
-                                let u_size = (su * ch) as usize;
-                                let v_size = (sv * ch) as usize;
-                                if y_buf.len() != y_size {
-                                    y_buf.resize(y_size, 0);
-                                }
-                                if u_buf.len() != u_size {
-                                    u_buf.resize(u_size, 0);
-                                }
-                                if v_buf.len() != v_size {
-                                    v_buf.resize(v_size, 0);
-                                }
-                                y_buf.copy_from_slice(dy);
-                                u_buf.copy_from_slice(du);
-                                v_buf.copy_from_slice(dv);
-
-                                // Swap buffers into shared state
-                                let mut s = shared2.lock();
-                                s.width = w as u32;
-                                s.height = h as u32;
-                                s.stride_y = sy as u32;
-                                s.stride_u = su as u32;
-                                s.stride_v = sv as u32;
-                                std::mem::swap(&mut s.y, &mut y_buf);
-                                std::mem::swap(&mut s.u, &mut u_buf);
-                                std::mem::swap(&mut s.v, &mut v_buf);
-                                s.dirty = true;
-
-                                // Update smoothed FPS (~500ms window)
-                                fps_window_frames += 1;
-                                let win_elapsed = fps_window_start.elapsed();
-                                if win_elapsed >= Duration::from_millis(500) {
-                                    let inst_fps = (fps_window_frames as f32)
-                                        / (win_elapsed.as_secs_f32().max(0.001));
-                                    fps_smoothed = if fps_smoothed <= 0.0 {
-                                        inst_fps
-                                    } else {
-                                        // light EMA smoothing to reduce jitter
-                                        (fps_smoothed * 0.7) + (inst_fps * 0.3)
-                                    };
-                                    s.fps = fps_smoothed;
-                                    fps_window_frames = 0;
-                                    fps_window_start = Instant::now();
-                                }
-
-                                frames += 1;
-                                let elapsed = last_log.elapsed();
-                                if elapsed >= Duration::from_secs(2) {
-                                    let fps = frames as f64 / elapsed.as_secs_f64();
-                                    info!("Receiving video: {}x{}, ~{:.1} fps", w, h, fps);
-                                    frames = 0;
-                                    last_log = Instant::now();
-                                }
-                                // Periodically infer active simulcast quality from inbound stats
-                                if last_stats.elapsed() >= Duration::from_secs(1) {
-                                    if let Ok(stats) = rt_clone.block_on(video_track.get_stats()) {
-                                        let mut inbound: Option<
-                                            livekit::webrtc::stats::InboundRtpStats,
-                                        > = None;
-                                        for s in stats.iter() {
-                                            if let livekit::webrtc::stats::RtcStats::InboundRtp(i) =
-                                                s
-                                            {
-                                                if i.stream.kind == "video" {
-                                                    inbound = Some(i.clone());
-                                                }
-                                            }
-                                        }
-                                        if let Some(i) = inbound {
-                                            if let Some((fw, fh)) =
-                                                simulcast_state_full_dims(&simulcast2)
-                                            {
-                                                let q = infer_quality_from_dims(
-                                                    fw,
-                                                    fh,
-                                                    i.inbound.frame_width as u32,
-                                                    i.inbound.frame_height as u32,
-                                                );
-                                                let mut sc = simulcast2.lock();
-                                                sc.active_quality = Some(q);
-                                            }
-                                        }
-                                    }
-                                    last_stats = Instant::now();
-                                }
-                            }
-                            info!("Video stream ended for {}", my_sid);
-                            // Clear active sid if still ours
-                            let mut active = active_sid2.lock();
-                            if active.as_ref() == Some(&my_sid) {
-                                *active = None;
-                            }
-                        });
-                    }
+                    handle_track_subscribed(
+                        track,
+                        publication,
+                        participant,
+                        &allowed_identity,
+                        &shared_clone,
+                        &rt,
+                        &active_sid,
+                        &ctrl_c_events,
+                        &simulcast,
+                    )
+                    .await;
                 }
                 RoomEvent::TrackUnsubscribed { publication, .. } => {
-                    let sid = publication.sid().clone();
-                    let mut active = active_sid.lock();
-                    if active.as_ref() == Some(&sid) {
-                        info!("Video track unsubscribed ({}), clearing active sink", sid);
-                        *active = None;
-                    }
-                    // Clear HUD codec
-                    {
-                        let mut s = shared_clone.lock();
-                        s.codec.clear();
-                        s.fps = 0.0;
-                    }
-                    // Clear simulcast state
-                    let mut sc = simulcast.lock();
-                    *sc = SimulcastState::default();
+                    handle_track_unsubscribed(
+                        publication,
+                        &shared_clone,
+                        &active_sid,
+                        &simulcast,
+                    );
                 }
                 RoomEvent::TrackUnpublished { publication, .. } => {
-                    let sid = publication.sid().clone();
-                    let mut active = active_sid.lock();
-                    if active.as_ref() == Some(&sid) {
-                        info!("Video track unpublished ({}), clearing active sink", sid);
-                        *active = None;
-                    }
-                    // Clear HUD codec
-                    {
-                        let mut s = shared_clone.lock();
-                        s.codec.clear();
-                        s.fps = 0.0;
-                    }
-                    // Clear simulcast state
-                    let mut sc = simulcast.lock();
-                    *sc = SimulcastState::default();
+                    handle_track_unpublished(
+                        publication,
+                        &shared_clone,
+                        &active_sid,
+                        &simulcast,
+                    );
                 }
                 _ => {}
             }
