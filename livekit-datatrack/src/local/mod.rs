@@ -140,6 +140,8 @@ impl PublishFrameError {
 
 /// Options for publishing a data track.
 ///
+/// # Examples
+///
 /// Create options for publishing a track named "my_track" with end-to-end encryption disabled:
 /// ```
 /// # use livekit_datatrack::api::DataTrackOptions;
@@ -188,28 +190,58 @@ impl From<&str> for DataTrackOptions {
     }
 }
 
+/// An error that can occur when publishing a data track.
 #[derive(Debug, Error)]
 pub enum PublishError {
-    #[error("The local participant does not have permission to publish data tracks")]
+    /// Local participant does not have permission to publish data tracks.
+    ///
+    /// Ensure the participant's token contains the `canPublishData` grant.
+    ///
+    #[error("Data track publishing unauthorized")]
     NotAllowed,
-    #[error("A data track with the same name is already published by the local participant")]
+
+    /// A track with the same name is already published by the local participant.
+    #[error("Track name already taken")]
     DuplicateName,
-    #[error("Request to publish data track timed-out")]
+
+    /// Request to publish the track took long to complete.
+    #[error("Publish data track timed-out")]
     Timeout,
-    #[error("No more data tracks are able to be published")]
+
+    /// No additional data tracks can be published by the local participant.
+    #[error("Data track publication limit reached")]
     LimitReached,
-    #[error("Cannot publish data track when disconnected")]
+
+    /// Cannot publish data track when the room is disconnected.
+    #[error("Room disconnected")]
     Disconnected,
+
+    /// Internal error, please report on GitHub.
     #[error(transparent)]
     Internal(#[from] InternalError),
 }
 
-/// Frame could not be published to the track.
+/// Frame could not be published to a data track.
 #[derive(Debug, Error)]
 #[error("Failed to publish frame: {reason}")]
 pub struct PublishFrameError {
     frame: DataTrackFrame,
     reason: PublishFrameErrorReason,
+}
+
+impl PublishFrameError {
+    /// Returns the reason the frame could not be published.
+    pub fn reason(&self) -> PublishFrameErrorReason {
+        self.reason
+    }
+
+    /// Consumes the error and returns the frame that couldn't be published.
+    ///
+    /// This may be useful for implementing application-specific retry logic.
+    ///
+    pub fn into_frame(self) -> DataTrackFrame {
+        self.frame
+    }
 }
 
 /// Reason why a data track frame could not be published.

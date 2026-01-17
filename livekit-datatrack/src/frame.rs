@@ -15,7 +15,20 @@
 use bytes::Bytes;
 use core::fmt;
 
-/// Frame published over a data track containing a payload and optional metadata.
+/// A frame published on a data track, consisting of a payload and optional metadata.
+///
+/// # Examples
+///
+/// Create a frame from a [`Vec`] payload:
+///
+/// ```
+/// # use livekit_datatrack::api::DataTrackFrame;
+/// let some_payload = vec![0xFA; 256];
+/// let frame: DataTrackFrame = some_payload.into();
+///
+/// assert_eq!(frame.payload().len(), 256);
+/// ```
+///
 #[derive(Clone, Default)]
 pub struct DataTrackFrame {
     pub(crate) payload: Bytes,
@@ -35,21 +48,13 @@ impl DataTrackFrame {
 }
 
 impl DataTrackFrame {
-    /// Creates a data track frame with the given payload.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// # use livekit_datatrack::api::DataTrackFrame;
-    /// let frame = DataTrackFrame::new(vec![0xFA; 256]);
-    /// ```
-    ///
+    /// Creates a frame from the given payload.
     pub fn new(payload: impl Into<Bytes>) -> Self {
         Self { payload: payload.into(), ..Default::default() }
     }
 
     /// Associates a user timestamp with the frame.
-    pub fn with_user_timestamp(&mut self, value: u64) -> &mut Self {
+    pub fn with_user_timestamp(mut self, value: u64) -> Self {
         self.user_timestamp = Some(value);
         self
     }
