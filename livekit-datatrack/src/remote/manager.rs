@@ -12,12 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{depacketizer::Depacketizer, RemoteDataTrack, RemoteTrackInner};
+use super::{depacketizer::Depacketizer, pipeline::Pipeline, RemoteDataTrack, RemoteTrackInner};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo, DataTrackSid, InternalError, SubscribeError},
     dtp::{Dtp, Handle},
     e2ee::DecryptionProvider,
-    remote::pipeline::RemoteTrackTask,
     utils::HandleMap,
 };
 use anyhow::{anyhow, Context};
@@ -284,7 +283,7 @@ impl Manager {
         } else {
             None
         };
-        let track_task = RemoteTrackTask {
+        let pipeline = Pipeline {
             depacketizer: Depacketizer::new(),
             e2ee_provider,
             info: descriptor.info.clone(),
@@ -294,9 +293,9 @@ impl Manager {
             frame_tx: frame_tx.clone(),
             event_out_tx: self.event_out_tx.downgrade(),
         };
-        let join_handle = livekit_runtime::spawn(track_task.run());
+        let pipeline_handle = livekit_runtime::spawn(pipeline.run());
 
-        descriptor.state = DescriptorState::Subscribed { packet_tx, frame_tx, join_handle };
+        descriptor.state = DescriptorState::Subscribed { packet_tx, frame_tx, pipeline_handle };
         self.sub_handles.insert(handle, sid);
 
         for result_tx in result_txs {
@@ -326,7 +325,7 @@ impl Manager {
         };
         _ = packet_tx
             .try_send(dtp)
-            .inspect_err(|err| log::debug!("Cannot send packet to track task: {}", err));
+            .inspect_err(|err| log::debug!("Cannot send packet to track pipeline: {}", err));
     }
 
     /// Performs cleanup before the task ends.
@@ -340,7 +339,7 @@ impl Manager {
                         _ = result_tx.send(Err(SubscribeError::Disconnected));
                     }
                 }
-                DescriptorState::Subscribed { join_handle, .. } => join_handle.await,
+                DescriptorState::Subscribed { pipeline_handle, .. } => pipeline_handle.await,
             }
         }
     }
@@ -363,7 +362,7 @@ enum DescriptorState {
     Subscribed {
         packet_tx: mpsc::Sender<Dtp>,
         frame_tx: broadcast::Sender<DataTrackFrame>,
-        join_handle: livekit_runtime::JoinHandle<()>,
+        pipeline_handle: livekit_runtime::JoinHandle<()>,
     },
 }
 

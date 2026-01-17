@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{packetizer::Packetizer, pipeline::LocalTrackTask, LocalTrackInner};
+use super::{packetizer::Packetizer, pipeline::Pipeline, LocalTrackInner};
 use crate::{
     api::{DataTrackInfo, DataTrackOptions, InternalError, PublishError},
     dtp::{self, Handle},
@@ -226,7 +226,7 @@ impl Manager {
         } else {
             None
         };
-        let task = LocalTrackTask {
+        let pipeline = Pipeline {
             // TODO: handle cancellation
             packetizer: Packetizer::new(info.pub_handle, Self::TRANSPORT_MTU),
             e2ee_provider,
@@ -235,10 +235,10 @@ impl Manager {
             state_rx,
             event_out_tx: self.event_out_tx.clone(),
         };
-        let join_handle = livekit_runtime::spawn(task.run());
+        let pipeline_handle = livekit_runtime::spawn(pipeline.run());
         self.descriptors.insert(
             info.pub_handle,
-            Descriptor::Active { state_tx: state_tx.clone(), join_handle },
+            Descriptor::Active { state_tx: state_tx.clone(), pipeline_handle },
         );
 
         let inner = LocalTrackInner { frame_tx, state_tx };
@@ -267,11 +267,11 @@ impl Manager {
                 Descriptor::Pending(result_tx) => {
                     _ = result_tx.send(Err(PublishError::Disconnected))
                 }
-                Descriptor::Active { state_tx, join_handle } => {
+                Descriptor::Active { state_tx, pipeline_handle } => {
                     _ = state_tx.send(LocalTrackState::Unpublished {
                         initiator: UnpublishInitiator::Shutdown,
                     });
-                    join_handle.await;
+                    pipeline_handle.await;
                 }
             }
         }
@@ -298,7 +298,7 @@ enum Descriptor {
     ///
     Active {
         state_tx: watch::Sender<LocalTrackState>,
-        join_handle: livekit_runtime::JoinHandle<()>,
+        pipeline_handle: livekit_runtime::JoinHandle<()>,
     },
 }
 

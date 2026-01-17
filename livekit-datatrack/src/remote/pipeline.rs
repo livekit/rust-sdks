@@ -25,8 +25,8 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, watch};
 
-/// Task responsible for receiving frames for a subscribed data track.
-pub(super) struct RemoteTrackTask {
+/// Pipeline for an individual data track with an active subscription.
+pub(super) struct Pipeline {
     pub depacketizer: Depacketizer,
     pub e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
@@ -37,7 +37,8 @@ pub(super) struct RemoteTrackTask {
     pub event_out_tx: mpsc::WeakSender<OutputEvent>,
 }
 
-impl RemoteTrackTask {
+impl Pipeline {
+    /// Run the pipeline task, consuming self.
     pub async fn run(mut self) {
         log::debug!("Task started: sid={}", self.info.sid);
         let mut state = *self.state_rx.borrow();

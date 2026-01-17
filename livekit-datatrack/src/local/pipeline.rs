@@ -22,8 +22,8 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 
-/// Task responsible for publishing frames for an individual data track.
-pub(super) struct LocalTrackTask {
+/// Pipeline for an individual published data track.
+pub(super) struct Pipeline {
     pub packetizer: Packetizer,
     pub e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
@@ -32,9 +32,10 @@ pub(super) struct LocalTrackTask {
     pub event_out_tx: mpsc::Sender<OutputEvent>,
 }
 
-impl LocalTrackTask {
+impl Pipeline {
+    /// Run the pipeline task, consuming self.
     pub async fn run(mut self) {
-        log::debug!("Task started: sid={}", self.info.sid);
+        log::debug!("Pipeline task started: sid={}", self.info.sid);
         let mut state = *self.state_rx.borrow();
         while state.is_published() {
             tokio::select! {
@@ -52,7 +53,7 @@ impl LocalTrackTask {
             let event = UnpublishRequestEvent { handle: self.info.pub_handle };
             _ = self.event_out_tx.try_send(event.into());
         }
-        log::debug!("Task ended: sid={}", self.info.sid);
+        log::debug!("Pipeline task ended: sid={}", self.info.sid);
     }
 
     fn publish_frame(&mut self, mut frame: DataTrackFrame) {
@@ -62,7 +63,7 @@ impl LocalTrackTask {
             let encrypted_payload = match e2ee_provider.encrypt(frame.payload) {
                 Ok(payload) => payload,
                 Err(err) => {
-                    log::error!("Failed to encrypt frame: {}", err);
+                    log::error!("{}", err);
                     return;
                 }
             };
