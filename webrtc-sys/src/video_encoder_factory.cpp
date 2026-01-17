@@ -41,6 +41,10 @@
 #include "nvidia/nvidia_encoder_factory.h"
 #endif
 
+#if defined(USE_JETSON_MMAPI_ENCODER)
+#include "jetson/jetson_encoder_factory.h"
+#endif
+
 #if defined(USE_VAAPI_VIDEO_CODEC)
 #include "vaapi/vaapi_encoder_factory.h"
 #endif
@@ -66,19 +70,21 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
   factories_.push_back(CreateAndroidVideoEncoderFactory());
 #endif
 
+#if defined(USE_JETSON_MMAPI_ENCODER)
+  if (webrtc::JetsonVideoEncoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::JetsonVideoEncoderFactory>());
+  }
+#endif
+
 #if defined(USE_NVIDIA_VIDEO_CODEC)
   if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
     factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
-  } else {
+  }
 #endif
 
 #if defined(USE_VAAPI_VIDEO_CODEC)
-    if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
-      factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
-    }
-#endif
-
-#if defined(USE_NVIDIA_VIDEO_CODEC)
+  if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
   }
 #endif
 }
