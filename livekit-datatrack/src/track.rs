@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::dtp::Handle;
+use crate::packet::Handle;
 use from_variants::FromVariants;
 use std::{fmt::Display, marker::PhantomData, ops::Deref, sync::Arc};
 use thiserror::Error;

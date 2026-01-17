@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{consts::*, Dtp, E2eeExt, Extensions, FrameMarker, Header, UserTimestampExt};
+use super::{consts::*, Packet, E2eeExt, Extensions, FrameMarker, Header, UserTimestampExt};
 use bytes::{BufMut, Bytes, BytesMut};
 use thiserror::Error;
 
@@ -25,7 +25,7 @@ pub enum SerializeError {
     TooSmallForPayload,
 }
 
-impl Dtp {
+impl Packet {
     /// Length of the serialized packet in bytes.
     pub fn serialized_len(&self) -> usize {
         self.header.serialized_len() + self.payload.len()
@@ -164,12 +164,12 @@ impl UserTimestampExt {
 
 #[cfg(test)]
 mod tests {
-    use crate::dtp::{Dtp, E2eeExt, Extensions, FrameMarker, Header, Timestamp, UserTimestampExt};
+    use crate::packet::{Packet, E2eeExt, Extensions, FrameMarker, Header, Timestamp, UserTimestampExt};
     use bytes::Buf;
 
     /// Constructed packet to use in tests.
-    fn packet() -> Dtp {
-        Dtp {
+    fn packet() -> Packet {
+        Packet {
             header: Header {
                 marker: FrameMarker::Final,
                 track_handle: 0x8811u32.try_into().unwrap(),
@@ -195,10 +195,10 @@ mod tests {
 
     #[test]
     fn test_serialized_length() {
-        let dtp = packet();
-        assert_eq!(dtp.serialized_len(), 1070);
-        assert_eq!(dtp.header.serialized_len(), 46);
-        assert_eq!(dtp.header.extensions.serialized_len(), 29);
+        let packet = packet();
+        assert_eq!(packet.serialized_len(), 1070);
+        assert_eq!(packet.header.serialized_len(), 46);
+        assert_eq!(packet.header.extensions.serialized_len(), 29);
     }
 
     #[test]

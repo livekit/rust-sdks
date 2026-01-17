@@ -15,7 +15,7 @@
 use super::manager::{PublicationUpdatesEvent, SubscriberHandlesEvent, SubscriptionUpdatedEvent};
 use crate::{
     api::{DataTrackInfo, DataTrackSid, InternalError},
-    dtp::Handle,
+    packet::Handle,
 };
 use livekit_protocol::{self as proto, ParticipantInfo};
 use std::{collections::HashMap, mem};

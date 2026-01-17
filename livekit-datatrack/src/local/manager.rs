@@ -15,7 +15,7 @@
 use super::{pipeline::{Pipeline, PipelineOptions}, LocalTrackInner};
 use crate::{
     api::{DataTrackInfo, DataTrackOptions, InternalError, PublishError},
-    dtp::{self, Handle},
+    packet::{self, Handle},
     e2ee::EncryptionProvider,
     local::LocalDataTrack,
 };
@@ -115,7 +115,7 @@ pub struct Manager {
     event_in_tx: mpsc::WeakSender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
-    handle_allocator: dtp::HandleAllocator,
+    handle_allocator: packet::HandleAllocator,
     descriptors: HashMap<Handle, Descriptor>,
 }
 
@@ -138,7 +138,7 @@ impl Manager {
             event_in_tx: event_in_tx.downgrade(),
             event_in_rx,
             event_out_tx,
-            handle_allocator: dtp::HandleAllocator::default(),
+            handle_allocator: packet::HandleAllocator::default(),
             descriptors: HashMap::new(),
         };
 
@@ -348,7 +348,7 @@ impl ManagerInput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{api::DataTrackSid, dtp::Dtp};
+    use crate::{api::DataTrackSid, packet::Packet};
     use fake::{faker::lorem::en::Word, Fake, Faker};
     use futures_util::StreamExt;
     use livekit_runtime::sleep;
@@ -399,7 +399,7 @@ mod tests {
                     }
                     OutputEvent::PacketsAvailable(packets) => {
                         let packet = packets.into_iter().nth(0).unwrap();
-                        let payload = Dtp::deserialize(packet).unwrap().payload;
+                        let payload = Packet::deserialize(packet).unwrap().payload;
                         assert_eq!(payload.len(), payload_size);
                         packets_sent += 1;
                     }

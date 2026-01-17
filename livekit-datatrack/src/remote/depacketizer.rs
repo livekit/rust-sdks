@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::dtp::{Dtp, Extensions, FrameMarker};
+use crate::packet::{Packet, Extensions, FrameMarker};
 use bytes::{Bytes, BytesMut};
 use std::collections::BTreeMap;
 
@@ -39,65 +39,65 @@ impl Depacketizer {
     }
 
     /// Push a packet into the depacketizer, returning a complete frame if one is available.
-    pub fn push(&mut self, dtp: Dtp) -> Option<DepacketizerFrame> {
-        match dtp.header.marker {
-            FrameMarker::Single => self.frame_from_single(dtp).into(),
+    pub fn push(&mut self, packet: Packet) -> Option<DepacketizerFrame> {
+        match packet.header.marker {
+            FrameMarker::Single => self.frame_from_single(packet).into(),
             FrameMarker::Start => {
-                self.begin_partial(dtp);
+                self.begin_partial(packet);
                 None
             }
             FrameMarker::Inter => {
-                self.push_to_partial(dtp);
+                self.push_to_partial(packet);
                 None
             }
             FrameMarker::Final => {
-                self.push_to_partial(dtp);
+                self.push_to_partial(packet);
                 self.finalize_partial()
             }
         }
     }
 
-    fn frame_from_single(&mut self, dtp: Dtp) -> DepacketizerFrame {
-        debug_assert!(dtp.header.marker == FrameMarker::Single);
+    fn frame_from_single(&mut self, packet: Packet) -> DepacketizerFrame {
+        debug_assert!(packet.header.marker == FrameMarker::Single);
 
         if self.partial.is_some() {
             log::trace!("Drop: interrupted");
             self.partial = None;
         }
-        DepacketizerFrame { payload: dtp.payload, extensions: dtp.header.extensions }
+        DepacketizerFrame { payload: packet.payload, extensions: packet.header.extensions }
     }
 
     /// Begin assembling a new packet.
-    fn begin_partial(&mut self, dtp: Dtp) {
-        debug_assert!(dtp.header.marker == FrameMarker::Start);
+    fn begin_partial(&mut self, packet: Packet) {
+        debug_assert!(packet.header.marker == FrameMarker::Start);
 
         if self.partial.is_some() {
             log::trace!("Drop: interrupted");
             self.partial = None;
         }
-        let start_sequence = dtp.header.sequence;
-        let payload_len = dtp.payload.len();
+        let start_sequence = packet.header.sequence;
+        let payload_len = packet.payload.len();
 
         let partial = PartialFrame {
-            frame_number: dtp.header.frame_number,
+            frame_number: packet.header.frame_number,
             start_sequence,
             end_sequence: None,
-            extensions: dtp.header.extensions,
-            payloads: BTreeMap::from([(start_sequence, dtp.payload)]),
+            extensions: packet.header.extensions,
+            payloads: BTreeMap::from([(start_sequence, packet.payload)]),
             payload_len,
         };
         self.partial = partial.into();
     }
 
     /// Push to the existing partial frame.
-    fn push_to_partial(&mut self, dtp: Dtp) {
-        debug_assert!(matches!(dtp.header.marker, FrameMarker::Inter | FrameMarker::Final));
+    fn push_to_partial(&mut self, packet: Packet) {
+        debug_assert!(matches!(packet.header.marker, FrameMarker::Inter | FrameMarker::Final));
 
         let Some(mut partial) = self.partial.take() else {
             log::trace!("Drop: unknown frame");
             return;
         };
-        if dtp.header.frame_number != partial.frame_number {
+        if packet.header.frame_number != partial.frame_number {
             log::trace!("Drop: interrupted");
             return;
         }
@@ -106,11 +106,11 @@ impl Depacketizer {
             return;
         }
 
-        partial.payload_len += dtp.payload.len();
-        partial.payloads.insert(dtp.header.sequence, dtp.payload);
+        partial.payload_len += packet.payload.len();
+        partial.payloads.insert(packet.header.sequence, packet.payload);
 
-        if dtp.header.marker == FrameMarker::Final {
-            partial.end_sequence = dtp.header.sequence.into();
+        if packet.header.marker == FrameMarker::Final {
+            partial.end_sequence = packet.header.sequence.into();
         }
 
         self.partial = Some(partial);
@@ -173,12 +173,12 @@ mod tests {
     fn test_single_packet() {
         let mut depacketizer = Depacketizer::new();
 
-        let mut dtp: Dtp = Faker.fake();
-        dtp.header.marker = FrameMarker::Single;
+        let mut packet: Packet = Faker.fake();
+        packet.header.marker = FrameMarker::Single;
 
-        let frame = depacketizer.push(dtp.clone()).unwrap();
-        assert_eq!(frame.payload, dtp.payload);
-        assert_eq!(frame.extensions, dtp.header.extensions);
+        let frame = depacketizer.push(packet.clone()).unwrap();
+        assert_eq!(frame.payload, packet.payload);
+        assert_eq!(frame.extensions, packet.header.extensions);
     }
 
     #[test_case(0)]
@@ -187,26 +187,26 @@ mod tests {
     fn test_multi_packet(inter_packets: usize) {
         let mut depacketizer = Depacketizer::new();
 
-        let mut dtp: Dtp = Faker.fake();
-        dtp.header.marker = FrameMarker::Start;
+        let mut packet: Packet = Faker.fake();
+        packet.header.marker = FrameMarker::Start;
 
-        assert!(depacketizer.push(dtp.clone()).is_none());
+        assert!(depacketizer.push(packet.clone()).is_none());
 
         for _ in 0..inter_packets {
-            dtp.header.marker = FrameMarker::Inter;
-            dtp.header.sequence += 1;
-            assert!(depacketizer.push(dtp.clone()).is_none());
+            packet.header.marker = FrameMarker::Inter;
+            packet.header.sequence += 1;
+            assert!(depacketizer.push(packet.clone()).is_none());
         }
 
-        dtp.header.marker = FrameMarker::Final;
-        dtp.header.sequence += 1;
+        packet.header.marker = FrameMarker::Final;
+        packet.header.sequence += 1;
 
-        let frame = depacketizer.push(dtp.clone()).unwrap();
-        assert_eq!(frame.extensions, dtp.header.extensions);
-        assert_eq!(frame.payload.len(), dtp.payload.len() * (inter_packets + 2));
+        let frame = depacketizer.push(packet.clone()).unwrap();
+        assert_eq!(frame.extensions, packet.header.extensions);
+        assert_eq!(frame.payload.len(), packet.payload.len() * (inter_packets + 2));
     }
 
-    impl fake::Dummy<fake::Faker> for Dtp {
+    impl fake::Dummy<fake::Faker> for Packet {
         fn dummy_with_rng<R: rand::Rng + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
             let payload_len = rng.random_range(0..=1500);
             let payload = (0..payload_len).map(|_| rng.random()).collect::<Bytes>();

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    dtp::{Clock, Dtp, Extensions, FrameMarker, Handle, Header, Timestamp},
+    packet::{Clock, Packet, Extensions, FrameMarker, Handle, Header, Timestamp},
     utils::{BytesChunkExt, Counter},
 };
 use bytes::Bytes;
@@ -54,7 +54,7 @@ impl Packetizer {
     }
 
     /// Packetizes a frame into one or more packets.
-    pub fn packetize(&mut self, frame: PacketizerFrame) -> Result<Vec<Dtp>, PacketizerError> {
+    pub fn packetize(&mut self, frame: PacketizerFrame) -> Result<Vec<Packet>, PacketizerError> {
         // TODO: consider using default
         let header = Header {
             marker: FrameMarker::Inter,
@@ -74,7 +74,7 @@ impl Packetizer {
         let packets = packet_payloads
             .into_iter()
             .enumerate()
-            .map(|(index, payload)| Dtp {
+            .map(|(index, payload)| Packet {
                 header: Header {
                     marker: Self::frame_marker(index, packet_count),
                     sequence: self.sequence.get_then_increment(),
@@ -102,7 +102,7 @@ impl Packetizer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dtp::Handle;
+    use crate::packet::Handle;
     use fake::{Fake, Faker};
     use test_case::test_case;
 

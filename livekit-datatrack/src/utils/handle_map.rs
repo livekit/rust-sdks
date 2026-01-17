@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{api::DataTrackSid, dtp::Handle};
+use crate::{api::DataTrackSid, packet::Handle};
 use std::collections::HashMap;
 
 /// Map between track handle and SID.

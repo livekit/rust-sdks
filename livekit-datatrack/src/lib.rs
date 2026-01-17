@@ -28,7 +28,7 @@ mod frame;
 mod e2ee;
 
 /// Data track packet (DTP) format.
-mod dtp;
+mod packet;
 
 /// Internal utilities.
 mod utils;

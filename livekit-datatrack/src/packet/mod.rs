@@ -21,14 +21,12 @@ mod handle;
 mod serialize;
 mod time;
 
-pub use deserialize::*;
 pub use extension::*;
 pub use handle::*;
-pub use serialize::*;
 pub use time::*;
 
 #[derive(Clone)]
-pub struct Dtp {
+pub struct Packet {
     pub header: Header,
     pub payload: Bytes,
 }
@@ -48,19 +46,19 @@ pub struct Header {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub enum FrameMarker {
+    /// Packet is the first in a frame.
+    Start,
     /// Packet is within a frame.
     Inter,
     /// Packet is the last in a frame.
     Final,
-    /// Packet is the first in a frame.
-    Start,
     /// Packet is the only one in a frame.
     Single,
 }
 
-impl fmt::Debug for Dtp {
+impl fmt::Debug for Packet {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Dtp")
+        f.debug_struct("Packet")
             .field("header", &self.header)
             .field("payload_len", &self.payload.len())
             .finish()

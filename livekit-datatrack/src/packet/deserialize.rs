@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::{
-    consts::*, Dtp, E2eeExt, ExtensionTag, Extensions, FrameMarker, Handle, HandleError, Header,
+    consts::*, Packet, E2eeExt, ExtensionTag, Extensions, FrameMarker, Handle, HandleError, Header,
     Timestamp, UserTimestampExt,
 };
 use bytes::{Buf, Bytes};
@@ -40,7 +40,7 @@ pub enum DeserializeError {
     MalformedExt(ExtensionTag),
 }
 
-impl Dtp {
+impl Packet {
     pub fn deserialize(mut raw: Bytes) -> Result<Self, DeserializeError> {
         let header = Header::deserialize(&mut raw)?;
         let payload_len = raw.remaining();
@@ -152,8 +152,8 @@ mod tests {
         let mut raw = valid_packet();
         raw.truncate(11);
 
-        let dtp = Dtp::deserialize(raw.freeze());
-        assert!(matches!(dtp, Err(DeserializeError::TooShort)));
+        let packet = Packet::deserialize(raw.freeze());
+        assert!(matches!(packet, Err(DeserializeError::TooShort)));
     }
 
     #[test]
@@ -162,8 +162,8 @@ mod tests {
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
                                        // Should have ext word indicator here
 
-        let dtp = Dtp::deserialize(raw.freeze());
-        assert!(matches!(dtp, Err(DeserializeError::MissingExtWords)));
+        let packet = Packet::deserialize(raw.freeze());
+        assert!(matches!(packet, Err(DeserializeError::MissingExtWords)));
     }
 
     #[test]
@@ -172,8 +172,8 @@ mod tests {
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
         raw.put_u16(1); // One extension word
 
-        let dtp = Dtp::deserialize(raw.freeze());
-        assert!(matches!(dtp, Err(DeserializeError::HeaderOverrun)));
+        let packet = Packet::deserialize(raw.freeze());
+        assert!(matches!(packet, Err(DeserializeError::HeaderOverrun)));
     }
 
     #[test]
@@ -181,8 +181,8 @@ mod tests {
         let mut raw = valid_packet();
         raw[0] = 0x20; // Version 1 (not supported yet)
 
-        let dtp = Dtp::deserialize(raw.freeze());
-        assert!(matches!(dtp, Err(DeserializeError::UnsupportedVersion(1))));
+        let packet = Packet::deserialize(raw.freeze());
+        assert!(matches!(packet, Err(DeserializeError::UnsupportedVersion(1))));
     }
 
     #[test]
@@ -195,14 +195,14 @@ mod tests {
         raw.put_slice(&[0x44, 0x11]); // Frame number
         raw.put_slice(&[0x44, 0x22, 0x11, 0x88]); // Timestamp
 
-        let dtp = Dtp::deserialize(raw.freeze()).unwrap();
-        assert_eq!(dtp.header.marker, FrameMarker::Final);
-        assert_eq!(dtp.header.track_handle, 0x8811u32.try_into().unwrap());
-        assert_eq!(dtp.header.sequence, 0x4422);
-        assert_eq!(dtp.header.frame_number, 0x4411);
-        assert_eq!(dtp.header.timestamp, Timestamp::from_ticks(0x44221188));
-        assert_eq!(dtp.header.extensions.user_timestamp, None);
-        assert_eq!(dtp.header.extensions.e2ee, None);
+        let packet = Packet::deserialize(raw.freeze()).unwrap();
+        assert_eq!(packet.header.marker, FrameMarker::Final);
+        assert_eq!(packet.header.track_handle, 0x8811u32.try_into().unwrap());
+        assert_eq!(packet.header.sequence, 0x4422);
+        assert_eq!(packet.header.frame_number, 0x4411);
+        assert_eq!(packet.header.timestamp, Timestamp::from_ticks(0x44221188));
+        assert_eq!(packet.header.extensions.user_timestamp, None);
+        assert_eq!(packet.header.extensions.e2ee, None);
     }
 
     #[test_matrix([0, 1, 24])]
@@ -213,8 +213,8 @@ mod tests {
         raw.put_u16(ext_words as u16); // 4 extension word
         raw.put_bytes(0, ext_words * 4); // Padding
 
-        let dtp = Dtp::deserialize(raw.freeze()).unwrap();
-        assert_eq!(dtp.payload.len(), 0);
+        let packet = Packet::deserialize(raw.freeze()).unwrap();
+        assert_eq!(packet.payload.len(), 0);
     }
 
     #[test]
@@ -229,8 +229,8 @@ mod tests {
         raw.put_bytes(0x3C, 12); // IV
         raw.put_bytes(0, 3); // Padding
 
-        let dtp = Dtp::deserialize(raw.freeze()).unwrap();
-        let e2ee = dtp.header.extensions.e2ee.unwrap();
+        let packet = Packet::deserialize(raw.freeze()).unwrap();
+        let e2ee = packet.header.extensions.e2ee.unwrap();
         assert_eq!(e2ee.key_index, 0xFA);
         assert_eq!(e2ee.iv, [0x3C; 12]);
     }
@@ -245,9 +245,9 @@ mod tests {
         raw.put_u16(7);
         raw.put_slice(&[0x44, 0x11, 0x22, 0x11, 0x11, 0x11, 0x88, 0x11]); // User timestamp
 
-        let dtp = Dtp::deserialize(raw.freeze()).unwrap();
+        let packet = Packet::deserialize(raw.freeze()).unwrap();
         assert_eq!(
-            dtp.header.extensions.user_timestamp,
+            packet.header.extensions.user_timestamp,
             UserTimestampExt(0x4411221111118811).into()
         );
     }
@@ -260,7 +260,7 @@ mod tests {
 
         raw.put_u16(8); // ID 8 (unknown)
         raw.put_bytes(0, 6);
-        Dtp::deserialize(raw.freeze()).expect("Should skip unknown extension");
+        Packet::deserialize(raw.freeze()).expect("Should skip unknown extension");
     }
 
     #[test]
@@ -270,6 +270,6 @@ mod tests {
         raw.put_u16(1); // Extension words
         raw.put_bytes(0, 3); // Padding, missing one byte
 
-        assert!(Dtp::deserialize(raw.freeze()).is_err());
+        assert!(Packet::deserialize(raw.freeze()).is_err());
     }
 }

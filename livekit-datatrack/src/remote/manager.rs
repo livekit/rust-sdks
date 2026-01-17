@@ -15,7 +15,7 @@
 use super::{pipeline::{Pipeline, PipelineOptions}, RemoteDataTrack, RemoteTrackInner};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo, DataTrackSid, InternalError, SubscribeError},
-    dtp::{Dtp, Handle},
+    packet::{Packet, Handle},
     e2ee::DecryptionProvider,
     utils::HandleMap,
 };
@@ -305,15 +305,15 @@ impl Manager {
     }
 
     fn handle_packet_received(&mut self, bytes: Bytes) {
-        let dtp = match Dtp::deserialize(bytes) {
-            Ok(dtp) => dtp,
+        let packet = match Packet::deserialize(bytes) {
+            Ok(packet) => packet,
             Err(err) => {
-                log::error!("Failed to deserialize DTP: {}", err);
+                log::error!("Failed to deserialize packet: {}", err);
                 return;
             }
         };
-        let Some(sid) = self.sub_handles.get_sid(dtp.header.track_handle) else {
-            log::warn!("Unknown subscriber handle {}", dtp.header.track_handle);
+        let Some(sid) = self.sub_handles.get_sid(packet.header.track_handle) else {
+            log::warn!("Unknown subscriber handle {}", packet.header.track_handle);
             return;
         };
         let Some(descriptor) = self.descriptors.get(sid) else {
@@ -325,7 +325,7 @@ impl Manager {
             return;
         };
         _ = packet_tx
-            .try_send(dtp)
+            .try_send(packet)
             .inspect_err(|err| log::debug!("Cannot send packet to track pipeline: {}", err));
     }
 
@@ -361,7 +361,7 @@ enum DescriptorState {
         result_txs: Vec<oneshot::Sender<SubscribeResult>>,
     },
     Subscribed {
-        packet_tx: mpsc::Sender<Dtp>,
+        packet_tx: mpsc::Sender<Packet>,
         frame_tx: broadcast::Sender<DataTrackFrame>,
         pipeline_handle: livekit_runtime::JoinHandle<()>,
     },

@@ -15,7 +15,7 @@
 use super::packetizer::{Packetizer, PacketizerFrame};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo},
-    dtp::{self, Extensions, UserTimestampExt},
+    packet::{self, Extensions, UserTimestampExt},
     e2ee::EncryptionProvider,
     local::manager::{LocalTrackState, OutputEvent, UnpublishInitiator, UnpublishRequestEvent},
 };
@@ -91,7 +91,7 @@ impl Pipeline {
                 return;
             }
         };
-        let packets: Vec<_> = packets.into_iter().map(|dtp| dtp.serialize()).collect();
+        let packets: Vec<_> = packets.into_iter().map(|packet| packet.serialize()).collect();
         if let Some(event_out_tx) = self.event_out_tx.upgrade() {
             _ = event_out_tx
                 .try_send(packets.into())
@@ -113,7 +113,7 @@ impl Pipeline {
 
         frame.payload = encrypted.payload;
         frame.extensions.e2ee =
-            dtp::E2eeExt { key_index: encrypted.key_index, iv: encrypted.iv }.into();
+            packet::E2eeExt { key_index: encrypted.key_index, iv: encrypted.iv }.into();
         frame.into()
     }
 

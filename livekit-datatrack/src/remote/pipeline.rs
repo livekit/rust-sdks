@@ -18,7 +18,7 @@ use super::{
 };
 use crate::{
     api::{DataTrackFrame, DataTrackInfo},
-    dtp::Dtp,
+    packet::Packet,
     e2ee::{DecryptionProvider, EncryptedPayload},
     remote::depacketizer::DepacketizerFrame,
 };
@@ -31,7 +31,7 @@ pub(super) struct PipelineOptions {
     pub info: Arc<DataTrackInfo>,
     pub publisher_identity: Arc<str>,
     pub state_rx: watch::Receiver<TrackState>,
-    pub packet_rx: mpsc::Receiver<Dtp>,
+    pub packet_rx: mpsc::Receiver<Packet>,
     pub frame_tx: broadcast::Sender<DataTrackFrame>,
     pub event_out_tx: mpsc::WeakSender<OutputEvent>,
 }
@@ -43,7 +43,7 @@ pub(super) struct Pipeline {
     info: Arc<DataTrackInfo>,
     publisher_identity: Arc<str>,
     state_rx: watch::Receiver<TrackState>,
-    packet_rx: mpsc::Receiver<Dtp>,
+    packet_rx: mpsc::Receiver<Packet>,
     frame_tx: broadcast::Sender<DataTrackFrame>,
     event_out_tx: mpsc::WeakSender<OutputEvent>,
 }
@@ -75,8 +75,8 @@ impl Pipeline {
                 _ = self.state_rx.changed() => {
                     state = *self.state_rx.borrow();
                 },
-                Some(dtp) = self.packet_rx.recv() => {
-                    self.receive_packet(dtp);
+                Some(packet) = self.packet_rx.recv() => {
+                    self.receive_packet(packet);
                 },
                 else => break
             }
@@ -85,8 +85,8 @@ impl Pipeline {
         // TODO: send unsubscribe if needed
     }
 
-    fn receive_packet(&mut self, dtp: Dtp) {
-        let Some(frame) = self.depacketizer.push(dtp) else { return };
+    fn receive_packet(&mut self, packet: Packet) {
+        let Some(frame) = self.depacketizer.push(packet) else { return };
         let Some(frame) = self.decrypt_if_needed(frame) else { return };
         _ = self.frame_tx.send(frame.into());
     }
