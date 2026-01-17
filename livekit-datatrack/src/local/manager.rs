@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{packetizer::Packetizer, pipeline::Pipeline, LocalTrackInner};
+use super::{pipeline::{Pipeline, PipelineOptions}, LocalTrackInner};
 use crate::{
     api::{DataTrackInfo, DataTrackOptions, InternalError, PublishError},
     dtp::{self, Handle},
@@ -226,16 +226,16 @@ impl Manager {
         } else {
             None
         };
-        let pipeline = Pipeline {
-            // TODO: handle cancellation
-            packetizer: Packetizer::new(info.pub_handle, Self::TRANSPORT_MTU),
+        let options = PipelineOptions {
             e2ee_provider,
             info: info.clone(),
             frame_rx,
             state_rx,
             event_out_tx: self.event_out_tx.downgrade(),
         };
+        let pipeline = Pipeline::new(options);
         let pipeline_handle = livekit_runtime::spawn(pipeline.run());
+
         self.descriptors.insert(
             info.pub_handle,
             Descriptor::Active { state_tx: state_tx.clone(), pipeline_handle },

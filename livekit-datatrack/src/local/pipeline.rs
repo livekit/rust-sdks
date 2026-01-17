@@ -22,9 +22,8 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
 
-/// Pipeline for an individual published data track.
-pub(super) struct Pipeline {
-    pub packetizer: Packetizer,
+/// Options for creating a [`Pipeline`].
+pub(super) struct PipelineOptions {
     pub e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
     pub state_rx: watch::Receiver<LocalTrackState>,
@@ -32,7 +31,31 @@ pub(super) struct Pipeline {
     pub event_out_tx: mpsc::WeakSender<OutputEvent>,
 }
 
+/// Pipeline for an individual published data track.
+pub(super) struct Pipeline {
+    packetizer: Packetizer,
+    e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
+    info: Arc<DataTrackInfo>,
+    state_rx: watch::Receiver<LocalTrackState>,
+    frame_rx: mpsc::Receiver<DataTrackFrame>,
+    event_out_tx: mpsc::WeakSender<OutputEvent>,
+}
+
 impl Pipeline {
+    /// Creates a new pipeline with the given options.
+    pub fn new(options: PipelineOptions) -> Self {
+        debug_assert_eq!(options.info.uses_e2ee, options.e2ee_provider.is_some());
+        let packetizer = Packetizer::new(options.info.pub_handle, Self::TRANSPORT_MTU);
+        Self {
+            packetizer,
+            e2ee_provider: options.e2ee_provider,
+            info: options.info,
+            state_rx: options.state_rx,
+            frame_rx: options.frame_rx,
+            event_out_tx: options.event_out_tx,
+        }
+    }
+
     /// Run the pipeline task, consuming self.
     pub async fn run(mut self) {
         log::debug!("Pipeline task started: sid={}", self.info.sid);
@@ -79,7 +102,6 @@ impl Pipeline {
     /// Encrypt the frame's payload if E2EE is enabled for this track.
     fn encrypt_if_needed(&self, mut frame: PacketizerFrame) -> Option<PacketizerFrame> {
         let Some(e2ee_provider) = &self.e2ee_provider else { return frame.into() };
-        debug_assert!(self.info.uses_e2ee);
 
         let encrypted = match e2ee_provider.encrypt(frame.payload) {
             Ok(payload) => payload,
@@ -94,6 +116,9 @@ impl Pipeline {
             dtp::E2eeExt { key_index: encrypted.key_index, iv: encrypted.iv }.into();
         frame.into()
     }
+
+    /// Maximum transmission unit (MTU) of the transport.
+    const TRANSPORT_MTU: usize = 16_000;
 }
 
 impl From<DataTrackFrame> for PacketizerFrame {

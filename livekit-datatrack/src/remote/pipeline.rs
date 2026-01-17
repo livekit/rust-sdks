@@ -25,9 +25,8 @@ use crate::{
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, watch};
 
-/// Pipeline for an individual data track with an active subscription.
-pub(super) struct Pipeline {
-    pub depacketizer: Depacketizer,
+/// Options for creating a [`Pipeline`].
+pub(super) struct PipelineOptions {
     pub e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
     pub publisher_identity: Arc<str>,
@@ -37,7 +36,35 @@ pub(super) struct Pipeline {
     pub event_out_tx: mpsc::WeakSender<OutputEvent>,
 }
 
+/// Pipeline for an individual data track with an active subscription.
+pub(super) struct Pipeline {
+    depacketizer: Depacketizer,
+    e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
+    info: Arc<DataTrackInfo>,
+    publisher_identity: Arc<str>,
+    state_rx: watch::Receiver<TrackState>,
+    packet_rx: mpsc::Receiver<Dtp>,
+    frame_tx: broadcast::Sender<DataTrackFrame>,
+    event_out_tx: mpsc::WeakSender<OutputEvent>,
+}
+
 impl Pipeline {
+    /// Creates a new pipeline with the given options.
+    pub fn new(options: PipelineOptions) -> Self {
+        debug_assert_eq!(options.info.uses_e2ee, options.e2ee_provider.is_some());
+        let depacketizer = Depacketizer::new();
+        Self {
+            depacketizer,
+            e2ee_provider: options.e2ee_provider,
+            info: options.info,
+            publisher_identity: options.publisher_identity,
+            state_rx: options.state_rx,
+            packet_rx: options.packet_rx,
+            frame_tx: options.frame_tx,
+            event_out_tx: options.event_out_tx,
+        }
+    }
+
     /// Run the pipeline task, consuming self.
     pub async fn run(mut self) {
         log::debug!("Task started: sid={}", self.info.sid);
@@ -67,7 +94,6 @@ impl Pipeline {
     /// Decrypt the frame's payload if E2EE is enabled for this track.
     fn decrypt_if_needed(&self, mut frame: DepacketizerFrame) -> Option<DepacketizerFrame> {
         let Some(decryption) = &self.e2ee_provider else { return frame.into() };
-        debug_assert!(self.info.uses_e2ee);
 
         let Some(e2ee) = frame.extensions.e2ee else {
             log::error!("Missing E2EE meta");

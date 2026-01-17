@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{depacketizer::Depacketizer, pipeline::Pipeline, RemoteDataTrack, RemoteTrackInner};
+use super::{pipeline::{Pipeline, PipelineOptions}, RemoteDataTrack, RemoteTrackInner};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo, DataTrackSid, InternalError, SubscribeError},
     dtp::{Dtp, Handle},
@@ -283,8 +283,8 @@ impl Manager {
         } else {
             None
         };
-        let pipeline = Pipeline {
-            depacketizer: Depacketizer::new(),
+
+        let options = PipelineOptions {
             e2ee_provider,
             info: descriptor.info.clone(),
             publisher_identity: descriptor.publisher_identity.clone(),
@@ -293,6 +293,7 @@ impl Manager {
             frame_tx: frame_tx.clone(),
             event_out_tx: self.event_out_tx.downgrade(),
         };
+        let pipeline = Pipeline::new(options);
         let pipeline_handle = livekit_runtime::spawn(pipeline.run());
 
         descriptor.state = DescriptorState::Subscribed { packet_tx, frame_tx, pipeline_handle };
