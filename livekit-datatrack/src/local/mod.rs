@@ -143,8 +143,8 @@ impl PublishFrameError {
 /// Create options for publishing a track named "my_track" with end-to-end encryption disabled:
 /// ```
 /// # use livekit_datatrack::api::DataTrackOptions;
-/// let options = DataTrackOptions::with_name("my_track")
-///     .disable_e2ee(true);
+/// let options = DataTrackOptions::new("my_track")
+///     .disable_e2ee(true); // Set additional options as needed
 /// ```
 ///
 #[derive(Clone, Debug)]
@@ -162,7 +162,7 @@ impl DataTrackOptions {
     /// - Must not be empty
     /// - Must be unique per publisher
     ///
-    pub fn with_name(name: impl Into<String>) -> Self {
+    pub fn new(name: impl Into<String>) -> Self {
         Self { name: name.into(), disable_e2ee: false }
     }
 
@@ -170,8 +170,21 @@ impl DataTrackOptions {
     ///
     /// By default, room settings are used.
     ///
-    pub fn disable_e2ee(self, disabled: bool) -> Self {
-        Self { disable_e2ee: disabled, ..self }
+    pub fn disable_e2ee(mut self, disabled: bool) -> Self {
+        self.disable_e2ee = disabled;
+        self
+    }
+}
+
+impl From<String> for DataTrackOptions {
+    fn from(name: String) -> Self {
+        Self::new(name)
+    }
+}
+
+impl From<&str> for DataTrackOptions {
+    fn from(name: &str) -> Self {
+        Self::new(name.to_string())
     }
 }
 

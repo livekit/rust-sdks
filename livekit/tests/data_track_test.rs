@@ -53,7 +53,7 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
     let publish = async move {
         let track = pub_room
             .local_participant()
-            .publish_data_track(DataTrackOptions::with_name("my_track"))
+            .publish_data_track("my_track")
             .await?;
         log::info!("Track published");
 
@@ -126,8 +126,7 @@ async fn test_publish_many_tracks() -> Result<()> {
 
         for idx in 0..TRACK_COUNT {
             let name = format!("track_{}", idx);
-            let options = DataTrackOptions::with_name(name.clone());
-            let track = room.local_participant().publish_data_track(options).await?;
+            let track = room.local_participant().publish_data_track(name.clone()).await?;
 
             assert!(track.is_published());
             assert_eq!(track.info().name(), name);
@@ -164,8 +163,7 @@ async fn test_publish_unauthorized() -> Result<()> {
     .pop()
     .unwrap();
 
-    let options = DataTrackOptions::with_name("my_track");
-    let result = room.local_participant().publish_data_track(options).await;
+    let result = room.local_participant().publish_data_track("my_track").await;
     assert!(matches!(result, Err(PublishError::NotAllowed)));
 
     Ok(())
@@ -177,9 +175,9 @@ async fn test_publish_duplicate_name() -> Result<()> {
     let (room, _) = test_rooms(1).await?.pop().unwrap();
 
     #[allow(unused)]
-    let first = room.local_participant().publish_data_track(DataTrackOptions::with_name("first")).await?;
+    let first = room.local_participant().publish_data_track("first").await?;
 
-    let second_result = room.local_participant().publish_data_track(DataTrackOptions::with_name("first")).await;
+    let second_result = room.local_participant().publish_data_track("first").await;
     assert!(matches!(second_result, Err(PublishError::DuplicateName)));
 
     Ok(())

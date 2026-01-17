@@ -12,8 +12,7 @@ async fn main() -> Result<()> {
 
     let (room, _) = Room::connect(&url, &token, RoomOptions::default()).await?;
 
-    let options = DataTrackOptions::with_name("my_sensor_data");
-    let track = room.local_participant().publish_data_track(options).await?;
+    let track = room.local_participant().publish_data_track("my_sensor_data").await?;
 
     tokio::select! {
         _ = publish_frames(track) => {}
@@ -31,10 +30,7 @@ async fn publish_frames(track: LocalDataTrack) {
     loop {
         log::info!("Publishing frame");
         let frame = read_sensor().await.into();
-        track
-            .publish(frame)
-            .inspect_err(|err| println!("Failed to publish frame: {}", err))
-            .ok();
+        track.publish(frame).inspect_err(|err| println!("Failed to publish frame: {}", err)).ok();
         time::sleep(Duration::from_millis(500)).await
     }
 }

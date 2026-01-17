@@ -231,9 +231,9 @@ impl LocalParticipant {
     /// Publish a data track.
     pub async fn publish_data_track(
         &self,
-        options: DataTrackOptions,
+        options: impl Into<DataTrackOptions>,
     ) -> Result<DataTrack<Local>, data_track::PublishError> {
-        self.inner.rtc_engine.publish_data_track(options).await
+        self.inner.rtc_engine.publish_data_track(options.into()).await
     }
 
     /// Publish a media track.
