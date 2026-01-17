@@ -94,7 +94,7 @@ int32_t JetsonH265EncoderImpl::InitEncode(
 
   configuration_.sending = false;
   configuration_.frame_dropping_on = codec_.GetFrameDropEnabled();
-  configuration_.key_frame_interval = codec_.H265()->keyFrameInterval;
+  configuration_.key_frame_interval = 0;
 
   configuration_.width = codec_.width;
   configuration_.height = codec_.height;
@@ -104,10 +104,7 @@ int32_t JetsonH265EncoderImpl::InitEncode(
   configuration_.max_bps = codec_.maxBitrate * 1000;
 
   if (!encoder_.IsInitialized()) {
-    int key_frame_interval = codec_.H265()->keyFrameInterval;
-    if (key_frame_interval <= 0) {
-      key_frame_interval = codec_.maxFramerate * 5;
-    }
+    int key_frame_interval = codec_.maxFramerate * 5;
     if (!encoder_.Initialize(codec_.width, codec_.height, codec_.maxFramerate,
                              codec_.startBitrate * 1000, key_frame_interval)) {
       RTC_LOG(LS_ERROR) << "Failed to initialize Jetson MMAPI encoder.";
@@ -238,7 +235,7 @@ int32_t JetsonH265EncoderImpl::ProcessEncodedFrame(
 VideoEncoder::EncoderInfo JetsonH265EncoderImpl::GetEncoderInfo() const {
   EncoderInfo info;
   info.supports_native_handle = false;
-  info.implementation_name = "Jetson V4L2 H265 Encoder";
+  info.implementation_name = "Jetson MMAPI H265 Encoder";
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
