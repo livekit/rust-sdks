@@ -76,8 +76,8 @@ pub struct HandleAllocator {
 impl HandleAllocator {
     /// Returns a unique track handle for the next publication, if one can be obtained.
     pub fn get(&mut self) -> Option<Handle> {
-        let value = self.value.checked_add(1)?;
-        Handle(value).into()
+        self.value = self.value.checked_add(1)?;
+        Handle(self.value).into()
     }
 }
 
