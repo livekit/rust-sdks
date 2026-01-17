@@ -44,12 +44,12 @@ impl TestEnvironment {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct TestRoomOptions {
     /// Grants for the generated token.
-    grants: VideoGrants,
+    pub grants: VideoGrants,
     /// Options used for creating the [`Room`].
-    room: RoomOptions,
+    pub room: RoomOptions,
 }
 
 impl Default for TestRoomOptions {
@@ -90,6 +90,8 @@ pub async fn test_rooms_with_options(
         .enumerate()
         .map(|(id, mut options)| -> Result<(String, RoomOptions)> {
             options.grants.room = room_name.clone();
+
+            log::info!("{:?}", options);
             let token = AccessToken::with_api_key(&test_env.api_key, &test_env.api_secret)
                 .with_ttl(Duration::from_secs(30 * 60)) // 30 minutes
                 .with_grants(options.grants)

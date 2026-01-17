@@ -15,10 +15,11 @@
 #[cfg(feature = "__lk-e2e-test")]
 use {
     anyhow::{anyhow, Ok, Result},
-    common::test_rooms,
+    common::{test_rooms, test_rooms_with_options, TestRoomOptions},
     futures_util::StreamExt,
     livekit::prelude::*,
-    std::time::{Instant, Duration},
+    livekit_api::access_token::VideoGrants,
+    std::time::{Duration, Instant},
     test_case::test_case,
     tokio::{
         time::{self, timeout},
@@ -149,5 +150,23 @@ async fn test_publish_many_tracks() -> Result<()> {
         // Publish a single large frame per track.
         track.publish(vec![0xFA; 196_608].into())?;
     }
+    Ok(())
+}
+
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_publish_unauthorized() -> Result<()> {
+    let (room, _) = test_rooms_with_options([TestRoomOptions {
+        grants: VideoGrants { room_join: true, can_publish_data: false, ..Default::default() },
+        ..Default::default()
+    }])
+    .await?
+    .pop()
+    .unwrap();
+
+    let options = DataTrackOptions::with_name("my_track");
+    let result = room.local_participant().publish_data_track(options).await;
+    assert!(matches!(result, Err(PublishError::NotAllowed)));
+
     Ok(())
 }
