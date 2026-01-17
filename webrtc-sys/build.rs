@@ -240,6 +240,42 @@ fn main() {
                 }
             }
 
+            if target_arch == "aarch64" {
+                let mmapi_dir = PathBuf::from(env::var("JETSON_MMAPI_DIR").unwrap_or_else(|_| {
+                    "/usr/src/jetson_multimedia_api".to_string()
+                }));
+                let mmapi_include = mmapi_dir.join("include");
+                let mmapi_classes = mmapi_dir.join("samples/common/classes");
+                if mmapi_include.exists() && mmapi_classes.exists() {
+                    builder
+                        .include(&mmapi_include)
+                        .include(&mmapi_classes)
+                        .file(mmapi_classes.join("NvBuffer.cpp"))
+                        .file(mmapi_classes.join("NvElement.cpp"))
+                        .file(mmapi_classes.join("NvElementProfiler.cpp"))
+                        .file(mmapi_classes.join("NvLogging.cpp"))
+                        .file(mmapi_classes.join("NvUtils.cpp"))
+                        .file(mmapi_classes.join("NvV4l2Element.cpp"))
+                        .file(mmapi_classes.join("NvV4l2ElementPlane.cpp"))
+                        .file(mmapi_classes.join("NvVideoEncoder.cpp"))
+                        .file("src/jetson/jetson_mmapi_encoder.cpp")
+                        .file("src/jetson/jetson_encoder_factory.cpp")
+                        .file("src/jetson/h264_encoder_impl.cpp")
+                        .file("src/jetson/h265_encoder_impl.cpp")
+                        .flag("-DUSE_JETSON_MMAPI_ENCODER=1");
+
+                    println!("cargo:rustc-link-lib=dylib=nvbuf_utils");
+                    println!("cargo:rustc-link-lib=dylib=nvbufsurface");
+                    println!("cargo:rustc-link-lib=dylib=nvbufsurftransform");
+                    println!("cargo:rustc-link-lib=dylib=v4l2");
+                } else {
+                    println!(
+                        "cargo:warning=Jetson Multimedia API not found at {}; skipping MMAPI encoder build",
+                        mmapi_dir.display()
+                    );
+                }
+            }
+
             builder
                 .flag("-Wno-changes-meaning")
                 .flag("-Wno-deprecated-declarations")
