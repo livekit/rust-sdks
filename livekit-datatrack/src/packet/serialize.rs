@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{consts::*, Packet, E2eeExt, Extensions, FrameMarker, Header, UserTimestampExt};
+use super::{consts::*, E2eeExt, Extensions, FrameMarker, Header, Packet, UserTimestampExt};
 use bytes::{BufMut, Bytes, BytesMut};
 use thiserror::Error;
 
@@ -164,7 +164,9 @@ impl UserTimestampExt {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::{Packet, E2eeExt, Extensions, FrameMarker, Header, Timestamp, UserTimestampExt};
+    use crate::packet::{
+        E2eeExt, Extensions, FrameMarker, Header, Packet, Timestamp, UserTimestampExt,
+    };
     use bytes::Buf;
 
     /// Constructed packet to use in tests.

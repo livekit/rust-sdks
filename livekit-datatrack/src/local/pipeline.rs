@@ -15,9 +15,9 @@
 use super::packetizer::{Packetizer, PacketizerFrame};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo},
-    packet::{self, Extensions, UserTimestampExt},
     e2ee::EncryptionProvider,
     local::manager::{LocalTrackState, OutputEvent, UnpublishInitiator, UnpublishRequestEvent},
+    packet::{self, Extensions, UserTimestampExt},
 };
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch};
@@ -166,19 +166,15 @@ mod tests {
     async fn test_publish_frame() {
         let (_, frame_tx, mut event_out_rx) = make_pipeline();
 
-        let frame = DataTrackFrame {
-            payload: Bytes::from(vec![0xFA; 256]),
-            user_timestamp: Faker.fake()
-        };
+        let frame =
+            DataTrackFrame { payload: Bytes::from(vec![0xFA; 256]), user_timestamp: Faker.fake() };
         frame_tx.send(frame).await.unwrap();
 
         while let Some(out_event) = event_out_rx.recv().await {
             let OutputEvent::PacketsAvailable(packets) = out_event else {
                 panic!("Unexpected event")
             };
-            let Some(packet) = packets.first() else {
-                panic!("Expected one packet")
-            };
+            let Some(packet) = packets.first() else { panic!("Expected one packet") };
             assert!(!packet.is_empty());
             break;
         }

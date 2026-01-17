@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    packet::{Clock, Packet, Extensions, FrameMarker, Handle, Header, Timestamp},
+    packet::{Clock, Extensions, FrameMarker, Handle, Header, Packet, Timestamp},
     utils::{BytesChunkExt, Counter},
 };
 use bytes::Bytes;

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::{
-    consts::*, Packet, E2eeExt, ExtensionTag, Extensions, FrameMarker, Handle, HandleError, Header,
+    consts::*, E2eeExt, ExtensionTag, Extensions, FrameMarker, Handle, HandleError, Header, Packet,
     Timestamp, UserTimestampExt,
 };
 use bytes::{Buf, Bytes};

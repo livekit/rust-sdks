@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{pipeline::{Pipeline, PipelineOptions}, LocalTrackInner};
+use super::{
+    pipeline::{Pipeline, PipelineOptions},
+    LocalTrackInner,
+};
 use crate::{
     api::{DataTrackInfo, DataTrackOptions, InternalError, PublishError},
-    packet::{self, Handle},
     e2ee::EncryptionProvider,
     local::LocalDataTrack,
+    packet::{self, Handle},
 };
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
@@ -221,11 +224,8 @@ impl Manager {
         let (state_tx, state_rx) = watch::channel(LocalTrackState::Published);
         let info = Arc::new(info);
 
-        let e2ee_provider = if info.uses_e2ee() {
-            self.e2ee_provider.as_ref().map(Arc::clone)
-        } else {
-            None
-        };
+        let e2ee_provider =
+            if info.uses_e2ee() { self.e2ee_provider.as_ref().map(Arc::clone) } else { None };
         let options = PipelineOptions {
             e2ee_provider,
             info: info.clone(),

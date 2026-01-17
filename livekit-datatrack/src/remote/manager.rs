@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{pipeline::{Pipeline, PipelineOptions}, RemoteDataTrack, RemoteTrackInner};
+use super::{
+    pipeline::{Pipeline, PipelineOptions},
+    RemoteDataTrack, RemoteTrackInner,
+};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo, DataTrackSid, InternalError, SubscribeError},
-    packet::{Packet, Handle},
     e2ee::DecryptionProvider,
+    packet::{Handle, Packet},
     utils::HandleMap,
 };
 use anyhow::{anyhow, Context};

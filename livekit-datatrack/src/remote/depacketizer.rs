@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::packet::{Packet, Extensions, FrameMarker};
+use crate::packet::{Extensions, FrameMarker, Packet};
 use bytes::{Bytes, BytesMut};
 use std::collections::BTreeMap;
 

@@ -65,10 +65,7 @@ mod tests {
     }
 
     #[test_matrix([1, 128, 333], [1, 64, 128, 256, 123])]
-    fn test_chunks(
-        chunk_size: usize,
-        source_size: usize,
-    ) {
+    fn test_chunks(chunk_size: usize, source_size: usize) {
         let source = Bytes::from(vec![0xCC; source_size]);
         let chunks: Vec<_> = source.into_chunks(chunk_size).collect();
 

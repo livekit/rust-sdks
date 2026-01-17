@@ -15,8 +15,8 @@
 use super::manager::{PublishRequestEvent, UnpublishEvent, UnpublishRequestEvent};
 use crate::{
     api::{DataTrackInfo, DataTrackSid, InternalError, PublishError},
-    packet::Handle,
     local::manager::PublishResultEvent,
+    packet::Handle,
 };
 use anyhow::{anyhow, Context};
 use livekit_protocol as proto;
