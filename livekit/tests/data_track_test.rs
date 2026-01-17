@@ -51,10 +51,7 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
     log::info!("Publishing {} frames", frame_count);
 
     let publish = async move {
-        let track = pub_room
-            .local_participant()
-            .publish_data_track("my_track")
-            .await?;
+        let track = pub_room.local_participant().publish_data_track("my_track").await?;
         log::info!("Track published");
 
         assert!(track.is_published());
@@ -180,5 +177,79 @@ async fn test_publish_duplicate_name() -> Result<()> {
     let second_result = room.local_participant().publish_data_track("first").await;
     assert!(matches!(second_result, Err(PublishError::DuplicateName)));
 
+    Ok(())
+}
+
+#[cfg(feature = "__lk-e2e-test")]
+#[test_case(false; "use_room_settings")]
+#[test_case(true; "disabled_on_track")]
+#[test_log::test(tokio::test)]
+async fn test_e2ee(disable_on_track: bool) -> Result<()> {
+    use livekit::e2ee::{
+        key_provider::{KeyProvider, KeyProviderOptions},
+        EncryptionType,
+    };
+    use livekit::E2eeOptions;
+
+    const SHARED_SECRET: &[u8] = b"password";
+
+    let key_provider1 =
+        KeyProvider::with_shared_key(KeyProviderOptions::default(), SHARED_SECRET.to_vec());
+
+    let mut options1 = RoomOptions::default();
+    options1.encryption =
+        Some(E2eeOptions { key_provider: key_provider1, encryption_type: EncryptionType::Gcm });
+
+    let key_provider2 =
+        KeyProvider::with_shared_key(KeyProviderOptions::default(), SHARED_SECRET.to_vec());
+
+    let mut options2 = RoomOptions::default();
+    options2.encryption =
+        Some(E2eeOptions { key_provider: key_provider2, encryption_type: EncryptionType::Gcm });
+
+    let mut rooms = test_rooms_with_options([options1.into(), options2.into()]).await?;
+
+    let (pub_room, _) = rooms.pop().unwrap();
+    let (sub_room, mut sub_room_event_rx) = rooms.pop().unwrap();
+
+    pub_room.e2ee_manager().set_enabled(true);
+    sub_room.e2ee_manager().set_enabled(true);
+
+    let publish = async move {
+        let options = DataTrackOptions::new("my_track").disable_e2ee(disable_on_track);
+        let track = pub_room.local_participant().publish_data_track(options).await?;
+        assert!(track.info().uses_e2ee() || disable_on_track);
+
+        for index in 0..5 {
+            track.publish(vec![index as u8; 196_608].into())?;
+            time::sleep(Duration::from_millis(25)).await;
+        }
+        Ok(())
+    };
+
+    let subscribe = async move {
+        let track = async move {
+            while let Some(event) = sub_room_event_rx.recv().await {
+                let RoomEvent::RemoteDataTrackPublished(track) = event else {
+                    continue;
+                };
+                return Ok(track);
+            }
+            Err(anyhow!("No track published"))
+        }
+        .await?;
+
+        assert!(track.info().uses_e2ee() || disable_on_track);
+        let mut subscription = track.subscribe().await?;
+
+        while let Some(frame) = subscription.next().await {
+            let payload = frame.payload();
+            if let Some(first_byte) = payload.first() {
+                assert!(payload.iter().all(|byte| byte == first_byte));
+            }
+        }
+        Ok(())
+    };
+    timeout(Duration::from_secs(5), async { try_join!(publish, subscribe) }).await??;
     Ok(())
 }
