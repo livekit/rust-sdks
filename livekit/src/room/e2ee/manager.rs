@@ -273,10 +273,9 @@ impl E2eeManager {
         &self,
         data: Vec<u8>,
         participant_identity: &ParticipantIdentity,
+        key_index: u32
     ) -> Result<EncryptedPacket, Box<dyn std::error::Error>> {
         let inner = self.inner.lock();
-
-        let key_index = self.key_provider().map_or(0, |kp| kp.get_latest_key_index() as u32);
 
         let data_packet_cryptor =
             inner.data_packet_cryptor.as_ref().ok_or("DataPacketCryptor is not initialized")?;

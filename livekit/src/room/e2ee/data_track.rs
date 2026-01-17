@@ -31,9 +31,14 @@ impl DataTrackEncryptionProvider {
 
 impl dt::EncryptionProvider for DataTrackEncryptionProvider {
     fn encrypt(&self, payload: bytes::Bytes) -> Result<dt::EncryptedPayload, dt::EncryptionError> {
+        let key_index = self
+            .manager
+            .key_provider()
+            .map_or(0, |kp| kp.get_latest_key_index() as u32);
+
         let encrypted = self
             .manager
-            .encrypt_data(payload.into(), &self.sender_identity)
+            .encrypt_data(payload.into(), &self.sender_identity, key_index)
             .map_err(|_| dt::EncryptionError)?;
 
         let payload = encrypted.data.into();
