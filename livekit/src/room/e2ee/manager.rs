@@ -247,7 +247,7 @@ impl E2eeManager {
     }
 
     /// Decrypt data received from a data channel
-    pub fn handle_encrypted_data(
+    pub(crate) fn handle_encrypted_data(
         &self,
         data: &[u8],
         iv: &[u8],
