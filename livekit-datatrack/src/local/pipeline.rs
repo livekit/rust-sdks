@@ -126,7 +126,7 @@ impl From<DataTrackFrame> for PacketizerFrame {
         Self {
             payload: frame.payload,
             extensions: Extensions {
-                user_timestamp: frame.user_timestamp.map(|v| UserTimestampExt(v)),
+                user_timestamp: frame.user_timestamp.map(UserTimestampExt),
                 e2ee: None,
             },
         }

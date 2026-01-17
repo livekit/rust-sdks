@@ -37,7 +37,7 @@ impl HandleMap {
         }
         self.sid_to_handle.insert(sid.clone(), handle);
         self.handle_to_sid.insert(handle, sid);
-        return true;
+        true
     }
 
     /// Get the SID associated with the given handle.

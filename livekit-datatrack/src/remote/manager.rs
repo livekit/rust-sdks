@@ -334,7 +334,7 @@ impl Manager {
         for (_, descriptor) in self.descriptors {
             _ = descriptor.state_tx.send(TrackState::Unpublished);
             match descriptor.state {
-                DescriptorState::Available { .. } => {}
+                DescriptorState::Available => {}
                 DescriptorState::PendingSubscriberHandle { result_txs } => {
                     for result_tx in result_txs {
                         _ = result_tx.send(Err(SubscribeError::Disconnected));

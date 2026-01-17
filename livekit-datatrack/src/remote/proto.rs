@@ -69,13 +69,13 @@ pub fn event_from_participant_update(
 /// participant identity is set.
 ///
 fn event_from_participant_info(
-    msg: &mut Vec<ParticipantInfo>,
+    msg: &mut [ParticipantInfo],
     local_participant_identity: Option<&str>,
 ) -> Result<PublicationUpdatesEvent, InternalError> {
     let updates = msg
         .iter_mut()
         .filter(|participant| {
-            local_participant_identity.map_or(true, |identity| participant.identity != identity)
+            local_participant_identity.is_none_or(|identity| participant.identity != identity)
         })
         .map(|participant| -> Result<_, InternalError> {
             Ok((participant.identity.clone(), extract_track_info(participant)?))
