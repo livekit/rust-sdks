@@ -112,7 +112,7 @@ impl DataTrack<Remote> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct RemoteTrackInner {
-    publisher_identity: String,
+    publisher_identity: Arc<str>,
     state_rx: watch::Receiver<TrackState>,
     event_in_tx: mpsc::WeakSender<manager::InputEvent>,
 }

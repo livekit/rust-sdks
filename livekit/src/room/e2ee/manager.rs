@@ -247,19 +247,18 @@ impl E2eeManager {
     }
 
     /// Decrypt data received from a data channel
-    pub(crate) fn handle_encrypted_data(
+    pub(crate) fn decrypt_data(
         &self,
-        data: &[u8],
-        iv: &[u8],
-        participant_identity: &str,
+        data: Vec<u8>,
+        iv: Vec<u8>,
         key_index: u32,
+        participant_identity: &str,
     ) -> Option<Vec<u8>> {
         let inner = self.inner.lock();
 
         let data_packet_cryptor = inner.data_packet_cryptor.as_ref()?;
 
-        let encrypted_packet = EncryptedPacket { data: data.to_vec(), iv: iv.to_vec(), key_index };
-
+        let encrypted_packet = EncryptedPacket { data, iv, key_index };
         match data_packet_cryptor.decrypt(participant_identity, &encrypted_packet) {
             Ok(decrypted_data) => Some(decrypted_data),
             Err(e) => {
@@ -272,16 +271,17 @@ impl E2eeManager {
     /// Encrypt data for transmission over a data channel
     pub(crate) fn encrypt_data(
         &self,
-        data: &[u8],
-        participant_identity: &str,
-        key_index: u32,
+        data: Vec<u8>,
+        participant_identity: &ParticipantIdentity,
     ) -> Result<EncryptedPacket, Box<dyn std::error::Error>> {
         let inner = self.inner.lock();
+
+        let key_index = self.key_provider().map_or(0, |kp| kp.get_latest_key_index() as u32);
 
         let data_packet_cryptor =
             inner.data_packet_cryptor.as_ref().ok_or("DataPacketCryptor is not initialized")?;
 
-        data_packet_cryptor.encrypt(participant_identity, key_index, data)
+        data_packet_cryptor.encrypt(participant_identity.as_str(), key_index, &data)
     }
 }
 

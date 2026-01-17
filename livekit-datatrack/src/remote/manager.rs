@@ -116,7 +116,6 @@ pub struct Manager {
 }
 
 impl Manager {
-
     /// Creates a new manager.
     ///
     /// Returns a tuple containing the following:
@@ -197,10 +196,15 @@ impl Manager {
             return;
         }
         let info = Arc::new(info);
+        let publisher_identity: Arc<str> = publisher_identity.into();
 
         let (state_tx, state_rx) = watch::channel(TrackState::Published);
-        let descriptor =
-            Descriptor { info: info.clone(), state_tx, state: DescriptorState::Available };
+        let descriptor = Descriptor {
+            info: info.clone(),
+            publisher_identity: publisher_identity.clone(),
+            state_tx,
+            state: DescriptorState::Available,
+        };
         self.descriptors.insert(descriptor.info.sid.clone(), descriptor);
 
         let inner = RemoteTrackInner {
@@ -279,6 +283,7 @@ impl Manager {
             depacketizer: Depacketizer::new(),
             decryption: self.decryption.clone(),
             info: descriptor.info.clone(),
+            publisher_identity: descriptor.publisher_identity.clone(),
             state_rx: descriptor.state_tx.subscribe(),
             packet_rx,
             frame_tx: frame_tx.clone(),
@@ -339,6 +344,7 @@ impl Manager {
 #[derive(Debug)]
 struct Descriptor {
     info: Arc<DataTrackInfo>,
+    publisher_identity: Arc<str>,
     state_tx: watch::Sender<TrackState>,
     state: DescriptorState,
 }
@@ -386,8 +392,7 @@ mod tests {
     use super::*;
     use fake::{
         faker::{internet::en::SafeEmail, lorem::en::Word},
-        Fake,
-        Faker
+        Fake, Faker,
     };
     use futures_util::StreamExt;
     use std::{collections::HashMap, time::Duration};
@@ -455,10 +460,7 @@ mod tests {
 
                         // Simulate SFU reply
                         let event = SubscriberHandlesEvent {
-                            mapping: HashMap::from([(
-                                sub_handle,
-                                track_sid.clone()
-                            )]),
+                            mapping: HashMap::from([(sub_handle, track_sid.clone())]),
                         };
                         _ = input.send(event.into());
                     }

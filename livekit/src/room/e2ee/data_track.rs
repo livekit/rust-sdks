@@ -12,19 +12,65 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::E2eeManager;
-use livekit_datatrack::internal::{
-    DecryptionProvider, E2eeError, EncryptedPayload, EncryptionProvider,
-};
+use crate::{id::ParticipantIdentity, E2eeManager};
+use bytes::Bytes;
+use livekit_datatrack::internal as dt;
 
-impl DecryptionProvider for E2eeManager {
-    fn decrypt(&self, payload: EncryptedPayload) -> Result<bytes::Bytes, E2eeError> {
-        todo!()
+/// Wrapper around [`E2eeManager`] implementing [`dt::EncryptionProvider`].
+#[derive(Debug)]
+pub(crate) struct DataTrackEncryptionProvider {
+    manager: E2eeManager,
+    sender_identity: ParticipantIdentity,
+}
+
+impl DataTrackEncryptionProvider {
+    pub fn new(manager: E2eeManager, sender_identity: ParticipantIdentity) -> Self {
+        Self { manager, sender_identity }
     }
 }
 
-impl EncryptionProvider for E2eeManager {
-    fn encrypt(&self, payload: bytes::Bytes) -> Result<EncryptedPayload, E2eeError> {
-        todo!()
+impl dt::EncryptionProvider for DataTrackEncryptionProvider {
+    fn encrypt(&self, payload: bytes::Bytes) -> Result<dt::EncryptedPayload, dt::EncryptionError> {
+        let encrypted = self
+            .manager
+            .encrypt_data(payload.into(), &self.sender_identity)
+            .map_err(|_| dt::EncryptionError)?;
+
+        let payload = encrypted.data.into();
+        let iv = encrypted.iv.try_into().map_err(|_| dt::EncryptionError)?;
+        let key_index = encrypted.key_index.try_into().map_err(|_| dt::EncryptionError)?;
+
+        Ok(dt::EncryptedPayload { payload, iv, key_index })
+    }
+}
+
+/// Wrapper around [`E2eeManager`] implementing [`dt::DecryptionProvider`].
+#[derive(Debug)]
+pub(crate) struct DataTrackDecryptionProvider {
+    manager: E2eeManager,
+}
+
+impl DataTrackDecryptionProvider {
+    pub fn new(manager: E2eeManager) -> Self {
+        Self { manager }
+    }
+}
+
+impl dt::DecryptionProvider for DataTrackDecryptionProvider {
+    fn decrypt(
+        &self,
+        payload: dt::EncryptedPayload,
+        sender_identity: &str,
+    ) -> Result<bytes::Bytes, dt::DecryptionError> {
+        let decrypted = self
+            .manager
+            .decrypt_data(
+                payload.payload.into(),
+                payload.iv.to_vec(),
+                payload.key_index as u32,
+                sender_identity,
+            )
+            .ok_or_else(|| dt::DecryptionError)?;
+        Ok(Bytes::from(decrypted))
     }
 }

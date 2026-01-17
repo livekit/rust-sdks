@@ -16,23 +16,31 @@ use bytes::Bytes;
 use core::fmt::Debug;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
-#[error("End-to-end encryption failed")]
-pub struct E2eeError;
-
+/// Encrypted payload and metadata required for decryption.
 pub struct EncryptedPayload {
     pub payload: Bytes,
     pub iv: [u8; 12],
     pub key_index: u8,
 }
 
+#[derive(Debug, Error)]
+#[error("Encryption failed")]
+pub struct EncryptionError;
+
 pub trait EncryptionProvider: Send + Sync + Debug {
-    /// Encrypt the given payload.
-    fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, E2eeError>;
+    /// Encrypts the given payload being sent by the local participant.
+    fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, EncryptionError>;
 }
 
+#[derive(Debug, Error)]
+#[error("Decryption failed")]
+pub struct DecryptionError;
+
 pub trait DecryptionProvider: Send + Sync + Debug {
-    /// Decrypt the given payload.
-    fn decrypt(&self, payload: EncryptedPayload) -> Result<Bytes, E2eeError>;
-    // TODO: handle publisher identity
+    /// Decrypts the given payload received from a remote participant.
+    fn decrypt(
+        &self,
+        payload: EncryptedPayload,
+        sender_identity: &str,
+    ) -> Result<Bytes, DecryptionError>;
 }

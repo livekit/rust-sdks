@@ -44,14 +44,7 @@ use tokio::sync::{mpsc, oneshot, watch, Notify};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
-    id::ParticipantIdentity,
-    utils::{
-        ttl_map::TtlMap,
-        tx_queue::{TxQueue, TxQueueItem},
-    },
-    ChatMessage, TranscriptionSegment,
-};
-use crate::{
+    e2ee::data_track::*,
     id::ParticipantSid,
     options::TrackPublishOptions,
     prelude::TrackKind,
@@ -63,6 +56,14 @@ use crate::{
     },
     track::LocalTrack,
     DataPacketKind,
+};
+use crate::{
+    id::ParticipantIdentity,
+    utils::{
+        ttl_map::TtlMap,
+        tx_queue::{TxQueue, TxQueueItem},
+    },
+    ChatMessage, TranscriptionSegment,
 };
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -484,19 +485,18 @@ impl RtcSession {
         rtc_events::forward_dc_events(&mut reliable_dc, DataPacketKind::Reliable, rtc_emitter);
 
         let local_dt_options = dt::local::ManagerOptions {
-            encryption: e2ee_manager
-                .clone()
-                .filter(|m| m.enabled())
-                .map(|m| Arc::new(m) as Arc<dyn dt::EncryptionProvider>),
+            encryption: e2ee_manager.clone().filter(|m| m.enabled()).map(|m| {
+                Arc::new(DataTrackEncryptionProvider::new(m, participant_info.identity.clone()))
+                    as Arc<dyn dt::EncryptionProvider>
+            }),
         };
         let (local_dt_manager, local_dt_input, local_dt_output) =
             dt::local::Manager::new(local_dt_options);
 
         let remote_dt_options = dt::remote::ManagerOptions {
-            decryption: e2ee_manager
-                .clone()
-                .filter(|m| m.enabled())
-                .map(|m| Arc::new(m) as Arc<dyn dt::DecryptionProvider>),
+            decryption: e2ee_manager.clone().filter(|m| m.enabled()).map(|m| {
+                Arc::new(DataTrackDecryptionProvider::new(m)) as Arc<dyn dt::DecryptionProvider>
+            }),
         };
         let (remote_dt_manager, remote_dt_input, remote_dt_output) =
             dt::remote::Manager::new(remote_dt_options);
@@ -537,7 +537,7 @@ impl RtcSession {
             pending_requests: Default::default(),
             e2ee_manager,
             local_dt_input,
-            remote_dt_input
+            remote_dt_input,
         });
 
         // Start session tasks
@@ -1390,14 +1390,15 @@ impl SessionInner {
             proto::data_packet::Value::EncryptedPacket(encrypted_packet) => {
                 // Handle encrypted data packets
                 if let Some(e2ee_manager) = &self.e2ee_manager {
+                    let encryption_type = encrypted_packet.encryption_type();
                     let participant_identity_str =
                         participant_identity.as_ref().map(|p| p.0.as_str()).unwrap_or("");
 
-                    match e2ee_manager.handle_encrypted_data(
-                        &encrypted_packet.encrypted_value,
-                        &encrypted_packet.iv,
-                        participant_identity_str,
+                    match e2ee_manager.decrypt_data(
+                        encrypted_packet.encrypted_value,
+                        encrypted_packet.iv,
                         encrypted_packet.key_index,
+                        participant_identity_str,
                     ) {
                         Some(decrypted_payload) => {
                             // Parse the decrypted payload as EncryptedPacketPayload
@@ -1410,7 +1411,7 @@ impl SessionInner {
                                             participant_sid,
                                             participant_identity,
                                             convert_encrypted_to_data_packet_value(decrypted_value),
-                                            encrypted_packet.encryption_type(),
+                                            encryption_type,
                                         );
                                         Ok(())
                                     } else {
@@ -1684,15 +1685,8 @@ impl SessionInner {
 
                     // Encode the payload and encrypt it
                     let payload_bytes = encrypted_payload.encode_to_vec();
-                    let key_index = e2ee_manager
-                        .key_provider()
-                        .map(|kp| kp.get_latest_key_index() as u32)
-                        .unwrap_or(0);
-                    match e2ee_manager.encrypt_data(
-                        &payload_bytes,
-                        &self.participant_info.identity.0,
-                        key_index,
-                    ) {
+                    match e2ee_manager.encrypt_data(payload_bytes, &self.participant_info.identity)
+                    {
                         Ok(encrypted_data) => {
                             // Replace with EncryptedPacket variant
                             packet.value = Some(proto::data_packet::Value::EncryptedPacket(

@@ -27,6 +27,7 @@ pub(super) struct RemoteTrackTask {
     pub depacketizer: Depacketizer,
     pub decryption: Option<Arc<dyn DecryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
+    pub publisher_identity: Arc<str>,
     pub state_rx: watch::Receiver<TrackState>,
     pub packet_rx: mpsc::Receiver<Dtp>,
     pub frame_tx: broadcast::Sender<DataTrackFrame>,
@@ -64,13 +65,14 @@ impl RemoteTrackTask {
             };
             let encrypted_payload =
                 EncryptedPayload { payload: frame.payload, iv: e2ee.iv, key_index: e2ee.key_index };
-            let decrypted_payload = match decryption.decrypt(encrypted_payload) {
-                Ok(decrypted_payload) => decrypted_payload,
-                Err(err) => {
-                    log::error!("Decryption failed: {}", err);
-                    return;
-                }
-            };
+            let decrypted_payload =
+                match decryption.decrypt(encrypted_payload, &self.publisher_identity) {
+                    Ok(decrypted_payload) => decrypted_payload,
+                    Err(err) => {
+                        log::error!("{}", err);
+                        return;
+                    }
+                };
             frame.payload = decrypted_payload;
         }
         _ = self.frame_tx.send(frame.into());
