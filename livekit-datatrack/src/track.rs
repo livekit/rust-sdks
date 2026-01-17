@@ -41,6 +41,7 @@ impl<L> DataTrack<L> {
 
 /// Information about a published data track.
 #[derive(Debug, Clone)]
+#[cfg_attr(test, derive(fake::Dummy))]
 pub struct DataTrackInfo {
     pub(crate) sid: DataTrackSid,
     pub(crate) pub_handle: Handle,

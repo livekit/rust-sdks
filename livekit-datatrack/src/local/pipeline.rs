@@ -132,3 +132,55 @@ impl From<DataTrackFrame> for PacketizerFrame {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bytes::Bytes;
+    use fake::{Fake, Faker};
+
+    fn make_pipeline(
+    ) -> (watch::Sender<LocalTrackState>, mpsc::Sender<DataTrackFrame>, mpsc::Receiver<OutputEvent>)
+    {
+        let (state_tx, state_rx) = watch::channel(LocalTrackState::Published);
+        let (frame_tx, frame_rx) = mpsc::channel(32);
+        let (event_out_tx, event_out_rx) = mpsc::channel(32);
+
+        let mut info: DataTrackInfo = Faker.fake();
+        info.uses_e2ee = false;
+
+        let options = PipelineOptions {
+            e2ee_provider: None,
+            info: info.into(),
+            state_rx,
+            frame_rx,
+            event_out_tx: event_out_tx.downgrade(),
+        };
+        let pipeline = Pipeline::new(options);
+        livekit_runtime::spawn(pipeline.run());
+
+        (state_tx, frame_tx, event_out_rx)
+    }
+
+    #[tokio::test]
+    async fn test_publish_frame() {
+        let (_, frame_tx, mut event_out_rx) = make_pipeline();
+
+        let frame = DataTrackFrame {
+            payload: Bytes::from(vec![0xFA; 256]),
+            user_timestamp: Faker.fake()
+        };
+        frame_tx.send(frame).await.unwrap();
+
+        while let Some(out_event) = event_out_rx.recv().await {
+            let OutputEvent::PacketsAvailable(packets) = out_event else {
+                panic!("Unexpected event")
+            };
+            let Some(packet) = packets.first() else {
+                panic!("Expected one packet")
+            };
+            assert!(!packet.is_empty());
+            break;
+        }
+    }
+}
