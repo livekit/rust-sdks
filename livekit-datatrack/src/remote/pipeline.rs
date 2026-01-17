@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{depacketizer::Depacketizer, manager::TrackState};
+use super::{
+    depacketizer::Depacketizer,
+    manager::{OutputEvent, TrackState},
+};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo},
     dtp::Dtp,
@@ -31,7 +34,7 @@ pub(super) struct RemoteTrackTask {
     pub state_rx: watch::Receiver<TrackState>,
     pub packet_rx: mpsc::Receiver<Dtp>,
     pub frame_tx: broadcast::Sender<DataTrackFrame>,
-    pub event_out_tx: mpsc::WeakSender<super::manager::OutputEvent>,
+    pub event_out_tx: mpsc::WeakSender<OutputEvent>,
 }
 
 impl RemoteTrackTask {
