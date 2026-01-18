@@ -191,21 +191,11 @@ int32_t JetsonH264EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
 
-  size_t nv12_size = codec_.width * codec_.height * 3 / 2;
-  if (nv12_buffer_.size() != nv12_size) {
-    nv12_buffer_.resize(nv12_size);
-  }
-  uint8_t* dst_y = nv12_buffer_.data();
-  uint8_t* dst_uv = nv12_buffer_.data() + codec_.width * codec_.height;
-  libyuv::I420ToNV12(frame_buffer->DataY(), frame_buffer->StrideY(),
-                     frame_buffer->DataU(), frame_buffer->StrideU(),
-                     frame_buffer->DataV(), frame_buffer->StrideV(), dst_y,
-                     codec_.width, dst_uv, codec_.width, codec_.width,
-                     codec_.height);
-
   std::vector<uint8_t> packet;
   bool is_keyframe = false;
-  if (!encoder_.Encode(dst_y, codec_.width, dst_uv, codec_.width,
+  if (!encoder_.Encode(frame_buffer->DataY(), frame_buffer->StrideY(),
+                       frame_buffer->DataU(), frame_buffer->StrideU(),
+                       frame_buffer->DataV(), frame_buffer->StrideV(),
                        is_keyframe_needed, &packet, &is_keyframe)) {
     RTC_LOG(LS_ERROR) << "Failed to encode frame with Jetson MMAPI encoder.";
     return WEBRTC_VIDEO_CODEC_ERROR;

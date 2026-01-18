@@ -6,12 +6,14 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <cstring>
 #include <memory>
+#include <thread>
 
 #include "NvBuffer.h"
 #include "NvVideoEncoder.h"
@@ -147,8 +149,10 @@ bool JetsonMmapiEncoder::IsInitialized() const {
 
 bool JetsonMmapiEncoder::Encode(const uint8_t* src_y,
                                 int stride_y,
-                                const uint8_t* src_uv,
-                                int stride_uv,
+                                const uint8_t* src_u,
+                                int stride_u,
+                                const uint8_t* src_v,
+                                int stride_v,
                                 bool force_keyframe,
                                 std::vector<uint8_t>* encoded,
                                 bool* is_keyframe) {
@@ -158,7 +162,7 @@ bool JetsonMmapiEncoder::Encode(const uint8_t* src_y,
   if (force_keyframe && !ForceKeyframe()) {
     RTC_LOG(LS_WARNING) << "Failed to request keyframe.";
   }
-  if (!QueueOutputBuffer(src_y, stride_y, src_uv, stride_uv)) {
+  if (!QueueOutputBuffer(src_y, stride_y, src_u, stride_u, src_v, stride_v)) {
     return false;
   }
   if (!DequeueCaptureBuffer(encoded, is_keyframe)) {
@@ -206,7 +210,7 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     RTC_LOG(LS_ERROR) << "Failed to set capture plane format.";
     return false;
   }
-  if (encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_) < 0) {
+  if (encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_, height_) < 0) {
     RTC_LOG(LS_ERROR) << "Failed to set output plane format.";
     return false;
   }
@@ -228,14 +232,19 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
   if (encoder_->output_plane.getFormat(output_format) == 0) {
     output_y_stride_ =
         output_format.fmt.pix_mp.plane_fmt[0].bytesperline;
-    output_uv_stride_ =
+    output_u_stride_ =
         output_format.fmt.pix_mp.plane_fmt[1].bytesperline;
+    output_v_stride_ =
+        output_format.fmt.pix_mp.plane_fmt[2].bytesperline;
   }
   if (output_y_stride_ == 0) {
     output_y_stride_ = width_;
   }
-  if (output_uv_stride_ == 0) {
-    output_uv_stride_ = width_;
+  if (output_u_stride_ == 0) {
+    output_u_stride_ = width_ / 2;
+  }
+  if (output_v_stride_ == 0) {
+    output_v_stride_ = width_ / 2;
   }
   return true;
 }
@@ -303,8 +312,10 @@ void JetsonMmapiEncoder::StopStreaming() {
 
 bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
                                            int stride_y,
-                                           const uint8_t* src_uv,
-                                           int stride_uv) {
+                                           const uint8_t* src_u,
+                                           int stride_u,
+                                           const uint8_t* src_v,
+                                           int stride_v) {
   NvBuffer* buffer = encoder_->output_plane.getNthBuffer(next_output_index_);
   if (!buffer) {
     RTC_LOG(LS_ERROR) << "Failed to get output buffer.";
@@ -312,9 +323,11 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   }
 
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
-  uint8_t* dst_uv = static_cast<uint8_t*>(buffer->planes[1].data);
+  uint8_t* dst_u = static_cast<uint8_t*>(buffer->planes[1].data);
+  uint8_t* dst_v = static_cast<uint8_t*>(buffer->planes[2].data);
   CopyPlane(dst_y, output_y_stride_, src_y, stride_y, width_, height_);
-  CopyPlane(dst_uv, output_uv_stride_, src_uv, stride_uv, width_, height_ / 2);
+  CopyPlane(dst_u, output_u_stride_, src_u, stride_u, width_ / 2, height_ / 2);
+  CopyPlane(dst_v, output_v_stride_, src_v, stride_v, width_ / 2, height_ / 2);
 
   v4l2_buffer v4l2_buf = {};
   v4l2_plane planes[VIDEO_MAX_PLANES] = {};
@@ -325,7 +338,8 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   v4l2_buf.length = encoder_->output_plane.getNumPlanes();
   // Use the configured plane strides to satisfy driver expectations.
   planes[0].bytesused = output_y_stride_ * height_;
-  planes[1].bytesused = output_uv_stride_ * (height_ / 2);
+  planes[1].bytesused = output_u_stride_ * (height_ / 2);
+  planes[2].bytesused = output_v_stride_ * (height_ / 2);
 
   if (encoder_->output_plane.qBuffer(v4l2_buf, nullptr) < 0) {
     RTC_LOG(LS_ERROR) << "Failed to queue output buffer.";
@@ -342,6 +356,8 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
   static std::atomic<bool> logged_env(false);
   static std::atomic<int> verbose_left(10);
   const bool verbose = std::getenv("LK_DUMP_H264_VERBOSE") != nullptr;
+  constexpr int kMaxEmptyRetries = 5;
+  constexpr int kDequeueTimeoutMs = 1000;
   v4l2_buffer v4l2_buf = {};
   v4l2_plane planes[VIDEO_MAX_PLANES] = {};
   NvBuffer* buffer = nullptr;
@@ -350,12 +366,24 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
   v4l2_buf.m.planes = planes;
   v4l2_buf.length = encoder_->capture_plane.getNumPlanes();
 
-  if (encoder_->capture_plane.dqBuffer(v4l2_buf, &buffer, nullptr, 0) < 0) {
-    RTC_LOG(LS_ERROR) << "Failed to dequeue capture buffer.";
-    return false;
+  size_t bytesused = 0;
+  for (int attempt = 0; attempt < kMaxEmptyRetries; ++attempt) {
+    if (encoder_->capture_plane.dqBuffer(v4l2_buf, &buffer, nullptr,
+                                         kDequeueTimeoutMs) < 0) {
+      RTC_LOG(LS_ERROR) << "Failed to dequeue capture buffer.";
+      return false;
+    }
+    bytesused = v4l2_buf.m.planes[0].bytesused;
+    if (bytesused > 0) {
+      break;
+    }
+    if (encoder_->capture_plane.qBuffer(v4l2_buf, nullptr) < 0) {
+      RTC_LOG(LS_ERROR) << "Failed to requeue empty capture buffer.";
+      return false;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }
 
-  const size_t bytesused = v4l2_buf.m.planes[0].bytesused;
   encoded->assign(static_cast<uint8_t*>(buffer->planes[0].data),
                   static_cast<uint8_t*>(buffer->planes[0].data) + bytesused);
   if (is_keyframe) {

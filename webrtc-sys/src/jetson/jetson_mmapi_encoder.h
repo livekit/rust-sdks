@@ -32,8 +32,10 @@ class JetsonMmapiEncoder {
 
   bool Encode(const uint8_t* src_y,
               int stride_y,
-              const uint8_t* src_uv,
-              int stride_uv,
+              const uint8_t* src_u,
+              int stride_u,
+              const uint8_t* src_v,
+              int stride_v,
               bool force_keyframe,
               std::vector<uint8_t>* encoded,
               bool* is_keyframe);
@@ -50,8 +52,10 @@ class JetsonMmapiEncoder {
   void StopStreaming();
   bool QueueOutputBuffer(const uint8_t* src_y,
                          int stride_y,
-                         const uint8_t* src_uv,
-                         int stride_uv);
+                         const uint8_t* src_u,
+                         int stride_u,
+                         const uint8_t* src_v,
+                         int stride_v);
   bool DequeueCaptureBuffer(std::vector<uint8_t>* encoded, bool* is_keyframe);
   bool DequeueOutputBuffer();
   bool ForceKeyframe();
@@ -74,7 +78,8 @@ class JetsonMmapiEncoder {
   int capture_buffer_count_ = 0;
   int next_output_index_ = 0;
   int output_y_stride_ = 0;
-  int output_uv_stride_ = 0;
+  int output_u_stride_ = 0;
+  int output_v_stride_ = 0;
 };
 
 }  // namespace livekit
