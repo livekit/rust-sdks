@@ -569,10 +569,30 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     output_y_stride_ = width_;
   }
   if (output_u_stride_ == 0) {
-    output_u_stride_ = width_ / 2;
+    // For NV12, the chroma plane has full-width interleaved UV.
+    output_u_stride_ = output_is_nv12_ ? width_ : width_ / 2;
   }
   if (output_v_stride_ == 0) {
+    // For NV12, V is interleaved with U in plane[1]; keep v_stride equal to
+    // u_stride for logging only.
     output_v_stride_ = output_is_nv12_ ? output_u_stride_ : width_ / 2;
+  }
+
+  // Some Jetson drivers report incomplete/zero plane info via getFormat(). Clamp
+  // to sane minimums to avoid under-striding NV12 (which can lead to empty
+  // output or corruption).
+  if (output_is_nv12_ && output_u_stride_ < width_) {
+    output_u_stride_ = width_;
+    output_v_stride_ = width_;
+  }
+  if (!output_is_nv12_) {
+    const int min_chroma_stride = (width_ + 1) / 2;
+    if (output_u_stride_ < min_chroma_stride) {
+      output_u_stride_ = min_chroma_stride;
+    }
+    if (output_v_stride_ < min_chroma_stride) {
+      output_v_stride_ = min_chroma_stride;
+    }
   }
 
   if (verbose) {

@@ -23,7 +23,7 @@ use parking_lot::Mutex;
 use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
 
 use crate::{
-    video_frame::{I420Buffer, VideoBuffer, VideoFrame},
+    video_frame::{I420Buffer, NV12Buffer, VideoBuffer, VideoFrame},
     video_source::VideoResolution,
 };
 
@@ -60,7 +60,14 @@ impl NativeVideoSource {
 
         livekit_runtime::spawn({
             let source = source.clone();
+            // Pre-roll: WebRTC expects at least one frame; we emit black frames
+            // until the first real capture arrives. When capture is NV12-gated
+            // (Jetson path), emit NV12 here too to avoid encoder format mismatch.
+            let use_nv12 = std::env::var("LK_CAPTURE_NV12")
+                .ok()
+                .map_or(cfg!(all(target_os = "linux", target_arch = "aarch64")), |v| v == "1");
             let i420 = I420Buffer::new(resolution.width, resolution.height);
+            let nv12 = NV12Buffer::new(resolution.width, resolution.height);
             async move {
                 let mut interval = interval(Duration::from_millis(100)); // 10 fps
 
@@ -74,7 +81,15 @@ impl NativeVideoSource {
 
                     let mut builder = vf_sys::ffi::new_video_frame_builder();
                     builder.pin_mut().set_rotation(VideoRotation::VideoRotation0);
-                    builder.pin_mut().set_video_frame_buffer(i420.as_ref().sys_handle());
+                    if use_nv12 {
+                        builder
+                            .pin_mut()
+                            .set_video_frame_buffer(nv12.as_ref().sys_handle());
+                    } else {
+                        builder
+                            .pin_mut()
+                            .set_video_frame_buffer(i420.as_ref().sys_handle());
+                    }
 
                     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
                     builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
