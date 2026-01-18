@@ -259,6 +259,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut sum_sleep_ms = 0.0;
     let mut sum_iter_ms = 0.0;
     let mut logged_mjpeg_fallback = false;
+    let mut dumped_frame = false;
+    let dump_dir = env::var("LK_DUMP_FRAME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let dump_raw = env::var("LK_DUMP_FRAME").ok().map_or(false, |v| v == "1");
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
             break;
@@ -394,6 +397,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         } else if looks_like_jpeg {
             // Try fast MJPEG->I420 via libyuv if available; fallback to image crate
             let mut used_fast_mjpeg = false;
+            if dump_raw && !dumped_frame {
+                let _ = std::fs::create_dir_all(&dump_dir);
+                let dump_path = format!("{}/frame0.mjpeg", dump_dir);
+                let _ = std::fs::write(&dump_path, src_bytes);
+                log::info!("Dumped raw MJPEG to {}", dump_path);
+            }
             let t2_try = unsafe {
                 // rs_MJPGToI420 returns 0 on success
                 let ret = yuv_sys::rs_MJPGToI420(
@@ -472,6 +481,38 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             }
             continue;
         };
+
+        if dump_raw && !dumped_frame {
+            let _ = std::fs::create_dir_all(&dump_dir);
+            let mut i420 = vec![0u8; (width as usize * height as usize * 3 / 2) as usize];
+            let y_size = (width as usize * height as usize) as usize;
+            let u_size = y_size / 4;
+            for row in 0..height as usize {
+                let src_row = &data_y[row * stride_y as usize..][..width as usize];
+                let dst_row = &mut i420[row * width as usize..][..width as usize];
+                dst_row.copy_from_slice(src_row);
+            }
+            for row in 0..(height as usize / 2) {
+                let src_row = &data_u[row * stride_u as usize..][..(width as usize / 2)];
+                let dst_row = &mut i420[y_size + row * (width as usize / 2)..][..(width as usize / 2)];
+                dst_row.copy_from_slice(src_row);
+            }
+            for row in 0..(height as usize / 2) {
+                let src_row = &data_v[row * stride_v as usize..][..(width as usize / 2)];
+                let dst_row = &mut i420[y_size + u_size + row * (width as usize / 2)..][..(width as usize / 2)];
+                dst_row.copy_from_slice(src_row);
+            }
+            let dump_path = format!("{}/frame0_{}x{}_i420.yuv", dump_dir, width, height);
+            let _ = std::fs::write(&dump_path, &i420);
+            log::info!(
+                "Dumped I420 frame to {} (view: ffplay -f rawvideo -pix_fmt yuv420p -video_size {}x{} {})",
+                dump_path,
+                width,
+                height,
+                dump_path
+            );
+            dumped_frame = true;
+        }
         let t3 = Instant::now();
 
         // Update RTP timestamp (monotonic, microseconds since start)
