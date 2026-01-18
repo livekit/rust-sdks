@@ -74,7 +74,6 @@ class JetsonH265EncoderImpl : public VideoEncoder {
   bool has_reported_init_ = false;
   bool has_reported_error_ = false;
   const SdpVideoFormat format_;
-  std::vector<uint8_t> nv12_buffer_;
 };
 
 }  // namespace webrtc
