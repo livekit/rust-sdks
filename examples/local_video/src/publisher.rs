@@ -262,6 +262,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut dumped_frame = false;
     let dump_dir = env::var("LK_DUMP_FRAME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     let dump_raw = env::var("LK_DUMP_FRAME").ok().map_or(false, |v| v == "1");
+    let dump_stats = env::var("LK_DUMP_I420_STATS").ok().map_or(false, |v| v == "1");
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
             break;
@@ -512,6 +513,60 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 dump_path
             );
             dumped_frame = true;
+        }
+        if dump_stats {
+            static LOGGED_STATS: AtomicBool = AtomicBool::new(false);
+            if !LOGGED_STATS.swap(true, Ordering::Relaxed) {
+                let width_usize = width as usize;
+                let height_usize = height as usize;
+                let mut min_y = 255u8;
+                let mut max_y = 0u8;
+                let mut sum_y: u64 = 0;
+                for row in 0..height_usize {
+                    let row_data = &data_y[row * stride_y as usize..][..width_usize];
+                    for &v in row_data {
+                        min_y = min_y.min(v);
+                        max_y = max_y.max(v);
+                        sum_y += v as u64;
+                    }
+                }
+                let chroma_w = width_usize / 2;
+                let chroma_h = height_usize / 2;
+                let mut min_u = 255u8;
+                let mut max_u = 0u8;
+                let mut sum_u: u64 = 0;
+                for row in 0..chroma_h {
+                    let row_data = &data_u[row * stride_u as usize..][..chroma_w];
+                    for &v in row_data {
+                        min_u = min_u.min(v);
+                        max_u = max_u.max(v);
+                        sum_u += v as u64;
+                    }
+                }
+                let mut min_v = 255u8;
+                let mut max_v = 0u8;
+                let mut sum_v: u64 = 0;
+                for row in 0..chroma_h {
+                    let row_data = &data_v[row * stride_v as usize..][..chroma_w];
+                    for &v in row_data {
+                        min_v = min_v.min(v);
+                        max_v = max_v.max(v);
+                        sum_v += v as u64;
+                    }
+                }
+                log::info!(
+                    "I420 stats: Y min/max/sum={}/{}/{}, U min/max/sum={}/{}/{}, V min/max/sum={}/{}/{}",
+                    min_y,
+                    max_y,
+                    sum_y,
+                    min_u,
+                    max_u,
+                    sum_u,
+                    min_v,
+                    max_v,
+                    sum_v
+                );
+            }
         }
         let t3 = Instant::now();
 
