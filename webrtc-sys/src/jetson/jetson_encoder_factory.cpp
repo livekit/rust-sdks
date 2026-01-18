@@ -1,5 +1,6 @@
 #include "jetson_encoder_factory.h"
 
+#include <iostream>
 #include <map>
 #include <memory>
 
