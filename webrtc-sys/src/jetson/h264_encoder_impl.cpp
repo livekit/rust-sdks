@@ -1,6 +1,7 @@
 #include "h264_encoder_impl.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -234,6 +235,10 @@ int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(
         RTC_LOG(LS_WARNING)
             << "LK_DUMP_H264 set to " << dump_path
             << " but encoded packet is empty.";
+        std::fprintf(stderr,
+                     "LK_DUMP_H264 set to %s but packet is empty\n",
+                     dump_path);
+        std::fflush(stderr);
       }
     } else {
       std::error_code ec;
@@ -248,10 +253,18 @@ int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(
         RTC_LOG(LS_INFO) << "Dumped H264 access unit to " << dump_path
                          << " (bytes=" << packet.size()
                          << ", keyframe=" << is_keyframe << ")";
+        std::fprintf(stderr,
+                     "Dumped H264 access unit to %s (bytes=%zu, keyframe=%d)\n",
+                     dump_path, packet.size(), is_keyframe ? 1 : 0);
+        std::fflush(stderr);
         dumped.store(true, std::memory_order_relaxed);
       } else {
         RTC_LOG(LS_WARNING) << "Failed to open LK_DUMP_H264 path: "
                             << dump_path;
+        std::fprintf(stderr,
+                     "Failed to open LK_DUMP_H264 path: %s\n",
+                     dump_path);
+        std::fflush(stderr);
       }
       logged_env.store(true, std::memory_order_relaxed);
     }
