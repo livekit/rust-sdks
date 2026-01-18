@@ -195,13 +195,14 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
   const uint32_t bitstream_size =
       std::max(kMinBitstreamBufferSize, width_ * height_);
 
-  if (encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_) < 0) {
-    RTC_LOG(LS_ERROR) << "Failed to set output plane format.";
-    return false;
-  }
+  // Set capture plane (encoded bitstream) first so the driver knows codec.
   if (encoder_->setCapturePlaneFormat(codec_pixfmt, width_, height_,
                                       bitstream_size) < 0) {
     RTC_LOG(LS_ERROR) << "Failed to set capture plane format.";
+    return false;
+  }
+  if (encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_) < 0) {
+    RTC_LOG(LS_ERROR) << "Failed to set output plane format.";
     return false;
   }
   encoder_->setBitrate(bitrate_bps_);
