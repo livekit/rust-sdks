@@ -438,9 +438,11 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
       std::fprintf(stderr, "[MMAPI] setProfile(BASELINE): ret=%d\n", ret);
       std::fflush(stderr);
     }
-    ret = encoder_->setLevel(V4L2_MPEG_VIDEO_H264_LEVEL_5_0);
+    // Match the factory-advertised SDP profile-level-id (42e01f == CBP L3.1)
+    // to avoid decoders rejecting due to an SPS level_idc higher than SDP.
+    ret = encoder_->setLevel(V4L2_MPEG_VIDEO_H264_LEVEL_3_1);
     if (verbose) {
-      std::fprintf(stderr, "[MMAPI] setLevel(5.0): ret=%d\n", ret);
+      std::fprintf(stderr, "[MMAPI] setLevel(3.1): ret=%d\n", ret);
       std::fflush(stderr);
     }
   } else {

@@ -153,9 +153,18 @@ int32_t JetsonH264EncoderImpl::InitEncode(
   configuration_.max_bps = codec_.maxBitrate * 1000;
 
   if (!encoder_.IsInitialized()) {
+    // WebRTC will often leave keyFrameInterval at a very large default (e.g.
+    // 3000 frames). On Jetson MMAPI that can translate into "no usable video"
+    // for new subscribers until an IDR happens (unless FORCE_KEY_FRAME works
+    // reliably). Clamp to a sane WebRTC-friendly cadence.
+    //
+    // Default to ~2 seconds between keyframes, and cap at 10 seconds.
     int key_frame_interval = codec_.H264()->keyFrameInterval;
-    if (key_frame_interval <= 0) {
-      key_frame_interval = codec_.maxFramerate * 5;
+    const int fps = std::max<int>(1, static_cast<int>(codec_.maxFramerate));
+    const int default_interval = fps * 2;
+    const int max_interval = fps * 10;
+    if (key_frame_interval <= 0 || key_frame_interval > max_interval) {
+      key_frame_interval = default_interval;
     }
     if (debug) {
       std::fprintf(stderr,
