@@ -5,6 +5,11 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <cstring>
 #include <memory>
 
@@ -333,6 +338,8 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
 
 bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
                                               bool* is_keyframe) {
+  static std::atomic<bool> dumped(false);
+  static std::atomic<bool> logged_env(false);
   v4l2_buffer v4l2_buf = {};
   v4l2_plane planes[VIDEO_MAX_PLANES] = {};
   NvBuffer* buffer = nullptr;
@@ -351,6 +358,46 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
                   static_cast<uint8_t*>(buffer->planes[0].data) + bytesused);
   if (is_keyframe) {
     *is_keyframe = (v4l2_buf.flags & V4L2_BUF_FLAG_KEYFRAME) != 0;
+  }
+
+  if (!dumped.load(std::memory_order_relaxed)) {
+    const char* dump_path = std::getenv("LK_DUMP_H264");
+    if (!dump_path || dump_path[0] == '\0') {
+      if (!logged_env.exchange(true)) {
+        std::fprintf(stderr,
+                     "LK_DUMP_H264 not set; skipping H264 dump (MMAPI).\n");
+        std::fflush(stderr);
+      }
+    } else if (bytesused == 0) {
+      if (!logged_env.exchange(true)) {
+        std::fprintf(stderr,
+                     "LK_DUMP_H264 set to %s but packet is empty (MMAPI)\n",
+                     dump_path);
+        std::fflush(stderr);
+      }
+    } else {
+      std::error_code ec;
+      std::filesystem::path path(dump_path);
+      if (path.has_parent_path()) {
+        std::filesystem::create_directories(path.parent_path(), ec);
+      }
+      std::ofstream out(dump_path, std::ios::binary);
+      if (out.good()) {
+        out.write(reinterpret_cast<const char*>(encoded->data()),
+                  static_cast<std::streamsize>(encoded->size()));
+        std::fprintf(stderr,
+                     "Dumped H264 access unit to %s (MMAPI, bytes=%zu)\n",
+                     dump_path, encoded->size());
+        std::fflush(stderr);
+        dumped.store(true, std::memory_order_relaxed);
+      } else {
+        std::fprintf(stderr,
+                     "Failed to open LK_DUMP_H264 path (MMAPI): %s\n",
+                     dump_path);
+        std::fflush(stderr);
+      }
+      logged_env.store(true, std::memory_order_relaxed);
+    }
   }
 
   if (encoder_->capture_plane.qBuffer(v4l2_buf, nullptr) < 0) {
