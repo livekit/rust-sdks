@@ -211,9 +211,15 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     RTC_LOG(LS_ERROR) << "Failed to set capture plane format.";
     return false;
   }
-  if (encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_, height_) < 0) {
-    RTC_LOG(LS_ERROR) << "Failed to set output plane format.";
-    return false;
+  output_is_nv12_ = false;
+  if (encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_) < 0) {
+    if (encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_, height_) <
+        0) {
+      RTC_LOG(LS_ERROR) << "Failed to set output plane format.";
+      return false;
+    }
+  } else {
+    output_is_nv12_ = true;
   }
   encoder_->setBitrate(bitrate_bps_);
   encoder_->setFrameRate(framerate_, 1);
@@ -231,12 +237,14 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
 
   v4l2_format output_format = {};
   if (encoder_->output_plane.getFormat(output_format) == 0) {
-    output_y_stride_ =
-        output_format.fmt.pix_mp.plane_fmt[0].bytesperline;
-    output_u_stride_ =
-        output_format.fmt.pix_mp.plane_fmt[1].bytesperline;
-    output_v_stride_ =
-        output_format.fmt.pix_mp.plane_fmt[2].bytesperline;
+    output_y_stride_ = output_format.fmt.pix_mp.plane_fmt[0].bytesperline;
+    if (output_is_nv12_) {
+      output_u_stride_ = output_format.fmt.pix_mp.plane_fmt[1].bytesperline;
+      output_v_stride_ = output_u_stride_;
+    } else {
+      output_u_stride_ = output_format.fmt.pix_mp.plane_fmt[1].bytesperline;
+      output_v_stride_ = output_format.fmt.pix_mp.plane_fmt[2].bytesperline;
+    }
   }
   if (output_y_stride_ == 0) {
     output_y_stride_ = width_;
@@ -245,7 +253,7 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     output_u_stride_ = width_ / 2;
   }
   if (output_v_stride_ == 0) {
-    output_v_stride_ = width_ / 2;
+    output_v_stride_ = output_is_nv12_ ? output_u_stride_ : width_ / 2;
   }
   return true;
 }
@@ -324,11 +332,28 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   }
 
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
-  uint8_t* dst_u = static_cast<uint8_t*>(buffer->planes[1].data);
-  uint8_t* dst_v = static_cast<uint8_t*>(buffer->planes[2].data);
   CopyPlane(dst_y, output_y_stride_, src_y, stride_y, width_, height_);
-  CopyPlane(dst_u, output_u_stride_, src_u, stride_u, width_ / 2, height_ / 2);
-  CopyPlane(dst_v, output_v_stride_, src_v, stride_v, width_ / 2, height_ / 2);
+  if (output_is_nv12_) {
+    uint8_t* dst_uv = static_cast<uint8_t*>(buffer->planes[1].data);
+    const int chroma_width = width_ / 2;
+    const int chroma_height = height_ / 2;
+    for (int y = 0; y < chroma_height; ++y) {
+      const uint8_t* src_u_row = src_u + y * stride_u;
+      const uint8_t* src_v_row = src_v + y * stride_v;
+      uint8_t* dst_row = dst_uv + y * output_u_stride_;
+      for (int x = 0; x < chroma_width; ++x) {
+        dst_row[x * 2] = src_u_row[x];
+        dst_row[x * 2 + 1] = src_v_row[x];
+      }
+    }
+  } else {
+    uint8_t* dst_u = static_cast<uint8_t*>(buffer->planes[1].data);
+    uint8_t* dst_v = static_cast<uint8_t*>(buffer->planes[2].data);
+    CopyPlane(dst_u, output_u_stride_, src_u, stride_u, width_ / 2,
+              height_ / 2);
+    CopyPlane(dst_v, output_v_stride_, src_v, stride_v, width_ / 2,
+              height_ / 2);
+  }
 
   for (int plane = 0; plane < buffer->n_planes; ++plane) {
     NvBufSurface* surface = nullptr;
@@ -354,7 +379,9 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   // Use the configured plane strides to satisfy driver expectations.
   planes[0].bytesused = output_y_stride_ * height_;
   planes[1].bytesused = output_u_stride_ * (height_ / 2);
-  planes[2].bytesused = output_v_stride_ * (height_ / 2);
+  if (!output_is_nv12_) {
+    planes[2].bytesused = output_v_stride_ * (height_ / 2);
+  }
 
   if (encoder_->output_plane.qBuffer(v4l2_buf, nullptr) < 0) {
     RTC_LOG(LS_ERROR) << "Failed to queue output buffer.";
