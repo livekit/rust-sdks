@@ -340,6 +340,8 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
                                               bool* is_keyframe) {
   static std::atomic<bool> dumped(false);
   static std::atomic<bool> logged_env(false);
+  static std::atomic<int> verbose_left(10);
+  const bool verbose = std::getenv("LK_DUMP_H264_VERBOSE") != nullptr;
   v4l2_buffer v4l2_buf = {};
   v4l2_plane planes[VIDEO_MAX_PLANES] = {};
   NvBuffer* buffer = nullptr;
@@ -358,6 +360,15 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
                   static_cast<uint8_t*>(buffer->planes[0].data) + bytesused);
   if (is_keyframe) {
     *is_keyframe = (v4l2_buf.flags & V4L2_BUF_FLAG_KEYFRAME) != 0;
+  }
+  if (verbose && verbose_left.load(std::memory_order_relaxed) > 0) {
+    const int remaining = verbose_left.fetch_sub(1);
+    if (remaining > 0) {
+      std::fprintf(stderr,
+                   "MMAPI capture dqBuffer: bytesused=%zu flags=0x%x\n",
+                   bytesused, v4l2_buf.flags);
+      std::fflush(stderr);
+    }
   }
 
   if (!dumped.load(std::memory_order_relaxed)) {

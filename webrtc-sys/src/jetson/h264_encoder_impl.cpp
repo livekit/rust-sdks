@@ -161,6 +161,7 @@ int32_t JetsonH264EncoderImpl::Release() {
 int32_t JetsonH264EncoderImpl::Encode(
     const VideoFrame& input_frame,
     const std::vector<VideoFrameType>* frame_types) {
+  static std::atomic<bool> logged_empty(false);
   if (!encoder_.IsInitialized()) {
     ReportError();
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
@@ -208,6 +209,14 @@ int32_t JetsonH264EncoderImpl::Encode(
                        is_keyframe_needed, &packet, &is_keyframe)) {
     RTC_LOG(LS_ERROR) << "Failed to encode frame with Jetson MMAPI encoder.";
     return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+  if (packet.empty()) {
+    if (!logged_empty.exchange(true)) {
+      RTC_LOG(LS_WARNING)
+          << "Jetson MMAPI encoder returned empty packet; "
+             "skipping output.";
+    }
+    return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
   if (is_keyframe_needed) {
