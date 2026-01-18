@@ -302,6 +302,94 @@ bool JetsonMmapiEncoder::Encode(const uint8_t* src_y,
   return true;
 }
 
+bool JetsonMmapiEncoder::EncodeNV12(const uint8_t* src_y,
+                                    int stride_y,
+                                    const uint8_t* src_uv,
+                                    int stride_uv,
+                                    bool force_keyframe,
+                                    std::vector<uint8_t>* encoded,
+                                    bool* is_keyframe) {
+  static std::atomic<uint64_t> encode_count(0);
+  static std::atomic<uint64_t> success_count(0);
+  static std::atomic<uint64_t> fail_count(0);
+  static std::atomic<bool> logged_first_encode(false);
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+  const uint64_t frame_num = encode_count.fetch_add(1);
+
+  if (!initialized_ || !encoder_) {
+    if (verbose || frame_num < 5) {
+      std::fprintf(stderr,
+                   "[MMAPI] EncodeNV12() called but encoder not initialized "
+                   "(initialized=%d, encoder=%p)\n",
+                   initialized_ ? 1 : 0, static_cast<void*>(encoder_));
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  if (!logged_first_encode.exchange(true)) {
+    std::fprintf(stderr,
+                 "[MMAPI] First EncodeNV12() call: stride_y=%d, stride_uv=%d, "
+                 "force_keyframe=%d\n",
+                 stride_y, stride_uv, force_keyframe ? 1 : 0);
+    std::fflush(stderr);
+  }
+
+  if (force_keyframe && !ForceKeyframe()) {
+    RTC_LOG(LS_WARNING) << "Failed to request keyframe.";
+    if (verbose) {
+      std::fprintf(stderr, "[MMAPI] ForceKeyframe() failed\n");
+      std::fflush(stderr);
+    }
+  }
+
+  if (!QueueOutputBufferNV12(src_y, stride_y, src_uv, stride_uv)) {
+    if (verbose || frame_num < 10) {
+      std::fprintf(stderr,
+                   "[MMAPI] QueueOutputBufferNV12() failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  if (!DequeueCaptureBuffer(encoded, is_keyframe)) {
+    if (verbose || frame_num < 10) {
+      std::fprintf(stderr,
+                   "[MMAPI] DequeueCaptureBuffer() failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  if (!DequeueOutputBuffer()) {
+    if (verbose || frame_num < 10) {
+      std::fprintf(stderr,
+                   "[MMAPI] DequeueOutputBuffer() failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  success_count.fetch_add(1);
+  if (verbose && (frame_num < 5 || frame_num % 100 == 0)) {
+    std::fprintf(stderr,
+                 "[MMAPI] EncodeNV12() succeeded (frame %lu, encoded_size=%zu, "
+                 "keyframe=%d, success=%lu, fail=%lu)\n",
+                 frame_num, encoded->size(), is_keyframe ? *is_keyframe : -1,
+                 success_count.load(), fail_count.load());
+    std::fflush(stderr);
+  }
+
+  return true;
+}
+
 void JetsonMmapiEncoder::SetRates(int framerate, int bitrate_bps) {
   framerate_ = framerate;
   bitrate_bps_ = bitrate_bps;
@@ -667,6 +755,101 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   return true;
 }
 
+bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
+                                               int stride_y,
+                                               const uint8_t* src_uv,
+                                               int stride_uv) {
+  static std::atomic<bool> logged_first_queue(false);
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+
+  if (!output_is_nv12_) {
+    RTC_LOG(LS_ERROR) << "QueueOutputBufferNV12 called but output is not NV12.";
+    if (verbose) {
+      std::fprintf(stderr,
+                   "[MMAPI] QueueOutputBufferNV12: output_is_nv12_=false\n");
+      std::fflush(stderr);
+    }
+    return false;
+  }
+
+  NvBuffer* buffer = encoder_->output_plane.getNthBuffer(next_output_index_);
+  if (!buffer) {
+    RTC_LOG(LS_ERROR) << "Failed to get output buffer.";
+    std::fprintf(stderr,
+                 "[MMAPI] QueueOutputBufferNV12: getNthBuffer(%d) returned "
+                 "null\n",
+                 next_output_index_);
+    std::fflush(stderr);
+    return false;
+  }
+
+  if (!logged_first_queue.exchange(true)) {
+    std::fprintf(stderr,
+                 "[MMAPI] QueueOutputBufferNV12: buffer=%p, n_planes=%d, "
+                 "plane[0].data=%p, plane[0].fmt.bytesperpixel=%d\n",
+                 static_cast<void*>(buffer), buffer->n_planes,
+                 buffer->planes[0].data, buffer->planes[0].fmt.bytesperpixel);
+    std::fflush(stderr);
+  }
+
+  uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
+  uint8_t* dst_uv = static_cast<uint8_t*>(buffer->planes[1].data);
+  CopyPlane(dst_y, output_y_stride_, src_y, stride_y, width_, height_);
+  CopyPlane(dst_uv, output_u_stride_, src_uv, stride_uv, width_,
+            height_ / 2);
+
+  for (int plane = 0; plane < buffer->n_planes; ++plane) {
+    NvBufSurface* surface = nullptr;
+    int map_ret =
+        NvBufSurfaceFromFd(buffer->planes[plane].fd,
+                           reinterpret_cast<void**>(&surface));
+    if (map_ret != 0 || !surface) {
+      RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
+      std::fprintf(stderr,
+                   "[MMAPI] NvBufSurfaceFromFd failed: plane=%d, fd=%d, "
+                   "ret=%d, surface=%p\n",
+                   plane, buffer->planes[plane].fd, map_ret,
+                   static_cast<void*>(surface));
+      std::fflush(stderr);
+      return false;
+    }
+    int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, plane);
+    if (sync_ret != 0) {
+      RTC_LOG(LS_ERROR) << "Failed to sync output plane for device.";
+      std::fprintf(stderr,
+                   "[MMAPI] NvBufSurfaceSyncForDevice failed: plane=%d, "
+                   "ret=%d\n",
+                   plane, sync_ret);
+      std::fflush(stderr);
+      return false;
+    }
+  }
+
+  v4l2_buffer v4l2_buf = {};
+  v4l2_plane planes[VIDEO_MAX_PLANES] = {};
+  v4l2_buf.index = next_output_index_;
+  v4l2_buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+  v4l2_buf.memory = V4L2_MEMORY_MMAP;
+  v4l2_buf.m.planes = planes;
+  v4l2_buf.length = encoder_->output_plane.getNumPlanes();
+  planes[0].bytesused = output_y_stride_ * height_;
+  planes[1].bytesused = output_u_stride_ * (height_ / 2);
+
+  int qbuf_ret = encoder_->output_plane.qBuffer(v4l2_buf, nullptr);
+  if (qbuf_ret < 0) {
+    RTC_LOG(LS_ERROR) << "Failed to queue output buffer.";
+    std::fprintf(stderr,
+                 "[MMAPI] output_plane.qBuffer failed: index=%d, ret=%d, "
+                 "errno=%d (%s)\n",
+                 next_output_index_, qbuf_ret, errno, strerror(errno));
+    std::fflush(stderr);
+    return false;
+  }
+
+  next_output_index_ = (next_output_index_ + 1) % output_buffer_count_;
+  return true;
+}
+
 bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
                                               bool* is_keyframe) {
   static std::atomic<bool> dumped(false);
@@ -760,10 +943,28 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
       }
     } else if (bytesused == 0) {
       if (!logged_env.exchange(true)) {
-        std::fprintf(stderr,
-                     "LK_DUMP_H264 set to %s but packet is empty (MMAPI)\n",
-                     dump_path);
-        std::fflush(stderr);
+        std::error_code ec;
+        std::filesystem::path path(dump_path);
+        if (path.has_parent_path()) {
+          std::filesystem::create_directories(path.parent_path(), ec);
+        }
+
+        // Create/truncate the file so it's obvious the env var was applied,
+        // even if the first dequeued buffers are empty.
+        std::ofstream out(dump_path, std::ios::binary);
+        if (out.good()) {
+          std::fprintf(
+              stderr,
+              "LK_DUMP_H264 set to %s but packet is empty (MMAPI); created "
+              "empty dump file\n",
+              dump_path);
+          std::fflush(stderr);
+        } else {
+          std::fprintf(stderr,
+                       "Failed to open LK_DUMP_H264 path (MMAPI): %s\n",
+                       dump_path);
+          std::fflush(stderr);
+        }
       }
     } else {
       std::error_code ec;

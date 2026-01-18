@@ -11,6 +11,7 @@
 
 #include "absl/strings/match.h"
 #include "absl/types/optional.h"
+#include "api/video/nv12_buffer.h"
 #include "api/video/video_codec_constants.h"
 #include "api/video_codecs/scalability_mode.h"
 #include "common_video/h264/h264_common.h"
@@ -278,36 +279,48 @@ int32_t JetsonH264EncoderImpl::Encode(
     }
   }
 
-  webrtc::scoped_refptr<I420BufferInterface> frame_buffer =
-      input_frame.video_frame_buffer()->ToI420();
+  const auto buffer = input_frame.video_frame_buffer();
+  if (buffer->type() != VideoFrameBuffer::Type::kNV12) {
+    RTC_LOG(LS_ERROR) << "Jetson encoder expects NV12 input.";
+    if (debug || frame_num < 10) {
+      std::fprintf(stderr,
+                   "[H264Impl] Non-NV12 frame received (frame %lu, type=%d)\n",
+                   frame_num, static_cast<int>(buffer->type()));
+      std::fflush(stderr);
+    }
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  rtc::scoped_refptr<NV12BufferInterface> frame_buffer =
+      rtc::scoped_refptr<NV12BufferInterface>(
+          const_cast<NV12BufferInterface*>(buffer->GetNV12()));
   if (!frame_buffer) {
-    RTC_LOG(LS_ERROR) << "Failed to convert frame to I420.";
-    std::fprintf(stderr, "[H264Impl] ToI420() failed (frame %lu)\n", frame_num);
+    RTC_LOG(LS_ERROR) << "Failed to get NV12 buffer.";
+    std::fprintf(stderr, "[H264Impl] GetNV12() failed (frame %lu)\n", frame_num);
     std::fflush(stderr);
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
 
   if (!logged_first_encode.exchange(true)) {
     std::fprintf(stderr,
-                 "[H264Impl] First Encode(): %dx%d, Y stride=%d, U stride=%d, "
-                 "V stride=%d, keyframe_needed=%d\n",
+                 "[H264Impl] First Encode(): %dx%d, Y stride=%d, UV stride=%d, "
+                 "keyframe_needed=%d\n",
                  frame_buffer->width(), frame_buffer->height(),
-                 frame_buffer->StrideY(), frame_buffer->StrideU(),
-                 frame_buffer->StrideV(), is_keyframe_needed ? 1 : 0);
+                 frame_buffer->StrideY(), frame_buffer->StrideUV(),
+                 is_keyframe_needed ? 1 : 0);
     std::fflush(stderr);
   }
 
   std::vector<uint8_t> packet;
   bool is_keyframe = false;
-  if (!encoder_.Encode(frame_buffer->DataY(), frame_buffer->StrideY(),
-                       frame_buffer->DataU(), frame_buffer->StrideU(),
-                       frame_buffer->DataV(), frame_buffer->StrideV(),
-                       is_keyframe_needed, &packet, &is_keyframe)) {
+  if (!encoder_.EncodeNV12(frame_buffer->DataY(), frame_buffer->StrideY(),
+                           frame_buffer->DataUV(), frame_buffer->StrideUV(),
+                           is_keyframe_needed, &packet, &is_keyframe)) {
     encode_fail_count.fetch_add(1);
     RTC_LOG(LS_ERROR) << "Failed to encode frame with Jetson MMAPI encoder.";
     if (debug || frame_num < 10) {
       std::fprintf(stderr,
-                   "[H264Impl] encoder_.Encode() failed (frame %lu, "
+                   "[H264Impl] encoder_.EncodeNV12() failed (frame %lu, "
                    "total_fail=%lu)\n",
                    frame_num, encode_fail_count.load());
       std::fflush(stderr);
@@ -453,7 +466,7 @@ VideoEncoder::EncoderInfo JetsonH264EncoderImpl::GetEncoderInfo() const {
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
-  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kI420};
+  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNV12};
   return info;
 }
 

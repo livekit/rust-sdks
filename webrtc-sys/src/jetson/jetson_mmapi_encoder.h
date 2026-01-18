@@ -40,6 +40,16 @@ class JetsonMmapiEncoder {
               std::vector<uint8_t>* encoded,
               bool* is_keyframe);
 
+  // NV12 input: full-resolution luma plane (Y) + interleaved chroma plane (UV).
+  // This matches Jetson MMAPI encoder output-plane expectations on most Jetsons.
+  bool EncodeNV12(const uint8_t* src_y,
+                  int stride_y,
+                  const uint8_t* src_uv,
+                  int stride_uv,
+                  bool force_keyframe,
+                  std::vector<uint8_t>* encoded,
+                  bool* is_keyframe);
+
   void SetRates(int framerate, int bitrate_bps);
   void SetKeyframeInterval(int keyframe_interval);
 
@@ -56,6 +66,10 @@ class JetsonMmapiEncoder {
                          int stride_u,
                          const uint8_t* src_v,
                          int stride_v);
+  bool QueueOutputBufferNV12(const uint8_t* src_y,
+                             int stride_y,
+                             const uint8_t* src_uv,
+                             int stride_uv);
   bool DequeueCaptureBuffer(std::vector<uint8_t>* encoded, bool* is_keyframe);
   bool DequeueOutputBuffer();
   bool ForceKeyframe();
