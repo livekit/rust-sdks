@@ -281,6 +281,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         let rgb_len = (width as usize * height as usize * 3) as usize;
         let yuv420_len = (width as usize * height as usize * 3 / 2) as usize;
         let looks_like_jpeg = src_len > 2 && src_bytes[0] == 0xFF && src_bytes[1] == 0xD8;
+        let fmt_name = fmt.format().to_string();
 
         // Fast path for YUYV: convert directly to I420 via libyuv
         let t2 = if is_yuyv || src_len == yuyv_len {
@@ -330,8 +331,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             // Handle NV12/NV21/I420 planar buffers if the backend gives raw 4:2:0.
             let src_y = &src_bytes[..(width as usize * height as usize)];
             let src_uv = &src_bytes[(width as usize * height as usize)..];
-            let t2_local = match fmt.format() {
-                FrameFormat::NV21 => unsafe {
+            let t2_local = if fmt_name == "NV21" {
+                unsafe {
                     let _ = yuv_sys::rs_NV21ToI420(
                         src_y.as_ptr(),
                         width as i32,
@@ -347,8 +348,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         height as i32,
                     );
                     Instant::now()
-                },
-                FrameFormat::NV12 => unsafe {
+                }
+            } else if fmt_name == "NV12" {
+                unsafe {
                     let _ = yuv_sys::rs_NV12ToI420(
                         src_y.as_ptr(),
                         width as i32,
@@ -364,8 +366,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         height as i32,
                     );
                     Instant::now()
-                },
-                _ => {
+                }
+            } else {
                     let src_u_start = width as usize * height as usize;
                     let src_v_start = src_u_start + (width as usize * height as usize / 4);
                     unsafe {
@@ -387,7 +389,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         );
                     }
                     Instant::now()
-                }
             };
             t2_local
         } else if looks_like_jpeg {
