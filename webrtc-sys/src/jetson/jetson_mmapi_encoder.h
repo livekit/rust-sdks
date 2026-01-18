@@ -80,6 +80,7 @@ class JetsonMmapiEncoder {
   int output_y_stride_ = 0;
   int output_u_stride_ = 0;
   int output_v_stride_ = 0;
+  bool output_is_nv12_ = false;
 };
 
 }  // namespace livekit
