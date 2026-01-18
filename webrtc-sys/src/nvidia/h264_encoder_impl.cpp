@@ -4,6 +4,10 @@
 #include <algorithm>
 #include <limits>
 #include <string>
+#include <cstdio>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 
 #include "absl/strings/match.h"
 #include "absl/types/optional.h"
@@ -364,6 +368,47 @@ int32_t NvidiaH264EncoderImpl::Encode(
 int32_t NvidiaH264EncoderImpl::ProcessEncodedFrame(
     std::vector<uint8_t>& packet,
     const ::webrtc::VideoFrame& inputFrame) {
+  static std::atomic<bool> dumped(false);
+  static std::atomic<bool> logged_env(false);
+  if (!dumped.load(std::memory_order_relaxed)) {
+    const char* dump_path = std::getenv("LK_DUMP_H264");
+    if (!dump_path || dump_path[0] == '\0') {
+      if (!logged_env.exchange(true)) {
+        std::fprintf(stderr,
+                     "LK_DUMP_H264 not set; skipping H264 dump (NVENC).\n");
+        std::fflush(stderr);
+      }
+    } else if (packet.empty()) {
+      if (!logged_env.exchange(true)) {
+        std::fprintf(stderr,
+                     "LK_DUMP_H264 set to %s but packet is empty (NVENC)\n",
+                     dump_path);
+        std::fflush(stderr);
+      }
+    } else {
+      std::error_code ec;
+      std::filesystem::path path(dump_path);
+      if (path.has_parent_path()) {
+        std::filesystem::create_directories(path.parent_path(), ec);
+      }
+      std::ofstream out(dump_path, std::ios::binary);
+      if (out.good()) {
+        out.write(reinterpret_cast<const char*>(packet.data()),
+                  static_cast<std::streamsize>(packet.size()));
+        std::fprintf(stderr,
+                     "Dumped H264 access unit to %s (NVENC, bytes=%zu)\n",
+                     dump_path, packet.size());
+        std::fflush(stderr);
+        dumped.store(true, std::memory_order_relaxed);
+      } else {
+        std::fprintf(stderr,
+                     "Failed to open LK_DUMP_H264 path (NVENC): %s\n",
+                     dump_path);
+        std::fflush(stderr);
+      }
+      logged_env.store(true, std::memory_order_relaxed);
+    }
+  }
   encoded_image_._encodedWidth = encoder_->GetEncodeWidth();
   encoded_image_._encodedHeight = encoder_->GetEncodeHeight();
   encoded_image_.SetRtpTimestamp(inputFrame.rtp_timestamp());
