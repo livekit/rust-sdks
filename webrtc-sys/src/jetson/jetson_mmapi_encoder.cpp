@@ -317,8 +317,9 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   v4l2_buf.memory = V4L2_MEMORY_MMAP;
   v4l2_buf.m.planes = planes;
   v4l2_buf.length = encoder_->output_plane.getNumPlanes();
-  planes[0].bytesused = width_ * height_;
-  planes[1].bytesused = width_ * height_ / 2;
+  // Use the configured plane strides to satisfy driver expectations.
+  planes[0].bytesused = output_y_stride_ * height_;
+  planes[1].bytesused = output_uv_stride_ * (height_ / 2);
 
   if (encoder_->output_plane.qBuffer(v4l2_buf, nullptr) < 0) {
     RTC_LOG(LS_ERROR) << "Failed to queue output buffer.";
