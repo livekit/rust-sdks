@@ -1,5 +1,6 @@
 #include "jetson_mmapi_encoder.h"
 
+#include <cerrno>
 #include <linux/v4l2-controls.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -9,9 +10,9 @@
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <cstring>
 #include <memory>
 #include <thread>
 
@@ -99,7 +100,20 @@ bool JetsonMmapiEncoder::Initialize(int width,
                                     int framerate,
                                     int bitrate_bps,
                                     int keyframe_interval) {
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+  if (verbose) {
+    std::fprintf(stderr,
+                 "[MMAPI] Initialize called: %dx%d @ %d fps, bitrate=%d bps, "
+                 "keyframe_interval=%d\n",
+                 width, height, framerate, bitrate_bps, keyframe_interval);
+    std::fflush(stderr);
+  }
+
   if (initialized_) {
+    if (verbose) {
+      std::fprintf(stderr, "[MMAPI] Already initialized, returning true\n");
+      std::fflush(stderr);
+    }
     return true;
   }
 
@@ -112,26 +126,78 @@ bool JetsonMmapiEncoder::Initialize(int width,
   auto device = FindEncoderDevice();
   if (!device.has_value()) {
     RTC_LOG(LS_WARNING) << "Jetson MMAPI encoder device not found.";
+    std::fprintf(stderr, "[MMAPI] ERROR: Encoder device not found\n");
+    std::fflush(stderr);
     return false;
+  }
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] Found encoder device: %s\n",
+                 device->c_str());
+    std::fflush(stderr);
   }
 
   if (!CreateEncoder()) {
+    std::fprintf(stderr, "[MMAPI] ERROR: CreateEncoder() failed\n");
+    std::fflush(stderr);
     return false;
   }
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] CreateEncoder() succeeded\n");
+    std::fflush(stderr);
+  }
+
   if (!ConfigureEncoder()) {
+    std::fprintf(stderr, "[MMAPI] ERROR: ConfigureEncoder() failed\n");
+    std::fflush(stderr);
     return false;
   }
+  if (verbose) {
+    std::fprintf(stderr,
+                 "[MMAPI] ConfigureEncoder() succeeded (output_is_nv12=%d, "
+                 "y_stride=%d, u_stride=%d, v_stride=%d)\n",
+                 output_is_nv12_ ? 1 : 0, output_y_stride_, output_u_stride_,
+                 output_v_stride_);
+    std::fflush(stderr);
+  }
+
   if (!SetupPlanes()) {
+    std::fprintf(stderr, "[MMAPI] ERROR: SetupPlanes() failed\n");
+    std::fflush(stderr);
     return false;
   }
+  if (verbose) {
+    std::fprintf(stderr,
+                 "[MMAPI] SetupPlanes() succeeded (output_buffers=%d, "
+                 "capture_buffers=%d)\n",
+                 output_buffer_count_, capture_buffer_count_);
+    std::fflush(stderr);
+  }
+
   if (!QueueCaptureBuffers()) {
+    std::fprintf(stderr, "[MMAPI] ERROR: QueueCaptureBuffers() failed\n");
+    std::fflush(stderr);
     return false;
   }
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] QueueCaptureBuffers() succeeded\n");
+    std::fflush(stderr);
+  }
+
   if (!StartStreaming()) {
+    std::fprintf(stderr, "[MMAPI] ERROR: StartStreaming() failed\n");
+    std::fflush(stderr);
     return false;
+  }
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] StartStreaming() succeeded\n");
+    std::fflush(stderr);
   }
 
   initialized_ = true;
+  std::fprintf(stderr,
+               "[MMAPI] Encoder initialized successfully: %dx%d @ %d fps\n",
+               width_, height_, framerate_);
+  std::fflush(stderr);
   return true;
 }
 
@@ -157,19 +223,83 @@ bool JetsonMmapiEncoder::Encode(const uint8_t* src_y,
                                 bool force_keyframe,
                                 std::vector<uint8_t>* encoded,
                                 bool* is_keyframe) {
+  static std::atomic<uint64_t> encode_count(0);
+  static std::atomic<uint64_t> success_count(0);
+  static std::atomic<uint64_t> fail_count(0);
+  static std::atomic<bool> logged_first_encode(false);
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+  const uint64_t frame_num = encode_count.fetch_add(1);
+
   if (!initialized_ || !encoder_) {
+    if (verbose || frame_num < 5) {
+      std::fprintf(stderr,
+                   "[MMAPI] Encode() called but encoder not initialized "
+                   "(initialized=%d, encoder=%p)\n",
+                   initialized_ ? 1 : 0, static_cast<void*>(encoder_));
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
     return false;
   }
+
+  if (!logged_first_encode.exchange(true)) {
+    std::fprintf(stderr,
+                 "[MMAPI] First Encode() call: stride_y=%d, stride_u=%d, "
+                 "stride_v=%d, force_keyframe=%d\n",
+                 stride_y, stride_u, stride_v, force_keyframe ? 1 : 0);
+    std::fflush(stderr);
+  }
+
   if (force_keyframe && !ForceKeyframe()) {
     RTC_LOG(LS_WARNING) << "Failed to request keyframe.";
+    if (verbose) {
+      std::fprintf(stderr, "[MMAPI] ForceKeyframe() failed\n");
+      std::fflush(stderr);
+    }
   }
+
   if (!QueueOutputBuffer(src_y, stride_y, src_u, stride_u, src_v, stride_v)) {
+    if (verbose || frame_num < 10) {
+      std::fprintf(stderr, "[MMAPI] QueueOutputBuffer() failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
     return false;
   }
+
   if (!DequeueCaptureBuffer(encoded, is_keyframe)) {
+    if (verbose || frame_num < 10) {
+      std::fprintf(stderr,
+                   "[MMAPI] DequeueCaptureBuffer() failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
     return false;
   }
-  return DequeueOutputBuffer();
+
+  if (!DequeueOutputBuffer()) {
+    if (verbose || frame_num < 10) {
+      std::fprintf(stderr, "[MMAPI] DequeueOutputBuffer() failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  success_count.fetch_add(1);
+  if (verbose && (frame_num < 5 || frame_num % 100 == 0)) {
+    std::fprintf(stderr,
+                 "[MMAPI] Encode() succeeded (frame %lu, encoded_size=%zu, "
+                 "keyframe=%d, success=%lu, fail=%lu)\n",
+                 frame_num, encoded->size(), is_keyframe ? *is_keyframe : -1,
+                 success_count.load(), fail_count.load());
+    std::fflush(stderr);
+  }
+
+  return true;
 }
 
 void JetsonMmapiEncoder::SetRates(int framerate, int bitrate_bps) {
@@ -201,42 +331,129 @@ bool JetsonMmapiEncoder::CreateEncoder() {
 }
 
 bool JetsonMmapiEncoder::ConfigureEncoder() {
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
   const uint32_t codec_pixfmt = CodecToV4L2PixFmt(codec_);
   const uint32_t bitstream_size =
       std::max(kMinBitstreamBufferSize, width_ * height_);
 
+  if (verbose) {
+    std::fprintf(stderr,
+                 "[MMAPI] ConfigureEncoder: codec=%s, pixfmt=0x%x, "
+                 "bitstream_size=%u\n",
+                 codec_ == JetsonCodec::kH264 ? "H264" : "H265", codec_pixfmt,
+                 bitstream_size);
+    std::fflush(stderr);
+  }
+
   // Set capture plane (encoded bitstream) first so the driver knows codec.
-  if (encoder_->setCapturePlaneFormat(codec_pixfmt, width_, height_,
-                                      bitstream_size) < 0) {
+  int ret = encoder_->setCapturePlaneFormat(codec_pixfmt, width_, height_,
+                                            bitstream_size);
+  if (ret < 0) {
     RTC_LOG(LS_ERROR) << "Failed to set capture plane format.";
+    std::fprintf(stderr,
+                 "[MMAPI] setCapturePlaneFormat failed: ret=%d, errno=%d "
+                 "(%s)\n",
+                 ret, errno, strerror(errno));
+    std::fflush(stderr);
     return false;
   }
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] setCapturePlaneFormat succeeded\n");
+    std::fflush(stderr);
+  }
+
   output_is_nv12_ = false;
-  if (encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_) < 0) {
-    if (encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_, height_) <
-        0) {
+  ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_);
+  if (ret < 0) {
+    if (verbose) {
+      std::fprintf(stderr,
+                   "[MMAPI] NV12M format failed (ret=%d), trying YUV420M\n",
+                   ret);
+      std::fflush(stderr);
+    }
+    ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_, height_);
+    if (ret < 0) {
       RTC_LOG(LS_ERROR) << "Failed to set output plane format.";
+      std::fprintf(stderr,
+                   "[MMAPI] setOutputPlaneFormat failed for both NV12M and "
+                   "YUV420M: ret=%d, errno=%d (%s)\n",
+                   ret, errno, strerror(errno));
+      std::fflush(stderr);
       return false;
     }
   } else {
     output_is_nv12_ = true;
   }
-  encoder_->setBitrate(bitrate_bps_);
-  encoder_->setFrameRate(framerate_, 1);
-  encoder_->setRateControlMode(V4L2_MPEG_VIDEO_BITRATE_MODE_CBR);
-  encoder_->setIDRInterval(keyframe_interval_);
-  encoder_->setIFrameInterval(keyframe_interval_);
-  encoder_->setInsertSpsPpsAtIdrEnabled(true);
+  if (verbose) {
+    std::fprintf(stderr,
+                 "[MMAPI] setOutputPlaneFormat succeeded (is_nv12=%d)\n",
+                 output_is_nv12_ ? 1 : 0);
+    std::fflush(stderr);
+  }
+
+  // Set encoder parameters and log results
+  ret = encoder_->setBitrate(bitrate_bps_);
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] setBitrate(%d): ret=%d\n", bitrate_bps_, ret);
+    std::fflush(stderr);
+  }
+
+  ret = encoder_->setFrameRate(framerate_, 1);
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] setFrameRate(%d, 1): ret=%d\n", framerate_,
+                 ret);
+    std::fflush(stderr);
+  }
+
+  ret = encoder_->setRateControlMode(V4L2_MPEG_VIDEO_BITRATE_MODE_CBR);
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] setRateControlMode(CBR): ret=%d\n", ret);
+    std::fflush(stderr);
+  }
+
+  ret = encoder_->setIDRInterval(keyframe_interval_);
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] setIDRInterval(%d): ret=%d\n",
+                 keyframe_interval_, ret);
+    std::fflush(stderr);
+  }
+
+  ret = encoder_->setIFrameInterval(keyframe_interval_);
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] setIFrameInterval(%d): ret=%d\n",
+                 keyframe_interval_, ret);
+    std::fflush(stderr);
+  }
+
+  ret = encoder_->setInsertSpsPpsAtIdrEnabled(true);
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] setInsertSpsPpsAtIdrEnabled(true): ret=%d\n",
+                 ret);
+    std::fflush(stderr);
+  }
 
   if (codec_ == JetsonCodec::kH264) {
-    encoder_->setProfile(V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE);
-    encoder_->setLevel(V4L2_MPEG_VIDEO_H264_LEVEL_5_0);
+    ret = encoder_->setProfile(V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE);
+    if (verbose) {
+      std::fprintf(stderr, "[MMAPI] setProfile(BASELINE): ret=%d\n", ret);
+      std::fflush(stderr);
+    }
+    ret = encoder_->setLevel(V4L2_MPEG_VIDEO_H264_LEVEL_5_0);
+    if (verbose) {
+      std::fprintf(stderr, "[MMAPI] setLevel(5.0): ret=%d\n", ret);
+      std::fflush(stderr);
+    }
   } else {
-    encoder_->setProfile(V4L2_MPEG_VIDEO_H265_PROFILE_MAIN);
+    ret = encoder_->setProfile(V4L2_MPEG_VIDEO_H265_PROFILE_MAIN);
+    if (verbose) {
+      std::fprintf(stderr, "[MMAPI] setProfile(MAIN): ret=%d\n", ret);
+      std::fflush(stderr);
+    }
   }
 
   v4l2_format output_format = {};
-  if (encoder_->output_plane.getFormat(output_format) == 0) {
+  ret = encoder_->output_plane.getFormat(output_format);
+  if (ret == 0) {
     output_y_stride_ = output_format.fmt.pix_mp.plane_fmt[0].bytesperline;
     if (output_is_nv12_) {
       output_u_stride_ = output_format.fmt.pix_mp.plane_fmt[1].bytesperline;
@@ -245,7 +462,19 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
       output_u_stride_ = output_format.fmt.pix_mp.plane_fmt[1].bytesperline;
       output_v_stride_ = output_format.fmt.pix_mp.plane_fmt[2].bytesperline;
     }
+    if (verbose) {
+      std::fprintf(stderr,
+                   "[MMAPI] getFormat: num_planes=%d, y_stride=%d, "
+                   "u_stride=%d, v_stride=%d\n",
+                   output_format.fmt.pix_mp.num_planes, output_y_stride_,
+                   output_u_stride_, output_v_stride_);
+      std::fflush(stderr);
+    }
+  } else if (verbose) {
+    std::fprintf(stderr, "[MMAPI] getFormat failed: ret=%d\n", ret);
+    std::fflush(stderr);
   }
+
   if (output_y_stride_ == 0) {
     output_y_stride_ = width_;
   }
@@ -255,6 +484,15 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
   if (output_v_stride_ == 0) {
     output_v_stride_ = output_is_nv12_ ? output_u_stride_ : width_ / 2;
   }
+
+  if (verbose) {
+    std::fprintf(stderr,
+                 "[MMAPI] Final strides: y=%d, u=%d, v=%d (is_nv12=%d)\n",
+                 output_y_stride_, output_u_stride_, output_v_stride_,
+                 output_is_nv12_ ? 1 : 0);
+    std::fflush(stderr);
+  }
+
   return true;
 }
 
@@ -325,10 +563,26 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
                                            int stride_u,
                                            const uint8_t* src_v,
                                            int stride_v) {
+  static std::atomic<bool> logged_first_queue(false);
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+
   NvBuffer* buffer = encoder_->output_plane.getNthBuffer(next_output_index_);
   if (!buffer) {
     RTC_LOG(LS_ERROR) << "Failed to get output buffer.";
+    std::fprintf(stderr,
+                 "[MMAPI] QueueOutputBuffer: getNthBuffer(%d) returned null\n",
+                 next_output_index_);
+    std::fflush(stderr);
     return false;
+  }
+
+  if (!logged_first_queue.exchange(true)) {
+    std::fprintf(stderr,
+                 "[MMAPI] QueueOutputBuffer: buffer=%p, n_planes=%d, "
+                 "plane[0].data=%p, plane[0].fmt.bytesperpixel=%d\n",
+                 static_cast<void*>(buffer), buffer->n_planes,
+                 buffer->planes[0].data, buffer->planes[0].fmt.bytesperpixel);
+    std::fflush(stderr);
   }
 
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
@@ -357,14 +611,27 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
 
   for (int plane = 0; plane < buffer->n_planes; ++plane) {
     NvBufSurface* surface = nullptr;
-    if (NvBufSurfaceFromFd(buffer->planes[plane].fd,
-                           reinterpret_cast<void**>(&surface)) != 0 ||
-        !surface) {
+    int map_ret =
+        NvBufSurfaceFromFd(buffer->planes[plane].fd,
+                           reinterpret_cast<void**>(&surface));
+    if (map_ret != 0 || !surface) {
       RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
+      std::fprintf(stderr,
+                   "[MMAPI] NvBufSurfaceFromFd failed: plane=%d, fd=%d, "
+                   "ret=%d, surface=%p\n",
+                   plane, buffer->planes[plane].fd, map_ret,
+                   static_cast<void*>(surface));
+      std::fflush(stderr);
       return false;
     }
-    if (NvBufSurfaceSyncForDevice(surface, 0, plane) != 0) {
+    int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, plane);
+    if (sync_ret != 0) {
       RTC_LOG(LS_ERROR) << "Failed to sync output plane for device.";
+      std::fprintf(stderr,
+                   "[MMAPI] NvBufSurfaceSyncForDevice failed: plane=%d, "
+                   "ret=%d\n",
+                   plane, sync_ret);
+      std::fflush(stderr);
       return false;
     }
   }
@@ -383,8 +650,14 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
     planes[2].bytesused = output_v_stride_ * (height_ / 2);
   }
 
-  if (encoder_->output_plane.qBuffer(v4l2_buf, nullptr) < 0) {
+  int qbuf_ret = encoder_->output_plane.qBuffer(v4l2_buf, nullptr);
+  if (qbuf_ret < 0) {
     RTC_LOG(LS_ERROR) << "Failed to queue output buffer.";
+    std::fprintf(stderr,
+                 "[MMAPI] output_plane.qBuffer failed: index=%d, ret=%d, "
+                 "errno=%d (%s)\n",
+                 next_output_index_, qbuf_ret, errno, strerror(errno));
+    std::fflush(stderr);
     return false;
   }
 
@@ -397,7 +670,11 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
   static std::atomic<bool> dumped(false);
   static std::atomic<bool> logged_env(false);
   static std::atomic<int> verbose_left(10);
+  static std::atomic<uint64_t> empty_frame_count(0);
+  static std::atomic<uint64_t> timeout_count(0);
+  static std::atomic<uint64_t> total_dequeue_count(0);
   const bool verbose = std::getenv("LK_DUMP_H264_VERBOSE") != nullptr;
+  const bool debug = std::getenv("LK_ENCODER_DEBUG") != nullptr;
   constexpr int kMaxEmptyRetries = 5;
   constexpr int kDequeueTimeoutMs = 1000;
   v4l2_buffer v4l2_buf = {};
@@ -408,22 +685,51 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
   v4l2_buf.m.planes = planes;
   v4l2_buf.length = encoder_->capture_plane.getNumPlanes();
 
+  const uint64_t dequeue_num = total_dequeue_count.fetch_add(1);
   size_t bytesused = 0;
+  int empty_retries = 0;
   for (int attempt = 0; attempt < kMaxEmptyRetries; ++attempt) {
-    if (encoder_->capture_plane.dqBuffer(v4l2_buf, &buffer, nullptr,
-                                         kDequeueTimeoutMs) < 0) {
+    int dq_ret = encoder_->capture_plane.dqBuffer(v4l2_buf, &buffer, nullptr,
+                                                  kDequeueTimeoutMs);
+    if (dq_ret < 0) {
+      timeout_count.fetch_add(1);
       RTC_LOG(LS_ERROR) << "Failed to dequeue capture buffer.";
+      std::fprintf(stderr,
+                   "[MMAPI] capture_plane.dqBuffer failed: ret=%d, errno=%d "
+                   "(%s), timeout_count=%lu, dequeue_num=%lu\n",
+                   dq_ret, errno, strerror(errno), timeout_count.load(),
+                   dequeue_num);
+      std::fflush(stderr);
       return false;
     }
     bytesused = v4l2_buf.m.planes[0].bytesused;
     if (bytesused > 0) {
       break;
     }
+    empty_retries++;
+    empty_frame_count.fetch_add(1);
+    if (debug || dequeue_num < 10) {
+      std::fprintf(stderr,
+                   "[MMAPI] Empty capture buffer (attempt %d/%d, "
+                   "total_empty=%lu)\n",
+                   attempt + 1, kMaxEmptyRetries, empty_frame_count.load());
+      std::fflush(stderr);
+    }
     if (encoder_->capture_plane.qBuffer(v4l2_buf, nullptr) < 0) {
       RTC_LOG(LS_ERROR) << "Failed to requeue empty capture buffer.";
+      std::fprintf(stderr, "[MMAPI] Failed to requeue empty capture buffer\n");
+      std::fflush(stderr);
       return false;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
+  }
+
+  if (bytesused == 0) {
+    std::fprintf(stderr,
+                 "[MMAPI] WARNING: All %d dequeue attempts returned empty "
+                 "buffer (dequeue_num=%lu)\n",
+                 kMaxEmptyRetries, dequeue_num);
+    std::fflush(stderr);
   }
 
   encoded->assign(static_cast<uint8_t*>(buffer->planes[0].data),
@@ -431,12 +737,13 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
   if (is_keyframe) {
     *is_keyframe = (v4l2_buf.flags & V4L2_BUF_FLAG_KEYFRAME) != 0;
   }
-  if (verbose && verbose_left.load(std::memory_order_relaxed) > 0) {
+  if ((verbose || debug) && verbose_left.load(std::memory_order_relaxed) > 0) {
     const int remaining = verbose_left.fetch_sub(1);
     if (remaining > 0) {
       std::fprintf(stderr,
-                   "MMAPI capture dqBuffer: bytesused=%zu flags=0x%x\n",
-                   bytesused, v4l2_buf.flags);
+                   "[MMAPI] capture dqBuffer: bytesused=%zu flags=0x%x "
+                   "index=%d empty_retries=%d\n",
+                   bytesused, v4l2_buf.flags, v4l2_buf.index, empty_retries);
       std::fflush(stderr);
     }
   }
@@ -467,8 +774,10 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
         out.write(reinterpret_cast<const char*>(encoded->data()),
                   static_cast<std::streamsize>(encoded->size()));
         std::fprintf(stderr,
-                     "Dumped H264 access unit to %s (MMAPI, bytes=%zu)\n",
-                     dump_path, encoded->size());
+                     "Dumped H264 access unit to %s (MMAPI, bytes=%zu, "
+                     "keyframe=%d)\n",
+                     dump_path, encoded->size(),
+                     is_keyframe ? (*is_keyframe ? 1 : 0) : -1);
         std::fflush(stderr);
         dumped.store(true, std::memory_order_relaxed);
       } else {
@@ -481,8 +790,14 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
     }
   }
 
-  if (encoder_->capture_plane.qBuffer(v4l2_buf, nullptr) < 0) {
+  int requeue_ret = encoder_->capture_plane.qBuffer(v4l2_buf, nullptr);
+  if (requeue_ret < 0) {
     RTC_LOG(LS_ERROR) << "Failed to requeue capture buffer.";
+    std::fprintf(stderr,
+                 "[MMAPI] Failed to requeue capture buffer: ret=%d, errno=%d "
+                 "(%s)\n",
+                 requeue_ret, errno, strerror(errno));
+    std::fflush(stderr);
     return false;
   }
   return true;
