@@ -1,6 +1,8 @@
 #include "h264_encoder_impl.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <fstream>
 #include <limits>
 #include <string>
 
@@ -217,6 +219,23 @@ int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(
     std::vector<uint8_t>& packet,
     const ::webrtc::VideoFrame& input_frame,
     bool is_keyframe) {
+  static std::atomic<bool> dumped(false);
+  if (!dumped.load(std::memory_order_relaxed)) {
+    const char* dump_path = std::getenv("LK_DUMP_H264");
+    if (dump_path && packet.size() > 0) {
+      std::ofstream out(dump_path, std::ios::binary);
+      if (out.good()) {
+        out.write(reinterpret_cast<const char*>(packet.data()),
+                  static_cast<std::streamsize>(packet.size()));
+        RTC_LOG(LS_INFO) << "Dumped H264 access unit to " << dump_path
+                         << " (bytes=" << packet.size()
+                         << ", keyframe=" << is_keyframe << ")";
+        dumped.store(true, std::memory_order_relaxed);
+      } else {
+        RTC_LOG(LS_WARNING) << "Failed to open LK_DUMP_H264 path: " << dump_path;
+      }
+    }
+  }
   encoded_image_._encodedWidth = codec_.width;
   encoded_image_._encodedHeight = codec_.height;
   encoded_image_.SetRtpTimestamp(input_frame.rtp_timestamp());
