@@ -15,6 +15,7 @@
 #include <memory>
 #include <thread>
 
+#include "NvBufSurface.h"
 #include "NvBuffer.h"
 #include "NvVideoEncoder.h"
 #include "NvUtils.h"
@@ -328,6 +329,20 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   CopyPlane(dst_y, output_y_stride_, src_y, stride_y, width_, height_);
   CopyPlane(dst_u, output_u_stride_, src_u, stride_u, width_ / 2, height_ / 2);
   CopyPlane(dst_v, output_v_stride_, src_v, stride_v, width_ / 2, height_ / 2);
+
+  for (int plane = 0; plane < buffer->n_planes; ++plane) {
+    NvBufSurface* surface = nullptr;
+    if (NvBufSurfaceFromFd(buffer->planes[plane].fd,
+                           reinterpret_cast<void**>(&surface)) != 0 ||
+        !surface) {
+      RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
+      return false;
+    }
+    if (NvBufSurfaceSyncForDevice(surface, 0, plane) != 0) {
+      RTC_LOG(LS_ERROR) << "Failed to sync output plane for device.";
+      return false;
+    }
+  }
 
   v4l2_buffer v4l2_buf = {};
   v4l2_plane planes[VIDEO_MAX_PLANES] = {};
