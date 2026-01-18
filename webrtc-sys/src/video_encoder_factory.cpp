@@ -16,6 +16,9 @@
 
 #include "livekit/video_encoder_factory.h"
 
+#include <cstdlib>
+#include <iostream>
+
 #include "api/environment/environment_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
@@ -62,6 +65,9 @@ using Factory = webrtc::VideoEncoderFactoryTemplate<
     webrtc::LibvpxVp9EncoderTemplateAdapter>;
 
 VideoEncoderFactory::InternalFactory::InternalFactory() {
+#if defined(USE_JETSON_MMAPI_ENCODER)
+  bool jetson_supported = false;
+#endif
 #ifdef __APPLE__
   factories_.push_back(livekit_ffi::CreateObjCVideoEncoderFactory());
 #endif
@@ -73,12 +79,25 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
 #if defined(USE_JETSON_MMAPI_ENCODER)
   if (webrtc::JetsonVideoEncoderFactory::IsSupported()) {
     factories_.push_back(std::make_unique<webrtc::JetsonVideoEncoderFactory>());
+    jetson_supported = true;
   }
 #endif
 
 #if defined(USE_NVIDIA_VIDEO_CODEC)
-  if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
+  const char* allow_nvenc = std::getenv("LK_ALLOW_NVENC");
+  if (!jetson_supported || (allow_nvenc && std::string(allow_nvenc) == "1")) {
+    if (jetson_supported) {
+      std::cout << "Jetson encoder available; skipping NVENC. "
+                   "Set LK_ALLOW_NVENC=1 to override."
+                << std::endl;
+    }
+    if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
     factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
+    }
+  } else {
+    std::cout << "Jetson encoder available; skipping NVENC. "
+                 "Set LK_ALLOW_NVENC=1 to override."
+              << std::endl;
   }
 #endif
 
