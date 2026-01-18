@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <string>
@@ -220,9 +221,26 @@ int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(
     const ::webrtc::VideoFrame& input_frame,
     bool is_keyframe) {
   static std::atomic<bool> dumped(false);
+  static std::atomic<bool> logged_env(false);
   if (!dumped.load(std::memory_order_relaxed)) {
     const char* dump_path = std::getenv("LK_DUMP_H264");
-    if (dump_path && packet.size() > 0) {
+    if (!dump_path || dump_path[0] == '\0') {
+      if (!logged_env.exchange(true)) {
+        RTC_LOG(LS_INFO)
+            << "LK_DUMP_H264 not set; skipping H264 dump.";
+      }
+    } else if (packet.empty()) {
+      if (!logged_env.exchange(true)) {
+        RTC_LOG(LS_WARNING)
+            << "LK_DUMP_H264 set to " << dump_path
+            << " but encoded packet is empty.";
+      }
+    } else {
+      std::error_code ec;
+      std::filesystem::path path(dump_path);
+      if (path.has_parent_path()) {
+        std::filesystem::create_directories(path.parent_path(), ec);
+      }
       std::ofstream out(dump_path, std::ios::binary);
       if (out.good()) {
         out.write(reinterpret_cast<const char*>(packet.data()),
@@ -232,8 +250,10 @@ int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(
                          << ", keyframe=" << is_keyframe << ")";
         dumped.store(true, std::memory_order_relaxed);
       } else {
-        RTC_LOG(LS_WARNING) << "Failed to open LK_DUMP_H264 path: " << dump_path;
+        RTC_LOG(LS_WARNING) << "Failed to open LK_DUMP_H264 path: "
+                            << dump_path;
       }
+      logged_env.store(true, std::memory_order_relaxed);
     }
   }
   encoded_image_._encodedWidth = codec_.width;
