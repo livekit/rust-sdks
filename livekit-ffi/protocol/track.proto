@@ -41,6 +41,7 @@ message CreateAudioTrackResponse {
 
 message GetStatsRequest {
   required uint64 track_handle = 1;
+  optional uint64 request_async_id = 2;
 }
 message GetStatsResponse {
   required uint64 async_id = 1;

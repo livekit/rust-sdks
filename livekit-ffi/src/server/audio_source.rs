@@ -75,7 +75,7 @@ impl FfiAudioSource {
         let buffer = capture.buffer;
 
         let source = self.source.clone();
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(capture.request_async_id);
 
         let data = unsafe {
             let len = buffer.num_channels * buffer.samples_per_channel;

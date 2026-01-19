@@ -30,6 +30,7 @@ message ConnectRequest {
   required string url = 1;
   required string token = 2;
   required RoomOptions options = 3;
+  optional uint64 request_async_id = 4;
 }
 message ConnectResponse {
   required uint64 async_id = 1;
@@ -58,7 +59,10 @@ message ConnectCallback {
 }
 
 // Disconnect from the a room
-message DisconnectRequest { required uint64 room_handle = 1; }
+message DisconnectRequest {
+  required uint64 room_handle = 1;
+  optional uint64 request_async_id = 2;
+}
 message DisconnectResponse { required uint64 async_id = 1; }
 message DisconnectCallback { required uint64 async_id = 1; }
 
@@ -67,6 +71,7 @@ message PublishTrackRequest {
   required uint64 local_participant_handle = 1;
   required uint64 track_handle = 2;
   required TrackPublishOptions options = 3;
+  optional uint64 request_async_id = 4;
 }
 message PublishTrackResponse {
   required uint64 async_id = 1;
@@ -85,6 +90,7 @@ message UnpublishTrackRequest {
   required uint64 local_participant_handle = 1;
   required string track_sid = 2;
   required bool stop_on_unpublish = 3;
+  optional uint64 request_async_id = 4;
 }
 message UnpublishTrackResponse {
   required uint64 async_id = 1;
@@ -103,6 +109,7 @@ message PublishDataRequest {
   repeated string destination_sids = 5 [deprecated=true];
   optional string topic = 6;
   repeated string destination_identities = 7;
+  optional uint64 request_async_id = 8;
 }
 message PublishDataResponse {
   required uint64 async_id = 1;
@@ -118,6 +125,7 @@ message PublishTranscriptionRequest {
   required string participant_identity = 2;
   required string track_id = 3;
   repeated TranscriptionSegment segments = 4;
+  optional uint64 request_async_id = 5;
 }
 message PublishTranscriptionResponse {
   required uint64 async_id = 1;
@@ -133,6 +141,7 @@ message PublishSipDtmfRequest {
   required uint32 code = 2;
   required string digit = 3;
   repeated string destination_identities = 4;
+  optional uint64 request_async_id = 5;
 }
 message PublishSipDtmfResponse {
   required uint64 async_id = 1;
@@ -146,6 +155,7 @@ message PublishSipDtmfCallback {
 message SetLocalMetadataRequest {
   required uint64 local_participant_handle = 1;
   required string metadata = 2;
+  optional uint64 request_async_id = 3;
 }
 message SetLocalMetadataResponse {
   required uint64 async_id = 1;
@@ -160,6 +170,7 @@ message SendChatMessageRequest {
   required string message = 2;
   repeated string destination_identities = 3;
   optional string sender_identity = 4;
+  optional uint64 request_async_id = 5;
 }
 message EditChatMessageRequest {
   required uint64 local_participant_handle = 1;
@@ -167,6 +178,7 @@ message EditChatMessageRequest {
   required ChatMessage original_message = 3;
   repeated string destination_identities = 4;
   optional string sender_identity = 5;
+  optional uint64 request_async_id = 6;
 }
 message SendChatMessageResponse {
   required uint64 async_id = 1;
@@ -183,6 +195,7 @@ message SendChatMessageCallback {
 message SetLocalAttributesRequest {
   required uint64 local_participant_handle = 1;
   repeated AttributesEntry attributes = 2;
+  optional uint64 request_async_id = 3;
 }
 
 message AttributesEntry {
@@ -202,6 +215,7 @@ message SetLocalAttributesCallback {
 message SetLocalNameRequest {
   required uint64 local_participant_handle = 1;
   required string name = 2;
+  optional uint64 request_async_id = 3;
 }
 message SetLocalNameResponse {
   required uint64 async_id = 1;
@@ -220,6 +234,7 @@ message SetSubscribedResponse {}
 
 message GetSessionStatsRequest {
   required uint64 room_handle = 1;
+  optional uint64 request_async_id = 2;
 }
 message GetSessionStatsResponse {
   required uint64 async_id = 1;
@@ -644,6 +659,7 @@ message SendStreamHeaderRequest {
   required DataStream.Header header = 2;
   repeated string destination_identities = 3;
   required string sender_identity = 4;
+  optional uint64 request_async_id = 5;
 }
 
 message SendStreamChunkRequest {
@@ -651,6 +667,7 @@ message SendStreamChunkRequest {
   required DataStream.Chunk chunk = 2;
   repeated string destination_identities = 3;
   required string sender_identity = 4;
+  optional uint64 request_async_id = 5;
 }
 
 message SendStreamTrailerRequest {
@@ -658,6 +675,7 @@ message SendStreamTrailerRequest {
   required DataStream.Trailer trailer = 2;
   repeated string destination_identities = 3;
   required string sender_identity = 4;
+  optional uint64 request_async_id = 5;
 }
 
 message SendStreamHeaderResponse {

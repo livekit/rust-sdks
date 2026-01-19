@@ -179,6 +179,12 @@ impl FfiServer {
         self.next_id.fetch_add(1, Ordering::Relaxed)
     }
 
+    /// Resolves the async_id to use for a request.
+    /// Uses the client-provided ID if available, otherwise generates a new one.
+    pub fn resolve_async_id(&self, request_async_id: Option<u64>) -> FfiHandleId {
+        request_async_id.unwrap_or_else(|| self.next_id())
+    }
+
     pub fn store_handle<T>(&self, id: FfiHandleId, handle: T)
     where
         T: FfiHandle,
