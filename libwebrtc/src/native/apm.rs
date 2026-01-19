@@ -46,17 +46,14 @@ impl AudioProcessingModule {
         sample_rate: i32,
         num_channels: i32,
     ) -> Result<(), RtcError> {
-        // 10ms worth of samples per chunk
         let samples_per_10ms = (sample_rate as usize / 100) * num_channels as usize;
         assert!(
             data.len() % samples_per_10ms == 0 && data.len() >= samples_per_10ms,
             "slice must have a multiple of 10ms worth of samples"
         );
 
-        // Process in 10ms chunks
         for chunk in data.chunks_mut(samples_per_10ms) {
             if unsafe {
-                // using the same slice for src and dst is safe
                 self.sys_handle.pin_mut().process_stream(
                     chunk.as_mut_ptr(),
                     chunk.len(),
@@ -83,17 +80,14 @@ impl AudioProcessingModule {
         sample_rate: i32,
         num_channels: i32,
     ) -> Result<(), RtcError> {
-        // 10ms worth of samples per chunk
         let samples_per_10ms = (sample_rate as usize / 100) * num_channels as usize;
         assert!(
             data.len() % samples_per_10ms == 0 && data.len() >= samples_per_10ms,
             "slice must have a multiple of 10ms worth of samples"
         );
 
-        // Process in 10ms chunks
         for chunk in data.chunks_mut(samples_per_10ms) {
             if unsafe {
-                // using the same slice for src and dst is safe
                 self.sys_handle.pin_mut().process_reverse_stream(
                     chunk.as_mut_ptr(),
                     chunk.len(),
