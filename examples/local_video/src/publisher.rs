@@ -16,9 +16,10 @@ use nokhwa::Camera;
 use std::env;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 use std::time::{Duration, Instant};
+use tokio::sync::watch;
 use yuv_sys;
 
 #[derive(Parser, Debug)]
@@ -103,24 +104,17 @@ async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    let ctrl_c_received = Arc::new(AtomicBool::new(false));
-    tokio::spawn({
-        let ctrl_c_received = ctrl_c_received.clone();
-        async move {
-            let _ = tokio::signal::ctrl_c().await;
-            ctrl_c_received.store(true, Ordering::Release);
-            info!("Ctrl-C received, exiting...");
-            // We intentionally hard-exit here. On some backends `camera.frame()`
-            // can block in a way that prevents a clean async shutdown, and the
-            // tokio runtime may wait indefinitely for background work.
-            std::process::exit(0);
-        }
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        let _ = shutdown_tx.send(true);
+        info!("Ctrl-C received, shutting down...");
     });
 
-    run(args, ctrl_c_received).await
+    run(args, shutdown_rx).await
 }
 
-async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
+async fn run(args: Args, mut shutdown_rx: watch::Receiver<bool>) -> Result<()> {
     if args.list_cameras {
         return list_cameras();
     }
@@ -196,6 +190,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             .set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
     }
     camera.open_stream()?;
+    let camera = Arc::new(Mutex::new(camera));
     let fmt = camera.camera_format();
     let width = fmt.width();
     let height = fmt.height();
@@ -233,19 +228,23 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         .publish_track(LocalTrack::Video(track.clone()), publish_opts(requested_codec))
         .await;
 
-    if let Err(e) = publish_result {
+    let publication = if let Err(e) = publish_result {
         if matches!(requested_codec, VideoCodec::H265) {
             log::warn!("H.265 publish failed ({}). Falling back to H.264...", e);
-            room.local_participant()
+            let publication = room
+                .local_participant()
                 .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
                 .await?;
             info!("Published camera track with H.264 fallback");
+            publication
         } else {
             return Err(e.into());
         }
     } else {
+        let publication = publish_result?;
         info!("Published camera track");
-    }
+        publication
+    };
 
     // Reusable buffer and frame
     let mut frame = VideoFrame {
@@ -290,25 +289,49 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let dump_dir = env::var("LK_DUMP_FRAME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     let dump_raw = env::var("LK_DUMP_FRAME").ok().map_or(false, |v| v == "1");
     let dump_stats = env::var("LK_DUMP_I420_STATS").ok().map_or(false, |v| v == "1");
-    loop {
-        if ctrl_c_received.load(Ordering::Acquire) {
+    'capture: loop {
+        if *shutdown_rx.borrow() {
             break;
         }
         // Wait until the scheduled next frame time
         let wait_start = Instant::now();
-        ticker.tick().await;
+        tokio::select! {
+            _ = shutdown_rx.changed() => {
+                if *shutdown_rx.borrow() {
+                    break 'capture;
+                }
+            }
+            _ = ticker.tick() => {}
+        }
         let iter_start = Instant::now();
 
         // Get frame as RGB24 (decoded by nokhwa if needed)
         let t0 = Instant::now();
-        let frame_buf = match camera.frame() {
-            Ok(f) => f,
-            Err(e) => {
-                // If SIGINT interrupted a blocking camera call, exit gracefully.
-                if ctrl_c_received.load(Ordering::Acquire) {
-                    break;
+        let frame_task = {
+            let camera = camera.clone();
+            tokio::task::spawn_blocking(move || {
+                let mut camera = camera.lock().expect("camera lock");
+                camera.frame()
+            })
+        };
+        let frame_buf = tokio::select! {
+            _ = shutdown_rx.changed() => {
+                frame_task.abort();
+                break 'capture;
+            }
+            res = frame_task => {
+                match res {
+                    Ok(Ok(f)) => f,
+                    Ok(Err(e)) => {
+                        if *shutdown_rx.borrow() {
+                            break 'capture;
+                        }
+                        return Err(e.into());
+                    }
+                    Err(e) => {
+                        return Err(anyhow::anyhow!("camera capture task failed: {}", e));
+                    }
                 }
-                return Err(e.into());
             }
         };
         let t1 = Instant::now();
@@ -704,6 +727,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             sum_iter_ms = 0.0;
             last_fps_log = Instant::now();
         }
+    }
+
+    info!("Stopping published tracks...");
+    if let Err(e) = room.local_participant().unpublish_track(&publication.sid()).await {
+        log::warn!("Failed to unpublish camera track: {}", e);
+    }
+    if let Err(e) = room.close().await {
+        log::warn!("Failed to close room: {}", e);
     }
 
     Ok(())
