@@ -15,30 +15,31 @@
 use super::packetizer::{Packetizer, PacketizerFrame};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo},
-    e2ee::EncryptionProvider,
-    local::manager::{LocalTrackState, OutputEvent, UnpublishInitiator, UnpublishRequestEvent},
-    packet::{self, Extensions, UserTimestampExt},
+    e2ee::{EncryptionError, EncryptionProvider},
+    local::packetizer::PacketizerError,
+    packet::{self, Extensions, Packet, UserTimestampExt},
 };
+use from_variants::FromVariants;
 use std::sync::Arc;
-use tokio::sync::{mpsc, watch};
-
+use thiserror::Error;
 /// Options for creating a [`Pipeline`].
 pub(super) struct PipelineOptions {
-    pub e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
-    pub state_rx: watch::Receiver<LocalTrackState>,
-    pub frame_rx: mpsc::Receiver<DataTrackFrame>,
-    pub event_out_tx: mpsc::WeakSender<OutputEvent>,
+    pub e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
 }
 
 /// Pipeline for an individual published data track.
 pub(super) struct Pipeline {
-    packetizer: Packetizer,
     e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
-    info: Arc<DataTrackInfo>,
-    state_rx: watch::Receiver<LocalTrackState>,
-    frame_rx: mpsc::Receiver<DataTrackFrame>,
-    event_out_tx: mpsc::WeakSender<OutputEvent>,
+    packetizer: Packetizer,
+}
+
+#[derive(Debug, Error, FromVariants)]
+pub(super) enum PipelineError {
+    #[error(transparent)]
+    Packetizer(PacketizerError),
+    #[error(transparent)]
+    Encryption(EncryptionError),
 }
 
 impl Pipeline {
@@ -46,75 +47,30 @@ impl Pipeline {
     pub fn new(options: PipelineOptions) -> Self {
         debug_assert_eq!(options.info.uses_e2ee, options.e2ee_provider.is_some());
         let packetizer = Packetizer::new(options.info.pub_handle, Self::TRANSPORT_MTU);
-        Self {
-            packetizer,
-            e2ee_provider: options.e2ee_provider,
-            info: options.info,
-            state_rx: options.state_rx,
-            frame_rx: options.frame_rx,
-            event_out_tx: options.event_out_tx,
-        }
+        Self { e2ee_provider: options.e2ee_provider, packetizer }
     }
 
-    /// Run the pipeline task, consuming self.
-    pub async fn run(mut self) {
-        log::debug!("Pipeline task started: sid={}", self.info.sid);
-        let mut state = *self.state_rx.borrow();
-        while state.is_published() {
-            tokio::select! {
-                biased;  // State updates take priority
-                _ = self.state_rx.changed() => {
-                    state = *self.state_rx.borrow();
-                },
-                Some(frame) = self.frame_rx.recv() => {
-                    self.publish_frame(frame);
-                },
-                else => break
-            }
-        }
-        if let LocalTrackState::Unpublished { initiator: UnpublishInitiator::Client } = state {
-            let event = UnpublishRequestEvent { handle: self.info.pub_handle };
-            if let Some(event_out_tx) = self.event_out_tx.upgrade() {
-                _ = event_out_tx.try_send(event.into());
-            }
-        }
-        log::debug!("Pipeline task ended: sid={}", self.info.sid);
-    }
-
-    fn publish_frame(&mut self, frame: DataTrackFrame) {
-        let Some(frame) = self.encrypt_if_needed(frame.into()) else { return };
-
-        let packets = match self.packetizer.packetize(frame) {
-            Ok(packets) => packets,
-            Err(err) => {
-                log::error!("Failed to packetize frame: {}", err);
-                return;
-            }
-        };
-        let packets: Vec<_> = packets.into_iter().map(|packet| packet.serialize()).collect();
-        if let Some(event_out_tx) = self.event_out_tx.upgrade() {
-            _ = event_out_tx
-                .try_send(packets.into())
-                .inspect_err(|err| log::debug!("Cannot send packet to transport: {}", err));
-        }
+    pub fn process_frame(&mut self, frame: DataTrackFrame) -> Result<Vec<Packet>, PipelineError> {
+        let frame = self.encrypt_if_needed(frame.into())?;
+        let frame = self.packetizer.packetize(frame)?;
+        Ok(frame)
     }
 
     /// Encrypt the frame's payload if E2EE is enabled for this track.
-    fn encrypt_if_needed(&self, mut frame: PacketizerFrame) -> Option<PacketizerFrame> {
-        let Some(e2ee_provider) = &self.e2ee_provider else { return frame.into() };
-
-        let encrypted = match e2ee_provider.encrypt(frame.payload) {
-            Ok(payload) => payload,
-            Err(err) => {
-                log::error!("{}", err);
-                return None;
-            }
+    fn encrypt_if_needed(
+        &self,
+        mut frame: PacketizerFrame,
+    ) -> Result<PacketizerFrame, EncryptionError> {
+        let Some(e2ee_provider) = &self.e2ee_provider else {
+            return Ok(frame.into());
         };
+
+        let encrypted = e2ee_provider.encrypt(frame.payload)?;
 
         frame.payload = encrypted.payload;
         frame.extensions.e2ee =
             packet::E2eeExt { key_index: encrypted.key_index, iv: encrypted.iv }.into();
-        frame.into()
+        Ok(frame)
     }
 
     /// Maximum transmission unit (MTU) of the transport.
@@ -136,47 +92,30 @@ impl From<DataTrackFrame> for PacketizerFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bytes::Bytes;
     use fake::{Fake, Faker};
+    use bytes::Bytes;
 
-    fn make_pipeline(
-    ) -> (watch::Sender<LocalTrackState>, mpsc::Sender<DataTrackFrame>, mpsc::Receiver<OutputEvent>)
-    {
-        let (state_tx, state_rx) = watch::channel(LocalTrackState::Published);
-        let (frame_tx, frame_rx) = mpsc::channel(32);
-        let (event_out_tx, event_out_rx) = mpsc::channel(32);
-
+    #[test]
+    fn test_process_frame() {
         let mut info: DataTrackInfo = Faker.fake();
         info.uses_e2ee = false;
 
-        let options = PipelineOptions {
-            e2ee_provider: None,
-            info: info.into(),
-            state_rx,
-            frame_rx,
-            event_out_tx: event_out_tx.downgrade(),
+        let options = PipelineOptions { info: info.into(), e2ee_provider: None };
+        let mut pipeline = Pipeline::new(options);
+
+        let repeated_byte: u8 = Faker.fake();
+        let frame = DataTrackFrame {
+            payload: Bytes::from(vec![repeated_byte; 32_000]),
+            user_timestamp: Faker.fake(),
         };
-        let pipeline = Pipeline::new(options);
-        livekit_runtime::spawn(pipeline.run());
 
-        (state_tx, frame_tx, event_out_rx)
-    }
+        let packets = pipeline.process_frame(frame).unwrap();
+        assert_eq!(packets.len(), 3);
 
-    #[tokio::test]
-    async fn test_publish_frame() {
-        let (_, frame_tx, mut event_out_rx) = make_pipeline();
-
-        let frame =
-            DataTrackFrame { payload: Bytes::from(vec![0xFA; 256]), user_timestamp: Faker.fake() };
-        frame_tx.send(frame).await.unwrap();
-
-        while let Some(out_event) = event_out_rx.recv().await {
-            let OutputEvent::PacketsAvailable(packets) = out_event else {
-                panic!("Unexpected event")
-            };
-            let Some(packet) = packets.first() else { panic!("Expected one packet") };
-            assert!(!packet.is_empty());
-            break;
+        for packet in packets {
+            assert!(packet.header.extensions.e2ee.is_none());
+            assert!(!packet.payload.is_empty());
+            assert!(packet.payload.iter().all(|byte| *byte == repeated_byte));
         }
     }
 }

@@ -16,7 +16,6 @@ use crate::{
     api::{DataTrack, DataTrackFrame, DataTrackInfo, InternalError},
     track::DataTrackInner,
 };
-use manager::{LocalTrackState, UnpublishInitiator};
 use std::{fmt, marker::PhantomData, sync::Arc};
 use thiserror::Error;
 use tokio::sync::{mpsc, watch};
@@ -94,7 +93,7 @@ impl DataTrack<Local> {
     /// Once the track has been unpublished, calls to [`Self::publish`] will fail.
     ///
     pub fn is_published(&self) -> bool {
-        self.inner().state_tx.borrow().is_published()
+        *self.inner().published_tx.borrow()
     }
 
     /// Unpublishes the track.
@@ -106,15 +105,12 @@ impl DataTrack<Local> {
 #[derive(Debug, Clone)]
 pub(crate) struct LocalTrackInner {
     pub frame_tx: mpsc::Sender<DataTrackFrame>,
-    pub state_tx: watch::Sender<LocalTrackState>,
+    pub published_tx: watch::Sender<bool>,
 }
 
 impl LocalTrackInner {
     fn local_unpublish(&self) {
-        self.state_tx
-            .send(LocalTrackState::Unpublished { initiator: UnpublishInitiator::Client })
-            .inspect_err(|err| log::error!("Failed to update state to unsubscribed: {err}"))
-            .ok();
+        _ = self.published_tx.send(false);
     }
 }
 

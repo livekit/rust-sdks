@@ -55,7 +55,7 @@ impl TryFrom<proto::UnpublishDataTrackResponse> for UnpublishEvent {
     fn try_from(msg: proto::UnpublishDataTrackResponse) -> Result<Self, Self::Error> {
         let handle: Handle =
             msg.info.context("Missing info")?.pub_handle.try_into().map_err(anyhow::Error::from)?;
-        Ok(Self { handle })
+        Ok(Self { handle, client_initiated: false })
     }
 }
 

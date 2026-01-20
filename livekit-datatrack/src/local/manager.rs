@@ -17,7 +17,7 @@ use super::{
     LocalTrackInner,
 };
 use crate::{
-    api::{DataTrackInfo, DataTrackOptions, InternalError, PublishError},
+    api::{DataTrackFrame, DataTrackInfo, DataTrackOptions, InternalError, PublishError},
     e2ee::EncryptionProvider,
     local::LocalDataTrack,
     packet::{self, Handle},
@@ -59,12 +59,13 @@ pub struct PublishResultEvent {
     pub result: Result<DataTrackInfo, PublishError>,
 }
 
-/// SFU notification that a track published by the local participant
-/// has been unpublished.
+/// Track has been unpublished.
 #[derive(Debug)]
 pub struct UnpublishEvent {
     /// Publisher handle of the track that was unpublished.
     pub handle: Handle,
+    /// Whether the unpublish was initiated by the client.
+    pub client_initiated: bool,
 }
 
 /// Local participant requested to publish a track.
@@ -115,7 +116,7 @@ pub struct ManagerOptions {
 /// System for managing data track publications.
 pub struct Manager {
     e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
-    event_in_tx: mpsc::WeakSender<InputEvent>,
+    event_in_tx: mpsc::Sender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
     handle_allocator: packet::HandleAllocator,
@@ -138,7 +139,7 @@ impl Manager {
         let event_in = ManagerInput { event_in_tx: event_in_tx.clone() };
         let manager = Manager {
             e2ee_provider: options.e2ee_provider,
-            event_in_tx: event_in_tx.downgrade(),
+            event_in_tx,
             event_in_rx,
             event_out_tx,
             handle_allocator: packet::HandleAllocator::default(),
@@ -158,9 +159,9 @@ impl Manager {
         while let Some(event) = self.event_in_rx.recv().await {
             log::debug!("Input event: {:?}", event);
             match event {
-                InputEvent::Publish(event) => self.handle_publish(event),
-                InputEvent::PublishResult(event) => self.handle_publish_result(event),
-                InputEvent::Unpublish(event) => self.handle_unpublished(event),
+                InputEvent::Publish(event) => self.handle_publish(event).await,
+                InputEvent::PublishResult(event) => self.handle_publish_result(event).await,
+                InputEvent::Unpublish(event) => self.handle_unpublished(event).await,
                 InputEvent::Shutdown => break,
             }
         }
@@ -168,7 +169,7 @@ impl Manager {
         log::debug!("Task ended");
     }
 
-    fn handle_publish(&mut self, event: PublishEvent) {
+    async fn handle_publish(&mut self, event: PublishEvent) {
         let Some(handle) = self.handle_allocator.get() else {
             _ = event.result_tx.send(Err(PublishError::LimitReached));
             return;
@@ -187,12 +188,12 @@ impl Manager {
             name: event.options.name,
             uses_e2ee: self.e2ee_provider.is_some() && !event.options.disable_e2ee,
         };
-        _ = self.event_out_tx.try_send(publish_requested.into()); // TODO: check for error.
+        _ = self.event_out_tx.send(publish_requested.into()).await;
         self.schedule_publish_timeout(handle);
     }
 
     fn schedule_publish_timeout(&self, handle: Handle) {
-        let event_in_tx = self.event_in_tx.clone();
+        let event_in_tx = self.event_in_tx.downgrade();
         let emit_timeout = async move {
             time::sleep(Self::PUBLISH_TIMEOUT).await;
             let Some(tx) = event_in_tx.upgrade() else { return };
@@ -202,7 +203,7 @@ impl Manager {
         livekit_runtime::spawn(emit_timeout);
     }
 
-    fn handle_publish_result(&mut self, event: PublishResultEvent) {
+    async fn handle_publish_result(&mut self, event: PublishResultEvent) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
             log::warn!("No descriptor for {}", event.handle);
             return;
@@ -220,44 +221,50 @@ impl Manager {
     }
 
     fn create_local_track(&mut self, info: DataTrackInfo) -> LocalDataTrack {
-        let (frame_tx, frame_rx) = mpsc::channel(4); // TODO: tune
-        let (state_tx, state_rx) = watch::channel(LocalTrackState::Published);
         let info = Arc::new(info);
-
         let e2ee_provider =
             if info.uses_e2ee() { self.e2ee_provider.as_ref().map(Arc::clone) } else { None };
-        let options = PipelineOptions {
-            e2ee_provider,
+
+        let pipeline_opts = PipelineOptions { e2ee_provider, info: info.clone() };
+        let pipeline = Pipeline::new(pipeline_opts);
+
+        let (frame_tx, frame_rx) = mpsc::channel(4); // TODO: tune
+        let (published_tx, published_rx) = watch::channel(true);
+
+        let track_task = TrackTask {
             info: info.clone(),
+            pipeline,
+            published_rx,
             frame_rx,
-            state_rx,
-            event_out_tx: self.event_out_tx.downgrade(),
+            event_in_tx: self.event_in_tx.clone(),
+            event_out_tx: self.event_out_tx.clone(),
         };
-        let pipeline = Pipeline::new(options);
-        let pipeline_handle = livekit_runtime::spawn(pipeline.run());
+        let task_handle = livekit_runtime::spawn(track_task.run());
 
         self.descriptors.insert(
             info.pub_handle,
-            Descriptor::Active { state_tx: state_tx.clone(), pipeline_handle },
+            Descriptor::Active { published_tx: published_tx.clone(), task_handle },
         );
 
-        let inner = LocalTrackInner { frame_tx, state_tx };
+        let inner = LocalTrackInner { frame_tx, published_tx };
         LocalDataTrack::new(info, inner)
     }
 
-    fn handle_unpublished(&mut self, event: UnpublishEvent) {
+    async fn handle_unpublished(&mut self, event: UnpublishEvent) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
-            log::warn!("No descriptor for track {}", event.handle);
             return;
         };
-        let Descriptor::Active { state_tx, .. } = descriptor else {
-            log::warn!("Cannot unpublish pending track {}", event.handle);
+        let Descriptor::Active { published_tx, .. } = descriptor else {
             return;
         };
-        if !state_tx.borrow().is_published() {
-            return;
+        if !*published_tx.borrow() {
+            _ = published_tx.send(false);
         }
-        _ = state_tx.send(LocalTrackState::Unpublished { initiator: UnpublishInitiator::Sfu });
+        if event.client_initiated {
+            // Inform the SFU if client initiated.
+            let event = UnpublishRequestEvent { handle: event.handle };
+            _ = self.event_out_tx.send(event.into()).await;
+        }
     }
 
     /// Performs cleanup before the task ends.
@@ -267,11 +274,9 @@ impl Manager {
                 Descriptor::Pending(result_tx) => {
                     _ = result_tx.send(Err(PublishError::Disconnected))
                 }
-                Descriptor::Active { state_tx, pipeline_handle } => {
-                    _ = state_tx.send(LocalTrackState::Unpublished {
-                        initiator: UnpublishInitiator::Shutdown,
-                    });
-                    pipeline_handle.await;
+                Descriptor::Active { published_tx, task_handle } => {
+                    _ = published_tx.send(false);
+                    task_handle.await;
                 }
             }
         }
@@ -279,6 +284,52 @@ impl Manager {
 
     /// How long to wait for an SFU response for a track publication before timeout.
     const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
+}
+
+/// Task for an individual published data track.
+struct TrackTask {
+    info: Arc<DataTrackInfo>,
+    pipeline: Pipeline,
+    published_rx: watch::Receiver<bool>,
+    frame_rx: mpsc::Receiver<DataTrackFrame>,
+    event_in_tx: mpsc::Sender<InputEvent>,
+    event_out_tx: mpsc::Sender<OutputEvent>,
+}
+
+impl TrackTask {
+    async fn run(mut self) {
+        log::debug!("Track task started: sid={}", self.info.sid);
+
+        let mut is_published = *self.published_rx.borrow();
+        while is_published {
+            tokio::select! {
+                _ = self.published_rx.changed() => {
+                    is_published = *self.published_rx.borrow();
+                }
+                Some(frame) = self.frame_rx.recv() => self.process_and_send(frame)
+            }
+        }
+
+        let event = UnpublishEvent { handle: self.info.pub_handle, client_initiated: true };
+        _ = self.event_in_tx.send(event.into()).await;
+
+        log::debug!("Track task ended: sid={}", self.info.sid);
+    }
+
+    fn process_and_send(&mut self, frame: DataTrackFrame) {
+        let Ok(packets) = self
+            .pipeline
+            .process_frame(frame)
+            .inspect_err(|err| log::debug!("Process failed: {}", err))
+        else {
+            return;
+        };
+        let packets: Vec<_> = packets.into_iter().map(|packet| packet.serialize()).collect();
+        _ = self
+            .event_out_tx
+            .try_send(packets.into())
+            .inspect_err(|err| log::debug!("Cannot send packet to transport: {}", err));
+    }
 }
 
 #[derive(Debug)]
@@ -291,31 +342,9 @@ enum Descriptor {
     Pending(oneshot::Sender<Result<LocalDataTrack, PublishError>>),
     /// Publication is active.
     ///
-    /// The associated channel is used to send state updates to the track's task.
+    /// The associated channel is used to end the track task.
     ///
-    Active {
-        state_tx: watch::Sender<LocalTrackState>,
-        pipeline_handle: livekit_runtime::JoinHandle<()>,
-    },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum UnpublishInitiator {
-    Client,
-    Sfu,
-    Shutdown,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum LocalTrackState {
-    Published,
-    Unpublished { initiator: UnpublishInitiator },
-}
-
-impl LocalTrackState {
-    pub fn is_published(&self) -> bool {
-        matches!(self, Self::Published)
-    }
+    Active { published_tx: watch::Sender<bool>, task_handle: livekit_runtime::JoinHandle<()> },
 }
 
 /// Channel for sending [`InputEvent`]s to [`Manager`].
