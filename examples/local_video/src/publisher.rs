@@ -339,11 +339,99 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 let (stride_y, stride_u, stride_v) = buf.strides();
                 let (data_y, data_u, data_v) = buf.data_mut();
 
+                // IMPORTANT: prefer content sniffing over length heuristics.
+                // MJPEG buffers can sometimes have a size that coincidentally equals
+                // width*height*2 (YUYV size). If it starts with JPEG SOI, treat it
+                // as MJPEG regardless of size.
+                if looks_like_jpeg {
+                    // Try fast MJPEG->I420 via libyuv if available; fallback to image crate
+                    let mut used_fast_mjpeg = false;
+                    if dump_raw && !dumped_frame {
+                        let _ = std::fs::create_dir_all(&dump_dir);
+                        let dump_path = format!("{}/frame0.mjpeg", dump_dir);
+                        let _ = std::fs::write(&dump_path, src_bytes);
+                        log::info!("Dumped raw MJPEG to {}", dump_path);
+                    }
+                    let t2_try = unsafe {
+                        let ret = yuv_sys::rs_MJPGToI420(
+                            src_bytes.as_ptr(),
+                            src_len,
+                            data_y.as_mut_ptr(),
+                            stride_y as i32,
+                            data_u.as_mut_ptr(),
+                            stride_u as i32,
+                            data_v.as_mut_ptr(),
+                            stride_v as i32,
+                            width as i32,
+                            height as i32,
+                            width as i32,
+                            height as i32,
+                        );
+                        if ret == 0 {
+                            used_fast_mjpeg = true;
+                            Instant::now()
+                        } else {
+                            if (dump_raw || dump_stats) && !logged_mjpg_libyuv_fail {
+                                log::warn!(
+                                    "libyuv MJPGToI420 failed (ret={}); falling back to decode+RGB24ToI420",
+                                    ret
+                                );
+                                logged_mjpg_libyuv_fail = true;
+                            }
+                            t1
+                        }
+                    };
+                    if used_fast_mjpeg {
+                        t2_try
+                    } else {
+                        // Fallback: decode MJPEG using image crate then RGB24->I420
+                        match image::load_from_memory(src_bytes) {
+                            Ok(img_dyn) => {
+                                let rgb8 = img_dyn.to_rgb8();
+                                let dec_w = rgb8.width() as u32;
+                                let dec_h = rgb8.height() as u32;
+                                if dec_w != width || dec_h != height {
+                                    log::warn!(
+                                        "Decoded MJPEG size {}x{} differs from requested {}x{}; dropping frame",
+                                        dec_w, dec_h, width, height
+                                    );
+                                    continue;
+                                }
+                                unsafe {
+                                    let _ = yuv_sys::rs_RGB24ToI420(
+                                        rgb8.as_raw().as_ptr(),
+                                        (dec_w * 3) as i32,
+                                        data_y.as_mut_ptr(),
+                                        stride_y as i32,
+                                        data_u.as_mut_ptr(),
+                                        stride_u as i32,
+                                        data_v.as_mut_ptr(),
+                                        stride_v as i32,
+                                        width as i32,
+                                        height as i32,
+                                    );
+                                }
+                                Instant::now()
+                            }
+                            Err(e2) => {
+                                if !logged_mjpeg_fallback {
+                                    log::error!(
+                                        "MJPEG decode failed; unknown buffer format (len={}): {}",
+                                        src_len,
+                                        e2
+                                    );
+                                    logged_mjpeg_fallback = true;
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                }
                 // Fast path for YUYV: convert directly to I420 via libyuv
-                if is_yuyv || src_len == yuyv_len {
+                else if is_yuyv || src_len == yuyv_len {
                     if !is_yuyv && !logged_mjpeg_fallback {
                         log::warn!(
-                            "Frame format reported {:?} but buffer size matches YUYV; using YUYV path",
+                            "Frame format reported {:?} but buffer size matches YUYV and does not look like JPEG; using YUYV path",
                             fmt.format()
                         );
                         logged_mjpeg_fallback = true;
@@ -444,89 +532,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                             );
                         }
                         Instant::now()
-                    }
-                } else if looks_like_jpeg {
-                    // Try fast MJPEG->I420 via libyuv if available; fallback to image crate
-                    let mut used_fast_mjpeg = false;
-                    if dump_raw && !dumped_frame {
-                        let _ = std::fs::create_dir_all(&dump_dir);
-                        let dump_path = format!("{}/frame0.mjpeg", dump_dir);
-                        let _ = std::fs::write(&dump_path, src_bytes);
-                        log::info!("Dumped raw MJPEG to {}", dump_path);
-                    }
-                    let t2_try = unsafe {
-                        let ret = yuv_sys::rs_MJPGToI420(
-                            src_bytes.as_ptr(),
-                            src_len,
-                            data_y.as_mut_ptr(),
-                            stride_y as i32,
-                            data_u.as_mut_ptr(),
-                            stride_u as i32,
-                            data_v.as_mut_ptr(),
-                            stride_v as i32,
-                            width as i32,
-                            height as i32,
-                            width as i32,
-                            height as i32,
-                        );
-                        if ret == 0 {
-                            used_fast_mjpeg = true;
-                            Instant::now()
-                        } else {
-                            if (dump_raw || dump_stats) && !logged_mjpg_libyuv_fail {
-                                log::warn!(
-                                    "libyuv MJPGToI420 failed (ret={}); falling back to decode+RGB24ToI420",
-                                    ret
-                                );
-                                logged_mjpg_libyuv_fail = true;
-                            }
-                            t1
-                        }
-                    };
-                    if used_fast_mjpeg {
-                        t2_try
-                    } else {
-                        // Fallback: decode MJPEG using image crate then RGB24->I420
-                        match image::load_from_memory(src_bytes) {
-                            Ok(img_dyn) => {
-                                let rgb8 = img_dyn.to_rgb8();
-                                let dec_w = rgb8.width() as u32;
-                                let dec_h = rgb8.height() as u32;
-                                if dec_w != width || dec_h != height {
-                                    log::warn!(
-                                        "Decoded MJPEG size {}x{} differs from requested {}x{}; dropping frame",
-                                        dec_w, dec_h, width, height
-                                    );
-                                    continue;
-                                }
-                                unsafe {
-                                    let _ = yuv_sys::rs_RGB24ToI420(
-                                        rgb8.as_raw().as_ptr(),
-                                        (dec_w * 3) as i32,
-                                        data_y.as_mut_ptr(),
-                                        stride_y as i32,
-                                        data_u.as_mut_ptr(),
-                                        stride_u as i32,
-                                        data_v.as_mut_ptr(),
-                                        stride_v as i32,
-                                        width as i32,
-                                        height as i32,
-                                    );
-                                }
-                                Instant::now()
-                            }
-                            Err(e2) => {
-                                if !logged_mjpeg_fallback {
-                                    log::error!(
-                                        "MJPEG decode failed; unknown buffer format (len={}): {}",
-                                        src_len,
-                                        e2
-                                    );
-                                    logged_mjpeg_fallback = true;
-                                }
-                                continue;
-                            }
-                        }
                     }
                 } else {
                     if !logged_mjpeg_fallback {
