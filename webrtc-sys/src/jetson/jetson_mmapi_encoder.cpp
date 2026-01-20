@@ -679,6 +679,7 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
                                            const uint8_t* src_v,
                                            int stride_v) {
   static std::atomic<bool> logged_first_queue(false);
+  static std::atomic<bool> logged_plane_layout(false);
   const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
 
   NvBuffer* buffer = encoder_->output_plane.getNthBuffer(next_output_index_);
@@ -744,27 +745,6 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
           ? stride_from_plane(buffer->planes[2], chroma_height, output_v_stride_)
           : dst_u_stride;
 
-  if (verbose && logged_first_queue.load(std::memory_order_relaxed)) {
-    // Log U/V plane layout once to confirm chroma pitch matches expectations.
-    if (buffer->n_planes > 1) {
-      std::fprintf(stderr,
-                   "[MMAPI] plane[1]: fmt.stride=%d fmt.height=%d length=%u "
-                   "bytesused=%u\n",
-                   static_cast<int>(buffer->planes[1].fmt.stride),
-                   static_cast<int>(buffer->planes[1].fmt.height),
-                   buffer->planes[1].length, buffer->planes[1].bytesused);
-    }
-    if (!output_is_nv12_ && buffer->n_planes > 2) {
-      std::fprintf(stderr,
-                   "[MMAPI] plane[2]: fmt.stride=%d fmt.height=%d length=%u "
-                   "bytesused=%u\n",
-                   static_cast<int>(buffer->planes[2].fmt.stride),
-                   static_cast<int>(buffer->planes[2].fmt.height),
-                   buffer->planes[2].length, buffer->planes[2].bytesused);
-    }
-    std::fflush(stderr);
-  }
-
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
   CopyPlane(dst_y, dst_y_stride, src_y, stride_y, width_, height_);
   if (output_is_nv12_) {
@@ -794,6 +774,42 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   buffer->planes[1].bytesused = dst_u_stride * ((height_ + 1) / 2);
   if (!output_is_nv12_ && buffer->n_planes > 2) {
     buffer->planes[2].bytesused = dst_v_stride * ((height_ + 1) / 2);
+  }
+
+  if (verbose && !logged_plane_layout.exchange(true)) {
+    // One-time "ground truth" layout print: what we *detected* and what we
+    // *tell the driver* via bytesused.
+    std::fprintf(
+        stderr,
+        "[MMAPI] Output plane layout: w=%d h=%d is_nv12=%d | "
+        "dst_strides(y,u,v)=(%d,%d,%d) | "
+        "bytesused(y,u,v)=(%u,%u,%u)\n",
+        width_, height_, output_is_nv12_ ? 1 : 0, dst_y_stride, dst_u_stride,
+        dst_v_stride, buffer->planes[0].bytesused, buffer->planes[1].bytesused,
+        (!output_is_nv12_ && buffer->n_planes > 2) ? buffer->planes[2].bytesused
+                                                   : 0u);
+    if (buffer->n_planes > 0) {
+      std::fprintf(stderr,
+                   "[MMAPI] plane[0]: fmt.stride=%d fmt.height=%d length=%u\n",
+                   static_cast<int>(buffer->planes[0].fmt.stride),
+                   static_cast<int>(buffer->planes[0].fmt.height),
+                   buffer->planes[0].length);
+    }
+    if (buffer->n_planes > 1) {
+      std::fprintf(stderr,
+                   "[MMAPI] plane[1]: fmt.stride=%d fmt.height=%d length=%u\n",
+                   static_cast<int>(buffer->planes[1].fmt.stride),
+                   static_cast<int>(buffer->planes[1].fmt.height),
+                   buffer->planes[1].length);
+    }
+    if (!output_is_nv12_ && buffer->n_planes > 2) {
+      std::fprintf(stderr,
+                   "[MMAPI] plane[2]: fmt.stride=%d fmt.height=%d length=%u\n",
+                   static_cast<int>(buffer->planes[2].fmt.stride),
+                   static_cast<int>(buffer->planes[2].fmt.height),
+                   buffer->planes[2].length);
+    }
+    std::fflush(stderr);
   }
   if (verbose) {
     for (int plane = 0; plane < buffer->n_planes; ++plane) {
@@ -870,6 +886,7 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
                                                const uint8_t* src_uv,
                                                int stride_uv) {
   static std::atomic<bool> logged_first_queue(false);
+  static std::atomic<bool> logged_plane_layout(false);
   const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
 
   if (!output_is_nv12_) {
@@ -937,6 +954,14 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
   // Keep NvBuffer bytesused in sync for MMAP.
   buffer->planes[0].bytesused = dst_y_stride * height_;
   buffer->planes[1].bytesused = dst_uv_stride * ((height_ + 1) / 2);
+  if (verbose && !logged_plane_layout.exchange(true)) {
+    std::fprintf(stderr,
+                 "[MMAPI] Output plane layout (NV12): w=%d h=%d | "
+                 "dst_strides(y,uv)=(%d,%d) | bytesused(y,uv)=(%u,%u)\n",
+                 width_, height_, dst_y_stride, dst_uv_stride,
+                 buffer->planes[0].bytesused, buffer->planes[1].bytesused);
+    std::fflush(stderr);
+  }
   if (verbose) {
     for (int plane = 0; plane < buffer->n_planes; ++plane) {
       if (buffer->planes[plane].bytesused == 0 ||
