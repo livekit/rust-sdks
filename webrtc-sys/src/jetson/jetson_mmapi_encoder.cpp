@@ -44,6 +44,27 @@ void CopyPlane(uint8_t* dst,
   }
 }
 
+// Try to read the true per-plane pitch/height for an NvBuffer from Jetson MMAPI.
+// This is more reliable than v4l2_format bytesperline or NvBufferPlane::fmt
+// fields, which can be unset or misleading in MMAP mode.
+bool GetNvBufferParamsForAnyPlaneFd(const NvBuffer* buffer,
+                                   NvBufferParams* out_params) {
+  if (!buffer || !out_params) {
+    return false;
+  }
+  std::memset(out_params, 0, sizeof(*out_params));
+  for (int i = 0; i < buffer->n_planes; ++i) {
+    const int fd = buffer->planes[i].fd;
+    if (fd < 0) {
+      continue;
+    }
+    if (NvBufferGetParams(fd, out_params) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+
 }  // namespace
 
 namespace livekit {
@@ -710,39 +731,87 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   // "striped/shifted/green" output.
   //
   // On some Jetson/MMAPI combinations, NvBufferPlane::fmt.stride can be unset
-  // in MMAP mode. In that case, derive stride from plane length and the
-  // plane's actual (possibly aligned) height when available.
+  // in MMAP mode. Also, NvBufferPlane::fmt.height may be misleading (e.g. UV
+  // plane reporting luma height), which can cause derived stride to be too
+  // small and result in green/corrupted output.
+  //
+  // Prefer NvBufferGetParams() pitch/height when available, and clamp derived
+  // strides to never under-stride the plane.
   const int chroma_height = (height_ + 1) / 2;
   const int chroma_width = (width_ + 1) / 2;
-  auto stride_from_plane = [](const NvBuffer::NvBufferPlane& plane,
-                              int plane_height,
-                              int fallback) -> int {
+  NvBufferParams params = {};
+  const bool have_params = GetNvBufferParamsForAnyPlaneFd(buffer, &params);
+
+  auto stride_from_plane = [&](int plane_index,
+                               const NvBuffer::NvBufferPlane& plane,
+                               int plane_height,
+                               int min_stride,
+                               int fallback) -> int {
+    // 1) NvBufferPlane::fmt.stride if present and sane.
     const int fmt_stride = static_cast<int>(plane.fmt.stride);
-    if (fmt_stride > 0) {
+    if (fmt_stride >= min_stride) {
       return fmt_stride;
     }
-    // Prefer the plane's own height (often padded/aligned) if present.
-    int denom_h = plane_height;
-    if (static_cast<int>(plane.fmt.height) > 0) {
-      denom_h = static_cast<int>(plane.fmt.height);
-    }
-    if (denom_h > 0 && plane.length > 0) {
-      const int derived =
-          static_cast<int>(plane.length / static_cast<uint32_t>(denom_h));
-      if (derived > 0) {
-        return derived;
+
+    // 2) NvBufferGetParams pitch (ground truth).
+    if (have_params && plane_index >= 0 &&
+        plane_index < static_cast<int>(params.num_planes)) {
+      const int pitch = static_cast<int>(params.pitch[plane_index]);
+      if (pitch >= min_stride) {
+        return pitch;
       }
     }
-    return fallback;
+
+    // 3) Derive from mapped plane length. Be careful: plane.fmt.height can be
+    // misleading (e.g. UV plane reporting full luma height), which would yield
+    // an under-stride (pitch/2) and a green image. Only accept a derived value
+    // if it meets min_stride.
+    int best = 0;
+    if (plane.length > 0) {
+      const int fmt_h = static_cast<int>(plane.fmt.height);
+      if (fmt_h > 0) {
+        const int derived =
+            static_cast<int>(plane.length / static_cast<uint32_t>(fmt_h));
+        if (derived >= min_stride) {
+          best = derived;
+        }
+      }
+      if (best == 0 && plane_height > 0) {
+        const int derived = static_cast<int>(plane.length /
+                                             static_cast<uint32_t>(plane_height));
+        if (derived >= min_stride) {
+          best = derived;
+        }
+      }
+    }
+
+    int stride = best > 0 ? best : fallback;
+    if (stride < min_stride) {
+      stride = min_stride;
+    }
+
+    // Cap stride to what the allocation can accommodate to avoid walking past
+    // the mapped plane. (This should not normally trigger.)
+    if (plane_height > 0 && plane.length > 0) {
+      const int max_stride = static_cast<int>(
+          plane.length / static_cast<uint32_t>(plane_height));
+      if (max_stride > 0 && stride > max_stride) {
+        stride = max_stride;
+      }
+    }
+    return stride;
   };
 
+  const int min_y_stride = width_;
+  const int min_uv_stride = output_is_nv12_ ? width_ : chroma_width;
   const int dst_y_stride =
-      stride_from_plane(buffer->planes[0], height_, output_y_stride_);
+      stride_from_plane(0, buffer->planes[0], height_, min_y_stride, output_y_stride_);
   const int dst_u_stride =
-      stride_from_plane(buffer->planes[1], chroma_height, output_u_stride_);
+      stride_from_plane(1, buffer->planes[1], chroma_height, min_uv_stride, output_u_stride_);
   const int dst_v_stride =
       (!output_is_nv12_ && buffer->n_planes > 2)
-          ? stride_from_plane(buffer->planes[2], chroma_height, output_v_stride_)
+          ? stride_from_plane(2, buffer->planes[2], chroma_height, chroma_width,
+                              output_v_stride_)
           : dst_u_stride;
 
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
@@ -808,6 +877,17 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
                    static_cast<int>(buffer->planes[2].fmt.stride),
                    static_cast<int>(buffer->planes[2].fmt.height),
                    buffer->planes[2].length);
+    }
+    if (have_params) {
+      std::fprintf(stderr,
+                   "[MMAPI] NvBufferGetParams: num_planes=%u | "
+                   "pitch(y,u,v)=(%u,%u,%u) height(y,u,v)=(%u,%u,%u)\n",
+                   params.num_planes, params.pitch[0], params.pitch[1],
+                   params.num_planes > 2 ? params.pitch[2] : 0u,
+                   params.height[0], params.height[1],
+                   params.num_planes > 2 ? params.height[2] : 0u);
+    } else {
+      std::fprintf(stderr, "[MMAPI] NvBufferGetParams: unavailable\n");
     }
     std::fflush(stderr);
   }
@@ -923,27 +1003,64 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
   }
 
   const int chroma_height = (height_ + 1) / 2;
-  auto stride_from_plane = [](const NvBuffer::NvBufferPlane& plane,
-                              int plane_height,
-                              int fallback) -> int {
+  NvBufferParams params = {};
+  const bool have_params = GetNvBufferParamsForAnyPlaneFd(buffer, &params);
+
+  auto stride_from_plane = [&](int plane_index,
+                               const NvBuffer::NvBufferPlane& plane,
+                               int plane_height,
+                               int min_stride,
+                               int fallback) -> int {
     const int fmt_stride = static_cast<int>(plane.fmt.stride);
-    if (fmt_stride > 0) {
+    if (fmt_stride >= min_stride) {
       return fmt_stride;
     }
-    if (plane_height > 0 && plane.length > 0) {
-      const int derived =
-          static_cast<int>(plane.length / static_cast<uint32_t>(plane_height));
-      if (derived > 0) {
-        return derived;
+    if (have_params && plane_index >= 0 &&
+        plane_index < static_cast<int>(params.num_planes)) {
+      const int pitch = static_cast<int>(params.pitch[plane_index]);
+      if (pitch >= min_stride) {
+        return pitch;
       }
     }
-    return fallback;
+    int best = 0;
+    if (plane.length > 0) {
+      const int fmt_h = static_cast<int>(plane.fmt.height);
+      if (fmt_h > 0) {
+        const int derived =
+            static_cast<int>(plane.length / static_cast<uint32_t>(fmt_h));
+        if (derived >= min_stride) {
+          best = derived;
+        }
+      }
+      if (best == 0 && plane_height > 0) {
+        const int derived = static_cast<int>(plane.length /
+                                             static_cast<uint32_t>(plane_height));
+        if (derived >= min_stride) {
+          best = derived;
+        }
+      }
+    }
+
+    int stride = best > 0 ? best : fallback;
+    if (stride < min_stride) {
+      stride = min_stride;
+    }
+    if (plane_height > 0 && plane.length > 0) {
+      const int max_stride = static_cast<int>(
+          plane.length / static_cast<uint32_t>(plane_height));
+      if (max_stride > 0 && stride > max_stride) {
+        stride = max_stride;
+      }
+    }
+    return stride;
   };
 
+  const int min_y_stride = width_;
+  const int min_uv_stride = width_;
   const int dst_y_stride =
-      stride_from_plane(buffer->planes[0], height_, output_y_stride_);
+      stride_from_plane(0, buffer->planes[0], height_, min_y_stride, output_y_stride_);
   const int dst_uv_stride =
-      stride_from_plane(buffer->planes[1], chroma_height, output_u_stride_);
+      stride_from_plane(1, buffer->planes[1], chroma_height, min_uv_stride, output_u_stride_);
 
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
   uint8_t* dst_uv = static_cast<uint8_t*>(buffer->planes[1].data);
@@ -960,6 +1077,15 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
                  "dst_strides(y,uv)=(%d,%d) | bytesused(y,uv)=(%u,%u)\n",
                  width_, height_, dst_y_stride, dst_uv_stride,
                  buffer->planes[0].bytesused, buffer->planes[1].bytesused);
+    if (have_params) {
+      std::fprintf(stderr,
+                   "[MMAPI] NvBufferGetParams: num_planes=%u | "
+                   "pitch(y,uv)=(%u,%u) height(y,uv)=(%u,%u)\n",
+                   params.num_planes, params.pitch[0], params.pitch[1],
+                   params.height[0], params.height[1]);
+    } else {
+      std::fprintf(stderr, "[MMAPI] NvBufferGetParams: unavailable\n");
+    }
     std::fflush(stderr);
   }
   if (verbose) {

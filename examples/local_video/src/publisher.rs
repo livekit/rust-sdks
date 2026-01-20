@@ -285,6 +285,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut sum_iter_ms = 0.0;
     let mut logged_mjpeg_fallback = false;
     let mut dumped_frame = false;
+    let mut logged_first_src = false;
+    let mut logged_mjpg_libyuv_fail = false;
     let dump_dir = env::var("LK_DUMP_FRAME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     let dump_raw = env::var("LK_DUMP_FRAME").ok().map_or(false, |v| v == "1");
     let dump_stats = env::var("LK_DUMP_I420_STATS").ok().map_or(false, |v| v == "1");
@@ -318,6 +320,19 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         let yuv420_len = (width as usize * height as usize * 3 / 2) as usize;
         let looks_like_jpeg = src_len > 2 && src_bytes[0] == 0xFF && src_bytes[1] == 0xD8;
         let fmt_name = fmt.format().to_string();
+        if (dump_raw || dump_stats) && !logged_first_src {
+            info!(
+                "First camera buffer: len={} (expected yuyv={} rgb24={} yuv420={}), looks_like_jpeg={}, negotiated_fmt={:?}, fmt_name={}",
+                src_len,
+                yuyv_len,
+                rgb_len,
+                yuv420_len,
+                looks_like_jpeg,
+                fmt.format(),
+                fmt_name
+            );
+            logged_first_src = true;
+        }
 
         let t2 = match &mut frame.buffer {
             CaptureBuffer::I420(buf) => {
@@ -458,6 +473,13 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                             used_fast_mjpeg = true;
                             Instant::now()
                         } else {
+                            if (dump_raw || dump_stats) && !logged_mjpg_libyuv_fail {
+                                log::warn!(
+                                    "libyuv MJPGToI420 failed (ret={}); falling back to decode+RGB24ToI420",
+                                    ret
+                                );
+                                logged_mjpg_libyuv_fail = true;
+                            }
                             t1
                         }
                     };
