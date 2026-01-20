@@ -47,7 +47,7 @@ class VideoFrame : public webrtc::RefCountInterface {
   webrtc::VideoFrame frame_;
 };
 
-class VideoFrameBuilder : webrtc::RefCountInterface {
+class VideoFrameBuilder : public webrtc::RefCountInterface {
  public:
   VideoFrameBuilder() = default;
 

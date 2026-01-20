@@ -93,6 +93,20 @@ python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
 #  sudo sed -i 's/__GLIBC_USE_ISOC2X[[:space:]]*1/__GLIBC_USE_ISOC2X\t0/' /usr/aarch64-linux-gnu/include/features.h
 #fi
 
+sudo apt install -y \
+            libasound2-dev \
+            libssl-dev \
+            libx11-dev \
+            libgl1-mesa-dev \
+            libxext-dev \
+            libdrm-dev \
+            libgbm-dev \
+            libxfixes-dev \
+            libxdamage-dev \
+            libxrandr-dev \
+            libxcomposite-dev \
+            libglib2.0-dev
+
 debug="false"
 if [ "$profile" = "debug" ]; then
   debug="true"
@@ -143,7 +157,7 @@ cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/liblivekit_rtc.so" "$ARTIFACTS_DIR/lib"
 mkdir -p "$ARTIFACTS_DIR/include"
-cp "src/livekit_rtc/capi.h" "$ARTIFACTS_DIR/include/livekit_rtc.h"
+cp "src/livekit_rtc/include/capi.h" "$ARTIFACTS_DIR/include/livekit_rtc.h"
 
 #cd src
 #find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"

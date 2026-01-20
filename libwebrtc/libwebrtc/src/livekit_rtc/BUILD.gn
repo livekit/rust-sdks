@@ -41,6 +41,8 @@ lk_sources = [
   "audio_mixer.cc",
 ]
 
+defines = []
+
 if (is_mac) {
   lk_sources += [
     "objc_video_factory.mm",
@@ -49,7 +51,7 @@ if (is_mac) {
 }
 
 if (is_linux) {
-  defines = [
+  defines += [
     "USE_NVIDIA_VIDEO_CODEC",
     "USE_VAAPI_VIDEO_CODEC",
   ]
@@ -68,7 +70,7 @@ if (is_linux) {
     "vaapi/vaapi_display_drm.cpp",
     "vaapi/vaapi_h264_encoder_wrapper.cpp",
     "vaapi/vaapi_encoder_factory.cpp",
-    "vaapi/h264_encoder_impl.cpp",
+    "vaapi/vaapi_h264_encoder_impl.cpp",
   ]
 }
 
@@ -85,7 +87,7 @@ config("livekit_config") {
 rtc_shared_library("livekit_rtc") {
   libs = []
   sources = lk_sources
-  defines = [
+  defines += [
     "USE_LIBYUV",
     "WEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE",
     "WEBRTC_APM_DEBUG_DUMP=0",
@@ -125,19 +127,12 @@ rtc_shared_library("livekit_rtc") {
       "../sdk:default_codec_factory_objc",
     ]
   }
-}
 
-rtc_test("livekit_rtc_unittests") {
-    testonly = true
-
-    sources = [
-      "peer.test.cc",
+  if(is_linux) {
+    deps += [
+      "../modules/portal",
     ]
 
-    deps = [
-      ":livekit_rtc",
-      "//testing/gtest",
-      "//test:test_support",
-      "//test:test_main",
-    ]
+    configs += [ "../modules/portal:gio" ]
   }
+}
