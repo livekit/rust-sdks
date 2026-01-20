@@ -738,6 +738,25 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
     std::fflush(stderr);
     return false;
   }
+  if (output_is_nv12_) {
+    if (buffer->n_planes < 2) {
+      RTC_LOG(LS_ERROR) << "Output plane format is NV12 but has <2 planes.";
+      std::fprintf(stderr,
+                   "[MMAPI] QueueOutputBuffer: NV12 requires 2 planes, got %d\n",
+                   buffer->n_planes);
+      std::fflush(stderr);
+      return false;
+    }
+  } else {
+    if (buffer->n_planes < 3) {
+      RTC_LOG(LS_ERROR) << "Output plane format is YUV420M but has <3 planes.";
+      std::fprintf(stderr,
+                   "[MMAPI] QueueOutputBuffer: YUV420M requires 3 planes, got %d\n",
+                   buffer->n_planes);
+      std::fflush(stderr);
+      return false;
+    }
+  }
 
   if (!logged_first_queue.exchange(true)) {
     std::fprintf(stderr,
@@ -853,7 +872,25 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
           : dst_u_stride;
 
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
+  const int plane_y_height =
+      (have_y && static_cast<int>(y_h) >= height_) ? static_cast<int>(y_h)
+                                                   : height_;
+  const int plane_u_height =
+      (have_u && static_cast<int>(u_h) >= chroma_height) ? static_cast<int>(u_h)
+                                                         : chroma_height;
+  const int plane_v_height =
+      (have_v && static_cast<int>(v_h) >= chroma_height) ? static_cast<int>(v_h)
+                                                         : chroma_height;
+  auto ZeroPlaneRows = [](uint8_t* dst, int stride, int start_row,
+                          int end_row) {
+    for (int y = start_row; y < end_row; ++y) {
+      std::memset(dst + y * stride, 0, static_cast<size_t>(stride));
+    }
+  };
   CopyPlane(dst_y, dst_y_stride, src_y, stride_y, width_, height_);
+  if (plane_y_height > height_) {
+    ZeroPlaneRows(dst_y, dst_y_stride, height_, plane_y_height);
+  }
   if (output_is_nv12_) {
     uint8_t* dst_uv = static_cast<uint8_t*>(buffer->planes[1].data);
     for (int y = 0; y < chroma_height; ++y) {
@@ -865,6 +902,9 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
         dst_row[x * 2 + 1] = src_v_row[x];
       }
     }
+    if (plane_u_height > chroma_height) {
+      ZeroPlaneRows(dst_uv, dst_u_stride, chroma_height, plane_u_height);
+    }
   } else {
     uint8_t* dst_u = static_cast<uint8_t*>(buffer->planes[1].data);
     uint8_t* dst_v = static_cast<uint8_t*>(buffer->planes[2].data);
@@ -872,15 +912,24 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
               chroma_height);
     CopyPlane(dst_v, dst_v_stride, src_v, stride_v, chroma_width,
               chroma_height);
+    if (plane_u_height > chroma_height) {
+      ZeroPlaneRows(dst_u, dst_u_stride, chroma_height, plane_u_height);
+    }
+    if (plane_v_height > chroma_height) {
+      ZeroPlaneRows(dst_v, dst_v_stride, chroma_height, plane_v_height);
+    }
   }
 
   // IMPORTANT: In MMAP mode, the Jetson MMAPI wrapper can rely on NvBuffer's
   // bytesused values (not only the v4l2_buffer's plane bytesused). If these
   // are left at 0, the encoder may treat the input as empty and output black.
-  buffer->planes[0].bytesused = dst_y_stride * height_;
-  buffer->planes[1].bytesused = dst_u_stride * ((height_ + 1) / 2);
+  buffer->planes[0].bytesused =
+      dst_y_stride * static_cast<uint32_t>(plane_y_height);
+  buffer->planes[1].bytesused =
+      dst_u_stride * static_cast<uint32_t>(plane_u_height);
   if (!output_is_nv12_ && buffer->n_planes > 2) {
-    buffer->planes[2].bytesused = dst_v_stride * ((height_ + 1) / 2);
+    buffer->planes[2].bytesused =
+        dst_v_stride * static_cast<uint32_t>(plane_v_height);
   }
 
   if (verbose && !logged_plane_layout.exchange(true)) {
@@ -890,9 +939,11 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
         stderr,
         "[MMAPI] Output plane layout: w=%d h=%d is_nv12=%d | "
         "dst_strides(y,u,v)=(%d,%d,%d) | "
+        "plane_heights(y,u,v)=(%d,%d,%d) | "
         "bytesused(y,u,v)=(%u,%u,%u)\n",
         width_, height_, output_is_nv12_ ? 1 : 0, dst_y_stride, dst_u_stride,
-        dst_v_stride, buffer->planes[0].bytesused, buffer->planes[1].bytesused,
+        dst_v_stride, plane_y_height, plane_u_height, plane_v_height,
+        buffer->planes[0].bytesused, buffer->planes[1].bytesused,
         (!output_is_nv12_ && buffer->n_planes > 2) ? buffer->planes[2].bytesused
                                                    : 0u);
     if (buffer->n_planes > 0) {
@@ -975,10 +1026,10 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   v4l2_buf.m.planes = planes;
   v4l2_buf.length = encoder_->output_plane.getNumPlanes();
   // Use the configured plane strides to satisfy driver expectations.
-  planes[0].bytesused = dst_y_stride * height_;
-  planes[1].bytesused = dst_u_stride * ((height_ + 1) / 2);
+  planes[0].bytesused = buffer->planes[0].bytesused;
+  planes[1].bytesused = buffer->planes[1].bytesused;
   if (!output_is_nv12_) {
-    planes[2].bytesused = dst_v_stride * ((height_ + 1) / 2);
+    planes[2].bytesused = buffer->planes[2].bytesused;
   }
 
   int qbuf_ret = encoder_->output_plane.qBuffer(v4l2_buf, nullptr);
@@ -1104,19 +1155,42 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
 
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
   uint8_t* dst_uv = static_cast<uint8_t*>(buffer->planes[1].data);
+  const int plane_y_height =
+      (have_y && static_cast<int>(y_h) >= height_) ? static_cast<int>(y_h)
+                                                   : height_;
+  const int plane_uv_height =
+      (have_uv && static_cast<int>(uv_h) >= chroma_height)
+          ? static_cast<int>(uv_h)
+          : chroma_height;
+  auto ZeroPlaneRows = [](uint8_t* dst, int stride, int start_row,
+                          int end_row) {
+    for (int y = start_row; y < end_row; ++y) {
+      std::memset(dst + y * stride, 0, static_cast<size_t>(stride));
+    }
+  };
   CopyPlane(dst_y, dst_y_stride, src_y, stride_y, width_, height_);
   CopyPlane(dst_uv, dst_uv_stride, src_uv, stride_uv, width_,
             (height_ + 1) / 2);
+  if (plane_y_height > height_) {
+    ZeroPlaneRows(dst_y, dst_y_stride, height_, plane_y_height);
+  }
+  if (plane_uv_height > chroma_height) {
+    ZeroPlaneRows(dst_uv, dst_uv_stride, chroma_height, plane_uv_height);
+  }
 
   // Keep NvBuffer bytesused in sync for MMAP.
-  buffer->planes[0].bytesused = dst_y_stride * height_;
-  buffer->planes[1].bytesused = dst_uv_stride * ((height_ + 1) / 2);
+  buffer->planes[0].bytesused =
+      dst_y_stride * static_cast<uint32_t>(plane_y_height);
+  buffer->planes[1].bytesused =
+      dst_uv_stride * static_cast<uint32_t>(plane_uv_height);
   if (verbose && !logged_plane_layout.exchange(true)) {
     std::fprintf(stderr,
                  "[MMAPI] Output plane layout (NV12): w=%d h=%d | "
-                 "dst_strides(y,uv)=(%d,%d) | bytesused(y,uv)=(%u,%u)\n",
-                 width_, height_, dst_y_stride, dst_uv_stride,
-                 buffer->planes[0].bytesused, buffer->planes[1].bytesused);
+                 "dst_strides(y,uv)=(%d,%d) | plane_heights(y,uv)=(%d,%d) | "
+                 "bytesused(y,uv)=(%u,%u)\n",
+                 width_, height_, dst_y_stride, dst_uv_stride, plane_y_height,
+                 plane_uv_height, buffer->planes[0].bytesused,
+                 buffer->planes[1].bytesused);
     std::fprintf(stderr,
                  "[MMAPI] NvBufSurfaceFromFd pitch/height (per-plane fd): "
                  "Y(ok=%d pitch=%u h=%u np=%u) "
@@ -1173,8 +1247,8 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
   v4l2_buf.memory = V4L2_MEMORY_MMAP;
   v4l2_buf.m.planes = planes;
   v4l2_buf.length = encoder_->output_plane.getNumPlanes();
-  planes[0].bytesused = dst_y_stride * height_;
-  planes[1].bytesused = dst_uv_stride * ((height_ + 1) / 2);
+  planes[0].bytesused = buffer->planes[0].bytesused;
+  planes[1].bytesused = buffer->planes[1].bytesused;
 
   int qbuf_ret = encoder_->output_plane.qBuffer(v4l2_buf, nullptr);
   if (qbuf_ret < 0) {
