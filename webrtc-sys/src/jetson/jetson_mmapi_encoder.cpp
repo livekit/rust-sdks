@@ -49,6 +49,7 @@ void CopyPlane(uint8_t* dst,
 // JetPack images), and is more reliable than NvBufferPlane::fmt fields in MMAP
 // mode.
 bool GetPitchAndHeightFromNvBufSurfaceFd(int dmabuf_fd,
+                                        int plane_index,
                                         uint32_t* out_pitch,
                                         uint32_t* out_height,
                                         uint32_t* out_num_planes) {
@@ -56,6 +57,9 @@ bool GetPitchAndHeightFromNvBufSurfaceFd(int dmabuf_fd,
   if (out_height) *out_height = 0;
   if (out_num_planes) *out_num_planes = 0;
   if (dmabuf_fd < 0) {
+    return false;
+  }
+  if (plane_index < 0) {
     return false;
   }
 
@@ -76,10 +80,12 @@ bool GetPitchAndHeightFromNvBufSurfaceFd(int dmabuf_fd,
   if (p.planeParams.num_planes < 1) {
     return false;
   }
+  if (plane_index >= static_cast<int>(p.planeParams.num_planes)) {
+    return false;
+  }
 
-  // For a plane FD, the surface typically has a single plane at index 0.
-  const uint32_t pitch = p.planeParams.pitch[0];
-  const uint32_t height = p.planeParams.height[0];
+  const uint32_t pitch = p.planeParams.pitch[plane_index];
+  const uint32_t height = p.planeParams.height[plane_index];
   if (out_pitch) *out_pitch = pitch;
   if (out_height) *out_height = height;
   return pitch > 0 && height > 0;
@@ -763,13 +769,13 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   uint32_t u_pitch = 0, u_h = 0, u_np = 0;
   uint32_t v_pitch = 0, v_h = 0, v_np = 0;
   const bool have_y =
-      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[0].fd, &y_pitch, &y_h, &y_np);
+      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[0].fd, 0, &y_pitch, &y_h, &y_np);
   const bool have_u =
       (buffer->n_planes > 1) &&
-      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[1].fd, &u_pitch, &u_h, &u_np);
+      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[1].fd, 1, &u_pitch, &u_h, &u_np);
   const bool have_v =
       (!output_is_nv12_ && buffer->n_planes > 2) &&
-      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[2].fd, &v_pitch, &v_h, &v_np);
+      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[2].fd, 2, &v_pitch, &v_h, &v_np);
 
   auto stride_from_plane = [&](int plane_index,
                                const NvBuffer::NvBufferPlane& plane,
@@ -1035,10 +1041,10 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
   uint32_t y_pitch = 0, y_h = 0, y_np = 0;
   uint32_t uv_pitch = 0, uv_h = 0, uv_np = 0;
   const bool have_y =
-      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[0].fd, &y_pitch, &y_h, &y_np);
+      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[0].fd, 0, &y_pitch, &y_h, &y_np);
   const bool have_uv =
       (buffer->n_planes > 1) &&
-      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[1].fd, &uv_pitch, &uv_h, &uv_np);
+      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[1].fd, 1, &uv_pitch, &uv_h, &uv_np);
 
   auto stride_from_plane = [&](int plane_index,
                                const NvBuffer::NvBufferPlane& plane,
