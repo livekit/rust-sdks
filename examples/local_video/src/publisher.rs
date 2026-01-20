@@ -116,6 +116,10 @@ async fn main() -> Result<()> {
             let _ = tokio::signal::ctrl_c().await;
             ctrl_c_received.store(true, Ordering::Release);
             info!("Ctrl-C received, exiting...");
+            // We intentionally hard-exit here. On some backends `camera.frame()`
+            // can block in a way that prevents a clean async shutdown, and the
+            // tokio runtime may wait indefinitely for background work.
+            std::process::exit(0);
         }
     });
 
@@ -155,7 +159,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
-    let (room, _) = Room::connect(&url, &token, room_options).await?;
+    let (room, _) = tokio::time::timeout(
+        Duration::from_secs(20),
+        Room::connect(&url, &token, room_options),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("Timed out connecting to LiveKit (20s)"))??;
     let room = std::sync::Arc::new(room);
     info!("Connected: {} - {}", room.name(), room.sid().await);
 
@@ -308,7 +317,16 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
         // Get frame as RGB24 (decoded by nokhwa if needed)
         let t0 = Instant::now();
-        let frame_buf = camera.frame()?;
+        let frame_buf = match camera.frame() {
+            Ok(f) => f,
+            Err(e) => {
+                // If SIGINT interrupted a blocking camera call, exit gracefully.
+                if ctrl_c_received.load(Ordering::Acquire) {
+                    break;
+                }
+                return Err(e.into());
+            }
+        };
         let t1 = Instant::now();
         let src = frame_buf.buffer();
         let src_bytes = src.as_ref();
