@@ -16,8 +16,6 @@
 #include <memory>
 #include <thread>
 
-#include <nvbuf_utils.h>
-
 #include "NvBufSurface.h"
 #include "NvBuffer.h"
 #include "NvVideoEncoder.h"
@@ -46,25 +44,45 @@ void CopyPlane(uint8_t* dst,
   }
 }
 
-// Try to read the true per-plane pitch/height for an NvBuffer from Jetson MMAPI.
-// This is more reliable than v4l2_format bytesperline or NvBufferPlane::fmt
-// fields, which can be unset or misleading in MMAP mode.
-bool GetNvBufferParamsForAnyPlaneFd(const NvBuffer* buffer,
-                                   NvBufferParams* out_params) {
-  if (!buffer || !out_params) {
+// Try to read the true per-plane pitch/height for an NvBuffer plane FD.
+// This avoids relying on NvBufferGetParams/nvbuf_utils.h (not present on all
+// JetPack images), and is more reliable than NvBufferPlane::fmt fields in MMAP
+// mode.
+bool GetPitchAndHeightFromNvBufSurfaceFd(int dmabuf_fd,
+                                        uint32_t* out_pitch,
+                                        uint32_t* out_height,
+                                        uint32_t* out_num_planes) {
+  if (out_pitch) *out_pitch = 0;
+  if (out_height) *out_height = 0;
+  if (out_num_planes) *out_num_planes = 0;
+  if (dmabuf_fd < 0) {
     return false;
   }
-  std::memset(out_params, 0, sizeof(*out_params));
-  for (int i = 0; i < buffer->n_planes; ++i) {
-    const int fd = buffer->planes[i].fd;
-    if (fd < 0) {
-      continue;
-    }
-    if (NvBufferGetParams(fd, out_params) == 0) {
-      return true;
-    }
+
+  NvBufSurface* surface = nullptr;
+  int ret = NvBufSurfaceFromFd(dmabuf_fd, reinterpret_cast<void**>(&surface));
+  if (ret != 0 || !surface) {
+    return false;
   }
-  return false;
+  // Most MMAPI buffers are not batched; guard anyway.
+  if (surface->batchSize < 1) {
+    return false;
+  }
+
+  const NvBufSurfaceParams& p = surface->surfaceList[0];
+  if (out_num_planes) {
+    *out_num_planes = p.planeParams.num_planes;
+  }
+  if (p.planeParams.num_planes < 1) {
+    return false;
+  }
+
+  // For a plane FD, the surface typically has a single plane at index 0.
+  const uint32_t pitch = p.planeParams.pitch[0];
+  const uint32_t height = p.planeParams.height[0];
+  if (out_pitch) *out_pitch = pitch;
+  if (out_height) *out_height = height;
+  return pitch > 0 && height > 0;
 }
 
 }  // namespace
@@ -737,12 +755,21 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   // plane reporting luma height), which can cause derived stride to be too
   // small and result in green/corrupted output.
   //
-  // Prefer NvBufferGetParams() pitch/height when available, and clamp derived
-  // strides to never under-stride the plane.
+  // Prefer NvBufSurfaceFromFd() plane pitch/height when available, and clamp
+  // derived strides to never under/over-stride the plane.
   const int chroma_height = (height_ + 1) / 2;
   const int chroma_width = (width_ + 1) / 2;
-  NvBufferParams params = {};
-  const bool have_params = GetNvBufferParamsForAnyPlaneFd(buffer, &params);
+  uint32_t y_pitch = 0, y_h = 0, y_np = 0;
+  uint32_t u_pitch = 0, u_h = 0, u_np = 0;
+  uint32_t v_pitch = 0, v_h = 0, v_np = 0;
+  const bool have_y =
+      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[0].fd, &y_pitch, &y_h, &y_np);
+  const bool have_u =
+      (buffer->n_planes > 1) &&
+      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[1].fd, &u_pitch, &u_h, &u_np);
+  const bool have_v =
+      (!output_is_nv12_ && buffer->n_planes > 2) &&
+      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[2].fd, &v_pitch, &v_h, &v_np);
 
   auto stride_from_plane = [&](int plane_index,
                                const NvBuffer::NvBufferPlane& plane,
@@ -755,13 +782,16 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
       return fmt_stride;
     }
 
-    // 2) NvBufferGetParams pitch (ground truth).
-    if (have_params && plane_index >= 0 &&
-        plane_index < static_cast<int>(params.num_planes)) {
-      const int pitch = static_cast<int>(params.pitch[plane_index]);
-      if (pitch >= min_stride) {
-        return pitch;
-      }
+    // 2) NvBufSurfaceFromFd pitch (ground truth for this plane fd).
+    if (plane_index == 0 && have_y) {
+      const int pitch = static_cast<int>(y_pitch);
+      if (pitch >= min_stride) return pitch;
+    } else if (plane_index == 1 && have_u) {
+      const int pitch = static_cast<int>(u_pitch);
+      if (pitch >= min_stride) return pitch;
+    } else if (plane_index == 2 && have_v) {
+      const int pitch = static_cast<int>(v_pitch);
+      if (pitch >= min_stride) return pitch;
     }
 
     // 3) Derive from mapped plane length. Be careful: plane.fmt.height can be
@@ -880,17 +910,14 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
                    static_cast<int>(buffer->planes[2].fmt.height),
                    buffer->planes[2].length);
     }
-    if (have_params) {
-      std::fprintf(stderr,
-                   "[MMAPI] NvBufferGetParams: num_planes=%u | "
-                   "pitch(y,u,v)=(%u,%u,%u) height(y,u,v)=(%u,%u,%u)\n",
-                   params.num_planes, params.pitch[0], params.pitch[1],
-                   params.num_planes > 2 ? params.pitch[2] : 0u,
-                   params.height[0], params.height[1],
-                   params.num_planes > 2 ? params.height[2] : 0u);
-    } else {
-      std::fprintf(stderr, "[MMAPI] NvBufferGetParams: unavailable\n");
-    }
+    std::fprintf(stderr,
+                 "[MMAPI] NvBufSurfaceFromFd pitch/height (per-plane fd): "
+                 "Y(ok=%d pitch=%u h=%u np=%u) "
+                 "U(ok=%d pitch=%u h=%u np=%u) "
+                 "V(ok=%d pitch=%u h=%u np=%u)\n",
+                 have_y ? 1 : 0, y_pitch, y_h, y_np,
+                 have_u ? 1 : 0, u_pitch, u_h, u_np,
+                 have_v ? 1 : 0, v_pitch, v_h, v_np);
     std::fflush(stderr);
   }
   if (verbose) {
@@ -1005,8 +1032,13 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
   }
 
   const int chroma_height = (height_ + 1) / 2;
-  NvBufferParams params = {};
-  const bool have_params = GetNvBufferParamsForAnyPlaneFd(buffer, &params);
+  uint32_t y_pitch = 0, y_h = 0, y_np = 0;
+  uint32_t uv_pitch = 0, uv_h = 0, uv_np = 0;
+  const bool have_y =
+      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[0].fd, &y_pitch, &y_h, &y_np);
+  const bool have_uv =
+      (buffer->n_planes > 1) &&
+      GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[1].fd, &uv_pitch, &uv_h, &uv_np);
 
   auto stride_from_plane = [&](int plane_index,
                                const NvBuffer::NvBufferPlane& plane,
@@ -1017,12 +1049,12 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
     if (fmt_stride >= min_stride) {
       return fmt_stride;
     }
-    if (have_params && plane_index >= 0 &&
-        plane_index < static_cast<int>(params.num_planes)) {
-      const int pitch = static_cast<int>(params.pitch[plane_index]);
-      if (pitch >= min_stride) {
-        return pitch;
-      }
+    if (plane_index == 0 && have_y) {
+      const int pitch = static_cast<int>(y_pitch);
+      if (pitch >= min_stride) return pitch;
+    } else if (plane_index == 1 && have_uv) {
+      const int pitch = static_cast<int>(uv_pitch);
+      if (pitch >= min_stride) return pitch;
     }
     int best = 0;
     if (plane.length > 0) {
@@ -1079,15 +1111,12 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
                  "dst_strides(y,uv)=(%d,%d) | bytesused(y,uv)=(%u,%u)\n",
                  width_, height_, dst_y_stride, dst_uv_stride,
                  buffer->planes[0].bytesused, buffer->planes[1].bytesused);
-    if (have_params) {
-      std::fprintf(stderr,
-                   "[MMAPI] NvBufferGetParams: num_planes=%u | "
-                   "pitch(y,uv)=(%u,%u) height(y,uv)=(%u,%u)\n",
-                   params.num_planes, params.pitch[0], params.pitch[1],
-                   params.height[0], params.height[1]);
-    } else {
-      std::fprintf(stderr, "[MMAPI] NvBufferGetParams: unavailable\n");
-    }
+    std::fprintf(stderr,
+                 "[MMAPI] NvBufSurfaceFromFd pitch/height (per-plane fd): "
+                 "Y(ok=%d pitch=%u h=%u np=%u) "
+                 "UV(ok=%d pitch=%u h=%u np=%u)\n",
+                 have_y ? 1 : 0, y_pitch, y_h, y_np,
+                 have_uv ? 1 : 0, uv_pitch, uv_h, uv_np);
     std::fflush(stderr);
   }
   if (verbose) {
