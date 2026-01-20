@@ -249,6 +249,11 @@ install_crate = { crate_name = "cargo-swift", version = "0.10.0", binary = "carg
 install_crate_args = ["--force"]
 script_runner = "@shell"
 script = """
+export IPHONEOS_DEPLOYMENT_TARGET=13.0
+export MACOSX_DEPLOYMENT_TARGET=10.15
+export TVOS_DEPLOYMENT_TARGET=17.0
+export CFLAGS_x86_64_apple_ios_macabi="--target=x86_64-apple-ios14.0-macabi"
+export CFLAGS_aarch64_apple_ios_macabi="--target=aarch64-apple-ios14.0-macabi"
 cargo swift package \
 --accept-all \
 --name ${SPM_NAME} \
