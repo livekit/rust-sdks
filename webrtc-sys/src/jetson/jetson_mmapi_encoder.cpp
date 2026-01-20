@@ -709,7 +709,8 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   // "striped/shifted/green" output.
   //
   // On some Jetson/MMAPI combinations, NvBufferPlane::fmt.stride can be unset
-  // in MMAP mode. In that case, derive stride from plane length and height.
+  // in MMAP mode. In that case, derive stride from plane length and the
+  // plane's actual (possibly aligned) height when available.
   const int chroma_height = (height_ + 1) / 2;
   const int chroma_width = (width_ + 1) / 2;
   auto stride_from_plane = [](const NvBuffer::NvBufferPlane& plane,
@@ -719,9 +720,14 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
     if (fmt_stride > 0) {
       return fmt_stride;
     }
-    if (plane_height > 0 && plane.length > 0) {
+    // Prefer the plane's own height (often padded/aligned) if present.
+    int denom_h = plane_height;
+    if (static_cast<int>(plane.fmt.height) > 0) {
+      denom_h = static_cast<int>(plane.fmt.height);
+    }
+    if (denom_h > 0 && plane.length > 0) {
       const int derived =
-          static_cast<int>(plane.length / static_cast<uint32_t>(plane_height));
+          static_cast<int>(plane.length / static_cast<uint32_t>(denom_h));
       if (derived > 0) {
         return derived;
       }
@@ -737,6 +743,27 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
       (!output_is_nv12_ && buffer->n_planes > 2)
           ? stride_from_plane(buffer->planes[2], chroma_height, output_v_stride_)
           : dst_u_stride;
+
+  if (verbose && logged_first_queue.load(std::memory_order_relaxed)) {
+    // Log U/V plane layout once to confirm chroma pitch matches expectations.
+    if (buffer->n_planes > 1) {
+      std::fprintf(stderr,
+                   "[MMAPI] plane[1]: fmt.stride=%d fmt.height=%d length=%u "
+                   "bytesused=%u\n",
+                   static_cast<int>(buffer->planes[1].fmt.stride),
+                   static_cast<int>(buffer->planes[1].fmt.height),
+                   buffer->planes[1].length, buffer->planes[1].bytesused);
+    }
+    if (!output_is_nv12_ && buffer->n_planes > 2) {
+      std::fprintf(stderr,
+                   "[MMAPI] plane[2]: fmt.stride=%d fmt.height=%d length=%u "
+                   "bytesused=%u\n",
+                   static_cast<int>(buffer->planes[2].fmt.stride),
+                   static_cast<int>(buffer->planes[2].fmt.height),
+                   buffer->planes[2].length, buffer->planes[2].bytesused);
+    }
+    std::fflush(stderr);
+  }
 
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
   CopyPlane(dst_y, dst_y_stride, src_y, stride_y, width_, height_);
