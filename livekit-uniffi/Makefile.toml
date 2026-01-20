@@ -17,6 +17,7 @@ PACKAGES_DIR = "./packages"
 SUPPORT_DIR = "./support"
 LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
 TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
+SWIFT_VERSION = "5.9"
 SPM_NAME = "LiveKitUniFFI"
 XCFRAMEWORK_NAME = "Rust${SPM_NAME}"
 NPM_NAME = "@livekit/uniffi"
@@ -252,9 +253,11 @@ script = """
 export IPHONEOS_DEPLOYMENT_TARGET=13.0
 export MACOSX_DEPLOYMENT_TARGET=10.15
 export TVOS_DEPLOYMENT_TARGET=17.0
+export XROS_DEPLOYMENT_TARGET=2.0
 export CFLAGS_x86_64_apple_ios_macabi="--target=x86_64-apple-ios14.0-macabi"
 export CFLAGS_aarch64_apple_ios_macabi="--target=aarch64-apple-ios14.0-macabi"
-cargo swift package \
+
+CMD="cargo swift package \
 --accept-all \
 --name ${SPM_NAME} \
 --xcframework-name ${XCFRAMEWORK_NAME} \
@@ -264,7 +267,15 @@ cargo swift package \
 --platforms visionos \
 --platforms tvos \
 --lib-type static \
-${SWIFT_RELEASE_FLAG}
+${SWIFT_RELEASE_FLAG}"
+
+if command -v swiftly >/dev/null 2>&1; then
+    echo "Using swiftly to select Swift ${SWIFT_VERSION} toolchain"
+    swiftly run $CMD +${SWIFT_VERSION}
+else
+    echo "swiftly not found, using system toolchain"
+    $CMD
+fi
 """
 
 [tasks.swift-generate-manifest.env]
