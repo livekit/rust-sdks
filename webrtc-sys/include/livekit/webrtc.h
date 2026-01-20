@@ -32,13 +32,13 @@
 #include "rtc_base/win32_socket_init.h"
 #endif
 
-namespace livekit {
+namespace livekit_ffi {
 class RtcRuntime;
 class LogSink;
-}  // namespace livekit
+}  // namespace livekit_ffi
 #include "webrtc-sys/src/webrtc.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class MediaStreamTrack;
 class RtpReceiver;
@@ -78,7 +78,7 @@ class RtcRuntime : public std::enable_shared_from_this<RtcRuntime> {
 
   // Lists used to make sure we don't create multiple wrappers for one
   // underlying webrtc object. (e.g: webrtc::VideoTrackInterface should only
-  // have one livekit::VideoTrack associated with it).
+  // have one livekit_ffi::VideoTrack associated with it).
   // The only reason we to do that is to allow to add states inside our
   // wrappers (e.g: the sinks_ member inside AudioTrack)
   // DataChannel and the PeerConnectionFactory don't need to do this (There's no
@@ -115,4 +115,4 @@ std::unique_ptr<LogSink> new_log_sink(
 
 rust::String create_random_uuid();
 
-}  // namespace livekit
+}  // namespace livekit_ffi

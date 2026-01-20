@@ -24,7 +24,7 @@
 #include "livekit/webrtc.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class AudioResampler {
  public:
@@ -44,4 +44,4 @@ class AudioResampler {
 
 std::unique_ptr<AudioResampler> create_audio_resampler();
 
-}  // namespace livekit
+}  // namespace livekit_ffi

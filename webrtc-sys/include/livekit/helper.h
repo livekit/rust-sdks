@@ -18,7 +18,7 @@
 
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class MediaStream;
 class AudioTrack;
 class VideoTrack;
@@ -26,10 +26,10 @@ class Candidate;
 class RtpSender;
 class RtpReceiver;
 class RtpTransceiver;
-}  // namespace livekit
+}  // namespace livekit_ffi
 #include "webrtc-sys/src/helper.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 // Impl not needed
 static rust::Vec<MediaStreamPtr> _vec_media_stream_ptr() {
@@ -54,4 +54,4 @@ static rust::Vec<RtpTransceiverPtr> _vec_rtp_transceiver_ptr() {
   throw;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

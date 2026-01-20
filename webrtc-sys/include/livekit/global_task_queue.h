@@ -18,8 +18,8 @@
 
 #include "api/task_queue/task_queue_factory.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::TaskQueueFactory* GetGlobalTaskQueueFactory();
 
-} // namespace livekit
+} // namespace livekit_ffi

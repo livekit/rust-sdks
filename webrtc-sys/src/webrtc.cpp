@@ -34,7 +34,7 @@
 #include "rtc_base/win32.h"
 #endif
 
-namespace livekit {
+namespace livekit_ffi {
 
 static webrtc::Mutex g_mutex{};
 // Can't be atomic, we're using a Mutex because we need to wait for the
@@ -173,4 +173,4 @@ rust::String create_random_uuid() {
   return webrtc::CreateRandomUuid();
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

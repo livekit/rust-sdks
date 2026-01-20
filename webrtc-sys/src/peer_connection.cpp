@@ -29,7 +29,7 @@
 #include "livekit/rtp_transceiver.h"
 #include "rtc_base/logging.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
     RtcConfiguration config) {
@@ -475,4 +475,4 @@ void PeerConnection::OnInterestingUsage(int usage_pattern) {
   observer_->on_interesting_usage(usage_pattern);
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

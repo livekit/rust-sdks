@@ -32,7 +32,7 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 struct KeyProviderOptions;
 struct EncryptedPacket;
@@ -222,4 +222,4 @@ std::shared_ptr<DataPacketCryptor> new_data_packet_cryptor(
     Algorithm algorithm,
     std::shared_ptr<KeyProvider> key_provider);
 
-}  // namespace livekit
+}  // namespace livekit_ffi

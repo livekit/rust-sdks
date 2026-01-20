@@ -22,7 +22,7 @@
 #include <iostream>
 #include <memory>
 
-namespace livekit {
+namespace livekit_ffi {
 
 AudioProcessingModule::AudioProcessingModule(
     const AudioProcessingConfig& config) {
@@ -70,4 +70,4 @@ std::unique_ptr<AudioProcessingModule> create_apm(
   return std::make_unique<AudioProcessingModule>(config);
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

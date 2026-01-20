@@ -20,7 +20,7 @@
 #include "api/video_codecs/video_decoder_factory.h"
 #include "absl/strings/match.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
  public:
   VideoDecoderFactory();
@@ -36,4 +36,4 @@ class VideoDecoderFactory : public webrtc::VideoDecoderFactory {
  private:
   std::vector<std::unique_ptr<webrtc::VideoDecoderFactory>> factories_;
 };
-}  // namespace livekit
+}  // namespace livekit_ffi

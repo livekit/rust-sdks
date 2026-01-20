@@ -20,16 +20,16 @@
 #include "modules/desktop_capture/desktop_capturer.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class DesktopFrame;
 class DesktopCapturer;
 class DesktopCapturerOptions;
 class Source;
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #include "webrtc-sys/src/desktop_capturer.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class DesktopCapturer : public webrtc::DesktopCapturer::Callback {
  public:
@@ -69,4 +69,4 @@ class DesktopFrame {
 };
 
 std::unique_ptr<DesktopCapturer> new_desktop_capturer(DesktopCapturerOptions options);
-}  // namespace livekit
+}  // namespace livekit_ffi

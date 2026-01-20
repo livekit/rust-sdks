@@ -16,7 +16,7 @@
 
 #include "livekit/rtp_parameters.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::RtcpFeedback to_native_rtcp_feedback(RtcpFeedback feedback) {
   webrtc::RtcpFeedback native{};
@@ -411,4 +411,4 @@ RtpParameters to_rust_rtp_parameters(webrtc::RtpParameters params) {
   return rust;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

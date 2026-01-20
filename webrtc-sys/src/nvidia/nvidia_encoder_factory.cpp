@@ -35,7 +35,7 @@ NvidiaVideoEncoderFactory::NvidiaVideoEncoderFactory() {
 NvidiaVideoEncoderFactory::~NvidiaVideoEncoderFactory() {}
 
 bool NvidiaVideoEncoderFactory::IsSupported() {
-  if (!livekit::CudaContext::IsAvailable()) {
+  if (!livekit_ffi::CudaContext::IsAvailable()) {
     RTC_LOG(LS_WARNING) << "Cuda Context is not available.";
     return false;
   }
@@ -51,7 +51,7 @@ std::unique_ptr<VideoEncoder> NvidiaVideoEncoderFactory::Create(
   for (const auto& supported_format : supported_formats_) {
     if (format.IsSameCodec(supported_format)) {
       if (!cu_context_) {
-        cu_context_ = livekit::CudaContext::GetInstance();
+        cu_context_ = livekit_ffi::CudaContext::GetInstance();
         if (!cu_context_->Initialize()) {
           RTC_LOG(LS_ERROR) << "Failed to initialize CUDA context.";
           return nullptr;

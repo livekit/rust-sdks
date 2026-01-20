@@ -29,12 +29,12 @@
 #include "livekit/rtp_sender.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class RtpTransceiver;
 }
 #include "webrtc-sys/src/rtp_transceiver.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
     RtpTransceiverInit init);
@@ -90,4 +90,4 @@ static std::shared_ptr<RtpTransceiver> _shared_rtp_transceiver() {
   return nullptr;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

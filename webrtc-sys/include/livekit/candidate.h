@@ -20,13 +20,13 @@
 
 #include "api/candidate.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class Candidate;
 }
 #include "webrtc-sys/src/candidate.rs.h"
 
 // cricket::Candidate
-namespace livekit {
+namespace livekit_ffi {
 
 class Candidate {
  public:
@@ -40,4 +40,4 @@ static std::shared_ptr<Candidate> _shared_candidate() {
   return nullptr;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

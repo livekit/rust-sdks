@@ -33,7 +33,7 @@
 #include "rtc_base/time_utils.h"
 #include "webrtc-sys/src/video_track.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 VideoTrack::VideoTrack(std::shared_ptr<RtcRuntime> rtc_runtime,
                        webrtc::scoped_refptr<webrtc::VideoTrackInterface> track)
@@ -199,4 +199,4 @@ std::shared_ptr<VideoTrackSource> new_video_track_source(
   return std::make_shared<VideoTrackSource>(resolution);
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

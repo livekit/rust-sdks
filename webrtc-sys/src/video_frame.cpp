@@ -20,7 +20,7 @@
 
 #include "api/video/video_frame.h"
 
-namespace livekit {
+namespace livekit_ffi {
 VideoFrame::VideoFrame(const webrtc::VideoFrame& frame)
     : frame_(std::move(frame)) {}
 
@@ -83,4 +83,4 @@ std::unique_ptr<VideoFrameBuilder> new_video_frame_builder() {
   return std::make_unique<VideoFrameBuilder>();
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi
