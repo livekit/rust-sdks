@@ -190,8 +190,8 @@ async fn run(args: Args, mut shutdown_rx: watch::Receiver<bool>) -> Result<()> {
             .set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
     }
     camera.open_stream()?;
-    let camera = Arc::new(Mutex::new(camera));
     let fmt = camera.camera_format();
+    let camera = Arc::new(Mutex::new(camera));
     let width = fmt.width();
     let height = fmt.height();
     let fps = fmt.frame_rate();
