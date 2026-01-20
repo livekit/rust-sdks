@@ -39,8 +39,8 @@ async fn subscribe(track: RemoteDataTrack) -> Result<()> {
         track.info().name(),
         track.publisher_identity()
     );
-    let mut frame_steam = track.subscribe().await?;
-    while let Some(frame) = frame_steam.next().await {
+    let mut stream = track.subscribe().await?;
+    while let Some(frame) = stream.next().await {
         log::info!("Received frame ({} bytes)", frame.payload().len());
     }
     log::info!("Unsubscribed");
