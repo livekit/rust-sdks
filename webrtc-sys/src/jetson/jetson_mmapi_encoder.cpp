@@ -450,26 +450,28 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     std::fflush(stderr);
   }
 
+  // Prefer planar YUV420 (I420-style) for Jetson end-to-end.
+  // If that fails, fall back to NV12M. The I420 input path can still be used
+  // with NV12 by interleaving U/V into UV in QueueOutputBuffer().
   output_is_nv12_ = false;
-  ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_);
+  ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_, height_);
   if (ret < 0) {
     if (verbose) {
       std::fprintf(stderr,
-                   "[MMAPI] NV12M format failed (ret=%d), trying YUV420M\n",
+                   "[MMAPI] YUV420M format failed (ret=%d), trying NV12M\n",
                    ret);
       std::fflush(stderr);
     }
-    ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_, height_);
+    ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_);
     if (ret < 0) {
       RTC_LOG(LS_ERROR) << "Failed to set output plane format.";
       std::fprintf(stderr,
-                   "[MMAPI] setOutputPlaneFormat failed for both NV12M and "
-                   "YUV420M: ret=%d, errno=%d (%s)\n",
+                   "[MMAPI] setOutputPlaneFormat failed for both YUV420M and "
+                   "NV12M: ret=%d, errno=%d (%s)\n",
                    ret, errno, strerror(errno));
       std::fflush(stderr);
       return false;
     }
-  } else {
     output_is_nv12_ = true;
   }
   if (verbose) {
@@ -719,6 +721,28 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
               height_ / 2);
   }
 
+  // IMPORTANT: In MMAP mode, the Jetson MMAPI wrapper can rely on NvBuffer's
+  // bytesused values (not only the v4l2_buffer's plane bytesused). If these
+  // are left at 0, the encoder may treat the input as empty and output black.
+  buffer->planes[0].bytesused = output_y_stride_ * height_;
+  buffer->planes[1].bytesused = output_u_stride_ * (height_ / 2);
+  if (!output_is_nv12_ && buffer->n_planes > 2) {
+    buffer->planes[2].bytesused = output_v_stride_ * (height_ / 2);
+  }
+  if (verbose) {
+    for (int plane = 0; plane < buffer->n_planes; ++plane) {
+      if (buffer->planes[plane].bytesused == 0 ||
+          buffer->planes[plane].bytesused > buffer->planes[plane].length) {
+        std::fprintf(stderr,
+                     "[MMAPI] WARNING: output plane bytesused invalid: "
+                     "plane=%d bytesused=%u length=%u\n",
+                     plane, buffer->planes[plane].bytesused,
+                     buffer->planes[plane].length);
+        std::fflush(stderr);
+      }
+    }
+  }
+
   for (int plane = 0; plane < buffer->n_planes; ++plane) {
     NvBufSurface* surface = nullptr;
     int map_ret =
@@ -817,6 +841,23 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
   CopyPlane(dst_y, output_y_stride_, src_y, stride_y, width_, height_);
   CopyPlane(dst_uv, output_u_stride_, src_uv, stride_uv, width_,
             height_ / 2);
+
+  // Keep NvBuffer bytesused in sync for MMAP.
+  buffer->planes[0].bytesused = output_y_stride_ * height_;
+  buffer->planes[1].bytesused = output_u_stride_ * (height_ / 2);
+  if (verbose) {
+    for (int plane = 0; plane < buffer->n_planes; ++plane) {
+      if (buffer->planes[plane].bytesused == 0 ||
+          buffer->planes[plane].bytesused > buffer->planes[plane].length) {
+        std::fprintf(stderr,
+                     "[MMAPI] WARNING: output plane bytesused invalid: "
+                     "plane=%d bytesused=%u length=%u\n",
+                     plane, buffer->planes[plane].bytesused,
+                     buffer->planes[plane].length);
+        std::fflush(stderr);
+      }
+    }
+  }
 
   for (int plane = 0; plane < buffer->n_planes; ++plane) {
     NvBufSurface* surface = nullptr;
