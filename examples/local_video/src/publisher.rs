@@ -307,7 +307,7 @@ async fn run(args: Args, mut shutdown_rx: watch::Receiver<bool>) -> Result<()> {
 
         // Get frame as RGB24 (decoded by nokhwa if needed)
         let t0 = Instant::now();
-        let frame_task = {
+        let mut frame_task = {
             let camera = camera.clone();
             tokio::task::spawn_blocking(move || {
                 let mut camera = camera.lock().expect("camera lock");
@@ -319,7 +319,7 @@ async fn run(args: Args, mut shutdown_rx: watch::Receiver<bool>) -> Result<()> {
                 frame_task.abort();
                 break 'capture;
             }
-            res = frame_task => {
+            res = &mut frame_task => {
                 match res {
                     Ok(Ok(f)) => f,
                     Ok(Err(e)) => {
