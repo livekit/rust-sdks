@@ -544,6 +544,9 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
   }
 
   v4l2_format output_format = {};
+  // Some MMAPI wrappers/driver paths require v4l2_format.type to be set before
+  // querying the current format, otherwise the returned struct can be zeroed.
+  output_format.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
   ret = encoder_->output_plane.getFormat(output_format);
   if (ret == 0) {
     output_y_stride_ = output_format.fmt.pix_mp.plane_fmt[0].bytesperline;
@@ -692,33 +695,53 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
     std::fprintf(stderr,
                  "[MMAPI] QueueOutputBuffer: buffer=%p, n_planes=%d, "
                  "plane[0].data=%p, plane[0].fmt.bytesperpixel=%d, "
-                 "plane[0].fmt.stride=%d\n",
+                 "plane[0].fmt.stride=%d, plane[0].length=%u\n",
                  static_cast<void*>(buffer), buffer->n_planes,
-                 buffer->planes[0].data, buffer->planes[0].fmt.bytesperpixel);
+                 buffer->planes[0].data, buffer->planes[0].fmt.bytesperpixel,
+                 static_cast<int>(buffer->planes[0].fmt.stride),
+                 buffer->planes[0].length);
     std::fflush(stderr);
   }
 
-  // IMPORTANT: The mapped NvBuffer plane stride can differ from the V4L2
-  // bytesperline returned by getFormat() (alignment/pitch requirements). Using
-  // the wrong destination stride will produce "striped/shifted/green" output.
+  // IMPORTANT: The actual mapped destination pitch can differ from the
+  // V4L2 bytesperline returned by getFormat() due to alignment/pitch
+  // requirements. Using the wrong destination stride will produce
+  // "striped/shifted/green" output.
+  //
+  // On some Jetson/MMAPI combinations, NvBufferPlane::fmt.stride can be unset
+  // in MMAP mode. In that case, derive stride from plane length and height.
+  const int chroma_height = (height_ + 1) / 2;
+  const int chroma_width = (width_ + 1) / 2;
+  auto stride_from_plane = [](const NvBuffer::NvBufferPlane& plane,
+                              int plane_height,
+                              int fallback) -> int {
+    const int fmt_stride = static_cast<int>(plane.fmt.stride);
+    if (fmt_stride > 0) {
+      return fmt_stride;
+    }
+    if (plane_height > 0 && plane.length > 0) {
+      const int derived =
+          static_cast<int>(plane.length / static_cast<uint32_t>(plane_height));
+      if (derived > 0) {
+        return derived;
+      }
+    }
+    return fallback;
+  };
+
   const int dst_y_stride =
-      buffer->planes[0].fmt.stride > 0 ? buffer->planes[0].fmt.stride
-                                       : output_y_stride_;
+      stride_from_plane(buffer->planes[0], height_, output_y_stride_);
   const int dst_u_stride =
-      (buffer->n_planes > 1 && buffer->planes[1].fmt.stride > 0)
-          ? buffer->planes[1].fmt.stride
-          : output_u_stride_;
+      stride_from_plane(buffer->planes[1], chroma_height, output_u_stride_);
   const int dst_v_stride =
-      (!output_is_nv12_ && buffer->n_planes > 2 && buffer->planes[2].fmt.stride > 0)
-          ? buffer->planes[2].fmt.stride
-          : output_v_stride_;
+      (!output_is_nv12_ && buffer->n_planes > 2)
+          ? stride_from_plane(buffer->planes[2], chroma_height, output_v_stride_)
+          : dst_u_stride;
 
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
   CopyPlane(dst_y, dst_y_stride, src_y, stride_y, width_, height_);
   if (output_is_nv12_) {
     uint8_t* dst_uv = static_cast<uint8_t*>(buffer->planes[1].data);
-    const int chroma_width = (width_ + 1) / 2;
-    const int chroma_height = (height_ + 1) / 2;
     for (int y = 0; y < chroma_height; ++y) {
       const uint8_t* src_u_row = src_u + y * stride_u;
       const uint8_t* src_v_row = src_v + y * stride_v;
@@ -731,8 +754,6 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   } else {
     uint8_t* dst_u = static_cast<uint8_t*>(buffer->planes[1].data);
     uint8_t* dst_v = static_cast<uint8_t*>(buffer->planes[2].data);
-    const int chroma_width = (width_ + 1) / 2;
-    const int chroma_height = (height_ + 1) / 2;
     CopyPlane(dst_u, dst_u_stride, src_u, stride_u, chroma_width,
               chroma_height);
     CopyPlane(dst_v, dst_v_stride, src_v, stride_v, chroma_width,
@@ -849,19 +870,36 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
     std::fprintf(stderr,
                  "[MMAPI] QueueOutputBufferNV12: buffer=%p, n_planes=%d, "
                  "plane[0].data=%p, plane[0].fmt.bytesperpixel=%d, "
-                 "plane[0].fmt.stride=%d\n",
+                 "plane[0].fmt.stride=%d, plane[0].length=%u\n",
                  static_cast<void*>(buffer), buffer->n_planes,
-                 buffer->planes[0].data, buffer->planes[0].fmt.bytesperpixel);
+                 buffer->planes[0].data, buffer->planes[0].fmt.bytesperpixel,
+                 static_cast<int>(buffer->planes[0].fmt.stride),
+                 buffer->planes[0].length);
     std::fflush(stderr);
   }
 
+  const int chroma_height = (height_ + 1) / 2;
+  auto stride_from_plane = [](const NvBuffer::NvBufferPlane& plane,
+                              int plane_height,
+                              int fallback) -> int {
+    const int fmt_stride = static_cast<int>(plane.fmt.stride);
+    if (fmt_stride > 0) {
+      return fmt_stride;
+    }
+    if (plane_height > 0 && plane.length > 0) {
+      const int derived =
+          static_cast<int>(plane.length / static_cast<uint32_t>(plane_height));
+      if (derived > 0) {
+        return derived;
+      }
+    }
+    return fallback;
+  };
+
   const int dst_y_stride =
-      buffer->planes[0].fmt.stride > 0 ? buffer->planes[0].fmt.stride
-                                       : output_y_stride_;
+      stride_from_plane(buffer->planes[0], height_, output_y_stride_);
   const int dst_uv_stride =
-      (buffer->n_planes > 1 && buffer->planes[1].fmt.stride > 0)
-          ? buffer->planes[1].fmt.stride
-          : output_u_stride_;
+      stride_from_plane(buffer->planes[1], chroma_height, output_u_stride_);
 
   uint8_t* dst_y = static_cast<uint8_t*>(buffer->planes[0].data);
   uint8_t* dst_uv = static_cast<uint8_t*>(buffer->planes[1].data);
