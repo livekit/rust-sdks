@@ -289,6 +289,7 @@ async fn run(args: Args, mut shutdown_rx: watch::Receiver<bool>) -> Result<()> {
     let dump_dir = env::var("LK_DUMP_FRAME_DIR").unwrap_or_else(|_| "/tmp".to_string());
     let dump_raw = env::var("LK_DUMP_FRAME").ok().map_or(false, |v| v == "1");
     let dump_stats = env::var("LK_DUMP_I420_STATS").ok().map_or(false, |v| v == "1");
+    let mut capture_error: Option<anyhow::Error> = None;
     'capture: loop {
         if *shutdown_rx.borrow() {
             break;
@@ -326,10 +327,13 @@ async fn run(args: Args, mut shutdown_rx: watch::Receiver<bool>) -> Result<()> {
                         if *shutdown_rx.borrow() {
                             break 'capture;
                         }
-                        return Err(e.into());
+                        log::error!("Camera capture error: {}", e);
+                        capture_error = Some(e.into());
+                        break 'capture;
                     }
                     Err(e) => {
-                        return Err(anyhow::anyhow!("camera capture task failed: {}", e));
+                        capture_error = Some(anyhow::anyhow!("camera capture task failed: {}", e));
+                        break 'capture;
                     }
                 }
             }
@@ -735,6 +739,10 @@ async fn run(args: Args, mut shutdown_rx: watch::Receiver<bool>) -> Result<()> {
     }
     if let Err(e) = room.close().await {
         log::warn!("Failed to close room: {}", e);
+    }
+
+    if let Some(err) = capture_error {
+        return Err(err);
     }
 
     Ok(())
