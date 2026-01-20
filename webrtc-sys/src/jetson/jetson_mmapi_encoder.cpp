@@ -16,6 +16,8 @@
 #include <memory>
 #include <thread>
 
+#include <nvbuf_utils.h>
+
 #include "NvBufSurface.h"
 #include "NvBuffer.h"
 #include "NvVideoEncoder.h"
