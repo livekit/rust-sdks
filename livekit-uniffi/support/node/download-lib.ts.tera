@@ -44,11 +44,11 @@ function targetArch() {
 
 function generateLibraryName(platform: TargetPlatform) {
   switch (platform) {
-    case "windows":
+    case "pc-windows-msvc":
       return `${PACKAGE_NAME}.dll`;
-    case "macos":
+    case "apple-darwin":
       return `lib${PACKAGE_NAME}.dylib`;
-    case "linux":
+    case "unknown-linux-gnu":
       return `lib${PACKAGE_NAME}.so`;
   }
 }
@@ -58,9 +58,9 @@ function generateLibraryDownloadUrl(
   arch: TargetArch,
   version: string,
 ) {
-  // ie, https://github.com/livekit/rust-sdks/releases/download/rust-sdks/livekit-ffi@0.12.40/ffi-android-arm64.zip
+  // ie, https://github.com/livekit/rust-sdks/releases/download/v0.1.1/build-aarch64-apple-darwin.zip
   const filename = `build-${arch}-${platform}.zip`;
-  return `${DOWNLOAD_BASE_URL}@${version}/${filename}`;
+  return `${DOWNLOAD_BASE_URL}/v${version}/${filename}`;
 }
 
 async function doesFileExist(path: string) {
@@ -108,13 +108,13 @@ async function downloadLib(
   }
 }
 
-if (require.main === module) {
+if (require.main === module && process.env.SKIP_DOWNLOAD_LIB !== 'true') {
   const options: ParseArgsOptionsConfig = {
     platform: { type: 'string', default: targetPlatform() },
     arch: { type: 'string', default: targetArch() },
     version: { type: 'string', default: PACKAGE_VERSION },
     output: { type: 'string', default: OUTPUT_DIR_PATH },
-    skip: { type: 'boolean', short: 's', default: false },
+    "skip-if-exists": { type: 'boolean', short: 's', default: false },
   };
   const { values } = parseArgs({ args: process.argv.slice(2), options });
   downloadLib(
@@ -122,6 +122,6 @@ if (require.main === module) {
     values.arch,
     values.version,
     values.output,
-    values.skip,
+    values["skip-if-exists"],
   );
 }
