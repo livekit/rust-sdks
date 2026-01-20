@@ -335,8 +335,8 @@ impl RoomInner {
         .to_vec();
 
         let reliable = publish.reliable;
-        let topic = publish.topic.clone();
-        let destination_identities = publish.destination_identities.clone();
+        let topic = publish.topic;
+        let destination_identities = publish.destination_identities;
         let async_id = server.resolve_async_id(publish.request_async_id);
 
         if let Err(err) = self.data_tx.send(FfiDataPacket {
@@ -409,8 +409,8 @@ impl RoomInner {
         publish: proto::PublishSipDtmfRequest,
     ) -> FfiResult<proto::PublishSipDtmfResponse> {
         let code = publish.code;
-        let digit = publish.digit.clone();
-        let destination_identities = publish.destination_identities.clone();
+        let digit = publish.digit;
+        let destination_identities = publish.destination_identities;
         let async_id = server.resolve_async_id(publish.request_async_id);
 
         if let Err(err) = self.dtmf_tx.send(FfiSipDtmfPacket {
