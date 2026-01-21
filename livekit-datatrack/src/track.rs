@@ -37,6 +37,14 @@ impl<L> DataTrack<L> {
     pub fn info(&self) -> &DataTrackInfo {
         &self.info
     }
+
+    /// Whether or not the track is still published.
+    pub fn is_published(&self) -> bool {
+        match self.inner.as_ref() {
+            DataTrackInner::Local(inner) => inner.is_published(),
+            DataTrackInner::Remote(inner) => inner.is_published(),
+        }
+    }
 }
 
 /// Information about a published data track.

@@ -95,15 +95,6 @@ impl DataTrack<Remote> {
         Ok(Box::pin(frame_stream))
     }
 
-    /// Whether or not the track is still published.
-    ///
-    /// Once the track has been unpublished, calls to [`Self::subscribe()`] will
-    /// result in an error.
-    ///
-    pub fn is_published(&self) -> bool {
-        *self.inner().published_rx.borrow()
-    }
-
     /// Identity of the participant who published the track.
     pub fn publisher_identity(&self) -> &str {
         &self.inner().publisher_identity
@@ -115,6 +106,12 @@ pub(crate) struct RemoteTrackInner {
     publisher_identity: Arc<str>,
     published_rx: watch::Receiver<bool>,
     event_in_tx: mpsc::WeakSender<manager::InputEvent>,
+}
+
+impl RemoteTrackInner {
+    pub fn is_published(&self) -> bool {
+        *self.published_rx.borrow()
+    }
 }
 
 #[derive(Debug, Error)]

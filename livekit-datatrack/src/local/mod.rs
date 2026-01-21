@@ -88,14 +88,6 @@ impl DataTrack<Local> {
         })
     }
 
-    /// Whether or not the track is still published.
-    ///
-    /// Once the track has been unpublished, calls to [`Self::publish`] will fail.
-    ///
-    pub fn is_published(&self) -> bool {
-        *self.inner().published_tx.borrow()
-    }
-
     /// Unpublishes the track.
     pub fn unpublish(self) {
         self.inner().local_unpublish();
@@ -109,6 +101,10 @@ pub(crate) struct LocalTrackInner {
 }
 
 impl LocalTrackInner {
+    pub fn is_published(&self) -> bool {
+        *self.published_tx.borrow()
+    }
+
     fn local_unpublish(&self) {
         _ = self.published_tx.send(false);
     }
