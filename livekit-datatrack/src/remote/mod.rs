@@ -69,7 +69,7 @@ impl DataTrack<Remote> {
     /// reuse the same underlying pipeline and do not trigger additional signaling.
     ///
     /// Note that newly created subscriptions only receive frames published after
-    /// the subscription is established.
+    /// the initial subscription is established.
     ///
     pub async fn subscribe(&self) -> Result<impl Stream<Item = DataTrackFrame>, SubscribeError> {
         let (result_tx, result_rx) = oneshot::channel();
