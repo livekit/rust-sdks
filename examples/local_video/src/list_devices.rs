@@ -70,9 +70,7 @@ fn capabilities_from_formats(
 ) -> BTreeMap<FrameFormat, BTreeMap<Resolution, Vec<u32>>> {
     let mut capabilities = BTreeMap::new();
     for fmt in formats {
-        let res_map = capabilities
-            .entry(fmt.format())
-            .or_insert_with(BTreeMap::new);
+        let res_map = capabilities.entry(fmt.format()).or_insert_with(BTreeMap::new);
         let fps_list = res_map.entry(fmt.resolution()).or_insert_with(Vec::new);
         fps_list.push(fmt.frame_rate());
     }
@@ -102,11 +100,7 @@ fn print_capabilities(capabilities: &BTreeMap<FrameFormat, BTreeMap<Resolution, 
             let fps_text = if fps_list.is_empty() {
                 "unknown".to_string()
             } else {
-                fps_list
-                    .iter()
-                    .map(|fps| fps.to_string())
-                    .collect::<Vec<String>>()
-                    .join(", ")
+                fps_list.iter().map(|fps| fps.to_string()).collect::<Vec<String>>().join(", ")
             };
             println!("     {} @ {} fps", resolution, fps_text);
         }

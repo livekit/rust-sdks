@@ -133,11 +133,7 @@ async fn handle_track_subscribed(
     // If a participant filter is set, skip others
     if let Some(ref allow) = allowed_identity {
         if participant.identity().as_str() != allow {
-            debug!(
-                "Skipping track from '{}' (filter set to '{}')",
-                participant.identity(),
-                allow
-            );
+            debug!("Skipping track from '{}' (filter set to '{}')", participant.identity(), allow);
             return;
         }
     }
@@ -369,10 +365,7 @@ async fn handle_track_subscribed(
     });
 }
 
-fn clear_hud_and_simulcast(
-    shared: &Arc<Mutex<SharedYuv>>,
-    simulcast: &Arc<Mutex<SimulcastState>>,
-) {
+fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex<SimulcastState>>) {
     {
         let mut s = shared.lock();
         s.codec.clear();
@@ -619,20 +612,10 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     .await;
                 }
                 RoomEvent::TrackUnsubscribed { publication, .. } => {
-                    handle_track_unsubscribed(
-                        publication,
-                        &shared_clone,
-                        &active_sid,
-                        &simulcast,
-                    );
+                    handle_track_unsubscribed(publication, &shared_clone, &active_sid, &simulcast);
                 }
                 RoomEvent::TrackUnpublished { publication, .. } => {
-                    handle_track_unpublished(
-                        publication,
-                        &shared_clone,
-                        &active_sid,
-                        &simulcast,
-                    );
+                    handle_track_unpublished(publication, &shared_clone, &active_sid, &simulcast);
                 }
                 _ => {}
             }
