@@ -60,7 +60,7 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
 
         let sleep_duration = Duration::from_secs_f64(1.0 / publish_fps as f64);
         for index in 0..frame_count {
-            track.publish(vec![index as u8; payload_len].into())?;
+            track.try_push(vec![index as u8; payload_len].into())?;
             time::sleep(sleep_duration).await;
         }
         Ok(())
@@ -144,7 +144,7 @@ async fn test_publish_many_tracks() -> Result<()> {
     let tracks = timeout(Duration::from_secs(5), publish_tracks).await??;
     for track in &tracks {
         // Publish a single large frame per track.
-        track.publish(vec![0xFA; 196_608].into())?;
+        track.try_push(vec![0xFA; 196_608].into())?;
     }
     Ok(())
 }
@@ -221,7 +221,7 @@ async fn test_e2ee(disable_on_track: bool) -> Result<()> {
         assert!(track.info().uses_e2ee() || disable_on_track);
 
         for index in 0..5 {
-            track.publish(vec![index as u8; 196_608].into())?;
+            track.try_push(vec![index as u8; 196_608].into())?;
             time::sleep(Duration::from_millis(25)).await;
         }
         Ok(())

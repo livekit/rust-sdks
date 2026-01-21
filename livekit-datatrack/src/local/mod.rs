@@ -50,20 +50,20 @@ impl DataTrack<Local> {
 }
 
 impl DataTrack<Local> {
-    /// Publishes a frame to the track.
+    /// Try pushing a frame to subscribers of the track.
     ///
     /// # Example
     ///
     /// ```
-    /// # use livekit_datatrack::api::{LocalDataTrack, DataTrackFrame, PublishFrameError};
-    /// # fn example(track: LocalDataTrack) -> Result<(), PublishFrameError> {
+    /// # use livekit_datatrack::api::{LocalDataTrack, DataTrackFrame, PushFrameError};
+    /// # fn example(track: LocalDataTrack) -> Result<(), PushFrameError> {
     /// fn read_sensor() -> Vec<u8> {
     ///     // Read some sensor data...
     ///     vec![0xFA; 16]
     /// }
     ///
     /// let frame = read_sensor().into(); // Convert to frame
-    /// track.publish(frame)?;
+    /// track.try_push(frame)?;
     ///
     /// # Ok(())
     /// # }
@@ -73,18 +73,18 @@ impl DataTrack<Local> {
     ///
     /// # Errors
     ///
-    /// Publishing a frame can fail for several reasons:
+    /// Pushing a frame can fail for several reasons:
     ///
     /// - The track has been unpublished by the local participant or SFU
     /// - The room is no longer connected
-    /// - Frames are being published too fast
+    /// - Frames are being pushed too fast
     ///
-    pub fn publish(&self, frame: DataTrackFrame) -> Result<(), PublishFrameError> {
+    pub fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameError> {
         if !self.is_published() {
-            return Err(PublishFrameError::new(frame, PublishFrameErrorReason::TrackUnpublished));
+            return Err(PushFrameError::new(frame, PushFrameErrorReason::TrackUnpublished));
         }
         self.inner().frame_tx.try_send(frame).map_err(|err| {
-            PublishFrameError::new(err.into_inner(), PublishFrameErrorReason::Dropped)
+            PushFrameError::new(err.into_inner(), PushFrameErrorReason::Dropped)
         })
     }
 
@@ -203,22 +203,22 @@ pub enum PublishError {
 /// Frame could not be published to a data track.
 #[derive(Debug, Error)]
 #[error("Failed to publish frame: {reason}")]
-pub struct PublishFrameError {
+pub struct PushFrameError {
     frame: DataTrackFrame,
-    reason: PublishFrameErrorReason,
+    reason: PushFrameErrorReason,
 }
 
-impl PublishFrameError {
-    pub(crate) fn new(frame: DataTrackFrame, reason: PublishFrameErrorReason) -> Self {
+impl PushFrameError {
+    pub(crate) fn new(frame: DataTrackFrame, reason: PushFrameErrorReason) -> Self {
         Self { frame, reason }
     }
 
-    /// Returns the reason the frame could not be published.
-    pub fn reason(&self) -> PublishFrameErrorReason {
+    /// Returns the reason the frame could not be pushed.
+    pub fn reason(&self) -> PushFrameErrorReason {
         self.reason
     }
 
-    /// Consumes the error and returns the frame that couldn't be published.
+    /// Consumes the error and returns the frame that couldn't be pushed.
     ///
     /// This may be useful for implementing application-specific retry logic.
     ///
@@ -227,18 +227,16 @@ impl PublishFrameError {
     }
 }
 
-/// Reason why a data track frame could not be published.
+/// Reason why a data track frame could not be pushed.
 #[derive(Debug, Clone, Copy)]
-pub enum PublishFrameErrorReason {
+pub enum PushFrameErrorReason {
     /// Track is no longer published.
     TrackUnpublished,
     /// Frame was dropped.
     Dropped,
 }
-// TODO: could provide unpublish reason and more
-// info about why the frame was dropped.
 
-impl fmt::Display for PublishFrameErrorReason {
+impl fmt::Display for PushFrameErrorReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TrackUnpublished => write!(f, "track unpublished"),

@@ -15,7 +15,7 @@ async fn main() -> Result<()> {
     let track = room.local_participant().publish_data_track("my_sensor_data").await?;
 
     tokio::select! {
-        _ = publish_frames(track) => {}
+        _ = push_frames(track) => {}
         _ = signal::ctrl_c() => {}
     }
     Ok(())
@@ -26,11 +26,11 @@ async fn read_sensor() -> Vec<u8> {
     vec![0xFA; 256]
 }
 
-async fn publish_frames(track: LocalDataTrack) {
+async fn push_frames(track: LocalDataTrack) {
     loop {
-        log::info!("Publishing frame");
+        log::info!("Pushing frame");
         let frame = read_sensor().await.into();
-        track.publish(frame).inspect_err(|err| println!("Failed to publish frame: {}", err)).ok();
+        track.try_push(frame).inspect_err(|err| println!("Failed to push frame: {}", err)).ok();
         time::sleep(Duration::from_millis(500)).await
     }
 }

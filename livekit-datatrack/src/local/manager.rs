@@ -448,7 +448,7 @@ mod tests {
             assert_eq!(*track.info().sid(), track_sid);
 
             for _ in 0..packet_count {
-                track.publish(vec![0xFA; payload_size].into()).unwrap();
+                track.try_push(vec![0xFA; payload_size].into()).unwrap();
                 sleep(Duration::from_millis(10)).await;
             }
             // Only reference to track dropped here (unpublish)
