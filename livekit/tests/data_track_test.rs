@@ -253,3 +253,52 @@ async fn test_e2ee(disable_on_track: bool) -> Result<()> {
     timeout(Duration::from_secs(5), async { try_join!(publish, subscribe) }).await??;
     Ok(())
 }
+
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_published_state() -> Result<()> {
+    // How long to leave the track published.
+    const PUBLISH_DURATION: Duration = Duration::from_millis(500);
+
+    let mut rooms = test_rooms(2).await?;
+
+    let (pub_room, _) = rooms.pop().unwrap();
+    let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
+
+    let publish = async move {
+        let track = pub_room.local_participant().publish_data_track("my_track").await?;
+
+        assert!(track.is_published());
+        time::sleep(PUBLISH_DURATION).await;
+        track.unpublish();
+
+        Ok(())
+    };
+
+    let subscribe = async move {
+        let track = async move {
+            while let Some(event) = sub_room_event_rx.recv().await {
+                let RoomEvent::RemoteDataTrackPublished(track) = event else {
+                    continue;
+                };
+                return Ok(track);
+            }
+            Err(anyhow!("No track published"))
+        }
+        .await?;
+        assert!(track.is_published());
+
+        let elapsed = {
+            let start = Instant::now();
+            track.wait_for_unpublish().await;
+            start.elapsed()
+        };
+        assert!(elapsed.abs_diff(PUBLISH_DURATION) <= Duration::from_millis(20),);
+        assert!(!track.is_published());
+
+        Ok(())
+    };
+
+    timeout(Duration::from_secs(5), async { try_join!(publish, subscribe) }).await??;
+    Ok(())
+}

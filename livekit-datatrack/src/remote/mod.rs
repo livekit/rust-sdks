@@ -109,8 +109,8 @@ pub(crate) struct RemoteTrackInner {
 }
 
 impl RemoteTrackInner {
-    pub fn is_published(&self) -> bool {
-        *self.published_rx.borrow()
+    pub fn published_rx(&self) -> watch::Receiver<bool> {
+        self.published_rx.clone()
     }
 }
 

@@ -15,6 +15,7 @@
 use crate::packet::Handle;
 use from_variants::FromVariants;
 use std::{fmt::Display, marker::PhantomData, ops::Deref, sync::Arc};
+use tokio::sync::watch;
 use thiserror::Error;
 
 /// Track for communicating application-specific data between participants in room.
@@ -40,9 +41,29 @@ impl<L> DataTrack<L> {
 
     /// Whether or not the track is still published.
     pub fn is_published(&self) -> bool {
+        let published_rx = self.published_rx();
+        let published = *published_rx.borrow();
+        published
+    }
+
+    /// Waits asynchronously until the track is unpublished.
+    ///
+    /// Use this to trigger follow-up work once the track is no longer published.
+    /// If the track is already unpublished, this method returns immediately.
+    ///
+    pub async fn wait_for_unpublish(&self) {
+        let mut published_rx = self.published_rx();
+        if !*published_rx.borrow() {
+            // Already unpublished
+            return;
+        }
+        _ = published_rx.wait_for(|is_published| !*is_published).await;
+    }
+
+    fn published_rx(&self) -> watch::Receiver<bool> {
         match self.inner.as_ref() {
-            DataTrackInner::Local(inner) => inner.is_published(),
-            DataTrackInner::Remote(inner) => inner.is_published(),
+            DataTrackInner::Local(inner) => inner.published_rx(),
+            DataTrackInner::Remote(inner) => inner.published_rx(),
         }
     }
 }

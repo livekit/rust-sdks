@@ -101,12 +101,12 @@ pub(crate) struct LocalTrackInner {
 }
 
 impl LocalTrackInner {
-    pub fn is_published(&self) -> bool {
-        *self.published_tx.borrow()
-    }
-
     fn local_unpublish(&self) {
         _ = self.published_tx.send(false);
+    }
+
+    pub fn published_rx(&self) -> watch::Receiver<bool> {
+        self.published_tx.subscribe()
     }
 }
 
