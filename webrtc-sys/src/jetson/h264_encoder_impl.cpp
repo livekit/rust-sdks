@@ -263,7 +263,10 @@ int32_t JetsonH264EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
 
-  bool is_keyframe_needed = configuration_.key_frame_request;
+  bool is_keyframe_needed = false;
+  if (configuration_.key_frame_request && configuration_.sending) {
+    is_keyframe_needed = true;
+  }
   if (frame_types && !frame_types->empty()) {
     if ((*frame_types)[0] == VideoFrameType::kVideoFrameKey) {
       is_keyframe_needed = true;
@@ -277,6 +280,10 @@ int32_t JetsonH264EncoderImpl::Encode(
       }
       return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
     }
+  }
+
+  if (!configuration_.sending) {
+    return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
   webrtc::scoped_refptr<I420BufferInterface> frame_buffer =
@@ -302,6 +309,9 @@ int32_t JetsonH264EncoderImpl::Encode(
                  frame_buffer->StrideV(), is_keyframe_needed ? 1 : 0);
     std::fflush(stderr);
   }
+
+  RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
+  RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
 
   std::vector<uint8_t> packet;
   bool is_keyframe = false;

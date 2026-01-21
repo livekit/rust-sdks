@@ -151,7 +151,10 @@ int32_t JetsonH265EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
 
-  bool is_keyframe_needed = configuration_.key_frame_request;
+  bool is_keyframe_needed = false;
+  if (configuration_.key_frame_request && configuration_.sending) {
+    is_keyframe_needed = true;
+  }
   if (frame_types && !frame_types->empty()) {
     if ((*frame_types)[0] == VideoFrameType::kVideoFrameKey) {
       is_keyframe_needed = true;
@@ -161,12 +164,19 @@ int32_t JetsonH265EncoderImpl::Encode(
     }
   }
 
+  if (!configuration_.sending) {
+    return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+  }
+
   webrtc::scoped_refptr<I420BufferInterface> frame_buffer =
       input_frame.video_frame_buffer()->ToI420();
   if (!frame_buffer) {
     RTC_LOG(LS_ERROR) << "Failed to convert frame to I420.";
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
+
+  RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
+  RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
 
   std::vector<uint8_t> packet;
   bool is_keyframe = false;
@@ -176,6 +186,12 @@ int32_t JetsonH265EncoderImpl::Encode(
                        is_keyframe_needed, &packet, &is_keyframe)) {
     RTC_LOG(LS_ERROR) << "Failed to encode frame with Jetson MMAPI encoder.";
     return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  if (packet.empty()) {
+    RTC_LOG(LS_WARNING) << "Jetson MMAPI encoder returned empty packet; "
+                           "skipping output.";
+    return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
   if (is_keyframe_needed) {
