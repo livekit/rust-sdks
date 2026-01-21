@@ -82,3 +82,33 @@ impl From<DepacketizerFrame> for DataTrackFrame {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::packet::{FrameMarker, Header};
+    use fake::{Fake, Faker};
+
+    #[test]
+    fn test_process_frame() {
+        const PAYLOAD_LEN: usize = 1024;
+
+        let mut info: DataTrackInfo = Faker.fake();
+        info.uses_e2ee = false;
+
+        let publisher_identity: Arc<str> = Faker.fake::<String>().into();
+
+        let options =
+            PipelineOptions { info: info.into(), publisher_identity, decryption_provider: None };
+        let mut pipeline = Pipeline::new(options);
+
+        let mut header: Header = Faker.fake();
+        header.marker = FrameMarker::Single;
+        header.extensions.e2ee = None;
+
+        let frame = Packet { header, payload: vec![Faker.fake(); PAYLOAD_LEN].into() };
+
+        let frame = pipeline.process_packet(frame).expect("Should return a frame");
+        assert_eq!(frame.payload.len(), PAYLOAD_LEN);
+    }
+}
