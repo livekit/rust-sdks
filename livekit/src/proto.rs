@@ -159,6 +159,25 @@ impl From<participant_info::Kind> for participant::ParticipantKind {
     }
 }
 
+impl From<participant_info::KindDetail> for participant::ParticipantKindDetail {
+    fn from(value: participant_info::KindDetail) -> Self {
+        match value {
+            participant_info::KindDetail::CloudAgent => {
+                participant::ParticipantKindDetail::CloudAgent
+            }
+            participant_info::KindDetail::Forwarded => {
+                participant::ParticipantKindDetail::Forwarded
+            }
+            participant_info::KindDetail::ConnectorWhatsapp => {
+                participant::ParticipantKindDetail::ConnectorWhatsapp
+            }
+            participant_info::KindDetail::ConnectorTwilio => {
+                participant::ParticipantKindDetail::ConnectorTwilio
+            }
+        }
+    }
+}
+
 impl From<ChatMessage> for RoomChatMessage {
     fn from(proto_msg: ChatMessage) -> Self {
         RoomChatMessage {

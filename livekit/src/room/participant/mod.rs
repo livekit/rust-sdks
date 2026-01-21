@@ -48,6 +48,14 @@ pub enum ParticipantKind {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ParticipantKindDetail {
+    CloudAgent,
+    Forwarded,
+    ConnectorWhatsapp,
+    ConnectorTwilio,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum DisconnectReason {
     UnknownReason,
     ClientInitiated,
@@ -85,6 +93,7 @@ impl Participant {
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
         pub fn kind(self: &Self) -> ParticipantKind;
+        pub fn kind_details(self: &Self) -> Vec<ParticipantKindDetail>;
         pub fn disconnect_reason(self: &Self) -> DisconnectReason;
         pub fn is_encrypted(self: &Self) -> bool;
 
@@ -117,6 +126,7 @@ struct ParticipantInfo {
     pub audio_level: f32,
     pub connection_quality: ConnectionQuality,
     pub kind: ParticipantKind,
+    pub kind_details: Vec<ParticipantKindDetail>,
     pub disconnect_reason: DisconnectReason,
 }
 
@@ -161,6 +171,7 @@ pub(super) fn new_inner(
     metadata: String,
     attributes: HashMap<String, String>,
     kind: ParticipantKind,
+    kind_details: Vec<ParticipantKindDetail>,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
@@ -171,6 +182,7 @@ pub(super) fn new_inner(
             metadata,
             attributes,
             kind,
+            kind_details,
             speaking: false,
             audio_level: 0.0,
             connection_quality: ConnectionQuality::Excellent,
@@ -191,6 +203,7 @@ pub(super) fn update_info(
     let mut info = inner.info.write();
     info.disconnect_reason = new_info.disconnect_reason().into();
     info.kind = new_info.kind().into();
+    info.kind_details = super::utils::convert_kind_details(&new_info.kind_details);
     info.sid = new_info.sid.try_into().unwrap();
     info.identity = new_info.identity.into();
 

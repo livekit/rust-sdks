@@ -41,7 +41,7 @@ pub use utils::take_cell::TakeCell;
 pub use self::{
     data_stream::*,
     e2ee::{manager::E2eeManager, E2eeOptions},
-    participant::ParticipantKind,
+    participant::{ParticipantKind, ParticipantKindDetail},
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
@@ -498,6 +498,7 @@ impl Room {
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
             pi.kind().into(),
+            utils::convert_kind_details(&pi.kind_details),
             pi.sid.try_into().unwrap(),
             pi.identity.into(),
             pi.name,
@@ -592,7 +593,7 @@ impl Room {
                 empty_timeout: room_info.empty_timeout,
                 departure_timeout: room_info.departure_timeout,
                 max_participants: room_info.max_participants,
-                creation_time: room_info.creation_time,
+                creation_time: room_info.creation_time_ms,
                 num_publishers: room_info.num_publishers,
                 num_participants: room_info.num_participants,
                 active_recording: room_info.active_recording,
@@ -642,6 +643,7 @@ impl Room {
                 let pi = pi.clone();
                 inner.create_participant(
                     pi.kind().into(),
+                    utils::convert_kind_details(&pi.kind_details),
                     pi.sid.try_into().unwrap(),
                     pi.identity.into(),
                     pi.name,
@@ -758,7 +760,7 @@ impl Room {
     pub fn max_participants(&self) -> u32 {
         self.inner.info.read().max_participants
     }
-
+    /// Returns the room creation time in milliseconds since Unix epoch.
     pub fn creation_time(&self) -> i64 {
         self.inner.info.read().creation_time
     }
@@ -913,6 +915,9 @@ impl RoomSession {
             EngineEvent::RefreshToken { url, token } => {
                 self.handle_refresh_token(url, token);
             }
+            EngineEvent::TrackMuted { sid, muted } => {
+                self.handle_server_initiated_mute_track(sid, muted);
+            }
             _ => {}
         }
 
@@ -1000,6 +1005,7 @@ impl RoomSession {
                     let pi = pi.clone();
                     self.create_participant(
                         pi.kind().into(),
+                        utils::convert_kind_details(&pi.kind_details),
                         pi.sid.try_into().unwrap(),
                         pi.identity.into(),
                         pi.name,
@@ -1577,11 +1583,34 @@ impl RoomSession {
         self.dispatcher.dispatch(&event);
     }
 
+    fn handle_server_initiated_mute_track(&self, sid: String, muted: bool) {
+        let sid_for_log = sid.clone();
+        let track_sid = match sid.try_into() {
+            Ok(sid) => sid,
+            Err(_) => {
+                log::warn!("Invalid track sid in mute request: {}", sid_for_log);
+                return;
+            }
+        };
+
+        if let Some(publication) = self.local_participant.get_track_publication(&track_sid) {
+            if muted {
+                publication.mute();
+            } else {
+                publication.unmute();
+            }
+            return;
+        }
+
+        log::warn!("Track not found in mute request: {}", sid_for_log);
+    }
+
     /// Create a new participant
     /// Also add it to the participants list
     fn create_participant(
         self: &Arc<Self>,
         kind: ParticipantKind,
+        kind_details: Vec<ParticipantKindDetail>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
@@ -1591,6 +1620,7 @@ impl RoomSession {
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
             kind,
+            kind_details,
             sid.clone(),
             identity.clone(),
             name,

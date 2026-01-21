@@ -19,7 +19,7 @@
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
   class InternalFactory : public webrtc::VideoEncoderFactory {
    public:
@@ -53,4 +53,4 @@ class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
  private:
   std::unique_ptr<InternalFactory> internal_factory_;
 };
-}  // namespace livekit
+}  // namespace livekit_ffi

@@ -32,12 +32,12 @@
 #include "rust/cxx.h"
 #include "webrtc-sys/src/data_channel.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class PeerConnection;
-}  // namespace livekit
+}  // namespace livekit_ffi
 #include "webrtc-sys/src/peer_connection.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::PeerConnectionInterface::RTCConfiguration to_native_rtc_configuration(
     RtcConfiguration config);
@@ -205,4 +205,4 @@ static std::shared_ptr<PeerConnection> _shared_peer_connection() {
   return nullptr;  // Ignore
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

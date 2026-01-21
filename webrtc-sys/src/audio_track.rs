@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use crate::impl_thread_safety;
 
-#[cxx::bridge(namespace = "livekit")]
+#[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
 
     pub struct AudioSourceOptions {
@@ -101,7 +101,7 @@ pub struct SourceContext(pub Box<dyn Any + Send>);
 pub struct CompleteCallback(pub extern "C" fn(ctx: *const SourceContext));
 
 unsafe impl ExternType for CompleteCallback {
-    type Id = type_id!("livekit::CompleteCallback");
+    type Id = type_id!("livekit_ffi::CompleteCallback");
     type Kind = cxx::kind::Trivial;
 }
 

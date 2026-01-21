@@ -1646,7 +1646,7 @@ static int render_slice(VA264Context* context) {
   return 0;
 }
 
-namespace livekit {
+namespace livekit_ffi {
 
 VaapiH264EncoderWrapper::VaapiH264EncoderWrapper()
     : va_display_(std::make_unique<VaapiDisplay>()) {
@@ -1877,4 +1877,4 @@ bool VaapiH264EncoderWrapper::Encode(int fourcc,
   return true;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

@@ -24,7 +24,7 @@
 #include "api/rtp_transceiver_direction.h"
 #include "webrtc-sys/src/rtp_parameters.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::RtcpFeedback to_native_rtcp_feedback(RtcpFeedback feedback);
 webrtc::RtpCodecCapability to_native_rtp_codec_capability(
@@ -58,4 +58,4 @@ RtpCapabilities to_rust_rtp_capabilities(webrtc::RtpCapabilities capabilities);
 RtcpParameters to_rust_rtcp_parameters(webrtc::RtcpParameters params);
 RtpParameters to_rust_rtp_parameters(webrtc::RtpParameters params);
 
-}  // namespace livekit
+}  // namespace livekit_ffi

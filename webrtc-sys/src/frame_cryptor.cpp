@@ -26,7 +26,7 @@
 #include "rtc_base/thread.h"
 #include "webrtc-sys/src/frame_cryptor.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::FrameCryptorTransformer::Algorithm AlgorithmToFrameCryptorAlgorithm(
     Algorithm algorithm) {
@@ -257,4 +257,4 @@ std::shared_ptr<DataPacketCryptor> new_data_packet_cryptor(
       key_provider->rtc_key_provider());
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

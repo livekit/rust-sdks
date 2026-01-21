@@ -20,13 +20,13 @@
 #include "livekit/video_frame_buffer.h"
 #include "rtc_base/checks.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class VideoFrame;
 class VideoFrameBuilder;
-}  // namespace livekit
+}  // namespace livekit_ffi
 #include "webrtc-sys/src/video_frame.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class VideoFrame {
  public:
@@ -68,4 +68,4 @@ class VideoFrameBuilder {
 
 std::unique_ptr<VideoFrameBuilder> new_video_frame_builder();
 
-}  // namespace livekit
+}  // namespace livekit_ffi

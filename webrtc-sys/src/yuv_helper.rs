@@ -14,7 +14,7 @@
 
 #[allow(clippy::too_many_arguments)]
 #[allow(clippy::missing_safety_doc)]
-#[cxx::bridge(namespace = "livekit")]
+#[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
     unsafe extern "C++" {
         include!("livekit/yuv_helper.h");
