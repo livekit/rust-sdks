@@ -151,7 +151,6 @@ impl Manager {
     pub async fn run(mut self) {
         log::debug!("Task started");
         while let Some(event) = self.event_in_rx.recv().await {
-            log::debug!("Input event: {:?}", event);
             match event {
                 InputEvent::PublicationUpdates(event) => {
                     self.handle_publication_updates(event).await
@@ -192,7 +191,6 @@ impl Manager {
     }
 
     async fn handle_track_published(&mut self, publisher_identity: String, info: DataTrackInfo) {
-        log::debug!("Track published: sid={}", info.sid);
         if self.descriptors.contains_key(&info.sid) {
             log::error!("Existing descriptor for track {}", info.sid);
             return;
@@ -219,7 +217,6 @@ impl Manager {
     }
 
     fn handle_track_unpublished(&mut self, sid: DataTrackSid) {
-        log::debug!("Track unpublished: sid={}", sid);
         self.sub_handles.remove(&sid);
         let Some(descriptor) = self.descriptors.remove(&sid) else {
             log::error!("Unknown track {}", sid);
