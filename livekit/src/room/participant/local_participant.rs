@@ -237,7 +237,7 @@ impl LocalParticipant {
     ///
     /// # Examples
     ///
-    /// Publish a track named "my_track" using default options:
+    /// Publish a track named "my_track":
     ///
     /// ```
     /// # use livekit::prelude::*;
@@ -245,22 +245,6 @@ impl LocalParticipant {
     /// let track = room
     ///     .local_participant()
     ///     .publish_data_track("my_track")
-    ///     .await?;
-    /// # Ok(())
-    /// # }
-    /// ```
-    ///
-    /// Publish a track named "my_track" with custom options:
-    ///
-    /// ```
-    /// # use livekit::prelude::*;
-    /// # async fn with_room(room: Room) -> Result<(), PublishError> {
-    /// let options = DataTrackOptions::new("my_track")
-    ///     .disable_e2ee(true); // Disable end-to-end encryption for this track
-    ///
-    /// let track = room
-    ///     .local_participant()
-    ///     .publish_data_track(options)
     ///     .await?;
     /// # Ok(())
     /// # }

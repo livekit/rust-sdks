@@ -186,7 +186,7 @@ impl Manager {
         let publish_requested = PublishRequestEvent {
             handle,
             name: event.options.name,
-            uses_e2ee: self.encryption_provider.is_some() && !event.options.disable_e2ee,
+            uses_e2ee: self.encryption_provider.is_some(),
         };
         _ = self.event_out_tx.send(publish_requested.into()).await;
         self.schedule_publish_timeout(handle);

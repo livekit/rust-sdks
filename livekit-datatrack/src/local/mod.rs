@@ -121,17 +121,16 @@ impl Drop for LocalTrackInner {
 ///
 /// # Examples
 ///
-/// Create options for publishing a track named "my_track" with end-to-end encryption disabled:
+/// Create options for publishing a track named "my_track":
+///
 /// ```
 /// # use livekit_datatrack::api::DataTrackOptions;
-/// let options = DataTrackOptions::new("my_track")
-///     .disable_e2ee(true); // Set additional options as needed
+/// let options = DataTrackOptions::new("my_track");
 /// ```
 ///
 #[derive(Clone, Debug)]
 pub struct DataTrackOptions {
     pub(crate) name: String,
-    pub(crate) disable_e2ee: bool,
 }
 
 impl DataTrackOptions {
@@ -144,16 +143,7 @@ impl DataTrackOptions {
     /// - Must be unique per publisher
     ///
     pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into(), disable_e2ee: false }
-    }
-
-    /// Disable end-to-end encryption.
-    ///
-    /// By default, room settings are used.
-    ///
-    pub fn disable_e2ee(mut self, disabled: bool) -> Self {
-        self.disable_e2ee = disabled;
-        self
+        Self { name: name.into() }
     }
 }
 
