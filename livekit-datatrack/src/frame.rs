@@ -58,6 +58,16 @@ impl DataTrackFrame {
         self.user_timestamp = Some(value);
         self
     }
+
+    /// Associates the current Unix timestamp (in milliseconds) with the frame.
+    pub fn with_user_timestamp_now(mut self) -> Self {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        self.user_timestamp = Some(timestamp);
+        self
+    }
 }
 
 impl fmt::Debug for DataTrackFrame {
