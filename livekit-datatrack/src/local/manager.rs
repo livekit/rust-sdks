@@ -378,7 +378,7 @@ impl ManagerInput {
 mod tests {
     use super::*;
     use crate::{api::DataTrackSid, packet::Packet};
-    use fake::{faker::lorem::en::Word, Fake, Faker};
+    use fake::{Fake, Faker};
     use futures_util::StreamExt;
     use livekit_runtime::sleep;
 
@@ -398,7 +398,7 @@ mod tests {
         let payload_size = 256;
         let packet_count = 10;
 
-        let track_name: String = Word().fake();
+        let track_name: String = Faker.fake();
         let track_sid: DataTrackSid = Faker.fake();
         let pub_handle: Handle = Faker.fake();
 

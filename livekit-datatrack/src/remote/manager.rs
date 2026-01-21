@@ -41,6 +41,7 @@ pub enum InputEvent {
     SubscriberHandles(SubscriberHandlesEvent),
     /// Packet has been received over the transport.
     PacketReceived(Bytes),
+    Unsubscribe(UnsubscribeEvent),
     /// Shutdown the manager, ending any subscriptions.
     Shutdown,
 }
@@ -93,6 +94,13 @@ pub struct SubscriptionUpdatedEvent {
     pub subscribe: bool,
 }
 
+/// Unsubscribe from a track.
+#[derive(Debug)]
+pub struct UnsubscribeEvent {
+    /// Identifier of the track to unsubscribe from.
+    sid: DataTrackSid,
+}
+
 /// Options for creating a [`Manager`].
 #[derive(Debug)]
 pub struct ManagerOptions {
@@ -107,7 +115,7 @@ pub struct ManagerOptions {
 /// System for managing data track subscriptions.
 pub struct Manager {
     e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
-    event_in_tx: mpsc::WeakSender<InputEvent>,
+    event_in_tx: mpsc::Sender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
 
@@ -133,7 +141,7 @@ impl Manager {
         let event_in = ManagerInput { event_in_tx: event_in_tx.clone() };
         let manager = Manager {
             e2ee_provider: options.e2ee_provider,
-            event_in_tx: event_in_tx.downgrade(),
+            event_in_tx,
             event_in_rx,
             event_out_tx,
             descriptors: HashMap::default(),
@@ -158,6 +166,7 @@ impl Manager {
                 InputEvent::Subscribe(event) => self.handle_subscribe(event).await,
                 InputEvent::SubscriberHandles(event) => self.handle_subscriber_handles(event),
                 InputEvent::PacketReceived(bytes) => self.handle_packet_received(bytes),
+                InputEvent::Unsubscribe(event) => self.handle_unsubscribe(event).await,
                 InputEvent::Shutdown => break,
             }
         }
@@ -210,7 +219,7 @@ impl Manager {
 
         let inner = RemoteTrackInner {
             published_rx,
-            event_in_tx: self.event_in_tx.clone(),
+            event_in_tx: self.event_in_tx.downgrade(), // TODO: wrap
             publisher_identity,
         };
         let track = RemoteDataTrack::new(info, inner);
@@ -298,6 +307,7 @@ impl Manager {
             published_rx: descriptor.published_tx.subscribe(),
             packet_rx,
             frame_tx: frame_tx.clone(),
+            event_in_tx: self.event_in_tx.clone(),
         };
         let task_handle = livekit_runtime::spawn(track_task.run());
 
@@ -334,6 +344,20 @@ impl Manager {
             .inspect_err(|err| log::debug!("Cannot send packet to track pipeline: {}", err));
     }
 
+    async fn handle_unsubscribe(&mut self, event: UnsubscribeEvent) {
+        let Some(descriptor) = self.descriptors.remove(&event.sid) else {
+            return;
+        };
+        _ = descriptor.published_tx.send(false);
+
+        let DescriptorState::Subscribed { .. } = &descriptor.state else {
+            log::warn!("Unexpected state");
+            return;
+        };
+        let event = SubscriptionUpdatedEvent { sid: event.sid, subscribe: false };
+        _ = self.event_out_tx.send(event.into()).await;
+    }
+
     /// Performs cleanup before the task ends.
     async fn shutdown(self) {
         for (_, descriptor) in self.descriptors {
@@ -345,9 +369,7 @@ impl Manager {
                         _ = result_tx.send(Err(SubscribeError::Disconnected));
                     }
                 }
-                DescriptorState::Subscribed { task_handle: pipeline_handle, .. } => {
-                    pipeline_handle.await
-                }
+                DescriptorState::Subscribed { task_handle, .. } => task_handle.await,
             }
         }
     }
@@ -368,11 +390,13 @@ struct TrackTask {
     published_rx: watch::Receiver<bool>,
     packet_rx: mpsc::Receiver<Packet>,
     frame_tx: broadcast::Sender<DataTrackFrame>,
+    event_in_tx: mpsc::Sender<InputEvent>,
 }
 
 impl TrackTask {
     async fn run(mut self) {
         log::debug!("Task started: sid={}", self.info.sid);
+
         let mut is_published = *self.published_rx.borrow();
         while is_published {
             tokio::select! {
@@ -380,13 +404,18 @@ impl TrackTask {
                 _ = self.published_rx.changed() => {
                     is_published = *self.published_rx.borrow();
                 },
+                _ = self.frame_tx.closed() => {
+                    let event = UnsubscribeEvent { sid: self.info.sid.clone() };
+                    _ = self.event_in_tx.send(event.into()).await;
+                    break;  // No more subscribers
+                },
                 Some(packet) = self.packet_rx.recv() => {
                     self.receive(packet);
                 },
                 else => break
             }
         }
-        // TODO: handle unsubscribe
+
         log::debug!("Task ended: sid={}", self.info.sid);
     }
 
@@ -428,16 +457,14 @@ impl ManagerInput {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fake::{
-        faker::{internet::en::SafeEmail, lorem::en::Word},
-        Fake, Faker,
-    };
-    use futures_util::StreamExt;
+    use fake::{Fake, Faker};
+    use futures_util::{future::join, StreamExt};
     use std::{collections::HashMap, time::Duration};
+    use test_case::test_case;
     use tokio::time;
 
     #[tokio::test]
-    async fn test_task_shutdown() {
+    async fn test_manager_task_shutdown() {
         let options = ManagerOptions { e2ee_provider: None };
         let (manager, input, _) = Manager::new(options);
 
@@ -447,10 +474,55 @@ mod tests {
         time::timeout(Duration::from_secs(1), join_handle).await.unwrap();
     }
 
+    #[test_case(true; "via_unpublish")]
+    #[test_case(false; "via_unsubscribe")]
+    #[tokio::test]
+    async fn test_track_task_shutdown(via_unpublish: bool) {
+        let mut info: DataTrackInfo = Faker.fake();
+        info.uses_e2ee = false;
+
+        let info = Arc::new(info);
+        let sid = info.sid.clone();
+        let publisher_identity: Arc<str> = Faker.fake::<String>().into();
+
+        let pipeline_opts =
+            PipelineOptions { info: info.clone(), publisher_identity, e2ee_provider: None };
+        let pipeline = Pipeline::new(pipeline_opts);
+
+        let (published_tx, published_rx) = watch::channel(true);
+        let (_packet_tx, packet_rx) = mpsc::channel(4);
+        let (frame_tx, frame_rx) = broadcast::channel(4);
+        let (event_in_tx, mut event_in_rx) = mpsc::channel(4);
+
+        let task =
+            TrackTask { info: info, pipeline, published_rx, packet_rx, frame_tx, event_in_tx };
+        let task_handle = livekit_runtime::spawn(task.run());
+
+        let trigger_shutdown = async {
+            if via_unpublish {
+                // Simulates SFU publication update
+                published_tx.send(false).unwrap();
+                return;
+            }
+            // Simulates all subscribers dropped
+            mem::drop(frame_rx);
+
+            while let Some(event) = event_in_rx.recv().await {
+                let InputEvent::Unsubscribe(event) = event else {
+                    panic!("Unexpected event type");
+                };
+                assert_eq!(event.sid, sid);
+                return;
+            }
+            panic!("Did not receive unsubscribe");
+        };
+        time::timeout(Duration::from_secs(1), join(task_handle, trigger_shutdown)).await.unwrap();
+    }
+
     #[tokio::test]
     async fn test_subscribe() {
-        let publisher_identity: String = SafeEmail().fake();
-        let track_name: String = Word().fake();
+        let publisher_identity: String = Faker.fake();
+        let track_name: String = Faker.fake();
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
 
