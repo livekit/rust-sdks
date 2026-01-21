@@ -9,6 +9,7 @@ license = "Apache-2.0"
 description = "Experimental FFI interface using UniFFI"
 repository = "https://github.com/livekit/rust-sdks"
 readme = "README.md"
+publish = false
 
 [dependencies]
 livekit-protocol = { workspace = true }
