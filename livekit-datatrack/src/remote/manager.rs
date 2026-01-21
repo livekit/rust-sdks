@@ -198,17 +198,18 @@ impl Manager {
         let info = Arc::new(info);
         let publisher_identity: Arc<str> = publisher_identity.into();
 
-        let (state_tx, state_rx) = watch::channel(TrackState::Published);
+        let (published_tx, published_rx) = watch::channel(true);
+
         let descriptor = Descriptor {
             info: info.clone(),
             publisher_identity: publisher_identity.clone(),
-            state_tx,
+            published_tx,
             state: DescriptorState::Available,
         };
         self.descriptors.insert(descriptor.info.sid.clone(), descriptor);
 
         let inner = RemoteTrackInner {
-            state_rx,
+            published_rx,
             event_in_tx: self.event_in_tx.clone(),
             publisher_identity,
         };
@@ -222,7 +223,7 @@ impl Manager {
             log::error!("Unknown track {}", sid);
             return;
         };
-        _ = descriptor.state_tx.send(TrackState::Unpublished);
+        _ = descriptor.published_tx.send(false);
         // TODO: this should end the track task
     }
 
@@ -294,7 +295,7 @@ impl Manager {
         let track_task = TrackTask {
             info: descriptor.info.clone(),
             pipeline,
-            state_rx: descriptor.state_tx.subscribe(),
+            published_rx: descriptor.published_tx.subscribe(),
             packet_rx,
             frame_tx: frame_tx.clone(),
         };
@@ -336,7 +337,7 @@ impl Manager {
     /// Performs cleanup before the task ends.
     async fn shutdown(self) {
         for (_, descriptor) in self.descriptors {
-            _ = descriptor.state_tx.send(TrackState::Unpublished);
+            _ = descriptor.published_tx.send(false);
             match descriptor.state {
                 DescriptorState::Available => {}
                 DescriptorState::PendingSubscriberHandle { result_txs } => {
@@ -356,7 +357,7 @@ impl Manager {
 struct Descriptor {
     info: Arc<DataTrackInfo>,
     publisher_identity: Arc<str>,
-    state_tx: watch::Sender<TrackState>,
+    published_tx: watch::Sender<bool>,
     state: DescriptorState,
 }
 
@@ -364,7 +365,7 @@ struct Descriptor {
 struct TrackTask {
     info: Arc<DataTrackInfo>,
     pipeline: Pipeline,
-    state_rx: watch::Receiver<TrackState>,
+    published_rx: watch::Receiver<bool>,
     packet_rx: mpsc::Receiver<Packet>,
     frame_tx: broadcast::Sender<DataTrackFrame>,
 }
@@ -372,12 +373,12 @@ struct TrackTask {
 impl TrackTask {
     async fn run(mut self) {
         log::debug!("Task started: sid={}", self.info.sid);
-        let mut state = *self.state_rx.borrow();
-        while state.is_published() {
+        let mut is_published = *self.published_rx.borrow();
+        while is_published {
             tokio::select! {
                 biased;  // State updates take priority
-                _ = self.state_rx.changed() => {
-                    state = *self.state_rx.borrow();
+                _ = self.published_rx.changed() => {
+                    is_published = *self.published_rx.borrow();
                 },
                 Some(packet) = self.packet_rx.recv() => {
                     self.receive(packet);
@@ -409,18 +410,6 @@ enum DescriptorState {
         frame_tx: broadcast::Sender<DataTrackFrame>,
         task_handle: livekit_runtime::JoinHandle<()>,
     },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum TrackState {
-    Published,
-    Unpublished,
-}
-
-impl TrackState {
-    pub fn is_published(&self) -> bool {
-        !matches!(self, Self::Unpublished)
-    }
 }
 
 /// Channel for sending [`InputEvent`]s to [`Manager`].

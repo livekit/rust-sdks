@@ -16,7 +16,7 @@ use crate::api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, Inter
 use anyhow::anyhow;
 use futures_util::StreamExt;
 use livekit_runtime::timeout;
-use manager::{SubscribeEvent, TrackState};
+use manager::SubscribeEvent;
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -101,7 +101,7 @@ impl DataTrack<Remote> {
     /// result in an error.
     ///
     pub fn is_published(&self) -> bool {
-        self.inner().state_rx.borrow().is_published()
+        *self.inner().published_rx.borrow()
     }
 
     /// Identity of the participant who published the track.
@@ -113,7 +113,7 @@ impl DataTrack<Remote> {
 #[derive(Debug, Clone)]
 pub(crate) struct RemoteTrackInner {
     publisher_identity: Arc<str>,
-    state_rx: watch::Receiver<TrackState>,
+    published_rx: watch::Receiver<bool>,
     event_in_tx: mpsc::WeakSender<manager::InputEvent>,
 }
 
