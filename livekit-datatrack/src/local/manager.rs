@@ -110,12 +110,12 @@ pub struct ManagerOptions {
     ///
     /// If none, end-to-end encryption will be disabled for all published tracks.
     ///
-    pub e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
+    pub decryption_provider: Option<Arc<dyn EncryptionProvider>>,
 }
 
 /// System for managing data track publications.
 pub struct Manager {
-    e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
+    encryption_provider: Option<Arc<dyn EncryptionProvider>>,
     event_in_tx: mpsc::Sender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
@@ -138,7 +138,7 @@ impl Manager {
 
         let event_in = ManagerInput { event_in_tx: event_in_tx.clone() };
         let manager = Manager {
-            e2ee_provider: options.e2ee_provider,
+            encryption_provider: options.decryption_provider,
             event_in_tx,
             event_in_rx,
             event_out_tx,
@@ -186,7 +186,7 @@ impl Manager {
         let publish_requested = PublishRequestEvent {
             handle,
             name: event.options.name,
-            uses_e2ee: self.e2ee_provider.is_some() && !event.options.disable_e2ee,
+            uses_e2ee: self.encryption_provider.is_some() && !event.options.disable_e2ee,
         };
         _ = self.event_out_tx.send(publish_requested.into()).await;
         self.schedule_publish_timeout(handle);
@@ -222,10 +222,10 @@ impl Manager {
 
     fn create_local_track(&mut self, info: DataTrackInfo) -> LocalDataTrack {
         let info = Arc::new(info);
-        let e2ee_provider =
-            if info.uses_e2ee() { self.e2ee_provider.as_ref().map(Arc::clone) } else { None };
+        let encryption_provider =
+            if info.uses_e2ee() { self.encryption_provider.as_ref().map(Arc::clone) } else { None };
 
-        let pipeline_opts = PipelineOptions { e2ee_provider, info: info.clone() };
+        let pipeline_opts = PipelineOptions { info: info.clone(), encryption_provider };
         let pipeline = Pipeline::new(pipeline_opts);
 
         let (frame_tx, frame_rx) = mpsc::channel(4); // TODO: tune
@@ -384,7 +384,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_shutdown() {
-        let options = ManagerOptions { e2ee_provider: None };
+        let options = ManagerOptions { decryption_provider: None };
         let (manager, input, _) = Manager::new(options);
 
         let join_handle = livekit_runtime::spawn(manager.run());
@@ -402,7 +402,7 @@ mod tests {
         let track_sid: DataTrackSid = Faker.fake();
         let pub_handle: Handle = Faker.fake();
 
-        let options = ManagerOptions { e2ee_provider: None };
+        let options = ManagerOptions { decryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
         livekit_runtime::spawn(manager.run());
 

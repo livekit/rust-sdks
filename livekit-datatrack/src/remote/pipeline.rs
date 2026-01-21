@@ -24,7 +24,7 @@ use std::sync::Arc;
 pub(super) struct PipelineOptions {
     pub info: Arc<DataTrackInfo>,
     pub publisher_identity: Arc<str>,
-    pub e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
+    pub decryption_provider: Option<Arc<dyn DecryptionProvider>>,
 }
 
 /// Pipeline for an individual data track subscription.
@@ -37,11 +37,11 @@ pub(super) struct Pipeline {
 impl Pipeline {
     /// Creates a new pipeline with the given options.
     pub fn new(options: PipelineOptions) -> Self {
-        debug_assert_eq!(options.info.uses_e2ee, options.e2ee_provider.is_some());
+        debug_assert_eq!(options.info.uses_e2ee, options.decryption_provider.is_some());
         let depacketizer = Depacketizer::new();
         Self {
             publisher_identity: options.publisher_identity,
-            e2ee_provider: options.e2ee_provider,
+            e2ee_provider: options.decryption_provider,
             depacketizer,
         }
     }

@@ -25,12 +25,12 @@ use thiserror::Error;
 /// Options for creating a [`Pipeline`].
 pub(super) struct PipelineOptions {
     pub info: Arc<DataTrackInfo>,
-    pub e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
+    pub encryption_provider: Option<Arc<dyn EncryptionProvider>>,
 }
 
 /// Pipeline for an individual published data track.
 pub(super) struct Pipeline {
-    e2ee_provider: Option<Arc<dyn EncryptionProvider>>,
+    encryption_provider: Option<Arc<dyn EncryptionProvider>>,
     packetizer: Packetizer,
 }
 
@@ -45,9 +45,9 @@ pub(super) enum PipelineError {
 impl Pipeline {
     /// Creates a new pipeline with the given options.
     pub fn new(options: PipelineOptions) -> Self {
-        debug_assert_eq!(options.info.uses_e2ee, options.e2ee_provider.is_some());
+        debug_assert_eq!(options.info.uses_e2ee, options.encryption_provider.is_some());
         let packetizer = Packetizer::new(options.info.pub_handle, Self::TRANSPORT_MTU);
-        Self { e2ee_provider: options.e2ee_provider, packetizer }
+        Self { encryption_provider: options.encryption_provider, packetizer }
     }
 
     pub fn process_frame(&mut self, frame: DataTrackFrame) -> Result<Vec<Packet>, PipelineError> {
@@ -61,7 +61,7 @@ impl Pipeline {
         &self,
         mut frame: PacketizerFrame,
     ) -> Result<PacketizerFrame, EncryptionError> {
-        let Some(e2ee_provider) = &self.e2ee_provider else {
+        let Some(e2ee_provider) = &self.encryption_provider else {
             return Ok(frame.into());
         };
 
@@ -100,7 +100,7 @@ mod tests {
         let mut info: DataTrackInfo = Faker.fake();
         info.uses_e2ee = false;
 
-        let options = PipelineOptions { info: info.into(), e2ee_provider: None };
+        let options = PipelineOptions { info: info.into(), encryption_provider: None };
         let mut pipeline = Pipeline::new(options);
 
         let repeated_byte: u8 = Faker.fake();

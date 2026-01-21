@@ -109,12 +109,12 @@ pub struct ManagerOptions {
     /// If none, remote tracks using end-to-end encryption will not be available
     /// for subscription.
     ///
-    pub e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
+    pub encryption_provider: Option<Arc<dyn DecryptionProvider>>,
 }
 
 /// System for managing data track subscriptions.
 pub struct Manager {
-    e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
+    decryption_provider: Option<Arc<dyn DecryptionProvider>>,
     event_in_tx: mpsc::Sender<InputEvent>,
     event_in_rx: mpsc::Receiver<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
@@ -140,7 +140,7 @@ impl Manager {
 
         let event_in = ManagerInput { event_in_tx: event_in_tx.clone() };
         let manager = Manager {
-            e2ee_provider: options.e2ee_provider,
+            decryption_provider: options.encryption_provider,
             event_in_tx,
             event_in_rx,
             event_out_tx,
@@ -288,16 +288,16 @@ impl Manager {
         let (packet_tx, packet_rx) = mpsc::channel(4); // TODO: tune
         let (frame_tx, frame_rx) = broadcast::channel(4);
 
-        let e2ee_provider = if descriptor.info.uses_e2ee() {
-            self.e2ee_provider.as_ref().map(Arc::clone)
+        let decryption_provider = if descriptor.info.uses_e2ee() {
+            self.decryption_provider.as_ref().map(Arc::clone)
         } else {
             None
         };
 
         let pipeline_opts = PipelineOptions {
-            e2ee_provider,
             info: descriptor.info.clone(),
             publisher_identity: descriptor.publisher_identity.clone(),
+            decryption_provider,
         };
         let pipeline = Pipeline::new(pipeline_opts);
 
@@ -465,7 +465,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_manager_task_shutdown() {
-        let options = ManagerOptions { e2ee_provider: None };
+        let options = ManagerOptions { encryption_provider: None };
         let (manager, input, _) = Manager::new(options);
 
         let join_handle = livekit_runtime::spawn(manager.run());
@@ -486,7 +486,7 @@ mod tests {
         let publisher_identity: Arc<str> = Faker.fake::<String>().into();
 
         let pipeline_opts =
-            PipelineOptions { info: info.clone(), publisher_identity, e2ee_provider: None };
+            PipelineOptions { info: info.clone(), publisher_identity, decryption_provider: None };
         let pipeline = Pipeline::new(pipeline_opts);
 
         let (published_tx, published_rx) = watch::channel(true);
@@ -526,7 +526,7 @@ mod tests {
         let track_sid: DataTrackSid = Faker.fake();
         let sub_handle: Handle = Faker.fake();
 
-        let options = ManagerOptions { e2ee_provider: None };
+        let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
         livekit_runtime::spawn(manager.run());
 
