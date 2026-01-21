@@ -91,6 +91,10 @@ bool GetPitchAndHeightFromNvBufSurfaceFd(int dmabuf_fd,
   return pitch > 0 && height > 0;
 }
 
+#ifndef V4L2_PIX_FMT_H265
+#define V4L2_PIX_FMT_H265 v4l2_fourcc('H', '2', '6', '5')
+#endif
+
 }  // namespace
 
 namespace livekit {
@@ -119,7 +123,12 @@ bool JetsonMmapiEncoder::IsCodecSupported(JetsonCodec codec) {
   const uint32_t pixfmt = CodecToV4L2PixFmt(codec);
   if (encoder->setCapturePlaneFormat(pixfmt, 64, 64,
                                      kMinBitstreamBufferSize) < 0) {
-    return false;
+    const uint32_t fallback_pixfmt = CodecToV4L2FallbackPixFmt(codec);
+    if (fallback_pixfmt == pixfmt ||
+        encoder->setCapturePlaneFormat(fallback_pixfmt, 64, 64,
+                                       kMinBitstreamBufferSize) < 0) {
+      return false;
+    }
   }
   return true;
 }
@@ -140,6 +149,13 @@ std::optional<std::string> JetsonMmapiEncoder::FindEncoderDevice() {
 uint32_t JetsonMmapiEncoder::CodecToV4L2PixFmt(JetsonCodec codec) {
   return codec == JetsonCodec::kH264 ? V4L2_PIX_FMT_H264
                                      : V4L2_PIX_FMT_HEVC;
+}
+
+uint32_t JetsonMmapiEncoder::CodecToV4L2FallbackPixFmt(JetsonCodec codec) {
+  if (codec == JetsonCodec::kH265) {
+    return V4L2_PIX_FMT_H265;
+  }
+  return CodecToV4L2PixFmt(codec);
 }
 
 bool JetsonMmapiEncoder::Initialize(int width,
@@ -484,13 +500,27 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
   int ret = encoder_->setCapturePlaneFormat(codec_pixfmt, width_, height_,
                                             bitstream_size);
   if (ret < 0) {
-    RTC_LOG(LS_ERROR) << "Failed to set capture plane format.";
-    std::fprintf(stderr,
-                 "[MMAPI] setCapturePlaneFormat failed: ret=%d, errno=%d "
-                 "(%s)\n",
-                 ret, errno, strerror(errno));
-    std::fflush(stderr);
-    return false;
+    const uint32_t fallback_pixfmt = CodecToV4L2FallbackPixFmt(codec_);
+    int ret_fallback = ret;
+    if (fallback_pixfmt != codec_pixfmt) {
+      ret_fallback = encoder_->setCapturePlaneFormat(
+          fallback_pixfmt, width_, height_, bitstream_size);
+    }
+    if (fallback_pixfmt == codec_pixfmt || ret_fallback < 0) {
+      RTC_LOG(LS_ERROR) << "Failed to set capture plane format.";
+      std::fprintf(stderr,
+                   "[MMAPI] setCapturePlaneFormat failed: ret=%d, errno=%d "
+                   "(%s)\n",
+                   ret_fallback, errno, strerror(errno));
+      std::fflush(stderr);
+      return false;
+    }
+    if (verbose) {
+      std::fprintf(stderr,
+                   "[MMAPI] setCapturePlaneFormat fallback succeeded (pixfmt=0x%x)\n",
+                   fallback_pixfmt);
+      std::fflush(stderr);
+    }
   }
   if (verbose) {
     std::fprintf(stderr, "[MMAPI] setCapturePlaneFormat succeeded\n");

@@ -76,6 +76,7 @@ class JetsonMmapiEncoder {
 
   static std::optional<std::string> FindEncoderDevice();
   static uint32_t CodecToV4L2PixFmt(JetsonCodec codec);
+  static uint32_t CodecToV4L2FallbackPixFmt(JetsonCodec codec);
 
   JetsonCodec codec_;
   NvVideoEncoder* encoder_ = nullptr;
