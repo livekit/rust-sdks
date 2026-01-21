@@ -65,7 +65,11 @@ struct HeaderMetrics {
 
 impl HeaderMetrics {
     fn serialized_len(&self) -> usize {
-        BASE_HEADER_LEN + EXT_WORDS_INDICATOR_SIZE + self.ext_len + self.padding_len
+        let mut len = BASE_HEADER_LEN;
+        if self.ext_len > 0 {
+            len += EXT_WORDS_INDICATOR_SIZE + self.ext_len + self.padding_len;
+        }
+        len
     }
 }
 
@@ -86,6 +90,7 @@ impl Header {
     fn serialize_into(self, buf: &mut impl BufMut) -> Result<usize, SerializeError> {
         let metrics = self.metrics();
         let serialized_len = metrics.serialized_len();
+        let remaining_initial = buf.remaining_mut();
 
         if buf.remaining_mut() < serialized_len {
             Err(SerializeError::TooSmallForHeader)?
@@ -117,7 +122,7 @@ impl Header {
             buf.put_bytes(0, metrics.padding_len);
         }
 
-        // TODO: length assertion
+        assert_eq!(remaining_initial - buf.remaining_mut(), serialized_len);
         Ok(serialized_len)
     }
 }
