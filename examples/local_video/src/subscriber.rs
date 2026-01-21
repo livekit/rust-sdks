@@ -368,8 +368,17 @@ async fn handle_track_subscribed(
 fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex<SimulcastState>>) {
     {
         let mut s = shared.lock();
+        s.width = 0;
+        s.height = 0;
+        s.stride_y = 0;
+        s.stride_u = 0;
+        s.stride_v = 0;
+        s.y.clear();
+        s.u.clear();
+        s.v.clear();
         s.codec.clear();
         s.fps = 0.0;
+        s.dirty = false;
     }
     let mut sc = simulcast.lock();
     *sc = SimulcastState::default();
@@ -417,6 +426,14 @@ impl eframe::App for VideoApp {
         if self.ctrl_c_received.load(Ordering::Acquire) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
+        }
+
+        // Reset aspect lock when video is cleared.
+        if self.locked_aspect.is_some() {
+            let s = self.shared.lock();
+            if s.width == 0 || s.height == 0 {
+                self.locked_aspect = None;
+            }
         }
 
         // Lock aspect ratio based on the first received video frame.
