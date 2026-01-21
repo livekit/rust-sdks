@@ -12,40 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
-    depacketizer::Depacketizer,
-    manager::{OutputEvent, TrackState},
-};
+use super::depacketizer::{Depacketizer, DepacketizerFrame};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo},
     e2ee::{DecryptionProvider, EncryptedPayload},
     packet::Packet,
-    remote::depacketizer::DepacketizerFrame,
 };
 use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, watch};
 
 /// Options for creating a [`Pipeline`].
 pub(super) struct PipelineOptions {
-    pub e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
     pub info: Arc<DataTrackInfo>,
     pub publisher_identity: Arc<str>,
-    pub state_rx: watch::Receiver<TrackState>,
-    pub packet_rx: mpsc::Receiver<Packet>,
-    pub frame_tx: broadcast::Sender<DataTrackFrame>,
-    pub event_out_tx: mpsc::WeakSender<OutputEvent>,
+    pub e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
 }
 
-/// Pipeline for an individual data track with an active subscription.
+/// Pipeline for an individual data track subscription.
 pub(super) struct Pipeline {
-    depacketizer: Depacketizer,
-    e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
-    info: Arc<DataTrackInfo>,
     publisher_identity: Arc<str>,
-    state_rx: watch::Receiver<TrackState>,
-    packet_rx: mpsc::Receiver<Packet>,
-    frame_tx: broadcast::Sender<DataTrackFrame>,
-    event_out_tx: mpsc::WeakSender<OutputEvent>,
+    e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
+    depacketizer: Depacketizer,
 }
 
 impl Pipeline {
@@ -54,41 +40,16 @@ impl Pipeline {
         debug_assert_eq!(options.info.uses_e2ee, options.e2ee_provider.is_some());
         let depacketizer = Depacketizer::new();
         Self {
-            depacketizer,
-            e2ee_provider: options.e2ee_provider,
-            info: options.info,
             publisher_identity: options.publisher_identity,
-            state_rx: options.state_rx,
-            packet_rx: options.packet_rx,
-            frame_tx: options.frame_tx,
-            event_out_tx: options.event_out_tx,
+            e2ee_provider: options.e2ee_provider,
+            depacketizer,
         }
     }
 
-    /// Run the pipeline task, consuming self.
-    pub async fn run(mut self) {
-        log::debug!("Task started: sid={}", self.info.sid);
-        let mut state = *self.state_rx.borrow();
-        while state.is_published() {
-            tokio::select! {
-                biased;  // State updates take priority
-                _ = self.state_rx.changed() => {
-                    state = *self.state_rx.borrow();
-                },
-                Some(packet) = self.packet_rx.recv() => {
-                    self.receive_packet(packet);
-                },
-                else => break
-            }
-        }
-        log::debug!("Task ended: sid={}", self.info.sid);
-        // TODO: send unsubscribe if needed
-    }
-
-    fn receive_packet(&mut self, packet: Packet) {
-        let Some(frame) = self.depacketizer.push(packet) else { return };
-        let Some(frame) = self.decrypt_if_needed(frame) else { return };
-        _ = self.frame_tx.send(frame.into());
+    pub fn process_packet(&mut self, packet: Packet) -> Option<DataTrackFrame> {
+        let Some(frame) = self.depacketizer.push(packet) else { return None };
+        let Some(frame) = self.decrypt_if_needed(frame) else { return None };
+        Some(frame.into())
     }
 
     /// Decrypt the frame's payload if E2EE is enabled for this track.

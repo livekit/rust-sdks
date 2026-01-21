@@ -284,19 +284,23 @@ impl Manager {
             None
         };
 
-        let options = PipelineOptions {
+        let pipeline_opts = PipelineOptions {
             e2ee_provider,
             info: descriptor.info.clone(),
             publisher_identity: descriptor.publisher_identity.clone(),
+        };
+        let pipeline = Pipeline::new(pipeline_opts);
+
+        let track_task = TrackTask {
+            info: descriptor.info.clone(),
+            pipeline,
             state_rx: descriptor.state_tx.subscribe(),
             packet_rx,
             frame_tx: frame_tx.clone(),
-            event_out_tx: self.event_out_tx.downgrade(),
         };
-        let pipeline = Pipeline::new(options);
-        let pipeline_handle = livekit_runtime::spawn(pipeline.run());
+        let task_handle = livekit_runtime::spawn(track_task.run());
 
-        descriptor.state = DescriptorState::Subscribed { packet_tx, frame_tx, pipeline_handle };
+        descriptor.state = DescriptorState::Subscribed { packet_tx, frame_tx, task_handle };
         self.sub_handles.insert(handle, sid);
 
         for result_tx in result_txs {
@@ -340,7 +344,9 @@ impl Manager {
                         _ = result_tx.send(Err(SubscribeError::Disconnected));
                     }
                 }
-                DescriptorState::Subscribed { pipeline_handle, .. } => pipeline_handle.await,
+                DescriptorState::Subscribed { task_handle: pipeline_handle, .. } => {
+                    pipeline_handle.await
+                }
             }
         }
     }
@@ -354,6 +360,44 @@ struct Descriptor {
     state: DescriptorState,
 }
 
+/// Task for an individual data track with an active subscription.
+struct TrackTask {
+    info: Arc<DataTrackInfo>,
+    pipeline: Pipeline,
+    state_rx: watch::Receiver<TrackState>,
+    packet_rx: mpsc::Receiver<Packet>,
+    frame_tx: broadcast::Sender<DataTrackFrame>,
+}
+
+impl TrackTask {
+    async fn run(mut self) {
+        log::debug!("Task started: sid={}", self.info.sid);
+        let mut state = *self.state_rx.borrow();
+        while state.is_published() {
+            tokio::select! {
+                biased;  // State updates take priority
+                _ = self.state_rx.changed() => {
+                    state = *self.state_rx.borrow();
+                },
+                Some(packet) = self.packet_rx.recv() => {
+                    self.receive(packet);
+                },
+                else => break
+            }
+        }
+        // TODO: handle unsubscribe
+        log::debug!("Task ended: sid={}", self.info.sid);
+    }
+
+    fn receive(&mut self, packet: Packet) {
+        let Some(frame) = self.pipeline.process_packet(packet) else { return };
+        _ = self
+            .frame_tx
+            .send(frame)
+            .inspect_err(|err| log::debug!("Cannot send frame to subscribers: {}", err));
+    }
+}
+
 #[derive(Debug)]
 enum DescriptorState {
     Available,
@@ -363,7 +407,7 @@ enum DescriptorState {
     Subscribed {
         packet_tx: mpsc::Sender<Packet>,
         frame_tx: broadcast::Sender<DataTrackFrame>,
-        pipeline_handle: livekit_runtime::JoinHandle<()>,
+        task_handle: livekit_runtime::JoinHandle<()>,
     },
 }
 
