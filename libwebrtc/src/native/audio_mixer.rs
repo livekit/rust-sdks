@@ -56,6 +56,31 @@ impl AudioMixer {
         Self { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
     }
 
+    pub fn add_source(&mut self, source: impl AudioMixerSource + 'static) {
+        let source_impl = AudioMixerSourceImpl { inner: source };
+        let wrapper = Box::new(Arc::new(source_impl));
+        unsafe {
+            sys::lkAudioMixerAddSource(
+                self.ffi.as_ptr(),
+                &SYS_AUDIO_MIXER_CALLBACKS,
+                Box::into_raw(wrapper) as *mut _,
+            );
+        }
+    }
+
+    pub fn remove_source(&mut self, ssrc: i32) {
+        unsafe {
+            sys::lkAudioMixerRemoveSource(self.ffi.as_ptr(), ssrc);
+        }
+    }
+
+    pub fn mix(&mut self, num_channels: usize) -> &[i16] {
+        unsafe {
+            let len = sys::lkAudioMixerMixFrame(self.ffi.as_ptr(), num_channels as u32);
+            let data_ptr = sys::lkAudioMixerGetData(self.ffi.as_ptr());
+            std::slice::from_raw_parts(data_ptr, len as usize)
+        }
+    }
     pub extern "C" fn audio_mixer_source_get_ssrc(userdata: *mut ::std::os::raw::c_void) -> i32 {
         let source =
             unsafe { &*(userdata as *const AudioMixerSourceImpl<Box<dyn AudioMixerSource>>) };
@@ -106,32 +131,6 @@ impl AudioMixer {
             return sys::lkAudioFrameInfo::AUDIO_FRAME_INFO_NORMAL;
         } else {
             return sys::lkAudioFrameInfo::AUDIO_FRAME_INFO_MUTE;
-        }
-    }
-
-    pub fn add_source(&mut self, source: impl AudioMixerSource + 'static) {
-        let source_impl = AudioMixerSourceImpl { inner: source };
-        let wrapper = Box::new(Arc::new(source_impl));
-        unsafe {
-            sys::lkAudioMixerAddSource(
-                self.ffi.as_ptr(),
-                &SYS_AUDIO_MIXER_CALLBACKS,
-                Box::into_raw(wrapper) as *mut _,
-            );
-        }
-    }
-
-    pub fn remove_source(&mut self, ssrc: i32) {
-        unsafe {
-            sys::lkAudioMixerRemoveSource(self.ffi.as_ptr(), ssrc);
-        }
-    }
-
-    pub fn mix(&mut self, num_channels: usize) -> &[i16] {
-        unsafe {
-            let len = sys::lkAudioMixerMixFrame(self.ffi.as_ptr(), num_channels as u32);
-            let data_ptr = sys::lkAudioMixerGetData(self.ffi.as_ptr());
-            std::slice::from_raw_parts(data_ptr, len as usize)
         }
     }
 }

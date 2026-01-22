@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 #[cfg(target_os = "android")]
 pub mod android;
 pub mod apm;
@@ -20,7 +19,6 @@ pub mod audio_mixer;
 pub mod audio_resampler;
 pub mod frame_cryptor;
 pub mod yuv_helper;
-
 
 #[cfg(target_os = "android")]
 pub use android::*;
