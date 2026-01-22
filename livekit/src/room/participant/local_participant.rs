@@ -216,30 +216,227 @@ impl LocalParticipant {
         super::on_attributes_changed(&self.inner, handler)
     }
 
-    pub(crate) fn add_publication(&self, publication: TrackPublication) {
-        super::add_publication(&self.inner, &Participant::Local(self.clone()), publication);
+    #[doc(hidden)]
+    pub fn update_data_encryption_status(&self, _is_encrypted: bool) {
+        // Local participants don't receive data messages, so this is a no-op
+    }
+}
+
+/// Participant information and metadata.
+impl LocalParticipant {
+    pub fn sid(&self) -> ParticipantSid {
+        self.inner.info.read().sid.clone()
     }
 
-    pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
-        super::remove_publication(&self.inner, &Participant::Local(self.clone()), sid)
+    pub fn identity(&self) -> ParticipantIdentity {
+        self.inner.info.read().identity.clone()
     }
 
-    pub(crate) fn published_tracks_info(&self) -> Vec<proto::TrackPublishedResponse> {
-        let tracks = self.track_publications();
-        let mut vec = Vec::with_capacity(tracks.len());
+    pub fn name(&self) -> String {
+        self.inner.info.read().name.clone()
+    }
 
-        for p in tracks.values() {
-            if let Some(track) = p.track() {
-                vec.push(proto::TrackPublishedResponse {
-                    cid: track.rtc_track().id(),
-                    track: Some(p.proto_info()),
-                });
+    pub async fn set_name(&self, name: String) -> RoomResult<()> {
+        if let Ok(response) = timeout(REQUEST_TIMEOUT, {
+            let request_id = self.inner.rtc_engine.session().signal_client().next_request_id();
+            self.inner
+                .rtc_engine
+                .send_request(proto::signal_request::Message::UpdateMetadata(
+                    proto::UpdateParticipantMetadata {
+                        name,
+                        metadata: self.metadata(),
+                        attributes: Default::default(),
+                        request_id,
+                        ..Default::default()
+                    },
+                ))
+                .await;
+            self.inner.rtc_engine.get_response(request_id)
+        })
+        .await
+        {
+            match response.reason() {
+                Reason::Ok => Ok(()),
+                reason => Err(RoomError::Request { reason, message: response.message }),
             }
+        } else {
+            Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
+                "request timeout".into(),
+            ))))
         }
-
-        vec
     }
 
+    pub fn metadata(&self) -> String {
+        self.inner.info.read().metadata.clone()
+    }
+
+    pub async fn set_metadata(&self, metadata: String) -> RoomResult<()> {
+        if let Ok(response) = timeout(REQUEST_TIMEOUT, {
+            let request_id = self.inner.rtc_engine.session().signal_client().next_request_id();
+            self.inner
+                .rtc_engine
+                .send_request(proto::signal_request::Message::UpdateMetadata(
+                    proto::UpdateParticipantMetadata {
+                        metadata,
+                        name: self.name(),
+                        attributes: Default::default(),
+                        request_id,
+                        ..Default::default()
+                    },
+                ))
+                .await;
+            self.inner.rtc_engine.get_response(request_id)
+        })
+        .await
+        {
+            match response.reason() {
+                Reason::Ok => Ok(()),
+                reason => Err(RoomError::Request { reason, message: response.message }),
+            }
+        } else {
+            Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
+                "request timeout".into(),
+            ))))
+        }
+    }
+
+    pub fn attributes(&self) -> HashMap<String, String> {
+        self.inner.info.read().attributes.clone()
+    }
+
+    pub async fn set_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
+        if let Ok(response) = timeout(REQUEST_TIMEOUT, {
+            let request_id = self.inner.rtc_engine.session().signal_client().next_request_id();
+            self.inner
+                .rtc_engine
+                .send_request(proto::signal_request::Message::UpdateMetadata(
+                    proto::UpdateParticipantMetadata {
+                        attributes,
+                        metadata: self.metadata(),
+                        name: self.name(),
+                        request_id,
+                        ..Default::default()
+                    },
+                ))
+                .await;
+            self.inner.rtc_engine.get_response(request_id)
+        })
+        .await
+        {
+            match response.reason() {
+                Reason::Ok => Ok(()),
+                reason => Err(RoomError::Request { reason, message: response.message }),
+            }
+        } else {
+            Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
+                "request timeout".into(),
+            ))))
+        }
+    }
+
+    pub fn is_encrypted(&self) -> bool {
+        *self.inner.is_encrypted.read()
+    }
+
+    pub fn is_speaking(&self) -> bool {
+        self.inner.info.read().speaking
+    }
+
+    pub fn audio_level(&self) -> f32 {
+        self.inner.info.read().audio_level
+    }
+
+    pub fn connection_quality(&self) -> ConnectionQuality {
+        self.inner.info.read().connection_quality
+    }
+
+    pub fn kind(&self) -> ParticipantKind {
+        self.inner.info.read().kind
+    }
+
+    pub fn kind_details(&self) -> Vec<ParticipantKindDetail> {
+        self.inner.info.read().kind_details.clone()
+    }
+
+    pub fn disconnect_reason(&self) -> DisconnectReason {
+        self.inner.info.read().disconnect_reason
+    }
+}
+
+/// Media tracks.
+impl LocalParticipant {
+    /// Publishes a media track.
+    ///
+    /// # Examples
+    ///
+    /// Publish an audio track:
+    /// ```
+    /// # use livekit::{
+    /// #   prelude::*,
+    /// #   options::TrackPublishOptions,
+    /// #   webrtc::{prelude::*, audio_source::native::NativeAudioSource}
+    /// # };
+    /// # async fn with_room(room: Room) -> RoomResult<()> {
+    /// // 1. Define the audio source
+    /// let source = NativeAudioSource::new(
+    ///     AudioSourceOptions::default(),
+    ///     48_000, // Sample rate (hz)
+    ///     1,      // Number of channels
+    ///     1000,   // Buffer duration (ms)
+    /// );
+    ///
+    /// // 2. Create a track from the source
+    /// let track = LocalAudioTrack::create_audio_track(
+    ///     "microphone", // Track name
+    ///     RtcAudioSource::Native(source.clone()),
+    /// );
+    ///
+    /// // 3. Publish the track in the room
+    /// let options = TrackPublishOptions {
+    ///     source: TrackSource::Microphone,
+    ///     ..Default::default()
+    /// };
+    /// room.local_participant()
+    ///     .publish_track(LocalTrack::Audio(track), options)
+    /// 	.await?;
+    /// // Use the source to capture frames…
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Publish a video track:
+    /// ```
+    /// # use livekit::{
+    /// #   prelude::*,
+    /// #   options::{TrackPublishOptions, VideoCodec},
+    /// #   webrtc::video_source::{RtcVideoSource, VideoResolution, native::NativeVideoSource}
+    /// # };
+    /// # async fn with_room(room: Room) -> RoomResult<()> {
+    /// // 1. Define the video source
+    /// let resolution = VideoResolution { width: 1920, height: 1080 };
+    /// let source = NativeVideoSource::new(resolution);
+    ///
+    /// // 2. Create a track from the source
+    /// let track = LocalVideoTrack::create_video_track(
+    ///     "camera", // Track name
+    ///     RtcVideoSource::Native(source)
+    /// );
+    ///
+    /// // 3. Publish the track in the room
+    /// let options = TrackPublishOptions {
+    ///     source: TrackSource::Camera,
+    ///     video_codec: VideoCodec::H264,
+    ///     simulcast: true, // Optionally enable simulcast for supported codecs
+    ///     ..Default::default()
+    /// };
+    /// room.local_participant()
+    ///     .publish_track(LocalTrack::Video(track), options)
+    ///     .await?;
+    /// // Use the source to capture frames…
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
     pub async fn publish_track(
         &self,
         track: LocalTrack,
@@ -313,148 +510,7 @@ impl LocalParticipant {
         Ok(publication)
     }
 
-    pub async fn set_metadata(&self, metadata: String) -> RoomResult<()> {
-        if let Ok(response) = timeout(REQUEST_TIMEOUT, {
-            let request_id = self.inner.rtc_engine.session().signal_client().next_request_id();
-            self.inner
-                .rtc_engine
-                .send_request(proto::signal_request::Message::UpdateMetadata(
-                    proto::UpdateParticipantMetadata {
-                        metadata,
-                        name: self.name(),
-                        attributes: Default::default(),
-                        request_id,
-                        ..Default::default()
-                    },
-                ))
-                .await;
-            self.inner.rtc_engine.get_response(request_id)
-        })
-        .await
-        {
-            match response.reason() {
-                Reason::Ok => Ok(()),
-                reason => Err(RoomError::Request { reason, message: response.message }),
-            }
-        } else {
-            Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
-                "request timeout".into(),
-            ))))
-        }
-    }
-
-    pub async fn set_attributes(&self, attributes: HashMap<String, String>) -> RoomResult<()> {
-        if let Ok(response) = timeout(REQUEST_TIMEOUT, {
-            let request_id = self.inner.rtc_engine.session().signal_client().next_request_id();
-            self.inner
-                .rtc_engine
-                .send_request(proto::signal_request::Message::UpdateMetadata(
-                    proto::UpdateParticipantMetadata {
-                        attributes,
-                        metadata: self.metadata(),
-                        name: self.name(),
-                        request_id,
-                        ..Default::default()
-                    },
-                ))
-                .await;
-            self.inner.rtc_engine.get_response(request_id)
-        })
-        .await
-        {
-            match response.reason() {
-                Reason::Ok => Ok(()),
-                reason => Err(RoomError::Request { reason, message: response.message }),
-            }
-        } else {
-            Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
-                "request timeout".into(),
-            ))))
-        }
-    }
-
-    pub async fn set_name(&self, name: String) -> RoomResult<()> {
-        if let Ok(response) = timeout(REQUEST_TIMEOUT, {
-            let request_id = self.inner.rtc_engine.session().signal_client().next_request_id();
-            self.inner
-                .rtc_engine
-                .send_request(proto::signal_request::Message::UpdateMetadata(
-                    proto::UpdateParticipantMetadata {
-                        name,
-                        metadata: self.metadata(),
-                        attributes: Default::default(),
-                        request_id,
-                        ..Default::default()
-                    },
-                ))
-                .await;
-            self.inner.rtc_engine.get_response(request_id)
-        })
-        .await
-        {
-            match response.reason() {
-                Reason::Ok => Ok(()),
-                reason => Err(RoomError::Request { reason, message: response.message }),
-            }
-        } else {
-            Err(RoomError::Engine(EngineError::Signal(SignalError::Timeout(
-                "request timeout".into(),
-            ))))
-        }
-    }
-
-    pub async fn send_chat_message(
-        &self,
-        text: String,
-        destination_identities: Option<Vec<String>>,
-        sender_identity: Option<String>,
-    ) -> RoomResult<ChatMessage> {
-        let chat_message = proto::ChatMessage {
-            id: create_random_uuid(),
-            timestamp: Utc::now().timestamp_millis(),
-            message: text,
-            ..Default::default()
-        };
-
-        let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::ChatMessage(chat_message.clone())),
-            participant_identity: sender_identity.unwrap_or_default(),
-            destination_identities: destination_identities.unwrap_or_default(),
-            ..Default::default()
-        };
-
-        match self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable, false).await {
-            Ok(_) => Ok(ChatMessage::from(chat_message)),
-            Err(e) => Err(Into::into(e)),
-        }
-    }
-
-    pub async fn edit_chat_message(
-        &self,
-        edit_text: String,
-        original_message: ChatMessage,
-        destination_identities: Option<Vec<String>>,
-        sender_identity: Option<String>,
-    ) -> RoomResult<ChatMessage> {
-        let edited_message = ChatMessage {
-            message: edit_text,
-            edit_timestamp: Utc::now().timestamp_millis().into(),
-            ..original_message
-        };
-        let proto_msg = proto::ChatMessage::from(edited_message);
-        let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::ChatMessage(proto_msg.clone())),
-            participant_identity: sender_identity.unwrap_or_default(),
-            destination_identities: destination_identities.unwrap_or_default(),
-            ..Default::default()
-        };
-
-        match self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable, false).await {
-            Ok(_) => Ok(ChatMessage::from(proto_msg)),
-            Err(e) => Err(Into::into(e)),
-        }
-    }
-
+    /// Unpublishes a media track with the given SID.
     pub async fn unpublish_track(
         &self,
         sid: &TrackSid,
@@ -483,59 +539,6 @@ impl LocalParticipant {
         }
     }
 
-    /** internal */
-    pub async fn publish_raw_data(
-        self,
-        packet: proto::DataPacket,
-        reliable: bool,
-    ) -> RoomResult<()> {
-        let kind = match reliable {
-            true => DataPacketKind::Reliable,
-            false => DataPacketKind::Lossy,
-        };
-        self.inner.rtc_engine.publish_data(packet, kind, true).await.map_err(Into::into)
-    }
-
-    pub async fn publish_data(&self, packet: DataPacket) -> RoomResult<()> {
-        let kind = match packet.reliable {
-            true => DataPacketKind::Reliable,
-            false => DataPacketKind::Lossy,
-        };
-        let destination_identities: Vec<String> =
-            packet.destination_identities.into_iter().map(Into::into).collect();
-        let data = proto::DataPacket {
-            kind: kind as i32,
-            destination_identities: destination_identities.clone(),
-            value: Some(proto::data_packet::Value::User(proto::UserPacket {
-                payload: packet.payload,
-                topic: packet.topic,
-                ..Default::default()
-            })),
-            ..Default::default()
-        };
-
-        self.inner.rtc_engine.publish_data(data, kind, false).await.map_err(Into::into)
-    }
-
-    pub fn set_data_channel_buffered_amount_low_threshold(
-        &self,
-        threshold: u64,
-        kind: DataPacketKind,
-    ) -> RoomResult<()> {
-        self.inner
-            .rtc_engine
-            .session()
-            .set_data_channel_buffered_amount_low_threshold(threshold, kind);
-        Ok(())
-    }
-
-    pub fn data_channel_buffered_amount_low_threshold(
-        &self,
-        kind: DataPacketKind,
-    ) -> RoomResult<u64> {
-        Ok(self.inner.rtc_engine.session().data_channel_buffered_amount_low_threshold(kind))
-    }
-
     pub async fn set_track_subscription_permissions(
         &self,
         all_participants_allowed: bool,
@@ -547,121 +550,30 @@ impl LocalParticipant {
         Ok(())
     }
 
-    pub async fn publish_transcription(&self, packet: Transcription) -> RoomResult<()> {
-        let segments: Vec<proto::TranscriptionSegment> = packet
-            .segments
+    pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {
+        self.inner.track_publications.read().get(sid).map(|track| {
+            if let TrackPublication::Local(local) = track {
+                return local.clone();
+            }
+
+            unreachable!()
+        })
+    }
+
+    pub fn track_publications(&self) -> HashMap<TrackSid, LocalTrackPublication> {
+        self.inner
+            .track_publications
+            .read()
+            .clone()
             .into_iter()
-            .map(|segment| proto::TranscriptionSegment {
-                id: segment.id,
-                start_time: segment.start_time,
-                end_time: segment.end_time,
-                text: segment.text,
-                r#final: segment.r#final,
-                language: segment.language,
+            .map(|(sid, track)| {
+                if let TrackPublication::Local(local) = track {
+                    return (sid, local);
+                }
+
+                unreachable!()
             })
-            .collect();
-        let transcription_packet = proto::Transcription {
-            transcribed_participant_identity: packet.participant_identity,
-            segments: segments,
-            track_id: packet.track_id,
-        };
-        let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::Transcription(transcription_packet)),
-            ..Default::default()
-        };
-        self.inner
-            .rtc_engine
-            .publish_data(data, DataPacketKind::Reliable, false)
-            .await
-            .map_err(Into::into)
-    }
-
-    pub async fn publish_dtmf(&self, dtmf: SipDTMF) -> RoomResult<()> {
-        let destination_identities: Vec<String> =
-            dtmf.destination_identities.into_iter().map(Into::into).collect();
-        let dtmf_message = proto::SipDtmf { code: dtmf.code, digit: dtmf.digit };
-
-        let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::SipDtmf(dtmf_message)),
-            destination_identities: destination_identities.clone(),
-            ..Default::default()
-        };
-
-        self.inner
-            .rtc_engine
-            .publish_data(data, DataPacketKind::Reliable, false)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn publish_rpc_request(&self, rpc_request: RpcRequest) -> RoomResult<()> {
-        let destination_identities = vec![rpc_request.destination_identity];
-        let rpc_request_message = proto::RpcRequest {
-            id: rpc_request.id,
-            method: rpc_request.method,
-            payload: rpc_request.payload,
-            response_timeout_ms: rpc_request.response_timeout.as_millis() as u32,
-            version: rpc_request.version,
-            ..Default::default()
-        };
-
-        let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::RpcRequest(rpc_request_message)),
-            destination_identities,
-            ..Default::default()
-        };
-
-        self.inner
-            .rtc_engine
-            .publish_data(data, DataPacketKind::Reliable, false)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn publish_rpc_response(&self, rpc_response: RpcResponse) -> RoomResult<()> {
-        let destination_identities = vec![rpc_response.destination_identity];
-        let rpc_response_message = proto::RpcResponse {
-            request_id: rpc_response.request_id,
-            value: Some(match rpc_response.error {
-                Some(error) => proto::rpc_response::Value::Error(proto::RpcError {
-                    code: error.code,
-                    message: error.message,
-                    data: error.data,
-                }),
-                None => proto::rpc_response::Value::Payload(rpc_response.payload.unwrap()),
-            }),
-            ..Default::default()
-        };
-
-        let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::RpcResponse(rpc_response_message)),
-            destination_identities: destination_identities.clone(),
-            ..Default::default()
-        };
-
-        self.inner
-            .rtc_engine
-            .publish_data(data, DataPacketKind::Reliable, false)
-            .await
-            .map_err(Into::into)
-    }
-
-    async fn publish_rpc_ack(&self, rpc_ack: RpcAck) -> RoomResult<()> {
-        let destination_identities = vec![rpc_ack.destination_identity];
-        let rpc_ack_message =
-            proto::RpcAck { request_id: rpc_ack.request_id, ..Default::default() };
-
-        let data = proto::DataPacket {
-            value: Some(proto::data_packet::Value::RpcAck(rpc_ack_message)),
-            destination_identities: destination_identities.clone(),
-            ..Default::default()
-        };
-
-        self.inner
-            .rtc_engine
-            .publish_data(data, DataPacketKind::Reliable, false)
-            .await
-            .map_err(Into::into)
+            .collect()
     }
 
     pub(crate) async fn update_track_subscription_permissions(&self) {
@@ -685,76 +597,40 @@ impl LocalParticipant {
             .await;
     }
 
-    pub fn get_track_publication(&self, sid: &TrackSid) -> Option<LocalTrackPublication> {
-        self.inner.track_publications.read().get(sid).map(|track| {
-            if let TrackPublication::Local(local) = track {
-                return local.clone();
+    pub(crate) fn add_publication(&self, publication: TrackPublication) {
+        super::add_publication(&self.inner, &Participant::Local(self.clone()), publication);
+    }
+
+    pub(crate) fn remove_publication(&self, sid: &TrackSid) -> Option<TrackPublication> {
+        super::remove_publication(&self.inner, &Participant::Local(self.clone()), sid)
+    }
+
+    pub(crate) fn published_tracks_info(&self) -> Vec<proto::TrackPublishedResponse> {
+        let tracks = self.track_publications();
+        let mut vec = Vec::with_capacity(tracks.len());
+
+        for p in tracks.values() {
+            if let Some(track) = p.track() {
+                vec.push(proto::TrackPublishedResponse {
+                    cid: track.rtc_track().id(),
+                    track: Some(p.proto_info()),
+                });
             }
+        }
 
-            unreachable!()
-        })
+        vec
     }
+}
 
-    pub fn sid(&self) -> ParticipantSid {
-        self.inner.info.read().sid.clone()
-    }
-
-    pub fn identity(&self) -> ParticipantIdentity {
-        self.inner.info.read().identity.clone()
-    }
-
-    pub fn name(&self) -> String {
-        self.inner.info.read().name.clone()
-    }
-
-    pub fn metadata(&self) -> String {
-        self.inner.info.read().metadata.clone()
-    }
-
-    pub fn attributes(&self) -> HashMap<String, String> {
-        self.inner.info.read().attributes.clone()
-    }
-
-    pub fn is_speaking(&self) -> bool {
-        self.inner.info.read().speaking
-    }
-
-    pub fn track_publications(&self) -> HashMap<TrackSid, LocalTrackPublication> {
-        self.inner
-            .track_publications
-            .read()
-            .clone()
-            .into_iter()
-            .map(|(sid, track)| {
-                if let TrackPublication::Local(local) = track {
-                    return (sid, local);
-                }
-
-                unreachable!()
-            })
-            .collect()
-    }
-
-    pub fn audio_level(&self) -> f32 {
-        self.inner.info.read().audio_level
-    }
-
-    pub fn connection_quality(&self) -> ConnectionQuality {
-        self.inner.info.read().connection_quality
-    }
-
-    pub fn kind(&self) -> ParticipantKind {
-        self.inner.info.read().kind
-    }
-
-    pub fn kind_details(&self) -> Vec<ParticipantKindDetail> {
-        self.inner.info.read().kind_details.clone()
-    }
-
-    pub fn disconnect_reason(&self) -> DisconnectReason {
-        self.inner.info.read().disconnect_reason
-    }
-
+/// Remote method calls (RPC).
+///
+/// Use remote procedure calls (RPCs) to execute custom methods on other
+/// participants in the room and await a response.
+///
+/// LiveKit Docs: see [Remote method calls](https://docs.livekit.io/transport/data/rpc/)
+///
+impl LocalParticipant {
+    /// Initiate an RPC call to a remote participant.
     pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {
         // Maximum amount of time it should ever take for an RPC request to reach the destination, and the ACK to come back
         // This is set to 7 seconds to account for various relay timeouts and retries in LiveKit Cloud that occur in rare cases
@@ -846,6 +722,10 @@ impl LocalParticipant {
         }
     }
 
+    /// Registers a method that can be invoked by remote participants.
+    ///
+    /// Will overwrite any existing registration for the same method.
+    ///
     pub fn register_rpc_method(
         &self,
         method: String,
@@ -857,8 +737,79 @@ impl LocalParticipant {
         self.local.rpc_state.lock().handlers.insert(method, Arc::new(handler));
     }
 
+    /// Unregisters a previously registered RPC method.
     pub fn unregister_rpc_method(&self, method: String) {
         self.local.rpc_state.lock().handlers.remove(&method);
+    }
+
+    async fn publish_rpc_request(&self, rpc_request: RpcRequest) -> RoomResult<()> {
+        let destination_identities = vec![rpc_request.destination_identity];
+        let rpc_request_message = proto::RpcRequest {
+            id: rpc_request.id,
+            method: rpc_request.method,
+            payload: rpc_request.payload,
+            response_timeout_ms: rpc_request.response_timeout.as_millis() as u32,
+            version: rpc_request.version,
+            ..Default::default()
+        };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::RpcRequest(rpc_request_message)),
+            destination_identities,
+            ..Default::default()
+        };
+
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn publish_rpc_response(&self, rpc_response: RpcResponse) -> RoomResult<()> {
+        let destination_identities = vec![rpc_response.destination_identity];
+        let rpc_response_message = proto::RpcResponse {
+            request_id: rpc_response.request_id,
+            value: Some(match rpc_response.error {
+                Some(error) => proto::rpc_response::Value::Error(proto::RpcError {
+                    code: error.code,
+                    message: error.message,
+                    data: error.data,
+                }),
+                None => proto::rpc_response::Value::Payload(rpc_response.payload.unwrap()),
+            }),
+            ..Default::default()
+        };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::RpcResponse(rpc_response_message)),
+            destination_identities: destination_identities.clone(),
+            ..Default::default()
+        };
+
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn publish_rpc_ack(&self, rpc_ack: RpcAck) -> RoomResult<()> {
+        let destination_identities = vec![rpc_ack.destination_identity];
+        let rpc_ack_message =
+            proto::RpcAck { request_id: rpc_ack.request_id, ..Default::default() };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::RpcAck(rpc_ack_message)),
+            destination_identities: destination_identities.clone(),
+            ..Default::default()
+        };
+
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
     }
 
     pub(crate) fn handle_incoming_rpc_ack(&self, request_id: String) {
@@ -958,7 +909,14 @@ impl LocalParticipant {
             log::error!("Failed to publish RPC response: {:?}", e);
         }
     }
+}
 
+/// Data streams: send data between participants reliably.
+///
+/// LiveKit Docs: see [Sending text](https://docs.livekit.io/transport/data/text-streams/) and
+///               [Sending files & bytes](https://docs.livekit.io/transport/data/byte-streams/)
+///
+impl LocalParticipant {
     /// Send text to participants in the room.
     ///
     /// This method sends a complete text string to participants in the room as a text stream.
@@ -1045,13 +1003,180 @@ impl LocalParticipant {
     pub async fn stream_bytes(&self, options: StreamByteOptions) -> StreamResult<ByteStreamWriter> {
         self.session().unwrap().outgoing_stream_manager.stream_bytes(options).await
     }
+}
 
-    pub fn is_encrypted(&self) -> bool {
-        *self.inner.is_encrypted.read()
+/// Data packets.
+///
+/// Low-level API for sending data between participants.
+///
+/// LiveKit Docs: see [Data packets](https://docs.livekit.io/transport/data/packets/)
+///
+impl LocalParticipant {
+    pub async fn publish_data(&self, packet: DataPacket) -> RoomResult<()> {
+        let kind = match packet.reliable {
+            true => DataPacketKind::Reliable,
+            false => DataPacketKind::Lossy,
+        };
+        let destination_identities: Vec<String> =
+            packet.destination_identities.into_iter().map(Into::into).collect();
+        let data = proto::DataPacket {
+            kind: kind as i32,
+            destination_identities: destination_identities.clone(),
+            value: Some(proto::data_packet::Value::User(proto::UserPacket {
+                payload: packet.payload,
+                topic: packet.topic,
+                ..Default::default()
+            })),
+            ..Default::default()
+        };
+
+        self.inner.rtc_engine.publish_data(data, kind, false).await.map_err(Into::into)
+    }
+}
+
+/// Telephony integration.
+impl LocalParticipant {
+    pub async fn publish_dtmf(&self, dtmf: SipDTMF) -> RoomResult<()> {
+        let destination_identities: Vec<String> =
+            dtmf.destination_identities.into_iter().map(Into::into).collect();
+        let dtmf_message = proto::SipDtmf { code: dtmf.code, digit: dtmf.digit };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::SipDtmf(dtmf_message)),
+            destination_identities: destination_identities.clone(),
+            ..Default::default()
+        };
+
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
+    }
+}
+
+/// Deprecated methods which will be removed in the next major release.
+///
+/// Please use modern equivalents for new applications.
+///
+#[deprecated = "Use data streams APIs instead"]
+impl LocalParticipant {
+    pub async fn send_chat_message(
+        &self,
+        text: String,
+        destination_identities: Option<Vec<String>>,
+        sender_identity: Option<String>,
+    ) -> RoomResult<ChatMessage> {
+        let chat_message = proto::ChatMessage {
+            id: create_random_uuid(),
+            timestamp: Utc::now().timestamp_millis(),
+            message: text,
+            ..Default::default()
+        };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::ChatMessage(chat_message.clone())),
+            participant_identity: sender_identity.unwrap_or_default(),
+            destination_identities: destination_identities.unwrap_or_default(),
+            ..Default::default()
+        };
+
+        match self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable, false).await {
+            Ok(_) => Ok(ChatMessage::from(chat_message)),
+            Err(e) => Err(Into::into(e)),
+        }
     }
 
-    #[doc(hidden)]
-    pub fn update_data_encryption_status(&self, _is_encrypted: bool) {
-        // Local participants don't receive data messages, so this is a no-op
+    pub async fn edit_chat_message(
+        &self,
+        edit_text: String,
+        original_message: ChatMessage,
+        destination_identities: Option<Vec<String>>,
+        sender_identity: Option<String>,
+    ) -> RoomResult<ChatMessage> {
+        let edited_message = ChatMessage {
+            message: edit_text,
+            edit_timestamp: Utc::now().timestamp_millis().into(),
+            ..original_message
+        };
+        let proto_msg = proto::ChatMessage::from(edited_message);
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::ChatMessage(proto_msg.clone())),
+            participant_identity: sender_identity.unwrap_or_default(),
+            destination_identities: destination_identities.unwrap_or_default(),
+            ..Default::default()
+        };
+
+        match self.inner.rtc_engine.publish_data(data, DataPacketKind::Reliable, false).await {
+            Ok(_) => Ok(ChatMessage::from(proto_msg)),
+            Err(e) => Err(Into::into(e)),
+        }
+    }
+
+    pub async fn publish_transcription(&self, packet: Transcription) -> RoomResult<()> {
+        let segments: Vec<proto::TranscriptionSegment> = packet
+            .segments
+            .into_iter()
+            .map(|segment| proto::TranscriptionSegment {
+                id: segment.id,
+                start_time: segment.start_time,
+                end_time: segment.end_time,
+                text: segment.text,
+                r#final: segment.r#final,
+                language: segment.language,
+            })
+            .collect();
+        let transcription_packet = proto::Transcription {
+            transcribed_participant_identity: packet.participant_identity,
+            segments: segments,
+            track_id: packet.track_id,
+        };
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::Transcription(transcription_packet)),
+            ..Default::default()
+        };
+        self.inner
+            .rtc_engine
+            .publish_data(data, DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
+    }
+}
+
+#[doc(hidden)]
+impl LocalParticipant {
+    // These methods are for internal use only. They are currently public so the FFI
+    // layer (livekit-ffi) can invoke them, however, refactoring should occur so this is
+    // no longer necessary.
+
+    pub async fn publish_raw_data(
+        self,
+        packet: proto::DataPacket,
+        reliable: bool,
+    ) -> RoomResult<()> {
+        let kind = match reliable {
+            true => DataPacketKind::Reliable,
+            false => DataPacketKind::Lossy,
+        };
+        self.inner.rtc_engine.publish_data(packet, kind, true).await.map_err(Into::into)
+    }
+
+    pub fn set_data_channel_buffered_amount_low_threshold(
+        &self,
+        threshold: u64,
+        kind: DataPacketKind,
+    ) -> RoomResult<()> {
+        self.inner
+            .rtc_engine
+            .session()
+            .set_data_channel_buffered_amount_low_threshold(threshold, kind);
+        Ok(())
+    }
+
+    pub fn data_channel_buffered_amount_low_threshold(
+        &self,
+        kind: DataPacketKind,
+    ) -> RoomResult<u64> {
+        Ok(self.inner.rtc_engine.session().data_channel_buffered_amount_low_threshold(kind))
     }
 }
