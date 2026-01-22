@@ -129,15 +129,9 @@ impl AudioMixer {
 
     pub fn mix(&mut self, num_channels: usize) -> &[i16] {
         unsafe {
-            let len =
-                sys::lkAudioMixerMixFrame(self.ffi.as_ptr(), num_channels.try_into().unwrap());
-            let lk_data = sys::lkAudioMixerGetMixedFrame(self.ffi.as_ptr(), len);
-            let data = sys::RefCountedData::from_native(lk_data);
-
-            std::slice::from_raw_parts(
-                data.as_ptr() as *const i16,
-                data.len() / std::mem::size_of::<i16>(),
-            )
+            let len = sys::lkAudioMixerMixFrame(self.ffi.as_ptr(), num_channels as u32);
+            let data_ptr = sys::lkAudioMixerGetData(self.ffi.as_ptr());
+            std::slice::from_raw_parts(data_ptr, len as usize)
         }
     }
 }

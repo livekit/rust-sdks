@@ -1197,7 +1197,7 @@ LK_EXPORT void lkAudioMixerRemoveSource(lkAudioMixer* mixer, int32_t ssrc);
 LK_EXPORT uint32_t lkAudioMixerMixFrame(lkAudioMixer* mixer,
                                         uint32_t number_of_channels);
 
-LK_EXPORT lkData* lkAudioMixerGetMixedFrame(lkAudioMixer* mixer, uint32_t len);
+LK_EXPORT const int16_t* lkAudioMixerGetData(lkAudioMixer* mixer);
 
 LK_EXPORT void lkNativeAudioFrameUpdateFrame(
     lkNativeAudioFrame* nativeFrame,

@@ -1942,7 +1942,9 @@ uint32_t lkAudioMixerMixFrame(lkAudioMixer* mixer,
       number_of_channels);
 }
 
-lkData* lkAudioMixerGetMixedFrame(lkAudioMixer* mixer, uint32_t len);
+const int16_t* lkAudioMixerGetData(lkAudioMixer* mixer) {
+  return reinterpret_cast<livekit_ffi::AudioMixer*>(mixer)->data();
+}
 
 void lkNativeAudioFrameUpdateFrame(lkNativeAudioFrame* nativeFrame,
                                    uint32_t timestamp,

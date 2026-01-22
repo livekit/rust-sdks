@@ -1875,7 +1875,7 @@ unsafe extern "C" {
     pub fn lkAudioMixerMixFrame(mixer: *mut lkAudioMixer, number_of_channels: u32) -> u32;
 }
 unsafe extern "C" {
-    pub fn lkAudioMixerGetMixedFrame(mixer: *mut lkAudioMixer, len: u32) -> *mut lkData;
+    pub fn lkAudioMixerGetData(mixer: *mut lkAudioMixer) -> *const i16;
 }
 unsafe extern "C" {
     pub fn lkNativeAudioFrameUpdateFrame(
