@@ -20,7 +20,6 @@ use crate::{
     api::{DataTrackFrame, DataTrackInfo, DataTrackSid, InternalError, SubscribeError},
     e2ee::DecryptionProvider,
     packet::{Handle, Packet},
-    utils::HandleMap,
 };
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
@@ -121,8 +120,13 @@ pub struct Manager {
 
     /// Mapping between track SID and descriptor.
     descriptors: HashMap<DataTrackSid, Descriptor>,
-    /// Bidirectional mapping between track SID and subscriber handle.
-    sub_handles: HandleMap,
+
+    /// Bidirectional mapping between subscriber handle and track SID.
+    ///
+    /// This is an index that allows track descriptors to be looked up
+    /// by subscriber handle in O(1) time—necessary for routing incoming packets.
+    ///
+    sub_handles: HashMap<Handle, DataTrackSid>,
 }
 
 impl Manager {
@@ -145,7 +149,7 @@ impl Manager {
             event_in_rx,
             event_out_tx,
             descriptors: HashMap::default(),
-            sub_handles: HandleMap::default(),
+            sub_handles: HashMap::default(),
         };
 
         let event_out = ReceiverStream::new(event_out_rx);
@@ -213,7 +217,7 @@ impl Manager {
             info: info.clone(),
             publisher_identity: publisher_identity.clone(),
             published_tx,
-            state: DescriptorState::Available,
+            subscription: SubscriptionState::None,
         };
         self.descriptors.insert(descriptor.info.sid.clone(), descriptor);
 
@@ -227,13 +231,14 @@ impl Manager {
     }
 
     fn handle_track_unpublished(&mut self, sid: DataTrackSid) {
-        self.sub_handles.remove(&sid);
         let Some(descriptor) = self.descriptors.remove(&sid) else {
             log::error!("Unknown track {}", sid);
             return;
         };
+        if let SubscriptionState::Active { sub_handle, .. } = descriptor.subscription {
+            self.sub_handles.remove(&sub_handle);
+        };
         _ = descriptor.published_tx.send(false);
-        // TODO: this should end the track task
     }
 
     async fn handle_subscribe(&mut self, event: SubscribeEvent) {
@@ -243,19 +248,20 @@ impl Manager {
             _ = event.result_tx.send(Err(error));
             return;
         };
-        match &mut descriptor.state {
-            DescriptorState::Available => {
+        match &mut descriptor.subscription {
+            SubscriptionState::None => {
                 let update_event =
                     SubscriptionUpdatedEvent { sid: event.sid.clone(), subscribe: true };
                 _ = self.event_out_tx.send(update_event.into()).await;
-                descriptor.state =
-                    DescriptorState::PendingSubscriberHandle { result_txs: vec![event.result_tx] };
+                descriptor.subscription = SubscriptionState::Pending {
+                    result_txs: vec![event.result_tx],
+                };
                 // TODO: schedule timeout internally
             }
-            DescriptorState::PendingSubscriberHandle { result_txs } => {
+            SubscriptionState::Pending { result_txs } => {
                 result_txs.push(event.result_tx);
             }
-            DescriptorState::Subscribed { frame_tx, .. } => {
+            SubscriptionState::Active { frame_tx, .. } => {
                 let frame_rx = frame_tx.subscribe();
                 _ = event.result_tx.send(Ok(frame_rx))
             }
@@ -268,21 +274,21 @@ impl Manager {
         }
     }
 
-    fn register_subscriber_handle(&mut self, handle: Handle, sid: DataTrackSid) {
+    fn register_subscriber_handle(&mut self, sub_handle: Handle, sid: DataTrackSid) {
         let Some(descriptor) = self.descriptors.get_mut(&sid) else {
             log::warn!("Unknown track: {}", sid);
             return;
         };
-        let result_txs = match &mut descriptor.state {
-            DescriptorState::Available => {
+        let result_txs = match &mut descriptor.subscription {
+            SubscriptionState::Pending { result_txs } => mem::take(result_txs),
+            SubscriptionState::None => {
                 log::warn!("No subscription");
                 return;
             }
-            DescriptorState::Subscribed { .. } => {
-                log::warn!("Handle reassignment not implemented");
+            SubscriptionState::Active { .. } => {
+                log::warn!("Cannot change existing handle");
                 return;
             }
-            DescriptorState::PendingSubscriberHandle { result_txs } => mem::take(result_txs),
         };
 
         let (packet_tx, packet_rx) = mpsc::channel(4); // TODO: tune
@@ -311,8 +317,9 @@ impl Manager {
         };
         let task_handle = livekit_runtime::spawn(track_task.run());
 
-        descriptor.state = DescriptorState::Subscribed { packet_tx, frame_tx, task_handle };
-        self.sub_handles.insert(handle, sid);
+        descriptor.subscription =
+            SubscriptionState::Active { sub_handle, packet_tx, frame_tx, task_handle };
+        self.sub_handles.insert(sub_handle, sid);
 
         for result_tx in result_txs {
             _ = result_tx.send(Ok(frame_rx.resubscribe()));
@@ -327,16 +334,16 @@ impl Manager {
                 return;
             }
         };
-        let Some(sid) = self.sub_handles.get_sid(packet.header.track_handle) else {
+        let Some(sid) = self.sub_handles.get(&packet.header.track_handle) else {
             log::warn!("Unknown subscriber handle {}", packet.header.track_handle);
             return;
         };
         let Some(descriptor) = self.descriptors.get(sid) else {
-            log::warn!("Missing descriptor");
+            log::warn!("Missing descriptor for track {}", sid);
             return;
         };
-        let DescriptorState::Subscribed { packet_tx, .. } = &descriptor.state else {
-            log::warn!("Received packet for track {} without subscription", descriptor.info.sid);
+        let SubscriptionState::Active { packet_tx, .. } = &descriptor.subscription else {
+            log::warn!("Received packet for track {} without subscription", sid);
             return;
         };
         _ = packet_tx
@@ -345,15 +352,17 @@ impl Manager {
     }
 
     async fn handle_unsubscribe(&mut self, event: UnsubscribeEvent) {
-        let Some(descriptor) = self.descriptors.remove(&event.sid) else {
+        let Some(descriptor) = self.descriptors.get_mut(&event.sid) else {
             return;
         };
-        _ = descriptor.published_tx.send(false);
 
-        let DescriptorState::Subscribed { .. } = &descriptor.state else {
+        let SubscriptionState::Active { sub_handle, .. } = descriptor.subscription else {
             log::warn!("Unexpected state");
             return;
         };
+        descriptor.subscription = SubscriptionState::None;
+        self.sub_handles.remove(&sub_handle);
+
         let event = SubscriptionUpdatedEvent { sid: event.sid, subscribe: false };
         _ = self.event_out_tx.send(event.into()).await;
     }
@@ -362,25 +371,41 @@ impl Manager {
     async fn shutdown(self) {
         for (_, descriptor) in self.descriptors {
             _ = descriptor.published_tx.send(false);
-            match descriptor.state {
-                DescriptorState::Available => {}
-                DescriptorState::PendingSubscriberHandle { result_txs } => {
+            match descriptor.subscription {
+                SubscriptionState::None => {}
+                SubscriptionState::Pending { result_txs } => {
                     for result_tx in result_txs {
                         _ = result_tx.send(Err(SubscribeError::Disconnected));
                     }
                 }
-                DescriptorState::Subscribed { task_handle, .. } => task_handle.await,
+                SubscriptionState::Active { task_handle, .. } => task_handle.await,
             }
         }
     }
 }
 
+/// Information and state for a remote data track.
 #[derive(Debug)]
 struct Descriptor {
     info: Arc<DataTrackInfo>,
     publisher_identity: Arc<str>,
     published_tx: watch::Sender<bool>,
-    state: DescriptorState,
+    subscription: SubscriptionState,
+}
+
+#[derive(Debug)]
+enum SubscriptionState {
+    /// Track is not subscribed to.
+    None,
+    /// Track is being subscribed to, waiting for subscriber handle.
+    Pending { result_txs: Vec<oneshot::Sender<SubscribeResult>> },
+    /// Track has an active subscription.
+    Active {
+        sub_handle: Handle,
+        packet_tx: mpsc::Sender<Packet>,
+        frame_tx: broadcast::Sender<DataTrackFrame>,
+        task_handle: livekit_runtime::JoinHandle<()>,
+    },
 }
 
 /// Task for an individual data track with an active subscription.
@@ -426,19 +451,6 @@ impl TrackTask {
             .send(frame)
             .inspect_err(|err| log::debug!("Cannot send frame to subscribers: {}", err));
     }
-}
-
-#[derive(Debug)]
-enum DescriptorState {
-    Available,
-    PendingSubscriberHandle {
-        result_txs: Vec<oneshot::Sender<SubscribeResult>>,
-    },
-    Subscribed {
-        packet_tx: mpsc::Sender<Packet>,
-        frame_tx: broadcast::Sender<DataTrackFrame>,
-        task_handle: livekit_runtime::JoinHandle<()>,
-    },
 }
 
 /// Channel for sending [`InputEvent`]s to [`Manager`].

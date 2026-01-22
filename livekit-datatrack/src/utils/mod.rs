@@ -15,11 +15,7 @@
 /// Utilities for working with [`Bytes::bytes`].
 mod bytes;
 
-/// Map between track handle and SID.
-mod handle_map;
-
 mod counter;
 
 pub use bytes::*;
 pub use counter::*;
-pub use handle_map::*;
