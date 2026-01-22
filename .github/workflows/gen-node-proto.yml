@@ -41,9 +41,6 @@ jobs:
           version: "25.1"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/checkout@v6
-        with:
-          submodules: recursive
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: livekit-ffi-node-bindings/package.json
