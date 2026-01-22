@@ -172,6 +172,11 @@ export class ConnectRequest extends Message<ConnectRequest> {
    */
   options?: RoomOptions;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 4;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<ConnectRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -183,6 +188,7 @@ export class ConnectRequest extends Message<ConnectRequest> {
     { no: 1, name: "url", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 2, name: "token", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 3, name: "options", kind: "message", T: RoomOptions, req: true },
+    { no: 4, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ConnectRequest {
@@ -401,6 +407,11 @@ export class DisconnectRequest extends Message<DisconnectRequest> {
    */
   roomHandle?: bigint;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 2;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<DisconnectRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -410,6 +421,7 @@ export class DisconnectRequest extends Message<DisconnectRequest> {
   static readonly typeName = "livekit.proto.DisconnectRequest";
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "room_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DisconnectRequest {
@@ -524,6 +536,11 @@ export class PublishTrackRequest extends Message<PublishTrackRequest> {
    */
   options?: TrackPublishOptions;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 4;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<PublishTrackRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -535,6 +552,7 @@ export class PublishTrackRequest extends Message<PublishTrackRequest> {
     { no: 1, name: "local_participant_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "track_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 3, name: "options", kind: "message", T: TrackPublishOptions, req: true },
+    { no: 4, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PublishTrackRequest {
@@ -668,6 +686,11 @@ export class UnpublishTrackRequest extends Message<UnpublishTrackRequest> {
    */
   stopOnUnpublish?: boolean;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 4;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<UnpublishTrackRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -679,6 +702,7 @@ export class UnpublishTrackRequest extends Message<UnpublishTrackRequest> {
     { no: 1, name: "local_participant_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "track_sid", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 3, name: "stop_on_unpublish", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 4, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): UnpublishTrackRequest {
@@ -820,6 +844,11 @@ export class PublishDataRequest extends Message<PublishDataRequest> {
    */
   destinationIdentities: string[] = [];
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 8;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<PublishDataRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -835,6 +864,7 @@ export class PublishDataRequest extends Message<PublishDataRequest> {
     { no: 5, name: "destination_sids", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 6, name: "topic", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 7, name: "destination_identities", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 8, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PublishDataRequest {
@@ -960,6 +990,11 @@ export class PublishTranscriptionRequest extends Message<PublishTranscriptionReq
    */
   segments: TranscriptionSegment[] = [];
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 5;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<PublishTranscriptionRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -972,6 +1007,7 @@ export class PublishTranscriptionRequest extends Message<PublishTranscriptionReq
     { no: 2, name: "participant_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 3, name: "track_id", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 4, name: "segments", kind: "message", T: TranscriptionSegment, repeated: true },
+    { no: 5, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PublishTranscriptionRequest {
@@ -1097,6 +1133,11 @@ export class PublishSipDtmfRequest extends Message<PublishSipDtmfRequest> {
    */
   destinationIdentities: string[] = [];
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 5;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<PublishSipDtmfRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1109,6 +1150,7 @@ export class PublishSipDtmfRequest extends Message<PublishSipDtmfRequest> {
     { no: 2, name: "code", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
     { no: 3, name: "digit", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 4, name: "destination_identities", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
+    { no: 5, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PublishSipDtmfRequest {
@@ -1224,6 +1266,11 @@ export class SetLocalMetadataRequest extends Message<SetLocalMetadataRequest> {
    */
   metadata?: string;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<SetLocalMetadataRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1234,6 +1281,7 @@ export class SetLocalMetadataRequest extends Message<SetLocalMetadataRequest> {
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "local_participant_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "metadata", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetLocalMetadataRequest {
@@ -1357,6 +1405,11 @@ export class SendChatMessageRequest extends Message<SendChatMessageRequest> {
    */
   senderIdentity?: string;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 5;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<SendChatMessageRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1369,6 +1422,7 @@ export class SendChatMessageRequest extends Message<SendChatMessageRequest> {
     { no: 2, name: "message", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 3, name: "destination_identities", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 4, name: "sender_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 5, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SendChatMessageRequest {
@@ -1417,6 +1471,11 @@ export class EditChatMessageRequest extends Message<EditChatMessageRequest> {
    */
   senderIdentity?: string;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 6;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<EditChatMessageRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1430,6 +1489,7 @@ export class EditChatMessageRequest extends Message<EditChatMessageRequest> {
     { no: 3, name: "original_message", kind: "message", T: ChatMessage, req: true },
     { no: 4, name: "destination_identities", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 5, name: "sender_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 6, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): EditChatMessageRequest {
@@ -1558,6 +1618,11 @@ export class SetLocalAttributesRequest extends Message<SetLocalAttributesRequest
    */
   attributes: AttributesEntry[] = [];
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<SetLocalAttributesRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1568,6 +1633,7 @@ export class SetLocalAttributesRequest extends Message<SetLocalAttributesRequest
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "local_participant_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "attributes", kind: "message", T: AttributesEntry, repeated: true },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetLocalAttributesRequest {
@@ -1726,6 +1792,11 @@ export class SetLocalNameRequest extends Message<SetLocalNameRequest> {
    */
   name?: string;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<SetLocalNameRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1736,6 +1807,7 @@ export class SetLocalNameRequest extends Message<SetLocalNameRequest> {
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "local_participant_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetLocalNameRequest {
@@ -1920,6 +1992,11 @@ export class GetSessionStatsRequest extends Message<GetSessionStatsRequest> {
    */
   roomHandle?: bigint;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 2;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<GetSessionStatsRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1929,6 +2006,7 @@ export class GetSessionStatsRequest extends Message<GetSessionStatsRequest> {
   static readonly typeName = "livekit.proto.GetSessionStatsRequest";
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "room_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetSessionStatsRequest {
@@ -5069,6 +5147,11 @@ export class SendStreamHeaderRequest extends Message<SendStreamHeaderRequest> {
    */
   senderIdentity?: string;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 5;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<SendStreamHeaderRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -5081,6 +5164,7 @@ export class SendStreamHeaderRequest extends Message<SendStreamHeaderRequest> {
     { no: 2, name: "header", kind: "message", T: DataStream_Header, req: true },
     { no: 3, name: "destination_identities", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 4, name: "sender_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 5, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SendStreamHeaderRequest {
@@ -5124,6 +5208,11 @@ export class SendStreamChunkRequest extends Message<SendStreamChunkRequest> {
    */
   senderIdentity?: string;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 5;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<SendStreamChunkRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -5136,6 +5225,7 @@ export class SendStreamChunkRequest extends Message<SendStreamChunkRequest> {
     { no: 2, name: "chunk", kind: "message", T: DataStream_Chunk, req: true },
     { no: 3, name: "destination_identities", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 4, name: "sender_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 5, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SendStreamChunkRequest {
@@ -5179,6 +5269,11 @@ export class SendStreamTrailerRequest extends Message<SendStreamTrailerRequest> 
    */
   senderIdentity?: string;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 5;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<SendStreamTrailerRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -5191,6 +5286,7 @@ export class SendStreamTrailerRequest extends Message<SendStreamTrailerRequest> 
     { no: 2, name: "trailer", kind: "message", T: DataStream_Trailer, req: true },
     { no: 3, name: "destination_identities", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
     { no: 4, name: "sender_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 5, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SendStreamTrailerRequest {
