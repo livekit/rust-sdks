@@ -154,15 +154,15 @@ typedef enum {
 } lkMediaStreamTrackKind;
 
 typedef enum {
-  Normal,
-  Muted,
-  Error,
+  AUDIO_FRAME_INFO_NORMAL,
+  AUDIO_FRAME_INFO_MUTE,
+  AUDIO_FRAME_INFO_ERROR,
 } lkAudioFrameInfo;
 
 typedef struct {
   int32_t (*getSsrc)(void* userdata);
   int32_t (*preferredSampleRate)(void* userdata);
-  lkAudioFrameInfo (*getAudioFrameWithInfo)(int32_t targetSampleRate,
+  lkAudioFrameInfo (*getAudioFrameWithInfo)(uint32_t targetSampleRate,
                                             lkNativeAudioFrame* frame,
                                             void* userdata);
 } lkAudioMixerSourceCallback;
@@ -1198,6 +1198,14 @@ LK_EXPORT uint32_t lkAudioMixerMixFrame(lkAudioMixer* mixer,
                                         uint32_t number_of_channels);
 
 LK_EXPORT lkData* lkAudioMixerGetMixedFrame(lkAudioMixer* mixer, uint32_t len);
+
+LK_EXPORT void lkNativeAudioFrameUpdateFrame(
+    lkNativeAudioFrame* nativeFrame,
+    uint32_t timestamp,
+    const int16_t* data,
+    uint32_t samplesPreChannel,
+    int sampleRateHz,
+    uint32_t numChannel);
 
 LK_EXPORT lkAudioResampler* lkAudioResamplerCreate();
 

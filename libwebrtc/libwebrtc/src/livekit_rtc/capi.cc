@@ -2,6 +2,7 @@
 
 #include "api/make_ref_counted.h"
 #include "livekit_rtc/apm.h"
+#include "livekit_rtc/audio_mixer.h"
 #include "livekit_rtc/audio_resampler.h"
 #include "livekit_rtc/audio_track.h"
 #include "livekit_rtc/data_channel.h"
@@ -1917,4 +1918,39 @@ int32_t lkDesktopFrameGetTop(lkDesktopFrame* frame) {
 
 const uint8_t* lkDesktopFrameGetData(lkDesktopFrame* frame) {
   return reinterpret_cast<livekit_ffi::DesktopFrame*>(frame)->data();
+}
+
+lkAudioMixer* lkCreateAudioMixer() {
+  return reinterpret_cast<lkAudioMixer*>(
+      livekit_ffi::create_audio_mixer().release());
+}
+
+void lkAudioMixerAddSource(lkAudioMixer* mixer,
+                           const lkAudioMixerSourceCallback* source,
+                           void* userdata) {
+  reinterpret_cast<livekit_ffi::AudioMixer*>(mixer)->add_source(source,
+                                                                userdata);
+}
+
+void lkAudioMixerRemoveSource(lkAudioMixer* mixer, int32_t ssrc) {
+  reinterpret_cast<livekit_ffi::AudioMixer*>(mixer)->remove_source(ssrc);
+}
+
+uint32_t lkAudioMixerMixFrame(lkAudioMixer* mixer,
+                              uint32_t number_of_channels) {
+  return reinterpret_cast<livekit_ffi::AudioMixer*>(mixer)->mix(
+      number_of_channels);
+}
+
+lkData* lkAudioMixerGetMixedFrame(lkAudioMixer* mixer, uint32_t len);
+
+void lkNativeAudioFrameUpdateFrame(lkNativeAudioFrame* nativeFrame,
+                                   uint32_t timestamp,
+                                   const int16_t* data,
+                                   uint32_t samplesPreChannel,
+                                   int sampleRateHz,
+                                   uint32_t numChannel) {
+  reinterpret_cast<livekit_ffi::NativeAudioFrame*>(nativeFrame)
+      ->update_frame(timestamp, data, samplesPreChannel, sampleRateHz,
+                     numChannel);
 }

@@ -28,7 +28,7 @@ class NativeAudioFrame {
 
 class AudioMixerSource : public webrtc::AudioMixer::Source {
  public:
-  AudioMixerSource(lkAudioMixerSourceCallback* source, void* userdata);
+  AudioMixerSource(const lkAudioMixerSourceCallback* source, void* userdata);
 
   AudioFrameInfo GetAudioFrameWithInfo(int sample_rate_hz,
                                        webrtc::AudioFrame* audio_frame) override;
@@ -40,7 +40,7 @@ class AudioMixerSource : public webrtc::AudioMixer::Source {
   ~AudioMixerSource() {}
 
  private:
-  lkAudioMixerSourceCallback* source_;
+  const lkAudioMixerSourceCallback* source_;
   void* userdata_;
 };
 
@@ -48,7 +48,7 @@ class AudioMixer {
  public:
   AudioMixer();
 
-  void add_source(lkAudioMixerSourceCallback* source, void* userdata);
+  void add_source(const lkAudioMixerSourceCallback* source, void* userdata);
 
   void remove_source(int ssrc);
 

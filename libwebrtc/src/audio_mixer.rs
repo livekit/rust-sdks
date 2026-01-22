@@ -22,10 +22,7 @@ pub struct AudioMixer {
 pub trait AudioMixerSource {
     fn ssrc(&self) -> i32;
     fn preferred_sample_rate(&self) -> u32;
-    fn get_audio_frame_with_info(
-        &self,
-        target_sample_rate: u32,
-    ) -> Option<AudioFrame>;
+    fn get_audio_frame_with_info(&'_ self, target_sample_rate: u32) -> Option<AudioFrame<'_>>;
 }
 
 struct AudioMixerSourceImpl<T> {
@@ -41,39 +38,8 @@ impl<T: AudioMixerSource> AudioMixerSource for AudioMixerSourceImpl<T> {
         self.inner.preferred_sample_rate()
     }
 
-    fn get_audio_frame_with_info(
-        &self,
-        target_sample_rate: u32,
-    ) -> Option<AudioFrame> {
-        if let Some(frame) = self.inner.get_audio_frame_with_info(target_sample_rate as u32) {
-            let samples_count = (frame.sample_rate as usize / 100) as usize;
-            assert_eq!(
-                frame.sample_rate, target_sample_rate as u32,
-                "sample rate must match target_sample_rate"
-            );
-            assert_eq!(
-                frame.samples_per_channel as usize, samples_count,
-                "frame must contain 10ms of samples"
-            );
-            assert_eq!(
-                frame.data.len(),
-                samples_count * frame.num_channels as usize,
-                "slice must contain 10ms of samples"
-            );
-
-            unsafe {
-                native_frame.update_frame(
-                    0,
-                    frame.data.as_ptr(),
-                    frame.samples_per_channel as usize,
-                    frame.sample_rate as i32,
-                    frame.num_channels as usize,
-                );
-            }
-            return sys::lkAudioFrameInfo::Normal;
-        } else {
-            return sys::lkAudioFrameInfo::Muted;
-        }
+    fn get_audio_frame_with_info(&'_ self, target_sample_rate: u32) -> Option<AudioFrame<'_>> {
+        self.inner.get_audio_frame_with_info(target_sample_rate)
     }
 }
 
@@ -91,35 +57,66 @@ impl AudioMixer {
     }
 
     pub extern "C" fn audio_mixer_source_get_ssrc(userdata: *mut ::std::os::raw::c_void) -> i32 {
-        let source = unsafe { &*(userdata as *const AudioMixerSourceImpl<dyn AudioMixerSource>) };
-        source.ssrc()
+        let source =
+            unsafe { &*(userdata as *const AudioMixerSourceImpl<Box<dyn AudioMixerSource>>) };
+        source.inner.ssrc()
     }
 
     pub extern "C" fn audio_mixer_source_get_preferred_sample_rate(
         userdata: *mut ::std::os::raw::c_void,
     ) -> i32 {
-        let source = unsafe { &*(userdata as *const AudioMixerSourceImpl<dyn AudioMixerSource>) };
-        source.preferred_sample_rate()
+        let source =
+            unsafe { &*(userdata as *const AudioMixerSourceImpl<Box<dyn AudioMixerSource>>) };
+        source.inner.preferred_sample_rate() as i32
     }
 
     pub unsafe extern "C" fn audio_mixer_source_get_audio_frame_with_info(
-        target_sample_rate: i32,
+        target_sample_rate: u32,
         native_frame: *mut sys::lkNativeAudioFrame,
         userdata: *mut ::std::os::raw::c_void,
     ) -> sys::lkAudioFrameInfo {
-        let native_frame = &*(native_frame as *const sys::lkNativeAudioFrame);
-        let source = unsafe { &*(userdata as *const AudioMixerSourceImpl<dyn AudioMixerSource>) };
-        source.get_audio_frame_with_info(target_sample_rate, native_frame)
+        let source =
+            unsafe { &*(userdata as *const AudioMixerSourceImpl<Box<dyn AudioMixerSource>>) };
+        if let Some(frame) = source.inner.get_audio_frame_with_info(target_sample_rate) {
+            let samples_count = (frame.sample_rate as usize / 100) as usize;
+            assert_eq!(
+                frame.sample_rate, target_sample_rate as u32,
+                "sample rate must match target_sample_rate"
+            );
+            assert_eq!(
+                frame.samples_per_channel as usize, samples_count,
+                "frame must contain 10ms of samples"
+            );
+            assert_eq!(
+                frame.data.len(),
+                samples_count * frame.num_channels as usize,
+                "slice must contain 10ms of samples"
+            );
+
+            unsafe {
+                sys::lkNativeAudioFrameUpdateFrame(
+                    native_frame,
+                    0,
+                    frame.data.as_ptr() as *const i16,
+                    frame.samples_per_channel,
+                    frame.sample_rate.try_into().unwrap(),
+                    frame.num_channels,
+                );
+            }
+            return sys::lkAudioFrameInfo::AUDIO_FRAME_INFO_NORMAL;
+        } else {
+            return sys::lkAudioFrameInfo::AUDIO_FRAME_INFO_MUTE;
+        }
     }
 
     pub fn add_source(&mut self, source: impl AudioMixerSource + 'static) {
         let source_impl = AudioMixerSourceImpl { inner: source };
-        let wrapper = Box::new(AudioMixerSourceWrapper::new(Arc::new(source_impl)));
+        let wrapper = Box::new(Arc::new(source_impl));
         unsafe {
             sys::lkAudioMixerAddSource(
                 self.ffi.as_ptr(),
                 &SYS_AUDIO_MIXER_CALLBACKS,
-                wrapper.into_raw(),
+                Box::into_raw(wrapper) as *mut _,
             );
         }
     }

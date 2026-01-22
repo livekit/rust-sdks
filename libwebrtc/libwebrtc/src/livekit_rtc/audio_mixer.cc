@@ -29,7 +29,7 @@ AudioMixer::AudioMixer() {
   audio_mixer_ = webrtc::AudioMixerImpl::Create();
 }
 
-void AudioMixer::add_source(lkAudioMixerSourceCallback* source, void* userdata) {
+void AudioMixer::add_source(const lkAudioMixerSourceCallback* source, void* userdata) {
   auto native_source = std::make_shared<AudioMixerSource>(source, userdata);
 
   webrtc::MutexLock lock(&sources_mutex_);
@@ -62,7 +62,7 @@ std::unique_ptr<AudioMixer> create_audio_mixer() {
   return std::make_unique<AudioMixer>();
 }
 
-AudioMixerSource::AudioMixerSource(lkAudioMixerSourceCallback* source,
+AudioMixerSource::AudioMixerSource(const lkAudioMixerSourceCallback* source,
                                    void* userdata)
     : source_(source), userdata_(userdata) {}
 
@@ -82,9 +82,9 @@ AudioMixerSource::GetAudioFrameWithInfo(int sample_rate,
   lkAudioFrameInfo result = source_->getAudioFrameWithInfo(
       sample_rate, static_cast<lkNativeAudioFrame*>(&frame), userdata_);
 
-  if (result == lkAudioFrameInfo::Normal) {
+  if (result == lkAudioFrameInfo::AUDIO_FRAME_INFO_NORMAL) {
     return webrtc::AudioMixer::Source::AudioFrameInfo::kNormal;
-  } else if (result == lkAudioFrameInfo::Muted) {
+  } else if (result == lkAudioFrameInfo::AUDIO_FRAME_INFO_MUTE) {
     return webrtc::AudioMixer::Source::AudioFrameInfo::kMuted;
   } else {
     return webrtc::AudioMixer::Source::AudioFrameInfo::kError;

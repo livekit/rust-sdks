@@ -87,10 +87,7 @@ impl DesktopFrame {
     pub fn data(&self) -> &[u8] {
         unsafe {
             let lk_data = sys::lkDesktopFrameGetData(self.ffi.as_ptr());
-            std::slice::from_raw_parts(
-                lk_data,
-                self.stride() as usize * self.height() as usize,
-            )
+            std::slice::from_raw_parts(lk_data, self.stride() as usize * self.height() as usize)
         }
     }
 }

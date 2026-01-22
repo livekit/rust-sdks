@@ -40,7 +40,7 @@ pub struct RtcError {
 }
 
 pub mod audio_frame;
-//pub mod audio_mixer;
+pub mod audio_mixer;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod audio_track;

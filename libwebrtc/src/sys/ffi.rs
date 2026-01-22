@@ -151,9 +151,9 @@ pub enum lkMediaStreamTrackKind {
 #[repr(u32)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum lkAudioFrameInfo {
-    Normal = 0,
-    Muted = 1,
-    Error = 2,
+    AUDIO_FRAME_INFO_NORMAL = 0,
+    AUDIO_FRAME_INFO_MUTE = 1,
+    AUDIO_FRAME_INFO_ERROR = 2,
 }
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -164,7 +164,7 @@ pub struct lkAudioMixerSourceCallback {
         ::std::option::Option<unsafe extern "C" fn(userdata: *mut ::std::os::raw::c_void) -> i32>,
     pub getAudioFrameWithInfo: ::std::option::Option<
         unsafe extern "C" fn(
-            targetSampleRate: i32,
+            targetSampleRate: u32,
             frame: *mut lkNativeAudioFrame,
             userdata: *mut ::std::os::raw::c_void,
         ) -> lkAudioFrameInfo,
@@ -1876,6 +1876,16 @@ unsafe extern "C" {
 }
 unsafe extern "C" {
     pub fn lkAudioMixerGetMixedFrame(mixer: *mut lkAudioMixer, len: u32) -> *mut lkData;
+}
+unsafe extern "C" {
+    pub fn lkNativeAudioFrameUpdateFrame(
+        nativeFrame: *mut lkNativeAudioFrame,
+        timestamp: u32,
+        data: *const i16,
+        samplesPreChannel: u32,
+        sampleRateHz: ::std::os::raw::c_int,
+        numChannel: u32,
+    );
 }
 unsafe extern "C" {
     pub fn lkAudioResamplerCreate() -> *mut lkAudioResampler;
