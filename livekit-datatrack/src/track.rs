@@ -14,7 +14,7 @@
 
 use crate::packet::Handle;
 use from_variants::FromVariants;
-use std::{fmt::Display, marker::PhantomData, ops::Deref, sync::Arc};
+use std::{fmt::Display, marker::PhantomData, sync::Arc};
 use tokio::sync::watch;
 use thiserror::Error;
 
@@ -120,14 +120,6 @@ impl TryFrom<String> for DataTrackSid {
 impl From<DataTrackSid> for String {
     fn from(id: DataTrackSid) -> Self {
         id.0
-    }
-}
-
-impl Deref for DataTrackSid {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
