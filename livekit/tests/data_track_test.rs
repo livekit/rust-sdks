@@ -181,10 +181,8 @@ async fn test_publish_duplicate_name() -> Result<()> {
 }
 
 #[cfg(feature = "__lk-e2e-test")]
-#[test_case(false; "use_room_settings")]
-#[test_case(true; "disabled_on_track")]
 #[test_log::test(tokio::test)]
-async fn test_e2ee(disable_on_track: bool) -> Result<()> {
+async fn test_e2ee() -> Result<()> {
     use livekit::e2ee::{
         key_provider::{KeyProvider, KeyProviderOptions},
         EncryptionType,
@@ -216,9 +214,8 @@ async fn test_e2ee(disable_on_track: bool) -> Result<()> {
     sub_room.e2ee_manager().set_enabled(true);
 
     let publish = async move {
-        let options = DataTrackOptions::new("my_track").disable_e2ee(disable_on_track);
-        let track = pub_room.local_participant().publish_data_track(options).await?;
-        assert!(track.info().uses_e2ee() || disable_on_track);
+        let track = pub_room.local_participant().publish_data_track("my_track").await?;
+        assert!(track.info().uses_e2ee());
 
         for index in 0..5 {
             track.try_push(vec![index as u8; 196_608].into())?;
@@ -239,7 +236,7 @@ async fn test_e2ee(disable_on_track: bool) -> Result<()> {
         }
         .await?;
 
-        assert!(track.info().uses_e2ee() || disable_on_track);
+        assert!(track.info().uses_e2ee());
         let mut subscription = track.subscribe().await?;
 
         while let Some(frame) = subscription.next().await {
