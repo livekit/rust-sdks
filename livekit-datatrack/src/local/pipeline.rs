@@ -52,8 +52,8 @@ impl Pipeline {
 
     pub fn process_frame(&mut self, frame: DataTrackFrame) -> Result<Vec<Packet>, PipelineError> {
         let frame = self.encrypt_if_needed(frame.into())?;
-        let frame = self.packetizer.packetize(frame)?;
-        Ok(frame)
+        let packets = self.packetizer.packetize(frame)?;
+        Ok(packets)
     }
 
     /// Encrypt the frame's payload if E2EE is enabled for this track.
