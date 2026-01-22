@@ -1,6 +1,11 @@
 #include "livekit_rtc/include/capi.h"
 
 #include "api/make_ref_counted.h"
+
+#ifdef __ANDROID__
+#include "livekit_rtc/android.h"
+#endif
+
 #include "livekit_rtc/apm.h"
 #include "livekit_rtc/audio_mixer.h"
 #include "livekit_rtc/audio_resampler.h"
@@ -96,6 +101,12 @@ uint32_t lkVectorGenericPushBack(lkVectorGeneric* vec,
   lkVec->push_back(value);
   return static_cast<uint32_t>(lkVec->size());
 }
+
+#ifdef __ANDROID__
+void initAndroid(void* jvm) {
+  livekit_ffi::init_android(jvm);
+}
+#endif
 
 int lkInitialize() {
   if (!webrtc::InitializeSSL()) {

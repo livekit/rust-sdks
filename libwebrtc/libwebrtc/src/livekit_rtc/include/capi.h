@@ -4,6 +4,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef __ANDROID__
+#include <jni.h>
+#endif
+
 #define LK_EXPORT __attribute__((visibility("default")))
 
 #ifdef __cplusplus
@@ -355,6 +359,10 @@ typedef enum {
   CAPTURE_ERROR_TEMPORARY,
   CAPTURE_ERROR_PERMANENT,
 } lkCaptureError;
+
+#ifdef __ANDROID__
+LK_EXPORT void initAndroid(void* jvm);
+#endif
 
 LK_EXPORT int lkInitialize();
 

@@ -40,7 +40,6 @@ pub struct RtcError {
 }
 
 pub mod audio_frame;
-pub mod audio_mixer;
 pub mod audio_source;
 pub mod audio_stream;
 pub mod audio_track;
@@ -68,11 +67,6 @@ pub mod video_frame_builder;
 pub mod video_source;
 pub mod video_stream;
 pub mod video_track;
-
-#[cfg(target_os = "android")]
-pub mod android {
-    pub use crate::imp::android::*;
-}
 
 macro_rules! impl_thread_safety {
     ($obj:ty, Send) => {

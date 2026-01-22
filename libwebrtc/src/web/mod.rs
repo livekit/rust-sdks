@@ -12,13 +12,4 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(target_os = "android")]
-#[cxx::bridge(namespace = "livekit")]
-pub mod ffi {
-    unsafe extern "C++" {
-        include!("livekit/android.h");
-
-        type JavaVM;
-        unsafe fn init_android(vm: *mut JavaVM);
-    }
-}
+unimplemented!();

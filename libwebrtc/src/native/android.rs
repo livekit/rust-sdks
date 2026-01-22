@@ -11,27 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+use crate::sys;
+use crate::jni;
 
-
-#[cfg(target_os = "android")]
-pub mod android;
-pub mod apm;
-pub mod audio_mixer;
-pub mod audio_resampler;
-pub mod frame_cryptor;
-pub mod yuv_helper;
-
-
-#[cfg(target_os = "android")]
-pub use android::*;
-pub use apm::*;
-pub use audio_mixer::*;
-pub use audio_resampler::*;
-pub use frame_cryptor::*;
-pub use yuv_helper::*;
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn create_random_uuid() -> String {
-    use uuid::Uuid;
-    Uuid::new_v4().to_string()
+pub fn initialize_android(vm: &jni::JavaVM) {
+    unsafe {
+        sys::initAndroid(vm.get_java_vm_pointer() as *mut _);
+    }
 }
