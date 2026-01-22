@@ -31,7 +31,7 @@ pub struct Packet {
     pub payload: Bytes,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct Header {
     pub marker: FrameMarker,
@@ -87,4 +87,24 @@ pub(crate) mod consts {
     pub const EXT_FLAG_MASK: u8 = 0x1;
     pub const EXT_MARKER_LEN: usize = 4;
     pub const EXT_TAG_PADDING: u16 = 0;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Packet;
+    use fake::{Fake, Faker};
+
+    #[test]
+    fn test_roundtrip() {
+        let original: Packet = Faker.fake();
+
+        let header = original.header.clone();
+        let payload = original.payload.clone();
+
+        let serialized = original.serialize();
+        let deserialized = Packet::deserialize(serialized).unwrap();
+
+        assert_eq!(deserialized.header, header);
+        assert_eq!(deserialized.payload, payload);
+    }
 }
