@@ -22,12 +22,12 @@ async fn main() -> Result<()> {
 
 /// Subscribe to the first data track published.
 async fn handle_first_publication(mut rx: UnboundedReceiver<RoomEvent>) -> Result<()> {
+    log::info!("Waiting for publication…");
     while let Some(event) = rx.recv().await {
-        log::info!("Waiting for publication…");
-        match event {
-            RoomEvent::RemoteDataTrackPublished(track) => subscribe(track).await?,
-            _ => continue,
-        }
+        let RoomEvent::RemoteDataTrackPublished(track) = event else {
+            continue;
+        };
+        subscribe(track).await?
     }
     Ok(())
 }
