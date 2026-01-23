@@ -47,9 +47,19 @@ impl Pipeline {
     }
 
     pub fn process_packet(&mut self, packet: Packet) -> Option<DataTrackFrame> {
-        let Some(frame) = self.depacketizer.push(packet) else { return None };
+        let Some(frame) = self.depacketize(packet) else { return None };
         let Some(frame) = self.decrypt_if_needed(frame) else { return None };
         Some(frame.into())
+    }
+
+    /// Depacketize the given frame, log if a drop occurs.
+    fn depacketize(&mut self, packet: Packet) -> Option<DepacketizerFrame> {
+        let result = self.depacketizer.push(packet);
+        if let Some(drop) = result.drop_error {
+            // In a future version, use this to maintain drop statistics.
+            log::debug!("{}", drop);
+        };
+        result.frame
     }
 
     /// Decrypt the frame's payload if E2EE is enabled for this track.
