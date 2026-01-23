@@ -121,7 +121,7 @@ pub struct Manager {
     /// Mapping between track SID and descriptor.
     descriptors: HashMap<DataTrackSid, Descriptor>,
 
-    /// Bidirectional mapping between subscriber handle and track SID.
+    /// Mapping between subscriber handle and track SID.
     ///
     /// This is an index that allows track descriptors to be looked up
     /// by subscriber handle in O(1) time—necessary for routing incoming packets.
