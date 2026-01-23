@@ -14,6 +14,7 @@
 
 use bytes::Bytes;
 use core::fmt;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// A frame published on a data track, consisting of a payload and optional metadata.
 ///
@@ -45,6 +46,20 @@ impl DataTrackFrame {
     pub fn user_timestamp(&self) -> Option<u64> {
         self.user_timestamp
     }
+
+    /// If the frame has a user timestamp, calculate how long has passed
+    /// relative to the current system time.
+    ///
+    /// If a timestamp is present, it is assumed it is a UNIX timestamp in milliseconds
+    /// (as can be set with [`Self::with_user_timestamp_now`] on the publisher side).
+    /// If the timestamp is invalid or not present, the result is none.
+    ///
+    pub fn duration_since_timestamp(&self) -> Option<Duration> {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH + Duration::from_millis(self.user_timestamp?))
+            .inspect_err(|err| log::error!("Failed to calculate duration: {err}"))
+            .ok()
+    }
 }
 
 impl DataTrackFrame {
@@ -61,11 +76,12 @@ impl DataTrackFrame {
 
     /// Associates the current Unix timestamp (in milliseconds) with the frame.
     pub fn with_user_timestamp_now(mut self) -> Self {
-        let timestamp = std::time::SystemTime::now()
+        let timestamp = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_millis() as u64;
-        self.user_timestamp = Some(timestamp);
+            .map(|d| d.as_millis() as u64)
+            .inspect_err(|err| log::error!("Failed to get system time: {err}"))
+            .ok();
+        self.user_timestamp = timestamp;
         self
     }
 }

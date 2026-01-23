@@ -352,3 +352,52 @@ async fn test_resubscribe() -> Result<()> {
     .await?;
     Ok(())
 }
+
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+async fn test_frame_with_user_timestamp() -> Result<()> {
+
+    let mut rooms = test_rooms(2).await?;
+
+    let (pub_room, _) = rooms.pop().unwrap();
+    let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
+
+    let publish = async move {
+        let track = pub_room.local_participant().publish_data_track("my_track").await.unwrap();
+        loop {
+            let frame = DataTrackFrame::new(vec![0xFA; 64])
+                .with_user_timestamp_now();
+            _ = track.try_push(frame);
+            time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+
+    let subscribe = async move {
+        let track = async move {
+            while let Some(event) = sub_room_event_rx.recv().await {
+                let RoomEvent::RemoteDataTrackPublished(track) = event else {
+                    continue;
+                };
+                return Ok(track);
+            }
+            Err(anyhow!("No track published"))
+        }
+        .await
+        .unwrap();
+
+        let mut stream = track.subscribe().await.unwrap();
+        while let Some(frame) = stream.next().await {
+            // Ensure we can at least get one frame.
+            assert!(!frame.payload().is_empty());
+            let duration = frame.duration_since_timestamp().expect("Missing timestamp");
+            assert!(duration.as_millis() < 1000);
+            break;
+        }
+    };
+
+    let _ = timeout(Duration::from_secs(5), async {
+        tokio::select! { _ = publish => (), _ = subscribe => () };
+    })
+    .await?;
+    Ok(())
+}
