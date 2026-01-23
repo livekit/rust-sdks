@@ -116,7 +116,7 @@ impl FfiRoom {
         server: &'static FfiServer,
         connect: proto::ConnectRequest,
     ) -> proto::ConnectResponse {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(connect.request_async_id);
 
         let req = connect.clone();
         let mut options: RoomOptions = connect.options.into();
@@ -337,7 +337,7 @@ impl RoomInner {
         let reliable = publish.reliable;
         let topic = publish.topic;
         let destination_identities = publish.destination_identities;
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(publish.request_async_id);
 
         if let Err(err) = self.data_tx.send(FfiDataPacket {
             payload: DataPacket {
@@ -370,7 +370,7 @@ impl RoomInner {
         server: &'static FfiServer,
         publish: proto::PublishTranscriptionRequest,
     ) -> FfiResult<proto::PublishTranscriptionResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(publish.request_async_id);
 
         if let Err(err) = self.transcription_tx.send(FfiTranscription {
             participant_identity: publish.participant_identity,
@@ -411,7 +411,7 @@ impl RoomInner {
         let code = publish.code;
         let digit = publish.digit;
         let destination_identities = publish.destination_identities;
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(publish.request_async_id);
 
         if let Err(err) = self.dtmf_tx.send(FfiSipDtmfPacket {
             payload: SipDTMF {
@@ -446,7 +446,7 @@ impl RoomInner {
         server: &'static FfiServer,
         publish: proto::PublishTrackRequest,
     ) -> proto::PublishTrackResponse {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(publish.request_async_id);
         let inner = self.clone();
         server.async_runtime.spawn(async move {
             let publish_res = async {
@@ -518,7 +518,7 @@ impl RoomInner {
         server: &'static FfiServer,
         unpublish: proto::UnpublishTrackRequest,
     ) -> proto::UnpublishTrackResponse {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(unpublish.request_async_id);
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
             let sid = unpublish.track_sid.try_into().unwrap();
@@ -553,7 +553,7 @@ impl RoomInner {
         server: &'static FfiServer,
         set_local_metadata: proto::SetLocalMetadataRequest,
     ) -> proto::SetLocalMetadataResponse {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(set_local_metadata.request_async_id);
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
             let res =
@@ -576,7 +576,7 @@ impl RoomInner {
         server: &'static FfiServer,
         set_local_name: proto::SetLocalNameRequest,
     ) -> proto::SetLocalNameResponse {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(set_local_name.request_async_id);
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
             let res = inner.room.local_participant().set_name(set_local_name.name).await;
@@ -595,7 +595,7 @@ impl RoomInner {
         server: &'static FfiServer,
         set_local_attributes: proto::SetLocalAttributesRequest,
     ) -> proto::SetLocalAttributesResponse {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(set_local_attributes.request_async_id);
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
             let res = inner
@@ -627,7 +627,7 @@ impl RoomInner {
         server: &'static FfiServer,
         send_chat_message: proto::SendChatMessageRequest,
     ) -> proto::SendChatMessageResponse {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(send_chat_message.request_async_id);
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
             let res = inner
@@ -673,7 +673,7 @@ impl RoomInner {
         server: &'static FfiServer,
         edit_chat_message: proto::EditChatMessageRequest,
     ) -> proto::SendChatMessageResponse {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(edit_chat_message.request_async_id);
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
             let res = inner
@@ -722,6 +722,7 @@ impl RoomInner {
         server: &'static FfiServer,
         send_stream_header: proto::SendStreamHeaderRequest,
     ) -> proto::SendStreamHeaderResponse {
+        let async_id = server.resolve_async_id(send_stream_header.request_async_id);
         let packet = lk_proto::DataPacket {
             kind: proto::DataPacketKind::KindReliable.into(),
             participant_identity: send_stream_header.sender_identity,
@@ -732,7 +733,6 @@ impl RoomInner {
             .into(),
             ..Default::default()
         };
-        let async_id = server.next_id();
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
             let res = inner.room.local_participant().publish_raw_data(packet, true).await;
@@ -751,6 +751,7 @@ impl RoomInner {
         server: &'static FfiServer,
         send_stream_chunk: proto::SendStreamChunkRequest,
     ) -> proto::SendStreamChunkResponse {
+        let async_id = server.resolve_async_id(send_stream_chunk.request_async_id);
         let packet = lk_proto::DataPacket {
             kind: proto::DataPacketKind::KindReliable.into(),
             participant_identity: send_stream_chunk.sender_identity,
@@ -761,7 +762,6 @@ impl RoomInner {
             .into(),
             ..Default::default()
         };
-        let async_id = server.next_id();
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
             let res: Result<(), RoomError> =
@@ -781,6 +781,7 @@ impl RoomInner {
         server: &'static FfiServer,
         send_stream_trailer: proto::SendStreamTrailerRequest,
     ) -> proto::SendStreamTrailerResponse {
+        let async_id = server.resolve_async_id(send_stream_trailer.request_async_id);
         let packet = lk_proto::DataPacket {
             kind: proto::DataPacketKind::KindReliable.into(),
             participant_identity: send_stream_trailer.sender_identity,
@@ -791,7 +792,6 @@ impl RoomInner {
             .into(),
             ..Default::default()
         };
-        let async_id = server.next_id();
         let inner = self.clone();
         let handle = server.async_runtime.spawn(async move {
             let res = inner.room.local_participant().publish_raw_data(packet, true).await;

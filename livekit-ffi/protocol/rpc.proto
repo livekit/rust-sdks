@@ -30,6 +30,7 @@ message PerformRpcRequest {
   required string method = 3;
   required string payload = 4;
   optional uint32 response_timeout_ms = 5;
+  optional uint64 request_async_id = 6;
 }
 
 message RegisterRpcMethodRequest {

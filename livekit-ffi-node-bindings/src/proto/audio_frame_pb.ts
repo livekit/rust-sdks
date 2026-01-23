@@ -504,7 +504,7 @@ export class NewAudioSourceResponse extends Message<NewAudioSourceResponse> {
 }
 
 /**
- * Push a frame to an AudioSource 
+ * Push a frame to an AudioSource
  * The data provided must be available as long as the client receive the callback.
  *
  * @generated from message livekit.proto.CaptureAudioFrameRequest
@@ -520,6 +520,11 @@ export class CaptureAudioFrameRequest extends Message<CaptureAudioFrameRequest> 
    */
   buffer?: AudioFrameBufferInfo;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<CaptureAudioFrameRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -530,6 +535,7 @@ export class CaptureAudioFrameRequest extends Message<CaptureAudioFrameRequest> 
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "source_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "buffer", kind: "message", T: AudioFrameBufferInfo, req: true },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CaptureAudioFrameRequest {

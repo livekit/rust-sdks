@@ -148,6 +148,11 @@ export class TextStreamReaderReadAllRequest extends Message<TextStreamReaderRead
    */
   readerHandle?: bigint;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 2;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<TextStreamReaderReadAllRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -157,6 +162,7 @@ export class TextStreamReaderReadAllRequest extends Message<TextStreamReaderRead
   static readonly typeName = "livekit.proto.TextStreamReaderReadAllRequest";
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "reader_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TextStreamReaderReadAllRequest {
@@ -525,6 +531,11 @@ export class ByteStreamReaderReadAllRequest extends Message<ByteStreamReaderRead
    */
   readerHandle?: bigint;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 2;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<ByteStreamReaderReadAllRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -534,6 +545,7 @@ export class ByteStreamReaderReadAllRequest extends Message<ByteStreamReaderRead
   static readonly typeName = "livekit.proto.ByteStreamReaderReadAllRequest";
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "reader_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ByteStreamReaderReadAllRequest {
@@ -658,6 +670,11 @@ export class ByteStreamReaderWriteToFileRequest extends Message<ByteStreamReader
   readerHandle?: bigint;
 
   /**
+   * @generated from field: optional uint64 request_async_id = 2;
+   */
+  requestAsyncId?: bigint;
+
+  /**
    * Directory to write the file in (must be writable by the current process).
    * If not provided, the file will be written to the system's temp directory.
    *
@@ -683,6 +700,7 @@ export class ByteStreamReaderWriteToFileRequest extends Message<ByteStreamReader
   static readonly typeName = "livekit.proto.ByteStreamReaderWriteToFileRequest";
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "reader_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
     { no: 3, name: "directory", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 4, name: "name_override", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
   ]);
@@ -952,6 +970,11 @@ export class StreamSendFileRequest extends Message<StreamSendFileRequest> {
    */
   filePath?: string;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 4;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<StreamSendFileRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -963,6 +986,7 @@ export class StreamSendFileRequest extends Message<StreamSendFileRequest> {
     { no: 1, name: "local_participant_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "options", kind: "message", T: StreamByteOptions, req: true },
     { no: 3, name: "file_path", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 4, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StreamSendFileRequest {
@@ -1098,6 +1122,11 @@ export class StreamSendBytesRequest extends Message<StreamSendBytesRequest> {
    */
   bytes?: Uint8Array;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 4;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<StreamSendBytesRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1109,6 +1138,7 @@ export class StreamSendBytesRequest extends Message<StreamSendBytesRequest> {
     { no: 1, name: "local_participant_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "options", kind: "message", T: StreamByteOptions, req: true },
     { no: 3, name: "bytes", kind: "scalar", T: 12 /* ScalarType.BYTES */, req: true },
+    { no: 4, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StreamSendBytesRequest {
@@ -1244,6 +1274,11 @@ export class StreamSendTextRequest extends Message<StreamSendTextRequest> {
    */
   text?: string;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 4;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<StreamSendTextRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1255,6 +1290,7 @@ export class StreamSendTextRequest extends Message<StreamSendTextRequest> {
     { no: 1, name: "local_participant_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "options", kind: "message", T: StreamTextOptions, req: true },
     { no: 3, name: "text", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 4, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StreamSendTextRequest {
@@ -1429,6 +1465,11 @@ export class ByteStreamOpenRequest extends Message<ByteStreamOpenRequest> {
    */
   options?: StreamByteOptions;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<ByteStreamOpenRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1439,6 +1480,7 @@ export class ByteStreamOpenRequest extends Message<ByteStreamOpenRequest> {
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "local_participant_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "options", kind: "message", T: StreamByteOptions, req: true },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ByteStreamOpenRequest {
@@ -1567,6 +1609,11 @@ export class ByteStreamWriterWriteRequest extends Message<ByteStreamWriterWriteR
    */
   bytes?: Uint8Array;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<ByteStreamWriterWriteRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1577,6 +1624,7 @@ export class ByteStreamWriterWriteRequest extends Message<ByteStreamWriterWriteR
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "writer_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "bytes", kind: "scalar", T: 12 /* ScalarType.BYTES */, req: true },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ByteStreamWriterWriteRequest {
@@ -1692,6 +1740,11 @@ export class ByteStreamWriterCloseRequest extends Message<ByteStreamWriterCloseR
    */
   reason?: string;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<ByteStreamWriterCloseRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1702,6 +1755,7 @@ export class ByteStreamWriterCloseRequest extends Message<ByteStreamWriterCloseR
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "writer_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ByteStreamWriterCloseRequest {
@@ -1863,6 +1917,11 @@ export class TextStreamOpenRequest extends Message<TextStreamOpenRequest> {
    */
   options?: StreamTextOptions;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<TextStreamOpenRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -1873,6 +1932,7 @@ export class TextStreamOpenRequest extends Message<TextStreamOpenRequest> {
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "local_participant_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "options", kind: "message", T: StreamTextOptions, req: true },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TextStreamOpenRequest {
@@ -2001,6 +2061,11 @@ export class TextStreamWriterWriteRequest extends Message<TextStreamWriterWriteR
    */
   text?: string;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<TextStreamWriterWriteRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -2011,6 +2076,7 @@ export class TextStreamWriterWriteRequest extends Message<TextStreamWriterWriteR
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "writer_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "text", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TextStreamWriterWriteRequest {
@@ -2126,6 +2192,11 @@ export class TextStreamWriterCloseRequest extends Message<TextStreamWriterCloseR
    */
   reason?: string;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<TextStreamWriterCloseRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -2136,6 +2207,7 @@ export class TextStreamWriterCloseRequest extends Message<TextStreamWriterCloseR
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "writer_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "reason", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): TextStreamWriterCloseRequest {

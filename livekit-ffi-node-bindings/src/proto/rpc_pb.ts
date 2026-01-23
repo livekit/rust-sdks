@@ -100,6 +100,11 @@ export class PerformRpcRequest extends Message<PerformRpcRequest> {
    */
   responseTimeoutMs?: number;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 6;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<PerformRpcRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -113,6 +118,7 @@ export class PerformRpcRequest extends Message<PerformRpcRequest> {
     { no: 3, name: "method", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 4, name: "payload", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 5, name: "response_timeout_ms", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
+    { no: 6, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PerformRpcRequest {

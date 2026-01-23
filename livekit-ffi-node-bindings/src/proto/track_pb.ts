@@ -338,6 +338,11 @@ export class GetStatsRequest extends Message<GetStatsRequest> {
    */
   trackHandle?: bigint;
 
+  /**
+   * @generated from field: optional uint64 request_async_id = 2;
+   */
+  requestAsyncId?: bigint;
+
   constructor(data?: PartialMessage<GetStatsRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -347,6 +352,7 @@ export class GetStatsRequest extends Message<GetStatsRequest> {
   static readonly typeName = "livekit.proto.GetStatsRequest";
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "track_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetStatsRequest {
