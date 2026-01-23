@@ -42,6 +42,10 @@ async fn subscribe(track: RemoteDataTrack) -> Result<()> {
     let mut stream = track.subscribe().await?;
     while let Some(frame) = stream.next().await {
         log::info!("Received frame ({} bytes)", frame.payload().len());
+
+        if let Some(duration) = frame.duration_since_timestamp() {
+            log::info!("Latency: {:?}", duration);
+        }
     }
     log::info!("Unsubscribed");
     Ok(())
