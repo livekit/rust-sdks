@@ -190,7 +190,7 @@ pub enum PublishError {
     Internal(#[from] InternalError),
 }
 
-/// Frame could not be published to a data track.
+/// Frame could not be pushed to a data track.
 #[derive(Debug, Error)]
 #[error("Failed to publish frame: {reason}")]
 pub struct PushFrameError {
