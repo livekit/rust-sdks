@@ -98,10 +98,10 @@ impl Header {
 
         let mut initial = SUPPORTED_VERSION << VERSION_SHIFT;
         let marker = match self.marker {
+            FrameMarker::Single => FRAME_MARKER_SINGLE,
+            FrameMarker::Start => FRAME_MARKER_START,
             FrameMarker::Inter => FRAME_MARKER_INTER,
             FrameMarker::Final => FRAME_MARKER_FINAL,
-            FrameMarker::Start => FRAME_MARKER_START,
-            FrameMarker::Single => FRAME_MARKER_SINGLE,
         };
         initial |= marker << FRAME_MARKER_SHIFT;
 

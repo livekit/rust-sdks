@@ -210,7 +210,7 @@ mod tests {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
 
-        raw.put_u16(ext_words as u16); // Extension word
+        raw.put_u16(ext_words as u16); // Extension words
         raw.put_bytes(0, (ext_words + 1) * 4); // Padding
 
         let packet = Packet::deserialize(raw.freeze()).unwrap();
