@@ -81,7 +81,7 @@ impl Header {
             }
             let ext_words = raw.get_u16();
 
-            let ext_len = 4 * ext_words as usize;
+            let ext_len = 4 * (ext_words + 1) as usize;
             if ext_len > raw.remaining() {
                 Err(DeserializeError::HeaderOverrun)?
             }
@@ -210,8 +210,8 @@ mod tests {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
 
-        raw.put_u16(ext_words as u16); // 4 extension word
-        raw.put_bytes(0, ext_words * 4); // Padding
+        raw.put_u16(ext_words as u16); // Extension word
+        raw.put_bytes(0, (ext_words + 1) * 4); // Padding
 
         let packet = Packet::deserialize(raw.freeze()).unwrap();
         assert_eq!(packet.payload.len(), 0);
@@ -221,7 +221,7 @@ mod tests {
     fn test_ext_e2ee() {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
-        raw.put_u16(5); // Extension words
+        raw.put_u16(4); // Extension words
 
         raw.put_u16(1); // ID 1
         raw.put_u16(12); // Length 12
@@ -239,7 +239,7 @@ mod tests {
     fn test_ext_user_timestamp() {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
-        raw.put_u16(3); // Extension words
+        raw.put_u16(2); // Extension words
 
         raw.put_u16(2);
         raw.put_u16(7);
@@ -256,7 +256,7 @@ mod tests {
     fn test_ext_unknown() {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
-        raw.put_u16(2); // Extension words
+        raw.put_u16(1); // Extension words
 
         raw.put_u16(8); // ID 8 (unknown)
         raw.put_bytes(0, 6);
@@ -267,7 +267,7 @@ mod tests {
     fn test_ext_required_word_alignment() {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
-        raw.put_u16(1); // Extension words
+        raw.put_u16(0); // Extension words
         raw.put_bytes(0, 3); // Padding, missing one byte
 
         assert!(Packet::deserialize(raw.freeze()).is_err());

@@ -117,7 +117,7 @@ impl Header {
         buf.put_u32(self.timestamp.as_ticks());
 
         if metrics.ext_len > 0 {
-            buf.put_u16(metrics.ext_words as u16);
+            buf.put_u16((metrics.ext_words - 1) as u16);
             self.extensions.serialize_into(buf);
             buf.put_bytes(0, metrics.padding_len);
         }
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(buf.get_u16(), 0x4422); // Sequence
         assert_eq!(buf.get_u16(), 0x4411); // Frame number
         assert_eq!(buf.get_u32(), 0x44221188); // Timestamp
-        assert_eq!(buf.get_u16(), 8); // Extension words
+        assert_eq!(buf.get_u16(), 7); // Extension words
 
         // E2EE extension
         assert_eq!(buf.get_u16(), 1); // ID 1,
