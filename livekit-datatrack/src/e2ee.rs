@@ -16,6 +16,9 @@ use bytes::Bytes;
 use core::fmt::Debug;
 use thiserror::Error;
 
+// TODO: If a core module for end-to-end encryption is created in the future
+// (livekit-e2ee), these traits should be moved to there.
+
 /// Encrypted payload and metadata required for decryption.
 pub struct EncryptedPayload {
     pub payload: Bytes,
