@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use super::{
+    events::*,
     pipeline::{Pipeline, PipelineOptions},
     RemoteDataTrack, RemoteTrackInner,
 };
@@ -23,7 +24,6 @@ use crate::{
 };
 use anyhow::{anyhow, Context};
 use bytes::Bytes;
-use from_variants::FromVariants;
 use std::{
     collections::{HashMap, HashSet},
     mem,
@@ -31,74 +31,6 @@ use std::{
 };
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
-
-/// An external event handled by [`Manager`].
-#[derive(Debug, FromVariants)]
-pub enum InputEvent {
-    PublicationUpdates(PublicationUpdatesEvent),
-    Subscribe(SubscribeEvent),
-    SubscriberHandles(SubscriberHandlesEvent),
-    /// Packet has been received over the transport.
-    PacketReceived(Bytes),
-    Unsubscribe(UnsubscribeEvent),
-    /// Shutdown the manager, ending any subscriptions.
-    Shutdown,
-}
-
-/// An event produced by [`Manager`] requiring external action.
-#[derive(Debug, FromVariants)]
-pub enum OutputEvent {
-    SubscriptionUpdated(SubscriptionUpdatedEvent),
-    /// Remote track has been published and a track object has been created for
-    /// the user to interact with.
-    TrackAvailable(RemoteDataTrack),
-}
-
-/// Track publications by remote participants updated.
-///
-/// This is used to detect newly published tracks as well as
-/// tracks that have been unpublished.
-///
-#[derive(Debug)]
-pub struct PublicationUpdatesEvent {
-    /// Mapping between participant identity and data tracks published by that participant.
-    pub updates: HashMap<String, Vec<DataTrackInfo>>,
-}
-
-/// Subscriber handles available or updated.
-#[derive(Debug)]
-pub struct SubscriberHandlesEvent {
-    /// Mapping between track handles attached to incoming packets to the
-    /// track SIDs they belong to.
-    pub mapping: HashMap<Handle, DataTrackSid>,
-}
-
-type SubscribeResult = Result<broadcast::Receiver<DataTrackFrame>, SubscribeError>;
-
-/// User requested to subscribe to a track.
-#[derive(Debug)]
-pub struct SubscribeEvent {
-    /// Identifier of the track.
-    pub(super) sid: DataTrackSid,
-    /// Async completion channel.
-    pub(super) result_tx: oneshot::Sender<SubscribeResult>,
-}
-
-/// User subscribed or unsubscribed to a track.
-#[derive(Debug)]
-pub struct SubscriptionUpdatedEvent {
-    /// Identifier of the affected track.
-    pub sid: DataTrackSid,
-    /// Whether to subscribe or unsubscribe.
-    pub subscribe: bool,
-}
-
-/// Unsubscribe from a track.
-#[derive(Debug)]
-pub struct UnsubscribeEvent {
-    /// Identifier of the track to unsubscribe from.
-    sid: DataTrackSid,
-}
 
 /// Options for creating a [`Manager`].
 #[derive(Debug)]

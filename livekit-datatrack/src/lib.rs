@@ -46,13 +46,9 @@ pub mod internal {
     pub use crate::e2ee::*;
 
     pub mod local {
-        pub use crate::local::{
-            events::*,
-            manager::*,
-            proto::*,
-        };
+        pub use crate::local::{events::*, manager::*, proto::*};
     }
     pub mod remote {
-        pub use crate::remote::{manager::*, proto::*};
+        pub use crate::remote::{events::*, manager::*, proto::*};
     }
 }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::manager::{PublicationUpdatesEvent, SubscriberHandlesEvent, SubscriptionUpdatedEvent};
+use super::events::*;
 use crate::{
     api::{DataTrackInfo, DataTrackSid, InternalError},
     packet::Handle,

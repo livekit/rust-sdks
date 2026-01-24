@@ -16,14 +16,15 @@ use crate::api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, Inter
 use anyhow::anyhow;
 use futures_util::StreamExt;
 use livekit_runtime::timeout;
-use manager::SubscribeEvent;
+use events::{InputEvent, SubscribeEvent};
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 
-pub(crate) mod manager;
 pub(crate) mod proto;
+pub(crate) mod events;
+pub(crate) mod manager;
 
 mod depacketizer;
 mod pipeline;
@@ -105,7 +106,7 @@ impl DataTrack<Remote> {
 pub(crate) struct RemoteTrackInner {
     publisher_identity: Arc<str>,
     published_rx: watch::Receiver<bool>,
-    event_in_tx: mpsc::WeakSender<manager::InputEvent>,
+    event_in_tx: mpsc::WeakSender<InputEvent>,
 }
 
 impl RemoteTrackInner {
