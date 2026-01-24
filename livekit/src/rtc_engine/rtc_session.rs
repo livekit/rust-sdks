@@ -863,7 +863,7 @@ impl SessionInner {
     async fn forward_remote_dt_event(self: Arc<Self>, event: dt::remote::OutputEvent) {
         use dt::remote::OutputEvent;
         match event {
-            OutputEvent::SubscriptionUpdated(event) => {
+            OutputEvent::SfuUpdateSubscription(event) => {
                 self.signal_client
                     .send(proto::signal_request::Message::UpdateDataSubscription(event.into()))
                     .await
@@ -1159,7 +1159,7 @@ impl SessionInner {
                 _ = self.local_dt_input.send(event.into());
             }
             proto::signal_response::Message::DataTrackSubscriberHandles(subscriber_handles) => {
-                let event: dt::remote::SubscriberHandlesEvent = subscriber_handles.try_into()?;
+                let event: dt::remote::SfuSubscriberHandles = subscriber_handles.try_into()?;
                 _ = self.remote_dt_input.send(event.into());
             }
             proto::signal_response::Message::RefreshToken(ref token) => {

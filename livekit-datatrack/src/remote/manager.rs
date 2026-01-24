@@ -96,13 +96,13 @@ impl Manager {
         log::debug!("Task started");
         while let Some(event) = self.event_in_rx.recv().await {
             match event {
-                InputEvent::PublicationUpdates(event) => {
+                InputEvent::SubscribeRequest(event) => self.handle_subscribe(event).await,
+                InputEvent::UnsubscribeRequest(event) => self.handle_unsubscribe(event).await,
+                InputEvent::SfuPublicationUpdates(event) => {
                     self.handle_publication_updates(event).await
                 }
-                InputEvent::Subscribe(event) => self.handle_subscribe(event).await,
-                InputEvent::SubscriberHandles(event) => self.handle_subscriber_handles(event),
+                InputEvent::SfuSubscriberHandles(event) => self.handle_subscriber_handles(event),
                 InputEvent::PacketReceived(bytes) => self.handle_packet_received(bytes),
-                InputEvent::Unsubscribe(event) => self.handle_unsubscribe(event).await,
                 InputEvent::Shutdown => break,
             }
         }
@@ -110,7 +110,50 @@ impl Manager {
         log::debug!("Task ended");
     }
 
-    async fn handle_publication_updates(&mut self, event: PublicationUpdatesEvent) {
+    async fn handle_subscribe(&mut self, event: SubscribeRequest) {
+        let Some(descriptor) = self.descriptors.get_mut(&event.sid) else {
+            let error =
+                SubscribeError::Internal(anyhow!("Cannot subscribe to unknown track").into());
+            _ = event.result_tx.send(Err(error));
+            return;
+        };
+        match &mut descriptor.subscription {
+            SubscriptionState::None => {
+                let update_event =
+                    SfuUpdateSubscription { sid: event.sid.clone(), subscribe: true };
+                _ = self.event_out_tx.send(update_event.into()).await;
+                descriptor.subscription = SubscriptionState::Pending {
+                    result_txs: vec![event.result_tx],
+                };
+                // TODO: schedule timeout internally
+            }
+            SubscriptionState::Pending { result_txs } => {
+                result_txs.push(event.result_tx);
+            }
+            SubscriptionState::Active { frame_tx, .. } => {
+                let frame_rx = frame_tx.subscribe();
+                _ = event.result_tx.send(Ok(frame_rx))
+            }
+        }
+    }
+
+    async fn handle_unsubscribe(&mut self, event: UnsubscribeRequest) {
+        let Some(descriptor) = self.descriptors.get_mut(&event.sid) else {
+            return;
+        };
+
+        let SubscriptionState::Active { sub_handle, .. } = descriptor.subscription else {
+            log::warn!("Unexpected state");
+            return;
+        };
+        descriptor.subscription = SubscriptionState::None;
+        self.sub_handles.remove(&sub_handle);
+
+        let event = SfuUpdateSubscription { sid: event.sid, subscribe: false };
+        _ = self.event_out_tx.send(event.into()).await;
+    }
+
+    async fn handle_publication_updates(&mut self, event: SfuPublicationUpdates) {
         if event.updates.is_empty() {
             return;
         }
@@ -173,34 +216,7 @@ impl Manager {
         _ = descriptor.published_tx.send(false);
     }
 
-    async fn handle_subscribe(&mut self, event: SubscribeEvent) {
-        let Some(descriptor) = self.descriptors.get_mut(&event.sid) else {
-            let error =
-                SubscribeError::Internal(anyhow!("Cannot subscribe to unknown track").into());
-            _ = event.result_tx.send(Err(error));
-            return;
-        };
-        match &mut descriptor.subscription {
-            SubscriptionState::None => {
-                let update_event =
-                    SubscriptionUpdatedEvent { sid: event.sid.clone(), subscribe: true };
-                _ = self.event_out_tx.send(update_event.into()).await;
-                descriptor.subscription = SubscriptionState::Pending {
-                    result_txs: vec![event.result_tx],
-                };
-                // TODO: schedule timeout internally
-            }
-            SubscriptionState::Pending { result_txs } => {
-                result_txs.push(event.result_tx);
-            }
-            SubscriptionState::Active { frame_tx, .. } => {
-                let frame_rx = frame_tx.subscribe();
-                _ = event.result_tx.send(Ok(frame_rx))
-            }
-        }
-    }
-
-    fn handle_subscriber_handles(&mut self, event: SubscriberHandlesEvent) {
+    fn handle_subscriber_handles(&mut self, event: SfuSubscriberHandles) {
         for (handle, sid) in event.mapping {
             self.register_subscriber_handle(handle, sid);
         }
@@ -283,22 +299,6 @@ impl Manager {
             .inspect_err(|err| log::debug!("Cannot send packet to track pipeline: {}", err));
     }
 
-    async fn handle_unsubscribe(&mut self, event: UnsubscribeEvent) {
-        let Some(descriptor) = self.descriptors.get_mut(&event.sid) else {
-            return;
-        };
-
-        let SubscriptionState::Active { sub_handle, .. } = descriptor.subscription else {
-            log::warn!("Unexpected state");
-            return;
-        };
-        descriptor.subscription = SubscriptionState::None;
-        self.sub_handles.remove(&sub_handle);
-
-        let event = SubscriptionUpdatedEvent { sid: event.sid, subscribe: false };
-        _ = self.event_out_tx.send(event.into()).await;
-    }
-
     /// Performs cleanup before the task ends.
     async fn shutdown(self) {
         for (_, descriptor) in self.descriptors {
@@ -362,7 +362,7 @@ impl TrackTask {
                     is_published = *self.published_rx.borrow();
                 },
                 _ = self.frame_tx.closed() => {
-                    let event = UnsubscribeEvent { sid: self.info.sid.clone() };
+                    let event = UnsubscribeRequest { sid: self.info.sid.clone() };
                     _ = self.event_in_tx.send(event.into()).await;
                     break;  // No more subscribers
                 },
@@ -452,7 +452,7 @@ mod tests {
             mem::drop(frame_rx);
 
             while let Some(event) = event_in_rx.recv().await {
-                let InputEvent::Unsubscribe(event) = event else {
+                let InputEvent::UnsubscribeRequest(event) = event else {
                     panic!("Unexpected event type");
                 };
                 assert_eq!(event.sid, sid);
@@ -475,7 +475,7 @@ mod tests {
         livekit_runtime::spawn(manager.run());
 
         // Simulate track published
-        let event = PublicationUpdatesEvent {
+        let event = SfuPublicationUpdates {
             updates: HashMap::from([(
                 publisher_identity.clone(),
                 vec![DataTrackInfo {
@@ -507,13 +507,13 @@ mod tests {
         let simulate_subscriber_handles = async {
             while let Some(event) = output.next().await {
                 match event {
-                    OutputEvent::SubscriptionUpdated(event) => {
+                    OutputEvent::SfuUpdateSubscription(event) => {
                         assert!(event.subscribe);
                         assert_eq!(event.sid, track_sid);
                         time::sleep(Duration::from_millis(20)).await;
 
                         // Simulate SFU reply
-                        let event = SubscriberHandlesEvent {
+                        let event = SfuSubscriberHandles {
                             mapping: HashMap::from([(sub_handle, track_sid.clone())]),
                         };
                         _ = input.send(event.into());

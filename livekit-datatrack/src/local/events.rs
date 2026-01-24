@@ -42,7 +42,7 @@ pub enum OutputEvent {
 
 // MARK: - Input events
 
-/// User requested to publish a track.
+/// Client requested to publish a track.
 #[derive(Debug)]
 pub struct PublishRequest {
     /// Publish options.
@@ -51,7 +51,7 @@ pub struct PublishRequest {
     pub(super) result_tx: oneshot::Sender<Result<LocalDataTrack, PublishError>>,
 }
 
-/// User request to publish a track has been cancelled.
+/// Client request to publish a track has been cancelled.
 #[derive(Debug)]
 pub struct PublishCancelled {
     /// Publisher handle of the pending publication.

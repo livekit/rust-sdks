@@ -16,7 +16,7 @@ use crate::api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, Inter
 use anyhow::anyhow;
 use futures_util::StreamExt;
 use livekit_runtime::timeout;
-use events::{InputEvent, SubscribeEvent};
+use events::{InputEvent, SubscribeRequest};
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, watch};
@@ -74,7 +74,7 @@ impl DataTrack<Remote> {
     ///
     pub async fn subscribe(&self) -> Result<impl Stream<Item = DataTrackFrame>, SubscribeError> {
         let (result_tx, result_rx) = oneshot::channel();
-        let subscribe_event = SubscribeEvent { sid: self.info.sid.clone(), result_tx };
+        let subscribe_event = SubscribeRequest { sid: self.info.sid.clone(), result_tx };
         self.inner()
             .event_in_tx
             .upgrade()

@@ -22,7 +22,7 @@ use std::{collections::HashMap, mem};
 
 // MARK: - Protocol -> input event
 
-impl TryFrom<proto::DataTrackSubscriberHandles> for SubscriberHandlesEvent {
+impl TryFrom<proto::DataTrackSubscriberHandles> for SfuSubscriberHandles {
     type Error = InternalError;
 
     fn try_from(msg: proto::DataTrackSubscriberHandles) -> Result<Self, Self::Error> {
@@ -35,7 +35,7 @@ impl TryFrom<proto::DataTrackSubscriberHandles> for SubscriberHandlesEvent {
                 Ok((handle, sid))
             })
             .collect::<Result<HashMap<Handle, DataTrackSid>, _>>()?;
-        Ok(SubscriberHandlesEvent { mapping })
+        Ok(SfuSubscriberHandles { mapping })
     }
 }
 
@@ -46,7 +46,7 @@ impl TryFrom<proto::DataTrackSubscriberHandles> for SubscriberHandlesEvent {
 ///
 pub fn event_from_join(
     msg: &mut proto::JoinResponse,
-) -> Result<PublicationUpdatesEvent, InternalError> {
+) -> Result<SfuPublicationUpdates, InternalError> {
     event_from_participant_info(&mut msg.other_participants, None)
 }
 
@@ -58,7 +58,7 @@ pub fn event_from_join(
 pub fn event_from_participant_update(
     msg: &mut proto::ParticipantUpdate,
     local_participant_identity: &str,
-) -> Result<PublicationUpdatesEvent, InternalError> {
+) -> Result<SfuPublicationUpdates, InternalError> {
     // TODO: is there a better way to exclude the local participant?
     event_from_participant_info(&mut msg.participants, local_participant_identity.into())
 }
@@ -71,7 +71,7 @@ pub fn event_from_participant_update(
 fn event_from_participant_info(
     msg: &mut [ParticipantInfo],
     local_participant_identity: Option<&str>,
-) -> Result<PublicationUpdatesEvent, InternalError> {
+) -> Result<SfuPublicationUpdates, InternalError> {
     let updates = msg
         .iter_mut()
         .filter(|participant| {
@@ -81,7 +81,7 @@ fn event_from_participant_info(
             Ok((participant.identity.clone(), extract_track_info(participant)?))
         })
         .collect::<Result<HashMap<String, Vec<DataTrackInfo>>, _>>()?;
-    Ok(PublicationUpdatesEvent { updates })
+    Ok(SfuPublicationUpdates { updates })
 }
 
 fn extract_track_info(msg: &mut ParticipantInfo) -> Result<Vec<DataTrackInfo>, InternalError> {
@@ -93,8 +93,8 @@ fn extract_track_info(msg: &mut ParticipantInfo) -> Result<Vec<DataTrackInfo>, I
 
 // MARK: - Output event -> protocol
 
-impl From<SubscriptionUpdatedEvent> for proto::UpdateDataSubscription {
-    fn from(event: SubscriptionUpdatedEvent) -> Self {
+impl From<SfuUpdateSubscription> for proto::UpdateDataSubscription {
+    fn from(event: SfuUpdateSubscription) -> Self {
         let update = proto::update_data_subscription::Update {
             track_sid: event.sid.into(),
             subscribe: event.subscribe,
@@ -129,7 +129,7 @@ mod tests {
         let subscriber_handles =
             proto::DataTrackSubscriberHandles { sub_handles: HashMap::from(sub_handles) };
 
-        let event: SubscriberHandlesEvent = subscriber_handles.try_into().unwrap();
+        let event: SfuSubscriberHandles = subscriber_handles.try_into().unwrap();
         assert_eq!(
             event.mapping.get(&1u32.try_into().unwrap()).unwrap(),
             &"DTR_1234".to_string().try_into().unwrap()
