@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::manager::{PublishRequestEvent, UnpublishEvent, UnpublishRequestEvent};
+use super::events;
 use crate::{
     api::{DataTrackInfo, DataTrackSid, InternalError, PublishError},
-    local::manager::PublishResultEvent,
     packet::Handle,
 };
 use anyhow::{anyhow, Context};
@@ -24,23 +23,23 @@ use std::mem;
 
 // MARK: - Output event -> protocol
 
-impl From<PublishRequestEvent> for proto::PublishDataTrackRequest {
-    fn from(event: PublishRequestEvent) -> Self {
+impl From<events::PublishRequestEvent> for proto::PublishDataTrackRequest {
+    fn from(event: events::PublishRequestEvent) -> Self {
         use proto::encryption::Type;
         let encryption = if event.uses_e2ee { Type::Gcm } else { Type::None }.into();
         Self { pub_handle: event.handle.into(), name: event.name, encryption }
     }
 }
 
-impl From<UnpublishRequestEvent> for proto::UnpublishDataTrackRequest {
-    fn from(event: UnpublishRequestEvent) -> Self {
+impl From<events::UnpublishRequestEvent> for proto::UnpublishDataTrackRequest {
+    fn from(event: events::UnpublishRequestEvent) -> Self {
         Self { pub_handle: event.handle.into() }
     }
 }
 
 // MARK: - Protocol -> input event
 
-impl TryFrom<proto::PublishDataTrackResponse> for PublishResultEvent {
+impl TryFrom<proto::PublishDataTrackResponse> for events::PublishResultEvent {
     type Error = InternalError;
 
     fn try_from(msg: proto::PublishDataTrackResponse) -> Result<Self, Self::Error> {
@@ -49,7 +48,7 @@ impl TryFrom<proto::PublishDataTrackResponse> for PublishResultEvent {
     }
 }
 
-impl TryFrom<proto::UnpublishDataTrackResponse> for UnpublishEvent {
+impl TryFrom<proto::UnpublishDataTrackResponse> for events::UnpublishEvent {
     type Error = InternalError;
 
     fn try_from(msg: proto::UnpublishDataTrackResponse) -> Result<Self, Self::Error> {
@@ -76,7 +75,7 @@ impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
 
 pub fn publish_result_from_request_response(
     msg: &proto::RequestResponse,
-) -> Option<PublishResultEvent> {
+) -> Option<events::PublishResultEvent> {
     use proto::request_response::{Reason, Request};
     let Some(request) = &msg.request else { return None };
     let Request::PublishDataTrack(request) = request else { return None };
@@ -88,16 +87,16 @@ pub fn publish_result_from_request_response(
         Reason::DuplicateName => PublishError::DuplicateName,
         _ => PublishError::Internal(anyhow!("SFU rejected: {}", msg.message).into()),
     };
-    let event = PublishResultEvent { handle, result: Err(error) };
+    let event = events::PublishResultEvent { handle, result: Err(error) };
     Some(event)
 }
 
 pub fn publish_results_from_sync_state(
     msg: &mut proto::SyncState,
-) -> Result<Vec<PublishResultEvent>, InternalError> {
+) -> Result<Vec<events::PublishResultEvent>, InternalError> {
     mem::take(&mut msg.publish_data_tracks)
         .into_iter()
-        .map(TryInto::<PublishResultEvent>::try_into)
+        .map(TryInto::<events::PublishResultEvent>::try_into)
         .collect::<Result<Vec<_>, InternalError>>()
 }
 
@@ -107,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_from_publish_request_event() {
-        let event = PublishRequestEvent {
+        let event = events::PublishRequestEvent {
             handle: 1u32.try_into().unwrap(),
             name: "track".into(),
             uses_e2ee: true,
@@ -120,7 +119,7 @@ mod tests {
 
     #[test]
     fn test_from_unpublish_request_event() {
-        let event = UnpublishRequestEvent { handle: 1u32.try_into().unwrap() };
+        let event = events::UnpublishRequestEvent { handle: 1u32.try_into().unwrap() };
         let request: proto::UnpublishDataTrackRequest = event.into();
         assert_eq!(request.pub_handle, 1);
     }
@@ -136,7 +135,7 @@ mod tests {
             }
             .into(),
         };
-        let event: PublishResultEvent = response.try_into().unwrap();
+        let event: events::PublishResultEvent = response.try_into().unwrap();
         assert_eq!(event.handle, 1u32.try_into().unwrap());
 
         let info = event.result.expect("Expected ok result");

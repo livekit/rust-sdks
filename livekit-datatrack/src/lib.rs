@@ -44,8 +44,13 @@ pub mod api {
 /// Internal APIs for use within the LiveKit crate.
 pub mod internal {
     pub use crate::e2ee::*;
+
     pub mod local {
-        pub use crate::local::{manager::*, proto::*};
+        pub use crate::local::{
+            events::*,
+            manager::*,
+            proto::*,
+        };
     }
     pub mod remote {
         pub use crate::remote::{manager::*, proto::*};

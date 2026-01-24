@@ -14,6 +14,7 @@
 
 use super::{
     pipeline::{Pipeline, PipelineOptions},
+    events::{self, InputEvent, OutputEvent},
     LocalTrackInner,
 };
 use crate::{
@@ -23,85 +24,10 @@ use crate::{
     packet::{self, Handle},
 };
 use anyhow::{anyhow, Context};
-use bytes::Bytes;
-use from_variants::FromVariants;
 use futures_core::Stream;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::wrappers::ReceiverStream;
-
-/// An external event handled by [`Manager`].
-#[derive(Debug, FromVariants)]
-pub enum InputEvent {
-    Publish(PublishEvent),
-    PublishResult(PublishResultEvent),
-    PublishCancelled(PublishCancelledEvent),
-    Unpublish(UnpublishEvent),
-    /// Shutdown the manager and all associated tracks.
-    Shutdown,
-}
-
-/// An event produced by [`Manager`] requiring external action.
-#[derive(Debug, FromVariants)]
-pub enum OutputEvent {
-    PublishRequest(PublishRequestEvent),
-    UnpublishRequest(UnpublishRequestEvent),
-    /// Serialized packets are ready to be sent over the transport.
-    PacketsAvailable(Vec<Bytes>),
-}
-
-/// Result of a publish request.
-#[derive(Debug)]
-pub struct PublishResultEvent {
-    /// Publisher handle of the track.
-    pub handle: Handle,
-    /// Outcome of the publish request.
-    pub result: Result<DataTrackInfo, PublishError>,
-}
-
-/// Track has been unpublished.
-#[derive(Debug)]
-pub struct UnpublishEvent {
-    /// Publisher handle of the track that was unpublished.
-    pub handle: Handle,
-    /// Whether the unpublish was initiated by the client.
-    pub client_initiated: bool,
-}
-
-/// Local participant requested to publish a track.
-#[derive(Debug)]
-pub struct PublishRequestEvent {
-    pub handle: Handle,
-    pub name: String,
-    pub uses_e2ee: bool,
-}
-
-/// Local participant unpublished a track.
-///
-/// This can either occur explicitly through user action or implicitly when the last
-/// reference to the track is dropped.
-///
-#[derive(Debug)]
-pub struct UnpublishRequestEvent {
-    /// Publisher handle of the track to unpublish.
-    pub handle: Handle,
-}
-
-/// Request to publish a data track.
-#[derive(Debug)]
-pub struct PublishEvent {
-    /// Publish options.
-    options: DataTrackOptions,
-    /// Async completion channel.
-    result_tx: oneshot::Sender<Result<LocalDataTrack, PublishError>>,
-}
-
-/// Request to publish a data track was cancelled.
-#[derive(Debug)]
-pub struct PublishCancelledEvent {
-    /// Publisher handle of the pending publication.
-    handle: Handle,
-}
 
 /// Options for creating a [`Manager`].
 #[derive(Debug)]
@@ -170,7 +96,7 @@ impl Manager {
         log::debug!("Task ended");
     }
 
-    async fn handle_publish(&mut self, event: PublishEvent) {
+    async fn handle_publish(&mut self, event: events::PublishEvent) {
         let Some(handle) = self.handle_allocator.get() else {
             _ = event.result_tx.send(Err(PublishError::LimitReached));
             return;
@@ -193,7 +119,7 @@ impl Manager {
             self.event_in_tx.downgrade(),
         ));
 
-        let publish_requested = PublishRequestEvent {
+        let publish_requested = events::PublishRequestEvent {
             handle,
             name: event.options.name,
             uses_e2ee: self.encryption_provider.is_some(),
@@ -219,19 +145,19 @@ impl Manager {
             }
             _ = forward_result_tx.closed() => {
                 let Some(tx) = event_in_tx.upgrade() else { return };
-                let event = PublishCancelledEvent { handle };
+                let event = events::PublishCancelledEvent { handle };
                 _ = tx.try_send(event.into());
             }
         }
     }
 
-    async fn handle_publish_cancelled(&mut self, event: PublishCancelledEvent) {
+    async fn handle_publish_cancelled(&mut self, event: events::PublishCancelledEvent) {
         if self.descriptors.remove(&event.handle).is_none() {
             log::warn!("No descriptor for {}", event.handle);
         }
     }
 
-    async fn handle_publish_result(&mut self, event: PublishResultEvent) {
+    async fn handle_publish_result(&mut self, event: events::PublishResultEvent) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
             log::warn!("No descriptor for {}", event.handle);
             return;
@@ -278,7 +204,7 @@ impl Manager {
         LocalDataTrack::new(info, inner)
     }
 
-    async fn handle_unpublished(&mut self, event: UnpublishEvent) {
+    async fn handle_unpublished(&mut self, event: events::UnpublishEvent) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
             return;
         };
@@ -290,7 +216,7 @@ impl Manager {
         }
         if event.client_initiated {
             // Inform the SFU if client initiated.
-            let event = UnpublishRequestEvent { handle: event.handle };
+            let event = events::UnpublishRequestEvent { handle: event.handle };
             _ = self.event_out_tx.send(event.into()).await;
         }
     }
@@ -335,7 +261,7 @@ impl TrackTask {
             }
         }
 
-        let event = UnpublishEvent { handle: self.info.pub_handle, client_initiated: true };
+        let event = events::UnpublishEvent { handle: self.info.pub_handle, client_initiated: true };
         _ = self.event_in_tx.send(event.into()).await;
 
         log::debug!("Track task ended: sid={}", self.info.sid);
@@ -390,7 +316,7 @@ impl ManagerInput {
         options: DataTrackOptions,
     ) -> Result<LocalDataTrack, PublishError> {
         let (result_tx, result_rx) = oneshot::channel();
-        let event = PublishEvent { options, result_tx };
+        let event = events::PublishEvent { options, result_tx };
 
         self.event_in_tx
             .try_send(event.into())
@@ -457,7 +383,7 @@ mod tests {
                             uses_e2ee: event.uses_e2ee,
                         };
                         let input_event =
-                            PublishResultEvent { handle: event.handle, result: Ok(info) };
+                        events::PublishResultEvent { handle: event.handle, result: Ok(info) };
                         _ = input.send(input_event.into());
                     }
                     OutputEvent::PacketsAvailable(packets) => {

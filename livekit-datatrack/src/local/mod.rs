@@ -20,8 +20,9 @@ use std::{fmt, marker::PhantomData, sync::Arc};
 use thiserror::Error;
 use tokio::sync::{mpsc, watch};
 
-pub(crate) mod manager;
 pub(crate) mod proto;
+pub(crate) mod events;
+pub(crate) mod manager;
 
 mod packetizer;
 mod pipeline;
