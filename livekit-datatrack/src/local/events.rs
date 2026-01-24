@@ -20,8 +20,6 @@ use bytes::Bytes;
 use from_variants::FromVariants;
 use tokio::sync::oneshot;
 
-// MARK: - Input events
-
 /// An external event handled by [`super::manager::Manager`].
 #[derive(Debug, FromVariants)]
 pub enum InputEvent {
@@ -32,6 +30,17 @@ pub enum InputEvent {
     /// Shutdown the manager and all associated tracks.
     Shutdown,
 }
+
+/// An event produced by [`super::manager::Manager`] requiring external action.
+#[derive(Debug, FromVariants)]
+pub enum OutputEvent {
+    SfuPublishRequest(SfuPublishRequest),
+    SfuUnpublishRequest(SfuUnpublishRequest),
+    /// Serialized packets are ready to be sent over the transport.
+    PacketsAvailable(Vec<Bytes>),
+}
+
+// MARK: - Input events
 
 /// User requested to publish a track.
 #[derive(Debug)]
@@ -69,15 +78,6 @@ pub struct SfuUnpublishResponse {
 }
 
 // MARK: - Output events
-
-/// An event produced by [`super::manager::Manager`] requiring external action.
-#[derive(Debug, FromVariants)]
-pub enum OutputEvent {
-    SfuPublishRequest(SfuPublishRequest),
-    SfuUnpublishRequest(SfuUnpublishRequest),
-    /// Serialized packets are ready to be sent over the transport.
-    PacketsAvailable(Vec<Bytes>),
-}
 
 /// Request sent to the SFU to publish a track.
 #[derive(Debug)]
