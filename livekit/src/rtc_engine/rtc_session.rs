@@ -839,12 +839,12 @@ impl SessionInner {
     async fn forward_local_dt_event(self: Arc<Self>, event: dt::local::OutputEvent) {
         use dt::local::OutputEvent;
         match event {
-            OutputEvent::PublishRequest(event) => {
+            OutputEvent::SfuPublishRequest(event) => {
                 self.signal_client
                     .send(proto::signal_request::Message::PublishDataTrackRequest(event.into()))
                     .await
             }
-            OutputEvent::UnpublishRequest(event) => {
+            OutputEvent::SfuUnpublishRequest(event) => {
                 self.signal_client
                     .send(proto::signal_request::Message::UnpublishDataTrackRequest(event.into()))
                     .await
@@ -1151,11 +1151,11 @@ impl SessionInner {
                 }
             }
             proto::signal_response::Message::PublishDataTrackResponse(publish_res) => {
-                let event: dt::local::PublishResultEvent = publish_res.try_into()?;
+                let event: dt::local::SfuPublishResponse = publish_res.try_into()?;
                 _ = self.local_dt_input.send(event.into());
             }
             proto::signal_response::Message::UnpublishDataTrackResponse(unpublish_res) => {
-                let event: dt::local::UnpublishEvent = unpublish_res.try_into()?;
+                let event: dt::local::SfuUnpublishResponse = unpublish_res.try_into()?;
                 _ = self.local_dt_input.send(event.into());
             }
             proto::signal_response::Message::DataTrackSubscriberHandles(subscriber_handles) => {

@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use super::{
+    events::*,
     pipeline::{Pipeline, PipelineOptions},
-    events::{self, InputEvent, OutputEvent},
     LocalTrackInner,
 };
 use crate::{
@@ -85,10 +85,14 @@ impl Manager {
         while let Some(event) = self.event_in_rx.recv().await {
             log::debug!("Input event: {:?}", event);
             match event {
-                InputEvent::Publish(event) => self.handle_publish(event).await,
-                InputEvent::PublishResult(event) => self.handle_publish_result(event).await,
+                InputEvent::PublishRequest(event) => self.handle_publish_request(event).await,
                 InputEvent::PublishCancelled(event) => self.handle_publish_cancelled(event).await,
-                InputEvent::Unpublish(event) => self.handle_unpublished(event).await,
+                InputEvent::SfuPublishResponse(event) => {
+                    self.handle_sfu_publish_response(event).await
+                }
+                InputEvent::SfuUnpublishResponse(event) => {
+                    self.handle_sfu_unpublish_response(event).await
+                }
                 InputEvent::Shutdown => break,
             }
         }
@@ -96,7 +100,7 @@ impl Manager {
         log::debug!("Task ended");
     }
 
-    async fn handle_publish(&mut self, event: events::PublishEvent) {
+    async fn handle_publish_request(&mut self, event: PublishRequest) {
         let Some(handle) = self.handle_allocator.get() else {
             _ = event.result_tx.send(Err(PublishError::LimitReached));
             return;
@@ -119,12 +123,12 @@ impl Manager {
             self.event_in_tx.downgrade(),
         ));
 
-        let publish_requested = events::PublishRequestEvent {
+        let event = SfuPublishRequest {
             handle,
             name: event.options.name,
             uses_e2ee: self.encryption_provider.is_some(),
         };
-        _ = self.event_out_tx.send(publish_requested.into()).await;
+        _ = self.event_out_tx.send(event.into()).await;
     }
 
     /// Task that awaits a pending publish result.
@@ -145,19 +149,19 @@ impl Manager {
             }
             _ = forward_result_tx.closed() => {
                 let Some(tx) = event_in_tx.upgrade() else { return };
-                let event = events::PublishCancelledEvent { handle };
+                let event = PublishCancelled { handle };
                 _ = tx.try_send(event.into());
             }
         }
     }
 
-    async fn handle_publish_cancelled(&mut self, event: events::PublishCancelledEvent) {
+    async fn handle_publish_cancelled(&mut self, event: PublishCancelled) {
         if self.descriptors.remove(&event.handle).is_none() {
             log::warn!("No descriptor for {}", event.handle);
         }
     }
 
-    async fn handle_publish_result(&mut self, event: events::PublishResultEvent) {
+    async fn handle_sfu_publish_response(&mut self, event: SfuPublishResponse) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
             log::warn!("No descriptor for {}", event.handle);
             return;
@@ -204,7 +208,7 @@ impl Manager {
         LocalDataTrack::new(info, inner)
     }
 
-    async fn handle_unpublished(&mut self, event: events::UnpublishEvent) {
+    async fn handle_sfu_unpublish_response(&mut self, event: SfuUnpublishResponse) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
             return;
         };
@@ -216,7 +220,7 @@ impl Manager {
         }
         if event.client_initiated {
             // Inform the SFU if client initiated.
-            let event = events::UnpublishRequestEvent { handle: event.handle };
+            let event = SfuUnpublishRequest { handle: event.handle };
             _ = self.event_out_tx.send(event.into()).await;
         }
     }
@@ -261,7 +265,7 @@ impl TrackTask {
             }
         }
 
-        let event = events::UnpublishEvent { handle: self.info.pub_handle, client_initiated: true };
+        let event = SfuUnpublishResponse { handle: self.info.pub_handle, client_initiated: true };
         _ = self.event_in_tx.send(event.into()).await;
 
         log::debug!("Track task ended: sid={}", self.info.sid);
@@ -316,11 +320,9 @@ impl ManagerInput {
         options: DataTrackOptions,
     ) -> Result<LocalDataTrack, PublishError> {
         let (result_tx, result_rx) = oneshot::channel();
-        let event = events::PublishEvent { options, result_tx };
 
-        self.event_in_tx
-            .try_send(event.into())
-            .map_err(|_| PublishError::Disconnected)?;
+        let event = PublishRequest { options, result_tx };
+        self.event_in_tx.try_send(event.into()).map_err(|_| PublishError::Disconnected)?;
 
         let track = tokio::time::timeout(Self::PUBLISH_TIMEOUT, result_rx)
             .await
@@ -340,7 +342,7 @@ mod tests {
     use crate::{api::DataTrackSid, packet::Packet};
     use fake::{Fake, Faker};
     use futures_util::StreamExt;
-    use livekit_runtime::{timeout, sleep};
+    use livekit_runtime::{sleep, timeout};
 
     #[tokio::test]
     async fn test_task_shutdown() {
@@ -371,7 +373,7 @@ mod tests {
             let mut packets_sent = 0;
             while let Some(event) = output.next().await {
                 match event {
-                    OutputEvent::PublishRequest(event) => {
+                    OutputEvent::SfuPublishRequest(event) => {
                         assert!(!event.uses_e2ee);
                         assert_eq!(event.name, track_name_clone);
 
@@ -382,9 +384,8 @@ mod tests {
                             name: event.name,
                             uses_e2ee: event.uses_e2ee,
                         };
-                        let input_event =
-                        events::PublishResultEvent { handle: event.handle, result: Ok(info) };
-                        _ = input.send(input_event.into());
+                        let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
+                        _ = input.send(event.into());
                     }
                     OutputEvent::PacketsAvailable(packets) => {
                         let packet = packets.into_iter().nth(0).unwrap();
@@ -392,7 +393,7 @@ mod tests {
                         assert_eq!(payload.len(), payload_size);
                         packets_sent += 1;
                     }
-                    OutputEvent::UnpublishRequest(event) => {
+                    OutputEvent::SfuUnpublishRequest(event) => {
                         assert_eq!(event.handle, pub_handle);
                         assert_eq!(packets_sent, packet_count);
                         break;

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::events;
+use super::events::*;
 use crate::{
     api::{DataTrackInfo, DataTrackSid, InternalError, PublishError},
     packet::Handle,
@@ -23,23 +23,23 @@ use std::mem;
 
 // MARK: - Output event -> protocol
 
-impl From<events::PublishRequestEvent> for proto::PublishDataTrackRequest {
-    fn from(event: events::PublishRequestEvent) -> Self {
+impl From<SfuPublishRequest> for proto::PublishDataTrackRequest {
+    fn from(event: SfuPublishRequest) -> Self {
         use proto::encryption::Type;
         let encryption = if event.uses_e2ee { Type::Gcm } else { Type::None }.into();
         Self { pub_handle: event.handle.into(), name: event.name, encryption }
     }
 }
 
-impl From<events::UnpublishRequestEvent> for proto::UnpublishDataTrackRequest {
-    fn from(event: events::UnpublishRequestEvent) -> Self {
+impl From<SfuUnpublishRequest> for proto::UnpublishDataTrackRequest {
+    fn from(event: SfuUnpublishRequest) -> Self {
         Self { pub_handle: event.handle.into() }
     }
 }
 
 // MARK: - Protocol -> input event
 
-impl TryFrom<proto::PublishDataTrackResponse> for events::PublishResultEvent {
+impl TryFrom<proto::PublishDataTrackResponse> for SfuPublishResponse {
     type Error = InternalError;
 
     fn try_from(msg: proto::PublishDataTrackResponse) -> Result<Self, Self::Error> {
@@ -48,7 +48,7 @@ impl TryFrom<proto::PublishDataTrackResponse> for events::PublishResultEvent {
     }
 }
 
-impl TryFrom<proto::UnpublishDataTrackResponse> for events::UnpublishEvent {
+impl TryFrom<proto::UnpublishDataTrackResponse> for SfuUnpublishResponse {
     type Error = InternalError;
 
     fn try_from(msg: proto::UnpublishDataTrackResponse) -> Result<Self, Self::Error> {
@@ -75,7 +75,7 @@ impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
 
 pub fn publish_result_from_request_response(
     msg: &proto::RequestResponse,
-) -> Option<events::PublishResultEvent> {
+) -> Option<SfuPublishResponse> {
     use proto::request_response::{Reason, Request};
     let Some(request) = &msg.request else { return None };
     let Request::PublishDataTrack(request) = request else { return None };
@@ -87,16 +87,16 @@ pub fn publish_result_from_request_response(
         Reason::DuplicateName => PublishError::DuplicateName,
         _ => PublishError::Internal(anyhow!("SFU rejected: {}", msg.message).into()),
     };
-    let event = events::PublishResultEvent { handle, result: Err(error) };
+    let event = SfuPublishResponse { handle, result: Err(error) };
     Some(event)
 }
 
 pub fn publish_results_from_sync_state(
     msg: &mut proto::SyncState,
-) -> Result<Vec<events::PublishResultEvent>, InternalError> {
+) -> Result<Vec<SfuPublishResponse>, InternalError> {
     mem::take(&mut msg.publish_data_tracks)
         .into_iter()
-        .map(TryInto::<events::PublishResultEvent>::try_into)
+        .map(TryInto::<SfuPublishResponse>::try_into)
         .collect::<Result<Vec<_>, InternalError>>()
 }
 
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_from_publish_request_event() {
-        let event = events::PublishRequestEvent {
+        let event = SfuPublishRequest {
             handle: 1u32.try_into().unwrap(),
             name: "track".into(),
             uses_e2ee: true,
@@ -119,7 +119,7 @@ mod tests {
 
     #[test]
     fn test_from_unpublish_request_event() {
-        let event = events::UnpublishRequestEvent { handle: 1u32.try_into().unwrap() };
+        let event = SfuUnpublishRequest { handle: 1u32.try_into().unwrap() };
         let request: proto::UnpublishDataTrackRequest = event.into();
         assert_eq!(request.pub_handle, 1);
     }
@@ -135,7 +135,7 @@ mod tests {
             }
             .into(),
         };
-        let event: events::PublishResultEvent = response.try_into().unwrap();
+        let event: SfuPublishResponse = response.try_into().unwrap();
         assert_eq!(event.handle, 1u32.try_into().unwrap());
 
         let info = event.result.expect("Expected ok result");

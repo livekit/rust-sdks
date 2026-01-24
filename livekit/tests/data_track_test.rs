@@ -44,7 +44,7 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
     let mut rooms = test_rooms(2).await?;
 
     let (pub_room, _) = rooms.pop().unwrap();
-    let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
+    let (sub_room, mut sub_room_event_rx) = rooms.pop().unwrap();
     let pub_identity = pub_room.local_participant().identity();
 
     let frame_count = (PUBLISH_DURATION.as_secs_f64() * publish_fps).round() as u64;
@@ -86,6 +86,8 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
 
         let mut subscription = track.subscribe().await?;
 
+        //sub_room.simulate_scenario(livekit::SimulateScenario::SignalReconnect).await.unwrap();
+
         let mut recv_count = 0;
 
         while let Some(frame) = subscription.next().await {
@@ -94,6 +96,9 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
                 assert!(payload.iter().all(|byte| byte == first_byte));
             }
             assert_eq!(frame.user_timestamp(), None);
+            // if recv_count == 100 {
+            //     sub_room.simulate_scenario(livekit::SimulateScenario::SignalReconnect).await.unwrap();
+            // }
             recv_count += 1;
         }
 

@@ -25,47 +25,47 @@ use tokio::sync::oneshot;
 /// An external event handled by [`super::manager::Manager`].
 #[derive(Debug, FromVariants)]
 pub enum InputEvent {
-    Publish(PublishEvent),
-    PublishResult(PublishResultEvent),
-    PublishCancelled(PublishCancelledEvent),
-    Unpublish(UnpublishEvent),
+    PublishRequest(PublishRequest),
+    PublishCancelled(PublishCancelled),
+    SfuPublishResponse(SfuPublishResponse),
+    SfuUnpublishResponse(SfuUnpublishResponse),
     /// Shutdown the manager and all associated tracks.
     Shutdown,
 }
 
-/// Request to publish a data track.
+/// User requested to publish a track.
 #[derive(Debug)]
-pub struct PublishEvent {
+pub struct PublishRequest {
     /// Publish options.
     pub(super) options: DataTrackOptions,
     /// Async completion channel.
     pub(super) result_tx: oneshot::Sender<Result<LocalDataTrack, PublishError>>,
 }
 
-
-/// Result of a publish request.
+/// User request to publish a track has been cancelled.
 #[derive(Debug)]
-pub struct PublishResultEvent {
+pub struct PublishCancelled {
+    /// Publisher handle of the pending publication.
+    pub(super) handle: Handle,
+}
+
+/// SFU responded to a request to publish a data track.
+#[derive(Debug)]
+pub struct SfuPublishResponse {
     /// Publisher handle of the track.
     pub handle: Handle,
     /// Outcome of the publish request.
     pub result: Result<DataTrackInfo, PublishError>,
 }
 
-/// Request to publish a data track was cancelled.
+/// SFU notification that a track has been unpublished.
 #[derive(Debug)]
-pub struct PublishCancelledEvent {
-    /// Publisher handle of the pending publication.
-    pub(super) handle: Handle,
-}
-
-/// Track has been unpublished.
-#[derive(Debug)]
-pub struct UnpublishEvent {
+pub struct SfuUnpublishResponse {
     /// Publisher handle of the track that was unpublished.
     pub handle: Handle,
     /// Whether the unpublish was initiated by the client.
     pub client_initiated: bool,
+    // TODO: this should be made into a separate event
 }
 
 // MARK: - Output events
@@ -73,27 +73,23 @@ pub struct UnpublishEvent {
 /// An event produced by [`super::manager::Manager`] requiring external action.
 #[derive(Debug, FromVariants)]
 pub enum OutputEvent {
-    PublishRequest(PublishRequestEvent),
-    UnpublishRequest(UnpublishRequestEvent),
+    SfuPublishRequest(SfuPublishRequest),
+    SfuUnpublishRequest(SfuUnpublishRequest),
     /// Serialized packets are ready to be sent over the transport.
     PacketsAvailable(Vec<Bytes>),
 }
 
-/// Local participant requested to publish a track.
+/// Request sent to the SFU to publish a track.
 #[derive(Debug)]
-pub struct PublishRequestEvent {
+pub struct SfuPublishRequest {
     pub handle: Handle,
     pub name: String,
     pub uses_e2ee: bool,
 }
 
-/// Local participant unpublished a track.
-///
-/// This can either occur explicitly through user action or implicitly when the last
-/// reference to the track is dropped.
-///
+/// Request sent to the SFU to unpublish a track.
 #[derive(Debug)]
-pub struct UnpublishRequestEvent {
+pub struct SfuUnpublishRequest {
     /// Publisher handle of the track to unpublish.
     pub handle: Handle,
 }
