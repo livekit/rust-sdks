@@ -25,6 +25,7 @@ use tokio::sync::oneshot;
 pub enum InputEvent {
     PublishRequest(PublishRequest),
     PublishCancelled(PublishCancelled),
+    UnpublishRequest(UnpublishRequest),
     SfuPublishResponse(SfuPublishResponse),
     SfuUnpublishResponse(SfuUnpublishResponse),
     /// Shutdown the manager and all associated tracks.
@@ -58,6 +59,13 @@ pub struct PublishCancelled {
     pub(super) handle: Handle,
 }
 
+/// Client request to unpublish a track.
+#[derive(Debug)]
+pub struct UnpublishRequest {
+    /// Publisher handle of the track to unpublish.
+    pub(super) handle: Handle,
+}
+
 /// SFU responded to a request to publish a data track.
 #[derive(Debug)]
 pub struct SfuPublishResponse {
@@ -72,9 +80,6 @@ pub struct SfuPublishResponse {
 pub struct SfuUnpublishResponse {
     /// Publisher handle of the track that was unpublished.
     pub handle: Handle,
-    /// Whether the unpublish was initiated by the client.
-    pub client_initiated: bool,
-    // TODO: this should be made into a separate event
 }
 
 // MARK: - Output events

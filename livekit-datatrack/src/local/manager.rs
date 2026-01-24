@@ -87,6 +87,7 @@ impl Manager {
             match event {
                 InputEvent::PublishRequest(event) => self.on_publish_request(event).await,
                 InputEvent::PublishCancelled(event) => self.on_publish_cancelled(event).await,
+                InputEvent::UnpublishRequest(event) => self.on_unpublish_request(event).await,
                 InputEvent::SfuPublishResponse(event) => self.on_sfu_publish_response(event).await,
                 InputEvent::SfuUnpublishResponse(event) => {
                     self.on_sfu_unpublish_response(event).await
@@ -159,6 +160,13 @@ impl Manager {
         }
     }
 
+    async fn on_unpublish_request(&mut self, event: UnpublishRequest) {
+        self.remove_descriptor(event.handle);
+
+        let event = SfuUnpublishRequest { handle: event.handle };
+        _ = self.event_out_tx.send(event.into()).await;
+    }
+
     async fn on_sfu_publish_response(&mut self, event: SfuPublishResponse) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
             log::warn!("No descriptor for {}", event.handle);
@@ -207,7 +215,11 @@ impl Manager {
     }
 
     async fn on_sfu_unpublish_response(&mut self, event: SfuUnpublishResponse) {
-        let Some(descriptor) = self.descriptors.remove(&event.handle) else {
+        self.remove_descriptor(event.handle);
+    }
+
+    fn remove_descriptor(&mut self, handle: Handle) {
+        let Some(descriptor) = self.descriptors.remove(&handle) else {
             return;
         };
         let Descriptor::Active { published_tx, .. } = descriptor else {
@@ -215,11 +227,6 @@ impl Manager {
         };
         if !*published_tx.borrow() {
             _ = published_tx.send(false);
-        }
-        if event.client_initiated {
-            // Inform the SFU if client initiated.
-            let event = SfuUnpublishRequest { handle: event.handle };
-            _ = self.event_out_tx.send(event.into()).await;
         }
     }
 
@@ -263,7 +270,7 @@ impl TrackTask {
             }
         }
 
-        let event = SfuUnpublishResponse { handle: self.info.pub_handle, client_initiated: true };
+        let event = UnpublishRequest { handle: self.info.pub_handle };
         _ = self.event_in_tx.send(event.into()).await;
 
         log::debug!("Track task ended: sid={}", self.info.sid);

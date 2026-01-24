@@ -54,7 +54,7 @@ impl TryFrom<proto::UnpublishDataTrackResponse> for SfuUnpublishResponse {
     fn try_from(msg: proto::UnpublishDataTrackResponse) -> Result<Self, Self::Error> {
         let handle: Handle =
             msg.info.context("Missing info")?.pub_handle.try_into().map_err(anyhow::Error::from)?;
-        Ok(Self { handle, client_initiated: false })
+        Ok(Self { handle })
     }
 }
 
