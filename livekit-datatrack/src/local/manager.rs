@@ -28,7 +28,6 @@ use from_variants::FromVariants;
 use futures_core::Stream;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{mpsc, oneshot, watch};
-use tokio::time;
 use tokio_stream::wrappers::ReceiverStream;
 
 /// An external event handled by [`Manager`].
@@ -36,6 +35,7 @@ use tokio_stream::wrappers::ReceiverStream;
 pub enum InputEvent {
     Publish(PublishEvent),
     PublishResult(PublishResultEvent),
+    PublishCancelled(PublishCancelledEvent),
     Unpublish(UnpublishEvent),
     /// Shutdown the manager and all associated tracks.
     Shutdown,
@@ -96,9 +96,9 @@ pub struct PublishEvent {
     result_tx: oneshot::Sender<Result<LocalDataTrack, PublishError>>,
 }
 
-/// Request to publish a data track timed-out.
+/// Request to publish a data track was cancelled.
 #[derive(Debug)]
-pub struct PublishTimeoutEvent {
+pub struct PublishCancelledEvent {
     /// Publisher handle of the pending publication.
     handle: Handle,
 }
@@ -161,6 +161,7 @@ impl Manager {
             match event {
                 InputEvent::Publish(event) => self.handle_publish(event).await,
                 InputEvent::PublishResult(event) => self.handle_publish_result(event).await,
+                InputEvent::PublishCancelled(event) => self.handle_publish_cancelled(event).await,
                 InputEvent::Unpublish(event) => self.handle_unpublished(event).await,
                 InputEvent::Shutdown => break,
             }
@@ -181,7 +182,16 @@ impl Manager {
             )));
             return;
         }
-        self.descriptors.insert(handle, Descriptor::Pending(event.result_tx));
+
+        let (result_tx, result_rx) = oneshot::channel();
+        self.descriptors.insert(handle, Descriptor::Pending(result_tx));
+
+        livekit_runtime::spawn(Self::forward_publish_result(
+            handle,
+            result_rx,
+            event.result_tx,
+            self.event_in_tx.downgrade(),
+        ));
 
         let publish_requested = PublishRequestEvent {
             handle,
@@ -189,18 +199,36 @@ impl Manager {
             uses_e2ee: self.encryption_provider.is_some(),
         };
         _ = self.event_out_tx.send(publish_requested.into()).await;
-        self.schedule_publish_timeout(handle);
     }
 
-    fn schedule_publish_timeout(&self, handle: Handle) {
-        let event_in_tx = self.event_in_tx.downgrade();
-        let emit_timeout = async move {
-            time::sleep(Self::PUBLISH_TIMEOUT).await;
-            let Some(tx) = event_in_tx.upgrade() else { return };
-            let event = PublishResultEvent { handle, result: Err(PublishError::Timeout) };
-            _ = tx.try_send(event.into())
-        };
-        livekit_runtime::spawn(emit_timeout);
+    /// Task that awaits a pending publish result.
+    ///
+    /// Forwards the result to the user, or notifies the manager if the receiver
+    /// is dropped (e.g., due to timeout) so it can remove the pending publication.
+    ///
+    async fn forward_publish_result(
+        handle: Handle,
+        result_rx: oneshot::Receiver<Result<LocalDataTrack, PublishError>>,
+        mut forward_result_tx: oneshot::Sender<Result<LocalDataTrack, PublishError>>,
+        event_in_tx: mpsc::WeakSender<InputEvent>,
+    ) {
+        tokio::select! {
+            biased;
+            Ok(result) = result_rx => {
+                _ = forward_result_tx.send(result);
+            }
+            _ = forward_result_tx.closed() => {
+                let Some(tx) = event_in_tx.upgrade() else { return };
+                let event = PublishCancelledEvent { handle };
+                _ = tx.try_send(event.into());
+            }
+        }
+    }
+
+    async fn handle_publish_cancelled(&mut self, event: PublishCancelledEvent) {
+        if self.descriptors.remove(&event.handle).is_none() {
+            log::warn!("No descriptor for {}", event.handle);
+        }
     }
 
     async fn handle_publish_result(&mut self, event: PublishResultEvent) {
@@ -281,9 +309,6 @@ impl Manager {
             }
         }
     }
-
-    /// How long to wait for an SFU response for a track publication before timeout.
-    const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 }
 
 /// Task for an individual published data track.
@@ -367,11 +392,20 @@ impl ManagerInput {
         let (result_tx, result_rx) = oneshot::channel();
         let event = PublishEvent { options, result_tx };
 
-        self.event_in_tx.try_send(event.into()).map_err(|_| PublishError::Disconnected)?;
-        let track = result_rx.await.map_err(|_| PublishError::Disconnected)??;
+        self.event_in_tx
+            .try_send(event.into())
+            .map_err(|_| PublishError::Disconnected)?;
+
+        let track = tokio::time::timeout(Self::PUBLISH_TIMEOUT, result_rx)
+            .await
+            .map_err(|_| PublishError::Timeout)?
+            .map_err(|_| PublishError::Disconnected)??;
 
         Ok(track)
     }
+
+    /// How long to wait for before timeout.
+    const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 }
 
 #[cfg(test)]
@@ -380,7 +414,7 @@ mod tests {
     use crate::{api::DataTrackSid, packet::Packet};
     use fake::{Fake, Faker};
     use futures_util::StreamExt;
-    use livekit_runtime::sleep;
+    use livekit_runtime::{timeout, sleep};
 
     #[tokio::test]
     async fn test_task_shutdown() {
@@ -390,7 +424,7 @@ mod tests {
         let join_handle = livekit_runtime::spawn(manager.run());
         _ = input.send(InputEvent::Shutdown);
 
-        time::timeout(Duration::from_secs(1), join_handle).await.unwrap();
+        timeout(Duration::from_secs(1), join_handle).await.unwrap();
     }
 
     #[tokio::test]
@@ -453,7 +487,7 @@ mod tests {
             }
             // Only reference to track dropped here (unpublish)
         };
-        time::timeout(Duration::from_secs(1), async { tokio::join!(publish_track, handle_events) })
+        timeout(Duration::from_secs(1), async { tokio::join!(publish_track, handle_events) })
             .await
             .unwrap();
     }
