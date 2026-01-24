@@ -12,11 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Instant;
+
 use futures_util::StreamExt;
 use livekit::{
     prelude::Track,
     webrtc::{prelude::*, video_stream::native::NativeVideoStream},
 };
+use metrics_logger::metrics::histogram;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use super::{colorcvt, room::FfiTrack, FfiHandle};
@@ -132,6 +135,8 @@ impl FfiVideoStream {
                     break;
                 }
                 frame = native_stream.next() => {
+                    let t0 = Instant::now();
+
                     let Some(frame) = frame else {
                         break;
                     };
@@ -165,6 +170,9 @@ impl FfiVideoStream {
                         server.drop_handle(handle_id);
                         log::warn!("failed to send video frame: {}", err);
                     }
+
+                    let delta = t0.elapsed();
+                    histogram!("forward_video_frame").record(delta.as_millis() as f64);
                 }
             }
         }
