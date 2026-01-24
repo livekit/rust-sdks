@@ -85,13 +85,11 @@ impl Manager {
         while let Some(event) = self.event_in_rx.recv().await {
             log::debug!("Input event: {:?}", event);
             match event {
-                InputEvent::PublishRequest(event) => self.handle_publish_request(event).await,
-                InputEvent::PublishCancelled(event) => self.handle_publish_cancelled(event).await,
-                InputEvent::SfuPublishResponse(event) => {
-                    self.handle_sfu_publish_response(event).await
-                }
+                InputEvent::PublishRequest(event) => self.on_publish_request(event).await,
+                InputEvent::PublishCancelled(event) => self.on_publish_cancelled(event).await,
+                InputEvent::SfuPublishResponse(event) => self.on_sfu_publish_response(event).await,
                 InputEvent::SfuUnpublishResponse(event) => {
-                    self.handle_sfu_unpublish_response(event).await
+                    self.on_sfu_unpublish_response(event).await
                 }
                 InputEvent::Shutdown => break,
             }
@@ -100,7 +98,7 @@ impl Manager {
         log::debug!("Task ended");
     }
 
-    async fn handle_publish_request(&mut self, event: PublishRequest) {
+    async fn on_publish_request(&mut self, event: PublishRequest) {
         let Some(handle) = self.handle_allocator.get() else {
             _ = event.result_tx.send(Err(PublishError::LimitReached));
             return;
@@ -155,13 +153,13 @@ impl Manager {
         }
     }
 
-    async fn handle_publish_cancelled(&mut self, event: PublishCancelled) {
+    async fn on_publish_cancelled(&mut self, event: PublishCancelled) {
         if self.descriptors.remove(&event.handle).is_none() {
             log::warn!("No descriptor for {}", event.handle);
         }
     }
 
-    async fn handle_sfu_publish_response(&mut self, event: SfuPublishResponse) {
+    async fn on_sfu_publish_response(&mut self, event: SfuPublishResponse) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
             log::warn!("No descriptor for {}", event.handle);
             return;
@@ -208,7 +206,7 @@ impl Manager {
         LocalDataTrack::new(info, inner)
     }
 
-    async fn handle_sfu_unpublish_response(&mut self, event: SfuUnpublishResponse) {
+    async fn on_sfu_unpublish_response(&mut self, event: SfuUnpublishResponse) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
             return;
         };
