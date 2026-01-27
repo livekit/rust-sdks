@@ -140,10 +140,10 @@ class AudioTrackSource {
     int missed_frames_ RTC_GUARDED_BY(mutex_) = 0;
     std::vector<int16_t> silence_buffer_;
 
-    int sample_rate_;
-    int num_channels_;
-    int queue_size_samples_;
-    int notify_threshold_samples_;
+    int sample_rate_ = 0;
+    int num_channels_ = 0;
+    int queue_size_samples_ = 0;
+    int notify_threshold_samples_ = 0;
 
     cricket::AudioOptions options_{};
   };
