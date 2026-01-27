@@ -43,7 +43,7 @@ lk_sources = [
 
 defines = []
 
-if (is_mac) {
+if (is_mac || is_ios) {
   lk_sources += [
     "objc_video_factory.mm",
     "objc_video_frame_buffer.mm",
@@ -121,7 +121,7 @@ rtc_shared_library("livekit_rtc") {
     "//third_party/libyuv",
   ]
 
-  if (is_mac) {
+  if (is_mac || is_ios) {
     deps += [
       "../sdk:peerconnectionfactory_base_objc",
       "../sdk:default_codec_factory_objc",

@@ -116,18 +116,11 @@ gn gen "$OUTPUT_DIR" --root="src" \
   use_lld=false"
 
 # build static library
-ninja -C "$OUTPUT_DIR" :default \
-  api/audio_codecs:builtin_audio_decoder_factory \
-  api/task_queue:default_task_queue_factory \
-  sdk:native_api \
-  sdk:default_codec_factory_objc \
-  pc:peer_connection \
-  sdk:videocapture_objc \
-  sdk:framework_objc
+ninja -C "$OUTPUT_DIR" livekit_rtc
 
-# make libwebrtc.a
+# make liblivekit_rtc.a
 # don't include nasm
-ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
+ar -rc "$OUTPUT_DIR/liblivekit_rtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR"
@@ -136,7 +129,7 @@ cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/obj/modules/desktop_capture/desktop_capture.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
-
-cd src
-find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
-find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"
+cp "$OUTPUT_DIR/liblivekit_rtc.dylib" "$ARTIFACTS_DIR/lib"
+cp "$OUTPUT_DIR/liblivekit_rtc.a" "$ARTIFACTS_DIR/lib"
+mkdir -p "$ARTIFACTS_DIR/include"
+cp "src/livekit_rtc/include/capi.h" "$ARTIFACTS_DIR/include/livekit_rtc.h"
