@@ -112,7 +112,8 @@ impl EgressClient {
                     room_name: room.to_string(),
                     layout: options.layout,
                     audio_only: options.audio_only,
-                    audio_mixing: options.audio_mixing.unwrap_or(proto::AudioMixing::DefaultMixing) as i32,
+                    audio_mixing: options.audio_mixing.unwrap_or(proto::AudioMixing::DefaultMixing)
+                        as i32,
                     video_only: options.video_only,
                     options: Some(proto::room_composite_egress_request::Options::Advanced(
                         options.encoding.into(),
