@@ -14,7 +14,7 @@
 
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
-use livekit_datatrack::api::{DataTrackOptions, LocalDataTrack, PublishError, RemoteDataTrack};
+use livekit_datatrack::internal as dt;
 use livekit_protocol as proto;
 use livekit_runtime::{interval, Interval, JoinHandle};
 use parking_lot::{RwLock, RwLockReadGuard};
@@ -185,7 +185,8 @@ pub enum EngineEvent {
         url: String,
         token: String,
     },
-    RemoteDataTrackPublished(RemoteDataTrack),
+    LocalDataTrackInput(dt::local::InputEvent),
+    RemoteDataTrackInput(dt::remote::InputEvent),
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -268,16 +269,22 @@ impl RtcEngine {
         session.simulate_scenario(scenario).await
     }
 
-    pub async fn publish_data_track(
-        &self,
-        options: DataTrackOptions,
-    ) -> Result<LocalDataTrack, PublishError> {
+    pub async fn handle_local_data_track_output(&self, event: dt::local::OutputEvent) -> EngineResult<()> {
         let (session, _r_lock) = {
-            let (handle, _r_lock) =
-                self.inner.wait_reconnection().await.map_err(|_| PublishError::Timeout)?;
+            let (handle, _r_lock) = self.inner.wait_reconnection().await?;
             (handle.session.clone(), _r_lock)
         };
-        session.publish_data_track(options).await
+        session.handle_local_data_track_output(event).await;
+        Ok(())
+    }
+
+    pub async fn handle_remote_data_track_output(&self, event: dt::remote::OutputEvent) -> EngineResult<()> {
+        let (session, _r_lock) = {
+            let (handle, _r_lock) = self.inner.wait_reconnection().await?;
+            (handle.session.clone(), _r_lock)
+        };
+        session.handle_remote_data_track_output(event).await;
+        Ok(())
     }
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
@@ -615,8 +622,11 @@ impl EngineInner {
             SessionEvent::RefreshToken { url, token } => {
                 let _ = self.engine_tx.send(EngineEvent::RefreshToken { url, token });
             }
-            SessionEvent::RemoteDataTrackPublished(track) => {
-                let _ = self.engine_tx.send(EngineEvent::RemoteDataTrackPublished(track));
+            SessionEvent::LocalDataTrackInput(event) => {
+                let _ = self.engine_tx.send(EngineEvent::LocalDataTrackInput(event));
+            }
+            SessionEvent::RemoteDataTrackInput(event) => {
+                let _ = self.engine_tx.send(EngineEvent::RemoteDataTrackInput(event));
             }
         }
         Ok(())

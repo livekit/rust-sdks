@@ -254,7 +254,11 @@ impl LocalParticipant {
         &self,
         options: impl Into<DataTrackOptions>,
     ) -> Result<DataTrack<Local>, data_track::PublishError> {
-        self.inner.rtc_engine.publish_data_track(options.into()).await
+        self.session()
+            .ok_or(PublishError::Disconnected)?
+            .local_dt_input
+            .publish_track(options.into())
+            .await
     }
 
     /// Publishes a media track.

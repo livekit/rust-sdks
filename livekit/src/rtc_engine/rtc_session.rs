@@ -24,13 +24,9 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures_util::{Stream, StreamExt};
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_api::signal_client::{SignalClient, SignalEvent, SignalEvents};
-use livekit_datatrack::{
-    api::{DataTrackOptions, LocalDataTrack, PublishError, RemoteDataTrack},
-    internal as dt,
-};
+use livekit_datatrack::internal as dt;
 use livekit_protocol::{self as proto};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
@@ -40,11 +36,21 @@ use proto::{
     SignalTarget,
 };
 use serde::{Deserialize, Serialize};
-use tokio::sync::{mpsc, oneshot, watch, Notify};
+use tokio::sync::{
+    mpsc::{self, WeakUnboundedSender},
+    oneshot, watch, Notify,
+};
 
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
-    e2ee::data_track::*,
+    id::ParticipantIdentity,
+    utils::{
+        ttl_map::TtlMap,
+        tx_queue::{TxQueue, TxQueueItem},
+    },
+    ChatMessage, TranscriptionSegment,
+};
+use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
     prelude::TrackKind,
@@ -56,14 +62,6 @@ use crate::{
     },
     track::LocalTrack,
     DataPacketKind,
-};
-use crate::{
-    id::ParticipantIdentity,
-    utils::{
-        ttl_map::TtlMap,
-        tx_queue::{TxQueue, TxQueueItem},
-    },
-    ChatMessage, TranscriptionSegment,
 };
 
 pub const ICE_CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
@@ -202,7 +200,8 @@ pub enum SessionEvent {
         url: String,
         token: String,
     },
-    RemoteDataTrackPublished(RemoteDataTrack),
+    LocalDataTrackInput(dt::local::InputEvent),
+    RemoteDataTrackInput(dt::remote::InputEvent),
 }
 
 #[derive(Debug)]
@@ -378,10 +377,6 @@ struct SessionInner {
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
 
     e2ee_manager: Option<E2eeManager>,
-
-    // Data track managers
-    local_dt_input: dt::local::ManagerInput,
-    remote_dt_input: dt::remote::ManagerInput,
 }
 
 /// Information about the local participant needed for outgoing
@@ -422,10 +417,6 @@ struct SessionHandle {
     signal_task: JoinHandle<()>,
     rtc_task: JoinHandle<()>,
     dc_task: JoinHandle<()>,
-    local_dt_task: JoinHandle<()>,
-    local_dt_forward_task: JoinHandle<()>,
-    remote_dt_task: JoinHandle<()>,
-    remote_dt_forward_task: JoinHandle<()>,
 }
 
 impl RtcSession {
@@ -445,6 +436,9 @@ impl RtcSession {
         let Some(participant_info) = SessionParticipantInfo::from_join(&join_response) else {
             Err(EngineError::Internal("Join response missing participant info".into()))?
         };
+        if let Ok(initial_publications) = dt::remote::event_from_join(&mut join_response) {
+            _ = emitter.send(SessionEvent::RemoteDataTrackInput(initial_publications.into()));
+        }
 
         let (rtc_emitter, rtc_events) = mpsc::unbounded_channel();
         let rtc_config = make_rtc_config_join(join_response.clone(), options.rtc_config.clone());
@@ -474,7 +468,7 @@ impl RtcSession {
             .peer_connection()
             .create_data_channel(LOSSY_DC_LABEL, lossy_options.clone())?;
 
-        let mut dt_transport = publisher_pc
+        let dt_transport = publisher_pc
             .peer_connection()
             .create_data_channel(DATA_TRACK_DC_LABEL, lossy_options)?;
 
@@ -483,26 +477,6 @@ impl RtcSession {
         rtc_events::forward_pc_events(&mut subscriber_pc, rtc_emitter.clone());
         rtc_events::forward_dc_events(&mut lossy_dc, DataPacketKind::Lossy, rtc_emitter.clone());
         rtc_events::forward_dc_events(&mut reliable_dc, DataPacketKind::Reliable, rtc_emitter);
-
-        let local_dt_options = dt::local::ManagerOptions {
-            decryption_provider: e2ee_manager.clone().filter(|m| m.enabled()).map(|m| {
-                Arc::new(DataTrackEncryptionProvider::new(m, participant_info.identity.clone()))
-                    as Arc<dyn dt::EncryptionProvider>
-            }),
-        };
-        let (local_dt_manager, local_dt_input, local_dt_output) =
-            dt::local::Manager::new(local_dt_options);
-
-        let remote_dt_options = dt::remote::ManagerOptions {
-            encryption_provider: e2ee_manager.clone().filter(|m| m.enabled()).map(|m| {
-                Arc::new(DataTrackDecryptionProvider::new(m)) as Arc<dyn dt::DecryptionProvider>
-            }),
-        };
-        let (remote_dt_manager, remote_dt_input, remote_dt_output) =
-            dt::remote::Manager::new(remote_dt_options);
-        if let Ok(initial_publications) = dt::remote::event_from_join(&mut join_response) {
-            _ = remote_dt_input.send(initial_publications.into());
-        }
 
         let (close_tx, close_rx) = watch::channel(false);
 
@@ -536,8 +510,6 @@ impl RtcSession {
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
             e2ee_manager,
-            local_dt_input,
-            remote_dt_input,
         });
 
         // Start session tasks
@@ -548,26 +520,7 @@ impl RtcSession {
         let dc_task =
             livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
 
-        let local_dt_forward_task =
-            livekit_runtime::spawn(inner.clone().local_dt_forward_task(local_dt_output));
-        let local_dt_task = livekit_runtime::spawn(local_dt_manager.run());
-
-        let remote_dt_forward_task =
-            livekit_runtime::spawn(inner.clone().remote_dt_forward_task(remote_dt_output));
-        let remote_dt_task = livekit_runtime::spawn(remote_dt_manager.run());
-
-        // TODO: closure.
-
-        let handle = Mutex::new(Some(SessionHandle {
-            close_tx,
-            signal_task,
-            rtc_task,
-            dc_task,
-            local_dt_task,
-            local_dt_forward_task,
-            remote_dt_task,
-            remote_dt_forward_task,
-        }));
+        let handle = Mutex::new(Some(SessionHandle { close_tx, signal_task, rtc_task, dc_task }));
 
         Ok((Self { inner, handle }, join_response, session_events))
     }
@@ -610,26 +563,11 @@ impl RtcSession {
             let _ = handle.rtc_task.await;
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
-
-            _ = self.inner.local_dt_input.send(dt::local::InputEvent::Shutdown);
-            let _ = handle.local_dt_task.await;
-            let _ = handle.local_dt_forward_task.await;
-
-            _ = self.inner.remote_dt_input.send(dt::remote::InputEvent::Shutdown);
-            let _ = handle.remote_dt_task.await;
-            let _ = handle.remote_dt_forward_task.await;
         }
 
         // Close the PeerConnections after the task
         // So if a sensitive operation is running, we can wait for it
         self.inner.close().await;
-    }
-
-    pub async fn publish_data_track(
-        &self,
-        options: DataTrackOptions,
-    ) -> Result<LocalDataTrack, PublishError> {
-        self.inner.publish_data_track(options).await
     }
 
     pub async fn publish_data(
@@ -679,6 +617,52 @@ impl RtcSession {
 
     pub fn data_channel(&self, target: SignalTarget, kind: DataPacketKind) -> Option<DataChannel> {
         self.inner.data_channel(target, kind)
+    }
+
+    /// Handles an event from the local data track manager.
+    pub(super) async fn handle_local_data_track_output(&self, event: dt::local::OutputEvent) {
+        use dt::local::OutputEvent;
+        match event.into() {
+            OutputEvent::SfuPublishRequest(event) => {
+                self.signal_client()
+                    .send(proto::signal_request::Message::PublishDataTrackRequest(event.into()))
+                    .await
+            }
+            OutputEvent::SfuUnpublishRequest(event) => {
+                self.signal_client()
+                    .send(proto::signal_request::Message::UnpublishDataTrackRequest(event.into()))
+                    .await
+            }
+            OutputEvent::PacketsAvailable(packets) => self.try_send_data_track_packets(packets),
+        }
+    }
+
+    /// Handles an event from the remote data track manager.
+    pub(super) async fn handle_remote_data_track_output(&self, event: dt::remote::OutputEvent) {
+        use dt::remote::OutputEvent;
+        match event.into() {
+            OutputEvent::SfuUpdateSubscription(event) => {
+                self.signal_client()
+                    .send(proto::signal_request::Message::UpdateDataSubscription(event.into()))
+                    .await
+            }
+            _ => {}
+        }
+    }
+
+    /// Try to send data track packets over the transport.
+    ///
+    /// Packets will be sent until the first error, at which point the rest of
+    /// the batch will be dropped.
+    ///
+    fn try_send_data_track_packets(&self, packets: Vec<Bytes>) {
+        // TODO: handle buffering
+        for packet in packets {
+            if let Err(err) = self.inner.dt_transport.send(&packet, true) {
+                log::trace!("Failed to send packet: {}", err);
+                break;
+            }
+        }
     }
 
     pub fn e2ee_manager(&self) -> Option<E2eeManager> {
@@ -814,64 +798,6 @@ impl SessionInner {
         }
 
         log::debug!("closing signal_task");
-    }
-
-    async fn local_dt_forward_task(
-        self: Arc<Self>,
-        mut events: impl Stream<Item = dt::local::OutputEvent> + Unpin,
-    ) {
-        while let Some(event) = events.next().await {
-            self.clone().forward_local_dt_event(event).await;
-        }
-        log::debug!("closing local_dt_forward_task");
-    }
-
-    async fn remote_dt_forward_task(
-        self: Arc<Self>,
-        mut events: impl Stream<Item = dt::remote::OutputEvent> + Unpin,
-    ) {
-        while let Some(event) = events.next().await {
-            self.clone().forward_remote_dt_event(event).await;
-        }
-        log::debug!("closing remote_dt_forward_task");
-    }
-
-    async fn forward_local_dt_event(self: Arc<Self>, event: dt::local::OutputEvent) {
-        use dt::local::OutputEvent;
-        match event {
-            OutputEvent::SfuPublishRequest(event) => {
-                self.signal_client
-                    .send(proto::signal_request::Message::PublishDataTrackRequest(event.into()))
-                    .await
-            }
-            OutputEvent::SfuUnpublishRequest(event) => {
-                self.signal_client
-                    .send(proto::signal_request::Message::UnpublishDataTrackRequest(event.into()))
-                    .await
-            }
-            OutputEvent::PacketsAvailable(packets) => {
-                for packet in packets {
-                    if let Err(err) = self.dt_transport.send(&packet, true) {
-                        log::trace!("Failed to send packet over transport: {}", err);
-                        break; // Drop the rest of the batch
-                    }
-                }
-            }
-        }
-    }
-
-    async fn forward_remote_dt_event(self: Arc<Self>, event: dt::remote::OutputEvent) {
-        use dt::remote::OutputEvent;
-        match event {
-            OutputEvent::SfuUpdateSubscription(event) => {
-                self.signal_client
-                    .send(proto::signal_request::Message::UpdateDataSubscription(event.into()))
-                    .await
-            }
-            OutputEvent::TrackAvailable(track) => {
-                let _ = self.emitter.send(SessionEvent::RemoteDataTrackPublished(track));
-            }
-        }
     }
 
     async fn data_channel_task(
@@ -1106,7 +1032,7 @@ impl SessionInner {
                     &mut update,
                     local_participant_identity,
                 ) {
-                    _ = self.remote_dt_input.send(event.into());
+                    _ = self.emitter.send(SessionEvent::RemoteDataTrackInput(event.into()));
                 }
                 let _ = self
                     .emitter
@@ -1142,7 +1068,7 @@ impl SessionInner {
                 if let Some(event) =
                     dt::local::publish_result_from_request_response(&request_response)
                 {
-                    _ = self.local_dt_input.send(event.into());
+                    _ = self.emitter.send(SessionEvent::LocalDataTrackInput(event.into()));
                     return Ok(());
                 }
                 let mut pending_requests = self.pending_requests.lock();
@@ -1152,15 +1078,15 @@ impl SessionInner {
             }
             proto::signal_response::Message::PublishDataTrackResponse(publish_res) => {
                 let event: dt::local::SfuPublishResponse = publish_res.try_into()?;
-                _ = self.local_dt_input.send(event.into());
+                _ = self.emitter.send(SessionEvent::LocalDataTrackInput(event.into()));
             }
             proto::signal_response::Message::UnpublishDataTrackResponse(unpublish_res) => {
                 let event: dt::local::SfuUnpublishResponse = unpublish_res.try_into()?;
-                _ = self.local_dt_input.send(event.into());
+                _ = self.emitter.send(SessionEvent::LocalDataTrackInput(event.into()));
             }
             proto::signal_response::Message::DataTrackSubscriberHandles(subscriber_handles) => {
                 let event: dt::remote::SfuSubscriberHandles = subscriber_handles.try_into()?;
-                _ = self.remote_dt_input.send(event.into());
+                _ = self.emitter.send(SessionEvent::RemoteDataTrackInput(event.into()));
             }
             proto::signal_response::Message::RefreshToken(ref token) => {
                 let url = self.signal_client.url();
@@ -1211,7 +1137,7 @@ impl SessionInner {
                     LOSSY_DC_LABEL => &self.sub_lossy_dc,
                     RELIABLE_DC_LABEL => &self.sub_reliable_dc,
                     DATA_TRACK_DC_LABEL => {
-                        handle_remote_dt_packets(&data_channel, self.remote_dt_input.clone());
+                        handle_remote_dt_packets(&data_channel, self.emitter.downgrade());
                         &self.sub_dt_transport
                     }
                     _ => return Ok(()),
@@ -1645,17 +1571,6 @@ impl SessionInner {
         Ok(())
     }
 
-    pub async fn publish_data_track(
-        self: &Arc<Self>,
-        options: DataTrackOptions,
-    ) -> Result<LocalDataTrack, PublishError> {
-        self.ensure_publisher_connected_with_dc(self.dt_transport.clone())
-            .await
-            .inspect_err(|err| log::debug!("Data track transport not connected: {}", err))
-            .map_err(|_| PublishError::Disconnected)?; // TODO: better error mapping
-        self.local_dt_input.publish_track(options).await
-    }
-
     async fn publish_data(
         self: &Arc<Self>,
         mut packet: proto::DataPacket,
@@ -1690,8 +1605,11 @@ impl SessionInner {
                         .key_provider()
                         .map_or(0, |kp| kp.get_latest_key_index() as u32);
 
-                    match e2ee_manager.encrypt_data(payload_bytes, &self.participant_info.identity, key_index)
-                    {
+                    match e2ee_manager.encrypt_data(
+                        payload_bytes,
+                        &self.participant_info.identity,
+                        key_index,
+                    ) {
                         Ok(encrypted_data) => {
                             // Replace with EncryptedPacket variant
                             packet.value = Some(proto::data_packet::Value::EncryptedPacket(
@@ -1994,15 +1912,16 @@ impl SessionInner {
     }
 }
 
-/// Forward remote data track packets to the remote track manager.
-pub fn handle_remote_dt_packets(dc: &DataChannel, manager: dt::remote::ManagerInput) {
+/// Emit incoming data track packets as session events.
+pub fn handle_remote_dt_packets(dc: &DataChannel, emitter: WeakUnboundedSender<SessionEvent>) {
     let on_message: libwebrtc::data_channel::OnMessage = Box::new(move |buffer: DataBuffer| {
         if !buffer.binary {
             log::error!("Received non-binary message");
             return;
         }
         let packet: Bytes = buffer.data.to_vec().into(); // TODO: avoid clone if possible
-        _ = manager.send(packet.into());
+        let Some(emitter) = emitter.upgrade() else { return };
+        _ = emitter.send(SessionEvent::RemoteDataTrackInput(packet.into()));
     });
     dc.on_message(on_message.into());
 }

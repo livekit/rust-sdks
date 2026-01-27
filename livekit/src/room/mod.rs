@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use bmrng::unbounded::UnboundedRequestReceiver;
+use futures_util::{Stream, StreamExt};
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
     prelude::{
@@ -23,7 +24,7 @@ use libwebrtc::{
     RtcError,
 };
 use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
-use livekit_datatrack::api::RemoteDataTrack;
+use livekit_datatrack::{api::RemoteDataTrack, internal as dt};
 use livekit_protocol::observer::Dispatcher;
 use livekit_protocol::{self as proto, encryption};
 use livekit_runtime::JoinHandle;
@@ -46,6 +47,7 @@ pub use self::{
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
+    e2ee::data_track::{DataTrackDecryptionProvider, DataTrackEncryptionProvider},
     participant::ConnectionQuality,
     prelude::*,
     registered_audio_filter_plugins,
@@ -443,6 +445,8 @@ pub(crate) struct RoomSession {
     e2ee_manager: E2eeManager,
     incoming_stream_manager: IncomingStreamManager,
     outgoing_stream_manager: OutgoingStreamManager,
+    local_dt_input: dt::local::ManagerInput,
+    remote_dt_input: dt::remote::ManagerInput,
     handle: AsyncMutex<Option<Handle>>,
 }
 
@@ -450,6 +454,10 @@ struct Handle {
     room_handle: JoinHandle<()>,
     incoming_stream_handle: JoinHandle<()>,
     outgoing_stream_handle: JoinHandle<()>,
+    local_dt_task: JoinHandle<()>,
+    local_dt_forward_task: JoinHandle<()>,
+    remote_dt_task: JoinHandle<()>,
+    remote_dt_forward_task: JoinHandle<()>,
     close_tx: broadcast::Sender<()>,
 }
 
@@ -471,13 +479,16 @@ impl Room {
         mut options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
+
         let with_dc_encryption = options.encryption.is_some();
         let encryption_options = options.encryption.take().or(options.e2ee.take());
         let e2ee_manager = E2eeManager::new(encryption_options, with_dc_encryption);
+
         let mut signal_options = SignalOptions::default();
         signal_options.sdk_options = options.sdk_options.clone().into();
         signal_options.auto_subscribe = options.auto_subscribe;
         signal_options.adaptive_stream = options.adaptive_stream;
+
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,
@@ -580,6 +591,25 @@ impl Room {
             }
         });
 
+        let decryption_provider = e2ee_manager.enabled().then(|| {
+            Arc::new(DataTrackEncryptionProvider::new(
+                e2ee_manager.clone(),
+                local_participant.identity().clone(),
+            )) as Arc<dyn dt::EncryptionProvider>
+        });
+        let encryption_provider = e2ee_manager.enabled().then(|| {
+            Arc::new(DataTrackDecryptionProvider::new(e2ee_manager.clone()))
+                as Arc<dyn dt::DecryptionProvider>
+        });
+
+        let local_dt_options = dt::local::ManagerOptions { decryption_provider };
+        let (local_dt_manager, local_dt_input, local_dt_output) =
+            dt::local::Manager::new(local_dt_options);
+
+        let remote_dt_options = dt::remote::ManagerOptions { encryption_provider };
+        let (remote_dt_manager, remote_dt_input, remote_dt_output) =
+            dt::remote::Manager::new(remote_dt_options);
+
         let (incoming_stream_manager, open_rx) = IncomingStreamManager::new();
         let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
 
@@ -610,6 +640,8 @@ impl Room {
             e2ee_manager: e2ee_manager.clone(),
             incoming_stream_manager,
             outgoing_stream_manager,
+            local_dt_input,
+            remote_dt_input,
             handle: Default::default(),
         });
         inner.local_participant.set_session(Arc::downgrade(&inner));
@@ -679,10 +711,28 @@ impl Room {
             close_rx.resubscribe(),
         ));
 
+        let local_dt_task = livekit_runtime::spawn(local_dt_manager.run());
+        let local_dt_forward_task = livekit_runtime::spawn(
+            inner.clone().local_dt_forward_task(local_dt_output, close_rx.resubscribe()),
+        );
+
+        let remote_dt_task = livekit_runtime::spawn(remote_dt_manager.run());
+        let remote_dt_forward_task = livekit_runtime::spawn(
+            inner.clone().remote_dt_forward_task(remote_dt_output, close_rx.resubscribe()),
+        );
+
         let room_handle = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
 
-        let handle =
-            Handle { room_handle, incoming_stream_handle, outgoing_stream_handle, close_tx };
+        let handle = Handle {
+            room_handle,
+            incoming_stream_handle,
+            outgoing_stream_handle,
+            local_dt_task,
+            local_dt_forward_task,
+            remote_dt_task,
+            remote_dt_forward_task,
+            close_tx,
+        };
         inner.handle.lock().await.replace(handle);
 
         Ok((Self { inner }, events))
@@ -914,8 +964,11 @@ impl RoomSession {
             EngineEvent::RefreshToken { url, token } => {
                 self.handle_refresh_token(url, token);
             }
-            EngineEvent::RemoteDataTrackPublished(track) => {
-                self.dispatcher.dispatch(&RoomEvent::RemoteDataTrackPublished(track));
+            EngineEvent::LocalDataTrackInput(event) => {
+                _ = self.local_dt_input.send(event);
+            }
+            EngineEvent::RemoteDataTrackInput(event) => {
+                _ = self.remote_dt_input.send(event);
             }
         }
 
@@ -936,6 +989,10 @@ impl RoomSession {
         let _ = handle.close_tx.send(());
         let _ = handle.incoming_stream_handle.await;
         let _ = handle.outgoing_stream_handle.await;
+        let _ = handle.local_dt_forward_task.await;
+        let _ = handle.local_dt_task.await;
+        let _ = handle.remote_dt_forward_task.await;
+        let _ = handle.remote_dt_task.await;
         let _ = handle.room_handle.await;
 
         self.dispatcher.clear();
@@ -1750,6 +1807,51 @@ impl RoomSession {
         // notify refreshed token to registered audio filters
         for filter in registered_audio_filter_plugins().into_iter() {
             filter.update_token(url.clone(), token.clone());
+        }
+    }
+
+    /// Task for handling output events from the local data track manager.
+    async fn local_dt_forward_task(
+        self: Arc<Self>,
+        mut events: impl Stream<Item = dt::local::OutputEvent> + Unpin,
+        mut close_rx: broadcast::Receiver<()>,
+    ) {
+        loop {
+            tokio::select! {
+                event = events.next() => match event {
+                    Some(event) => _ = self.rtc_engine.handle_local_data_track_output(event).await,
+                    None => break,
+                },
+                _ = close_rx.recv() => {
+                    _ = self.local_dt_input.send(dt::local::InputEvent::Shutdown);
+                    break;
+                },
+            }
+        }
+    }
+
+    /// Task for handling output events from the remote data track manager.
+    async fn remote_dt_forward_task(
+        self: Arc<Self>,
+        mut events: impl Stream<Item = dt::remote::OutputEvent> + Unpin,
+        mut close_rx: broadcast::Receiver<()>,
+    ) {
+        loop {
+            tokio::select! {
+                event = events.next() => match event {
+                    Some(event) => match event {
+                        dt::remote::OutputEvent::TrackAvailable(track) => {
+                            _ = self.dispatcher.dispatch(&RoomEvent::RemoteDataTrackPublished(track));
+                        }
+                        other => _ = self.rtc_engine.handle_remote_data_track_output(other).await
+                    },
+                    None => break,
+                },
+                _ = close_rx.recv() => {
+                    _ = self.remote_dt_input.send(dt::remote::InputEvent::Shutdown);
+                    break;
+                },
+            }
         }
     }
 }
