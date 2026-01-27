@@ -32,11 +32,11 @@ webrtc::scoped_refptr<DesktopCapturer> new_desktop_capturer(
   webrtc_options.set_allow_sck_system_picker(options->allow_sck_system_picker);
 #endif /* defined(WEBRTC_MAC) && !defined(WEBRTC_IOS) */
 #ifdef _WIN64
-  switch (options.source_type) {
-    case SourceType::Screen:
+  switch (options->source_type) {
+    case lkSourceType::SOURCE_TYPE_SCREEN:
       webrtc_options.set_allow_wgc_screen_capturer(true);
       break;
-    case SourceType::Window:
+    case lkSourceType::SOURCE_TYPE_WINDOW:
       webrtc_options.set_allow_wgc_window_capturer(true);
       // https://github.com/webrtc-sdk/webrtc/blob/m137_release/modules/desktop_capture/desktop_capture_options.h#L133-L142
       webrtc_options.set_enumerate_current_process_windows(false);
