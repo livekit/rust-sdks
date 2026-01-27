@@ -61,7 +61,7 @@ export PATH="$(pwd)/depot_tools:$PATH"
 export OUTPUT_DIR="$(pwd)/src/out-$arch-$profile"
 export ARTIFACTS_DIR="$(pwd)/linux-$arch-$profile"
 
-if [ ! -e "$(pwd)/src" ]
+if [ ! -e "$(pwd)/src/.git" ]
 then
   gclient sync -D --no-history
 fi
@@ -92,20 +92,6 @@ python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
 #if [ "$arch" = "arm64" ]; then
 #  sudo sed -i 's/__GLIBC_USE_ISOC2X[[:space:]]*1/__GLIBC_USE_ISOC2X\t0/' /usr/aarch64-linux-gnu/include/features.h
 #fi
-
-sudo apt install -y \
-            libasound2-dev \
-            libssl-dev \
-            libx11-dev \
-            libgl1-mesa-dev \
-            libxext-dev \
-            libdrm-dev \
-            libgbm-dev \
-            libxfixes-dev \
-            libxdamage-dev \
-            libxrandr-dev \
-            libxcomposite-dev \
-            libglib2.0-dev
 
 debug="false"
 if [ "$profile" = "debug" ]; then
@@ -141,12 +127,7 @@ args="is_debug=$debug  \
 # generate ninja files
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 
-# build static library
 ninja -C "$OUTPUT_DIR" livekit_rtc
-
-# make libwebrtc.a
-# don't include nasm
-#ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR"
@@ -156,9 +137,11 @@ cp "$OUTPUT_DIR/obj/modules/desktop_capture/desktop_capture.ninja" "$ARTIFACTS_D
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/liblivekit_rtc.so" "$ARTIFACTS_DIR/lib"
+
+# make liblivekit_rtc.a
+# don't include nasm
+ar -rc "$ARTIFACTS_DIR/lib/liblivekit_rtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
+
+
 mkdir -p "$ARTIFACTS_DIR/include"
 cp "src/livekit_rtc/include/capi.h" "$ARTIFACTS_DIR/include/livekit_rtc.h"
-
-#cd src
-#find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
-#find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"

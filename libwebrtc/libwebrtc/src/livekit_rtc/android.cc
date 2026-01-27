@@ -29,7 +29,7 @@
 
 namespace livekit_ffi {
 
-void init_android(void* jvm) {
+void init_android(JavaVM* jvm) {
   webrtc::InitAndroid(jvm);
 }
 

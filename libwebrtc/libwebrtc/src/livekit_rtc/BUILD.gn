@@ -50,7 +50,7 @@ if (is_mac || is_ios) {
   ]
 }
 
-if (is_linux) {
+if (false) {
   defines += [
     "USE_NVIDIA_VIDEO_CODEC",
     "USE_VAAPI_VIDEO_CODEC",

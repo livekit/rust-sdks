@@ -103,7 +103,7 @@ uint32_t lkVectorGenericPushBack(lkVectorGeneric* vec,
 }
 
 #ifdef __ANDROID__
-void initAndroid(void* jvm) {
+void initAndroid(JavaVM* jvm) {
   livekit_ffi::init_android(jvm);
 }
 #endif

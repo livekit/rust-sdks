@@ -8,7 +8,7 @@
 #include "api/video_codecs/video_encoder_factory.h"
 
 namespace livekit_ffi {
-void init_android(void* jvm);
+void init_android(JavaVM* jvm);
 
 std::unique_ptr<webrtc::VideoEncoderFactory> CreateAndroidVideoEncoderFactory();
 std::unique_ptr<webrtc::VideoDecoderFactory> CreateAndroidVideoDecoderFactory();

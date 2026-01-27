@@ -61,7 +61,7 @@ export PATH="$(pwd)/depot_tools:$PATH"
 export OUTPUT_DIR="$(pwd)/src/out-$arch-$profile"
 export ARTIFACTS_DIR="$(pwd)/android-$arch-$profile"
 
-if [ ! -e "$(pwd)/src" ]
+if [ ! -e "$(pwd)/src/.git" ]
 then
   gclient sync -D --no-history
 fi
@@ -112,14 +112,14 @@ fi
 gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
 
 # build shared library
-autoninja -C "$OUTPUT_DIR" :default \
+autoninja -C "$OUTPUT_DIR" livekit_rtc :default \
   sdk/android:native_api \
   sdk/android:libwebrtc \
   sdk/android:libjingle_peerconnection_so
 
-# make libwebrtc.a
+# make livekit_rtc.a
 # don't include nasm
-ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
+ar -rc "$ARTIFACTS_DIR/lib/liblivekit_rtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
@@ -130,7 +130,7 @@ cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/lib.java/sdk/android/libwebrtc.jar" "$ARTIFACTS_DIR"
 cp "src/sdk/android/AndroidManifest.xml" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/liblivekit_rtc.so" "$ARTIFACTS_DIR/lib"
 
-cd src
-find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
-find . -name "*.inc" -print | cpio -pd "$ARTIFACTS_DIR/include"
+mkdir -p "$ARTIFACTS_DIR/include"
+cp "src/livekit_rtc/include/capi.h" "$ARTIFACTS_DIR/include/livekit_rtc.h"
