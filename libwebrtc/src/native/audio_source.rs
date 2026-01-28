@@ -61,7 +61,7 @@ impl NativeAudioSource {
             queue_size_ms.try_into().unwrap(),
         );
 
-        let queue_size_samples = queue_size_ms * (sample_rate / 1000) * num_channels;
+        let queue_size_samples = (queue_size_ms * sample_rate * num_channels) / 1000;
         Self { sys_handle, sample_rate, num_channels, queue_size_samples }
     }
 
@@ -118,16 +118,24 @@ impl NativeAudioSource {
                 });
             }
 
+            // Define a no-op callback for fast path (queue_size_ms=0)
+            // This is safer than passing null, which can cause UB in release mode optimizations
+            extern "C" fn noop_complete_callback(_ctx: *const sys_at::SourceContext) {
+                // No-op: fast path completes synchronously, no callback needed
+            }
+
             unsafe {
-                // Pass null ctx + null callback; C++ ignores them in direct mode
                 let data: &[i16] = frame.data.as_ref();
+                // Use a valid no-op callback instead of null for safety
+                // In release mode, transmuting null pointers can cause UB
+                let noop_callback = sys_at::CompleteCallback(noop_complete_callback);
                 let ok = self.sys_handle.capture_frame(
                     data,
                     self.sample_rate,
                     self.num_channels,
                     nb_frames,
-                    std::ptr::null(),
-                    std::mem::zeroed::<sys_at::CompleteCallback>(),
+                    std::ptr::null(), // Context is still null - callback won't use it
+                    noop_callback,
                 );
                 if !ok {
                     return Err(RtcError {
