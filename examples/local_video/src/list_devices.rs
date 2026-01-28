@@ -104,11 +104,7 @@ fn print_capabilities(capabilities: &BTreeMap<FrameFormat, BTreeMap<Resolution, 
             let fps_text = if fps_list.is_empty() {
                 "unknown".to_string()
             } else {
-                fps_list
-                    .iter()
-                    .map(|fps| fps.to_string())
-                    .collect::<Vec<String>>()
-                    .join(", ")
+                fps_list.iter().map(|fps| fps.to_string()).collect::<Vec<String>>().join(", ")
             };
             println!("     {} @ {} fps", resolution, fps_text);
         }
