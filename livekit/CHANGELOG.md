@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.30](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.29...rust-sdks/livekit@0.7.30) - 2026-01-28
+
+### Other
+
+- Expose participant's permission to ffi layer ([#824](https://github.com/livekit/rust-sdks/pull/824))
+
 ## [0.7.29](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.28...rust-sdks/livekit@0.7.29) - 2026-01-15
 
 ### Fixed

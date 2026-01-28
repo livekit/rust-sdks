@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.13](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys-build@0.3.12...rust-sdks/webrtc-sys-build@0.3.13) - 2026-01-28
+
+### Other
+
+- Use the correct download url in webrtc-sys build. ([#825](https://github.com/livekit/rust-sdks/pull/825))
+
 ## [0.3.12](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys-build@0.3.11...rust-sdks/webrtc-sys-build@0.3.12) - 2025-12-04
 
 ### Other
