@@ -53,7 +53,7 @@ impl FfiParticipant {
         server: &'static FfiServer,
         request: proto::PerformRpcRequest,
     ) -> FfiResult<proto::PerformRpcResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
 
         let local = self.guard_local_participant()?;
 
@@ -142,7 +142,7 @@ impl FfiParticipant {
         server: &'static FfiServer,
         request: proto::StreamSendFileRequest,
     ) -> FfiResult<proto::StreamSendFileResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
         let local = self.guard_local_participant()?;
 
         let handle = server.async_runtime.spawn(async move {
@@ -162,7 +162,7 @@ impl FfiParticipant {
         server: &'static FfiServer,
         request: proto::StreamSendTextRequest,
     ) -> FfiResult<proto::StreamSendTextResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
         let local = self.guard_local_participant()?;
 
         let handle = server.async_runtime.spawn(async move {
@@ -182,7 +182,7 @@ impl FfiParticipant {
         server: &'static FfiServer,
         request: proto::StreamSendBytesRequest,
     ) -> FfiResult<proto::StreamSendBytesResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
         let local = self.guard_local_participant()?;
 
         let handle = server.async_runtime.spawn(async move {
@@ -202,7 +202,7 @@ impl FfiParticipant {
         server: &'static FfiServer,
         request: proto::ByteStreamOpenRequest,
     ) -> FfiResult<proto::ByteStreamOpenResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
         let local = self.guard_local_participant()?;
 
         let handle = server.async_runtime.spawn(async move {
@@ -225,7 +225,7 @@ impl FfiParticipant {
         server: &'static FfiServer,
         request: proto::TextStreamOpenRequest,
     ) -> FfiResult<proto::TextStreamOpenResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
         let local = self.guard_local_participant()?;
 
         let handle = server.async_runtime.spawn(async move {

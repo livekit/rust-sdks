@@ -13,6 +13,7 @@
 // limitations under the License.
 
 #![deny(clippy::all)]
+#![cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 
 // SPDX-FileCopyrightText: 2024 LiveKit, Inc.
 //
