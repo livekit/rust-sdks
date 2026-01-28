@@ -5,6 +5,7 @@ members = [
     "livekit-api",
     "livekit-protocol",
     "livekit-ffi",
+    "livekit-uniffi",
     "livekit-ffi-node-bindings",
     "livekit-runtime",
     "libwebrtc",
@@ -28,7 +29,7 @@ members = [
     "examples/screensharing",
     "examples/send_bytes",
     "examples/webhooks",
-    "examples/wgpu_room",
+    "examples/wgpu_room"
 ]
 
 [workspace.dependencies]

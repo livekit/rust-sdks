@@ -12,13 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![deny(clippy::all)]
-#![cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
-
-// SPDX-FileCopyrightText: 2024 LiveKit, Inc.
-//
-// SPDX-License-Identifier: Apache-2.0
-
-extern crate napi_derive;
-
-pub mod nodejs;
+/// This binary is included to allow invoking the UniFFI bindgen CLI from Cargo:
+/// `cargo run --bin uniffi-bindgen generate ...`
+fn main() {
+    uniffi::uniffi_bindgen_main()
+}

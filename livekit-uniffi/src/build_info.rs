@@ -12,13 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![deny(clippy::all)]
-#![cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
-
-// SPDX-FileCopyrightText: 2024 LiveKit, Inc.
-//
-// SPDX-License-Identifier: Apache-2.0
-
-extern crate napi_derive;
-
-pub mod nodejs;
+/// Returns the version specified in the crate's Cargo.toml.
+#[uniffi::export]
+pub fn build_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}

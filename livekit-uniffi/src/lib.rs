@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#![deny(clippy::all)]
-#![cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+/// Access token generation and verification from [`livekit-api::access_token`].
+pub mod access_token;
 
-// SPDX-FileCopyrightText: 2024 LiveKit, Inc.
-//
-// SPDX-License-Identifier: Apache-2.0
+/// Forward log messages from Rust.
+pub mod log_forward;
 
-extern crate napi_derive;
+/// Information about the build such as version.
+pub mod build_info;
 
-pub mod nodejs;
+uniffi::setup_scaffolding!();

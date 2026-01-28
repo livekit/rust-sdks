@@ -400,6 +400,7 @@ message RoomEvent {
     // carry over all participant info updates, including sid
     ParticipantsUpdated participants_updated = 38;
     ParticipantEncryptionStatusChanged participant_encryption_status_changed = 39;
+    ParticipantPermissionChanged participant_permission_changed = 41;
     TokenRefreshed token_refreshed = 40;
   }
 }
@@ -522,6 +523,11 @@ message ParticipantEncryptionStatusChanged {
 message ParticipantNameChanged {
   required string participant_identity = 1;
   required string name = 2;
+}
+
+message ParticipantPermissionChanged {
+  required string participant_identity = 1;
+  optional ParticipantPermission permission = 2;
 }
 
 message ConnectionQualityChanged {
