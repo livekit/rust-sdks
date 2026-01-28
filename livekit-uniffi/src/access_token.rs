@@ -15,7 +15,7 @@
 use livekit_api::access_token::{
     self, AccessToken, AccessTokenError, SIPGrants, TokenVerifier, VideoGrants,
 };
-use livekit_protocol::RoomAgentDispatch;
+use livekit_protocol::{self as proto, RoomAgentDispatch};
 use std::{collections::HashMap, time::Duration};
 
 /// An error that can occur during token generation or verification.
@@ -88,8 +88,8 @@ pub struct RoomConfiguration {
     pub agents: Vec<RoomAgentDispatch>,
 }
 
-impl From<livekit_protocol::RoomConfiguration> for RoomConfiguration {
-    fn from(config: livekit_protocol::RoomConfiguration) -> Self {
+impl From<proto::RoomConfiguration> for RoomConfiguration {
+    fn from(config: proto::RoomConfiguration) -> Self {
         Self {
             name: config.name,
             empty_timeout: config.empty_timeout,
@@ -212,7 +212,7 @@ pub fn token_generate(
         token = token.with_sha256(&sha256);
     }
     if let Some(room_configuration) = options.room_configuration {
-        let room_config = livekit_protocol::RoomConfiguration {
+        let room_config = proto::RoomConfiguration {
             name: room_configuration.name,
             empty_timeout: room_configuration.empty_timeout,
             departure_timeout: room_configuration.departure_timeout,
