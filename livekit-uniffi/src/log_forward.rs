@@ -26,7 +26,7 @@ static LOGGER: OnceCell<Logger> = OnceCell::new();
 ///
 #[uniffi::export]
 fn log_forward_bootstrap(level: LevelFilter) {
-    let logger = LOGGER.get_or_init(|| Logger::new());
+    let logger = LOGGER.get_or_init(Logger::new);
     _ = log::set_logger(logger); // Returns an error if already set (ignore)
     log::set_max_level(level);
 }

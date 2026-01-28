@@ -226,7 +226,7 @@ pub fn token_generate(
         };
         token = token.with_room_config(room_config);
     }
-    Ok(token.to_jwt()?)
+    token.to_jwt()
 }
 
 /// Verifies an access token.
