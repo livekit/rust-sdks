@@ -28,5 +28,3 @@ cargo make node-package
 ```
 
 To test them out, run `cd node_test && npx tsx index.ts`
-
-TODO: other languages

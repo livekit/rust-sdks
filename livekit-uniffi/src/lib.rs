@@ -21,6 +21,4 @@ pub mod log_forward;
 /// Information about the build such as version.
 pub mod build_info;
 
-// TODO: expose more modules...
-
 uniffi::setup_scaffolding!();

@@ -17,5 +17,3 @@
 pub fn build_version() -> String {
     env!("CARGO_PKG_VERSION").to_string()
 }
-
-// TODO: consider adding other info such as timestamp and Git hash.
