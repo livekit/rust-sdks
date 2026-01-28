@@ -4,17 +4,23 @@ version = "0.1.0"
 edition = "2021"
 publish = false
 
+[features]
+desktop = []
+
 [[bin]]
 name = "publisher"
 path = "src/publisher.rs"
+required-features = ["desktop"]
 
 [[bin]]
 name = "subscriber"
 path = "src/subscriber.rs"
+required-features = ["desktop"]
 
 [[bin]]
 name = "list_devices"
 path = "src/list_devices.rs"
+required-features = ["desktop"]
 
 [dependencies]
 tokio = { version = "1", features = ["full", "parking_lot"] }
@@ -27,7 +33,6 @@ futures = "0.3"
 clap = { version = "4.5", features = ["derive"] }
 log = "0.4"
 env_logger = "0.10.0"
-nokhwa = { version = "0.10", default-features = false, features = ["input-avfoundation", "input-v4l", "input-msmf", "output-threaded"] }
 image = "0.24"
 egui = "0.31.1"
 egui-wgpu = "0.31.1"
@@ -38,8 +43,16 @@ parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
 anyhow = "1"
 bytemuck = { version = "1.16", features = ["derive"] }
 
-[target.'cfg(target_os = "macos")'.dependencies]
 objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
-nokhwa-bindings-macos = "0.2"
 
+nokhwa = { version = "0.10", default-features = false, features = ["output-threaded"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+nokhwa = { version = "0.10", default-features = false, features = ["input-avfoundation", "output-threaded"] }
+objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nokhwa = { version = "0.10", default-features = false, features = ["input-v4l", "output-threaded"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+nokhwa = { version = "0.10", default-features = false, features = ["input-msmf", "output-threaded"] }

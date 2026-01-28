@@ -7,9 +7,6 @@ use nokhwa::utils::{
 use nokhwa::Camera;
 use std::collections::BTreeMap;
 
-#[cfg(target_os = "macos")]
-use nokhwa_bindings_macos::AVCaptureDevice;
-
 fn main() -> Result<()> {
     let cameras = nokhwa::query(ApiBackend::Auto)?;
     if cameras.is_empty() {
@@ -30,34 +27,41 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+/// Enumerate camera capabilities using only Nokhwa public APIs.
+///
+/// This avoids any direct dependency on platform-specific bindings crates like
+/// `nokhwa_bindings_macos`, making the example portable across targets.
 fn enumerate_capabilities(
     info: &CameraInfo,
 ) -> Result<BTreeMap<FrameFormat, BTreeMap<Resolution, Vec<u32>>>> {
-    let device = AVCaptureDevice::new(info.index())?;
-    let formats = device.supported_formats()?;
-    Ok(capabilities_from_formats(formats))
-}
-
-#[cfg(not(target_os = "macos"))]
-fn enumerate_capabilities(
-    info: &CameraInfo,
-) -> Result<BTreeMap<FrameFormat, BTreeMap<Resolution, Vec<u32>>>> {
+    // We don't need to actually capture frames; we just want to query supported formats.
+    // Using "None" requested format keeps it flexible.
     let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::None);
+
+    // `CameraInfo::index()` is what Nokhwa uses to open the device. Depending on Nokhwa
+    // version, this may be Copy/Clone; clone defensively.
     let mut camera = Camera::new(info.index().clone(), requested)?;
+
+    // Prefer FourCC-based queries if available; otherwise fall back to camera formats.
     let mut capabilities = BTreeMap::new();
+
     if let Ok(mut fourccs) = camera.compatible_fourcc() {
         fourccs.sort();
         for fourcc in fourccs {
+            // Returns a map: Resolution -> Vec<fps>
             let mut res_map = camera.compatible_list_by_resolution(fourcc)?;
             let mut res_sorted = BTreeMap::new();
+
             for (res, mut fps_list) in res_map.drain() {
                 fps_list.sort();
+                fps_list.dedup();
                 res_sorted.insert(res, fps_list);
             }
+
             capabilities.insert(fourcc, res_sorted);
         }
     } else {
+        // Some backends don’t support FourCC enumeration; use generic formats instead.
         let formats = camera.compatible_camera_formats()?;
         capabilities = capabilities_from_formats(formats);
     }
