@@ -13,12 +13,13 @@
 // limitations under the License.
 
 use std::borrow::Cow;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures_util::StreamExt;
 use livekit::track::Track;
 use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
 use livekit::{registered_audio_filter_plugin, AudioFilterAudioStream, AudioFilterStreamInfo};
+use metrics_logger::metrics::histogram;
 use tokio::sync::{broadcast, mpsc, oneshot};
 
 use super::audio_plugin::AudioStreamKind;
@@ -373,6 +374,9 @@ impl FfiAudioStream {
                     break;
                 }
                 frame = native_stream.next() => {
+
+                    let t0 = Instant::now();
+
                     let Some(frame) = frame else {
                         break;
                     };
@@ -447,6 +451,8 @@ impl FfiAudioStream {
                         }
                     }
 
+                    let delta = t0.elapsed();
+                    histogram!("forward_audio_frame").record(delta.as_millis() as f64);
                 }
             }
         }

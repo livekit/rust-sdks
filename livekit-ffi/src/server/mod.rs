@@ -15,11 +15,10 @@
 use std::{
     error::Error,
     sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, atomic::{AtomicU64, Ordering}
     },
     thread,
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use dashmap::{mapref::one::MappedRef, DashMap};
@@ -27,6 +26,7 @@ use downcast_rs::{impl_downcast, Downcast};
 use livekit::webrtc::{
     native::apm::AudioProcessingModule, native::audio_resampler::AudioResampler, prelude::*,
 };
+use metrics_logger::{LogMode, MetricsLogger, metrics::{self, histogram}};
 use parking_lot::{deadlock, Mutex};
 use tokio::{sync::oneshot, task::JoinHandle};
 
@@ -101,6 +101,13 @@ impl Default for FfiServer {
         #[cfg(feature = "tracing")]
         console_subscriber::init();
 
+        let recorder = MetricsLogger::new(
+            LogMode::Periodic(10),
+            |logs| log::info!(target: "metrics", "{}", logs),
+            |err| log::error!(target: "metrics", "{}", err),
+        );
+        metrics::set_global_recorder(recorder).unwrap();
+
         // Create a background thread which checks for deadlocks every 10s
         thread::spawn(move || loop {
             thread::sleep(Duration::from_secs(10));
@@ -165,6 +172,9 @@ impl FfiServer {
     }
 
     pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
+
+        let t0 = Instant::now();
+
         let cb = self
             .config
             .lock()
@@ -172,6 +182,9 @@ impl FfiServer {
             .map_or_else(|| Err(FfiError::NotConfigured), |c| Ok(c.callback_fn.clone()))?;
 
         cb(proto::FfiEvent { message: Some(message) });
+
+        let delta = t0.elapsed();
+        histogram!("send_event").record(delta.as_millis() as f64);
         Ok(())
     }
 
@@ -189,7 +202,12 @@ impl FfiServer {
     where
         T: FfiHandle,
     {
+        let t0 = Instant::now();
+
         self.ffi_handles.insert(id, Box::new(handle));
+
+        let delta = t0.elapsed();
+        histogram!("store_handle").record(delta.as_millis() as f64);
     }
 
     pub fn retrieve_handle<T>(
@@ -203,6 +221,8 @@ impl FfiServer {
             return Err(FfiError::InvalidRequest("handle is invalid".into()));
         }
 
+        let t0 = Instant::now();
+
         let handle =
             self.ffi_handles.get(&id).ok_or(FfiError::InvalidRequest("handle not found".into()))?;
 
@@ -211,6 +231,9 @@ impl FfiServer {
             let msg = format!("handle is not a {}", tyname);
             return Err(FfiError::InvalidRequest(msg.into()));
         }
+
+        let delta = t0.elapsed();
+        histogram!("retrieve_handle").record(delta.as_millis() as f64);
 
         let handle = handle.map(|v| v.downcast_ref::<T>().unwrap());
         Ok(handle)
@@ -238,8 +261,15 @@ impl FfiServer {
     }
 
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
+
+        let t0 = Instant::now();
+
         let existed = self.ffi_handles.remove(&id).is_some();
         self.handle_dropped_txs.remove(&id);
+
+        let delta = t0.elapsed();
+        histogram!("drop_handle").record(delta.as_millis() as f64);
+
         return existed;
     }
 

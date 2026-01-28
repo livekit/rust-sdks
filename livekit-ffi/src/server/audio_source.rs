@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, slice};
+use std::{borrow::Cow, slice, time::Instant};
 
 use livekit::webrtc::prelude::*;
+use metrics_logger::metrics::histogram;
 
 use super::FfiHandle;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
@@ -72,6 +73,9 @@ impl FfiAudioSource {
         server: &'static server::FfiServer,
         capture: proto::CaptureAudioFrameRequest,
     ) -> FfiResult<proto::CaptureAudioFrameResponse> {
+
+        let t0 = Instant::now();
+
         let buffer = capture.buffer;
 
         let source = self.source.clone();
@@ -84,6 +88,7 @@ impl FfiAudioSource {
         .to_vec();
 
         let handle = server.async_runtime.spawn(async move {
+            let t0 = Instant::now();
             // The data must be available as long as the client receive the callback.
             match source {
                 #[cfg(not(target_arch = "wasm32"))]
@@ -106,8 +111,13 @@ impl FfiAudioSource {
                 }
                 _ => {}
             }
+            let delta = t0.elapsed();
+            histogram!("capture_audio_frame_task").record(delta.as_millis() as f64);
         });
         server.watch_panic(handle);
+
+        let delta = t0.elapsed();
+        histogram!("capture_audio_frame").record(delta.as_millis() as f64);
 
         Ok(proto::CaptureAudioFrameResponse { async_id })
     }

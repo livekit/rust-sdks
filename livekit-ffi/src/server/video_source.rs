@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::time::Instant;
+
 use super::{colorcvt, FfiHandle};
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 use livekit::webrtc::{prelude::*, video_frame::VideoFrame};
+use metrics_logger::metrics::histogram;
 
 pub struct FfiVideoSource {
     pub handle_id: FfiHandleId,
@@ -58,6 +61,7 @@ impl FfiVideoSource {
         _server: &'static server::FfiServer,
         capture: proto::CaptureVideoFrameRequest,
     ) -> FfiResult<()> {
+        let t0 = Instant::now();
         match self.source {
             #[cfg(not(target_arch = "wasm32"))]
             RtcVideoSource::Native(ref source) => {
@@ -72,6 +76,9 @@ impl FfiVideoSource {
             }
             _ => {}
         }
+
+        let delta = t0.elapsed();
+        histogram!("capture_video_frame").record(delta.as_millis() as f64);
         Ok(())
     }
 }
