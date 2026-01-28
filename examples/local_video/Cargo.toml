@@ -43,16 +43,14 @@ parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
 anyhow = "1"
 bytemuck = { version = "1.16", features = ["derive"] }
 
-objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
-
 nokhwa = { version = "0.10", default-features = false, features = ["output-threaded"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nokhwa = { version = "0.10", default-features = false, features = ["input-avfoundation", "output-threaded"] }
+nokhwa = { version = "0.10", default-features = false, features = ["input-avfoundation"] }
 objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nokhwa = { version = "0.10", default-features = false, features = ["input-v4l", "output-threaded"] }
+nokhwa = { version = "0.10", default-features = false, features = ["input-v4l"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-nokhwa = { version = "0.10", default-features = false, features = ["input-msmf", "output-threaded"] }
+nokhwa = { version = "0.10", default-features = false, features = ["input-msmf"] }
