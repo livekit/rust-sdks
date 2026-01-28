@@ -116,6 +116,7 @@ impl LocalParticipant {
         metadata: String,
         attributes: HashMap<String, String>,
         encryption_type: EncryptionType,
+        permission: Option<proto::ParticipantPermission>,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -127,6 +128,7 @@ impl LocalParticipant {
                 attributes,
                 kind,
                 kind_details,
+                permission,
             ),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
@@ -214,6 +216,13 @@ impl LocalParticipant {
         handler: impl Fn(Participant, HashMap<String, String>) + Send + 'static,
     ) {
         super::on_attributes_changed(&self.inner, handler)
+    }
+
+    pub(crate) fn on_permission_changed(
+        &self,
+        handler: impl Fn(Participant, Option<proto::ParticipantPermission>) + Send + 'static,
+    ) {
+        super::on_permission_changed(&self.inner, handler)
     }
 
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
@@ -753,6 +762,10 @@ impl LocalParticipant {
 
     pub fn disconnect_reason(&self) -> DisconnectReason {
         self.inner.info.read().disconnect_reason
+    }
+
+    pub fn permission(&self) -> Option<proto::ParticipantPermission> {
+        self.inner.info.read().permission.clone()
     }
 
     pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {
