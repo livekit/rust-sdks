@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.13](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.12...rust-sdks/livekit-api@0.4.13) - 2026-01-28
+
+### Other
+
+- expose audio mixing as a configurable field ([#850](https://github.com/livekit/rust-sdks/pull/850))
+- UniFFI interface ([#750](https://github.com/livekit/rust-sdks/pull/750))
+
 ## [0.4.12](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.11...rust-sdks/livekit-api@0.4.12) - 2026-01-15
 
 ### Fixed

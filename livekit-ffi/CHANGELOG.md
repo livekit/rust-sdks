@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.45](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.44...rust-sdks/livekit-ffi@0.12.45) - 2026-01-28
+
+### Other
+
+- Expose participant's permission to ffi layer ([#824](https://github.com/livekit/rust-sdks/pull/824))
+- Add a request_async_id to the async requests ([#842](https://github.com/livekit/rust-sdks/pull/842))
+- Use the correct download url in webrtc-sys build. ([#825](https://github.com/livekit/rust-sdks/pull/825))
+
 ## [0.12.44](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.43...rust-sdks/livekit-ffi@0.12.44) - 2026-01-15
 
 ### Fixed
