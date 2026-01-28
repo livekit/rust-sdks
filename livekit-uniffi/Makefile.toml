@@ -309,6 +309,9 @@ find "${SPM_NAME}/${XCFRAMEWORK_NAME}.xcframework" -name "module.modulemap" -exe
 # 3. Patch the generated Swift sources
 find "${SPM_NAME}/Sources" -name "*.swift" -exec sed -i '' "s/${FFI_NAME}/${XCFRAMEWORK_NAME}/g" {} +
 
+# 4. Rename headers directory to Headers to match Info.plist
+find "${SPM_NAME}/${XCFRAMEWORK_NAME}.xcframework" -type d -name "headers" -exec bash -c 'mv "$1" "$(dirname "$1")/Headers"' _ {} \\;
+
 out_dir="${PACKAGES_DIR}/${LANG}"
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
