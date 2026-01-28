@@ -17,6 +17,27 @@ use livekit_protocol as proto;
 use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
 
+#[derive(Clone, Copy, Debug, Default)]
+pub enum AudioMixing {
+    /// All users are mixed together.
+    #[default]
+    DefaultMixing,
+    /// Agent audio in the left channel, all other audio in the right channel.
+    DualChannelAgent,
+    /// Each new audio track alternates between left and right channels.
+    DualChannelAlternate,
+}
+
+impl From<AudioMixing> for proto::AudioMixing {
+    fn from(value: AudioMixing) -> Self {
+        match value {
+            AudioMixing::DefaultMixing => proto::AudioMixing::DefaultMixing,
+            AudioMixing::DualChannelAgent => proto::AudioMixing::DualChannelAgent,
+            AudioMixing::DualChannelAlternate => proto::AudioMixing::DualChannelAlternate,
+        }
+    }
+}
+
 #[derive(Default, Clone, Debug)]
 pub struct RoomCompositeOptions {
     pub layout: String,
@@ -25,7 +46,7 @@ pub struct RoomCompositeOptions {
     pub video_only: bool,
     pub custom_base_url: String,
     /// Only applies when audio_only is true (default: DefaultMixing)
-    pub audio_mixing: Option<proto::AudioMixing>,
+    pub audio_mixing: AudioMixing,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -112,8 +133,7 @@ impl EgressClient {
                     room_name: room.to_string(),
                     layout: options.layout,
                     audio_only: options.audio_only,
-                    audio_mixing: options.audio_mixing.unwrap_or(proto::AudioMixing::DefaultMixing)
-                        as i32,
+                    audio_mixing: Into::<proto::AudioMixing>::into(options.audio_mixing) as i32,
                     video_only: options.video_only,
                     options: Some(proto::room_composite_egress_request::Options::Advanced(
                         options.encoding.into(),
