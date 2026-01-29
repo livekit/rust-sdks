@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 lazy_static = "1.4.0"
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
-log = "0.4.19"
+log = { workspace = true }
 tokio = { version = "1", features = ["full"] }
 
 [target.'cfg(target_os = "android")'.dependencies]

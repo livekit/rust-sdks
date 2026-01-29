@@ -10,7 +10,7 @@ env_logger = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 libwebrtc = { workspace = true }
-log = "0.4"
+log = { workspace = true }
 cpal = "0.15"
 anyhow = "1.0"
 clap = { version = "4.0", features = ["derive"] }

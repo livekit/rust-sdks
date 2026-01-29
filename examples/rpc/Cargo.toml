@@ -9,6 +9,6 @@ tokio = { version = "1", features = ["full"] }
 env_logger = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
-log = "0.4"
+log = { workspace = true }
 rand = { workspace = true }
 serde_json = "1.0"

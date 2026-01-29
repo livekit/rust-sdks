@@ -12,7 +12,7 @@ default = []
 
 [dependencies]
 cxx = "1.0"
-log = "0.4"
+log = { workspace = true }
 
 [build-dependencies]
 webrtc-sys-build = { workspace = true }

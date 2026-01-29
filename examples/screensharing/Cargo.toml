@@ -9,5 +9,5 @@ tokio = { version = "1", features = ["full"] }
 env_logger = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true }
-log = "0.4"
+log = { workspace = true }
 clap = { version = "4.0", features = ["derive"] }

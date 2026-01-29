@@ -30,7 +30,7 @@ parking_lot = { workspace = true, features = ["deadlock_detection"] }
 prost = "0.14.1"
 lazy_static = "1.4"
 thiserror = { workspace = true }
-log = "0.4"
+log = { workspace = true }
 dashmap = "5.4"
 env_logger = { workspace = true }
 downcast-rs = "1.2"
