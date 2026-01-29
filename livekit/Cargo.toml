@@ -46,5 +46,5 @@ bytes = { workspace = true }
 bmrng = "0.5.2"
 
 [dev-dependencies]
-anyhow = "1.0.99"
+anyhow = { workspace = true }
 test-log = "0.2.18"

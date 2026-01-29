@@ -61,6 +61,7 @@ bytes = "1.10"
 futures-util = "0.3"
 futures = "0.3"
 clap = "4.5"
+anyhow = "1.0"
 
 [profile.release]
 opt-level = "z"

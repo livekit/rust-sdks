@@ -40,7 +40,7 @@ eframe = { version = "0.31.1", default-features = false, features = ["default_fo
 wgpu = "25.0"
 winit = { version = "0.30.11", features = ["android-native-activity"] }
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
-anyhow = "1"
+anyhow = { workspace = true }
 bytemuck = { version = "1.16", features = ["derive"] }
 
 nokhwa = { version = "0.10", default-features = false, features = ["output-threaded"] }

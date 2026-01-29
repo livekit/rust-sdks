@@ -13,4 +13,4 @@ regex = "1.0"
 scratch = "1.0"
 fs2 = "0.4"
 semver = "1.0"
-anyhow = "1.0"
+anyhow = { workspace = true }
