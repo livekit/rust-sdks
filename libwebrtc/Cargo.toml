@@ -1,11 +1,11 @@
 [package]
 name = "libwebrtc"
 version = "0.3.24"
-edition = "2021"
+edition.workspace = true
 homepage = "https://livekit.io"
-license = "Apache-2.0"
+license.workspace = true
 description = "Livekit safe bindings to libwebrtc"
-repository = "https://github.com/livekit/rust-sdks"
+repository.workspace = true
 
 [features]
 default = [ "glib-main-loop" ]

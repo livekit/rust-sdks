@@ -1,10 +1,10 @@
 [package]
 name = "webrtc-sys-build"
 version = "0.3.12"
-edition = "2021"
-license = "Apache-2.0"
+edition.workspace = true
+license.workspace = true
 description = "Build utilities when working with libwebrtc"
-repository = "https://github.com/livekit/client-sdk-rust"
+repository.workspace = true
 
 [dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "blocking"] }

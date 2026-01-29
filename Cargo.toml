@@ -32,6 +32,11 @@ members = [
     "examples/wgpu_room"
 ]
 
+[workspace.package]
+edition = "2021"
+repository = "https://github.com/livekit/rust-sdks"
+license = "Apache-2.0"
+
 [workspace.dependencies]
 imgproc = { version = "0.3.15", path = "imgproc" }
 libwebrtc = { version = "0.3.24", path = "libwebrtc" }

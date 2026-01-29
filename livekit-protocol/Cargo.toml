@@ -1,10 +1,10 @@
 [package]
 name = "livekit-protocol"
 version = "0.6.0"
-edition = "2021"
-license = "Apache-2.0"
+edition.workspace = true
+license.workspace = true
 description = "Livekit protocol and utilities for the Rust SDK"
-repository = "https://github.com/livekit/rust-sdks"
+repository.workspace = true
 
 [dependencies]
 livekit-runtime = { workspace = true }

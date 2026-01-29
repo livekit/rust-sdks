@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition.workspace = true
 name = "rtc-node-ffi-bindings"
 version = "0.0.1"
 publish = false
