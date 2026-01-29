@@ -8,4 +8,4 @@ publish = false
 tokio = { workspace = true, features = ["full"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 bytes = { workspace = true }
-futures = "0.3.28"
+futures = { workspace = true }

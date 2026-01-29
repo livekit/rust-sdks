@@ -28,7 +28,7 @@ tokio-stream = { version = "0.1.14", optional = true }
 
 # dispatcher and async-std
 async-std = { version = "1", optional = true }
-futures = { version = "0.3.30", optional = true }
+futures = { workspace = true, optional = true }
 async-io = { version = "2.3.1", optional = true }
 
 # dispatcher

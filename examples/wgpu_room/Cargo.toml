@@ -12,7 +12,7 @@ tracing = ["console-subscriber", "tokio/tracing"]
 tokio = { workspace = true, features = ["full", "parking_lot"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"]}
 webrtc-sys = { workspace = true }
-futures = "0.3"
+futures = { workspace = true }
 winit = { version = "0.30.11", features = [ "android-native-activity" ] }
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
 image = "0.24"
