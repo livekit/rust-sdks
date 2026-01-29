@@ -50,6 +50,8 @@ webrtc-sys = { version = "0.3.21", path = "webrtc-sys" }
 webrtc-sys-build = { version = "0.3.12", path = "webrtc-sys/build" }
 yuv-sys = { version = "0.3.10", path = "yuv-sys" }
 
+rand = "0.9"
+
 [profile.release]
 opt-level = "z"
 lto = true
