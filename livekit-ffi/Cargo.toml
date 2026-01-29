@@ -29,7 +29,7 @@ futures-util = { version = "0.3", default-features = false, features = ["sink"] 
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
 prost = "0.14.1"
 lazy_static = "1.4"
-thiserror = "1.0"
+thiserror = { workspace = true }
 log = "0.4"
 dashmap = "5.4"
 env_logger = { workspace = true }
