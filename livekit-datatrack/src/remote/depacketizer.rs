@@ -242,6 +242,7 @@ mod tests {
     use super::*;
     use fake::{Fake, Faker};
     use test_case::test_case;
+    use crate::utils::Counter;
 
     #[test]
     fn test_single_packet() {
@@ -334,6 +335,83 @@ mod tests {
             drop.reason,
             DepacketizerDropReason::Incomplete { received: 2, expected: 4 }
         ));
+    }
+
+    #[test]
+    fn test_unknown_frame() {
+        let mut depacketizer = Depacketizer::new();
+
+        let mut packet: Packet = Faker.fake();
+        let frame_number = packet.header.frame_number;
+        packet.header.marker = FrameMarker::Inter;
+        // Start packet for this frame will never be pushed.
+
+        let result = depacketizer.push(packet);
+        let drop = result.drop_error.unwrap();
+        assert_eq!(drop.frame_number, frame_number);
+        assert!(matches!(
+            drop.reason,
+            DepacketizerDropReason::UnknownFrame
+        ));
+    }
+
+    #[test]
+    fn test_multi_frame() {
+        let mut depacketizer = Depacketizer::new();
+
+        let mut sequence = Counter::new(0);
+        for frame_number in 0..10 {
+            let mut packet: Packet = Faker.fake();
+            packet.header.frame_number = frame_number;
+            packet.header.marker = FrameMarker::Start;
+            packet.header.sequence = sequence.get_then_increment();
+
+            let result = depacketizer.push(packet.clone());
+            assert!(result.drop_error.is_none() && result.frame.is_none());
+
+            packet.header.marker = FrameMarker::Inter;
+            packet.header.sequence = sequence.get_then_increment();
+
+            let result = depacketizer.push(packet.clone());
+            assert!(result.drop_error.is_none() && result.frame.is_none());
+
+            packet.header.marker = FrameMarker::Final;
+            packet.header.sequence = sequence.get_then_increment();
+
+            let result = depacketizer.push(packet);
+            assert!(result.drop_error.is_none() && result.frame.is_some());
+        }
+    }
+
+    #[test]
+    fn test_duplicate_sequence_numbers() {
+        let mut depacketizer = Depacketizer::new();
+
+        let mut packet: Packet = Faker.fake();
+        packet.header.marker = FrameMarker::Start;
+        packet.header.sequence = 1;
+        packet.payload = Bytes::from(vec![0xAB; 3]);
+
+        let result = depacketizer.push(packet.clone());
+        assert!(result.drop_error.is_none() && result.frame.is_none());
+
+        packet.header.marker = FrameMarker::Inter;
+        packet.header.sequence = 1; // Same sequence number
+        packet.payload = Bytes::from(vec![0xCD; 3]);
+
+        let result = depacketizer.push(packet.clone());
+        assert!(result.drop_error.is_none() && result.frame.is_none());
+
+        packet.header.marker = FrameMarker::Final;
+        packet.header.sequence = 2;
+        packet.payload = Bytes::from(vec![0xEF; 3]);
+
+        let result = depacketizer.push(packet.clone());
+        assert!(result.drop_error.is_none());
+        let frame = result.frame.unwrap();
+
+        assert!(frame.payload.starts_with(&[0xCD; 3]));
+        // Should retain the second packet with duplicate sequence number
     }
 
     impl fake::Dummy<fake::Faker> for Packet {
