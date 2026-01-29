@@ -83,7 +83,7 @@ impl FfiAudioSource {
         }
         .to_vec();
 
-        // Use dedicated audio_runtime for high-priority audio capture
+        // Use dedicated audio_runtime for audio capture
         let handle = server.audio_runtime.spawn(async move {
             // The data must be available as long as the client receive the callback.
             match source {

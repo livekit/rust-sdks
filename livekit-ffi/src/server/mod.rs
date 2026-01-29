@@ -82,7 +82,7 @@ pub struct FfiServer {
     /// We can still use Box::into_raw & Box::from_raw in the future (but keep it safe for now)
     ffi_handles: DashMap<FfiHandleId, Box<dyn FfiHandle>>,
     pub async_runtime: tokio::runtime::Runtime,
-    /// Dedicated high-priority runtime for audio capture to reduce scheduling delays
+    /// Dedicated runtime for audio capture to reduce scheduling delays
     pub audio_runtime: tokio::runtime::Runtime,
 
     next_id: AtomicU64,
@@ -104,8 +104,6 @@ impl Default for FfiServer {
             .enable_all()
             .build()
             .unwrap();
-
-        log::info!("Initialized FFI runtimes: async_runtime + 1 dedicated audio thread (no priority tuning)");
 
         let logger = Box::leak(Box::new(logger::FfiLogger::new(async_runtime.handle().clone())));
         log::set_logger(logger).unwrap();
@@ -179,34 +177,14 @@ impl FfiServer {
     }
 
     pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
-        let start_time = std::time::Instant::now();
-
-        let lock_start = std::time::Instant::now();
         let cb = self
             .config
             .lock()
             .as_ref()
             .map_or_else(|| Err(FfiError::NotConfigured), |c| Ok(c.callback_fn.clone()))?;
-        let lock_duration_us = lock_start.elapsed().as_micros() as u64;
 
-        let callback_start = std::time::Instant::now();
         cb(proto::FfiEvent { message: Some(message) });
-        let callback_duration_us = callback_start.elapsed().as_micros() as u64;
-
-        let total_duration_us = start_time.elapsed().as_micros() as u64;
-
-        // Only log if total duration exceeds 5ms (5000us)
-        if total_duration_us > 5_000 {
-            log::warn!(
-                "[FFI_CALLBACK] send_event took {}us ({}ms) - lock={}us, callback={}us",
-                total_duration_us,
-                total_duration_us / 1000,
-                lock_duration_us,
-                callback_duration_us
-            );
-        }
-
-        Ok(())
+          Ok(())
     }
 
     pub fn next_id(&self) -> FfiHandleId {
