@@ -28,7 +28,7 @@ tokio = { version = "1", features = ["full", "parking_lot"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
 prost = "0.14.1"
-lazy_static = "1.4"
+lazy_static = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
 dashmap = "5.4"

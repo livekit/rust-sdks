@@ -37,7 +37,7 @@ tokio = { version = "1", default-features = false, features = ["sync", "macros",
 parking_lot = { workspace = true }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 thiserror = { workspace = true }
-lazy_static = "1.4"
+lazy_static = { workspace = true }
 log = { workspace = true }
 chrono = "0.4.38"
 semver = "1.0"
