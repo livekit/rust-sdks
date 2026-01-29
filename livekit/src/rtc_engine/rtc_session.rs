@@ -624,6 +624,9 @@ impl RtcSession {
         use dt::local::OutputEvent;
         match event.into() {
             OutputEvent::SfuPublishRequest(event) => {
+                if let Err(err) = self.inner.ensure_data_track_publisher_connected().await {
+                    log::error!("Failed to open data track publish transport: {}", err);
+                }
                 self.signal_client()
                     .send(proto::signal_request::Message::PublishDataTrackRequest(event.into()))
                     .await
@@ -1835,6 +1838,12 @@ impl SessionInner {
     ) -> EngineResult<()> {
         let required_dc = self.data_channel(SignalTarget::Publisher, kind).unwrap();
         self.ensure_publisher_connected_with_dc(required_dc).await?;
+        Ok(())
+    }
+
+    /// Ensure the required data channel for publishing data track frames is open.
+    async fn ensure_data_track_publisher_connected(self: &Arc<Self>) -> EngineResult<()> {
+        self.ensure_publisher_connected_with_dc(self.dt_transport.clone()).await?;
         Ok(())
     }
 
