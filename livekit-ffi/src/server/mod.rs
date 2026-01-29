@@ -184,7 +184,7 @@ impl FfiServer {
             .map_or_else(|| Err(FfiError::NotConfigured), |c| Ok(c.callback_fn.clone()))?;
 
         cb(proto::FfiEvent { message: Some(message) });
-          Ok(())
+        Ok(())
     }
 
     pub fn next_id(&self) -> FfiHandleId {
