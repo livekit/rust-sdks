@@ -25,4 +25,4 @@ pkg-config = "0.3.22"
 pkg-config = "0.3.22"
 
 [dev-dependencies]
-env_logger = "0.10"
+env_logger = { workspace = true }

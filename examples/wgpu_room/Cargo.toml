@@ -22,7 +22,7 @@ egui-wgpu = "0.31.1"
 eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
 serde = { version = "1", features = ["derive"] }
 log = "0.4"
-env_logger = "0.10.0"
+env_logger = { workspace = true }
 console-subscriber = { version = "0.1.10", features = ["parking_lot"], optional = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]

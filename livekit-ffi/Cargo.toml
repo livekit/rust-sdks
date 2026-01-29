@@ -32,7 +32,7 @@ lazy_static = "1.4"
 thiserror = "1.0"
 log = "0.4"
 dashmap = "5.4"
-env_logger = "0.10"
+env_logger = { workspace = true }
 downcast-rs = "1.2"
 console-subscriber = { version = "0.1", features = ["parking_lot"], optional = true }
 bytes = "1.10.1"
