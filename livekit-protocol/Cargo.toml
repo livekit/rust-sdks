@@ -20,4 +20,4 @@ prost = "0.12"
 serde = "1.0"
 pbjson = "0.6"
 pbjson-types = "0.6"
-thiserror = "1.0"
+thiserror = { workspace = true }
