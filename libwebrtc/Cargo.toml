@@ -32,7 +32,7 @@ jni = "0.21"
 webrtc-sys = { workspace = true }
 livekit-runtime = { workspace = true }
 lazy_static = "1.4"
-parking_lot = { version = "0.12" }
+parking_lot = { workspace = true }
 tokio = { version = "1", default-features = false, features = ["sync", "macros"] }
 cxx = "1.0"
 
