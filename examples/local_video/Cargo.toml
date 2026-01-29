@@ -39,7 +39,7 @@ egui-wgpu = "0.31.1"
 eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
 wgpu = "25.0"
 winit = { version = "0.30.11", features = ["android-native-activity"] }
-parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
+parking_lot = { workspace = true, features = ["deadlock_detection"] }
 anyhow = "1"
 bytemuck = { version = "1.16", features = ["derive"] }
 

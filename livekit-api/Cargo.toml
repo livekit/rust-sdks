@@ -75,7 +75,7 @@ serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
 url = "2.3"
 log = "0.4"
-parking_lot = { version = "0.12" }
+parking_lot = { workspace = true }
 prost = "0.12"
 pbjson-types = "0.6"
 

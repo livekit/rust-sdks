@@ -26,7 +26,7 @@ imgproc = { workspace = true }
 livekit-protocol = { workspace = true }
 tokio = { version = "1", features = ["full", "parking_lot"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-parking_lot = { version = "0.12", features = ["deadlock_detection"] }
+parking_lot = { workspace = true, features = ["deadlock_detection"] }
 prost = "0.14.1"
 lazy_static = "1.4"
 thiserror = "1.0"
