@@ -10,5 +10,5 @@ env_logger = "0.10"
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 log = "0.4"
-rand = "0.8"
+rand = { workspace = true }
 serde_json = "1.0"

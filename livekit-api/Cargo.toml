@@ -101,4 +101,4 @@ reqwest = { version = "0.12", default-features = false, features = [ "json" ], o
 isahc = { version = "1.7.2", default-features = false, features = [ "json", "text-decoding" ], optional = true }
 
 scopeguard = "1.2.0"
-rand = "0.9.0"
+rand = { workspace = true }

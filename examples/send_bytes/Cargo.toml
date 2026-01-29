@@ -10,5 +10,5 @@ livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 log = "0.4.28"
 env_logger = "0.11.8"
 bitfield-struct = "0.11.0"
-rand = "0.9.2"
+rand = { workspace = true }
 colored = "3.0.0"
