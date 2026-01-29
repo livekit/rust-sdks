@@ -82,6 +82,8 @@ pub struct FfiServer {
     /// We can still use Box::into_raw & Box::from_raw in the future (but keep it safe for now)
     ffi_handles: DashMap<FfiHandleId, Box<dyn FfiHandle>>,
     pub async_runtime: tokio::runtime::Runtime,
+    /// Dedicated runtime for audio capture to reduce scheduling delays
+    pub audio_runtime: tokio::runtime::Runtime,
 
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
@@ -93,6 +95,15 @@ impl Default for FfiServer {
     fn default() -> Self {
         let async_runtime =
             tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+
+        // Dedicated single-threaded runtime for audio capture
+        // This ensures audio tasks never compete with other operations
+        let audio_runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("livekit-audio")
+            .enable_all()
+            .build()
+            .unwrap();
 
         let logger = Box::leak(Box::new(logger::FfiLogger::new(async_runtime.handle().clone())));
         log::set_logger(logger).unwrap();
@@ -122,6 +133,7 @@ impl Default for FfiServer {
             ffi_handles: Default::default(),
             next_id: AtomicU64::new(1), // 0 is invalid
             async_runtime,
+            audio_runtime,
             config: Default::default(),
             logger,
             handle_dropped_txs: Default::default(),
