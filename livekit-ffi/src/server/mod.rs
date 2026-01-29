@@ -82,6 +82,8 @@ pub struct FfiServer {
     /// We can still use Box::into_raw & Box::from_raw in the future (but keep it safe for now)
     ffi_handles: DashMap<FfiHandleId, Box<dyn FfiHandle>>,
     pub async_runtime: tokio::runtime::Runtime,
+    /// Dedicated high-priority runtime for audio capture to reduce scheduling delays
+    pub audio_runtime: tokio::runtime::Runtime,
 
     next_id: AtomicU64,
     config: Mutex<Option<FfiConfig>>,
@@ -93,6 +95,40 @@ impl Default for FfiServer {
     fn default() -> Self {
         let async_runtime =
             tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+
+        // Dedicated single-threaded runtime for audio capture with high priority
+        // This ensures audio tasks never compete with other operations
+        let audio_runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .thread_name("livekit-audio")
+            .on_thread_start(|| {
+                log::info!("[AUDIO_THREAD] Starting audio thread initialization...");
+
+                // Set high priority for audio thread to reduce OS scheduling delays
+                #[cfg(target_os = "macos")]
+                {
+                    // Try macOS-specific QoS first
+                    if let Err(e) = Self::set_macos_qos_priority() {
+                        log::warn!("[AUDIO_THREAD] Failed to set macOS QoS priority: {:?}", e);
+                        // Fallback to cross-platform priority
+                        Self::set_crossplatform_priority();
+                    } else {
+                        log::info!("[AUDIO_THREAD] Successfully set macOS QoS to USER_INTERACTIVE");
+                    }
+                }
+
+                #[cfg(not(target_os = "macos"))]
+                {
+                    Self::set_crossplatform_priority();
+                }
+
+                log::info!("[AUDIO_THREAD] Audio thread initialization complete");
+            })
+            .enable_all()
+            .build()
+            .unwrap();
+
+        log::info!("Initialized FFI runtimes: async_runtime + 1 dedicated audio thread");
 
         let logger = Box::leak(Box::new(logger::FfiLogger::new(async_runtime.handle().clone())));
         log::set_logger(logger).unwrap();
@@ -122,6 +158,7 @@ impl Default for FfiServer {
             ffi_handles: Default::default(),
             next_id: AtomicU64::new(1), // 0 is invalid
             async_runtime,
+            audio_runtime,
             config: Default::default(),
             logger,
             handle_dropped_txs: Default::default(),
@@ -132,6 +169,58 @@ impl Default for FfiServer {
 // Using &'static self inside the implementation, not sure if this is really idiomatic
 // It simplifies the code a lot tho. In most cases the server is used until the end of the process
 impl FfiServer {
+    /// Set macOS-specific QoS to USER_INTERACTIVE (highest user-space priority)
+    #[cfg(target_os = "macos")]
+    fn set_macos_qos_priority() -> Result<(), Box<dyn std::error::Error>> {
+        unsafe {
+            const QOS_CLASS_USER_INTERACTIVE: u32 = 0x21;
+            const PTHREAD_PRIORITY_INHERIT: i32 = 0;
+
+            extern "C" {
+                fn pthread_set_qos_class_self_np(
+                    qos_class: u32,
+                    relative_priority: i32,
+                ) -> i32;
+            }
+
+            let result = pthread_set_qos_class_self_np(
+                QOS_CLASS_USER_INTERACTIVE,
+                PTHREAD_PRIORITY_INHERIT,
+            );
+
+            if result == 0 {
+                Ok(())
+            } else {
+                Err(format!("pthread_set_qos_class_self_np failed with code: {}", result).into())
+            }
+        }
+    }
+
+    /// Set cross-platform thread priority (works on macOS, Linux, Windows)
+    fn set_crossplatform_priority() {
+        use thread_priority::*;
+
+        // Try maximum priority first
+        let priority = ThreadPriority::Max;
+        if let Err(e) = set_current_thread_priority(priority) {
+            log::warn!(
+                "[AUDIO_THREAD] Failed to set Max priority: {:?}, trying Crossplatform(80)",
+                e
+            );
+
+            // Fallback to priority level 80 (high but not max)
+            if let Err(e) = set_current_thread_priority(
+                ThreadPriority::Crossplatform(80.try_into().unwrap())
+            ) {
+                log::error!("[AUDIO_THREAD] Failed to set any thread priority: {:?}", e);
+            } else {
+                log::info!("[AUDIO_THREAD] Set thread priority to Crossplatform(80)");
+            }
+        } else {
+            log::info!("[AUDIO_THREAD] Set thread priority to Max");
+        }
+    }
+
     pub fn setup(&self, config: FfiConfig) {
         *self.config.lock() = Some(config.clone());
         self.logger.set_capture_logs(config.capture_logs);
@@ -165,13 +254,33 @@ impl FfiServer {
     }
 
     pub fn send_event(&self, message: proto::ffi_event::Message) -> FfiResult<()> {
+        let start_time = std::time::Instant::now();
+
+        let lock_start = std::time::Instant::now();
         let cb = self
             .config
             .lock()
             .as_ref()
             .map_or_else(|| Err(FfiError::NotConfigured), |c| Ok(c.callback_fn.clone()))?;
+        let lock_duration_us = lock_start.elapsed().as_micros() as u64;
 
+        let callback_start = std::time::Instant::now();
         cb(proto::FfiEvent { message: Some(message) });
+        let callback_duration_us = callback_start.elapsed().as_micros() as u64;
+
+        let total_duration_us = start_time.elapsed().as_micros() as u64;
+
+        // Only log if total duration exceeds 5ms (5000us)
+        if total_duration_us > 5_000 {
+            log::warn!(
+                "[FFI_CALLBACK] send_event took {}us ({}ms) - lock={}us, callback={}us",
+                total_duration_us,
+                total_duration_us / 1000,
+                lock_duration_us,
+                callback_duration_us
+            );
+        }
+
         Ok(())
     }
 

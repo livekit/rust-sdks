@@ -83,7 +83,8 @@ impl FfiAudioSource {
         }
         .to_vec();
 
-        let handle = server.async_runtime.spawn(async move {
+        // Use dedicated audio_runtime for high-priority audio capture
+        let handle = server.audio_runtime.spawn(async move {
             // The data must be available as long as the client receive the callback.
             match source {
                 #[cfg(not(target_arch = "wasm32"))]
@@ -96,13 +97,15 @@ impl FfiAudioSource {
                     };
 
                     let res = source.capture_frame(&audio_frame).await;
-                    let _ = server.send_event(
+                    if let Err(e) = server.send_event(
                         proto::CaptureAudioFrameCallback {
                             async_id,
                             error: res.err().map(|e| e.to_string()),
                         }
                         .into(),
-                    );
+                    ) {
+                        log::error!("[AUDIO_CAPTURE] Failed to send callback async_id={}: {}", async_id, e);
+                    }
                 }
                 _ => {}
             }
