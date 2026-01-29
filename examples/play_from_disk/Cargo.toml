@@ -9,4 +9,4 @@ tokio = { version = "1", features = ["full"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 thiserror = "1.0.47"
 log = "0.4.20"
-env_logger = "0.10.0"
+env_logger = { workspace = true }

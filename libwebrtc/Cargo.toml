@@ -57,4 +57,4 @@ web-sys = { version = "0.3", features = [
 ] }
 
 [dev-dependencies]
-env_logger = "0.10"
+env_logger = { workspace = true }

@@ -59,7 +59,7 @@ name = "agent_dispatch"
 version = "0.1.0"
 dependencies = [
  "clap",
- "env_logger 0.10.2",
+ "env_logger 0.11.8",
  "livekit-api",
  "livekit-protocol",
  "log",
@@ -572,7 +572,7 @@ dependencies = [
 name = "basic_room"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.10.2",
+ "env_logger 0.11.8",
  "livekit",
  "livekit-api",
  "log",
@@ -1810,11 +1810,8 @@ version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cd405aab171cb85d6735e5c8d9db038c17d3ca007a4d2c25f337935c3d90580"
 dependencies = [
- "humantime",
- "is-terminal",
  "log",
  "regex",
- "termcolor",
 ]
 
 [[package]]
@@ -3007,17 +3004,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "is-terminal"
-version = "0.4.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
-dependencies = [
- "hermit-abi",
- "libc",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "is_terminal_polyfill"
 version = "1.70.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3273,7 +3259,7 @@ name = "libwebrtc"
 version = "0.3.24"
 dependencies = [
  "cxx",
- "env_logger 0.10.2",
+ "env_logger 0.11.8",
  "glib",
  "jni",
  "js-sys",
@@ -3401,7 +3387,7 @@ dependencies = [
  "console-subscriber",
  "dashmap",
  "downcast-rs",
- "env_logger 0.10.2",
+ "env_logger 0.11.8",
  "from_variants",
  "futures-util",
  "imgproc",
@@ -3468,7 +3454,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cpal",
- "env_logger 0.10.2",
+ "env_logger 0.11.8",
  "futures-util",
  "libwebrtc",
  "livekit",
@@ -3487,7 +3473,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui-wgpu",
- "env_logger 0.10.2",
+ "env_logger 0.11.8",
  "futures",
  "image 0.24.9",
  "libwebrtc",
@@ -4602,7 +4588,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 name = "play_from_disk"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.10.2",
+ "env_logger 0.11.8",
  "livekit",
  "log",
  "thiserror 1.0.69",
@@ -5216,7 +5202,7 @@ dependencies = [
 name = "rpc"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.10.2",
+ "env_logger 0.11.8",
  "livekit",
  "livekit-api",
  "log",
@@ -5436,7 +5422,7 @@ name = "screensharing"
 version = "0.1.0"
 dependencies = [
  "clap",
- "env_logger 0.10.2",
+ "env_logger 0.11.8",
  "livekit",
  "livekit-api",
  "log",
@@ -7090,7 +7076,7 @@ dependencies = [
  "cc",
  "cxx",
  "cxx-build",
- "env_logger 0.10.2",
+ "env_logger 0.11.8",
  "glob",
  "log",
  "pkg-config",
@@ -7385,7 +7371,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui-wgpu",
- "env_logger 0.10.2",
+ "env_logger 0.11.8",
  "futures",
  "image 0.24.9",
  "livekit",
