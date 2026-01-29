@@ -67,6 +67,7 @@ serde = "1"
 prost = "0.14"
 prost-types = "0.14"
 prost-build = "0.14"
+console-subscriber = "0.1"
 
 [profile.release]
 opt-level = "z"
