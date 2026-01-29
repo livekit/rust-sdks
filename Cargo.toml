@@ -58,6 +58,7 @@ log = "0.4"
 lazy_static = "1.4"
 tokio = "1"
 bytes = "1.10"
+futures-util = "0.3"
 
 [profile.release]
 opt-level = "z"

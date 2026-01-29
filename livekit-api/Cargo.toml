@@ -93,7 +93,7 @@ async-tungstenite = { version = "0.25.0", features = [ "async-std-runtime", "asy
 tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
 tokio-rustls = { version = "0.24", optional = true }
 rustls-native-certs = { version = "0.6", optional = true }
-futures-util = { version = "0.3", default-features = false, features = [ "sink" ], optional = true }
+futures-util = { workspace = true, default-features = false, features = [ "sink" ], optional = true }
 
 # This dependency must be kept in sync with reqwest's version
 http = "1.1"

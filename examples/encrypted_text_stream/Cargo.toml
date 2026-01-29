@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 tokio = { workspace = true, features = ["full"] }
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+futures-util = { workspace = true, default-features = false, features = ["sink"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 log = { workspace = true }
