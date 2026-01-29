@@ -13,5 +13,5 @@ libwebrtc = { workspace = true }
 log = { workspace = true }
 cpal = "0.15"
 anyhow = "1.0"
-clap = { version = "4.0", features = ["derive"] }
+clap = { workspace = true, features = ["derive"] }
 futures-util = { workspace = true }

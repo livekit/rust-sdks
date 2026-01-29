@@ -10,4 +10,4 @@ livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 env_logger = { workspace = true }
 log = { workspace = true }
 livekit-protocol = { workspace = true }
-clap = { version = "4.0", features = ["derive", "env"] }
+clap = { workspace = true, features = ["derive", "env"] }
