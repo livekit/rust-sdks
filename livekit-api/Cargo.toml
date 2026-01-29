@@ -1,10 +1,10 @@
 [package]
 name = "livekit-api"
 version = "0.4.12"
-license = "Apache-2.0"
+license.workspace = true
 description = "Rust Server SDK for LiveKit"
-edition = "2021"
-repository = "https://github.com/livekit/rust-sdks"
+edition.workspace = true
+repository.workspace = true
 
 [features]
 # By default ws TLS is not enabled
