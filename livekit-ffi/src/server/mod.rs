@@ -177,16 +177,11 @@ impl FfiServer {
             const PTHREAD_PRIORITY_INHERIT: i32 = 0;
 
             extern "C" {
-                fn pthread_set_qos_class_self_np(
-                    qos_class: u32,
-                    relative_priority: i32,
-                ) -> i32;
+                fn pthread_set_qos_class_self_np(qos_class: u32, relative_priority: i32) -> i32;
             }
 
-            let result = pthread_set_qos_class_self_np(
-                QOS_CLASS_USER_INTERACTIVE,
-                PTHREAD_PRIORITY_INHERIT,
-            );
+            let result =
+                pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, PTHREAD_PRIORITY_INHERIT);
 
             if result == 0 {
                 Ok(())
@@ -209,9 +204,9 @@ impl FfiServer {
             );
 
             // Fallback to priority level 80 (high but not max)
-            if let Err(e) = set_current_thread_priority(
-                ThreadPriority::Crossplatform(80.try_into().unwrap())
-            ) {
+            if let Err(e) =
+                set_current_thread_priority(ThreadPriority::Crossplatform(80.try_into().unwrap()))
+            {
                 log::error!("[AUDIO_THREAD] Failed to set any thread priority: {:?}", e);
             } else {
                 log::info!("[AUDIO_THREAD] Set thread priority to Crossplatform(80)");

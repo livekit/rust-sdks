@@ -104,7 +104,11 @@ impl FfiAudioSource {
                         }
                         .into(),
                     ) {
-                        log::error!("[AUDIO_CAPTURE] Failed to send callback async_id={}: {}", async_id, e);
+                        log::error!(
+                            "[AUDIO_CAPTURE] Failed to send callback async_id={}: {}",
+                            async_id,
+                            e
+                        );
                     }
                 }
                 _ => {}
