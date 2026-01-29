@@ -80,7 +80,7 @@ prost = "0.12"
 pbjson-types = "0.6"
 
 # webhooks
-serde_json = { version = "1.0", optional = true }
+serde_json = { workspace = true, optional = true }
 base64 = { version = "0.21", optional = true, features = ["std"] }
 
 # access_token & services

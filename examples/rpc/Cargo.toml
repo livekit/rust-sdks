@@ -11,4 +11,4 @@ livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 log = { workspace = true }
 rand = { workspace = true }
-serde_json = "1.0"
+serde_json = { workspace = true }
