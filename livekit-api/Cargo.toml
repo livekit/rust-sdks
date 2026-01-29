@@ -71,7 +71,7 @@ __rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
 [dependencies]
 livekit-protocol = { workspace = true }
 thiserror = { workspace = true }
-serde = { version = "1.0", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 sha2 = "0.10"
 url = "2.3"
 log = { workspace = true }

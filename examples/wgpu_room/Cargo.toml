@@ -20,7 +20,7 @@ wgpu = "25.0"
 egui = "0.31.1"
 egui-wgpu = "0.31.1"
 eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 log = { workspace = true }
 env_logger = { workspace = true }
 console-subscriber = { version = "0.1.10", features = ["parking_lot"], optional = true }

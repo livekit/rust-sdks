@@ -31,7 +31,7 @@ livekit-api = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-protocol = { workspace = true }
 prost = "0.12"
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros", "fs"] }
 parking_lot = { workspace = true }

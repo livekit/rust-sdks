@@ -17,7 +17,7 @@ futures-util = { workspace = true, features = ["sink"] }
 parking_lot = { workspace = true }
 prost = "0.12"
 
-serde = "1.0"
+serde = { workspace = true }
 pbjson = "0.6"
 pbjson-types = "0.6"
 thiserror = { workspace = true }
