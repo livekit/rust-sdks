@@ -57,6 +57,7 @@ thiserror = "1"
 log = "0.4"
 lazy_static = "1.4"
 tokio = "1"
+bytes = "1.10"
 
 [profile.release]
 opt-level = "z"
