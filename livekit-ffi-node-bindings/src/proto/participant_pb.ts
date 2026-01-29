@@ -20,6 +20,7 @@
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto2 } from "@bufbuild/protobuf";
 import { FfiOwnedHandle } from "./handle_pb.js";
+import { TrackSource } from "./track_pb.js";
 
 /**
  * @generated from enum livekit.proto.ParticipantKind
@@ -271,6 +272,11 @@ export class ParticipantInfo extends Message<ParticipantInfo> {
    */
   kindDetails: ParticipantKindDetail[] = [];
 
+  /**
+   * @generated from field: optional livekit.proto.ParticipantPermission permission = 9;
+   */
+  permission?: ParticipantPermission;
+
   constructor(data?: PartialMessage<ParticipantInfo>) {
     super();
     proto2.util.initPartial(data, this);
@@ -287,6 +293,7 @@ export class ParticipantInfo extends Message<ParticipantInfo> {
     { no: 6, name: "kind", kind: "enum", T: proto2.getEnumType(ParticipantKind), req: true },
     { no: 7, name: "disconnect_reason", kind: "enum", T: proto2.getEnumType(DisconnectReason), req: true },
     { no: 8, name: "kind_details", kind: "enum", T: proto2.getEnumType(ParticipantKindDetail), repeated: true },
+    { no: 9, name: "permission", kind: "message", T: ParticipantPermission, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ParticipantInfo {
@@ -346,6 +353,95 @@ export class OwnedParticipant extends Message<OwnedParticipant> {
 
   static equals(a: OwnedParticipant | PlainMessage<OwnedParticipant> | undefined, b: OwnedParticipant | PlainMessage<OwnedParticipant> | undefined): boolean {
     return proto2.util.equals(OwnedParticipant, a, b);
+  }
+}
+
+/**
+ * copied from livekit-protocol/protocol/protobufs/livekit_models.proto and removed deprecated fields
+ *
+ * @generated from message livekit.proto.ParticipantPermission
+ */
+export class ParticipantPermission extends Message<ParticipantPermission> {
+  /**
+   * allow participant to subscribe to other tracks in the room
+   *
+   * @generated from field: required bool can_subscribe = 1;
+   */
+  canSubscribe?: boolean;
+
+  /**
+   * allow participant to publish new tracks to room
+   *
+   * @generated from field: required bool can_publish = 2;
+   */
+  canPublish?: boolean;
+
+  /**
+   * allow participant to publish data
+   *
+   * @generated from field: required bool can_publish_data = 3;
+   */
+  canPublishData?: boolean;
+
+  /**
+   * sources that are allowed to be published
+   *
+   * @generated from field: repeated livekit.proto.TrackSource can_publish_sources = 9;
+   */
+  canPublishSources: TrackSource[] = [];
+
+  /**
+   * indicates that it's hidden to others
+   *
+   * @generated from field: required bool hidden = 7;
+   */
+  hidden?: boolean;
+
+  /**
+   * indicates that participant can update own metadata and attributes
+   *
+   * @generated from field: required bool can_update_metadata = 10;
+   */
+  canUpdateMetadata?: boolean;
+
+  /**
+   * if a participant can subscribe to metrics
+   *
+   * @generated from field: required bool can_subscribe_metrics = 12;
+   */
+  canSubscribeMetrics?: boolean;
+
+  constructor(data?: PartialMessage<ParticipantPermission>) {
+    super();
+    proto2.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto2 = proto2;
+  static readonly typeName = "livekit.proto.ParticipantPermission";
+  static readonly fields: FieldList = proto2.util.newFieldList(() => [
+    { no: 1, name: "can_subscribe", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 2, name: "can_publish", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 3, name: "can_publish_data", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 9, name: "can_publish_sources", kind: "enum", T: proto2.getEnumType(TrackSource), repeated: true },
+    { no: 7, name: "hidden", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 10, name: "can_update_metadata", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 12, name: "can_subscribe_metrics", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ParticipantPermission {
+    return new ParticipantPermission().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ParticipantPermission {
+    return new ParticipantPermission().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ParticipantPermission {
+    return new ParticipantPermission().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ParticipantPermission | PlainMessage<ParticipantPermission> | undefined, b: ParticipantPermission | PlainMessage<ParticipantPermission> | undefined): boolean {
+    return proto2.util.equals(ParticipantPermission, a, b);
   }
 }
 
