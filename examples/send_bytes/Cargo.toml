@@ -5,7 +5,7 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-tokio = { version = "1.47.1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 log = { workspace = true }
 env_logger = { workspace = true }

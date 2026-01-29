@@ -24,7 +24,7 @@ webrtc-sys = { workspace = true }
 soxr-sys = { workspace = true }
 imgproc = { workspace = true }
 livekit-protocol = { workspace = true }
-tokio = { version = "1", features = ["full", "parking_lot"] }
+tokio = { workspace = true, features = ["full", "parking_lot"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
 prost = "0.14.1"

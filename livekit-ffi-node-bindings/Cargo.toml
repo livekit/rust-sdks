@@ -17,7 +17,7 @@ livekit-ffi = { path = "../livekit-ffi" }
 prost = "0.14"
 prost-types = "0.14"
 log = { workspace = true }
-tokio = { version = "1.37.0", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 
 [build-dependencies]
 napi-build = "2.0.1"

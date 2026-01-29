@@ -18,7 +18,7 @@ dispatcher = ["dep:futures", "dep:async-io", "dep:async-std", "dep:async-task"]
 
 [dependencies]
 # tokio
-tokio = { version = "1", default-features = false, optional = true, features = [
+tokio = { workspace = true, default-features = false, optional = true, features = [
     "rt",
     "rt-multi-thread",
     "net",

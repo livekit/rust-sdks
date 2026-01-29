@@ -23,7 +23,7 @@ path = "src/list_devices.rs"
 required-features = ["desktop"]
 
 [dependencies]
-tokio = { version = "1", features = ["full", "parking_lot"] }
+tokio = { workspace = true, features = ["full", "parking_lot"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 webrtc-sys = { workspace = true }
 libwebrtc = { workspace = true }

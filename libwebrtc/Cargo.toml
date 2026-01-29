@@ -33,7 +33,7 @@ webrtc-sys = { workspace = true }
 livekit-runtime = { workspace = true }
 lazy_static = { workspace = true }
 parking_lot = { workspace = true }
-tokio = { version = "1", default-features = false, features = ["sync", "macros"] }
+tokio = { workspace = true, default-features = false, features = ["sync", "macros"] }
 cxx = "1.0"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
