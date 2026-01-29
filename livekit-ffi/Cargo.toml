@@ -27,7 +27,7 @@ livekit-protocol = { workspace = true }
 tokio = { workspace = true, features = ["full", "parking_lot"] }
 futures-util = { workspace = true, default-features = false, features = ["sink"] }
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
-prost = "0.14.1"
+prost = { workspace = true }
 lazy_static = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
@@ -43,7 +43,7 @@ jni = "0.21.1"
 link-cplusplus = { version = "1", features = ["nothing"] }
 
 [build-dependencies]
-prost-build = "0.14.1"
+prost-build = { workspace = true }
 webrtc-sys-build = { workspace = true }
 
 [dev-dependencies]
