@@ -115,9 +115,9 @@ void UserTimestampTransformer::Transform(
   uint32_t ssrc = frame->GetSsrc();
   uint32_t rtp_timestamp = frame->GetTimestamp();
 
-  if (!enabled_.load()) {
-    // Pass through without modification, but still log basic info so we know
-    // frames are flowing through the transformer.
+  if (direction_ == Direction::kSend && !enabled_.load()) {
+    // Pass through without modification when sending is disabled, but still log
+    // basic info so we know frames are flowing through the transformer.
     RTC_LOG(LS_INFO) << "UserTimestampTransformer::Transform (disabled)"
                      << " direction="
                      << (direction_ == Direction::kSend ? "send" : "recv")
@@ -163,11 +163,11 @@ void UserTimestampTransformer::TransformSend(
 
   // Pop the next user timestamp from the queue.
   // This assumes frames are captured and encoded in order (FIFO).
-  int64_t ts_to_embed = 0;
+  int64_t ts_to_embed = -1;
 
   if (store_) {
     int64_t popped_ts = store_->pop();
-    if (popped_ts >= 0) {
+    if (popped_ts > 0) {
       ts_to_embed = popped_ts;
     } else {
       RTC_LOG(LS_INFO) << "UserTimestampTransformer::TransformSend no user "
@@ -177,10 +177,9 @@ void UserTimestampTransformer::TransformSend(
     }
   }
 
-  // Always append trailer when enabled (even if timestamp is 0,
-  // which indicates no user timestamp was set for this frame)
   std::vector<uint8_t> new_data;
-  if (enabled_.load()) {
+  // If timestamp is set by user, append trailer, otherwise skip transform.
+  if (enabled_.load() && ts_to_embed > 0) {
     new_data = AppendTimestampTrailer(data, ts_to_embed);
     frame->SetData(rtc::ArrayView<const uint8_t>(new_data));
 
@@ -191,6 +190,12 @@ void UserTimestampTransformer::TransformSend(
                      << " ssrc=" << ssrc
                      << " orig_size=" << data.size()
                      << " new_size=" << new_data.size();
+  } else {
+    RTC_LOG(LS_INFO) << "UserTimestampTransformer::TransformSend skipping "
+                        "trailer"
+                     << " rtp_ts=" << rtp_timestamp
+                     << " ssrc=" << ssrc
+                     << " orig_size=" << data.size();
   }
 
   // Forward to the appropriate callback (either global or per-SSRC sink).
@@ -224,16 +229,6 @@ void UserTimestampTransformer::TransformReceive(
   auto user_ts = ExtractTimestampTrailer(data, stripped_data);
 
   if (user_ts.has_value()) {
-    // Compute latency from embedded user timestamp to RTP receive
-    // time (both in microseconds since Unix epoch), so we can compare
-    // this with the latency logged after decode on the subscriber side.
-    int64_t now_us =
-        std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count();
-    double recv_latency_ms =
-        static_cast<double>(now_us - user_ts.value()) / 1000.0;
-
     // Store the extracted timestamp for later retrieval
     last_user_timestamp_.store(user_ts.value());
     has_last_user_timestamp_.store(true);
@@ -243,8 +238,7 @@ void UserTimestampTransformer::TransformReceive(
 
     RTC_LOG(LS_INFO) << "UserTimestampTransformer"
                      << " user_ts=" << user_ts.value()
-                     << " rtp_ts=" << frame->GetTimestamp()
-                     << " recv_latency=" << recv_latency_ms << " ms";
+                     << " rtp_ts=" << frame->GetTimestamp();
   } else {
     // Log the last few bytes so we can see whether the magic marker is present.
     size_t log_len = std::min<size_t>(data.size(), 16);
@@ -429,6 +423,10 @@ int64_t UserTimestampHandler::last_user_timestamp() const {
 
 bool UserTimestampHandler::has_user_timestamp() const {
   return transformer_->last_user_timestamp().has_value();
+}
+
+rtc::scoped_refptr<UserTimestampTransformer> UserTimestampHandler::transformer() const {
+  return transformer_;
 }
 
 // Factory functions

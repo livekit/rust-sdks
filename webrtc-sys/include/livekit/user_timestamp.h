@@ -165,6 +165,9 @@ class UserTimestampHandler {
   /// Check if a user timestamp has been received
   bool has_user_timestamp() const;
 
+  /// Access the underlying transformer for chaining.
+  rtc::scoped_refptr<UserTimestampTransformer> transformer() const;
+
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   rtc::scoped_refptr<UserTimestampTransformer> transformer_;
