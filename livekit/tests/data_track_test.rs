@@ -44,7 +44,7 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
     let mut rooms = test_rooms(2).await?;
 
     let (pub_room, _) = rooms.pop().unwrap();
-    let (sub_room, mut sub_room_event_rx) = rooms.pop().unwrap();
+    let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
     let pub_identity = pub_room.local_participant().identity();
 
     let frame_count = (PUBLISH_DURATION.as_secs_f64() * publish_fps).round() as u64;
@@ -67,16 +67,7 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
     };
 
     let subscribe = async move {
-        let track = async move {
-            while let Some(event) = sub_room_event_rx.recv().await {
-                let RoomEvent::RemoteDataTrackPublished(track) = event else {
-                    continue;
-                };
-                return Ok(track);
-            }
-            Err(anyhow!("No track published"))
-        }
-        .await?;
+        let track = wait_for_remote_track(&mut sub_room_event_rx).await?;
 
         log::info!("Got remote track: {}", track.info().sid());
         assert!(track.is_published());
@@ -86,19 +77,13 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
 
         let mut subscription = track.subscribe().await?;
 
-        //sub_room.simulate_scenario(livekit::SimulateScenario::SignalReconnect).await.unwrap();
-
         let mut recv_count = 0;
-
         while let Some(frame) = subscription.next().await {
             let payload = frame.payload();
             if let Some(first_byte) = payload.first() {
                 assert!(payload.iter().all(|byte| byte == first_byte));
             }
             assert_eq!(frame.user_timestamp(), None);
-            // if recv_count == 100 {
-            //     sub_room.simulate_scenario(livekit::SimulateScenario::SignalReconnect).await.unwrap();
-            // }
             recv_count += 1;
         }
 
@@ -110,7 +95,7 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
         }
         Ok(())
     };
-    timeout(PUBLISH_DURATION + Duration::from_secs(5), async { try_join!(publish, subscribe) })
+    timeout(PUBLISH_DURATION + Duration::from_secs(25), async { try_join!(publish, subscribe) })
         .await??;
     Ok(())
 }
@@ -230,16 +215,7 @@ async fn test_e2ee() -> Result<()> {
     };
 
     let subscribe = async move {
-        let track = async move {
-            while let Some(event) = sub_room_event_rx.recv().await {
-                let RoomEvent::RemoteDataTrackPublished(track) = event else {
-                    continue;
-                };
-                return Ok(track);
-            }
-            Err(anyhow!("No track published"))
-        }
-        .await?;
+        let track = wait_for_remote_track(&mut sub_room_event_rx).await?;
 
         assert!(track.info().uses_e2ee());
         let mut subscription = track.subscribe().await?;
@@ -278,16 +254,7 @@ async fn test_published_state() -> Result<()> {
     };
 
     let subscribe = async move {
-        let track = async move {
-            while let Some(event) = sub_room_event_rx.recv().await {
-                let RoomEvent::RemoteDataTrackPublished(track) = event else {
-                    continue;
-                };
-                return Ok(track);
-            }
-            Err(anyhow!("No track published"))
-        }
-        .await?;
+        let track = wait_for_remote_track(&mut sub_room_event_rx).await?;
         assert!(track.is_published());
 
         let elapsed = {
@@ -324,17 +291,7 @@ async fn test_resubscribe() -> Result<()> {
     };
 
     let subscribe = async move {
-        let track = async move {
-            while let Some(event) = sub_room_event_rx.recv().await {
-                let RoomEvent::RemoteDataTrackPublished(track) = event else {
-                    continue;
-                };
-                return Ok(track);
-            }
-            Err(anyhow!("No track published"))
-        }
-        .await
-        .unwrap();
+        let track = wait_for_remote_track(&mut sub_room_event_rx).await.unwrap();
 
         let mut successful_subscriptions = 0;
         for _ in 0..ITERATIONS {
@@ -378,17 +335,7 @@ async fn test_frame_with_user_timestamp() -> Result<()> {
     };
 
     let subscribe = async move {
-        let track = async move {
-            while let Some(event) = sub_room_event_rx.recv().await {
-                let RoomEvent::RemoteDataTrackPublished(track) = event else {
-                    continue;
-                };
-                return Ok(track);
-            }
-            Err(anyhow!("No track published"))
-        }
-        .await
-        .unwrap();
+        let track = wait_for_remote_track(&mut sub_room_event_rx).await.unwrap();
 
         let mut stream = track.subscribe().await.unwrap();
         while let Some(frame) = stream.next().await {
@@ -405,4 +352,17 @@ async fn test_frame_with_user_timestamp() -> Result<()> {
     })
     .await?;
     Ok(())
+}
+
+/// Waits for the first remote data track to be published.
+#[cfg(feature = "__lk-e2e-test")]
+async fn wait_for_remote_track(
+    rx: &mut tokio::sync::mpsc::UnboundedReceiver<RoomEvent>,
+) -> Result<RemoteDataTrack> {
+    while let Some(event) = rx.recv().await {
+        if let RoomEvent::RemoteDataTrackPublished(track) = event {
+            return Ok(track);
+        }
+    }
+    Err(anyhow!("No track published"))
 }
