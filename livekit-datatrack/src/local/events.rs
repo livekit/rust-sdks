@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
 use crate::{
     api::{DataTrackInfo, DataTrackOptions, LocalDataTrack, PublishError},
     packet::Handle,
@@ -25,6 +26,7 @@ use tokio::sync::oneshot;
 pub enum InputEvent {
     PublishRequest(PublishRequest),
     PublishCancelled(PublishCancelled),
+    QueryPublished(QueryPublished),
     UnpublishRequest(UnpublishRequest),
     SfuPublishResponse(SfuPublishResponse),
     SfuUnpublishResponse(SfuUnpublishResponse),
@@ -80,6 +82,12 @@ pub struct SfuPublishResponse {
 pub struct SfuUnpublishResponse {
     /// Publisher handle of the track that was unpublished.
     pub handle: Handle,
+}
+
+/// Get information about all currently published tracks.
+#[derive(Debug)]
+pub struct QueryPublished {
+    pub(super) result_tx: oneshot::Sender<Vec<Arc<DataTrackInfo>>>
 }
 
 // MARK: - Output events

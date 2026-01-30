@@ -87,6 +87,7 @@ impl Manager {
             match event {
                 InputEvent::PublishRequest(event) => self.on_publish_request(event).await,
                 InputEvent::PublishCancelled(event) => self.on_publish_cancelled(event).await,
+                InputEvent::QueryPublished(event) => self.on_query_published(event).await,
                 InputEvent::UnpublishRequest(event) => self.on_unpublish_request(event).await,
                 InputEvent::SfuPublishResponse(event) => self.on_sfu_publish_response(event).await,
                 InputEvent::SfuUnpublishResponse(event) => {
@@ -160,6 +161,20 @@ impl Manager {
         }
     }
 
+    async fn on_query_published(&self, event: QueryPublished) {
+        let published_info: Vec<_> = self
+            .descriptors
+            .iter()
+            .filter_map(|descriptor| {
+                let (_, Descriptor::Active { info, .. }) = descriptor else {
+                    return None;
+                };
+                info.clone().into()
+            })
+            .collect();
+        _ = event.result_tx.send(published_info);
+    }
+
     async fn on_unpublish_request(&mut self, event: UnpublishRequest) {
         self.remove_descriptor(event.handle);
 
@@ -207,7 +222,11 @@ impl Manager {
 
         self.descriptors.insert(
             info.pub_handle,
-            Descriptor::Active { published_tx: published_tx.clone(), task_handle },
+            Descriptor::Active {
+                info: info.clone(),
+                published_tx: published_tx.clone(),
+                task_handle,
+            },
         );
 
         let inner = LocalTrackInner { frame_tx, published_tx };
@@ -237,7 +256,7 @@ impl Manager {
                 Descriptor::Pending(result_tx) => {
                     _ = result_tx.send(Err(PublishError::Disconnected))
                 }
-                Descriptor::Active { published_tx, task_handle } => {
+                Descriptor::Active { published_tx, task_handle, .. } => {
                     _ = published_tx.send(false);
                     task_handle.await;
                 }
@@ -304,7 +323,11 @@ enum Descriptor {
     ///
     /// The associated channel is used to end the track task.
     ///
-    Active { published_tx: watch::Sender<bool>, task_handle: livekit_runtime::JoinHandle<()> },
+    Active {
+        info: Arc<DataTrackInfo>,
+        published_tx: watch::Sender<bool>,
+        task_handle: livekit_runtime::JoinHandle<()>,
+    },
 }
 
 /// Channel for sending [`InputEvent`]s to [`Manager`].
@@ -335,6 +358,21 @@ impl ManagerInput {
             .map_err(|_| PublishError::Disconnected)??;
 
         Ok(track)
+    }
+
+    /// Get information about all currently published tracks.
+    ///
+    /// This does not include publications that are still pending.
+    ///
+    pub async fn published_tracks(&self) -> Vec<Arc<DataTrackInfo>> {
+        let (result_tx, result_rx) = oneshot::channel();
+
+        let event = QueryPublished { result_tx };
+        if self.event_in_tx.send(event.into()).await.is_err() {
+            return vec![];
+        }
+
+        result_rx.await.unwrap_or_default()
     }
 
     /// How long to wait for before timeout.

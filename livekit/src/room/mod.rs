@@ -1244,6 +1244,10 @@ impl RoomSession {
             });
         }
 
+        let publish_data_tracks = dt::local::publish_responses_for_sync_state(
+            self.local_dt_input.published_tracks().await,
+        );
+
         let sync_state = proto::SyncState {
             answer: Some(proto::SessionDescription {
                 sdp: answer.to_string(),
@@ -1266,8 +1270,7 @@ impl RoomSession {
             publish_tracks: self.local_participant.published_tracks_info(),
             data_channels: dcs,
             datachannel_receive_states: session.data_channel_receive_states(),
-            publish_data_tracks: vec![],
-            // TODO: handle sync state
+            publish_data_tracks
         };
 
         log::debug!("sending sync state {:?}", sync_state);

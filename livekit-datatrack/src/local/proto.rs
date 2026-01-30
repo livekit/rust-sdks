@@ -19,7 +19,7 @@ use crate::{
 };
 use anyhow::{anyhow, Context};
 use livekit_protocol as proto;
-use std::mem;
+use std::borrow::Borrow;
 
 // MARK: - Output event -> protocol
 
@@ -91,18 +91,38 @@ pub fn publish_result_from_request_response(
     Some(event)
 }
 
-pub fn publish_results_from_sync_state(
-    msg: &mut proto::SyncState,
-) -> Result<Vec<SfuPublishResponse>, InternalError> {
-    mem::take(&mut msg.publish_data_tracks)
+// MARK: - Sync state support
+
+impl From<DataTrackInfo> for proto::DataTrackInfo {
+    fn from(info: DataTrackInfo) -> Self {
+        let encryption = if info.uses_e2ee() {
+            proto::encryption::Type::Gcm
+        } else {
+            proto::encryption::Type::None
+        };
+        Self {
+            pub_handle: info.pub_handle.into(),
+            sid: info.sid().to_string(),
+            name: info.name,
+            encryption: encryption as i32,
+        }
+    }
+}
+
+/// Form publish responses for each publish data track to support sync state.
+pub fn publish_responses_for_sync_state(
+    published_tracks: impl IntoIterator<Item = impl Borrow<DataTrackInfo>>,
+) -> Vec<proto::PublishDataTrackResponse> {
+    published_tracks
         .into_iter()
-        .map(TryInto::<SfuPublishResponse>::try_into)
-        .collect::<Result<Vec<_>, InternalError>>()
+        .map(|info| proto::PublishDataTrackResponse { info: Some(info.borrow().clone().into()) })
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fake::{Fake, Faker};
 
     #[test]
     fn test_from_publish_request_event() {
@@ -164,33 +184,21 @@ mod tests {
     }
 
     #[test]
-    fn test_from_sync_state() {
-        let mut sync_state = proto::SyncState {
-            publish_data_tracks: vec![
-                proto::PublishDataTrackResponse {
-                    info: proto::DataTrackInfo {
-                        pub_handle: 1,
-                        sid: "DTR_1234".into(),
-                        name: "track1".into(),
-                        encryption: proto::encryption::Type::Gcm.into(),
-                    }
-                    .into(),
-                },
-                proto::PublishDataTrackResponse {
-                    info: proto::DataTrackInfo {
-                        pub_handle: 2,
-                        sid: "DTR_4567".into(),
-                        name: "track2".into(),
-                        encryption: proto::encryption::Type::Gcm.into(),
-                    }
-                    .into(),
-                },
-            ],
-            ..Default::default()
-        };
-        let events = publish_results_from_sync_state(&mut sync_state).expect("Expected events");
-        assert_eq!(events.len(), 2);
-        assert!(sync_state.publish_data_tracks.is_empty(), "Expected original vec taken");
-        assert!(events.into_iter().all(|event| event.result.is_ok()));
+    fn test_publish_responses_for_sync_state() {
+        let mut first: DataTrackInfo = Faker.fake();
+        first.uses_e2ee = true;
+
+        let mut second: DataTrackInfo = Faker.fake();
+        second.uses_e2ee = false;
+
+        let publish_responses = publish_responses_for_sync_state(vec![first, second]);
+        assert_eq!(
+            publish_responses[0].info.as_ref().unwrap().encryption(),
+            proto::encryption::Type::Gcm
+        );
+        assert_eq!(
+            publish_responses[1].info.as_ref().unwrap().encryption(),
+            proto::encryption::Type::None
+        );
     }
 }
