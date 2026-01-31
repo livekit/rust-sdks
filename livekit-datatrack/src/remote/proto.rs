@@ -39,7 +39,7 @@ impl TryFrom<proto::DataTrackSubscriberHandles> for SfuSubscriberHandles {
     }
 }
 
-/// Extracts a [`PublicationsUpdatedEvent`] from a join response.
+/// Extracts a [`SfuPublicationUpdates`] from a join response.
 ///
 /// This takes ownership of the `data_tracks` vector for each participant
 /// (except for the local participant), leaving an empty vector in its place.
@@ -50,7 +50,7 @@ pub fn event_from_join(
     event_from_participant_info(&mut msg.other_participants, None)
 }
 
-/// Extracts a [`PublicationsUpdatedEvent`] from a participant update.
+/// Extracts a [`SfuPublicationUpdates`] from a participant update.
 ///
 /// This takes ownership of the `data_tracks` vector for each participant in
 /// the update, leaving an empty vector in its place.
@@ -63,7 +63,7 @@ pub fn event_from_participant_update(
     event_from_participant_info(&mut msg.participants, local_participant_identity.into())
 }
 
-/// Extracts a [`PublicationsUpdatedEvent`] from a participant info list.
+/// Extracts a [`SfuPublicationUpdates`] from a participant info list.
 ///
 /// Tracks published by the local participant will be filtered out if the local
 /// participant identity is set.
