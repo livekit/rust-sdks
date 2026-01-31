@@ -58,6 +58,7 @@ impl From<ParticipantKind> for proto::ParticipantKind {
             ParticipantKind::Egress => proto::ParticipantKind::Egress,
             ParticipantKind::Agent => proto::ParticipantKind::Agent,
             ParticipantKind::Connector => proto::ParticipantKind::Connector,
+            ParticipantKind::Bridge => proto::ParticipantKind::Bridge
         }
     }
 }
@@ -71,6 +72,7 @@ impl From<ParticipantKindDetail> for proto::ParticipantKindDetail {
                 proto::ParticipantKindDetail::ConnectorWhatsapp
             }
             ParticipantKindDetail::ConnectorTwilio => proto::ParticipantKindDetail::ConnectorTwilio,
+            ParticipantKindDetail::BridgeRtsp => proto::ParticipantKindDetail::BridgeRtsp
         }
     }
 }

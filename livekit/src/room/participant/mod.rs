@@ -45,6 +45,7 @@ pub enum ParticipantKind {
     Sip,
     Agent,
     Connector,
+    Bridge
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -53,6 +54,7 @@ pub enum ParticipantKindDetail {
     Forwarded,
     ConnectorWhatsapp,
     ConnectorTwilio,
+    BridgeRtsp
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
