@@ -55,6 +55,11 @@ export enum ParticipantKind {
    * @generated from enum value: PARTICIPANT_KIND_CONNECTOR = 5;
    */
   CONNECTOR = 5,
+
+  /**
+   * @generated from enum value: PARTICIPANT_KIND_BRIDGE = 6;
+   */
+  BRIDGE = 6,
 }
 // Retrieve enum metadata with: proto2.getEnumType(ParticipantKind)
 proto2.util.setEnumType(ParticipantKind, "livekit.proto.ParticipantKind", [
@@ -64,6 +69,7 @@ proto2.util.setEnumType(ParticipantKind, "livekit.proto.ParticipantKind", [
   { no: 3, name: "PARTICIPANT_KIND_SIP" },
   { no: 4, name: "PARTICIPANT_KIND_AGENT" },
   { no: 5, name: "PARTICIPANT_KIND_CONNECTOR" },
+  { no: 6, name: "PARTICIPANT_KIND_BRIDGE" },
 ]);
 
 /**
@@ -89,6 +95,11 @@ export enum ParticipantKindDetail {
    * @generated from enum value: PARTICIPANT_KIND_DETAIL_CONNECTOR_TWILIO = 3;
    */
   CONNECTOR_TWILIO = 3,
+
+  /**
+   * @generated from enum value: PARTICIPANT_KIND_DETAIL_BRIDGE_RTSP = 4;
+   */
+  BRIDGE_RTSP = 4,
 }
 // Retrieve enum metadata with: proto2.getEnumType(ParticipantKindDetail)
 proto2.util.setEnumType(ParticipantKindDetail, "livekit.proto.ParticipantKindDetail", [
@@ -96,6 +107,7 @@ proto2.util.setEnumType(ParticipantKindDetail, "livekit.proto.ParticipantKindDet
   { no: 1, name: "PARTICIPANT_KIND_DETAIL_FORWARDED" },
   { no: 2, name: "PARTICIPANT_KIND_DETAIL_CONNECTOR_WHATSAPP" },
   { no: 3, name: "PARTICIPANT_KIND_DETAIL_CONNECTOR_TWILIO" },
+  { no: 4, name: "PARTICIPANT_KIND_DETAIL_BRIDGE_RTSP" },
 ]);
 
 /**
