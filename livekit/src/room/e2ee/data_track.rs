@@ -14,7 +14,7 @@
 
 use crate::{id::ParticipantIdentity, E2eeManager};
 use bytes::Bytes;
-use livekit_datatrack::internal as dt;
+use livekit_datatrack::backend as dt;
 
 /// Wrapper around [`E2eeManager`] implementing [`dt::EncryptionProvider`].
 #[derive(Debug)]

@@ -364,7 +364,7 @@ impl ManagerInput {
     ///
     /// This does not include publications that are still pending.
     ///
-    pub async fn published_tracks(&self) -> Vec<Arc<DataTrackInfo>> {
+    pub async fn query_tracks(&self) -> Vec<Arc<DataTrackInfo>> {
         let (result_tx, result_rx) = oneshot::channel();
 
         let event = QueryPublished { result_tx };

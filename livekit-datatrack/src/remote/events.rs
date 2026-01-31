@@ -21,7 +21,7 @@ use from_variants::FromVariants;
 use std::collections::HashMap;
 use tokio::sync::{broadcast, oneshot};
 
-/// An external event handled by [`super::manager::Manager`].
+/// An external event handled by [`Manager`](super::manager::Manager).
 #[derive(Debug, FromVariants)]
 pub enum InputEvent {
     SubscribeRequest(SubscribeRequest),
@@ -40,12 +40,16 @@ pub enum InputEvent {
     Shutdown,
 }
 
-/// An event produced by [`super::manager::Manager`] requiring external action.
+/// An event produced by [`Manager`](super::manager::Manager) requiring external action.
 #[derive(Debug, FromVariants)]
 pub enum OutputEvent {
     SfuUpdateSubscription(SfuUpdateSubscription),
-    /// Remote track has been published and a track object has been created for
-    /// the user to interact with.
+    /// A track has been published by a remote participant and is available to be
+    /// subscribed to.
+    ///
+    /// Emit a public event to deliver the track to the user, allowing them to subscribe
+    /// with [`RemoteDataTrack::subscribe`] if desired.
+    ///
     TrackAvailable(RemoteDataTrack),
 }
 
@@ -55,6 +59,13 @@ pub enum OutputEvent {
 pub(super) type SubscribeResult = Result<broadcast::Receiver<DataTrackFrame>, SubscribeError>;
 
 /// Client requested to subscribe to a data track.
+///
+/// This is sent when the user calls [`RemoteDataTrack::subscribe`].
+///
+/// Only the first request to subscribe to a given track incurs meaningful overhead; subsequent
+/// requests simply attach an additional receiver to the broadcast channel, allowing them to consume
+/// frames from the existing subscription pipeline.
+///
 #[derive(Debug)]
 pub struct SubscribeRequest {
     /// Identifier of the track.
@@ -70,15 +81,29 @@ pub struct UnsubscribeRequest {
     pub(super) sid: DataTrackSid,
 }
 
-/// SFU notification that remote participants have published or unpublished
-/// unpublished data tracks.
+/// SFU notification that track publications have changed.
+///
+/// This event is produced from both [`livekit_protocol::JoinResponse`] and [`livekit_protocol::ParticipantUpdate`]
+/// to provide a complete view of remote participants' track publications:
+///
+/// - From a `JoinResponse`, it captures the initial set of tracks published when a participant joins.
+/// - From a `ParticipantUpdate`, it captures subsequent changes (i.e., new tracks being
+///  published and existing tracks unpublished).
+///
+/// See [`event_from_join`](super::proto::event_from_join) and
+///     [`event_from_participant_update`](super::proto::event_from_participant_update).
+///
 #[derive(Debug)]
 pub struct SfuPublicationUpdates {
-    /// Mapping between participant identity and data tracks published by that participant.
+    /// Mapping between participant identity and data tracks currently
+    /// published by that participant.
     pub updates: HashMap<String, Vec<DataTrackInfo>>,
 }
 
 /// SFU notification that handles have been assigned for requested subscriptions.
+///
+/// Protocol equivalent: [`livekit_protocol::DataTrackSubscriberHandles`].
+///
 #[derive(Debug)]
 pub struct SfuSubscriberHandles {
     /// Mapping between track handles attached to incoming packets to the
@@ -89,6 +114,9 @@ pub struct SfuSubscriberHandles {
 // MARK: - Output events
 
 /// Request sent to the SFU to update the subscription for a data track.
+///
+/// Protocol equivalent: [`livekit_protocol::UpdateDataSubscription`].
+///
 #[derive(Debug)]
 pub struct SfuUpdateSubscription {
     /// Identifier of the affected track.

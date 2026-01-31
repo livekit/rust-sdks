@@ -26,21 +26,29 @@ pub struct EncryptedPayload {
     pub key_index: u8,
 }
 
+/// An error indicating a payload could not be encrypted.
 #[derive(Debug, Error)]
 #[error("Encryption failed")]
 pub struct EncryptionError;
 
+/// An error indicating a payload could not be decrypted.
+#[derive(Debug, Error)]
+#[error("Decryption failed")]
+pub struct DecryptionError;
+
+/// Provider for encrypting payloads for E2EE.
 pub trait EncryptionProvider: Send + Sync + Debug {
     /// Encrypts the given payload being sent by the local participant.
     fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, EncryptionError>;
 }
 
-#[derive(Debug, Error)]
-#[error("Decryption failed")]
-pub struct DecryptionError;
-
+/// Provider for decrypting payloads for E2EE.
 pub trait DecryptionProvider: Send + Sync + Debug {
     /// Decrypts the given payload received from a remote participant.
+    ///
+    /// Sender identity is required in order for the proper key to be used
+    /// for decryption.
+    ///
     fn decrypt(
         &self,
         payload: EncryptedPayload,

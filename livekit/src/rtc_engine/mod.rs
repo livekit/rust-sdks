@@ -14,7 +14,7 @@
 
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
-use livekit_datatrack::internal as dt;
+use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
 use livekit_runtime::{interval, Interval, JoinHandle};
 use parking_lot::{RwLock, RwLockReadGuard};

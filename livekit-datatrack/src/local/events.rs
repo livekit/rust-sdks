@@ -21,7 +21,7 @@ use bytes::Bytes;
 use from_variants::FromVariants;
 use tokio::sync::oneshot;
 
-/// An external event handled by [`super::manager::Manager`].
+/// An external event handled by [`Manager`](super::manager::Manager).
 #[derive(Debug, FromVariants)]
 pub enum InputEvent {
     PublishRequest(PublishRequest),
@@ -34,7 +34,7 @@ pub enum InputEvent {
     Shutdown,
 }
 
-/// An event produced by [`super::manager::Manager`] requiring external action.
+/// An event produced by [`Manager`](super::manager::Manager) requiring external action.
 #[derive(Debug, FromVariants)]
 pub enum OutputEvent {
     SfuPublishRequest(SfuPublishRequest),
@@ -46,6 +46,11 @@ pub enum OutputEvent {
 // MARK: - Input events
 
 /// Client requested to publish a track.
+///
+/// Send using [`ManagerInput::publish_track`] and await the result.
+///
+/// [`ManagerInput::publish_track`]: super::manager::ManagerInput::publish_track
+///
 #[derive(Debug)]
 pub struct PublishRequest {
     /// Publish options.
@@ -54,21 +59,36 @@ pub struct PublishRequest {
     pub(super) result_tx: oneshot::Sender<Result<LocalDataTrack, PublishError>>,
 }
 
-/// Client request to publish a track has been cancelled.
+/// Client request to publish a track has been cancelled (internal).
 #[derive(Debug)]
 pub struct PublishCancelled {
     /// Publisher handle of the pending publication.
     pub(super) handle: Handle,
 }
 
-/// Client request to unpublish a track.
+/// Client request to unpublish a track (internal).
 #[derive(Debug)]
 pub struct UnpublishRequest {
     /// Publisher handle of the track to unpublish.
     pub(super) handle: Handle,
 }
 
+/// Get information about all currently published tracks.
+///
+/// Send using [`ManagerInput::query_tracks`] and await the result. This is used
+/// to support sync state.
+///
+/// [`ManagerInput::query_tracks`]: super::manager::ManagerInput::query_tracks
+///
+#[derive(Debug)]
+pub struct QueryPublished {
+    pub(super) result_tx: oneshot::Sender<Vec<Arc<DataTrackInfo>>>
+}
+
 /// SFU responded to a request to publish a data track.
+///
+/// Protocol equivalent: [`livekit_protocol::PublishDataTrackResponse`].
+///
 #[derive(Debug)]
 pub struct SfuPublishResponse {
     /// Publisher handle of the track.
@@ -78,21 +98,21 @@ pub struct SfuPublishResponse {
 }
 
 /// SFU notification that a track has been unpublished.
+///
+/// Protocol equivalent: [`livekit_protocol::UnpublishDataTrackResponse`].
+///
 #[derive(Debug)]
 pub struct SfuUnpublishResponse {
     /// Publisher handle of the track that was unpublished.
     pub handle: Handle,
 }
 
-/// Get information about all currently published tracks.
-#[derive(Debug)]
-pub struct QueryPublished {
-    pub(super) result_tx: oneshot::Sender<Vec<Arc<DataTrackInfo>>>
-}
-
 // MARK: - Output events
 
 /// Request sent to the SFU to publish a track.
+///
+/// Protocol equivalent: [`livekit_protocol::PublishDataTrackRequest`].
+///
 #[derive(Debug)]
 pub struct SfuPublishRequest {
     pub handle: Handle,
@@ -101,6 +121,9 @@ pub struct SfuPublishRequest {
 }
 
 /// Request sent to the SFU to unpublish a track.
+///
+/// Protocol equivalent: [`livekit_protocol::UnpublishDataTrackRequest`].
+///
 #[derive(Debug)]
 pub struct SfuUnpublishRequest {
     /// Publisher handle of the track to unpublish.

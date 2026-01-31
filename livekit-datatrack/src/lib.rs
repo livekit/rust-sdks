@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![doc = include_str!("../README.md")]
+
 /// Common types for local and remote tracks.
 mod track;
 
@@ -36,18 +38,21 @@ mod utils;
 /// Internal error.
 mod error;
 
-/// Public APIs re-exported by the LiveKit crate.
+/// Public APIs re-exported by client SDKs.
 pub mod api {
     pub use crate::{error::*, frame::*, local::*, remote::*, track::*};
 }
 
-/// Internal APIs for use within the LiveKit crate.
-pub mod internal {
+/// Internal APIs used within client SDKs to power data tracks functionality.
+pub mod backend {
     pub use crate::e2ee::*;
 
+    /// Local track publication
     pub mod local {
         pub use crate::local::{events::*, manager::*, proto::*};
     }
+
+    /// Remote track subscription
     pub mod remote {
         pub use crate::remote::{events::*, manager::*, proto::*};
     }

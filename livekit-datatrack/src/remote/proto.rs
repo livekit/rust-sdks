@@ -17,7 +17,7 @@ use crate::{
     api::{DataTrackInfo, DataTrackSid, InternalError},
     packet::Handle,
 };
-use livekit_protocol::{self as proto, ParticipantInfo};
+use livekit_protocol as proto;
 use std::{collections::HashMap, mem};
 
 // MARK: - Protocol -> input event
@@ -39,7 +39,7 @@ impl TryFrom<proto::DataTrackSubscriberHandles> for SfuSubscriberHandles {
     }
 }
 
-/// Extracts a [`SfuPublicationUpdates`] from a join response.
+/// Extracts an [`SfuPublicationUpdates`] event from a join response.
 ///
 /// This takes ownership of the `data_tracks` vector for each participant
 /// (except for the local participant), leaving an empty vector in its place.
@@ -50,7 +50,7 @@ pub fn event_from_join(
     event_from_participant_info(&mut msg.other_participants, None)
 }
 
-/// Extracts a [`SfuPublicationUpdates`] from a participant update.
+/// Extracts an [`SfuPublicationUpdates`] event from a participant update.
 ///
 /// This takes ownership of the `data_tracks` vector for each participant in
 /// the update, leaving an empty vector in its place.
@@ -63,13 +63,8 @@ pub fn event_from_participant_update(
     event_from_participant_info(&mut msg.participants, local_participant_identity.into())
 }
 
-/// Extracts a [`SfuPublicationUpdates`] from a participant info list.
-///
-/// Tracks published by the local participant will be filtered out if the local
-/// participant identity is set.
-///
 fn event_from_participant_info(
-    msg: &mut [ParticipantInfo],
+    msg: &mut [proto::ParticipantInfo],
     local_participant_identity: Option<&str>,
 ) -> Result<SfuPublicationUpdates, InternalError> {
     let updates = msg
@@ -84,7 +79,9 @@ fn event_from_participant_info(
     Ok(SfuPublicationUpdates { updates })
 }
 
-fn extract_track_info(msg: &mut ParticipantInfo) -> Result<Vec<DataTrackInfo>, InternalError> {
+fn extract_track_info(
+    msg: &mut proto::ParticipantInfo,
+) -> Result<Vec<DataTrackInfo>, InternalError> {
     mem::take(&mut msg.data_tracks)
         .into_iter()
         .map(TryInto::<DataTrackInfo>::try_into)
@@ -98,7 +95,7 @@ impl From<SfuUpdateSubscription> for proto::UpdateDataSubscription {
         let update = proto::update_data_subscription::Update {
             track_sid: event.sid.into(),
             subscribe: event.subscribe,
-            options: Default::default(), // TODO: pass through options
+            options: Default::default(),
         };
         Self { updates: vec![update] }
     }

@@ -24,7 +24,7 @@ use libwebrtc::{
     RtcError,
 };
 use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
-use livekit_datatrack::{api::RemoteDataTrack, internal as dt};
+use livekit_datatrack::{api::RemoteDataTrack, backend as dt};
 use livekit_protocol::observer::Dispatcher;
 use livekit_protocol::{self as proto, encryption};
 use livekit_runtime::JoinHandle;
@@ -1245,7 +1245,7 @@ impl RoomSession {
         }
 
         let publish_data_tracks = dt::local::publish_responses_for_sync_state(
-            self.local_dt_input.published_tracks().await,
+            self.local_dt_input.query_tracks().await,
         );
 
         let sync_state = proto::SyncState {
