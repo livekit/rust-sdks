@@ -403,6 +403,53 @@ async fn test_subscriber_side_fault(scenario: SimulateScenario) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "__lk-e2e-test")]
+#[test_case(SimulateScenario::SignalReconnect; "signal_reconnect")]
+#[test_case(SimulateScenario::ForceTcp; "full_reconnect")]
+#[test_log::test(tokio::test)]
+async fn test_publisher_side_fault(scenario: SimulateScenario) -> Result<()> {
+    let mut rooms = test_rooms(2).await?;
+
+    let (pub_room, _) = rooms.pop().unwrap();
+    let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
+
+    let publish = async move {
+        let track = pub_room.local_participant().publish_data_track("my_track").await.unwrap();
+
+        pub_room.simulate_scenario(scenario).await.unwrap();
+        assert!(track.is_published());
+
+        loop {
+            track
+                .try_push(vec![0xFA; 64].into())
+                .expect("Should be able to push frame after reconnect");
+            time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+
+    let subscribe = async move {
+        let track = wait_for_remote_track(&mut sub_room_event_rx).await.unwrap();
+        let mut stream = track.subscribe().await.unwrap();
+
+        let mut got_frame = false;
+        while let Some(frame) = stream.next().await {
+            // Ensure we can at least get one frame.
+            assert!(!frame.payload().is_empty());
+            got_frame = true;
+            break;
+        }
+        if !got_frame {
+            panic!("No frame received");
+        }
+    };
+
+    let _ = timeout(Duration::from_secs(10), async {
+        tokio::select! { _ = publish => (), _ = subscribe => () };
+    })
+    .await?;
+    Ok(())
+}
+
 /// Waits for the first remote data track to be published.
 #[cfg(feature = "__lk-e2e-test")]
 async fn wait_for_remote_track(
