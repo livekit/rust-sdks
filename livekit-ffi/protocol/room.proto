@@ -310,12 +310,12 @@ message RoomOptions {
   optional RtcConfig rtc_config = 5; // allow to setup a custom RtcConfiguration
   optional uint32 join_retries = 6;
   optional E2eeOptions encryption = 7;
+  repeated string registered_rpc_methods = 8;
 }
 
 //
 // Room
 //
-
 enum ConnectionQuality {
   QUALITY_POOR = 0;
   QUALITY_GOOD = 1;

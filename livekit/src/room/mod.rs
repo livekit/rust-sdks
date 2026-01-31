@@ -45,12 +45,11 @@ pub use self::{
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
-    participant::ConnectionQuality,
+    participant::{ConnectionQuality, RpcHandlerRegistry},
     prelude::*,
     registered_audio_filter_plugins,
     rtc_engine::{
-        EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, RtcEngine,
-        SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+        EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD, RtcEngine, SessionStats
     },
 };
 
@@ -368,6 +367,7 @@ pub struct RoomOptions {
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
     pub sdk_options: RoomSdkOptions,
+    pub rpc_handlers: RpcHandlerRegistry
 }
 
 impl Default for RoomOptions {
@@ -388,6 +388,7 @@ impl Default for RoomOptions {
             },
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
+            rpc_handlers: RpcHandlerRegistry::default()
         }
     }
 }

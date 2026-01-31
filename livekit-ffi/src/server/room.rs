@@ -114,12 +114,27 @@ struct FfiSipDtmfPacket {
 impl FfiRoom {
     pub fn connect(
         server: &'static FfiServer,
-        connect: proto::ConnectRequest,
+        mut connect: proto::ConnectRequest,
     ) -> proto::ConnectResponse {
         let async_id = server.resolve_async_id(connect.request_async_id);
 
         let req = connect.clone();
+
+        // TODO: move this conversion
+        let rpc_handler_registry =
+            std::mem::take(&mut connect.options.registered_rpc_methods).into_iter().fold(
+                livekit::participant::RpcHandlerRegistry::default(),
+                |mut registry, name| {
+                    registry.register(name, async |invocation| {
+                        // TODO: delegate to handler (probably via static), error if called early.
+                        todo!()
+                    });
+                    registry
+                },
+            );
+
         let mut options: RoomOptions = connect.options.into();
+        options.rpc_handlers = rpc_handler_registry;
 
         {
             let config = server.config.lock();
