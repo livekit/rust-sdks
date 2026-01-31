@@ -1270,7 +1270,7 @@ impl RoomSession {
             publish_tracks: self.local_participant.published_tracks_info(),
             data_channels: dcs,
             datachannel_receive_states: session.data_channel_receive_states(),
-            publish_data_tracks
+            publish_data_tracks,
         };
 
         log::debug!("sending sync state {:?}", sync_state);
@@ -1398,6 +1398,9 @@ impl RoomSession {
 
     fn handle_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         let _ = tx.send(());
+
+        // Ensure SFU continues delivering packets for existing data track subscriptions.
+        _ = self.remote_dt_input.send(dt::remote::InputEvent::ResendSubscriptionUpdates);
 
         // Unpublish and republish every track
         // At this time we know that the RtcSession is successfully restarted

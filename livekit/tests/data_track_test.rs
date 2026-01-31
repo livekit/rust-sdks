@@ -17,7 +17,7 @@ use {
     anyhow::{anyhow, Ok, Result},
     common::{test_rooms, test_rooms_with_options, TestRoomOptions},
     futures_util::StreamExt,
-    livekit::prelude::*,
+    livekit::{prelude::*, SimulateScenario},
     livekit_api::access_token::VideoGrants,
     std::time::{Duration, Instant},
     test_case::test_case,
@@ -262,7 +262,7 @@ async fn test_published_state() -> Result<()> {
             track.wait_for_unpublish().await;
             start.elapsed()
         };
-        assert!(elapsed.abs_diff(PUBLISH_DURATION) <= Duration::from_millis(20),);
+        assert!(elapsed.abs_diff(PUBLISH_DURATION) <= Duration::from_millis(20));
         assert!(!track.is_published());
 
         Ok(())
@@ -318,7 +318,6 @@ async fn test_resubscribe() -> Result<()> {
 #[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
 async fn test_frame_with_user_timestamp() -> Result<()> {
-
     let mut rooms = test_rooms(2).await?;
 
     let (pub_room, _) = rooms.pop().unwrap();
@@ -327,8 +326,7 @@ async fn test_frame_with_user_timestamp() -> Result<()> {
     let publish = async move {
         let track = pub_room.local_participant().publish_data_track("my_track").await.unwrap();
         loop {
-            let frame = DataTrackFrame::new(vec![0xFA; 64])
-                .with_user_timestamp_now();
+            let frame = DataTrackFrame::new(vec![0xFA; 64]).with_user_timestamp_now();
             _ = track.try_push(frame);
             time::sleep(Duration::from_millis(50)).await;
         }
@@ -338,16 +336,67 @@ async fn test_frame_with_user_timestamp() -> Result<()> {
         let track = wait_for_remote_track(&mut sub_room_event_rx).await.unwrap();
 
         let mut stream = track.subscribe().await.unwrap();
+        let mut got_frame = false;
         while let Some(frame) = stream.next().await {
             // Ensure we can at least get one frame.
             assert!(!frame.payload().is_empty());
             let duration = frame.duration_since_timestamp().expect("Missing timestamp");
             assert!(duration.as_millis() < 1000);
+            got_frame = true;
             break;
+        }
+        if !got_frame {
+            panic!("No frame received");
         }
     };
 
     let _ = timeout(Duration::from_secs(5), async {
+        tokio::select! { _ = publish => (), _ = subscribe => () };
+    })
+    .await?;
+    Ok(())
+}
+
+#[cfg(feature = "__lk-e2e-test")]
+#[test_case(SimulateScenario::SignalReconnect; "signal_reconnect")]
+#[test_case(SimulateScenario::ForceTcp; "full_reconnect")]
+#[test_log::test(tokio::test)]
+async fn test_subscriber_side_fault(scenario: SimulateScenario) -> Result<()> {
+    let mut rooms = test_rooms(2).await?;
+
+    let (pub_room, _) = rooms.pop().unwrap();
+    let (sub_room, mut sub_room_event_rx) = rooms.pop().unwrap();
+
+    let publish = async move {
+        let track = pub_room.local_participant().publish_data_track("my_track").await.unwrap();
+        loop {
+            _ = track.try_push(vec![0xFA; 64].into());
+            time::sleep(Duration::from_millis(50)).await;
+        }
+    };
+
+    let subscribe = async move {
+        let track = wait_for_remote_track(&mut sub_room_event_rx).await.unwrap();
+        let mut stream = track.subscribe().await.unwrap();
+
+        // TODO: this should also evaluate what happens if a track subscription is removed
+        // during a full reconnect event.
+        sub_room.simulate_scenario(scenario).await.unwrap();
+        assert!(track.is_published());
+
+        let mut got_frame = false;
+        while let Some(frame) = stream.next().await {
+            // Ensure we can at least get one frame.
+            assert!(!frame.payload().is_empty());
+            got_frame = true;
+            break;
+        }
+        if !got_frame {
+            panic!("No frame received");
+        }
+    };
+
+    let _ = timeout(Duration::from_secs(15), async {
         tokio::select! { _ = publish => (), _ = subscribe => () };
     })
     .await?;

@@ -103,6 +103,9 @@ impl Manager {
                 }
                 InputEvent::SfuSubscriberHandles(event) => self.on_sfu_subscriber_handles(event),
                 InputEvent::PacketReceived(bytes) => self.on_packet_received(bytes),
+                InputEvent::ResendSubscriptionUpdates => {
+                    self.on_resend_subscription_updates().await
+                }
                 InputEvent::Shutdown => break,
             }
         }
@@ -221,20 +224,26 @@ impl Manager {
         }
     }
 
-    fn register_subscriber_handle(&mut self, sub_handle: Handle, sid: DataTrackSid) {
+    fn register_subscriber_handle(&mut self, assigned_handle: Handle, sid: DataTrackSid) {
         let Some(descriptor) = self.descriptors.get_mut(&sid) else {
             log::warn!("Unknown track: {}", sid);
             return;
         };
         let result_txs = match &mut descriptor.subscription {
-            SubscriptionState::Pending { result_txs } => mem::take(result_txs),
             SubscriptionState::None => {
-                log::warn!("No subscription");
+                // Handle assigned when there is no pending or active subscription is unexpected.
+                log::warn!("No subscription for {}", sid);
                 return;
             }
-            SubscriptionState::Active { .. } => {
-                log::warn!("Cannot change existing handle");
+            SubscriptionState::Active { sub_handle, .. } => {
+                // Update handle for an active subscription. This can occur following a full reconnect.
+                *sub_handle = assigned_handle;
+                self.sub_handles.insert(assigned_handle, sid);
                 return;
+            }
+            SubscriptionState::Pending { result_txs } => {
+                // Handle assigned for pending subscription, transition to active.
+                mem::take(result_txs)
             }
         };
 
@@ -264,9 +273,13 @@ impl Manager {
         };
         let task_handle = livekit_runtime::spawn(track_task.run());
 
-        descriptor.subscription =
-            SubscriptionState::Active { sub_handle, packet_tx, frame_tx, task_handle };
-        self.sub_handles.insert(sub_handle, sid);
+        descriptor.subscription = SubscriptionState::Active {
+            sub_handle: assigned_handle,
+            packet_tx,
+            frame_tx,
+            task_handle,
+        };
+        self.sub_handles.insert(assigned_handle, sid);
 
         for result_tx in result_txs {
             _ = result_tx.send(Ok(frame_rx.resubscribe()));
@@ -296,6 +309,19 @@ impl Manager {
         _ = packet_tx
             .try_send(packet)
             .inspect_err(|err| log::debug!("Cannot send packet to track pipeline: {}", err));
+    }
+
+    async fn on_resend_subscription_updates(&self) {
+        let update_events =
+            self.descriptors.iter().filter_map(|(sid, descriptor)| match descriptor.subscription {
+                SubscriptionState::None => None,
+                SubscriptionState::Pending { .. } | SubscriptionState::Active { .. } => {
+                    Some(SfuUpdateSubscription { sid: sid.clone(), subscribe: true })
+                }
+            });
+        for event in update_events {
+            _ = self.event_out_tx.send(event.into()).await;
+        }
     }
 
     /// Performs cleanup before the task ends.

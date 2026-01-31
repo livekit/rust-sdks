@@ -30,6 +30,12 @@ pub enum InputEvent {
     SfuSubscriberHandles(SfuSubscriberHandles),
     /// Packet has been received over the transport.
     PacketReceived(Bytes),
+    /// Resend all subscription updates.
+    ///
+    /// This must be sent after a full reconnect to ensure the SFU knows which
+    /// tracks are subscribed to locally.
+    ///
+    ResendSubscriptionUpdates,
     /// Shutdown the manager, ending any subscriptions.
     Shutdown,
 }
