@@ -88,8 +88,6 @@ pub struct MetricsRecordingHeader {
     pub duration: u64,
     #[prost(message, optional, tag="4")]
     pub start_time: ::core::option::Option<::pbjson_types::Timestamp>,
-    #[prost(map="string, string", tag="5")]
-    pub room_tags: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
 }
 //
 // Protocol used to record metrics for a specific session.
@@ -414,11 +412,9 @@ pub mod participant_info {
         /// LiveKit agents
         Agent = 4,
         /// Connectors participants
-        Connector = 7,
-        /// Bridge participants
         ///
-        /// NEXT_ID: 9
-        Bridge = 8,
+        /// NEXT_ID: 8
+        Connector = 7,
     }
     impl Kind {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -433,7 +429,6 @@ pub mod participant_info {
                 Kind::Sip => "SIP",
                 Kind::Agent => "AGENT",
                 Kind::Connector => "CONNECTOR",
-                Kind::Bridge => "BRIDGE",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -445,7 +440,6 @@ pub mod participant_info {
                 "SIP" => Some(Self::Sip),
                 "AGENT" => Some(Self::Agent),
                 "CONNECTOR" => Some(Self::Connector),
-                "BRIDGE" => Some(Self::Bridge),
                 _ => None,
             }
         }
@@ -457,8 +451,6 @@ pub mod participant_info {
         Forwarded = 1,
         ConnectorWhatsapp = 2,
         ConnectorTwilio = 3,
-        /// NEXT_ID: 5
-        BridgeRtsp = 4,
     }
     impl KindDetail {
         /// String value of the enum field names used in the ProtoBuf definition.
@@ -471,7 +463,6 @@ pub mod participant_info {
                 KindDetail::Forwarded => "FORWARDED",
                 KindDetail::ConnectorWhatsapp => "CONNECTOR_WHATSAPP",
                 KindDetail::ConnectorTwilio => "CONNECTOR_TWILIO",
-                KindDetail::BridgeRtsp => "BRIDGE_RTSP",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
@@ -481,7 +472,6 @@ pub mod participant_info {
                 "FORWARDED" => Some(Self::Forwarded),
                 "CONNECTOR_WHATSAPP" => Some(Self::ConnectorWhatsapp),
                 "CONNECTOR_TWILIO" => Some(Self::ConnectorTwilio),
-                "BRIDGE_RTSP" => Some(Self::BridgeRtsp),
                 _ => None,
             }
         }
@@ -657,8 +647,6 @@ pub struct VideoLayer {
     pub spatial_layer: i32,
     #[prost(string, tag="7")]
     pub rid: ::prost::alloc::string::String,
-    #[prost(uint32, tag="8")]
-    pub repair_ssrc: u32,
 }
 /// Nested message and enum types in `VideoLayer`.
 pub mod video_layer {
@@ -4027,8 +4015,6 @@ pub struct ConnectionSettings {
     pub subscriber_allow_pause: ::core::option::Option<bool>,
     #[prost(bool, tag="4")]
     pub disable_ice_lite: bool,
-    #[prost(bool, optional, tag="5")]
-    pub auto_subscribe_data_track: ::core::option::Option<bool>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4234,7 +4220,7 @@ pub struct JobState {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WorkerMessage {
-    #[prost(oneof="worker_message::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9")]
+    #[prost(oneof="worker_message::Message", tags="1, 2, 3, 4, 5, 6, 7")]
     pub message: ::core::option::Option<worker_message::Message>,
 }
 /// Nested message and enum types in `WorkerMessage`.
@@ -4260,17 +4246,13 @@ pub mod worker_message {
         SimulateJob(super::SimulateJobRequest),
         #[prost(message, tag="7")]
         MigrateJob(super::MigrateJobRequest),
-        #[prost(message, tag="8")]
-        TextResponse(super::TextMessageResponse),
-        #[prost(message, tag="9")]
-        PushText(super::PushTextRequest),
     }
 }
 /// from Server to Worker
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerMessage {
-    #[prost(oneof="server_message::Message", tags="1, 2, 3, 5, 4, 6")]
+    #[prost(oneof="server_message::Message", tags="1, 2, 3, 5, 4")]
     pub message: ::core::option::Option<server_message::Message>,
 }
 /// Nested message and enum types in `ServerMessage`.
@@ -4290,8 +4272,6 @@ pub mod server_message {
         Termination(super::JobTermination),
         #[prost(message, tag="4")]
         Pong(super::WorkerPong),
-        #[prost(message, tag="6")]
-        TextRequest(super::TextMessageRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -4420,42 +4400,6 @@ pub struct JobAssignment {
 pub struct JobTermination {
     #[prost(string, tag="1")]
     pub job_id: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TextMessageRequest {
-    #[prost(string, tag="1")]
-    pub message_id: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
-    pub session_id: ::prost::alloc::string::String,
-    #[prost(string, tag="3")]
-    pub agent_name: ::prost::alloc::string::String,
-    #[prost(string, tag="4")]
-    pub metadata: ::prost::alloc::string::String,
-    #[prost(bytes="vec", tag="5")]
-    pub session_data: ::prost::alloc::vec::Vec<u8>,
-    #[prost(string, tag="6")]
-    pub text: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct PushTextRequest {
-    /// The message_id of the TextMessageRequest that this push is for
-    #[prost(string, tag="1")]
-    pub message_id: ::prost::alloc::string::String,
-    #[prost(string, tag="2")]
-    pub content: ::prost::alloc::string::String,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct TextMessageResponse {
-    /// Indicate the request is completed
-    #[prost(string, tag="1")]
-    pub message_id: ::prost::alloc::string::String,
-    #[prost(bytes="vec", tag="2")]
-    pub session_data: ::prost::alloc::vec::Vec<u8>,
-    #[prost(string, tag="3")]
-    pub error: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -4603,7 +4547,7 @@ pub struct AgentDispatch {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AgentDispatchState {
-    /// For dispatches of tyoe JT_ROOM, there will be at most 1 job.
+    /// For dispatches of tyoe JT_ROOM, there will be at most 1 job. 
     /// For dispatches of type JT_PUBLISHER, there will be 1 per publisher.
     #[prost(message, repeated, tag="1")]
     pub jobs: ::prost::alloc::vec::Vec<Job>,
@@ -5907,12 +5851,9 @@ pub struct SipDispatchRuleInfo {
     pub trunk_ids: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(bool, tag="4")]
     pub hide_phone_number: bool,
-    /// Dispatch Rule will only accept a call made from these numbers (if set).
+    /// Dispatch Rule will only accept a call made to these numbers (if set).
     #[prost(string, repeated, tag="7")]
     pub inbound_numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    /// Dispatch Rule will only accept a call made to these numbers (if set).
-    #[prost(string, repeated, tag="13")]
-    pub numbers: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// Human-readable name for the Dispatch Rule.
     #[prost(string, tag="5")]
     pub name: ::prost::alloc::string::String,
@@ -5932,7 +5873,7 @@ pub struct SipDispatchRuleInfo {
     pub room_config: ::core::option::Option<RoomConfiguration>,
     #[prost(bool, tag="11")]
     pub krisp_enabled: bool,
-    /// NEXT ID: 14
+    /// NEXT ID: 13
     #[prost(enumeration="SipMediaEncryption", tag="12")]
     pub media_encryption: i32,
 }
@@ -6179,8 +6120,6 @@ pub struct SipCallInfo {
     pub call_context: ::prost::alloc::vec::Vec<::pbjson_types::Any>,
     #[prost(message, optional, tag="27")]
     pub provider_info: ::core::option::Option<ProviderInfo>,
-    #[prost(string, tag="28")]
-    pub sip_call_id: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -6728,7 +6667,7 @@ impl SipCallDirection {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct DialWhatsAppCallRequest {
-    /// Required - The phone number id of the business that is initiating the call
+    /// Required - The number of the business that is initiating the call
     #[prost(string, tag="1")]
     pub whatsapp_phone_number_id: ::prost::alloc::string::String,
     /// Required - The number of the user that is supossed to receive the call
@@ -6750,7 +6689,6 @@ pub struct DialWhatsAppCallRequest {
     #[prost(message, repeated, tag="6")]
     pub agents: ::prost::alloc::vec::Vec<RoomAgentDispatch>,
     /// Optional - Identity of the participant in LiveKit room
-    /// This is used for logging purposes, so it is advised to not put PII in this field.
     #[prost(string, tag="7")]
     pub participant_identity: ::prost::alloc::string::String,
     /// Optional - Name of the participant in LiveKit room
@@ -6784,49 +6722,9 @@ pub struct DisconnectWhatsAppCallRequest {
     /// Required - Call ID sent by Meta
     #[prost(string, tag="1")]
     pub whatsapp_call_id: ::prost::alloc::string::String,
-    /// The API key of the whatsapp business.
-    /// Required if the DisconnectReason is BUSINESS_INITIATED.
-    /// Optional for  USER_INITIATED as no API call to WhatsApp is needed.
+    /// Required - The API key of the business that is disconnecting the call
     #[prost(string, tag="2")]
     pub whatsapp_api_key: ::prost::alloc::string::String,
-    /// The reason for disconnecting the call
-    #[prost(enumeration="disconnect_whats_app_call_request::DisconnectReason", tag="3")]
-    pub disconnect_reason: i32,
-}
-/// Nested message and enum types in `DisconnectWhatsAppCallRequest`.
-pub mod disconnect_whats_app_call_request {
-    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-    #[repr(i32)]
-    pub enum DisconnectReason {
-        /// The call is being disconnected by the business
-        BusinessInitiated = 0,
-        /// The call is disconnected by the user.
-        /// This can be tracked as part of call terminate webhook
-        /// <https://developers.facebook.com/documentation/business-messaging/whatsapp/calling/user-initiated-calls#call-terminate-webhook>
-        /// Note that this webhook will also be sent when the call is disconnected by the business.
-        /// Calling the API twice in such cases will result in an error.
-        UserInitiated = 1,
-    }
-    impl DisconnectReason {
-        /// String value of the enum field names used in the ProtoBuf definition.
-        ///
-        /// The values are not transformed in any way and thus are considered stable
-        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-        pub fn as_str_name(&self) -> &'static str {
-            match self {
-                DisconnectReason::BusinessInitiated => "BUSINESS_INITIATED",
-                DisconnectReason::UserInitiated => "USER_INITIATED",
-            }
-        }
-        /// Creates an enum from field names used in the ProtoBuf definition.
-        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-            match value {
-                "BUSINESS_INITIATED" => Some(Self::BusinessInitiated),
-                "USER_INITIATED" => Some(Self::UserInitiated),
-                _ => None,
-            }
-        }
-    }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -6850,7 +6748,7 @@ pub struct ConnectWhatsAppCallResponse {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct AcceptWhatsAppCallRequest {
-    /// Required - The phone number id of the business that is conencting the call
+    /// Required - The number of the business that is conencting the call
     #[prost(string, tag="1")]
     pub whatsapp_phone_number_id: ::prost::alloc::string::String,
     /// Required - The API key of the business that is connecting the call
@@ -6876,7 +6774,6 @@ pub struct AcceptWhatsAppCallRequest {
     #[prost(message, repeated, tag="7")]
     pub agents: ::prost::alloc::vec::Vec<RoomAgentDispatch>,
     /// Optional - Identity of the participant in LiveKit room
-    /// This is used for logging purposes, so it is advised to not put PII in this field.
     #[prost(string, tag="8")]
     pub participant_identity: ::prost::alloc::string::String,
     /// Optional - Name of the participant in LiveKit room
@@ -6950,7 +6847,6 @@ pub struct ConnectTwilioCallRequest {
     #[prost(message, repeated, tag="3")]
     pub agents: ::prost::alloc::vec::Vec<RoomAgentDispatch>,
     /// Optional identity of the participant in LiveKit room
-    /// This is used for logging purposes, so it is advised to not put PII in this field.
     #[prost(string, tag="4")]
     pub participant_identity: ::prost::alloc::string::String,
     /// Optional name of the participant in LiveKit room
