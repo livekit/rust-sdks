@@ -56,11 +56,12 @@ message NewAudioSourceRequest {
 }
 message NewAudioSourceResponse { required OwnedAudioSource source = 1; }
 
-// Push a frame to an AudioSource 
+// Push a frame to an AudioSource
 // The data provided must be available as long as the client receive the callback.
-message CaptureAudioFrameRequest { 
+message CaptureAudioFrameRequest {
   required uint64 source_handle = 1;
   required AudioFrameBufferInfo buffer = 2;
+  optional uint64 request_async_id = 3;
 }
 message CaptureAudioFrameResponse {
   required uint64 async_id = 1;

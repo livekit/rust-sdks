@@ -43,7 +43,7 @@ pub use utils::take_cell::TakeCell;
 pub use self::{
     data_stream::*,
     e2ee::{manager::E2eeManager, E2eeOptions},
-    participant::ParticipantKind,
+    participant::{ParticipantKind, ParticipantKindDetail},
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
@@ -157,6 +157,10 @@ pub enum RoomEvent {
         participant: Participant,
         is_encrypted: bool,
     },
+    ParticipantPermissionChanged {
+        participant: Participant,
+        permission: Option<proto::ParticipantPermission>,
+    },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,
     },
@@ -237,6 +241,9 @@ pub enum RoomEvent {
     },
     ParticipantsUpdated {
         participants: Vec<Participant>,
+    },
+    TokenRefreshed {
+        token: String,
     },
     /// A remote participant published a data track.
     RemoteDataTrackPublished(RemoteDataTrack),
@@ -510,12 +517,14 @@ impl Room {
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
             pi.kind().into(),
+            utils::convert_kind_details(&pi.kind_details),
             pi.sid.try_into().unwrap(),
             pi.identity.into(),
             pi.name,
             pi.metadata,
             pi.attributes,
             e2ee_manager.encryption_type(),
+            pi.permission,
         );
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
@@ -591,6 +600,14 @@ impl Room {
             }
         });
 
+        local_participant.on_permission_changed({
+            let dispatcher = dispatcher.clone();
+            move |participant, permission| {
+                let event = RoomEvent::ParticipantPermissionChanged { participant, permission };
+                dispatcher.dispatch(&event);
+            }
+        });
+
         let decryption_provider = e2ee_manager.enabled().then(|| {
             Arc::new(DataTrackEncryptionProvider::new(
                 e2ee_manager.clone(),
@@ -623,7 +640,7 @@ impl Room {
                 empty_timeout: room_info.empty_timeout,
                 departure_timeout: room_info.departure_timeout,
                 max_participants: room_info.max_participants,
-                creation_time: room_info.creation_time,
+                creation_time: room_info.creation_time_ms,
                 num_publishers: room_info.num_publishers,
                 num_participants: room_info.num_participants,
                 active_recording: room_info.active_recording,
@@ -675,11 +692,13 @@ impl Room {
                 let pi = pi.clone();
                 inner.create_participant(
                     pi.kind().into(),
+                    utils::convert_kind_details(&pi.kind_details),
                     pi.sid.try_into().unwrap(),
                     pi.identity.into(),
                     pi.name,
                     pi.metadata,
                     pi.attributes,
+                    pi.permission,
                 )
             };
             participant.update_info(pi.clone());
@@ -809,7 +828,7 @@ impl Room {
     pub fn max_participants(&self) -> u32 {
         self.inner.info.read().max_participants
     }
-
+    /// Returns the room creation time in milliseconds since Unix epoch.
     pub fn creation_time(&self) -> i64 {
         self.inner.info.read().creation_time
     }
@@ -964,6 +983,9 @@ impl RoomSession {
             EngineEvent::RefreshToken { url, token } => {
                 self.handle_refresh_token(url, token);
             }
+            EngineEvent::TrackMuted { sid, muted } => {
+                self.handle_server_initiated_mute_track(sid, muted);
+            }
             EngineEvent::LocalDataTrackInput(event) => {
                 _ = self.local_dt_input.send(event);
             }
@@ -1060,11 +1082,13 @@ impl RoomSession {
                     let pi = pi.clone();
                     self.create_participant(
                         pi.kind().into(),
+                        utils::convert_kind_details(&pi.kind_details),
                         pi.sid.try_into().unwrap(),
                         pi.identity.into(),
                         pi.name,
                         pi.metadata,
                         pi.attributes,
+                        pi.permission,
                     )
                 };
 
@@ -1253,13 +1277,13 @@ impl RoomSession {
                 sdp: answer.to_string(),
                 r#type: answer.sdp_type().to_string(),
                 id: 0,
-                mid_to_track_id: HashMap::default(),
+                mid_to_track_id: Default::default(),
             }),
             offer: Some(proto::SessionDescription {
                 sdp: offer.to_string(),
                 r#type: offer.sdp_type().to_string(),
                 id: 0,
-                mid_to_track_id: HashMap::default(),
+                mid_to_track_id: Default::default(),
             }),
             track_sids_disabled: Vec::default(), // TODO: New protocol version
             subscription: Some(proto::UpdateSubscription {
@@ -1645,26 +1669,52 @@ impl RoomSession {
         self.dispatcher.dispatch(&event);
     }
 
+    fn handle_server_initiated_mute_track(&self, sid: String, muted: bool) {
+        let sid_for_log = sid.clone();
+        let track_sid = match sid.try_into() {
+            Ok(sid) => sid,
+            Err(_) => {
+                log::warn!("Invalid track sid in mute request: {}", sid_for_log);
+                return;
+            }
+        };
+
+        if let Some(publication) = self.local_participant.get_track_publication(&track_sid) {
+            if muted {
+                publication.mute();
+            } else {
+                publication.unmute();
+            }
+            return;
+        }
+
+        log::warn!("Track not found in mute request: {}", sid_for_log);
+    }
+
     /// Create a new participant
     /// Also add it to the participants list
     fn create_participant(
         self: &Arc<Self>,
         kind: ParticipantKind,
+        kind_details: Vec<ParticipantKindDetail>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
         attributes: HashMap<String, String>,
+        permission: Option<proto::ParticipantPermission>,
     ) -> RemoteParticipant {
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
             kind,
+            kind_details,
             sid.clone(),
             identity.clone(),
             name,
             metadata,
             attributes,
             self.options.auto_subscribe,
+            permission,
         );
 
         participant.on_track_published({
@@ -1762,6 +1812,14 @@ impl RoomSession {
             }
         });
 
+        participant.on_permission_changed({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, permission| {
+                let event = RoomEvent::ParticipantPermissionChanged { participant, permission };
+                dispatcher.dispatch(&event);
+            }
+        });
+
         participant.on_encryption_status_changed({
             let dispatcher = self.dispatcher.clone();
             move |participant, is_encrypted| {
@@ -1814,6 +1872,8 @@ impl RoomSession {
         for filter in registered_audio_filter_plugins().into_iter() {
             filter.update_token(url.clone(), token.clone());
         }
+        let event = RoomEvent::TokenRefreshed { token };
+        self.dispatcher.dispatch(&event);
     }
 
     /// Task for handling output events from the local data track manager.

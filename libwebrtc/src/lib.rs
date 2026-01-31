@@ -45,6 +45,8 @@ pub mod audio_source;
 pub mod audio_stream;
 pub mod audio_track;
 pub mod data_channel;
+#[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+pub mod desktop_capturer;
 pub mod ice_candidate;
 pub mod media_stream;
 pub mod media_stream_track;
@@ -66,7 +68,7 @@ pub mod video_track;
 pub mod native {
     pub use webrtc_sys::webrtc::ffi::create_random_uuid;
 
-    pub use crate::imp::{apm, audio_resampler, frame_cryptor, yuv_helper};
+    pub use crate::imp::{apm, audio_mixer, audio_resampler, frame_cryptor, yuv_helper};
 }
 
 #[cfg(target_os = "android")]

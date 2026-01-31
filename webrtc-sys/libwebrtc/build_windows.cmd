@@ -79,6 +79,7 @@ call python3 "%cd%\src\tools_webrtc\libs\generate_licenses.py" ^
   --target :default %OUTPUT_DIR% %OUTPUT_DIR%
 
 copy "%OUTPUT_DIR%\obj\webrtc.ninja" "%ARTIFACTS_DIR%"
+copy "%OUTPUT_DIR%\obj\modules\desktop_capture\desktop_capture.ninja" "%ARTIFACTS_DIR%"
 copy "%OUTPUT_DIR%\args.gn" "%ARTIFACTS_DIR%"
 copy "%OUTPUT_DIR%\LICENSE.md" "%ARTIFACTS_DIR%"
 

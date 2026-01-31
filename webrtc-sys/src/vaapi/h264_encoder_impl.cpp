@@ -35,7 +35,7 @@ enum H264EncoderImplEvent {
 VAAPIH264EncoderWrapper::VAAPIH264EncoderWrapper(const webrtc::Environment& env,
                                                  const SdpVideoFormat& format)
     : env_(env),
-      encoder_(new livekit::VaapiH264EncoderWrapper()),
+      encoder_(new livekit_ffi::VaapiH264EncoderWrapper()),
       packetization_mode_(
           H264EncoderSettings::Parse(format).packetization_mode),
       format_(format) {

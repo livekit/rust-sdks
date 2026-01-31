@@ -19,7 +19,7 @@
 #include "api/peer_connection_interface.h"
 #include "api/scoped_refptr.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 webrtc::RtpTransceiverInit to_native_rtp_transceiver_init(
     RtpTransceiverInit init) {
@@ -151,4 +151,4 @@ void RtpTransceiver::set_header_extensions_to_negotiate(
     throw std::runtime_error(serialize_error(to_error(error)));
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

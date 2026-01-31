@@ -1,0 +1,332 @@
+# Copyright 2025 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+[env]
+PACKAGES_DIR = "./packages"
+SUPPORT_DIR = "./support"
+LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
+TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
+SWIFT_VERSION = "6.0"
+SPM_NAME = "LiveKitUniFFI"
+XCFRAMEWORK_NAME = "Rust${SPM_NAME}"
+NPM_NAME = "@livekit/uniffi"
+
+# Base URL for downloading release builds of the cdylib.
+# Currently, it is assumed the archives will be named "ffi-<platform>-<arch>.zip".
+CDYLIB_DOWNLOAD_BASE_URL = "https://github.com/livekit/example/releases/download/example/build"
+
+[config]
+skip_core_tasks = true
+
+# MARK: - Build
+
+[tasks.build.env.TARGET]
+value = "${CARGO_MAKE_RUST_TARGET_TRIPLE}"
+condition = { env_not_set = ["TARGET"] }
+# Set to target triple of the current platform if not explicitly set.
+
+[tasks.build]
+clear = true
+script_runner = "@duckscript"
+script = """
+echo "TARGET: ${TARGET}"
+
+if not ${TIER_3}
+    # Ensure target is installed
+    exec rustup target add ${TARGET}
+    exec cargo build --release --target ${TARGET}
+else
+    # Ensure nightly toolchain is installed
+    exec rustup component add rust-src --toolchain "nightly-${CARGO_MAKE_RUST_TARGET_TRIPLE}"
+    exec cargo +nightly build -Zbuild-std=std,panic_abort --release --target ${TARGET}
+end
+"""
+
+# MARK: - Build, specific platforms
+
+[tasks.build-windows-x64]
+extend = "build"
+env = { TARGET = "x86_64-pc-windows-msvc" }
+
+[tasks.build-windows-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-pc-windows-msvc" }
+
+[tasks.build-linux-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-unknown-linux-gnu" }
+
+[tasks.build-linux-x64]
+extend = "build"
+env = { TARGET = "x86_64-unknown-linux-gnu" }
+
+[tasks.build-android-aarch64]
+extend = "build"
+env = { TARGET = "aarch64-linux-android" }
+
+[tasks.build-android-armv7]
+extend = "build"
+env = { TARGET = "armv7-linux-androideabi" }
+
+[tasks.build-android-x64]
+extend = "build"
+env = { TARGET = "x86_64-linux-android" }
+
+# MARK: - Build, platform groups
+
+[tasks.build-windows-platforms]
+description = "Build for Windows"
+dependencies = [
+    "build-windows-x64",
+    "build-windows-aarch64"
+]
+
+[tasks.build-linux-platforms]
+description = "Build for generic Linux and Android"
+dependencies = [
+    "build-linux-aarch64",
+    "build-linux-x64",
+    "build-android-aarch64",
+    "build-android-armv7",
+    "build-android-x64"
+]
+
+# MARK: - Bindgen common
+
+[tasks.locate-lib.env.LIB_EXT]
+source = "${CARGO_MAKE_RUST_TARGET_OS}"
+mapping = { linux = "so", macos = "dylib", windows = "dll" }
+
+[tasks.locate-lib]
+private = true
+script_runner = "@duckscript"
+script = """
+path = join_path ${TARGET_DIR} ${TARGET} release/ ${LIB_NAME}.${LIB_EXT}
+set_env LIB_PATH "${path}"
+"""
+
+[tasks.uniffi-bindgen]
+private = true
+description = "Generate bindings for core UniFFI languages"
+dependencies = ["build", "locate-lib"]
+script_runner = "@duckscript"
+script = """
+out_dir = join_path ${PACKAGES_DIR} ${LANG}
+exec cargo run --bin uniffi-bindgen generate \
+    --language ${LANG} \
+    --out-dir ${out_dir} \
+    --library ${LIB_PATH}
+"""
+
+[tasks.tera]
+private = true
+install_crate = { crate_name = "teracli", binary = "tera", test_arg = "--help" }
+install_crate_args = ["--git", "https://github.com/chevdor/tera-cli"]
+command = "tera"
+
+[tasks.bindgen]
+dependencies = [
+    "bindgen-kotlin",
+    "bindgen-python"
+]
+
+# MARK: - Kotlin
+
+[tasks.bindgen-kotlin]
+private = false
+extend = "uniffi-bindgen"
+env = { LANG = "kotlin" }
+
+# MARK: - Python
+
+[tasks.bindgen-python]
+private = false
+extend = "uniffi-bindgen"
+env = { LANG = "python" }
+
+# MARK: - Node
+
+[tasks.node-bindgen]
+private = true
+dependencies = ["build", "locate-lib"]
+env = { CARGO_NET_GIT_FETCH_WITH_CLI = true }
+install_crate = { crate_name = "uniffi-bindgen-node", binary = "uniffi-bindgen-node", test_arg = "--help" }
+install_crate_args = ["--git", "https://github.com/livekit/uniffi-bindgen-node.git"]
+command = "uniffi-bindgen-node"
+args = [
+    "--out-dir", "${PACKAGES_DIR}/${LANG}",
+    "--out-dirname-api", "import-meta-url",
+    "--out-node-version", "^18",
+    "--out-verbose-logs",
+    "--crate-name", "${CARGO_MAKE_CRATE_FS_NAME}",
+    "${LIB_PATH}"
+]
+
+[tasks.node-format]
+private = true
+command = "npx"
+args = [
+    "--yes",
+    "prettier",
+    "--write", "${PACKAGES_DIR}/${LANG}"
+]
+
+[tasks.node-move-code-into-src]
+private = true
+script_runner = "@shell"
+script = """
+mkdir -p ${PACKAGES_DIR}/${LANG}/src
+mv ${PACKAGES_DIR}/${LANG}/*.ts ${PACKAGES_DIR}/${LANG}/src
+"""
+
+[tasks.node-generate-manifest]
+private = true
+extend = "tera"
+args = [
+    "--env",
+    "-t", "${SUPPORT_DIR}/${LANG}/package.json.tera",
+    "-o", "${PACKAGES_DIR}/${LANG}/package.json",
+    "${PACKAGES_DIR}/${LANG}/package.json"
+    # Provide original package.json as input
+]
+
+[tasks.node-copy-support-files]
+private = true
+script_runner = "@shell"
+script = """
+cp ${SUPPORT_DIR}/${LANG}/tsconfig.json ${PACKAGES_DIR}/${LANG}/tsconfig.json
+cp ${SUPPORT_DIR}/${LANG}/tsup.config.ts ${PACKAGES_DIR}/${LANG}/tsup.config.ts
+"""
+
+[tasks.node-generate-downloader]
+private = true
+condition = { profiles = ["release"] }
+extend = "tera"
+args = ["--env-only", "-t", "${SUPPORT_DIR}/${LANG}/download-lib.ts.tera", "-o", "${PACKAGES_DIR}/${LANG}/download-lib.ts"]
+
+[tasks.node-link-lib]
+private = true
+condition = { profiles = ["development"] }
+script_runner = "@shell"
+script = """
+ln -sf ${LIB_PATH} ${PACKAGES_DIR}/${LANG}/src
+"""
+
+[tasks.node-package-flow]
+private = true
+dependencies = [
+    "node-bindgen",
+    "node-move-code-into-src",
+    "node-generate-manifest",
+    "node-generate-downloader",
+    "node-copy-support-files",
+    "node-format",
+    "node-link-lib"
+]
+
+[tasks.node-package]
+env = { LANG = "node" }
+run_task = "node-package-flow"
+
+# MARK: - Swift
+
+[tasks.swift-xcframework.env]
+SWIFT_RELEASE_FLAG = { value = "--release", condition = { profiles = ["release"] } }
+
+[tasks.swift-xcframework]
+private = true
+install_crate = { crate_name = "cargo-swift", version = "0.10.0", binary = "cargo-swift", test_arg = "--help" }
+install_crate_args = ["--force"]
+script_runner = "@shell"
+script = """
+export IPHONEOS_DEPLOYMENT_TARGET=13.0
+export MACOSX_DEPLOYMENT_TARGET=10.15
+export TVOS_DEPLOYMENT_TARGET=17.0
+export XROS_DEPLOYMENT_TARGET=2.0
+export CFLAGS_x86_64_apple_ios_macabi="--target=x86_64-apple-ios14.0-macabi"
+export CFLAGS_aarch64_apple_ios_macabi="--target=aarch64-apple-ios14.0-macabi"
+
+CMD="cargo swift package \
+--accept-all \
+--name ${SPM_NAME} \
+--xcframework-name ${XCFRAMEWORK_NAME} \
+--platforms macos \
+--platforms ios \
+--platforms maccatalyst \
+--platforms visionos \
+--platforms tvos \
+--lib-type static \
+${SWIFT_RELEASE_FLAG}"
+
+if command -v swiftly >/dev/null 2>&1; then
+    echo "Using swiftly to select Swift ${SWIFT_VERSION} toolchain"
+    swiftly run $CMD +${SWIFT_VERSION}
+else
+    echo "swiftly not found, using system toolchain"
+    $CMD
+fi
+"""
+
+[tasks.swift-generate-manifest.env]
+SPM_URL = { value = "https://dummy.com" }
+SPM_CHECKSUM = { value = "1234" }
+
+[tasks.swift-generate-manifest]
+private = true
+install_crate = { crate_name = "tera-cli", binary = "tera", test_arg = "--version" }
+script_runner = "@shell"
+script = """
+tera  --env --file ${SUPPORT_DIR}/${LANG}/Package.swift.tera > ${SPM_NAME}/Package.swift
+tera  --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.0.swift.tera > ${SPM_NAME}/Package@swift-6.0.swift
+"""
+
+[tasks.swift-move-to-packages]
+private = true
+script_runner = "@shell"
+script = """
+# Patch the generated XCFramework and Swift sources to match the framework name
+# This ensures compatibility with Swift 6.2+ which requires the module name to match the framework name
+
+FFI_NAME="livekit_uniffiFFI"
+
+# 1. Rename header files inside the XCFramework
+find "${SPM_NAME}/${XCFRAMEWORK_NAME}.xcframework" -name "${FFI_NAME}.h" -exec bash -c 'mv "$1" "$(dirname "$1")/'"${XCFRAMEWORK_NAME}"'.h"' _ {} \\;
+
+# 2. Patch the modulemaps inside the XCFramework
+find "${SPM_NAME}/${XCFRAMEWORK_NAME}.xcframework" -name "module.modulemap" -exec sed -i '' "s/${FFI_NAME}/${XCFRAMEWORK_NAME}/g" {} +
+
+# 3. Patch the generated Swift sources
+find "${SPM_NAME}/Sources" -name "*.swift" -exec sed -i '' "s/${FFI_NAME}/${XCFRAMEWORK_NAME}/g" {} +
+
+out_dir="${PACKAGES_DIR}/${LANG}"
+rm -rf "${out_dir}"
+mkdir -p "${out_dir}"
+mv "${SPM_NAME}" "${out_dir}"
+"""
+
+[tasks.swift-package-flow]
+private = true
+dependencies = [
+    "swift-xcframework",
+    "swift-generate-manifest",
+    "swift-move-to-packages"
+]
+
+[tasks.swift-package]
+description = "Generate Swift package using cargo-swift"
+env = { LANG = "swift" }
+run_task = "swift-package-flow"
+
+# Add other bindgen tasks here, following the same pattern
+# as above for the task name (e.g., "bindgen-<lang>").

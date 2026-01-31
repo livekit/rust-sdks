@@ -117,6 +117,8 @@ jobs:
         run: |
           rustup target add ${{ matrix.target }}
 
+      - uses: Swatinem/rust-cache@v2.8.2
+
       - name: Install Protoc
         uses: arduino/setup-protoc@v2
         with:
@@ -157,7 +159,7 @@ jobs:
             yum install protobuf-compiler -y; \
             yum groupinstall 'Development Tools' -y; \
             clang --version; \
-            yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel -y; \
+            yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel libgbm-devel libXdamage-devel libXrandr-devel libXfixes-devel libXcomposite-devel -y; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
             cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}"
 

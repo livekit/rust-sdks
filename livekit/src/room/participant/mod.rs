@@ -45,6 +45,16 @@ pub enum ParticipantKind {
     Sip,
     Agent,
     Connector,
+    Bridge
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ParticipantKindDetail {
+    CloudAgent,
+    Forwarded,
+    ConnectorWhatsapp,
+    ConnectorTwilio,
+    BridgeRtsp
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -85,8 +95,10 @@ impl Participant {
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
         pub fn kind(self: &Self) -> ParticipantKind;
+        pub fn kind_details(self: &Self) -> Vec<ParticipantKindDetail>;
         pub fn disconnect_reason(self: &Self) -> DisconnectReason;
         pub fn is_encrypted(self: &Self) -> bool;
+        pub fn permission(self: &Self) -> Option<proto::ParticipantPermission>;
 
         pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
 
@@ -117,7 +129,9 @@ struct ParticipantInfo {
     pub audio_level: f32,
     pub connection_quality: ConnectionQuality,
     pub kind: ParticipantKind,
+    pub kind_details: Vec<ParticipantKindDetail>,
     pub disconnect_reason: DisconnectReason,
+    pub permission: Option<proto::ParticipantPermission>,
 }
 
 type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
@@ -126,6 +140,8 @@ type MetadataChangedHandler = Box<dyn Fn(Participant, String, String) + Send>;
 type AttributesChangedHandler = Box<dyn Fn(Participant, HashMap<String, String>) + Send>;
 type NameChangedHandler = Box<dyn Fn(Participant, String, String) + Send>;
 type EncryptionStatusChangedHandler = Box<dyn Fn(Participant, bool) + Send>;
+type PermissionChangedHandler =
+    Box<dyn Fn(Participant, Option<proto::ParticipantPermission>) + Send>;
 
 #[derive(Default)]
 struct ParticipantEvents {
@@ -135,6 +151,7 @@ struct ParticipantEvents {
     attributes_changed: Mutex<Option<AttributesChangedHandler>>,
     name_changed: Mutex<Option<NameChangedHandler>>,
     encryption_status_changed: Mutex<Option<EncryptionStatusChangedHandler>>,
+    permission_changed: Mutex<Option<PermissionChangedHandler>>,
 }
 
 pub(super) struct ParticipantInner {
@@ -161,6 +178,8 @@ pub(super) fn new_inner(
     metadata: String,
     attributes: HashMap<String, String>,
     kind: ParticipantKind,
+    kind_details: Vec<ParticipantKindDetail>,
+    permission: Option<proto::ParticipantPermission>,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
@@ -171,10 +190,12 @@ pub(super) fn new_inner(
             metadata,
             attributes,
             kind,
+            kind_details,
             speaking: false,
             audio_level: 0.0,
             connection_quality: ConnectionQuality::Excellent,
             disconnect_reason: DisconnectReason::UnknownReason,
+            permission,
         }),
         track_publications: Default::default(),
         events: Default::default(),
@@ -191,6 +212,7 @@ pub(super) fn update_info(
     let mut info = inner.info.write();
     info.disconnect_reason = new_info.disconnect_reason().into();
     info.kind = new_info.kind().into();
+    info.kind_details = super::utils::convert_kind_details(&new_info.kind_details);
     info.sid = new_info.sid.try_into().unwrap();
     info.identity = new_info.identity.into();
 
@@ -214,6 +236,13 @@ pub(super) fn update_info(
     if changed_attributes.len() != 0 {
         if let Some(cb) = inner.events.attributes_changed.lock().as_ref() {
             cb(participant.clone(), changed_attributes);
+        }
+    }
+
+    let old_permission = std::mem::replace(&mut info.permission, new_info.permission.clone());
+    if old_permission != new_info.permission {
+        if let Some(cb) = inner.events.permission_changed.lock().as_ref() {
+            cb(participant.clone(), new_info.permission.clone());
         }
     }
 }
@@ -282,6 +311,13 @@ pub(super) fn on_encryption_status_changed(
     handler: impl Fn(Participant, bool) + Send + 'static,
 ) {
     *inner.events.encryption_status_changed.lock() = Some(Box::new(handler));
+}
+
+pub(super) fn on_permission_changed(
+    inner: &Arc<ParticipantInner>,
+    handler: impl Fn(Participant, Option<proto::ParticipantPermission>) + Send + 'static,
+) {
+    *inner.events.permission_changed.lock() = Some(Box::new(handler));
 }
 
 pub(super) fn update_encryption_status(inner: &Arc<ParticipantInner>, participant: &Participant) {

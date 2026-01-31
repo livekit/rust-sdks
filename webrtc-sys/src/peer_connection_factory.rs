@@ -22,7 +22,7 @@ use crate::{
     rtp_transceiver::ffi::RtpTransceiver,
 };
 
-#[cxx::bridge(namespace = "livekit")]
+#[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
     pub struct CandidatePair {
         local: SharedPtr<Candidate>,

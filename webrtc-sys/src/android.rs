@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #[cfg(target_os = "android")]
-#[cxx::bridge(namespace = "livekit")]
+#[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
     unsafe extern "C++" {
         include!("livekit/android.h");

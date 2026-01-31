@@ -21,10 +21,14 @@ fn main() {
         return;
     }
 
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let is_desktop = target_os == "linux" || target_os == "windows" || target_os == "macos";
+
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
 
-    let mut builder = cxx_build::bridges([
+    let mut rust_files = vec![
         "src/peer_connection.rs",
         "src/peer_connection_factory.rs",
         "src/media_stream.rs",
@@ -49,7 +53,14 @@ fn main() {
         "src/android.rs",
         "src/prohibit_libsrtp_initialization.rs",
         "src/apm.rs",
-    ]);
+        "src/audio_mixer.rs",
+    ];
+
+    if is_desktop {
+        rust_files.push("src/desktop_capturer.rs");
+    }
+
+    let mut builder = cxx_build::bridges(rust_files);
 
     builder.files(&[
         "src/peer_connection.cpp",
@@ -77,7 +88,12 @@ fn main() {
         "src/global_task_queue.cpp",
         "src/prohibit_libsrtp_initialization.cpp",
         "src/apm.cpp",
+        "src/audio_mixer.cpp",
     ]);
+
+    if is_desktop {
+        builder.file("src/desktop_capturer.cpp");
+    }
 
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
     let webrtc_include = webrtc_dir.join("include");
@@ -108,9 +124,6 @@ fn main() {
 
     // Link webrtc library
     println!("cargo:rustc-link-lib=static=webrtc");
-
-    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
     match target_os.as_str() {
         "windows" => {
             println!("cargo:rustc-link-lib=dylib=msdmo");
@@ -153,6 +166,21 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
 
+            // In order to avoid any ABI mismatches we use the sysroot's headers.
+            add_gio_headers(&mut builder);
+
+            for lib_name in ["glib-2.0", "gobject-2.0", "gio-2.0"] {
+                pkg_config::probe_library(lib_name).unwrap();
+            }
+
+            add_lazy_load_so(
+                &mut builder,
+                "desktop_capturer",
+                ["drm", "gbm", "X11", "Xfixes", "Xdamage", "Xrandr", "Xcomposite", "Xext"]
+                    .map(String::from)
+                    .to_vec(),
+            );
+
             let x86 = target_arch == "x86_64" || target_arch == "i686";
             let arm = target_arch == "aarch64" || target_arch.contains("arm");
 
@@ -167,11 +195,13 @@ fn main() {
                     .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
                     .file("src/vaapi/vaapi_encoder_factory.cpp")
                     .file("src/vaapi/h264_encoder_impl.cpp")
-                    .file("src/vaapi/implib/libva-drm.so.init.c")
-                    .file("src/vaapi/implib/libva-drm.so.tramp.S")
-                    .file("src/vaapi/implib/libva.so.init.c")
-                    .file("src/vaapi/implib/libva.so.tramp.S")
                     .flag("-DUSE_VAAPI_VIDEO_CODEC=1");
+
+                add_lazy_load_so(
+                    &mut builder,
+                    "vaapi",
+                    ["va", "va-drm"].map(String::from).to_vec(),
+                );
             }
 
             if x86 || arm {
@@ -191,22 +221,29 @@ fn main() {
                         .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.cpp")
                         .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp")
                         .file("src/nvidia/h264_encoder_impl.cpp")
+                        .file("src/nvidia/h265_encoder_impl.cpp")
                         .file("src/nvidia/h264_decoder_impl.cpp")
+                        .file("src/nvidia/h265_decoder_impl.cpp")
                         .file("src/nvidia/nvidia_decoder_factory.cpp")
                         .file("src/nvidia/nvidia_encoder_factory.cpp")
                         .file("src/nvidia/cuda_context.cpp")
-                        .file("src/nvidia/implib/libcuda.so.init.c")
-                        .file("src/nvidia/implib/libcuda.so.tramp.S")
-                        .file("src/nvidia/implib/libnvcuvid.so.init.c")
-                        .file("src/nvidia/implib/libnvcuvid.so.tramp.S")
                         .flag("-Wno-deprecated-declarations")
                         .flag("-DUSE_NVIDIA_VIDEO_CODEC=1");
+
+                    add_lazy_load_so(
+                        &mut builder,
+                        "nvidia",
+                        ["cuda", "nvcuvid"].map(String::from).to_vec(),
+                    );
                 } else {
                     println!("cargo:warning=cuda.h not found; building without hardware accelerated video codec support for NVidia GPUs");
                 }
             }
 
-            builder.flag("-Wno-changes-meaning").flag("-std=c++20");
+            builder
+                .flag("-Wno-changes-meaning")
+                .flag("-Wno-deprecated-declarations")
+                .flag("-std=c++20");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
@@ -359,4 +396,55 @@ fn configure_android_sysroot(builder: &mut cc::Build) {
     let toolchain = webrtc_sys_build::android_ndk_toolchain().unwrap();
     let sysroot = toolchain.join("sysroot").canonicalize().unwrap();
     builder.flag(format!("-isysroot{}", sysroot.display()).as_str());
+}
+
+fn add_lazy_load_so(builder: &mut cc::Build, name: &str, libraries: Vec<String>) {
+    let target_arch = webrtc_sys_build::target_arch();
+    for lib_name in libraries {
+        let mut arch_dir = "x86_64-linux-gnu";
+        if target_arch.contains("arm64") {
+            arch_dir = "aarch64-linux-gnu";
+        }
+        let implib_file_c_name = "src/lazy_load_deps_for/".to_owned()
+            + name
+            + "/"
+            + arch_dir
+            + "/lib"
+            + &lib_name
+            + ".so.init.c";
+        let implib_file_asm_name = "src/lazy_load_deps_for/".to_owned()
+            + name
+            + "/"
+            + arch_dir
+            + "/lib"
+            + &lib_name
+            + ".so.tramp.S";
+        builder.file(implib_file_c_name).file(implib_file_asm_name);
+    }
+}
+
+fn add_gio_headers(builder: &mut cc::Build) {
+    let webrtc_dir = webrtc_sys_build::webrtc_dir();
+    let target_arch = webrtc_sys_build::target_arch();
+    let target_arch_sysroot = match target_arch.as_str() {
+        "arm64" => "arm64",
+        "x64" => "amd64",
+        _ => panic!("unsupported arch"),
+    };
+    let sysroot_path = format!("include/build/linux/debian_bullseye_{target_arch_sysroot}-sysroot");
+    let sysroot = webrtc_dir.join(sysroot_path);
+    let glib_path = sysroot.join("usr/include/glib-2.0");
+    println!("cargo:info=add_gio_headers {}", glib_path.display());
+
+    builder.include(&glib_path);
+    let arch_specific_path = match target_arch.as_str() {
+        "x64" => "x86_64-linux-gnu",
+        "arm64" => "aarch64-linux-gnu",
+        _ => panic!("unsupported target"),
+    };
+
+    let glib_path_config = sysroot.join("usr/lib");
+    let glib_path_config = glib_path_config.join(arch_specific_path);
+    let glib_path_config = glib_path_config.join("glib-2.0/include");
+    builder.include(&glib_path_config);
 }

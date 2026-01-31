@@ -200,6 +200,10 @@ pub enum SessionEvent {
         url: String,
         token: String,
     },
+    TrackMuted {
+        sid: String,
+        muted: bool,
+    },
     LocalDataTrackInput(dt::local::InputEvent),
     RemoteDataTrackInput(dt::remote::InputEvent),
 }
@@ -999,7 +1003,7 @@ impl SessionInner {
                         r#type: "answer".to_string(),
                         sdp: answer.to_string(),
                         id: 0,
-                        mid_to_track_id: HashMap::default(),
+                        mid_to_track_id: Default::default(),
                     }))
                     .await;
             }
@@ -1095,6 +1099,10 @@ impl SessionInner {
                 let url = self.signal_client.url();
                 let _ = self.emitter.send(SessionEvent::RefreshToken { url, token: token.clone() });
             }
+            proto::signal_response::Message::Mute(req) => {
+                let _ =
+                    self.emitter.send(SessionEvent::TrackMuted { sid: req.sid, muted: req.muted });
+            }
             _ => {}
         }
 
@@ -1155,7 +1163,7 @@ impl SessionInner {
                         r#type: "offer".to_string(),
                         sdp: offer.to_string(),
                         id: 0,
-                        mid_to_track_id: HashMap::default(),
+                        mid_to_track_id: Default::default(),
                     }))
                     .await;
             }
@@ -1424,6 +1432,16 @@ impl SessionInner {
         options: TrackPublishOptions,
         encodings: Vec<RtpEncodingParameters>,
     ) -> EngineResult<RtpTransceiver> {
+        // If video track, derive "ultimate" bitrate from encodings and stash it for offer munging.
+        // Must be done before encodings is moved into RtpTransceiverInit.
+        if track.kind() == TrackKind::Video {
+            let ultimate_bps: Option<u64> = {
+                let sum: u64 = encodings.iter().filter_map(|e| e.max_bitrate).sum();
+                (sum > 0).then_some(sum)
+            };
+            self.publisher_pc.set_max_send_bitrate_bps(ultimate_bps).await;
+        }
+
         let init = RtpTransceiverInit {
             direction: RtpTransceiverDirection::SendOnly,
             stream_ids: Default::default(),

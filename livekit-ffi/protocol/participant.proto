@@ -18,6 +18,7 @@ package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
 import "handle.proto";
+import "track.proto";
 
 message ParticipantInfo {
   required string sid = 1;
@@ -27,6 +28,8 @@ message ParticipantInfo {
   map<string, string> attributes = 5;
   required ParticipantKind kind = 6;
   required DisconnectReason disconnect_reason = 7;
+  repeated ParticipantKindDetail kind_details = 8;
+  optional ParticipantPermission permission = 9;
 }
 
 message OwnedParticipant {
@@ -41,6 +44,15 @@ enum ParticipantKind {
   PARTICIPANT_KIND_SIP = 3;
   PARTICIPANT_KIND_AGENT = 4;
   PARTICIPANT_KIND_CONNECTOR = 5;
+  PARTICIPANT_KIND_BRIDGE = 6;
+}
+
+enum ParticipantKindDetail {
+  PARTICIPANT_KIND_DETAIL_CLOUD_AGENT = 0;
+  PARTICIPANT_KIND_DETAIL_FORWARDED = 1;
+  PARTICIPANT_KIND_DETAIL_CONNECTOR_WHATSAPP = 2;
+  PARTICIPANT_KIND_DETAIL_CONNECTOR_TWILIO = 3;
+  PARTICIPANT_KIND_DETAIL_BRIDGE_RTSP = 4;
 }
 
 enum DisconnectReason {
@@ -73,4 +85,24 @@ enum DisconnectReason {
   SIP_TRUNK_FAILURE = 13;
   CONNECTION_TIMEOUT = 14;
   MEDIA_FAILURE = 15;
+}
+
+// copied from livekit-protocol/protocol/protobufs/livekit_models.proto and removed deprecated fields
+message ParticipantPermission {
+  // allow participant to subscribe to other tracks in the room
+  required bool can_subscribe = 1;
+  // allow participant to publish new tracks to room
+  required bool can_publish = 2;
+  // allow participant to publish data
+  required bool can_publish_data = 3;
+  // sources that are allowed to be published
+  repeated TrackSource can_publish_sources = 9;
+  // indicates that it's hidden to others
+  required bool hidden = 7;
+  // indicates that participant can update own metadata and attributes
+  required bool can_update_metadata = 10;
+  // if a participant can subscribe to metrics
+  required bool can_subscribe_metrics = 12;
+
+  // NEXT_ID: 13
 }

@@ -6,6 +6,7 @@
 
 #include "cuda_context.h"
 #include "h264_decoder_impl.h"
+#include "h265_decoder_impl.h"
 #include "rtc_base/logging.h"
 
 namespace webrtc {
@@ -53,6 +54,8 @@ std::vector<SdpVideoFormat> SupportedNvDecoderCodecs(CUcontext context) {
                          webrtc::H264Level::kLevel5_1, "1"),
         CreateH264Format(webrtc::H264Profile::kProfileMain,
                          webrtc::H264Level::kLevel5_1, "1"),
+        SdpVideoFormat("H265"),
+        SdpVideoFormat("HEVC"),
     };
   }
 
@@ -64,7 +67,7 @@ std::vector<SdpVideoFormat> SupportedNvDecoderCodecs(CUcontext context) {
 }
 
 NvidiaVideoDecoderFactory::NvidiaVideoDecoderFactory()
-    : cu_context_(livekit::CudaContext::GetInstance()) {
+    : cu_context_(livekit_ffi::CudaContext::GetInstance()) {
   if (cu_context_->Initialize()) {
     supported_formats_ = SupportedNvDecoderCodecs(cu_context_->GetContext());
   } else {
@@ -77,7 +80,7 @@ NvidiaVideoDecoderFactory::NvidiaVideoDecoderFactory()
 NvidiaVideoDecoderFactory::~NvidiaVideoDecoderFactory() {}
 
 bool NvidiaVideoDecoderFactory::IsSupported() {
-  if (!livekit::CudaContext::IsAvailable()) {
+  if (!livekit_ffi::CudaContext::IsAvailable()) {
     RTC_LOG(LS_WARNING) << "Cuda Context is not available.";
     return false;
   }
@@ -92,15 +95,22 @@ std::unique_ptr<VideoDecoder> NvidiaVideoDecoderFactory::Create(
   // Check if the requested format is supported.
   for (const auto& supported_format : supported_formats_) {
     if (format.IsSameCodec(supported_format)) {
-      // If the format is supported, create and return the encoder.
+      // If the format is supported, create and return the decoder.
       if (!cu_context_) {
-        cu_context_ = livekit::CudaContext::GetInstance();
+        cu_context_ = livekit_ffi::CudaContext::GetInstance();
         if (!cu_context_->Initialize()) {
           RTC_LOG(LS_ERROR) << "Failed to initialize CUDA context.";
           return nullptr;
         }
       }
-      return std::make_unique<NvidiaH264DecoderImpl>(cu_context_->GetContext());
+      if (format.name == "H264") {
+        RTC_LOG(LS_INFO) << "Using NVIDIA HW decoder (NVDEC) for H264";
+        return std::make_unique<NvidiaH264DecoderImpl>(cu_context_->GetContext());
+      }
+      if (format.name == "H265" || format.name == "HEVC") {
+        RTC_LOG(LS_INFO) << "Using NVIDIA HW decoder (NVDEC) for H265/HEVC";
+        return std::make_unique<NvidiaH265DecoderImpl>(cu_context_->GetContext());
+      }
     }
   }
   return nullptr;

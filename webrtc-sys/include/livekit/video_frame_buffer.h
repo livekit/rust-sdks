@@ -25,7 +25,7 @@
 #include "api/video/nv12_buffer.h"
 #include "api/video/video_frame_buffer.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class VideoFrameBuffer;
 class PlanarYuvBuffer;
 class PlanarYuv8Buffer;
@@ -38,22 +38,22 @@ class I422Buffer;
 class I444Buffer;
 class I010Buffer;
 class NV12Buffer;
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 #ifdef __APPLE__
 #include <CoreVideo/CoreVideo.h>
-namespace livekit {
+namespace livekit_ffi {
 typedef __CVBuffer PlatformImageBuffer;
-}  // namespace livekit
+}  // namespace livekit_ffi
 #else
-namespace livekit {
+namespace livekit_ffi {
 typedef void PlatformImageBuffer;
-}  // namespace livekit
+}  // namespace livekit_ffi
 #endif
 
 #include "webrtc-sys/src/video_frame_buffer.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class VideoFrameBuffer {
  public:
@@ -271,4 +271,4 @@ static std::unique_ptr<VideoFrameBuffer> _unique_video_frame_buffer() {
   return nullptr;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

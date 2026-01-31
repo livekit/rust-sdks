@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.12](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.11...rust-sdks/livekit-api@0.4.12) - 2026-01-15
+
+### Fixed
+
+- fix incorrect 404 status code when WS connection fails ([#832](https://github.com/livekit/rust-sdks/pull/832))
+
+### Other
+
+- Add Wait Until Answered for CreateSip ([#833](https://github.com/livekit/rust-sdks/pull/833))
+
+## [0.4.11](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.10...rust-sdks/livekit-api@0.4.11) - 2025-12-04
+
+### Added
+
+- *(connector)* initial service impl ([#790](https://github.com/livekit/rust-sdks/pull/790))
+
+## [0.4.10](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.9...rust-sdks/livekit-api@0.4.10) - 2025-11-20
+
+### Added
+
+- add outbound trunk config for create_sip_participant. ([#771](https://github.com/livekit/rust-sdks/pull/771))
+
 ## [0.4.9](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.8...rust-sdks/livekit-api@0.4.9) - 2025-10-22
 
 ### Other

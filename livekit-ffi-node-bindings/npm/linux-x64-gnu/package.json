@@ -1,0 +1,27 @@
+{
+  "name": "@livekit/rtc-node-linux-x64-gnu",
+  "author": "LiveKit",
+  "version": "0.12.43",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/livekit/node-sdks.git",
+    "directory": "packages/livekit-rtc/linux-x64-gnu"
+  },
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "main": "rtc-node.linux-x64-gnu.node",
+  "files": [
+    "rtc-node.linux-x64-gnu.node"
+  ],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">= 10"
+  },
+  "libc": [
+    "glibc"
+  ]
+}

@@ -140,6 +140,12 @@ pub struct CreateSIPParticipantOptions {
     /// Optionally send following DTMF digits (extension codes) when making a call.
     /// Character 'w' can be used to add a 0.5 sec delay.
     pub dtmf: Option<String>,
+    /// Wait for the call to be answered before returning.
+    ///
+    /// When `true`, the request blocks until the call is answered or fails,
+    /// and returns SIP error codes (e.g., 486 Busy, 603 Decline) on failure.
+    /// When `false` (default), returns immediately while the call is still dialing.
+    pub wait_until_answered: Option<bool>,
     /// Optionally play dialtone in the room as an audible indicator for existing participants
     pub play_dialtone: Option<bool>,
     pub hide_phone_number: Option<bool>,
@@ -440,6 +446,7 @@ impl SIPClient {
                         .to_owned()
                         .unwrap_or_default(),
                     dtmf: options.dtmf.to_owned().unwrap_or_default(),
+                    wait_until_answered: options.wait_until_answered.unwrap_or(false),
                     play_ringtone: options.play_dialtone.unwrap_or(false),
                     play_dialtone: options.play_dialtone.unwrap_or(false),
                     hide_phone_number: options.hide_phone_number.unwrap_or(false),

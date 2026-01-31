@@ -16,7 +16,7 @@
 
 #include "pc/srtp_session.h"
 
-namespace livekit {
+namespace livekit_ffi {
 void ProhibitLibsrtpInitialization() {
     cricket::ProhibitLibsrtpInitialization();
 }

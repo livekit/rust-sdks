@@ -238,6 +238,11 @@ int32_t NvidiaH264EncoderImpl::InitEncode(
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
+  RTC_LOG(LS_INFO) << "NVIDIA H264 NVENC initialized: "
+                   << codec_.width << "x" << codec_.height
+                   << " @ " << codec_.maxFramerate << "fps, target_bps="
+                   << configuration_.target_bps;
+
   SimulcastRateAllocator init_allocator(env_, codec_);
   VideoBitrateAllocation allocation =
       init_allocator.Allocate(VideoBitrateAllocationParameters(

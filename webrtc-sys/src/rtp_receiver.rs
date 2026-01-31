@@ -16,7 +16,7 @@ use std::any::Any;
 
 use crate::impl_thread_safety;
 
-#[cxx::bridge(namespace = "livekit")]
+#[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
 
     extern "C++" {

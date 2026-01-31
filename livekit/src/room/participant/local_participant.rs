@@ -22,7 +22,10 @@ use std::{
     time::Duration,
 };
 
-use super::{ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantTrackPermission};
+use super::{
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail,
+    ParticipantTrackPermission,
+};
 use crate::{
     data_stream::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
@@ -107,15 +110,27 @@ impl LocalParticipant {
     pub(crate) fn new(
         rtc_engine: Arc<RtcEngine>,
         kind: ParticipantKind,
+        kind_details: Vec<ParticipantKindDetail>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
         attributes: HashMap<String, String>,
         encryption_type: EncryptionType,
+        permission: Option<proto::ParticipantPermission>,
     ) -> Self {
         Self {
-            inner: super::new_inner(rtc_engine, sid, identity, name, metadata, attributes, kind),
+            inner: super::new_inner(
+                rtc_engine,
+                sid,
+                identity,
+                name,
+                metadata,
+                attributes,
+                kind,
+                kind_details,
+                permission,
+            ),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
                 encryption_type,
@@ -202,6 +217,13 @@ impl LocalParticipant {
         handler: impl Fn(Participant, HashMap<String, String>) + Send + 'static,
     ) {
         super::on_attributes_changed(&self.inner, handler)
+    }
+
+    pub(crate) fn on_permission_changed(
+        &self,
+        handler: impl Fn(Participant, Option<proto::ParticipantPermission>) + Send + 'static,
+    ) {
+        super::on_permission_changed(&self.inner, handler)
     }
 
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
@@ -312,6 +334,9 @@ impl LocalParticipant {
         let track_info = self.inner.rtc_engine.add_track(req).await?;
         let publication = LocalTrackPublication::new(track_info.clone(), track.clone());
         track.update_info(track_info); // Update sid + source
+
+        // set track for publication to listen mute/unmute events
+        publication.set_track(Some(track.clone().into()));
 
         let transceiver =
             self.inner.rtc_engine.create_sender(track.clone(), options.clone(), encodings).await?;
@@ -771,8 +796,16 @@ impl LocalParticipant {
         self.inner.info.read().kind
     }
 
+    pub fn kind_details(&self) -> Vec<ParticipantKindDetail> {
+        self.inner.info.read().kind_details.clone()
+    }
+
     pub fn disconnect_reason(&self) -> DisconnectReason {
         self.inner.info.read().disconnect_reason
+    }
+
+    pub fn permission(&self) -> Option<proto::ParticipantPermission> {
+        self.inner.info.read().permission.clone()
     }
 
     pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {

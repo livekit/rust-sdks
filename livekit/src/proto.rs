@@ -155,6 +155,29 @@ impl From<participant_info::Kind> for participant::ParticipantKind {
             participant_info::Kind::Sip => participant::ParticipantKind::Sip,
             participant_info::Kind::Agent => participant::ParticipantKind::Agent,
             participant_info::Kind::Connector => participant::ParticipantKind::Connector,
+            participant_info::Kind::Bridge => participant::ParticipantKind::Bridge
+        }
+    }
+}
+
+impl From<participant_info::KindDetail> for participant::ParticipantKindDetail {
+    fn from(value: participant_info::KindDetail) -> Self {
+        match value {
+            participant_info::KindDetail::CloudAgent => {
+                participant::ParticipantKindDetail::CloudAgent
+            }
+            participant_info::KindDetail::Forwarded => {
+                participant::ParticipantKindDetail::Forwarded
+            }
+            participant_info::KindDetail::ConnectorWhatsapp => {
+                participant::ParticipantKindDetail::ConnectorWhatsapp
+            }
+            participant_info::KindDetail::ConnectorTwilio => {
+                participant::ParticipantKindDetail::ConnectorTwilio
+            }
+            participant_info::KindDetail::BridgeRtsp => {
+                participant::ParticipantKindDetail::BridgeRtsp
+            }
         }
     }
 }

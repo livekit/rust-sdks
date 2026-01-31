@@ -1,6 +1,7 @@
 name: Release
 
 permissions:
+  id-token: write # Required for OIDC
   pull-requests: write
   contents: write
   actions: write
@@ -28,10 +29,27 @@ jobs:
           submodules: recursive
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
-      - name: Install VA-API/NVIDIA drivers for build
-        run:  |
+      - name: Install VA-API/NVIDIA drivers and other dependencies for build
+        run: |
           sudo apt update -y
-          sudo apt install -y libva-dev libdrm-dev libnvidia-compute-570 libnvidia-decode-570 nvidia-cuda-dev -y
+          sudo apt install \
+            libnvidia-compute-570 \
+            libnvidia-decode-570 \
+            nvidia-cuda-dev \
+            libasound2-dev \
+            libssl-dev \
+            libx11-dev \
+            libgl1-mesa-dev \
+            libxext-dev \
+            libva-dev \
+            libdrm-dev \
+            libgbm-dev \
+            libxfixes-dev \
+            libxdamage-dev \
+            libxrandr-dev \
+            libxcomposite-dev \
+            libglib2.0-dev -y
+
       - name: Run release-plz
         uses: release-plz/action@v0.5
         id: release-plz
@@ -54,6 +72,14 @@ jobs:
     name: Call FFI Builds
     if: ${{ needs.release-plz-release.outputs.ffi_tag != '' }}
     uses: ./.github/workflows/ffi-builds.yml
+    needs: release-plz-release
+    with:
+      tag: ${{ needs.release-plz-release.outputs.ffi_tag }}
+
+  call-node-ffi:
+    name: Call node FFI Builds
+    if: ${{ needs.release-plz-release.outputs.ffi_tag != '' }}
+    uses: ./.github/workflows/node-builds.yml
     needs: release-plz-release
     with:
       tag: ${{ needs.release-plz-release.outputs.ffi_tag }}

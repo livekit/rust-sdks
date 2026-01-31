@@ -5,6 +5,8 @@ members = [
     "livekit-api",
     "livekit-protocol",
     "livekit-ffi",
+    "livekit-uniffi",
+    "livekit-ffi-node-bindings",
     "livekit-runtime",
     "livekit-datatrack",
     "libwebrtc",
@@ -21,25 +23,35 @@ members = [
     "examples/basic_data_track",
     "examples/encrypted_text_stream",
     "examples/local_audio",
+    "examples/local_video",
     "examples/mobile",
     "examples/play_from_disk",
     "examples/rpc",
     "examples/save_to_disk",
+    "examples/screensharing",
     "examples/send_bytes",
     "examples/webhooks",
-    "examples/wgpu_room",
+    "examples/wgpu_room"
 ]
 
 [workspace.dependencies]
 imgproc = { version = "0.3.15", path = "imgproc" }
-libwebrtc = { version = "0.3.19", path = "libwebrtc" }
-livekit = { version = "0.7.24", path = "livekit" }
-livekit-api = { version = "0.4.9", path = "livekit-api" }
-livekit-ffi = { version = "0.12.39", path = "livekit-ffi" }
-livekit-protocol = { version = "0.5.1", path = "livekit-protocol" }
+libwebrtc = { version = "0.3.24", path = "libwebrtc" }
+livekit = { version = "0.7.29", path = "livekit" }
+livekit-api = { version = "0.4.12", path = "livekit-api" }
+livekit-ffi = { version = "0.12.44", path = "livekit-ffi" }
+livekit-protocol = { version = "0.6.0", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
 livekit-datatrack = { version = "0.1.0", path = "livekit-datatrack" }
 soxr-sys = { version = "0.1.1", path = "soxr-sys" }
-webrtc-sys = { version = "0.3.16", path = "webrtc-sys" }
-webrtc-sys-build = { version = "0.3.11", path = "webrtc-sys/build" }
+webrtc-sys = { version = "0.3.21", path = "webrtc-sys" }
+webrtc-sys-build = { version = "0.3.12", path = "webrtc-sys/build" }
 yuv-sys = { version = "0.3.10", path = "yuv-sys" }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
