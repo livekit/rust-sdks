@@ -2,5 +2,7 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$/../../.." vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../../../livekit-protocol/protocol" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/../../../yuv-sys/libyuv" vcs="Git" />
   </component>
 </project>

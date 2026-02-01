@@ -9,6 +9,8 @@ lazy_static = "1.4.0"
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 log = "0.4.19"
 tokio = { version = "1", features = ["full"] }
+futures = "0.3"
+parking_lot = "0.12"
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"
