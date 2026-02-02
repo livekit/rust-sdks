@@ -33,6 +33,6 @@ extensions = ["proto", "ts", "js", "cjs"]
 extensions = ["mm"]
 
 [properties]
-inceptionYear = 2025
+inceptionYear = 2026
 copyrightOwner = "LiveKit, Inc."
 projectName = "LiveKit Rust SDKs"
