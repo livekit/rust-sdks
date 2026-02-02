@@ -1,13 +1,13 @@
 [package]
 name = "screensharing"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 publish = false
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-env_logger = "0.10"
+tokio = { workspace = true, features = ["full"] }
+env_logger = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true }
-log = "0.4"
-clap = { version = "4.0", features = ["derive"] }
+log = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
