@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::enum_dispatch;
+use livekit_protocol::enum_dispatch;
 use crate::sys;
 use crate::video_frame::{VideoBuffer, VideoFrame};
 use crate::video_frame_builder::new_video_frame_builder;

@@ -14,9 +14,9 @@
 
 #[cfg(not(target_arch = "wasm32"))]
 use crate::sys;
+use livekit_protocol::enum_dispatch;
 use crate::{
     audio_track::{self, RtcAudioTrack},
-    enum_dispatch,
     sys::{lkMediaStreamTrackKind, lkRtcTrackState},
     video_track::{self, RtcVideoTrack},
 };

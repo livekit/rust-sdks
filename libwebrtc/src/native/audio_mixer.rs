@@ -109,7 +109,7 @@ impl AudioMixer {
         let source =
             unsafe { &*(userdata as *const AudioMixerSourceImpl<Box<dyn AudioMixerSource>>) };
         if let Some(frame) = source.inner.get_audio_frame_with_info(target_sample_rate) {
-            let samples_count = (frame.sample_rate as usize / 100);
+            let samples_count = frame.sample_rate as usize / 100;
             assert_eq!(
                 frame.sample_rate, target_sample_rate,
                 "sample rate must match target_sample_rate"

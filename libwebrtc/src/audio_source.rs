@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{enum_dispatch, sys::lkAudioSourceOptions};
+use livekit_protocol::enum_dispatch;
+use crate::{sys::lkAudioSourceOptions};
 
 #[derive(Default, Debug)]
 pub struct AudioSourceOptions {

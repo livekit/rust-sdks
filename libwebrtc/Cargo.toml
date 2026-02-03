@@ -17,6 +17,7 @@ glib-main-loop = [ "dep:glib" ]
 static = []
 
 [dependencies]
+livekit-protocol = { workspace = true }
 livekit-runtime = { workspace = true }
 yuv-sys = { workspace = true }
 log = { workspace = true }
