@@ -83,6 +83,10 @@ impl RefCountedData {
     pub fn len(&self) -> usize {
         unsafe { sys::lkDataGetSize(self.ffi.as_ptr()) as usize }
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 pub struct RefCountedVector {
