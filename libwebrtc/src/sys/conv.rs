@@ -14,7 +14,7 @@
 
 use crate::{peer_connection_factory::IceServer, rtp_parameters::*, sys};
 
-pub fn ice_servers_to_native(servers: &Vec<IceServer>) -> *mut sys::lkIceServer {
+pub fn ice_servers_to_native(servers: &[IceServer]) -> *mut sys::lkIceServer {
     if servers.is_empty() {
         return std::ptr::null_mut();
     }

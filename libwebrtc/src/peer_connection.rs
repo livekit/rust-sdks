@@ -651,7 +651,7 @@ impl PeerConnection {
     pub fn add_track(
         &self,
         track: MediaStreamTrack,
-        stream_ids: &Vec<String>,
+        stream_ids: &[String],
     ) -> Result<RtpSender, RtcError> {
         let mut lk_err = sys::lkRtcError { message: std::ptr::null() };
         unsafe {
