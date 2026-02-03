@@ -16,7 +16,7 @@
 #include "livekit_rtc/ice_candidate.h"
 #include "livekit_rtc/media_stream.h"
 #include "livekit_rtc/media_stream_track.h"
-#include "livekit_rtc/peer.h"
+#include "livekit_rtc/peer_connection.h"
 #include "livekit_rtc/rtp_sender.h"
 #include "livekit_rtc/rtp_transceiver.h"
 #include "livekit_rtc/session_description.h"

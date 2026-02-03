@@ -13,7 +13,7 @@ if (is_android) {
 
 lk_sources = [
   "apm.cc",
-  "peer.cc",
+  "peer_connection.cc",
   "audio_device.cc",
   "utils.cc",
   "data_channel.cc",
@@ -50,6 +50,7 @@ if (is_mac || is_ios) {
   ]
 }
 
+//TODO(duan): Re-enable HW codecs.
 if (false) {
   defines += [
     "USE_NVIDIA_VIDEO_CODEC",

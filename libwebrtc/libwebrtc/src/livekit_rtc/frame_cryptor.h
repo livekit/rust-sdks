@@ -25,7 +25,7 @@
 #include "api/crypto/frame_crypto_transformer.h"
 #include "api/scoped_refptr.h"
 #include "livekit_rtc/include/capi.h"
-#include "livekit_rtc/peer.h"
+#include "livekit_rtc/peer_connection.h"
 #include "livekit_rtc/rtp_transceiver.h"
 #include "rtc_base/synchronization/mutex.h"
 

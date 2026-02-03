@@ -65,8 +65,5 @@ class AudioMixer {
 std::unique_ptr<AudioMixer> create_audio_mixer();
 
 }  // namespace livekit_ffi
-<<<<<<< HEAD:libwebrtc/libwebrtc/src/livekit_rtc/audio_mixer.h
 
 #endif  // LIVEKIT_AUDIO_MIXER_H
-=======
->>>>>>> main:webrtc-sys/include/livekit/audio_mixer.h
