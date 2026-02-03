@@ -26,18 +26,16 @@ impl_thread_safety!(IceCandidate, Send + Sync);
 
 impl IceCandidate {
     pub fn parse(
-        sdp_mid: &String,
+        sdp_mid: &str,
         sdp_mline_index: i32,
-        sdp: &String,
+        sdp: &str,
     ) -> Result<IceCandidate, SdpParseError> {
-        let sdp_clone = sdp.clone();
-        let c_sdp = std::ffi::CString::new(sdp.as_str()).map_err(|e| SdpParseError {
-            line: sdp_clone.lines().next().unwrap_or("").to_string(),
+        let c_sdp = std::ffi::CString::new(sdp).map_err(|e| SdpParseError {
+            line: sdp.lines().next().unwrap_or("").to_string(),
             description: format!("Failed to convert SDP to CString: {}", e),
         })?;
-        let sdp_mid_clone = sdp_mid.clone();
-        let c_sdp_mid = std::ffi::CString::new(sdp_mid.as_str()).map_err(|e| SdpParseError {
-            line: sdp_mid_clone,
+        let c_sdp_mid = std::ffi::CString::new(sdp_mid).map_err(|e| SdpParseError {
+            line: sdp_mid.to_string(),
             description: format!("Failed to convert SDP mid to CString: {}", e),
         })?;
 
