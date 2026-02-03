@@ -244,7 +244,7 @@ impl Manager {
         let Descriptor::Active { published_tx, .. } = descriptor else {
             return;
         };
-        if !*published_tx.borrow() {
+        if *published_tx.borrow() {
             _ = published_tx.send(false);
         }
     }
