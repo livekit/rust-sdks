@@ -1,7 +1,7 @@
 [package]
 name = "local_video"
 version = "0.1.0"
-edition.workspace = true
+edition = "2021"
 publish = false
 
 [features]
@@ -23,24 +23,24 @@ path = "src/list_devices.rs"
 required-features = ["desktop"]
 
 [dependencies]
-tokio = { workspace = true, features = ["full", "parking_lot"] }
+tokio = { version = "1", features = ["full", "parking_lot"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 webrtc-sys = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-api = { workspace = true }
 yuv-sys = { workspace = true }
-futures = { workspace = true }
-clap = { workspace = true, features = ["derive"] }
-log = { workspace = true }
-env_logger = { workspace = true }
+futures = "0.3"
+clap = { version = "4.5", features = ["derive"] }
+log = "0.4"
+env_logger = "0.10.0"
 image = "0.24"
 egui = "0.31.1"
 egui-wgpu = "0.31.1"
 eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
 wgpu = "25.0"
 winit = { version = "0.30.11", features = ["android-native-activity"] }
-parking_lot = { workspace = true, features = ["deadlock_detection"] }
-anyhow = { workspace = true }
+parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
+anyhow = "1"
 bytemuck = { version = "1.16", features = ["derive"] }
 
 nokhwa = { version = "0.10", default-features = false, features = ["output-threaded"] }

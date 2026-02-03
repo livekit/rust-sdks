@@ -1,12 +1,12 @@
 [package]
 name = "play_from_disk"
 version = "0.1.0"
-edition.workspace = true
+edition = "2021"
 publish = false
 
 [dependencies]
-tokio = { workspace = true, features = ["full"] }
+tokio = { version = "1", features = ["full"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
-thiserror = { workspace = true }
-log = { workspace = true }
-env_logger = { workspace = true }
+thiserror = "1.0.47"
+log = "0.4.20"
+env_logger = "0.10.0"

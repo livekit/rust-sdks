@@ -1,12 +1,12 @@
 [package]
 name = "basic_text_stream"
 version = "0.1.0"
-edition.workspace = true
+edition = "2021"
 publish = false
 
 [dependencies]
-tokio = { workspace = true, features = ["full"] }
-futures-util = { workspace = true, default-features = false, features = ["sink"] }
+tokio = { version = "1", features = ["full"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
-log = { workspace = true }
-env_logger = { workspace = true }
+log = "0.4.26"
+env_logger = "0.11.7"
