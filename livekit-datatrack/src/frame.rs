@@ -55,8 +55,10 @@ impl DataTrackFrame {
     /// If the timestamp is invalid or not present, the result is none.
     ///
     pub fn duration_since_timestamp(&self) -> Option<Duration> {
+        let ts = self.user_timestamp?;
+        let ts_time = UNIX_EPOCH.checked_add(Duration::from_millis(ts))?;
         SystemTime::now()
-            .duration_since(UNIX_EPOCH + Duration::from_millis(self.user_timestamp?))
+            .duration_since(ts_time)
             .inspect_err(|err| log::error!("Failed to calculate duration: {err}"))
             .ok()
     }
