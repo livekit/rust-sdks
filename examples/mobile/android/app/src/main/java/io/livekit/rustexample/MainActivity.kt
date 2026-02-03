@@ -36,8 +36,8 @@ class MainActivity : ComponentActivity() {
         private const val TAG = "MainActivity"
 
         // Default connection values - change these for your setup
-        private const val DEFAULT_URL = "ws://192.168.1.3:7880"
-        private const val DEFAULT_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzQyMDQ4MzQsImlkZW50aXR5IjoiZGMiLCJpc3MiOiJkZXZrZXkiLCJuYW1lIjoiZGMiLCJuYmYiOjE3NjgyMDQ4MzQsInN1YiI6ImRjIiwidmlkZW8iOnsicm9vbSI6ImNwcCIsInJvb21Kb2luIjp0cnVlfX0.e5dGHaTnEw6kToAJ_Z4SbhVuTKQ-3lUrMYhRxhE3Mu4"
+        private const val DEFAULT_URL = "ws://"
+        private const val DEFAULT_TOKEN = ""
     }
 
     private var app: App? = null
@@ -109,9 +109,10 @@ class MainActivity : ComponentActivity() {
         // Update state after a short delay to allow connection to establish
         // In a real app, you'd want callbacks from the native side
         android.os.Handler(mainLooper).postDelayed({
-            isConnected.value = true
-            statusMessage.value = "Connected to room"
-            Log.i(TAG, "Connected to room")
+            val connected = currentApp.isConnected()
+            isConnected.value = connected
+            statusMessage.value = if (connected) "Connected to room" else "Connection failed"
+            Log.i(TAG, "Connection result: $connected")
         }, 1000)
     }
 
