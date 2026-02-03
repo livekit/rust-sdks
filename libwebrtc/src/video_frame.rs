@@ -439,7 +439,7 @@ impl I420ABuffer {
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn data_mut(&self) -> (&mut [u8], &mut [u8], &mut [u8], Option<&mut [u8]>) {
+    pub fn data_mut(&mut self) -> (&mut [u8], &mut [u8], &mut [u8], Option<&mut [u8]>) {
         let (data_y, data_u, data_v, data_a) = self.data();
         unsafe {
             (
