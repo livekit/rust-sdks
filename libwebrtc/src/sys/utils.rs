@@ -53,7 +53,7 @@ impl RefCountedData {
 
     pub fn new(vec: &[u8]) -> Self {
         let ffi = unsafe {
-            sys::lkCreateData(vec.as_ptr() as *const u8, (vec.len() as u64).try_into().unwrap())
+            sys::lkCreateData(vec.as_ptr(), (vec.len() as u64).try_into().unwrap())
         };
         Self { ffi: unsafe { sys::RefCounted::from_raw(ffi) } }
     }
@@ -63,7 +63,7 @@ impl RefCountedData {
             let len = sys::lkDataGetSize(self.ffi.as_ptr());
             let mut buf = vec![0u8; len as usize];
             let buf_ptr = sys::lkDataGetData(self.ffi.as_ptr());
-            std::ptr::copy_nonoverlapping(buf_ptr as *const u8, buf.as_mut_ptr(), len as usize);
+            std::ptr::copy_nonoverlapping(buf_ptr, buf.as_mut_ptr(), len as usize);
             buf
         }
     }
@@ -71,13 +71,13 @@ impl RefCountedData {
     pub fn as_slice(&self) -> &[i16] {
         unsafe {
             let len = sys::lkDataGetSize(self.ffi.as_ptr()) as usize;
-            let data_ptr = sys::lkDataGetData(self.ffi.as_ptr()) as *const u8;
+            let data_ptr = sys::lkDataGetData(self.ffi.as_ptr());
             std::slice::from_raw_parts(data_ptr as *const i16, len / 2)
         }
     }
 
     pub fn as_ptr(&self) -> *const u8 {
-        unsafe { sys::lkDataGetData(self.ffi.as_ptr()) as *const u8 }
+        unsafe { sys::lkDataGetData(self.ffi.as_ptr()) }
     }
 
     pub fn len(&self) -> usize {

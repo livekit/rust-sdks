@@ -128,7 +128,7 @@ impl AudioMixer {
                 sys::lkNativeAudioFrameUpdateFrame(
                     native_frame,
                     0,
-                    frame.data.as_ptr() as *const i16,
+                    frame.data.as_ptr(),
                     frame.samples_per_channel,
                     frame.sample_rate.try_into().unwrap(),
                     frame.num_channels,

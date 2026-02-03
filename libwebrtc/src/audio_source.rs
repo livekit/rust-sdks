@@ -182,7 +182,7 @@ pub mod native {
                     // Pass null ctx + null callback; C++ ignores them in direct mode
                     sys::lkAudioTrackSourceCaptureFrame(
                         self.ffi.as_ptr(),
-                        frame.data.as_ptr() as *const i16,
+                        frame.data.as_ptr(),
                         self.sample_rate,
                         self.num_channels,
                         nb_frames as i32,
@@ -212,7 +212,7 @@ pub mod native {
                 unsafe {
                     sys::lkAudioTrackSourceCaptureFrame(
                         self.ffi.as_ptr(),
-                        chunk.as_ptr() as *const i16,
+                        chunk.as_ptr(),
                         self.sample_rate,
                         self.num_channels,
                         nb_frames as i32,
@@ -243,7 +243,7 @@ pub mod native {
             unsafe {
                 sys::lkAudioTrackSourceCaptureFrame(
                     self.ffi.as_ptr(),
-                    frame.data.as_ptr() as *const i16,
+                    frame.data.as_ptr(),
                     frame.sample_rate,
                     frame.num_channels,
                     frame.samples_per_channel as i32,

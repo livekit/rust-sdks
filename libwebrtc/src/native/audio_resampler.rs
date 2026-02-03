@@ -49,7 +49,7 @@ impl AudioResampler {
                 dst_sample_rate,
             );
             let data_ptr = sys::lkAudioResamplerGetData(self.ffi.as_ptr());
-            std::slice::from_raw_parts(data_ptr as *const i16, len as usize / 2)
+            std::slice::from_raw_parts(data_ptr, len as usize / 2)
         }
     }
 }

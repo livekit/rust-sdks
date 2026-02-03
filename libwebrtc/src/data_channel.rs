@@ -145,7 +145,7 @@ impl DataChannel {
         unsafe {
             sys::lkDcSendAsync(
                 self.ffi.as_ptr(),
-                data.as_ptr() as *const u8,
+                data.as_ptr(),
                 data.len() as u64,
                 binary,
                 None,
@@ -177,7 +177,7 @@ impl DataChannel {
         unsafe {
             sys::lkDcSendAsync(
                 self.ffi.as_ptr(),
-                data.as_ptr() as *const u8,
+                data.as_ptr(),
                 data.len() as u64,
                 binary,
                 Some(on_complete),
