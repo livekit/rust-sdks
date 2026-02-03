@@ -36,7 +36,7 @@ pub struct ManagerOptions {
     ///
     /// If none, end-to-end encryption will be disabled for all published tracks.
     ///
-    pub decryption_provider: Option<Arc<dyn EncryptionProvider>>,
+    pub encryption_provider: Option<Arc<dyn EncryptionProvider>>,
 }
 
 /// System for managing data track publications.
@@ -64,7 +64,7 @@ impl Manager {
 
         let event_in = ManagerInput { event_in_tx: event_in_tx.clone() };
         let manager = Manager {
-            encryption_provider: options.decryption_provider,
+            encryption_provider: options.encryption_provider,
             event_in_tx,
             event_in_rx,
             event_out_tx,
@@ -389,7 +389,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_task_shutdown() {
-        let options = ManagerOptions { decryption_provider: None };
+        let options = ManagerOptions { encryption_provider: None };
         let (manager, input, _) = Manager::new(options);
 
         let join_handle = livekit_runtime::spawn(manager.run());
@@ -407,7 +407,7 @@ mod tests {
         let track_sid: DataTrackSid = Faker.fake();
         let pub_handle: Handle = Faker.fake();
 
-        let options = ManagerOptions { decryption_provider: None };
+        let options = ManagerOptions { encryption_provider: None };
         let (manager, input, mut output) = Manager::new(options);
         livekit_runtime::spawn(manager.run());
 
