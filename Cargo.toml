@@ -44,6 +44,7 @@ libwebrtc = { version = "0.3.24", path = "libwebrtc" }
 livekit = { version = "0.7.29", path = "livekit" }
 livekit-api = { version = "0.4.12", path = "livekit-api" }
 livekit-ffi = { version = "0.12.44", path = "livekit-ffi" }
+livekit-datatrack = { version = "0.1.0", path = "livekit-datatrack" }
 livekit-protocol = { version = "0.6.0", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
 soxr-sys = { version = "0.1.1", path = "soxr-sys" }
