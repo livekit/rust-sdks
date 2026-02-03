@@ -100,6 +100,7 @@ impl From<OfferOptions> for lkOfferAnswerOptions {
 }
 
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct AnswerOptions {
     pub offer_to_receive_audio: bool,
     pub offer_to_receive_video: bool,
@@ -116,11 +117,6 @@ impl From<AnswerOptions> for lkOfferAnswerOptions {
     }
 }
 
-impl Default for AnswerOptions {
-    fn default() -> Self {
-        Self { offer_to_receive_audio: false, offer_to_receive_video: false }
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct IceCandidateError {
@@ -639,7 +635,7 @@ impl PeerConnection {
         if ffi.is_null() {
             return Err(RtcError {
                 error_type: RtcErrorType::Internal,
-                message: format!("Failed to create data channel"),
+                message: "Failed to create data channel".to_string(),
             });
         }
 

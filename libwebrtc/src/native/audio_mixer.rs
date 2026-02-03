@@ -50,6 +50,12 @@ pub static SYS_AUDIO_MIXER_CALLBACKS: sys::lkAudioMixerSourceCallback =
         getAudioFrameWithInfo: Some(AudioMixer::audio_mixer_source_get_audio_frame_with_info),
     };
 
+impl Default for AudioMixer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AudioMixer {
     pub fn new() -> Self {
         let ffi = unsafe { sys::lkCreateAudioMixer() };
@@ -103,9 +109,9 @@ impl AudioMixer {
         let source =
             unsafe { &*(userdata as *const AudioMixerSourceImpl<Box<dyn AudioMixerSource>>) };
         if let Some(frame) = source.inner.get_audio_frame_with_info(target_sample_rate) {
-            let samples_count = (frame.sample_rate as usize / 100) as usize;
+            let samples_count = (frame.sample_rate as usize / 100);
             assert_eq!(
-                frame.sample_rate, target_sample_rate as u32,
+                frame.sample_rate, target_sample_rate,
                 "sample rate must match target_sample_rate"
             );
             assert_eq!(
@@ -128,9 +134,9 @@ impl AudioMixer {
                     frame.num_channels,
                 );
             }
-            return sys::lkAudioFrameInfo::AUDIO_FRAME_INFO_NORMAL;
+            sys::lkAudioFrameInfo::AUDIO_FRAME_INFO_NORMAL
         } else {
-            return sys::lkAudioFrameInfo::AUDIO_FRAME_INFO_MUTE;
+            sys::lkAudioFrameInfo::AUDIO_FRAME_INFO_MUTE
         }
     }
 }

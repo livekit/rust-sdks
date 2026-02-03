@@ -135,7 +135,7 @@ impl DataChannel {
                 observer_ptr as *mut ::std::os::raw::c_void,
             );
         }
-        Self { ffi: sys_handle, observer: observer }
+        Self { ffi: sys_handle, observer }
     }
 
     pub fn send(&self, data: &[u8], binary: bool) -> Result<(), DataChannelError> {

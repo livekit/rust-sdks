@@ -46,7 +46,7 @@ impl AudioProcessingModule {
     ) -> Result<(), RtcError> {
         let samples_per_10ms = (sample_rate as usize / 100) * num_channels as usize;
         assert!(
-            data.len() % samples_per_10ms == 0 && data.len() >= samples_per_10ms,
+            data.len().is_multiple_of(samples_per_10ms) && data.len() >= samples_per_10ms,
             "slice must have a multiple of 10ms worth of samples"
         );
 
@@ -79,7 +79,7 @@ impl AudioProcessingModule {
     ) -> Result<(), RtcError> {
         let samples_per_10ms = (sample_rate as usize / 100) * num_channels as usize;
         assert!(
-            data.len() % samples_per_10ms == 0 && data.len() >= samples_per_10ms,
+            data.len().is_multiple_of(samples_per_10ms) && data.len() >= samples_per_10ms,
             "slice must have a multiple of 10ms worth of samples"
         );
 

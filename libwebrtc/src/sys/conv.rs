@@ -300,7 +300,7 @@ pub fn rtp_parameters_to_native(params: RtpParameters) -> sys::RefCounted<sys::l
 
             sys::lkRtpCodecParametersSetPayloadType(
                 c_codec.as_ptr(),
-                codec.payload_type.try_into().unwrap(),
+                codec.payload_type.into(),
             );
             sys::lkRtpCodecParametersSetMimeType(
                 c_codec.as_ptr(),
@@ -315,7 +315,7 @@ pub fn rtp_parameters_to_native(params: RtpParameters) -> sys::RefCounted<sys::l
             if let Some(channels) = codec.channels {
                 sys::lkRtpCodecParametersSetChannels(
                     c_codec.as_ptr(),
-                    channels.try_into().unwrap(),
+                    channels.into(),
                 );
             }
             lk_codecs_vec.push_back(c_codec);

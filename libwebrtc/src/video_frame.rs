@@ -293,7 +293,7 @@ impl I420Buffer {
     }
 
     pub fn new(width: u32, height: u32) -> I420Buffer {
-        Self::with_strides(width, height, width, (width + 1) / 2, (width + 1) / 2)
+        Self::with_strides(width, height, width, width.div_ceil(2), width.div_ceil(2))
     }
 
     pub fn new_boxed(width: u32, height: u32) -> Box<I420Buffer> {
@@ -484,7 +484,7 @@ impl I422Buffer {
     }
 
     pub fn new(width: u32, height: u32) -> I422Buffer {
-        Self::with_strides(width, height, width, (width + 1) / 2, (width + 1) / 2)
+        Self::with_strides(width, height, width, width.div_ceil(2), width.div_ceil(2))
     }
 
     pub fn chroma_width(&self) -> u32 {
@@ -660,7 +660,7 @@ impl I010Buffer {
     }
 
     pub fn new(width: u32, height: u32) -> I010Buffer {
-        Self::with_strides(width, height, width, (width + 1) / 2, (width + 1) / 2)
+        Self::with_strides(width, height, width, width.div_ceil(2), width.div_ceil(2))
     }
 
     pub fn chroma_width(&self) -> u32 {

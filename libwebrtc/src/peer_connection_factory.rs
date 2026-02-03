@@ -148,7 +148,7 @@ impl PeerConnectionFactory {
                 observer_ptr as *mut ::std::os::raw::c_void,
             )
         };
-        if sys_peer == std::ptr::null_mut() {
+        if sys_peer.is_null() {
             unsafe {
                 let _ = Rc::from_raw(observer_ptr);
             }
@@ -158,7 +158,7 @@ impl PeerConnectionFactory {
             });
         }
         let ffi = unsafe { sys::RefCounted::from_raw(sys_peer) };
-        let peer = PeerConnection { observer: observer, ffi: ffi };
+        let peer = PeerConnection { observer, ffi };
         Ok(peer)
     }
 

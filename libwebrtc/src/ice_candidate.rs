@@ -42,7 +42,7 @@ impl IceCandidate {
         })?;
 
         let ffi = unsafe {
-            sys::lkCreateIceCandidate(c_sdp_mid.as_ptr(), sdp_mline_index as i32, c_sdp.as_ptr())
+            sys::lkCreateIceCandidate(c_sdp_mid.as_ptr(), sdp_mline_index, c_sdp.as_ptr())
         };
         Ok(IceCandidate { ffi: unsafe { sys::RefCounted::from_raw(ffi) } })
     }
@@ -56,7 +56,7 @@ impl IceCandidate {
     }
 
     pub fn sdp_mline_index(&self) -> i32 {
-        unsafe { sys::lkIceCandidateGetMlineIndex(self.ffi.as_ptr()).into() }
+        unsafe { sys::lkIceCandidateGetMlineIndex(self.ffi.as_ptr()) }
     }
 
     pub fn candidate(&self) -> String {

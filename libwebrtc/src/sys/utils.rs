@@ -90,6 +90,12 @@ pub struct RefCountedVector {
     pub vec: Vec<crate::sys::RefCounted<sys::lkRefCountedObject>>,
 }
 
+impl Default for RefCountedVector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RefCountedVector {
     pub fn new() -> Self {
         let ffi = unsafe { sys::lkCreateVectorGeneric() };

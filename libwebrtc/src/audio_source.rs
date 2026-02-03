@@ -161,7 +161,7 @@ pub mod native {
             if self.queue_size_samples == 0 {
                 // frame size must be 10ms for fast path
                 let expected_frames_per_ch = (self.sample_rate / 100) as usize;
-                if frame.data.len() % (self.num_channels as usize) != 0 {
+                if !frame.data.len().is_multiple_of(self.num_channels as usize) {
                     return Err(RtcError {
                         error_type: RtcErrorType::InvalidState,
                         message: "frame.data length not divisible by channel count".to_owned(),

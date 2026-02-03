@@ -31,7 +31,7 @@ fn i420_assert_safety(
     height: i32,
 ) {
     let height_abs = height.unsigned_abs();
-    let chroma_height = (height_abs + 1) / 2;
+    let chroma_height = height_abs.div_ceil(2);
     let min_y = (src_stride_y * height_abs) as usize;
     let min_u = (src_stride_u * chroma_height) as usize;
     let min_v = (src_stride_v * chroma_height) as usize;
@@ -50,7 +50,7 @@ fn nv12_assert_safety(
     height: i32,
 ) {
     let height_abs = height.unsigned_abs();
-    let chroma_height = (height_abs + 1) / 2;
+    let chroma_height = height_abs.div_ceil(2);
 
     let min_y = (src_stride_y * height_abs) as usize;
     let min_uv = (src_stride_uv * chroma_height) as usize;

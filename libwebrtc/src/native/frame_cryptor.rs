@@ -200,7 +200,7 @@ impl FrameCryptor {
         let observer = unsafe { &*(userdata as *const Arc<RtcFrameCryptorObserver>) };
         let str: String =
             unsafe { std::ffi::CStr::from_ptr(participant_id).to_str().unwrap().to_string() };
-        observer.on_frame_cryption_state_change(str, state.into());
+        observer.on_frame_cryption_state_change(str, state);
     }
 
     pub fn new_for_rtp_sender(
@@ -224,7 +224,7 @@ impl FrameCryptor {
                 Some(FrameCryptor::on_encryption_state_changed),
                 observer_box as *mut ::std::os::raw::c_void,
             );
-            Self { observer: observer, ffi: sys::RefCounted::from_raw(ffi) }
+            Self { observer, ffi: sys::RefCounted::from_raw(ffi) }
         }
     }
 
@@ -249,7 +249,7 @@ impl FrameCryptor {
                 Some(FrameCryptor::on_encryption_state_changed),
                 observer_box as *mut ::std::os::raw::c_void,
             );
-            Self { observer: observer, ffi: sys::RefCounted::from_raw(ffi) }
+            Self { observer, ffi: sys::RefCounted::from_raw(ffi) }
         }
     }
 
