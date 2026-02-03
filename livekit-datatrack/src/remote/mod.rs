@@ -14,17 +14,17 @@
 
 use crate::api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError};
 use anyhow::anyhow;
+use events::{InputEvent, SubscribeRequest};
 use futures_util::StreamExt;
 use livekit_runtime::timeout;
-use events::{InputEvent, SubscribeRequest};
 use std::{marker::PhantomData, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
 
-pub(crate) mod proto;
 pub(crate) mod events;
 pub(crate) mod manager;
+pub(crate) mod proto;
 
 mod depacketizer;
 mod pipeline;

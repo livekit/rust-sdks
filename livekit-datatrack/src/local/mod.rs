@@ -20,9 +20,9 @@ use std::{fmt, marker::PhantomData, sync::Arc};
 use thiserror::Error;
 use tokio::sync::{mpsc, watch};
 
-pub(crate) mod proto;
 pub(crate) mod events;
 pub(crate) mod manager;
+pub(crate) mod proto;
 
 mod packetizer;
 mod pipeline;
@@ -84,9 +84,10 @@ impl DataTrack<Local> {
         if !self.is_published() {
             return Err(PushFrameError::new(frame, PushFrameErrorReason::TrackUnpublished));
         }
-        self.inner().frame_tx.try_send(frame).map_err(|err| {
-            PushFrameError::new(err.into_inner(), PushFrameErrorReason::Dropped)
-        })
+        self.inner()
+            .frame_tx
+            .try_send(frame)
+            .map_err(|err| PushFrameError::new(err.into_inner(), PushFrameErrorReason::Dropped))
     }
 
     /// Unpublishes the track.

@@ -92,8 +92,8 @@ impl From<DataTrackFrame> for PacketizerFrame {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fake::{Fake, Faker};
     use bytes::Bytes;
+    use fake::{Fake, Faker};
 
     #[test]
     fn test_process_frame() {

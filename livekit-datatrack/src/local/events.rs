@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
 use crate::{
     api::{DataTrackInfo, DataTrackOptions, LocalDataTrack, PublishError},
     packet::Handle,
 };
 use bytes::Bytes;
 use from_variants::FromVariants;
+use std::sync::Arc;
 use tokio::sync::oneshot;
 
 /// An external event handled by [`Manager`](super::manager::Manager).
@@ -82,7 +82,7 @@ pub struct UnpublishRequest {
 ///
 #[derive(Debug)]
 pub struct QueryPublished {
-    pub(super) result_tx: oneshot::Sender<Vec<Arc<DataTrackInfo>>>
+    pub(super) result_tx: oneshot::Sender<Vec<Arc<DataTrackInfo>>>,
 }
 
 /// SFU responded to a request to publish a data track.

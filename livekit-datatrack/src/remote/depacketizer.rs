@@ -240,9 +240,9 @@ impl Display for DepacketizerDropReason {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::Counter;
     use fake::{Fake, Faker};
     use test_case::test_case;
-    use crate::utils::Counter;
 
     #[test]
     fn test_single_packet() {
@@ -349,10 +349,7 @@ mod tests {
         let result = depacketizer.push(packet);
         let drop = result.drop_error.unwrap();
         assert_eq!(drop.frame_number, frame_number);
-        assert!(matches!(
-            drop.reason,
-            DepacketizerDropReason::UnknownFrame
-        ));
+        assert!(matches!(drop.reason, DepacketizerDropReason::UnknownFrame));
     }
 
     #[test]

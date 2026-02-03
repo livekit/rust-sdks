@@ -15,8 +15,8 @@
 use crate::packet::Handle;
 use from_variants::FromVariants;
 use std::{fmt::Display, marker::PhantomData, sync::Arc};
-use tokio::sync::watch;
 use thiserror::Error;
+use tokio::sync::watch;
 
 /// Track for communicating application-specific data between participants in room.
 #[derive(Debug, Clone)]
