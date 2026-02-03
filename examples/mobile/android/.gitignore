@@ -7,9 +7,20 @@
 /.idea/workspace.xml
 /.idea/navEditor.xml
 /.idea/assetWizardSettings.xml
+/.idea/AndroidProjectSystem.xml
+/.idea/migrations.xml
+/.idea/misc.xml
+/.idea/vcs.xml
+/.idea/codeStyles
+/.idea/runConfigurations.xml
+/.idea/gradle.xml
+/.idea/deploymentTargetSelector.xml
 .DS_Store
 /build
 /captures
 .externalNativeBuild
 .cxx
 local.properties
+
+# Generated native libraries (built via cargo-ndk)
+/app/src/main/jniLibs/
