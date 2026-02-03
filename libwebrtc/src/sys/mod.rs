@@ -28,16 +28,15 @@ pub use refcounted::*;
 pub use utils::*;
 
 #[cfg(test)]
+#[allow(non_snake_case)]
 mod tests {
     use super::*;
 
     // PeerObserver
-    #[allow(non_snake_case)]
     extern "C" fn peerOnSignalChange(state: lkSignalingState, _userdata: *mut std::ffi::c_void) {
         println!("OnSignalChange: {:?}", state);
     }
 
-    #[allow(non_snake_case)]
     extern "C" fn peerOnIceCandidate(
         candidate: *mut lkIceCandidate,
         _userdata: *mut ::std::os::raw::c_void,
@@ -45,12 +44,10 @@ mod tests {
         println!("OnIceCandidate: {:?}", candidate);
     }
 
-    #[allow(non_snake_case)]
     extern "C" fn peerOnDataChannel(dc: *const lkDataChannel, _userdata: *mut std::ffi::c_void) {
         println!("OnDataChannel: {:?}", dc);
     }
 
-    #[allow(non_snake_case)]
     extern "C" fn peerOnTrack(
         transceiver: *const lkRtpTransceiver,
         _receiver: *const lkRtpReceiver,
@@ -61,12 +58,10 @@ mod tests {
         println!("OnTrack: {:?}", transceiver);
     }
 
-    #[allow(non_snake_case)]
     extern "C" fn peerOnConnectionChange(state: lkPeerState, _userdata: *mut std::ffi::c_void) {
         println!("OnConnectionChange: {:?}", state);
     }
 
-    #[allow(non_snake_case)]
     extern "C" fn peerOnIceCandidateError(
         address: *const ::std::os::raw::c_char,
         port: ::std::os::raw::c_int,
@@ -82,7 +77,6 @@ mod tests {
     }
 
     // Create SDP observer
-    #[allow(non_snake_case)]
     extern "C" fn createSdpOnSuccess(
         desc: *mut lkSessionDescription,
         _userdata: *mut std::ffi::c_void,
@@ -96,28 +90,23 @@ mod tests {
         }
     }
 
-    #[allow(non_snake_case)]
     extern "C" fn createSdpOnFailure(error: *const lkRtcError, _userdata: *mut std::ffi::c_void) {
         println!("CreateSdp - OnFailure: {:?}", error);
     }
 
     // Set SDP observer
-    #[allow(non_snake_case)]
     extern "C" fn setSdpOnSuccess(_userdata: *mut ::std::os::raw::c_void) {
         println!(" SetSDP - OnSuccess");
     }
 
-    #[allow(non_snake_case)]
     extern "C" fn setSdpOnFailure(error: *const lkRtcError, _userdata: *mut std::ffi::c_void) {
         println!("SetSDP - OnFailure: {:?}", error);
     }
 
-    #[allow(non_snake_case)]
     extern "C" fn onIceConnectionChange(state: lkIceState, _userdata: *mut ::std::os::raw::c_void) {
         println!("OnIceConnectionChange: {:?}", state);
     }
 
-    #[allow(non_snake_case)]
     extern "C" fn onIceGatheringChange(
         state: lkIceGatheringState,
         _userdata: *mut ::std::os::raw::c_void,
@@ -125,7 +114,6 @@ mod tests {
         println!("OnIceGatheringChange: {:?}", state);
     }
 
-    #[allow(non_snake_case)]
     extern "C" fn onRenegotiationNeeded(_userdata: *mut ::std::os::raw::c_void) {
         println!("OnRenegotiationNeeded");
     }
