@@ -152,7 +152,7 @@ impl Depacketizer {
             frame_number: partial.frame_number,
             reason: DepacketizerDropReason::Incomplete {
                 received,
-                expected: end_sequence - partial.start_sequence + 1,
+                expected: end_sequence.wrapping_sub(partial.start_sequence).wrapping_add(1),
             },
         }
         .into()
