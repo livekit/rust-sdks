@@ -1,11 +1,11 @@
 [package]
 name = "save_to_disk"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 publish = false
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
-bytes = "1.4.0"
-futures = "0.3.28"
+bytes = { workspace = true }
+futures = { workspace = true }

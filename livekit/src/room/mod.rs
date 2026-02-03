@@ -153,6 +153,10 @@ pub enum RoomEvent {
         participant: Participant,
         is_encrypted: bool,
     },
+    ParticipantPermissionChanged {
+        participant: Participant,
+        permission: Option<proto::ParticipantPermission>,
+    },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,
     },
@@ -505,6 +509,7 @@ impl Room {
             pi.metadata,
             pi.attributes,
             e2ee_manager.encryption_type(),
+            pi.permission,
         );
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
@@ -580,6 +585,14 @@ impl Room {
             }
         });
 
+        local_participant.on_permission_changed({
+            let dispatcher = dispatcher.clone();
+            move |participant, permission| {
+                let event = RoomEvent::ParticipantPermissionChanged { participant, permission };
+                dispatcher.dispatch(&event);
+            }
+        });
+
         let (incoming_stream_manager, open_rx) = IncomingStreamManager::new();
         let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
 
@@ -593,7 +606,7 @@ impl Room {
                 empty_timeout: room_info.empty_timeout,
                 departure_timeout: room_info.departure_timeout,
                 max_participants: room_info.max_participants,
-                creation_time: room_info.creation_time,
+                creation_time: room_info.creation_time_ms,
                 num_publishers: room_info.num_publishers,
                 num_participants: room_info.num_participants,
                 active_recording: room_info.active_recording,
@@ -649,6 +662,7 @@ impl Room {
                     pi.name,
                     pi.metadata,
                     pi.attributes,
+                    pi.permission,
                 )
             };
             participant.update_info(pi.clone());
@@ -760,7 +774,7 @@ impl Room {
     pub fn max_participants(&self) -> u32 {
         self.inner.info.read().max_participants
     }
-
+    /// Returns the room creation time in milliseconds since Unix epoch.
     pub fn creation_time(&self) -> i64 {
         self.inner.info.read().creation_time
     }
@@ -1011,6 +1025,7 @@ impl RoomSession {
                         pi.name,
                         pi.metadata,
                         pi.attributes,
+                        pi.permission,
                     )
                 };
 
@@ -1212,6 +1227,7 @@ impl RoomSession {
             publish_tracks: self.local_participant.published_tracks_info(),
             data_channels: dcs,
             datachannel_receive_states: session.data_channel_receive_states(),
+            publish_data_tracks: Default::default()
         };
 
         log::debug!("sending sync state {:?}", sync_state);
@@ -1616,6 +1632,7 @@ impl RoomSession {
         name: String,
         metadata: String,
         attributes: HashMap<String, String>,
+        permission: Option<proto::ParticipantPermission>,
     ) -> RemoteParticipant {
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
@@ -1627,6 +1644,7 @@ impl RoomSession {
             metadata,
             attributes,
             self.options.auto_subscribe,
+            permission,
         );
 
         participant.on_track_published({
@@ -1720,6 +1738,14 @@ impl RoomSession {
             move |participant, changed_attributes| {
                 let event =
                     RoomEvent::ParticipantAttributesChanged { participant, changed_attributes };
+                dispatcher.dispatch(&event);
+            }
+        });
+
+        participant.on_permission_changed({
+            let dispatcher = self.dispatcher.clone();
+            move |participant, permission| {
+                let event = RoomEvent::ParticipantPermissionChanged { participant, permission };
                 dispatcher.dispatch(&event);
             }
         });

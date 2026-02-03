@@ -94,9 +94,9 @@ impl FfiByteStreamReader {
     pub fn read_all(
         self,
         server: &'static FfiServer,
-        _request: proto::ByteStreamReaderReadAllRequest,
+        request: proto::ByteStreamReaderReadAllRequest,
     ) -> FfiResult<proto::ByteStreamReaderReadAllResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
         let handle = server.async_runtime.spawn(async move {
             let result = self.inner.read_all().await.into();
             let callback =
@@ -112,7 +112,7 @@ impl FfiByteStreamReader {
         server: &'static FfiServer,
         request: proto::ByteStreamReaderWriteToFileRequest,
     ) -> FfiResult<proto::ByteStreamReaderWriteToFileResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
 
         let handle = server.async_runtime.spawn(async move {
             let result = self
@@ -174,9 +174,9 @@ impl FfiTextStreamReader {
     pub fn read_all(
         self,
         server: &'static FfiServer,
-        _request: proto::TextStreamReaderReadAllRequest,
+        request: proto::TextStreamReaderReadAllRequest,
     ) -> FfiResult<proto::TextStreamReaderReadAllResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
         let handle = server.async_runtime.spawn(async move {
             let result = self.inner.read_all().await.into();
             let callback =
@@ -208,7 +208,7 @@ impl FfiByteStreamWriter {
         server: &'static FfiServer,
         request: proto::ByteStreamWriterWriteRequest,
     ) -> FfiResult<proto::ByteStreamWriterWriteResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
         let inner = self.inner.clone();
         let handle = server.async_runtime.spawn(async move {
             let result = inner.write(&request.bytes).await;
@@ -227,7 +227,7 @@ impl FfiByteStreamWriter {
         server: &'static FfiServer,
         request: proto::ByteStreamWriterCloseRequest,
     ) -> FfiResult<proto::ByteStreamWriterCloseResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
         let handle = server.async_runtime.spawn(async move {
             let result = match request.reason {
                 Some(reason) => self.inner.close_with_reason(&reason).await,
@@ -264,7 +264,7 @@ impl FfiTextStreamWriter {
         server: &'static FfiServer,
         request: proto::TextStreamWriterWriteRequest,
     ) -> FfiResult<proto::TextStreamWriterWriteResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
         let inner = self.inner.clone();
         let handle = server.async_runtime.spawn(async move {
             let result = inner.write(&request.text).await;
@@ -283,7 +283,7 @@ impl FfiTextStreamWriter {
         server: &'static FfiServer,
         request: proto::TextStreamWriterCloseRequest,
     ) -> FfiResult<proto::TextStreamWriterCloseResponse> {
-        let async_id = server.next_id();
+        let async_id = server.resolve_async_id(request.request_async_id);
         let handle = server.async_runtime.spawn(async move {
             let result = match request.reason {
                 Some(reason) => self.inner.close_with_reason(&reason).await,

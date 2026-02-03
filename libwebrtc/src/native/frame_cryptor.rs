@@ -395,7 +395,6 @@ impl From<sys::lkEncryptionAlgorithm> for EncryptionAlgorithm {
         match value {
             sys::lkEncryptionAlgorithm::ENCRYPTION_ALGORITHM_AES_GCM => Self::AesGcm,
             sys::lkEncryptionAlgorithm::ENCRYPTION_ALGORITHM_AES_CBC => Self::AesCbc,
-            _ => panic!("unknown frame cyrptor Algorithm"),
         }
     }
 }
@@ -419,7 +418,6 @@ impl From<sys::lkEncryptionState> for EncryptionState {
             sys::lkEncryptionState::ENCRYPTION_STATE_MISSING_KEY => Self::MissingKey,
             sys::lkEncryptionState::ENCRYPTION_STATE_KEY_RATCHETED => Self::KeyRatcheted,
             sys::lkEncryptionState::ENCRYPTION_STATE_INTERNAL_ERROR => Self::InternalError,
-            _ => panic!("unknown frame cyrptor FrameCryptionState"),
         }
     }
 }

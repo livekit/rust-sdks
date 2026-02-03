@@ -1,0 +1,75 @@
+{
+  "name": "@livekit/rtc-ffi-bindings",
+  "description": "LiveKit RTC Node",
+  "license": "Apache-2.0",
+  "author": "LiveKit",
+  "version": "0.12.43",
+  "main": "dist/index.js",
+  "require": "dist/index.cjs",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/livekit/node-sdks.git",
+    "directory": "packages/livekit-rtc"
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "napi": {
+    "name": "rtc-node",
+    "triples": {
+      "defaults": false,
+      "additional": [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc"
+      ]
+    }
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^1.10.1"
+  },
+  "devDependencies": {
+    "@bufbuild/protoc-gen-es": "^1.10.1",
+    "@napi-rs/cli": "^2.18.0",
+    "@types/node": "^22.13.10",
+    "prettier": "^3.0.3",
+    "tsup": "^8.5.1",
+    "typescript": "5.8.2"
+  },
+  "optionalDependencies": {
+    "@livekit/rtc-node-darwin-arm64": "workspace:*",
+    "@livekit/rtc-node-darwin-x64": "workspace:*",
+    "@livekit/rtc-node-linux-arm64-gnu": "workspace:*",
+    "@livekit/rtc-node-linux-x64-gnu": "workspace:*",
+    "@livekit/rtc-node-win32-x64-msvc": "workspace:*"
+  },
+  "engines": {
+    "node": ">= 18"
+  },
+  "scripts": {
+    "build:ts": "tsup --onSuccess \"tsc --declaration --emitDeclarationOnly\" && cp -r src/napi dist/ && cp -r src/napi/* dist/",
+    "build": "pnpm build:ts && napi build --platform --release --dts native.d.ts --js native.cjs --pipe \"prettier -w\" src/napi",
+    "artifacts": "pnpm build:ts && napi artifacts",
+    "build:debug": "napi build --platform",
+    "universal": "napi universal",
+    "version": "napi version"
+  },
+  "packageManager": "pnpm@9.15.9+sha512.68046141893c66fad01c079231128e9afb89ef87e2691d69e4d40eee228988295fd4682181bae55b58418c3a253bde65a505ec7c5f9403ece5cc3cd37dcf2531"
+}

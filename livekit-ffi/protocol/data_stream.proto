@@ -37,6 +37,7 @@ message TextStreamReaderReadIncrementalResponse {}
 // Reads an incoming text stream in its entirety.
 message TextStreamReaderReadAllRequest {
     required uint64 reader_handle = 1;
+    optional uint64 request_async_id = 2;
 }
 message TextStreamReaderReadAllResponse {
     required uint64 async_id = 1;
@@ -82,6 +83,7 @@ message ByteStreamReaderReadIncrementalResponse {}
 // Reads an incoming byte stream in its entirety.
 message ByteStreamReaderReadAllRequest {
     required uint64 reader_handle = 1;
+    optional uint64 request_async_id = 2;
 }
 message ByteStreamReaderReadAllResponse {
     required uint64 async_id = 1;
@@ -97,6 +99,7 @@ message ByteStreamReaderReadAllCallback {
 // Writes data from an incoming stream to a file as it arrives.
 message ByteStreamReaderWriteToFileRequest {
     required uint64 reader_handle = 1;
+    optional uint64 request_async_id = 2;
 
     // Directory to write the file in (must be writable by the current process).
     // If not provided, the file will be written to the system's temp directory.
@@ -145,6 +148,8 @@ message StreamSendFileRequest {
 
     // Path of the file to send (must be readable by the current process).
     required string file_path = 3;
+
+    optional uint64 request_async_id = 4;
 }
 message StreamSendFileResponse {
     required uint64 async_id = 1;
@@ -167,6 +172,8 @@ message StreamSendBytesRequest {
 
     // Bytes to send.
     required bytes bytes = 3;
+
+    optional uint64 request_async_id = 4;
 }
 message StreamSendBytesResponse {
     required uint64 async_id = 1;
@@ -189,6 +196,8 @@ message StreamSendTextRequest {
 
     // Text to send.
     required string text = 3;
+
+    optional uint64 request_async_id = 4;
 }
 message StreamSendTextResponse {
     required uint64 async_id = 1;
@@ -215,6 +224,8 @@ message ByteStreamOpenRequest {
 
     // Options to use for opening the stream.
     required StreamByteOptions options = 2;
+
+    optional uint64 request_async_id = 3;
 }
 message ByteStreamOpenResponse {
     required uint64 async_id = 1;
@@ -231,6 +242,7 @@ message ByteStreamOpenCallback {
 message ByteStreamWriterWriteRequest {
     required uint64 writer_handle = 1;
     required bytes bytes = 2;
+    optional uint64 request_async_id = 3;
 }
 message ByteStreamWriterWriteResponse {
     required uint64 async_id = 1;
@@ -244,6 +256,7 @@ message ByteStreamWriterWriteCallback {
 message ByteStreamWriterCloseRequest {
     required uint64 writer_handle = 1;
     optional string reason = 2;
+    optional uint64 request_async_id = 3;
 }
 message ByteStreamWriterCloseResponse {
     required uint64 async_id = 1;
@@ -267,6 +280,8 @@ message TextStreamOpenRequest {
 
     // Options to use for opening the stream.
     required StreamTextOptions options = 2;
+
+    optional uint64 request_async_id = 3;
 }
 message TextStreamOpenResponse {
     required uint64 async_id = 1;
@@ -283,6 +298,7 @@ message TextStreamOpenCallback {
 message TextStreamWriterWriteRequest {
     required uint64 writer_handle = 1;
     required string text = 2;
+    optional uint64 request_async_id = 3;
 }
 message TextStreamWriterWriteResponse {
     required uint64 async_id = 1;
@@ -296,6 +312,7 @@ message TextStreamWriterWriteCallback {
 message TextStreamWriterCloseRequest {
     required uint64 writer_handle = 1;
     optional string reason = 2;
+    optional uint64 request_async_id = 3;
 }
 message TextStreamWriterCloseResponse {
     required uint64 async_id = 1;

@@ -1,0 +1,26 @@
+[package]
+edition.workspace = true
+name = "rtc-node-ffi-bindings"
+version = "0.0.1"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2.12.2", default-features = false, features = [
+    "async",
+    "napi6",
+] }
+napi-derive = "2.12.2"
+livekit-ffi = { path = "../livekit-ffi" }
+prost = { workspace = true }
+prost-types = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+
+[build-dependencies]
+napi-build = "2.0.1"
+
+[profile.release]
+lto = true

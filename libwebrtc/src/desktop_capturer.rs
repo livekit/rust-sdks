@@ -172,7 +172,7 @@ impl DesktopCapturer {
         }
     }
 
-    pub fn start_capture<T>(&mut self, source: Option<CaptureSource>, callback: T)
+    pub fn start_capture<T>(&mut self, _source: Option<CaptureSource>, callback: T)
     where
         T: FnMut(Result<DesktopFrame, CaptureError>) + Send + 'static,
     {
@@ -246,7 +246,6 @@ impl DesktopCapturerCallbackWrapper {
             sys::lkCaptureResult::CAPTURE_RESULT_ERROR_PERMANENT => {
                 callback_wrapper.callback.on_capture_result(Err(CaptureError::Permanent))
             }
-            _ => callback_wrapper.callback.on_capture_result(Err(CaptureError::Permanent)),
         }
     }
 }

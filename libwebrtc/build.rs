@@ -20,8 +20,8 @@ fn main() {
     }
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
-    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-    let is_desktop = target_os == "linux" || target_os == "windows" || target_os == "macos";
+    let _target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
+    let _is_desktop = target_os == "linux" || target_os == "windows" || target_os == "macos";
 
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");

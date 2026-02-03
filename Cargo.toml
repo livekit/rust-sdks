@@ -5,6 +5,8 @@ members = [
     "livekit-api",
     "livekit-protocol",
     "livekit-ffi",
+    "livekit-uniffi",
+    "livekit-ffi-node-bindings",
     "livekit-runtime",
     "libwebrtc",
     "soxr-sys",
@@ -16,6 +18,7 @@ members = [
     "examples/basic_text_stream",
     "examples/encrypted_text_stream",
     "examples/local_audio",
+    "examples/local_video",
     "examples/mobile",
     "examples/play_from_disk",
     "examples/rpc",
@@ -23,17 +26,50 @@ members = [
     "examples/screensharing",
     "examples/send_bytes",
     "examples/webhooks",
-    "examples/wgpu_room",
+    "examples/wgpu_room"
 ]
+
+[workspace.package]
+edition = "2021"
+repository = "https://github.com/livekit/rust-sdks"
+license = "Apache-2.0"
 
 [workspace.dependencies]
 imgproc = { version = "0.3.15", path = "imgproc" }
-libwebrtc = { version = "0.3.23", path = "libwebrtc" }
-livekit = { version = "0.7.28", path = "livekit" }
-livekit-api = { version = "0.4.11", path = "livekit-api" }
-livekit-ffi = { version = "0.12.43", path = "livekit-ffi" }
+libwebrtc = { version = "0.3.24", path = "libwebrtc" }
+livekit = { version = "0.7.29", path = "livekit" }
+livekit-api = { version = "0.4.12", path = "livekit-api" }
+livekit-ffi = { version = "0.12.44", path = "livekit-ffi" }
 livekit-protocol = { version = "0.6.0", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
 soxr-sys = { version = "0.1.1", path = "soxr-sys" }
 webrtc-sys-build = { version = "0.3.12", path = "libwebrtc/build" }
 yuv-sys = { version = "0.3.10", path = "yuv-sys" }
+
+anyhow = "1.0"
+bytes = "1.10"
+clap = "4.5"
+console-subscriber = "0.1"
+env_logger = "0.11"
+futures = "0.3"
+futures-util = "0.3"
+lazy_static = "1.4"
+log = "0.4"
+parking_lot = "0.12"
+prost = "0.14"
+prost-build = "0.14"
+prost-types = "0.14"
+rand = "0.9"
+serde = "1"
+serde_derive = "1.0"
+serde_json = "1.0"
+thiserror = "1"
+tokio = "1"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false

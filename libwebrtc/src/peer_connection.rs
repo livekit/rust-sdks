@@ -290,7 +290,7 @@ impl PeerObserver {
         receiver: *const lkRtpReceiver,
         userdata: *mut std::ffi::c_void,
     ) {
-        let rtp_receiver =
+        let _rtp_receiver =
             RtpReceiver { ffi: unsafe { sys::RefCounted::from_raw(receiver as *mut _) } };
         let observer: &mut Mutex<PeerObserver> =
             unsafe { &mut *userdata.cast::<Mutex<PeerObserver>>() };

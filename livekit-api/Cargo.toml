@@ -1,10 +1,10 @@
 [package]
 name = "livekit-api"
-version = "0.4.11"
-license = "Apache-2.0"
+version = "0.4.12"
+license.workspace = true
 description = "Rust Server SDK for LiveKit"
-edition = "2021"
-repository = "https://github.com/livekit/rust-sdks"
+edition.workspace = true
+repository.workspace = true
 
 [features]
 # By default ws TLS is not enabled
@@ -70,17 +70,17 @@ __rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
 
 [dependencies]
 livekit-protocol = { workspace = true }
-thiserror = "1.0"
-serde = { version = "1.0", features = ["derive"] }
+thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
 sha2 = "0.10"
 url = "2.3"
-log = "0.4"
-parking_lot = { version = "0.12" }
+log = { workspace = true }
+parking_lot = { workspace = true }
 prost = "0.12"
 pbjson-types = "0.6"
 
 # webhooks
-serde_json = { version = "1.0", optional = true }
+serde_json = { workspace = true, optional = true }
 base64 = { version = "0.21", optional = true, features = ["std"] }
 
 # access_token & services
@@ -90,10 +90,10 @@ jsonwebtoken = { version = "9", default-features = false, optional = true }
 livekit-runtime = { workspace = true, optional = true}
 tokio-tungstenite = { version = "0.20", optional = true }
 async-tungstenite = { version = "0.25.0", features = [ "async-std-runtime", "async-native-tls"], optional = true }
-tokio = { version = "1", default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
+tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
 tokio-rustls = { version = "0.24", optional = true }
 rustls-native-certs = { version = "0.6", optional = true }
-futures-util = { version = "0.3", default-features = false, features = [ "sink" ], optional = true }
+futures-util = { workspace = true, default-features = false, features = [ "sink" ], optional = true }
 
 # This dependency must be kept in sync with reqwest's version
 http = "1.1"
@@ -101,4 +101,4 @@ reqwest = { version = "0.12", default-features = false, features = [ "json" ], o
 isahc = { version = "1.7.2", default-features = false, features = [ "json", "text-decoding" ], optional = true }
 
 scopeguard = "1.2.0"
-rand = "0.9.0"
+rand = { workspace = true }

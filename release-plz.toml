@@ -71,3 +71,9 @@ changelog_include = [
   "livekit-protocol",
   "webrtc-sys-build",
 ]
+
+[[package]]
+name = "livekit-uniffi"
+changelog_path = "livekit-uniffi/CHANGELOG.md"
+publish = false
+release = true

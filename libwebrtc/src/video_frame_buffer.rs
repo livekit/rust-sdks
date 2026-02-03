@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use core::time;
-
 use crate::sys::{self};
 use crate::video_frame::*;
 
@@ -55,9 +53,9 @@ pub fn new_video_frame_buffer(buffer: VideoFrameBuffer) -> Box<dyn VideoBuffer> 
 }
 
 pub fn new_native_video_frame(
-    buffer: I420Buffer,
-    rotation: VideoRotation,
-    timestamp_us: i64,
+    _buffer: I420Buffer,
+    _rotation: VideoRotation,
+    _timestamp_us: i64,
 ) -> NativeVideoFrame {
     todo!()
 }

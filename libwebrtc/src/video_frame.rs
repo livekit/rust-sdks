@@ -259,20 +259,18 @@ macro_rules! impl_to_argb {
         $(
             VideoFormatType::$variant => {
                 let (data_y, data_u, data_v) = $self.data();
-                unsafe {
-                    yuv_helper::$fnc(
-                        data_y,
-                        $self.stride_y(),
-                        data_u,
-                        $self.stride_u(),
-                        data_v,
-                        $self.stride_v(),
-                        $dst,
-                        $dst_stride,
-                        $dst_width,
-                        $dst_height,
-                    )
-                }
+                yuv_helper::$fnc(
+                    data_y,
+                    $self.stride_y(),
+                    data_u,
+                    $self.stride_u(),
+                    data_v,
+                    $self.stride_v(),
+                    $dst,
+                    $dst_stride,
+                    $dst_width,
+                    $dst_height,
+                )
             }
         )+
         }

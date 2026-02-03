@@ -44,8 +44,11 @@ impl AudioProcessingModule {
         sample_rate: i32,
         num_channels: i32,
     ) -> Result<(), RtcError> {
-        let samples_count = (sample_rate as usize / 100) * num_channels as usize;
-        assert_eq!(data.len(), samples_count, "slice must have 10ms worth of samples");
+        let samples_per_10ms = (sample_rate as usize / 100) * num_channels as usize;
+        assert!(
+            data.len() % samples_per_10ms == 0 && data.len() >= samples_per_10ms,
+            "slice must have a multiple of 10ms worth of samples"
+        );
 
         unsafe {
             if sys::lkAudioProcessingModuleProcessStream(
@@ -74,8 +77,11 @@ impl AudioProcessingModule {
         sample_rate: i32,
         num_channels: i32,
     ) -> Result<(), RtcError> {
-        let samples_count = (sample_rate as usize / 100) * num_channels as usize;
-        assert_eq!(data.len(), samples_count, "slice must have 10ms worth of samples");
+        let samples_per_10ms = (sample_rate as usize / 100) * num_channels as usize;
+        assert!(
+            data.len() % samples_per_10ms == 0 && data.len() >= samples_per_10ms,
+            "slice must have a multiple of 10ms worth of samples"
+        );
 
         unsafe {
             if sys::lkAudioProcessingModuleProcessReverseStream(
