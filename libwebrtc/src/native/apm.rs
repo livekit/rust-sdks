@@ -39,7 +39,7 @@ impl AudioProcessingModule {
     }
 
     pub fn process_stream(
-        self: &mut AudioProcessingModule,
+        &mut self,
         data: &mut [i16],
         sample_rate: i32,
         num_channels: i32,
