@@ -34,8 +34,8 @@ impl RefCountedString {
         unsafe {
             let len = sys::lkStringGetLength(self.ffi.as_ptr());
             let mut buf = vec![0u8; len as usize + 1];
-            sys::lkStringGetData(self.ffi.as_ptr(), buf.as_mut_ptr() as *mut i8, len);
-            let cstr = std::ffi::CStr::from_ptr(buf.as_ptr() as *const i8);
+            sys::lkStringGetData(self.ffi.as_ptr(), buf.as_mut_ptr() as *mut ::std::os::raw::c_char, len);
+            let cstr = std::ffi::CStr::from_ptr(buf.as_ptr() as *const ::std::os::raw::c_char);
             cstr.to_string_lossy().into_owned()
         }
     }

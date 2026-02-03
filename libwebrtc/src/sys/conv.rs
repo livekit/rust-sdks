@@ -34,7 +34,7 @@ pub fn ice_servers_to_native(servers: &Vec<IceServer>) -> *mut sys::lkIceServer 
                         .collect();
                     let ptr = url_ptrs.as_mut_ptr();
                     std::mem::forget(url_ptrs); // Prevent deallocation
-                    ptr
+                    ptr as *mut *const ::std::os::raw::c_char
                 },
                 username: std::ffi::CString::new(s.username.clone()).unwrap().into_raw(),
                 password: std::ffi::CString::new(s.password.clone()).unwrap().into_raw(),

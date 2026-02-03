@@ -135,7 +135,7 @@ impl KeyProvider {
             let c_str = std::ffi::CString::new(participant_id).unwrap();
             sys::lkKeyProviderSetKey(
                 self.ffi.as_ptr(),
-                c_str.as_ptr() as *const i8,
+                c_str.as_ptr() as *const ::std::os::raw::c_char,
                 key_index,
                 key.as_ptr(),
                 key.len().try_into().unwrap(),
@@ -148,7 +148,7 @@ impl KeyProvider {
             let c_str = std::ffi::CString::new(participant_id).unwrap();
             let key = sys::lkKeyProviderRatchetKey(
                 self.ffi.as_ptr(),
-                c_str.as_ptr() as *const i8,
+                c_str.as_ptr() as *const ::std::os::raw::c_char,
                 key_index,
             );
             if key.is_null() {
@@ -164,7 +164,7 @@ impl KeyProvider {
         unsafe {
             let c_str = std::ffi::CString::new(participant_id).unwrap();
             let key =
-                sys::lkKeyProviderGetKey(self.ffi.as_ptr(), c_str.as_ptr() as *const i8, key_index);
+                sys::lkKeyProviderGetKey(self.ffi.as_ptr(), c_str.as_ptr() as *const ::std::os::raw::c_char, key_index);
             if key.is_null() {
                 None
             } else {
@@ -217,7 +217,7 @@ impl FrameCryptor {
             let c_str = std::ffi::CString::new(participant_id).unwrap();
             let ffi = sys::lkNewFrameCryptorForRtpSender(
                 peer_factory.ffi.as_ptr(),
-                c_str.as_ptr() as *const i8,
+                c_str.as_ptr() as *const ::std::os::raw::c_char,
                 algorithm.into(),
                 key_provider.ffi.as_ptr(),
                 sender.ffi.as_ptr(),
@@ -242,7 +242,7 @@ impl FrameCryptor {
             let c_str = std::ffi::CString::new(participant_id).unwrap();
             let ffi = sys::lkNewFrameCryptorForRtpReceiver(
                 peer_factory.ffi.as_ptr(),
-                c_str.as_ptr() as *const i8,
+                c_str.as_ptr() as *const ::std::os::raw::c_char,
                 algorithm.into(),
                 key_provider.ffi.as_ptr(),
                 receiver.ffi.as_ptr(),
@@ -311,9 +311,9 @@ impl DataPacketCryptor {
             let mut rtc_err = sys::lkRtcError { message: std::ptr::null() };
             let encrypted_packet = sys::lkDataPacketCryptorEncrypt(
                 self.ffi.as_ptr(),
-                c_str.as_ptr() as *const i8,
+                c_str.as_ptr() as *const ::std::os::raw::c_char,
                 key_index,
-                data_vec.as_ptr() as *const i8,
+                data_vec.as_ptr() as *const ::std::os::raw::c_char,
                 data_vec.len() as u32,
                 &mut rtc_err, // Assuming the sixth argument is a mutable pointer, adjust as needed
             );
@@ -355,7 +355,7 @@ impl DataPacketCryptor {
             let mut rtc_err = sys::lkRtcError { message: std::ptr::null() };
             let decrypted_data = sys::lkDataPacketCryptorDecrypt(
                 self.ffi.as_ptr(),
-                c_str.as_ptr() as *const i8,
+                c_str.as_ptr() as *const ::std::os::raw::c_char,
                 lk_encrypted_data,
                 &mut rtc_err, // Assuming the eighth argument is a mutable pointer, adjust as needed
             );
