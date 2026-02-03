@@ -8,7 +8,12 @@ description = "Unsafe bindings to libwebrtc"
 repository.workspace = true
 
 [features]
-default = []
+default = [ "glib-main-loop" ]
+# On Wayland, libwebrtc uses GDBus to communicate with the XDG Desktop Portal.
+# GDBus requires a GLib event loop to be running. If you already have a GLib
+# event loop running in your application, for example if you are using the
+# GTK or GStreamer Rust bindings, disable this feature.
+glib-main-loop = [ "dep:glib" ]
 static = []
 
 [dependencies]
@@ -42,6 +47,9 @@ jni = "0.21"
 
 [target.'cfg(target_os = "linux")'.build-dependencies]
 pkg-config = "0.3.22"
+
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+glib = { version = "0.21.3", optional = true }
 
 [dev-dependencies]
 env_logger = { workspace = true }
