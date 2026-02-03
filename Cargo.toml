@@ -6,6 +6,7 @@ members = [
     "livekit-protocol",
     "livekit-ffi",
     "livekit-uniffi",
+    "livekit-datatrack",
     "livekit-ffi-node-bindings",
     "livekit-runtime",
     "libwebrtc",
