@@ -608,22 +608,22 @@ impl Room {
             }
         });
 
-        let decryption_provider = e2ee_manager.enabled().then(|| {
+        let encryption_provider = e2ee_manager.enabled().then(|| {
             Arc::new(DataTrackEncryptionProvider::new(
                 e2ee_manager.clone(),
                 local_participant.identity().clone(),
             )) as Arc<dyn dt::EncryptionProvider>
         });
-        let encryption_provider = e2ee_manager.enabled().then(|| {
+        let decryption_provider = e2ee_manager.enabled().then(|| {
             Arc::new(DataTrackDecryptionProvider::new(e2ee_manager.clone()))
                 as Arc<dyn dt::DecryptionProvider>
         });
 
-        let local_dt_options = dt::local::ManagerOptions { decryption_provider };
+        let local_dt_options = dt::local::ManagerOptions { encryption_provider };
         let (local_dt_manager, local_dt_input, local_dt_output) =
             dt::local::Manager::new(local_dt_options);
 
-        let remote_dt_options = dt::remote::ManagerOptions { encryption_provider };
+        let remote_dt_options = dt::remote::ManagerOptions { decryption_provider };
         let (remote_dt_manager, remote_dt_input, remote_dt_output) =
             dt::remote::Manager::new(remote_dt_options);
 
