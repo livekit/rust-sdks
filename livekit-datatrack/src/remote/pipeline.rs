@@ -47,8 +47,8 @@ impl Pipeline {
     }
 
     pub fn process_packet(&mut self, packet: Packet) -> Option<DataTrackFrame> {
-        let Some(frame) = self.depacketize(packet) else { return None };
-        let Some(frame) = self.decrypt_if_needed(frame) else { return None };
+        let frame = self.depacketize(packet)?;
+        let frame = self.decrypt_if_needed(frame)?;
         Some(frame.into())
     }
 
