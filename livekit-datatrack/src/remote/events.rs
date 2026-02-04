@@ -88,7 +88,7 @@ pub struct UnsubscribeRequest {
 ///
 /// - From a `JoinResponse`, it captures the initial set of tracks published when a participant joins.
 /// - From a `ParticipantUpdate`, it captures subsequent changes (i.e., new tracks being
-///  published and existing tracks unpublished).
+///   published and existing tracks unpublished).
 ///
 /// See [`event_from_join`](super::proto::event_from_join) and
 ///     [`event_from_participant_update`](super::proto::event_from_participant_update).

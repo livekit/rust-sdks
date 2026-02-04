@@ -62,7 +62,7 @@ impl Pipeline {
         mut frame: PacketizerFrame,
     ) -> Result<PacketizerFrame, EncryptionError> {
         let Some(e2ee_provider) = &self.encryption_provider else {
-            return Ok(frame.into());
+            return Ok(frame);
         };
 
         let encrypted = e2ee_provider.encrypt(frame.payload)?;
