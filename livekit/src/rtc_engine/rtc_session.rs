@@ -1360,9 +1360,14 @@ impl SessionInner {
                 },
             );
 
+            let is_encoded_source = if let LocalTrack::Video(video_track) = &track {
+                video_track.rtc_source().is_encoded()
+            } else {
+                false
+            };
+
             let mut matched = Vec::new();
             let mut partial_matched = Vec::new();
-            let mut unmatched = Vec::new();
 
             for codec in capabilities.codecs {
                 let mime_type = codec.mime_type.to_lowercase();
@@ -1376,12 +1381,17 @@ impl SessionInner {
                         }
                     }
                     partial_matched.push(codec);
-                } else {
-                    unmatched.push(codec);
                 }
             }
 
             matched.append(&mut partial_matched);
+
+            if is_encoded_source && matched.is_empty() {
+                log::error!(
+                    "No matching codec found for encoded video source (expected {})",
+                    options.video_codec.as_str()
+                );
+            }
 
             transceiver.set_codec_preferences(matched)?;
         }

@@ -11,6 +11,7 @@
 namespace livekit_ffi {
 
 class PeerFactory;
+class EncodedVideoSource;
 
 webrtc::PeerConnectionInterface::RTCConfiguration toNativeConfig(const lkRtcConfiguration& config);
 
@@ -144,6 +145,9 @@ class PeerFactory : public webrtc::RefCountInterface {
   }
 
   lkRtcVideoTrack* CreateVideoTrack(const char* id, lkVideoTrackSource* source);
+
+  lkRtcVideoTrack* CreateVideoTrackFromEncodedSource(const char* id,
+                                                      EncodedVideoSource* source);
 
   lkRtcAudioTrack* CreateAudioTrack(const char* id, lkAudioTrackSource* source);
 

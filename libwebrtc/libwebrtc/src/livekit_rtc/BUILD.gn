@@ -18,6 +18,8 @@ lk_sources = [
   "utils.cc",
   "data_channel.cc",
   "capi.cc",
+  "encoded_video_source.cc",
+  "passthrough_encoder.cc",
   "video_encoder_factory.cc",
   "video_decoder_factory.cc",
   "video_track.cc",
@@ -50,7 +52,7 @@ if (is_mac || is_ios) {
   ]
 }
 
-//TODO(duan): Re-enable HW codecs.
+# TODO(duan): Re-enable HW codecs.
 if (false) {
   defines += [
     "USE_NVIDIA_VIDEO_CODEC",

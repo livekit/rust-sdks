@@ -77,6 +77,7 @@ typedef lkRefCountedObject lkAudioMixer;
 typedef lkRefCountedObject lkAudioResampler;
 typedef lkRefCountedObject lkAudioProcessingModule;
 typedef lkRefCountedObject lkRtcpFeedback;
+typedef lkRefCountedObject lkEncodedVideoSource;
 
 typedef enum {
   LK_MEDIA_TYPE_AUDIO,
@@ -294,6 +295,34 @@ typedef enum {
   LK_VIDEO_ROTATION_180,
   LK_VIDEO_ROTATION_270,
 } lkVideoRotation;
+
+typedef enum {
+  LK_VIDEO_CODEC_VP8 = 1,
+  LK_VIDEO_CODEC_VP9 = 2,
+  LK_VIDEO_CODEC_AV1 = 3,
+  LK_VIDEO_CODEC_H264 = 4,
+  LK_VIDEO_CODEC_H265 = 5,
+  // Passthrough variants - use these for pre-encoded frame injection
+  // They create PassthroughVideoEncoder but map to standard codecs for SDP
+  LK_VIDEO_CODEC_VP8_PASSTHROUGH = 101,
+  LK_VIDEO_CODEC_VP9_PASSTHROUGH = 102,
+  LK_VIDEO_CODEC_AV1_PASSTHROUGH = 103,
+  LK_VIDEO_CODEC_H264_PASSTHROUGH = 104,
+  LK_VIDEO_CODEC_H265_PASSTHROUGH = 105,
+} lkVideoCodecType;
+
+typedef struct {
+  const uint8_t* data;
+  uint32_t size;
+  int64_t capture_time_us;
+  uint32_t rtp_timestamp;  // 0 for auto-generate
+  uint32_t width;
+  uint32_t height;
+  bool is_keyframe;
+  bool has_sps_pps;  // H264: includes SPS/PPS NALUs
+} lkEncodedFrameInfo;
+
+typedef void (*lkKeyFrameRequestCallback)(void* userdata);
 
 typedef enum {
   LK_RTP_TRANSCEIVER_DIRECTION_SENDRECV,
@@ -1289,6 +1318,33 @@ LK_EXPORT int32_t lkDesktopFrameGetLeft(lkDesktopFrame* frame);
 LK_EXPORT int32_t lkDesktopFrameGetTop(lkDesktopFrame* frame);
 
 LK_EXPORT const uint8_t* lkDesktopFrameGetData(lkDesktopFrame* frame);
+
+/* Encoded Video Source API */
+
+LK_EXPORT lkEncodedVideoSource* lkCreateEncodedVideoSource(
+    uint32_t width,
+    uint32_t height,
+    lkVideoCodecType codec);
+
+LK_EXPORT lkVideoResolution
+lkEncodedVideoSourceGetResolution(lkEncodedVideoSource* source);
+
+LK_EXPORT lkVideoCodecType
+lkEncodedVideoSourceGetCodecType(lkEncodedVideoSource* source);
+
+LK_EXPORT bool lkEncodedVideoSourceCaptureFrame(
+    lkEncodedVideoSource* source,
+    const lkEncodedFrameInfo* info);
+
+LK_EXPORT void lkEncodedVideoSourceSetKeyFrameRequestCallback(
+    lkEncodedVideoSource* source,
+    lkKeyFrameRequestCallback callback,
+    void* userdata);
+
+LK_EXPORT lkRtcVideoTrack* lkPeerFactoryCreateVideoTrackFromEncodedSource(
+    lkPeerFactory* factory,
+    const char* id,
+    lkEncodedVideoSource* source);
 
 #ifdef __cplusplus
 }

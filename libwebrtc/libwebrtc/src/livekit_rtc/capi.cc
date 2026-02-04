@@ -1,6 +1,7 @@
 #include "livekit_rtc/include/capi.h"
 
 #include "api/make_ref_counted.h"
+#include "api/video_codecs/video_codec.h"
 
 #ifdef __ANDROID__
 #include "livekit_rtc/android.h"
@@ -12,6 +13,7 @@
 #include "livekit_rtc/audio_track.h"
 #include "livekit_rtc/data_channel.h"
 #include "livekit_rtc/desktop_capturer.h"
+#include "livekit_rtc/encoded_video_source.h"
 #include "livekit_rtc/frame_cryptor.h"
 #include "livekit_rtc/ice_candidate.h"
 #include "livekit_rtc/media_stream.h"
@@ -1966,4 +1968,100 @@ void lkNativeAudioFrameUpdateFrame(lkNativeAudioFrame* nativeFrame,
   reinterpret_cast<livekit_ffi::NativeAudioFrame*>(nativeFrame)
       ->update_frame(timestamp, data, samplesPreChannel, sampleRateHz,
                      numChannel);
+}
+
+namespace {
+webrtc::VideoCodecType lkVideoCodecTypeToWebrtc(lkVideoCodecType codec) {
+  switch (codec) {
+    case LK_VIDEO_CODEC_VP8:
+      return webrtc::kVideoCodecVP8;
+    case LK_VIDEO_CODEC_VP9:
+      return webrtc::kVideoCodecVP9;
+    case LK_VIDEO_CODEC_AV1:
+      return webrtc::kVideoCodecAV1;
+    case LK_VIDEO_CODEC_H264:
+      return webrtc::kVideoCodecH264;
+    case LK_VIDEO_CODEC_H265:
+      return webrtc::kVideoCodecH265;
+    default:
+      return webrtc::kVideoCodecH264;
+  }
+}
+
+lkVideoCodecType webrtcToLkVideoCodecType(webrtc::VideoCodecType codec) {
+  switch (codec) {
+    case webrtc::kVideoCodecVP8:
+      return LK_VIDEO_CODEC_VP8;
+    case webrtc::kVideoCodecVP9:
+      return LK_VIDEO_CODEC_VP9;
+    case webrtc::kVideoCodecAV1:
+      return LK_VIDEO_CODEC_AV1;
+    case webrtc::kVideoCodecH264:
+      return LK_VIDEO_CODEC_H264;
+    case webrtc::kVideoCodecH265:
+      return LK_VIDEO_CODEC_H265;
+    default:
+      return LK_VIDEO_CODEC_H264;
+  }
+}
+}  // namespace
+
+lkEncodedVideoSource* lkCreateEncodedVideoSource(uint32_t width,
+                                                  uint32_t height,
+                                                  lkVideoCodecType codec) {
+  auto webrtc_codec = lkVideoCodecTypeToWebrtc(codec);
+  return reinterpret_cast<lkEncodedVideoSource*>(
+      webrtc::make_ref_counted<livekit_ffi::EncodedVideoSource>(
+          width, height, webrtc_codec)
+          .release());
+}
+
+lkVideoResolution lkEncodedVideoSourceGetResolution(
+    lkEncodedVideoSource* source) {
+  return reinterpret_cast<livekit_ffi::EncodedVideoSource*>(source)
+      ->video_resolution();
+}
+
+lkVideoCodecType lkEncodedVideoSourceGetCodecType(lkEncodedVideoSource* source) {
+  if (!source) {
+    return LK_VIDEO_CODEC_H264;  // Default
+  }
+  return webrtcToLkVideoCodecType(
+      reinterpret_cast<livekit_ffi::EncodedVideoSource*>(source)->GetCodecType());
+}
+
+bool lkEncodedVideoSourceCaptureFrame(lkEncodedVideoSource* source,
+                                       const lkEncodedFrameInfo* info) {
+  if (!source || !info) {
+    return false;
+  }
+  return reinterpret_cast<livekit_ffi::EncodedVideoSource*>(source)
+      ->CaptureEncodedFrame(info->data, info->size, info->capture_time_us,
+                            info->rtp_timestamp, info->width, info->height,
+                            info->is_keyframe, info->has_sps_pps);
+}
+
+void lkEncodedVideoSourceSetKeyFrameRequestCallback(
+    lkEncodedVideoSource* source,
+    lkKeyFrameRequestCallback callback,
+    void* userdata) {
+  if (!source) {
+    return;
+  }
+  reinterpret_cast<livekit_ffi::EncodedVideoSource*>(source)
+      ->SetKeyFrameRequestCallback([callback, userdata]() {
+        if (callback) {
+          callback(userdata);
+        }
+      });
+}
+
+lkRtcVideoTrack* lkPeerFactoryCreateVideoTrackFromEncodedSource(
+    lkPeerFactory* factory,
+    const char* id,
+    lkEncodedVideoSource* source) {
+  auto peer_factory = reinterpret_cast<livekit_ffi::PeerFactory*>(factory);
+  auto encoded_source =
+      reinterpret_cast<livekit_ffi::EncodedVideoSource*>(source);
+  return peer_factory->CreateVideoTrackFromEncodedSource(id, encoded_source);
 }
