@@ -2038,6 +2038,11 @@ unsafe extern "C" {
     ) -> lkVideoResolution;
 }
 unsafe extern "C" {
+    pub fn lkEncodedVideoSourceGetCodecType(
+        source: *mut lkEncodedVideoSource,
+    ) -> lkVideoCodecType;
+}
+unsafe extern "C" {
     pub fn lkEncodedVideoSourceCaptureFrame(
         source: *mut lkEncodedVideoSource,
         info: *const lkEncodedFrameInfo,

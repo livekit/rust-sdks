@@ -17,17 +17,21 @@
 #ifndef LIVEKIT_RTC_PASSTHROUGH_ENCODER_H
 #define LIVEKIT_RTC_PASSTHROUGH_ENCODER_H
 
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
 
+#include "api/environment/environment.h"
 #include "api/video/encoded_image.h"
+#include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 #include "rtc_base/synchronization/mutex.h"
 
 namespace livekit_ffi {
 
 class EncodedFrameProvider;
+class VideoEncoderFactory;
 
 // Holds pre-encoded frame data
 struct PreEncodedFrame {
@@ -75,6 +79,64 @@ class PassthroughVideoEncoder : public webrtc::VideoEncoder {
   uint32_t target_bitrate_bps_ = 0;
   uint32_t max_framerate_ = 0;
   bool initialized_ = false;
+};
+
+// Factory function type for creating real encoders
+using EncoderCreatorFn = std::function<std::unique_ptr<webrtc::VideoEncoder>(
+    const webrtc::Environment&, const webrtc::SdpVideoFormat&)>;
+
+// Encoder that decides on first frame whether to use passthrough or real encoding.
+// Uses passthrough for EncodedVideoSource frames, real encoder otherwise.
+class LazyVideoEncoder : public webrtc::VideoEncoder {
+ public:
+  // encoder_creator is used to create the real encoder if needed
+  LazyVideoEncoder(webrtc::VideoCodecType codec_type,
+                   const webrtc::SdpVideoFormat& format,
+                   const webrtc::Environment& env,
+                   EncoderCreatorFn encoder_creator);
+  ~LazyVideoEncoder() override;
+
+  // VideoEncoder interface
+  void SetFecControllerOverride(
+      webrtc::FecControllerOverride* fec_controller_override) override;
+  int InitEncode(const webrtc::VideoCodec* codec_settings,
+                 const Settings& settings) override;
+  int32_t RegisterEncodeCompleteCallback(
+      webrtc::EncodedImageCallback* callback) override;
+  int32_t Release() override;
+  int32_t Encode(const webrtc::VideoFrame& frame,
+                 const std::vector<webrtc::VideoFrameType>* frame_types) override;
+  void SetRates(const RateControlParameters& parameters) override;
+  void OnPacketLossRateUpdate(float packet_loss_rate) override;
+  void OnRttUpdate(int64_t rtt_ms) override;
+  void OnLossNotification(const LossNotification& loss_notification) override;
+  EncoderInfo GetEncoderInfo() const override;
+
+ private:
+  enum class Mode { kUndecided, kPassthrough, kRealEncoder };
+
+  int32_t EncodePassthrough(const webrtc::VideoFrame& frame,
+                            EncodedFrameProvider* provider,
+                            const std::vector<webrtc::VideoFrameType>* frame_types);
+  bool CreateRealEncoder();
+
+  webrtc::VideoCodecType codec_type_;
+  webrtc::SdpVideoFormat format_;
+  webrtc::Environment env_;
+  EncoderCreatorFn encoder_creator_;
+
+  mutable webrtc::Mutex mutex_;
+  Mode mode_ = Mode::kUndecided;
+  std::unique_ptr<webrtc::VideoEncoder> real_encoder_;
+  webrtc::EncodedImageCallback* callback_ = nullptr;
+  webrtc::FecControllerOverride* fec_controller_override_ = nullptr;
+
+  // Cached initialization parameters (used when creating real encoder lazily)
+  webrtc::VideoCodec codec_settings_;
+  Settings encoder_settings_;
+  RateControlParameters rate_params_;
+  bool initialized_ = false;
+  bool has_rate_params_ = false;
 };
 
 }  // namespace livekit_ffi

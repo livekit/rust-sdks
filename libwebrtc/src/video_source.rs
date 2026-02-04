@@ -70,6 +70,19 @@ impl RtcVideoSource {
         [Native, Encoded];
         pub fn video_resolution(self: &Self) -> VideoResolution;
     );
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn encoded_codec_type(&self) -> Option<crate::encoded_video_source::VideoCodecType> {
+        match self {
+            RtcVideoSource::Encoded(encoded) => Some(encoded.codec_type()),
+            RtcVideoSource::Native(_) => None,
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn is_encoded(&self) -> bool {
+        matches!(self, RtcVideoSource::Encoded(_))
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

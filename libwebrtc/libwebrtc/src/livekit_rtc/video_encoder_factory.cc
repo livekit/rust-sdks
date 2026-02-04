@@ -27,6 +27,7 @@
 #include "media/base/media_constants.h"
 #include "media/engine/simulcast_encoder_adapter.h"
 #include "rtc_base/logging.h"
+
 #if defined(RTC_USE_LIBAOM_AV1_ENCODER)
 #include "api/video_codecs/video_encoder_factory_template_libaom_av1_adapter.h"
 #endif
@@ -137,6 +138,8 @@ VideoEncoderFactory::VideoEncoderFactory() {
 
 std::vector<webrtc::SdpVideoFormat> VideoEncoderFactory::GetSupportedFormats()
     const {
+  // Return only the standard codecs - no passthrough codec names
+  // LazyVideoEncoder will decide at runtime whether to use passthrough
   return internal_factory_->GetSupportedFormats();
 }
 
@@ -149,8 +152,7 @@ VideoEncoderFactory::CodecSupport VideoEncoderFactory::QueryCodecSupport(
 std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
     const webrtc::Environment& env,
     const webrtc::SdpVideoFormat& format) {
-  // Check if there are any encoded video sources registered for this codec type
-  // If so, use the passthrough encoder instead of the regular encoder
+  // Determine the codec type
   webrtc::VideoCodecType codec_type = webrtc::kVideoCodecGeneric;
   if (absl::EqualsIgnoreCase(format.name, cricket::kVp8CodecName)) {
     codec_type = webrtc::kVideoCodecVP8;
@@ -160,22 +162,28 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
     codec_type = webrtc::kVideoCodecH264;
   } else if (absl::EqualsIgnoreCase(format.name, cricket::kAv1CodecName)) {
     codec_type = webrtc::kVideoCodecAV1;
+  } else if (absl::EqualsIgnoreCase(format.name, cricket::kH265CodecName)) {
+    codec_type = webrtc::kVideoCodecH265;
   }
 
-  auto& registry = EncodedVideoSourceRegistry::GetInstance();
-  if (registry.HasSourceForCodec(codec_type)) {
-    RTC_LOG(LS_INFO) << "VideoEncoderFactory: Creating PassthroughVideoEncoder "
-                     << "for codec " << format.name;
-    return std::make_unique<PassthroughVideoEncoder>(codec_type);
+  if (!format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
+    RTC_LOG(LS_ERROR) << "VideoEncoderFactory: Unsupported codec " << format.name;
+    return nullptr;
   }
 
-  std::unique_ptr<webrtc::VideoEncoder> encoder;
-  if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
-    encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(
-        env, internal_factory_.get(), nullptr, format);
-  }
+  // Create a LazyVideoEncoder that decides at runtime whether to use
+  // passthrough (for EncodedVideoSource) or real encoding (for normal sources)
+  auto* internal_factory_ptr = internal_factory_.get();
+  auto encoder_creator = [internal_factory_ptr](
+      const webrtc::Environment& env,
+      const webrtc::SdpVideoFormat& fmt) -> std::unique_ptr<webrtc::VideoEncoder> {
+    return std::make_unique<webrtc::SimulcastEncoderAdapter>(
+        env, internal_factory_ptr, nullptr, fmt);
+  };
 
-  return encoder;
+  RTC_LOG(LS_INFO) << "VideoEncoderFactory: Creating LazyVideoEncoder for "
+                   << format.name;
+  return std::make_unique<LazyVideoEncoder>(codec_type, format, env, encoder_creator);
 }
 
 }  // namespace livekit_ffi

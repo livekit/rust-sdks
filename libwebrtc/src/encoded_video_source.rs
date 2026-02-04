@@ -184,9 +184,20 @@ impl EncodedVideoSource {
         self._callback = Some(callback);
     }
 
-    /// Get the video resolution of this source
     pub fn video_resolution(&self) -> VideoResolution {
         unsafe { sys::lkEncodedVideoSourceGetResolution(self.ffi.as_ptr()).into() }
+    }
+
+    pub fn codec_type(&self) -> VideoCodecType {
+        let codec = unsafe { sys::lkEncodedVideoSourceGetCodecType(self.ffi.as_ptr()) };
+        match codec {
+            sys::lkVideoCodecType::LK_VIDEO_CODEC_VP8 => VideoCodecType::VP8,
+            sys::lkVideoCodecType::LK_VIDEO_CODEC_VP9 => VideoCodecType::VP9,
+            sys::lkVideoCodecType::LK_VIDEO_CODEC_AV1 => VideoCodecType::AV1,
+            sys::lkVideoCodecType::LK_VIDEO_CODEC_H264 => VideoCodecType::H264,
+            sys::lkVideoCodecType::LK_VIDEO_CODEC_H265 => VideoCodecType::H265,
+            _ => VideoCodecType::H264,
+        }
     }
 }
 

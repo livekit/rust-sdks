@@ -1987,6 +1987,23 @@ webrtc::VideoCodecType lkVideoCodecTypeToWebrtc(lkVideoCodecType codec) {
       return webrtc::kVideoCodecH264;
   }
 }
+
+lkVideoCodecType webrtcToLkVideoCodecType(webrtc::VideoCodecType codec) {
+  switch (codec) {
+    case webrtc::kVideoCodecVP8:
+      return LK_VIDEO_CODEC_VP8;
+    case webrtc::kVideoCodecVP9:
+      return LK_VIDEO_CODEC_VP9;
+    case webrtc::kVideoCodecAV1:
+      return LK_VIDEO_CODEC_AV1;
+    case webrtc::kVideoCodecH264:
+      return LK_VIDEO_CODEC_H264;
+    case webrtc::kVideoCodecH265:
+      return LK_VIDEO_CODEC_H265;
+    default:
+      return LK_VIDEO_CODEC_H264;
+  }
+}
 }  // namespace
 
 lkEncodedVideoSource* lkCreateEncodedVideoSource(uint32_t width,
@@ -2003,6 +2020,14 @@ lkVideoResolution lkEncodedVideoSourceGetResolution(
     lkEncodedVideoSource* source) {
   return reinterpret_cast<livekit_ffi::EncodedVideoSource*>(source)
       ->video_resolution();
+}
+
+lkVideoCodecType lkEncodedVideoSourceGetCodecType(lkEncodedVideoSource* source) {
+  if (!source) {
+    return LK_VIDEO_CODEC_H264;  // Default
+  }
+  return webrtcToLkVideoCodecType(
+      reinterpret_cast<livekit_ffi::EncodedVideoSource*>(source)->GetCodecType());
 }
 
 bool lkEncodedVideoSourceCaptureFrame(lkEncodedVideoSource* source,

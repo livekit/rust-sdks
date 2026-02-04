@@ -302,6 +302,13 @@ typedef enum {
   LK_VIDEO_CODEC_AV1 = 3,
   LK_VIDEO_CODEC_H264 = 4,
   LK_VIDEO_CODEC_H265 = 5,
+  // Passthrough variants - use these for pre-encoded frame injection
+  // They create PassthroughVideoEncoder but map to standard codecs for SDP
+  LK_VIDEO_CODEC_VP8_PASSTHROUGH = 101,
+  LK_VIDEO_CODEC_VP9_PASSTHROUGH = 102,
+  LK_VIDEO_CODEC_AV1_PASSTHROUGH = 103,
+  LK_VIDEO_CODEC_H264_PASSTHROUGH = 104,
+  LK_VIDEO_CODEC_H265_PASSTHROUGH = 105,
 } lkVideoCodecType;
 
 typedef struct {
@@ -1321,6 +1328,9 @@ LK_EXPORT lkEncodedVideoSource* lkCreateEncodedVideoSource(
 
 LK_EXPORT lkVideoResolution
 lkEncodedVideoSourceGetResolution(lkEncodedVideoSource* source);
+
+LK_EXPORT lkVideoCodecType
+lkEncodedVideoSourceGetCodecType(lkEncodedVideoSource* source);
 
 LK_EXPORT bool lkEncodedVideoSourceCaptureFrame(
     lkEncodedVideoSource* source,
