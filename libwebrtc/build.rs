@@ -39,7 +39,7 @@ fn main() {
         webrtc_sys_build::link_shared_library(&webrtc_dir);
     } else {
         match target_os.as_str() {
-            "mac" => {
+            "macos" => {
                 configure_darwin_satic_link_flags();
             }
             "ios" => {
@@ -78,7 +78,7 @@ fn configure_darwin_satic_link_flags() {
             println!("cargo:rustc-link-lib=framework=IOSurface");
             println!("cargo:rustc-link-lib=framework=ScreenCaptureKit");
         }
-        "ios" => {
+        "ios-device" | "ios-simulator" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
             println!("cargo:rustc-link-lib=framework=CoreFoundation");
             println!("cargo:rustc-link-lib=framework=AVFoundation");
