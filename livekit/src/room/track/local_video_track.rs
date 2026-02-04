@@ -58,6 +58,16 @@ impl LocalVideoTrack {
                     .pc_factory()
                     .create_video_track(&libwebrtc::native::create_random_uuid(), native_source)
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcVideoSource::Encoded(ref encoded_source) => {
+                use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+                LkRuntime::instance()
+                    .pc_factory()
+                    .create_video_track_from_encoded_source(
+                        &libwebrtc::native::create_random_uuid(),
+                        encoded_source,
+                    )
+            }
             _ => panic!("unsupported video source"),
         };
 

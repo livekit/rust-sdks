@@ -1995,3 +1995,65 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn lkDesktopFrameGetData(frame: *mut lkDesktopFrame) -> *const u8;
 }
+
+// Encoded Video Source types and functions
+pub type lkEncodedVideoSource = lkRefCountedObject;
+
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkVideoCodecType {
+    LK_VIDEO_CODEC_VP8 = 1,
+    LK_VIDEO_CODEC_VP9 = 2,
+    LK_VIDEO_CODEC_AV1 = 3,
+    LK_VIDEO_CODEC_H264 = 4,
+    LK_VIDEO_CODEC_H265 = 5,
+}
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct lkEncodedFrameInfo {
+    pub data: *const u8,
+    pub size: u32,
+    pub capture_time_us: i64,
+    pub rtp_timestamp: u32,
+    pub width: u32,
+    pub height: u32,
+    pub is_keyframe: bool,
+    pub has_sps_pps: bool,
+}
+
+pub type lkKeyFrameRequestCallback =
+    ::std::option::Option<unsafe extern "C" fn(userdata: *mut ::std::os::raw::c_void)>;
+
+unsafe extern "C" {
+    pub fn lkCreateEncodedVideoSource(
+        width: u32,
+        height: u32,
+        codec: lkVideoCodecType,
+    ) -> *mut lkEncodedVideoSource;
+}
+unsafe extern "C" {
+    pub fn lkEncodedVideoSourceGetResolution(
+        source: *mut lkEncodedVideoSource,
+    ) -> lkVideoResolution;
+}
+unsafe extern "C" {
+    pub fn lkEncodedVideoSourceCaptureFrame(
+        source: *mut lkEncodedVideoSource,
+        info: *const lkEncodedFrameInfo,
+    ) -> bool;
+}
+unsafe extern "C" {
+    pub fn lkEncodedVideoSourceSetKeyFrameRequestCallback(
+        source: *mut lkEncodedVideoSource,
+        callback: lkKeyFrameRequestCallback,
+        userdata: *mut ::std::os::raw::c_void,
+    );
+}
+unsafe extern "C" {
+    pub fn lkPeerFactoryCreateVideoTrackFromEncodedSource(
+        factory: *mut lkPeerFactory,
+        id: *const ::std::os::raw::c_char,
+        source: *mut lkEncodedVideoSource,
+    ) -> *mut lkRtcVideoTrack;
+}

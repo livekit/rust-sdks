@@ -16,11 +16,14 @@
 
 #include "livekit_rtc/video_encoder_factory.h"
 
+#include "absl/strings/match.h"
 #include "api/environment/environment_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
+#include "livekit_rtc/encoded_video_source.h"
 #include "livekit_rtc/objc_video_factory.h"
+#include "livekit_rtc/passthrough_encoder.h"
 #include "media/base/media_constants.h"
 #include "media/engine/simulcast_encoder_adapter.h"
 #include "rtc_base/logging.h"
@@ -146,6 +149,26 @@ VideoEncoderFactory::CodecSupport VideoEncoderFactory::QueryCodecSupport(
 std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
     const webrtc::Environment& env,
     const webrtc::SdpVideoFormat& format) {
+  // Check if there are any encoded video sources registered for this codec type
+  // If so, use the passthrough encoder instead of the regular encoder
+  webrtc::VideoCodecType codec_type = webrtc::kVideoCodecGeneric;
+  if (absl::EqualsIgnoreCase(format.name, cricket::kVp8CodecName)) {
+    codec_type = webrtc::kVideoCodecVP8;
+  } else if (absl::EqualsIgnoreCase(format.name, cricket::kVp9CodecName)) {
+    codec_type = webrtc::kVideoCodecVP9;
+  } else if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName)) {
+    codec_type = webrtc::kVideoCodecH264;
+  } else if (absl::EqualsIgnoreCase(format.name, cricket::kAv1CodecName)) {
+    codec_type = webrtc::kVideoCodecAV1;
+  }
+
+  auto& registry = EncodedVideoSourceRegistry::GetInstance();
+  if (registry.HasSourceForCodec(codec_type)) {
+    RTC_LOG(LS_INFO) << "VideoEncoderFactory: Creating PassthroughVideoEncoder "
+                     << "for codec " << format.name;
+    return std::make_unique<PassthroughVideoEncoder>(codec_type);
+  }
+
   std::unique_ptr<webrtc::VideoEncoder> encoder;
   if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
     encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(

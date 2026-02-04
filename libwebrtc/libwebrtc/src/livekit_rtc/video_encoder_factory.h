@@ -20,6 +20,9 @@
 #include "api/video_codecs/video_encoder_factory.h"
 
 namespace livekit_ffi {
+
+class EncodedFrameProvider;
+
 class VideoEncoderFactory : public webrtc::VideoEncoderFactory {
   class InternalFactory : public webrtc::VideoEncoderFactory {
    public:

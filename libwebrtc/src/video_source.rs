@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use livekit_protocol::enum_dispatch;
+use crate::encoded_video_source::EncodedVideoSource;
 use crate::sys;
 use crate::video_frame::{VideoBuffer, VideoFrame};
 use crate::video_frame_builder::new_video_frame_builder;
@@ -58,12 +59,15 @@ pub enum RtcVideoSource {
     // TODO(theomonnom): Web video sources (eq. to tracks on browsers?)
     #[cfg(not(target_arch = "wasm32"))]
     Native(native::NativeVideoSource),
+    /// Pre-encoded video source (H264, VP8, etc.)
+    #[cfg(not(target_arch = "wasm32"))]
+    Encoded(EncodedVideoSource),
 }
 
 // TODO(theomonnom): Support enum dispatch with conditional compilation?
 impl RtcVideoSource {
     enum_dispatch!(
-        [Native];
+        [Native, Encoded];
         pub fn video_resolution(self: &Self) -> VideoResolution;
     );
 }

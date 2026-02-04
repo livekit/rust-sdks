@@ -25,6 +25,7 @@
 #include "livekit_rtc/rtp_transceiver.h"
 #include "livekit_rtc/session_description.h"
 #include "livekit_rtc/utils.h"
+#include "livekit_rtc/encoded_video_source.h"
 #include "livekit_rtc/video_decoder_factory.h"
 #include "livekit_rtc/video_encoder_factory.h"
 #include "livekit_rtc/video_track.h"
@@ -260,6 +261,17 @@ lkRtcVideoTrack* PeerFactory::CreateVideoTrack(const char* id,
                                                lkVideoTrackSource* source) {
   auto videoSource = reinterpret_cast<livekit_ffi::VideoTrackSource*>(source);
   auto track = peer_factory_->CreateVideoTrack(videoSource->get(), id);
+  if (track) {
+    return reinterpret_cast<lkRtcVideoTrack*>(
+        webrtc::make_ref_counted<livekit_ffi::VideoTrack>(track).release());
+  }
+  return nullptr;
+}
+
+lkRtcVideoTrack* PeerFactory::CreateVideoTrackFromEncodedSource(
+    const char* id,
+    EncodedVideoSource* source) {
+  auto track = peer_factory_->CreateVideoTrack(source->GetSource(), id);
   if (track) {
     return reinterpret_cast<lkRtcVideoTrack*>(
         webrtc::make_ref_counted<livekit_ffi::VideoTrack>(track).release());

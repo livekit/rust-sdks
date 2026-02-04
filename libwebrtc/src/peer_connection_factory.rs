@@ -181,6 +181,7 @@ pub mod native {
     use crate::sys;
     use crate::{
         audio_source::native::NativeAudioSource, audio_track::RtcAudioTrack,
+        encoded_video_source::EncodedVideoSource,
         peer_connection_factory::PeerConnectionFactory, video_source::native::NativeVideoSource,
         video_track::RtcVideoTrack,
     };
@@ -188,6 +189,15 @@ pub mod native {
     pub trait PeerConnectionFactoryExt {
         fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;
         fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack;
+        /// Create a video track from an encoded video source
+        ///
+        /// This allows injecting pre-encoded frames (H264, VP8, etc.) directly into the
+        /// WebRTC pipeline without re-encoding.
+        fn create_video_track_from_encoded_source(
+            &self,
+            label: &str,
+            source: &EncodedVideoSource,
+        ) -> RtcVideoTrack;
     }
 
     impl PeerConnectionFactoryExt for PeerConnectionFactory {
@@ -210,6 +220,21 @@ pub mod native {
                     source.ffi.as_ptr(),
                 );
                 RtcAudioTrack { ffi: sys::RefCounted::from_raw(sys_track) }
+            }
+        }
+
+        fn create_video_track_from_encoded_source(
+            &self,
+            label: &str,
+            source: &EncodedVideoSource,
+        ) -> RtcVideoTrack {
+            unsafe {
+                let sys_track = sys::lkPeerFactoryCreateVideoTrackFromEncodedSource(
+                    self.ffi.as_ptr(),
+                    std::ffi::CString::new(label).unwrap().as_ptr(),
+                    source.ffi.as_ptr(),
+                );
+                RtcVideoTrack { ffi: sys::RefCounted::from_raw(sys_track) }
             }
         }
     }
