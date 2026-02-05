@@ -648,7 +648,7 @@ impl RtcSession {
     /// Handles an event from the local data track manager.
     pub(super) async fn handle_local_data_track_output(&self, event: dt::local::OutputEvent) {
         use dt::local::OutputEvent;
-        match event.into() {
+        match event {
             OutputEvent::SfuPublishRequest(event) => {
                 if let Err(err) = self.inner.ensure_data_track_publisher_connected().await {
                     log::error!("Failed to open data track publish transport: {}", err);
