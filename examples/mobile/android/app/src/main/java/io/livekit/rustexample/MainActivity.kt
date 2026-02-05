@@ -98,6 +98,17 @@ class MainActivity : ComponentActivity() {
             return
         }
 
+        if (!currentApp.isNativeAvailable()) {
+            statusMessage.value = "Native library not available"
+            Log.e(TAG, "Native library not available")
+            return
+        }
+
+        if (url.isBlank() || token.isBlank()) {
+            statusMessage.value = "Server URL and token are required"
+            return
+        }
+
         // Initialize MediaManager with the App reference
         if (mediaManager == null) {
             mediaManager = MediaManager(this, currentApp)
@@ -105,7 +116,7 @@ class MainActivity : ComponentActivity() {
 
         statusMessage.value = "Connecting..."
         currentApp.connect(url, token)
-
+    }
         // Update state after a short delay to allow connection to establish
         // In a real app, you'd want callbacks from the native side
         android.os.Handler(mainLooper).postDelayed({
