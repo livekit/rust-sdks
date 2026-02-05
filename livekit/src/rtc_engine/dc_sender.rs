@@ -24,9 +24,18 @@ pub struct DataChannelSenderOptions {
     pub close_rx: watch::Receiver<bool>,
 }
 
-/// A task for sending payloads over an individual RTC data channel.
+/// A task responsible for sending payloads over a single RTC data channel.
 ///
-/// This internally manages a send queue and back pressure.
+/// This implements the same backpressure logic used by `SessionInner::data_channel_task`,
+/// but is decoupled from message encoding and retry logic specific to data packets.
+///
+/// It was originally introduced to support sending data track packets; however, the
+/// implementation is generic and works with arbitrary payloads.
+///
+/// In a future refactor, it would be worth revisiting how the logic in
+/// `SessionInner::data_channel_task` can be decoupled from session likely by reusing this
+/// sender and moving encoding and retry concerns into a separate layer
+/// (see the `livekit-datatrack` crate for an example of this approach).
 ///
 pub struct DataChannelSender {
     /// Channel for receiving payloads to be enqueued for sending.
@@ -53,6 +62,12 @@ pub struct DataChannelSender {
 }
 
 impl DataChannelSender {
+    /// Creates a new sender.
+    ///
+    /// Returns a tuple containing the following:
+    /// - The sender itself to be spawned by the caller (see [`DataChannelSender::run`]).
+    /// - Channel for sending payloads over the data channel.
+    ///
     pub fn new(options: DataChannelSenderOptions) -> (Self, mpsc::Sender<Bytes>) {
         let (send_tx, send_rx) = mpsc::channel(128);
         let (dc_event_tx, dc_event_rx) = mpsc::unbounded_channel();
@@ -70,6 +85,10 @@ impl DataChannelSender {
         (sender, send_tx)
     }
 
+    /// Run the sender task, consuming self.
+    ///
+    /// The sender will continue running until `close_rx` changes.
+    ///
     pub async fn run(mut self) {
         log::debug!("Send task started for data channel '{}'", self.dc.label());
         self.register_dc_callbacks();
@@ -135,6 +154,8 @@ enum DataChannelEvent {
     /// Indicates the specified number of bytes have been sent.
     BytesSent(u64),
 }
+// Note: if we also need to know when the data channel's state changes,
+// we can add an event for that here and register another callback following this same pattern.
 
 fn on_buffered_amount_change(
     event_tx: mpsc::WeakUnboundedSender<DataChannelEvent>,
