@@ -44,6 +44,7 @@ use tokio::sync::{
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
     id::ParticipantIdentity,
+    rtc_engine::dc_sender::{DataChannelSender, DataChannelSenderOptions},
     utils::{
         ttl_map::TtlMap,
         tx_queue::{TxQueue, TxQueueItem},
@@ -371,6 +372,10 @@ struct SessionInner {
     sub_reliable_dc: Mutex<Option<DataChannel>>,
     sub_dt_transport: Mutex<Option<DataChannel>>,
 
+
+    /// Channel for sending data track packets.
+    dt_packet_tx: mpsc::Sender<Bytes>,
+
     closed: AtomicBool,
     emitter: SessionEmitter,
 
@@ -421,6 +426,7 @@ struct SessionHandle {
     signal_task: JoinHandle<()>,
     rtc_task: JoinHandle<()>,
     dc_task: JoinHandle<()>,
+    dt_sender_task: JoinHandle<()>,
 }
 
 impl RtcSession {
@@ -484,6 +490,13 @@ impl RtcSession {
 
         let (close_tx, close_rx) = watch::channel(false);
 
+        let dt_sender_options = DataChannelSenderOptions {
+            low_buffer_threshold: INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+            dc: dt_transport.clone(),
+            close_rx: close_rx.clone(),
+        };
+        let (dt_sender, dt_packet_tx) = DataChannelSender::new(dt_sender_options);
+
         let inner = Arc::new(SessionInner {
             has_published: Default::default(),
             fast_publish: AtomicBool::new(join_response.fast_publish),
@@ -507,6 +520,7 @@ impl RtcSession {
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
             sub_dt_transport: Mutex::new(None),
+            dt_packet_tx,
             closed: Default::default(),
             emitter,
             options,
@@ -523,8 +537,15 @@ impl RtcSession {
             livekit_runtime::spawn(inner.clone().rtc_session_task(rtc_events, close_rx.clone()));
         let dc_task =
             livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx.clone()));
+        let dt_sender_task = livekit_runtime::spawn(dt_sender.run());
 
-        let handle = Mutex::new(Some(SessionHandle { close_tx, signal_task, rtc_task, dc_task }));
+        let handle = Mutex::new(Some(SessionHandle {
+            close_tx,
+            signal_task,
+            rtc_task,
+            dc_task,
+            dt_sender_task,
+        }));
 
         Ok((Self { inner, handle }, join_response, session_events))
     }
@@ -567,6 +588,7 @@ impl RtcSession {
             let _ = handle.rtc_task.await;
             let _ = handle.signal_task.await;
             let _ = handle.dc_task.await;
+            let _ = handle.dt_sender_task.await;
         }
 
         // Close the PeerConnections after the task
@@ -663,10 +685,9 @@ impl RtcSession {
     /// the batch will be dropped.
     ///
     fn try_send_data_track_packets(&self, packets: Vec<Bytes>) {
-        // TODO: handle buffering
         for packet in packets {
-            if let Err(err) = self.inner.dt_transport.send(&packet, true) {
-                log::trace!("Failed to send packet: {}", err);
+            if self.inner.dt_packet_tx.try_send(packet).is_err() {
+                log::error!("Failed to enqueue data track packet");
                 break;
             }
         }
