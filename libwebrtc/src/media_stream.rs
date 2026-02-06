@@ -12,26 +12,52 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{
+    audio_track::RtcAudioTrack,
+    impl_thread_safety,
+    sys::{self, lkMediaStream},
+    video_track::RtcVideoTrack,
+};
 use std::fmt::Debug;
-
-use crate::{audio_track::RtcAudioTrack, imp::media_stream as imp_ms, video_track::RtcVideoTrack};
 
 #[derive(Clone)]
 pub struct MediaStream {
-    pub(crate) handle: imp_ms::MediaStream,
+    pub(crate) ffi: sys::RefCounted<lkMediaStream>,
 }
 
 impl MediaStream {
     pub fn id(&self) -> String {
-        self.handle.id()
+        unsafe {
+            let str_ptr = sys::lkMediaStreamGetId(self.ffi.as_ptr());
+            let ref_counted_str = sys::RefCountedString { ffi: sys::RefCounted::from_raw(str_ptr) };
+            ref_counted_str.as_str()
+        }
     }
 
     pub fn audio_tracks(&self) -> Vec<RtcAudioTrack> {
-        self.handle.audio_tracks()
+        let lk_vec = unsafe { sys::lkMediaStreamGetAudioTracks(self.ffi.as_ptr()) };
+        let item_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
+        if item_ptrs.vec.is_empty() {
+            return Vec::new();
+        }
+        let mut items = Vec::new();
+        for i in 0..item_ptrs.vec.len() as isize {
+            items.push(RtcAudioTrack { ffi: item_ptrs.vec[i as usize].clone() });
+        }
+        items
     }
 
     pub fn video_tracks(&self) -> Vec<RtcVideoTrack> {
-        self.handle.video_tracks()
+        let lk_vec = unsafe { sys::lkMediaStreamGetAudioTracks(self.ffi.as_ptr()) };
+        let item_ptrs = sys::RefCountedVector::from_native_vec(lk_vec);
+        if item_ptrs.vec.is_empty() {
+            return Vec::new();
+        }
+        let mut items = Vec::new();
+        for i in 0..item_ptrs.vec.len() as isize {
+            items.push(RtcVideoTrack { ffi: item_ptrs.vec[i as usize].clone() });
+        }
+        items
     }
 }
 
@@ -44,3 +70,5 @@ impl Debug for MediaStream {
             .finish()
     }
 }
+
+impl_thread_safety!(MediaStream, Send + Sync);

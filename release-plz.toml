@@ -40,14 +40,8 @@ publish = true
 release = true
 
 [[package]]
-name = "webrtc-sys"
-changelog_path = "webrtc-sys/CHANGELOG.md"
-publish = true
-release = true
-
-[[package]]
 name = "webrtc-sys-build"
-changelog_path = "webrtc-sys/build/CHANGELOG.md"
+changelog_path = "libwebrtc/build/CHANGELOG.md"
 publish = true
 release = true
 

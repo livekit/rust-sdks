@@ -1,0 +1,147 @@
+#!/bin/bash
+# Copyright 2023 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+
+arch=""
+profile="release"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --arch)
+      arch="$2"
+      if [ "$arch" != "x64" ] && [ "$arch" != "arm64" ]; then
+        echo "Error: Invalid value for --arch. Must be 'x64' or 'arm64'."
+        exit 1
+      fi
+      shift 2
+      ;;
+    --profile)
+      profile="$2"
+      if [ "$profile" != "debug" ] && [ "$profile" != "release" ]; then
+        echo "Error: Invalid value for --profile. Must be 'debug' or 'release'."
+        exit 1
+      fi
+      shift 2
+      ;;
+    *)
+      echo "Error: Unknown argument '$1'"
+      exit 1
+      ;;
+  esac
+done
+
+if [ -z "$arch" ]; then
+  echo "Error: --arch must be set."
+  exit 1
+fi
+
+echo "Building LiveKit WebRTC - Linux"
+echo "Arch: $arch"
+echo "Profile: $profile"
+
+if [ ! -e "$(pwd)/depot_tools" ]
+then
+  git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git
+fi
+
+export COMMAND_DIR=$(cd $(dirname $0); pwd)
+export PATH="$(pwd)/depot_tools:$PATH"
+export OUTPUT_DIR="$(pwd)/src/out-$arch-$profile"
+export ARTIFACTS_DIR="$(pwd)/linux-$arch-$profile"
+
+if [ ! -e "$(pwd)/src/.git" ]
+then
+  gclient sync -D --no-history
+fi
+
+cd src
+git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+#cd build
+
+#git apply "$COMMAND_DIR/patches/force_gcc.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+#cd ..
+
+#cd third_party
+
+#git apply "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
+#cd ../..
+
+cd ..
+
+mkdir -p "$ARTIFACTS_DIR/lib"
+
+python3 "./src/build/linux/sysroot_scripts/install-sysroot.py" --arch="$arch"
+
+#if [ "$arch" = "arm64" ]; then
+#  sudo sed -i 's/__GLIBC_USE_ISOC2X[[:space:]]*1/__GLIBC_USE_ISOC2X\t0/' /usr/aarch64-linux-gnu/include/features.h
+#fi
+
+debug="false"
+if [ "$profile" = "debug" ]; then
+  debug="true"
+fi
+
+args="is_debug=$debug  \
+  target_os=\"linux\" \
+  target_cpu=\"$arch\" \
+  rtc_enable_protobuf=false \
+  treat_warnings_as_errors=false \
+  use_custom_libcxx=false \
+  use_llvm_libatomic=false \
+  use_libcxx_modules=false \
+  use_custom_libcxx_for_host=false \
+  rtc_include_tests=true \
+  rtc_build_tools=false \
+  rtc_build_examples=false \
+  rtc_libvpx_build_vp9=true \
+  enable_libaom=true \
+  is_component_build=false \
+  enable_stripping=false \
+  ffmpeg_branding=\"Chrome\" \
+  rtc_use_h264=true \
+  rtc_use_h265=true \
+  rtc_use_pipewire=true \
+  symbol_level=0 \
+  enable_iterator_debugging=false \
+  use_rtti=true \
+  is_clang=true \
+  rtc_use_x11=false"
+
+# generate ninja files
+gn gen "$OUTPUT_DIR" --root="src" --args="${args}"
+
+ninja -C "$OUTPUT_DIR" livekit_rtc
+
+python3 "./src/tools_webrtc/libs/generate_licenses.py" \
+  --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR"
+
+cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/obj/modules/desktop_capture/desktop_capture.ninja" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/liblivekit_rtc.so" "$ARTIFACTS_DIR/lib"
+
+# make liblivekit_rtc.a
+# don't include nasm
+ar -rc "$ARTIFACTS_DIR/lib/liblivekit_rtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
+
+
+mkdir -p "$ARTIFACTS_DIR/include"
+cp "src/livekit_rtc/include/capi.h" "$ARTIFACTS_DIR/include/livekit_rtc.h"

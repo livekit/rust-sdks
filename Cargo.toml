@@ -12,9 +12,6 @@ members = [
     "soxr-sys",
     "yuv-sys",
     "imgproc",
-    "webrtc-sys",
-    "webrtc-sys/build",
-
     "examples/agent_dispatch",
     "examples/api",
     "examples/basic_room",
@@ -46,8 +43,7 @@ livekit-ffi = { version = "0.12.44", path = "livekit-ffi" }
 livekit-protocol = { version = "0.6.0", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
 soxr-sys = { version = "0.1.1", path = "soxr-sys" }
-webrtc-sys = { version = "0.3.21", path = "webrtc-sys" }
-webrtc-sys-build = { version = "0.3.12", path = "webrtc-sys/build" }
+webrtc-sys-build = { version = "0.3.12", path = "libwebrtc/build" }
 yuv-sys = { version = "0.3.10", path = "yuv-sys" }
 
 anyhow = "1.0"
@@ -65,6 +61,7 @@ prost-build = "0.14"
 prost-types = "0.14"
 rand = "0.9"
 serde = "1"
+serde_derive = "1.0"
 serde_json = "1.0"
 thiserror = "1"
 tokio = "1"
