@@ -74,6 +74,10 @@ proto2.util.setEnumType(ContinualGatheringPolicy, "livekit.proto.ContinualGather
 ]);
 
 /**
+ *
+ * Room
+ *
+ *
  * @generated from enum livekit.proto.ConnectionQuality
  */
 export enum ConnectionQuality {
@@ -2471,6 +2475,11 @@ export class RoomOptions extends Message<RoomOptions> {
    */
   encryption?: E2eeOptions;
 
+  /**
+   * @generated from field: repeated string registered_rpc_methods = 8;
+   */
+  registeredRpcMethods: string[] = [];
+
   constructor(data?: PartialMessage<RoomOptions>) {
     super();
     proto2.util.initPartial(data, this);
@@ -2486,6 +2495,7 @@ export class RoomOptions extends Message<RoomOptions> {
     { no: 5, name: "rtc_config", kind: "message", T: RtcConfig, opt: true },
     { no: 6, name: "join_retries", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
     { no: 7, name: "encryption", kind: "message", T: E2eeOptions, opt: true },
+    { no: 8, name: "registered_rpc_methods", kind: "scalar", T: 9 /* ScalarType.STRING */, repeated: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RoomOptions {
