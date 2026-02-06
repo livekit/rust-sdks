@@ -1,12 +1,12 @@
 [package]
 name = "basic_room"
 version = "0.1.0"
-edition.workspace = true
+edition = "2021"
 publish = false
 
 [dependencies]
-tokio = { workspace = true, features = ["full"] }
-env_logger = { workspace = true }
+tokio = { version = "1", features = ["full"] }
+env_logger = "0.10"
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
-log = { workspace = true }
+log = "0.4"

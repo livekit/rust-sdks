@@ -1,0 +1,21 @@
+[package]
+name = "basic_data_track"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+anyhow = "1.0.100"
+log = "0.4.26"
+env_logger = "0.11.7"
+
+[[bin]]
+name = "publisher"
+path = "src/publisher.rs"
+
+[[bin]]
+name = "subscriber"
+path = "src/subscriber.rs"

@@ -18,7 +18,10 @@ use tokio::sync::mpsc;
 
 use super::peer_transport::PeerTransport;
 use crate::{
-    rtc_engine::{peer_transport::OnOfferCreated, rtc_session::RELIABLE_DC_LABEL},
+    rtc_engine::{
+        peer_transport::OnOfferCreated,
+        rtc_session::{LOSSY_DC_LABEL, RELIABLE_DC_LABEL},
+    },
     DataPacketKind,
 };
 
@@ -94,13 +97,15 @@ fn on_data_channel(
     emitter: RtcEmitter,
 ) -> rtc::peer_connection::OnDataChannel {
     Box::new(move |data_channel| {
-        let kind = if data_channel.label() == RELIABLE_DC_LABEL {
-            DataPacketKind::Reliable
-        } else {
-            DataPacketKind::Lossy
-        };
-        data_channel.on_message(Some(on_message(emitter.clone(), kind)));
-
+        match data_channel.label().as_str() {
+            RELIABLE_DC_LABEL => {
+                data_channel.on_message(Some(on_message(emitter.clone(), DataPacketKind::Reliable)))
+            }
+            LOSSY_DC_LABEL => {
+                data_channel.on_message(Some(on_message(emitter.clone(), DataPacketKind::Lossy)))
+            }
+            _ => {}
+        }
         let _ = emitter.send(RtcEvent::DataChannel { data_channel, target });
     })
 }
