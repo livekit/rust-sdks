@@ -1227,6 +1227,7 @@ impl RoomSession {
             publish_tracks: self.local_participant.published_tracks_info(),
             data_channels: dcs,
             datachannel_receive_states: session.data_channel_receive_states(),
+            publish_data_tracks: Default::default()
         };
 
         log::debug!("sending sync state {:?}", sync_state);

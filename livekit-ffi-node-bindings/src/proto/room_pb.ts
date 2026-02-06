@@ -19,7 +19,7 @@
 
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto2 } from "@bufbuild/protobuf";
-import { DisconnectReason, OwnedParticipant, ParticipantInfo } from "./participant_pb.js";
+import { DisconnectReason, OwnedParticipant, ParticipantInfo, ParticipantPermission } from "./participant_pb.js";
 import { OwnedTrack, OwnedTrackPublication, TrackSource } from "./track_pb.js";
 import { RtcStats } from "./stats_pb.js";
 import { VideoCodec } from "./video_frame_pb.js";
@@ -2914,6 +2914,12 @@ export class RoomEvent extends Message<RoomEvent> {
     case: "participantEncryptionStatusChanged";
   } | {
     /**
+     * @generated from field: livekit.proto.ParticipantPermissionChanged participant_permission_changed = 41;
+     */
+    value: ParticipantPermissionChanged;
+    case: "participantPermissionChanged";
+  } | {
+    /**
      * @generated from field: livekit.proto.TokenRefreshed token_refreshed = 40;
      */
     value: TokenRefreshed;
@@ -2967,6 +2973,7 @@ export class RoomEvent extends Message<RoomEvent> {
     { no: 37, name: "moved", kind: "message", T: RoomInfo, oneof: "message" },
     { no: 38, name: "participants_updated", kind: "message", T: ParticipantsUpdated, oneof: "message" },
     { no: 39, name: "participant_encryption_status_changed", kind: "message", T: ParticipantEncryptionStatusChanged, oneof: "message" },
+    { no: 41, name: "participant_permission_changed", kind: "message", T: ParticipantPermissionChanged, oneof: "message" },
     { no: 40, name: "token_refreshed", kind: "message", T: TokenRefreshed, oneof: "message" },
   ]);
 
@@ -4007,6 +4014,49 @@ export class ParticipantNameChanged extends Message<ParticipantNameChanged> {
 
   static equals(a: ParticipantNameChanged | PlainMessage<ParticipantNameChanged> | undefined, b: ParticipantNameChanged | PlainMessage<ParticipantNameChanged> | undefined): boolean {
     return proto2.util.equals(ParticipantNameChanged, a, b);
+  }
+}
+
+/**
+ * @generated from message livekit.proto.ParticipantPermissionChanged
+ */
+export class ParticipantPermissionChanged extends Message<ParticipantPermissionChanged> {
+  /**
+   * @generated from field: required string participant_identity = 1;
+   */
+  participantIdentity?: string;
+
+  /**
+   * @generated from field: optional livekit.proto.ParticipantPermission permission = 2;
+   */
+  permission?: ParticipantPermission;
+
+  constructor(data?: PartialMessage<ParticipantPermissionChanged>) {
+    super();
+    proto2.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto2 = proto2;
+  static readonly typeName = "livekit.proto.ParticipantPermissionChanged";
+  static readonly fields: FieldList = proto2.util.newFieldList(() => [
+    { no: 1, name: "participant_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 2, name: "permission", kind: "message", T: ParticipantPermission, opt: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ParticipantPermissionChanged {
+    return new ParticipantPermissionChanged().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ParticipantPermissionChanged {
+    return new ParticipantPermissionChanged().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ParticipantPermissionChanged {
+    return new ParticipantPermissionChanged().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: ParticipantPermissionChanged | PlainMessage<ParticipantPermissionChanged> | undefined, b: ParticipantPermissionChanged | PlainMessage<ParticipantPermissionChanged> | undefined): boolean {
+    return proto2.util.equals(ParticipantPermissionChanged, a, b);
   }
 }
 

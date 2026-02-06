@@ -164,6 +164,7 @@ impl ConnectorClient {
                 proto::DisconnectWhatsAppCallRequest {
                     whatsapp_call_id: call_id.into(),
                     whatsapp_api_key: api_key.into(),
+                    ..Default::default()
                 },
                 self.base
                     .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,

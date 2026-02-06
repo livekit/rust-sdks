@@ -1,13 +1,13 @@
 [package]
 name = "encrypted_text_stream"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 publish = false
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+tokio = { workspace = true, features = ["full"] }
+futures-util = { workspace = true, default-features = false, features = ["sink"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
-log = "0.4.26"
-env_logger = "0.11.7"
+log = { workspace = true }
+env_logger = { workspace = true }
