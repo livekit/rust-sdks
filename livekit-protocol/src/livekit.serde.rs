@@ -29436,6 +29436,9 @@ impl serde::Serialize for RpcRequest {
         if self.version != 0 {
             len += 1;
         }
+        if !self.compressed_payload.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.RpcRequest", len)?;
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
@@ -29451,6 +29454,11 @@ impl serde::Serialize for RpcRequest {
         }
         if self.version != 0 {
             struct_ser.serialize_field("version", &self.version)?;
+        }
+        if !self.compressed_payload.is_empty() {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("compressedPayload", pbjson::private::base64::encode(&self.compressed_payload).as_str())?;
         }
         struct_ser.end()
     }
@@ -29468,6 +29476,8 @@ impl<'de> serde::Deserialize<'de> for RpcRequest {
             "response_timeout_ms",
             "responseTimeoutMs",
             "version",
+            "compressed_payload",
+            "compressedPayload",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -29477,6 +29487,7 @@ impl<'de> serde::Deserialize<'de> for RpcRequest {
             Payload,
             ResponseTimeoutMs,
             Version,
+            CompressedPayload,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -29504,6 +29515,7 @@ impl<'de> serde::Deserialize<'de> for RpcRequest {
                             "payload" => Ok(GeneratedField::Payload),
                             "responseTimeoutMs" | "response_timeout_ms" => Ok(GeneratedField::ResponseTimeoutMs),
                             "version" => Ok(GeneratedField::Version),
+                            "compressedPayload" | "compressed_payload" => Ok(GeneratedField::CompressedPayload),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -29528,6 +29540,7 @@ impl<'de> serde::Deserialize<'de> for RpcRequest {
                 let mut payload__ = None;
                 let mut response_timeout_ms__ = None;
                 let mut version__ = None;
+                let mut compressed_payload__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -29564,6 +29577,14 @@ impl<'de> serde::Deserialize<'de> for RpcRequest {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::CompressedPayload => {
+                            if compressed_payload__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("compressedPayload"));
+                            }
+                            compressed_payload__ = 
+                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -29575,6 +29596,7 @@ impl<'de> serde::Deserialize<'de> for RpcRequest {
                     payload: payload__.unwrap_or_default(),
                     response_timeout_ms: response_timeout_ms__.unwrap_or_default(),
                     version: version__.unwrap_or_default(),
+                    compressed_payload: compressed_payload__.unwrap_or_default(),
                 })
             }
         }
@@ -29607,6 +29629,11 @@ impl serde::Serialize for RpcResponse {
                 rpc_response::Value::Error(v) => {
                     struct_ser.serialize_field("error", v)?;
                 }
+                rpc_response::Value::CompressedPayload(v) => {
+                    #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    struct_ser.serialize_field("compressedPayload", pbjson::private::base64::encode(&v).as_str())?;
+                }
             }
         }
         struct_ser.end()
@@ -29623,6 +29650,8 @@ impl<'de> serde::Deserialize<'de> for RpcResponse {
             "requestId",
             "payload",
             "error",
+            "compressed_payload",
+            "compressedPayload",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -29630,6 +29659,7 @@ impl<'de> serde::Deserialize<'de> for RpcResponse {
             RequestId,
             Payload,
             Error,
+            CompressedPayload,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -29655,6 +29685,7 @@ impl<'de> serde::Deserialize<'de> for RpcResponse {
                             "requestId" | "request_id" => Ok(GeneratedField::RequestId),
                             "payload" => Ok(GeneratedField::Payload),
                             "error" => Ok(GeneratedField::Error),
+                            "compressedPayload" | "compressed_payload" => Ok(GeneratedField::CompressedPayload),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -29696,6 +29727,12 @@ impl<'de> serde::Deserialize<'de> for RpcResponse {
                             }
                             value__ = map_.next_value::<::std::option::Option<_>>()?.map(rpc_response::Value::Error)
 ;
+                        }
+                        GeneratedField::CompressedPayload => {
+                            if value__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("compressedPayload"));
+                            }
+                            value__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| rpc_response::Value::CompressedPayload(x.0));
                         }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
