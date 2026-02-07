@@ -81,7 +81,7 @@ impl Header {
             }
             let ext_words = raw.get_u16();
 
-            let ext_len = 4 * (ext_words + 1) as usize;
+            let ext_len = 4 * (ext_words as usize + 1);
             if ext_len > raw.remaining() {
                 Err(DeserializeError::HeaderOverrun)?
             }
