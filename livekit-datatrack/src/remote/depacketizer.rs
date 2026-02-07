@@ -84,7 +84,7 @@ impl Depacketizer {
             frame_number: packet.header.frame_number,
             start_sequence,
             extensions: packet.header.extensions,
-            payloads: BTreeMap::from([(start_sequence, packet.payload)])
+            payloads: BTreeMap::from([(start_sequence, packet.payload)]),
         };
         self.partial = partial.into();
 
