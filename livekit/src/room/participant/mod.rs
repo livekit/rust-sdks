@@ -91,6 +91,7 @@ impl Participant {
         pub fn name(self: &Self) -> String;
         pub fn metadata(self: &Self) -> String;
         pub fn attributes(self: &Self) -> HashMap<String, String>;
+        pub fn client_protocol(self: &Self) -> i32;
         pub fn is_speaking(self: &Self) -> bool;
         pub fn audio_level(self: &Self) -> f32;
         pub fn connection_quality(self: &Self) -> ConnectionQuality;
@@ -132,6 +133,8 @@ struct ParticipantInfo {
     pub kind_details: Vec<ParticipantKindDetail>,
     pub disconnect_reason: DisconnectReason,
     pub permission: Option<proto::ParticipantPermission>,
+    /// Client protocol version indicating feature support (e.g., 1 = compression support)
+    pub client_protocol: i32,
 }
 
 type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
@@ -180,6 +183,7 @@ pub(super) fn new_inner(
     kind: ParticipantKind,
     kind_details: Vec<ParticipantKindDetail>,
     permission: Option<proto::ParticipantPermission>,
+    client_protocol: i32,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
@@ -196,6 +200,7 @@ pub(super) fn new_inner(
             connection_quality: ConnectionQuality::Excellent,
             disconnect_reason: DisconnectReason::UnknownReason,
             permission,
+            client_protocol,
         }),
         track_publications: Default::default(),
         events: Default::default(),
@@ -245,6 +250,9 @@ pub(super) fn update_info(
             cb(participant.clone(), new_info.permission.clone());
         }
     }
+
+    // Update client_protocol
+    info.client_protocol = new_info.client_protocol;
 }
 
 pub(super) fn set_speaking(

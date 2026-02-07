@@ -39,6 +39,7 @@ use tokio::sync::{mpsc, oneshot, watch, Notify};
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
     id::ParticipantIdentity,
+    room::participant::decompress_rpc_payload_bytes,
     utils::{
         ttl_map::TtlMap,
         tx_queue::{TxQueue, TxQueueItem},
@@ -1172,11 +1173,23 @@ impl SessionInner {
             }
             proto::data_packet::Value::RpcRequest(rpc_request) => {
                 let caller_identity = participant_identity;
+                // Check for compressed_payload first, fall back to regular payload
+                let payload = if !rpc_request.compressed_payload.is_empty() {
+                    match decompress_rpc_payload_bytes(&rpc_request.compressed_payload) {
+                        Ok(decompressed) => decompressed,
+                        Err(e) => {
+                            log::error!("Failed to decompress RPC request payload: {}", e);
+                            rpc_request.payload
+                        }
+                    }
+                } else {
+                    rpc_request.payload
+                };
                 self.emitter.send(SessionEvent::RpcRequest {
                     caller_identity,
                     request_id: rpc_request.id,
                     method: rpc_request.method,
-                    payload: rpc_request.payload,
+                    payload,
                     response_timeout: Duration::from_millis(rpc_request.response_timeout_ms as u64),
                     version: rpc_request.version,
                 })
@@ -1185,6 +1198,15 @@ impl SessionInner {
                 let (payload, error) = match rpc_response.value {
                     None => (None, None),
                     Some(proto::rpc_response::Value::Payload(payload)) => (Some(payload), None),
+                    Some(proto::rpc_response::Value::CompressedPayload(compressed)) => {
+                        match decompress_rpc_payload_bytes(&compressed) {
+                            Ok(decompressed) => (Some(decompressed), None),
+                            Err(e) => {
+                                log::error!("Failed to decompress RPC response payload: {}", e);
+                                (None, None)
+                            }
+                        }
+                    }
                     Some(proto::rpc_response::Value::Error(err)) => (None, Some(err)),
                 };
                 self.emitter.send(SessionEvent::RpcResponse {
