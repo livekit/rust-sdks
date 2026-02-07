@@ -146,7 +146,7 @@ impl Depacketizer {
             debug_assert!(payload.len() + partial_payload.len() <= payload.capacity());
             payload.extend(partial_payload);
 
-            if sequence < end_sequence {
+            if sequence != end_sequence {
                 sequence = sequence.wrapping_add(1);
                 continue;
             }
