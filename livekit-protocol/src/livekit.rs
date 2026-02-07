@@ -946,9 +946,6 @@ pub struct RpcRequest {
     pub response_timeout_ms: u32,
     #[prost(uint32, tag="5")]
     pub version: u32,
-    /// Compressed payload data. When set, this field is used instead of `payload`.
-    #[prost(bytes="vec", tag="6")]
-    pub compressed_payload: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -961,7 +958,7 @@ pub struct RpcAck {
 pub struct RpcResponse {
     #[prost(string, tag="1")]
     pub request_id: ::prost::alloc::string::String,
-    #[prost(oneof="rpc_response::Value", tags="2, 3, 4")]
+    #[prost(oneof="rpc_response::Value", tags="2, 3")]
     pub value: ::core::option::Option<rpc_response::Value>,
 }
 /// Nested message and enum types in `RpcResponse`.
@@ -973,9 +970,6 @@ pub mod rpc_response {
         Payload(::prost::alloc::string::String),
         #[prost(message, tag="3")]
         Error(super::RpcError),
-        /// Compressed payload data. When set, this field is used instead of `payload`.
-        #[prost(bytes, tag="4")]
-        CompressedPayload(::prost::alloc::vec::Vec<u8>),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
