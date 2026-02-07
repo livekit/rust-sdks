@@ -112,7 +112,7 @@ impl Depacketizer {
             }
             .into();
         }
-        if partial.payloads.len() == Self::MAX_BUFFER_PACKETS {
+        if partial.payloads.len() >= Self::MAX_BUFFER_PACKETS {
             return DepacketizerDropError {
                 frame_number: partial.frame_number,
                 reason: DepacketizerDropReason::BufferFull,
