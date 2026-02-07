@@ -35,4 +35,4 @@ jobs:
             -ignore "soxr-sys/src/**/*" \
             -ignore "livekit-protocol/src/livekit.rs" \
             -ignore "livekit-protocol/src/livekit.serde.rs" \
-             **/*.{rs,cpp,c}
+             "**/*.{rs,cpp,c}"
