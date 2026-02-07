@@ -277,14 +277,14 @@ mod tests {
 
         for _ in 0..inter_packets {
             packet.header.marker = FrameMarker::Inter;
-            packet.header.sequence += 1;
+            packet.header.sequence = packet.header.sequence.wrapping_add(1);
 
             let result = depacketizer.push(packet.clone());
             assert!(result.frame.is_none() && result.drop_error.is_none());
         }
 
         packet.header.marker = FrameMarker::Final;
-        packet.header.sequence += 1;
+        packet.header.sequence = packet.header.sequence.wrapping_add(1);
 
         let result = depacketizer.push(packet.clone());
 
@@ -306,7 +306,7 @@ mod tests {
         assert!(result.frame.is_none() && result.drop_error.is_none());
 
         let first_frame_number = packet.header.frame_number;
-        packet.header.frame_number += 1; // Next frame
+        packet.header.frame_number += packet.header.frame_number.wrapping_add(1); // Next frame
 
         let result = depacketizer.push(packet);
         assert!(result.frame.is_none());
