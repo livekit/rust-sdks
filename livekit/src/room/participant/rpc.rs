@@ -146,6 +146,60 @@ impl RpcError {
 /// Maximum payload size in bytes
 pub const MAX_PAYLOAD_BYTES: usize = 15360; // 15 KB
 
+/// Minimum payload size to trigger compression (1 KB)
+pub const COMPRESSION_THRESHOLD_BYTES: usize = 1024;
+
+/// Compress an RPC payload to raw bytes using Zstd.
+/// Returns Some(compressed_bytes) if compression is beneficial, None otherwise.
+/// This is used with the new `compressed_payload` proto field (no base64 overhead).
+pub fn compress_rpc_payload_bytes(payload: &str) -> Option<Vec<u8>> {
+    use std::io::Cursor;
+
+    let payload_bytes = payload.as_bytes();
+
+    // Only compress if payload is large enough
+    if payload_bytes.len() < COMPRESSION_THRESHOLD_BYTES {
+        return None;
+    }
+
+    // Compress the payload
+    match zstd::encode_all(Cursor::new(payload_bytes), 3) {
+        Ok(compressed) => {
+            // Only use compressed version if it's actually smaller
+            if compressed.len() < payload_bytes.len() {
+                return Some(compressed);
+            }
+            // Compression didn't help
+            None
+        }
+        Err(e) => {
+            log::warn!("Failed to compress RPC payload: {}", e);
+            None
+        }
+    }
+}
+
+/// Decompress raw bytes RPC payload using Zstd.
+/// Returns the decompressed string payload.
+/// This is used with the new `compressed_payload` proto field.
+pub fn decompress_rpc_payload_bytes(compressed: &[u8]) -> Result<String, String> {
+    use std::io::Cursor;
+
+    match zstd::decode_all(Cursor::new(compressed)) {
+        Ok(decompressed) => match String::from_utf8(decompressed) {
+            Ok(s) => {
+                Ok(s)
+            }
+            Err(e) => {
+                Err(format!("Failed to decode decompressed RPC payload as UTF-8: {}", e))
+            }
+        },
+        Err(e) => {
+            Err(format!("Failed to decompress RPC payload: {}", e))
+        }
+    }
+}
+
 /// Calculate the byte length of a string
 pub(crate) fn byte_length(s: &str) -> usize {
     s.as_bytes().len()
