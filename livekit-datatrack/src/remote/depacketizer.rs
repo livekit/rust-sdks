@@ -80,14 +80,11 @@ impl Depacketizer {
         }
 
         let start_sequence = packet.header.sequence;
-        let payload_len = packet.payload.len();
-
         let partial = PartialFrame {
             frame_number: packet.header.frame_number,
             start_sequence,
             extensions: packet.header.extensions,
-            payloads: BTreeMap::from([(start_sequence, packet.payload)]),
-            payload_len,
+            payloads: BTreeMap::from([(start_sequence, packet.payload)])
         };
         self.partial = partial.into();
 
@@ -120,8 +117,6 @@ impl Depacketizer {
             .into();
         }
 
-        partial.payload_len += packet.payload.len();
-
         if partial.payloads.insert(packet.header.sequence, packet.payload).is_some() {
             log::warn!(
                 "Duplicate packet for sequence {} on frame {}, using latest",
@@ -141,8 +136,11 @@ impl Depacketizer {
     /// Try to reassemble the complete frame.
     fn finalize(mut partial: PartialFrame, end_sequence: u16) -> DepacketizerPushResult {
         let received = partial.payloads.len() as u16;
+
+        let payload_len: usize = partial.payloads.iter().map(|(_, payload)| payload.len()).sum();
+        let mut payload = BytesMut::with_capacity(payload_len);
+
         let mut sequence = partial.start_sequence;
-        let mut payload = BytesMut::with_capacity(partial.payload_len);
 
         while let Some(partial_payload) = partial.payloads.remove(&sequence) {
             debug_assert!(payload.len() + partial_payload.len() <= payload.capacity());
@@ -177,8 +175,6 @@ struct PartialFrame {
     extensions: Extensions,
     /// Mapping between sequence number and packet payload.
     payloads: BTreeMap<u16, Bytes>,
-    /// Sum of payload lengths.
-    payload_len: usize,
 }
 
 /// Result from a call to [`Depacketizer::push`].
