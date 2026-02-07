@@ -121,7 +121,14 @@ impl Depacketizer {
         }
 
         partial.payload_len += packet.payload.len();
-        partial.payloads.insert(packet.header.sequence, packet.payload);
+
+        if partial.payloads.insert(packet.header.sequence, packet.payload).is_some() {
+            log::warn!(
+                "Duplicate packet for sequence {} on frame {}, using latest",
+                packet.header.sequence,
+                partial.frame_number
+            );
+        }
 
         if packet.header.marker == FrameMarker::Final {
             return Self::finalize(partial, packet.header.sequence);
