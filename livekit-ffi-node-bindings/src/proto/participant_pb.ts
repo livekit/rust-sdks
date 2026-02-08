@@ -423,6 +423,13 @@ export class ParticipantPermission extends Message<ParticipantPermission> {
    */
   canSubscribeMetrics?: boolean;
 
+  /**
+   * if a participant can manage an agent session via RemoteSession (control and access state)
+   *
+   * @generated from field: required bool can_manage_agent_session = 13;
+   */
+  canManageAgentSession?: boolean;
+
   constructor(data?: PartialMessage<ParticipantPermission>) {
     super();
     proto2.util.initPartial(data, this);
@@ -438,6 +445,7 @@ export class ParticipantPermission extends Message<ParticipantPermission> {
     { no: 7, name: "hidden", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
     { no: 10, name: "can_update_metadata", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
     { no: 12, name: "can_subscribe_metrics", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 13, name: "can_manage_agent_session", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ParticipantPermission {

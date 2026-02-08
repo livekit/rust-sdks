@@ -18479,6 +18479,9 @@ impl serde::Serialize for ListIngressRequest {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if self.page_token.is_some() {
+            len += 1;
+        }
         if !self.room_name.is_empty() {
             len += 1;
         }
@@ -18486,6 +18489,9 @@ impl serde::Serialize for ListIngressRequest {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.ListIngressRequest", len)?;
+        if let Some(v) = self.page_token.as_ref() {
+            struct_ser.serialize_field("pageToken", v)?;
+        }
         if !self.room_name.is_empty() {
             struct_ser.serialize_field("roomName", &self.room_name)?;
         }
@@ -18502,6 +18508,8 @@ impl<'de> serde::Deserialize<'de> for ListIngressRequest {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "page_token",
+            "pageToken",
             "room_name",
             "roomName",
             "ingress_id",
@@ -18510,6 +18518,7 @@ impl<'de> serde::Deserialize<'de> for ListIngressRequest {
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            PageToken,
             RoomName,
             IngressId,
             __SkipField__,
@@ -18534,6 +18543,7 @@ impl<'de> serde::Deserialize<'de> for ListIngressRequest {
                         E: serde::de::Error,
                     {
                         match value {
+                            "pageToken" | "page_token" => Ok(GeneratedField::PageToken),
                             "roomName" | "room_name" => Ok(GeneratedField::RoomName),
                             "ingressId" | "ingress_id" => Ok(GeneratedField::IngressId),
                             _ => Ok(GeneratedField::__SkipField__),
@@ -18555,10 +18565,17 @@ impl<'de> serde::Deserialize<'de> for ListIngressRequest {
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut page_token__ = None;
                 let mut room_name__ = None;
                 let mut ingress_id__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::PageToken => {
+                            if page_token__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("pageToken"));
+                            }
+                            page_token__ = map_.next_value()?;
+                        }
                         GeneratedField::RoomName => {
                             if room_name__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("roomName"));
@@ -18577,6 +18594,7 @@ impl<'de> serde::Deserialize<'de> for ListIngressRequest {
                     }
                 }
                 Ok(ListIngressRequest {
+                    page_token: page_token__,
                     room_name: room_name__.unwrap_or_default(),
                     ingress_id: ingress_id__.unwrap_or_default(),
                 })
@@ -18593,10 +18611,16 @@ impl serde::Serialize for ListIngressResponse {
     {
         use serde::ser::SerializeStruct;
         let mut len = 0;
+        if self.next_page_token.is_some() {
+            len += 1;
+        }
         if !self.items.is_empty() {
             len += 1;
         }
         let mut struct_ser = serializer.serialize_struct("livekit.ListIngressResponse", len)?;
+        if let Some(v) = self.next_page_token.as_ref() {
+            struct_ser.serialize_field("nextPageToken", v)?;
+        }
         if !self.items.is_empty() {
             struct_ser.serialize_field("items", &self.items)?;
         }
@@ -18610,11 +18634,14 @@ impl<'de> serde::Deserialize<'de> for ListIngressResponse {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
+            "next_page_token",
+            "nextPageToken",
             "items",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
+            NextPageToken,
             Items,
             __SkipField__,
         }
@@ -18638,6 +18665,7 @@ impl<'de> serde::Deserialize<'de> for ListIngressResponse {
                         E: serde::de::Error,
                     {
                         match value {
+                            "nextPageToken" | "next_page_token" => Ok(GeneratedField::NextPageToken),
                             "items" => Ok(GeneratedField::Items),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -18658,9 +18686,16 @@ impl<'de> serde::Deserialize<'de> for ListIngressResponse {
                 where
                     V: serde::de::MapAccess<'de>,
             {
+                let mut next_page_token__ = None;
                 let mut items__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
+                        GeneratedField::NextPageToken => {
+                            if next_page_token__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("nextPageToken"));
+                            }
+                            next_page_token__ = map_.next_value()?;
+                        }
                         GeneratedField::Items => {
                             if items__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("items"));
@@ -18673,6 +18708,7 @@ impl<'de> serde::Deserialize<'de> for ListIngressResponse {
                     }
                 }
                 Ok(ListIngressResponse {
+                    next_page_token: next_page_token__,
                     items: items__.unwrap_or_default(),
                 })
             }
@@ -22477,6 +22513,9 @@ impl serde::Serialize for ParticipantPermission {
         if self.can_subscribe_metrics {
             len += 1;
         }
+        if self.can_manage_agent_session {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.ParticipantPermission", len)?;
         if self.can_subscribe {
             struct_ser.serialize_field("canSubscribe", &self.can_subscribe)?;
@@ -22509,6 +22548,9 @@ impl serde::Serialize for ParticipantPermission {
         if self.can_subscribe_metrics {
             struct_ser.serialize_field("canSubscribeMetrics", &self.can_subscribe_metrics)?;
         }
+        if self.can_manage_agent_session {
+            struct_ser.serialize_field("canManageAgentSession", &self.can_manage_agent_session)?;
+        }
         struct_ser.end()
     }
 }
@@ -22534,6 +22576,8 @@ impl<'de> serde::Deserialize<'de> for ParticipantPermission {
             "agent",
             "can_subscribe_metrics",
             "canSubscribeMetrics",
+            "can_manage_agent_session",
+            "canManageAgentSession",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -22547,6 +22591,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantPermission {
             CanUpdateMetadata,
             Agent,
             CanSubscribeMetrics,
+            CanManageAgentSession,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -22578,6 +22623,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantPermission {
                             "canUpdateMetadata" | "can_update_metadata" => Ok(GeneratedField::CanUpdateMetadata),
                             "agent" => Ok(GeneratedField::Agent),
                             "canSubscribeMetrics" | "can_subscribe_metrics" => Ok(GeneratedField::CanSubscribeMetrics),
+                            "canManageAgentSession" | "can_manage_agent_session" => Ok(GeneratedField::CanManageAgentSession),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -22606,6 +22652,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantPermission {
                 let mut can_update_metadata__ = None;
                 let mut agent__ = None;
                 let mut can_subscribe_metrics__ = None;
+                let mut can_manage_agent_session__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::CanSubscribe => {
@@ -22662,6 +22709,12 @@ impl<'de> serde::Deserialize<'de> for ParticipantPermission {
                             }
                             can_subscribe_metrics__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::CanManageAgentSession => {
+                            if can_manage_agent_session__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("canManageAgentSession"));
+                            }
+                            can_manage_agent_session__ = Some(map_.next_value()?);
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -22677,6 +22730,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantPermission {
                     can_update_metadata: can_update_metadata__.unwrap_or_default(),
                     agent: agent__.unwrap_or_default(),
                     can_subscribe_metrics: can_subscribe_metrics__.unwrap_or_default(),
+                    can_manage_agent_session: can_manage_agent_session__.unwrap_or_default(),
                 })
             }
         }

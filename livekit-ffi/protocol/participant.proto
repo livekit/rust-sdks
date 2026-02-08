@@ -103,6 +103,8 @@ message ParticipantPermission {
   required bool can_update_metadata = 10;
   // if a participant can subscribe to metrics
   required bool can_subscribe_metrics = 12;
+  // if a participant can manage an agent session via RemoteSession (control and access state)
+  required bool can_manage_agent_session = 13;
 
-  // NEXT_ID: 13
+  // NEXT_ID: 14
 }

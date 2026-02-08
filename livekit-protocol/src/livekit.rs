@@ -319,6 +319,9 @@ pub struct ParticipantPermission {
     /// if a participant can subscribe to metrics
     #[prost(bool, tag="12")]
     pub can_subscribe_metrics: bool,
+    /// if a participant can manage an agent session via RemoteSession (control and access state)
+    #[prost(bool, tag="13")]
+    pub can_manage_agent_session: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5181,6 +5184,8 @@ pub struct UpdateIngressRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListIngressRequest {
+    #[prost(message, optional, tag="3")]
+    pub page_token: ::core::option::Option<TokenPagination>,
     /// when blank, lists all ingress endpoints
     ///
     /// (optional, filter by room name)
@@ -5193,6 +5198,9 @@ pub struct ListIngressRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListIngressResponse {
+    #[prost(message, optional, tag="2")]
+    pub next_page_token: ::core::option::Option<TokenPagination>,
+    /// next field id: 3
     #[prost(message, repeated, tag="1")]
     pub items: ::prost::alloc::vec::Vec<IngressInfo>,
 }
