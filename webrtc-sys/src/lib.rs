@@ -20,6 +20,7 @@ pub mod audio_resampler;
 pub mod audio_track;
 pub mod candidate;
 pub mod data_channel;
+pub mod encoded_video_source;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub mod desktop_capturer;
 pub mod frame_cryptor;

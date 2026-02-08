@@ -22,6 +22,7 @@ use webrtc_sys::{peer_connection_factory as sys_pcf, rtc_error as sys_err, webrt
 use crate::{
     audio_source::native::NativeAudioSource,
     audio_track::RtcAudioTrack,
+    encoded_video_source::native::NativeEncodedVideoSource,
     imp::{audio_track as imp_at, peer_connection as imp_pc, video_track as imp_vt},
     peer_connection::PeerConnection,
     peer_connection_factory::RtcConfiguration,
@@ -90,6 +91,21 @@ impl PeerConnectionFactory {
                 sys_handle: self
                     .sys_handle
                     .create_audio_track(label.to_string(), source.handle.sys_handle()),
+            },
+        }
+    }
+
+    pub fn create_video_track_from_encoded_source(
+        &self,
+        label: &str,
+        source: NativeEncodedVideoSource,
+    ) -> RtcVideoTrack {
+        RtcVideoTrack {
+            handle: imp_vt::RtcVideoTrack {
+                sys_handle: self.sys_handle.create_video_track_from_encoded_source(
+                    label.to_string(),
+                    source.handle.sys_handle(),
+                ),
             },
         }
     }

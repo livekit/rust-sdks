@@ -35,12 +35,14 @@ pub enum RtcVideoSource {
     // TODO(theomonnom): Web video sources (eq. to tracks on browsers?)
     #[cfg(not(target_arch = "wasm32"))]
     Native(native::NativeVideoSource),
+    #[cfg(not(target_arch = "wasm32"))]
+    Encoded(crate::encoded_video_source::native::NativeEncodedVideoSource),
 }
 
 // TODO(theomonnom): Support enum dispatch with conditional compilation?
 impl RtcVideoSource {
     enum_dispatch!(
-        [Native];
+        [Native, Encoded];
         pub fn video_resolution(self: &Self) -> VideoResolution;
     );
 }

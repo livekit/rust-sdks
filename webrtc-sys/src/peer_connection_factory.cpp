@@ -120,6 +120,14 @@ std::shared_ptr<VideoTrack> PeerConnectionFactory::create_video_track(
           peer_factory_->CreateVideoTrack(source->get(), label.c_str())));
 }
 
+std::shared_ptr<VideoTrack> PeerConnectionFactory::create_video_track_from_encoded_source(
+    rust::String label,
+    std::shared_ptr<EncodedVideoTrackSource> source) const {
+  return std::static_pointer_cast<VideoTrack>(
+      rtc_runtime_->get_or_create_media_stream_track(
+          peer_factory_->CreateVideoTrack(source->get(), label.c_str())));
+}
+
 std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
     rust::String label,
     std::shared_ptr<AudioTrackSource> source) const {
