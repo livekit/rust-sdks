@@ -169,6 +169,10 @@ match event {
 - [play_from_disk](https://github.com/livekit/rust-sdks/tree/main/examples/play_from_disk): publish audio from a wav file
 - [save_to_disk](https://github.com/livekit/rust-sdks/tree/main/examples/save_to_disk): save received audio to a wav file
 
+## 3D & Game Engine Integrations
+
+- [bevy_streaming](https://github.com/rlamarche/bevy_streaming): Stream Bevy game engine output to LiveKit for cloud gaming. Captures camera frames and encodes them via GStreamer's `livekitwebrtcsink`, enabling low-latency game streaming with bidirectional input support.
+
 ## Building
 
 ### MacOS
