@@ -13,7 +13,7 @@ tokio = { workspace = true, features = ["full", "parking_lot"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 libwebrtc = { workspace = true }
 livekit-api = { workspace = true }
-clap = { workspace = true, features = ["derive"] }
+clap = { workspace = true, features = ["derive", "env"] }
 log = { workspace = true }
 env_logger = { workspace = true }
 anyhow = { workspace = true }
