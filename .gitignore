@@ -5,3 +5,4 @@ soxr-sys/test-output.wav
 .DS_Store
 .env
 .cursor
+examples/mobile/android/.idea/AndroidProjectSystem.xml
