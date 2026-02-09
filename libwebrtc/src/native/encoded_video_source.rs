@@ -77,6 +77,7 @@ impl NativeEncodedVideoSource {
             info.height,
             info.is_keyframe,
             info.has_sps_pps,
+            info.simulcast_index,
         )
     }
 

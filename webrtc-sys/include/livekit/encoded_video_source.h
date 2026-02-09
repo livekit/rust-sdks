@@ -19,6 +19,7 @@
 #include <atomic>
 #include <memory>
 #include <queue>
+#include <unordered_map>
 
 #include "api/video/video_frame.h"
 #include "api/video/i420_buffer.h"
@@ -46,6 +47,7 @@ struct EncodedFrameData {
   uint32_t height;
   bool is_keyframe;
   bool has_sps_pps;
+  uint32_t simulcast_index = 0;
 };
 
 /// A video track source that accepts pre-encoded frames.
@@ -74,11 +76,12 @@ class EncodedVideoTrackSource {
                                uint32_t width,
                                uint32_t height,
                                bool is_keyframe,
-                               bool has_sps_pps);
+                               bool has_sps_pps,
+                               uint32_t simulcast_index);
 
     /// Called by PassthroughVideoEncoder::Encode() to retrieve the next
-    /// queued encoded payload.
-    std::optional<EncodedFrameData> dequeue_frame();
+    /// queued encoded payload for a given simulcast layer.
+    std::optional<EncodedFrameData> dequeue_frame(uint32_t simulcast_index);
 
     /// Set by the encoder when WebRTC requests a keyframe.
     void request_keyframe();
@@ -88,7 +91,8 @@ class EncodedVideoTrackSource {
     mutable webrtc::Mutex mutex_;
     webrtc::TimestampAligner timestamp_aligner_;
     VideoResolution resolution_;
-    std::queue<EncodedFrameData> frame_queue_ RTC_GUARDED_BY(mutex_);
+    std::unordered_map<uint32_t, std::queue<EncodedFrameData>>
+        frame_queues_ RTC_GUARDED_BY(mutex_);
     std::atomic<bool> keyframe_requested_{false};
     webrtc::scoped_refptr<webrtc::I420Buffer> dummy_buffer_;
   };
@@ -128,7 +132,8 @@ bool capture_encoded_frame(const EncodedVideoTrackSource& source,
                            uint32_t width,
                            uint32_t height,
                            bool is_keyframe,
-                           bool has_sps_pps);
+                           bool has_sps_pps,
+                           uint32_t simulcast_index);
 
 static std::shared_ptr<EncodedVideoTrackSource>
 _shared_encoded_video_track_source() {

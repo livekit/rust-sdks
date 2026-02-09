@@ -117,6 +117,7 @@ impl FfiVideoSource {
                     height: capture.height,
                     is_keyframe: capture.is_keyframe,
                     has_sps_pps: capture.has_sps_pps,
+                    simulcast_index: capture.simulcast_index.unwrap_or(0),
                 };
                 source.capture_frame(&info);
             }

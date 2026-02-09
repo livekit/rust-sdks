@@ -67,8 +67,9 @@ bool EncodedVideoTrackSource::InternalSource::capture_encoded_frame(
     uint32_t width,
     uint32_t height,
     bool is_keyframe,
-    bool has_sps_pps) {
-  // Enqueue the encoded data
+    bool has_sps_pps,
+    uint32_t simulcast_index) {
+  // Enqueue the encoded data into the per-layer queue
   {
     webrtc::MutexLock lock(&mutex_);
     EncodedFrameData frame;
@@ -79,7 +80,8 @@ bool EncodedVideoTrackSource::InternalSource::capture_encoded_frame(
     frame.height = height;
     frame.is_keyframe = is_keyframe;
     frame.has_sps_pps = has_sps_pps;
-    frame_queue_.push(std::move(frame));
+    frame.simulcast_index = simulcast_index;
+    frame_queues_[simulcast_index].push(std::move(frame));
   }
 
   // Push a dummy frame to trigger the WebRTC encode pipeline.
@@ -99,13 +101,15 @@ bool EncodedVideoTrackSource::InternalSource::capture_encoded_frame(
 }
 
 std::optional<EncodedFrameData>
-EncodedVideoTrackSource::InternalSource::dequeue_frame() {
+EncodedVideoTrackSource::InternalSource::dequeue_frame(
+    uint32_t simulcast_index) {
   webrtc::MutexLock lock(&mutex_);
-  if (frame_queue_.empty()) {
+  auto it = frame_queues_.find(simulcast_index);
+  if (it == frame_queues_.end() || it->second.empty()) {
     return std::nullopt;
   }
-  EncodedFrameData frame = std::move(frame_queue_.front());
-  frame_queue_.pop();
+  EncodedFrameData frame = std::move(it->second.front());
+  it->second.pop();
   return frame;
 }
 
@@ -169,10 +173,11 @@ bool capture_encoded_frame(const EncodedVideoTrackSource& source,
                            uint32_t width,
                            uint32_t height,
                            bool is_keyframe,
-                           bool has_sps_pps) {
+                           bool has_sps_pps,
+                           uint32_t simulcast_index) {
   return source.get()->capture_encoded_frame(
       data, capture_time_us, rtp_timestamp, width, height, is_keyframe,
-      has_sps_pps);
+      has_sps_pps, simulcast_index);
 }
 
 }  // namespace livekit_ffi

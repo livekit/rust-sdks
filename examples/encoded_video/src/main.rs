@@ -16,7 +16,7 @@
 //!
 //! # Usage
 //!
-//! ## H264 from TCP (default)
+//! ## H264 from TCP (default, single layer)
 //!
 //! First start a TCP server that streams Annex-B H264 data (e.g. with ffmpeg).
 //!
@@ -65,6 +65,39 @@
 //! ```
 //!
 //! Use `--loop-file` to replay the file continuously.
+//!
+//! ## Simulcast (3-layer) from TCP
+//!
+//! Start three ffmpeg instances, each encoding at a different resolution:
+//!
+//! ```
+//! # Low quality (q) — 320x180
+//! ffmpeg -re -f lavfi -i testsrc=size=320x180:rate=15 \
+//!   -c:v libx264 -preset ultrafast -tune zerolatency \
+//!   -b:v 150k -g 30 -keyint_min 30 \
+//!   -bsf:v h264_mp4toannexb -f h264 tcp://0.0.0.0:5000?listen
+//!
+//! # Medium quality (h) — 640x360
+//! ffmpeg -re -f lavfi -i testsrc=size=640x360:rate=20 \
+//!   -c:v libx264 -preset ultrafast -tune zerolatency \
+//!   -b:v 500k -g 30 -keyint_min 30 \
+//!   -bsf:v h264_mp4toannexb -f h264 tcp://0.0.0.0:5001?listen
+//!
+//! # High quality (f) — 1280x720
+//! ffmpeg -re -f lavfi -i testsrc=size=1280x720:rate=30 \
+//!   -c:v libx264 -preset ultrafast -tune zerolatency \
+//!   -b:v 1700k -g 30 -keyint_min 30 \
+//!   -bsf:v h264_mp4toannexb -f h264 tcp://0.0.0.0:5002?listen
+//! ```
+//!
+//! Then run with simulcast args:
+//! ```
+//! cargo run --bin encoded_video -- \
+//!   --url wss://your.livekit.host --api-key <KEY> --api-secret <SECRET> --room <ROOM> \
+//!   --connect-q 127.0.0.1:5000 --width-q 320 --height-q 180 --bitrate-q 150000 --fps-q 15 \
+//!   --connect-h 127.0.0.1:5001 --width-h 640 --height-h 360 --bitrate-h 500000 --fps-h 20 \
+//!   --connect-f 127.0.0.1:5002 --width-f 1280 --height-f 720 --bitrate-f 1700000 --fps-f 30
+//! ```
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -79,7 +112,9 @@ use livekit::webrtc::encoded_video_source::native::NativeEncodedVideoSource;
 use livekit::webrtc::encoded_video_source::{
     EncodedFrameInfo, KeyFrameRequestCallback, VideoCodecType,
 };
-use livekit::webrtc::video_source::RtcVideoSource;
+use livekit::webrtc::video_source::{
+    EncodedSimulcastLayer, RtcVideoSource, SimulcastEncodedVideoSource,
+};
 use livekit_api::access_token;
 use log::debug;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -114,13 +149,13 @@ struct Args {
     #[arg(long, default_value = "encoded-video-test")]
     room: String,
 
-    /// TCP server address to connect to for the encoded stream.
-    /// Mutually exclusive with --file.
+    /// TCP server address to connect to for the encoded stream (single layer).
+    /// Mutually exclusive with --file and --connect-{q,h,f}.
     #[arg(long)]
     connect: Option<String>,
 
     /// Path to a local Annex-B .h264/.h265 file.
-    /// Mutually exclusive with --connect.
+    /// Mutually exclusive with --connect and --connect-{q,h,f}.
     #[arg(long)]
     file: Option<String>,
 
@@ -132,17 +167,75 @@ struct Args {
     #[arg(long, value_enum, default_value_t = CodecArg::H264)]
     codec: CodecArg,
 
-    /// Video width
+    /// Video width (single-layer mode)
     #[arg(long, default_value_t = 1280)]
     width: u32,
 
-    /// Video height
+    /// Video height (single-layer mode)
     #[arg(long, default_value_t = 720)]
     height: u32,
 
     /// Frames per second (used for frame-rate pacing when reading from a file)
     #[arg(long, default_value_t = 30)]
     fps: u32,
+
+    // -- Simulcast layer: q (low quality) --
+    /// TCP address for the low-quality (q) simulcast layer
+    #[arg(long)]
+    connect_q: Option<String>,
+    /// Width for the q layer
+    #[arg(long, default_value_t = 320)]
+    width_q: u32,
+    /// Height for the q layer
+    #[arg(long, default_value_t = 180)]
+    height_q: u32,
+    /// Max bitrate (bps) for the q layer
+    #[arg(long, default_value_t = 150_000)]
+    bitrate_q: u64,
+    /// Max framerate for the q layer
+    #[arg(long, default_value_t = 15.0)]
+    fps_q: f64,
+
+    // -- Simulcast layer: h (medium quality) --
+    /// TCP address for the medium-quality (h) simulcast layer
+    #[arg(long)]
+    connect_h: Option<String>,
+    /// Width for the h layer
+    #[arg(long, default_value_t = 640)]
+    width_h: u32,
+    /// Height for the h layer
+    #[arg(long, default_value_t = 360)]
+    height_h: u32,
+    /// Max bitrate (bps) for the h layer
+    #[arg(long, default_value_t = 500_000)]
+    bitrate_h: u64,
+    /// Max framerate for the h layer
+    #[arg(long, default_value_t = 20.0)]
+    fps_h: f64,
+
+    // -- Simulcast layer: f (high quality) --
+    /// TCP address for the high-quality (f) simulcast layer
+    #[arg(long)]
+    connect_f: Option<String>,
+    /// Width for the f layer
+    #[arg(long, default_value_t = 1280)]
+    width_f: u32,
+    /// Height for the f layer
+    #[arg(long, default_value_t = 720)]
+    height_f: u32,
+    /// Max bitrate (bps) for the f layer
+    #[arg(long, default_value_t = 1_700_000)]
+    bitrate_f: u64,
+    /// Max framerate for the f layer
+    #[arg(long, default_value_t = 30.0)]
+    fps_f: f64,
+}
+
+impl Args {
+    /// Returns true if any simulcast layer TCP address is specified.
+    fn is_simulcast(&self) -> bool {
+        self.connect_q.is_some() || self.connect_h.is_some() || self.connect_f.is_some()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -565,6 +658,124 @@ struct FrameData {
 }
 
 // ---------------------------------------------------------------------------
+// TCP layer reader task (shared by single-layer and simulcast modes)
+// ---------------------------------------------------------------------------
+
+/// Run a TCP ingest loop for a single encoded video source layer.
+///
+/// Reads Annex-B data from `addr`, parses NALUs, assembles frames, and
+/// captures them into `encoded_source` with the given `simulcast_index`.
+async fn run_tcp_layer(
+    layer_name: &str,
+    addr: &str,
+    codec: Codec,
+    width: u32,
+    height: u32,
+    simulcast_index: u32,
+    encoded_source: NativeEncodedVideoSource,
+    running: Arc<AtomicBool>,
+) {
+    println!("[{layer_name}] Connecting to TCP server at {addr}...");
+    let stream = match TcpStream::connect(addr).await {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[{layer_name}] Failed to connect to {addr}: {e}");
+            return;
+        }
+    };
+    println!("[{layer_name}] Connected to TCP server at {addr}");
+
+    let mut parser = AnnexBParser::new(codec);
+    let mut assembler = FrameAssembler::new(codec);
+    let mut buf = vec![0u8; 64 * 1024];
+    let mut frame_count: u64 = 0;
+    let mut keyframe_count: u64 = 0;
+    let mut dropped_count: u64 = 0;
+    let mut bytes_received: u64 = 0;
+    let start_time = Instant::now();
+
+    let mut source: Box<dyn AsyncRead + Unpin> = Box::new(stream);
+
+    println!("[{layer_name}] Reading stream (waiting for first keyframe)...");
+
+    loop {
+        if !running.load(Ordering::SeqCst) {
+            break;
+        }
+
+        match source.read(&mut buf).await {
+            Ok(0) => {
+                println!("[{layer_name}] TCP server closed connection");
+                if let Some(frame) = assembler.flush_remaining() {
+                    let capture_time_us = start_time.elapsed().as_micros() as i64;
+                    let info = EncodedFrameInfo {
+                        data: frame.data,
+                        capture_time_us,
+                        rtp_timestamp: 0,
+                        width,
+                        height,
+                        is_keyframe: frame.is_keyframe,
+                        has_sps_pps: frame.has_parameter_sets,
+                        simulcast_index,
+                    };
+                    encoded_source.capture_frame(&info);
+                    frame_count += 1;
+                }
+                break;
+            }
+            Ok(n) => {
+                bytes_received += n as u64;
+                let nalus = parser.push(&buf[..n]);
+                let (frames, dropped) = assembler.push_nalus(nalus);
+                dropped_count += dropped;
+
+                for frame in frames {
+                    let capture_time_us = start_time.elapsed().as_micros() as i64;
+                    let is_keyframe = frame.is_keyframe;
+                    let has_param_sets = frame.has_parameter_sets;
+                    let frame_size = frame.data.len();
+                    let nalu_count = frame.nalu_count;
+
+                    if is_keyframe {
+                        keyframe_count += 1;
+                    }
+
+                    let info = EncodedFrameInfo {
+                        data: frame.data,
+                        capture_time_us,
+                        rtp_timestamp: 0,
+                        width,
+                        height,
+                        is_keyframe,
+                        has_sps_pps: has_param_sets,
+                        simulcast_index,
+                    };
+
+                    let ok = encoded_source.capture_frame(&info);
+                    frame_count += 1;
+
+                    if frame_count <= 3 || frame_count % 100 == 0 || is_keyframe {
+                        println!(
+                            "[{layer_name}] Frame #{}: size={} bytes, kf={}, ps={}, nalus={}, ok={}, total_bytes={}",
+                            frame_count, frame_size, is_keyframe, has_param_sets, nalu_count, ok, bytes_received
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("[{layer_name}] Read error: {e}");
+                break;
+            }
+        }
+    }
+
+    println!(
+        "[{layer_name}] Done. frames={}, keyframes={}, dropped={}, bytes={}",
+        frame_count, keyframe_count, dropped_count, bytes_received
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -573,12 +784,17 @@ async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
+    let is_simulcast = args.is_simulcast();
+
     // Validate input source
-    if args.connect.is_none() && args.file.is_none() {
-        bail!("Either --connect or --file must be specified");
+    if !is_simulcast && args.connect.is_none() && args.file.is_none() {
+        bail!("Either --connect, --file, or simulcast --connect-{{q,h,f}} must be specified");
     }
-    if args.connect.is_some() && args.file.is_some() {
+    if !is_simulcast && args.connect.is_some() && args.file.is_some() {
         bail!("--connect and --file are mutually exclusive");
+    }
+    if is_simulcast && (args.connect.is_some() || args.file.is_some()) {
+        bail!("--connect-{{q,h,f}} cannot be combined with --connect or --file");
     }
 
     let codec = match args.codec {
@@ -598,30 +814,95 @@ async fn main() -> Result<()> {
         Codec::H265 => "H265",
     };
 
-    println!(
-        "Starting encoded video ingest ({codec_name}): {}x{} @ {}fps",
-        args.width, args.height, args.fps
-    );
+    // -- Build the video source (single-layer or simulcast) --
 
-    // Create the encoded video source
-    let mut encoded_source = NativeEncodedVideoSource::new(args.width, args.height, codec_type);
-
-    // Register a keyframe request callback so that when WebRTC needs a keyframe
-    // (e.g. on subscriber join or packet loss), we know about it.
-    // In a real application you would signal the upstream encoder to produce an IDR.
-    struct KfCallback;
+    struct KfCallback {
+        label: String,
+    }
     impl KeyFrameRequestCallback for KfCallback {
         fn on_keyframe_request(&self) {
-            println!("WebRTC requested a keyframe (PLI)");
+            println!("[{}] WebRTC requested a keyframe (PLI)", self.label);
         }
     }
-    encoded_source.set_keyframe_request_callback(Arc::new(KfCallback));
 
-    let rtc_source = RtcVideoSource::Encoded(encoded_source.clone());
+    let rtc_source: RtcVideoSource;
+
+    if is_simulcast {
+        // Collect the specified layers (at least 2 required for simulcast)
+        let mut layers: Vec<(String, String, u32, u32, u64, f64)> = Vec::new();
+        if let Some(ref addr) = args.connect_q {
+            layers.push((
+                "q".into(),
+                addr.clone(),
+                args.width_q,
+                args.height_q,
+                args.bitrate_q,
+                args.fps_q,
+            ));
+        }
+        if let Some(ref addr) = args.connect_h {
+            layers.push((
+                "h".into(),
+                addr.clone(),
+                args.width_h,
+                args.height_h,
+                args.bitrate_h,
+                args.fps_h,
+            ));
+        }
+        if let Some(ref addr) = args.connect_f {
+            layers.push((
+                "f".into(),
+                addr.clone(),
+                args.width_f,
+                args.height_f,
+                args.bitrate_f,
+                args.fps_f,
+            ));
+        }
+        if layers.len() < 2 {
+            bail!("Simulcast requires at least 2 layers (specify at least 2 of --connect-q, --connect-h, --connect-f)");
+        }
+
+        println!(
+            "Starting simulcast encoded video ingest ({codec_name}): {} layers",
+            layers.len()
+        );
+
+        let mut sim_layers = Vec::new();
+        for (name, _addr, w, h, bitrate, fps) in &layers {
+            println!("  Layer {name}: {w}x{h} @ {fps}fps, {bitrate}bps");
+            let mut source = NativeEncodedVideoSource::new(*w, *h, codec_type);
+            source.set_keyframe_request_callback(Arc::new(KfCallback {
+                label: format!("layer-{name}"),
+            }));
+            sim_layers.push(EncodedSimulcastLayer {
+                source,
+                width: *w,
+                height: *h,
+                max_bitrate: *bitrate,
+                max_framerate: *fps,
+            });
+        }
+
+        let simulcast_source = SimulcastEncodedVideoSource::new(sim_layers);
+        rtc_source = RtcVideoSource::SimulcastEncoded(simulcast_source);
+    } else {
+        println!(
+            "Starting encoded video ingest ({codec_name}): {}x{} @ {}fps",
+            args.width, args.height, args.fps
+        );
+
+        let mut encoded_source = NativeEncodedVideoSource::new(args.width, args.height, codec_type);
+        encoded_source.set_keyframe_request_callback(Arc::new(KfCallback {
+            label: "single".into(),
+        }));
+        rtc_source = RtcVideoSource::Encoded(encoded_source);
+    }
 
     // Create a video track from it
     let track_name = format!("{}-ingest", codec_name.to_lowercase());
-    let video_track = LocalVideoTrack::create_video_track(&track_name, rtc_source);
+    let video_track = LocalVideoTrack::create_video_track(&track_name, rtc_source.clone());
 
     // Generate access token
     let token = access_token::AccessToken::with_api_key(&args.api_key, &args.api_secret)
@@ -641,12 +922,11 @@ async fn main() -> Result<()> {
 
     // Publish the video track
     let publish_options = TrackPublishOptions {
-        simulcast: false, // no simulcast for passthrough
         source: TrackSource::Camera,
         video_codec,
         ..Default::default()
     };
-    println!("Publishing video track ({codec_name})...");
+    println!("Publishing video track ({codec_name}, simulcast={is_simulcast})...");
     let publication = room
         .local_participant()
         .publish_track(
@@ -673,133 +953,188 @@ async fn main() -> Result<()> {
         }
     });
 
-    // Frame pacing interval (used for file input to simulate real-time)
-    let frame_interval = std::time::Duration::from_secs_f64(1.0 / args.fps as f64);
-
-    // Run the ingest loop — may iterate more than once when --loop-file is set.
-    loop {
-        // Open the input source
-        let mut source: Box<dyn AsyncRead + Unpin> = if let Some(ref addr) = args.connect {
-            println!("Connecting to TCP server at {addr}...");
-            let stream = TcpStream::connect(addr).await?;
-            println!("Connected to TCP server at {addr}");
-            Box::new(stream)
-        } else {
-            let path = args.file.as_ref().unwrap();
-            println!("Opening file: {path}");
-            let file = tokio::fs::File::open(path).await?;
-            Box::new(file)
+    if is_simulcast {
+        // -- Simulcast mode: spawn one TCP reader task per layer --
+        let simulcast_source = match &rtc_source {
+            RtcVideoSource::SimulcastEncoded(s) => s,
+            _ => unreachable!(),
         };
 
-        let mut parser = AnnexBParser::new(codec);
-        let mut assembler = FrameAssembler::new(codec);
-        let mut buf = vec![0u8; 64 * 1024];
-        let mut frame_count: u64 = 0;
-        let mut keyframe_count: u64 = 0;
-        let mut dropped_count: u64 = 0;
-        let mut bytes_received: u64 = 0;
+        let mut handles = Vec::new();
 
-        let start_time = Instant::now();
-        let is_file = args.file.is_some();
+        // Re-collect layer info to pair with sources
+        let mut layer_info: Vec<(String, String, u32, u32)> = Vec::new();
+        if let Some(ref addr) = args.connect_q {
+            layer_info.push(("q".into(), addr.clone(), args.width_q, args.height_q));
+        }
+        if let Some(ref addr) = args.connect_h {
+            layer_info.push(("h".into(), addr.clone(), args.width_h, args.height_h));
+        }
+        if let Some(ref addr) = args.connect_f {
+            layer_info.push(("f".into(), addr.clone(), args.width_f, args.height_f));
+        }
 
-        println!("Reading {codec_name} stream (waiting for first keyframe)...");
+        for (i, (name, addr, w, h)) in layer_info.into_iter().enumerate() {
+            let layer_source = simulcast_source.layers()[i].source.clone();
+            let running = running.clone();
+            let codec = codec;
+            let simulcast_index = i as u32;
+            handles.push(tokio::spawn(async move {
+                run_tcp_layer(
+                    &name,
+                    &addr,
+                    codec,
+                    w,
+                    h,
+                    simulcast_index,
+                    layer_source,
+                    running,
+                )
+                .await;
+            }));
+        }
 
+        // Wait for all layer tasks to complete
+        for handle in handles {
+            let _ = handle.await;
+        }
+    } else {
+        // -- Single-layer mode (TCP or file) --
+        let encoded_source = match &rtc_source {
+            RtcVideoSource::Encoded(s) => s.clone(),
+            _ => unreachable!(),
+        };
+
+        // Frame pacing interval (used for file input to simulate real-time)
+        let frame_interval = std::time::Duration::from_secs_f64(1.0 / args.fps as f64);
+
+        // Run the ingest loop — may iterate more than once when --loop-file is set.
         loop {
-            if !running.load(Ordering::SeqCst) {
-                break;
-            }
+            // Open the input source
+            let mut source: Box<dyn AsyncRead + Unpin> = if let Some(ref addr) = args.connect {
+                println!("Connecting to TCP server at {addr}...");
+                let stream = TcpStream::connect(addr).await?;
+                println!("Connected to TCP server at {addr}");
+                Box::new(stream)
+            } else {
+                let path = args.file.as_ref().unwrap();
+                println!("Opening file: {path}");
+                let file = tokio::fs::File::open(path).await?;
+                Box::new(file)
+            };
 
-            match source.read(&mut buf).await {
-                Ok(0) => {
-                    println!(
-                        "{}",
-                        if is_file {
-                            "End of file reached"
-                        } else {
-                            "TCP server closed connection"
-                        }
-                    );
-                    // Flush remaining
-                    if let Some(frame) = assembler.flush_remaining() {
-                        let capture_time_us = start_time.elapsed().as_micros() as i64;
-                        let info = EncodedFrameInfo {
-                            data: frame.data,
-                            capture_time_us,
-                            rtp_timestamp: 0,
-                            width: args.width,
-                            height: args.height,
-                            is_keyframe: frame.is_keyframe,
-                            has_sps_pps: frame.has_parameter_sets,
-                        };
-                        encoded_source.capture_frame(&info);
-                        frame_count += 1;
-                    }
+            let mut parser = AnnexBParser::new(codec);
+            let mut assembler = FrameAssembler::new(codec);
+            let mut buf = vec![0u8; 64 * 1024];
+            let mut frame_count: u64 = 0;
+            let mut keyframe_count: u64 = 0;
+            let mut dropped_count: u64 = 0;
+            let mut bytes_received: u64 = 0;
+
+            let start_time = Instant::now();
+            let is_file = args.file.is_some();
+
+            println!("Reading {codec_name} stream (waiting for first keyframe)...");
+
+            loop {
+                if !running.load(Ordering::SeqCst) {
                     break;
                 }
-                Ok(n) => {
-                    bytes_received += n as u64;
-                    let nalus = parser.push(&buf[..n]);
-                    let (frames, dropped) = assembler.push_nalus(nalus);
-                    dropped_count += dropped;
 
-                    for frame in frames {
-                        // For file input, pace frames to approximate real-time playback
-                        if is_file {
-                            let target_time = frame_interval * frame_count as u32;
-                            let elapsed = start_time.elapsed();
-                            if target_time > elapsed {
-                                tokio::time::sleep(target_time - elapsed).await;
+                match source.read(&mut buf).await {
+                    Ok(0) => {
+                        println!(
+                            "{}",
+                            if is_file {
+                                "End of file reached"
+                            } else {
+                                "TCP server closed connection"
+                            }
+                        );
+                        // Flush remaining
+                        if let Some(frame) = assembler.flush_remaining() {
+                            let capture_time_us = start_time.elapsed().as_micros() as i64;
+                            let info = EncodedFrameInfo {
+                                data: frame.data,
+                                capture_time_us,
+                                rtp_timestamp: 0,
+                                width: args.width,
+                                height: args.height,
+                                is_keyframe: frame.is_keyframe,
+                                has_sps_pps: frame.has_parameter_sets,
+                                simulcast_index: 0,
+                            };
+                            encoded_source.capture_frame(&info);
+                            frame_count += 1;
+                        }
+                        break;
+                    }
+                    Ok(n) => {
+                        bytes_received += n as u64;
+                        let nalus = parser.push(&buf[..n]);
+                        let (frames, dropped) = assembler.push_nalus(nalus);
+                        dropped_count += dropped;
+
+                        for frame in frames {
+                            // For file input, pace frames to approximate real-time playback
+                            if is_file {
+                                let target_time = frame_interval * frame_count as u32;
+                                let elapsed = start_time.elapsed();
+                                if target_time > elapsed {
+                                    tokio::time::sleep(target_time - elapsed).await;
+                                }
+                            }
+
+                            let capture_time_us = start_time.elapsed().as_micros() as i64;
+                            let is_keyframe = frame.is_keyframe;
+                            let has_param_sets = frame.has_parameter_sets;
+                            let frame_size = frame.data.len();
+                            let nalu_count = frame.nalu_count;
+
+                            if is_keyframe {
+                                keyframe_count += 1;
+                            }
+
+                            let info = EncodedFrameInfo {
+                                data: frame.data,
+                                capture_time_us,
+                                rtp_timestamp: 0,
+                                width: args.width,
+                                height: args.height,
+                                is_keyframe,
+                                has_sps_pps: has_param_sets,
+                                simulcast_index: 0,
+                            };
+
+                            let ok = encoded_source.capture_frame(&info);
+                            frame_count += 1;
+
+                            if frame_count <= 5 || frame_count % 100 == 0 || is_keyframe {
+                                println!(
+                                    "Frame #{}: size={} bytes, keyframe={}, param_sets={}, nalus={}, capture_ok={}, total_bytes={}",
+                                    frame_count, frame_size, is_keyframe, has_param_sets, nalu_count, ok, bytes_received
+                                );
                             }
                         }
-
-                        let capture_time_us = start_time.elapsed().as_micros() as i64;
-                        let is_keyframe = frame.is_keyframe;
-                        let has_param_sets = frame.has_parameter_sets;
-                        let frame_size = frame.data.len();
-                        let nalu_count = frame.nalu_count;
-
-                        if is_keyframe {
-                            keyframe_count += 1;
-                        }
-
-                        let info = EncodedFrameInfo {
-                            data: frame.data,
-                            capture_time_us,
-                            rtp_timestamp: 0,
-                            width: args.width,
-                            height: args.height,
-                            is_keyframe,
-                            has_sps_pps: has_param_sets,
-                        };
-
-                        let ok = encoded_source.capture_frame(&info);
-                        frame_count += 1;
-
-                        if frame_count <= 5 || frame_count % 100 == 0 || is_keyframe {
-                            println!(
-                                "Frame #{}: size={} bytes, keyframe={}, param_sets={}, nalus={}, capture_ok={}, total_bytes={}",
-                                frame_count, frame_size, is_keyframe, has_param_sets, nalu_count, ok, bytes_received
-                            );
-                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Read error: {}", e);
+                        break;
                     }
                 }
-                Err(e) => {
-                    eprintln!("Read error: {}", e);
-                    break;
-                }
             }
-        }
 
-        println!(
-            "Done. Total frames: {}, keyframes: {}, dropped_before_first_kf: {}, bytes received: {}",
-            frame_count, keyframe_count, dropped_count, bytes_received
-        );
+            println!(
+                "Done. Total frames: {}, keyframes: {}, dropped_before_first_kf: {}, bytes received: {}",
+                frame_count, keyframe_count, dropped_count, bytes_received
+            );
 
-        // Loop only for file input with --loop-file
-        if !(is_file && args.loop_file && running.load(Ordering::SeqCst)) {
-            break;
+            // Loop only for file input with --loop-file
+            if !(is_file && args.loop_file && running.load(Ordering::SeqCst)) {
+                break;
+            }
+            println!("Looping file...");
         }
-        println!("Looping file...");
     }
 
     room.close().await?;

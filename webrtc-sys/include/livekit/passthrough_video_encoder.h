@@ -59,6 +59,28 @@ class PassthroughVideoEncoder : public webrtc::VideoEncoder {
   webrtc::EncodedImageCallback* callback_ = nullptr;
   webrtc::VideoCodec codec_;
   bool sending_ = false;
+  uint32_t simulcast_index_ = 0;
+};
+
+/// A minimal VideoEncoderFactory that only produces PassthroughVideoEncoder
+/// instances for a given EncodedVideoTrackSource.  Used as the inner factory
+/// inside SimulcastEncoderAdapter so that each simulcast layer gets its own
+/// PassthroughVideoEncoder pulling from the correct per-layer queue.
+class PassthroughVideoEncoderFactory : public webrtc::VideoEncoderFactory {
+ public:
+  explicit PassthroughVideoEncoderFactory(
+      std::shared_ptr<EncodedVideoTrackSource> source,
+      const webrtc::SdpVideoFormat& format);
+
+  std::vector<webrtc::SdpVideoFormat> GetSupportedFormats() const override;
+
+  std::unique_ptr<webrtc::VideoEncoder> Create(
+      const webrtc::Environment& env,
+      const webrtc::SdpVideoFormat& format) override;
+
+ private:
+  std::shared_ptr<EncodedVideoTrackSource> source_;
+  webrtc::SdpVideoFormat format_;
 };
 
 /// Global registry that maps source pointers to their shared_ptr so the

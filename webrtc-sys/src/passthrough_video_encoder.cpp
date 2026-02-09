@@ -40,8 +40,28 @@ int32_t PassthroughVideoEncoder::InitEncode(
   }
   codec_ = *codec_settings;
   sending_ = true;
+
+  // Derive our simulcast index from the codec settings.
+  // When used inside a SimulcastEncoderAdapter, the adapter sets
+  // numberOfSimulcastStreams=1 and configures the single stream's
+  // dimensions.  We match by resolution to find our layer index.
+  simulcast_index_ = 0;
+  if (codec_settings->numberOfSimulcastStreams > 0) {
+    // SimulcastEncoderAdapter sets this encoder's target dimensions;
+    // find which simulcast stream index matches.
+    for (int i = 0; i < codec_settings->numberOfSimulcastStreams; i++) {
+      const auto& stream = codec_settings->simulcastStream[i];
+      if (stream.width == codec_settings->width &&
+          stream.height == codec_settings->height) {
+        simulcast_index_ = static_cast<uint32_t>(i);
+        break;
+      }
+    }
+  }
+
   RTC_LOG(LS_INFO) << "PassthroughVideoEncoder::InitEncode "
-                   << codec_.width << "x" << codec_.height;
+                   << codec_.width << "x" << codec_.height
+                   << " simulcast_index=" << simulcast_index_;
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -88,8 +108,8 @@ int32_t PassthroughVideoEncoder::Encode(
     }
   }
 
-  // Pull the queued encoded frame
-  auto encoded = source_->source_->dequeue_frame();
+  // Pull the queued encoded frame for our simulcast layer
+  auto encoded = source_->source_->dequeue_frame(simulcast_index_);
   if (!encoded.has_value()) {
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
@@ -126,7 +146,7 @@ int32_t PassthroughVideoEncoder::Encode(
   encoded_image._frameType = data.is_keyframe
                                  ? webrtc::VideoFrameType::kVideoFrameKey
                                  : webrtc::VideoFrameType::kVideoFrameDelta;
-  encoded_image.SetSimulcastIndex(0);
+  encoded_image.SetSimulcastIndex(simulcast_index_);
 
   // Build codec-specific info
   webrtc::CodecSpecificInfo codec_info;
@@ -180,9 +200,28 @@ PassthroughVideoEncoder::GetEncoderInfo() const {
   info.implementation_name = "PassthroughVideoEncoder";
   info.scaling_settings = webrtc::VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = false;
-  info.supports_simulcast = false;
+  info.supports_simulcast = true;
   info.preferred_pixel_formats = {webrtc::VideoFrameBuffer::Type::kI420};
   return info;
+}
+
+// ---------- PassthroughVideoEncoderFactory ----------
+
+PassthroughVideoEncoderFactory::PassthroughVideoEncoderFactory(
+    std::shared_ptr<EncodedVideoTrackSource> source,
+    const webrtc::SdpVideoFormat& format)
+    : source_(std::move(source)), format_(format) {}
+
+std::vector<webrtc::SdpVideoFormat>
+PassthroughVideoEncoderFactory::GetSupportedFormats() const {
+  return {format_};
+}
+
+std::unique_ptr<webrtc::VideoEncoder>
+PassthroughVideoEncoderFactory::Create(
+    const webrtc::Environment& env,
+    const webrtc::SdpVideoFormat& format) {
+  return std::make_unique<PassthroughVideoEncoder>(source_);
 }
 
 // ---------- EncodedSourceRegistry ----------

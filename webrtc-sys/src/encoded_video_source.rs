@@ -51,6 +51,7 @@ pub mod ffi {
             height: u32,
             is_keyframe: bool,
             has_sps_pps: bool,
+            simulcast_index: u32,
         ) -> bool;
 
         fn set_keyframe_request_callback(

@@ -152,8 +152,19 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
   auto encoded_source =
       EncodedSourceRegistry::instance().find_by_codec_name(format.name);
   if (encoded_source) {
-    RTC_LOG(LS_INFO) << "Creating PassthroughVideoEncoder for " << format.name;
-    return std::make_unique<PassthroughVideoEncoder>(encoded_source);
+    // Wrap in SimulcastEncoderAdapter so that WebRTC creates one
+    // PassthroughVideoEncoder per simulcast layer.  For single-layer
+    // publishing (simulcast=false) the adapter degenerates to a single
+    // encoder which is functionally identical to the old behaviour.
+    RTC_LOG(LS_INFO) << "Creating SimulcastEncoderAdapter with "
+                        "PassthroughVideoEncoder for "
+                     << format.name;
+    auto pt_factory =
+        std::make_unique<PassthroughVideoEncoderFactory>(encoded_source, format);
+    // The SimulcastEncoderAdapter takes ownership of the inner factory
+    // via the primary pointer and will call Create() on it once per layer.
+    return std::make_unique<webrtc::SimulcastEncoderAdapter>(
+        env, pt_factory.release(), nullptr, format);
   }
 
   std::unique_ptr<webrtc::VideoEncoder> encoder;

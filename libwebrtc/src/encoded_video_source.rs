@@ -45,6 +45,9 @@ pub struct EncodedFrameInfo {
     pub is_keyframe: bool,
     /// For H264: whether the frame includes SPS/PPS NALUs.
     pub has_sps_pps: bool,
+    /// Simulcast layer index (0 = lowest quality / single layer).
+    /// When publishing simulcast, use 0 for `q`, 1 for `h`, 2 for `f`.
+    pub simulcast_index: u32,
 }
 
 impl Default for EncodedFrameInfo {
@@ -57,6 +60,7 @@ impl Default for EncodedFrameInfo {
             height: 0,
             is_keyframe: false,
             has_sps_pps: false,
+            simulcast_index: 0,
         }
     }
 }

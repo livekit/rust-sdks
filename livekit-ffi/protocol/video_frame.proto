@@ -74,6 +74,9 @@ message CaptureEncodedVideoFrameRequest {
   required uint32 height = 6;
   required bool is_keyframe = 7;
   required bool has_sps_pps = 8;
+  // Simulcast layer index (0 = lowest quality / single layer).
+  // When publishing simulcast, use 0 for `q`, 1 for `h`, 2 for `f`.
+  optional uint32 simulcast_index = 9 [default = 0];
 }
 message CaptureEncodedVideoFrameResponse {}
 

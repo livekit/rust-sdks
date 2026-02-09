@@ -308,7 +308,65 @@ pub fn video_layers_from_encodings(
     layers
 }
 
-const VIDEO_RIDS: &[char] = &['q', 'h', 'f'];
+pub const VIDEO_RIDS: &[char] = &['q', 'h', 'f'];
+
+/// Description of a single simulcast layer for pre-encoded video.
+#[derive(Debug, Clone)]
+pub struct EncodedSimulcastLayerDesc {
+    /// Frame width for this layer.
+    pub width: u32,
+    /// Frame height for this layer.
+    pub height: u32,
+    /// Maximum bitrate in bps.
+    pub max_bitrate: u64,
+    /// Maximum framerate.
+    pub max_framerate: f64,
+}
+
+/// Compute RTP encoding parameters for pre-encoded simulcast layers.
+///
+/// Unlike `compute_video_encodings`, this does NOT set
+/// `scale_resolution_down_by` because the caller provides frames that are
+/// already encoded at the target resolution for each layer.
+///
+/// Layers must be ordered from lowest quality to highest quality
+/// (e.g., `[q=320x180, h=640x360, f=1280x720]`).
+pub fn compute_encoded_simulcast_encodings(
+    layers: &[EncodedSimulcastLayerDesc],
+) -> Vec<RtpEncodingParameters> {
+    assert!(!layers.is_empty() && layers.len() <= 3);
+    let mut encodings = Vec::with_capacity(layers.len());
+    for (i, layer) in layers.iter().enumerate() {
+        encodings.push(RtpEncodingParameters {
+            rid: VIDEO_RIDS[i].to_string(),
+            max_bitrate: Some(layer.max_bitrate),
+            max_framerate: Some(layer.max_framerate),
+            // No scale_resolution_down_by — frames are pre-encoded at target res
+            ..Default::default()
+        });
+    }
+    encodings
+}
+
+/// Compute `VideoLayer` protocol messages for pre-encoded simulcast layers.
+pub fn video_layers_from_encoded_simulcast(
+    layers: &[EncodedSimulcastLayerDesc],
+) -> Vec<proto::VideoLayer> {
+    let mut result = Vec::with_capacity(layers.len());
+    for (i, layer) in layers.iter().enumerate() {
+        let quality = video_quality_for_rid(&VIDEO_RIDS[i].to_string())
+            .unwrap_or(proto::VideoQuality::High);
+        result.push(proto::VideoLayer {
+            quality: quality as i32,
+            width: layer.width,
+            height: layer.height,
+            bitrate: layer.max_bitrate as u32,
+            ssrc: 0,
+            ..Default::default()
+        });
+    }
+    result
+}
 
 pub mod audio {
     use super::AudioPreset;

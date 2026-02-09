@@ -257,22 +257,37 @@ impl LocalParticipant {
         track: LocalTrack,
         mut options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
-        // When publishing an encoded source, force codec and disable simulcast
+        // When publishing an encoded source, force codec.
+        // Single-layer encoded: disable simulcast.
+        // Simulcast encoded: enable simulcast with user-provided layer info.
         #[cfg(not(target_arch = "wasm32"))]
         if let LocalTrack::Video(ref video_track) = track {
-            let source = video_track.rtc_source();
-            if let RtcVideoSource::Encoded(ref encoded_source) = source {
-                use crate::options::VideoCodec;
-                use libwebrtc::encoded_video_source::VideoCodecType;
+            use crate::options::VideoCodec;
+            use libwebrtc::encoded_video_source::VideoCodecType;
 
-                options.simulcast = false;
-                options.video_codec = match encoded_source.codec_type() {
-                    VideoCodecType::VP8 => VideoCodec::VP8,
-                    VideoCodecType::VP9 => VideoCodec::VP9,
-                    VideoCodecType::AV1 => VideoCodec::AV1,
-                    VideoCodecType::H264 => VideoCodec::H264,
-                    VideoCodecType::H265 => VideoCodec::H265,
-                };
+            let source = video_track.rtc_source();
+            match source {
+                RtcVideoSource::Encoded(ref encoded_source) => {
+                    options.simulcast = false;
+                    options.video_codec = match encoded_source.codec_type() {
+                        VideoCodecType::VP8 => VideoCodec::VP8,
+                        VideoCodecType::VP9 => VideoCodec::VP9,
+                        VideoCodecType::AV1 => VideoCodec::AV1,
+                        VideoCodecType::H264 => VideoCodec::H264,
+                        VideoCodecType::H265 => VideoCodec::H265,
+                    };
+                }
+                RtcVideoSource::SimulcastEncoded(ref simulcast_source) => {
+                    options.simulcast = true;
+                    options.video_codec = match simulcast_source.codec_type() {
+                        VideoCodecType::VP8 => VideoCodec::VP8,
+                        VideoCodecType::VP9 => VideoCodec::VP9,
+                        VideoCodecType::AV1 => VideoCodec::AV1,
+                        VideoCodecType::H264 => VideoCodec::H264,
+                        VideoCodecType::H265 => VideoCodec::H265,
+                    };
+                }
+                _ => {}
             }
         }
 
@@ -304,8 +319,38 @@ impl LocalParticipant {
                 req.width = resolution.width;
                 req.height = resolution.height;
 
-                encodings = compute_video_encodings(req.width, req.height, &options);
-                req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
+                #[cfg(not(target_arch = "wasm32"))]
+                if let RtcVideoSource::SimulcastEncoded(ref simulcast_source) =
+                    video_track.rtc_source()
+                {
+                    // For pre-encoded simulcast, use explicit per-layer encodings
+                    // rather than the standard resolution-based computation.
+                    use crate::options::{
+                        compute_encoded_simulcast_encodings, video_layers_from_encoded_simulcast,
+                        EncodedSimulcastLayerDesc,
+                    };
+                    let layer_descs: Vec<EncodedSimulcastLayerDesc> = simulcast_source
+                        .layers()
+                        .iter()
+                        .map(|l| EncodedSimulcastLayerDesc {
+                            width: l.width,
+                            height: l.height,
+                            max_bitrate: l.max_bitrate,
+                            max_framerate: l.max_framerate,
+                        })
+                        .collect();
+                    encodings = compute_encoded_simulcast_encodings(&layer_descs);
+                    req.layers = video_layers_from_encoded_simulcast(&layer_descs);
+                } else {
+                    encodings = compute_video_encodings(req.width, req.height, &options);
+                    req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
+                }
+
+                #[cfg(target_arch = "wasm32")]
+                {
+                    encodings = compute_video_encodings(req.width, req.height, &options);
+                    req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
+                }
             }
             LocalTrack::Audio(_audio_track) => {
                 // Setup audio encoding

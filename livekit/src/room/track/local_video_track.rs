@@ -68,6 +68,20 @@ impl LocalVideoTrack {
                         encoded_source,
                     )
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcVideoSource::SimulcastEncoded(ref simulcast_source) => {
+                // For simulcast, create the WebRTC track from the primary
+                // (highest quality) source.  All layers share this track but
+                // each gets its own PassthroughVideoEncoder instance via
+                // SimulcastEncoderAdapter.
+                use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+                LkRuntime::instance()
+                    .pc_factory()
+                    .create_video_track_from_encoded_source(
+                        &libwebrtc::native::create_random_uuid(),
+                        simulcast_source.primary().clone(),
+                    )
+            }
             _ => panic!("unsupported video source"),
         };
 

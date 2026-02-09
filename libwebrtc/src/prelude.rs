@@ -38,7 +38,9 @@ pub use crate::{
         BoxVideoBuffer, BoxVideoFrame, I010Buffer, I420ABuffer, I420Buffer, I422Buffer, I444Buffer,
         NV12Buffer, VideoBuffer, VideoBufferType, VideoFormatType, VideoFrame, VideoRotation,
     },
-    video_source::{RtcVideoSource, VideoResolution},
+    video_source::{
+        EncodedSimulcastLayer, RtcVideoSource, SimulcastEncodedVideoSource, VideoResolution,
+    },
     video_track::RtcVideoTrack,
     MediaType, RtcError, RtcErrorType,
 };
