@@ -1,8 +1,8 @@
 [package]
 name = "livekit"
-version = "0.7.29"
-edition = "2021"
-license = "Apache-2.0"
+version = "0.7.30"
+edition.workspace = true
+license.workspace = true
 description = "Rust Client SDK for LiveKit"
 repository = "https://github.com/livekit/rust-sdks"
 

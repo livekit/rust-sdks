@@ -5,10 +5,12 @@ edition = "2021"
 publish = false
 
 [dependencies]
-lazy_static = "1.4.0"
+futures = { workspace = true }
+lazy_static = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
-log = "0.4.19"
-tokio = { version = "1", features = ["full"] }
+log = { workspace = true }
+parking_lot = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 jni = "0.21.1"

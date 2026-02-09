@@ -134,24 +134,26 @@ fn main() {
         rename_symbols(&fnc_list, &include_files, &source_files);
     }
 
-    // Try to detect system libjpeg (or libjpeg-turbo) via pkg-config to enable MJPEG fast path
-    let jpeg_pkg = pkg_config::Config::new()
-        .probe("libjpeg")
-        .or_else(|_| pkg_config::Config::new().probe("libjpeg-turbo"))
-        .or_else(|_| pkg_config::Config::new().probe("jpeg"))
-        .ok();
-
     let mut build = cc::Build::new();
     build
         .warnings(false)
         .include(libyuv_dir.join("include"))
         .files(source_files.iter().map(|f| f.path()));
 
-    if let Some(pkg) = &jpeg_pkg {
-        // Enable JPEG in libyuv and add include paths from pkg-config
-        build.define("HAVE_JPEG", None);
-        for p in &pkg.include_paths {
-            build.include(p);
+    #[cfg(feature = "jpeg")]
+    {
+        // Try to detect system libjpeg (or libjpeg-turbo) via pkg-config to enable MJPEG fast path
+        let jpeg_pkg = pkg_config::Config::new()
+            .probe("libjpeg")
+            .or_else(|_| pkg_config::Config::new().probe("libjpeg-turbo"))
+            .or_else(|_| pkg_config::Config::new().probe("jpeg"))
+            .ok();
+
+        if let Some(pkg) = &jpeg_pkg {
+            build.define("HAVE_JPEG", None);
+            for p in &pkg.include_paths {
+                build.include(p);
+            }
         }
     }
 
