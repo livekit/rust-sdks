@@ -1193,6 +1193,142 @@ impl<'de> serde::Deserialize<'de> for AgentDispatchState {
         deserializer.deserialize_struct("livekit.AgentDispatchState", FIELDS, GeneratedVisitor)
     }
 }
+impl serde::Serialize for AgentSessionState {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut len = 0;
+        if self.version != 0 {
+            len += 1;
+        }
+        if self.data.is_some() {
+            len += 1;
+        }
+        let mut struct_ser = serializer.serialize_struct("livekit.AgentSessionState", len)?;
+        if self.version != 0 {
+            #[allow(clippy::needless_borrow)]
+            #[allow(clippy::needless_borrows_for_generic_args)]
+            struct_ser.serialize_field("version", ToString::to_string(&self.version).as_str())?;
+        }
+        if let Some(v) = self.data.as_ref() {
+            match v {
+                agent_session_state::Data::Snapshot(v) => {
+                    #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    struct_ser.serialize_field("snapshot", pbjson::private::base64::encode(&v).as_str())?;
+                }
+                agent_session_state::Data::Delta(v) => {
+                    #[allow(clippy::needless_borrow)]
+                    #[allow(clippy::needless_borrows_for_generic_args)]
+                    struct_ser.serialize_field("delta", pbjson::private::base64::encode(&v).as_str())?;
+                }
+            }
+        }
+        struct_ser.end()
+    }
+}
+impl<'de> serde::Deserialize<'de> for AgentSessionState {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "version",
+            "snapshot",
+            "delta",
+        ];
+
+        #[allow(clippy::enum_variant_names)]
+        enum GeneratedField {
+            Version,
+            Snapshot,
+            Delta,
+            __SkipField__,
+        }
+        impl<'de> serde::Deserialize<'de> for GeneratedField {
+            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
+            where
+                D: serde::Deserializer<'de>,
+            {
+                struct GeneratedVisitor;
+
+                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+                    type Value = GeneratedField;
+
+                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                        write!(formatter, "expected one of: {:?}", &FIELDS)
+                    }
+
+                    #[allow(unused_variables)]
+                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
+                    where
+                        E: serde::de::Error,
+                    {
+                        match value {
+                            "version" => Ok(GeneratedField::Version),
+                            "snapshot" => Ok(GeneratedField::Snapshot),
+                            "delta" => Ok(GeneratedField::Delta),
+                            _ => Ok(GeneratedField::__SkipField__),
+                        }
+                    }
+                }
+                deserializer.deserialize_identifier(GeneratedVisitor)
+            }
+        }
+        struct GeneratedVisitor;
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = AgentSessionState;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("struct livekit.AgentSessionState")
+            }
+
+            fn visit_map<V>(self, mut map_: V) -> std::result::Result<AgentSessionState, V::Error>
+                where
+                    V: serde::de::MapAccess<'de>,
+            {
+                let mut version__ = None;
+                let mut data__ = None;
+                while let Some(k) = map_.next_key()? {
+                    match k {
+                        GeneratedField::Version => {
+                            if version__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("version"));
+                            }
+                            version__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
+                        GeneratedField::Snapshot => {
+                            if data__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("snapshot"));
+                            }
+                            data__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| agent_session_state::Data::Snapshot(x.0));
+                        }
+                        GeneratedField::Delta => {
+                            if data__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("delta"));
+                            }
+                            data__ = map_.next_value::<::std::option::Option<::pbjson::private::BytesDeserialize<_>>>()?.map(|x| agent_session_state::Data::Delta(x.0));
+                        }
+                        GeneratedField::__SkipField__ => {
+                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
+                        }
+                    }
+                }
+                Ok(AgentSessionState {
+                    version: version__.unwrap_or_default(),
+                    data: data__,
+                })
+            }
+        }
+        deserializer.deserialize_struct("livekit.AgentSessionState", FIELDS, GeneratedVisitor)
+    }
+}
 impl serde::Serialize for AliOssUpload {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -3006,6 +3142,9 @@ impl serde::Serialize for ClientInfo {
         if !self.other_sdks.is_empty() {
             len += 1;
         }
+        if self.client_protocol != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.ClientInfo", len)?;
         if self.sdk != 0 {
             let v = client_info::Sdk::try_from(self.sdk)
@@ -3042,6 +3181,9 @@ impl serde::Serialize for ClientInfo {
         if !self.other_sdks.is_empty() {
             struct_ser.serialize_field("otherSdks", &self.other_sdks)?;
         }
+        if self.client_protocol != 0 {
+            struct_ser.serialize_field("clientProtocol", &self.client_protocol)?;
+        }
         struct_ser.end()
     }
 }
@@ -3067,6 +3209,8 @@ impl<'de> serde::Deserialize<'de> for ClientInfo {
             "network",
             "other_sdks",
             "otherSdks",
+            "client_protocol",
+            "clientProtocol",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3082,6 +3226,7 @@ impl<'de> serde::Deserialize<'de> for ClientInfo {
             Address,
             Network,
             OtherSdks,
+            ClientProtocol,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3115,6 +3260,7 @@ impl<'de> serde::Deserialize<'de> for ClientInfo {
                             "address" => Ok(GeneratedField::Address),
                             "network" => Ok(GeneratedField::Network),
                             "otherSdks" | "other_sdks" => Ok(GeneratedField::OtherSdks),
+                            "clientProtocol" | "client_protocol" => Ok(GeneratedField::ClientProtocol),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3145,6 +3291,7 @@ impl<'de> serde::Deserialize<'de> for ClientInfo {
                 let mut address__ = None;
                 let mut network__ = None;
                 let mut other_sdks__ = None;
+                let mut client_protocol__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Sdk => {
@@ -3215,6 +3362,14 @@ impl<'de> serde::Deserialize<'de> for ClientInfo {
                             }
                             other_sdks__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::ClientProtocol => {
+                            if client_protocol__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clientProtocol"));
+                            }
+                            client_protocol__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3232,6 +3387,7 @@ impl<'de> serde::Deserialize<'de> for ClientInfo {
                     address: address__.unwrap_or_default(),
                     network: network__.unwrap_or_default(),
                     other_sdks: other_sdks__.unwrap_or_default(),
+                    client_protocol: client_protocol__.unwrap_or_default(),
                 })
             }
         }
@@ -21899,6 +22055,9 @@ impl serde::Serialize for ParticipantInfo {
         if !self.data_tracks.is_empty() {
             len += 1;
         }
+        if self.client_protocol != 0 {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.ParticipantInfo", len)?;
         if !self.sid.is_empty() {
             struct_ser.serialize_field("sid", &self.sid)?;
@@ -21965,6 +22124,9 @@ impl serde::Serialize for ParticipantInfo {
         if !self.data_tracks.is_empty() {
             struct_ser.serialize_field("dataTracks", &self.data_tracks)?;
         }
+        if self.client_protocol != 0 {
+            struct_ser.serialize_field("clientProtocol", &self.client_protocol)?;
+        }
         struct_ser.end()
     }
 }
@@ -21998,6 +22160,8 @@ impl<'de> serde::Deserialize<'de> for ParticipantInfo {
             "kindDetails",
             "data_tracks",
             "dataTracks",
+            "client_protocol",
+            "clientProtocol",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -22019,6 +22183,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantInfo {
             DisconnectReason,
             KindDetails,
             DataTracks,
+            ClientProtocol,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -22058,6 +22223,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantInfo {
                             "disconnectReason" | "disconnect_reason" => Ok(GeneratedField::DisconnectReason),
                             "kindDetails" | "kind_details" => Ok(GeneratedField::KindDetails),
                             "dataTracks" | "data_tracks" => Ok(GeneratedField::DataTracks),
+                            "clientProtocol" | "client_protocol" => Ok(GeneratedField::ClientProtocol),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -22094,6 +22260,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantInfo {
                 let mut disconnect_reason__ = None;
                 let mut kind_details__ = None;
                 let mut data_tracks__ = None;
+                let mut client_protocol__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Sid => {
@@ -22206,6 +22373,14 @@ impl<'de> serde::Deserialize<'de> for ParticipantInfo {
                             }
                             data_tracks__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::ClientProtocol => {
+                            if client_protocol__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("clientProtocol"));
+                            }
+                            client_protocol__ = 
+                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
+                            ;
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -22229,6 +22404,7 @@ impl<'de> serde::Deserialize<'de> for ParticipantInfo {
                     disconnect_reason: disconnect_reason__.unwrap_or_default(),
                     kind_details: kind_details__.unwrap_or_default(),
                     data_tracks: data_tracks__.unwrap_or_default(),
+                    client_protocol: client_protocol__.unwrap_or_default(),
                 })
             }
         }
@@ -40404,7 +40580,7 @@ impl serde::Serialize for TextMessageRequest {
         if !self.metadata.is_empty() {
             len += 1;
         }
-        if !self.session_data.is_empty() {
+        if self.session_state.is_some() {
             len += 1;
         }
         if !self.text.is_empty() {
@@ -40423,10 +40599,8 @@ impl serde::Serialize for TextMessageRequest {
         if !self.metadata.is_empty() {
             struct_ser.serialize_field("metadata", &self.metadata)?;
         }
-        if !self.session_data.is_empty() {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sessionData", pbjson::private::base64::encode(&self.session_data).as_str())?;
+        if let Some(v) = self.session_state.as_ref() {
+            struct_ser.serialize_field("sessionState", v)?;
         }
         if !self.text.is_empty() {
             struct_ser.serialize_field("text", &self.text)?;
@@ -40448,8 +40622,8 @@ impl<'de> serde::Deserialize<'de> for TextMessageRequest {
             "agent_name",
             "agentName",
             "metadata",
-            "session_data",
-            "sessionData",
+            "session_state",
+            "sessionState",
             "text",
         ];
 
@@ -40459,7 +40633,7 @@ impl<'de> serde::Deserialize<'de> for TextMessageRequest {
             SessionId,
             AgentName,
             Metadata,
-            SessionData,
+            SessionState,
             Text,
             __SkipField__,
         }
@@ -40487,7 +40661,7 @@ impl<'de> serde::Deserialize<'de> for TextMessageRequest {
                             "sessionId" | "session_id" => Ok(GeneratedField::SessionId),
                             "agentName" | "agent_name" => Ok(GeneratedField::AgentName),
                             "metadata" => Ok(GeneratedField::Metadata),
-                            "sessionData" | "session_data" => Ok(GeneratedField::SessionData),
+                            "sessionState" | "session_state" => Ok(GeneratedField::SessionState),
                             "text" => Ok(GeneratedField::Text),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -40512,7 +40686,7 @@ impl<'de> serde::Deserialize<'de> for TextMessageRequest {
                 let mut session_id__ = None;
                 let mut agent_name__ = None;
                 let mut metadata__ = None;
-                let mut session_data__ = None;
+                let mut session_state__ = None;
                 let mut text__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -40540,13 +40714,11 @@ impl<'de> serde::Deserialize<'de> for TextMessageRequest {
                             }
                             metadata__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::SessionData => {
-                            if session_data__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("sessionData"));
+                        GeneratedField::SessionState => {
+                            if session_state__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sessionState"));
                             }
-                            session_data__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
+                            session_state__ = map_.next_value()?;
                         }
                         GeneratedField::Text => {
                             if text__.is_some() {
@@ -40564,7 +40736,7 @@ impl<'de> serde::Deserialize<'de> for TextMessageRequest {
                     session_id: session_id__.unwrap_or_default(),
                     agent_name: agent_name__.unwrap_or_default(),
                     metadata: metadata__.unwrap_or_default(),
-                    session_data: session_data__.unwrap_or_default(),
+                    session_state: session_state__,
                     text: text__.unwrap_or_default(),
                 })
             }
@@ -40583,7 +40755,7 @@ impl serde::Serialize for TextMessageResponse {
         if !self.message_id.is_empty() {
             len += 1;
         }
-        if !self.session_data.is_empty() {
+        if self.session_state.is_some() {
             len += 1;
         }
         if !self.error.is_empty() {
@@ -40593,10 +40765,8 @@ impl serde::Serialize for TextMessageResponse {
         if !self.message_id.is_empty() {
             struct_ser.serialize_field("messageId", &self.message_id)?;
         }
-        if !self.session_data.is_empty() {
-            #[allow(clippy::needless_borrow)]
-            #[allow(clippy::needless_borrows_for_generic_args)]
-            struct_ser.serialize_field("sessionData", pbjson::private::base64::encode(&self.session_data).as_str())?;
+        if let Some(v) = self.session_state.as_ref() {
+            struct_ser.serialize_field("sessionState", v)?;
         }
         if !self.error.is_empty() {
             struct_ser.serialize_field("error", &self.error)?;
@@ -40613,15 +40783,15 @@ impl<'de> serde::Deserialize<'de> for TextMessageResponse {
         const FIELDS: &[&str] = &[
             "message_id",
             "messageId",
-            "session_data",
-            "sessionData",
+            "session_state",
+            "sessionState",
             "error",
         ];
 
         #[allow(clippy::enum_variant_names)]
         enum GeneratedField {
             MessageId,
-            SessionData,
+            SessionState,
             Error,
             __SkipField__,
         }
@@ -40646,7 +40816,7 @@ impl<'de> serde::Deserialize<'de> for TextMessageResponse {
                     {
                         match value {
                             "messageId" | "message_id" => Ok(GeneratedField::MessageId),
-                            "sessionData" | "session_data" => Ok(GeneratedField::SessionData),
+                            "sessionState" | "session_state" => Ok(GeneratedField::SessionState),
                             "error" => Ok(GeneratedField::Error),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
@@ -40668,7 +40838,7 @@ impl<'de> serde::Deserialize<'de> for TextMessageResponse {
                     V: serde::de::MapAccess<'de>,
             {
                 let mut message_id__ = None;
-                let mut session_data__ = None;
+                let mut session_state__ = None;
                 let mut error__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
@@ -40678,13 +40848,11 @@ impl<'de> serde::Deserialize<'de> for TextMessageResponse {
                             }
                             message_id__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::SessionData => {
-                            if session_data__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("sessionData"));
+                        GeneratedField::SessionState => {
+                            if session_state__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("sessionState"));
                             }
-                            session_data__ = 
-                                Some(map_.next_value::<::pbjson::private::BytesDeserialize<_>>()?.0)
-                            ;
+                            session_state__ = map_.next_value()?;
                         }
                         GeneratedField::Error => {
                             if error__.is_some() {
@@ -40699,7 +40867,7 @@ impl<'de> serde::Deserialize<'de> for TextMessageResponse {
                 }
                 Ok(TextMessageResponse {
                     message_id: message_id__.unwrap_or_default(),
-                    session_data: session_data__.unwrap_or_default(),
+                    session_state: session_state__,
                     error: error__.unwrap_or_default(),
                 })
             }

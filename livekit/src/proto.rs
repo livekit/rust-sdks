@@ -155,7 +155,7 @@ impl From<participant_info::Kind> for participant::ParticipantKind {
             participant_info::Kind::Sip => participant::ParticipantKind::Sip,
             participant_info::Kind::Agent => participant::ParticipantKind::Agent,
             participant_info::Kind::Connector => participant::ParticipantKind::Connector,
-            participant_info::Kind::Bridge => participant::ParticipantKind::Bridge
+            participant_info::Kind::Bridge => participant::ParticipantKind::Bridge,
         }
     }
 }
