@@ -39,18 +39,18 @@ repository = "https://github.com/livekit/rust-sdks"
 license = "Apache-2.0"
 
 [workspace.dependencies]
-imgproc = { version = "0.3.15", path = "imgproc" }
-libwebrtc = { version = "0.3.24", path = "libwebrtc" }
-livekit = { version = "0.7.29", path = "livekit" }
-livekit-api = { version = "0.4.12", path = "livekit-api" }
-livekit-ffi = { version = "0.12.44", path = "livekit-ffi" }
+imgproc = { version = "0.3.17", path = "imgproc" }
+libwebrtc = { version = "0.3.25", path = "libwebrtc" }
+livekit = { version = "0.7.30", path = "livekit" }
+livekit-api = { version = "0.4.13", path = "livekit-api" }
+livekit-ffi = { version = "0.12.46", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.0", path = "livekit-datatrack" }
-livekit-protocol = { version = "0.6.0", path = "livekit-protocol" }
+livekit-protocol = { version = "0.7.0", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
-soxr-sys = { version = "0.1.1", path = "soxr-sys" }
-webrtc-sys = { version = "0.3.21", path = "webrtc-sys" }
-webrtc-sys-build = { version = "0.3.12", path = "webrtc-sys/build" }
-yuv-sys = { version = "0.3.10", path = "yuv-sys" }
+soxr-sys = { version = "0.1.2", path = "soxr-sys" }
+webrtc-sys = { version = "0.3.22", path = "webrtc-sys" }
+webrtc-sys-build = { version = "0.3.13", path = "webrtc-sys/build" }
+yuv-sys = { version = "0.3.12", path = "yuv-sys" }
 
 anyhow = "1.0"
 bytes = "1.10"

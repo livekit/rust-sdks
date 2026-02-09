@@ -799,7 +799,15 @@ impl LocalParticipant {
             min_effective_timeout,
         );
 
-        match self
+        // Register channels BEFORE sending the request to avoid race condition
+        // where the response arrives before we've registered the handlers
+        {
+            let mut rpc_state = self.local.rpc_state.lock();
+            rpc_state.pending_acks.insert(id.clone(), ack_tx);
+            rpc_state.pending_responses.insert(id.clone(), response_tx);
+        }
+
+        if let Err(e) = self
             .publish_rpc_request(RpcRequest {
                 destination_identity: data.destination_identity.clone(),
                 id: id.clone(),
@@ -810,15 +818,12 @@ impl LocalParticipant {
             })
             .await
         {
-            Ok(_) => {
-                let mut rpc_state = self.local.rpc_state.lock();
-                rpc_state.pending_acks.insert(id.clone(), ack_tx);
-                rpc_state.pending_responses.insert(id.clone(), response_tx);
-            }
-            Err(e) => {
-                log::error!("Failed to publish RPC request: {}", e);
-                return Err(RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())));
-            }
+            // Clean up on failure
+            let mut rpc_state = self.local.rpc_state.lock();
+            rpc_state.pending_acks.remove(&id);
+            rpc_state.pending_responses.remove(&id);
+            log::error!("Failed to publish RPC request: {}", e);
+            return Err(RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())));
         }
 
         // Wait for ack timeout

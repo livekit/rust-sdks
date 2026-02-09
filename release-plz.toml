@@ -66,8 +66,7 @@ release = true
 [[package]]
 name = "livekit-ffi"
 changelog_path = "livekit-ffi/CHANGELOG.md"
-publish = true
-publish_no_verify = true
+publish = false
 release = true
 git_release_enable = false # existing CI manages GitHub release
 changelog_include = [
