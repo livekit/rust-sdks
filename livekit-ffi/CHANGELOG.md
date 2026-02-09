@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.45](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.44...rust-sdks/livekit-ffi@0.12.45) - 2026-02-09
+
+### Fixed
+
+- fix the RPC race condition ([#865](https://github.com/livekit/rust-sdks/pull/865))
+
+### Other
+
+- update proto & fix CI ([#871](https://github.com/livekit/rust-sdks/pull/871))
+- add can_manage_agent_session permission ([#870](https://github.com/livekit/rust-sdks/pull/870))
+- Use workspace dependencies & settings ([#856](https://github.com/livekit/rust-sdks/pull/856))
+- Upgrade protocol to v1.44.0 ([#857](https://github.com/livekit/rust-sdks/pull/857))
+- Use dedicated audio_runtime with high priority for audio capture  ([#854](https://github.com/livekit/rust-sdks/pull/854))
+- Expose participant's permission to ffi layer ([#824](https://github.com/livekit/rust-sdks/pull/824))
+- Add a request_async_id to the async requests ([#842](https://github.com/livekit/rust-sdks/pull/842))
+- Use the correct download url in webrtc-sys build. ([#825](https://github.com/livekit/rust-sdks/pull/825))
+
 ## [0.12.44](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.43...rust-sdks/livekit-ffi@0.12.44) - 2026-01-15
 
 ### Fixed
