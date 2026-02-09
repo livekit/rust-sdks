@@ -203,10 +203,54 @@ export enum VideoSourceType {
    * @generated from enum value: VIDEO_SOURCE_NATIVE = 0;
    */
   VIDEO_SOURCE_NATIVE = 0,
+
+  /**
+   * @generated from enum value: VIDEO_SOURCE_ENCODED = 1;
+   */
+  VIDEO_SOURCE_ENCODED = 1,
 }
 // Retrieve enum metadata with: proto2.getEnumType(VideoSourceType)
 proto2.util.setEnumType(VideoSourceType, "livekit.proto.VideoSourceType", [
   { no: 0, name: "VIDEO_SOURCE_NATIVE" },
+  { no: 1, name: "VIDEO_SOURCE_ENCODED" },
+]);
+
+/**
+ * @generated from enum livekit.proto.VideoCodecType
+ */
+export enum VideoCodecType {
+  /**
+   * @generated from enum value: CODEC_VP8 = 0;
+   */
+  CODEC_VP8 = 0,
+
+  /**
+   * @generated from enum value: CODEC_VP9 = 1;
+   */
+  CODEC_VP9 = 1,
+
+  /**
+   * @generated from enum value: CODEC_AV1 = 2;
+   */
+  CODEC_AV1 = 2,
+
+  /**
+   * @generated from enum value: CODEC_H264 = 3;
+   */
+  CODEC_H264 = 3,
+
+  /**
+   * @generated from enum value: CODEC_H265 = 4;
+   */
+  CODEC_H265 = 4,
+}
+// Retrieve enum metadata with: proto2.getEnumType(VideoCodecType)
+proto2.util.setEnumType(VideoCodecType, "livekit.proto.VideoCodecType", [
+  { no: 0, name: "CODEC_VP8" },
+  { no: 1, name: "CODEC_VP9" },
+  { no: 2, name: "CODEC_AV1" },
+  { no: 3, name: "CODEC_H264" },
+  { no: 4, name: "CODEC_H265" },
 ]);
 
 /**
@@ -428,6 +472,13 @@ export class NewVideoSourceRequest extends Message<NewVideoSourceRequest> {
    */
   resolution?: VideoSourceResolution;
 
+  /**
+   * Required when type is VIDEO_SOURCE_ENCODED
+   *
+   * @generated from field: optional livekit.proto.VideoCodecType codec = 3;
+   */
+  codec?: VideoCodecType;
+
   constructor(data?: PartialMessage<NewVideoSourceRequest>) {
     super();
     proto2.util.initPartial(data, this);
@@ -438,6 +489,7 @@ export class NewVideoSourceRequest extends Message<NewVideoSourceRequest> {
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "type", kind: "enum", T: proto2.getEnumType(VideoSourceType), req: true },
     { no: 2, name: "resolution", kind: "message", T: VideoSourceResolution, req: true },
+    { no: 3, name: "codec", kind: "enum", T: proto2.getEnumType(VideoCodecType), opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): NewVideoSourceRequest {
@@ -581,6 +633,118 @@ export class CaptureVideoFrameResponse extends Message<CaptureVideoFrameResponse
 
   static equals(a: CaptureVideoFrameResponse | PlainMessage<CaptureVideoFrameResponse> | undefined, b: CaptureVideoFrameResponse | PlainMessage<CaptureVideoFrameResponse> | undefined): boolean {
     return proto2.util.equals(CaptureVideoFrameResponse, a, b);
+  }
+}
+
+/**
+ * Push a pre-encoded frame to a VideoSource (type must be VIDEO_SOURCE_ENCODED)
+ *
+ * @generated from message livekit.proto.CaptureEncodedVideoFrameRequest
+ */
+export class CaptureEncodedVideoFrameRequest extends Message<CaptureEncodedVideoFrameRequest> {
+  /**
+   * @generated from field: required uint64 source_handle = 1;
+   */
+  sourceHandle?: bigint;
+
+  /**
+   * @generated from field: required bytes data = 2;
+   */
+  data?: Uint8Array;
+
+  /**
+   * @generated from field: required int64 capture_time_us = 3;
+   */
+  captureTimeUs?: bigint;
+
+  /**
+   * @generated from field: required uint32 rtp_timestamp = 4;
+   */
+  rtpTimestamp?: number;
+
+  /**
+   * @generated from field: required uint32 width = 5;
+   */
+  width?: number;
+
+  /**
+   * @generated from field: required uint32 height = 6;
+   */
+  height?: number;
+
+  /**
+   * @generated from field: required bool is_keyframe = 7;
+   */
+  isKeyframe?: boolean;
+
+  /**
+   * @generated from field: required bool has_sps_pps = 8;
+   */
+  hasSpsPps?: boolean;
+
+  constructor(data?: PartialMessage<CaptureEncodedVideoFrameRequest>) {
+    super();
+    proto2.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto2 = proto2;
+  static readonly typeName = "livekit.proto.CaptureEncodedVideoFrameRequest";
+  static readonly fields: FieldList = proto2.util.newFieldList(() => [
+    { no: 1, name: "source_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "data", kind: "scalar", T: 12 /* ScalarType.BYTES */, req: true },
+    { no: 3, name: "capture_time_us", kind: "scalar", T: 3 /* ScalarType.INT64 */, req: true },
+    { no: 4, name: "rtp_timestamp", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 5, name: "width", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 6, name: "height", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 7, name: "is_keyframe", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 8, name: "has_sps_pps", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CaptureEncodedVideoFrameRequest {
+    return new CaptureEncodedVideoFrameRequest().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CaptureEncodedVideoFrameRequest {
+    return new CaptureEncodedVideoFrameRequest().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CaptureEncodedVideoFrameRequest {
+    return new CaptureEncodedVideoFrameRequest().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CaptureEncodedVideoFrameRequest | PlainMessage<CaptureEncodedVideoFrameRequest> | undefined, b: CaptureEncodedVideoFrameRequest | PlainMessage<CaptureEncodedVideoFrameRequest> | undefined): boolean {
+    return proto2.util.equals(CaptureEncodedVideoFrameRequest, a, b);
+  }
+}
+
+/**
+ * @generated from message livekit.proto.CaptureEncodedVideoFrameResponse
+ */
+export class CaptureEncodedVideoFrameResponse extends Message<CaptureEncodedVideoFrameResponse> {
+  constructor(data?: PartialMessage<CaptureEncodedVideoFrameResponse>) {
+    super();
+    proto2.util.initPartial(data, this);
+  }
+
+  static readonly runtime: typeof proto2 = proto2;
+  static readonly typeName = "livekit.proto.CaptureEncodedVideoFrameResponse";
+  static readonly fields: FieldList = proto2.util.newFieldList(() => [
+  ]);
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CaptureEncodedVideoFrameResponse {
+    return new CaptureEncodedVideoFrameResponse().fromBinary(bytes, options);
+  }
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CaptureEncodedVideoFrameResponse {
+    return new CaptureEncodedVideoFrameResponse().fromJson(jsonValue, options);
+  }
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CaptureEncodedVideoFrameResponse {
+    return new CaptureEncodedVideoFrameResponse().fromJsonString(jsonString, options);
+  }
+
+  static equals(a: CaptureEncodedVideoFrameResponse | PlainMessage<CaptureEncodedVideoFrameResponse> | undefined, b: CaptureEncodedVideoFrameResponse | PlainMessage<CaptureEncodedVideoFrameResponse> | undefined): boolean {
+    return proto2.util.equals(CaptureEncodedVideoFrameResponse, a, b);
   }
 }
 
