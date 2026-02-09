@@ -2942,7 +2942,7 @@ dependencies = [
 
 [[package]]
 name = "imgproc"
-version = "0.3.16"
+version = "0.3.17"
 dependencies = [
  "yuv-sys",
 ]
@@ -3381,7 +3381,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.45"
+version = "0.12.46"
 dependencies = [
  "bytes",
  "console-subscriber",
@@ -8091,7 +8091,7 @@ dependencies = [
 
 [[package]]
 name = "yuv-sys"
-version = "0.3.11"
+version = "0.3.12"
 dependencies = [
  "bindgen 0.72.1",
  "cc",

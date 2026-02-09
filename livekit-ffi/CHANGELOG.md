@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.46](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.45...rust-sdks/livekit-ffi@0.12.46) - 2026-02-09
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [0.12.45](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.44...rust-sdks/livekit-ffi@0.12.45) - 2026-02-09
 
 ### Fixed
