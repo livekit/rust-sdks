@@ -3630,10 +3630,12 @@ name = "mobile"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "futures",
  "jni",
  "lazy_static",
  "livekit",
  "log",
+ "parking_lot",
  "tokio",
  "webrtc-sys-build",
 ]
