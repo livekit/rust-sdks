@@ -110,6 +110,7 @@ impl From<&livekit_proto::ParticipantPermission> for proto::ParticipantPermissio
             hidden: perm.hidden,
             can_update_metadata: perm.can_update_metadata,
             can_subscribe_metrics: perm.can_subscribe_metrics,
+            can_manage_agent_session: perm.can_manage_agent_session,
         }
     }
 }
