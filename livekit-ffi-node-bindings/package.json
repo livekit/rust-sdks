@@ -65,9 +65,9 @@
   },
   "scripts": {
     "build:ts": "tsup --onSuccess \"tsc --declaration --emitDeclarationOnly\"",
-    "build": "pnpm run build:ts && napi build --platform --release --dts native.d.ts --js native.cjs --pipe \"prettier -w\" -o src/napi ",
+    "build": "pnpm run build:ts && napi build --platform --release --dts native.d.ts --js native.cjs --pipe \"prettier -w\" -o src/artifacts",
     "build:local": "pnpm build && cp -r src/napi dist/",
-    "artifacts": "napi artifacts -d src/napi",
+    "artifacts": "napi artifacts",
     "build:debug": "napi build --platform",
     "universal": "napi universal",
     "version": "napi version"
