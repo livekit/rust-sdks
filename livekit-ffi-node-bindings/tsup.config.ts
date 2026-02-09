@@ -15,7 +15,13 @@
 import type { Options } from "tsup";
 
 const defaultOptions: Options = {
-  entry: ["src/**/*.ts", "!src/**/*.test.ts"],
+  entry: [
+    "src/**/*.ts",
+    "src/**/*.js",
+    "src/**/*.cjs",
+    "!src/**/*.test.ts",
+    "!src/**/*.d.ts",
+  ],
   format: ["cjs", "esm"],
   splitting: false,
   sourcemap: true,
@@ -23,7 +29,7 @@ const defaultOptions: Options = {
   clean: true,
   bundle: false,
   target: "node16",
-  external: [/\.\/.*\.cjs/, /\.\/.*.node/],
+  // external: [/\.\/napi\/.*/],
   esbuildOptions: (options, context) => {
     if (context.format === "esm") {
       options.packages = "external";

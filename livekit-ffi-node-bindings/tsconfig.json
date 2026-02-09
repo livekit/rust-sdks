@@ -15,8 +15,14 @@
     "isolatedModules": true,
     "noUncheckedIndexedAccess": true,
     "outDir": "dist",
-    "declarationDir": "dist"
+    "declarationDir": "dist",
+    "allowJs": true
   },
-  "include": ["src/**/*.ts"],
+  "include": [
+    "src/**/*.ts",
+    "src/napi/*.cjs",
+    "src/napi/*.js",
+    "src/napi/*.d.ts"
+  ],
   "exclude": ["src/**/*.test.ts", "tsup.config.ts"]
 }

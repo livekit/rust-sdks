@@ -47,7 +47,7 @@
   },
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "^1.10.1",
-    "@napi-rs/cli": "^2.18.0",
+    "@napi-rs/cli": "^3.5.1",
     "@types/node": "^22.13.10",
     "prettier": "^3.0.3",
     "tsup": "^8.5.1",
@@ -64,9 +64,10 @@
     "node": ">= 18"
   },
   "scripts": {
-    "build:ts": "tsup --onSuccess \"tsc --declaration --emitDeclarationOnly\" && cp -r src/napi dist/ && cp -r src/napi/* dist/",
-    "build": "pnpm build:ts && napi build --platform --release --dts native.d.ts --js native.cjs --pipe \"prettier -w\" src/napi",
-    "artifacts": "pnpm build:ts && napi artifacts",
+    "build:ts": "tsup --onSuccess \"tsc --declaration --emitDeclarationOnly\"",
+    "build": "pnpm run build:ts && napi build --platform --release --dts native.d.ts --js native.cjs --pipe \"prettier -w\" -o src/napi ",
+    "build:local": "pnpm build && cp -r src/napi dist/",
+    "artifacts": "napi artifacts -d src/napi",
     "build:debug": "napi build --platform",
     "universal": "napi universal",
     "version": "napi version"
