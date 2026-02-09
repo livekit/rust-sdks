@@ -319,9 +319,6 @@ pub struct ParticipantPermission {
     /// if a participant can subscribe to metrics
     #[prost(bool, tag="12")]
     pub can_subscribe_metrics: bool,
-    /// if a participant can manage an agent session via RemoteSession (control and access state)
-    #[prost(bool, tag="13")]
-    pub can_manage_agent_session: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -364,9 +361,6 @@ pub struct ParticipantInfo {
     pub kind_details: ::prost::alloc::vec::Vec<i32>,
     #[prost(message, repeated, tag="19")]
     pub data_tracks: ::prost::alloc::vec::Vec<DataTrackInfo>,
-    /// protocol version used for client feature compatibility
-    #[prost(int32, tag="20")]
-    pub client_protocol: i32,
 }
 /// Nested message and enum types in `ParticipantInfo`.
 pub mod participant_info {
@@ -1069,9 +1063,6 @@ pub struct ClientInfo {
     /// e.g. "components-js:1.2.3,track-processors-js:1.2.3"
     #[prost(string, tag="11")]
     pub other_sdks: ::prost::alloc::string::String,
-    /// client protocol version
-    #[prost(int32, tag="12")]
-    pub client_protocol: i32,
 }
 /// Nested message and enum types in `ClientInfo`.
 pub mod client_info {
@@ -4432,25 +4423,6 @@ pub struct JobTermination {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct AgentSessionState {
-    #[prost(uint64, tag="1")]
-    pub version: u64,
-    #[prost(oneof="agent_session_state::Data", tags="2, 3")]
-    pub data: ::core::option::Option<agent_session_state::Data>,
-}
-/// Nested message and enum types in `AgentSessionState`.
-pub mod agent_session_state {
-    #[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Oneof)]
-    pub enum Data {
-        #[prost(bytes, tag="2")]
-        Snapshot(::prost::alloc::vec::Vec<u8>),
-        #[prost(bytes, tag="3")]
-        Delta(::prost::alloc::vec::Vec<u8>),
-    }
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TextMessageRequest {
     #[prost(string, tag="1")]
     pub message_id: ::prost::alloc::string::String,
@@ -4460,8 +4432,8 @@ pub struct TextMessageRequest {
     pub agent_name: ::prost::alloc::string::String,
     #[prost(string, tag="4")]
     pub metadata: ::prost::alloc::string::String,
-    #[prost(message, optional, tag="5")]
-    pub session_state: ::core::option::Option<AgentSessionState>,
+    #[prost(bytes="vec", tag="5")]
+    pub session_data: ::prost::alloc::vec::Vec<u8>,
     #[prost(string, tag="6")]
     pub text: ::prost::alloc::string::String,
 }
@@ -4480,8 +4452,8 @@ pub struct TextMessageResponse {
     /// Indicate the request is completed
     #[prost(string, tag="1")]
     pub message_id: ::prost::alloc::string::String,
-    #[prost(message, optional, tag="2")]
-    pub session_state: ::core::option::Option<AgentSessionState>,
+    #[prost(bytes="vec", tag="2")]
+    pub session_data: ::prost::alloc::vec::Vec<u8>,
     #[prost(string, tag="3")]
     pub error: ::prost::alloc::string::String,
 }
@@ -5209,8 +5181,6 @@ pub struct UpdateIngressRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListIngressRequest {
-    #[prost(message, optional, tag="3")]
-    pub page_token: ::core::option::Option<TokenPagination>,
     /// when blank, lists all ingress endpoints
     ///
     /// (optional, filter by room name)
@@ -5223,9 +5193,6 @@ pub struct ListIngressRequest {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ListIngressResponse {
-    #[prost(message, optional, tag="2")]
-    pub next_page_token: ::core::option::Option<TokenPagination>,
-    /// next field id: 3
     #[prost(message, repeated, tag="1")]
     pub items: ::prost::alloc::vec::Vec<IngressInfo>,
 }
