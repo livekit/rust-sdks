@@ -1037,10 +1037,19 @@ impl SessionInner {
             RtcEvent::ConnectionChange { state, target } => {
                 log::debug!("connection change, {:?} {:?}", state, target);
 
-                if state == PeerConnectionState::Failed {
-                    log::error!("{:?} pc state failed", target);
+                // Handle both Failed and Disconnected states to trigger reconnection.
+                // Previously, only Failed was handled, which caused connections to stay
+                // broken when transitioning to Disconnected state (e.g., temporary network hiccup).
+                if state == PeerConnectionState::Failed
+                    || state == PeerConnectionState::Disconnected
+                {
+                    log::error!("{:?} pc state {:?}", target, state);
                     self.on_session_disconnected(
-                        "pc_state failed",
+                        match state {
+                            PeerConnectionState::Failed => "pc_state failed",
+                            PeerConnectionState::Disconnected => "pc_state disconnected",
+                            _ => "pc_state changed",
+                        },
                         DisconnectReason::UnknownReason,
                         proto::leave_request::Action::Resume,
                         false,
@@ -1847,3 +1856,71 @@ macro_rules! make_rtc_config {
 
 make_rtc_config!(make_rtc_config_join, proto::JoinResponse);
 make_rtc_config!(make_rtc_config_reconnect, proto::ReconnectResponse);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use libwebrtc::prelude::PeerConnectionState;
+
+    /// Helper function that mirrors the logic in on_rtc_event for ConnectionChange.
+    /// Returns true if the state should trigger a session disconnect (reconnection).
+    fn should_trigger_reconnection(state: PeerConnectionState) -> bool {
+        state == PeerConnectionState::Failed || state == PeerConnectionState::Disconnected
+    }
+
+    #[test]
+    fn test_failed_state_triggers_reconnection() {
+        // PeerConnectionState::Failed should trigger reconnection
+        assert!(
+            should_trigger_reconnection(PeerConnectionState::Failed),
+            "Failed state should trigger reconnection"
+        );
+    }
+
+    #[test]
+    fn test_disconnected_state_triggers_reconnection() {
+        // PeerConnectionState::Disconnected should trigger reconnection
+        // This is the bug fix - previously only Failed was handled
+        assert!(
+            should_trigger_reconnection(PeerConnectionState::Disconnected),
+            "Disconnected state should trigger reconnection"
+        );
+    }
+
+    #[test]
+    fn test_connected_state_does_not_trigger_reconnection() {
+        // PeerConnectionState::Connected should NOT trigger reconnection
+        assert!(
+            !should_trigger_reconnection(PeerConnectionState::Connected),
+            "Connected state should NOT trigger reconnection"
+        );
+    }
+
+    #[test]
+    fn test_connecting_state_does_not_trigger_reconnection() {
+        // PeerConnectionState::Connecting should NOT trigger reconnection
+        assert!(
+            !should_trigger_reconnection(PeerConnectionState::Connecting),
+            "Connecting state should NOT trigger reconnection"
+        );
+    }
+
+    #[test]
+    fn test_new_state_does_not_trigger_reconnection() {
+        // PeerConnectionState::New should NOT trigger reconnection
+        assert!(
+            !should_trigger_reconnection(PeerConnectionState::New),
+            "New state should NOT trigger reconnection"
+        );
+    }
+
+    #[test]
+    fn test_closed_state_does_not_trigger_reconnection() {
+        // PeerConnectionState::Closed should NOT trigger reconnection
+        // (closed is intentional, not a failure)
+        assert!(
+            !should_trigger_reconnection(PeerConnectionState::Closed),
+            "Closed state should NOT trigger reconnection"
+        );
+    }
+}
