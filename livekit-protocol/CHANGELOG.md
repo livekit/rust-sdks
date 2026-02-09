@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.0](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.6.0...rust-sdks/livekit-protocol@0.7.0) - 2026-02-09
+
+### Other
+
+- update proto & fix CI ([#871](https://github.com/livekit/rust-sdks/pull/871))
+- add can_manage_agent_session permission ([#870](https://github.com/livekit/rust-sdks/pull/870))
+- Use workspace dependencies & settings ([#856](https://github.com/livekit/rust-sdks/pull/856))
+- Upgrade protocol to v1.44.0 ([#857](https://github.com/livekit/rust-sdks/pull/857))
+
 ## [0.6.0](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.5.2...rust-sdks/livekit-protocol@0.6.0) - 2025-12-04
 
 ### Added
