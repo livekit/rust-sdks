@@ -14,9 +14,8 @@
 
 use std::sync::Arc;
 
-use cxx::SharedPtr;
+use crate::sys;
 use parking_lot::Mutex;
-use webrtc_sys::frame_cryptor::{self as sys_fc};
 
 use crate::{
     peer_connection_factory::PeerConnectionFactory, rtp_receiver::RtpReceiver,
@@ -31,6 +30,17 @@ pub struct KeyProviderOptions {
     pub ratchet_window_size: i32,
     pub ratchet_salt: Vec<u8>,
     pub failure_tolerance: i32,
+}
+
+impl Default for KeyProviderOptions {
+    fn default() -> Self {
+        Self {
+            shared_key: true,
+            ratchet_window_size: 10,
+            ratchet_salt: vec![],
+            failure_tolerance: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,50 +69,140 @@ pub struct EncryptedPacket {
 
 #[derive(Clone)]
 pub struct KeyProvider {
-    pub(crate) sys_handle: SharedPtr<sys_fc::ffi::KeyProvider>,
+    pub(crate) ffi: sys::RefCounted<sys::lkKeyProvider>,
 }
 
 impl KeyProvider {
     pub fn new(options: KeyProviderOptions) -> Self {
-        Self { sys_handle: sys_fc::ffi::new_key_provider(options.into()) }
+        unsafe {
+            let lk_options_ptr = sys::lkKeyProviderOptionsCreate();
+            sys::lkKeyProviderOptionsSetSharedKey(lk_options_ptr, options.shared_key);
+            sys::lkKeyProviderOptionsSetRatchetWindowSize(
+                lk_options_ptr,
+                options.ratchet_window_size,
+            );
+            sys::lkKeyProviderOptionsSetRatchetSalt(
+                lk_options_ptr,
+                options.ratchet_salt.as_ptr(),
+                options.ratchet_salt.len() as u32,
+            );
+            sys::lkKeyProviderOptionsSetFailureTolerance(lk_options_ptr, options.failure_tolerance);
+
+            let ffi = sys::lkKeyProviderCreate(lk_options_ptr);
+
+            let _ = sys::RefCounted::from_raw(lk_options_ptr);
+            Self { ffi: sys::RefCounted::from_raw(ffi) }
+        }
     }
 
     pub fn set_shared_key(&self, key_index: i32, key: Vec<u8>) -> bool {
-        self.sys_handle.set_shared_key(key_index, key)
+        unsafe {
+            sys::lkKeyProviderSetSharedKey(
+                self.ffi.as_ptr(),
+                key_index,
+                key.as_ptr(),
+                key.len() as u32,
+            )
+        }
     }
 
     pub fn ratchet_shared_key(&self, key_index: i32) -> Option<Vec<u8>> {
-        self.sys_handle.ratchet_shared_key(key_index).ok()
+        unsafe {
+            let key = sys::lkKeyProviderRatchetSharedKey(self.ffi.as_ptr(), key_index);
+            if key.is_null() {
+                None
+            } else {
+                let key = sys::RefCountedData::from_native(key);
+                Some(key.as_bytes())
+            }
+        }
     }
 
     pub fn get_shared_key(&self, key_index: i32) -> Option<Vec<u8>> {
-        self.sys_handle.get_shared_key(key_index).ok()
+        unsafe {
+            let key = sys::lkKeyProviderGetSharedKey(self.ffi.as_ptr(), key_index);
+            if key.is_null() {
+                None
+            } else {
+                let key = sys::RefCountedData::from_native(key);
+                Some(key.as_bytes())
+            }
+        }
     }
 
     pub fn set_key(&self, participant_id: String, key_index: i32, key: Vec<u8>) -> bool {
-        self.sys_handle.set_key(participant_id, key_index, key)
+        unsafe {
+            let c_str = std::ffi::CString::new(participant_id).unwrap();
+            sys::lkKeyProviderSetKey(
+                self.ffi.as_ptr(),
+                c_str.as_ptr() as *const ::std::os::raw::c_char,
+                key_index,
+                key.as_ptr(),
+                key.len().try_into().unwrap(),
+            )
+        }
     }
 
     pub fn ratchet_key(&self, participant_id: String, key_index: i32) -> Option<Vec<u8>> {
-        self.sys_handle.ratchet_key(participant_id, key_index).ok()
+        unsafe {
+            let c_str = std::ffi::CString::new(participant_id).unwrap();
+            let key = sys::lkKeyProviderRatchetKey(
+                self.ffi.as_ptr(),
+                c_str.as_ptr() as *const ::std::os::raw::c_char,
+                key_index,
+            );
+            if key.is_null() {
+                None
+            } else {
+                let key = sys::RefCountedData::from_native(key);
+                Some(key.as_bytes())
+            }
+        }
     }
 
     pub fn get_key(&self, participant_id: String, key_index: i32) -> Option<Vec<u8>> {
-        self.sys_handle.get_key(participant_id, key_index).ok()
+        unsafe {
+            let c_str = std::ffi::CString::new(participant_id).unwrap();
+            let key =
+                sys::lkKeyProviderGetKey(self.ffi.as_ptr(), c_str.as_ptr() as *const ::std::os::raw::c_char, key_index);
+            if key.is_null() {
+                None
+            } else {
+                let key = sys::RefCountedData::from_native(key);
+                Some(key.as_bytes())
+            }
+        }
     }
 
     pub fn set_sif_trailer(&self, trailer: Vec<u8>) {
-        self.sys_handle.set_sif_trailer(trailer);
+        unsafe {
+            sys::lkKeyProviderSetSifTrailer(
+                self.ffi.as_ptr(),
+                trailer.as_ptr(),
+                trailer.len() as u32,
+            );
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct FrameCryptor {
     observer: Arc<RtcFrameCryptorObserver>,
-    pub(crate) sys_handle: SharedPtr<sys_fc::ffi::FrameCryptor>,
+    pub(crate) ffi: sys::RefCounted<sys::lkFrameCryptor>,
 }
 
 impl FrameCryptor {
+    pub extern "C" fn on_encryption_state_changed(
+        participant_id: *const ::std::os::raw::c_char,
+        state: sys::lkEncryptionState,
+        userdata: *mut ::std::os::raw::c_void,
+    ) {
+        let observer = unsafe { &*(userdata as *const Arc<RtcFrameCryptorObserver>) };
+        let str: String =
+            unsafe { std::ffi::CStr::from_ptr(participant_id).to_str().unwrap().to_string() };
+        observer.on_frame_cryption_state_change(str, state);
+    }
+
     pub fn new_for_rtp_sender(
         peer_factory: &PeerConnectionFactory,
         participant_id: String,
@@ -110,18 +210,22 @@ impl FrameCryptor {
         key_provider: KeyProvider,
         sender: RtpSender,
     ) -> Self {
-        let observer = Arc::new(RtcFrameCryptorObserver::default());
-        let sys_handle = sys_fc::ffi::new_frame_cryptor_for_rtp_sender(
-            peer_factory.handle.sys_handle.clone(),
-            participant_id,
-            algorithm.into(),
-            key_provider.sys_handle,
-            sender.handle.sys_handle,
-        );
-        let fc = Self { observer: observer.clone(), sys_handle: sys_handle.clone() };
-        fc.sys_handle
-            .register_observer(Box::new(sys_fc::RtcFrameCryptorObserverWrapper::new(observer)));
-        fc
+        unsafe {
+            let observer = Arc::new(RtcFrameCryptorObserver::default());
+            let observer_box: *mut Arc<RtcFrameCryptorObserver> =
+                Box::into_raw(Box::new(observer.clone()));
+            let c_str = std::ffi::CString::new(participant_id).unwrap();
+            let ffi = sys::lkNewFrameCryptorForRtpSender(
+                peer_factory.ffi.as_ptr(),
+                c_str.as_ptr() as *const ::std::os::raw::c_char,
+                algorithm.into(),
+                key_provider.ffi.as_ptr(),
+                sender.ffi.as_ptr(),
+                Some(FrameCryptor::on_encryption_state_changed),
+                observer_box as *mut ::std::os::raw::c_void,
+            );
+            Self { observer, ffi: sys::RefCounted::from_raw(ffi) }
+        }
     }
 
     pub fn new_for_rtp_receiver(
@@ -131,38 +235,50 @@ impl FrameCryptor {
         key_provider: KeyProvider,
         receiver: RtpReceiver,
     ) -> Self {
-        let observer = Arc::new(RtcFrameCryptorObserver::default());
-        let sys_handle = sys_fc::ffi::new_frame_cryptor_for_rtp_receiver(
-            peer_factory.handle.sys_handle.clone(),
-            participant_id,
-            algorithm.into(),
-            key_provider.sys_handle,
-            receiver.handle.sys_handle,
-        );
-        let fc = Self { observer: observer.clone(), sys_handle: sys_handle.clone() };
-        fc.sys_handle
-            .register_observer(Box::new(sys_fc::RtcFrameCryptorObserverWrapper::new(observer)));
-        fc
+        unsafe {
+            let observer = Arc::new(RtcFrameCryptorObserver::default());
+            let observer_box: *mut Arc<RtcFrameCryptorObserver> =
+                Box::into_raw(Box::new(observer.clone()));
+            let c_str = std::ffi::CString::new(participant_id).unwrap();
+            let ffi = sys::lkNewFrameCryptorForRtpReceiver(
+                peer_factory.ffi.as_ptr(),
+                c_str.as_ptr() as *const ::std::os::raw::c_char,
+                algorithm.into(),
+                key_provider.ffi.as_ptr(),
+                receiver.ffi.as_ptr(),
+                Some(FrameCryptor::on_encryption_state_changed),
+                observer_box as *mut ::std::os::raw::c_void,
+            );
+            Self { observer, ffi: sys::RefCounted::from_raw(ffi) }
+        }
     }
 
     pub fn set_enabled(self: &FrameCryptor, enabled: bool) {
-        self.sys_handle.set_enabled(enabled);
+        unsafe {
+            sys::lkFrameCryptorSetEnabled(self.ffi.as_ptr(), enabled);
+        }
     }
 
     pub fn enabled(self: &FrameCryptor) -> bool {
-        self.sys_handle.enabled()
+        unsafe { sys::lkFrameCryptorGetEnabled(self.ffi.as_ptr()) }
     }
 
     pub fn set_key_index(self: &FrameCryptor, index: i32) {
-        self.sys_handle.set_key_index(index);
+        unsafe {
+            sys::lkFrameCryptorSetKeyIndex(self.ffi.as_ptr(), index);
+        }
     }
 
     pub fn key_index(self: &FrameCryptor) -> i32 {
-        self.sys_handle.key_index()
+        unsafe { sys::lkFrameCryptorGetKeyIndex(self.ffi.as_ptr()) }
     }
 
     pub fn participant_id(self: &FrameCryptor) -> String {
-        self.sys_handle.participant_id()
+        unsafe {
+            let str_ptr = sys::lkFrameCryptorGetParticipantId(self.ffi.as_ptr());
+            let ref_counted_str = sys::RefCountedString { ffi: sys::RefCounted::from_raw(str_ptr) };
+            ref_counted_str.as_str()
+        }
     }
 
     pub fn on_state_change(&self, handler: Option<OnStateChange>) {
@@ -172,16 +288,14 @@ impl FrameCryptor {
 
 #[derive(Clone)]
 pub struct DataPacketCryptor {
-    pub(crate) sys_handle: SharedPtr<sys_fc::ffi::DataPacketCryptor>,
+    pub(crate) ffi: sys::RefCounted<sys::lkDataPacketCryptor>,
 }
 
 impl DataPacketCryptor {
     pub fn new(algorithm: EncryptionAlgorithm, key_provider: KeyProvider) -> Self {
-        Self {
-            sys_handle: sys_fc::ffi::new_data_packet_cryptor(
-                algorithm.into(),
-                key_provider.sys_handle,
-            ),
+        unsafe {
+            let ffi = sys::lkNewDataPacketCryptor(algorithm.into(), key_provider.ffi.as_ptr());
+            Self { ffi: sys::RefCounted::from_raw(ffi) }
         }
     }
 
@@ -191,10 +305,35 @@ impl DataPacketCryptor {
         key_index: u32,
         data: &[u8],
     ) -> Result<EncryptedPacket, Box<dyn std::error::Error>> {
-        let data_vec: Vec<u8> = data.to_vec();
-        match self.sys_handle.encrypt_data_packet(participant_id.to_string(), key_index, data_vec) {
-            Ok(packet) => Ok(packet.into()),
-            Err(e) => Err(format!("Encryption failed: {}", e).into()),
+        unsafe {
+            let c_str = std::ffi::CString::new(participant_id).unwrap();
+            let data_vec: Vec<u8> = data.to_vec();
+            let mut rtc_err = sys::lkRtcError { message: std::ptr::null() };
+            let encrypted_packet = sys::lkDataPacketCryptorEncrypt(
+                self.ffi.as_ptr(),
+                c_str.as_ptr() as *const ::std::os::raw::c_char,
+                key_index,
+                data_vec.as_ptr() as *const ::std::os::raw::c_char,
+                data_vec.len() as u32,
+                &mut rtc_err, // Assuming the sixth argument is a mutable pointer, adjust as needed
+            );
+
+            if encrypted_packet.is_null() {
+                return Err(format!("Decryption failed: {:?}", rtc_err).into());
+            }
+
+            let encrypted_data =
+                sys::RefCountedData::from_native(sys::lkEncryptedPacketGetData(encrypted_packet));
+            let iv =
+                sys::RefCountedData::from_native(sys::lkEncryptedPacketGetIv(encrypted_packet));
+            let key_index = sys::lkEncryptedPacketGetKeyIndex(encrypted_packet);
+
+            let result =
+                EncryptedPacket { data: encrypted_data.as_bytes(), iv: iv.as_bytes(), key_index };
+
+            sys::RefCounted::from_raw(encrypted_packet); // Manage the lifetime
+
+            Ok(result)
         }
     }
 
@@ -203,12 +342,32 @@ impl DataPacketCryptor {
         participant_id: &str,
         encrypted_packet: &EncryptedPacket,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        match self
-            .sys_handle
-            .decrypt_data_packet(participant_id.to_string(), &encrypted_packet.clone().into())
-        {
-            Ok(data) => Ok(data.into_iter().collect()),
-            Err(e) => Err(format!("Decryption failed: {}", e).into()),
+        unsafe {
+            let c_str = std::ffi::CString::new(participant_id).unwrap();
+            let lk_encrypted_data = sys::lkNewlkEncryptedPacket(
+                encrypted_packet.data.as_ptr(),
+                encrypted_packet.data.len() as u32,
+                encrypted_packet.iv.as_ptr(),
+                encrypted_packet.iv.len() as u32,
+                encrypted_packet.key_index,
+            );
+
+            let mut rtc_err = sys::lkRtcError { message: std::ptr::null() };
+            let decrypted_data = sys::lkDataPacketCryptorDecrypt(
+                self.ffi.as_ptr(),
+                c_str.as_ptr() as *const ::std::os::raw::c_char,
+                lk_encrypted_data,
+                &mut rtc_err, // Assuming the eighth argument is a mutable pointer, adjust as needed
+            );
+
+            if decrypted_data.is_null() {
+                return Err(format!("Decryption failed: {:?}", rtc_err).into());
+            }
+
+            let decrypted_data_rcd = sys::RefCountedData::from_native(decrypted_data);
+            let result = decrypted_data_rcd.as_bytes();
+
+            Ok(result)
         }
     }
 }
@@ -218,11 +377,11 @@ struct RtcFrameCryptorObserver {
     state_change_handler: Mutex<Option<OnStateChange>>,
 }
 
-impl sys_fc::RtcFrameCryptorObserver for RtcFrameCryptorObserver {
+impl RtcFrameCryptorObserver {
     fn on_frame_cryption_state_change(
         &self,
         participant_id: String,
-        state: sys_fc::ffi::FrameCryptionState,
+        state: sys::lkEncryptionState,
     ) {
         let mut handler = self.state_change_handler.lock();
         if let Some(f) = handler.as_mut() {
@@ -231,63 +390,65 @@ impl sys_fc::RtcFrameCryptorObserver for RtcFrameCryptorObserver {
     }
 }
 
-impl From<sys_fc::ffi::Algorithm> for EncryptionAlgorithm {
-    fn from(value: sys_fc::ffi::Algorithm) -> Self {
+impl From<sys::lkEncryptionAlgorithm> for EncryptionAlgorithm {
+    fn from(value: sys::lkEncryptionAlgorithm) -> Self {
         match value {
-            sys_fc::ffi::Algorithm::AesGcm => Self::AesGcm,
-            sys_fc::ffi::Algorithm::AesCbc => Self::AesCbc,
-            _ => panic!("unknown frame cyrptor Algorithm"),
+            sys::lkEncryptionAlgorithm::ENCRYPTION_ALGORITHM_AES_GCM => Self::AesGcm,
+            sys::lkEncryptionAlgorithm::ENCRYPTION_ALGORITHM_AES_CBC => Self::AesCbc,
         }
     }
 }
 
-impl From<EncryptionAlgorithm> for sys_fc::ffi::Algorithm {
+impl From<EncryptionAlgorithm> for sys::lkEncryptionAlgorithm {
     fn from(value: EncryptionAlgorithm) -> Self {
         match value {
-            EncryptionAlgorithm::AesGcm => Self::AesGcm,
-            EncryptionAlgorithm::AesCbc => Self::AesCbc,
+            EncryptionAlgorithm::AesGcm => Self::ENCRYPTION_ALGORITHM_AES_GCM,
+            EncryptionAlgorithm::AesCbc => Self::ENCRYPTION_ALGORITHM_AES_CBC,
         }
     }
 }
 
-impl From<sys_fc::ffi::FrameCryptionState> for EncryptionState {
-    fn from(value: sys_fc::ffi::FrameCryptionState) -> Self {
+impl From<sys::lkEncryptionState> for EncryptionState {
+    fn from(value: sys::lkEncryptionState) -> Self {
         match value {
-            sys_fc::ffi::FrameCryptionState::New => Self::New,
-            sys_fc::ffi::FrameCryptionState::Ok => Self::Ok,
-            sys_fc::ffi::FrameCryptionState::EncryptionFailed => Self::EncryptionFailed,
-            sys_fc::ffi::FrameCryptionState::DecryptionFailed => Self::DecryptionFailed,
-            sys_fc::ffi::FrameCryptionState::MissingKey => Self::MissingKey,
-            sys_fc::ffi::FrameCryptionState::KeyRatcheted => Self::KeyRatcheted,
-            sys_fc::ffi::FrameCryptionState::InternalError => Self::InternalError,
-            _ => panic!("unknown frame cyrptor FrameCryptionState"),
+            sys::lkEncryptionState::ENCRYPTION_STATE_NEW => Self::New,
+            sys::lkEncryptionState::ENCRYPTION_STATE_OK => Self::Ok,
+            sys::lkEncryptionState::ENCRYPTION_STATE_ENCRYPTION_FAILED => Self::EncryptionFailed,
+            sys::lkEncryptionState::ENCRYPTION_STATE_DECRYPTION_FAILED => Self::DecryptionFailed,
+            sys::lkEncryptionState::ENCRYPTION_STATE_MISSING_KEY => Self::MissingKey,
+            sys::lkEncryptionState::ENCRYPTION_STATE_KEY_RATCHETED => Self::KeyRatcheted,
+            sys::lkEncryptionState::ENCRYPTION_STATE_INTERNAL_ERROR => Self::InternalError,
         }
     }
 }
 
-impl From<KeyProviderOptions> for sys_fc::ffi::KeyProviderOptions {
-    fn from(value: KeyProviderOptions) -> Self {
-        Self {
-            shared_key: value.shared_key,
-            ratchet_window_size: value.ratchet_window_size,
-            ratchet_salt: value.ratchet_salt,
-            failure_tolerance: value.failure_tolerance,
-        }
-    }
-}
+#[cfg(test)]
+mod tests {
 
-impl From<sys_fc::ffi::EncryptedPacket> for EncryptedPacket {
-    fn from(value: sys_fc::ffi::EncryptedPacket) -> Self {
-        Self {
-            data: value.data.into_iter().collect(),
-            iv: value.iv.into_iter().collect(),
-            key_index: value.key_index,
-        }
-    }
-}
+    #[tokio::test]
+    async fn key_provider_options() {
+        let options = super::KeyProviderOptions {
+            shared_key: true,
+            ratchet_window_size: 20,
+            ratchet_salt: vec![1, 2, 3, 4],
+            failure_tolerance: 5,
+        };
 
-impl From<EncryptedPacket> for sys_fc::ffi::EncryptedPacket {
-    fn from(value: EncryptedPacket) -> Self {
-        Self { data: value.data, iv: value.iv, key_index: value.key_index }
+        let key_provider = super::KeyProvider::new(options);
+        assert!(!key_provider.ffi.as_ptr().is_null());
+
+        assert_eq!(key_provider.set_shared_key(1, vec![0; 16]), true);
+
+        assert_eq!(key_provider.get_shared_key(1), Some(vec![0; 16]));
+
+        assert_ne!(key_provider.ratchet_shared_key(1), Some(vec![0; 16]));
+
+        assert_eq!(key_provider.set_key("participant1".to_string(), 1, vec![1; 16]), true);
+
+        assert_eq!(key_provider.get_key("participant1".to_string(), 1), Some(vec![1; 16]));
+
+        assert_ne!(key_provider.ratchet_key("participant1".to_string(), 1), Some(vec![1; 16]));
+
+        key_provider.set_sif_trailer(vec![9, 8, 7, 6]);
     }
 }

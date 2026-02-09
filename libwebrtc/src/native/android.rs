@@ -11,11 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-use webrtc_sys::android::ffi as sys_android;
+use crate::jni;
+use crate::sys;
 
 pub fn initialize_android(vm: &jni::JavaVM) {
     unsafe {
-        sys_android::init_android(vm.get_java_vm_pointer() as *mut _);
+        sys::initAndroid(vm.get_java_vm_pointer() as *mut _);
     }
 }

@@ -1,0 +1,139 @@
+import("../webrtc.gni")
+
+if (is_android) {
+  import("//build/config/android/config.gni")
+  import("//build/config/android/rules.gni")
+} else if (is_mac) {
+  import("//build/config/mac/rules.gni")
+} else if (is_ios) {
+  import("//build/config/ios/rules.gni")
+} else if (is_linux) {
+  import("//build/config/linux/pkg_config.gni")
+}
+
+lk_sources = [
+  "apm.cc",
+  "peer_connection.cc",
+  "audio_device.cc",
+  "utils.cc",
+  "data_channel.cc",
+  "capi.cc",
+  "video_encoder_factory.cc",
+  "video_decoder_factory.cc",
+  "video_track.cc",
+  "video_frame.cc",
+  "video_frame_buffer.cc",
+  "session_description.cc",
+  "ice_candidate.cc",
+  "global_task_queue.cc",
+  "audio_track.cc",
+  "media_stream.cc",
+  "media_stream_track.cc",
+  "rtc_error.cc",
+  "audio_resampler.cc",
+  "rtp_sender.cc",
+  "rtp_receiver.cc",
+  "rtp_transceiver.cc",
+  "rtp_parameters.cc",
+  "stats.cc",
+  "desktop_capturer.cc",
+  "frame_cryptor.cc",
+  "audio_mixer.cc",
+]
+
+defines = []
+
+if (is_mac || is_ios) {
+  lk_sources += [
+    "objc_video_factory.mm",
+    "objc_video_frame_buffer.mm",
+  ]
+}
+
+//TODO(duan): Re-enable HW codecs.
+if (false) {
+  defines += [
+    "USE_NVIDIA_VIDEO_CODEC",
+    "USE_VAAPI_VIDEO_CODEC",
+  ]
+  lk_sources += [
+    "nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp",
+    "nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.cpp",
+    "nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp",
+    "nvidia/h264_encoder_impl.cpp",
+    "nvidia/h265_encoder_impl.cpp",
+    "nvidia/h264_decoder_impl.cpp",
+    "nvidia/h265_decoder_impl.cpp",
+    "nvidia/nvidia_decoder_factory.cpp",
+    "nvidia/nvidia_encoder_factory.cpp",
+    "nvidia/cuda_context.cpp",
+
+    "vaapi/vaapi_display_drm.cpp",
+    "vaapi/vaapi_h264_encoder_wrapper.cpp",
+    "vaapi/vaapi_encoder_factory.cpp",
+    "vaapi/vaapi_h264_encoder_impl.cpp",
+  ]
+}
+
+if(is_android) {
+  lk_sources += [
+    "android.cc",
+  ]
+}
+
+config("livekit_config") {
+  include_dirs = [ "." ]
+}
+
+rtc_shared_library("livekit_rtc") {
+  libs = []
+  sources = lk_sources
+  defines += [
+    "USE_LIBYUV",
+    "WEBRTC_INCLUDE_INTERNAL_AUDIO_DEVICE",
+    "WEBRTC_APM_DEBUG_DUMP=0",
+  ]
+  cflags_cc = ["-Wno-sign-compare"]
+  public_configs = [ ":livekit_config" ]
+
+  deps = [
+    "../api:create_peerconnection_factory",
+    "../api:libjingle_peerconnection_api",
+    "../api/audio_codecs:builtin_audio_decoder_factory",
+    "../api/audio_codecs:builtin_audio_encoder_factory",
+    "../api/crypto:frame_crypto_transformer",
+    "../api/video:video_frame",
+    "../api/video_codecs:builtin_video_decoder_factory",
+    "../api/video_codecs:builtin_video_encoder_factory",
+    "../media:rtc_audio_video",
+    "../media:rtc_internal_video_codecs",
+    "../media:rtc_media",
+    "../media:rtc_media_base",
+    "../modules/audio_device:audio_device",
+    "../modules/audio_processing:api",
+    "../modules/audio_processing:audio_processing",
+    "../modules/video_capture:video_capture_module",
+    "../modules/desktop_capture",
+    "../pc:libjingle_peerconnection",
+    "../rtc_base:threading",
+    "../sdk:media_constraints",
+    "//third_party/abseil-cpp/absl/memory",
+    "//third_party/boringssl:boringssl",
+    "//third_party/libyuv",
+  ]
+
+  if (is_mac || is_ios) {
+    deps += [
+      "../sdk:peerconnectionfactory_base_objc",
+      "../sdk:default_codec_factory_objc",
+    ]
+  }
+
+  if(is_linux) {
+    deps += [
+      "../modules/portal",
+    ]
+
+    configs += [ "../modules/portal:gio" ]
+  }
+}

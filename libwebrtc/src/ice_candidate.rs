@@ -12,13 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::impl_thread_safety;
+use crate::session_description::SdpParseError;
+use crate::sys;
 use std::fmt::Debug;
 
-use crate::{imp::ice_candidate as imp_ic, session_description::SdpParseError};
-
+#[derive(Clone)]
 pub struct IceCandidate {
-    pub(crate) handle: imp_ic::IceCandidate,
+    pub(crate) ffi: sys::RefCounted<sys::lkIceCandidate>,
 }
+
+impl_thread_safety!(IceCandidate, Send + Sync);
 
 impl IceCandidate {
     pub fn parse(
@@ -26,25 +30,45 @@ impl IceCandidate {
         sdp_mline_index: i32,
         sdp: &str,
     ) -> Result<IceCandidate, SdpParseError> {
-        imp_ic::IceCandidate::parse(sdp_mid, sdp_mline_index, sdp)
+        let c_sdp = std::ffi::CString::new(sdp).map_err(|e| SdpParseError {
+            line: sdp.lines().next().unwrap_or("").to_string(),
+            description: format!("Failed to convert SDP to CString: {}", e),
+        })?;
+        let c_sdp_mid = std::ffi::CString::new(sdp_mid).map_err(|e| SdpParseError {
+            line: sdp_mid.to_string(),
+            description: format!("Failed to convert SDP mid to CString: {}", e),
+        })?;
+
+        let ffi = unsafe {
+            sys::lkCreateIceCandidate(c_sdp_mid.as_ptr(), sdp_mline_index, c_sdp.as_ptr())
+        };
+        Ok(IceCandidate { ffi: unsafe { sys::RefCounted::from_raw(ffi) } })
     }
 
     pub fn sdp_mid(&self) -> String {
-        self.handle.sdp_mid()
+        unsafe {
+            let str_ptr = sys::lkIceCandidateGetMid(self.ffi.as_ptr());
+            let ref_counted_str = sys::RefCountedString { ffi: sys::RefCounted::from_raw(str_ptr) };
+            ref_counted_str.as_str()
+        }
     }
 
     pub fn sdp_mline_index(&self) -> i32 {
-        self.handle.sdp_mline_index()
+        unsafe { sys::lkIceCandidateGetMlineIndex(self.ffi.as_ptr()) }
     }
 
     pub fn candidate(&self) -> String {
-        self.handle.candidate()
+        unsafe {
+            let str_ptr = sys::lkIceCandidateGetSdp(self.ffi.as_ptr());
+            let ref_counted_str = sys::RefCountedString { ffi: sys::RefCounted::from_raw(str_ptr) };
+            ref_counted_str.as_str()
+        }
     }
 }
 
 impl ToString for IceCandidate {
     fn to_string(&self) -> String {
-        self.handle.to_string()
+        self.candidate()
     }
 }
 

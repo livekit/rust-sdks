@@ -1,0 +1,19 @@
+# build cfg
+.cipd
+.gclient_*
+depot_tools
+ninja
+
+# builds
+win-*
+mac-*
+linux-*
+android-*
+ios-*
+
+# ignore everything inside the libwebrtc code except livekit_rtc
+!src/
+src/*
+!src/livekit_rtc
+
+

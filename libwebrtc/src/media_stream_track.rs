@@ -12,14 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::sys;
 use livekit_protocol::enum_dispatch;
-
-use crate::{audio_track::RtcAudioTrack, video_track::RtcVideoTrack};
+use crate::{
+    audio_track::{self, RtcAudioTrack},
+    sys::{lkMediaStreamTrackKind, lkRtcTrackState},
+    video_track::{self, RtcVideoTrack},
+};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum RtcTrackState {
     Live,
     Ended,
+}
+
+impl From<lkRtcTrackState> for RtcTrackState {
+    fn from(state: lkRtcTrackState) -> Self {
+        match state {
+            lkRtcTrackState::LK_RTC_TRACK_STATE_LIVE => RtcTrackState::Live,
+            lkRtcTrackState::LK_RTC_TRACK_STATE_ENDED => RtcTrackState::Ended,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -32,7 +46,7 @@ pub enum MediaStreamTrack {
 impl MediaStreamTrack {
     enum_dispatch!(
         [Video, Audio];
-        pub(crate) fn sys_handle(self: &Self) -> cxx::SharedPtr<webrtc_sys::media_stream::ffi::MediaStreamTrack>;
+        pub(crate) fn ffi(self: &Self) -> sys::RefCounted<sys::lkMediaStreamTrack>;
     );
 }
 
@@ -49,26 +63,30 @@ impl MediaStreamTrack {
 macro_rules! media_stream_track {
     () => {
         pub fn id(&self) -> String {
-            self.handle.id()
+            unsafe {
+                let str_ptr = sys::lkMediaStreamTrackGetId(self.ffi.as_ptr());
+                let ref_counted_str =
+                    sys::RefCountedString { ffi: sys::RefCounted::from_raw(str_ptr) };
+                ref_counted_str.as_str()
+            }
         }
 
         pub fn enabled(&self) -> bool {
-            self.handle.enabled()
+            unsafe { sys::lkMediaStreamTrackIsEnabled(self.ffi.as_ptr()) }
         }
 
         pub fn set_enabled(&self, enabled: bool) -> bool {
-            self.handle.set_enabled(enabled)
+            unsafe { sys::lkMediaStreamTrackSetEnabled(self.ffi.as_ptr(), enabled) }
+            enabled
         }
 
         pub fn state(&self) -> RtcTrackState {
-            self.handle.state().into()
+            unsafe { sys::lkMediaStreamTrackGetState(self.ffi.as_ptr()).into() }
         }
 
         #[cfg(not(target_arch = "wasm32"))]
-        pub(crate) fn sys_handle(
-            &self,
-        ) -> cxx::SharedPtr<webrtc_sys::media_stream::ffi::MediaStreamTrack> {
-            self.handle.sys_handle()
+        pub(crate) fn ffi(&self) -> sys::RefCounted<sys::lkMediaStreamTrack> {
+            self.ffi.clone()
         }
     };
 }
@@ -84,5 +102,18 @@ impl From<RtcAudioTrack> for MediaStreamTrack {
 impl From<RtcVideoTrack> for MediaStreamTrack {
     fn from(track: RtcVideoTrack) -> Self {
         Self::Video(track)
+    }
+}
+
+pub fn new_media_stream_track(
+    sys_handle: sys::RefCounted<sys::lkMediaStreamTrack>,
+) -> MediaStreamTrack {
+    let kind = unsafe { sys::lkMediaStreamTrackGetKind(sys_handle.as_ptr()) };
+    if kind == lkMediaStreamTrackKind::LK_MEDIA_STREAM_TRACK_KIND_AUDIO {
+        MediaStreamTrack::Audio(audio_track::RtcAudioTrack { ffi: sys_handle })
+    } else if kind == lkMediaStreamTrackKind::LK_MEDIA_STREAM_TRACK_KIND_VIDEO {
+        MediaStreamTrack::Video(video_track::RtcVideoTrack { ffi: sys_handle })
+    } else {
+        panic!("unknown track kind")
     }
 }

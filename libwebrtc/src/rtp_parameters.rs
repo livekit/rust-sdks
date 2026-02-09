@@ -12,7 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rtp_transceiver::RtpTransceiverDirection;
+use crate::sys;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum RtpTransceiverDirection {
+    SendRecv,
+    SendOnly,
+    RecvOnly,
+    Inactive,
+    Stopped,
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Priority {
@@ -54,10 +63,80 @@ pub struct RtcpParameters {
 pub struct RtpEncodingParameters {
     pub active: bool,
     pub max_bitrate: Option<u64>,
+    pub min_bitrate: Option<u64>,
     pub max_framerate: Option<f64>,
-    pub priority: Priority,
     pub rid: String,
     pub scale_resolution_down_by: Option<f64>,
+    pub scalability_mode: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum RtcpFeedbackMessageType {
+    GenericNack,
+    Pli,
+    Fir,
+}
+
+impl From<RtcpFeedbackMessageType> for sys::lkRtcpFeedbackMessageType {
+    fn from(state: RtcpFeedbackMessageType) -> Self {
+        match state {
+            RtcpFeedbackMessageType::GenericNack => Self::RTCP_FEEDBACK_MESSAGE_TYPE_GENERIC_NACK,
+            RtcpFeedbackMessageType::Pli => Self::RTCP_FEEDBACK_MESSAGE_TYPE_PLI,
+            RtcpFeedbackMessageType::Fir => Self::RTCP_FEEDBACK_MESSAGE_TYPE_FIR,
+        }
+    }
+}
+
+impl From<sys::lkRtcpFeedbackMessageType> for RtcpFeedbackMessageType {
+    fn from(state: sys::lkRtcpFeedbackMessageType) -> Self {
+        match state {
+            sys::lkRtcpFeedbackMessageType::RTCP_FEEDBACK_MESSAGE_TYPE_GENERIC_NACK => {
+                Self::GenericNack
+            }
+            sys::lkRtcpFeedbackMessageType::RTCP_FEEDBACK_MESSAGE_TYPE_PLI => Self::Pli,
+            sys::lkRtcpFeedbackMessageType::RTCP_FEEDBACK_MESSAGE_TYPE_FIR => Self::Fir,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum RtcpFeedbackType {
+    Ccm,
+    Lntf,
+    Nack,
+    Remb,
+    TransportCC,
+}
+
+impl From<sys::lkRtcpFeedbackType> for RtcpFeedbackType {
+    fn from(state: sys::lkRtcpFeedbackType) -> Self {
+        match state {
+            sys::lkRtcpFeedbackType::RTCP_FEEDBACK_TYPE_CCM => Self::Ccm,
+            sys::lkRtcpFeedbackType::RTCP_FEEDBACK_TYPE_LNTP => Self::Lntf,
+            sys::lkRtcpFeedbackType::RTCP_FEEDBACK_TYPE_NACK => Self::Nack,
+            sys::lkRtcpFeedbackType::RTCP_FEEDBACK_TYPE_REMB => Self::Remb,
+            sys::lkRtcpFeedbackType::RTCP_FEEDBACK_TYPE_TRANSPORT_CC => Self::TransportCC,
+        }
+    }
+}
+
+impl From<RtcpFeedbackType> for sys::lkRtcpFeedbackType {
+    fn from(state: RtcpFeedbackType) -> Self {
+        match state {
+            RtcpFeedbackType::Ccm => Self::RTCP_FEEDBACK_TYPE_CCM,
+            RtcpFeedbackType::Lntf => Self::RTCP_FEEDBACK_TYPE_LNTP,
+            RtcpFeedbackType::Nack => Self::RTCP_FEEDBACK_TYPE_NACK,
+            RtcpFeedbackType::Remb => Self::RTCP_FEEDBACK_TYPE_REMB,
+            RtcpFeedbackType::TransportCC => Self::RTCP_FEEDBACK_TYPE_TRANSPORT_CC,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RtcpFeedback {
+    pub feedback_type: RtcpFeedbackType,
+    pub has_message_type: bool,
+    pub message_type: RtcpFeedbackMessageType,
 }
 
 #[derive(Debug, Clone)]
@@ -65,7 +144,9 @@ pub struct RtpCodecCapability {
     pub channels: Option<u16>,
     pub clock_rate: Option<u64>,
     pub mime_type: String,
+    pub preferred_payload_type: Option<u8>,
     pub sdp_fmtp_line: Option<String>,
+    pub rtcp_feedback: Vec<RtcpFeedback>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,11 +165,45 @@ impl Default for RtpEncodingParameters {
     fn default() -> Self {
         Self {
             active: true,
+            min_bitrate: None,
             max_bitrate: None,
             max_framerate: None,
-            priority: Priority::Low,
             rid: String::default(),
             scale_resolution_down_by: None,
+            scalability_mode: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RtpTransceiverInit {
+    pub direction: RtpTransceiverDirection,
+    pub stream_ids: Vec<String>,
+    pub send_encodings: Vec<RtpEncodingParameters>,
+}
+
+impl From<sys::lkRtpTransceiverDirection> for RtpTransceiverDirection {
+    fn from(state: sys::lkRtpTransceiverDirection) -> Self {
+        match state {
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_SENDRECV => Self::SendRecv,
+
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_SENDONLY => Self::SendOnly,
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_RECVONLY => Self::RecvOnly,
+
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_INACTIVE => Self::Inactive,
+            sys::lkRtpTransceiverDirection::LK_RTP_TRANSCEIVER_DIRECTION_STOPPED => Self::Stopped,
+        }
+    }
+}
+
+impl From<RtpTransceiverDirection> for sys::lkRtpTransceiverDirection {
+    fn from(state: RtpTransceiverDirection) -> Self {
+        match state {
+            RtpTransceiverDirection::SendRecv => Self::LK_RTP_TRANSCEIVER_DIRECTION_SENDRECV,
+            RtpTransceiverDirection::SendOnly => Self::LK_RTP_TRANSCEIVER_DIRECTION_SENDONLY,
+            RtpTransceiverDirection::RecvOnly => Self::LK_RTP_TRANSCEIVER_DIRECTION_RECVONLY,
+            RtpTransceiverDirection::Inactive => Self::LK_RTP_TRANSCEIVER_DIRECTION_INACTIVE,
+            RtpTransceiverDirection::Stopped => Self::LK_RTP_TRANSCEIVER_DIRECTION_STOPPED,
         }
     }
 }

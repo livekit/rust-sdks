@@ -12,37 +12,106 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
+use serde_json;
+use tokio::sync::mpsc;
 
-use crate::{
-    imp::rtp_sender as imp_rs, media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters,
-    stats::RtcStats, RtcError,
-};
+use crate::media_stream_track::new_media_stream_track;
+use crate::rtp_parameters::RtpParameters;
+use crate::stats::RtcStats;
+use crate::RtcErrorType;
+use crate::{media_stream_track::MediaStreamTrack, sys, RtcError};
+use std::fmt::Debug;
 
 #[derive(Clone)]
 pub struct RtpSender {
-    pub(crate) handle: imp_rs::RtpSender,
+    pub ffi: sys::RefCounted<sys::lkRtpSender>,
 }
 
 impl RtpSender {
-    pub fn track(&self) -> Option<MediaStreamTrack> {
-        self.handle.track()
+    pub fn from_native(ffi: sys::RefCounted<sys::lkRtpSender>) -> Self {
+        Self { ffi }
     }
 
     pub async fn get_stats(&self) -> Result<Vec<RtcStats>, RtcError> {
-        self.handle.get_stats().await
+        let (tx, mut rx) = mpsc::channel::<Result<Vec<RtcStats>, RtcError>>(1);
+        let tx_box = Box::new(tx.clone());
+        let userdata = Box::into_raw(tx_box) as *mut std::ffi::c_void;
+
+        unsafe extern "C" fn on_complete(
+            stats_json: *const ::std::os::raw::c_char,
+            userdata: *mut ::std::os::raw::c_void,
+        ) {
+            let tx: Box<mpsc::Sender<Result<Vec<RtcStats>, RtcError>>> =
+                Box::from_raw(userdata as *mut _);
+            let stats = unsafe { std::ffi::CStr::from_ptr(stats_json) };
+
+            if stats.is_empty() {
+                let _ = tx.send(Ok(vec![]));
+                return;
+            }
+
+            let vec = serde_json::from_str(stats.to_str().unwrap()).unwrap();
+            let _ = tx.blocking_send(Ok(vec));
+        }
+
+        unsafe {
+            sys::lkRtpSenderGetStats(self.ffi.as_ptr(), Some(on_complete), userdata);
+        }
+
+        rx.recv().await.ok_or_else(|| RtcError {
+            error_type: RtcErrorType::Internal,
+            message: "get_stats cancelled".to_owned(),
+        })?
+    }
+
+    pub fn track(&self) -> Option<MediaStreamTrack> {
+        unsafe {
+            let track_ptr = sys::lkRtpSenderGetTrack(self.ffi.as_ptr());
+            if track_ptr.is_null() {
+                None
+            } else {
+                Some(new_media_stream_track(sys::RefCounted::from_raw(track_ptr)))
+            }
+        }
     }
 
     pub fn set_track(&self, track: Option<MediaStreamTrack>) -> Result<(), RtcError> {
-        self.handle.set_track(track)
+        unsafe {
+            let track_ptr = match track {
+                Some(t) => t.ffi().as_ptr(),
+                None => std::ptr::null_mut(),
+            };
+            let result = sys::lkRtpSenderSetTrack(self.ffi.as_ptr(), track_ptr);
+            if !result {
+                return Err(RtcError {
+                    error_type: crate::RtcErrorType::Internal,
+                    message: "Failed to set track".to_string(),
+                });
+            }
+            Ok(())
+        }
     }
 
     pub fn parameters(&self) -> RtpParameters {
-        self.handle.parameters()
+        unsafe {
+            let params_ptr = sys::lkRtpSenderGetParameters(self.ffi.as_ptr());
+            sys::rtp_parameters_from_native(sys::RefCounted::from_raw(params_ptr))
+        }
     }
 
     pub fn set_parameters(&self, parameters: RtpParameters) -> Result<(), RtcError> {
-        self.handle.set_parameters(parameters)
+        unsafe {
+            let lk_params = sys::rtp_parameters_to_native(parameters);
+            let mut lk_err = sys::lkRtcError { message: std::ptr::null() };
+            if !sys::lkRtpSenderSetParameters(self.ffi.as_ptr(), lk_params.as_ptr(), &mut lk_err) {
+                //TODO handle error
+                return Err(RtcError {
+                    error_type: crate::RtcErrorType::Internal,
+                    message: "set_parameters failed".to_owned(),
+                });
+            }
+            Ok(())
+        }
     }
 }
 
