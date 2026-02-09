@@ -81,7 +81,7 @@ impl Header {
             }
             let ext_words = raw.get_u16();
 
-            let ext_len = 4 * (ext_words + 1) as usize;
+            let ext_len = 4 * (ext_words as usize + 1);
             if ext_len > raw.remaining() {
                 Err(DeserializeError::HeaderOverrun)?
             }
@@ -92,6 +92,17 @@ impl Header {
         let header = Header { marker, track_handle, sequence, frame_number, timestamp, extensions };
         Ok(header)
     }
+}
+
+macro_rules! deserialize_ext {
+    ($ext_type:ty, $raw:expr) => {{
+        if $raw.remaining() < <$ext_type>::LEN {
+            Err(DeserializeError::MalformedExt(<$ext_type>::TAG))?
+        }
+        let mut buf = [0u8; <$ext_type>::LEN];
+        $raw.copy_to_slice(&mut buf);
+        Some(<$ext_type>::deserialize(buf))
+    }};
 }
 
 impl Extensions {
@@ -106,19 +117,10 @@ impl Extensions {
             }
             match tag {
                 E2eeExt::TAG => {
-                    if raw.remaining() < E2eeExt::LEN {
-                        Err(DeserializeError::MalformedExt(tag))?
-                    }
-                    let key_index = raw.get_u8();
-                    let mut iv = [0u8; 12];
-                    raw.copy_to_slice(&mut iv);
-                    extensions.e2ee = E2eeExt { key_index, iv }.into();
+                    extensions.e2ee = deserialize_ext!(E2eeExt, raw);
                 }
                 UserTimestampExt::TAG => {
-                    if raw.remaining() < UserTimestampExt::LEN {
-                        Err(DeserializeError::MalformedExt(tag))?
-                    }
-                    extensions.user_timestamp = UserTimestampExt(raw.get_u64()).into()
+                    extensions.user_timestamp = deserialize_ext!(UserTimestampExt, raw);
                 }
                 _ => {
                     // Skip over unknown extensions (forward compatible).
@@ -131,6 +133,22 @@ impl Extensions {
             }
         }
         Ok(extensions)
+    }
+}
+
+impl UserTimestampExt {
+    fn deserialize(raw: [u8; Self::LEN]) -> Self {
+        let timestamp = u64::from_be_bytes(raw);
+        Self(timestamp)
+    }
+}
+
+impl E2eeExt {
+    fn deserialize(raw: [u8; Self::LEN]) -> Self {
+        let key_index = raw[0];
+        let mut iv = [0u8; 12];
+        iv.copy_from_slice(&raw[1..13]);
+        Self { key_index, iv }
     }
 }
 

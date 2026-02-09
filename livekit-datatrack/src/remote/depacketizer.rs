@@ -80,14 +80,11 @@ impl Depacketizer {
         }
 
         let start_sequence = packet.header.sequence;
-        let payload_len = packet.payload.len();
-
         let partial = PartialFrame {
             frame_number: packet.header.frame_number,
             start_sequence,
             extensions: packet.header.extensions,
             payloads: BTreeMap::from([(start_sequence, packet.payload)]),
-            payload_len,
         };
         self.partial = partial.into();
 
@@ -112,7 +109,7 @@ impl Depacketizer {
             }
             .into();
         }
-        if partial.payloads.len() == Self::MAX_BUFFER_PACKETS {
+        if partial.payloads.len() >= Self::MAX_BUFFER_PACKETS {
             return DepacketizerDropError {
                 frame_number: partial.frame_number,
                 reason: DepacketizerDropReason::BufferFull,
@@ -120,8 +117,13 @@ impl Depacketizer {
             .into();
         }
 
-        partial.payload_len += packet.payload.len();
-        partial.payloads.insert(packet.header.sequence, packet.payload);
+        if partial.payloads.insert(packet.header.sequence, packet.payload).is_some() {
+            log::warn!(
+                "Duplicate packet for sequence {} on frame {}, using latest",
+                packet.header.sequence,
+                partial.frame_number
+            );
+        }
 
         if packet.header.marker == FrameMarker::Final {
             return Self::finalize(partial, packet.header.sequence);
@@ -134,14 +136,17 @@ impl Depacketizer {
     /// Try to reassemble the complete frame.
     fn finalize(mut partial: PartialFrame, end_sequence: u16) -> DepacketizerPushResult {
         let received = partial.payloads.len() as u16;
+
+        let payload_len: usize = partial.payloads.iter().map(|(_, payload)| payload.len()).sum();
+        let mut payload = BytesMut::with_capacity(payload_len);
+
         let mut sequence = partial.start_sequence;
-        let mut payload = BytesMut::with_capacity(partial.payload_len);
 
         while let Some(partial_payload) = partial.payloads.remove(&sequence) {
             debug_assert!(payload.len() + partial_payload.len() <= payload.capacity());
             payload.extend(partial_payload);
 
-            if sequence < end_sequence {
+            if sequence != end_sequence {
                 sequence = sequence.wrapping_add(1);
                 continue;
             }
@@ -170,8 +175,6 @@ struct PartialFrame {
     extensions: Extensions,
     /// Mapping between sequence number and packet payload.
     payloads: BTreeMap<u16, Bytes>,
-    /// Sum of payload lengths.
-    payload_len: usize,
 }
 
 /// Result from a call to [`Depacketizer::push`].
@@ -274,14 +277,14 @@ mod tests {
 
         for _ in 0..inter_packets {
             packet.header.marker = FrameMarker::Inter;
-            packet.header.sequence += 1;
+            packet.header.sequence = packet.header.sequence.wrapping_add(1);
 
             let result = depacketizer.push(packet.clone());
             assert!(result.frame.is_none() && result.drop_error.is_none());
         }
 
         packet.header.marker = FrameMarker::Final;
-        packet.header.sequence += 1;
+        packet.header.sequence = packet.header.sequence.wrapping_add(1);
 
         let result = depacketizer.push(packet.clone());
 
@@ -303,7 +306,7 @@ mod tests {
         assert!(result.frame.is_none() && result.drop_error.is_none());
 
         let first_frame_number = packet.header.frame_number;
-        packet.header.frame_number += 1; // Next frame
+        packet.header.frame_number += packet.header.frame_number.wrapping_add(1); // Next frame
 
         let result = depacketizer.push(packet);
         assert!(result.frame.is_none());
