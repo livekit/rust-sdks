@@ -27,16 +27,10 @@ use super::{
     ParticipantTrackPermission,
 };
 use crate::{
-    data_stream::{
+    ChatMessage, DataPacket, RoomSession, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription, data_stream::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
         TextStreamInfo, TextStreamWriter,
-    },
-    e2ee::EncryptionType,
-    options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
-    prelude::*,
-    room::participant::rpc::{RpcError, RpcErrorCode, RpcInvocationData, MAX_PAYLOAD_BYTES},
-    rtc_engine::{EngineError, RtcEngine},
-    ChatMessage, DataPacket, RoomSession, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription,
+    }, e2ee::EncryptionType, options::{self, TrackPublishOptions, compute_video_encodings, video_layers_from_encodings}, participant::RpcHandlerRegistry, prelude::*, room::participant::rpc::{MAX_PAYLOAD_BYTES, RpcError, RpcErrorCode, RpcInvocationData}, rtc_engine::{EngineError, RtcEngine}
 };
 use chrono::Utc;
 use libwebrtc::{native::create_random_uuid, rtp_parameters::RtpEncodingParameters};
@@ -68,7 +62,7 @@ struct LocalEvents {
 struct RpcState {
     pending_acks: HashMap<String, oneshot::Sender<()>>,
     pending_responses: HashMap<String, oneshot::Sender<Result<String, RpcError>>>,
-    handlers: HashMap<String, RpcHandler>,
+    handlers: RpcHandlerRegistry
 }
 
 impl RpcState {
@@ -76,7 +70,7 @@ impl RpcState {
         Self {
             pending_acks: HashMap::new(),
             pending_responses: HashMap::new(),
-            handlers: HashMap::new(),
+            handlers: Default::default()
         }
     }
 }
@@ -872,11 +866,11 @@ impl LocalParticipant {
             + Sync
             + 'static,
     ) {
-        self.local.rpc_state.lock().handlers.insert(method, Arc::new(handler));
+        self.local.rpc_state.lock().handlers.register(method, handler);
     }
 
     pub fn unregister_rpc_method(&self, method: String) {
-        self.local.rpc_state.lock().handlers.remove(&method);
+        self.local.rpc_state.lock().handlers.unregister(&method);
     }
 
     pub(crate) fn handle_incoming_rpc_ack(&self, request_id: String) {
@@ -930,7 +924,7 @@ impl LocalParticipant {
         let response = if version != 1 {
             Err(RpcError::built_in(RpcErrorCode::UnsupportedVersion, None))
         } else {
-            let handler = self.local.rpc_state.lock().handlers.get(&method).cloned();
+            let handler = self.local.rpc_state.lock().handlers.get(&method);
 
             match handler {
                 Some(handler) => {

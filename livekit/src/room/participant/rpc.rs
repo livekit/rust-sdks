@@ -13,8 +13,12 @@
 // limitations under the License.
 
 use crate::room::participant::ParticipantIdentity;
+use core::fmt;
+use futures_util::future::BoxFuture;
 use livekit_protocol::RpcError as RpcError_Proto;
-use std::{error::Error, fmt::Display, time::Duration};
+use std::{
+    collections::HashMap, error::Error, fmt::Display, future::Future, sync::Arc, time::Duration,
+};
 
 /// Parameters for performing an RPC call
 #[derive(Debug, Clone)]
@@ -165,4 +169,51 @@ pub(crate) fn truncate_bytes(s: &str, max_bytes: usize) -> String {
         result.push(c);
     }
     result
+}
+
+type RpcHandler =
+    Arc<dyn Fn(RpcInvocationData) -> BoxFuture<'static, Result<String, RpcError>> + Send + Sync>;
+
+#[derive(Default, Clone)]
+pub struct RpcHandlerRegistry {
+    inner: HashMap<String, RpcHandler>,
+}
+
+impl RpcHandlerRegistry {
+    pub fn register<H, Fut>(&mut self, method: impl Into<String>, handler: H)
+    where
+        H: for<'a> Fn(RpcInvocationData) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<String, RpcError>> + Send + 'static,
+    {
+        self.inner.insert(
+            method.into(),
+            Arc::new(move |invocation| Box::pin(handler(invocation)) as BoxFuture<_>),
+        );
+    }
+
+    pub fn unregister(&mut self, method: impl Into<String>) {
+        self.inner.remove(&method.into());
+    }
+
+    pub(crate) fn get(&self, method: &str) -> Option<RpcHandler> {
+        self.inner.get(method).cloned().into()
+    }
+}
+
+impl fmt::Debug for RpcHandlerRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut dbg = f.debug_struct("RpcHandlerRegistry");
+        dbg.field("methods", &self.inner.keys().collect::<Vec<_>>());
+        dbg.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_register() {
+        RpcHandlerRegistry::default().register("my_method", async |_invocation| Ok("ok".into()));
+    }
 }
