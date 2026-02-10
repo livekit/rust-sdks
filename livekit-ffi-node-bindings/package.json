@@ -1,33 +1,23 @@
 {
   "name": "@livekit/rtc-ffi-bindings",
-  "description": "LiveKit RTC Node",
+  "description": "LiveKit RTC Node FFI bindings for internal use only",
   "license": "Apache-2.0",
   "author": "LiveKit",
-  "version": "0.12.46",
-  "main": "dist/index.js",
-  "require": "dist/index.cjs",
-  "types": "dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "require": {
-        "types": "./dist/index.d.cts",
-        "default": "./dist/index.cjs"
-      }
-    }
-  },
-  "type": "module",
+  "version": "0.12.41",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "type": "commonjs",
   "repository": {
     "type": "git",
     "url": "https://github.com/livekit/node-sdks.git",
     "directory": "packages/livekit-rtc"
   },
   "files": [
-    "dist",
-    "src"
+    "index.js",
+    "index.d.ts",
+    "native.js",
+    "native.d.ts",
+    "proto"
   ],
   "napi": {
     "name": "rtc-node",
@@ -50,27 +40,24 @@
     "@napi-rs/cli": "^3.5.1",
     "@types/node": "^22.13.10",
     "prettier": "^3.0.3",
-    "tsup": "^8.5.1",
     "typescript": "5.8.2"
   },
   "optionalDependencies": {
-    "@livekit/rtc-node-darwin-arm64": "workspace:*",
-    "@livekit/rtc-node-darwin-x64": "workspace:*",
-    "@livekit/rtc-node-linux-arm64-gnu": "workspace:*",
-    "@livekit/rtc-node-linux-x64-gnu": "workspace:*",
-    "@livekit/rtc-node-win32-x64-msvc": "workspace:*"
+    "@livekit/rtc-ffi-bindings-darwin-arm64": "0.12.41",
+    "@livekit/rtc-ffi-bindings-darwin-x64": "0.12.41",
+    "@livekit/rtc-ffi-bindings-linux-arm64-gnu": "0.12.41",
+    "@livekit/rtc-ffi-bindings-linux-x64-gnu": "0.12.41",
+    "@livekit/rtc-ffi-bindings-win32-x64-msvc": "0.12.41"
   },
   "engines": {
     "node": ">= 18"
   },
   "scripts": {
-    "build:ts": "tsup --onSuccess \"tsc --declaration --emitDeclarationOnly\"",
-    "build": "pnpm run build:ts && napi build --platform --release --dts native.d.ts --js native.cjs --pipe \"prettier -w\" -o src/napi",
-    "build:local": "pnpm build && cp -r src/napi dist/",
-    "artifacts": "napi artifacts",
+    "gen:proto": "pnpm exec ./generate_proto.sh",
+    "build": "napi build --platform --release --dts native.d.ts --js native.js",
     "build:debug": "napi build --platform",
-    "universal": "napi universal",
-    "version": "napi version"
+    "version": "napi version",
+    "prepublishOnly": "napi prepublish -t npm"
   },
   "packageManager": "pnpm@9.15.9+sha512.68046141893c66fad01c079231128e9afb89ef87e2691d69e4d40eee228988295fd4682181bae55b58418c3a253bde65a505ec7c5f9403ece5cc3cd37dcf2531"
 }

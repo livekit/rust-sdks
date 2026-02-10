@@ -24,8 +24,7 @@ PATH=$PATH:$(pwd)/node_modules/.bin \
   protoc \
     -I=$FFI_PROTOCOL \
     --es_out $FFI_OUT_NODE \
-    --es_opt target=ts \
-    --es_opt import_extension=.js \
+    --es_opt js_import_style=legacy_commonjs \
     $FFI_PROTOCOL/audio_frame.proto \
     $FFI_PROTOCOL/ffi.proto \
     $FFI_PROTOCOL/handle.proto \
