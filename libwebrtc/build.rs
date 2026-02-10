@@ -40,10 +40,13 @@ fn main() {
     } else {
         match target_os.as_str() {
             "macos" => {
-                configure_darwin_satic_link_flags();
+                configure_darwin_static_link_flags();
             }
             "ios" => {
-                configure_darwin_satic_link_flags();
+                configure_darwin_static_link_flags();
+            }
+            "linux" => {
+                configure_linux_static_link_flags();
             }
             //TODO(duan): add other OS specific flags here
             _ => {}
@@ -52,7 +55,7 @@ fn main() {
     }
 }
 
-fn configure_darwin_satic_link_flags() {
+fn configure_darwin_static_link_flags() {
     let target_os = webrtc_sys_build::target_os();
 
     println!("cargo:rustc-link-arg=-ObjC");
@@ -127,4 +130,13 @@ fn configure_darwin_satic_link_flags() {
         }
     }
     println!("cargo:rustc-link-arg=--sysroot={}", sysroot);
+}
+
+fn configure_linux_static_link_flags() {
+    println!("cargo:rustc-link-arg=-std=c++20");
+    println!("cargo:rustc-link-lib={}", "stdc++");
+    println!("cargo:rustc-link-lib=dylib=rt");
+    println!("cargo:rustc-link-lib=dylib=dl");
+    println!("cargo:rustc-link-lib=dylib=pthread");
+    println!("cargo:rustc-link-lib=dylib=m");
 }
