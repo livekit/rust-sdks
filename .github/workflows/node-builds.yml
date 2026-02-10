@@ -237,7 +237,7 @@ jobs:
       - name: Add changes
         uses: EndBug/add-and-commit@v9
         with:
-          add: '["livekit-ffi-node-binding/native.js", "livekit-ffi-node-binding/native.d.ts"]'
+          add: '["livekit-ffi-node-bindings/native.js", "livekit-ffi-node-bindings/native.d.ts"]'
           default_author: github_actions
           message: update js bindings for release
 
