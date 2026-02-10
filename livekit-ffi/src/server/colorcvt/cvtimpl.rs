@@ -186,6 +186,95 @@ pub unsafe fn cvt_argb(
     }
 }
 
+/// Fused RGBA/ABGR/ARGB/BGRA/RGB24 → I420Buffer conversions.
+/// Write directly into I420Buffer planes, avoiding the intermediate
+/// `Box<[u8]>` allocation + copy that the generic `cvt_*` + `to_i420!` path does.
+
+pub unsafe fn cvt_rgba_to_i420_buffer(
+    buffer: proto::VideoBufferInfo,
+    flip_y: bool,
+) -> BoxVideoBuffer {
+    assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgba);
+    let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 4);
+    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, (stride * height) as usize) };
+    let chroma_w = (width + 1) / 2;
+    let mut i420 = I420Buffer::with_strides(width, height, width, chroma_w, chroma_w);
+    let (dst_y, dst_u, dst_v) = i420.data_mut();
+    colorcvt::abgr_to_i420(
+        data, stride, dst_y, width, dst_u, chroma_w, dst_v, chroma_w, width, height, flip_y,
+    );
+    Box::new(i420) as BoxVideoBuffer
+}
+
+pub unsafe fn cvt_abgr_to_i420_buffer(
+    buffer: proto::VideoBufferInfo,
+    flip_y: bool,
+) -> BoxVideoBuffer {
+    assert_eq!(buffer.r#type(), proto::VideoBufferType::Abgr);
+    let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 4);
+    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, (stride * height) as usize) };
+    let chroma_w = (width + 1) / 2;
+    let mut i420 = I420Buffer::with_strides(width, height, width, chroma_w, chroma_w);
+    let (dst_y, dst_u, dst_v) = i420.data_mut();
+    colorcvt::rgba_to_i420(
+        data, stride, dst_y, width, dst_u, chroma_w, dst_v, chroma_w, width, height, flip_y,
+    );
+    Box::new(i420) as BoxVideoBuffer
+}
+
+pub unsafe fn cvt_argb_to_i420_buffer(
+    buffer: proto::VideoBufferInfo,
+    flip_y: bool,
+) -> BoxVideoBuffer {
+    assert_eq!(buffer.r#type(), proto::VideoBufferType::Argb);
+    let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 4);
+    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, (stride * height) as usize) };
+    let chroma_w = (width + 1) / 2;
+    let mut i420 = I420Buffer::with_strides(width, height, width, chroma_w, chroma_w);
+    let (dst_y, dst_u, dst_v) = i420.data_mut();
+    colorcvt::bgra_to_i420(
+        data, stride, dst_y, width, dst_u, chroma_w, dst_v, chroma_w, width, height, flip_y,
+    );
+    Box::new(i420) as BoxVideoBuffer
+}
+
+pub unsafe fn cvt_bgra_to_i420_buffer(
+    buffer: proto::VideoBufferInfo,
+    flip_y: bool,
+) -> BoxVideoBuffer {
+    assert_eq!(buffer.r#type(), proto::VideoBufferType::Bgra);
+    let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 4);
+    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, (stride * height) as usize) };
+    let chroma_w = (width + 1) / 2;
+    let mut i420 = I420Buffer::with_strides(width, height, width, chroma_w, chroma_w);
+    let (dst_y, dst_u, dst_v) = i420.data_mut();
+    colorcvt::argb_to_i420(
+        data, stride, dst_y, width, dst_u, chroma_w, dst_v, chroma_w, width, height, flip_y,
+    );
+    Box::new(i420) as BoxVideoBuffer
+}
+
+pub unsafe fn cvt_rgb24_to_i420_buffer(
+    buffer: proto::VideoBufferInfo,
+    flip_y: bool,
+) -> BoxVideoBuffer {
+    assert_eq!(buffer.r#type(), proto::VideoBufferType::Rgb24);
+    let proto::VideoBufferInfo { stride, width, height, data_ptr, .. } = buffer;
+    let stride = stride.unwrap_or(width * 3);
+    let data = unsafe { slice::from_raw_parts(data_ptr as *const u8, (stride * height) as usize) };
+    let chroma_w = (width + 1) / 2;
+    let mut i420 = I420Buffer::with_strides(width, height, width, chroma_w, chroma_w);
+    let (dst_y, dst_u, dst_v) = i420.data_mut();
+    colorcvt::raw_to_i420(
+        data, stride, dst_y, width, dst_u, chroma_w, dst_v, chroma_w, width, height, flip_y,
+    );
+    Box::new(i420) as BoxVideoBuffer
+}
+
 pub unsafe fn cvt_bgra(
     buffer: proto::VideoBufferInfo,
     dst_type: proto::VideoBufferType,
