@@ -1821,3 +1821,6 @@ ValidateJpeg
 YUY2ToARGBRow_SME
 YUY2ToARGBRow_SVE2
 AArch64CpuCaps
+kP210LoadShuffleIndices
+kP410LoadShuffleIndices
+cpu_info_
