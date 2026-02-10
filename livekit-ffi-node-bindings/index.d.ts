@@ -25,3 +25,8 @@ export * from "./proto/e2ee_pb.js";
 export * from "./proto/stats_pb.js";
 export * from "./proto/rpc_pb.js";
 export * from "./proto/data_stream_pb.js";
+
+/** type only exports */
+import type { PartialMessage } from "@bufbuild/protobuf";
+
+export { PartialMessage };
