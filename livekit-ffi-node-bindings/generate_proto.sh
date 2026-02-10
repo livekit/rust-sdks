@@ -17,7 +17,7 @@
 # `brew install protobuf-c && npm install -g @bufbuild/protoc-gen-es@2.2.0`
 
 FFI_PROTOCOL=../livekit-ffi/protocol
-FFI_OUT_NODE=./src/proto
+FFI_OUT_NODE=./proto
 
 # ffi
 PATH=$PATH:$(pwd)/node_modules/.bin \

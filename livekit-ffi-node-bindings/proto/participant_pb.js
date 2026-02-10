@@ -123,6 +123,7 @@ const ParticipantPermission = /*@__PURE__*/ proto2.makeMessageType(
     { no: 7, name: "hidden", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
     { no: 10, name: "can_update_metadata", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
     { no: 12, name: "can_subscribe_metrics", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 13, name: "can_manage_agent_session", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
   ],
 );
 

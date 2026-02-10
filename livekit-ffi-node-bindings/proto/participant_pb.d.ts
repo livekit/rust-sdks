@@ -17,14 +17,7 @@
 /* eslint-disable */
 // @ts-nocheck
 
-import type {
-  BinaryReadOptions,
-  FieldList,
-  JsonReadOptions,
-  JsonValue,
-  PartialMessage,
-  PlainMessage,
-} from "@bufbuild/protobuf";
+import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto2 } from "@bufbuild/protobuf";
 import type { FfiOwnedHandle } from "./handle_pb.js";
 import type { TrackSource } from "./track_pb.js";
@@ -265,25 +258,13 @@ export declare class ParticipantInfo extends Message<ParticipantInfo> {
   static readonly typeName = "livekit.proto.ParticipantInfo";
   static readonly fields: FieldList;
 
-  static fromBinary(
-    bytes: Uint8Array,
-    options?: Partial<BinaryReadOptions>,
-  ): ParticipantInfo;
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ParticipantInfo;
 
-  static fromJson(
-    jsonValue: JsonValue,
-    options?: Partial<JsonReadOptions>,
-  ): ParticipantInfo;
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ParticipantInfo;
 
-  static fromJsonString(
-    jsonString: string,
-    options?: Partial<JsonReadOptions>,
-  ): ParticipantInfo;
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ParticipantInfo;
 
-  static equals(
-    a: ParticipantInfo | PlainMessage<ParticipantInfo> | undefined,
-    b: ParticipantInfo | PlainMessage<ParticipantInfo> | undefined,
-  ): boolean;
+  static equals(a: ParticipantInfo | PlainMessage<ParticipantInfo> | undefined, b: ParticipantInfo | PlainMessage<ParticipantInfo> | undefined): boolean;
 }
 
 /**
@@ -306,25 +287,13 @@ export declare class OwnedParticipant extends Message<OwnedParticipant> {
   static readonly typeName = "livekit.proto.OwnedParticipant";
   static readonly fields: FieldList;
 
-  static fromBinary(
-    bytes: Uint8Array,
-    options?: Partial<BinaryReadOptions>,
-  ): OwnedParticipant;
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): OwnedParticipant;
 
-  static fromJson(
-    jsonValue: JsonValue,
-    options?: Partial<JsonReadOptions>,
-  ): OwnedParticipant;
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): OwnedParticipant;
 
-  static fromJsonString(
-    jsonString: string,
-    options?: Partial<JsonReadOptions>,
-  ): OwnedParticipant;
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): OwnedParticipant;
 
-  static equals(
-    a: OwnedParticipant | PlainMessage<OwnedParticipant> | undefined,
-    b: OwnedParticipant | PlainMessage<OwnedParticipant> | undefined,
-  ): boolean;
+  static equals(a: OwnedParticipant | PlainMessage<OwnedParticipant> | undefined, b: OwnedParticipant | PlainMessage<OwnedParticipant> | undefined): boolean;
 }
 
 /**
@@ -389,89 +358,18 @@ export declare class ParticipantPermission extends Message<ParticipantPermission
    */
   canManageAgentSession?: boolean;
 
-  constructor(data?: PartialMessage<ParticipantPermission>) {
-    super();
-    proto2.util.initPartial(data, this);
-  }
+  constructor(data?: PartialMessage<ParticipantPermission>);
 
   static readonly runtime: typeof proto2;
   static readonly typeName = "livekit.proto.ParticipantPermission";
-  static readonly fields: FieldList = proto2.util.newFieldList(() => [
-    {
-      no: 1,
-      name: "can_subscribe",
-      kind: "scalar",
-      T: 8 /* ScalarType.BOOL */,
-      req: true,
-    },
-    {
-      no: 2,
-      name: "can_publish",
-      kind: "scalar",
-      T: 8 /* ScalarType.BOOL */,
-      req: true,
-    },
-    {
-      no: 3,
-      name: "can_publish_data",
-      kind: "scalar",
-      T: 8 /* ScalarType.BOOL */,
-      req: true,
-    },
-    {
-      no: 9,
-      name: "can_publish_sources",
-      kind: "enum",
-      T: proto2.getEnumType(TrackSource),
-      repeated: true,
-    },
-    {
-      no: 7,
-      name: "hidden",
-      kind: "scalar",
-      T: 8 /* ScalarType.BOOL */,
-      req: true,
-    },
-    {
-      no: 10,
-      name: "can_update_metadata",
-      kind: "scalar",
-      T: 8 /* ScalarType.BOOL */,
-      req: true,
-    },
-    {
-      no: 12,
-      name: "can_subscribe_metrics",
-      kind: "scalar",
-      T: 8 /* ScalarType.BOOL */,
-      req: true,
-    },
-    {
-      no: 13,
-      name: "can_manage_agent_session",
-      kind: "scalar",
-      T: 8 /* ScalarType.BOOL */,
-      req: true,
-    },
-  ]);
+  static readonly fields: FieldList;
 
-  static fromBinary(
-    bytes: Uint8Array,
-    options?: Partial<BinaryReadOptions>,
-  ): ParticipantPermission;
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ParticipantPermission;
 
-  static fromJson(
-    jsonValue: JsonValue,
-    options?: Partial<JsonReadOptions>,
-  ): ParticipantPermission;
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ParticipantPermission;
 
-  static fromJsonString(
-    jsonString: string,
-    options?: Partial<JsonReadOptions>,
-  ): ParticipantPermission;
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ParticipantPermission;
 
-  static equals(
-    a: ParticipantPermission | PlainMessage<ParticipantPermission> | undefined,
-    b: ParticipantPermission | PlainMessage<ParticipantPermission> | undefined,
-  ): boolean;
+  static equals(a: ParticipantPermission | PlainMessage<ParticipantPermission> | undefined, b: ParticipantPermission | PlainMessage<ParticipantPermission> | undefined): boolean;
 }
+
