@@ -19,10 +19,22 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-      - name: Install Hawkeye
-        run: |
-          export VERSION=v6.3.0
-          curl --proto '=https' --tlsv1.2 -LsSf \
-            https://github.com/korandoru/hawkeye/releases/download/$VERSION/hawkeye-installer.sh | sh
       - name: Check License Headers
-        run: hawkeye check
+        shell: bash
+        run: |
+          shopt -s globstar
+          docker run -v ${PWD}:/src ghcr.io/google/addlicense \
+            -check \
+            -l apache \
+            -c "LiveKit, Inc." \
+            -ignore "target/**/*" \
+            -ignore "examples/**/*" \
+            -ignore "yuv-sys/libyuv/**/*" \
+            -ignore "webrtc-sys/src/vaapi/**/*" \
+            -ignore "webrtc-sys/src/nvidia/**/*" \
+            -ignore "webrtc-sys/src/lazy_load_deps_for/**/*" \
+            -ignore "webrtc-sys/libwebrtc/**/*" \
+            -ignore "soxr-sys/src/**/*" \
+            -ignore "livekit-protocol/src/livekit.rs" \
+            -ignore "livekit-protocol/src/livekit.serde.rs" \
+             **/*.{rs,cpp,c}
