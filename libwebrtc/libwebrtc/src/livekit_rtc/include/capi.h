@@ -8,7 +8,18 @@
 #include <jni.h>
 #endif
 
+#ifdef WIN32
+#if defined(LIVEKIT_RTC_API_EXPORTS)
+#define LK_EXPORT __declspec(dllexport)
+#elif defined(LIVEKIT_RTC_API_STATIC)
+#define LK_EXPORT
+#else
+#define LK_EXPORT __declspec(dllimport)
+#endif
+#else
 #define LK_EXPORT __attribute__((visibility("default")))
+#endif
+
 
 #ifdef __cplusplus
 extern "C" {

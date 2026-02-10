@@ -70,11 +70,12 @@ call gn.bat gen %OUTPUT_DIR% --root="src" ^
   --args="is_debug=!debug! is_clang=true target_cpu=\"!arch!\" use_custom_libcxx=false rtc_libvpx_build_vp9=true enable_libaom=true rtc_include_tests=false rtc_build_examples=false rtc_build_tools=false is_component_build=false rtc_enable_protobuf=false rtc_use_h264=true ffmpeg_branding=\"Chrome\" symbol_level=0 enable_iterator_debugging=false"
 
 rem build
-ninja.exe -C %OUTPUT_DIR% livekit_rtc
+ninja.exe -C %OUTPUT_DIR% livekit_rtc livekit_rtc_static
 
 rem copy shared library for release build
 copy "%OUTPUT_DIR%\livekit_rtc.dll.lib" "%ARTIFACTS_DIR%\lib"
 copy "%OUTPUT_DIR%\livekit_rtc.dll" "%ARTIFACTS_DIR%\lib"
+copy "%OUTPUT_DIR%\obj\livekit_rtc\livekit_rtc_static.lib" "%ARTIFACTS_DIR%\lib\livekit_rtc.lib"
 
 rem generate license
 call python3 "%cd%\src\tools_webrtc\libs\generate_licenses.py" ^

@@ -88,7 +88,7 @@ AudioTrackSource::InternalSource::InternalSource(
         webrtc::MutexLock lock(&mutex_);
         constexpr int kBitsPerSample = sizeof(int16_t) * 8;
 
-        if (buffer_.size() >= samples10ms) {
+        if (buffer_.size() >= (size_t)samples10ms) {
           // Reset |missed_frames_| to 0 so that it won't keep sending silence
           // to webrtc due to audio callback timing drifts.
           missed_frames_ = 0;
@@ -106,7 +106,7 @@ AudioTrackSource::InternalSource::InternalSource(
           }
         }
 
-        if (on_complete_ && buffer_.size() <= notify_threshold_samples_) {
+        if (on_complete_ && buffer_.size() <= (size_t)notify_threshold_samples_) {
           on_complete_(capture_userdata_);
           on_complete_ = nullptr;
           capture_userdata_ = nullptr;
@@ -149,7 +149,7 @@ bool AudioTrackSource::InternalSource::capture_frame(
   if (queue_size_samples_) {
     int available =
         (queue_size_samples_ + notify_threshold_samples_) - buffer_.size();
-    if (available < data.size())
+    if ((size_t)available < data.size())
       return false;
 
     if (on_complete_ || capture_userdata_)
@@ -157,7 +157,7 @@ bool AudioTrackSource::InternalSource::capture_frame(
 
     buffer_.insert(buffer_.end(), data.begin(), data.end());
 
-    if (buffer_.size() <= notify_threshold_samples_) {
+    if (buffer_.size() <= (size_t)notify_threshold_samples_) {
       audio_queue_->PostTask([this, ctx, on_complete]() {
         webrtc::MutexLock lock(&mutex_);
         on_complete(ctx);

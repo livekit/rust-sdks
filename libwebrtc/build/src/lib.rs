@@ -90,7 +90,7 @@ pub fn copy_dylib_to_target(rtc_path: &path::PathBuf) -> Result<(), Box<dyn Erro
     if let Some(target_dir) = find_target_dir() {
         let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
         let livekit_lib = match target_os.as_str() {
-            "windows" => "liblivekit_rtc.dll",
+            "windows" => "livekit_rtc.dll",
             "macos" => "liblivekit_rtc.dylib",
             "ios" => "liblivekit_rtc.a",
             "linux" => "liblivekit_rtc.so",
@@ -365,9 +365,14 @@ fn host_os() -> Option<&'static str> {
 
 pub fn link_shared_library(rtc_path: &path::PathBuf) {
     let lib_search_path = rtc_path.join("lib");
-    //panic!("linking to livekit_rtc dylib at {}", lib_search_path.display());
     println!("cargo:rustc-link-search=native={}", lib_search_path.display());
-    println!("cargo:rustc-link-lib=dylib=livekit_rtc");
+    let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    if target_os == "windows" {
+        println!("cargo:rustc-link-lib=dylib=livekit_rtc.dll");
+        return;
+    } else {
+        println!("cargo:rustc-link-lib=dylib=livekit_rtc");
+    }
 }
 
 pub fn link_static_library(rtc_path: &path::PathBuf) {

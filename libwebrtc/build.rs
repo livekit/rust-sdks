@@ -48,11 +48,22 @@ fn main() {
             "linux" => {
                 configure_linux_static_link_flags();
             }
+            "windows" => {
+                configure_win_static_link_flags();
+            }
             //TODO(duan): add other OS specific flags here
             _ => {}
         }
         webrtc_sys_build::link_static_library(&webrtc_dir);
     }
+}
+
+fn configure_win_static_link_flags() {
+    println!("cargo:rustc-link-arg=/std:c++20");
+    println!("cargo:rustc-link-lib={}", "wmcodecdspuuid");
+    println!("cargo:rustc-link-lib={}", "dmoguids");
+    // LIVEKIT_RTC_API_STATIC is defined in static build to avoid dllimport issues
+    println!("cargo:rustc-cfg=LIVEKIT_RTC_API_STATIC");
 }
 
 fn configure_darwin_static_link_flags() {
