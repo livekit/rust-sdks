@@ -102,6 +102,8 @@ impl From<OfferOptions> for lkOfferAnswerOptions {
 #[derive(Debug, Clone)]
 #[derive(Default)]
 pub struct AnswerOptions {
+    pub ice_restart: bool,
+    pub use_rtp_mux: bool,
     pub offer_to_receive_audio: bool,
     pub offer_to_receive_video: bool,
 }
@@ -109,8 +111,8 @@ pub struct AnswerOptions {
 impl From<AnswerOptions> for lkOfferAnswerOptions {
     fn from(_options: AnswerOptions) -> Self {
         lkOfferAnswerOptions {
-            iceRestart: false,
-            useRtpMux: true,
+            iceRestart: _options.ice_restart,
+            useRtpMux: _options.use_rtp_mux,
             offerToReceiveAudio: _options.offer_to_receive_audio,
             offerToReceiveVideo: _options.offer_to_receive_video,
         }
