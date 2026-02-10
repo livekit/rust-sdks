@@ -23,7 +23,7 @@ use crate::{
 
 #[derive(Clone)]
 pub struct RtpTransceiver {
-    pub ffi: sys::RefCounted<crate::sys::lkRtpTransceiver>,
+    pub(crate) ffi: sys::RefCounted<crate::sys::lkRtpTransceiver>,
 }
 
 impl RtpTransceiver {
@@ -78,7 +78,7 @@ impl RtpTransceiver {
                 let cap = sys::lkRtpCodecCapabilityCreate();
 
                 if let Some(ch) = c.channels {
-                    sys::lkRtpCodecCapabilitySetChannels(cap, ch.try_into().unwrap());
+                    sys::lkRtpCodecCapabilitySetChannels(cap, ch);
                 }
 
                 if let Some(sdp_fmtp_line) = &c.sdp_fmtp_line {

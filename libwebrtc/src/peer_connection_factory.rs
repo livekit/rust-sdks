@@ -150,7 +150,7 @@ impl PeerConnectionFactory {
         };
         if sys_peer.is_null() {
             unsafe {
-                let _ = Rc::from_raw(observer_ptr);
+                let _ = Arc::from_raw(observer_ptr);
             }
             return Err(RtcError {
                 error_type: RtcErrorType::Internal,
