@@ -24,19 +24,10 @@ const FNC_PREFIX: &str = "rs_";
 // Architecture-specific source files compiled as separate units with special
 // compiler flags. Matches the compilation units in libyuv's CMakeLists.txt.
 
-const NEON_FILES: &[&str] = &[
-    "compare_neon.cc",
-    "rotate_neon.cc",
-    "row_neon.cc",
-    "scale_neon.cc",
-];
+const NEON_FILES: &[&str] = &["compare_neon.cc", "rotate_neon.cc", "row_neon.cc", "scale_neon.cc"];
 
-const NEON64_FILES: &[&str] = &[
-    "compare_neon64.cc",
-    "rotate_neon64.cc",
-    "row_neon64.cc",
-    "scale_neon64.cc",
-];
+const NEON64_FILES: &[&str] =
+    &["compare_neon64.cc", "rotate_neon64.cc", "row_neon64.cc", "scale_neon64.cc"];
 
 const SVE_FILES: &[&str] = &["row_sve.cc"];
 
@@ -104,11 +95,7 @@ fn clone_if_needed(_output_dir: &PathBuf, libyuv_dir: &PathBuf) -> bool {
 
 fn can_compile_sme(out_dir: &Path) -> bool {
     let test_file = out_dir.join("sme_check.c");
-    fs::write(
-        &test_file,
-        "__arm_locally_streaming void func(void) { }\n",
-    )
-    .unwrap();
+    fs::write(&test_file, "__arm_locally_streaming void func(void) { }\n").unwrap();
 
     cc::Build::new()
         .warnings(false)
@@ -120,11 +107,7 @@ fn can_compile_sme(out_dir: &Path) -> bool {
 
 fn can_compile_sve(out_dir: &Path) -> bool {
     let test_file = out_dir.join("sve_check.c");
-    fs::write(
-        &test_file,
-        "void func(void) { asm volatile(\"cnth x0\"); }\n",
-    )
-    .unwrap();
+    fs::write(&test_file, "void func(void) { asm volatile(\"cnth x0\"); }\n").unwrap();
 
     cc::Build::new()
         .warnings(false)
@@ -136,9 +119,7 @@ fn can_compile_sve(out_dir: &Path) -> bool {
 
 fn new_build(libyuv_dir: &Path) -> cc::Build {
     let mut build = cc::Build::new();
-    build
-        .warnings(false)
-        .include(libyuv_dir.join("include"));
+    build.warnings(false).include(libyuv_dir.join("include"));
     build
 }
 
