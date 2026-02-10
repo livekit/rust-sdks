@@ -58,7 +58,7 @@ impl From<ParticipantKind> for proto::ParticipantKind {
             ParticipantKind::Egress => proto::ParticipantKind::Egress,
             ParticipantKind::Agent => proto::ParticipantKind::Agent,
             ParticipantKind::Connector => proto::ParticipantKind::Connector,
-            ParticipantKind::Bridge => proto::ParticipantKind::Bridge
+            ParticipantKind::Bridge => proto::ParticipantKind::Bridge,
         }
     }
 }
@@ -72,7 +72,7 @@ impl From<ParticipantKindDetail> for proto::ParticipantKindDetail {
                 proto::ParticipantKindDetail::ConnectorWhatsapp
             }
             ParticipantKindDetail::ConnectorTwilio => proto::ParticipantKindDetail::ConnectorTwilio,
-            ParticipantKindDetail::BridgeRtsp => proto::ParticipantKindDetail::BridgeRtsp
+            ParticipantKindDetail::BridgeRtsp => proto::ParticipantKindDetail::BridgeRtsp,
         }
     }
 }
@@ -110,6 +110,7 @@ impl From<&livekit_proto::ParticipantPermission> for proto::ParticipantPermissio
             hidden: perm.hidden,
             can_update_metadata: perm.can_update_metadata,
             can_subscribe_metrics: perm.can_subscribe_metrics,
+            can_manage_agent_session: perm.can_manage_agent_session,
         }
     }
 }

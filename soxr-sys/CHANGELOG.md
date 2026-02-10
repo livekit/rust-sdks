@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.2](https://github.com/livekit/rust-sdks/compare/rust-sdks/soxr-sys@0.1.1...rust-sdks/soxr-sys@0.1.2) - 2026-02-09
+
+### Other
+
+- Use workspace dependencies & settings ([#856](https://github.com/livekit/rust-sdks/pull/856))
+
 ## [0.1.1](https://github.com/livekit/rust-sdks/compare/rust-sdks/soxr-sys@0.1.0...rust-sdks/soxr-sys@0.1.1) - 2025-10-22
 
 ### Other

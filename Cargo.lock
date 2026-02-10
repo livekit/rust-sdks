@@ -2963,7 +2963,7 @@ dependencies = [
 
 [[package]]
 name = "imgproc"
-version = "0.3.15"
+version = "0.3.17"
 dependencies = [
  "yuv-sys",
 ]
@@ -3287,7 +3287,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.24"
+version = "0.3.25"
 dependencies = [
  "cxx",
  "env_logger 0.11.8",
@@ -3356,7 +3356,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.7.29"
+version = "0.7.30"
 dependencies = [
  "anyhow",
  "bmrng",
@@ -3382,7 +3382,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.4.12"
+version = "0.4.13"
 dependencies = [
  "async-tungstenite",
  "base64 0.21.7",
@@ -3412,7 +3412,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.44"
+version = "0.12.46"
 dependencies = [
  "bytes",
  "console-subscriber",
@@ -3441,7 +3441,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "futures-util",
  "livekit-runtime",
@@ -3661,10 +3661,12 @@ name = "mobile"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "futures",
  "jni",
  "lazy_static",
  "livekit",
  "log",
+ "parking_lot",
  "tokio",
  "webrtc-sys-build",
 ]
@@ -5817,7 +5819,7 @@ dependencies = [
 
 [[package]]
 name = "soxr-sys"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cc",
  "hound",
@@ -7102,7 +7104,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.21"
+version = "0.3.22"
 dependencies = [
  "cc",
  "cxx",
@@ -7116,7 +7118,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys-build"
-version = "0.3.12"
+version = "0.3.13"
 dependencies = [
  "anyhow",
  "fs2",
@@ -8120,7 +8122,7 @@ dependencies = [
 
 [[package]]
 name = "yuv-sys"
-version = "0.3.10"
+version = "0.3.12"
 dependencies = [
  "bindgen 0.72.1",
  "cc",
