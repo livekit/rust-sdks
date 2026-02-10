@@ -873,12 +873,11 @@ impl LocalParticipant {
             + 'static,
     ) {
         self.local.rpc_state.lock().handlers.insert(method, Arc::new(handler));
-        
-        // Pre-connect the publisher PC so ACKs can be sent immediately when requests arrive.                                                                                                                                              
-        // Without this, the first RPC request would trigger publisher negotiation, causing                                                                                                                                                
-        // a ~300-500ms delay before the ACK can be sent (ICE negotiation time).                                                                                                                                                           
-        self.inner.rtc_engine.publisher_negotiation_needed(); 
 
+        // Pre-connect the publisher PC so ACKs can be sent immediately when requests arrive.
+        // Without this, the first RPC request would trigger publisher negotiation, causing
+        // a ~300-500ms delay before the ACK can be sent (ICE negotiation time).
+        self.inner.rtc_engine.publisher_negotiation_needed();
     }
 
     pub fn unregister_rpc_method(&self, method: String) {
