@@ -1,6 +1,6 @@
 {
   "name": "@livekit/rtc-ffi-bindings-linux-x64-gnu",
-  "version": "0.12.46-dev.1",
+  "version": "0.12.46-dev.2",
   "cpu": [
     "x64"
   ],
