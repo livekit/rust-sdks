@@ -120,7 +120,7 @@ cp "$OUTPUT_DIR/liblivekit_rtc.dylib" "$ARTIFACTS_DIR/lib"
 
 # make liblivekit_rtc.a
 # don't include nasm
-ar -rc "$OUTPUT_DIR/liblivekit_rtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
+ar -rc "$ARTIFACTS_DIR/lib/liblivekit_rtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
 mkdir -p "$ARTIFACTS_DIR/include"
 cp "src/livekit_rtc/include/capi.h" "$ARTIFACTS_DIR/include/livekit_rtc.h"
