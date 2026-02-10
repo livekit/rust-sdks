@@ -50,7 +50,7 @@ jobs:
           VERSION=$(echo "${{ env.TAG_NAME }}" | sed 's/.*@//')
           echo "Setting package version to $VERSION"
           npm version $VERSION --no-git-tag-version
-          pnpm run version
+          pnpm run ci:version
 
       - name: Build JS bindings with updated version
         working-directory: livekit-ffi-node-bindings
@@ -224,7 +224,7 @@ jobs:
           path: livekit-ffi-node-bindings/artifacts
 
       - name: Move artifacts
-        run: pnpm artifacts
+        run: pnpm run ci:artifacts
         working-directory: livekit-ffi-node-bindings
 
       - name: List packages
@@ -233,4 +233,4 @@ jobs:
 
       - name: Publish
         working-directory: livekit-ffi-node-bindings
-        run: pnpm publish --tag dev
+        run: pnpm publish --tag dev -r
