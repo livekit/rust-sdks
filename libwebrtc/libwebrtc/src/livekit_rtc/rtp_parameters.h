@@ -319,6 +319,21 @@ class RtpEncodingParameters : public webrtc::RefCountInterface {
     rtc_parameters.min_bitrate_bps = bitrate;
   }
 
+  void set_bitrate_priority(double priority) {
+    rtc_parameters.bitrate_priority = priority;
+  }
+
+  double bitrate_priority() const { return rtc_parameters.bitrate_priority; }
+
+  void set_network_priority(lkNetworkPriority priority) {
+    rtc_parameters.network_priority =
+        static_cast<webrtc::Priority>(priority);
+  }
+
+  lkNetworkPriority network_priority() const {
+    return static_cast<lkNetworkPriority>(rtc_parameters.network_priority);
+  }
+
   bool has_max_framerate() const {
     return rtc_parameters.max_framerate.has_value();
   }

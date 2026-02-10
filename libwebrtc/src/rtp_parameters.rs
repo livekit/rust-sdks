@@ -31,6 +31,17 @@ pub enum Priority {
     High,
 }
 
+impl From<Priority> for sys::lkNetworkPriority {
+    fn from(t: Priority) -> Self {
+        match t {
+            Priority::VeryLow => Self::NETWORK_PRIORITY_VERY_LOW,
+            Priority::Low => Self::NETWORK_PRIORITY_LOW,
+            Priority::Medium => Self::NETWORK_PRIORITY_MEDIUM,
+            Priority::High => Self::NETWORK_PRIORITY_HIGH,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RtpHeaderExtensionParameters {
     pub uri: String,
@@ -59,12 +70,17 @@ pub struct RtcpParameters {
     pub reduced_size: bool,
 }
 
+const K_DEFAULT_BITRATE_PRIORITY: f64 = 1.0;
+
 #[derive(Debug, Clone)]
 pub struct RtpEncodingParameters {
     pub active: bool,
     pub max_bitrate: Option<u64>,
     pub min_bitrate: Option<u64>,
     pub max_framerate: Option<f64>,
+    // default is K_DEFAULT_BITRATE_PRIORITY
+    pub bitrate_priority: f64,
+    pub network_priority: Priority,
     pub rid: String,
     pub scale_resolution_down_by: Option<f64>,
     pub scalability_mode: Option<String>,
@@ -78,8 +94,8 @@ pub enum RtcpFeedbackMessageType {
 }
 
 impl From<RtcpFeedbackMessageType> for sys::lkRtcpFeedbackMessageType {
-    fn from(state: RtcpFeedbackMessageType) -> Self {
-        match state {
+    fn from(t: RtcpFeedbackMessageType) -> Self {
+        match t {
             RtcpFeedbackMessageType::GenericNack => Self::RTCP_FEEDBACK_MESSAGE_TYPE_GENERIC_NACK,
             RtcpFeedbackMessageType::Pli => Self::RTCP_FEEDBACK_MESSAGE_TYPE_PLI,
             RtcpFeedbackMessageType::Fir => Self::RTCP_FEEDBACK_MESSAGE_TYPE_FIR,
@@ -88,8 +104,8 @@ impl From<RtcpFeedbackMessageType> for sys::lkRtcpFeedbackMessageType {
 }
 
 impl From<sys::lkRtcpFeedbackMessageType> for RtcpFeedbackMessageType {
-    fn from(state: sys::lkRtcpFeedbackMessageType) -> Self {
-        match state {
+    fn from(t: sys::lkRtcpFeedbackMessageType) -> Self {
+        match t {
             sys::lkRtcpFeedbackMessageType::RTCP_FEEDBACK_MESSAGE_TYPE_GENERIC_NACK => {
                 Self::GenericNack
             }
@@ -168,6 +184,8 @@ impl Default for RtpEncodingParameters {
             min_bitrate: None,
             max_bitrate: None,
             max_framerate: None,
+            bitrate_priority: K_DEFAULT_BITRATE_PRIORITY,
+            network_priority: Priority::Low,
             rid: String::default(),
             scale_resolution_down_by: None,
             scalability_mode: None,

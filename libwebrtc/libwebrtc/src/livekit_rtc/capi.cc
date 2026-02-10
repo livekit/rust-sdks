@@ -1387,6 +1387,20 @@ void lkRtpEncodingParametersSetMinBitrateBps(lkRtpEncodingParameters* encoding,
       ->set_min_bitrate_bps(minBitrateBps);
 }
 
+void lkRtpEncodingParametersSetBitratePriority(
+    lkRtpEncodingParameters* encoding,
+    double bitratePriority) {
+  reinterpret_cast<livekit_ffi::RtpEncodingParameters*>(encoding)
+      ->set_bitrate_priority(bitratePriority);
+}
+
+void lkRtpEncodingParametersSetNetworkPriority(
+    lkRtpEncodingParameters* encoding,
+    lkNetworkPriority networkPriority) {
+  reinterpret_cast<livekit_ffi::RtpEncodingParameters*>(encoding)
+      ->set_network_priority(networkPriority);
+}
+
 void lkRtpEncodingParametersSetMaxFramerate(lkRtpEncodingParameters* encoding,
                                             double maxFramerate) {
   reinterpret_cast<livekit_ffi::RtpEncodingParameters*>(encoding)

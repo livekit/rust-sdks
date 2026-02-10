@@ -343,6 +343,13 @@ typedef enum {
   SOURCE_TYPE_GENERIC,
 } lkSourceType;
 
+typedef enum {
+    NETWORK_PRIORITY_VERY_LOW,
+    NETWORK_PRIORITY_LOW,
+    NETWORK_PRIORITY_MEDIUM,
+    NETWORK_PRIORITY_HIGH,
+} lkNetworkPriority;
+
 typedef struct {
   bool allow_sck_system_picker;
   lkSourceType source_type;
@@ -1020,6 +1027,14 @@ LK_EXPORT void lkRtpEncodingParametersSetMaxBitrateBps(
 LK_EXPORT void lkRtpEncodingParametersSetMinBitrateBps(
     lkRtpEncodingParameters* encoding,
     int64_t minBitrateBps);
+
+LK_EXPORT void lkRtpEncodingParametersSetBitratePriority(
+    lkRtpEncodingParameters* encoding,
+    double bitratePriority);
+
+LK_EXPORT void lkRtpEncodingParametersSetNetworkPriority(
+    lkRtpEncodingParameters* encoding,
+    lkNetworkPriority networkPriority);
 
 LK_EXPORT void lkRtpEncodingParametersSetMaxFramerate(
     lkRtpEncodingParameters* encoding,

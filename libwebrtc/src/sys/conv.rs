@@ -262,6 +262,9 @@ pub fn rtp_transceiver_init_to_native(
                     min_bitrate as i64,
                 );
             }
+            sys::lkRtpEncodingParametersSetBitratePriority(c_encoding.as_ptr(), encoding.bitrate_priority);
+            sys::lkRtpEncodingParametersSetNetworkPriority(c_encoding.as_ptr(), encoding.network_priority.into());
+            
             if let Some(max_framerate) = encoding.max_framerate {
                 sys::lkRtpEncodingParametersSetMaxFramerate(c_encoding.as_ptr(), max_framerate);
             }

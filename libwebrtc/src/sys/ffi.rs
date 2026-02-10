@@ -587,6 +587,14 @@ pub enum lkSourceType {
     SOURCE_TYPE_WINDOW = 1,
     SOURCE_TYPE_GENERIC = 2,
 }
+#[repr(u32)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum lkNetworkPriority {
+    NETWORK_PRIORITY_VERY_LOW = 0,
+    NETWORK_PRIORITY_LOW = 1,
+    NETWORK_PRIORITY_MEDIUM = 2,
+    NETWORK_PRIORITY_HIGH = 3,
+}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 pub struct lkDesktopCapturerOptions {
@@ -1604,6 +1612,18 @@ unsafe extern "C" {
     pub fn lkRtpEncodingParametersSetMinBitrateBps(
         encoding: *mut lkRtpEncodingParameters,
         minBitrateBps: i64,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpEncodingParametersSetBitratePriority(
+        encoding: *mut lkRtpEncodingParameters,
+        bitratePriority: f64,
+    );
+}
+unsafe extern "C" {
+    pub fn lkRtpEncodingParametersSetNetworkPriority(
+        encoding: *mut lkRtpEncodingParameters,
+        networkPriority: lkNetworkPriority,
     );
 }
 unsafe extern "C" {
