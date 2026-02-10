@@ -16,29 +16,39 @@ use cc;
 use rayon::prelude::*;
 use regex::Regex;
 use std::borrow::Cow;
-use std::path::Path;
-use std::{env, path::PathBuf};
-use std::{fs, io};
+use std::path::{Path, PathBuf};
+use std::{env, fs, io};
 
-//const LIBYUV_REPO: &str = "https://chromium.googlesource.com/libyuv/libyuv";
-//const LIBYUV_COMMIT: &str = "af6ac82";
 const FNC_PREFIX: &str = "rs_";
 
-/*fn run_git_cmd(current_dir: &PathBuf, args: &[&str]) -> ExitStatus {
-    Command::new("git")
-        .current_dir(current_dir)
-        .args(args)
-        .status()
-        .unwrap()
-}*/
+// Architecture-specific source files compiled as separate units with special
+// compiler flags. Matches the compilation units in libyuv's CMakeLists.txt.
 
+const NEON_FILES: &[&str] = &[
+    "compare_neon.cc",
+    "rotate_neon.cc",
+    "row_neon.cc",
+    "scale_neon.cc",
+];
+
+const NEON64_FILES: &[&str] = &[
+    "compare_neon64.cc",
+    "rotate_neon64.cc",
+    "row_neon64.cc",
+    "scale_neon64.cc",
+];
+
+const SVE_FILES: &[&str] = &["row_sve.cc"];
+
+const SME_FILES: &[&str] = &["rotate_sme.cc", "row_sme.cc", "scale_sme.cc"];
+
+/// Prefix public API symbols with FNC_PREFIX to avoid conflicts with other
+/// statically linked libyuv instances (e.g. libwebrtc).
 fn rename_symbols(
     fnc_list: &[&str],
     include_files: &[fs::DirEntry],
     source_files: &[fs::DirEntry],
 ) {
-    // Find all occurences of the function in every header and source files
-    // and prefix it with FNC_PREFIX
     include_files.par_iter().chain(source_files).for_each(|file| {
         let mut content = fs::read_to_string(&file.path()).unwrap();
         for line in fnc_list {
@@ -47,7 +57,6 @@ fn rename_symbols(
                 continue;
             }
 
-            // Split line using space as delimiter (If there is two words, the second word is the new name instead of using prefix)
             let split: Vec<&str> = fnc.split_whitespace().collect();
             let fnc = split[0];
 
@@ -82,20 +91,8 @@ fn copy_dir(source: impl AsRef<Path>, destination: impl AsRef<Path>) -> io::Resu
 
 fn clone_if_needed(_output_dir: &PathBuf, libyuv_dir: &PathBuf) -> bool {
     if libyuv_dir.exists() {
-        return false; // Already cloned
+        return false;
     }
-
-    /*let status = run_git_cmd(output_dir, &["clone", LIBYUV_REPO]);
-    if !status.success() {
-        fs::remove_dir_all(&libyuv_dir).unwrap();
-        panic!("failed to clone libyuv, is git installed?");
-    }
-
-    let status = run_git_cmd(&libyuv_dir, &["checkout", LIBYUV_COMMIT]);
-    if !status.success() {
-        fs::remove_dir_all(&libyuv_dir).unwrap();
-        panic!("failed to checkout to {}", LIBYUV_COMMIT);
-    }*/
 
     if let Err(err) = copy_dir("libyuv", libyuv_dir) {
         fs::remove_dir_all(&libyuv_dir).unwrap();
@@ -105,11 +102,56 @@ fn clone_if_needed(_output_dir: &PathBuf, libyuv_dir: &PathBuf) -> bool {
     true
 }
 
+fn can_compile_sme(out_dir: &Path) -> bool {
+    let test_file = out_dir.join("sme_check.c");
+    fs::write(
+        &test_file,
+        "__arm_locally_streaming void func(void) { }\n",
+    )
+    .unwrap();
+
+    cc::Build::new()
+        .warnings(false)
+        .flag("-march=armv9-a+i8mm+sme")
+        .file(&test_file)
+        .try_compile("sme_check")
+        .is_ok()
+}
+
+fn can_compile_sve(out_dir: &Path) -> bool {
+    let test_file = out_dir.join("sve_check.c");
+    fs::write(
+        &test_file,
+        "void func(void) { asm volatile(\"cnth x0\"); }\n",
+    )
+    .unwrap();
+
+    cc::Build::new()
+        .warnings(false)
+        .flag("-march=armv8.5-a+i8mm+sve2")
+        .file(&test_file)
+        .try_compile("sve_check")
+        .is_ok()
+}
+
+fn new_build(libyuv_dir: &Path) -> cc::Build {
+    let mut build = cc::Build::new();
+    build
+        .warnings(false)
+        .include(libyuv_dir.join("include"));
+    build
+}
+
 fn main() {
     let output_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let libyuv_dir = output_dir.join("libyuv");
     let include_dir = libyuv_dir.join("include");
     let source_dir = libyuv_dir.join("source");
+
+    let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    let is_msvc = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default() == "msvc";
+    let is_aarch64 = target_arch == "aarch64";
+    let is_arm32 = target_arch == "arm";
 
     let cloned = clone_if_needed(&output_dir, &libyuv_dir);
 
@@ -119,7 +161,7 @@ fn main() {
         .filter(|f| f.path().extension().unwrap() == "h")
         .collect::<Vec<_>>();
 
-    let source_files = fs::read_dir(source_dir)
+    let all_source_files = fs::read_dir(&source_dir)
         .unwrap()
         .map(Result::unwrap)
         .filter(|f| f.path().extension().unwrap() == "cc")
@@ -129,20 +171,43 @@ fn main() {
     let fnc_list = fnc_content.lines().collect::<Vec<_>>();
 
     if cloned {
-        // Rename symbols to avoid conflicts with other libraries
-        // that have libyuv statically linked (e.g libwebrtc).
-        rename_symbols(&fnc_list, &include_files, &source_files);
+        rename_symbols(&fnc_list, &include_files, &all_source_files);
     }
 
-    let mut build = cc::Build::new();
-    build
-        .warnings(false)
-        .include(libyuv_dir.join("include"))
-        .files(source_files.iter().map(|f| f.path()));
+    // Check compiler support before compiling, since we need to define
+    // LIBYUV_DISABLE_SVE/SME globally if unsupported.
+    let sve_supported = is_aarch64 && !is_msvc && can_compile_sve(&output_dir);
+    let sme_supported = is_aarch64 && !is_msvc && can_compile_sme(&output_dir);
+
+    let all_arch_files: Vec<&str> = [NEON_FILES, NEON64_FILES, SVE_FILES, SME_FILES].concat();
+
+    let common_files: Vec<PathBuf> = all_source_files
+        .iter()
+        .filter(|f| {
+            let name = f.file_name().to_string_lossy().to_string();
+            !all_arch_files.contains(&name.as_str())
+        })
+        .map(|f| f.path())
+        .collect();
+
+    let mut common_build = new_build(&libyuv_dir);
+    common_build.files(&common_files);
+
+    if is_arm32 && !is_msvc {
+        common_build.define("LIBYUV_NEON", "1");
+    }
+
+    if is_aarch64 && !is_msvc {
+        if !sme_supported {
+            common_build.define("LIBYUV_DISABLE_SME", None);
+        }
+        if !sve_supported {
+            common_build.define("LIBYUV_DISABLE_SVE", None);
+        }
+    }
 
     #[cfg(feature = "jpeg")]
     {
-        // Try to detect system libjpeg (or libjpeg-turbo) via pkg-config to enable MJPEG fast path
         let jpeg_pkg = pkg_config::Config::new()
             .probe("libjpeg")
             .or_else(|_| pkg_config::Config::new().probe("libjpeg-turbo"))
@@ -150,14 +215,43 @@ fn main() {
             .ok();
 
         if let Some(pkg) = &jpeg_pkg {
-            build.define("HAVE_JPEG", None);
+            common_build.define("HAVE_JPEG", None);
             for p in &pkg.include_paths {
-                build.include(p);
+                common_build.include(p);
             }
         }
     }
 
-    build.compile("yuv");
+    common_build.compile("yuv");
+
+    if !is_msvc {
+        if is_arm32 {
+            new_build(&libyuv_dir)
+                .define("LIBYUV_NEON", "1")
+                .flag("-mfpu=neon")
+                .files(NEON_FILES.iter().map(|f| source_dir.join(f)))
+                .compile("yuv_neon");
+        } else if is_aarch64 {
+            new_build(&libyuv_dir)
+                .flag("-march=armv8.2-a+dotprod+i8mm")
+                .files(NEON64_FILES.iter().map(|f| source_dir.join(f)))
+                .compile("yuv_neon64");
+
+            if sve_supported {
+                new_build(&libyuv_dir)
+                    .flag("-march=armv8.5-a+i8mm+sve2")
+                    .files(SVE_FILES.iter().map(|f| source_dir.join(f)))
+                    .compile("yuv_sve");
+            }
+
+            if sme_supported {
+                new_build(&libyuv_dir)
+                    .flag("-march=armv9-a+i8mm+sme")
+                    .files(SME_FILES.iter().map(|f| source_dir.join(f)))
+                    .compile("yuv_sme");
+            }
+        }
+    }
 
     let mut bindgen = bindgen::Builder::default()
         .header(include_dir.join("libyuv.h").to_string_lossy())
