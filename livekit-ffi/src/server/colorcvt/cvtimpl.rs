@@ -186,10 +186,6 @@ pub unsafe fn cvt_argb(
     }
 }
 
-/// Fused RGBA/ABGR/ARGB/BGRA/RGB24 → I420Buffer conversions.
-/// Write directly into I420Buffer planes, avoiding the intermediate
-/// `Box<[u8]>` allocation + copy that the generic `cvt_*` + `to_i420!` path does.
-
 pub unsafe fn cvt_rgba_to_i420_buffer(
     buffer: proto::VideoBufferInfo,
     flip_y: bool,
