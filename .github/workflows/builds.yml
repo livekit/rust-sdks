@@ -17,16 +17,8 @@ name: Builds
 on:
   push:
     branches: ["main"]
-    paths:
-      - livekit/**
-      - livekit-api/**
-      - libwebrtc/**
   pull_request:
     branches: ["main"]
-    paths:
-      - livekit/**
-      - livekit-api/**
-      - libwebrtc/**
   workflow_dispatch:
 
 env:
