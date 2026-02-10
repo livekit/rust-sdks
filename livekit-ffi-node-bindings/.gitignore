@@ -197,4 +197,3 @@ Cargo.lock
 !.yarn/versions
 
 *.node
-/npm

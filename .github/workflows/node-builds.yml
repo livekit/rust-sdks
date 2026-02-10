@@ -22,7 +22,49 @@ env:
   APP_NAME: rtc-node
 
 jobs:
+  bump_version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: livekit-ffi-node-bindings/package.json
+
+      - name: Setup node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: livekit-ffi-node-bindings/pnpm-lock.yaml
+
+      - uses: Swatinem/rust-cache@v2.8.2
+
+      - working-directory: livekit-ffi-node-bindings
+        run: pnpm install
+
+      - name: Set package version from tag
+        working-directory: livekit-ffi-node-bindings
+        run: |
+          # Extract version from tag (e.g., rust-sdks/livekit-ffi@0.12.43 -> 0.12.43)
+          VERSION=$(echo "${{ env.TAG_NAME }}" | sed 's/.*@//')
+          echo "Setting package version to $VERSION"
+          npm version $VERSION --no-git-tag-version
+          pnpm run version
+
+      - name: Build JS bindings with updated version
+        working-directory: livekit-ffi-node-bindings
+        run: pnpm build
+
+      - name: Add changes
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: '["**/package.json", "native.js", "native.d.ts"]'
+          default_author: github_actions
+          message: bump livekit-ffi-node-binding version
+
   build:
+    needs: bump_version
     strategy:
       fail-fast: false
       matrix:
@@ -155,9 +197,9 @@ jobs:
           path: livekit-ffi-node-bindings/src/napi/${{ env.APP_NAME }}.*.node
           if-no-files-found: error
 
-  release:
+  commit_and_release:
     needs: build
-    name: Release
+    name: Commit and Release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -176,37 +218,10 @@ jobs:
       - working-directory: livekit-ffi-node-bindings
         run: pnpm install
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "25.1"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: livekit-ffi-node-bindings/artifacts
-
-      - name: Set package version from tag
-        working-directory: livekit-ffi-node-bindings
-        run: |
-          # Extract version from tag (e.g., rust-sdks/livekit-ffi@0.12.43 -> 0.12.43)
-          VERSION=$(echo "${{ env.TAG_NAME }}" | sed 's/.*@//')
-          echo "Setting package version to $VERSION"
-          npm version $VERSION --no-git-tag-version
-          pnpm run version
-
-      - name: Commit and push versioning changes
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add Cargo.toml package.json src npm
-          git commit -m "chore: update livekit-ffi-node-bindings version to $(echo "${{ env.TAG_NAME }}" | sed 's/.*@//')" || echo "No changes to commit"
-          git push origin HEAD
-
-      - name: Build TS parts
-        working-directory: livekit-ffi-node-bindings
-        run: pnpm build:ts
 
       - name: Move artifacts
         run: pnpm artifacts

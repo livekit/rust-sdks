@@ -1,0 +1,28 @@
+{
+  "name": "@livekit/rtc-ffi-bindings-linux-x64-gnu",
+  "version": "0.12.46",
+  "cpu": [
+    "x64"
+  ],
+  "main": "rtc-node.linux-x64-gnu.node",
+  "files": [
+    "rtc-node.linux-x64-gnu.node"
+  ],
+  "description": "LiveKit RTC Node FFI bindings for internal use only",
+  "author": "LiveKit",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">= 18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/livekit/node-sdks.git",
+    "directory": "packages/livekit-rtc"
+  },
+  "os": [
+    "linux"
+  ],
+  "libc": [
+    "glibc"
+  ]
+}
