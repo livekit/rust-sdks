@@ -205,6 +205,8 @@ impl From<proto::RoomOptions> for RoomOptions {
         options.join_retries = value.join_retries.unwrap_or(options.join_retries);
         options.e2ee = e2ee;
         options.encryption = encryption;
+        options.single_peer_connection =
+            value.single_peer_connection.unwrap_or(options.single_peer_connection);
         options
     }
 }
