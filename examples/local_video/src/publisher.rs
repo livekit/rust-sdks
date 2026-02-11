@@ -86,91 +86,6 @@ fn list_cameras() -> Result<()> {
     Ok(())
 }
 
-/// Check if the V4L2 M2M H.264 hardware encoder is available (Pi 4, Rockchip, etc.).
-/// Probes /dev/video* devices using v4l2-ctl (if available) or a simple device existence check.
-/// The actual V4L2 M2M probing is done by the C++ V4L2VideoEncoderFactory::IsSupported() at
-/// WebRTC encoder creation time; this is a best-effort early diagnostic for the user.
-#[cfg(target_os = "linux")]
-fn check_v4l2_hw_encoder() {
-    use std::process::Command;
-
-    info!("Probing for V4L2 M2M H.264 hardware encoder...");
-
-    // Try v4l2-ctl --list-devices to enumerate video devices
-    match Command::new("v4l2-ctl").arg("--list-devices").output() {
-        Ok(output) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            if output.status.success() {
-                info!("V4L2 devices:\n{}", stdout.trim());
-
-                // Look for bcm2835-codec (Pi 4) or similar M2M encoder indicators
-                let has_encoder = stdout.contains("bcm2835-codec")
-                    || stdout.contains("encoder")
-                    || stdout.contains("m2m");
-                if has_encoder {
-                    info!("V4L2 M2M encoder device detected in device list");
-                }
-            } else {
-                debug!("v4l2-ctl --list-devices failed: {}", stderr.trim());
-            }
-        }
-        Err(_) => {
-            debug!("v4l2-ctl not found; skipping device enumeration");
-        }
-    }
-
-    // Check the well-known Pi 4 encoder device path
-    let encoder_paths = ["/dev/video11", "/dev/video10"];
-    for path in &encoder_paths {
-        if std::path::Path::new(path).exists() {
-            // Try to query its capabilities
-            match Command::new("v4l2-ctl")
-                .args(["--device", path, "--all"])
-                .output()
-            {
-                Ok(output) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    if stdout.contains("H.264") || stdout.contains("H264") || stdout.contains("h264") {
-                        info!("V4L2 HW H.264 encoder confirmed at {}", path);
-                        // Print capabilities for diagnostics
-                        for line in stdout.lines() {
-                            if line.contains("Driver")
-                                || line.contains("Card")
-                                || line.contains("H264")
-                                || line.contains("H.264")
-                                || line.contains("Video Capture")
-                                || line.contains("Video Output")
-                                || line.contains("m2m")
-                            {
-                                info!("  {}", line.trim());
-                            }
-                        }
-                        return;
-                    }
-                }
-                Err(_) => {
-                    info!("V4L2 device {} exists (v4l2-ctl not available for detailed check)", path);
-                }
-            }
-        }
-    }
-
-    // The C++ V4L2VideoEncoderFactory::IsSupported() will do the definitive check
-    // at encoder creation time by probing all /dev/video* with proper ioctls.
-    warn!(
-        "Could not confirm V4L2 M2M H.264 hardware encoder via v4l2-ctl. \
-         The WebRTC encoder factory will probe at runtime. \
-         If encoding fails, ensure your user is in the 'video' group: \
-         sudo usermod -aG video $USER"
-    );
-}
-
-#[cfg(not(target_os = "linux"))]
-fn check_v4l2_hw_encoder() {
-    debug!("V4L2 hardware encoder check skipped (not Linux)");
-}
-
 /// Try to open a camera with the given format, returning the Camera and the format name on success.
 fn try_open_camera(
     index: &CameraIndex,
@@ -287,9 +202,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if args.list_cameras {
         return list_cameras();
     }
-
-    // Probe for V4L2 M2M hardware encoder (Pi 4, Rockchip, etc.)
-    check_v4l2_hw_encoder();
 
     // LiveKit connection details
     let url = args
