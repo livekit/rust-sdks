@@ -29,8 +29,18 @@
 
 namespace webrtc {
 
+// WebRTC VideoEncoder implementation backed by a V4L2 M2M H.264 hardware
+// encoder (e.g. the bcm2835-codec on Raspberry Pi 4).
+//
+// This class bridges the WebRTC encoding interface with the low-level
+// V4l2H264EncoderWrapper.  It handles codec configuration, rate control
+// callbacks, bitstream parsing (for QP extraction), and delivery of
+// encoded images to the WebRTC pipeline.
+//
+// Simulcast is not supported -- only a single spatial/temporal layer.
 class V4L2H264EncoderImpl : public VideoEncoder {
  public:
+  // Per-layer encoding configuration (single layer only for V4L2).
   struct LayerConfig {
     int simulcast_idx = 0;
     int width = -1;
@@ -43,43 +53,49 @@ class V4L2H264EncoderImpl : public VideoEncoder {
     bool frame_dropping_on = false;
     int key_frame_interval = 0;
 
+    // Toggle the stream on/off.  Transitioning to |send_stream=true|
+    // automatically requests a keyframe so the receiver can resync.
     void SetStreamState(bool send_stream);
   };
 
- public:
   explicit V4L2H264EncoderImpl(const webrtc::Environment& env,
                                 const SdpVideoFormat& format);
   ~V4L2H264EncoderImpl() override;
 
+  // --- VideoEncoder interface ---
   int32_t InitEncode(const VideoCodec* codec_settings,
                      const Settings& settings) override;
-
   int32_t RegisterEncodeCompleteCallback(
       EncodedImageCallback* callback) override;
-
   int32_t Release() override;
-
   int32_t Encode(const VideoFrame& frame,
                  const std::vector<VideoFrameType>* frame_types) override;
-
-  void SetRates(const RateControlParameters& rc_parameters) override;
-
+  void SetRates(const RateControlParameters& parameters) override;
   EncoderInfo GetEncoderInfo() const override;
 
  private:
+  // One-shot histogram reporting helpers.
   void ReportInit();
   void ReportError();
 
   const webrtc::Environment& env_;
   EncodedImageCallback* encoded_image_callback_ = nullptr;
+
+  // The underlying V4L2 hardware encoder.
   std::unique_ptr<livekit_ffi::V4l2H264EncoderWrapper> encoder_;
+
   LayerConfig configuration_;
   EncodedImage encoded_image_;
   H264PacketizationMode packetization_mode_;
   VideoCodec codec_;
+
+  // Histogram dedup flags.
   bool has_reported_init_ = false;
   bool has_reported_error_ = false;
+
+  // Used to extract QP from the encoded bitstream.
   webrtc::H264BitstreamParser h264_bitstream_parser_;
+
   const SdpVideoFormat format_;
 };
 

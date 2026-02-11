@@ -16,7 +16,6 @@
 
 #include "v4l2_encoder_factory.h"
 
-#include <iostream>
 #include <memory>
 
 #include "h264_encoder_impl.h"
@@ -27,34 +26,34 @@ namespace webrtc {
 
 V4L2VideoEncoderFactory::V4L2VideoEncoderFactory() {
   // Constrained Baseline profile, level 3.1, packetization mode 1.
-  // This is the most widely compatible H.264 profile for WebRTC.
-  std::map<std::string, std::string> baselineParameters = {
+  // profile-level-id 42e01f = Constrained Baseline, level 3.1.
+  std::map<std::string, std::string> params = {
       {"profile-level-id", "42e01f"},
       {"level-asymmetry-allowed", "1"},
       {"packetization-mode", "1"},
   };
-  supported_formats_.push_back(SdpVideoFormat("H264", baselineParameters));
+  supported_formats_.push_back(SdpVideoFormat("H264", params));
 }
 
-V4L2VideoEncoderFactory::~V4L2VideoEncoderFactory() {}
+V4L2VideoEncoderFactory::~V4L2VideoEncoderFactory() = default;
 
 bool V4L2VideoEncoderFactory::IsSupported() {
-  std::string device = livekit_ffi::V4l2H264EncoderWrapper::FindEncoderDevice();
+  std::string device =
+      livekit_ffi::V4l2H264EncoderWrapper::FindEncoderDevice();
   if (device.empty()) {
-    RTC_LOG(LS_INFO) << "V4L2: No H.264 M2M encoder device found.";
+    RTC_LOG(LS_INFO) << "V4L2: No H.264 M2M encoder device found";
     return false;
   }
-  RTC_LOG(LS_INFO) << "V4L2: H.264 M2M encoder is supported at " << device;
+  RTC_LOG(LS_INFO) << "V4L2: H.264 M2M encoder available at " << device;
   return true;
 }
 
 std::unique_ptr<VideoEncoder> V4L2VideoEncoderFactory::Create(
     const Environment& env,
     const SdpVideoFormat& format) {
-  for (const auto& supported_format : supported_formats_) {
-    if (format.IsSameCodec(supported_format)) {
+  for (const auto& supported : supported_formats_) {
+    if (format.IsSameCodec(supported))
       return std::make_unique<V4L2H264EncoderImpl>(env, format);
-    }
   }
   return nullptr;
 }

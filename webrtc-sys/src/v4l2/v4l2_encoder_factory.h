@@ -25,22 +25,27 @@
 
 namespace webrtc {
 
+// VideoEncoderFactory that creates V4L2-backed H.264 hardware encoders.
+//
+// On construction the factory advertises Constrained Baseline profile
+// (the most widely compatible H.264 profile for WebRTC).  Call
+// IsSupported() to check whether the current system actually has a
+// suitable V4L2 M2M encoder device before registering this factory.
 class V4L2VideoEncoderFactory : public VideoEncoderFactory {
  public:
   V4L2VideoEncoderFactory();
   ~V4L2VideoEncoderFactory() override;
 
-  // Check if a V4L2 M2M H.264 encoder device is available on this system.
+  // Probe the system for a V4L2 M2M H.264 encoder device.
   static bool IsSupported();
 
+  // --- VideoEncoderFactory interface ---
   std::unique_ptr<VideoEncoder> Create(const Environment& env,
                                        const SdpVideoFormat& format) override;
-
   std::vector<SdpVideoFormat> GetSupportedFormats() const override;
-
   std::vector<SdpVideoFormat> GetImplementations() const override;
-
-  std::unique_ptr<EncoderSelectorInterface> GetEncoderSelector() const override {
+  std::unique_ptr<EncoderSelectorInterface> GetEncoderSelector()
+      const override {
     return nullptr;
   }
 

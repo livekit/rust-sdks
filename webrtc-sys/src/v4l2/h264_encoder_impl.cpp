@@ -28,17 +28,20 @@
 #include "modules/video_coding/utility/simulcast_utility.h"
 #include "rtc_base/checks.h"
 #include "rtc_base/logging.h"
-#include "rtc_base/time_utils.h"
 #include "system_wrappers/include/metrics.h"
 
 namespace webrtc {
 
-// Used by histograms. Values of entries should not be changed.
+// Histogram event codes -- values must not be changed (persisted metrics).
 enum V4L2H264EncoderImplEvent {
   kV4L2H264EncoderEventInit = 0,
   kV4L2H264EncoderEventError = 1,
   kV4L2H264EncoderEventMax = 16,
 };
+
+// ---------------------------------------------------------------------------
+// Construction / destruction
+// ---------------------------------------------------------------------------
 
 V4L2H264EncoderImpl::V4L2H264EncoderImpl(const webrtc::Environment& env,
                                            const SdpVideoFormat& format)
@@ -50,6 +53,10 @@ V4L2H264EncoderImpl::V4L2H264EncoderImpl(const webrtc::Environment& env,
 V4L2H264EncoderImpl::~V4L2H264EncoderImpl() {
   Release();
 }
+
+// ---------------------------------------------------------------------------
+// Histogram helpers (one-shot)
+// ---------------------------------------------------------------------------
 
 void V4L2H264EncoderImpl::ReportInit() {
   if (has_reported_init_)
@@ -69,17 +76,19 @@ void V4L2H264EncoderImpl::ReportError() {
   has_reported_error_ = true;
 }
 
+// ---------------------------------------------------------------------------
+// Initialization / release
+// ---------------------------------------------------------------------------
+
 int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* inst,
                                           const VideoEncoder::Settings& settings) {
+  // --- Validate parameters ---
+
   if (!inst || inst->codecType != kVideoCodecH264) {
     ReportError();
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
-  if (inst->maxFramerate == 0) {
-    ReportError();
-    return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
-  }
-  if (inst->width < 1 || inst->height < 1) {
+  if (inst->maxFramerate == 0 || inst->width < 1 || inst->height < 1) {
     ReportError();
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
@@ -92,46 +101,48 @@ int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* inst,
 
   codec_ = *inst;
 
-  // Code expects simulcastStream resolutions to be correct, make sure they are
-  // filled even when there are no simulcast layers.
+  // Ensure simulcastStream[0] is populated even without simulcast so
+  // that downstream code can always reference layer 0 safely.
   if (codec_.numberOfSimulcastStreams == 0) {
     codec_.simulcastStream[0].width = codec_.width;
     codec_.simulcastStream[0].height = codec_.height;
   }
 
-  // Initialize encoded image. Default buffer size: size of unencoded data.
-  const size_t new_capacity =
+  // --- Pre-allocate the encoded image buffer ---
+
+  const size_t initial_capacity =
       CalcBufferSize(VideoType::kI420, codec_.width, codec_.height);
-  encoded_image_.SetEncodedData(EncodedImageBuffer::Create(new_capacity));
+  encoded_image_.SetEncodedData(EncodedImageBuffer::Create(initial_capacity));
   encoded_image_._encodedWidth = codec_.width;
   encoded_image_._encodedHeight = codec_.height;
   encoded_image_.set_size(0);
 
+  // --- Populate layer configuration ---
+
   configuration_.sending = false;
   configuration_.frame_dropping_on = codec_.GetFrameDropEnabled();
   configuration_.key_frame_interval = codec_.H264()->keyFrameInterval;
-
   configuration_.width = codec_.width;
   configuration_.height = codec_.height;
-
   configuration_.max_frame_rate = codec_.maxFramerate;
   configuration_.target_bps = codec_.startBitrate * 1000;
   configuration_.max_bps = codec_.maxBitrate * 1000;
 
+  // --- Initialize the V4L2 hardware encoder ---
+
   if (!encoder_->IsInitialized()) {
-    // Use the keyframe interval from the codec settings if available,
-    // otherwise default to ~2 seconds. Keeping this short ensures that
-    // subscribers who join mid-stream (or after packet loss) recover
-    // quickly rather than waiting many seconds for the next IDR.
-    int keyFrameInterval = codec_.H264()->keyFrameInterval;
-    if (keyFrameInterval <= 0) {
-      keyFrameInterval = codec_.maxFramerate > 0
-                             ? codec_.maxFramerate * 2  // ~2 seconds
-                             : 60;
+    // Use the keyframe interval from codec settings if available;
+    // otherwise default to ~2 seconds so that late-joining subscribers
+    // (or those recovering from packet loss) resync quickly.
+    int kf_interval = codec_.H264()->keyFrameInterval;
+    if (kf_interval <= 0) {
+      kf_interval = codec_.maxFramerate > 0
+                        ? codec_.maxFramerate * 2  // ~2 seconds worth of frames
+                        : 60;
     }
 
     if (!encoder_->Initialize(codec_.width, codec_.height,
-                               codec_.startBitrate * 1000, keyFrameInterval,
+                               codec_.startBitrate * 1000, kf_interval,
                                codec_.maxFramerate)) {
       RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize H.264 encoder";
       ReportError();
@@ -139,11 +150,13 @@ int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* inst,
     }
   }
 
+  // Kick off rate control with the initial bitrate allocation.
   SimulcastRateAllocator init_allocator(env_, codec_);
   VideoBitrateAllocation allocation =
       init_allocator.Allocate(VideoBitrateAllocationParameters(
           DataRate::KilobitsPerSec(codec_.startBitrate), codec_.maxFramerate));
   SetRates(RateControlParameters(allocation, codec_.maxFramerate));
+
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -154,11 +167,14 @@ int32_t V4L2H264EncoderImpl::RegisterEncodeCompleteCallback(
 }
 
 int32_t V4L2H264EncoderImpl::Release() {
-  if (encoder_->IsInitialized()) {
+  if (encoder_->IsInitialized())
     encoder_->Destroy();
-  }
   return WEBRTC_VIDEO_CODEC_OK;
 }
+
+// ---------------------------------------------------------------------------
+// Frame encoding
+// ---------------------------------------------------------------------------
 
 int32_t V4L2H264EncoderImpl::Encode(
     const VideoFrame& input_frame,
@@ -168,75 +184,71 @@ int32_t V4L2H264EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
   if (!encoded_image_callback_) {
-    RTC_LOG(LS_WARNING)
-        << "InitEncode() has been called, but a callback function "
-           "has not been set with RegisterEncodeCompleteCallback()";
+    RTC_LOG(LS_WARNING) << "V4L2: Encode() called before "
+                           "RegisterEncodeCompleteCallback()";
     ReportError();
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
 
+  // Convert the incoming frame to I420 (may already be I420).
   scoped_refptr<I420BufferInterface> frame_buffer =
       input_frame.video_frame_buffer()->ToI420();
   if (!frame_buffer) {
-    RTC_LOG(LS_ERROR) << "Failed to convert "
+    RTC_LOG(LS_ERROR) << "V4L2: Failed to convert "
                       << VideoFrameBufferTypeToString(
                              input_frame.video_frame_buffer()->type())
-                      << " image to I420. Can't encode frame.";
+                      << " to I420";
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
   RTC_CHECK(frame_buffer->type() == VideoFrameBuffer::Type::kI420 ||
             frame_buffer->type() == VideoFrameBuffer::Type::kI420A);
-
-  bool is_keyframe_needed = false;
-  if (configuration_.key_frame_request && configuration_.sending) {
-    is_keyframe_needed = true;
-  }
-
-  bool send_key_frame =
-      is_keyframe_needed ||
-      (frame_types && (*frame_types)[0] == VideoFrameType::kVideoFrameKey);
-  if (send_key_frame) {
-    is_keyframe_needed = true;
-    configuration_.key_frame_request = false;
-  }
-
   RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
   RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
 
-  if (!configuration_.sending) {
+  if (!configuration_.sending)
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
-  }
 
-  if (frame_types != nullptr) {
-    if ((*frame_types)[0] == VideoFrameType::kEmptyFrame) {
-      return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
-    }
-  }
+  // Skip empty frames.
+  if (frame_types && (*frame_types)[0] == VideoFrameType::kEmptyFrame)
+    return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
 
-  std::vector<uint8_t> output;
-  bool encode_ok = encoder_->Encode(
+  // Determine whether we need to force an IDR keyframe.
+  bool send_key_frame =
+      (configuration_.key_frame_request && configuration_.sending) ||
+      (frame_types && (*frame_types)[0] == VideoFrameType::kVideoFrameKey);
+  if (send_key_frame)
+    configuration_.key_frame_request = false;
+
+  // --- Encode via V4L2 ---
+
+  std::vector<uint8_t> bitstream;
+  bool ok = encoder_->Encode(
       frame_buffer->DataY(), frame_buffer->DataU(), frame_buffer->DataV(),
-      frame_buffer->StrideY(), frame_buffer->StrideU(), frame_buffer->StrideV(),
-      send_key_frame, output);
+      frame_buffer->StrideY(), frame_buffer->StrideU(),
+      frame_buffer->StrideV(), send_key_frame, bitstream);
 
-  if (!encode_ok || output.empty()) {
-    RTC_LOG(LS_ERROR) << "V4L2: Failed to encode frame.";
+  if (!ok || bitstream.empty()) {
+    RTC_LOG(LS_ERROR) << "V4L2: Encode() failed";
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
+  // --- Populate the EncodedImage and deliver it ---
+
   encoded_image_.SetEncodedData(
-      EncodedImageBuffer::Create(output.data(), output.size()));
+      EncodedImageBuffer::Create(bitstream.data(), bitstream.size()));
 
+  // Parse the bitstream to extract QP for rate-control feedback.
   h264_bitstream_parser_.ParseBitstream(encoded_image_);
-
-  encoded_image_.qp_ = h264_bitstream_parser_.GetLastSliceQp().value_or(-1);
+  encoded_image_.qp_ =
+      h264_bitstream_parser_.GetLastSliceQp().value_or(-1);
 
   encoded_image_._encodedWidth = configuration_.width;
   encoded_image_._encodedHeight = configuration_.height;
   encoded_image_.SetRtpTimestamp(input_frame.rtp_timestamp());
   encoded_image_.SetColorSpace(input_frame.color_space());
-  encoded_image_._frameType = send_key_frame ? VideoFrameType::kVideoFrameKey
-                                             : VideoFrameType::kVideoFrameDelta;
+  encoded_image_._frameType = send_key_frame
+                                  ? VideoFrameType::kVideoFrameKey
+                                  : VideoFrameType::kVideoFrameDelta;
 
   CodecSpecificInfo codec_specific;
   codec_specific.codecType = kVideoCodecH264;
@@ -249,6 +261,10 @@ int32_t V4L2H264EncoderImpl::Encode(
 
   return WEBRTC_VIDEO_CODEC_OK;
 }
+
+// ---------------------------------------------------------------------------
+// Encoder info / rate control
+// ---------------------------------------------------------------------------
 
 VideoEncoder::EncoderInfo V4L2H264EncoderImpl::GetEncoderInfo() const {
   EncoderInfo info;
@@ -264,23 +280,23 @@ VideoEncoder::EncoderInfo V4L2H264EncoderImpl::GetEncoderInfo() const {
 void V4L2H264EncoderImpl::SetRates(
     const RateControlParameters& parameters) {
   if (!encoder_) {
-    RTC_LOG(LS_WARNING) << "V4L2: SetRates() while uninitialized.";
+    RTC_LOG(LS_WARNING) << "V4L2: SetRates() called on null encoder";
     return;
   }
 
   if (parameters.framerate_fps < 1.0) {
-    RTC_LOG(LS_WARNING) << "V4L2: Invalid frame rate: "
+    RTC_LOG(LS_WARNING) << "V4L2: Invalid framerate: "
                         << parameters.framerate_fps;
     return;
   }
 
+  // Zero bitrate means "pause the stream".
   if (parameters.bitrate.get_sum_bps() == 0) {
     configuration_.SetStreamState(false);
     return;
   }
 
   codec_.maxFramerate = static_cast<uint32_t>(parameters.framerate_fps);
-
   configuration_.target_bps = parameters.bitrate.GetSpatialLayerSum(0);
   configuration_.max_frame_rate = parameters.framerate_fps;
 
@@ -294,9 +310,9 @@ void V4L2H264EncoderImpl::SetRates(
 }
 
 void V4L2H264EncoderImpl::LayerConfig::SetStreamState(bool send_stream) {
-  if (send_stream && !sending) {
+  // Request a keyframe when resuming so the receiver can resync.
+  if (send_stream && !sending)
     key_frame_request = true;
-  }
   sending = send_stream;
 }
 
