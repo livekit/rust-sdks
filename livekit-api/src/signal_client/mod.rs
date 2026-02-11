@@ -265,55 +265,51 @@ impl SignalInner {
         // For initial connection: reconnect=false, reconnect_reason=None, participant_sid=""
         let lk_url = get_livekit_url(url, &options, use_v1_path, false, None, "")?;
         // Try to connect to the SignalClient
-        let (stream, mut events, single_pc_mode_active) = match SignalStream::connect(
-            lk_url.clone(),
-            token,
-        )
-        .await
-        {
-            Ok((new_stream, stream_events)) => {
-                log::debug!(
-                    "signal connection successful: path={}, single_pc_mode={}",
-                    if use_v1_path { "v1" } else { "v0" },
-                    use_v1_path
-                );
-                (new_stream, stream_events, use_v1_path)
-            }
-            Err(err) => {
-                log::warn!(
-                    "signal connection failed on {} path: {:?}",
-                    if use_v1_path { "v1" } else { "v0" },
-                    err
-                );
-
-                if let SignalError::TokenFormat = err {
-                    return Err(err);
+        let (stream, mut events, single_pc_mode_active) =
+            match SignalStream::connect(lk_url.clone(), token).await {
+                Ok((new_stream, stream_events)) => {
+                    log::debug!(
+                        "signal connection successful: path={}, single_pc_mode={}",
+                        if use_v1_path { "v1" } else { "v0" },
+                        use_v1_path
+                    );
+                    (new_stream, stream_events, use_v1_path)
                 }
+                Err(err) => {
+                    log::warn!(
+                        "signal connection failed on {} path: {:?}",
+                        if use_v1_path { "v1" } else { "v0" },
+                        err
+                    );
 
-                // If using v1 path and it failed, always try fallback to v0 path.
-                // The v1 endpoint might not be available on older servers, and errors
-                // can manifest as various HTTP status codes (404, 401, 403) or connection errors.
-                if use_v1_path {
-                    let lk_url_v0 = get_livekit_url(url, &options, false, false, None, "")?;
-                    log::warn!("v1 path failed, falling back to v0 path");
-                    match SignalStream::connect(lk_url_v0.clone(), token).await {
-                        Ok((new_stream, stream_events)) => (new_stream, stream_events, false),
-                        Err(err) => {
-                            log::error!("v0 fallback also failed: {:?}", err);
-                            if let SignalError::TokenFormat = err {
+                    if let SignalError::TokenFormat = err {
+                        return Err(err);
+                    }
+
+                    // If using v1 path and it failed, always try fallback to v0 path.
+                    // The v1 endpoint might not be available on older servers, and errors
+                    // can manifest as various HTTP status codes (404, 401, 403) or connection errors.
+                    if use_v1_path {
+                        let lk_url_v0 = get_livekit_url(url, &options, false, false, None, "")?;
+                        log::warn!("v1 path failed, falling back to v0 path");
+                        match SignalStream::connect(lk_url_v0.clone(), token).await {
+                            Ok((new_stream, stream_events)) => (new_stream, stream_events, false),
+                            Err(err) => {
+                                log::error!("v0 fallback also failed: {:?}", err);
+                                if let SignalError::TokenFormat = err {
+                                    return Err(err);
+                                }
+                                Self::validate(lk_url_v0).await?;
                                 return Err(err);
                             }
-                            Self::validate(lk_url_v0).await?;
-                            return Err(err);
                         }
+                    } else {
+                        // Connection failed on v0 path, try to retrieve more information
+                        Self::validate(lk_url).await?;
+                        return Err(err);
                     }
-                } else {
-                    // Connection failed on v0 path, try to retrieve more information
-                    Self::validate(lk_url).await?;
-                    return Err(err);
                 }
-            }
-        };
+            };
 
         let join_response = get_join_response(&mut events).await?;
 
@@ -570,10 +566,8 @@ fn create_join_request_param(
     let join_request_bytes = join_request.encode_to_vec();
 
     // Create WrappedJoinRequest (JS doesn't explicitly set compression, so default is NONE)
-    let wrapped_join_request = proto::WrappedJoinRequest {
-        join_request: join_request_bytes,
-        ..Default::default()
-    };
+    let wrapped_join_request =
+        proto::WrappedJoinRequest { join_request: join_request_bytes, ..Default::default() };
 
     // Serialize WrappedJoinRequest to bytes and base64 encode
     let wrapped_bytes = wrapped_join_request.encode_to_vec();
@@ -710,21 +704,15 @@ mod tests {
             "wss"
         );
         assert_eq!(
-            get_livekit_url("http://localhost:7880", &io, false, false, None, "")
-                .unwrap()
-                .scheme(),
+            get_livekit_url("http://localhost:7880", &io, false, false, None, "").unwrap().scheme(),
             "ws"
         );
         assert_eq!(
-            get_livekit_url("wss://localhost:7880", &io, false, false, None, "")
-                .unwrap()
-                .scheme(),
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap().scheme(),
             "wss"
         );
         assert_eq!(
-            get_livekit_url("ws://localhost:7880", &io, false, false, None, "")
-                .unwrap()
-                .scheme(),
+            get_livekit_url("ws://localhost:7880", &io, false, false, None, "").unwrap().scheme(),
             "ws"
         );
         assert!(get_livekit_url("ftp://localhost:7880", &io, false, false, None, "").is_err());

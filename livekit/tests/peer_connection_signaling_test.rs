@@ -298,10 +298,7 @@ mod signaling_tests {
         let mut sine_track = SineTrack::new(pub_room_arc, sine_params);
         sine_track.publish().await?;
 
-        log::info!(
-            "[{}] Published audio track, waiting for subscriber to receive",
-            mode.name()
-        );
+        log::info!("[{}] Published audio track, waiting for subscriber to receive", mode.name());
 
         // Wait for track subscription
         let receive_track = async {
@@ -309,7 +306,8 @@ mod signaling_tests {
                 let Some(event) = sub_events.recv().await else {
                     return Err(anyhow!("Event channel closed"));
                 };
-                if let RoomEvent::TrackSubscribed { track, publication: _, participant: _ } = event {
+                if let RoomEvent::TrackSubscribed { track, publication: _, participant: _ } = event
+                {
                     return Ok(track);
                 }
             }
