@@ -67,6 +67,7 @@ pub mod ffi {
 
         fn video_resolution(self: &VideoTrackSource) -> VideoResolution;
         fn on_captured_frame(self: &VideoTrackSource, frame: &UniquePtr<VideoFrame>) -> bool;
+        fn set_is_screencast(self: &VideoTrackSource, is_screencast: bool);
         fn new_video_track_source(resolution: &VideoResolution) -> SharedPtr<VideoTrackSource>;
         fn video_to_media(track: SharedPtr<VideoTrack>) -> SharedPtr<MediaStreamTrack>;
         unsafe fn media_to_video(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<VideoTrack>;

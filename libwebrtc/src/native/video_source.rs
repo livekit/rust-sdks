@@ -113,4 +113,8 @@ impl NativeVideoSource {
     pub fn video_resolution(&self) -> VideoResolution {
         self.sys_handle.video_resolution().into()
     }
+
+    pub fn set_is_screencast(&self, is_screencast: bool) {
+        self.sys_handle.set_is_screencast(is_screencast);
+    }
 }
