@@ -147,6 +147,108 @@ impl PeerTransport {
         Some(start_kbps.clamp(300, ultimate_kbps))
     }
 
+    /// Munge SDP to change a=inactive to a=recvonly for audio m-lines in single PC mode
+    /// This is needed because WebRTC sometimes generates inactive direction even when
+    /// we set the transceiver to recvonly
+    /// We only fix the FIRST inactive audio m-line (the one we need for receiving)
+    fn munge_inactive_to_recvonly_for_audio(sdp: &str) -> String {
+        // Detect what line ending the original SDP uses
+        let uses_crlf = sdp.contains("\r\n");
+        let eol = if uses_crlf { "\r\n" } else { "\n" };
+
+        let lines: Vec<&str> =
+            if uses_crlf { sdp.split("\r\n").collect() } else { sdp.split('\n').collect() };
+
+        let mut out: Vec<String> = Vec::with_capacity(lines.len());
+        let mut in_audio_section = false;
+        let mut fixed_one = false;
+
+        for line in lines {
+            let l = line.trim();
+
+            // Track which media section we're in
+            if l.starts_with("m=audio") {
+                in_audio_section = true;
+            } else if l.starts_with("m=") {
+                in_audio_section = false;
+            }
+
+            // Change a=inactive to a=recvonly for the first inactive audio section only
+            if in_audio_section && l == "a=inactive" && !fixed_one {
+                out.push("a=recvonly".to_string());
+                fixed_one = true;
+            } else {
+                out.push(line.to_string());
+            }
+        }
+
+        let mut munged = out.join(eol);
+        if !munged.ends_with(eol) {
+            munged.push_str(eol);
+        }
+        munged
+    }
+
+    /// Munge SDP to add stereo=1 to opus audio fmtp lines for single PC mode
+    /// As per the doc: "In single peer connection mode, the receiver sends the offer,
+    /// hence does not know if the sender will send stereo. Therefore, stereo=1 is not set
+    /// in the offer. Always set stereo=1 in the offer - This method works."
+    fn munge_stereo_for_audio(sdp: &str) -> String {
+        // Detect what line ending the original SDP uses
+        let uses_crlf = sdp.contains("\r\n");
+        let eol = if uses_crlf { "\r\n" } else { "\n" };
+
+        // Split preserving the intended line ending style
+        let lines: Vec<&str> =
+            if uses_crlf { sdp.split("\r\n").collect() } else { sdp.split('\n').collect() };
+
+        // Find opus payload type (usually 111, but be flexible)
+        let mut opus_pts: Vec<&str> = Vec::new();
+        for line in &lines {
+            let l = line.trim();
+            if let Some(rest) = l.strip_prefix("a=rtpmap:") {
+                let mut it = rest.split_whitespace();
+                let pt = it.next().unwrap_or("");
+                let codec = it.next().unwrap_or("");
+                // Match opus/48000/2 (stereo opus)
+                if codec.starts_with("opus/48000") && !pt.is_empty() {
+                    opus_pts.push(pt);
+                }
+            }
+        }
+
+        if opus_pts.is_empty() {
+            return sdp.to_string();
+        }
+
+        // Rewrite fmtp lines to add stereo=1 if not present
+        let mut out: Vec<String> = Vec::with_capacity(lines.len());
+        for line in lines {
+            let mut rewritten = line.to_string();
+
+            for pt in &opus_pts {
+                let prefix = format!("a=fmtp:{pt} ");
+                if rewritten.starts_with(&prefix) {
+                    // Check if stereo= already exists
+                    if !rewritten.contains("stereo=") {
+                        // Append stereo=1
+                        rewritten.push_str(";stereo=1");
+                    }
+                    break;
+                }
+            }
+
+            out.push(rewritten);
+        }
+
+        // Re-join using same EOL
+        let mut munged = out.join(eol);
+        if !munged.ends_with(eol) {
+            munged.push_str(eol);
+        }
+        munged
+    }
+
     fn munge_x_google_start_bitrate(sdp: &str, start_bitrate_kbps: u32) -> String {
         // Detect what line ending the original SDP uses
         let uses_crlf = sdp.contains("\r\n");
@@ -214,8 +316,6 @@ impl PeerTransport {
 
     pub async fn create_and_send_offer(&self, options: OfferOptions) -> EngineResult<()> {
         let mut inner = self.inner.lock().await;
-        log::info!("Applying x-google-start-bitrate");
-
         if options.ice_restart {
             inner.restarting_ice = true;
         }
@@ -238,10 +338,41 @@ impl PeerTransport {
         }
 
         let mut offer = self.peer_connection.create_offer(options).await?;
-        let sdp = offer.to_string();
+        let mut sdp = offer.to_string();
+
+        // Fix inactive audio m-lines to recvonly for single PC mode
+        // WebRTC sometimes generates a=inactive even when transceiver is set to recvonly
+        let recvonly_munged = Self::munge_inactive_to_recvonly_for_audio(&sdp);
+        if recvonly_munged != sdp {
+            match SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
+                Ok(parsed) => {
+                    offer = parsed;
+                    sdp = recvonly_munged;
+                }
+                Err(e) => {
+                    log::warn!("Failed to parse recvonly-munged SDP: {e}");
+                }
+            }
+        }
+
+        // Apply stereo munging for single PC mode (always safe to apply)
+        // As per doc: "In single PC mode, receiver sends offer, doesn't know if sender
+        // will send stereo, so stereo=1 must be set in the offer"
+        let stereo_munged = Self::munge_stereo_for_audio(&sdp);
+        if stereo_munged != sdp {
+            match SessionDescription::parse(&stereo_munged, offer.sdp_type()) {
+                Ok(parsed) => {
+                    offer = parsed;
+                    sdp = stereo_munged;
+                }
+                Err(e) => {
+                    log::warn!("Failed to parse stereo-munged SDP, using original: {e}");
+                }
+            }
+        }
+
         let is_vp9 = sdp.contains(" VP9/90000");
         let is_av1 = sdp.contains(" AV1/90000");
-        log::info!("SDP codecs present: VP9={}, AV1={}", is_vp9, is_av1);
         if is_vp9 || is_av1 {
             if let Some(start_kbps) = Self::compute_start_bitrate_kbps(inner.max_send_bitrate_bps) {
                 log::info!(

@@ -262,8 +262,8 @@ impl SignalInner {
     )> {
         // Try v1 path first if single_peer_connection is enabled
         let use_v1_path = options.single_peer_connection;
-        // For initial connection: reconnect=false, participant_sid=""
-        let lk_url = get_livekit_url(url, &options, use_v1_path, false, "")?;
+        // For initial connection: reconnect=false, reconnect_reason=None, participant_sid=""
+        let lk_url = get_livekit_url(url, &options, use_v1_path, false, None, "")?;
         // Try to connect to the SignalClient
         let (stream, mut events, single_pc_mode_active) = match SignalStream::connect(
             lk_url.clone(),
@@ -272,23 +272,21 @@ impl SignalInner {
         .await
         {
             Ok((new_stream, stream_events)) => {
-                log::info!(
-                    "[CONNECT] SUCCESS: {} path connection successful, single_pc_mode={}",
+                log::debug!(
+                    "signal connection successful: path={}, single_pc_mode={}",
                     if use_v1_path { "v1" } else { "v0" },
                     use_v1_path
                 );
                 (new_stream, stream_events, use_v1_path)
             }
             Err(err) => {
-                log::error!(
-                    "[CONNECT] FAILED: {} path connection failed\n\
-                         [CONNECT] error: {:?}",
+                log::warn!(
+                    "signal connection failed on {} path: {:?}",
                     if use_v1_path { "v1" } else { "v0" },
                     err
                 );
 
                 if let SignalError::TokenFormat = err {
-                    log::error!("[CONNECT] Token format error, not retrying");
                     return Err(err);
                 }
 
@@ -296,20 +294,12 @@ impl SignalInner {
                 // The v1 endpoint might not be available on older servers, and errors
                 // can manifest as various HTTP status codes (404, 401, 403) or connection errors.
                 if use_v1_path {
-                    let lk_url_v0 = get_livekit_url(url, &options, false, false, "")?;
-                    log::warn!(
-                        "[CONNECT] FALLBACK: v1 failed, trying v0 path (dual peer connection)\n\
-                             [CONNECT] fallback url={}",
-                        lk_url_v0
-                    );
+                    let lk_url_v0 = get_livekit_url(url, &options, false, false, None, "")?;
+                    log::warn!("v1 path failed, falling back to v0 path");
                     match SignalStream::connect(lk_url_v0.clone(), token).await {
                         Ok((new_stream, stream_events)) => (new_stream, stream_events, false),
                         Err(err) => {
-                            log::error!(
-                                "[CONNECT] FAILED: v0 fallback also failed\n\
-                                     [CONNECT] error: {:?}",
-                                err
-                            );
+                            log::error!("v0 fallback also failed: {:?}", err);
                             if let SignalError::TokenFormat = err {
                                 return Err(err);
                             }
@@ -319,20 +309,11 @@ impl SignalInner {
                     }
                 } else {
                     // Connection failed on v0 path, try to retrieve more information
-                    log::error!(
-                        "[CONNECT] FAILED: v0 path failed (no fallback available), validating..."
-                    );
                     Self::validate(lk_url).await?;
                     return Err(err);
                 }
             }
         };
-
-        log::error!(
-            "[CONNECT] ====== CONNECTION ESTABLISHED ======\n\
-             [CONNECT] single_pc_mode_active={}",
-            single_pc_mode_active
-        );
 
         let join_response = get_join_response(&mut events).await?;
 
@@ -398,7 +379,7 @@ impl SignalInner {
         // For v1 path: reconnect and sid are encoded in the join_request protobuf
         // For v0 path: reconnect and sid are added as separate query parameters
         let lk_url =
-            get_livekit_url(&self.url, &self.options, self.single_pc_mode_active, true, sid)
+            get_livekit_url(&self.url, &self.options, self.single_pc_mode_active, true, None, sid)
                 .unwrap();
 
         let (new_stream, mut events) = SignalStream::connect(lk_url, &token).await?;
@@ -551,54 +532,47 @@ fn is_queuable(signal: &proto::signal_request::Message) -> bool {
 fn create_join_request_param(
     options: &SignalOptions,
     reconnect: bool,
+    reconnect_reason: Option<i32>,
     participant_sid: &str,
 ) -> String {
-    // Create ConnectionSettings
     let connection_settings = proto::ConnectionSettings {
         auto_subscribe: options.auto_subscribe,
         adaptive_stream: options.adaptive_stream,
-        subscriber_allow_pause: None,
-        disable_ice_lite: false,
-        auto_subscribe_data_track: None,
+        ..Default::default()
     };
 
-    // Create ClientInfo
     let client_info = proto::ClientInfo {
         sdk: proto::client_info::Sdk::Rust as i32,
         version: options.sdk_options.sdk_version.clone().unwrap_or_default(),
         protocol: PROTOCOL_VERSION as i32,
         os: std::env::consts::OS.to_string(),
-        os_version: String::new(),
-        device_model: String::new(),
-        browser: String::new(),
-        browser_version: String::new(),
-        address: String::new(),
-        network: String::new(),
-        other_sdks: String::new(),
-        client_protocol: 1, // Indicates support for RPC compression
+        ..Default::default()
     };
 
-    // Create JoinRequest
-    let join_request = proto::JoinRequest {
+    let mut join_request = proto::JoinRequest {
         client_info: Some(client_info),
         connection_settings: Some(connection_settings),
-        metadata: String::new(),
-        participant_attributes: Default::default(),
-        add_track_requests: Vec::new(),
-        publisher_offer: None,
         reconnect,
-        reconnect_reason: 0,
-        participant_sid: participant_sid.to_string(),
-        sync_state: None,
+        ..Default::default()
     };
+
+    // Only set participant_sid if non-empty (for reconnects)
+    if !participant_sid.is_empty() {
+        join_request.participant_sid = participant_sid.to_string();
+    }
+
+    // Only set reconnect_reason if provided
+    if let Some(reason) = reconnect_reason {
+        join_request.reconnect_reason = reason;
+    }
 
     // Serialize JoinRequest to bytes
     let join_request_bytes = join_request.encode_to_vec();
 
-    // Create WrappedJoinRequest with no compression
+    // Create WrappedJoinRequest (JS doesn't explicitly set compression, so default is NONE)
     let wrapped_join_request = proto::WrappedJoinRequest {
-        compression: proto::wrapped_join_request::Compression::None as i32,
         join_request: join_request_bytes,
+        ..Default::default()
     };
 
     // Serialize WrappedJoinRequest to bytes and base64 encode
@@ -613,12 +587,14 @@ fn create_join_request_param(
 /// - options: SignalOptions
 /// - use_v1_path: if true, use /rtc/v1 (single PC mode), otherwise /rtc (dual PC mode)
 /// - reconnect: true if this is a reconnection attempt
+/// - reconnect_reason: reason for reconnection (only used when reconnect=true)
 /// - participant_sid: the participant SID (only used during reconnection)
 fn get_livekit_url(
     url: &str,
     options: &SignalOptions,
     use_v1_path: bool,
     reconnect: bool,
+    reconnect_reason: Option<i32>,
     participant_sid: &str,
 ) -> SignalResult<url::Url> {
     let mut lk_url = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
@@ -643,29 +619,32 @@ fn get_livekit_url(
         }
     }
 
-    // Add common query parameters (same for both v0 and v1)
-    // Note: access_token is NOT included here - it's passed via Authorization header
-    // in SignalStream::connect() for native clients (unlike JS SDK which uses URL params)
-    lk_url
-        .query_pairs_mut()
-        .append_pair("sdk", options.sdk_options.sdk.as_str())
-        .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
-        .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
-        .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
-
-    if let Some(sdk_version) = &options.sdk_options.sdk_version {
-        lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
-    }
-
-    // For v1 path, also add the join_request parameter with encoded JoinRequest protobuf
     if use_v1_path {
-        let join_request_param = create_join_request_param(options, reconnect, participant_sid);
+        // For v1 path (single PC mode): only join_request param
+        // All other info (sdk, protocol, auto_subscribe, etc.) is inside the JoinRequest protobuf
+        let join_request_param =
+            create_join_request_param(options, reconnect, reconnect_reason, participant_sid);
         lk_url.query_pairs_mut().append_pair("join_request", &join_request_param);
-    }
+    } else {
+        // For v0 path (dual PC mode): use URL query parameters
+        lk_url
+            .query_pairs_mut()
+            .append_pair("sdk", options.sdk_options.sdk.as_str())
+            .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
+            .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
+            .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
-    // For reconnects, add reconnect and sid as separate query parameters
-    if reconnect {
-        lk_url.query_pairs_mut().append_pair("reconnect", "1").append_pair("sid", participant_sid);
+        if let Some(sdk_version) = &options.sdk_options.sdk_version {
+            lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
+        }
+
+        // For reconnects in v0 path, add reconnect and sid as separate query parameters
+        if reconnect {
+            lk_url
+                .query_pairs_mut()
+                .append_pair("reconnect", "1")
+                .append_pair("sid", participant_sid);
+        }
     }
 
     Ok(lk_url)
@@ -723,30 +702,38 @@ mod tests {
     fn livekit_url_test() {
         let io = SignalOptions::default();
 
-        assert!(get_livekit_url("localhost:7880", &io, false, false, "").is_err());
+        assert!(get_livekit_url("localhost:7880", &io, false, false, None, "").is_err());
         assert_eq!(
-            get_livekit_url("https://localhost:7880", &io, false, false, "").unwrap().scheme(),
+            get_livekit_url("https://localhost:7880", &io, false, false, None, "")
+                .unwrap()
+                .scheme(),
             "wss"
         );
         assert_eq!(
-            get_livekit_url("http://localhost:7880", &io, false, false, "").unwrap().scheme(),
+            get_livekit_url("http://localhost:7880", &io, false, false, None, "")
+                .unwrap()
+                .scheme(),
             "ws"
         );
         assert_eq!(
-            get_livekit_url("wss://localhost:7880", &io, false, false, "").unwrap().scheme(),
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "")
+                .unwrap()
+                .scheme(),
             "wss"
         );
         assert_eq!(
-            get_livekit_url("ws://localhost:7880", &io, false, false, "").unwrap().scheme(),
+            get_livekit_url("ws://localhost:7880", &io, false, false, None, "")
+                .unwrap()
+                .scheme(),
             "ws"
         );
-        assert!(get_livekit_url("ftp://localhost:7880", &io, false, false, "").is_err());
+        assert!(get_livekit_url("ftp://localhost:7880", &io, false, false, None, "").is_err());
     }
 
     #[test]
     fn validate_url_test() {
         let io = SignalOptions::default();
-        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, "").unwrap();
+        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap();
         let validate_url = get_validate_url(lk_url);
 
         // Should be /rtc/validate, not /rtc/rtc/validate

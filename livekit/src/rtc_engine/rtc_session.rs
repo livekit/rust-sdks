@@ -434,7 +434,6 @@ impl RtcSession {
 
         // Determine if single PC mode is active based on the path used
         let single_pc_mode = signal_client.is_single_pc_mode_active();
-        log::debug!("single peer connection mode: {}", single_pc_mode);
 
         let Some(participant_info) = SessionParticipantInfo::from_join(&join_response) else {
             Err(EngineError::Internal("Join response missing participant info".into()))?
@@ -526,6 +525,12 @@ impl RtcSession {
         let dc_task = livekit_runtime::spawn(inner.clone().data_channel_task(dc_events, close_rx));
 
         let handle = Mutex::new(Some(SessionHandle { close_tx, signal_task, rtc_task, dc_task }));
+
+        // In single PC mode (or with fast_publish), trigger initial negotiation
+        // This matches JS SDK behavior: if (!this.subscriberPrimary || joinResponse.fastPublish) { this.negotiate(); }
+        if single_pc_mode || join_response.fast_publish {
+            inner.publisher_negotiation_needed();
+        }
 
         Ok((Self { inner, handle }, join_response, session_events))
     }
@@ -992,7 +997,6 @@ impl SessionInner {
 
                 if self.single_pc_mode {
                     // In single PC mode, handle offer on publisher PC
-                    log::debug!("received offer (single PC mode): {:?}", offer);
                     let answer = self
                         .publisher_pc
                         .create_anwser(offer_sdp, AnswerOptions::default())
@@ -1111,13 +1115,14 @@ impl SessionInner {
         Ok(())
     }
 
-    /// Handle MediaSectionsRequirement by adding recvonly transceivers to publisher PC
+    /// Handle MediaSectionsRequirement by adding recvonly transceivers to publisher PC.
+    /// This matches the JS SDK behavior: add transceivers and trigger negotiation.
     fn handle_media_sections_requirement(
         self: &Arc<Self>,
         req: proto::MediaSectionsRequirement,
     ) -> EngineResult<()> {
         log::debug!(
-            "media sections requirement: num_audios={}, num_videos={}",
+            "MediaSectionsRequirement: adding {} audio and {} video recvonly transceivers",
             req.num_audios,
             req.num_videos
         );
@@ -1142,15 +1147,8 @@ impl SessionInner {
                 .add_transceiver_for_media(MediaType::Video, recvonly_init.clone())?;
         }
 
-        // Trigger renegotiation if we added any transceivers
-        if req.num_audios > 0 || req.num_videos > 0 {
-            log::debug!(
-                "added {} audio and {} video recvonly transceivers, triggering renegotiation",
-                req.num_audios,
-                req.num_videos
-            );
-            self.publisher_negotiation_needed();
-        }
+        // Trigger renegotiation
+        self.publisher_negotiation_needed();
 
         Ok(())
     }
@@ -1186,7 +1184,6 @@ impl SessionInner {
                 }
             }
             RtcEvent::DataChannel { data_channel, target } => {
-                log::debug!("received data channel: {:?} {:?}", data_channel, target);
                 // In single PC mode, subscriber data channels come from publisher target
                 let is_subscriber_dc = if self.single_pc_mode {
                     target == SignalTarget::Publisher
@@ -1220,8 +1217,6 @@ impl SessionInner {
                         track,
                         transceiver,
                     });
-                } else {
-                    log::warn!("Track event with no streams");
                 }
             }
             RtcEvent::Data { data, binary, kind } => {
