@@ -38,8 +38,6 @@ jobs:
           cache: pnpm
           cache-dependency-path: livekit-ffi-node-bindings/pnpm-lock.yaml
 
-      - uses: Swatinem/rust-cache@v2.8.2
-
       - working-directory: livekit-ffi-node-bindings
         run: pnpm install
 
