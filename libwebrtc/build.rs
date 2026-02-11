@@ -29,6 +29,10 @@ fn main() {
     let use_dylib = !cfg!(feature = "static");
     let webrtc_dir = webrtc_sys_build::webrtc_dir();
 
+    if !webrtc_dir.exists() {
+        webrtc_sys_build::download_webrtc().unwrap();
+    }
+
     if use_dylib {
         if let Err(e) = webrtc_sys_build::copy_dylib_to_target(&webrtc_dir) {
             println!("cargo:warning=failed to copy livekit_rtc dylib to target: {}", e);

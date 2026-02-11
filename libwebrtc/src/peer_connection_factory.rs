@@ -14,7 +14,6 @@
 
 use std::{
     fmt::Debug,
-    rc::Rc,
     sync::{Arc, Mutex},
 };
 
