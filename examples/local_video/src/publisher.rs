@@ -18,7 +18,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use yuv_sys;
 
 #[derive(Parser, Debug)]
@@ -75,6 +75,10 @@ struct Args {
     /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
     #[arg(long, default_value_t = false)]
     h265: bool,
+
+    /// Attach the current system time (microseconds since UNIX epoch) as the user timestamp on each frame
+    #[arg(long, default_value_t = false)]
+    user_timestamp: bool,
 }
 
 fn list_cameras() -> Result<()> {
@@ -394,6 +398,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
         // Update RTP timestamp (monotonic, microseconds since start)
         frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
+        // Optionally attach wall-clock time as user timestamp
+        frame.user_timestamp_us = if args.user_timestamp {
+            Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64)
+        } else {
+            None
+        };
         rtc_source.capture_frame(&frame);
         let t4 = Instant::now();
 
