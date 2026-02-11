@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.22](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.21...rust-sdks/webrtc-sys@0.3.22) - 2026-02-09
+
+### Fixed
+
+- fix the 440->441 samples issue and pass a noop callback for release ([#848](https://github.com/livekit/rust-sdks/pull/848))
+
+### Other
+
+- Use workspace dependencies & settings ([#856](https://github.com/livekit/rust-sdks/pull/856))
+
+## [0.3.21](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.20...rust-sdks/webrtc-sys@0.3.21) - 2026-01-15
+
+### Other
+
+- Rename namespace for ffi bridge code. ([#836](https://github.com/livekit/rust-sdks/pull/836))
+
 ## [0.3.20](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.19...rust-sdks/webrtc-sys@0.3.20) - 2025-12-19
 
 ### Fixed

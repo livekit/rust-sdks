@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use crate::impl_thread_safety;
 
-#[cxx::bridge(namespace = "livekit")]
+#[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
 
     #[derive(Debug)]
@@ -174,7 +174,7 @@ pub mod ffi {
             state: FrameCryptionState,
         );
     }
-} // namespace livekit
+} // namespace livekit_ffi
 
 impl_thread_safety!(ffi::FrameCryptor, Send + Sync);
 impl_thread_safety!(ffi::KeyProvider, Send + Sync);

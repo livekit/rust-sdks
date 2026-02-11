@@ -23,7 +23,7 @@
 #include "api/video/yuv_helper.h"
 #include "webrtc-sys/src/yuv_helper.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 #define THROW_ON_ERROR(ret)                                           \
   if (ret != 0) {                                                     \
@@ -378,4 +378,4 @@ static void argb_to_nv12(const uint8_t* src_argb,
                                     height));
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

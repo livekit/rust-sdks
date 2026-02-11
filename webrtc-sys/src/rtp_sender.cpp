@@ -20,7 +20,7 @@
 #include "rust/cxx.h"
 #include "webrtc-sys/src/rtp_sender.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 
 
@@ -90,4 +90,4 @@ void RtpSender::set_parameters(RtpParameters params) const {
     throw std::runtime_error(serialize_error(to_error(error)));
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

@@ -17,7 +17,7 @@ use ffi::CaptureResult;
 
 use crate::{desktop_capturer::ffi::DesktopFrame, impl_thread_safety};
 
-#[cxx::bridge(namespace = "livekit")]
+#[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
     #[derive(Clone)]
     struct Source {

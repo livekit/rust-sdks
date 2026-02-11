@@ -1,10 +1,10 @@
 [package]
 name = "livekit-ffi"
-version = "0.12.43"
-edition = "2021"
-license = "Apache-2.0"
+version = "0.12.46"
+edition.workspace = true
+license.workspace = true
 description = "FFI interface for bindings in other languages"
-repository = "https://github.com/livekit/rust-sdks"
+repository.workspace = true
 readme = "README.md"
 
 [features]
@@ -24,18 +24,18 @@ webrtc-sys = { workspace = true }
 soxr-sys = { workspace = true }
 imgproc = { workspace = true }
 livekit-protocol = { workspace = true }
-tokio = { version = "1", features = ["full", "parking_lot"] }
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-parking_lot = { version = "0.12", features = ["deadlock_detection"] }
-prost = "0.14.1"
-lazy_static = "1.4"
-thiserror = "1.0"
-log = "0.4"
+tokio = { workspace = true, features = ["full", "parking_lot"] }
+futures-util = { workspace = true, default-features = false, features = ["sink"] }
+parking_lot = { workspace = true, features = ["deadlock_detection"] }
+prost = { workspace = true }
+lazy_static = { workspace = true }
+thiserror = { workspace = true }
+log = { workspace = true }
 dashmap = "5.4"
-env_logger = "0.10"
+env_logger = { workspace = true }
 downcast-rs = "1.2"
-console-subscriber = { version = "0.1", features = ["parking_lot"], optional = true }
-bytes = "1.10.1"
+console-subscriber = { workspace = true, features = ["parking_lot"], optional = true }
+bytes = { workspace = true }
 from_variants = "1.0.2"
 
 [target.'cfg(target_os = "android")'.dependencies]
@@ -43,7 +43,7 @@ jni = "0.21.1"
 link-cplusplus = { version = "1", features = ["nothing"] }
 
 [build-dependencies]
-prost-build = "0.14.1"
+prost-build = { workspace = true }
 webrtc-sys-build = { workspace = true }
 
 [dev-dependencies]

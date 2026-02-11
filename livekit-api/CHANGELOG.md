@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.13](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.12...rust-sdks/livekit-api@0.4.13) - 2026-02-09
+
+### Other
+
+- update proto & fix CI ([#871](https://github.com/livekit/rust-sdks/pull/871))
+- Use workspace dependencies & settings ([#856](https://github.com/livekit/rust-sdks/pull/856))
+- Upgrade protocol to v1.44.0 ([#857](https://github.com/livekit/rust-sdks/pull/857))
+- expose audio mixing as a configurable field ([#850](https://github.com/livekit/rust-sdks/pull/850))
+- UniFFI interface ([#750](https://github.com/livekit/rust-sdks/pull/750))
+
+## [0.4.12](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.11...rust-sdks/livekit-api@0.4.12) - 2026-01-15
+
+### Fixed
+
+- fix incorrect 404 status code when WS connection fails ([#832](https://github.com/livekit/rust-sdks/pull/832))
+
+### Other
+
+- Add Wait Until Answered for CreateSip ([#833](https://github.com/livekit/rust-sdks/pull/833))
+
 ## [0.4.11](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-api@0.4.10...rust-sdks/livekit-api@0.4.11) - 2025-12-04
 
 ### Added

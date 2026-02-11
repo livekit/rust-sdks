@@ -24,7 +24,7 @@
 #include "modules/audio_processing/aec3/echo_canceller3.h"
 #include "modules/audio_processing/audio_buffer.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 struct AudioProcessingConfig {
   bool echo_canceller_enabled;
@@ -72,4 +72,4 @@ std::unique_ptr<AudioProcessingModule> create_apm(
     bool high_pass_filter_enabled,
     bool noise_suppression_enabled);
 
-}  // namespace livekit
+}  // namespace livekit_ffi

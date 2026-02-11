@@ -24,7 +24,7 @@
 #include "modules/audio_mixer/audio_mixer_impl.h"
 #include "webrtc-sys/src/audio_mixer.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 AudioMixer::AudioMixer() {
   audio_mixer_ = webrtc::AudioMixerImpl::Create();
@@ -79,12 +79,12 @@ AudioMixerSource::GetAudioFrameWithInfo(int sample_rate,
                                         webrtc::AudioFrame* audio_frame) {
   NativeAudioFrame frame(audio_frame);
 
-  livekit::AudioFrameInfo result =
+  livekit_ffi::AudioFrameInfo result =
       source_->get_audio_frame_with_info(sample_rate, frame);
 
-  if (result == livekit::AudioFrameInfo::Normal) {
+  if (result == livekit_ffi::AudioFrameInfo::Normal) {
     return webrtc::AudioMixer::Source::AudioFrameInfo::kNormal;
-  } else if (result == livekit::AudioFrameInfo::Muted) {
+  } else if (result == livekit_ffi::AudioFrameInfo::Muted) {
     return webrtc::AudioMixer::Source::AudioFrameInfo::kMuted;
   } else {
     return webrtc::AudioMixer::Source::AudioFrameInfo::kError;
@@ -102,4 +102,4 @@ void NativeAudioFrame::update_frame(uint32_t timestamp,
                       num_channels);
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

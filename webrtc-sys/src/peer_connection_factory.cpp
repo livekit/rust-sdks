@@ -43,7 +43,7 @@
 #include "webrtc-sys/src/peer_connection.rs.h"
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class PeerConnectionObserver;
 
@@ -62,16 +62,16 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.trials = std::make_unique<webrtc::FieldTrialBasedConfig>();
 
   audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
-    return webrtc::make_ref_counted<livekit::AudioDevice>(
+    return webrtc::make_ref_counted<livekit_ffi::AudioDevice>(
         dependencies.task_queue_factory.get());
   });
 
   dependencies.adm = audio_device_;
 
   dependencies.video_encoder_factory =
-      std::move(std::make_unique<livekit::VideoEncoderFactory>());
+      std::move(std::make_unique<livekit_ffi::VideoEncoderFactory>());
   dependencies.video_decoder_factory =
-      std::move(std::make_unique<livekit::VideoDecoderFactory>());
+      std::move(std::make_unique<livekit_ffi::VideoDecoderFactory>());
   dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   dependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
   dependencies.audio_processing = webrtc::BuiltinAudioProcessingBuilder()
@@ -144,4 +144,4 @@ std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {
   return std::make_shared<PeerConnectionFactory>(RtcRuntime::create());
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

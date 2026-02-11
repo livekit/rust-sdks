@@ -36,7 +36,7 @@
 #include "rust/cxx.h"
 #include "webrtc-sys/src/audio_track.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 inline cricket::AudioOptions to_native_audio_options(
     const AudioSourceOptions& options) {
@@ -141,8 +141,11 @@ AudioTrackSource::InternalSource::InternalSource(
       num_channels_(num_channels),
       capture_userdata_(nullptr),
       on_complete_(nullptr) {
-  if (!queue_size_ms)
+  if (!queue_size_ms) {
+    // Set queue_size_samples_ to 0 so that capture_frame() will get to the fast path.
+    queue_size_samples_ = 0;
     return;  // no audio queue
+  }
 
   // start sending silence when there is nothing on the queue for 10 frames
   // (100ms)
@@ -323,4 +326,4 @@ webrtc::scoped_refptr<AudioTrackSource::InternalSource> AudioTrackSource::get()
   return source_;
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

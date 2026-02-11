@@ -1,7 +1,11 @@
 # local_video
 
-Two examples demonstrating capturing frames from a local camera video and publishing to LiveKit, and subscribing to render video in a window.
+Three examples demonstrating capturing frames from a local camera video and publishing to LiveKit, listing camera capabilities, and subscribing to render video in a window.
 
+**Note:** These examples are intended for **desktop platforms only** (macOS, Linux, Windows).
+You must enable the `desktop` feature when building or running them.
+
+- list_devices: enumerate available cameras and their capabilities
 - publisher: capture from a selected camera and publish a video track
 - subscriber: connect to a room, subscribe to video tracks, and display in a window
 
@@ -12,34 +16,47 @@ LiveKit connection can be provided via flags or environment variables:
 
 Publisher usage:
 ```
- cargo run -p local_video --bin publisher -- --list-cameras
- cargo run -p local_video --bin publisher -- --camera-index 0 --room-name demo --identity cam-1
+ cargo run -p local_video -F desktop --bin publisher -- --list-cameras
+ cargo run -p local_video -F desktop --bin publisher -- --camera-index 0 --room-name demo --identity cam-1
  
  # with explicit LiveKit connection flags
- cargo run -p local_video --bin publisher -- \
+ cargo run -p local_video -F desktop --bin publisher -- \
    --camera-index 0 \
    --room-name demo \
    --identity cam-1 \
+   --simulcast \
+   --h265 \
+   --max-bitrate 1500000 \
    --url https://your.livekit.server \
    --api-key YOUR_KEY \
    --api-secret YOUR_SECRET
 ```
 
+List devices usage:
+```
+ cargo run -p local_video -F desktop --bin list_devices
+```
+
+Publisher flags (in addition to the common connection flags above):
+- `--h265`: Use H.265/HEVC encoding if supported (falls back to H.264 on failure).
+- `--simulcast`: Publish simulcast video (multiple layers when the resolution is large enough).
+- `--max-bitrate <bps>`: Max video bitrate for the main (highest) layer in bits per second (e.g. `1500000`).
+
 Subscriber usage:
 ```
  # relies on env vars LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET
- cargo run -p local_video --bin subscriber -- --room-name demo --identity viewer-1
+ cargo run -p local_video -F desktop --bin subscriber -- --room-name demo --identity viewer-1
 
  # or pass credentials via flags
- cargo run -p local_video --bin subscriber -- \
+ cargo run -p local_video -F desktop --bin subscriber -- \
    --room-name demo \
    --identity viewer-1 \
    --url https://your.livekit.server \
    --api-key YOUR_KEY \
-    --api-secret YOUR_SECRET
+   --api-secret YOUR_SECRET
 
   # subscribe to a specific participant's video only
-  cargo run -p local_video --bin subscriber -- \
+  cargo run -p local_video -F desktop --bin subscriber -- \
     --room-name demo \
     --identity viewer-1 \
     --participant alice

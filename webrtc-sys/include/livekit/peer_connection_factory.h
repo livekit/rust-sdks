@@ -25,13 +25,13 @@
 #include "rust/cxx.h"
 #include "webrtc.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class PeerConnectionFactory;
 class PeerConnectionObserverWrapper;
-}  // namespace livekit
+}  // namespace livekit_ffi
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class PeerConnection;
 struct RtcConfiguration;
@@ -70,4 +70,4 @@ class PeerConnectionFactory {
 };
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory();
-}  // namespace livekit
+}  // namespace livekit_ffi

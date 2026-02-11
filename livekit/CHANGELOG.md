@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.30](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.29...rust-sdks/livekit@0.7.30) - 2026-02-09
+
+### Fixed
+
+- fix the RPC race condition ([#865](https://github.com/livekit/rust-sdks/pull/865))
+
+### Other
+
+- update proto & fix CI ([#871](https://github.com/livekit/rust-sdks/pull/871))
+- Use workspace dependencies & settings ([#856](https://github.com/livekit/rust-sdks/pull/856))
+- Upgrade protocol to v1.44.0 ([#857](https://github.com/livekit/rust-sdks/pull/857))
+- Expose participant's permission to ffi layer ([#824](https://github.com/livekit/rust-sdks/pull/824))
+
+## [0.7.29](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.28...rust-sdks/livekit@0.7.29) - 2026-01-15
+
+### Fixed
+
+- ensure Room.creation_time is ms ([#822](https://github.com/livekit/rust-sdks/pull/822))
+
+### Other
+
+- try setting x-google-start-bitrate for vp9 ([#820](https://github.com/livekit/rust-sdks/pull/820))
+
 ## [0.7.28](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.27...rust-sdks/livekit@0.7.28) - 2025-12-19
 
 ### Added

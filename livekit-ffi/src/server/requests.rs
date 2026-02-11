@@ -64,7 +64,7 @@ fn on_disconnect(
     server: &'static FfiServer,
     disconnect: proto::DisconnectRequest,
 ) -> FfiResult<proto::DisconnectResponse> {
-    let async_id = server.next_id();
+    let async_id = server.resolve_async_id(disconnect.request_async_id);
     let handle = server.async_runtime.spawn(async move {
         let ffi_room =
             server.retrieve_handle::<room::FfiRoom>(disconnect.room_handle).unwrap().clone();
@@ -403,7 +403,7 @@ fn on_get_stats(
     get_stats: proto::GetStatsRequest,
 ) -> FfiResult<proto::GetStatsResponse> {
     let ffi_track = server.retrieve_handle::<FfiTrack>(get_stats.track_handle)?.clone();
-    let async_id = server.next_id();
+    let async_id = server.resolve_async_id(get_stats.request_async_id);
     let handle = server.async_runtime.spawn(async move {
         match ffi_track.track.get_stats().await {
             Ok(stats) => {
@@ -726,7 +726,7 @@ fn on_get_session_stats(
     get_session_stats: proto::GetSessionStatsRequest,
 ) -> FfiResult<proto::GetSessionStatsResponse> {
     let ffi_room = server.retrieve_handle::<room::FfiRoom>(get_session_stats.room_handle)?.clone();
-    let async_id = server.next_id();
+    let async_id = server.resolve_async_id(get_session_stats.request_async_id);
 
     let handle = server.async_runtime.spawn(async move {
         match ffi_room.inner.room.get_stats().await {

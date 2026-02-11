@@ -18,7 +18,7 @@ use cxx::UniquePtr;
 
 use crate::{impl_thread_safety, video_frame::ffi::VideoFrame};
 
-#[cxx::bridge(namespace = "livekit")]
+#[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
     #[repr(i32)]
     pub enum ContentHint {

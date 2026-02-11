@@ -33,17 +33,17 @@
 #include "rtc_base/thread_annotations.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class AudioTrack;
 class NativeAudioSink;
 class AudioTrackSource;
 class SourceContext;
 
-using CompleteCallback = void (*)(const livekit::SourceContext*);
-}  // namespace livekit
+using CompleteCallback = void (*)(const livekit_ffi::SourceContext*);
+}  // namespace livekit_ffi
 #include "webrtc-sys/src/audio_track.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class AudioTrack : public MediaStreamTrack {
  private:
@@ -140,10 +140,10 @@ class AudioTrackSource {
     int missed_frames_ RTC_GUARDED_BY(mutex_) = 0;
     std::vector<int16_t> silence_buffer_;
 
-    int sample_rate_;
-    int num_channels_;
-    int queue_size_samples_;
-    int notify_threshold_samples_;
+    int sample_rate_ = 0;
+    int num_channels_ = 0;
+    int queue_size_samples_ = 0;
+    int notify_threshold_samples_ = 0;
 
     cricket::AudioOptions options_{};
   };
@@ -198,4 +198,4 @@ static std::shared_ptr<AudioTrackSource> _shared_audio_track_source() {
   return nullptr;  // Ignore
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi

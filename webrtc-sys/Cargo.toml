@@ -1,18 +1,18 @@
 [package]
 name = "webrtc-sys"
-version = "0.3.20"
-edition = "2021"
+version = "0.3.22"
+edition.workspace = true
 homepage = "https://livekit.io"
-license = "Apache-2.0"
+license.workspace = true
 description = "Unsafe bindings to libwebrtc"
-repository = "https://github.com/livekit/client-sdk-rust"
+repository.workspace = true
 
 [features]
 default = []
 
 [dependencies]
 cxx = "1.0"
-log = "0.4"
+log = { workspace = true }
 
 [build-dependencies]
 webrtc-sys-build = { workspace = true }
@@ -25,4 +25,4 @@ pkg-config = "0.3.22"
 pkg-config = "0.3.22"
 
 [dev-dependencies]
-env_logger = "0.10"
+env_logger = { workspace = true }

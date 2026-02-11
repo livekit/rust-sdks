@@ -116,6 +116,7 @@ impl LocalParticipant {
         metadata: String,
         attributes: HashMap<String, String>,
         encryption_type: EncryptionType,
+        permission: Option<proto::ParticipantPermission>,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -127,6 +128,7 @@ impl LocalParticipant {
                 attributes,
                 kind,
                 kind_details,
+                permission,
             ),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
@@ -214,6 +216,13 @@ impl LocalParticipant {
         handler: impl Fn(Participant, HashMap<String, String>) + Send + 'static,
     ) {
         super::on_attributes_changed(&self.inner, handler)
+    }
+
+    pub(crate) fn on_permission_changed(
+        &self,
+        handler: impl Fn(Participant, Option<proto::ParticipantPermission>) + Send + 'static,
+    ) {
+        super::on_permission_changed(&self.inner, handler)
     }
 
     pub(crate) fn add_publication(&self, publication: TrackPublication) {
@@ -755,6 +764,10 @@ impl LocalParticipant {
         self.inner.info.read().disconnect_reason
     }
 
+    pub fn permission(&self) -> Option<proto::ParticipantPermission> {
+        self.inner.info.read().permission.clone()
+    }
+
     pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {
         // Maximum amount of time it should ever take for an RPC request to reach the destination, and the ACK to come back
         // This is set to 7 seconds to account for various relay timeouts and retries in LiveKit Cloud that occur in rare cases
@@ -786,7 +799,15 @@ impl LocalParticipant {
             min_effective_timeout,
         );
 
-        match self
+        // Register channels BEFORE sending the request to avoid race condition
+        // where the response arrives before we've registered the handlers
+        {
+            let mut rpc_state = self.local.rpc_state.lock();
+            rpc_state.pending_acks.insert(id.clone(), ack_tx);
+            rpc_state.pending_responses.insert(id.clone(), response_tx);
+        }
+
+        if let Err(e) = self
             .publish_rpc_request(RpcRequest {
                 destination_identity: data.destination_identity.clone(),
                 id: id.clone(),
@@ -797,15 +818,12 @@ impl LocalParticipant {
             })
             .await
         {
-            Ok(_) => {
-                let mut rpc_state = self.local.rpc_state.lock();
-                rpc_state.pending_acks.insert(id.clone(), ack_tx);
-                rpc_state.pending_responses.insert(id.clone(), response_tx);
-            }
-            Err(e) => {
-                log::error!("Failed to publish RPC request: {}", e);
-                return Err(RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())));
-            }
+            // Clean up on failure
+            let mut rpc_state = self.local.rpc_state.lock();
+            rpc_state.pending_acks.remove(&id);
+            rpc_state.pending_responses.remove(&id);
+            log::error!("Failed to publish RPC request: {}", e);
+            return Err(RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())));
         }
 
         // Wait for ack timeout
@@ -855,6 +873,11 @@ impl LocalParticipant {
             + 'static,
     ) {
         self.local.rpc_state.lock().handlers.insert(method, Arc::new(handler));
+
+        // Pre-connect the publisher PC so ACKs can be sent immediately when requests arrive.
+        // Without this, the first RPC request would trigger publisher negotiation, causing
+        // a ~300-500ms delay before the ACK can be sent (ICE negotiation time).
+        self.inner.rtc_engine.publisher_negotiation_needed();
     }
 
     pub fn unregister_rpc_method(&self, method: String) {

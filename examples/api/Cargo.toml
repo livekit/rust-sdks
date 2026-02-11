@@ -1,9 +1,9 @@
 [package]
 name = "api"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 publish = false
 
 [dependencies]
-tokio = { version = "1", features = ["full", "parking_lot"] }
+tokio = { workspace = true, features = ["full", "parking_lot"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }

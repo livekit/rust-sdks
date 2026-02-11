@@ -1,41 +1,56 @@
 [package]
 name = "local_video"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 publish = false
+
+[features]
+desktop = []
 
 [[bin]]
 name = "publisher"
 path = "src/publisher.rs"
+required-features = ["desktop"]
 
 [[bin]]
 name = "subscriber"
 path = "src/subscriber.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "list_devices"
+path = "src/list_devices.rs"
+required-features = ["desktop"]
 
 [dependencies]
-tokio = { version = "1", features = ["full", "parking_lot"] }
+tokio = { workspace = true, features = ["full", "parking_lot"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 webrtc-sys = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-api = { workspace = true }
-yuv-sys = { workspace = true }
-futures = "0.3"
-clap = { version = "4.5", features = ["derive"] }
-log = "0.4"
-env_logger = "0.10.0"
-nokhwa = { version = "0.10", default-features = false, features = ["input-avfoundation", "input-v4l", "input-msmf", "output-threaded"] }
+yuv-sys = { workspace = true, features = ["jpeg"] }
+futures = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+log = { workspace = true }
+env_logger = { workspace = true }
 image = "0.24"
 egui = "0.31.1"
 egui-wgpu = "0.31.1"
 eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
 wgpu = "25.0"
 winit = { version = "0.30.11", features = ["android-native-activity"] }
-parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
-anyhow = "1"
+parking_lot = { workspace = true, features = ["deadlock_detection"] }
+anyhow = { workspace = true }
 bytemuck = { version = "1.16", features = ["derive"] }
-time = { version = "0.3", features = ["macros", "formatting"] }
+
+nokhwa = { version = "0.10", default-features = false, features = ["output-threaded"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
+nokhwa = { version = "0.10", default-features = false, features = ["input-avfoundation"] }
 objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+nokhwa = { version = "0.10", default-features = false, features = ["input-v4l"] }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+nokhwa = { version = "0.10", default-features = false, features = ["input-msmf"] }

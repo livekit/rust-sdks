@@ -24,12 +24,12 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class DataChannel;
-}  // namespace livekit
+}  // namespace livekit_ffi
 #include "webrtc-sys/src/data_channel.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class NativeDataChannelObserver;
 
@@ -76,4 +76,4 @@ class NativeDataChannelObserver : public webrtc::DataChannelObserver {
   const DataChannel* dc_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi

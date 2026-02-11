@@ -27,13 +27,13 @@
 #include "rtc_base/ref_count.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 class IceCandidate;
 class SessionDescription;
-};  // namespace livekit
+};  // namespace livekit_ffi
 #include "webrtc-sys/src/jsep.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 class PeerContext;
 
@@ -44,7 +44,7 @@ class IceCandidate {
 
   rust::String sdp_mid() const;
   int sdp_mline_index() const;
-  rust::String candidate() const;  // TODO(theomonnom) Return livekit::Candidate
+  rust::String candidate() const;  // TODO(theomonnom) Return livekit_ffi::Candidate
                                    // instead of rust::String
 
   rust::String stringify() const;
@@ -148,4 +148,4 @@ class NativeRtcStatsCollector : public webrtc::RTCStatsCollectorCallback {
   rust::Fn<void(rust::Box<T>, rust::String)> on_stats_;
 };
 
-}  // namespace livekit
+}  // namespace livekit_ffi
