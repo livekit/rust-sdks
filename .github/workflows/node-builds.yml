@@ -25,7 +25,7 @@ jobs:
   bump_version:
     runs-on: macos-15
     outputs:
-      commit_sha: ${{ steps.commit.outputs.commit_sha }}
+      commit_sha: ${{ steps.commit.outputs.commit_long_sha }}
     steps:
       - uses: actions/checkout@v6
 
