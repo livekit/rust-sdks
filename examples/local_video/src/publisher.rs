@@ -230,6 +230,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut frame = VideoFrame {
         rotation: VideoRotation::VideoRotation0,
         timestamp_us: 0,
+        user_timestamp_us: None,
         buffer: I420Buffer::new(width, height),
     };
     let is_yuyv = fmt.format() == FrameFormat::YUYV;

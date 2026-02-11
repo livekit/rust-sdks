@@ -15,8 +15,11 @@
 use std::{collections::HashMap, sync::Arc};
 
 use libwebrtc::{
-    native::frame_cryptor::{
-        DataPacketCryptor, EncryptedPacket, EncryptionAlgorithm, EncryptionState, FrameCryptor,
+    native::{
+        frame_cryptor::{
+            DataPacketCryptor, EncryptedPacket, EncryptionAlgorithm, EncryptionState, FrameCryptor,
+        },
+        user_timestamp::{self, UserTimestampStore},
     },
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
@@ -91,48 +94,72 @@ impl E2eeManager {
         self.inner.lock().options.is_some()
     }
 
-    /// Called by the room
     pub(crate) fn on_track_subscribed(
         &self,
         track: RemoteTrack,
         publication: RemoteTrackPublication,
         participant: RemoteParticipant,
     ) {
-        if !self.initialized() {
-            return;
-        }
-
-        if publication.encryption_type() == EncryptionType::None {
-            return;
-        }
-
         let identity = participant.identity();
         let receiver = track.transceiver().unwrap().receiver();
+        let mut user_timestamp_handler = None;
+
+        // Always set up user timestamp extraction for remote video tracks.
+        if let RemoteTrack::Video(video_track) = &track {
+            let store = UserTimestampStore::new();
+            let handler = user_timestamp::create_receiver_handler(
+                LkRuntime::instance().pc_factory(),
+                &store,
+                &receiver,
+            );
+            video_track.set_user_timestamp_handler(handler.clone());
+            user_timestamp_handler = Some(handler);
+        }
+
+        if !self.initialized() || publication.encryption_type() == EncryptionType::None {
+            return;
+        }
+
         let frame_cryptor = self.setup_rtp_receiver(&identity, receiver);
+        if let Some(handler) = user_timestamp_handler.as_ref() {
+            frame_cryptor.set_user_timestamp_handler(handler);
+        }
         self.setup_cryptor(&frame_cryptor);
 
         let mut inner = self.inner.lock();
         inner.frame_cryptors.insert((identity, publication.sid()), frame_cryptor.clone());
     }
 
-    /// Called by the room
     pub(crate) fn on_local_track_published(
         &self,
         track: LocalTrack,
         publication: LocalTrackPublication,
         participant: LocalParticipant,
     ) {
-        if !self.initialized() {
-            return;
-        }
-
-        if publication.encryption_type() == EncryptionType::None {
-            return;
-        }
-
         let identity = participant.identity();
         let sender = track.transceiver().unwrap().sender();
+        let mut user_timestamp_handler = None;
+
+        // Always set up user timestamp embedding for local video tracks.
+        if let LocalTrack::Video(video_track) = &track {
+            let store = UserTimestampStore::new();
+            video_track.set_user_timestamp_store(store.clone());
+            let handler = user_timestamp::create_sender_handler(
+                LkRuntime::instance().pc_factory(),
+                &store,
+                &sender,
+            );
+            user_timestamp_handler = Some(handler);
+        }
+
+        if !self.initialized() || publication.encryption_type() == EncryptionType::None {
+            return;
+        }
+
         let frame_cryptor = self.setup_rtp_sender(&identity, sender);
+        if let Some(handler) = user_timestamp_handler.as_ref() {
+            frame_cryptor.set_user_timestamp_handler(handler);
+        }
         self.setup_cryptor(&frame_cryptor);
 
         let mut inner = self.inner.lock();

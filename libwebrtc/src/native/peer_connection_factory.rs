@@ -47,7 +47,13 @@ impl Default for PeerConnectionFactory {
             *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _| {
                 let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
 
-                log::debug!(target: "libwebrtc", "{}", msg);
+                // Route user timestamp transformer logs to a dedicated target so they can
+                // be enabled independently from the very noisy general libwebrtc logs.
+                if msg.contains("UserTimestampTransformer") {
+                    log::info!(target: "user_timestamp_rtp", "{}", msg);
+                } else {
+                    log::debug!(target: "libwebrtc", "{}", msg);
+                }
             }));
         }
 

@@ -14,8 +14,9 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use libwebrtc::{prelude::*, stats::RtcStats};
+use libwebrtc::{native::user_timestamp::UserTimestampHandler, prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
+use parking_lot::Mutex;
 
 use super::{remote_track, TrackInner};
 use crate::prelude::*;
@@ -23,6 +24,7 @@ use crate::prelude::*;
 #[derive(Clone)]
 pub struct RemoteVideoTrack {
     inner: Arc<TrackInner>,
+    user_timestamp_handler: Arc<Mutex<Option<UserTimestampHandler>>>,
 }
 
 impl Debug for RemoteVideoTrack {
@@ -44,6 +46,7 @@ impl RemoteVideoTrack {
                 TrackKind::Video,
                 MediaStreamTrack::Video(rtc_track),
             )),
+            user_timestamp_handler: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -92,6 +95,21 @@ impl RemoteVideoTrack {
 
     pub fn is_remote(&self) -> bool {
         true
+    }
+
+    /// Returns the last parsed user timestamp (in microseconds) for this
+    /// remote video track, if the user timestamp transformer is enabled and
+    /// a timestamp has been received.
+    pub fn last_user_timestamp(&self) -> Option<i64> {
+        self.user_timestamp_handler
+            .lock()
+            .as_ref()
+            .and_then(|h| h.last_user_timestamp())
+    }
+
+    /// Internal: set the handler that extracts user timestamps for this track.
+    pub(crate) fn set_user_timestamp_handler(&self, handler: UserTimestampHandler) {
+        self.user_timestamp_handler.lock().replace(handler);
     }
 
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {
