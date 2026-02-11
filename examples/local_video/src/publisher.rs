@@ -267,23 +267,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
     let pace_fps = args.fps as f64;
 
-    // // Drain warmup frames from the camera. V4L2 cameras (especially on Raspberry Pi)
-    // // often produce partial or garbage frames while the sensor's auto-exposure and
-    // // white-balance are still converging. Discarding a few frames here avoids publishing
-    // // distorted video at stream start.
-    // let warmup_count = (args.fps as usize).max(10); // ~1 second worth of frames
-    // info!("Draining {} camera warmup frames...", warmup_count);
-    // let mut drained = 0;
-    // for _ in 0..warmup_count {
-    //     match camera.frame() {
-    //         Ok(_) => drained += 1,
-    //         Err(e) => {
-    //             debug!("Warmup frame error (expected): {}", e);
-    //         }
-    //     }
-    // }
-    // info!("Drained {} warmup frames", drained);
-
     // Create LiveKit video source and track
     let rtc_source = NativeVideoSource::new(VideoResolution { width, height });
     let track =
