@@ -191,28 +191,17 @@ async fn main() -> Result<()> {
     let requested =
         RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
     let mut camera = Camera::new(index, requested)?;
-    // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
+    // Request raw YUYV (all frames are guaranteed to arrive as YUV2/YUYV)
     let wanted =
         CameraFormat::new(Resolution::new(args.width, args.height), FrameFormat::YUYV, args.fps);
-    let mut using_fmt = "YUYV";
-    if let Err(_) = camera
-        .set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(wanted)))
-    {
-        let alt = CameraFormat::new(
-            Resolution::new(args.width, args.height),
-            FrameFormat::MJPEG,
-            args.fps,
-        );
-        using_fmt = "MJPEG";
-        let _ = camera
-            .set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
-    }
+    camera
+        .set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(wanted)))?;
     camera.open_stream()?;
     let fmt = camera.camera_format();
     let width = fmt.width();
     let height = fmt.height();
     let fps = fmt.frame_rate();
-    info!("Camera opened: {}x{} @ {} fps (format: {})", width, height, fps, using_fmt);
+    info!("Camera opened: {}x{} @ {} fps (format: YUYV)", width, height, fps);
     debug!("Negotiated nokhwa CameraFormat: {:?}", fmt);
     // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
     let pace_fps = args.fps as f64;
@@ -289,11 +278,7 @@ async fn main() -> Result<()> {
             user_timestamp_us: None,
             buffer: I420Buffer::new(width, height),
         };
-        let is_yuyv = fmt.format() == FrameFormat::YUYV;
-        info!(
-            "Selected conversion path: {}",
-            if is_yuyv { "YUYV->I420 (libyuv)" } else { "Auto (RGB24 or MJPEG)" }
-        );
+        info!("Selected conversion path: YUYV->I420 (libyuv)");
 
         // Accurate pacing using absolute schedule (no drift)
         let mut ticker = tokio::time::interval(Duration::from_secs_f64(1.0 / pace_fps));
@@ -315,8 +300,6 @@ async fn main() -> Result<()> {
         let mut sum_capture_ms = 0.0;
         let mut sum_sleep_ms = 0.0;
         let mut sum_iter_ms = 0.0;
-        let mut logged_mjpeg_fallback = false;
-
         // Local YUV buffers reused for preview upload (if enabled)
         let mut y_buf: Vec<u8> = Vec::new();
         let mut u_buf: Vec<u8> = Vec::new();
@@ -342,129 +325,32 @@ async fn main() -> Result<()> {
                 None
             };
 
-            // Get frame as RGB24 (decoded by nokhwa if needed)
+            // Get raw YUYV frame from camera
             let t0 = Instant::now();
             let frame_buf = camera.frame()?;
             let t1 = Instant::now();
             let (stride_y, stride_u, stride_v) = frame.buffer.strides();
             let (data_y, data_u, data_v) = frame.buffer.data_mut();
-            // Fast path for YUYV: convert directly to I420 via libyuv
-            let t2 = if is_yuyv {
-                let src = frame_buf.buffer();
-                let src_bytes = src.as_ref();
-                let src_stride = (width * 2) as i32; // YUYV packed 4:2:2
-                let t2_local = t1; // no decode step in YUYV path
-                unsafe {
-                    // returns 0 on success
-                    let _ = yuv_sys::rs_YUY2ToI420(
-                        src_bytes.as_ptr(),
-                        src_stride,
-                        data_y.as_mut_ptr(),
-                        stride_y as i32,
-                        data_u.as_mut_ptr(),
-                        stride_u as i32,
-                        data_v.as_mut_ptr(),
-                        stride_v as i32,
-                        width as i32,
-                        height as i32,
-                    );
-                }
-                t2_local
-            } else {
-                // Auto path (either RGB24 already or compressed MJPEG)
-                let src = frame_buf.buffer();
-                let t2_local = if src.len() == (width as usize * height as usize * 3) {
-                    // Already RGB24 from backend; convert directly
-                    unsafe {
-                        let _ = yuv_sys::rs_RGB24ToI420(
-                            src.as_ref().as_ptr(),
-                            (width * 3) as i32,
-                            data_y.as_mut_ptr(),
-                            stride_y as i32,
-                            data_u.as_mut_ptr(),
-                            stride_u as i32,
-                            data_v.as_mut_ptr(),
-                            stride_v as i32,
-                            width as i32,
-                            height as i32,
-                        );
-                    }
-                    Instant::now()
-                } else {
-                    // Try fast MJPEG->I420 via libyuv if available; fallback to image crate.
-                    // The libyuv rs_MJPGToI420 symbol only exists when yuv-sys was compiled
-                    // with HAVE_JPEG (requires libjpeg headers at build time). Use cfg to
-                    // avoid a linker error when the symbol is absent.
-                    #[cfg(yuv_has_jpeg)]
-                    let fast_mjpeg_result = {
-                        let ret = unsafe {
-                            yuv_sys::rs_MJPGToI420(
-                                src.as_ref().as_ptr(),
-                                src.len(),
-                                data_y.as_mut_ptr(),
-                                stride_y as i32,
-                                data_u.as_mut_ptr(),
-                                stride_u as i32,
-                                data_v.as_mut_ptr(),
-                                stride_v as i32,
-                                width as i32,
-                                height as i32,
-                                width as i32,
-                                height as i32,
-                            )
-                        };
-                        ret == 0
-                    };
-                    #[cfg(not(yuv_has_jpeg))]
-                    let fast_mjpeg_result = false;
-
-                    if fast_mjpeg_result {
-                        Instant::now()
-                    } else {
-                        // Fallback: decode MJPEG using image crate then RGB24->I420
-                        match image::load_from_memory(src.as_ref()) {
-                            Ok(img_dyn) => {
-                                let rgb8 = img_dyn.to_rgb8();
-                                let dec_w = rgb8.width() as u32;
-                                let dec_h = rgb8.height() as u32;
-                                if dec_w != width || dec_h != height {
-                                    log::warn!(
-                                        "Decoded MJPEG size {}x{} differs from requested {}x{}; dropping frame",
-                                        dec_w, dec_h, width, height
-                                    );
-                                    continue;
-                                }
-                                unsafe {
-                                    let _ = yuv_sys::rs_RGB24ToI420(
-                                        rgb8.as_raw().as_ptr(),
-                                        (dec_w * 3) as i32,
-                                        data_y.as_mut_ptr(),
-                                        stride_y as i32,
-                                        data_u.as_mut_ptr(),
-                                        stride_u as i32,
-                                        data_v.as_mut_ptr(),
-                                        stride_v as i32,
-                                        width as i32,
-                                        height as i32,
-                                    );
-                                }
-                                Instant::now()
-                            }
-                            Err(e2) => {
-                                if !logged_mjpeg_fallback {
-                                    log::error!(
-                                        "MJPEG decode failed; buffer not RGB24 and image decode failed: {}",
-                                        e2
-                                    );
-                                    logged_mjpeg_fallback = true;
-                                }
-                                continue;
-                            }
-                        }
-                    }
-                };
-                t2_local
-            };
+            // Convert YUYV directly to I420 via libyuv
+            let src = frame_buf.buffer();
+            let src_bytes = src.as_ref();
+            let src_stride = (width * 2) as i32; // YUYV packed 4:2:2
+            let t2 = t1; // no decode step in YUYV path
+            unsafe {
+                // returns 0 on success
+                let _ = yuv_sys::rs_YUY2ToI420(
+                    src_bytes.as_ptr(),
+                    src_stride,
+                    data_y.as_mut_ptr(),
+                    stride_y as i32,
+                    data_u.as_mut_ptr(),
+                    stride_u as i32,
+                    data_v.as_mut_ptr(),
+                    stride_v as i32,
+                    width as i32,
+                    height as i32,
+                );
+            }
             let t3 = Instant::now();
 
             // Update RTP timestamp (monotonic, microseconds since start)

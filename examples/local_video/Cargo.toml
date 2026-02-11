@@ -28,12 +28,11 @@ livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 webrtc-sys = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-api = { workspace = true }
-yuv-sys = { workspace = true, features = ["jpeg"] }
+yuv-sys = { workspace = true }
 futures = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 log = { workspace = true }
 env_logger = { workspace = true }
-image = "0.24"
 egui = "0.31.1"
 egui-wgpu = "0.31.1"
 eframe = { version = "0.31.1", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
