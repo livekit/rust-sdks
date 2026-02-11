@@ -18,6 +18,7 @@ members = [
     "examples/agent_dispatch",
     "examples/api",
     "examples/basic_room",
+    "examples/encoded_video",
     "examples/basic_text_stream",
     "examples/encrypted_text_stream",
     "examples/local_audio",

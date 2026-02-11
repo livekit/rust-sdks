@@ -49,6 +49,8 @@ message NewVideoSourceRequest {
   // Used to determine which encodings to use + simulcast layers
   // Most of the time it corresponds to the source resolution 
   required VideoSourceResolution resolution = 2;
+  // Required when type is VIDEO_SOURCE_ENCODED
+  optional VideoCodecType codec = 3;
 }
 message NewVideoSourceResponse { required OwnedVideoSource source = 1; }
 
@@ -61,6 +63,19 @@ message CaptureVideoFrameRequest {
 }
 
 message CaptureVideoFrameResponse {}
+
+// Push a pre-encoded frame to a VideoSource (type must be VIDEO_SOURCE_ENCODED)
+message CaptureEncodedVideoFrameRequest {
+  required uint64 source_handle = 1;
+  required bytes data = 2;
+  required int64 capture_time_us = 3;
+  required uint32 rtp_timestamp = 4;
+  required uint32 width = 5;
+  required uint32 height = 6;
+  required bool is_keyframe = 7;
+  required bool has_sps_pps = 8;
+}
+message CaptureEncodedVideoFrameResponse {}
 
 message VideoConvertRequest {
   optional bool flip_y = 1;
@@ -180,6 +195,15 @@ message VideoSourceResolution {
 
 enum VideoSourceType {
   VIDEO_SOURCE_NATIVE = 0;
+  VIDEO_SOURCE_ENCODED = 1;
+}
+
+enum VideoCodecType {
+  CODEC_VP8 = 0;
+  CODEC_VP9 = 1;
+  CODEC_AV1 = 2;
+  CODEC_H264 = 3;
+  CODEC_H265 = 4;
 }
 
 message VideoSourceInfo {

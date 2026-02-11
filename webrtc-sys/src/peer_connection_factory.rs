@@ -50,6 +50,7 @@ pub mod ffi {
         include!("livekit/webrtc.h");
         include!("livekit/peer_connection.h");
         include!("livekit/audio_track.h");
+        include!("livekit/encoded_video_source.h");
 
         type RtcConfiguration = crate::peer_connection::ffi::RtcConfiguration;
         type PeerConnectionState = crate::peer_connection::ffi::PeerConnectionState;
@@ -79,6 +80,8 @@ pub mod ffi {
         type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
         type SessionDescription = crate::jsep::ffi::SessionDescription;
         type MediaType = crate::webrtc::ffi::MediaType;
+        type EncodedVideoTrackSource =
+            crate::encoded_video_source::ffi::EncodedVideoTrackSource;
     }
 
     unsafe extern "C++" {
@@ -106,6 +109,12 @@ pub mod ffi {
             label: String,
             source: SharedPtr<AudioTrackSource>,
         ) -> SharedPtr<AudioTrack>;
+
+        fn create_video_track_from_encoded_source(
+            self: &PeerConnectionFactory,
+            label: String,
+            source: SharedPtr<EncodedVideoTrackSource>,
+        ) -> SharedPtr<VideoTrack>;
 
         fn rtp_sender_capabilities(
             self: &PeerConnectionFactory,

@@ -21,7 +21,7 @@ import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialM
 import { Message, proto2 } from "@bufbuild/protobuf";
 import { ConnectCallback, ConnectRequest, ConnectResponse, DisconnectCallback, DisconnectRequest, DisconnectResponse, EditChatMessageRequest, GetSessionStatsCallback, GetSessionStatsRequest, GetSessionStatsResponse, PublishDataCallback, PublishDataRequest, PublishDataResponse, PublishSipDtmfCallback, PublishSipDtmfRequest, PublishSipDtmfResponse, PublishTrackCallback, PublishTrackRequest, PublishTrackResponse, PublishTranscriptionCallback, PublishTranscriptionRequest, PublishTranscriptionResponse, RoomEvent, SendChatMessageCallback, SendChatMessageRequest, SendChatMessageResponse, SendStreamChunkCallback, SendStreamChunkRequest, SendStreamChunkResponse, SendStreamHeaderCallback, SendStreamHeaderRequest, SendStreamHeaderResponse, SendStreamTrailerCallback, SendStreamTrailerRequest, SendStreamTrailerResponse, SetDataChannelBufferedAmountLowThresholdRequest, SetDataChannelBufferedAmountLowThresholdResponse, SetLocalAttributesCallback, SetLocalAttributesRequest, SetLocalAttributesResponse, SetLocalMetadataCallback, SetLocalMetadataRequest, SetLocalMetadataResponse, SetLocalNameCallback, SetLocalNameRequest, SetLocalNameResponse, SetSubscribedRequest, SetSubscribedResponse, UnpublishTrackCallback, UnpublishTrackRequest, UnpublishTrackResponse } from "./room_pb.js";
 import { CreateAudioTrackRequest, CreateAudioTrackResponse, CreateVideoTrackRequest, CreateVideoTrackResponse, EnableRemoteTrackRequest, EnableRemoteTrackResponse, GetStatsCallback, GetStatsRequest, GetStatsResponse, LocalTrackMuteRequest, LocalTrackMuteResponse, SetTrackSubscriptionPermissionsRequest, SetTrackSubscriptionPermissionsResponse, TrackEvent } from "./track_pb.js";
-import { CaptureVideoFrameRequest, CaptureVideoFrameResponse, NewVideoSourceRequest, NewVideoSourceResponse, NewVideoStreamRequest, NewVideoStreamResponse, VideoConvertRequest, VideoConvertResponse, VideoStreamEvent, VideoStreamFromParticipantRequest, VideoStreamFromParticipantResponse } from "./video_frame_pb.js";
+import { CaptureEncodedVideoFrameRequest, CaptureEncodedVideoFrameResponse, CaptureVideoFrameRequest, CaptureVideoFrameResponse, NewVideoSourceRequest, NewVideoSourceResponse, NewVideoStreamRequest, NewVideoStreamResponse, VideoConvertRequest, VideoConvertResponse, VideoStreamEvent, VideoStreamFromParticipantRequest, VideoStreamFromParticipantResponse } from "./video_frame_pb.js";
 import { ApmProcessReverseStreamRequest, ApmProcessReverseStreamResponse, ApmProcessStreamRequest, ApmProcessStreamResponse, ApmSetStreamDelayRequest, ApmSetStreamDelayResponse, AudioStreamEvent, AudioStreamFromParticipantRequest, AudioStreamFromParticipantResponse, CaptureAudioFrameCallback, CaptureAudioFrameRequest, CaptureAudioFrameResponse, ClearAudioBufferRequest, ClearAudioBufferResponse, FlushSoxResamplerRequest, FlushSoxResamplerResponse, LoadAudioFilterPluginRequest, LoadAudioFilterPluginResponse, NewApmRequest, NewApmResponse, NewAudioResamplerRequest, NewAudioResamplerResponse, NewAudioSourceRequest, NewAudioSourceResponse, NewAudioStreamRequest, NewAudioStreamResponse, NewSoxResamplerRequest, NewSoxResamplerResponse, PushSoxResamplerRequest, PushSoxResamplerResponse, RemixAndResampleRequest, RemixAndResampleResponse } from "./audio_frame_pb.js";
 import { E2eeRequest, E2eeResponse } from "./e2ee_pb.js";
 import { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, RegisterRpcMethodRequest, RegisterRpcMethodResponse, RpcMethodInvocationEvent, RpcMethodInvocationResponseRequest, RpcMethodInvocationResponseResponse, UnregisterRpcMethodRequest, UnregisterRpcMethodResponse } from "./rpc_pb.js";
@@ -226,6 +226,12 @@ export class FfiRequest extends Message<FfiRequest> {
      */
     value: VideoStreamFromParticipantRequest;
     case: "videoStreamFromParticipant";
+  } | {
+    /**
+     * @generated from field: livekit.proto.CaptureEncodedVideoFrameRequest capture_encoded_video_frame = 69;
+     */
+    value: CaptureEncodedVideoFrameRequest;
+    case: "captureEncodedVideoFrame";
   } | {
     /**
      * Audio
@@ -532,6 +538,7 @@ export class FfiRequest extends Message<FfiRequest> {
     { no: 22, name: "capture_video_frame", kind: "message", T: CaptureVideoFrameRequest, oneof: "message" },
     { no: 23, name: "video_convert", kind: "message", T: VideoConvertRequest, oneof: "message" },
     { no: 24, name: "video_stream_from_participant", kind: "message", T: VideoStreamFromParticipantRequest, oneof: "message" },
+    { no: 69, name: "capture_encoded_video_frame", kind: "message", T: CaptureEncodedVideoFrameRequest, oneof: "message" },
     { no: 25, name: "new_audio_stream", kind: "message", T: NewAudioStreamRequest, oneof: "message" },
     { no: 26, name: "new_audio_source", kind: "message", T: NewAudioSourceRequest, oneof: "message" },
     { no: 27, name: "capture_audio_frame", kind: "message", T: CaptureAudioFrameRequest, oneof: "message" },
@@ -1019,6 +1026,12 @@ export class FfiResponse extends Message<FfiResponse> {
      */
     value: SetRemoteTrackPublicationQualityResponse;
     case: "setRemoteTrackPublicationQuality";
+  } | {
+    /**
+     * @generated from field: livekit.proto.CaptureEncodedVideoFrameResponse capture_encoded_video_frame = 68;
+     */
+    value: CaptureEncodedVideoFrameResponse;
+    case: "captureEncodedVideoFrame";
   } | { case: undefined; value?: undefined } = { case: undefined };
 
   constructor(data?: PartialMessage<FfiResponse>) {
@@ -1095,6 +1108,7 @@ export class FfiResponse extends Message<FfiResponse> {
     { no: 65, name: "text_stream_close", kind: "message", T: TextStreamWriterCloseResponse, oneof: "message" },
     { no: 66, name: "send_bytes", kind: "message", T: StreamSendBytesResponse, oneof: "message" },
     { no: 67, name: "set_remote_track_publication_quality", kind: "message", T: SetRemoteTrackPublicationQualityResponse, oneof: "message" },
+    { no: 68, name: "capture_encoded_video_frame", kind: "message", T: CaptureEncodedVideoFrameResponse, oneof: "message" },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): FfiResponse {

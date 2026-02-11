@@ -24,6 +24,16 @@ pub struct FfiVideoSource {
 
 impl FfiHandle for FfiVideoSource {}
 
+fn proto_codec_to_libwebrtc(codec: proto::VideoCodecType) -> VideoCodecType {
+    match codec {
+        proto::VideoCodecType::CodecVp8 => VideoCodecType::VP8,
+        proto::VideoCodecType::CodecVp9 => VideoCodecType::VP9,
+        proto::VideoCodecType::CodecAv1 => VideoCodecType::AV1,
+        proto::VideoCodecType::CodecH264 => VideoCodecType::H264,
+        proto::VideoCodecType::CodecH265 => VideoCodecType::H265,
+    }
+}
+
 impl FfiVideoSource {
     pub fn setup(
         server: &'static server::FfiServer,
@@ -38,6 +48,20 @@ impl FfiVideoSource {
 
                 let video_source = NativeVideoSource::new(new_source.resolution.into());
                 RtcVideoSource::Native(video_source)
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            proto::VideoSourceType::VideoSourceEncoded => {
+                use livekit::webrtc::encoded_video_source::native::NativeEncodedVideoSource;
+
+                let proto_codec = new_source
+                    .codec
+                    .and_then(|c| proto::VideoCodecType::try_from(c).ok())
+                    .unwrap_or(proto::VideoCodecType::CodecH264);
+                let codec = proto_codec_to_libwebrtc(proto_codec);
+                let res = new_source.resolution;
+                let video_source =
+                    NativeEncodedVideoSource::new(res.width, res.height, codec);
+                RtcVideoSource::Encoded(video_source)
             }
             _ => return Err(FfiError::InvalidRequest("unsupported video source type".into())),
         };
@@ -71,6 +95,36 @@ impl FfiVideoSource {
                 source.capture_frame(&frame);
             }
             _ => {}
+        }
+        Ok(())
+    }
+
+    pub fn capture_encoded_frame(
+        &self,
+        _server: &'static server::FfiServer,
+        capture: proto::CaptureEncodedVideoFrameRequest,
+    ) -> FfiResult<()> {
+        match self.source {
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcVideoSource::Encoded(ref source) => {
+                use livekit::webrtc::encoded_video_source::EncodedFrameInfo;
+
+                let info = EncodedFrameInfo {
+                    data: capture.data,
+                    capture_time_us: capture.capture_time_us,
+                    rtp_timestamp: capture.rtp_timestamp,
+                    width: capture.width,
+                    height: capture.height,
+                    is_keyframe: capture.is_keyframe,
+                    has_sps_pps: capture.has_sps_pps,
+                };
+                source.capture_frame(&info);
+            }
+            _ => {
+                return Err(FfiError::InvalidRequest(
+                    "capture_encoded_frame called on non-encoded source".into(),
+                ));
+            }
         }
         Ok(())
     }

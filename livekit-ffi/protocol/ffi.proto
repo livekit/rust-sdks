@@ -87,6 +87,7 @@ message FfiRequest {
     CaptureVideoFrameRequest capture_video_frame = 22;
     VideoConvertRequest video_convert = 23;
     VideoStreamFromParticipantRequest video_stream_from_participant = 24;
+    CaptureEncodedVideoFrameRequest capture_encoded_video_frame = 69;
 
     // Audio
     NewAudioStreamRequest new_audio_stream = 25;
@@ -152,7 +153,7 @@ message FfiRequest {
 
     SetRemoteTrackPublicationQualityRequest set_remote_track_publication_quality = 68;
 
-    // NEXT_ID: 69
+    // NEXT_ID: 70
   }
 }
 
@@ -250,8 +251,9 @@ message FfiResponse {
     StreamSendBytesResponse send_bytes = 66;
 
     SetRemoteTrackPublicationQualityResponse set_remote_track_publication_quality = 67;
+    CaptureEncodedVideoFrameResponse capture_encoded_video_frame = 68;
 
-    // NEXT_ID: 68
+    // NEXT_ID: 69
   }
 }
 

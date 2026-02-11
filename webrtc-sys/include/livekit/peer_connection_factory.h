@@ -20,6 +20,7 @@
 #include "api/scoped_refptr.h"
 #include "api/task_queue/task_queue_factory.h"
 #include "livekit/audio_device.h"
+#include "livekit/encoded_video_source.h"
 #include "media_stream.h"
 #include "rtp_parameters.h"
 #include "rust/cxx.h"
@@ -51,6 +52,10 @@ class PeerConnectionFactory {
   std::shared_ptr<VideoTrack> create_video_track(
       rust::String label,
       std::shared_ptr<VideoTrackSource> source) const;
+
+  std::shared_ptr<VideoTrack> create_video_track_from_encoded_source(
+      rust::String label,
+      std::shared_ptr<EncodedVideoTrackSource> source) const;
 
   std::shared_ptr<AudioTrack> create_audio_track(
       rust::String label,

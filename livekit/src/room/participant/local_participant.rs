@@ -39,7 +39,10 @@ use crate::{
     ChatMessage, DataPacket, RoomSession, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription,
 };
 use chrono::Utc;
-use libwebrtc::{native::create_random_uuid, rtp_parameters::RtpEncodingParameters};
+use libwebrtc::{
+    native::create_random_uuid, rtp_parameters::RtpEncodingParameters,
+    video_source::RtcVideoSource,
+};
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
 use livekit_runtime::timeout;
@@ -252,8 +255,27 @@ impl LocalParticipant {
     pub async fn publish_track(
         &self,
         track: LocalTrack,
-        options: TrackPublishOptions,
+        mut options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
+        // When publishing an encoded source, force codec and disable simulcast
+        #[cfg(not(target_arch = "wasm32"))]
+        if let LocalTrack::Video(ref video_track) = track {
+            let source = video_track.rtc_source();
+            if let RtcVideoSource::Encoded(ref encoded_source) = source {
+                use crate::options::VideoCodec;
+                use libwebrtc::encoded_video_source::VideoCodecType;
+
+                options.simulcast = false;
+                options.video_codec = match encoded_source.codec_type() {
+                    VideoCodecType::VP8 => VideoCodec::VP8,
+                    VideoCodecType::VP9 => VideoCodec::VP9,
+                    VideoCodecType::AV1 => VideoCodec::AV1,
+                    VideoCodecType::H264 => VideoCodec::H264,
+                    VideoCodecType::H265 => VideoCodec::H265,
+                };
+            }
+        }
+
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
 
         let mut req = proto::AddTrackRequest {
