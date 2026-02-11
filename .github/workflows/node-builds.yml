@@ -210,9 +210,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          ref: ${{ needs.bump_version.outputs.commit_sha }}
-          fetch-depth: 0
+
+      - run: git fetch origin ${{ needs.bump_version.outputs.commit_sha }}
+
+      - run: git reset --hard ${{ needs.bump_version.outputs.commit_sha }}
 
       - uses: pnpm/action-setup@v4
         with:
