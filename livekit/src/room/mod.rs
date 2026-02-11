@@ -1062,13 +1062,11 @@ impl RoomSession {
 
         let (participant_sid, stream_id) = lk_stream_id.unwrap();
         let mut track_id = track.id();
-        if stream_id.starts_with("TR") {
-            track_id = stream_id.into();
-        }
 
-        // In single PC mode, try to resolve track ID from mid_to_track_id mapping
+        // Resolve track ID based on signaling mode
         let session = self.rtc_engine.session();
-        if session.is_single_pc_mode() && !track_id.starts_with("TR") {
+        if session.is_single_pc_mode() {
+            // In single PC mode, resolve track ID from mid_to_track_id mapping
             if let Some(mid) = transceiver.mid() {
                 if let Some(resolved_track_id) = session.get_track_id_for_mid(&mid) {
                     log::debug!(
@@ -1079,12 +1077,15 @@ impl RoomSession {
                     track_id = resolved_track_id.into();
                 } else {
                     log::warn!(
-                        "could not resolve track_id for mid={}, using stream_id={}",
+                        "could not resolve track_id for mid={}, using track.id()={}",
                         mid,
                         track_id
                     );
                 }
             }
+        } else if stream_id.starts_with("TR") {
+            // In dual PC mode, use stream_id if it's a valid track ID
+            track_id = stream_id.into();
         }
 
         if !track_id.starts_with("TR") {
@@ -1188,29 +1189,29 @@ impl RoomSession {
         // In dual PC mode, use subscriber's offer/answer
         let (offer, answer) = if single_pc_mode {
             let pub_pc = session.publisher().peer_connection();
-            let local_desc = pub_pc.current_local_description();
-            let remote_desc = pub_pc.current_remote_description();
-            if local_desc.is_none() {
+            let Some(local_desc) = pub_pc.current_local_description() else {
                 log::warn!("skipping sendSyncState, no publisher offer");
                 return;
-            }
+            };
+            let remote_desc = pub_pc.current_remote_description();
             // In single PC mode: offer is local (publisher initiates), answer is remote
-            (local_desc.unwrap(), remote_desc)
+            (local_desc, remote_desc)
         } else {
-            let sub_pc = session.subscriber();
-            if sub_pc.is_none() {
+            let Some(sub_pc) = session.subscriber() else {
                 log::warn!("skipping sendSyncState, no subscriber");
                 return;
-            }
-            let sub_pc = sub_pc.unwrap().peer_connection();
-            let local_desc = sub_pc.current_local_description();
-            let remote_desc = sub_pc.current_remote_description();
-            if local_desc.is_none() {
+            };
+            let sub_pc = sub_pc.peer_connection();
+            let Some(local_desc) = sub_pc.current_local_description() else {
                 log::warn!("skipping sendSyncState, no subscriber answer");
                 return;
-            }
+            };
+            let Some(remote_desc) = sub_pc.current_remote_description() else {
+                log::warn!("skipping sendSyncState, no subscriber offer");
+                return;
+            };
             // In dual PC mode: answer is local, offer is remote
-            (remote_desc.unwrap(), Some(local_desc.unwrap()))
+            (remote_desc, Some(local_desc))
         };
 
         let mut track_sids = Vec::new();

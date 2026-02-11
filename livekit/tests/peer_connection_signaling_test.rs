@@ -18,23 +18,25 @@
 //! signaling modes work correctly.
 //!
 //! V0 (Dual PC): Traditional mode with separate publisher and subscriber peer connections
-//!               Can run on localhost with `livekit-server --dev`
+//!               Works on localhost with `livekit-server --dev`
 //!
 //! V1 (Single PC): New mode with a single peer connection for both publish and subscribe
-//!                 Requires LiveKit Cloud or a server supporting /rtc/v1 endpoint
+//!                 Requires LiveKit Cloud or a server that supports /rtc/v1 endpoint.
+//!                 NOTE: V1 tests will fall back to V0 on localhost, so to truly test V1,
+//!                 you must set the cloud environment variables.
 //!
-//! Environment variables (required for V1, optional for V0):
-//! - LIVEKIT_URL: The LiveKit server URL (V0 defaults to ws://localhost:7880)
-//! - LIVEKIT_API_KEY: The API key (V0 defaults to "devkey")
-//! - LIVEKIT_API_SECRET: The API secret (V0 defaults to "secret")
+//! Environment variables:
+//! - LIVEKIT_URL: The LiveKit server URL (defaults to ws://localhost:7880)
+//! - LIVEKIT_API_KEY: The API key (defaults to "devkey")
+//! - LIVEKIT_API_SECRET: The API secret (defaults to "secret")
 //!
 //! Run all tests:
 //!   cargo test -p livekit --features "__lk-e2e-test,native-tls" --test peer_connection_signaling_test -- --nocapture
 //!
-//! Run only V0 tests (works on localhost):
+//! Run only V0 tests:
 //!   cargo test -p livekit --features "__lk-e2e-test,native-tls" --test peer_connection_signaling_test v0_ -- --nocapture
 //!
-//! Run only V1 tests (requires cloud):
+//! Run only V1 tests (set cloud env vars first):
 //!   cargo test -p livekit --features "__lk-e2e-test,native-tls" --test peer_connection_signaling_test v1_ -- --nocapture
 
 mod common;
@@ -78,53 +80,18 @@ mod signaling_tests {
         }
     }
 
-    /// Default localhost configuration for V0 tests
+    /// Default localhost configuration
     const DEFAULT_LOCALHOST_URL: &str = "ws://localhost:7880";
     const DEFAULT_API_KEY: &str = "devkey";
     const DEFAULT_API_SECRET: &str = "secret";
 
-    /// Get environment variables for V0 tests (uses localhost defaults)
-    fn get_v0_env() -> (String, String, String) {
+    /// Get environment for tests (uses localhost defaults if env vars not set)
+    fn get_env_for_mode(_mode: SignalingMode) -> (String, String, String) {
         let url = env::var("LIVEKIT_URL").unwrap_or_else(|_| DEFAULT_LOCALHOST_URL.to_string());
         let api_key = env::var("LIVEKIT_API_KEY").unwrap_or_else(|_| DEFAULT_API_KEY.to_string());
         let api_secret =
             env::var("LIVEKIT_API_SECRET").unwrap_or_else(|_| DEFAULT_API_SECRET.to_string());
         (url, api_key, api_secret)
-    }
-
-    /// Check if cloud environment variables are set (required for V1 tests)
-    fn check_cloud_env_vars() -> Option<(String, String, String)> {
-        let url = env::var("LIVEKIT_URL").ok()?;
-        let api_key = env::var("LIVEKIT_API_KEY").ok()?;
-        let api_secret = env::var("LIVEKIT_API_SECRET").ok()?;
-        Some((url, api_key, api_secret))
-    }
-
-    /// Get environment for the given signaling mode
-    /// V0: Uses localhost defaults if env vars not set
-    /// V1: Requires env vars to be set, returns None if not
-    fn get_env_for_mode(mode: SignalingMode) -> Option<(String, String, String)> {
-        match mode {
-            SignalingMode::DualPC => Some(get_v0_env()),
-            SignalingMode::SinglePC => check_cloud_env_vars(),
-        }
-    }
-
-    /// Macro to get environment for the given mode, skipping if V1 and no cloud env
-    macro_rules! require_env_for_mode {
-        ($mode:expr) => {
-            match get_env_for_mode($mode) {
-                Some(env) => env,
-                None => {
-                    log::warn!(
-                        "Skipping {} test: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET not set. \
-                         V1 tests require LiveKit Cloud or a server supporting /rtc/v1 endpoint.",
-                        $mode.name()
-                    );
-                    return Ok(());
-                }
-            }
-        };
     }
 
     /// Create a token for testing
@@ -251,7 +218,7 @@ mod signaling_tests {
 
     /// Test basic connection
     async fn test_connect_impl(mode: SignalingMode) -> Result<()> {
-        let (url, api_key, api_secret) = require_env_for_mode!(mode);
+        let (url, api_key, api_secret) = get_env_for_mode(mode);
         let room_name = format!("test_{:?}_{}", mode, create_random_uuid());
         let token = create_token(&api_key, &api_secret, &room_name, "test_participant")?;
 
@@ -278,7 +245,7 @@ mod signaling_tests {
 
     /// Test two participants connecting
     async fn test_two_participants_impl(mode: SignalingMode) -> Result<()> {
-        let (url, api_key, api_secret) = require_env_for_mode!(mode);
+        let (url, api_key, api_secret) = get_env_for_mode(mode);
         let room_name = format!("test_{:?}_2p_{}", mode, create_random_uuid());
 
         let token1 = create_token(&api_key, &api_secret, &room_name, "participant_1")?;
@@ -312,7 +279,7 @@ mod signaling_tests {
 
     /// Test publishing and receiving audio tracks
     async fn test_audio_track_impl(mode: SignalingMode) -> Result<()> {
-        let (url, api_key, api_secret) = require_env_for_mode!(mode);
+        let (url, api_key, api_secret) = get_env_for_mode(mode);
         let room_name = format!("test_{:?}_audio_{}", mode, create_random_uuid());
 
         let token_pub = create_token(&api_key, &api_secret, &room_name, "publisher")?;
@@ -383,7 +350,7 @@ mod signaling_tests {
 
     /// Test reconnection - verifies tracks are restored
     async fn test_reconnect_impl(mode: SignalingMode) -> Result<()> {
-        let (url, api_key, api_secret) = require_env_for_mode!(mode);
+        let (url, api_key, api_secret) = get_env_for_mode(mode);
         let room_name = format!("test_{:?}_reconnect_{}", mode, create_random_uuid());
 
         let token_pub = create_token(&api_key, &api_secret, &room_name, "publisher")?;
@@ -491,7 +458,7 @@ mod signaling_tests {
 
     /// Test data channel
     async fn test_data_channel_impl(mode: SignalingMode) -> Result<()> {
-        let (url, api_key, api_secret) = require_env_for_mode!(mode);
+        let (url, api_key, api_secret) = get_env_for_mode(mode);
         let room_name = format!("test_{:?}_data_{}", mode, create_random_uuid());
 
         let token1 = create_token(&api_key, &api_secret, &room_name, "participant_1")?;
@@ -559,7 +526,7 @@ mod signaling_tests {
 
     /// Test node failure reconnection scenario
     async fn test_node_failure_impl(mode: SignalingMode) -> Result<()> {
-        let (url, api_key, api_secret) = require_env_for_mode!(mode);
+        let (url, api_key, api_secret) = get_env_for_mode(mode);
         let room_name = format!("test_{:?}_node_fail_{}", mode, create_random_uuid());
 
         let token = create_token(&api_key, &api_secret, &room_name, "test_participant")?;
