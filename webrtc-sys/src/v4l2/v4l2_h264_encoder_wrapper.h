@@ -68,6 +68,9 @@ class V4l2H264EncoderWrapper {
   // Helper: ioctl with EINTR retry.
   static int Xioctl(int fd, unsigned long ctl, void* arg);
 
+  // Feed black frames through the encoder to prime its internal pipeline.
+  void PrimeEncoderPipeline();
+
   // Copy an I420 frame into the mmap'd output buffer at |index|.
   void CopyI420ToOutputBuffer(int index,
                               const uint8_t* y,

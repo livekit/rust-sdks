@@ -380,6 +380,14 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
   initialized_ = true;
   next_output_index_ = 0;
   first_frame_ = true;
+
+  // Prime the encoder pipeline by feeding black frames. The Broadcom V4L2 M2M
+  // encoder on Raspberry Pi has internal pipeline latency and may produce
+  // distorted or incomplete output for the first few frames. By feeding and
+  // discarding a few black frames here, we ensure the pipeline is fully primed
+  // before any real frames are encoded.
+  PrimeEncoderPipeline();
+
   return true;
 }
 
@@ -410,6 +418,104 @@ void V4l2H264EncoderWrapper::CopyI420ToOutputBuffer(int index,
   for (int row = 0; row < height_ / 2; row++) {
     memcpy(dst_v + row * dst_stride_uv, v + row * stride_v, width_ / 2);
   }
+}
+
+void V4l2H264EncoderWrapper::PrimeEncoderPipeline() {
+  // Feed a few black I420 frames through the encoder to prime its internal
+  // pipeline. The bcm2835 V4L2 M2M encoder on Raspberry Pi needs several
+  // input frames before it starts producing valid encoded output.
+  //
+  // We create a temporary black frame (Y=0, U=128, V=128 for true black in
+  // YUV), feed it through the encoder pipeline, and discard the output.
+  const int frame_size = width_ * height_ * 3 / 2;
+  std::vector<uint8_t> black_frame(frame_size);
+
+  // Fill Y plane with 0 (black luma)
+  memset(black_frame.data(), 0, width_ * height_);
+  // Fill U and V planes with 128 (neutral chroma = no color)
+  memset(black_frame.data() + width_ * height_, 128, width_ * height_ / 4);
+  memset(black_frame.data() + width_ * height_ + width_ * height_ / 4, 128,
+         width_ * height_ / 4);
+
+  const int prime_frames = std::min(num_output_buffers_, 4);
+  RTC_LOG(LS_INFO) << "V4L2: Priming encoder pipeline with " << prime_frames
+                   << " black frames";
+
+  for (int i = 0; i < prime_frames; i++) {
+    int buf_index = next_output_index_;
+    next_output_index_ = (next_output_index_ + 1) % num_output_buffers_;
+
+    // Copy black frame into the mmap'd buffer
+    memcpy(output_buffers_[buf_index].start, black_frame.data(), frame_size);
+
+    // Queue the output buffer
+    v4l2_buffer buf = {};
+    v4l2_plane planes[VIDEO_MAX_PLANES] = {};
+    buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+    buf.memory = V4L2_MEMORY_MMAP;
+    buf.index = buf_index;
+    buf.length = 1;
+    buf.m.planes = planes;
+    buf.m.planes[0].bytesused = frame_size;
+    buf.m.planes[0].length = output_buffers_[buf_index].length;
+    if (Xioctl(fd_, VIDIOC_QBUF, &buf) < 0) {
+      RTC_LOG(LS_WARNING) << "V4L2: Prime: failed to queue output buffer "
+                          << buf_index << ": " << strerror(errno);
+      break;
+    }
+  }
+
+  // Now drain all the priming frames: dequeue output and capture buffers
+  for (int i = 0; i < prime_frames; i++) {
+    pollfd pfd = {fd_, POLLIN, 0};
+    int ret = poll(&pfd, 1, 500);  // 500ms timeout per frame
+    if (ret <= 0) {
+      RTC_LOG(LS_WARNING) << "V4L2: Prime: poll timeout on frame " << i;
+      break;
+    }
+
+    // Dequeue output buffer (encoder input done)
+    v4l2_buffer buf = {};
+    v4l2_plane planes[VIDEO_MAX_PLANES] = {};
+    buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+    buf.memory = V4L2_MEMORY_MMAP;
+    buf.length = 1;
+    buf.m.planes = planes;
+    if (Xioctl(fd_, VIDIOC_DQBUF, &buf) < 0 && errno != EAGAIN) {
+      RTC_LOG(LS_WARNING) << "V4L2: Prime: failed to dequeue output buffer: "
+                          << strerror(errno);
+    }
+
+    // Dequeue capture buffer (discard encoded data)
+    buf = {};
+    memset(planes, 0, sizeof(planes));
+    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    buf.memory = V4L2_MEMORY_MMAP;
+    buf.length = 1;
+    buf.m.planes = planes;
+    if (Xioctl(fd_, VIDIOC_DQBUF, &buf) < 0) {
+      if (errno != EAGAIN) {
+        RTC_LOG(LS_WARNING) << "V4L2: Prime: failed to dequeue capture buffer: "
+                            << strerror(errno);
+      }
+      continue;
+    }
+
+    // Re-queue the capture buffer
+    v4l2_buffer requeue_buf = {};
+    v4l2_plane requeue_planes[VIDEO_MAX_PLANES] = {};
+    requeue_buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+    requeue_buf.memory = V4L2_MEMORY_MMAP;
+    requeue_buf.index = buf.index;
+    requeue_buf.length = 1;
+    requeue_buf.m.planes = requeue_planes;
+    requeue_buf.m.planes[0].length = capture_buffers_[buf.index].length;
+    Xioctl(fd_, VIDIOC_QBUF, &requeue_buf);
+  }
+
+  // Reset buffer index so the first real Encode() starts clean
+  next_output_index_ = 0;
+  RTC_LOG(LS_INFO) << "V4L2: Encoder pipeline primed";
 }
 
 bool V4l2H264EncoderWrapper::Encode(const uint8_t* y,

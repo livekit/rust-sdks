@@ -119,9 +119,15 @@ int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* inst,
   configuration_.max_bps = codec_.maxBitrate * 1000;
 
   if (!encoder_->IsInitialized()) {
-    int keyFrameInterval = 60;
-    if (codec_.maxFramerate > 0) {
-      keyFrameInterval = codec_.maxFramerate * 5;
+    // Use the keyframe interval from the codec settings if available,
+    // otherwise default to ~2 seconds. Keeping this short ensures that
+    // subscribers who join mid-stream (or after packet loss) recover
+    // quickly rather than waiting many seconds for the next IDR.
+    int keyFrameInterval = codec_.H264()->keyFrameInterval;
+    if (keyFrameInterval <= 0) {
+      keyFrameInterval = codec_.maxFramerate > 0
+                             ? codec_.maxFramerate * 2  // ~2 seconds
+                             : 60;
     }
 
     if (!encoder_->Initialize(codec_.width, codec_.height,
