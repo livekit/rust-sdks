@@ -37,7 +37,7 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rust/cxx.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 // Magic bytes to identify user timestamp trailers: "LKTS" (LiveKit TimeStamp)
 constexpr uint8_t kUserTimestampMagic[4] = {'L', 'K', 'T', 'S'};
@@ -188,6 +188,6 @@ std::shared_ptr<UserTimestampHandler> new_user_timestamp_receiver(
     std::shared_ptr<UserTimestampStore> store,
     std::shared_ptr<RtpReceiver> receiver);
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 

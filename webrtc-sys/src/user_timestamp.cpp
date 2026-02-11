@@ -26,7 +26,7 @@
 #include "rtc_base/logging.h"
 #include "webrtc-sys/src/user_timestamp.rs.h"
 
-namespace livekit {
+namespace livekit_ffi {
 
 // UserTimestampStore implementation
 
@@ -431,6 +431,10 @@ bool UserTimestampHandler::has_user_timestamp() const {
   return transformer_->last_user_timestamp().has_value();
 }
 
+rtc::scoped_refptr<UserTimestampTransformer> UserTimestampHandler::transformer() const {
+  return transformer_;
+}
+
 // Factory functions
 
 std::shared_ptr<UserTimestampStore> new_user_timestamp_store() {
@@ -453,7 +457,7 @@ std::shared_ptr<UserTimestampHandler> new_user_timestamp_receiver(
       peer_factory->rtc_runtime(), store, receiver->rtc_receiver());
 }
 
-}  // namespace livekit
+}  // namespace livekit_ffi
 
 
 

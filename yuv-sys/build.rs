@@ -219,17 +219,31 @@ fn main() {
                 .compile("yuv_neon64");
 
             if sve_supported {
-                new_build(&libyuv_dir)
-                    .flag("-march=armv8.5-a+i8mm+sve2")
-                    .files(SVE_FILES.iter().map(|f| source_dir.join(f)))
-                    .compile("yuv_sve");
+                let sve_files: Vec<PathBuf> = SVE_FILES
+                    .iter()
+                    .map(|f| source_dir.join(f))
+                    .filter(|p| p.exists())
+                    .collect();
+                if !sve_files.is_empty() {
+                    new_build(&libyuv_dir)
+                        .flag("-march=armv8.5-a+i8mm+sve2")
+                        .files(&sve_files)
+                        .compile("yuv_sve");
+                }
             }
 
             if sme_supported {
-                new_build(&libyuv_dir)
-                    .flag("-march=armv9-a+i8mm+sme")
-                    .files(SME_FILES.iter().map(|f| source_dir.join(f)))
-                    .compile("yuv_sme");
+                let sme_files: Vec<PathBuf> = SME_FILES
+                    .iter()
+                    .map(|f| source_dir.join(f))
+                    .filter(|p| p.exists())
+                    .collect();
+                if !sme_files.is_empty() {
+                    new_build(&libyuv_dir)
+                        .flag("-march=armv9-a+i8mm+sme")
+                        .files(&sme_files)
+                        .compile("yuv_sme");
+                }
             }
         }
     }
