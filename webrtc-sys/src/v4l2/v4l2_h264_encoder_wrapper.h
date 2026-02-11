@@ -97,6 +97,10 @@ class V4l2H264EncoderWrapper {
 
   // Index of the next output buffer to use (round-robin).
   int next_output_index_ = 0;
+
+  // Force the first encoded frame to be an IDR keyframe so the decoder
+  // starts with a clean reference and doesn't show startup artifacts.
+  bool first_frame_ = true;
 };
 
 }  // namespace livekit_ffi

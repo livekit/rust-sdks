@@ -288,6 +288,12 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
       fd_ = -1;
       return false;
     }
+
+    // Zero-fill the buffer so unprimed slots contain valid black YUV data
+    // rather than random memory. The Pi 4 V4L2 M2M encoder may reference
+    // multiple output buffers internally before the pipeline is fully primed,
+    // causing distorted/green frames if buffers contain garbage.
+    memset(output_buffers_[i].start, 0, output_buffers_[i].length);
   }
 
   // --- Request and mmap capture buffers (encoder output) ---
@@ -373,6 +379,7 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
                    << " @ " << framerate << " fps, bitrate " << bitrate;
   initialized_ = true;
   next_output_index_ = 0;
+  first_frame_ = true;
   return true;
 }
 
@@ -416,6 +423,13 @@ bool V4l2H264EncoderWrapper::Encode(const uint8_t* y,
   if (!initialized_) {
     RTC_LOG(LS_ERROR) << "V4L2: Encoder not initialized";
     return false;
+  }
+
+  // Always force an IDR on the very first frame so the decoder starts clean,
+  // avoiding startup artifacts from the encoder pipeline not being primed yet.
+  if (first_frame_) {
+    forceIDR = true;
+    first_frame_ = false;
   }
 
   // Request a keyframe if needed.
