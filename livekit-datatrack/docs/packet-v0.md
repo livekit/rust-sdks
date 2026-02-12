@@ -120,8 +120,8 @@ packet
 ```
 
 - 50 bytes total
-    - Header: 46 bytes
-    - Payload: 4 bytes
+  - Header: 46 bytes
+  - Payload: 4 bytes
 - Note the padding between the two extensions. This is required per [RFC 5285](https://datatracker.ietf.org/doc/html/rfc5285#section-4.2) to ensure the extension block is word aligned. This example shows it placed between the two extensions, but it is allowed before or after any extension.
 
 ## Length calculations
