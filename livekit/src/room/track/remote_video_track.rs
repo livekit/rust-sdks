@@ -107,6 +107,15 @@ impl RemoteVideoTrack {
             .and_then(|h| h.last_user_timestamp())
     }
 
+    /// Returns a clone of the user timestamp handler, if one has been set.
+    ///
+    /// This can be passed to a `NativeVideoStream` via
+    /// `set_user_timestamp_handler` so that each frame's
+    /// `user_timestamp_us` field is populated automatically.
+    pub fn user_timestamp_handler(&self) -> Option<UserTimestampHandler> {
+        self.user_timestamp_handler.lock().clone()
+    }
+
     /// Internal: set the handler that extracts user timestamps for this track.
     pub(crate) fn set_user_timestamp_handler(&self, handler: UserTimestampHandler) {
         self.user_timestamp_handler.lock().replace(handler);

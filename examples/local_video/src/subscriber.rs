@@ -17,7 +17,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 async fn wait_for_shutdown(flag: Arc<AtomicBool>) {
@@ -52,6 +52,10 @@ struct Args {
     /// Only subscribe to video from this participant identity
     #[arg(long)]
     participant: Option<String>,
+
+    /// Display user timestamp, current timestamp, and latency overlay
+    #[arg(long)]
+    display_timestamp: bool,
 }
 
 struct SharedYuv {
@@ -66,6 +70,8 @@ struct SharedYuv {
     codec: String,
     fps: f32,
     dirty: bool,
+    /// Last received user timestamp in microseconds, if any.
+    user_timestamp_us: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -112,6 +118,49 @@ fn infer_quality_from_dims(
     } else {
         livekit::track::VideoQuality::Low
     }
+}
+
+/// Returns the current wall-clock time as microseconds since Unix epoch.
+fn current_timestamp_us() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_micros() as i64
+}
+
+/// Format a user timestamp (microseconds since Unix epoch) as
+/// `yyyy-mm-dd hh:mm:ss.ssss`.
+fn format_timestamp_us(ts_us: i64) -> String {
+    // Convert to calendar components without chrono — pure arithmetic.
+    let secs = (ts_us / 1_000_000) as u64;
+    let sub_sec_us = (ts_us % 1_000_000) as u32;
+
+    // Days / time-of-day decomposition
+    let days = (secs / 86400) as i64;
+    let day_secs = (secs % 86400) as u32;
+    let hour = day_secs / 3600;
+    let minute = (day_secs % 3600) / 60;
+    let second = day_secs % 60;
+    let frac = sub_sec_us / 100; // 4-digit tenths of microseconds → 0..9999
+
+    // Convert days since epoch to y/m/d (civil calendar, proleptic Gregorian).
+    // Algorithm from Howard Hinnant (http://howardhinnant.github.io/date_algorithms.html)
+    let z = days + 719468;
+    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+    let doe = (z - era * 146097) as u32; // day of era [0, 146096]
+    let yoe =
+        (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // year of era [0, 399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // day of year [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let day = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let month = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let year = if month <= 2 { y + 1 } else { y };
+
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:04}",
+        year, month, day, hour, minute, second, frac
+    )
 }
 
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
@@ -239,6 +288,10 @@ async fn handle_track_subscribed(
     let simulcast2 = simulcast.clone();
     std::thread::spawn(move || {
         let mut sink = NativeVideoStream::new(video_track.rtc_track());
+        // Wire up user timestamp extraction so frame.user_timestamp_us is populated
+        if let Some(handler) = video_track.user_timestamp_handler() {
+            sink.set_user_timestamp_handler(handler);
+        }
         let mut frames: u64 = 0;
         let mut last_log = Instant::now();
         let mut logged_first = false;
@@ -304,6 +357,7 @@ async fn handle_track_subscribed(
             std::mem::swap(&mut s.u, &mut u_buf);
             std::mem::swap(&mut s.v, &mut v_buf);
             s.dirty = true;
+            s.user_timestamp_us = frame.user_timestamp_us;
 
             // Update smoothed FPS (~500ms window)
             fps_window_frames += 1;
@@ -410,6 +464,11 @@ struct VideoApp {
     simulcast: Arc<Mutex<SimulcastState>>,
     ctrl_c_received: Arc<AtomicBool>,
     locked_aspect: Option<f32>,
+    display_timestamp: bool,
+    /// Cached latency string, updated at ~5 Hz so it's readable.
+    latency_display: String,
+    /// Last time the latency display was refreshed.
+    latency_last_update: Instant,
 }
 
 impl eframe::App for VideoApp {
@@ -480,6 +539,47 @@ impl eframe::App for VideoApp {
                         );
                     });
             });
+
+        // Timestamp overlay: user timestamp, current timestamp, and latency
+        if self.display_timestamp {
+            egui::Area::new("timestamp_hud".into())
+                .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 40.0))
+                .interactable(false)
+                .show(ctx, |ui| {
+                    let s = self.shared.lock();
+                    if let Some(user_ts) = s.user_timestamp_us {
+                        let now_us = current_timestamp_us();
+
+                        // Update the cached latency display at ~5 Hz so it's readable.
+                        if self.latency_last_update.elapsed() >= Duration::from_millis(200) {
+                            let delta_ms = (now_us - user_ts) as f64 / 1000.0;
+                            self.latency_display = format!("{:.1}ms", delta_ms);
+                            self.latency_last_update = Instant::now();
+                        }
+
+                        let lines = format!(
+                            "Publish:    {}\nSubscribe:  {}\nLatency:    {}",
+                            format_timestamp_us(user_ts),
+                            format_timestamp_us(now_us),
+                            self.latency_display,
+                        );
+                        egui::Frame::NONE
+                            .fill(egui::Color32::from_black_alpha(140))
+                            .corner_radius(egui::CornerRadius::same(4))
+                            .inner_margin(egui::Margin::same(6))
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(lines)
+                                            .color(egui::Color32::WHITE)
+                                            .monospace(),
+                                    )
+                                    .extend(),
+                                );
+                            });
+                    }
+                });
+        }
 
         // Simulcast layer controls: bottom-left overlay
         egui::Area::new("simulcast_controls".into())
@@ -577,6 +677,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         codec: String::new(),
         fps: 0.0,
         dirty: false,
+        user_timestamp_us: None,
     }));
 
     // Subscribe to room events: on first video track, start sink task
@@ -628,6 +729,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         simulcast,
         ctrl_c_received: ctrl_c_received.clone(),
         locked_aspect: None,
+        display_timestamp: args.display_timestamp,
+        latency_display: String::new(),
+        latency_last_update: Instant::now(),
     };
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(

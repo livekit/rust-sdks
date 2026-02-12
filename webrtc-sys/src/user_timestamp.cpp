@@ -161,19 +161,34 @@ void UserTimestampTransformer::TransformSend(
 
   auto data = frame->GetData();
 
-  // Pop the next user timestamp from the queue.
-  // This assumes frames are captured and encoded in order (FIFO).
+  // Drain all queued user timestamps and use the most recent one.
+  // The encoder may skip captured frames (rate control, CPU), so the
+  // store can accumulate faster than TransformSend is called.  Draining
+  // ensures we always embed the timestamp closest to the frame actually
+  // being encoded.  With simulcast, multiple layers encode the same
+  // captured frame — subsequent layers will find the queue empty and
+  // fall back to the cached value.
   int64_t ts_to_embed = 0;
 
   if (store_) {
-    int64_t popped_ts = store_->pop();
-    if (popped_ts >= 0) {
-      ts_to_embed = popped_ts;
+    int64_t newest_ts = -1;
+    // Drain: pop all available entries, keep the last one
+    for (;;) {
+      int64_t popped_ts = store_->pop();
+      if (popped_ts < 0) break;
+      newest_ts = popped_ts;
+    }
+
+    if (newest_ts >= 0) {
+      ts_to_embed = newest_ts;
+      // Cache for simulcast layers that encode the same frame
+      webrtc::MutexLock lock(&send_cache_mutex_);
+      last_sent_user_timestamp_ = newest_ts;
     } else {
-      RTC_LOG(LS_INFO) << "UserTimestampTransformer::TransformSend no user "
-                          "timestamp available"
-                       << " rtp_ts=" << rtp_timestamp
-                       << " orig_size=" << data.size();
+      // Queue was empty — use cached value (simulcast or encoder
+      // encoding the same frame as a previous layer)
+      webrtc::MutexLock lock(&send_cache_mutex_);
+      ts_to_embed = last_sent_user_timestamp_;
     }
   }
 
@@ -234,9 +249,18 @@ void UserTimestampTransformer::TransformReceive(
     double recv_latency_ms =
         static_cast<double>(now_us - user_ts.value()) / 1000.0;
 
-    // Store the extracted timestamp for later retrieval
+    // Store the extracted timestamp for later retrieval (legacy atomic)
     last_user_timestamp_.store(user_ts.value());
     has_last_user_timestamp_.store(true);
+
+    // Also push to the receive queue so decoded frames can pop 1:1
+    {
+      webrtc::MutexLock lock(&recv_queue_mutex_);
+      if (recv_queue_.size() >= kMaxRecvQueueEntries) {
+        recv_queue_.pop_front();
+      }
+      recv_queue_.push_back(user_ts.value());
+    }
 
     // Update frame with stripped data
     frame->SetData(rtc::ArrayView<const uint8_t>(stripped_data));
@@ -392,6 +416,16 @@ std::optional<int64_t> UserTimestampTransformer::last_user_timestamp()
   return last_user_timestamp_.load();
 }
 
+std::optional<int64_t> UserTimestampTransformer::pop_user_timestamp() {
+  webrtc::MutexLock lock(&recv_queue_mutex_);
+  if (recv_queue_.empty()) {
+    return std::nullopt;
+  }
+  int64_t ts = recv_queue_.front();
+  recv_queue_.pop_front();
+  return ts;
+}
+
 // UserTimestampHandler implementation
 
 UserTimestampHandler::UserTimestampHandler(
@@ -424,6 +458,11 @@ bool UserTimestampHandler::enabled() const {
 
 int64_t UserTimestampHandler::last_user_timestamp() const {
   auto ts = transformer_->last_user_timestamp();
+  return ts.value_or(-1);
+}
+
+int64_t UserTimestampHandler::pop_user_timestamp() const {
+  auto ts = transformer_->pop_user_timestamp();
   return ts.value_or(-1);
 }
 

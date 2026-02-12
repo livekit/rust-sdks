@@ -110,6 +110,11 @@ class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
   /// Get the last received user timestamp (receiver side only)
   std::optional<int64_t> last_user_timestamp() const;
 
+  /// Pop the next received user timestamp from the receive queue.
+  /// Returns the user timestamp if available, nullopt otherwise.
+  /// Each decoded frame should call this once to get its matching timestamp.
+  std::optional<int64_t> pop_user_timestamp();
+
  private:
   void TransformSend(
       std::unique_ptr<webrtc::TransformableFrameInterface> frame);
@@ -137,6 +142,17 @@ class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
       sink_callbacks_;
   mutable std::atomic<int64_t> last_user_timestamp_{0};
   mutable std::atomic<bool> has_last_user_timestamp_{false};
+
+  // Send-side: cache the last user timestamp we embedded, so that
+  // simulcast layers encoding the same frame get the same value.
+  mutable webrtc::Mutex send_cache_mutex_;
+  mutable int64_t last_sent_user_timestamp_{0};
+
+  // Receive-side FIFO queue: one entry per received encoded frame, popped
+  // one-to-one as decoded frames are delivered to the video sink.
+  mutable webrtc::Mutex recv_queue_mutex_;
+  mutable std::deque<int64_t> recv_queue_;
+  static constexpr size_t kMaxRecvQueueEntries = 300;
 };
 
 /// Wrapper class for Rust FFI that manages user timestamp transformers.
@@ -161,6 +177,10 @@ class UserTimestampHandler {
   /// Get the last received user timestamp (receiver side only)
   /// Returns -1 if no timestamp has been received yet
   int64_t last_user_timestamp() const;
+
+  /// Pop the next received user timestamp from the receive queue.
+  /// Returns -1 if the queue is empty.
+  int64_t pop_user_timestamp() const;
 
   /// Check if a user timestamp has been received
   bool has_user_timestamp() const;

@@ -50,6 +50,7 @@ pub mod native {
     use std::fmt::{Debug, Formatter};
 
     use super::*;
+    use crate::native::user_timestamp::UserTimestampStore;
     use crate::video_frame::{VideoBuffer, VideoFrame};
 
     #[derive(Clone)]
@@ -76,6 +77,15 @@ pub mod native {
 
         pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
             self.handle.capture_frame(frame)
+        }
+
+        /// Set the user timestamp store used by this source.
+        ///
+        /// When set, any frame captured with a `user_timestamp_us` value will
+        /// automatically have its timestamp pushed into the store so the
+        /// `UserTimestampTransformer` can embed it into the encoded frame.
+        pub fn set_user_timestamp_store(&self, store: UserTimestampStore) {
+            self.handle.set_user_timestamp_store(store)
         }
 
         pub fn video_resolution(&self) -> VideoResolution {

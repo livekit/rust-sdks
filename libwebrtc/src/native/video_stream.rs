@@ -25,12 +25,14 @@ use webrtc_sys::video_track as sys_vt;
 
 use super::video_frame::new_video_frame_buffer;
 use crate::{
+    native::user_timestamp::UserTimestampHandler,
     video_frame::{BoxVideoFrame, VideoFrame},
     video_track::RtcVideoTrack,
 };
 
 pub struct NativeVideoStream {
     native_sink: SharedPtr<sys_vt::ffi::NativeVideoSink>,
+    observer: Arc<VideoTrackObserver>,
     video_track: RtcVideoTrack,
     frame_rx: mpsc::UnboundedReceiver<BoxVideoFrame>,
 }
@@ -38,7 +40,10 @@ pub struct NativeVideoStream {
 impl NativeVideoStream {
     pub fn new(video_track: RtcVideoTrack) -> Self {
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
-        let observer = Arc::new(VideoTrackObserver { frame_tx });
+        let observer = Arc::new(VideoTrackObserver {
+            frame_tx,
+            user_timestamp_handler: parking_lot::Mutex::new(None),
+        });
         let native_sink = sys_vt::ffi::new_native_video_sink(Box::new(
             sys_vt::VideoSinkWrapper::new(observer.clone()),
         ));
@@ -46,7 +51,16 @@ impl NativeVideoStream {
         let video = unsafe { sys_vt::ffi::media_to_video(video_track.sys_handle()) };
         video.add_sink(&native_sink);
 
-        Self { native_sink, video_track, frame_rx }
+        Self { native_sink, observer, video_track, frame_rx }
+    }
+
+    /// Set the user timestamp handler for this stream.
+    ///
+    /// When set, each frame produced by this stream will have its
+    /// `user_timestamp_us` field populated from the handler's last
+    /// received timestamp (if available).
+    pub fn set_user_timestamp_handler(&self, handler: UserTimestampHandler) {
+        *self.observer.user_timestamp_handler.lock() = Some(handler);
     }
 
     pub fn track(&self) -> RtcVideoTrack {
@@ -77,14 +91,21 @@ impl Stream for NativeVideoStream {
 
 struct VideoTrackObserver {
     frame_tx: mpsc::UnboundedSender<BoxVideoFrame>,
+    user_timestamp_handler: parking_lot::Mutex<Option<UserTimestampHandler>>,
 }
 
 impl sys_vt::VideoSink for VideoTrackObserver {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
+        let user_timestamp_us = self
+            .user_timestamp_handler
+            .lock()
+            .as_ref()
+            .and_then(|h| h.pop_user_timestamp());
+
         let _ = self.frame_tx.send(VideoFrame {
             rotation: frame.rotation().into(),
             timestamp_us: frame.timestamp_us(),
-            user_timestamp_us: None,
+            user_timestamp_us,
             buffer: new_video_frame_buffer(unsafe { frame.video_frame_buffer() }),
         });
     }

@@ -67,6 +67,11 @@ pub mod ffi {
         /// Returns -1 if no timestamp has been received yet.
         fn last_user_timestamp(self: &UserTimestampHandler) -> i64;
 
+        /// Pop the next received user timestamp from the receive queue.
+        /// Returns -1 if the queue is empty.
+        /// Each decoded frame should call this once to get its matching timestamp.
+        fn pop_user_timestamp(self: &UserTimestampHandler) -> i64;
+
         /// Check if a user timestamp has been received.
         fn has_user_timestamp(self: &UserTimestampHandler) -> bool;
 

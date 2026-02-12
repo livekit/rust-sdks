@@ -23,6 +23,7 @@ use libwebrtc::{
     },
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
+    video_source::RtcVideoSource,
 };
 use parking_lot::Mutex;
 
@@ -144,6 +145,14 @@ impl E2eeManager {
         if let LocalTrack::Video(video_track) = &track {
             let store = UserTimestampStore::new();
             video_track.set_user_timestamp_store(store.clone());
+
+            // Also set the store on the video source so that capture_frame()
+            // can automatically push user timestamps into it.
+            #[cfg(not(target_arch = "wasm32"))]
+            if let RtcVideoSource::Native(ref native_source) = video_track.rtc_source() {
+                native_source.set_user_timestamp_store(store.clone());
+            }
+
             let handler = user_timestamp::create_sender_handler(
                 LkRuntime::instance().pc_factory(),
                 &store,

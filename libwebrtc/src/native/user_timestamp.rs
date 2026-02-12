@@ -149,6 +149,21 @@ impl UserTimestampHandler {
         }
     }
 
+    /// Pop the next received user timestamp from the receive queue.
+    /// Returns None if the queue is empty.
+    ///
+    /// Each decoded frame should call this once to get its matching
+    /// timestamp, maintaining 1:1 correspondence between received
+    /// encoded frames and decoded video frames.
+    pub fn pop_user_timestamp(&self) -> Option<i64> {
+        let ts = self.sys_handle.pop_user_timestamp();
+        if ts >= 0 {
+            Some(ts)
+        } else {
+            None
+        }
+    }
+
     pub(crate) fn sys_handle(&self) -> SharedPtr<sys_ut::UserTimestampHandler> {
         self.sys_handle.clone()
     }
