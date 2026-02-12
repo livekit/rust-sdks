@@ -469,6 +469,9 @@ struct VideoApp {
     latency_display: String,
     /// Last time the latency display was refreshed.
     latency_last_update: Instant,
+    /// Cached user timestamp so the overlay doesn't flicker when the shared
+    /// state momentarily has `None` between frame swaps.
+    cached_user_timestamp_us: Option<i64>,
 }
 
 impl eframe::App for VideoApp {
@@ -518,9 +521,9 @@ impl eframe::App for VideoApp {
             );
         });
 
-        // Resolution/FPS overlay: top-left
+        // Resolution/FPS overlay: top-right
         egui::Area::new("video_hud".into())
-            .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
+            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
             .interactable(false)
             .show(ctx, |ui| {
                 let s = self.shared.lock();
@@ -540,14 +543,21 @@ impl eframe::App for VideoApp {
                     });
             });
 
-        // Timestamp overlay: user timestamp, current timestamp, and latency
+        // Timestamp overlay: user timestamp, current timestamp, and latency.
+        // We cache the last-known user timestamp so the overlay doesn't flicker
+        // when the shared state momentarily has `None` between frame swaps.
         if self.display_timestamp {
-            egui::Area::new("timestamp_hud".into())
-                .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 40.0))
-                .interactable(false)
-                .show(ctx, |ui| {
-                    let s = self.shared.lock();
-                    if let Some(user_ts) = s.user_timestamp_us {
+            {
+                let s = self.shared.lock();
+                if let Some(ts) = s.user_timestamp_us {
+                    self.cached_user_timestamp_us = Some(ts);
+                }
+            }
+            if let Some(user_ts) = self.cached_user_timestamp_us {
+                egui::Area::new("timestamp_hud".into())
+                    .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
+                    .interactable(false)
+                    .show(ctx, |ui| {
                         let now_us = current_timestamp_us();
 
                         // Update the cached latency display at ~5 Hz so it's readable.
@@ -577,8 +587,8 @@ impl eframe::App for VideoApp {
                                     .extend(),
                                 );
                             });
-                    }
-                });
+                    });
+            }
         }
 
         // Simulcast layer controls: bottom-left overlay
@@ -732,6 +742,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         display_timestamp: args.display_timestamp,
         latency_display: String::new(),
         latency_last_update: Instant::now(),
+        cached_user_timestamp_us: None,
     };
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
