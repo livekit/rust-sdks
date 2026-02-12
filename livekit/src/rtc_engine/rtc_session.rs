@@ -984,51 +984,33 @@ impl SessionInner {
                 }
             }
             proto::signal_response::Message::Offer(offer) => {
-                // Store mid_to_track_id mapping
-                if !offer.mid_to_track_id.is_empty() {
-                    let mut mapping = self.mid_to_track_id.lock();
-                    for (mid, track_id) in &offer.mid_to_track_id {
-                        mapping.insert(mid.clone(), track_id.clone());
-                    }
+                // In single PC mode, client always offers and server always answers,
+                // so we should never receive an offer from the server.
+                if self.single_pc_mode {
+                    log::warn!("received unexpected offer in single PC mode, ignoring");
+                    return Ok(());
                 }
 
+                // Dual PC mode: handle offer on subscriber PC
+                log::debug!("received subscriber offer: {:?}", offer);
                 let offer_sdp =
                     SessionDescription::parse(&offer.sdp, offer.r#type.parse().unwrap()).unwrap();
 
-                if self.single_pc_mode {
-                    // In single PC mode, handle offer on publisher PC
-                    let answer = self
-                        .publisher_pc
-                        .create_anwser(offer_sdp, AnswerOptions::default())
-                        .await?;
+                let answer = self
+                    .subscriber_pc
+                    .as_ref()
+                    .unwrap()
+                    .create_anwser(offer_sdp, AnswerOptions::default())
+                    .await?;
 
-                    self.signal_client
-                        .send(proto::signal_request::Message::Answer(proto::SessionDescription {
-                            r#type: "answer".to_string(),
-                            sdp: answer.to_string(),
-                            id: offer.id,
-                            mid_to_track_id: Default::default(),
-                        }))
-                        .await;
-                } else {
-                    // Dual PC mode: handle offer on subscriber PC
-                    log::debug!("received subscriber offer: {:?}", offer);
-                    let answer = self
-                        .subscriber_pc
-                        .as_ref()
-                        .unwrap()
-                        .create_anwser(offer_sdp, AnswerOptions::default())
-                        .await?;
-
-                    self.signal_client
-                        .send(proto::signal_request::Message::Answer(proto::SessionDescription {
-                            r#type: "answer".to_string(),
-                            sdp: answer.to_string(),
-                            id: 0,
-                            mid_to_track_id: Default::default(),
-                        }))
-                        .await;
-                }
+                self.signal_client
+                    .send(proto::signal_request::Message::Answer(proto::SessionDescription {
+                        r#type: "answer".to_string(),
+                        sdp: answer.to_string(),
+                        id: 0,
+                        mid_to_track_id: Default::default(),
+                    }))
+                    .await;
             }
             proto::signal_response::Message::Trickle(trickle) => {
                 let target = trickle.target();

@@ -286,12 +286,15 @@ impl SignalInner {
                         return Err(err);
                     }
 
-                    // If using v1 path and it failed, always try fallback to v0 path.
-                    // The v1 endpoint might not be available on older servers, and errors
-                    // can manifest as various HTTP status codes (404, 401, 403) or connection errors.
-                    if use_v1_path {
+                    // Only fallback to v0 if the v1 endpoint returned 404 (not found).
+                    // Other errors (401, 403, 500, etc.) indicate real issues that shouldn't
+                    // be masked by falling back to a different signaling mode.
+                    let is_not_found =
+                        matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() == 404);
+
+                    if use_v1_path && is_not_found {
                         let lk_url_v0 = get_livekit_url(url, &options, false, false, None, "")?;
-                        log::warn!("v1 path failed, falling back to v0 path");
+                        log::warn!("v1 path not found (404), falling back to v0 path");
                         match SignalStream::connect(lk_url_v0.clone(), token).await {
                             Ok((new_stream, stream_events)) => (new_stream, stream_events, false),
                             Err(err) => {
@@ -304,7 +307,7 @@ impl SignalInner {
                             }
                         }
                     } else {
-                        // Connection failed on v0 path, try to retrieve more information
+                        // Connection failed, try to retrieve more information
                         Self::validate(lk_url).await?;
                         return Err(err);
                     }
