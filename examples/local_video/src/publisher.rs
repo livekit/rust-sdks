@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
@@ -79,6 +80,10 @@ struct Args {
     /// Attach the current system time (microseconds since UNIX epoch) as the user timestamp on each frame
     #[arg(long, default_value_t = false)]
     attach_timestamp: bool,
+
+    /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set)
+    #[arg(long)]
+    e2ee_key: Option<String>,
 }
 
 fn list_cameras() -> Result<()> {
@@ -141,9 +146,29 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
+
+    // Configure E2EE if an encryption key is provided
+    if let Some(ref e2ee_key) = args.e2ee_key {
+        let key_provider = KeyProvider::with_shared_key(
+            KeyProviderOptions::default(),
+            e2ee_key.as_bytes().to_vec(),
+        );
+        room_options.encryption = Some(E2eeOptions {
+            encryption_type: EncryptionType::Gcm,
+            key_provider,
+        });
+        info!("E2EE enabled with AES-GCM encryption");
+    }
+
     let (room, _) = Room::connect(&url, &token, room_options).await?;
     let room = std::sync::Arc::new(room);
     info!("Connected: {} - {}", room.name(), room.sid().await);
+
+    // Enable E2EE after connection
+    if args.e2ee_key.is_some() {
+        room.e2ee_manager().set_enabled(true);
+        info!("End-to-end encryption activated");
+    }
 
     // Log room events
     {
