@@ -78,7 +78,7 @@ struct Args {
 
     /// Attach the current system time (microseconds since UNIX epoch) as the user timestamp on each frame
     #[arg(long, default_value_t = false)]
-    user_timestamp: bool,
+    attach_timestamp: bool,
 }
 
 fn list_cameras() -> Result<()> {
@@ -399,7 +399,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         // Update RTP timestamp (monotonic, microseconds since start)
         frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
         // Optionally attach wall-clock time as user timestamp
-        frame.user_timestamp_us = if args.user_timestamp {
+        frame.user_timestamp_us = if args.attach_timestamp {
             Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64)
         } else {
             None
