@@ -55,12 +55,11 @@ impl Packetizer {
 
     /// Packetizes a frame into one or more packets.
     pub fn packetize(&mut self, frame: PacketizerFrame) -> Result<Vec<Packet>, PacketizerError> {
-        // TODO: consider using default
-        let header = Header {
+        let mut header = Header {
             marker: FrameMarker::Inter,
             track_handle: self.handle,
             sequence: 0,
-            frame_number: self.frame_number.get_then_increment(),
+            frame_number: 0,
             timestamp: self.clock.now(),
             extensions: frame.extensions,
         };
@@ -68,6 +67,7 @@ impl Packetizer {
         if max_payload_size == 0 {
             Err(PacketizerError::MtuTooShort)?
         }
+        header.frame_number = self.frame_number.get_then_increment();
 
         let packet_payloads: Vec<_> = frame.payload.into_chunks(max_payload_size).collect();
         let packet_count = packet_payloads.len();
