@@ -535,7 +535,23 @@ impl eframe::App for VideoApp {
                 if s.width == 0 || s.height == 0 || s.fps <= 0.0 || s.codec.is_empty() {
                     return;
                 }
-                let text = format!("{} {}x{} {:.1}fps", s.codec, s.width, s.height, s.fps);
+                let mut text = format!("{} {}x{} {:.1}fps", s.codec, s.width, s.height, s.fps);
+                let sc = self.simulcast.lock();
+                if sc.available {
+                    let layer = sc
+                        .active_quality
+                        .map(|q| match q {
+                            livekit::track::VideoQuality::Low => "Low",
+                            livekit::track::VideoQuality::Medium => "Medium",
+                            livekit::track::VideoQuality::High => "High",
+                            _ => "Unknown",
+                        })
+                        .unwrap_or("?");
+                    text.push_str(&format!("\nSimulcast: {}", layer));
+                } else {
+                    text.push_str("\nSimulcast: off");
+                }
+                drop(sc);
                 egui::Frame::NONE
                     .fill(egui::Color32::from_black_alpha(140))
                     .corner_radius(egui::CornerRadius::same(4))
