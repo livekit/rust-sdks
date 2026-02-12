@@ -14,9 +14,8 @@
 
 use crate::packet::Handle;
 use from_variants::FromVariants;
-use std::{fmt::Display, marker::PhantomData, sync::Arc};
+use std::{fmt::Display, marker::PhantomData, sync::{Arc, RwLock}};
 use thiserror::Error;
-use tokio::sync::watch;
 
 /// Track for communicating application-specific data between participants in room.
 #[derive(Debug, Clone)]
@@ -41,9 +40,10 @@ impl<L> DataTrack<L> {
 
     /// Whether or not the track is still published.
     pub fn is_published(&self) -> bool {
-        let published_rx = self.published_rx();
-        let published = *published_rx.borrow();
-        published
+        match self.inner.as_ref() {
+            DataTrackInner::Local(inner) => inner.is_published(),
+            DataTrackInner::Remote(inner) => inner.is_published(),
+        }
     }
 
     /// Waits asynchronously until the track is unpublished.
@@ -52,18 +52,9 @@ impl<L> DataTrack<L> {
     /// If the track is already unpublished, this method returns immediately.
     ///
     pub async fn wait_for_unpublish(&self) {
-        let mut published_rx = self.published_rx();
-        if !*published_rx.borrow() {
-            // Already unpublished
-            return;
-        }
-        _ = published_rx.wait_for(|is_published| !*is_published).await;
-    }
-
-    fn published_rx(&self) -> watch::Receiver<bool> {
         match self.inner.as_ref() {
-            DataTrackInner::Local(inner) => inner.published_rx(),
-            DataTrackInner::Remote(inner) => inner.published_rx(),
+            DataTrackInner::Local(inner) => inner.wait_for_unpublish().await,
+            DataTrackInner::Remote(inner) => inner.wait_for_unpublish().await,
         }
     }
 }
@@ -72,21 +63,27 @@ impl<L> DataTrack<L> {
 #[derive(Debug, Clone)]
 #[cfg_attr(test, derive(fake::Dummy))]
 pub struct DataTrackInfo {
-    pub(crate) sid: DataTrackSid,
+    pub(crate) sid: Arc<RwLock<DataTrackSid>>,
     pub(crate) pub_handle: Handle,
     pub(crate) name: String,
     pub(crate) uses_e2ee: bool,
 }
 
 impl DataTrackInfo {
-    /// Unique track identifier.
-    pub fn sid(&self) -> &DataTrackSid {
-        &self.sid
+    /// Unique track identifier assigned by the SFU.
+    ///
+    /// This identifier may change if a reconnect occurs. Use [`Self::name`] if a
+    /// stable identifier is needed.
+    ///
+    pub fn sid(&self) -> DataTrackSid {
+        self.sid.read().unwrap().clone()
     }
+
     /// Name of the track assigned by the publisher.
     pub fn name(&self) -> &str {
         &self.name
     }
+
     /// Whether or not frames sent on the track use end-to-end encryption.
     pub fn uses_e2ee(&self) -> bool {
         self.uses_e2ee

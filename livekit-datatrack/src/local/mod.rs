@@ -81,8 +81,14 @@ impl DataTrack<Local> {
     /// - Frames are being pushed too fast
     ///
     pub fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameError> {
-        if !self.is_published() {
-            return Err(PushFrameError::new(frame, PushFrameErrorReason::TrackUnpublished));
+        match self.inner().publish_state() {
+            manager::PublishState::Republishing => {
+                return Err(PushFrameError::new(frame, PushFrameErrorReason::Dropped))?
+            }
+            manager::PublishState::Unpublished => {
+                return Err(PushFrameError::new(frame, PushFrameErrorReason::TrackUnpublished))?;
+            }
+            manager::PublishState::Published => {}
         }
         self.inner()
             .frame_tx
@@ -99,16 +105,30 @@ impl DataTrack<Local> {
 #[derive(Debug, Clone)]
 pub(crate) struct LocalTrackInner {
     pub frame_tx: mpsc::Sender<DataTrackFrame>,
-    pub published_tx: watch::Sender<bool>,
+    pub state_tx: watch::Sender<manager::PublishState>,
 }
 
 impl LocalTrackInner {
-    fn local_unpublish(&self) {
-        _ = self.published_tx.send(false);
+    fn publish_state(&self) -> manager::PublishState {
+        *self.state_tx.borrow()
     }
 
-    pub fn published_rx(&self) -> watch::Receiver<bool> {
-        self.published_tx.subscribe()
+    pub(crate) fn is_published(&self) -> bool {
+        // Note: a track which is internally in the "resubscribing" state
+        // is still considered published from the public API perspective.
+        self.publish_state() != manager::PublishState::Unpublished
+    }
+
+    pub(crate) async fn wait_for_unpublish(&self) {
+        _ = self
+            .state_tx
+            .subscribe()
+            .wait_for(|state| *state == manager::PublishState::Unpublished)
+            .await
+    }
+
+    fn local_unpublish(&self) {
+        _ = self.state_tx.send(manager::PublishState::Unpublished);
     }
 }
 

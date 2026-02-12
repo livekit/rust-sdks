@@ -93,6 +93,7 @@ impl Manager {
                 InputEvent::SfuUnpublishResponse(event) => {
                     self.on_sfu_unpublish_response(event).await
                 }
+                InputEvent::RepublishTracks => self.on_republish_tracks().await,
                 InputEvent::Shutdown => break,
             }
         }
@@ -187,16 +188,35 @@ impl Manager {
             log::warn!("No descriptor for {}", event.handle);
             return;
         };
-        let Descriptor::Pending(result_tx) = descriptor else {
-            log::warn!("Track {} already active", event.handle);
-            return;
-        };
+        match descriptor {
+            Descriptor::Pending(result_tx) => {
+                // SFU accepted initial publication request
+                if result_tx.is_closed() {
+                    return;
+                }
+                let result = event.result.map(|track_info| self.create_local_track(track_info));
+                _ = result_tx.send(result);
+                return;
+            }
+            Descriptor::Active { ref state_tx, ref info, .. } => {
+                if *state_tx.borrow() != PublishState::Republishing {
+                    log::warn!("Track {} already active", event.handle);
+                    return;
+                }
+                let Ok(updated_info) = event.result else {
+                    log::warn!("Republish failed for track {}", event.handle);
+                    return;
+                };
 
-        if result_tx.is_closed() {
-            return;
+                log::debug!("Track {} republished", event.handle);
+                {
+                    let mut sid = info.sid.write().unwrap();
+                    *sid = updated_info.sid();
+                }
+                _ = state_tx.send(PublishState::Published);
+                self.descriptors.insert(event.handle, descriptor);
+            }
         }
-        let result = event.result.map(|track_info| self.create_local_track(track_info));
-        _ = result_tx.send(result);
     }
 
     fn create_local_track(&mut self, info: DataTrackInfo) -> LocalDataTrack {
@@ -208,12 +228,12 @@ impl Manager {
         let pipeline = Pipeline::new(pipeline_opts);
 
         let (frame_tx, frame_rx) = mpsc::channel(4); // TODO: tune
-        let (published_tx, published_rx) = watch::channel(true);
+        let (state_tx, state_rx) = watch::channel(PublishState::Published);
 
         let track_task = TrackTask {
             info: info.clone(),
             pipeline,
-            published_rx,
+            state_rx,
             frame_rx,
             event_in_tx: self.event_in_tx.clone(),
             event_out_tx: self.event_out_tx.clone(),
@@ -222,14 +242,10 @@ impl Manager {
 
         self.descriptors.insert(
             info.pub_handle,
-            Descriptor::Active {
-                info: info.clone(),
-                published_tx: published_tx.clone(),
-                task_handle,
-            },
+            Descriptor::Active { info: info.clone(), state_tx: state_tx.clone(), task_handle },
         );
 
-        let inner = LocalTrackInner { frame_tx, published_tx };
+        let inner = LocalTrackInner { frame_tx, state_tx };
         LocalDataTrack::new(info, inner)
     }
 
@@ -241,11 +257,33 @@ impl Manager {
         let Some(descriptor) = self.descriptors.remove(&handle) else {
             return;
         };
-        let Descriptor::Active { published_tx, .. } = descriptor else {
+        let Descriptor::Active { state_tx, .. } = descriptor else {
             return;
         };
-        if *published_tx.borrow() {
-            _ = published_tx.send(false);
+        if *state_tx.borrow() != PublishState::Unpublished {
+            _ = state_tx.send(PublishState::Unpublished);
+        }
+    }
+
+    async fn on_republish_tracks(&mut self) {
+        let descriptors = std::mem::take(&mut self.descriptors);
+        for (handle, descriptor) in descriptors {
+            match descriptor {
+                Descriptor::Pending(result_tx) => {
+                    // TODO: support republish for pending publications
+                    _ = result_tx.send(Err(PublishError::Disconnected));
+                }
+                Descriptor::Active { ref info, ref state_tx, .. } => {
+                    let event = SfuPublishRequest {
+                        handle: info.pub_handle,
+                        name: info.name.clone(),
+                        uses_e2ee: info.uses_e2ee,
+                    };
+                    _ = state_tx.send(PublishState::Republishing);
+                    _ = self.event_out_tx.send(event.into()).await;
+                    self.descriptors.insert(handle, descriptor);
+                }
+            }
         }
     }
 
@@ -256,8 +294,8 @@ impl Manager {
                 Descriptor::Pending(result_tx) => {
                     _ = result_tx.send(Err(PublishError::Disconnected))
                 }
-                Descriptor::Active { published_tx, task_handle, .. } => {
-                    _ = published_tx.send(false);
+                Descriptor::Active { state_tx, task_handle, .. } => {
+                    _ = state_tx.send(PublishState::Unpublished);
                     task_handle.await;
                 }
             }
@@ -269,7 +307,7 @@ impl Manager {
 struct TrackTask {
     info: Arc<DataTrackInfo>,
     pipeline: Pipeline,
-    published_rx: watch::Receiver<bool>,
+    state_rx: watch::Receiver<PublishState>,
     frame_rx: mpsc::Receiver<DataTrackFrame>,
     event_in_tx: mpsc::Sender<InputEvent>,
     event_out_tx: mpsc::Sender<OutputEvent>,
@@ -277,22 +315,29 @@ struct TrackTask {
 
 impl TrackTask {
     async fn run(mut self) {
-        log::debug!("Track task started: sid={}", self.info.sid);
+        let sid = self.info.sid();
+        log::debug!("Track task started: sid={}", sid);
 
-        let mut is_published = *self.published_rx.borrow();
-        while is_published {
+        let mut state = *self.state_rx.borrow();
+        while state != PublishState::Unpublished {
             tokio::select! {
-                _ = self.published_rx.changed() => {
-                    is_published = *self.published_rx.borrow();
+                _ = self.state_rx.changed() => {
+                    state = *self.state_rx.borrow();
                 }
-                Some(frame) = self.frame_rx.recv() => self.process_and_send(frame)
+                Some(frame) = self.frame_rx.recv() => {
+                    if state == PublishState::Republishing {
+                        // Drop frames while republishing.
+                        continue;
+                    }
+                    self.process_and_send(frame);
+                }
             }
         }
 
         let event = UnpublishRequest { handle: self.info.pub_handle };
         _ = self.event_in_tx.send(event.into()).await;
 
-        log::debug!("Track task ended: sid={}", self.info.sid);
+        log::debug!("Track task ended: sid={}", sid);
     }
 
     fn process_and_send(&mut self, frame: DataTrackFrame) {
@@ -307,7 +352,7 @@ impl TrackTask {
         _ = self
             .event_out_tx
             .try_send(packets.into())
-            .inspect_err(|err| log::debug!("Cannot send packet to transport: {}", err));
+            .inspect_err(|err| log::debug!("Cannot send packets to transport: {}", err));
     }
 }
 
@@ -325,9 +370,19 @@ enum Descriptor {
     ///
     Active {
         info: Arc<DataTrackInfo>,
-        published_tx: watch::Sender<bool>,
+        state_tx: watch::Sender<PublishState>,
         task_handle: livekit_runtime::JoinHandle<()>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PublishState {
+    /// Track is published.
+    Published,
+    /// Track is being republished.
+    Republishing,
+    /// Track is no longer published.
+    Unpublished,
 }
 
 /// Channel for sending [`InputEvent`]s to [`Manager`].
@@ -387,6 +442,8 @@ impl Drop for ManagerInput {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::RwLock;
+
     use super::*;
     use crate::{api::DataTrackSid, packet::Packet};
     use fake::{Fake, Faker};
@@ -428,7 +485,7 @@ mod tests {
 
                         // SFU accepts publication
                         let info = DataTrackInfo {
-                            sid: track_sid.clone(),
+                            sid: RwLock::new(track_sid.clone()).into(),
                             pub_handle,
                             name: event.name,
                             uses_e2ee: event.uses_e2ee,
@@ -455,7 +512,7 @@ mod tests {
             let track = input.publish_track(track_options).await.unwrap();
             assert!(!track.info().uses_e2ee());
             assert_eq!(track.info().name(), track_name);
-            assert_eq!(*track.info().sid(), track_sid);
+            assert_eq!(track.info().sid(), track_sid);
 
             for _ in 0..packet_count {
                 track.try_push(vec![0xFA; payload_size].into()).unwrap();
