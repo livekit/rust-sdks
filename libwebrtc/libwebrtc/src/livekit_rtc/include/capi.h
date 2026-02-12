@@ -4,10 +4,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#ifdef __ANDROID__
-#include <jni.h>
-#endif
-
 #ifdef WIN32
 #if defined(LIVEKIT_RTC_API_EXPORTS)
 #define LK_EXPORT __declspec(dllexport)
@@ -378,9 +374,7 @@ typedef enum {
   CAPTURE_ERROR_PERMANENT,
 } lkCaptureError;
 
-#ifdef __ANDROID__
-LK_EXPORT void initAndroid(void* jvm);
-#endif
+LK_EXPORT void lkInitAndroid(void* jvm);
 
 LK_EXPORT int lkInitialize();
 

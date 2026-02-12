@@ -102,11 +102,12 @@ uint32_t lkVectorGenericPushBack(lkVectorGeneric* vec,
   return static_cast<uint32_t>(lkVec->size());
 }
 
+
+void lkInitAndroid(void* jvm) {
 #ifdef __ANDROID__
-void initAndroid(JavaVM* jvm) {
-  livekit_ffi::init_android(jvm);
-}
+  livekit_ffi::init_android(static_cast<JavaVM*>(jvm));
 #endif
+}
 
 int lkInitialize() {
   if (!webrtc::InitializeSSL()) {

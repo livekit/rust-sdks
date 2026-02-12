@@ -55,11 +55,21 @@ fn main() {
             "windows" => {
                 configure_win_static_link_flags();
             }
-            //TODO(duan): add other OS specific flags here
+            "android" => {
+                configure_android_static_link_flags();
+            }
             _ => {}
         }
         webrtc_sys_build::link_static_library(&webrtc_dir);
     }
+}
+
+fn configure_android_static_link_flags() {
+    println!("cargo:rustc-link-arg=/std:c++20");
+    println!("cargo:rustc-link-lib=EGL");
+    println!("cargo:rustc-link-lib=OpenSLES");
+    println!("cargo:rustc-link-lib=c++_static");
+    println!("cargo:rustc-link-lib=c++abi");
 }
 
 fn configure_win_static_link_flags() {

@@ -11,11 +11,11 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use crate::jni;
+use jni;
 use crate::sys;
 
 pub fn initialize_android(vm: &jni::JavaVM) {
     unsafe {
-        sys::initAndroid(vm.get_java_vm_pointer() as *mut _);
+        sys::lkInitAndroid(vm.get_java_vm_pointer() as *mut _);
     }
 }

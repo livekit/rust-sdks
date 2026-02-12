@@ -74,7 +74,7 @@ pub mod android {
         );
 
         log::info!("JNI_OnLoad, initializing LiveKit");
-        livekit::webrtc::android::initialize_android(&vm);
+        libwebrtc::native::android::initialize_android(&vm);
         JNI_VERSION_1_6
     }
 

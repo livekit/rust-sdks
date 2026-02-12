@@ -629,6 +629,9 @@ pub enum lkCaptureError {
     CAPTURE_ERROR_PERMANENT = 1,
 }
 unsafe extern "C" {
+    pub fn lkInitAndroid(jvm: *mut ::std::os::raw::c_void);
+}
+unsafe extern "C" {
     pub fn lkInitialize() -> ::std::os::raw::c_int;
 }
 unsafe extern "C" {

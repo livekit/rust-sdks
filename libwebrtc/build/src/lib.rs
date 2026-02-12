@@ -219,7 +219,7 @@ pub fn configure_jni_symbols() -> Result<()> {
     // Find JNI symbols
     let readelf_output = Command::new(toolchain_bin.join("llvm-readelf"))
         .arg("-Ws")
-        .arg(webrtc_lib.join("libwebrtc.a"))
+        .arg(webrtc_lib.join("liblivekit_rtc.a"))
         .output()
         .expect("failed to run llvm-readelf");
 
