@@ -1423,6 +1423,9 @@ impl RoomSession {
     fn handle_restarted(self: &Arc<Self>, tx: oneshot::Sender<()>) {
         let _ = tx.send(());
 
+        // Ensure the SFU knows about existing data track publications.
+        _ = self.local_dt_input.send(dt::local::InputEvent::RepublishTracks);
+
         // Ensure SFU continues delivering packets for existing data track subscriptions.
         _ = self.remote_dt_input.send(dt::remote::InputEvent::ResendSubscriptionUpdates);
 
