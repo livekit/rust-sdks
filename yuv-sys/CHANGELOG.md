@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.13](https://github.com/livekit/rust-sdks/compare/rust-sdks/yuv-sys@0.3.12...rust-sdks/yuv-sys@0.3.13) - 2026-02-10
+
+### Other
+
+- update libyuv & support neon simd ([#882](https://github.com/livekit/rust-sdks/pull/882))
+
 ## [0.3.12](https://github.com/livekit/rust-sdks/compare/rust-sdks/yuv-sys@0.3.11...rust-sdks/yuv-sys@0.3.12) - 2026-02-09
 
 ### Other
