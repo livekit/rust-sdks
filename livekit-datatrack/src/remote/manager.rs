@@ -423,6 +423,12 @@ impl ManagerInput {
     }
 }
 
+impl Drop for ManagerInput {
+    fn drop(&mut self) {
+        _ = self.send(InputEvent::Shutdown.into());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

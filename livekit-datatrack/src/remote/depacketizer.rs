@@ -119,7 +119,7 @@ impl Depacketizer {
 
         if partial.payloads.insert(packet.header.sequence, packet.payload).is_some() {
             log::warn!(
-                "Duplicate packet for sequence {} on frame {}, using latest",
+                "Duplicate packet for sequence {} on frame {}, replacing with latest",
                 packet.header.sequence,
                 partial.frame_number
             );

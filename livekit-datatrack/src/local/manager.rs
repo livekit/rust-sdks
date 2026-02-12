@@ -379,6 +379,12 @@ impl ManagerInput {
     const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
 }
 
+impl Drop for ManagerInput {
+    fn drop(&mut self) {
+        _ = self.send(InputEvent::Shutdown.into());
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
