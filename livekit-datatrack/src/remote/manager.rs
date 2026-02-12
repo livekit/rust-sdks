@@ -164,8 +164,9 @@ impl Manager {
         // Detect published track
         for (publisher_identity, tracks) in event.updates {
             for info in tracks {
-                sids_in_update.insert(info.sid.clone());
-                if self.descriptors.contains_key(&info.sid) {
+                let sid = info.sid();
+                sids_in_update.insert(sid.clone());
+                if self.descriptors.contains_key(&sid) {
                     continue;
                 }
                 self.handle_track_published(publisher_identity.clone(), info).await;
@@ -181,8 +182,9 @@ impl Manager {
     }
 
     async fn handle_track_published(&mut self, publisher_identity: String, info: DataTrackInfo) {
-        if self.descriptors.contains_key(&info.sid) {
-            log::error!("Existing descriptor for track {}", info.sid);
+        let sid = info.sid();
+        if self.descriptors.contains_key(&sid) {
+            log::error!("Existing descriptor for track {}", sid);
             return;
         }
         let info = Arc::new(info);
@@ -196,7 +198,7 @@ impl Manager {
             published_tx,
             subscription: SubscriptionState::None,
         };
-        self.descriptors.insert(descriptor.info.sid.clone(), descriptor);
+        self.descriptors.insert(sid, descriptor);
 
         let inner = RemoteTrackInner {
             published_rx,
@@ -377,7 +379,7 @@ struct TrackTask {
 
 impl TrackTask {
     async fn run(mut self) {
-        log::debug!("Task started: sid={}", self.info.sid);
+        log::debug!("Track task started: name={}", self.info.name);
 
         let mut is_published = *self.published_rx.borrow();
         while is_published {
@@ -387,7 +389,7 @@ impl TrackTask {
                     is_published = *self.published_rx.borrow();
                 },
                 _ = self.frame_tx.closed() => {
-                    let event = UnsubscribeRequest { sid: self.info.sid.clone() };
+                    let event = UnsubscribeRequest { sid: self.info.sid() };
                     _ = self.event_in_tx.send(event.into()).await;
                     break;  // No more subscribers
                 },
@@ -398,7 +400,7 @@ impl TrackTask {
             }
         }
 
-        log::debug!("Task ended: sid={}", self.info.sid);
+        log::debug!("Track task ended: name={}", self.info.name);
     }
 
     fn receive(&mut self, packet: Packet) {
@@ -434,7 +436,7 @@ mod tests {
     use super::*;
     use fake::{Fake, Faker};
     use futures_util::{future::join, StreamExt};
-    use std::{collections::HashMap, time::Duration};
+    use std::{collections::HashMap, sync::RwLock, time::Duration};
     use test_case::test_case;
     use tokio::time;
 
@@ -457,7 +459,7 @@ mod tests {
         info.uses_e2ee = false;
 
         let info = Arc::new(info);
-        let sid = info.sid.clone();
+        let sid = info.sid();
         let publisher_identity: Arc<str> = Faker.fake::<String>().into();
 
         let pipeline_opts =
@@ -510,7 +512,7 @@ mod tests {
             updates: HashMap::from([(
                 publisher_identity.clone(),
                 vec![DataTrackInfo {
-                    sid: track_sid.clone(),
+                    sid: RwLock::new(track_sid.clone()).into(),
                     pub_handle: Faker.fake(), // Pub handle
                     name: track_name.clone(),
                     uses_e2ee: false,
@@ -532,7 +534,7 @@ mod tests {
         let track = wait_for_track.await;
         assert!(track.is_published());
         assert_eq!(track.info().name, track_name);
-        assert_eq!(*track.info().sid(), track_sid);
+        assert_eq!(track.info().sid(), track_sid);
         assert_eq!(track.publisher_identity(), publisher_identity);
 
         let simulate_subscriber_handles = async {

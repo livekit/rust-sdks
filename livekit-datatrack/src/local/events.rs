@@ -30,6 +30,12 @@ pub enum InputEvent {
     UnpublishRequest(UnpublishRequest),
     SfuPublishResponse(SfuPublishResponse),
     SfuUnpublishResponse(SfuUnpublishResponse),
+    /// Republish all tracks.
+    ///
+    /// This must be sent after a full reconnect in order for existing publications
+    /// to be recognized by the SFU. Each republished track will be assigned a new SID.
+    ///
+    RepublishTracks,
     /// Shutdown the manager and all associated tracks.
     Shutdown,
 }

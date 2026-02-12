@@ -154,6 +154,6 @@ mod tests {
         let first = track_info.first().unwrap();
         assert_eq!(first.pub_handle, 1u32.try_into().unwrap());
         assert_eq!(first.name, "track1");
-        assert_eq!(first.sid, "DTR_1234".to_string().try_into().unwrap());
+        assert_eq!(*first.sid.read().unwrap(), "DTR_1234".to_string().try_into().unwrap());
     }
 }

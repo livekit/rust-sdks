@@ -19,7 +19,7 @@ use crate::{
 };
 use anyhow::{anyhow, Context};
 use livekit_protocol as proto;
-use std::borrow::Borrow;
+use std::{borrow::Borrow, sync::RwLock};
 
 // MARK: - Output event -> protocol
 
@@ -69,7 +69,7 @@ impl TryFrom<proto::DataTrackInfo> for DataTrackInfo {
             other => Err(anyhow!("Unsupported E2EE type: {:?}", other))?,
         };
         let sid: DataTrackSid = msg.sid.try_into().map_err(anyhow::Error::from)?;
-        Ok(Self { pub_handle: handle, sid, name: msg.name, uses_e2ee })
+        Ok(Self { pub_handle: handle, sid: RwLock::new(sid).into(), name: msg.name, uses_e2ee })
     }
 }
 
@@ -160,7 +160,7 @@ mod tests {
 
         let info = event.result.expect("Expected ok result");
         assert_eq!(info.pub_handle, 1u32.try_into().unwrap());
-        assert_eq!(info.sid, "DTR_1234".to_string().try_into().unwrap());
+        assert_eq!(*info.sid.read().unwrap(), "DTR_1234".to_string().try_into().unwrap());
         assert_eq!(info.name, "track");
         assert!(info.uses_e2ee);
     }

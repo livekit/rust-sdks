@@ -74,7 +74,7 @@ impl DataTrack<Remote> {
     ///
     pub async fn subscribe(&self) -> Result<impl Stream<Item = DataTrackFrame>, SubscribeError> {
         let (result_tx, result_rx) = oneshot::channel();
-        let subscribe_event = SubscribeRequest { sid: self.info.sid.clone(), result_tx };
+        let subscribe_event = SubscribeRequest { sid: self.info.sid(), result_tx };
         self.inner()
             .event_in_tx
             .upgrade()
@@ -110,8 +110,13 @@ pub(crate) struct RemoteTrackInner {
 }
 
 impl RemoteTrackInner {
-    pub fn published_rx(&self) -> watch::Receiver<bool> {
-        self.published_rx.clone()
+    pub(crate) fn is_published(&self) -> bool {
+        *self.published_rx.borrow()
+    }
+
+    pub(crate) async fn wait_for_unpublish(&self) {
+        let mut published_rx = self.published_rx.clone();
+        _ = published_rx.wait_for(|is_published| !*is_published).await
     }
 }
 
