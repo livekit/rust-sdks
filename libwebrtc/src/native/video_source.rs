@@ -23,6 +23,7 @@ use parking_lot::Mutex;
 use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
 
 use crate::{
+    native::user_timestamp::UserTimestampStore,
     video_frame::{I420Buffer, VideoBuffer, VideoFrame},
     video_source::VideoResolution,
 };
@@ -47,6 +48,7 @@ pub struct NativeVideoSource {
 
 struct VideoSourceInner {
     captured_frames: usize,
+    user_timestamp_store: Option<UserTimestampStore>,
 }
 
 impl NativeVideoSource {
@@ -55,7 +57,10 @@ impl NativeVideoSource {
             sys_handle: vt_sys::ffi::new_video_track_source(&vt_sys::ffi::VideoResolution::from(
                 resolution.clone(),
             )),
-            inner: Arc::new(Mutex::new(VideoSourceInner { captured_frames: 0 })),
+            inner: Arc::new(Mutex::new(VideoSourceInner {
+                captured_frames: 0,
+                user_timestamp_store: None,
+            })),
         };
 
         livekit_runtime::spawn({
@@ -99,15 +104,34 @@ impl NativeVideoSource {
         builder.pin_mut().set_rotation(frame.rotation.into());
         builder.pin_mut().set_video_frame_buffer(frame.buffer.as_ref().sys_handle());
 
-        if frame.timestamp_us == 0 {
+        let capture_ts = if frame.timestamp_us == 0 {
             // If the timestamp is set to 0, default to now
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-            builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
+            now.as_micros() as i64
         } else {
-            builder.pin_mut().set_timestamp_us(frame.timestamp_us);
+            frame.timestamp_us
+        };
+        builder.pin_mut().set_timestamp_us(capture_ts);
+
+        // If a user timestamp is provided and a store is available, record
+        // the mapping so the UserTimestampTransformer can embed it into the
+        // encoded RTP frame.
+        if let Some(user_ts) = frame.user_timestamp_us {
+            if let Some(store) = &inner.user_timestamp_store {
+                store.store(capture_ts, user_ts);
+            }
         }
 
         self.sys_handle.on_captured_frame(&builder.pin_mut().build());
+    }
+
+    /// Set the user timestamp store used by this source.
+    ///
+    /// When set, any frame captured with a `user_timestamp_us` value will
+    /// automatically have its timestamp pushed into the store so the
+    /// `UserTimestampTransformer` can embed it into the encoded frame.
+    pub fn set_user_timestamp_store(&self, store: UserTimestampStore) {
+        self.inner.lock().user_timestamp_store = Some(store);
     }
 
     pub fn video_resolution(&self) -> VideoResolution {

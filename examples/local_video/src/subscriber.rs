@@ -5,6 +5,7 @@ use eframe::wgpu::{self, util::DeviceExt};
 use egui_wgpu as egui_wgpu_backend;
 use egui_wgpu_backend::CallbackTrait;
 use futures::StreamExt;
+use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::prelude::*;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
@@ -17,7 +18,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 async fn wait_for_shutdown(flag: Arc<AtomicBool>) {
@@ -52,6 +53,14 @@ struct Args {
     /// Only subscribe to video from this participant identity
     #[arg(long)]
     participant: Option<String>,
+
+    /// Display user timestamp, current timestamp, and latency overlay
+    #[arg(long)]
+    display_timestamp: bool,
+
+    /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set; must match publisher's key)
+    #[arg(long)]
+    e2ee_key: Option<String>,
 }
 
 struct SharedYuv {
@@ -66,6 +75,8 @@ struct SharedYuv {
     codec: String,
     fps: f32,
     dirty: bool,
+    /// Last received user timestamp in microseconds, if any.
+    user_timestamp_us: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -112,6 +123,49 @@ fn infer_quality_from_dims(
     } else {
         livekit::track::VideoQuality::Low
     }
+}
+
+/// Returns the current wall-clock time as microseconds since Unix epoch.
+fn current_timestamp_us() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_micros() as i64
+}
+
+/// Format a user timestamp (microseconds since Unix epoch) as
+/// `yyyy-mm-dd hh:mm:ss.ssss`.
+fn format_timestamp_us(ts_us: i64) -> String {
+    // Convert to calendar components without chrono — pure arithmetic.
+    let secs = (ts_us / 1_000_000) as u64;
+    let sub_sec_us = (ts_us % 1_000_000) as u32;
+
+    // Days / time-of-day decomposition
+    let days = (secs / 86400) as i64;
+    let day_secs = (secs % 86400) as u32;
+    let hour = day_secs / 3600;
+    let minute = (day_secs % 3600) / 60;
+    let second = day_secs % 60;
+    let frac = sub_sec_us / 100; // 4-digit tenths of microseconds → 0..9999
+
+    // Convert days since epoch to y/m/d (civil calendar, proleptic Gregorian).
+    // Algorithm from Howard Hinnant (http://howardhinnant.github.io/date_algorithms.html)
+    let z = days + 719468;
+    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
+    let doe = (z - era * 146097) as u32; // day of era [0, 146096]
+    let yoe =
+        (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // year of era [0, 399]
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // day of year [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let day = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let month = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let year = if month <= 2 { y + 1 } else { y };
+
+    format!(
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:04}",
+        year, month, day, hour, minute, second, frac
+    )
 }
 
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
@@ -238,6 +292,8 @@ async fn handle_track_subscribed(
     }
     let simulcast2 = simulcast.clone();
     std::thread::spawn(move || {
+        // The user timestamp handler is automatically wired from the RtcVideoTrack,
+        // so frame.user_timestamp_us is populated without manual setup.
         let mut sink = NativeVideoStream::new(video_track.rtc_track());
         let mut frames: u64 = 0;
         let mut last_log = Instant::now();
@@ -304,6 +360,7 @@ async fn handle_track_subscribed(
             std::mem::swap(&mut s.u, &mut u_buf);
             std::mem::swap(&mut s.v, &mut v_buf);
             s.dirty = true;
+            s.user_timestamp_us = frame.user_timestamp_us;
 
             // Update smoothed FPS (~500ms window)
             fps_window_frames += 1;
@@ -410,6 +467,14 @@ struct VideoApp {
     simulcast: Arc<Mutex<SimulcastState>>,
     ctrl_c_received: Arc<AtomicBool>,
     locked_aspect: Option<f32>,
+    display_timestamp: bool,
+    /// Cached latency string, updated at ~5 Hz so it's readable.
+    latency_display: String,
+    /// Last time the latency display was refreshed.
+    latency_last_update: Instant,
+    /// Cached user timestamp so the overlay doesn't flicker when the shared
+    /// state momentarily has `None` between frame swaps.
+    cached_user_timestamp_us: Option<i64>,
 }
 
 impl eframe::App for VideoApp {
@@ -459,16 +524,32 @@ impl eframe::App for VideoApp {
             );
         });
 
-        // Resolution/FPS overlay: top-left
+        // Resolution/FPS overlay: top-right
         egui::Area::new("video_hud".into())
-            .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
+            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
             .interactable(false)
             .show(ctx, |ui| {
                 let s = self.shared.lock();
                 if s.width == 0 || s.height == 0 || s.fps <= 0.0 || s.codec.is_empty() {
                     return;
                 }
-                let text = format!("{} {}x{} {:.1}fps", s.codec, s.width, s.height, s.fps);
+                let mut text = format!("{} {}x{} {:.1}fps", s.codec, s.width, s.height, s.fps);
+                let sc = self.simulcast.lock();
+                if sc.available {
+                    let layer = sc
+                        .active_quality
+                        .map(|q| match q {
+                            livekit::track::VideoQuality::Low => "Low",
+                            livekit::track::VideoQuality::Medium => "Medium",
+                            livekit::track::VideoQuality::High => "High",
+                            _ => "Unknown",
+                        })
+                        .unwrap_or("?");
+                    text.push_str(&format!("\nSimulcast: {}", layer));
+                } else {
+                    text.push_str("\nSimulcast: off");
+                }
+                drop(sc);
                 egui::Frame::NONE
                     .fill(egui::Color32::from_black_alpha(140))
                     .corner_radius(egui::CornerRadius::same(4))
@@ -480,6 +561,54 @@ impl eframe::App for VideoApp {
                         );
                     });
             });
+
+        // Timestamp overlay: user timestamp, current timestamp, and latency.
+        // We cache the last-known user timestamp so the overlay doesn't flicker
+        // when the shared state momentarily has `None` between frame swaps.
+        if self.display_timestamp {
+            {
+                let s = self.shared.lock();
+                if let Some(ts) = s.user_timestamp_us {
+                    self.cached_user_timestamp_us = Some(ts);
+                }
+            }
+            if let Some(user_ts) = self.cached_user_timestamp_us {
+                egui::Area::new("timestamp_hud".into())
+                    .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
+                    .interactable(false)
+                    .show(ctx, |ui| {
+                        let now_us = current_timestamp_us();
+
+                        // Update the cached latency display at ~5 Hz so it's readable.
+                        if self.latency_last_update.elapsed() >= Duration::from_millis(200) {
+                            let delta_ms = (now_us - user_ts) as f64 / 1000.0;
+                            self.latency_display = format!("{:.1}ms", delta_ms);
+                            self.latency_last_update = Instant::now();
+                        }
+
+                        let lines = format!(
+                            "Publish:    {}\nSubscribe:  {}\nLatency:    {}",
+                            format_timestamp_us(user_ts),
+                            format_timestamp_us(now_us),
+                            self.latency_display,
+                        );
+                        egui::Frame::NONE
+                            .fill(egui::Color32::from_black_alpha(140))
+                            .corner_radius(egui::CornerRadius::same(4))
+                            .inner_margin(egui::Margin::same(6))
+                            .show(ui, |ui| {
+                                ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(lines)
+                                            .color(egui::Color32::WHITE)
+                                            .monospace(),
+                                    )
+                                    .extend(),
+                                );
+                            });
+                    });
+            }
+        }
 
         // Simulcast layer controls: bottom-left overlay
         egui::Area::new("simulcast_controls".into())
@@ -560,9 +689,29 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
+
+    // Configure E2EE if an encryption key is provided
+    if let Some(ref e2ee_key) = args.e2ee_key {
+        let key_provider = KeyProvider::with_shared_key(
+            KeyProviderOptions::default(),
+            e2ee_key.as_bytes().to_vec(),
+        );
+        room_options.encryption = Some(E2eeOptions {
+            encryption_type: EncryptionType::Gcm,
+            key_provider,
+        });
+        info!("E2EE enabled with AES-GCM encryption");
+    }
+
     let (room, _) = Room::connect(&url, &token, room_options).await?;
     let room = Arc::new(room);
     info!("Connected: {} - {}", room.name(), room.sid().await);
+
+    // Enable E2EE after connection
+    if args.e2ee_key.is_some() {
+        room.e2ee_manager().set_enabled(true);
+        info!("End-to-end encryption activated");
+    }
 
     // Shared YUV buffer for UI/GPU
     let shared = Arc::new(Mutex::new(SharedYuv {
@@ -577,6 +726,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         codec: String::new(),
         fps: 0.0,
         dirty: false,
+        user_timestamp_us: None,
     }));
 
     // Subscribe to room events: on first video track, start sink task
@@ -628,6 +778,10 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         simulcast,
         ctrl_c_received: ctrl_c_received.clone(),
         locked_aspect: None,
+        display_timestamp: args.display_timestamp,
+        latency_display: String::new(),
+        latency_last_update: Instant::now(),
+        cached_user_timestamp_us: None,
     };
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(

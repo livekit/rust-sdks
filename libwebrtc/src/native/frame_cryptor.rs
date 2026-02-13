@@ -19,8 +19,8 @@ use parking_lot::Mutex;
 use webrtc_sys::frame_cryptor::{self as sys_fc};
 
 use crate::{
-    peer_connection_factory::PeerConnectionFactory, rtp_receiver::RtpReceiver,
-    rtp_sender::RtpSender,
+    native::user_timestamp::UserTimestampHandler, peer_connection_factory::PeerConnectionFactory,
+    rtp_receiver::RtpReceiver, rtp_sender::RtpSender,
 };
 
 pub type OnStateChange = Box<dyn FnMut(String, EncryptionState) + Send + Sync>;
@@ -167,6 +167,10 @@ impl FrameCryptor {
 
     pub fn on_state_change(&self, handler: Option<OnStateChange>) {
         *self.observer.state_change_handler.lock() = handler;
+    }
+
+    pub fn set_user_timestamp_handler(&self, handler: &UserTimestampHandler) {
+        self.sys_handle.set_user_timestamp_handler(handler.sys_handle());
     }
 }
 

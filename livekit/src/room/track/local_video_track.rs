@@ -14,8 +14,9 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use libwebrtc::{prelude::*, stats::RtcStats};
+use libwebrtc::{native::user_timestamp::UserTimestampStore, prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
+use parking_lot::Mutex;
 
 use super::TrackInner;
 use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
@@ -24,6 +25,7 @@ use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 pub struct LocalVideoTrack {
     inner: Arc<TrackInner>,
     source: RtcVideoSource,
+    user_timestamp_store: Arc<Mutex<Option<UserTimestampStore>>>,
 }
 
 impl Debug for LocalVideoTrack {
@@ -46,6 +48,7 @@ impl LocalVideoTrack {
                 MediaStreamTrack::Video(rtc_track),
             )),
             source,
+            user_timestamp_store: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -121,6 +124,18 @@ impl LocalVideoTrack {
 
     pub fn rtc_source(&self) -> RtcVideoSource {
         self.source.clone()
+    }
+
+    /// Returns the user timestamp store associated with this track, if any.
+    /// When present, callers can push per-frame user timestamps into the
+    /// outgoing queue which will then be embedded into encoded frames.
+    pub fn user_timestamp_store(&self) -> Option<UserTimestampStore> {
+        self.user_timestamp_store.lock().clone()
+    }
+
+    /// Internal: set the user timestamp store used for this track.
+    pub(crate) fn set_user_timestamp_store(&self, store: UserTimestampStore) {
+        *self.user_timestamp_store.lock() = Some(store);
     }
 
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {

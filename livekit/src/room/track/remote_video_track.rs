@@ -14,7 +14,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use libwebrtc::{prelude::*, stats::RtcStats};
+use libwebrtc::{native::user_timestamp::UserTimestampHandler, prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
 
 use super::{remote_track, TrackInner};
@@ -92,6 +92,29 @@ impl RemoteVideoTrack {
 
     pub fn is_remote(&self) -> bool {
         true
+    }
+
+    /// Returns the last parsed user timestamp (in microseconds) for this
+    /// remote video track, if the user timestamp transformer is enabled and
+    /// a timestamp has been received.
+    pub fn last_user_timestamp(&self) -> Option<i64> {
+        self.rtc_track()
+            .user_timestamp_handler()
+            .and_then(|h| h.last_user_timestamp())
+    }
+
+    /// Returns a clone of the user timestamp handler, if one has been set.
+    pub fn user_timestamp_handler(&self) -> Option<UserTimestampHandler> {
+        self.rtc_track().user_timestamp_handler()
+    }
+
+    /// Internal: set the handler that extracts user timestamps for this track.
+    ///
+    /// The handler is stored on the underlying `RtcVideoTrack`, so any
+    /// `NativeVideoStream` created from this track will automatically
+    /// pick it up — no manual wiring required.
+    pub(crate) fn set_user_timestamp_handler(&self, handler: UserTimestampHandler) {
+        self.rtc_track().set_user_timestamp_handler(handler);
     }
 
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {
