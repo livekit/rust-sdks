@@ -70,10 +70,7 @@ pub enum SignalError {
     #[error("failed to retrieve region info: {0}")]
     RegionError(String),
     #[error("server sent leave during reconnect: reason={reason:?}, action={action:?}")]
-    LeaveRequest {
-        reason: proto::DisconnectReason,
-        action: proto::leave_request::Action,
-    },
+    LeaveRequest { reason: proto::DisconnectReason, action: proto::leave_request::Action },
 }
 
 #[derive(Debug, Clone)]

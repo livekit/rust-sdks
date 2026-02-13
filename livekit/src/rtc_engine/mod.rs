@@ -779,11 +779,7 @@ impl EngineInner {
                 if let Err(err) = self.try_resume_connection().await {
                     log::error!("resuming connection failed: {}", err);
 
-                    if let EngineError::Signal(SignalError::LeaveRequest {
-                        action,
-                        ..
-                    }) = &err
-                    {
+                    if let EngineError::Signal(SignalError::LeaveRequest { action, .. }) = &err {
                         if *action == proto::leave_request::Action::Disconnect {
                             log::warn!(
                                 "server sent leave with disconnect action, stopping reconnect"
