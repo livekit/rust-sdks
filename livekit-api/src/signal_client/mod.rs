@@ -69,6 +69,8 @@ pub enum SignalError {
     SendError,
     #[error("failed to retrieve region info: {0}")]
     RegionError(String),
+    #[error("server sent leave during reconnect: reason={reason:?}, action={action:?}")]
+    LeaveRequest { reason: proto::DisconnectReason, action: proto::leave_request::Action },
 }
 
 #[derive(Debug, Clone)]
@@ -531,11 +533,33 @@ get_async_message!(
     proto::JoinResponse
 );
 
-get_async_message!(
-    get_reconnect_response,
-    proto::signal_response::Message::Reconnect(msg) => msg,
-    proto::ReconnectResponse
-);
+async fn get_reconnect_response(
+    receiver: &mut mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
+) -> SignalResult<proto::ReconnectResponse> {
+    let join = async {
+        while let Some(event) = receiver.recv().await {
+            match *event {
+                proto::signal_response::Message::Reconnect(msg) => return Ok(msg),
+                proto::signal_response::Message::Leave(leave) => {
+                    return Err(SignalError::LeaveRequest {
+                        reason: leave.reason(),
+                        action: leave.action(),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        Err(WsError::ConnectionClosed)?
+    };
+
+    livekit_runtime::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
+        SignalError::Timeout(format!(
+            "failed to receive {}",
+            std::any::type_name::<proto::ReconnectResponse>()
+        ))
+    })?
+}
 
 #[cfg(test)]
 mod tests {
