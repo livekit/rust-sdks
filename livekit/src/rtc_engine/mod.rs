@@ -663,7 +663,12 @@ impl EngineInner {
             // If we're already reconnecting just update the interval to restart a new attempt
             // ASAP
 
-            running_handle.full_reconnect = full_reconnect;
+            // Only escalate to full reconnect, never downgrade. Stale signal-close
+            // events (which request resume) must not override a full reconnect decision
+            // made by the reconnect loop after a failed resume attempt.
+            if full_reconnect {
+                running_handle.full_reconnect = true;
+            }
 
             if retry_now {
                 let inner = self.clone();
@@ -773,6 +778,24 @@ impl EngineInner {
                 log::error!("resuming connection... attempt: {}", i);
                 if let Err(err) = self.try_resume_connection().await {
                     log::error!("resuming connection failed: {}", err);
+
+                    if let EngineError::Signal(SignalError::LeaveRequest {
+                        action,
+                        ..
+                    }) = &err
+                    {
+                        if *action == proto::leave_request::Action::Disconnect {
+                            log::warn!(
+                                "server sent leave with disconnect action, stopping reconnect"
+                            );
+                            let mut running_handle = self.running_handle.write();
+                            running_handle.can_reconnect = false;
+                            return Err(EngineError::Connection(
+                                "server requested disconnect".into(),
+                            ));
+                        }
+                    }
+
                     let mut running_handle = self.running_handle.write();
                     running_handle.full_reconnect = true;
                 } else {
