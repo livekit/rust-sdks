@@ -50,8 +50,13 @@ pub mod native {
         /// Set the user timestamp handler for this stream.
         ///
         /// When set, each frame produced by this stream will have its
-        /// `user_timestamp_us` field populated from the handler's last
-        /// received timestamp (if available).
+        /// `user_timestamp_us` field populated by looking up the user
+        /// timestamp for each frame's RTP timestamp.
+        ///
+        /// Note: If the handler was already set on the `RtcVideoTrack`
+        /// before creating this stream, it is automatically wired up.
+        /// This method is only needed to override or set the handler
+        /// after construction.
         pub fn set_user_timestamp_handler(&self, handler: UserTimestampHandler) {
             self.handle.set_user_timestamp_handler(handler);
         }

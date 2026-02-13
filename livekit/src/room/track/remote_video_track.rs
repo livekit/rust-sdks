@@ -16,7 +16,6 @@ use std::{fmt::Debug, sync::Arc};
 
 use libwebrtc::{native::user_timestamp::UserTimestampHandler, prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
-use parking_lot::Mutex;
 
 use super::{remote_track, TrackInner};
 use crate::prelude::*;
@@ -24,7 +23,6 @@ use crate::prelude::*;
 #[derive(Clone)]
 pub struct RemoteVideoTrack {
     inner: Arc<TrackInner>,
-    user_timestamp_handler: Arc<Mutex<Option<UserTimestampHandler>>>,
 }
 
 impl Debug for RemoteVideoTrack {
@@ -46,7 +44,6 @@ impl RemoteVideoTrack {
                 TrackKind::Video,
                 MediaStreamTrack::Video(rtc_track),
             )),
-            user_timestamp_handler: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -101,24 +98,23 @@ impl RemoteVideoTrack {
     /// remote video track, if the user timestamp transformer is enabled and
     /// a timestamp has been received.
     pub fn last_user_timestamp(&self) -> Option<i64> {
-        self.user_timestamp_handler
-            .lock()
-            .as_ref()
+        self.rtc_track()
+            .user_timestamp_handler()
             .and_then(|h| h.last_user_timestamp())
     }
 
     /// Returns a clone of the user timestamp handler, if one has been set.
-    ///
-    /// This can be passed to a `NativeVideoStream` via
-    /// `set_user_timestamp_handler` so that each frame's
-    /// `user_timestamp_us` field is populated automatically.
     pub fn user_timestamp_handler(&self) -> Option<UserTimestampHandler> {
-        self.user_timestamp_handler.lock().clone()
+        self.rtc_track().user_timestamp_handler()
     }
 
     /// Internal: set the handler that extracts user timestamps for this track.
+    ///
+    /// The handler is stored on the underlying `RtcVideoTrack`, so any
+    /// `NativeVideoStream` created from this track will automatically
+    /// pick it up — no manual wiring required.
     pub(crate) fn set_user_timestamp_handler(&self, handler: UserTimestampHandler) {
-        self.user_timestamp_handler.lock().replace(handler);
+        self.rtc_track().set_user_timestamp_handler(handler);
     }
 
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {

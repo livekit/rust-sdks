@@ -40,9 +40,13 @@ pub struct NativeVideoStream {
 impl NativeVideoStream {
     pub fn new(video_track: RtcVideoTrack) -> Self {
         let (frame_tx, frame_rx) = mpsc::unbounded_channel();
+
+        // Auto-wire the user timestamp handler from the track if one is set.
+        let handler = video_track.handle.user_timestamp_handler();
+
         let observer = Arc::new(VideoTrackObserver {
             frame_tx,
-            user_timestamp_handler: parking_lot::Mutex::new(None),
+            user_timestamp_handler: parking_lot::Mutex::new(handler),
         });
         let native_sink = sys_vt::ffi::new_native_video_sink(Box::new(
             sys_vt::VideoSinkWrapper::new(observer.clone()),
@@ -57,8 +61,13 @@ impl NativeVideoStream {
     /// Set the user timestamp handler for this stream.
     ///
     /// When set, each frame produced by this stream will have its
-    /// `user_timestamp_us` field populated from the handler's last
-    /// received timestamp (if available).
+    /// `user_timestamp_us` field populated from the handler's receive
+    /// map (looked up by RTP timestamp).
+    ///
+    /// Note: If the handler was already set on the `RtcVideoTrack` before
+    /// creating this stream, it is automatically wired up. This method is
+    /// only needed if you want to override or set the handler after
+    /// construction.
     pub fn set_user_timestamp_handler(&self, handler: UserTimestampHandler) {
         *self.observer.user_timestamp_handler.lock() = Some(handler);
     }
