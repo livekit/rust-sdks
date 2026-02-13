@@ -149,14 +149,14 @@ impl UserTimestampHandler {
         }
     }
 
-    /// Pop the next received user timestamp from the receive queue.
-    /// Returns None if the queue is empty.
+    /// Lookup the user timestamp for a given RTP timestamp (receiver side).
+    /// Returns None if no timestamp was found for this RTP timestamp.
+    /// The entry is removed from the map after a successful lookup.
     ///
-    /// Each decoded frame should call this once to get its matching
-    /// timestamp, maintaining 1:1 correspondence between received
-    /// encoded frames and decoded video frames.
-    pub fn pop_user_timestamp(&self) -> Option<i64> {
-        let ts = self.sys_handle.pop_user_timestamp();
+    /// Use the RTP timestamp from the decoded video frame to correlate
+    /// it with the user timestamp that was embedded in the encoded frame.
+    pub fn lookup_user_timestamp(&self, rtp_timestamp: u32) -> Option<i64> {
+        let ts = self.sys_handle.lookup_user_timestamp(rtp_timestamp);
         if ts >= 0 {
             Some(ts)
         } else {
@@ -190,7 +190,9 @@ pub fn create_sender_handler(
 /// Create a receiver-side user timestamp handler.
 ///
 /// This handler will extract user timestamps from received frames
-/// and make them available via `last_user_timestamp()`.
+/// and store them in a map keyed by RTP timestamp. Use
+/// `lookup_user_timestamp(rtp_timestamp)` to retrieve the user
+/// timestamp for a specific decoded frame.
 pub fn create_receiver_handler(
     peer_factory: &PeerConnectionFactory,
     store: &UserTimestampStore,

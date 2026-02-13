@@ -110,10 +110,10 @@ class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
   /// Get the last received user timestamp (receiver side only)
   std::optional<int64_t> last_user_timestamp() const;
 
-  /// Pop the next received user timestamp from the receive queue.
-  /// Returns the user timestamp if available, nullopt otherwise.
-  /// Each decoded frame should call this once to get its matching timestamp.
-  std::optional<int64_t> pop_user_timestamp();
+  /// Lookup the user timestamp associated with a given RTP timestamp.
+  /// Returns the user timestamp if found, nullopt otherwise.
+  /// The entry is removed from the map after lookup.
+  std::optional<int64_t> lookup_user_timestamp(uint32_t rtp_timestamp);
 
  private:
   void TransformSend(
@@ -148,11 +148,14 @@ class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
   mutable webrtc::Mutex send_cache_mutex_;
   mutable int64_t last_sent_user_timestamp_{0};
 
-  // Receive-side FIFO queue: one entry per received encoded frame, popped
-  // one-to-one as decoded frames are delivered to the video sink.
-  mutable webrtc::Mutex recv_queue_mutex_;
-  mutable std::deque<int64_t> recv_queue_;
-  static constexpr size_t kMaxRecvQueueEntries = 300;
+  // Receive-side map: RTP timestamp -> user timestamp.
+  // Keyed by RTP timestamp so decoded frames can look up their user
+  // timestamp regardless of frame drops or reordering.
+  mutable webrtc::Mutex recv_map_mutex_;
+  mutable std::unordered_map<uint32_t, int64_t> recv_map_;
+  // Track insertion order for pruning old entries.
+  mutable std::deque<uint32_t> recv_map_order_;
+  static constexpr size_t kMaxRecvMapEntries = 300;
 };
 
 /// Wrapper class for Rust FFI that manages user timestamp transformers.
@@ -178,9 +181,9 @@ class UserTimestampHandler {
   /// Returns -1 if no timestamp has been received yet
   int64_t last_user_timestamp() const;
 
-  /// Pop the next received user timestamp from the receive queue.
-  /// Returns -1 if the queue is empty.
-  int64_t pop_user_timestamp() const;
+  /// Lookup the user timestamp for a given RTP timestamp (receiver side).
+  /// Returns -1 if not found.
+  int64_t lookup_user_timestamp(uint32_t rtp_timestamp) const;
 
   /// Check if a user timestamp has been received
   bool has_user_timestamp() const;

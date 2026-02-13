@@ -253,13 +253,17 @@ void UserTimestampTransformer::TransformReceive(
     last_user_timestamp_.store(user_ts.value());
     has_last_user_timestamp_.store(true);
 
-    // Also push to the receive queue so decoded frames can pop 1:1
+    // Store in the receive map keyed by RTP timestamp so decoded frames
+    // can look up their user timestamp regardless of frame drops.
     {
-      webrtc::MutexLock lock(&recv_queue_mutex_);
-      if (recv_queue_.size() >= kMaxRecvQueueEntries) {
-        recv_queue_.pop_front();
+      webrtc::MutexLock lock(&recv_map_mutex_);
+      // Evict oldest entry if at capacity
+      while (recv_map_.size() >= kMaxRecvMapEntries && !recv_map_order_.empty()) {
+        recv_map_.erase(recv_map_order_.front());
+        recv_map_order_.pop_front();
       }
-      recv_queue_.push_back(user_ts.value());
+      recv_map_[rtp_timestamp] = user_ts.value();
+      recv_map_order_.push_back(rtp_timestamp);
     }
 
     // Update frame with stripped data
@@ -416,13 +420,22 @@ std::optional<int64_t> UserTimestampTransformer::last_user_timestamp()
   return last_user_timestamp_.load();
 }
 
-std::optional<int64_t> UserTimestampTransformer::pop_user_timestamp() {
-  webrtc::MutexLock lock(&recv_queue_mutex_);
-  if (recv_queue_.empty()) {
+std::optional<int64_t> UserTimestampTransformer::lookup_user_timestamp(
+    uint32_t rtp_timestamp) {
+  webrtc::MutexLock lock(&recv_map_mutex_);
+  auto it = recv_map_.find(rtp_timestamp);
+  if (it == recv_map_.end()) {
     return std::nullopt;
   }
-  int64_t ts = recv_queue_.front();
-  recv_queue_.pop_front();
+  int64_t ts = it->second;
+  recv_map_.erase(it);
+  // Remove from insertion-order tracker (linear scan is fine for bounded size)
+  for (auto oit = recv_map_order_.begin(); oit != recv_map_order_.end(); ++oit) {
+    if (*oit == rtp_timestamp) {
+      recv_map_order_.erase(oit);
+      break;
+    }
+  }
   return ts;
 }
 
@@ -461,8 +474,8 @@ int64_t UserTimestampHandler::last_user_timestamp() const {
   return ts.value_or(-1);
 }
 
-int64_t UserTimestampHandler::pop_user_timestamp() const {
-  auto ts = transformer_->pop_user_timestamp();
+int64_t UserTimestampHandler::lookup_user_timestamp(uint32_t rtp_timestamp) const {
+  auto ts = transformer_->lookup_user_timestamp(rtp_timestamp);
   return ts.value_or(-1);
 }
 
