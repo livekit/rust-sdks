@@ -1,6 +1,6 @@
 [package]
 name = "yuv-sys"
-version = "0.3.12"
+version = "0.3.13"
 edition.workspace = true
 authors = ["Theo Monnom <theo.8bits@gmail.com>"]
 license = "MIT OR Apache-2.0"

@@ -143,8 +143,13 @@ impl PeerTransport {
         // JS / Flutter uses ~70% of ultimate; 100% is also reasonable per feedback.
         let start_kbps = (ultimate_kbps as f64 * 0.7).round() as u32;
 
-        // Clamp: avoid silly low/high values
-        Some(start_kbps.clamp(300, ultimate_kbps))
+        // A low start-bitrate hint is more likely to hurt than help for VP9/AV1.
+        // If the max is too low, don't inject a start-bitrate hint at all.
+        if ultimate_kbps < 300 {
+            return None;
+        }
+
+        Some(start_kbps.min(ultimate_kbps))
     }
 
     fn munge_x_google_start_bitrate(sdp: &str, start_bitrate_kbps: u32) -> String {
