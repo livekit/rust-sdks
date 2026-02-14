@@ -30,8 +30,8 @@ async fn push_frames(track: LocalDataTrack) {
     loop {
         log::info!("Pushing frame");
 
-        let frame = DataTrackFrame::new(read_sensor().await)
-            .with_user_timestamp_now();
+        let reading = read_sensor().await;
+        let frame = DataTrackFrame::new(reading).with_user_timestamp_now();
 
         track.try_push(frame).inspect_err(|err| println!("Failed to push frame: {}", err)).ok();
         time::sleep(Duration::from_millis(500)).await

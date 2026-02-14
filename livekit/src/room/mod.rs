@@ -1268,9 +1268,8 @@ impl RoomSession {
             });
         }
 
-        let publish_data_tracks = dt::local::publish_responses_for_sync_state(
-            self.local_dt_input.query_tracks().await,
-        );
+        let publish_data_tracks =
+            dt::local::publish_responses_for_sync_state(self.local_dt_input.query_tracks().await);
 
         let sync_state = proto::SyncState {
             answer: Some(proto::SessionDescription {

@@ -273,7 +273,7 @@ impl E2eeManager {
         &self,
         data: Vec<u8>,
         participant_identity: &ParticipantIdentity,
-        key_index: u32
+        key_index: u32,
     ) -> Result<EncryptedPacket, Box<dyn std::error::Error>> {
         let inner = self.inner.lock();
 

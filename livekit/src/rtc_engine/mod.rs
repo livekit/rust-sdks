@@ -40,11 +40,11 @@ use crate::{
 };
 use crate::{ChatMessage, E2eeManager, TranscriptionSegment};
 
+mod dc_sender;
 pub mod lk_runtime;
 mod peer_transport;
 mod rtc_events;
 mod rtc_session;
-mod dc_sender;
 
 pub(crate) type EngineEmitter = mpsc::UnboundedSender<EngineEvent>;
 pub(crate) type EngineEvents = mpsc::UnboundedReceiver<EngineEvent>;
@@ -274,7 +274,10 @@ impl RtcEngine {
         session.simulate_scenario(scenario).await
     }
 
-    pub async fn handle_local_data_track_output(&self, event: dt::local::OutputEvent) -> EngineResult<()> {
+    pub async fn handle_local_data_track_output(
+        &self,
+        event: dt::local::OutputEvent,
+    ) -> EngineResult<()> {
         let (session, _r_lock) = {
             let (handle, _r_lock) = self.inner.wait_reconnection().await?;
             (handle.session.clone(), _r_lock)
@@ -283,7 +286,10 @@ impl RtcEngine {
         Ok(())
     }
 
-    pub async fn handle_remote_data_track_output(&self, event: dt::remote::OutputEvent) -> EngineResult<()> {
+    pub async fn handle_remote_data_track_output(
+        &self,
+        event: dt::remote::OutputEvent,
+    ) -> EngineResult<()> {
         let (session, _r_lock) = {
             let (handle, _r_lock) = self.inner.wait_reconnection().await?;
             (handle.session.clone(), _r_lock)

@@ -372,7 +372,6 @@ struct SessionInner {
     sub_reliable_dc: Mutex<Option<DataChannel>>,
     sub_dt_transport: Mutex<Option<DataChannel>>,
 
-
     /// Channel for sending data track packets.
     dt_packet_tx: mpsc::Sender<Bytes>,
 
