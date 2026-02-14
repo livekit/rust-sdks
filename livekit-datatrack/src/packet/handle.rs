@@ -67,6 +67,10 @@ impl Display for Handle {
 }
 
 /// Utility for allocating unique track handles to use for publishing tracks.
+///
+/// This is currently a simple linear allocator and handles are not reused
+/// once being allocated.
+///
 #[derive(Debug, Default)]
 pub struct HandleAllocator {
     /// Next handle value.
