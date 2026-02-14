@@ -31,6 +31,7 @@ use crate::{
     prelude::{LocalTrack, LocalTrackPublication, RemoteTrack, RemoteTrackPublication},
     rtc_engine::lk_runtime::LkRuntime,
 };
+use std::fmt::Debug;
 
 type StateChangedHandler = Box<dyn Fn(ParticipantIdentity, EncryptionState) + Send>;
 
@@ -246,19 +247,18 @@ impl E2eeManager {
     }
 
     /// Decrypt data received from a data channel
-    pub fn handle_encrypted_data(
+    pub(crate) fn decrypt_data(
         &self,
-        data: &[u8],
-        iv: &[u8],
-        participant_identity: &str,
+        data: Vec<u8>,
+        iv: Vec<u8>,
         key_index: u32,
+        participant_identity: &str,
     ) -> Option<Vec<u8>> {
         let inner = self.inner.lock();
 
         let data_packet_cryptor = inner.data_packet_cryptor.as_ref()?;
 
-        let encrypted_packet = EncryptedPacket { data: data.to_vec(), iv: iv.to_vec(), key_index };
-
+        let encrypted_packet = EncryptedPacket { data, iv, key_index };
         match data_packet_cryptor.decrypt(participant_identity, &encrypted_packet) {
             Ok(decrypted_data) => Some(decrypted_data),
             Err(e) => {
@@ -269,10 +269,10 @@ impl E2eeManager {
     }
 
     /// Encrypt data for transmission over a data channel
-    pub fn encrypt_data(
+    pub(crate) fn encrypt_data(
         &self,
-        data: &[u8],
-        participant_identity: &str,
+        data: Vec<u8>,
+        participant_identity: &ParticipantIdentity,
         key_index: u32,
     ) -> Result<EncryptedPacket, Box<dyn std::error::Error>> {
         let inner = self.inner.lock();
@@ -280,6 +280,14 @@ impl E2eeManager {
         let data_packet_cryptor =
             inner.data_packet_cryptor.as_ref().ok_or("DataPacketCryptor is not initialized")?;
 
-        data_packet_cryptor.encrypt(participant_identity, key_index, data)
+        data_packet_cryptor.encrypt(participant_identity.as_str(), key_index, &data)
+    }
+}
+
+impl Debug for E2eeManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("E2eeManager")
+            .field("enabled", &self.inner.lock().enabled)
+            .finish_non_exhaustive()
     }
 }

@@ -4,7 +4,7 @@ version = "0.7.31"
 edition.workspace = true
 license.workspace = true
 description = "Rust Client SDK for LiveKit"
-repository.workspace = true
+repository = "https://github.com/livekit/rust-sdks"
 
 [features]
 # By default ws TLS is not enabled
@@ -30,21 +30,23 @@ livekit-runtime = { workspace = true }
 livekit-api = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-protocol = { workspace = true }
+livekit-datatrack = { workspace = true }
 prost = "0.12"
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-tokio = { workspace = true, default-features = false, features = ["sync", "macros", "fs"] }
-parking_lot = { workspace = true }
-futures-util = { workspace = true, default-features = false, features = ["sink"] }
-thiserror = { workspace = true }
-lazy_static = { workspace = true }
-log = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1", default-features = false, features = ["sync", "macros", "fs"] }
+parking_lot = { version = "0.12" }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+thiserror = "1.0"
+lazy_static = "1.4"
+log = "0.4"
 chrono = "0.4.38"
 semver = "1.0"
 libloading = { version = "0.8.6" }
-bytes = { workspace = true }
+bytes = "1.10.1"
 bmrng = "0.5.2"
 
 [dev-dependencies]
-anyhow = { workspace = true }
+anyhow = "1.0.99"
 test-log = "0.2.18"
+test-case = "3.3"

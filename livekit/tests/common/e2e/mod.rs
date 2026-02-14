@@ -44,14 +44,43 @@ impl TestEnvironment {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TestRoomOptions {
+    /// Grants for the generated token.
+    pub grants: VideoGrants,
+    /// Options used for creating the [`Room`].
+    pub room: RoomOptions,
+}
+
+impl Default for TestRoomOptions {
+    fn default() -> Self {
+        Self {
+            grants: VideoGrants { room_join: true, ..Default::default() },
+            room: Default::default(),
+        }
+    }
+}
+
+impl From<RoomOptions> for TestRoomOptions {
+    fn from(room: RoomOptions) -> Self {
+        Self { room, ..Default::default() }
+    }
+}
+
+impl From<VideoGrants> for TestRoomOptions {
+    fn from(grants: VideoGrants) -> Self {
+        Self { grants, ..Default::default() }
+    }
+}
+
 /// Creates the specified number of connections to a shared room for testing.
 pub async fn test_rooms(count: usize) -> Result<Vec<(Room, UnboundedReceiver<RoomEvent>)>> {
-    test_rooms_with_options((0..count).map(|_| RoomOptions::default())).await
+    test_rooms_with_options((0..count).map(|_| TestRoomOptions::default())).await
 }
 
 /// Creates multiple connections to a shared room for testing, one for each configuration.
 pub async fn test_rooms_with_options(
-    options: impl IntoIterator<Item = RoomOptions>,
+    options: impl IntoIterator<Item = TestRoomOptions>,
 ) -> Result<Vec<(Room, UnboundedReceiver<RoomEvent>)>> {
     let test_env = TestEnvironment::from_env_or_defaults();
     let room_name = format!("test_room_{}", create_random_uuid());
@@ -59,17 +88,17 @@ pub async fn test_rooms_with_options(
     let tokens = options
         .into_iter()
         .enumerate()
-        .map(|(id, options)| -> Result<(String, RoomOptions)> {
-            let grants =
-                VideoGrants { room_join: true, room: room_name.clone(), ..Default::default() };
+        .map(|(id, mut options)| -> Result<(String, RoomOptions)> {
+            options.grants.room = room_name.clone();
+
             let token = AccessToken::with_api_key(&test_env.api_key, &test_env.api_secret)
                 .with_ttl(Duration::from_secs(30 * 60)) // 30 minutes
-                .with_grants(grants)
+                .with_grants(options.grants)
                 .with_identity(&format!("p{}", id))
                 .with_name(&format!("Participant {}", id))
                 .to_jwt()
                 .context("Failed to generate JWT")?;
-            Ok((token, options))
+            Ok((token, options.room))
         })
         .collect::<Result<Vec<_>>>()?;
 
