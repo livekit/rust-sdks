@@ -52,7 +52,7 @@ mod signaling_tests {
     use livekit_api::access_token::{AccessToken, VideoGrants};
     use std::env;
     use std::sync::Arc;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
     use tokio::sync::mpsc::UnboundedReceiver;
     use tokio::time::timeout;
 
@@ -94,6 +94,32 @@ mod signaling_tests {
         (url, api_key, api_secret)
     }
 
+    fn is_local_dev_server(url: &str) -> bool {
+        url.contains("localhost:7880") || url.contains("127.0.0.1:7880")
+    }
+
+    fn assert_signaling_mode_state(room: &Room, mode: SignalingMode, url: &str) {
+        let active_single_pc = room.is_single_peer_connection_active();
+        match mode {
+            SignalingMode::DualPC => {
+                assert!(!active_single_pc, "DualPC test should not have single-PC mode active");
+            }
+            SignalingMode::SinglePC => {
+                if is_local_dev_server(url) {
+                    assert!(
+                        !active_single_pc,
+                        "SinglePC on localhost should fall back to V0 signaling"
+                    );
+                } else {
+                    assert!(
+                        active_single_pc,
+                        "SinglePC requested on non-localhost URL should stay in single-PC mode"
+                    );
+                }
+            }
+        }
+    }
+
     /// Create a token for testing
     fn create_token(
         api_key: &str,
@@ -133,9 +159,25 @@ mod signaling_tests {
         mode: SignalingMode,
     ) -> Result<(Room, UnboundedReceiver<RoomEvent>)> {
         let options = room_options(mode);
-        Room::connect(url, token, options)
-            .await
-            .context(format!("Failed to connect to room with {}", mode.name()))
+        let started_at = Instant::now();
+        let result = Room::connect(url, token, options).await;
+        let elapsed = started_at.elapsed();
+
+        match &result {
+            Ok((room, _)) => {
+                println!(
+                    "[{}] connect_room elapsed={:?}, single_pc_active={}",
+                    mode.name(),
+                    elapsed,
+                    room.is_single_peer_connection_active()
+                );
+            }
+            Err(err) => {
+                println!("[{}] connect_room failed after {:?}: {:?}", mode.name(), elapsed, err);
+            }
+        }
+
+        result.context(format!("Failed to connect to room with {}", mode.name()))
     }
 
     // ==================== V0 (Dual PC) Tests ====================
@@ -214,6 +256,37 @@ mod signaling_tests {
         test_node_failure_impl(SignalingMode::SinglePC).await
     }
 
+    /// Test explicit localhost fallback behavior for V1 signaling
+    #[test_log::test(tokio::test)]
+    async fn test_v1_localhost_fallback_to_v0() -> Result<()> {
+        if env::var("LIVEKIT_URL").is_ok() {
+            log::info!("Skipping localhost fallback test because LIVEKIT_URL override is set");
+            return Ok(());
+        }
+
+        let room_name = format!("test_v1_localhost_fallback_{}", create_random_uuid());
+        let token = create_token(DEFAULT_API_KEY, DEFAULT_API_SECRET, &room_name, "fallback_test")?;
+        let (room, _events) =
+            connect_room(DEFAULT_LOCALHOST_URL, &token, SignalingMode::SinglePC).await?;
+        assert!(
+            !room.is_single_peer_connection_active(),
+            "Expected V1 to fall back to V0 on localhost"
+        );
+        Ok(())
+    }
+
+    /// Corner case: reconnect twice in a row
+    #[test_log::test(tokio::test)]
+    async fn test_v0_double_reconnect() -> Result<()> {
+        test_double_reconnect_impl(SignalingMode::DualPC).await
+    }
+
+    /// Corner case: reconnect twice in a row
+    #[test_log::test(tokio::test)]
+    async fn test_v1_double_reconnect() -> Result<()> {
+        test_double_reconnect_impl(SignalingMode::SinglePC).await
+    }
+
     // ==================== Test Implementations ====================
 
     /// Test basic connection
@@ -235,6 +308,7 @@ mod signaling_tests {
 
         // Verify connection is working
         assert_eq!(room.connection_state(), ConnectionState::Connected);
+        assert_signaling_mode_state(&room, mode, &url);
 
         // Give it a moment to ensure connection is stable
         tokio::time::sleep(Duration::from_secs(2)).await;
@@ -583,6 +657,42 @@ mod signaling_tests {
         assert_eq!(tracks_before, tracks_after, "Tracks should be restored after node failure");
 
         log::info!("[{}] Test passed - node failure recovery working!", mode.name());
+        Ok(())
+    }
+
+    /// Test two sequential reconnect cycles on the same room connection
+    async fn test_double_reconnect_impl(mode: SignalingMode) -> Result<()> {
+        let (url, api_key, api_secret) = get_env_for_mode(mode);
+        let room_name = format!("test_{:?}_double_reconnect_{}", mode, create_random_uuid());
+        let token = create_token(&api_key, &api_secret, &room_name, "reconnect_tester")?;
+
+        let (room, mut events) = connect_room(&url, &token, mode).await?;
+        assert_signaling_mode_state(&room, mode, &url);
+
+        for attempt in 1..=2 {
+            log::info!("[{}] Triggering reconnect attempt {}", mode.name(), attempt);
+            room.simulate_scenario(SimulateScenario::SignalReconnect).await?;
+
+            let wait_reconnected = async {
+                loop {
+                    let Some(event) = events.recv().await else {
+                        return Err(anyhow!("Event channel closed"));
+                    };
+                    match event {
+                        RoomEvent::Reconnecting => {}
+                        RoomEvent::Reconnected => return Ok(()),
+                        _ => {}
+                    }
+                }
+            };
+
+            timeout(Duration::from_secs(30), wait_reconnected)
+                .await
+                .context("Timeout waiting for reconnect cycle")??;
+
+            assert_eq!(room.connection_state(), ConnectionState::Connected);
+        }
+
         Ok(())
     }
 }

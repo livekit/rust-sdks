@@ -755,6 +755,12 @@ impl Room {
         self.inner.info.read().state
     }
 
+    /// Returns whether the room is currently using single peer connection signaling.
+    /// If requested but not supported by server, this will be false after v0 fallback.
+    pub fn is_single_peer_connection_active(&self) -> bool {
+        self.inner.rtc_engine.session().is_single_pc_mode()
+    }
+
     pub fn remote_participants(&self) -> HashMap<ParticipantIdentity, RemoteParticipant> {
         self.inner.remote_participants.read().clone()
     }
@@ -1097,7 +1103,18 @@ impl RoomSession {
         }
 
         let participant_sid: ParticipantSid = participant_sid.to_owned().try_into().unwrap();
-        let track_id = track_id.to_owned().try_into().unwrap();
+        let track_id: TrackSid = match track_id.to_owned().try_into() {
+            Ok(track_id) => track_id,
+            Err(err) => {
+                log::error!(
+                    "dropping remote track due to invalid TrackSid: track_id={}, stream_id={}, err={:?}",
+                    track_id,
+                    stream_id,
+                    err
+                );
+                return;
+            }
+        };
 
         let remote_participant = self
             .remote_participants

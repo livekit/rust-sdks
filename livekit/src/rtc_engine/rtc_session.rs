@@ -448,6 +448,7 @@ impl RtcSession {
         let mut publisher_pc = PeerTransport::new(
             lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
             proto::SignalTarget::Publisher,
+            single_pc_mode,
         );
 
         // In single PC mode, subscriber_pc is None
@@ -457,6 +458,7 @@ impl RtcSession {
             Some(PeerTransport::new(
                 lk_runtime.pc_factory().create_peer_connection(rtc_config)?,
                 proto::SignalTarget::Subscriber,
+                false,
             ))
         };
 

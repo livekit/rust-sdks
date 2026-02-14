@@ -30,6 +30,7 @@ struct TransportInner {
     pending_candidates: Vec<IceCandidate>,
     renegotiate: bool,
     restarting_ice: bool,
+    single_pc_mode: bool,
     // Publish-side target bitrate (bps) for offer munging
     max_send_bitrate_bps: Option<u64>,
 }
@@ -48,7 +49,11 @@ impl Debug for PeerTransport {
 }
 
 impl PeerTransport {
-    pub fn new(peer_connection: PeerConnection, signal_target: proto::SignalTarget) -> Self {
+    pub fn new(
+        peer_connection: PeerConnection,
+        signal_target: proto::SignalTarget,
+        single_pc_mode: bool,
+    ) -> Self {
         Self {
             signal_target,
             peer_connection,
@@ -57,6 +62,7 @@ impl PeerTransport {
                 pending_candidates: Vec::default(),
                 renegotiate: false,
                 restarting_ice: false,
+                single_pc_mode,
                 max_send_bitrate_bps: None,
             })),
         }
@@ -340,33 +346,33 @@ impl PeerTransport {
         let mut offer = self.peer_connection.create_offer(options).await?;
         let mut sdp = offer.to_string();
 
-        // Fix inactive audio m-lines to recvonly for single PC mode
-        // WebRTC sometimes generates a=inactive even when transceiver is set to recvonly
-        let recvonly_munged = Self::munge_inactive_to_recvonly_for_audio(&sdp);
-        if recvonly_munged != sdp {
-            match SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
-                Ok(parsed) => {
-                    offer = parsed;
-                    sdp = recvonly_munged;
-                }
-                Err(e) => {
-                    log::warn!("Failed to parse recvonly-munged SDP: {e}");
+        if inner.single_pc_mode {
+            // Fix inactive audio m-lines to recvonly for single PC mode
+            // WebRTC sometimes generates a=inactive even when transceiver is set to recvonly
+            let recvonly_munged = Self::munge_inactive_to_recvonly_for_audio(&sdp);
+            if recvonly_munged != sdp {
+                match SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
+                    Ok(parsed) => {
+                        offer = parsed;
+                        sdp = recvonly_munged;
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to parse recvonly-munged SDP: {e}");
+                    }
                 }
             }
-        }
 
-        // Apply stereo munging for single PC mode (always safe to apply)
-        // As per doc: "In single PC mode, receiver sends offer, doesn't know if sender
-        // will send stereo, so stereo=1 must be set in the offer"
-        let stereo_munged = Self::munge_stereo_for_audio(&sdp);
-        if stereo_munged != sdp {
-            match SessionDescription::parse(&stereo_munged, offer.sdp_type()) {
-                Ok(parsed) => {
-                    offer = parsed;
-                    sdp = stereo_munged;
-                }
-                Err(e) => {
-                    log::warn!("Failed to parse stereo-munged SDP, using original: {e}");
+            // Apply stereo munging for single PC mode
+            let stereo_munged = Self::munge_stereo_for_audio(&sdp);
+            if stereo_munged != sdp {
+                match SessionDescription::parse(&stereo_munged, offer.sdp_type()) {
+                    Ok(parsed) => {
+                        offer = parsed;
+                        sdp = stereo_munged;
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to parse stereo-munged SDP, using original: {e}");
+                    }
                 }
             }
         }
@@ -528,5 +534,54 @@ a=fmtp:98 profile-id=0;x-google-start-bitrate=1000\n";
         assert!(!out.contains("x-google-start-bitrate=1000"));
         // ensure only one occurrence
         assert_eq!(out.matches("x-google-start-bitrate=").count(), 1);
+    }
+
+    #[test]
+    fn inactive_audio_is_munged_to_recvonly_once() {
+        let sdp = "v=0\n\
+o=- 0 0 IN IP4 127.0.0.1\n\
+s=-\n\
+t=0 0\n\
+m=audio 9 UDP/TLS/RTP/SAVPF 111\n\
+a=inactive\n\
+a=rtpmap:111 opus/48000/2\n\
+m=video 9 UDP/TLS/RTP/SAVPF 96\n\
+a=inactive\n\
+m=audio 9 UDP/TLS/RTP/SAVPF 111\n\
+a=inactive\n";
+        let out = PeerTransport::munge_inactive_to_recvonly_for_audio(sdp);
+        assert!(out.contains("m=audio 9 UDP/TLS/RTP/SAVPF 111\na=recvonly\n"));
+        assert_eq!(out.matches("a=recvonly").count(), 1);
+        assert_eq!(out.matches("a=inactive").count(), 2);
+    }
+
+    #[test]
+    fn stereo_is_added_for_opus_fmtp_only_once() {
+        let sdp = "v=0\n\
+o=- 0 0 IN IP4 127.0.0.1\n\
+s=-\n\
+t=0 0\n\
+m=audio 9 UDP/TLS/RTP/SAVPF 111 0\n\
+a=rtpmap:111 opus/48000/2\n\
+a=rtpmap:0 PCMU/8000\n\
+a=fmtp:111 minptime=10;useinbandfec=1\n\
+a=fmtp:0 foo=bar\n";
+        let out = PeerTransport::munge_stereo_for_audio(sdp);
+        assert!(out.contains("a=fmtp:111 minptime=10;useinbandfec=1;stereo=1\n"));
+        assert!(out.contains("a=fmtp:0 foo=bar\n"));
+        assert_eq!(out.matches("stereo=1").count(), 1);
+    }
+
+    #[test]
+    fn stereo_munging_is_idempotent_when_stereo_already_present() {
+        let sdp = "v=0\n\
+o=- 0 0 IN IP4 127.0.0.1\n\
+s=-\n\
+t=0 0\n\
+m=audio 9 UDP/TLS/RTP/SAVPF 111\n\
+a=rtpmap:111 opus/48000/2\n\
+a=fmtp:111 minptime=10;stereo=1\n";
+        let out = PeerTransport::munge_stereo_for_audio(sdp);
+        assert_eq!(out.matches("stereo=1").count(), 1);
     }
 }
