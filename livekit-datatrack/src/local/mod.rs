@@ -83,7 +83,7 @@ impl DataTrack<Local> {
     pub fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameError> {
         match self.inner().publish_state() {
             manager::PublishState::Republishing => {
-                return Err(PushFrameError::new(frame, PushFrameErrorReason::Dropped))?
+                return Err(PushFrameError::new(frame, PushFrameErrorReason::QueueFull))?
             }
             manager::PublishState::Unpublished => {
                 return Err(PushFrameError::new(frame, PushFrameErrorReason::TrackUnpublished))?;
@@ -93,7 +93,7 @@ impl DataTrack<Local> {
         self.inner()
             .frame_tx
             .try_send(frame)
-            .map_err(|err| PushFrameError::new(err.into_inner(), PushFrameErrorReason::Dropped))
+            .map_err(|err| PushFrameError::new(err.into_inner(), PushFrameErrorReason::QueueFull))
     }
 
     /// Unpublishes the track.
@@ -244,15 +244,15 @@ impl PushFrameError {
 pub enum PushFrameErrorReason {
     /// Track is no longer published.
     TrackUnpublished,
-    /// Frame was dropped.
-    Dropped,
+    /// Frame was dropped due to the pipeline queue being full.
+    QueueFull,
 }
 
 impl fmt::Display for PushFrameErrorReason {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TrackUnpublished => write!(f, "track unpublished"),
-            Self::Dropped => write!(f, "dropped"),
+            Self::QueueFull => write!(f, "queue full"),
         }
     }
 }
