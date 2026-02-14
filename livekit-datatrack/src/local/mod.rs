@@ -34,7 +34,7 @@ pub type LocalDataTrack = DataTrack<Local>;
 ///
 /// See also: [`LocalDataTrack`]
 ///
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Local;
 
 impl DataTrack<Local> {
