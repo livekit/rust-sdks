@@ -62,7 +62,7 @@ impl Manager {
         let (event_in_tx, event_in_rx) = mpsc::channel(4); // TODO: tune buffer size
         let (event_out_tx, event_out_rx) = mpsc::channel(4);
 
-        let event_in = ManagerInput { event_in_tx: event_in_tx.clone() };
+        let event_in = ManagerInput::new(event_in_tx.clone());
         let manager = Manager {
             encryption_provider: options.encryption_provider,
             event_in_tx,
@@ -391,9 +391,26 @@ pub(crate) enum PublishState {
 #[derive(Debug, Clone)]
 pub struct ManagerInput {
     event_in_tx: mpsc::Sender<InputEvent>,
+    _drop_guard: Arc<DropGuard>,
+}
+
+/// Guard that sends shutdown event when the last reference is dropped.
+#[derive(Debug)]
+struct DropGuard {
+    event_in_tx: mpsc::Sender<InputEvent>,
+}
+
+impl Drop for DropGuard {
+    fn drop(&mut self) {
+        _ = self.event_in_tx.try_send(InputEvent::Shutdown);
+    }
 }
 
 impl ManagerInput {
+    fn new(event_in_tx: mpsc::Sender<InputEvent>) -> Self {
+        Self { event_in_tx: event_in_tx.clone(), _drop_guard: DropGuard { event_in_tx }.into() }
+    }
+
     /// Sends an input event to the manager's task to be processed.
     pub fn send(&self, event: InputEvent) -> Result<(), InternalError> {
         Ok(self.event_in_tx.try_send(event).context("Failed to handle input event")?)
@@ -434,12 +451,6 @@ impl ManagerInput {
 
     /// How long to wait for before timeout.
     const PUBLISH_TIMEOUT: Duration = Duration::from_secs(10);
-}
-
-impl Drop for ManagerInput {
-    fn drop(&mut self) {
-        _ = self.send(InputEvent::Shutdown.into());
-    }
 }
 
 #[cfg(test)]
