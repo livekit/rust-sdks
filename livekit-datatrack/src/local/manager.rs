@@ -305,7 +305,7 @@ impl Manager {
     }
 
     /// Maximum number of outgoing frames to buffer per track.
-    const FRAME_BUFFER_COUNT: usize = 4;
+    const FRAME_BUFFER_COUNT: usize = 16;
 
     /// Maximum number of input and output events to buffer.
     const EVENT_BUFFER_COUNT: usize = 16;

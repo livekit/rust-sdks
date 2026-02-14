@@ -345,10 +345,10 @@ impl Manager {
 
     /// Maximum number of incoming packets to buffer per track to be sent
     /// to the track's pipeline.
-    const PACKET_BUFFER_COUNT: usize = 4;
+    const PACKET_BUFFER_COUNT: usize = 16;
 
     /// Maximum number of frames to buffer per track to be sent to the application.
-    const FRAME_BUFFER_COUNT: usize = 4;
+    const FRAME_BUFFER_COUNT: usize = 16;
 
     /// Maximum number of input and output events to buffer.
     const EVENT_BUFFER_COUNT: usize = 16;
