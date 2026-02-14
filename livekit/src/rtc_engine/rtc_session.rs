@@ -335,7 +335,12 @@ struct SessionInner {
     fast_publish: AtomicBool,
 
     publisher_pc: PeerTransport,
-    subscriber_pc: PeerTransport,
+    /// In single peer connection mode, this is None and publisher_pc handles both send/receive
+    subscriber_pc: Option<PeerTransport>,
+    /// Whether single peer connection mode is active
+    single_pc_mode: bool,
+    /// Mapping from SDP mid to track ID, used for track resolution in single PC mode
+    mid_to_track_id: Mutex<HashMap<String, String>>,
 
     pending_tracks: Mutex<HashMap<String, oneshot::Sender<proto::TrackInfo>>>,
 
@@ -427,6 +432,9 @@ impl RtcSession {
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
 
+        // Determine if single PC mode is active based on the path used
+        let single_pc_mode = signal_client.is_single_pc_mode_active();
+
         let Some(participant_info) = SessionParticipantInfo::from_join(&join_response) else {
             Err(EngineError::Internal("Join response missing participant info".into()))?
         };
@@ -440,12 +448,19 @@ impl RtcSession {
         let mut publisher_pc = PeerTransport::new(
             lk_runtime.pc_factory().create_peer_connection(rtc_config.clone())?,
             proto::SignalTarget::Publisher,
+            single_pc_mode,
         );
 
-        let mut subscriber_pc = PeerTransport::new(
-            lk_runtime.pc_factory().create_peer_connection(rtc_config)?,
-            proto::SignalTarget::Subscriber,
-        );
+        // In single PC mode, subscriber_pc is None
+        let mut subscriber_pc = if single_pc_mode {
+            None
+        } else {
+            Some(PeerTransport::new(
+                lk_runtime.pc_factory().create_peer_connection(rtc_config)?,
+                proto::SignalTarget::Subscriber,
+                false,
+            ))
+        };
 
         let mut lossy_dc = publisher_pc.peer_connection().create_data_channel(
             LOSSY_DC_LABEL,
@@ -458,12 +473,15 @@ impl RtcSession {
 
         let mut reliable_dc = publisher_pc.peer_connection().create_data_channel(
             RELIABLE_DC_LABEL,
+            // Use ordered: true for reliable delivery with ordering guarantees.
             DataChannelInit { ordered: true, ..DataChannelInit::default() },
         )?;
 
         // Forward events received inside the signaling thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
-        rtc_events::forward_pc_events(&mut subscriber_pc, rtc_emitter.clone());
+        if let Some(ref mut sub_pc) = subscriber_pc {
+            rtc_events::forward_pc_events(sub_pc, rtc_emitter.clone());
+        }
         rtc_events::forward_dc_events(&mut lossy_dc, DataPacketKind::Lossy, rtc_emitter.clone());
         rtc_events::forward_dc_events(&mut reliable_dc, DataPacketKind::Reliable, rtc_emitter);
 
@@ -475,6 +493,8 @@ impl RtcSession {
             signal_client,
             publisher_pc,
             subscriber_pc,
+            single_pc_mode,
+            mid_to_track_id: Mutex::new(HashMap::new()),
             pending_tracks: Default::default(),
             lossy_dc,
             lossy_dc_buffered_amount_low_threshold: AtomicU64::new(
@@ -508,11 +528,27 @@ impl RtcSession {
 
         let handle = Mutex::new(Some(SessionHandle { close_tx, signal_task, rtc_task, dc_task }));
 
+        // In single PC mode (or with fast_publish), trigger initial negotiation
+        // This matches JS SDK behavior: if (!this.subscriberPrimary || joinResponse.fastPublish) { this.negotiate(); }
+        if single_pc_mode || join_response.fast_publish {
+            inner.publisher_negotiation_needed();
+        }
+
         Ok((Self { inner, handle }, join_response, session_events))
     }
 
     pub fn has_published(&self) -> bool {
         self.inner.has_published.load(Ordering::Acquire)
+    }
+
+    /// Returns whether single peer connection mode is active
+    pub fn is_single_pc_mode(&self) -> bool {
+        self.inner.single_pc_mode
+    }
+
+    /// Get the track ID for a given SDP mid (used in single PC mode)
+    pub fn get_track_id_for_mid(&self, mid: &str) -> Option<String> {
+        self.inner.mid_to_track_id.lock().get(mid).cloned()
     }
 
     pub fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
@@ -577,6 +613,12 @@ impl RtcSession {
         self.inner.wait_pc_connection().await
     }
 
+    /// Ensure the publisher peer connection is connected and the data channel is open.
+    /// This triggers negotiation if needed and waits for the connection to be established.
+    pub async fn ensure_publisher_connected(&self) -> EngineResult<()> {
+        self.inner.ensure_publisher_connected(DataPacketKind::Reliable).await
+    }
+
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.simulate_scenario(scenario).await
     }
@@ -584,7 +626,12 @@ impl RtcSession {
     pub async fn get_stats(&self) -> EngineResult<SessionStats> {
         let publisher_stats = self.inner.publisher_pc.peer_connection().get_stats().await?;
 
-        let subscriber_stats = self.inner.subscriber_pc.peer_connection().get_stats().await?;
+        let subscriber_stats = if let Some(ref sub_pc) = self.inner.subscriber_pc {
+            sub_pc.peer_connection().get_stats().await?
+        } else {
+            // In single PC mode, there's no separate subscriber stats
+            Vec::new()
+        };
 
         Ok(SessionStats { publisher_stats, subscriber_stats })
     }
@@ -593,8 +640,8 @@ impl RtcSession {
         &self.inner.publisher_pc
     }
 
-    pub fn subscriber(&self) -> &PeerTransport {
-        &self.inner.subscriber_pc
+    pub fn subscriber(&self) -> Option<&PeerTransport> {
+        self.inner.subscriber_pc.as_ref()
     }
 
     pub fn signal_client(&self) -> &Arc<SignalClient> {
@@ -768,7 +815,7 @@ impl SessionInner {
                                 kind: event.kind,
                                 detail: DataChannelEventDetail::PublishData(PublishDataRequest {
                                     encoded_packet: request.packet.into(),
-                                    completion_tx: request.completion_tx.into()
+                                    completion_tx: request.completion_tx.into(),
                                 })
                             };
                             if let Err(err) = self.dc_emitter.send(ev) {
@@ -843,6 +890,7 @@ impl SessionInner {
             let Some(request) = request_queue.pop_front() else {
                 break;
             };
+
             *buffered_amount += request.encoded_packet.data.len() as u64;
             let result = self
                 .data_channel(SignalTarget::Publisher, kind)
@@ -851,6 +899,7 @@ impl SessionInner {
                 .map_err(|err| {
                     EngineError::Internal(format!("failed to send data packet: {:?}", err).into())
                 });
+
             if let Some(completion_tx) = request.completion_tx {
                 _ = completion_tx.send(result);
             }
@@ -909,10 +958,22 @@ impl SessionInner {
         rx_state.set(&packet.participant_sid, Some(packet.sequence));
     }
 
-    async fn on_signal_event(&self, event: proto::signal_response::Message) -> EngineResult<()> {
+    async fn on_signal_event(
+        self: &Arc<Self>,
+        event: proto::signal_response::Message,
+    ) -> EngineResult<()> {
         match event {
             proto::signal_response::Message::Answer(answer) => {
                 log::debug!("received publisher answer: {:?}", answer);
+
+                // Store mid_to_track_id mapping in single PC mode
+                if self.single_pc_mode && !answer.mid_to_track_id.is_empty() {
+                    let mut mapping = self.mid_to_track_id.lock();
+                    for (mid, track_id) in &answer.mid_to_track_id {
+                        mapping.insert(mid.clone(), track_id.clone());
+                    }
+                }
+
                 let answer =
                     SessionDescription::parse(&answer.sdp, answer.r#type.parse().unwrap()).unwrap(); // Unwrap is ok, the server shouldn't give us an invalid sdp
                 self.publisher_pc.set_remote_description(answer).await?;
@@ -925,11 +986,24 @@ impl SessionInner {
                 }
             }
             proto::signal_response::Message::Offer(offer) => {
+                // In single PC mode, client always offers and server always answers,
+                // so we should never receive an offer from the server.
+                if self.single_pc_mode {
+                    log::warn!("received unexpected offer in single PC mode, ignoring");
+                    return Ok(());
+                }
+
+                // Dual PC mode: handle offer on subscriber PC
                 log::debug!("received subscriber offer: {:?}", offer);
-                let offer =
+                let offer_sdp =
                     SessionDescription::parse(&offer.sdp, offer.r#type.parse().unwrap()).unwrap();
-                let answer =
-                    self.subscriber_pc.create_anwser(offer, AnswerOptions::default()).await?;
+
+                let answer = self
+                    .subscriber_pc
+                    .as_ref()
+                    .unwrap()
+                    .create_anwser(offer_sdp, AnswerOptions::default())
+                    .await?;
 
                 self.signal_client
                     .send(proto::signal_request::Message::Answer(proto::SessionDescription {
@@ -953,8 +1027,11 @@ impl SessionInner {
 
                 if target == proto::SignalTarget::Publisher {
                     self.publisher_pc.add_ice_candidate(ice_candidate).await?;
+                } else if self.single_pc_mode {
+                    // In single PC mode, all ICE candidates go to publisher
+                    self.publisher_pc.add_ice_candidate(ice_candidate).await?;
                 } else {
-                    self.subscriber_pc.add_ice_candidate(ice_candidate).await?;
+                    self.subscriber_pc.as_ref().unwrap().add_ice_candidate(ice_candidate).await?;
                 }
             }
             proto::signal_response::Message::Leave(leave) => {
@@ -1011,8 +1088,51 @@ impl SessionInner {
                 let _ =
                     self.emitter.send(SessionEvent::TrackMuted { sid: req.sid, muted: req.muted });
             }
+            proto::signal_response::Message::MediaSectionsRequirement(req) => {
+                if self.single_pc_mode {
+                    self.handle_media_sections_requirement(req)?;
+                }
+            }
             _ => {}
         }
+
+        Ok(())
+    }
+
+    /// Handle MediaSectionsRequirement by adding recvonly transceivers to publisher PC.
+    /// This matches the JS SDK behavior: add transceivers and trigger negotiation.
+    fn handle_media_sections_requirement(
+        self: &Arc<Self>,
+        req: proto::MediaSectionsRequirement,
+    ) -> EngineResult<()> {
+        log::debug!(
+            "MediaSectionsRequirement: adding {} audio and {} video recvonly transceivers",
+            req.num_audios,
+            req.num_videos
+        );
+
+        let recvonly_init = RtpTransceiverInit {
+            direction: RtpTransceiverDirection::RecvOnly,
+            stream_ids: Vec::new(),
+            send_encodings: Vec::new(),
+        };
+
+        // Add audio transceivers
+        for _ in 0..req.num_audios {
+            self.publisher_pc
+                .peer_connection()
+                .add_transceiver_for_media(MediaType::Audio, recvonly_init.clone())?;
+        }
+
+        // Add video transceivers
+        for _ in 0..req.num_videos {
+            self.publisher_pc
+                .peer_connection()
+                .add_transceiver_for_media(MediaType::Video, recvonly_init.clone())?;
+        }
+
+        // Trigger renegotiation
+        self.publisher_negotiation_needed();
 
         Ok(())
     }
@@ -1048,8 +1168,13 @@ impl SessionInner {
                 }
             }
             RtcEvent::DataChannel { data_channel, target } => {
-                log::debug!("received data channel: {:?} {:?}", data_channel, target);
-                if target == SignalTarget::Subscriber {
+                // In single PC mode, subscriber data channels come from publisher target
+                let is_subscriber_dc = if self.single_pc_mode {
+                    target == SignalTarget::Publisher
+                } else {
+                    target == SignalTarget::Subscriber
+                };
+                if is_subscriber_dc {
                     if data_channel.label() == LOSSY_DC_LABEL {
                         self.sub_lossy_dc.lock().replace(data_channel);
                     } else if data_channel.label() == RELIABLE_DC_LABEL {
@@ -1076,8 +1201,6 @@ impl SessionInner {
                         track,
                         transceiver,
                     });
-                } else {
-                    log::warn!("Track event with no streams");
                 }
             }
             RtcEvent::Data { data, binary, kind } => {
@@ -1174,7 +1297,7 @@ impl SessionInner {
                 let caller_identity = participant_identity;
                 self.emitter.send(SessionEvent::RpcRequest {
                     caller_identity,
-                    request_id: rpc_request.id,
+                    request_id: rpc_request.id.clone(),
                     method: rpc_request.method,
                     payload: rpc_request.payload,
                     response_timeout: Duration::from_millis(rpc_request.response_timeout_ms as u64),
@@ -1419,18 +1542,12 @@ impl SessionInner {
 
         self.signal_client.close().await;
         self.publisher_pc.close();
-        self.subscriber_pc.close();
+        if let Some(ref sub_pc) = self.subscriber_pc {
+            sub_pc.close();
+        }
     }
 
-    async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
-        let simulate_leave = || {
-            self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
-                action: proto::leave_request::Action::Reconnect.into(),
-                reason: DisconnectReason::ClientInitiated as i32,
-                ..Default::default()
-            }))
-        };
-
+    async fn simulate_scenario(self: &Arc<Self>, scenario: SimulateScenario) -> EngineResult<()> {
         match scenario {
             SimulateScenario::SignalReconnect => {
                 self.signal_client.close().await;
@@ -1474,7 +1591,12 @@ impl SessionInner {
                     }))
                     .await;
 
-                simulate_leave().await?
+                self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
+                    action: proto::leave_request::Action::Reconnect.into(),
+                    reason: DisconnectReason::ClientInitiated as i32,
+                    ..Default::default()
+                }))
+                .await?
             }
             SimulateScenario::ForceTls => {
                 self.signal_client
@@ -1487,7 +1609,12 @@ impl SessionInner {
                     }))
                     .await;
 
-                simulate_leave().await?
+                self.on_signal_event(proto::signal_response::Message::Leave(proto::LeaveRequest {
+                    action: proto::leave_request::Action::Reconnect.into(),
+                    reason: DisconnectReason::ClientInitiated as i32,
+                    ..Default::default()
+                }))
+                .await?
             }
         }
         Ok(())
@@ -1556,8 +1683,12 @@ impl SessionInner {
                 // DC encryption not enabled, restore original packet
                 packet.value = packet_value;
             }
+        } else {
+            // No e2ee_manager or no packet value - restore original
+            packet.value = packet_value;
         }
 
+        // Send through the queue with backpressure
         let (completion_tx, completion_rx) = oneshot::channel();
         let ev = DataChannelEvent {
             kind,
@@ -1585,7 +1716,9 @@ impl SessionInner {
         let rtc_config =
             make_rtc_config_reconnect(reconnect_response.clone(), self.options.rtc_config.clone());
         self.publisher_pc.peer_connection().set_configuration(rtc_config.clone())?;
-        self.subscriber_pc.peer_connection().set_configuration(rtc_config)?;
+        if let Some(ref sub_pc) = self.subscriber_pc {
+            sub_pc.peer_connection().set_configuration(rtc_config)?;
+        }
 
         let ev = DataChannelEvent {
             kind: DataPacketKind::Reliable,
@@ -1610,11 +1743,22 @@ impl SessionInner {
     /// Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
     async fn wait_pc_connection(&self) -> EngineResult<()> {
         let wait_connected = async move {
-            while !self.subscriber_pc.is_connected()
-                || (self.has_published.load(Ordering::Acquire) && !self.publisher_pc.is_connected())
-            {
+            loop {
                 if self.closed.load(Ordering::Acquire) {
                     return Err(EngineError::Connection("closed".into()));
+                }
+
+                let publisher_connected = self.publisher_pc.is_connected();
+                let subscriber_connected = if self.single_pc_mode {
+                    true // No subscriber in single PC mode
+                } else {
+                    self.subscriber_pc.as_ref().map(|pc| pc.is_connected()).unwrap_or(true)
+                };
+
+                let need_publisher = self.has_published.load(Ordering::Acquire);
+
+                if subscriber_connected && (!need_publisher || publisher_connected) {
+                    break;
                 }
 
                 livekit_runtime::sleep(Duration::from_millis(50)).await;
@@ -1775,14 +1919,16 @@ impl SessionInner {
             Ok(())
         };
 
-        tokio::select! {
+        let result = tokio::select! {
             res = wait_connected => res,
             _ = sleep(ICE_CONNECT_TIMEOUT) => {
                 let err = EngineError::Connection("could not establish publisher connection: timeout".into());
                 log::error!("{}", err);
                 Err(err)
             }
-        }
+        };
+
+        result
     }
 
     fn data_channel(&self, target: SignalTarget, kind: DataPacketKind) -> Option<DataChannel> {

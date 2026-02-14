@@ -80,6 +80,8 @@ pub struct EngineOptions {
     pub rtc_config: RtcConfiguration,
     pub signal_options: SignalOptions,
     pub join_retries: u32,
+    /// Enable single peer connection mode
+    pub single_peer_connection: bool,
 }
 
 #[derive(Debug)]

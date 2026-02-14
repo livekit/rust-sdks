@@ -36,6 +36,7 @@ __signal-client-async-compatible = [
     "dep:futures-util",
     "dep:isahc",
     "dep:livekit-runtime",
+    "dep:base64"
 ]
 
 
