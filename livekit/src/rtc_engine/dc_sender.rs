@@ -108,7 +108,7 @@ impl DataChannelSender {
         if !self.send_queue.is_empty() {
             let unsent_bytes: usize =
                 self.send_queue.into_iter().map(|payload| payload.len()).sum();
-            log::info!("{} bytes(s) remain in queue", unsent_bytes);
+            log::info!("{} byte(s) remain in queue", unsent_bytes);
         }
         log::debug!("Send task ended for data channel '{}'", self.dc.label());
     }
