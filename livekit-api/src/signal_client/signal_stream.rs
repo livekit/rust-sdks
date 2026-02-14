@@ -63,6 +63,10 @@ enum InternalMessage {
         signal: proto::signal_request::Message,
         response_chn: oneshot::Sender<SignalResult<()>>,
     },
+    RawBytes {
+        data: Vec<u8>,
+        response_chn: oneshot::Sender<SignalResult<()>>,
+    },
     Pong {
         ping_data: Vec<u8>,
     },
@@ -337,6 +341,15 @@ impl SignalStream {
         recv.await.map_err(|_| SignalError::SendError)?
     }
 
+    /// Send raw bytes to the websocket (for JoinRequest, etc.)
+    /// It also waits for the message to be sent
+    pub async fn send_raw(&self, data: Vec<u8>) -> SignalResult<()> {
+        let (send, recv) = oneshot::channel();
+        let msg = InternalMessage::RawBytes { data, response_chn: send };
+        let _ = self.internal_tx.send(msg).await;
+        recv.await.map_err(|_| SignalError::SendError)?
+    }
+
     /// This task is used to send messages to the websocket
     /// It is also responsible for closing the connection
     async fn write_task(
@@ -348,6 +361,14 @@ impl SignalStream {
                 InternalMessage::Signal { signal, response_chn } => {
                     let data = proto::SignalRequest { message: Some(signal) }.encode_to_vec();
 
+                    if let Err(err) = ws_writer.send(Message::Binary(data)).await {
+                        let _ = response_chn.send(Err(err.into()));
+                        break;
+                    }
+
+                    let _ = response_chn.send(Ok(()));
+                }
+                InternalMessage::RawBytes { data, response_chn } => {
                     if let Err(err) = ws_writer.send(Message::Binary(data)).await {
                         let _ = response_chn.send(Err(err.into()));
                         break;

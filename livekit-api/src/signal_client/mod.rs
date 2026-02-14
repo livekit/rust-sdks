@@ -486,7 +486,9 @@ fn get_livekit_url(url: &str, options: &SignalOptions) -> SignalResult<url::Url>
         .append_pair("sdk", options.sdk_options.sdk.as_str())
         .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
         .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
-        .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
+        .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" })
+        // client_protocol=1 indicates support for RPC compression
+        .append_pair("client_protocol", "1");
 
     if let Some(sdk_version) = &options.sdk_options.sdk_version {
         lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());

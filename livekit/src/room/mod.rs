@@ -510,6 +510,7 @@ impl Room {
             pi.attributes,
             e2ee_manager.encryption_type(),
             pi.permission,
+            pi.client_protocol,
         );
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
@@ -663,6 +664,7 @@ impl Room {
                     pi.metadata,
                     pi.attributes,
                     pi.permission,
+                    pi.client_protocol,
                 )
             };
             participant.update_info(pi.clone());
@@ -1026,6 +1028,7 @@ impl RoomSession {
                         pi.metadata,
                         pi.attributes,
                         pi.permission,
+                        pi.client_protocol,
                     )
                 };
 
@@ -1633,6 +1636,7 @@ impl RoomSession {
         metadata: String,
         attributes: HashMap<String, String>,
         permission: Option<proto::ParticipantPermission>,
+        client_protocol: i32,
     ) -> RemoteParticipant {
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
@@ -1645,6 +1649,7 @@ impl RoomSession {
             attributes,
             self.options.auto_subscribe,
             permission,
+            client_protocol,
         );
 
         participant.on_track_published({
@@ -1780,7 +1785,7 @@ impl RoomSession {
         self.remote_participants.read().values().find(|x| &x.sid() == sid).cloned()
     }
 
-    fn get_participant_by_identity(
+    pub(crate) fn get_participant_by_identity(
         &self,
         identity: &ParticipantIdentity,
     ) -> Option<RemoteParticipant> {

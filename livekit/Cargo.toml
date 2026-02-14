@@ -44,6 +44,7 @@ semver = "1.0"
 libloading = { version = "0.8.6" }
 bytes = { workspace = true }
 bmrng = "0.5.2"
+zstd = "0.13"
 
 [dev-dependencies]
 anyhow = { workspace = true }
