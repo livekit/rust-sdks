@@ -185,7 +185,9 @@ impl Manager {
 
     async fn on_sfu_publish_response(&mut self, event: SfuPublishResponse) {
         let Some(descriptor) = self.descriptors.remove(&event.handle) else {
-            log::warn!("No descriptor for {}", event.handle);
+            // This can occur if a publish request is cancelled before the SFU responds,
+            // send an unpublish request to ensure consistent SFU state.
+            _ = self.event_out_tx.send(SfuUnpublishRequest { handle: event.handle }.into());
             return;
         };
         match descriptor {
