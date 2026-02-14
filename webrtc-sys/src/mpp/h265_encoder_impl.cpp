@@ -382,19 +382,26 @@ int32_t MppH265EncoderImpl::Encode(
   if (ret != MPP_OK) {
     RTC_LOG(LS_ERROR) << "encode_get_packet failed: " << ret;
     mpp_frame_deinit(&frame);
-    mpp_packet_deinit(&packet);
+    // After encode_put_frame succeeded, MPP owns the packet via metadata;
+    // do not deinit packet here to avoid double-free.
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
 
   int32_t result = WEBRTC_VIDEO_CODEC_OK;
   if (out_packet) {
     result = ProcessEncodedPacket(out_packet, input_frame);
+    // out_packet is the same object as packet (MPP fills and returns the
+    // pre-allocated packet we attached via KEY_OUTPUT_PACKET metadata).
+    // Only deinit once to avoid double-free / negative ref-count errors.
     mpp_packet_deinit(&out_packet);
+    packet = nullptr;  // prevent double deinit below
   }
 
   current_encoding_is_keyframe_ = false;
   mpp_frame_deinit(&frame);
-  mpp_packet_deinit(&packet);
+  if (packet) {
+    mpp_packet_deinit(&packet);
+  }
 
   return result;
 }
