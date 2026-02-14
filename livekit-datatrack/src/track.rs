@@ -14,7 +14,11 @@
 
 use crate::packet::Handle;
 use from_variants::FromVariants;
-use std::{fmt::Display, marker::PhantomData, sync::{Arc, RwLock}};
+use std::{
+    fmt::Display,
+    marker::PhantomData,
+    sync::{Arc, RwLock},
+};
 use thiserror::Error;
 
 /// Track for communicating application-specific data between participants in room.
