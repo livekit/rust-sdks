@@ -59,8 +59,8 @@ impl Manager {
     /// - Stream for receiving [`OutputEvent`]s produced by the manager.
     ///
     pub fn new(options: ManagerOptions) -> (Self, ManagerInput, impl Stream<Item = OutputEvent>) {
-        let (event_in_tx, event_in_rx) = mpsc::channel(4); // TODO: tune buffer size
-        let (event_out_tx, event_out_rx) = mpsc::channel(4);
+        let (event_in_tx, event_in_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
+        let (event_out_tx, event_out_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
 
         let event_in = ManagerInput::new(event_in_tx.clone());
         let manager = Manager {
@@ -229,7 +229,7 @@ impl Manager {
         let pipeline_opts = PipelineOptions { info: info.clone(), encryption_provider };
         let pipeline = Pipeline::new(pipeline_opts);
 
-        let (frame_tx, frame_rx) = mpsc::channel(4); // TODO: tune
+        let (frame_tx, frame_rx) = mpsc::channel(Self::FRAME_BUFFER_COUNT);
         let (state_tx, state_rx) = watch::channel(PublishState::Published);
 
         let track_task = TrackTask {
@@ -303,6 +303,12 @@ impl Manager {
             }
         }
     }
+
+    /// Maximum number of outgoing frames to buffer per track.
+    const FRAME_BUFFER_COUNT: usize = 4;
+
+    /// Maximum number of input and output events to buffer.
+    const EVENT_BUFFER_COUNT: usize = 16;
 }
 
 /// Task for an individual published data track.
