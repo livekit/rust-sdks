@@ -14,15 +14,14 @@ async fn main() -> Result<()> {
     let (_, rx) = Room::connect(&url, &token, RoomOptions::default()).await?;
 
     tokio::select! {
-        _ = handle_first_publication(rx) => {}
+        _ = handle_publications(rx) => {}
         _ = signal::ctrl_c() => {}
     }
     Ok(())
 }
 
-/// Subscribe to the first data track published.
-async fn handle_first_publication(mut rx: UnboundedReceiver<RoomEvent>) -> Result<()> {
-    log::info!("Waiting for publication…");
+/// Subscribes to any published data tracks.
+async fn handle_publications(mut rx: UnboundedReceiver<RoomEvent>) -> Result<()> {
     while let Some(event) = rx.recv().await {
         let RoomEvent::RemoteDataTrackPublished(track) = event else {
             continue;
@@ -39,8 +38,8 @@ async fn subscribe(track: RemoteDataTrack) -> Result<()> {
         track.info().name(),
         track.publisher_identity()
     );
-    let mut stream = track.subscribe().await?;
-    while let Some(frame) = stream.next().await {
+    let mut subscription = track.subscribe().await?;
+    while let Some(frame) = subscription.next().await {
         log::info!("Received frame ({} bytes)", frame.payload().len());
 
         if let Some(duration) = frame.duration_since_timestamp() {
