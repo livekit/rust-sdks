@@ -1,13 +1,13 @@
 [package]
 name = "agent_dispatch"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 publish = false
 
 [dependencies]
-tokio = { version = "1", features = ["full", "parking_lot"] }
+tokio = { workspace = true, features = ["full", "parking_lot"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
-env_logger = "0.10"
-log = "0.4"
+env_logger = { workspace = true }
+log = { workspace = true }
 livekit-protocol = { workspace = true }
-clap = { version = "4.0", features = ["derive", "env"] }
+clap = { workspace = true, features = ["derive", "env"] }
