@@ -117,6 +117,7 @@ impl Header {
         buf.put_u32(self.timestamp.as_ticks());
 
         if metrics.ext_len > 0 {
+            // Extension words are encoded as count - 1 as per spec
             buf.put_u16((metrics.ext_words - 1) as u16);
             self.extensions.serialize_into(buf);
             buf.put_bytes(0, metrics.padding_len);
