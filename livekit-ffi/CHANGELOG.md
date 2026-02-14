@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.47](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.46...rust-sdks/livekit-ffi@0.12.47) - 2026-02-10
+
+### Other
+
+- update Cargo.toml dependencies
+- don't use clamp as the ultimate_kbps can be lower than 300 ([#886](https://github.com/livekit/rust-sdks/pull/886))
+- pre-connect the publisher PC when an RPC handler is registered ([#880](https://github.com/livekit/rust-sdks/pull/880))
+
 ## [0.12.46](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-ffi@0.12.45...rust-sdks/livekit-ffi@0.12.46) - 2026-02-09
 
 ### Other
