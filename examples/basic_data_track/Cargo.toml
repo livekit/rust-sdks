@@ -5,12 +5,12 @@ edition = "2021"
 publish = false
 
 [dependencies]
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
-futures-util = { version = "0.3", default-features = false, features = ["sink"] }
-anyhow = "1.0.100"
-log = "0.4.26"
-env_logger = "0.11.7"
+futures-util = { workspace = true, default-features = false, features = ["sink"] }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
 
 [[bin]]
 name = "publisher"
