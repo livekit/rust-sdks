@@ -44,6 +44,10 @@ impl TestEnvironment {
     }
 }
 
+fn is_local_server_url(url: &str) -> bool {
+    url.contains("localhost:7880") || url.contains("127.0.0.1:7880")
+}
+
 /// Creates the specified number of connections to a shared room for testing.
 pub async fn test_rooms(count: usize) -> Result<Vec<(Room, UnboundedReceiver<RoomEvent>)>> {
     test_rooms_with_options((0..count).map(|_| RoomOptions::default())).await
@@ -54,12 +58,22 @@ pub async fn test_rooms_with_options(
     options: impl IntoIterator<Item = RoomOptions>,
 ) -> Result<Vec<(Room, UnboundedReceiver<RoomEvent>)>> {
     let test_env = TestEnvironment::from_env_or_defaults();
+    let force_v0 = is_local_server_url(&test_env.server_url);
     let room_name = format!("test_room_{}", create_random_uuid());
+
+    if force_v0 {
+        log::info!("Using localhost test server: forcing single_peer_connection=false for E2E");
+    }
 
     let tokens = options
         .into_iter()
         .enumerate()
-        .map(|(id, options)| -> Result<(String, RoomOptions)> {
+        .map(|(id, mut options)| -> Result<(String, RoomOptions)> {
+            if force_v0 {
+                // Local dev server generally does not support /rtc/v1. Force v0 in generic E2E
+                // tests to avoid extra fallback latency/flakiness.
+                options.single_peer_connection = false;
+            }
             let grants =
                 VideoGrants { room_join: true, room: room_name.clone(), ..Default::default() };
             let token = AccessToken::with_api_key(&test_env.api_key, &test_env.api_secret)
