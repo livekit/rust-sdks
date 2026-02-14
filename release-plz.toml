@@ -82,3 +82,9 @@ name = "livekit-uniffi"
 changelog_path = "livekit-uniffi/CHANGELOG.md"
 publish = false
 release = true
+
+[[package]]
+name = "livekit-datatrack"
+changelog_path = "livekit-datatrack/CHANGELOG.md"
+publish = true
+release = true
