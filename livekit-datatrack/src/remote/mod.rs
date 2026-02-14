@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use crate::api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError};
-use anyhow::anyhow;
 use events::{InputEvent, SubscribeRequest};
 use futures_util::StreamExt;
 use livekit_runtime::timeout;
@@ -79,11 +78,9 @@ impl DataTrack<Remote> {
             .event_in_tx
             .upgrade()
             .ok_or(SubscribeError::Disconnected)?
-            .send_timeout(subscribe_event.into(), Duration::from_millis(50))
+            .send(subscribe_event.into())
             .await
-            .map_err(|_| {
-                SubscribeError::Internal(anyhow!("Failed to send subscribe event").into())
-            })?;
+            .map_err(|_| SubscribeError::Disconnected)?;
 
         // TODO: standardize timeout
         let frame_rx = timeout(Duration::from_secs(10), result_rx)
