@@ -422,11 +422,16 @@ export class NewVideoSourceRequest extends Message<NewVideoSourceRequest> {
 
   /**
    * Used to determine which encodings to use + simulcast layers
-   * Most of the time it corresponds to the source resolution 
+   * Most of the time it corresponds to the source resolution
    *
    * @generated from field: required livekit.proto.VideoSourceResolution resolution = 2;
    */
   resolution?: VideoSourceResolution;
+
+  /**
+   * @generated from field: optional bool is_screencast = 3;
+   */
+  isScreencast?: boolean;
 
   constructor(data?: PartialMessage<NewVideoSourceRequest>) {
     super();
@@ -438,6 +443,7 @@ export class NewVideoSourceRequest extends Message<NewVideoSourceRequest> {
   static readonly fields: FieldList = proto2.util.newFieldList(() => [
     { no: 1, name: "type", kind: "enum", T: proto2.getEnumType(VideoSourceType), req: true },
     { no: 2, name: "resolution", kind: "message", T: VideoSourceResolution, req: true },
+    { no: 3, name: "is_screencast", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): NewVideoSourceRequest {
