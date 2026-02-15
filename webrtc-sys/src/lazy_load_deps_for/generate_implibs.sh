@@ -51,3 +51,9 @@ do
   generate_implib "vaapi" ${dep} "x86_64-linux-gnu"
   generate_implib "vaapi" ${dep} "aarch64-linux-gnu"
 done
+
+mpp_deps=("librockchip_mpp")
+for dep in "${mpp_deps[@]}"
+do
+  generate_implib "mpp" ${dep} "aarch64-linux-gnu"
+done
