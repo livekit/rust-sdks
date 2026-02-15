@@ -3328,6 +3328,7 @@ name = "livekit"
 version = "0.7.31"
 dependencies = [
  "anyhow",
+ "base64 0.22.1",
  "bmrng",
  "bytes",
  "chrono",

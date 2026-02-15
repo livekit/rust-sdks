@@ -22,7 +22,7 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
-use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
+use livekit_api::signal_client::{SignalOptions, SignalSdkOptions, SIGNAL_CONNECT_TIMEOUT};
 use livekit_protocol::observer::Dispatcher;
 use livekit_protocol::{self as proto, encryption};
 use livekit_runtime::JoinHandle;
@@ -372,6 +372,8 @@ pub struct RoomOptions {
     /// for both publishing and subscribing instead of two separate connections.
     /// Falls back to dual peer connection if the server doesn't support single PC.
     pub single_peer_connection: bool,
+    /// Timeout for each individual signal connection attempt
+    pub connect_timeout: Duration,
 }
 
 impl Default for RoomOptions {
@@ -393,6 +395,7 @@ impl Default for RoomOptions {
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
             single_peer_connection: true,
+            connect_timeout: SIGNAL_CONNECT_TIMEOUT,
         }
     }
 }
@@ -487,6 +490,7 @@ impl Room {
         signal_options.auto_subscribe = options.auto_subscribe;
         signal_options.adaptive_stream = options.adaptive_stream;
         signal_options.single_peer_connection = options.single_peer_connection;
+        signal_options.connect_timeout = options.connect_timeout;
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,

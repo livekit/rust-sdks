@@ -49,6 +49,9 @@ pub type SignalEvents = mpsc::UnboundedReceiver<SignalEvent>;
 pub type SignalResult<T> = Result<T, SignalError>;
 
 pub const JOIN_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
+pub const SIGNAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const REGION_FETCH_TIMEOUT: Duration = Duration::from_secs(3);
+const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROTOCOL_VERSION: u32 = 16;
 
 #[derive(Error, Debug)]
@@ -96,6 +99,8 @@ pub struct SignalOptions {
     pub sdk_options: SignalSdkOptions,
     /// Enable single peer connection mode
     pub single_peer_connection: bool,
+    /// Timeout for each individual signal connection attempt
+    pub connect_timeout: Duration,
 }
 
 impl Default for SignalOptions {
@@ -105,6 +110,7 @@ impl Default for SignalOptions {
             adaptive_stream: false,
             sdk_options: SignalSdkOptions::default(),
             single_peer_connection: true,
+            connect_timeout: SIGNAL_CONNECT_TIMEOUT,
         }
     }
 }
@@ -268,7 +274,7 @@ impl SignalInner {
         let lk_url = get_livekit_url(url, &options, use_v1_path, false, None, "")?;
         // Try to connect to the SignalClient
         let (stream, mut events, single_pc_mode_active) =
-            match SignalStream::connect(lk_url.clone(), token).await {
+            match SignalStream::connect(lk_url.clone(), token, options.connect_timeout).await {
                 Ok((new_stream, stream_events)) => {
                     log::debug!(
                         "signal connection successful: path={}, single_pc_mode={}",
@@ -297,7 +303,13 @@ impl SignalInner {
                     if use_v1_path && is_not_found {
                         let lk_url_v0 = get_livekit_url(url, &options, false, false, None, "")?;
                         log::warn!("v1 path not found (404), falling back to v0 path");
-                        match SignalStream::connect(lk_url_v0.clone(), token).await {
+                        match SignalStream::connect(
+                            lk_url_v0.clone(),
+                            token,
+                            options.connect_timeout,
+                        )
+                        .await
+                        {
                             Ok((new_stream, stream_events)) => (new_stream, stream_events, false),
                             Err(err) => {
                                 log::error!("v0 fallback also failed: {:?}", err);
@@ -338,18 +350,24 @@ impl SignalInner {
     async fn validate(ws_url: url::Url) -> SignalResult<()> {
         let validate_url = get_validate_url(ws_url);
 
-        if let Ok(res) = http_client::get(validate_url.as_str()).await {
-            let status = res.status();
-            let body = res.text().await.ok().unwrap_or_default();
+        let validate_fut = async {
+            if let Ok(res) = http_client::get(validate_url.as_str()).await {
+                let status = res.status();
+                let body = res.text().await.ok().unwrap_or_default();
 
-            if status.is_client_error() {
-                return Err(SignalError::Client(status, body));
-            } else if status.is_server_error() {
-                return Err(SignalError::Server(status, body));
+                if status.is_client_error() {
+                    return Err(SignalError::Client(status, body));
+                } else if status.is_server_error() {
+                    return Err(SignalError::Server(status, body));
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        };
+
+        livekit_runtime::timeout(VALIDATE_TIMEOUT, validate_fut)
+            .await
+            .map_err(|_| SignalError::Timeout("validate request timed out".into()))?
     }
 
     /// Returns whether single peer connection mode is active
@@ -383,7 +401,8 @@ impl SignalInner {
             get_livekit_url(&self.url, &self.options, self.single_pc_mode_active, true, None, sid)
                 .unwrap();
 
-        let (new_stream, mut events) = SignalStream::connect(lk_url, &token).await?;
+        let (new_stream, mut events) =
+            SignalStream::connect(lk_url, &token, self.options.connect_timeout).await?;
         let reconnect_response = get_reconnect_response(&mut events).await?;
         *stream = Some(new_stream);
 
@@ -754,5 +773,104 @@ mod tests {
         // Should be /rtc/validate, not /rtc/rtc/validate
         assert_eq!(validate_url.path(), "/rtc/validate");
         assert_eq!(validate_url.scheme(), "https");
+    }
+
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn signal_stream_connect_timeout() {
+        use tokio::net::TcpListener;
+
+        // Bind a TCP listener that accepts connections but never sends data
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Spawn a task that accepts connections but does nothing (simulates a hanging server)
+        let _accept_task = tokio::spawn(async move {
+            loop {
+                let Ok((_socket, _)) = listener.accept().await else {
+                    break;
+                };
+                // Hold the connection open but never write anything
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        });
+
+        let url = url::Url::parse(&format!("ws://127.0.0.1:{}", addr.port())).unwrap();
+        let result = SignalStream::connect(url, "fake-token", Duration::from_millis(500)).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, SignalError::Timeout(_)), "expected Timeout error, got: {:?}", err);
+    }
+
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn region_fetch_parses_response() {
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Spawn a task that serves a hand-crafted HTTP response with region JSON
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+
+            // Read the request (consume it so the connection doesn't stall)
+            let mut buf = [0u8; 4096];
+            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buf).await;
+
+            let body = r#"{"regions":[{"region":"us-east-1","url":"wss://us-east.livekit.cloud","distance":"100"},{"region":"eu-west-1","url":"wss://eu-west.livekit.cloud","distance":"200"}]}"#;
+
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
+        let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
+
+        let urls = result.unwrap();
+        assert_eq!(
+            urls,
+            vec![
+                "wss://us-east.livekit.cloud".to_string(),
+                "wss://eu-west.livekit.cloud".to_string(),
+            ]
+        );
+    }
+
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn region_fetch_timeout() {
+        use tokio::net::TcpListener;
+
+        // Bind a listener that accepts but never responds
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((_socket, _)) = listener.accept().await else {
+                    break;
+                };
+                // Hold connection open, never write
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        });
+
+        let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
+        let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, SignalError::RegionError(ref msg) if msg.contains("timed out")),
+            "expected RegionError with 'timed out', got: {:?}",
+            err
+        );
     }
 }

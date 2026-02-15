@@ -2478,6 +2478,13 @@ export class RoomOptions extends Message<RoomOptions> {
    */
   singlePeerConnection?: boolean;
 
+  /**
+   * timeout in milliseconds for each signal connection attempt (default: 5000)
+   *
+   * @generated from field: optional uint64 connect_timeout_ms = 9;
+   */
+  connectTimeoutMs?: bigint;
+
   constructor(data?: PartialMessage<RoomOptions>) {
     super();
     proto2.util.initPartial(data, this);
@@ -2494,6 +2501,7 @@ export class RoomOptions extends Message<RoomOptions> {
     { no: 6, name: "join_retries", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
     { no: 7, name: "encryption", kind: "message", T: E2eeOptions, opt: true },
     { no: 8, name: "single_peer_connection", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 9, name: "connect_timeout_ms", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RoomOptions {
