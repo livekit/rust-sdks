@@ -2471,6 +2471,13 @@ export class RoomOptions extends Message<RoomOptions> {
    */
   encryption?: E2eeOptions;
 
+  /**
+   * use single peer connection for both publish/subscribe (default: true)
+   *
+   * @generated from field: optional bool single_peer_connection = 8;
+   */
+  singlePeerConnection?: boolean;
+
   constructor(data?: PartialMessage<RoomOptions>) {
     super();
     proto2.util.initPartial(data, this);
@@ -2486,6 +2493,7 @@ export class RoomOptions extends Message<RoomOptions> {
     { no: 5, name: "rtc_config", kind: "message", T: RtcConfig, opt: true },
     { no: 6, name: "join_retries", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
     { no: 7, name: "encryption", kind: "message", T: E2eeOptions, opt: true },
+    { no: 8, name: "single_peer_connection", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
   ]);
 
   static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RoomOptions {

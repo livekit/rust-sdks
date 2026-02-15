@@ -80,6 +80,8 @@ pub struct EngineOptions {
     pub rtc_config: RtcConfiguration,
     pub signal_options: SignalOptions,
     pub join_retries: u32,
+    /// Enable single peer connection mode
+    pub single_peer_connection: bool,
 }
 
 #[derive(Debug)]
@@ -663,7 +665,12 @@ impl EngineInner {
             // If we're already reconnecting just update the interval to restart a new attempt
             // ASAP
 
-            running_handle.full_reconnect = full_reconnect;
+            // Only escalate to full reconnect, never downgrade. Stale signal-close
+            // events (which request resume) must not override a full reconnect decision
+            // made by the reconnect loop after a failed resume attempt.
+            if full_reconnect {
+                running_handle.full_reconnect = true;
+            }
 
             if retry_now {
                 let inner = self.clone();
