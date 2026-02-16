@@ -42,7 +42,7 @@ imgproc = { version = "0.3.18", path = "imgproc" }
 libwebrtc = { version = "0.3.26", path = "libwebrtc" }
 livekit = { version = "0.7.32", path = "livekit" }
 livekit-api = { version = "0.4.14", path = "livekit-api" }
-livekit-ffi = { version = "0.12.47", path = "livekit-ffi" }
+livekit-ffi = { version = "0.12.48", path = "livekit-ffi" }
 livekit-protocol = { version = "0.7.1", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
 soxr-sys = { version = "0.1.2", path = "soxr-sys" }
