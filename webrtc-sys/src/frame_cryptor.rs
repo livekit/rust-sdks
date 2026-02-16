@@ -25,6 +25,7 @@ pub mod ffi {
         pub ratchet_window_size: i32,
         pub ratchet_salt: Vec<u8>,
         pub failure_tolerance: i32,
+        pub key_ring_size: i32,
     }
 
     #[derive(Debug)]
