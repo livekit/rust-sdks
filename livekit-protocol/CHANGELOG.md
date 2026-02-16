@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.1](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.7.0...rust-sdks/livekit-protocol@0.7.1) - 2026-02-16
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [0.7.0](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit-protocol@0.6.0...rust-sdks/livekit-protocol@0.7.0) - 2026-02-09
 
 ### Other
