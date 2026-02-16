@@ -31,6 +31,7 @@ pub struct KeyProviderOptions {
     pub ratchet_window_size: i32,
     pub ratchet_salt: Vec<u8>,
     pub failure_tolerance: i32,
+    pub key_ring_size: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -272,6 +273,7 @@ impl From<KeyProviderOptions> for sys_fc::ffi::KeyProviderOptions {
             ratchet_window_size: value.ratchet_window_size,
             ratchet_salt: value.ratchet_salt,
             failure_tolerance: value.failure_tolerance,
+            key_ring_size: value.key_ring_size,
         }
     }
 }
