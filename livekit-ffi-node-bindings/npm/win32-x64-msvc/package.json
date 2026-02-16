@@ -1,15 +1,6 @@
 {
-  "name": "@livekit/rtc-node-win32-x64-msvc",
-  "author": "LiveKit",
-  "version": "0.12.43",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/livekit/node-sdks.git",
-    "directory": "packages/livekit-rtc/win32-x64-msvc"
-  },
-  "os": [
-    "win32"
-  ],
+  "name": "@livekit/rtc-ffi-bindings-win32-x64-msvc",
+  "version": "0.12.46-dev.8",
   "cpu": [
     "x64"
   ],
@@ -17,8 +8,18 @@
   "files": [
     "rtc-node.win32-x64-msvc.node"
   ],
+  "description": "LiveKit RTC Node FFI bindings for internal use only",
+  "author": "LiveKit",
   "license": "Apache-2.0",
   "engines": {
-    "node": ">= 10"
-  }
+    "node": ">= 18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/livekit/node-sdks.git",
+    "directory": "packages/livekit-rtc"
+  },
+  "os": [
+    "win32"
+  ]
 }
