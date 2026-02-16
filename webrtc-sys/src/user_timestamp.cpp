@@ -23,89 +23,17 @@
 
 #include "api/make_ref_counted.h"
 #include "livekit/peer_connection_factory.h"
+#include "livekit/rtp_receiver.h"
+#include "livekit/rtp_sender.h"
 #include "rtc_base/logging.h"
 #include "webrtc-sys/src/user_timestamp.rs.h"
 
 namespace livekit_ffi {
 
-// UserTimestampStore implementation
-
-void UserTimestampStore::store(int64_t capture_timestamp_us,
-                               int64_t user_timestamp_us) const {
-  webrtc::MutexLock lock(&mutex_);
-
-  // Remove old entries if we're at capacity
-  while (entries_.size() >= kMaxEntries) {
-    entries_.pop_front();
-  }
-
-  entries_.push_back({capture_timestamp_us, user_timestamp_us});
-  RTC_LOG(LS_INFO) << "UserTimestampStore::store capture_ts_us="
-                   << capture_timestamp_us
-                   << " user_ts_us=" << user_timestamp_us
-                   << " size=" << entries_.size();
-}
-
-int64_t UserTimestampStore::lookup(int64_t capture_timestamp_us) const {
-  webrtc::MutexLock lock(&mutex_);
-
-  // Search from the end (most recent) for better performance
-  for (auto it = entries_.rbegin(); it != entries_.rend(); ++it) {
-    if (it->capture_timestamp_us == capture_timestamp_us) {
-      return it->user_timestamp_us;
-    }
-  }
-
-  return -1;
-}
-
-int64_t UserTimestampStore::pop() const {
-  webrtc::MutexLock lock(&mutex_);
-
-  if (entries_.empty()) {
-    RTC_LOG(LS_INFO) << "UserTimestampStore::pop empty";
-    return -1;
-  }
-
-  int64_t user_ts = entries_.front().user_timestamp_us;
-  entries_.pop_front();
-  RTC_LOG(LS_INFO) << "UserTimestampStore::pop user_ts_us=" << user_ts
-                   << " remaining=" << entries_.size();
-  return user_ts;
-}
-
-int64_t UserTimestampStore::peek() const {
-  webrtc::MutexLock lock(&mutex_);
-
-  if (entries_.empty()) {
-    return -1;
-  }
-
-  return entries_.front().user_timestamp_us;
-}
-
-void UserTimestampStore::prune(int64_t max_age_us) const {
-  webrtc::MutexLock lock(&mutex_);
-
-  if (entries_.empty()) {
-    return;
-  }
-
-  int64_t newest_timestamp = entries_.back().capture_timestamp_us;
-  int64_t threshold = newest_timestamp - max_age_us;
-
-  while (!entries_.empty() &&
-         entries_.front().capture_timestamp_us < threshold) {
-    entries_.pop_front();
-  }
-}
-
 // UserTimestampTransformer implementation
 
-UserTimestampTransformer::UserTimestampTransformer(
-    Direction direction,
-    std::shared_ptr<UserTimestampStore> store)
-    : direction_(direction), store_(store) {
+UserTimestampTransformer::UserTimestampTransformer(Direction direction)
+    : direction_(direction) {
   RTC_LOG(LS_INFO) << "UserTimestampTransformer created direction="
                    << (direction_ == Direction::kSend ? "send" : "recv");
 }
@@ -155,41 +83,32 @@ void UserTimestampTransformer::Transform(
 
 void UserTimestampTransformer::TransformSend(
     std::unique_ptr<webrtc::TransformableFrameInterface> frame) {
-  // Get the RTP timestamp from the frame for logging
   uint32_t rtp_timestamp = frame->GetTimestamp();
   uint32_t ssrc = frame->GetSsrc();
 
   auto data = frame->GetData();
 
-  // Drain all queued user timestamps and use the most recent one.
-  // The encoder may skip captured frames (rate control, CPU), so the
-  // store can accumulate faster than TransformSend is called.  Draining
-  // ensures we always embed the timestamp closest to the frame actually
-  // being encoded.  With simulcast, multiple layers encode the same
-  // captured frame — subsequent layers will find the queue empty and
-  // fall back to the cached value.
+  // Look up the user timestamp by the frame's capture time.
+  // CaptureTime() returns Timestamp::Millis(capture_time_ms_) where
+  // capture_time_ms_ = timestamp_us / 1000.  So capture_time->us()
+  // has millisecond precision (bottom 3 digits always zero).
+  // store_user_timestamp() truncates its key the same way.
   int64_t ts_to_embed = 0;
+  auto capture_time = frame->CaptureTime();
+  if (capture_time.has_value()) {
+    int64_t capture_us = capture_time->us();
 
-  if (store_) {
-    int64_t newest_ts = -1;
-    // Drain: pop all available entries, keep the last one
-    for (;;) {
-      int64_t popped_ts = store_->pop();
-      if (popped_ts < 0) break;
-      newest_ts = popped_ts;
+    webrtc::MutexLock lock(&send_map_mutex_);
+    auto it = send_map_.find(capture_us);
+    if (it != send_map_.end()) {
+      ts_to_embed = it->second;
+      // Don't erase — simulcast layers share the same capture time.
+      // Entries are pruned by capacity in store_user_timestamp().
     }
-
-    if (newest_ts >= 0) {
-      ts_to_embed = newest_ts;
-      // Cache for simulcast layers that encode the same frame
-      webrtc::MutexLock lock(&send_cache_mutex_);
-      last_sent_user_timestamp_ = newest_ts;
-    } else {
-      // Queue was empty — use cached value (simulcast or encoder
-      // encoding the same frame as a previous layer)
-      webrtc::MutexLock lock(&send_cache_mutex_);
-      ts_to_embed = last_sent_user_timestamp_;
-    }
+  } else {
+    RTC_LOG(LS_WARNING)
+        << "UserTimestampTransformer::TransformSend CaptureTime() not available"
+        << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
   }
 
   // Always append trailer when enabled (even if timestamp is 0,
@@ -204,6 +123,8 @@ void UserTimestampTransformer::TransformSend(
                      << " ts_us=" << ts_to_embed
                      << " rtp_ts=" << rtp_timestamp
                      << " ssrc=" << ssrc
+                     << " capture_us="
+                     << (capture_time.has_value() ? capture_time->us() : -1)
                      << " orig_size=" << data.size()
                      << " new_size=" << new_data.size();
   }
@@ -439,25 +360,57 @@ std::optional<int64_t> UserTimestampTransformer::lookup_user_timestamp(
   return ts;
 }
 
+void UserTimestampTransformer::store_user_timestamp(
+    int64_t capture_timestamp_us,
+    int64_t user_timestamp_us) {
+  // Truncate to millisecond precision to match what WebRTC stores
+  // internally.  The encoder pipeline converts the VideoFrame's
+  // timestamp_us to capture_time_ms_ = timestamp_us / 1000, and
+  // CaptureTime() returns Timestamp::Millis(capture_time_ms_).
+  // When we call capture_time->us() in TransformSend we get a value
+  // with the bottom 3 digits zeroed, so we must store with the same
+  // truncation to ensure the lookup succeeds.
+  //
+  // The caller (VideoTrackSource::on_captured_frame) passes the
+  // TimestampAligner-adjusted timestamp here, which is the same
+  // value that becomes CaptureTime() in the encoder pipeline.
+  int64_t key = (capture_timestamp_us / 1000) * 1000;
+
+  webrtc::MutexLock lock(&send_map_mutex_);
+
+  // Evict oldest entries if at capacity
+  while (send_map_.size() >= kMaxSendMapEntries && !send_map_order_.empty()) {
+    send_map_.erase(send_map_order_.front());
+    send_map_order_.pop_front();
+  }
+
+  send_map_[key] = user_timestamp_us;
+  send_map_order_.push_back(key);
+
+  RTC_LOG(LS_INFO) << "UserTimestampTransformer::store_user_timestamp"
+                   << " capture_ts_us=" << capture_timestamp_us
+                   << " key_us=" << key
+                   << " user_ts_us=" << user_timestamp_us
+                   << " size=" << send_map_.size();
+}
+
 // UserTimestampHandler implementation
 
 UserTimestampHandler::UserTimestampHandler(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    std::shared_ptr<UserTimestampStore> store,
     rtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
     : rtc_runtime_(rtc_runtime), sender_(sender) {
   transformer_ = rtc::make_ref_counted<UserTimestampTransformer>(
-      UserTimestampTransformer::Direction::kSend, store);
+      UserTimestampTransformer::Direction::kSend);
   sender->SetEncoderToPacketizerFrameTransformer(transformer_);
 }
 
 UserTimestampHandler::UserTimestampHandler(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    std::shared_ptr<UserTimestampStore> store,
     rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
     : rtc_runtime_(rtc_runtime), receiver_(receiver) {
   transformer_ = rtc::make_ref_counted<UserTimestampTransformer>(
-      UserTimestampTransformer::Direction::kReceive, store);
+      UserTimestampTransformer::Direction::kReceive);
   receiver->SetDepacketizerToDecoderFrameTransformer(transformer_);
 }
 
@@ -483,30 +436,30 @@ bool UserTimestampHandler::has_user_timestamp() const {
   return transformer_->last_user_timestamp().has_value();
 }
 
+void UserTimestampHandler::store_user_timestamp(
+    int64_t capture_timestamp_us,
+    int64_t user_timestamp_us) const {
+  transformer_->store_user_timestamp(capture_timestamp_us, user_timestamp_us);
+}
+
 rtc::scoped_refptr<UserTimestampTransformer> UserTimestampHandler::transformer() const {
   return transformer_;
 }
 
 // Factory functions
 
-std::shared_ptr<UserTimestampStore> new_user_timestamp_store() {
-  return std::make_shared<UserTimestampStore>();
-}
-
 std::shared_ptr<UserTimestampHandler> new_user_timestamp_sender(
     std::shared_ptr<PeerConnectionFactory> peer_factory,
-    std::shared_ptr<UserTimestampStore> store,
     std::shared_ptr<RtpSender> sender) {
   return std::make_shared<UserTimestampHandler>(
-      peer_factory->rtc_runtime(), store, sender->rtc_sender());
+      peer_factory->rtc_runtime(), sender->rtc_sender());
 }
 
 std::shared_ptr<UserTimestampHandler> new_user_timestamp_receiver(
     std::shared_ptr<PeerConnectionFactory> peer_factory,
-    std::shared_ptr<UserTimestampStore> store,
     std::shared_ptr<RtpReceiver> receiver) {
   return std::make_shared<UserTimestampHandler>(
-      peer_factory->rtc_runtime(), store, receiver->rtc_receiver());
+      peer_factory->rtc_runtime(), receiver->rtc_receiver());
 }
 
 }  // namespace livekit_ffi

@@ -19,7 +19,7 @@ use libwebrtc::{
         frame_cryptor::{
             DataPacketCryptor, EncryptedPacket, EncryptionAlgorithm, EncryptionState, FrameCryptor,
         },
-        user_timestamp::{self, UserTimestampStore},
+        user_timestamp,
     },
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
@@ -107,10 +107,8 @@ impl E2eeManager {
 
         // Always set up user timestamp extraction for remote video tracks.
         if let RemoteTrack::Video(video_track) = &track {
-            let store = UserTimestampStore::new();
             let handler = user_timestamp::create_receiver_handler(
                 LkRuntime::instance().pc_factory(),
-                &store,
                 &receiver,
             );
             video_track.set_user_timestamp_handler(handler.clone());
@@ -143,21 +141,19 @@ impl E2eeManager {
 
         // Always set up user timestamp embedding for local video tracks.
         if let LocalTrack::Video(video_track) = &track {
-            let store = UserTimestampStore::new();
-            video_track.set_user_timestamp_store(store.clone());
-
-            // Also set the store on the video source so that capture_frame()
-            // can automatically push user timestamps into it.
-            #[cfg(not(target_arch = "wasm32"))]
-            if let RtcVideoSource::Native(ref native_source) = video_track.rtc_source() {
-                native_source.set_user_timestamp_store(store.clone());
-            }
-
             let handler = user_timestamp::create_sender_handler(
                 LkRuntime::instance().pc_factory(),
-                &store,
                 &sender,
             );
+            video_track.set_user_timestamp_handler(handler.clone());
+
+            // Also set the handler on the video source so that capture_frame()
+            // can automatically store user timestamps into it.
+            #[cfg(not(target_arch = "wasm32"))]
+            if let RtcVideoSource::Native(ref native_source) = video_track.rtc_source() {
+                native_source.set_user_timestamp_handler(handler.clone());
+            }
+
             user_timestamp_handler = Some(handler);
         }
 

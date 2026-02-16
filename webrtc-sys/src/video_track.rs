@@ -50,8 +50,14 @@ pub mod ffi {
         type MediaStreamTrack = crate::media_stream_track::ffi::MediaStreamTrack;
     }
 
-    unsafe extern "C++" {
+    extern "C++" {
+        include!("livekit/user_timestamp.h");
         include!("livekit/video_track.h");
+
+        type UserTimestampHandler = crate::user_timestamp::ffi::UserTimestampHandler;
+    }
+
+    unsafe extern "C++" {
 
         type VideoTrack;
         type NativeVideoSink;
@@ -66,7 +72,16 @@ pub mod ffi {
         fn new_native_video_sink(observer: Box<VideoSinkWrapper>) -> SharedPtr<NativeVideoSink>;
 
         fn video_resolution(self: &VideoTrackSource) -> VideoResolution;
-        fn on_captured_frame(self: &VideoTrackSource, frame: &UniquePtr<VideoFrame>) -> bool;
+        fn on_captured_frame(
+            self: &VideoTrackSource,
+            frame: &UniquePtr<VideoFrame>,
+            has_user_timestamp: bool,
+            user_timestamp_us: i64,
+        ) -> bool;
+        fn set_user_timestamp_handler(
+            self: &VideoTrackSource,
+            handler: SharedPtr<UserTimestampHandler>,
+        );
         fn new_video_track_source(resolution: &VideoResolution) -> SharedPtr<VideoTrackSource>;
         fn video_to_media(track: SharedPtr<VideoTrack>) -> SharedPtr<MediaStreamTrack>;
         unsafe fn media_to_video(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<VideoTrack>;

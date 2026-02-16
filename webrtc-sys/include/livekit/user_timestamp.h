@@ -28,14 +28,20 @@
 
 #include "absl/types/optional.h"
 #include "api/frame_transformer_interface.h"
+#include "api/rtp_sender_interface.h"
+#include "api/rtp_receiver_interface.h"
 #include "api/scoped_refptr.h"
-#include "livekit/peer_connection.h"
-#include "livekit/peer_connection_factory.h"
-#include "livekit/rtp_receiver.h"
-#include "livekit/rtp_sender.h"
 #include "livekit/webrtc.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rust/cxx.h"
+
+// Forward declarations to avoid circular includes
+// (video_track.h -> user_timestamp.h -> peer_connection.h -> media_stream.h -> video_track.h)
+namespace livekit_ffi {
+class PeerConnectionFactory;
+class RtpSender;
+class RtpReceiver;
+}  // namespace livekit_ffi
 
 namespace livekit_ffi {
 
@@ -44,52 +50,21 @@ constexpr uint8_t kUserTimestampMagic[4] = {'L', 'K', 'T', 'S'};
 constexpr size_t kUserTimestampTrailerSize =
     12;  // 8 bytes timestamp + 4 bytes magic
 
-/// Thread-safe FIFO queue for user timestamps.
-/// Used on the sender side to pass user timestamps to the transformer.
-/// Works on the assumption that frames are captured and encoded in order.
-class UserTimestampStore {
- public:
-  UserTimestampStore() = default;
-  ~UserTimestampStore() = default;
-
-  /// Push a user timestamp to the queue.
-  /// Call this when capturing a video frame with a user timestamp.
-  void store(int64_t capture_timestamp_us,
-             int64_t user_timestamp_us) const;
-
-  /// Lookup a user timestamp by capture timestamp (for debugging).
-  /// Returns -1 if not found.
-  int64_t lookup(int64_t capture_timestamp_us) const;
-
-  /// Pop the oldest entry if the queue has entries.
-  /// Returns the user timestamp, or -1 if empty.
-  int64_t pop() const;
-
-  /// Peek at the oldest entry without removing it.
-  /// Returns the user timestamp, or -1 if empty.
-  int64_t peek() const;
-
-  /// Clear old entries (older than the given threshold in microseconds).
-  void prune(int64_t max_age_us) const;
-
- private:
-  mutable webrtc::Mutex mutex_;
-  struct Entry {
-    int64_t capture_timestamp_us;
-    int64_t user_timestamp_us;
-  };
-  mutable std::deque<Entry> entries_;
-  static constexpr size_t kMaxEntries = 300;  // ~10 seconds at 30fps
-};
-
 /// Frame transformer that appends/extracts user timestamp trailers.
 /// This transformer can be used standalone or in conjunction with e2ee.
+///
+/// On the send side, user timestamps are stored in an internal map keyed
+/// by capture timestamp (microseconds).  When TransformSend fires it
+/// looks up the user timestamp via the frame's CaptureTime().
+///
+/// On the receive side, extracted user timestamps are stored in an
+/// internal map keyed by RTP timestamp (uint32_t).  Decoded frames can
+/// look up their user timestamp via lookup_user_timestamp(rtp_ts).
 class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
  public:
   enum class Direction { kSend, kReceive };
 
-  UserTimestampTransformer(Direction direction,
-                           std::shared_ptr<UserTimestampStore> store);
+  explicit UserTimestampTransformer(Direction direction);
   ~UserTimestampTransformer() override = default;
 
   // FrameTransformerInterface implementation
@@ -115,6 +90,13 @@ class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
   /// The entry is removed from the map after lookup.
   std::optional<int64_t> lookup_user_timestamp(uint32_t rtp_timestamp);
 
+  /// Store a user timestamp for a given capture timestamp (sender side).
+  /// Called from VideoTrackSource::on_captured_frame with the
+  /// TimestampAligner-adjusted timestamp, which matches CaptureTime()
+  /// in the encoder pipeline.
+  void store_user_timestamp(int64_t capture_timestamp_us,
+                            int64_t user_timestamp_us);
+
  private:
   void TransformSend(
       std::unique_ptr<webrtc::TransformableFrameInterface> frame);
@@ -133,7 +115,6 @@ class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
       std::vector<uint8_t>& out_data);
 
   const Direction direction_;
-  std::shared_ptr<UserTimestampStore> store_;
   std::atomic<bool> enabled_{true};
   mutable webrtc::Mutex mutex_;
   rtc::scoped_refptr<webrtc::TransformedFrameCallback> callback_;
@@ -143,10 +124,13 @@ class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
   mutable std::atomic<int64_t> last_user_timestamp_{0};
   mutable std::atomic<bool> has_last_user_timestamp_{false};
 
-  // Send-side: cache the last user timestamp we embedded, so that
-  // simulcast layers encoding the same frame get the same value.
-  mutable webrtc::Mutex send_cache_mutex_;
-  mutable int64_t last_sent_user_timestamp_{0};
+  // Send-side map: capture timestamp (us) -> user timestamp (us).
+  // Populated by store_user_timestamp(), consumed by TransformSend()
+  // via CaptureTime() lookup.
+  mutable webrtc::Mutex send_map_mutex_;
+  mutable std::unordered_map<int64_t, int64_t> send_map_;
+  mutable std::deque<int64_t> send_map_order_;
+  static constexpr size_t kMaxSendMapEntries = 300;
 
   // Receive-side map: RTP timestamp -> user timestamp.
   // Keyed by RTP timestamp so decoded frames can look up their user
@@ -163,12 +147,10 @@ class UserTimestampHandler {
  public:
   UserTimestampHandler(
       std::shared_ptr<RtcRuntime> rtc_runtime,
-      std::shared_ptr<UserTimestampStore> store,
       rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
 
   UserTimestampHandler(
       std::shared_ptr<RtcRuntime> rtc_runtime,
-      std::shared_ptr<UserTimestampStore> store,
       rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
 
   ~UserTimestampHandler() = default;
@@ -188,6 +170,11 @@ class UserTimestampHandler {
   /// Check if a user timestamp has been received
   bool has_user_timestamp() const;
 
+  /// Store a user timestamp for a given capture timestamp (sender side).
+  /// Call this when capturing a video frame with a user timestamp.
+  void store_user_timestamp(int64_t capture_timestamp_us,
+                            int64_t user_timestamp_us) const;
+
   /// Access the underlying transformer for chaining.
   rtc::scoped_refptr<UserTimestampTransformer> transformer() const;
 
@@ -199,16 +186,13 @@ class UserTimestampHandler {
 };
 
 // Factory functions for Rust FFI
-std::shared_ptr<UserTimestampStore> new_user_timestamp_store();
 
 std::shared_ptr<UserTimestampHandler> new_user_timestamp_sender(
     std::shared_ptr<PeerConnectionFactory> peer_factory,
-    std::shared_ptr<UserTimestampStore> store,
     std::shared_ptr<RtpSender> sender);
 
 std::shared_ptr<UserTimestampHandler> new_user_timestamp_receiver(
     std::shared_ptr<PeerConnectionFactory> peer_factory,
-    std::shared_ptr<UserTimestampStore> store,
     std::shared_ptr<RtpReceiver> receiver);
 
 }  // namespace livekit_ffi

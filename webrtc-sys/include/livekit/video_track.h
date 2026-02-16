@@ -33,6 +33,7 @@ namespace livekit_ffi {
 class VideoTrack;
 class NativeVideoSink;
 class VideoTrackSource;
+class UserTimestampHandler;  // forward declaration to avoid circular include
 }  // namespace livekit_ffi
 #include "webrtc-sys/src/video_track.rs.h"
 
@@ -98,12 +99,18 @@ class VideoTrackSource {
     SourceState state() const override;
     bool remote() const override;
     VideoResolution video_resolution() const;
-    bool on_captured_frame(const webrtc::VideoFrame& frame);
+    bool on_captured_frame(const webrtc::VideoFrame& frame,
+                           bool has_user_timestamp,
+                           int64_t user_timestamp_us);
+
+    void set_user_timestamp_handler(
+        std::shared_ptr<UserTimestampHandler> handler);
 
    private:
     mutable webrtc::Mutex mutex_;
     webrtc::TimestampAligner timestamp_aligner_;
     VideoResolution resolution_;
+    std::shared_ptr<UserTimestampHandler> user_timestamp_handler_;
   };
 
  public:
@@ -111,8 +118,13 @@ class VideoTrackSource {
 
   VideoResolution video_resolution() const;
 
-  bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame)
+  bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame,
+                         bool has_user_timestamp,
+                         int64_t user_timestamp_us)
       const;  // frames pushed from Rust (+interior mutability)
+
+  void set_user_timestamp_handler(
+      std::shared_ptr<UserTimestampHandler> handler) const;
 
   webrtc::scoped_refptr<InternalSource> get() const;
 

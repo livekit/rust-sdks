@@ -18,8 +18,13 @@
 //! in encoded video frames as trailers. The timestamps are preserved
 //! through the WebRTC pipeline and can be extracted on the receiver side.
 //!
-//! This works independently of e2ee encryption - timestamps can be
-//! embedded even when encryption is disabled.
+//! On the send side, user timestamps are stored in the handler's internal
+//! map keyed by capture timestamp. When the encoder produces a frame,
+//! the transformer looks up the user timestamp via the frame's CaptureTime().
+//!
+//! On the receive side, extracted user timestamps are stored in an
+//! internal map keyed by RTP timestamp. Decoded frames look up their
+//! user timestamp via lookup_user_timestamp(rtp_timestamp).
 
 use cxx::SharedPtr;
 use webrtc_sys::user_timestamp::ffi as sys_ut;
@@ -30,94 +35,15 @@ use crate::{
     rtp_sender::RtpSender,
 };
 
-/// Thread-safe store for mapping capture timestamps to user timestamps.
-///
-/// Used on the sender side to correlate video frame capture time with
-/// the user timestamp that should be embedded in the encoded frame.
-#[derive(Clone)]
-pub struct UserTimestampStore {
-    sys_handle: SharedPtr<sys_ut::UserTimestampStore>,
-}
-
-impl UserTimestampStore {
-    /// Create a new user timestamp store.
-    pub fn new() -> Self {
-        Self {
-            sys_handle: sys_ut::new_user_timestamp_store(),
-        }
-    }
-
-    /// Store a user timestamp associated with a capture timestamp.
-    ///
-    /// Call this when capturing a video frame with a user timestamp.
-    /// The `capture_timestamp_us` should match the `timestamp_us` field
-    /// of the VideoFrame.
-    pub fn store(&self, capture_timestamp_us: i64, user_timestamp_us: i64) {
-        log::info!(
-            target: "user_timestamp",
-            "store: capture_ts_us={}, user_ts_us={}",
-            capture_timestamp_us,
-            user_timestamp_us
-        );
-        self.sys_handle.store(capture_timestamp_us, user_timestamp_us);
-    }
-
-    /// Lookup a user timestamp by capture timestamp (for debugging).
-    /// Returns None if not found.
-    pub fn lookup(&self, capture_timestamp_us: i64) -> Option<i64> {
-        let result = self.sys_handle.lookup(capture_timestamp_us);
-        if result < 0 {
-            None
-        } else {
-            Some(result)
-        }
-    }
-
-    /// Pop the oldest user timestamp from the queue.
-    /// Returns None if the queue is empty.
-    pub fn pop(&self) -> Option<i64> {
-        let result = self.sys_handle.pop();
-        if result < 0 {
-            None
-        } else {
-            Some(result)
-        }
-    }
-
-    /// Peek at the oldest user timestamp without removing it.
-    /// Returns None if the queue is empty.
-    pub fn peek(&self) -> Option<i64> {
-        let result = self.sys_handle.peek();
-        if result < 0 {
-            None
-        } else {
-            Some(result)
-        }
-    }
-
-    /// Clear old entries (older than the given threshold in microseconds).
-    pub fn prune(&self, max_age_us: i64) {
-        self.sys_handle.prune(max_age_us);
-    }
-
-    pub(crate) fn sys_handle(&self) -> SharedPtr<sys_ut::UserTimestampStore> {
-        self.sys_handle.clone()
-    }
-}
-
-impl Default for UserTimestampStore {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 /// Handler for user timestamp embedding/extraction on RTP streams.
 ///
-/// For sender side: Embeds user timestamps as 12-byte trailers on
-/// encoded frames before they are sent.
+/// For sender side: Stores user timestamps keyed by capture timestamp
+/// and embeds them as 12-byte trailers on encoded frames before they
+/// are sent. Use `store_user_timestamp()` to associate a user timestamp
+/// with a captured frame.
 ///
 /// For receiver side: Extracts user timestamps from received frames
-/// and makes them available for retrieval.
+/// and makes them available for retrieval via `lookup_user_timestamp()`.
 #[derive(Clone)]
 pub struct UserTimestampHandler {
     sys_handle: SharedPtr<sys_ut::UserTimestampHandler>,
@@ -164,6 +90,27 @@ impl UserTimestampHandler {
         }
     }
 
+    /// Store a user timestamp for a given capture timestamp (sender side).
+    ///
+    /// The `capture_timestamp_us` must be the TimestampAligner-adjusted
+    /// timestamp (as produced by `VideoTrackSource::on_captured_frame`),
+    /// NOT the original `timestamp_us` from the VideoFrame. The transformer
+    /// looks up the user timestamp by the frame's `CaptureTime()` which is
+    /// derived from the aligned value.
+    ///
+    /// In normal usage this is called automatically by the C++ layer —
+    /// callers should set `user_timestamp_us` on the `VideoFrame` and let
+    /// `capture_frame` / `on_captured_frame` handle the rest.
+    pub fn store_user_timestamp(&self, capture_timestamp_us: i64, user_timestamp_us: i64) {
+        log::info!(
+            target: "user_timestamp",
+            "store: capture_ts_us={}, user_ts_us={}",
+            capture_timestamp_us,
+            user_timestamp_us
+        );
+        self.sys_handle.store_user_timestamp(capture_timestamp_us, user_timestamp_us);
+    }
+
     pub(crate) fn sys_handle(&self) -> SharedPtr<sys_ut::UserTimestampHandler> {
         self.sys_handle.clone()
     }
@@ -171,17 +118,16 @@ impl UserTimestampHandler {
 
 /// Create a sender-side user timestamp handler.
 ///
-/// This handler will embed user timestamps from the provided store
-/// into encoded frames before they are packetized and sent.
+/// This handler will embed user timestamps into encoded frames before
+/// they are packetized and sent. Use `store_user_timestamp()` to
+/// associate a user timestamp with a captured frame's capture timestamp.
 pub fn create_sender_handler(
     peer_factory: &PeerConnectionFactory,
-    store: &UserTimestampStore,
     sender: &RtpSender,
 ) -> UserTimestampHandler {
     UserTimestampHandler {
         sys_handle: sys_ut::new_user_timestamp_sender(
             peer_factory.handle.sys_handle.clone(),
-            store.sys_handle(),
             sender.handle.sys_handle.clone(),
         ),
     }
@@ -195,13 +141,11 @@ pub fn create_sender_handler(
 /// timestamp for a specific decoded frame.
 pub fn create_receiver_handler(
     peer_factory: &PeerConnectionFactory,
-    store: &UserTimestampStore,
     receiver: &RtpReceiver,
 ) -> UserTimestampHandler {
     UserTimestampHandler {
         sys_handle: sys_ut::new_user_timestamp_receiver(
             peer_factory.handle.sys_handle.clone(),
-            store.sys_handle(),
             receiver.handle.sys_handle.clone(),
         ),
     }
