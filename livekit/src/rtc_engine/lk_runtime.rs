@@ -23,6 +23,9 @@ use parking_lot::Mutex;
 
 lazy_static! {
     static ref LK_RUNTIME: Mutex<Weak<LkRuntime>> = Mutex::new(Weak::new());
+    /// Optional field trials string to pass to the PeerConnectionFactory.
+    /// Must be set *before* the first call to `LkRuntime::instance()`.
+    static ref FIELD_TRIALS: Mutex<Option<String>> = Mutex::new(None);
 }
 
 pub struct LkRuntime {
@@ -36,13 +39,29 @@ impl Debug for LkRuntime {
 }
 
 impl LkRuntime {
+    /// Set libwebrtc field trials that will be applied when the runtime is
+    /// first created.  Must be called **before** `Room::connect` or any
+    /// other API that triggers `LkRuntime::instance()`.
+    ///
+    /// Example: `LkRuntime::set_field_trials("WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0/");`
+    pub fn set_field_trials(field_trials: &str) {
+        *FIELD_TRIALS.lock() = Some(field_trials.to_owned());
+    }
+
     pub fn instance() -> Arc<LkRuntime> {
         let mut lk_runtime_ref = LK_RUNTIME.lock();
         if let Some(lk_runtime) = lk_runtime_ref.upgrade() {
             lk_runtime
         } else {
             log::debug!("LkRuntime::new()");
-            let new_runtime = Arc::new(Self { pc_factory: PeerConnectionFactory::default() });
+            let factory = match FIELD_TRIALS.lock().as_deref() {
+                Some(ft) if !ft.is_empty() => {
+                    log::info!("Initializing PeerConnectionFactory with field trials: {}", ft);
+                    PeerConnectionFactory::with_field_trials(ft)
+                }
+                _ => PeerConnectionFactory::default(),
+            };
+            let new_runtime = Arc::new(Self { pc_factory: factory });
             *lk_runtime_ref = Arc::downgrade(&new_runtime);
             new_runtime
         }

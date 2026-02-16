@@ -36,6 +36,14 @@ impl RtpReceiver {
     pub fn parameters(&self) -> RtpParameters {
         self.handle.parameters()
     }
+
+    /// Set the minimum jitter buffer delay in seconds.
+    ///
+    /// Pass `Some(0.0)` to minimize buffering (lowest latency), or `None` to
+    /// revert to the default adaptive behaviour.
+    pub fn set_jitter_buffer_minimum_delay(&self, delay_seconds: Option<f64>) {
+        self.handle.set_jitter_buffer_minimum_delay(delay_seconds)
+    }
 }
 
 impl Debug for RtpReceiver {

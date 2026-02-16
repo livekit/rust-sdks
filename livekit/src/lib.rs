@@ -23,6 +23,16 @@ pub mod webrtc {
 
 pub use room::*;
 
+/// Set libwebrtc field trials that will be applied when the internal WebRTC
+/// runtime is first created.  Must be called **before** [`Room::connect`] or
+/// any other API that creates a peer connection.
+///
+/// Field trials are `/`-delimited key/value pairs, e.g.
+/// `"WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0/"`.
+pub fn set_field_trials(field_trials: &str) {
+    rtc_engine::lk_runtime::LkRuntime::set_field_trials(field_trials);
+}
+
 /// `use livekit::prelude::*;` to import livekit types
 pub mod prelude;
 

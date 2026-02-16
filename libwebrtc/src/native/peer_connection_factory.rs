@@ -62,6 +62,34 @@ impl Default for PeerConnectionFactory {
 }
 
 impl PeerConnectionFactory {
+    /// Create a factory with custom libwebrtc field trials.
+    ///
+    /// `field_trials` is a string of key/value pairs, e.g.
+    /// `"WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0/"`.
+    ///
+    /// The string must remain valid for the lifetime of the process (it is
+    /// stored in a global static on the C++ side).  Calling this more than
+    /// once replaces the previous field trials.
+    pub fn with_field_trials(field_trials: &str) -> Self {
+        let mut log_sink = LOG_SINK.lock();
+        if log_sink.is_none() {
+            *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _| {
+                let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
+                if msg.contains("UserTimestampTransformer") {
+                    log::info!(target: "user_timestamp_rtp", "{}", msg);
+                } else {
+                    log::debug!(target: "libwebrtc", "{}", msg);
+                }
+            }));
+        }
+
+        Self {
+            sys_handle: sys_pcf::ffi::create_peer_connection_factory_with_field_trials(
+                field_trials.to_string(),
+            ),
+        }
+    }
+
     pub fn create_peer_connection(
         &self,
         config: RtcConfiguration,

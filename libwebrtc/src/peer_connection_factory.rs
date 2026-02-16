@@ -68,6 +68,14 @@ impl Debug for PeerConnectionFactory {
 }
 
 impl PeerConnectionFactory {
+    /// Create a factory with custom libwebrtc field trials.
+    ///
+    /// `field_trials` is a `/`-delimited key/value string, e.g.
+    /// `"WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0/"`.
+    pub fn with_field_trials(field_trials: &str) -> Self {
+        Self { handle: imp_pcf::PeerConnectionFactory::with_field_trials(field_trials) }
+    }
+
     pub fn create_peer_connection(
         &self,
         config: RtcConfiguration,

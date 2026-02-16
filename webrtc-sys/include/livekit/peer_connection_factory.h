@@ -70,4 +70,6 @@ class PeerConnectionFactory {
 };
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory();
+std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory_with_field_trials(
+    rust::String field_trials);
 }  // namespace livekit_ffi

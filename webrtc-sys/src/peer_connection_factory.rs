@@ -88,6 +88,9 @@ pub mod ffi {
         type PeerConnectionFactory;
 
         fn create_peer_connection_factory() -> SharedPtr<PeerConnectionFactory>;
+        fn create_peer_connection_factory_with_field_trials(
+            field_trials: String,
+        ) -> SharedPtr<PeerConnectionFactory>;
 
         fn create_peer_connection(
             self: &PeerConnectionFactory,

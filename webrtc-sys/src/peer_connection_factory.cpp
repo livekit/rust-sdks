@@ -17,6 +17,7 @@
 #include "livekit/peer_connection_factory.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
@@ -40,8 +41,14 @@
 #include "livekit/video_encoder_factory.h"
 #include "livekit/webrtc.h"
 #include "rtc_base/thread.h"
+#include "system_wrappers/include/field_trial.h"
 #include "webrtc-sys/src/peer_connection.rs.h"
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
+
+// Persistent storage for the field trials string.  The pointer passed to
+// webrtc::field_trial::InitFieldTrialsFromString must remain valid for the
+// lifetime of the process, so we keep it in a static std::string.
+static std::string g_field_trials_storage;
 
 namespace livekit_ffi {
 
@@ -141,6 +148,14 @@ RtpCapabilities PeerConnectionFactory::rtp_receiver_capabilities(
 }
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {
+  return std::make_shared<PeerConnectionFactory>(RtcRuntime::create());
+}
+
+std::shared_ptr<PeerConnectionFactory>
+create_peer_connection_factory_with_field_trials(rust::String field_trials) {
+  g_field_trials_storage = std::string(field_trials.data(), field_trials.size());
+  webrtc::field_trial::InitFieldTrialsFromString(
+      g_field_trials_storage.c_str());
   return std::make_shared<PeerConnectionFactory>(RtcRuntime::create());
 }
 

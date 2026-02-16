@@ -61,6 +61,11 @@ struct Args {
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set; must match publisher's key)
     #[arg(long)]
     e2ee_key: Option<String>,
+
+    /// Optimize for lowest possible latency (minimal jitter buffer, force zero
+    /// playout delay).  Trades smoothness for getting the latest frame ASAP.
+    #[arg(long)]
+    low_latency: bool,
 }
 
 struct SharedYuv {
@@ -183,6 +188,7 @@ async fn handle_track_subscribed(
     active_sid: &Arc<Mutex<Option<TrackSid>>>,
     ctrl_c_received: &Arc<AtomicBool>,
     simulcast: &Arc<Mutex<SimulcastState>>,
+    low_latency: bool,
 ) {
     // If a participant filter is set, skip others
     if let Some(ref allow) = allowed_identity {
@@ -195,6 +201,15 @@ async fn handle_track_subscribed(
     let livekit::track::RemoteTrack::Video(video_track) = track else {
         return;
     };
+
+    // Apply low-latency jitter buffer setting on the receiver.
+    if low_latency {
+        if video_track.set_jitter_buffer_minimum_delay(Some(0.0)) {
+            info!("Low-latency mode: jitter buffer minimum delay set to 0");
+        } else {
+            debug!("Low-latency mode: transceiver not yet available for jitter buffer config");
+        }
+    }
 
     let sid = publication.sid().clone();
     let codec = codec_label(&publication.mime_type());
@@ -686,6 +701,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         })
         .to_jwt()?;
 
+    // Apply low-latency WebRTC field trials before creating the runtime.
+    if args.low_latency {
+        livekit::set_field_trials(
+            "WebRTC-ForcePlayoutDelay/min_ms:0,max_ms:0/",
+        );
+        info!("Low-latency mode: field trials set for zero playout delay");
+    }
+
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
@@ -731,6 +754,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     // Subscribe to room events: on first video track, start sink task
     let allowed_identity = args.participant.clone();
+    let low_latency = args.low_latency;
     let shared_clone = shared.clone();
     let rt = tokio::runtime::Handle::current();
     // Track currently active video track SID to handle unpublish/unsubscribe
@@ -758,6 +782,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         &active_sid,
                         &ctrl_c_events,
                         &simulcast,
+                        low_latency,
                     )
                     .await;
                 }

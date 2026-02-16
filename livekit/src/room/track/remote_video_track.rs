@@ -117,6 +117,22 @@ impl RemoteVideoTrack {
         self.rtc_track().set_user_timestamp_handler(handler);
     }
 
+    /// Set the minimum jitter buffer delay for this track's RTP receiver.
+    ///
+    /// Pass `Some(0.0)` to minimize buffering (lowest latency), or `None` to
+    /// revert to the default adaptive behaviour.
+    ///
+    /// Returns `true` if the delay was applied, `false` if the transceiver
+    /// is not yet available (track not fully subscribed).
+    pub fn set_jitter_buffer_minimum_delay(&self, delay_seconds: Option<f64>) -> bool {
+        if let Some(transceiver) = self.transceiver() {
+            transceiver.receiver().set_jitter_buffer_minimum_delay(delay_seconds);
+            true
+        } else {
+            false
+        }
+    }
+
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {
         super::remote_track::get_stats(&self.inner).await
     }
