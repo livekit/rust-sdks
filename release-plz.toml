@@ -68,6 +68,7 @@ name = "livekit-ffi"
 changelog_path = "livekit-ffi/CHANGELOG.md"
 publish = false
 release = true
+git_only = true
 git_release_enable = false # existing CI manages GitHub release
 changelog_include = [
   "livekit",
