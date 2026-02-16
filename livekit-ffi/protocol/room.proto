@@ -310,6 +310,8 @@ message RoomOptions {
   optional RtcConfig rtc_config = 5; // allow to setup a custom RtcConfiguration
   optional uint32 join_retries = 6;
   optional E2eeOptions encryption = 7;
+  optional bool single_peer_connection = 8; // use single peer connection for both publish/subscribe (default: false)
+  optional uint64 connect_timeout_ms = 9; // timeout in milliseconds for each signal connection attempt (default: 5000)
 }
 
 //
