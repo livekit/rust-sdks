@@ -1,6 +1,6 @@
 [package]
 name = "webrtc-sys"
-version = "0.3.22"
+version = "0.3.23"
 edition.workspace = true
 homepage = "https://livekit.io"
 license.workspace = true

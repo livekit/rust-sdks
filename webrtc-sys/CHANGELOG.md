@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.23](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.22...rust-sdks/webrtc-sys@0.3.23) - 2026-02-16
+
+### Other
+
+- add is_screencast to VideoSource ([#896](https://github.com/livekit/rust-sdks/pull/896))
+
 ## [0.3.22](https://github.com/livekit/rust-sdks/compare/rust-sdks/webrtc-sys@0.3.21...rust-sdks/webrtc-sys@0.3.22) - 2026-02-09
 
 ### Fixed

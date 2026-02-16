@@ -39,14 +39,14 @@ license = "Apache-2.0"
 
 [workspace.dependencies]
 imgproc = { version = "0.3.18", path = "imgproc" }
-libwebrtc = { version = "0.3.25", path = "libwebrtc" }
-livekit = { version = "0.7.31", path = "livekit" }
-livekit-api = { version = "0.4.13", path = "livekit-api" }
+libwebrtc = { version = "0.3.26", path = "libwebrtc" }
+livekit = { version = "0.7.32", path = "livekit" }
+livekit-api = { version = "0.4.14", path = "livekit-api" }
 livekit-ffi = { version = "0.12.47", path = "livekit-ffi" }
-livekit-protocol = { version = "0.7.0", path = "livekit-protocol" }
+livekit-protocol = { version = "0.7.1", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
 soxr-sys = { version = "0.1.2", path = "soxr-sys" }
-webrtc-sys = { version = "0.3.22", path = "webrtc-sys" }
+webrtc-sys = { version = "0.3.23", path = "webrtc-sys" }
 webrtc-sys-build = { version = "0.3.13", path = "webrtc-sys/build" }
 yuv-sys = { version = "0.3.13", path = "yuv-sys" }
 
