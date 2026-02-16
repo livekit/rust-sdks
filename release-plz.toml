@@ -83,4 +83,13 @@ changelog_include = [
 name = "livekit-uniffi"
 changelog_path = "livekit-uniffi/CHANGELOG.md"
 publish = false
-release = true
+publish_no_verify = true
+release = false
+git_only = true
+
+[[package]]
+name = "rtc-node-ffi-bindings"
+publish = false
+publish_no_verify = true
+release = false
+git_only = true

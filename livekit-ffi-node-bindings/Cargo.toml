@@ -14,7 +14,7 @@ napi = { version = "3.8.2", default-features = false, features = [
     "napi6",
 ] }
 napi-derive = "3.5.1"
-livekit-ffi = { path = "../livekit-ffi" }
+livekit-ffi = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 log = { workspace = true }
