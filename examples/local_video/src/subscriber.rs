@@ -440,7 +440,7 @@ struct VideoApp {
     ctrl_c_received: Arc<AtomicBool>,
     locked_aspect: Option<f32>,
     display_timestamp: bool,
-    /// Cached latency string, updated at ~5 Hz so it's readable.
+    /// Cached latency string, updated at ~2 Hz so it's readable.
     latency_display: String,
     /// Last time the latency display was refreshed.
     latency_last_update: Instant,
@@ -551,8 +551,8 @@ impl eframe::App for VideoApp {
                     .show(ctx, |ui| {
                         let now_us = current_timestamp_us();
 
-                        // Update the cached latency display at ~5 Hz so it's readable.
-                        if self.latency_last_update.elapsed() >= Duration::from_millis(200) {
+                        // Update the cached latency display at ~2 Hz so it's readable.
+                        if self.latency_last_update.elapsed() >= Duration::from_millis(500) {
                             let delta_ms = (now_us - user_ts) as f64 / 1000.0;
                             self.latency_display = format!("{:.1}ms", delta_ms);
                             self.latency_last_update = Instant::now();
