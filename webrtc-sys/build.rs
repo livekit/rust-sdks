@@ -226,7 +226,9 @@ fn main() {
                     }
                     println!("cargo:rustc-link-lib=dylib=nvv4l2");
                     println!("cargo:rustc-link-lib=dylib=nvbufsurface");
-                    println!("cargo:rustc-link-lib=dylib=nvbuf_utils");
+                    if tegra_lib_dir.join("libnvbuf_utils.so").exists() {
+                        println!("cargo:rustc-link-lib=dylib=nvbuf_utils");
+                    }
                     println!("cargo:rustc-link-lib=dylib=v4l2");
                 }
             }
