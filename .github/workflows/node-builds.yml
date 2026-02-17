@@ -6,19 +6,10 @@ permissions:
 
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        required: true
-        type: string
   workflow_call:
-    inputs:
-      tag:
-        required: true
-        type: string
 
 env:
   CARGO_TERM_COLOR: always
-  TAG_NAME: ${{ inputs.tag || github.ref_name }}
   APP_NAME: rtc-node
 
 jobs:
