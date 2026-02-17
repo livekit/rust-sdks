@@ -144,16 +144,29 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Setup pnpm
+        if: steps.checkout-pr.outputs.found == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: livekit-ffi-node-bindings/package.json
+
+      - name: Setup node
+        if: steps.checkout-pr.outputs.found == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: livekit-ffi-node-bindings/pnpm-lock.yaml
+
       - name: Update node package.json versions
         if: steps.checkout-pr.outputs.found == 'true'
+        working-directory: livekit-ffi-node-bindings
         run: |
-          FFI_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' livekit-ffi/Cargo.toml)
-          echo "FFI version: $FFI_VERSION"
-          for f in livekit-ffi-node-bindings/package.json livekit-ffi-node-bindings/npm/*/package.json; do
-            if [ -f "$f" ]; then
-              jq --indent 2 --arg v "$FFI_VERSION" '.version = $v' "$f" > tmp.json && mv tmp.json "$f"
-            fi
-          done
+          pnpm install
+          FFI_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' ../livekit-ffi/Cargo.toml)
+          echo "Setting node package version to $FFI_VERSION"
+          npm version $FFI_VERSION --no-git-tag-version
+          pnpm run ci:version
 
       - name: Add changes
         if: steps.checkout-pr.outputs.found == 'true'
