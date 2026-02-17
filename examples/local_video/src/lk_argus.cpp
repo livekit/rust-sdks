@@ -36,7 +36,7 @@ struct LkArgusSession {
     // next frame into a different one.  Avoids the "Wrong buffer index"
     // errors caused by the encoder and Argus racing on a single buffer.
     int dmabuf_fds[kNumDmaBufs];
-    NvBufSurface* dmabuf_surfaces[kNumDmaBufs];  // original surface ptrs for sync
+    NvBufSurface* dmabuf_surfaces[kNumDmaBufs];  // original surface ptrs for cleanup
     int dmabuf_write_idx;  // next buffer to blit into
     int width;
     int height;
@@ -233,14 +233,13 @@ int lk_argus_acquire_frame(void* handle) {
         return -1;
     }
 
-    // Sync the buffer for device (encoder) access.  We use the original
-    // NvBufSurface pointer from NvBufSurfaceCreate -- this avoids the
-    // "Wrong buffer index" errors that occur when syncing a surface
-    // obtained via NvBufSurfaceFromFd on some JetPack versions.
-    NvBufSurface* surface = s->dmabuf_surfaces[idx];
-    if (surface) {
-        NvBufSurfaceSyncForDevice(surface, 0, -1);
-    }
+    // No NvBufSurfaceSyncForDevice() call here.  copyToNvBuffer() is a
+    // GPU-side VIC blit: data flows Argus EGLStream -> NvBufSurface
+    // entirely through DMA, with no CPU cache involvement.  The V4L2
+    // encoder also reads via DMA.  Calling SyncForDevice on these
+    // buffers is unnecessary and on many JetPack versions triggers
+    // "Wrong buffer index" errors from the NvBufSurface library while
+    // adding ~14ms of blocking latency per frame.
 
     return fd;
 }

@@ -107,6 +107,14 @@ class JetsonMmapiEncoder {
   bool output_is_nv12_ = false;
   bool use_dmabuf_input_ = false;
   bool dmabuf_planes_setup_ = false;
+
+  // Cached NvBufSurface plane metadata for DmaBuf encode path.
+  // Populated on the first QueueOutputBufferDmaBuf call to avoid
+  // repeated NvBufSurfaceFromFd lookups (which trigger "Wrong buffer
+  // index" warnings on some JetPack versions).
+  bool dmabuf_meta_cached_ = false;
+  uint32_t dmabuf_num_planes_ = 0;
+  uint32_t dmabuf_plane_bytesused_[VIDEO_MAX_PLANES] = {};
 };
 
 }  // namespace livekit

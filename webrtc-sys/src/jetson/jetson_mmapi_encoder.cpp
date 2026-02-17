@@ -271,6 +271,7 @@ void JetsonMmapiEncoder::Destroy() {
     encoder_ = nullptr;
   }
   initialized_ = false;
+  dmabuf_meta_cached_ = false;
 }
 
 bool JetsonMmapiEncoder::IsInitialized() const {
@@ -1691,28 +1692,39 @@ bool JetsonMmapiEncoder::QueueOutputBufferDmaBuf(int dmabuf_fd) {
     std::fflush(stderr);
   }
 
-  // Look up the NvBufSurface metadata for plane layout.
-  NvBufSurface* surface = nullptr;
-  int ret = NvBufSurfaceFromFd(dmabuf_fd, reinterpret_cast<void**>(&surface));
-  if (ret != 0 || !surface) {
-    RTC_LOG(LS_ERROR) << "QueueOutputBufferDmaBuf: NvBufSurfaceFromFd failed "
-                      << "(fd=" << dmabuf_fd << ", ret=" << ret << ")";
-    return false;
+  // Cache the NvBufSurface plane metadata after the first successful lookup.
+  // All DMA buffers in the ring share the same dimensions and NV12 layout,
+  // so the pitch/height/num_planes values are constant.  Caching avoids
+  // calling NvBufSurfaceFromFd on every frame, which on many JetPack
+  // versions prints spurious "Wrong buffer index" warnings and adds latency.
+  if (!dmabuf_meta_cached_) {
+    NvBufSurface* surface = nullptr;
+    int ret = NvBufSurfaceFromFd(dmabuf_fd, reinterpret_cast<void**>(&surface));
+    if (ret != 0 || !surface) {
+      RTC_LOG(LS_ERROR) << "QueueOutputBufferDmaBuf: NvBufSurfaceFromFd failed "
+                        << "(fd=" << dmabuf_fd << ", ret=" << ret << ")";
+      return false;
+    }
+    const NvBufSurfaceParams& params = surface->surfaceList[0];
+    dmabuf_num_planes_ = params.planeParams.num_planes;
+    for (uint32_t i = 0; i < dmabuf_num_planes_ && i < VIDEO_MAX_PLANES; ++i) {
+      dmabuf_plane_bytesused_[i] =
+          params.planeParams.pitch[i] * params.planeParams.height[i];
+    }
+    dmabuf_meta_cached_ = true;
+
+    if (is_first || verbose) {
+      for (uint32_t i = 0; i < dmabuf_num_planes_; ++i) {
+        std::fprintf(stderr,
+                     "[MMAPI] QueueOutputBufferDmaBuf: cached plane[%u] "
+                     "pitch=%u height=%u bytesused=%u\n",
+                     i, params.planeParams.pitch[i],
+                     params.planeParams.height[i],
+                     dmabuf_plane_bytesused_[i]);
+      }
+      std::fflush(stderr);
+    }
   }
-
-  // The DMA buffer was filled by a GPU-side blit (Argus copyToNvBuffer).
-  // The V4L2 encoder reads it via DMA, so a CPU cache sync is not required
-  // and would fail with "Wrong buffer index" on some JetPack versions when
-  // the surface was obtained via NvBufSurfaceFromFd rather than being the
-  // original NvBufSurfaceCreate handle.
-  //
-  // If a sync *is* needed on a particular platform, the Argus shim should
-  // perform it right after copyToNvBuffer while it still holds the original
-  // surface pointer.
-
-  // Determine plane count and bytesused from the NvBufSurface metadata.
-  const NvBufSurfaceParams& params = surface->surfaceList[0];
-  const uint32_t num_planes = params.planeParams.num_planes;
 
   v4l2_buffer v4l2_buf = {};
   v4l2_plane planes[VIDEO_MAX_PLANES] = {};
@@ -1722,26 +1734,9 @@ bool JetsonMmapiEncoder::QueueOutputBufferDmaBuf(int dmabuf_fd) {
   v4l2_buf.m.planes = planes;
   v4l2_buf.length = encoder_->output_plane.getNumPlanes();
 
-  // For DMABUF mode, each v4l2 plane's m.fd is set to the DMA fd.
-  // Multi-planar formats (YUV420M) share the same NvBufSurface fd but
-  // different plane offsets; the driver resolves planes from the surface.
-  for (uint32_t i = 0; i < v4l2_buf.length && i < num_planes; ++i) {
+  for (uint32_t i = 0; i < v4l2_buf.length && i < dmabuf_num_planes_; ++i) {
     planes[i].m.fd = dmabuf_fd;
-    planes[i].bytesused =
-        params.planeParams.pitch[i] * params.planeParams.height[i];
-  }
-
-  if (is_first || verbose) {
-    for (uint32_t i = 0; i < v4l2_buf.length && i < num_planes; ++i) {
-      std::fprintf(stderr,
-                   "[MMAPI] QueueOutputBufferDmaBuf: plane[%u] fd=%d "
-                   "pitch=%u height=%u bytesused=%u\n",
-                   i, planes[i].m.fd,
-                   params.planeParams.pitch[i],
-                   params.planeParams.height[i],
-                   planes[i].bytesused);
-    }
-    std::fflush(stderr);
+    planes[i].bytesused = dmabuf_plane_bytesused_[i];
   }
 
   int qbuf_ret = encoder_->output_plane.qBuffer(v4l2_buf, nullptr);
@@ -1754,7 +1749,7 @@ bool JetsonMmapiEncoder::QueueOutputBufferDmaBuf(int dmabuf_fd) {
                    "[MMAPI] QueueOutputBufferDmaBuf qBuffer failed: "
                    "index=%d, v4l2_buf.length=%u, num_planes=%u, "
                    "errno=%d (%s)\n",
-                   next_output_index_, v4l2_buf.length, num_planes,
+                   next_output_index_, v4l2_buf.length, dmabuf_num_planes_,
                    errno, strerror(errno));
       std::fflush(stderr);
     }
