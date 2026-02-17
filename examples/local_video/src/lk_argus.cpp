@@ -15,7 +15,11 @@
 #include <EGLStream/NV/ImageNativeBuffer.h>
 #include "NvBufSurface.h"
 
-static constexpr int kNumDmaBufs = 3;
+// Ring buffer size for persistent NvBufSurface DMA allocations.
+// The encoder may hold 1-2 buffers while encoding, and the blit writes to
+// another.  4 buffers gives comfortable headroom to avoid the "Wrong buffer
+// index" errors that occur when the capture loop laps the encoder.
+static constexpr int kNumDmaBufs = 4;
 
 struct LkArgusSession {
     Argus::UniqueObj<Argus::CameraProvider> provider;
