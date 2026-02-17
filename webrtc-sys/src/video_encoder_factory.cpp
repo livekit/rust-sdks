@@ -45,6 +45,10 @@
 #include "vaapi/vaapi_encoder_factory.h"
 #endif
 
+#if defined(USE_JETSON_VIDEO_CODEC)
+#include "jetson/jetson_encoder_factory.h"
+#endif
+
 namespace livekit_ffi {
 
 using Factory = webrtc::VideoEncoderFactoryTemplate<
@@ -64,6 +68,12 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
 
 #ifdef WEBRTC_ANDROID
   factories_.push_back(CreateAndroidVideoEncoderFactory());
+#endif
+
+#if defined(USE_JETSON_VIDEO_CODEC)
+  if (webrtc::JetsonVideoEncoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::JetsonVideoEncoderFactory>());
+  }
 #endif
 
 #if defined(USE_NVIDIA_VIDEO_CODEC)

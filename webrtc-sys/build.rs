@@ -204,6 +204,26 @@ fn main() {
                 );
             }
 
+            if arm {
+                let jetson_mmapi_include =
+                    PathBuf::from("/usr/src/jetson_multimedia_api/include");
+                if jetson_mmapi_include.exists() {
+                    builder
+                        .include(&jetson_mmapi_include)
+                        .include("src/jetson")
+                        .file("src/jetson/jetson_mmapi_encoder.cpp")
+                        .file("src/jetson/h264_encoder_impl.cpp")
+                        .file("src/jetson/h265_encoder_impl.cpp")
+                        .file("src/jetson/jetson_encoder_factory.cpp")
+                        .flag("-DUSE_JETSON_VIDEO_CODEC=1");
+
+                    println!("cargo:rustc-link-lib=dylib=nvv4l2");
+                    println!("cargo:rustc-link-lib=dylib=nvbufsurface");
+                    println!("cargo:rustc-link-lib=dylib=nvbuf_utils");
+                    println!("cargo:rustc-link-lib=dylib=v4l2");
+                }
+            }
+
             if x86 || arm {
                 let cuda_home = PathBuf::from(match env::var("CUDA_HOME") {
                     Ok(p) => p,
