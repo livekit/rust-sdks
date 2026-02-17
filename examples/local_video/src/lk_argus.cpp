@@ -15,6 +15,8 @@
 #include <EGLStream/NV/ImageNativeBuffer.h>
 #include "NvBufSurface.h"
 
+static constexpr int kNumDmaBufs = 3;
+
 struct LkArgusSession {
     Argus::UniqueObj<Argus::CameraProvider> provider;
     Argus::UniqueObj<Argus::CaptureSession>  session;
@@ -26,10 +28,11 @@ struct LkArgusSession {
     // Most recently acquired frame (kept alive until release/next acquire).
     Argus::UniqueObj<EGLStream::Frame> current_frame;
 
-    // DMA fd for the NvBufSurface allocated for the current frame.
-    // We allocate one persistent buffer and blit each acquired frame into it
-    // via NvBufSurfaceTransform so the fd stays valid across acquire/release.
-    int dmabuf_fd;
+    // Ring of DMA fds so the encoder can hold one buffer while we blit the
+    // next frame into a different one.  Avoids the "Wrong buffer index"
+    // errors caused by the encoder and Argus racing on a single buffer.
+    int dmabuf_fds[kNumDmaBufs];
+    int dmabuf_write_idx;  // next buffer to blit into
     int width;
     int height;
 };
@@ -40,7 +43,8 @@ extern "C" {
 
 void* lk_argus_create_session(int sensor_index, int width, int height, int fps) {
     auto* s = new LkArgusSession();
-    s->dmabuf_fd = -1;
+    for (int i = 0; i < kNumDmaBufs; i++) s->dmabuf_fds[i] = -1;
+    s->dmabuf_write_idx = 0;
     s->width = width;
     s->height = height;
 
@@ -131,23 +135,26 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
             Argus::Range<uint64_t>(1000000000ULL / fps, 1000000000ULL / fps));
     }
 
-    // Allocate a persistent NvBufSurface for DMA output
-    NvBufSurfaceCreateParams create_params = {};
-    create_params.gpuId = 0;
-    create_params.width = static_cast<uint32_t>(width);
-    create_params.height = static_cast<uint32_t>(height);
-    create_params.size = 0;
-    create_params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
-    create_params.layout = NVBUF_LAYOUT_PITCH;
-    create_params.memType = NVBUF_MEM_SURFACE_ARRAY;
+    // Allocate a ring of persistent NvBufSurface buffers so the encoder can
+    // hold one while we blit the next frame into a different one.
+    for (int i = 0; i < kNumDmaBufs; i++) {
+        NvBufSurfaceCreateParams create_params = {};
+        create_params.gpuId = 0;
+        create_params.width = static_cast<uint32_t>(width);
+        create_params.height = static_cast<uint32_t>(height);
+        create_params.size = 0;
+        create_params.colorFormat = NVBUF_COLOR_FORMAT_NV12;
+        create_params.layout = NVBUF_LAYOUT_PITCH;
+        create_params.memType = NVBUF_MEM_SURFACE_ARRAY;
 
-    NvBufSurface* surface = nullptr;
-    if (NvBufSurfaceCreate(&surface, 1, &create_params) != 0 || !surface) {
-        fprintf(stderr, "[lk_argus] Failed to create NvBufSurface\n");
-        delete s;
-        return nullptr;
+        NvBufSurface* surface = nullptr;
+        if (NvBufSurfaceCreate(&surface, 1, &create_params) != 0 || !surface) {
+            fprintf(stderr, "[lk_argus] Failed to create NvBufSurface[%d]\n", i);
+            delete s;
+            return nullptr;
+        }
+        s->dmabuf_fds[i] = surface->surfaceList[0].bufferDesc;
     }
-    s->dmabuf_fd = surface->surfaceList[0].bufferDesc;
 
     // Start repeating capture
     status = i_session->repeat(s->request.get());
@@ -158,8 +165,10 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
         return nullptr;
     }
 
-    fprintf(stderr, "[lk_argus] Session created: %dx%d @ %d fps, sensor %d, dmabuf_fd=%d\n",
-            width, height, fps, sensor_index, s->dmabuf_fd);
+    fprintf(stderr, "[lk_argus] Session created: %dx%d @ %d fps, sensor %d, %d DMA buffers (fds:",
+            width, height, fps, sensor_index, kNumDmaBufs);
+    for (int i = 0; i < kNumDmaBufs; i++) fprintf(stderr, " %d", s->dmabuf_fds[i]);
+    fprintf(stderr, ")\n");
     return s;
 }
 
@@ -196,16 +205,26 @@ int lk_argus_acquire_frame(void* handle) {
         return -1;
     }
 
-    // Copy (blit) the acquired frame into our persistent NvBufSurface.
-    // createNvBuffer is deprecated on newer JetPack; use copyToNvBuffer.
-    status = i_native->copyToNvBuffer(s->dmabuf_fd);
+    // Pick the next buffer in the ring so we don't overwrite a buffer the
+    // encoder may still be reading from.
+    int idx = s->dmabuf_write_idx;
+    s->dmabuf_write_idx = (s->dmabuf_write_idx + 1) % kNumDmaBufs;
+    int fd = s->dmabuf_fds[idx];
+
+    // Copy (blit) the acquired frame into the selected NvBufSurface.
+    status = i_native->copyToNvBuffer(fd);
+
+    // Release the Argus frame immediately – the pixel data has been blitted
+    // into our persistent NvBufSurface so we no longer need the EGLStream frame.
+    s->current_frame.reset();
+
     if (status != Argus::STATUS_OK) {
         fprintf(stderr, "[lk_argus] copyToNvBuffer failed: %d\n",
                 static_cast<int>(status));
         return -1;
     }
 
-    return s->dmabuf_fd;
+    return fd;
 }
 
 void lk_argus_release_frame(void* handle) {
@@ -227,15 +246,17 @@ void lk_argus_destroy_session(void* handle) {
 
     s->current_frame.reset();
 
-    // Free the persistent NvBufSurface
-    if (s->dmabuf_fd >= 0) {
-        NvBufSurface* surface = nullptr;
-        if (NvBufSurfaceFromFd(s->dmabuf_fd,
-                               reinterpret_cast<void**>(&surface)) == 0 &&
-            surface) {
-            NvBufSurfaceDestroy(surface);
+    // Free all persistent NvBufSurface buffers
+    for (int i = 0; i < kNumDmaBufs; i++) {
+        if (s->dmabuf_fds[i] >= 0) {
+            NvBufSurface* surface = nullptr;
+            if (NvBufSurfaceFromFd(s->dmabuf_fds[i],
+                                   reinterpret_cast<void**>(&surface)) == 0 &&
+                surface) {
+                NvBufSurfaceDestroy(surface);
+            }
+            s->dmabuf_fds[i] = -1;
         }
-        s->dmabuf_fd = -1;
     }
 
     delete s;

@@ -508,6 +508,15 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 }
 
 /// MIPI CSI camera capture loop using Argus (Jetson zero-copy DMA pipeline).
+///
+/// The Argus ISP runs a repeating capture at the requested FPS.  We let it
+/// drive the cadence: `acquire_frame` blocks (in a dedicated thread) until
+/// the next ISP frame is ready, then we hand the DMA fd straight to the
+/// WebRTC encoder -- zero CPU-side pixel copies.
+///
+/// A ring of NvBufSurface DMA buffers (allocated in the C++ shim) ensures
+/// the encoder can hold one buffer while we blit the next frame into a
+/// different one, eliminating the "Wrong buffer index" errors.
 #[cfg(target_os = "linux")]
 async fn run_mipi(
     args: Args,
@@ -603,18 +612,17 @@ async fn run_mipi(
     }
 
     // Open Argus capture session
-    let mut session = argus::ArgusCaptureSession::new(args.sensor_index, width, height, fps)?;
+    let session = argus::ArgusCaptureSession::new(args.sensor_index, width, height, fps)?;
     info!(
         "Argus MIPI capture session opened: {}x{} @ {} fps (sensor {})",
         width, height, fps, args.sensor_index
     );
 
-    let pace_fps = fps as f64;
-    let mut ticker = tokio::time::interval(Duration::from_secs_f64(1.0 / pace_fps));
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    ticker.tick().await;
-    let start_ts = Instant::now();
+    // Move the session into a Mutex so we can use it from spawn_blocking.
+    // The Argus session is single-threaded; the Mutex ensures exclusive access.
+    let session = Arc::new(std::sync::Mutex::new(session));
 
+    let start_ts = Instant::now();
     let mut frames: u64 = 0;
     let mut last_fps_log = Instant::now();
     let mut sum_acquire_ms = 0.0;
@@ -626,12 +634,20 @@ async fn run_mipi(
             break;
         }
 
-        ticker.tick().await;
         let iter_start = Instant::now();
 
-        // Acquire DMA buffer fd from Argus
+        // Acquire DMA buffer fd from Argus on a blocking thread so we don't
+        // stall the tokio runtime (the call blocks until the ISP delivers
+        // the next frame, typically ~33ms at 30 fps).
         let t0 = Instant::now();
-        let dmabuf_fd = match session.acquire_frame() {
+        let session_clone = session.clone();
+        let acquire_result = tokio::task::spawn_blocking(move || {
+            let mut sess = session_clone.lock().unwrap();
+            sess.acquire_frame()
+        })
+        .await?;
+
+        let dmabuf_fd = match acquire_result {
             Ok(fd) => fd,
             Err(e) => {
                 log::warn!("MIPI frame acquisition failed: {}", e);
@@ -640,7 +656,9 @@ async fn run_mipi(
         };
         let t1 = Instant::now();
 
-        // Wrap in DmaBufBuffer and capture -- zero copy to encoder
+        // Wrap in DmaBufBuffer and capture -- zero copy to encoder.
+        // The C++ shim uses a ring of DMA buffers and has already released
+        // the Argus EGLStream frame, so no release_frame() call is needed.
         let dmabuf = DmaBufBuffer::new(dmabuf_fd, width, height, DmaBufPixelFormat::NV12);
         let frame = VideoFrame {
             rotation: VideoRotation::VideoRotation0,
@@ -649,9 +667,6 @@ async fn run_mipi(
         };
         rtc_source.capture_frame(&frame);
         let t2 = Instant::now();
-
-        // Release the frame back to Argus buffer pool
-        session.release_frame();
 
         frames += 1;
         let acquire_ms = (t1 - t0).as_secs_f64() * 1000.0;
