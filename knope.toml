@@ -1,0 +1,80 @@
+[github]
+owner = "livekit"
+repo = "rust-sdks"
+
+# --- Published to crates.io ---
+
+[packages.soxr-sys]
+versioned_files = ["soxr-sys/Cargo.toml"]
+changelog = "soxr-sys/CHANGELOG.md"
+scopes = ["soxr-sys", "soxr"]
+
+[packages.yuv-sys]
+versioned_files = ["yuv-sys/Cargo.toml"]
+changelog = "yuv-sys/CHANGELOG.md"
+scopes = ["yuv-sys", "yuv"]
+
+[packages.imgproc]
+versioned_files = ["imgproc/Cargo.toml"]
+changelog = "imgproc/CHANGELOG.md"
+scopes = ["imgproc"]
+
+[packages.webrtc-sys-build]
+versioned_files = ["webrtc-sys/build/Cargo.toml"]
+changelog = "webrtc-sys/build/CHANGELOG.md"
+scopes = ["webrtc-sys-build"]
+
+[packages.webrtc-sys]
+versioned_files = ["webrtc-sys/Cargo.toml"]
+changelog = "webrtc-sys/CHANGELOG.md"
+scopes = ["webrtc-sys"]
+
+[packages.livekit-protocol]
+versioned_files = ["livekit-protocol/Cargo.toml"]
+changelog = "livekit-protocol/CHANGELOG.md"
+scopes = ["livekit-protocol", "protocol"]
+
+[packages.livekit-api]
+versioned_files = ["livekit-api/Cargo.toml"]
+changelog = "livekit-api/CHANGELOG.md"
+scopes = ["livekit-api"]
+
+[packages.libwebrtc]
+versioned_files = ["libwebrtc/Cargo.toml"]
+changelog = "libwebrtc/CHANGELOG.md"
+scopes = ["libwebrtc"]
+
+[packages.livekit]
+versioned_files = ["livekit/Cargo.toml"]
+changelog = "livekit/CHANGELOG.md"
+scopes = ["livekit"]
+
+# --- livekit-ffi: NOT published to crates.io ---
+# Gets git tag + GitHub Release which triggers cross-platform FFI + Node.js builds.
+# Scopes include dependencies so its changelog aggregates all user-facing changes.
+
+[packages.livekit-ffi]
+versioned_files = [
+  "livekit-ffi/Cargo.toml",
+  "livekit-ffi-node-bindings/package.json",
+  "livekit-ffi-node-bindings/npm/darwin-arm64/package.json",
+  "livekit-ffi-node-bindings/npm/darwin-x64/package.json",
+  "livekit-ffi-node-bindings/npm/linux-arm64-gnu/package.json",
+  "livekit-ffi-node-bindings/npm/linux-x64-gnu/package.json",
+  "livekit-ffi-node-bindings/npm/win32-x64-msvc/package.json",
+]
+changelog = "livekit-ffi/CHANGELOG.md"
+# Assets makes knope create a draft release; CI uploads the actual binaries and publishes.
+assets = "marker"
+scopes = [
+  "ffi",
+  "livekit-ffi",
+  # Aggregated from deps (mirrors release-plz changelog_include):
+  "livekit",
+  "soxr-sys",
+  "soxr",
+  "imgproc",
+  "livekit-protocol",
+  "protocol",
+  "webrtc-sys-build",
+]
