@@ -217,6 +217,13 @@ fn main() {
                         .file("src/jetson/jetson_encoder_factory.cpp")
                         .flag("-DUSE_JETSON_VIDEO_CODEC=1");
 
+                    let tegra_lib_dir = PathBuf::from("/usr/lib/aarch64-linux-gnu/tegra");
+                    if tegra_lib_dir.exists() {
+                        println!(
+                            "cargo:rustc-link-search=native={}",
+                            tegra_lib_dir.display()
+                        );
+                    }
                     println!("cargo:rustc-link-lib=dylib=nvv4l2");
                     println!("cargo:rustc-link-lib=dylib=nvbufsurface");
                     println!("cargo:rustc-link-lib=dylib=nvbuf_utils");
