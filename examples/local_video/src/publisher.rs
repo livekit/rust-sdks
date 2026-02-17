@@ -583,17 +583,29 @@ async fn run_mipi(
     info!("MIPI: Attempting publish with codec: {}", requested_codec.as_str());
 
     let publish_opts = |codec: VideoCodec| {
-        let mut opts = TrackPublishOptions {
+        // Always set video_encoding so the encoder uses the requested FPS.
+        // Without this, the SDK selects an encoding from resolution-based
+        // presets; for 640x480 (4:3) that maps to the video43::H540 preset
+        // which caps at 25 fps instead of the user's requested framerate.
+        let pixels = (width * height) as u64;
+        let default_bitrate = match pixels {
+            0..=76800 => 150_000,       // up to 320x240
+            76801..=230400 => 300_000,  // up to 640x360
+            230401..=345600 => 450_000, // up to 640x480
+            345601..=518400 => 800_000, // up to 960x540
+            518401..=921600 => 1_700_000, // up to 1280x720
+            _ => 3_000_000,             // 1080p+
+        };
+        TrackPublishOptions {
             source: TrackSource::Camera,
             simulcast: args.simulcast,
             video_codec: codec,
+            video_encoding: Some(VideoEncoding {
+                max_bitrate: args.max_bitrate.unwrap_or(default_bitrate),
+                max_framerate: fps as f64,
+            }),
             ..Default::default()
-        };
-        if let Some(bitrate) = args.max_bitrate {
-            opts.video_encoding =
-                Some(VideoEncoding { max_bitrate: bitrate, max_framerate: fps as f64 });
         }
-        opts
     };
 
     let publish_result = room

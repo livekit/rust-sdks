@@ -18,6 +18,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
 
 #include "api/make_ref_counted.h"
 #include "rtc_base/logging.h"
@@ -54,16 +55,29 @@ int DmaBufVideoFrameBuffer::height() const {
 rtc::scoped_refptr<webrtc::I420BufferInterface>
 DmaBufVideoFrameBuffer::ToI420() {
 #ifdef USE_JETSON_VIDEO_CODEC
+  // Cache NvBufSurface pointers per fd to avoid calling NvBufSurfaceFromFd
+  // on every frame.  On some JetPack versions the fd-to-surface lookup
+  // prints spurious "Wrong buffer index" warnings.  The surface pointer is
+  // stable for the lifetime of the DMA buffer (freed only when the Argus
+  // session is destroyed), so caching is safe.
+  static std::unordered_map<int, NvBufSurface*> surface_cache;
+
   NvBufSurface* surface = nullptr;
-  int ret = NvBufSurfaceFromFd(dmabuf_fd_, reinterpret_cast<void**>(&surface));
-  if (ret != 0 || !surface || surface->batchSize < 1) {
-    RTC_LOG(LS_ERROR) << "DmaBufVideoFrameBuffer::ToI420: "
-                         "NvBufSurfaceFromFd failed (fd=" << dmabuf_fd_
-                      << ", ret=" << ret << ")";
-    return nullptr;
+  auto cache_it = surface_cache.find(dmabuf_fd_);
+  if (cache_it != surface_cache.end()) {
+    surface = cache_it->second;
+  } else {
+    int ret = NvBufSurfaceFromFd(dmabuf_fd_, reinterpret_cast<void**>(&surface));
+    if (ret != 0 || !surface || surface->batchSize < 1) {
+      RTC_LOG(LS_ERROR) << "DmaBufVideoFrameBuffer::ToI420: "
+                           "NvBufSurfaceFromFd failed (fd=" << dmabuf_fd_
+                        << ", ret=" << ret << ")";
+      return nullptr;
+    }
+    surface_cache[dmabuf_fd_] = surface;
   }
 
-  ret = NvBufSurfaceMap(surface, 0, -1, NVBUF_MAP_READ);
+  int ret = NvBufSurfaceMap(surface, 0, -1, NVBUF_MAP_READ);
   if (ret != 0) {
     RTC_LOG(LS_ERROR) << "DmaBufVideoFrameBuffer::ToI420: "
                          "NvBufSurfaceMap failed (ret=" << ret << ")";

@@ -15,6 +15,7 @@
 #include <fstream>
 #include <memory>
 #include <thread>
+#include <unordered_map>
 
 #include "NvBufSurface.h"
 #include "NvBuffer.h"
@@ -1029,8 +1030,12 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   // multi-planar V4L2 formats where all planes share the same fd, we sync
   // all planes at once (-1).  When each plane has a distinct fd, we sync
   // plane 0 of each surface (the only plane that fd covers).
+  //
+  // We cache the NvBufSurface* per fd because the V4L2 MMAP plane fds are
+  // fixed for the encoder's lifetime and NvBufSurfaceFromFd triggers
+  // "Wrong buffer index" warnings on some JetPack versions.
   {
-    // Collect unique fds to avoid double-syncing when planes share a fd.
+    static std::unordered_map<int, NvBufSurface*> surface_cache;
     int synced_fds[VIDEO_MAX_PLANES] = {-1, -1, -1, -1};
     int n_synced = 0;
     for (int plane = 0; plane < buffer->n_planes; ++plane) {
@@ -1043,17 +1048,23 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
       synced_fds[n_synced++] = fd;
 
       NvBufSurface* surface = nullptr;
-      int map_ret =
-          NvBufSurfaceFromFd(fd, reinterpret_cast<void**>(&surface));
-      if (map_ret != 0 || !surface) {
-        RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
-        std::fprintf(stderr,
-                     "[MMAPI] NvBufSurfaceFromFd failed: plane=%d, fd=%d, "
-                     "ret=%d, surface=%p\n",
-                     plane, fd, map_ret,
-                     static_cast<void*>(surface));
-        std::fflush(stderr);
-        return false;
+      auto cache_it = surface_cache.find(fd);
+      if (cache_it != surface_cache.end()) {
+        surface = cache_it->second;
+      } else {
+        int map_ret =
+            NvBufSurfaceFromFd(fd, reinterpret_cast<void**>(&surface));
+        if (map_ret != 0 || !surface) {
+          RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
+          std::fprintf(stderr,
+                       "[MMAPI] NvBufSurfaceFromFd failed: plane=%d, fd=%d, "
+                       "ret=%d, surface=%p\n",
+                       plane, fd, map_ret,
+                       static_cast<void*>(surface));
+          std::fflush(stderr);
+          return false;
+        }
+        surface_cache[fd] = surface;
       }
       // Sync all planes of this surface at once.
       int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, -1);
@@ -1264,8 +1275,9 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
   }
 
   // Sync CPU-written pixel data to the device (see QueueOutputBuffer for
-  // detailed comments on the fd/plane mapping).
+  // detailed comments on the fd/plane mapping and surface caching).
   {
+    static std::unordered_map<int, NvBufSurface*> surface_cache;
     int synced_fds[VIDEO_MAX_PLANES] = {-1, -1, -1, -1};
     int n_synced = 0;
     for (int plane = 0; plane < buffer->n_planes; ++plane) {
@@ -1278,17 +1290,23 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
       synced_fds[n_synced++] = fd;
 
       NvBufSurface* surface = nullptr;
-      int map_ret =
-          NvBufSurfaceFromFd(fd, reinterpret_cast<void**>(&surface));
-      if (map_ret != 0 || !surface) {
-        RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
-        std::fprintf(stderr,
-                     "[MMAPI] NvBufSurfaceFromFd failed: plane=%d, fd=%d, "
-                     "ret=%d, surface=%p\n",
-                     plane, fd, map_ret,
-                     static_cast<void*>(surface));
-        std::fflush(stderr);
-        return false;
+      auto cache_it = surface_cache.find(fd);
+      if (cache_it != surface_cache.end()) {
+        surface = cache_it->second;
+      } else {
+        int map_ret =
+            NvBufSurfaceFromFd(fd, reinterpret_cast<void**>(&surface));
+        if (map_ret != 0 || !surface) {
+          RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
+          std::fprintf(stderr,
+                       "[MMAPI] NvBufSurfaceFromFd failed: plane=%d, fd=%d, "
+                       "ret=%d, surface=%p\n",
+                       plane, fd, map_ret,
+                       static_cast<void*>(surface));
+          std::fflush(stderr);
+          return false;
+        }
+        surface_cache[fd] = surface;
       }
       int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, -1);
       if (sync_ret != 0) {
