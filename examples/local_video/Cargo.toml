@@ -54,3 +54,6 @@ nokhwa = { version = "0.10", default-features = false, features = ["input-v4l"] 
 
 [target.'cfg(target_os = "windows")'.dependencies]
 nokhwa = { version = "0.10", default-features = false, features = ["input-msmf"] }
+
+[build-dependencies]
+cc = "1"
