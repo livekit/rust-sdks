@@ -1021,30 +1021,50 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
     }
   }
 
-  for (int plane = 0; plane < buffer->n_planes; ++plane) {
-    NvBufSurface* surface = nullptr;
-    int map_ret =
-        NvBufSurfaceFromFd(buffer->planes[plane].fd,
-                           reinterpret_cast<void**>(&surface));
-    if (map_ret != 0 || !surface) {
-      RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
-      std::fprintf(stderr,
-                   "[MMAPI] NvBufSurfaceFromFd failed: plane=%d, fd=%d, "
-                   "ret=%d, surface=%p\n",
-                   plane, buffer->planes[plane].fd, map_ret,
-                   static_cast<void*>(surface));
-      std::fflush(stderr);
-      return false;
-    }
-    int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, plane);
-    if (sync_ret != 0) {
-      RTC_LOG(LS_ERROR) << "Failed to sync output plane for device.";
-      std::fprintf(stderr,
-                   "[MMAPI] NvBufSurfaceSyncForDevice failed: plane=%d, "
-                   "ret=%d\n",
-                   plane, sync_ret);
-      std::fflush(stderr);
-      return false;
+  // Sync CPU-written pixel data to the device.  Each V4L2 MMAP plane has its
+  // own DMA fd.  NvBufSurfaceFromFd returns a surface that represents the
+  // *entire* multi-plane allocation, so the plane parameter to
+  // NvBufSurfaceSyncForDevice must be the NvBufSurface plane index.  For
+  // multi-planar V4L2 formats where all planes share the same fd, we sync
+  // all planes at once (-1).  When each plane has a distinct fd, we sync
+  // plane 0 of each surface (the only plane that fd covers).
+  {
+    // Collect unique fds to avoid double-syncing when planes share a fd.
+    int synced_fds[VIDEO_MAX_PLANES] = {-1, -1, -1, -1};
+    int n_synced = 0;
+    for (int plane = 0; plane < buffer->n_planes; ++plane) {
+      int fd = buffer->planes[plane].fd;
+      bool already = false;
+      for (int j = 0; j < n_synced; ++j) {
+        if (synced_fds[j] == fd) { already = true; break; }
+      }
+      if (already) continue;
+      synced_fds[n_synced++] = fd;
+
+      NvBufSurface* surface = nullptr;
+      int map_ret =
+          NvBufSurfaceFromFd(fd, reinterpret_cast<void**>(&surface));
+      if (map_ret != 0 || !surface) {
+        RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
+        std::fprintf(stderr,
+                     "[MMAPI] NvBufSurfaceFromFd failed: plane=%d, fd=%d, "
+                     "ret=%d, surface=%p\n",
+                     plane, fd, map_ret,
+                     static_cast<void*>(surface));
+        std::fflush(stderr);
+        return false;
+      }
+      // Sync all planes of this surface at once.
+      int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, -1);
+      if (sync_ret != 0) {
+        RTC_LOG(LS_ERROR) << "Failed to sync output plane for device.";
+        std::fprintf(stderr,
+                     "[MMAPI] NvBufSurfaceSyncForDevice failed: plane=%d, "
+                     "ret=%d\n",
+                     plane, sync_ret);
+        std::fflush(stderr);
+        return false;
+      }
     }
   }
 
@@ -1055,7 +1075,6 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   v4l2_buf.memory = V4L2_MEMORY_MMAP;
   v4l2_buf.m.planes = planes;
   v4l2_buf.length = encoder_->output_plane.getNumPlanes();
-  // Use the configured plane strides to satisfy driver expectations.
   planes[0].bytesused = buffer->planes[0].bytesused;
   planes[1].bytesused = buffer->planes[1].bytesused;
   if (!output_is_nv12_) {
@@ -1243,30 +1262,43 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
     }
   }
 
-  for (int plane = 0; plane < buffer->n_planes; ++plane) {
-    NvBufSurface* surface = nullptr;
-    int map_ret =
-        NvBufSurfaceFromFd(buffer->planes[plane].fd,
-                           reinterpret_cast<void**>(&surface));
-    if (map_ret != 0 || !surface) {
-      RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
-      std::fprintf(stderr,
-                   "[MMAPI] NvBufSurfaceFromFd failed: plane=%d, fd=%d, "
-                   "ret=%d, surface=%p\n",
-                   plane, buffer->planes[plane].fd, map_ret,
-                   static_cast<void*>(surface));
-      std::fflush(stderr);
-      return false;
-    }
-    int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, plane);
-    if (sync_ret != 0) {
-      RTC_LOG(LS_ERROR) << "Failed to sync output plane for device.";
-      std::fprintf(stderr,
-                   "[MMAPI] NvBufSurfaceSyncForDevice failed: plane=%d, "
-                   "ret=%d\n",
-                   plane, sync_ret);
-      std::fflush(stderr);
-      return false;
+  // Sync CPU-written pixel data to the device (see QueueOutputBuffer for
+  // detailed comments on the fd/plane mapping).
+  {
+    int synced_fds[VIDEO_MAX_PLANES] = {-1, -1, -1, -1};
+    int n_synced = 0;
+    for (int plane = 0; plane < buffer->n_planes; ++plane) {
+      int fd = buffer->planes[plane].fd;
+      bool already = false;
+      for (int j = 0; j < n_synced; ++j) {
+        if (synced_fds[j] == fd) { already = true; break; }
+      }
+      if (already) continue;
+      synced_fds[n_synced++] = fd;
+
+      NvBufSurface* surface = nullptr;
+      int map_ret =
+          NvBufSurfaceFromFd(fd, reinterpret_cast<void**>(&surface));
+      if (map_ret != 0 || !surface) {
+        RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
+        std::fprintf(stderr,
+                     "[MMAPI] NvBufSurfaceFromFd failed: plane=%d, fd=%d, "
+                     "ret=%d, surface=%p\n",
+                     plane, fd, map_ret,
+                     static_cast<void*>(surface));
+        std::fflush(stderr);
+        return false;
+      }
+      int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, -1);
+      if (sync_ret != 0) {
+        RTC_LOG(LS_ERROR) << "Failed to sync output plane for device.";
+        std::fprintf(stderr,
+                     "[MMAPI] NvBufSurfaceSyncForDevice failed: plane=%d, "
+                     "ret=%d\n",
+                     plane, sync_ret);
+        std::fflush(stderr);
+        return false;
+      }
     }
   }
 
@@ -1588,6 +1620,27 @@ bool JetsonMmapiEncoder::EncodeDmaBuf(int dmabuf_fd,
 bool JetsonMmapiEncoder::SetupPlanesDmaBuf() {
   const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
 
+  // The DMA buffers from Argus are NV12.  If the encoder was initially
+  // configured for YUV420M (3-plane I420), reconfigure to NV12M so the
+  // plane count matches the DMA buffer layout.
+  if (!output_is_nv12_) {
+    int ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_);
+    if (ret < 0) {
+      std::fprintf(stderr,
+                   "[MMAPI] SetupPlanesDmaBuf: failed to switch output plane "
+                   "to NV12M (ret=%d, errno=%d: %s)\n",
+                   ret, errno, strerror(errno));
+      std::fflush(stderr);
+      return false;
+    }
+    output_is_nv12_ = true;
+    if (verbose) {
+      std::fprintf(stderr,
+                   "[MMAPI] SetupPlanesDmaBuf: switched output plane to NV12M\n");
+      std::fflush(stderr);
+    }
+  }
+
   // Output plane uses V4L2_MEMORY_DMABUF: we request buffers but don't
   // allocate backing memory -- the caller provides DMA fds at queue time.
   output_buffer_count_ = kDefaultOutputBufferCount;
@@ -1618,7 +1671,7 @@ bool JetsonMmapiEncoder::SetupPlanesDmaBuf() {
   if (verbose) {
     std::fprintf(stderr,
                  "[MMAPI] SetupPlanesDmaBuf: output=DMABUF(%d bufs), "
-                 "capture=MMAP(%d bufs)\n",
+                 "capture=MMAP(%d bufs), format=NV12M\n",
                  output_buffer_count_, capture_buffer_count_);
     std::fflush(stderr);
   }
@@ -1629,15 +1682,16 @@ bool JetsonMmapiEncoder::SetupPlanesDmaBuf() {
 bool JetsonMmapiEncoder::QueueOutputBufferDmaBuf(int dmabuf_fd) {
   static std::atomic<bool> logged_first(false);
   const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+  const bool is_first = !logged_first.exchange(true);
 
-  if (!logged_first.exchange(true)) {
+  if (is_first) {
     std::fprintf(stderr,
                  "[MMAPI] QueueOutputBufferDmaBuf: fd=%d, index=%d\n",
                  dmabuf_fd, next_output_index_);
     std::fflush(stderr);
   }
 
-  // Sync the DMA buffer for device access before queueing.
+  // Look up the NvBufSurface metadata for plane layout.
   NvBufSurface* surface = nullptr;
   int ret = NvBufSurfaceFromFd(dmabuf_fd, reinterpret_cast<void**>(&surface));
   if (ret != 0 || !surface) {
@@ -1646,12 +1700,15 @@ bool JetsonMmapiEncoder::QueueOutputBufferDmaBuf(int dmabuf_fd) {
     return false;
   }
 
-  ret = NvBufSurfaceSyncForDevice(surface, 0, -1);
-  if (ret != 0) {
-    RTC_LOG(LS_ERROR) << "QueueOutputBufferDmaBuf: NvBufSurfaceSyncForDevice "
-                         "failed (ret=" << ret << ")";
-    return false;
-  }
+  // The DMA buffer was filled by a GPU-side blit (Argus copyToNvBuffer).
+  // The V4L2 encoder reads it via DMA, so a CPU cache sync is not required
+  // and would fail with "Wrong buffer index" on some JetPack versions when
+  // the surface was obtained via NvBufSurfaceFromFd rather than being the
+  // original NvBufSurfaceCreate handle.
+  //
+  // If a sync *is* needed on a particular platform, the Argus shim should
+  // perform it right after copyToNvBuffer while it still holds the original
+  // surface pointer.
 
   // Determine plane count and bytesused from the NvBufSurface metadata.
   const NvBufSurfaceParams& params = surface->surfaceList[0];
@@ -1674,7 +1731,7 @@ bool JetsonMmapiEncoder::QueueOutputBufferDmaBuf(int dmabuf_fd) {
         params.planeParams.pitch[i] * params.planeParams.height[i];
   }
 
-  if (verbose && !logged_first.load()) {
+  if (is_first || verbose) {
     for (uint32_t i = 0; i < v4l2_buf.length && i < num_planes; ++i) {
       std::fprintf(stderr,
                    "[MMAPI] QueueOutputBufferDmaBuf: plane[%u] fd=%d "
@@ -1692,6 +1749,15 @@ bool JetsonMmapiEncoder::QueueOutputBufferDmaBuf(int dmabuf_fd) {
     RTC_LOG(LS_ERROR) << "QueueOutputBufferDmaBuf: qBuffer failed "
                       << "(index=" << next_output_index_
                       << ", errno=" << errno << ": " << strerror(errno) << ")";
+    if (is_first || verbose) {
+      std::fprintf(stderr,
+                   "[MMAPI] QueueOutputBufferDmaBuf qBuffer failed: "
+                   "index=%d, v4l2_buf.length=%u, num_planes=%u, "
+                   "errno=%d (%s)\n",
+                   next_output_index_, v4l2_buf.length, num_planes,
+                   errno, strerror(errno));
+      std::fflush(stderr);
+    }
     return false;
   }
 

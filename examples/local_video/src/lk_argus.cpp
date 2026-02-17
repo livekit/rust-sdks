@@ -32,6 +32,7 @@ struct LkArgusSession {
     // next frame into a different one.  Avoids the "Wrong buffer index"
     // errors caused by the encoder and Argus racing on a single buffer.
     int dmabuf_fds[kNumDmaBufs];
+    NvBufSurface* dmabuf_surfaces[kNumDmaBufs];  // original surface ptrs for sync
     int dmabuf_write_idx;  // next buffer to blit into
     int width;
     int height;
@@ -43,7 +44,10 @@ extern "C" {
 
 void* lk_argus_create_session(int sensor_index, int width, int height, int fps) {
     auto* s = new LkArgusSession();
-    for (int i = 0; i < kNumDmaBufs; i++) s->dmabuf_fds[i] = -1;
+    for (int i = 0; i < kNumDmaBufs; i++) {
+        s->dmabuf_fds[i] = -1;
+        s->dmabuf_surfaces[i] = nullptr;
+    }
     s->dmabuf_write_idx = 0;
     s->width = width;
     s->height = height;
@@ -154,6 +158,7 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
             return nullptr;
         }
         s->dmabuf_fds[i] = surface->surfaceList[0].bufferDesc;
+        s->dmabuf_surfaces[i] = surface;
     }
 
     // Start repeating capture
@@ -224,6 +229,15 @@ int lk_argus_acquire_frame(void* handle) {
         return -1;
     }
 
+    // Sync the buffer for device (encoder) access.  We use the original
+    // NvBufSurface pointer from NvBufSurfaceCreate -- this avoids the
+    // "Wrong buffer index" errors that occur when syncing a surface
+    // obtained via NvBufSurfaceFromFd on some JetPack versions.
+    NvBufSurface* surface = s->dmabuf_surfaces[idx];
+    if (surface) {
+        NvBufSurfaceSyncForDevice(surface, 0, -1);
+    }
+
     return fd;
 }
 
@@ -246,17 +260,13 @@ void lk_argus_destroy_session(void* handle) {
 
     s->current_frame.reset();
 
-    // Free all persistent NvBufSurface buffers
+    // Free all persistent NvBufSurface buffers using the original pointers.
     for (int i = 0; i < kNumDmaBufs; i++) {
-        if (s->dmabuf_fds[i] >= 0) {
-            NvBufSurface* surface = nullptr;
-            if (NvBufSurfaceFromFd(s->dmabuf_fds[i],
-                                   reinterpret_cast<void**>(&surface)) == 0 &&
-                surface) {
-                NvBufSurfaceDestroy(surface);
-            }
-            s->dmabuf_fds[i] = -1;
+        if (s->dmabuf_surfaces[i]) {
+            NvBufSurfaceDestroy(s->dmabuf_surfaces[i]);
+            s->dmabuf_surfaces[i] = nullptr;
         }
+        s->dmabuf_fds[i] = -1;
     }
 
     delete s;
