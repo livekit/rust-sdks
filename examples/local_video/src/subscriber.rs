@@ -266,8 +266,6 @@ async fn handle_track_subscribed(
     }
     let simulcast2 = simulcast.clone();
     std::thread::spawn(move || {
-        // The user timestamp handler is automatically wired from the RtcVideoTrack,
-        // so frame.user_timestamp_us is populated without manual setup.
         let mut sink = NativeVideoStream::new(video_track.rtc_track());
         let mut frames: u64 = 0;
         let mut last_log = Instant::now();
