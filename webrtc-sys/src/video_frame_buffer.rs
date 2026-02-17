@@ -150,6 +150,21 @@ pub mod ffi {
             buffer: &UniquePtr<VideoFrameBuffer>,
         ) -> *mut PlatformImageBuffer;
 
+        /// Create a VideoFrameBuffer backed by a Jetson NvBufSurface DMA fd.
+        /// pixel_format: 0 = NV12, 1 = YUV420M
+        fn new_dmabuf_buffer(
+            fd: i32,
+            width: i32,
+            height: i32,
+            pixel_format: i32,
+        ) -> UniquePtr<VideoFrameBuffer>;
+
+        /// Returns the DMA fd from a DmaBuf-backed VideoFrameBuffer, or -1.
+        fn dmabuf_buffer_fd(buffer: &UniquePtr<VideoFrameBuffer>) -> i32;
+
+        /// Returns the pixel format from a DmaBuf-backed VideoFrameBuffer, or -1.
+        fn dmabuf_buffer_pixel_format(buffer: &UniquePtr<VideoFrameBuffer>) -> i32;
+
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn yuv8_to_yuv(yuv8: *const PlanarYuv8Buffer) -> *const PlanarYuvBuffer;

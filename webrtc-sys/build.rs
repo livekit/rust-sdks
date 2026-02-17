@@ -80,6 +80,7 @@ fn main() {
         "src/webrtc.cpp",
         "src/video_frame.cpp",
         "src/video_frame_buffer.cpp",
+        "src/dmabuf_video_frame_buffer.cpp",
         "src/video_encoder_factory.cpp",
         "src/video_decoder_factory.cpp",
         "src/audio_device.cpp",

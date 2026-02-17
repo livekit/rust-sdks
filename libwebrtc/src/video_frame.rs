@@ -50,6 +50,15 @@ pub enum VideoBufferType {
     I444,
     I010,
     NV12,
+    DmaBuf,
+}
+
+/// Pixel format of a DMA buffer surface (Jetson NvBufSurface).
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[repr(i32)]
+pub enum DmaBufPixelFormat {
+    NV12 = 0,
+    YUV420M = 1,
 }
 
 #[derive(Debug)]
@@ -118,6 +127,11 @@ pub trait VideoBuffer: internal::BufferSealed + Debug {
     }
 
     fn as_nv12(&self) -> Option<&NV12Buffer> {
+        None
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn as_dmabuf(&self) -> Option<&native::DmaBufBuffer> {
         None
     }
 }
@@ -469,7 +483,9 @@ impl NV12Buffer {
 pub mod native {
     use std::fmt::Debug;
 
-    use super::{vf_imp, I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType};
+    use super::{
+        vf_imp, DmaBufPixelFormat, I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType,
+    };
 
     new_buffer_type!(NativeBuffer, Native, as_native);
 
@@ -491,6 +507,94 @@ pub mod native {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
             self.handle.get_cv_pixel_buffer()
+        }
+    }
+
+    /// A video buffer backed by a Jetson NvBufSurface DMA file descriptor.
+    ///
+    /// This enables zero-copy encode pipelines on Jetson platforms: the DMA fd
+    /// is passed directly to the hardware encoder via V4L2_MEMORY_DMABUF,
+    /// avoiding any CPU-side pixel copies.
+    pub struct DmaBufBuffer {
+        pub(crate) handle: vf_imp::DmaBufBuffer,
+    }
+
+    impl DmaBufBuffer {
+        /// Create a new DmaBufBuffer wrapping a DMA file descriptor.
+        ///
+        /// The fd must refer to a valid NvBufSurface allocation. The caller
+        /// retains ownership of the fd and must ensure it remains valid for the
+        /// lifetime of this buffer.
+        pub fn new(fd: i32, width: u32, height: u32, pixel_format: DmaBufPixelFormat) -> Self {
+            Self {
+                handle: vf_imp::DmaBufBuffer::new(fd, width, height, pixel_format),
+            }
+        }
+
+        /// Returns the DMA buffer file descriptor.
+        pub fn fd(&self) -> i32 {
+            self.handle.fd()
+        }
+
+        /// Returns the pixel format of the DMA buffer surface.
+        pub fn pixel_format(&self) -> DmaBufPixelFormat {
+            self.handle.pixel_format()
+        }
+    }
+
+    impl super::internal::BufferSealed for DmaBufBuffer {
+        fn sys_handle(&self) -> &webrtc_sys::video_frame_buffer::ffi::VideoFrameBuffer {
+            self.handle.sys_handle()
+        }
+
+        fn to_i420(&self) -> I420Buffer {
+            I420Buffer { handle: self.handle.to_i420() }
+        }
+
+        fn to_argb(
+            &self,
+            format: VideoFormatType,
+            dst: &mut [u8],
+            stride: u32,
+            width: i32,
+            height: i32,
+        ) {
+            self.handle.to_argb(format, dst, stride, width, height)
+        }
+    }
+
+    impl VideoBuffer for DmaBufBuffer {
+        fn width(&self) -> u32 {
+            self.handle.width()
+        }
+
+        fn height(&self) -> u32 {
+            self.handle.height()
+        }
+
+        fn buffer_type(&self) -> VideoBufferType {
+            VideoBufferType::DmaBuf
+        }
+
+        fn as_dmabuf(&self) -> Option<&DmaBufBuffer> {
+            Some(self)
+        }
+    }
+
+    impl Debug for DmaBufBuffer {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("DmaBufBuffer")
+                .field("fd", &self.fd())
+                .field("width", &self.handle.width())
+                .field("height", &self.handle.height())
+                .field("pixel_format", &self.pixel_format())
+                .finish()
+        }
+    }
+
+    impl AsRef<dyn VideoBuffer> for DmaBufBuffer {
+        fn as_ref(&self) -> &(dyn VideoBuffer + 'static) {
+            self
         }
     }
 

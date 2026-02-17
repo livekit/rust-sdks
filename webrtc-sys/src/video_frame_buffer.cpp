@@ -359,4 +359,31 @@ PlatformImageBuffer* native_buffer_to_platform_image_buffer(
 
 #endif
 
+std::unique_ptr<VideoFrameBuffer> new_dmabuf_buffer(int fd,
+                                                     int width,
+                                                     int height,
+                                                     int pixel_format) {
+  auto dmabuf_pixel_format =
+      static_cast<livekit::DmaBufPixelFormat>(pixel_format);
+  auto dmabuf = rtc::make_ref_counted<livekit::DmaBufVideoFrameBuffer>(
+      fd, width, height, dmabuf_pixel_format);
+  return std::make_unique<VideoFrameBuffer>(std::move(dmabuf));
+}
+
+int dmabuf_buffer_fd(const std::unique_ptr<VideoFrameBuffer>& buffer) {
+  if (!buffer) return -1;
+  auto* dmabuf = livekit::DmaBufVideoFrameBuffer::FromNative(
+      buffer->get().get());
+  if (!dmabuf) return -1;
+  return dmabuf->dmabuf_fd();
+}
+
+int dmabuf_buffer_pixel_format(const std::unique_ptr<VideoFrameBuffer>& buffer) {
+  if (!buffer) return -1;
+  auto* dmabuf = livekit::DmaBufVideoFrameBuffer::FromNative(
+      buffer->get().get());
+  if (!dmabuf) return -1;
+  return static_cast<int>(dmabuf->pixel_format());
+}
+
 }  // namespace livekit_ffi

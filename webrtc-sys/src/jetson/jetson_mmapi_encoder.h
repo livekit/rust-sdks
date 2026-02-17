@@ -50,6 +50,13 @@ class JetsonMmapiEncoder {
                   std::vector<uint8_t>* encoded,
                   bool* is_keyframe);
 
+  // Zero-copy DMA buffer encode: pass an NvBufSurface DMA fd directly to the
+  // encoder output plane via V4L2_MEMORY_DMABUF. No pixel data is copied.
+  bool EncodeDmaBuf(int dmabuf_fd,
+                    bool force_keyframe,
+                    std::vector<uint8_t>* encoded,
+                    bool* is_keyframe);
+
   void SetRates(int framerate, int bitrate_bps);
   void SetKeyframeInterval(int keyframe_interval);
 
@@ -70,6 +77,8 @@ class JetsonMmapiEncoder {
                              int stride_y,
                              const uint8_t* src_uv,
                              int stride_uv);
+  bool QueueOutputBufferDmaBuf(int dmabuf_fd);
+  bool SetupPlanesDmaBuf();
   bool DequeueCaptureBuffer(std::vector<uint8_t>* encoded, bool* is_keyframe);
   bool DequeueOutputBuffer();
   bool ForceKeyframe();
@@ -96,6 +105,8 @@ class JetsonMmapiEncoder {
   int output_u_stride_ = 0;
   int output_v_stride_ = 0;
   bool output_is_nv12_ = false;
+  bool use_dmabuf_input_ = false;
+  bool dmabuf_planes_setup_ = false;
 };
 
 }  // namespace livekit

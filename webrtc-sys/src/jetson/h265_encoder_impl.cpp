@@ -9,6 +9,7 @@
 #include "api/video/video_codec_constants.h"
 #include "api/video_codecs/scalability_mode.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
+#include "livekit/dmabuf_video_frame_buffer.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
 #include "modules/video_coding/svc/create_scalability_structure.h"
@@ -168,24 +169,37 @@ int32_t JetsonH265EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
-  webrtc::scoped_refptr<I420BufferInterface> frame_buffer =
-      input_frame.video_frame_buffer()->ToI420();
-  if (!frame_buffer) {
-    RTC_LOG(LS_ERROR) << "Failed to convert frame to I420.";
-    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
-  }
-
-  RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
-  RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
-
   std::vector<uint8_t> packet;
   bool is_keyframe = false;
-  if (!encoder_.Encode(frame_buffer->DataY(), frame_buffer->StrideY(),
-                       frame_buffer->DataU(), frame_buffer->StrideU(),
-                       frame_buffer->DataV(), frame_buffer->StrideV(),
-                       is_keyframe_needed, &packet, &is_keyframe)) {
-    RTC_LOG(LS_ERROR) << "Failed to encode frame with Jetson MMAPI encoder.";
-    return WEBRTC_VIDEO_CODEC_ERROR;
+
+  // Check for DmaBuf zero-copy path first.
+  auto* dmabuf = livekit::DmaBufVideoFrameBuffer::FromNative(
+      input_frame.video_frame_buffer().get());
+  if (dmabuf) {
+    if (!encoder_.EncodeDmaBuf(dmabuf->dmabuf_fd(), is_keyframe_needed,
+                               &packet, &is_keyframe)) {
+      RTC_LOG(LS_ERROR) << "Failed to encode DmaBuf frame with Jetson MMAPI.";
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
+  } else {
+    // Standard I420 path.
+    webrtc::scoped_refptr<I420BufferInterface> frame_buffer =
+        input_frame.video_frame_buffer()->ToI420();
+    if (!frame_buffer) {
+      RTC_LOG(LS_ERROR) << "Failed to convert frame to I420.";
+      return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+    }
+
+    RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
+    RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
+
+    if (!encoder_.Encode(frame_buffer->DataY(), frame_buffer->StrideY(),
+                         frame_buffer->DataU(), frame_buffer->StrideU(),
+                         frame_buffer->DataV(), frame_buffer->StrideV(),
+                         is_keyframe_needed, &packet, &is_keyframe)) {
+      RTC_LOG(LS_ERROR) << "Failed to encode frame with Jetson MMAPI encoder.";
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
   }
 
   if (packet.empty()) {
@@ -240,12 +254,13 @@ int32_t JetsonH265EncoderImpl::ProcessEncodedFrame(
 
 VideoEncoder::EncoderInfo JetsonH265EncoderImpl::GetEncoderInfo() const {
   EncoderInfo info;
-  info.supports_native_handle = false;
+  info.supports_native_handle = true;
   info.implementation_name = "Jetson MMAPI H265 Encoder";
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
-  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kI420};
+  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNative,
+                                  VideoFrameBuffer::Type::kI420};
   return info;
 }
 

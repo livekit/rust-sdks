@@ -3,6 +3,8 @@ use clap::Parser;
 use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
+#[cfg(target_os = "linux")]
+use livekit::webrtc::video_frame::{native::DmaBufBuffer, DmaBufPixelFormat};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
@@ -20,6 +22,10 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 use yuv_sys;
+
+#[cfg(target_os = "linux")]
+#[path = "argus.rs"]
+mod argus;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -75,6 +81,15 @@ struct Args {
     /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
     #[arg(long, default_value_t = false)]
     h265: bool,
+
+    /// Use MIPI CSI camera via Argus (Jetson only). Enables zero-copy DMA
+    /// buffer encode pipeline. Mutually exclusive with USB camera capture.
+    #[arg(long, default_value_t = false)]
+    mipi: bool,
+
+    /// MIPI CSI sensor index (used with --mipi)
+    #[arg(long, default_value_t = 0)]
+    sensor_index: u32,
 }
 
 fn list_cameras() -> Result<()> {
@@ -151,6 +166,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 debug!("Room event: {:?}", evt);
             }
         });
+    }
+
+    // Branch: MIPI CSI (Argus) or USB camera (nokhwa)
+    #[cfg(target_os = "linux")]
+    if args.mipi {
+        return run_mipi(args, room, ctrl_c_received).await;
     }
 
     // Setup camera
@@ -477,6 +498,139 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             sum_convert_ms = 0.0;
             sum_capture_ms = 0.0;
             sum_sleep_ms = 0.0;
+            sum_iter_ms = 0.0;
+            last_fps_log = Instant::now();
+        }
+    }
+
+    Ok(())
+}
+
+/// MIPI CSI camera capture loop using Argus (Jetson zero-copy DMA pipeline).
+#[cfg(target_os = "linux")]
+async fn run_mipi(
+    args: Args,
+    room: std::sync::Arc<Room>,
+    ctrl_c_received: Arc<AtomicBool>,
+) -> Result<()> {
+    let width = args.width;
+    let height = args.height;
+    let fps = args.fps;
+
+    // Create LiveKit video source and track
+    let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
+    let track =
+        LocalVideoTrack::create_video_track("mipi-camera", RtcVideoSource::Native(rtc_source.clone()));
+
+    let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
+    info!("MIPI: Attempting publish with codec: {}", requested_codec.as_str());
+
+    let publish_opts = |codec: VideoCodec| {
+        let mut opts = TrackPublishOptions {
+            source: TrackSource::Camera,
+            simulcast: args.simulcast,
+            video_codec: codec,
+            ..Default::default()
+        };
+        if let Some(bitrate) = args.max_bitrate {
+            opts.video_encoding =
+                Some(VideoEncoding { max_bitrate: bitrate, max_framerate: fps as f64 });
+        }
+        opts
+    };
+
+    let publish_result = room
+        .local_participant()
+        .publish_track(LocalTrack::Video(track.clone()), publish_opts(requested_codec))
+        .await;
+
+    if let Err(e) = publish_result {
+        if matches!(requested_codec, VideoCodec::H265) {
+            log::warn!("H.265 publish failed ({}). Falling back to H.264...", e);
+            room.local_participant()
+                .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
+                .await?;
+            info!("Published MIPI camera track with H.264 fallback");
+        } else {
+            return Err(e.into());
+        }
+    } else {
+        info!("Published MIPI camera track");
+    }
+
+    // Open Argus capture session
+    let mut session = argus::ArgusCaptureSession::new(args.sensor_index, width, height, fps)?;
+    info!(
+        "Argus MIPI capture session opened: {}x{} @ {} fps (sensor {})",
+        width, height, fps, args.sensor_index
+    );
+
+    let pace_fps = fps as f64;
+    let mut ticker = tokio::time::interval(Duration::from_secs_f64(1.0 / pace_fps));
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    ticker.tick().await;
+    let start_ts = Instant::now();
+
+    let mut frames: u64 = 0;
+    let mut last_fps_log = Instant::now();
+    let mut sum_acquire_ms = 0.0;
+    let mut sum_capture_ms = 0.0;
+    let mut sum_iter_ms = 0.0;
+
+    loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            break;
+        }
+
+        ticker.tick().await;
+        let iter_start = Instant::now();
+
+        // Acquire DMA buffer fd from Argus
+        let t0 = Instant::now();
+        let dmabuf_fd = match session.acquire_frame() {
+            Ok(fd) => fd,
+            Err(e) => {
+                log::warn!("MIPI frame acquisition failed: {}", e);
+                continue;
+            }
+        };
+        let t1 = Instant::now();
+
+        // Wrap in DmaBufBuffer and capture -- zero copy to encoder
+        let dmabuf = DmaBufBuffer::new(dmabuf_fd, width, height, DmaBufPixelFormat::NV12);
+        let frame = VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
+            timestamp_us: start_ts.elapsed().as_micros() as i64,
+            buffer: dmabuf,
+        };
+        rtc_source.capture_frame(&frame);
+        let t2 = Instant::now();
+
+        // Release the frame back to Argus buffer pool
+        session.release_frame();
+
+        frames += 1;
+        let acquire_ms = (t1 - t0).as_secs_f64() * 1000.0;
+        let capture_ms = (t2 - t1).as_secs_f64() * 1000.0;
+        let iter_ms = (Instant::now() - iter_start).as_secs_f64() * 1000.0;
+        sum_acquire_ms += acquire_ms;
+        sum_capture_ms += capture_ms;
+        sum_iter_ms += iter_ms;
+
+        if last_fps_log.elapsed() >= Duration::from_secs(2) {
+            let secs = last_fps_log.elapsed().as_secs_f64();
+            let fps_est = frames as f64 / secs;
+            let n = frames.max(1) as f64;
+            info!(
+                "MIPI publishing: {}x{}, ~{:.1} fps | avg ms: acquire {:.2}, capture {:.2}, iter {:.2}",
+                width, height, fps_est,
+                sum_acquire_ms / n,
+                sum_capture_ms / n,
+                sum_iter_ms / n,
+            );
+            frames = 0;
+            sum_acquire_ms = 0.0;
+            sum_capture_ms = 0.0;
             sum_iter_ms = 0.0;
             last_fps_log = Instant::now();
         }

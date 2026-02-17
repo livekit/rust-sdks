@@ -1465,6 +1465,240 @@ bool JetsonMmapiEncoder::DequeueOutputBuffer() {
   return true;
 }
 
+bool JetsonMmapiEncoder::EncodeDmaBuf(int dmabuf_fd,
+                                      bool force_keyframe,
+                                      std::vector<uint8_t>* encoded,
+                                      bool* is_keyframe) {
+  static std::atomic<uint64_t> encode_count(0);
+  static std::atomic<uint64_t> success_count(0);
+  static std::atomic<uint64_t> fail_count(0);
+  static std::atomic<bool> logged_first_encode(false);
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+  const uint64_t frame_num = encode_count.fetch_add(1);
+
+  if (!initialized_ || !encoder_) {
+    if (verbose || frame_num < 5) {
+      std::fprintf(stderr,
+                   "[MMAPI] EncodeDmaBuf() called but encoder not initialized "
+                   "(initialized=%d, encoder=%p)\n",
+                   initialized_ ? 1 : 0, static_cast<void*>(encoder_));
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  // On first DmaBuf encode, re-setup the output plane for V4L2_MEMORY_DMABUF.
+  if (!dmabuf_planes_setup_) {
+    if (verbose) {
+      std::fprintf(stderr,
+                   "[MMAPI] EncodeDmaBuf: first call, setting up DMABUF planes\n");
+      std::fflush(stderr);
+    }
+    // Stop streaming, reconfigure output plane, restart.
+    StopStreaming();
+    if (!SetupPlanesDmaBuf()) {
+      std::fprintf(stderr,
+                   "[MMAPI] EncodeDmaBuf: SetupPlanesDmaBuf() failed\n");
+      std::fflush(stderr);
+      fail_count.fetch_add(1);
+      return false;
+    }
+    if (!QueueCaptureBuffers()) {
+      std::fprintf(stderr,
+                   "[MMAPI] EncodeDmaBuf: QueueCaptureBuffers() failed\n");
+      std::fflush(stderr);
+      fail_count.fetch_add(1);
+      return false;
+    }
+    if (!StartStreaming()) {
+      std::fprintf(stderr,
+                   "[MMAPI] EncodeDmaBuf: StartStreaming() failed\n");
+      std::fflush(stderr);
+      fail_count.fetch_add(1);
+      return false;
+    }
+    dmabuf_planes_setup_ = true;
+    use_dmabuf_input_ = true;
+    next_output_index_ = 0;
+  }
+
+  if (!logged_first_encode.exchange(true)) {
+    std::fprintf(stderr,
+                 "[MMAPI] First EncodeDmaBuf() call: dmabuf_fd=%d, "
+                 "force_keyframe=%d\n",
+                 dmabuf_fd, force_keyframe ? 1 : 0);
+    std::fflush(stderr);
+  }
+
+  if (force_keyframe && !ForceKeyframe()) {
+    RTC_LOG(LS_WARNING) << "Failed to request keyframe.";
+    if (verbose) {
+      std::fprintf(stderr, "[MMAPI] ForceKeyframe() failed\n");
+      std::fflush(stderr);
+    }
+  }
+
+  if (!QueueOutputBufferDmaBuf(dmabuf_fd)) {
+    if (verbose || frame_num < 10) {
+      std::fprintf(stderr,
+                   "[MMAPI] QueueOutputBufferDmaBuf() failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  if (!DequeueCaptureBuffer(encoded, is_keyframe)) {
+    if (verbose || frame_num < 10) {
+      std::fprintf(stderr,
+                   "[MMAPI] DequeueCaptureBuffer() failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  if (!DequeueOutputBuffer()) {
+    if (verbose || frame_num < 10) {
+      std::fprintf(stderr,
+                   "[MMAPI] DequeueOutputBuffer() failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  success_count.fetch_add(1);
+  if (verbose && (frame_num < 5 || frame_num % 100 == 0)) {
+    std::fprintf(stderr,
+                 "[MMAPI] EncodeDmaBuf() succeeded (frame %lu, encoded_size=%zu, "
+                 "keyframe=%d, success=%lu, fail=%lu)\n",
+                 frame_num, encoded->size(), is_keyframe ? *is_keyframe : -1,
+                 success_count.load(), fail_count.load());
+    std::fflush(stderr);
+  }
+
+  return true;
+}
+
+bool JetsonMmapiEncoder::SetupPlanesDmaBuf() {
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+
+  // Output plane uses V4L2_MEMORY_DMABUF: we request buffers but don't
+  // allocate backing memory -- the caller provides DMA fds at queue time.
+  output_buffer_count_ = kDefaultOutputBufferCount;
+  capture_buffer_count_ = kDefaultCaptureBufferCount;
+
+  if (encoder_->output_plane.setupPlane(V4L2_MEMORY_DMABUF,
+                                        output_buffer_count_, false, false) <
+      0) {
+    RTC_LOG(LS_ERROR) << "Failed to setup output plane for DMABUF.";
+    if (verbose) {
+      std::fprintf(stderr,
+                   "[MMAPI] SetupPlanesDmaBuf: output_plane.setupPlane "
+                   "V4L2_MEMORY_DMABUF failed, errno=%d (%s)\n",
+                   errno, strerror(errno));
+      std::fflush(stderr);
+    }
+    return false;
+  }
+
+  // Capture plane remains MMAP (encoded bitstream output).
+  if (encoder_->capture_plane.setupPlane(V4L2_MEMORY_MMAP,
+                                         capture_buffer_count_, true, false) <
+      0) {
+    RTC_LOG(LS_ERROR) << "Failed to setup capture plane.";
+    return false;
+  }
+
+  if (verbose) {
+    std::fprintf(stderr,
+                 "[MMAPI] SetupPlanesDmaBuf: output=DMABUF(%d bufs), "
+                 "capture=MMAP(%d bufs)\n",
+                 output_buffer_count_, capture_buffer_count_);
+    std::fflush(stderr);
+  }
+
+  return true;
+}
+
+bool JetsonMmapiEncoder::QueueOutputBufferDmaBuf(int dmabuf_fd) {
+  static std::atomic<bool> logged_first(false);
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+
+  if (!logged_first.exchange(true)) {
+    std::fprintf(stderr,
+                 "[MMAPI] QueueOutputBufferDmaBuf: fd=%d, index=%d\n",
+                 dmabuf_fd, next_output_index_);
+    std::fflush(stderr);
+  }
+
+  // Sync the DMA buffer for device access before queueing.
+  NvBufSurface* surface = nullptr;
+  int ret = NvBufSurfaceFromFd(dmabuf_fd, reinterpret_cast<void**>(&surface));
+  if (ret != 0 || !surface) {
+    RTC_LOG(LS_ERROR) << "QueueOutputBufferDmaBuf: NvBufSurfaceFromFd failed "
+                      << "(fd=" << dmabuf_fd << ", ret=" << ret << ")";
+    return false;
+  }
+
+  ret = NvBufSurfaceSyncForDevice(surface, 0, -1);
+  if (ret != 0) {
+    RTC_LOG(LS_ERROR) << "QueueOutputBufferDmaBuf: NvBufSurfaceSyncForDevice "
+                         "failed (ret=" << ret << ")";
+    return false;
+  }
+
+  // Determine plane count and bytesused from the NvBufSurface metadata.
+  const NvBufSurfaceParams& params = surface->surfaceList[0];
+  const uint32_t num_planes = params.planeParams.num_planes;
+
+  v4l2_buffer v4l2_buf = {};
+  v4l2_plane planes[VIDEO_MAX_PLANES] = {};
+  v4l2_buf.index = next_output_index_;
+  v4l2_buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+  v4l2_buf.memory = V4L2_MEMORY_DMABUF;
+  v4l2_buf.m.planes = planes;
+  v4l2_buf.length = encoder_->output_plane.getNumPlanes();
+
+  // For DMABUF mode, each v4l2 plane's m.fd is set to the DMA fd.
+  // Multi-planar formats (YUV420M) share the same NvBufSurface fd but
+  // different plane offsets; the driver resolves planes from the surface.
+  for (uint32_t i = 0; i < v4l2_buf.length && i < num_planes; ++i) {
+    planes[i].m.fd = dmabuf_fd;
+    planes[i].bytesused =
+        params.planeParams.pitch[i] * params.planeParams.height[i];
+  }
+
+  if (verbose && !logged_first.load()) {
+    for (uint32_t i = 0; i < v4l2_buf.length && i < num_planes; ++i) {
+      std::fprintf(stderr,
+                   "[MMAPI] QueueOutputBufferDmaBuf: plane[%u] fd=%d "
+                   "pitch=%u height=%u bytesused=%u\n",
+                   i, planes[i].m.fd,
+                   params.planeParams.pitch[i],
+                   params.planeParams.height[i],
+                   planes[i].bytesused);
+    }
+    std::fflush(stderr);
+  }
+
+  int qbuf_ret = encoder_->output_plane.qBuffer(v4l2_buf, nullptr);
+  if (qbuf_ret < 0) {
+    RTC_LOG(LS_ERROR) << "QueueOutputBufferDmaBuf: qBuffer failed "
+                      << "(index=" << next_output_index_
+                      << ", errno=" << errno << ": " << strerror(errno) << ")";
+    return false;
+  }
+
+  next_output_index_ = (next_output_index_ + 1) % output_buffer_count_;
+  return true;
+}
+
 bool JetsonMmapiEncoder::ForceKeyframe() {
   v4l2_ext_control control = {};
   v4l2_ext_controls controls = {};

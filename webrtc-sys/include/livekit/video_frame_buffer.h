@@ -24,6 +24,7 @@
 #include "api/video/i010_buffer.h"
 #include "api/video/nv12_buffer.h"
 #include "api/video/video_frame_buffer.h"
+#include "livekit/dmabuf_video_frame_buffer.h"
 
 namespace livekit_ffi {
 class VideoFrameBuffer;
@@ -221,6 +222,10 @@ std::unique_ptr<NV12Buffer> new_nv12_buffer(int width, int height, int stride_y,
 
 std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(PlatformImageBuffer *buffer);
 PlatformImageBuffer* native_buffer_to_platform_image_buffer(const std::unique_ptr<VideoFrameBuffer> &);
+
+std::unique_ptr<VideoFrameBuffer> new_dmabuf_buffer(int fd, int width, int height, int pixel_format);
+int dmabuf_buffer_fd(const std::unique_ptr<VideoFrameBuffer>& buffer);
+int dmabuf_buffer_pixel_format(const std::unique_ptr<VideoFrameBuffer>& buffer);
 
 static const VideoFrameBuffer* yuv_to_vfb(const PlanarYuvBuffer* yuv) {
   return yuv;

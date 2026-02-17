@@ -892,3 +892,67 @@ impl NV12Buffer {
         }
     }
 }
+
+/// Platform-level DmaBuf buffer backed by a C++ DmaBufVideoFrameBuffer.
+/// Wraps a Jetson NvBufSurface DMA fd as a webrtc::VideoFrameBuffer (Type::kNative).
+pub struct DmaBufBuffer {
+    sys_handle: UniquePtr<vfb_sys::ffi::VideoFrameBuffer>,
+    fd: i32,
+    width: u32,
+    height: u32,
+    pixel_format: vf::DmaBufPixelFormat,
+}
+
+impl DmaBufBuffer {
+    pub fn new(
+        fd: i32,
+        width: u32,
+        height: u32,
+        pixel_format: vf::DmaBufPixelFormat,
+    ) -> Self {
+        let sys_handle = vfb_sys::ffi::new_dmabuf_buffer(
+            fd,
+            width as i32,
+            height as i32,
+            pixel_format as i32,
+        );
+        Self { sys_handle, fd, width, height, pixel_format }
+    }
+
+    pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
+        &self.sys_handle
+    }
+
+    pub fn fd(&self) -> i32 {
+        self.fd
+    }
+
+    pub fn pixel_format(&self) -> vf::DmaBufPixelFormat {
+        self.pixel_format
+    }
+
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    pub fn to_i420(&self) -> I420Buffer {
+        I420Buffer {
+            sys_handle: unsafe { self.sys_handle.to_i420() },
+        }
+    }
+
+    pub fn to_argb(
+        &self,
+        format: VideoFormatType,
+        dst: &mut [u8],
+        dst_stride: u32,
+        dst_width: i32,
+        dst_height: i32,
+    ) {
+        self.to_i420().to_argb(format, dst, dst_stride, dst_width, dst_height)
+    }
+}
