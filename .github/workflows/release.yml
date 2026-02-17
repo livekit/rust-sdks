@@ -81,8 +81,6 @@ jobs:
     if: ${{ needs.release-plz-release.outputs.ffi_tag != '' }}
     uses: ./.github/workflows/node-builds.yml
     needs: release-plz-release
-    with:
-      tag: ${{ needs.release-plz-release.outputs.ffi_tag }}
 
   # Create a PR with the new versions and changelog, preparing the next release.
   release-plz-pr:
@@ -128,3 +126,50 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+
+      - name: Checkout release-plz PR branch
+        id: checkout-pr
+        run: |
+          PR_BRANCH=$(gh pr list --author "github-actions[bot]" --state open --json headRefName --jq '[.[] | select(.headRefName | startswith("release-plz-"))][0].headRefName // empty')
+          if [ -z "$PR_BRANCH" ]; then
+            echo "No release-plz PR found, skipping"
+            echo "found=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          echo "found=true" >> $GITHUB_OUTPUT
+          git fetch origin "$PR_BRANCH"
+          git checkout "$PR_BRANCH"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup pnpm
+        if: steps.checkout-pr.outputs.found == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          package_json_file: livekit-ffi-node-bindings/package.json
+
+      - name: Setup node
+        if: steps.checkout-pr.outputs.found == 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: livekit-ffi-node-bindings/pnpm-lock.yaml
+
+      - name: Update node package.json versions
+        if: steps.checkout-pr.outputs.found == 'true'
+        working-directory: livekit-ffi-node-bindings
+        run: |
+          pnpm install
+          FFI_VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' ../livekit-ffi/Cargo.toml)
+          echo "Setting node package version to $FFI_VERSION"
+          npm version $FFI_VERSION --no-git-tag-version
+          pnpm run ci:version
+
+      - name: Add changes
+        if: steps.checkout-pr.outputs.found == 'true'
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: '["livekit-ffi-node-bindings/package.json", "livekit-ffi-node-bindings/npm/*/package.json"]'
+          default_author: github_actions
+          message: bump node ffi bindings version

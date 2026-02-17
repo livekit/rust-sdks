@@ -6,62 +6,14 @@ permissions:
 
 on:
   workflow_dispatch:
-    inputs:
-      tag:
-        required: true
-        type: string
   workflow_call:
-    inputs:
-      tag:
-        required: true
-        type: string
 
 env:
   CARGO_TERM_COLOR: always
-  TAG_NAME: ${{ inputs.tag || github.ref_name }}
   APP_NAME: rtc-node
 
 jobs:
-  bump_version:
-    runs-on: macos-15
-    outputs:
-      commit_sha: ${{ steps.commit.outputs.commit_long_sha }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          package_json_file: livekit-ffi-node-bindings/package.json
-
-      - name: Setup node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: livekit-ffi-node-bindings/pnpm-lock.yaml
-
-      - working-directory: livekit-ffi-node-bindings
-        run: pnpm install
-
-      - name: Set package version from tag
-        working-directory: livekit-ffi-node-bindings
-        run: |
-          # Extract version from tag (e.g., rust-sdks/livekit-ffi@0.12.43 -> 0.12.43)
-          VERSION=$(echo "${{ env.TAG_NAME }}" | sed 's/.*@//')
-          echo "Setting package version to $VERSION"
-          npm version $VERSION --no-git-tag-version
-          pnpm run ci:version
-
-      - name: Add changes
-        id: commit
-        uses: EndBug/add-and-commit@v9
-        with:
-          add: '["**/package.json"]'
-          default_author: github_actions
-          message: bump livekit-ffi-node-binding version
-
   build:
-    needs: bump_version
     strategy:
       fail-fast: false
       matrix:
@@ -94,8 +46,6 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
-          ref: ${{ needs.bump_version.outputs.commit_sha }}
-          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: livekit-ffi-node-bindings/package.json
@@ -204,16 +154,12 @@ jobs:
           path: livekit-ffi-node-bindings/native.*
           if-no-files-found: error
 
-  commit_and_release:
-    needs: [bump_version, build]
-    name: Commit and Release
+  release:
+    needs: [build]
+    name: Release
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-
-      - run: git fetch origin ${{ needs.bump_version.outputs.commit_sha }}
-
-      - run: git reset --hard ${{ needs.bump_version.outputs.commit_sha }}
 
       - uses: pnpm/action-setup@v4
         with:
@@ -241,13 +187,6 @@ jobs:
           name: js-bindings
           path: livekit-ffi-node-bindings
 
-      - name: Add changes
-        uses: EndBug/add-and-commit@v9
-        with:
-          add: '["livekit-ffi-node-bindings/native.js", "livekit-ffi-node-bindings/native.d.ts"]'
-          default_author: github_actions
-          message: update js bindings for release
-
       - name: Move artifacts
         run: pnpm run ci:artifacts
         working-directory: livekit-ffi-node-bindings
@@ -258,4 +197,4 @@ jobs:
 
       - name: Publish
         working-directory: livekit-ffi-node-bindings
-        run: pnpm publish -r
+        run: pnpm publish -r --no-git-checks
