@@ -269,8 +269,47 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         let iter_start = Instant::now();
 
         // Get frame as RGB24 (decoded by nokhwa if needed)
+        // V4L2 on Jetson can return transient EPROTO (os error 71) errors;
+        // retry a few times before giving up.
         let t0 = Instant::now();
-        let frame_buf = camera.frame()?;
+        let frame_buf = {
+            const MAX_RETRIES: u32 = 5;
+            let mut last_err = None;
+            let mut result = None;
+            for attempt in 0..MAX_RETRIES {
+                match camera.frame() {
+                    Ok(buf) => {
+                        result = Some(buf);
+                        break;
+                    }
+                    Err(e) => {
+                        let err_str = format!("{}", e);
+                        if err_str.contains("os error 71") || err_str.contains("Protocol error") {
+                            if attempt == 0 {
+                                debug!("V4L2 transient error (attempt {}): {}", attempt + 1, e);
+                            }
+                            last_err = Some(e);
+                            std::thread::sleep(Duration::from_millis(5));
+                            continue;
+                        } else {
+                            // Non-transient error, bail immediately
+                            return Err(e.into());
+                        }
+                    }
+                }
+            }
+            match result {
+                Some(buf) => buf,
+                None => {
+                    log::warn!(
+                        "Skipping frame: V4L2 capture failed after {} retries: {}",
+                        MAX_RETRIES,
+                        last_err.map(|e| e.to_string()).unwrap_or_default()
+                    );
+                    continue;
+                }
+            }
+        };
         let t1 = Instant::now();
         let (stride_y, stride_u, stride_v) = frame.buffer.strides();
         let (data_y, data_u, data_v) = frame.buffer.data_mut();
