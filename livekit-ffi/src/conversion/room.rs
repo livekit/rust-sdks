@@ -26,6 +26,7 @@ use livekit::{
     },
     RoomInfo,
 };
+use std::time::Duration;
 
 impl From<EncryptionState> for proto::EncryptionState {
     fn from(value: EncryptionState) -> Self {
@@ -205,6 +206,10 @@ impl From<proto::RoomOptions> for RoomOptions {
         options.join_retries = value.join_retries.unwrap_or(options.join_retries);
         options.e2ee = e2ee;
         options.encryption = encryption;
+        options.single_peer_connection =
+            value.single_peer_connection.unwrap_or(options.single_peer_connection);
+        options.connect_timeout =
+            value.connect_timeout_ms.map(Duration::from_millis).unwrap_or(options.connect_timeout);
         options
     }
 }

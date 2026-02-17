@@ -214,7 +214,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let pace_fps = args.fps as f64;
 
     // Create LiveKit video source and track
-    let rtc_source = NativeVideoSource::new(VideoResolution { width, height });
+    let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
     let track =
         LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(rtc_source.clone()));
 

@@ -88,10 +88,10 @@ std::shared_ptr<NativeVideoSink> new_native_video_sink(
 class VideoTrackSource {
   class InternalSource : public webrtc::AdaptedVideoTrackSource {
    public:
-    InternalSource(const VideoResolution&
-                       resolution);  // (0, 0) means no resolution/optional, the
-                                     // source will guess the resolution at the
-                                     // first captured frame
+    InternalSource(const VideoResolution& resolution,
+                   bool is_screencast);  // (0, 0) means no resolution/optional, the
+                                         // source will guess the resolution at the
+                                         // first captured frame
     ~InternalSource() override;
 
     bool is_screencast() const override;
@@ -111,10 +111,11 @@ class VideoTrackSource {
     webrtc::TimestampAligner timestamp_aligner_;
     VideoResolution resolution_;
     std::shared_ptr<UserTimestampHandler> user_timestamp_handler_;
+    bool is_screencast_;
   };
 
  public:
-  VideoTrackSource(const VideoResolution& resolution);
+  VideoTrackSource(const VideoResolution& resolution, bool is_screencast);
 
   VideoResolution video_resolution() const;
 
@@ -133,7 +134,7 @@ class VideoTrackSource {
 };
 
 std::shared_ptr<VideoTrackSource> new_video_track_source(
-    const VideoResolution& resolution);
+    const VideoResolution& resolution, bool is_screencast);
 
 static std::shared_ptr<MediaStreamTrack> video_to_media(
     std::shared_ptr<VideoTrack> track) {

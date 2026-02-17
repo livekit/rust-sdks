@@ -51,14 +51,13 @@ struct VideoSourceInner {
 }
 
 impl NativeVideoSource {
-    pub fn new(resolution: VideoResolution) -> NativeVideoSource {
+    pub fn new(resolution: VideoResolution, is_screencast: bool) -> NativeVideoSource {
         let source = Self {
-            sys_handle: vt_sys::ffi::new_video_track_source(&vt_sys::ffi::VideoResolution::from(
-                resolution.clone(),
-            )),
-            inner: Arc::new(Mutex::new(VideoSourceInner {
-                captured_frames: 0,
-            })),
+            sys_handle: vt_sys::ffi::new_video_track_source(
+                &vt_sys::ffi::VideoResolution::from(resolution.clone()),
+                is_screencast,
+            ),
+            inner: Arc::new(Mutex::new(VideoSourceInner { captured_frames: 0 })),
         };
 
         livekit_runtime::spawn({

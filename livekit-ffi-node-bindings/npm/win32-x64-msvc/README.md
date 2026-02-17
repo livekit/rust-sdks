@@ -1,3 +1,3 @@
-# `@livekit/rtc-node-win32-x64-msvc`
+# `@livekit/rtc-ffi-bindings-win32-x64-msvc`
 
-This is the **x86_64-pc-windows-msvc** binary for `@livekit/rtc-node`
+This is the **x86_64-pc-windows-msvc** binary for `@livekit/rtc-ffi-bindings`

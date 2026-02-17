@@ -82,7 +82,10 @@ pub mod ffi {
             self: &VideoTrackSource,
             handler: SharedPtr<UserTimestampHandler>,
         );
-        fn new_video_track_source(resolution: &VideoResolution) -> SharedPtr<VideoTrackSource>;
+        fn new_video_track_source(
+            resolution: &VideoResolution,
+            is_screencast: bool,
+        ) -> SharedPtr<VideoTrackSource>;
         fn video_to_media(track: SharedPtr<VideoTrack>) -> SharedPtr<MediaStreamTrack>;
         unsafe fn media_to_video(track: SharedPtr<MediaStreamTrack>) -> SharedPtr<VideoTrack>;
         fn _shared_video_track() -> SharedPtr<VideoTrack>;

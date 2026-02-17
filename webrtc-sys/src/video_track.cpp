@@ -106,13 +106,13 @@ std::shared_ptr<NativeVideoSink> new_native_video_sink(
 }
 
 VideoTrackSource::InternalSource::InternalSource(
-    const VideoResolution& resolution)
-    : webrtc::AdaptedVideoTrackSource(4), resolution_(resolution) {}
+    const VideoResolution& resolution, bool is_screencast)
+    : webrtc::AdaptedVideoTrackSource(4), resolution_(resolution), is_screencast_(is_screencast) {}
 
 VideoTrackSource::InternalSource::~InternalSource() {}
 
 bool VideoTrackSource::InternalSource::is_screencast() const {
-  return false;
+  return is_screencast_;
 }
 
 std::optional<bool> VideoTrackSource::InternalSource::needs_denoising() const {
@@ -193,8 +193,8 @@ void VideoTrackSource::InternalSource::set_user_timestamp_handler(
   user_timestamp_handler_ = std::move(handler);
 }
 
-VideoTrackSource::VideoTrackSource(const VideoResolution& resolution) {
-  source_ = webrtc::make_ref_counted<InternalSource>(resolution);
+VideoTrackSource::VideoTrackSource(const VideoResolution& resolution, bool is_screencast) {
+  source_ = webrtc::make_ref_counted<InternalSource>(resolution, is_screencast);
 }
 
 VideoResolution VideoTrackSource::video_resolution() const {
@@ -221,8 +221,8 @@ webrtc::scoped_refptr<VideoTrackSource::InternalSource> VideoTrackSource::get()
 }
 
 std::shared_ptr<VideoTrackSource> new_video_track_source(
-    const VideoResolution& resolution) {
-  return std::make_shared<VideoTrackSource>(resolution);
+    const VideoResolution& resolution, bool is_screencast) {
+  return std::make_shared<VideoTrackSource>(resolution, is_screencast);
 }
 
 }  // namespace livekit_ffi
