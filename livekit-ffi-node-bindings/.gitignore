@@ -196,4 +196,8 @@ Cargo.lock
 !.yarn/sdks
 !.yarn/versions
 
+
+# don't commit the build artifacts from napi
 *.node
+native.d.ts
+native.js
