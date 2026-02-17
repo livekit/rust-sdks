@@ -208,6 +208,9 @@ fn main() {
                 let jetson_mmapi_include =
                     PathBuf::from("/usr/src/jetson_multimedia_api/include");
                 if jetson_mmapi_include.exists() {
+                    let jetson_classes_dir =
+                        PathBuf::from("/usr/src/jetson_multimedia_api/samples/common/classes");
+
                     builder
                         .include(&jetson_mmapi_include)
                         .include("src/jetson")
@@ -216,6 +219,30 @@ fn main() {
                         .file("src/jetson/h265_encoder_impl.cpp")
                         .file("src/jetson/jetson_encoder_factory.cpp")
                         .flag("-DUSE_JETSON_VIDEO_CODEC=1");
+
+                    // Compile NVIDIA Jetson MMAPI helper classes (NvVideoEncoder,
+                    // NvV4l2Element, NvV4l2ElementPlane, etc.) which are shipped
+                    // as source in the Jetson Multimedia API package.
+                    let mmapi_sources = [
+                        "NvElement.cpp",
+                        "NvV4l2Element.cpp",
+                        "NvV4l2ElementPlane.cpp",
+                        "NvVideoEncoder.cpp",
+                        "NvBuffer.cpp",
+                        "NvLogging.cpp",
+                        "NvElementProfiler.cpp",
+                    ];
+                    for src in &mmapi_sources {
+                        let src_path = jetson_classes_dir.join(src);
+                        if src_path.exists() {
+                            builder.file(&src_path);
+                        } else {
+                            println!(
+                                "cargo:warning=Jetson MMAPI source not found: {}",
+                                src_path.display()
+                            );
+                        }
+                    }
 
                     let tegra_lib_dir = PathBuf::from("/usr/lib/aarch64-linux-gnu/tegra");
                     if tegra_lib_dir.exists() {
