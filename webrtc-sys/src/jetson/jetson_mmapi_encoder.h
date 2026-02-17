@@ -115,6 +115,13 @@ class JetsonMmapiEncoder {
   bool dmabuf_meta_cached_ = false;
   uint32_t dmabuf_num_planes_ = 0;
   uint32_t dmabuf_plane_bytesused_[VIDEO_MAX_PLANES] = {};
+
+  // Whether NvBufSurfaceSyncForDevice works for MMAP plane fds.
+  // Set to false on the first failure so we stop attempting (and
+  // spamming) on JetPack versions where MMAP fds aren't recognised
+  // by the NvBufSurface API.  V4L2 MMAP + qBuffer handles cache
+  // coherency on its own, so skipping the explicit sync is safe.
+  bool mmap_sync_supported_ = true;
 };
 
 }  // namespace livekit

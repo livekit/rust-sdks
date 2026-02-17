@@ -275,6 +275,7 @@ void JetsonMmapiEncoder::Destroy() {
   dmabuf_meta_cached_ = false;
   dmabuf_planes_setup_ = false;
   use_dmabuf_input_ = false;
+  mmap_sync_supported_ = true;
   next_output_index_ = 0;
 }
 
@@ -822,12 +823,15 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   uint32_t y_pitch = 0, y_h = 0, y_np = 0;
   uint32_t u_pitch = 0, u_h = 0, u_np = 0;
   uint32_t v_pitch = 0, v_h = 0, v_np = 0;
-  const bool have_y =
+  // Only probe NvBufSurface plane metadata if the API works for MMAP fds.
+  // On JetPack versions where it doesn't, calling NvBufSurfaceFromFd
+  // produces noisy "Wrong buffer index" warnings on every frame.
+  const bool have_y = mmap_sync_supported_ &&
       GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[0].fd, 0, &y_pitch, &y_h, &y_np);
-  const bool have_u =
+  const bool have_u = mmap_sync_supported_ &&
       (buffer->n_planes > 1) &&
       GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[1].fd, 1, &u_pitch, &u_h, &u_np);
-  const bool have_v =
+  const bool have_v = mmap_sync_supported_ &&
       (!output_is_nv12_ && buffer->n_planes > 2) &&
       GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[2].fd, 2, &v_pitch, &v_h, &v_np);
 
@@ -1026,59 +1030,32 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
     }
   }
 
-  // Sync CPU-written pixel data to the device.  Each V4L2 MMAP plane has its
-  // own DMA fd.  NvBufSurfaceFromFd returns a surface that represents the
-  // *entire* multi-plane allocation, so the plane parameter to
-  // NvBufSurfaceSyncForDevice must be the NvBufSurface plane index.  For
-  // multi-planar V4L2 formats where all planes share the same fd, we sync
-  // all planes at once (-1).  When each plane has a distinct fd, we sync
-  // plane 0 of each surface (the only plane that fd covers).
-  //
-  // We cache the NvBufSurface* per fd because the V4L2 MMAP plane fds are
-  // fixed for the encoder's lifetime and NvBufSurfaceFromFd triggers
-  // "Wrong buffer index" warnings on some JetPack versions.
-  {
-    static std::unordered_map<int, NvBufSurface*> surface_cache;
-    int synced_fds[VIDEO_MAX_PLANES] = {-1, -1, -1, -1};
-    int n_synced = 0;
+  // Best-effort sync of CPU-written pixel data to the device.  On JetPack
+  // versions where NvBufSurfaceFromFd works for V4L2 MMAP plane fds this
+  // flushes CPU caches before the hardware encoder reads the buffer.  On
+  // versions where it doesn't (producing "Wrong buffer index" warnings),
+  // we disable the sync after the first failure.  V4L2 MMAP + qBuffer
+  // handles cache coherency on its own so skipping is safe.
+  if (mmap_sync_supported_) {
     for (int plane = 0; plane < buffer->n_planes; ++plane) {
       int fd = buffer->planes[plane].fd;
-      bool already = false;
-      for (int j = 0; j < n_synced; ++j) {
-        if (synced_fds[j] == fd) { already = true; break; }
-      }
-      if (already) continue;
-      synced_fds[n_synced++] = fd;
-
       NvBufSurface* surface = nullptr;
-      auto cache_it = surface_cache.find(fd);
-      if (cache_it != surface_cache.end()) {
-        surface = cache_it->second;
-      } else {
-        int map_ret =
-            NvBufSurfaceFromFd(fd, reinterpret_cast<void**>(&surface));
-        if (map_ret != 0 || !surface) {
-          RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
-          std::fprintf(stderr,
-                       "[MMAPI] NvBufSurfaceFromFd failed: plane=%d, fd=%d, "
-                       "ret=%d, surface=%p\n",
-                       plane, fd, map_ret,
-                       static_cast<void*>(surface));
-          std::fflush(stderr);
-          return false;
-        }
-        surface_cache[fd] = surface;
+      int map_ret =
+          NvBufSurfaceFromFd(fd, reinterpret_cast<void**>(&surface));
+      if (map_ret != 0 || !surface) {
+        mmap_sync_supported_ = false;
+        RTC_LOG(LS_WARNING)
+            << "NvBufSurfaceFromFd failed for MMAP fd; disabling explicit "
+               "device sync (V4L2 qBuffer handles coherency).";
+        break;
       }
-      // Sync all planes of this surface at once.
       int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, -1);
       if (sync_ret != 0) {
-        RTC_LOG(LS_ERROR) << "Failed to sync output plane for device.";
-        std::fprintf(stderr,
-                     "[MMAPI] NvBufSurfaceSyncForDevice failed: plane=%d, "
-                     "ret=%d\n",
-                     plane, sync_ret);
-        std::fflush(stderr);
-        return false;
+        mmap_sync_supported_ = false;
+        RTC_LOG(LS_WARNING)
+            << "NvBufSurfaceSyncForDevice failed for MMAP fd; disabling "
+               "explicit device sync (V4L2 qBuffer handles coherency).";
+        break;
       }
     }
   }
@@ -1155,9 +1132,9 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
   const int chroma_height = (height_ + 1) / 2;
   uint32_t y_pitch = 0, y_h = 0, y_np = 0;
   uint32_t uv_pitch = 0, uv_h = 0, uv_np = 0;
-  const bool have_y =
+  const bool have_y = mmap_sync_supported_ &&
       GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[0].fd, 0, &y_pitch, &y_h, &y_np);
-  const bool have_uv =
+  const bool have_uv = mmap_sync_supported_ &&
       (buffer->n_planes > 1) &&
       GetPitchAndHeightFromNvBufSurfaceFd(buffer->planes[1].fd, 1, &uv_pitch, &uv_h, &uv_np);
 
@@ -1277,49 +1254,27 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
     }
   }
 
-  // Sync CPU-written pixel data to the device (see QueueOutputBuffer for
-  // detailed comments on the fd/plane mapping and surface caching).
-  {
-    static std::unordered_map<int, NvBufSurface*> surface_cache;
-    int synced_fds[VIDEO_MAX_PLANES] = {-1, -1, -1, -1};
-    int n_synced = 0;
+  // Best-effort device sync (see QueueOutputBuffer for rationale).
+  if (mmap_sync_supported_) {
     for (int plane = 0; plane < buffer->n_planes; ++plane) {
       int fd = buffer->planes[plane].fd;
-      bool already = false;
-      for (int j = 0; j < n_synced; ++j) {
-        if (synced_fds[j] == fd) { already = true; break; }
-      }
-      if (already) continue;
-      synced_fds[n_synced++] = fd;
-
       NvBufSurface* surface = nullptr;
-      auto cache_it = surface_cache.find(fd);
-      if (cache_it != surface_cache.end()) {
-        surface = cache_it->second;
-      } else {
-        int map_ret =
-            NvBufSurfaceFromFd(fd, reinterpret_cast<void**>(&surface));
-        if (map_ret != 0 || !surface) {
-          RTC_LOG(LS_ERROR) << "Failed to map output plane for device sync.";
-          std::fprintf(stderr,
-                       "[MMAPI] NvBufSurfaceFromFd failed: plane=%d, fd=%d, "
-                       "ret=%d, surface=%p\n",
-                       plane, fd, map_ret,
-                       static_cast<void*>(surface));
-          std::fflush(stderr);
-          return false;
-        }
-        surface_cache[fd] = surface;
+      int map_ret =
+          NvBufSurfaceFromFd(fd, reinterpret_cast<void**>(&surface));
+      if (map_ret != 0 || !surface) {
+        mmap_sync_supported_ = false;
+        RTC_LOG(LS_WARNING)
+            << "NvBufSurfaceFromFd failed for MMAP fd; disabling explicit "
+               "device sync (V4L2 qBuffer handles coherency).";
+        break;
       }
       int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, -1);
       if (sync_ret != 0) {
-        RTC_LOG(LS_ERROR) << "Failed to sync output plane for device.";
-        std::fprintf(stderr,
-                     "[MMAPI] NvBufSurfaceSyncForDevice failed: plane=%d, "
-                     "ret=%d\n",
-                     plane, sync_ret);
-        std::fflush(stderr);
-        return false;
+        mmap_sync_supported_ = false;
+        RTC_LOG(LS_WARNING)
+            << "NvBufSurfaceSyncForDevice failed for MMAP fd; disabling "
+               "explicit device sync (V4L2 qBuffer handles coherency).";
+        break;
       }
     }
   }
