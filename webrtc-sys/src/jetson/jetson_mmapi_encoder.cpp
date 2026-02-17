@@ -273,6 +273,9 @@ void JetsonMmapiEncoder::Destroy() {
   }
   initialized_ = false;
   dmabuf_meta_cached_ = false;
+  dmabuf_planes_setup_ = false;
+  use_dmabuf_input_ = false;
+  next_output_index_ = 0;
 }
 
 bool JetsonMmapiEncoder::IsInitialized() const {
