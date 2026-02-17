@@ -124,6 +124,13 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         return list_cameras();
     }
 
+    // Branch: MIPI CSI (Argus) or USB camera (nokhwa)
+    // Must happen before any partial moves of `args` fields below.
+    #[cfg(target_os = "linux")]
+    if args.mipi {
+        return run_mipi(args, ctrl_c_received).await;
+    }
+
     // LiveKit connection details
     let url = args
         .url
@@ -166,12 +173,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 debug!("Room event: {:?}", evt);
             }
         });
-    }
-
-    // Branch: MIPI CSI (Argus) or USB camera (nokhwa)
-    #[cfg(target_os = "linux")]
-    if args.mipi {
-        return run_mipi(args, room, ctrl_c_received).await;
     }
 
     // Setup camera
@@ -510,12 +511,55 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 #[cfg(target_os = "linux")]
 async fn run_mipi(
     args: Args,
-    room: std::sync::Arc<Room>,
     ctrl_c_received: Arc<AtomicBool>,
 ) -> Result<()> {
     let width = args.width;
     let height = args.height;
     let fps = args.fps;
+
+    // LiveKit connection details
+    let url = args
+        .url
+        .or_else(|| env::var("LIVEKIT_URL").ok())
+        .expect("LIVEKIT_URL must be provided via --url or env");
+    let api_key = args
+        .api_key
+        .or_else(|| env::var("LIVEKIT_API_KEY").ok())
+        .expect("LIVEKIT_API_KEY must be provided via --api-key or env");
+    let api_secret = args
+        .api_secret
+        .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
+        .expect("LIVEKIT_API_SECRET must be provided via --api-secret or env");
+
+    let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
+        .with_identity(&args.identity)
+        .with_name(&args.identity)
+        .with_grants(access_token::VideoGrants {
+            room_join: true,
+            room: args.room_name.clone(),
+            can_publish: true,
+            ..Default::default()
+        })
+        .to_jwt()?;
+
+    info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
+    let mut room_options = RoomOptions::default();
+    room_options.auto_subscribe = true;
+    let (room, _) = Room::connect(&url, &token, room_options).await?;
+    let room = std::sync::Arc::new(room);
+    info!("Connected: {} - {}", room.name(), room.sid().await);
+
+    // Log room events
+    {
+        let room_clone = room.clone();
+        tokio::spawn(async move {
+            let mut events = room_clone.subscribe();
+            info!("Subscribed to room events");
+            while let Some(evt) = events.recv().await {
+                debug!("Room event: {:?}", evt);
+            }
+        });
+    }
 
     // Create LiveKit video source and track
     let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
