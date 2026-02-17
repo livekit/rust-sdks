@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use clap::Parser;
 use eframe::egui;
 use eframe::wgpu::{self, util::DeviceExt};
@@ -136,36 +137,9 @@ fn current_timestamp_us() -> i64 {
 /// Format a user timestamp (microseconds since Unix epoch) as
 /// `yyyy-mm-dd hh:mm:ss.ssss`.
 fn format_timestamp_us(ts_us: i64) -> String {
-    // Convert to calendar components without chrono — pure arithmetic.
-    let secs = (ts_us / 1_000_000) as u64;
-    let sub_sec_us = (ts_us % 1_000_000) as u32;
-
-    // Days / time-of-day decomposition
-    let days = (secs / 86400) as i64;
-    let day_secs = (secs % 86400) as u32;
-    let hour = day_secs / 3600;
-    let minute = (day_secs % 3600) / 60;
-    let second = day_secs % 60;
-    let frac = sub_sec_us / 100; // 4-digit tenths of microseconds → 0..9999
-
-    // Convert days since epoch to y/m/d (civil calendar, proleptic Gregorian).
-    // Algorithm from Howard Hinnant (http://howardhinnant.github.io/date_algorithms.html)
-    let z = days + 719468;
-    let era = (if z >= 0 { z } else { z - 146096 }) / 146097;
-    let doe = (z - era * 146097) as u32; // day of era [0, 146096]
-    let yoe =
-        (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // year of era [0, 399]
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // day of year [0, 365]
-    let mp = (5 * doy + 2) / 153; // [0, 11]
-    let day = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
-    let month = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
-    let year = if month <= 2 { y + 1 } else { y };
-
-    format!(
-        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:04}",
-        year, month, day, hour, minute, second, frac
-    )
+    DateTime::<Utc>::from_timestamp_micros(ts_us)
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S%.4f").to_string())
+        .unwrap_or_else(|| format!("<invalid timestamp {ts_us}>"))
 }
 
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
