@@ -45,6 +45,10 @@
 #include "vaapi/vaapi_encoder_factory.h"
 #endif
 
+#if defined(USE_V4L2_VIDEO_CODEC)
+#include "v4l2/v4l2_encoder_factory.h"
+#endif
+
 namespace livekit_ffi {
 
 using Factory = webrtc::VideoEncoderFactoryTemplate<
@@ -79,6 +83,12 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
 #endif
 
 #if defined(USE_NVIDIA_VIDEO_CODEC)
+  }
+#endif
+
+#if defined(USE_V4L2_VIDEO_CODEC)
+  if (webrtc::V4L2VideoEncoderFactory::IsSupported()) {
+    factories_.push_back(std::make_unique<webrtc::V4L2VideoEncoderFactory>());
   }
 #endif
 }
