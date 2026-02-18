@@ -44,7 +44,6 @@ class ChainedFrameTransformer : public webrtc::FrameTransformerInterface,
 
   void RegisterTransformedFrameCallback(
       rtc::scoped_refptr<webrtc::TransformedFrameCallback> callback) override {
-    callback_ = callback;
     second_->RegisterTransformedFrameCallback(callback);
     first_->RegisterTransformedFrameCallback(
         rtc::scoped_refptr<webrtc::TransformedFrameCallback>(this));
@@ -61,7 +60,6 @@ class ChainedFrameTransformer : public webrtc::FrameTransformerInterface,
   void UnregisterTransformedFrameCallback() override {
     first_->UnregisterTransformedFrameCallback();
     second_->UnregisterTransformedFrameCallback();
-    callback_ = nullptr;
   }
 
   void UnregisterTransformedFrameSinkCallback(uint32_t ssrc) override {
@@ -77,7 +75,6 @@ class ChainedFrameTransformer : public webrtc::FrameTransformerInterface,
  private:
   rtc::scoped_refptr<webrtc::FrameTransformerInterface> first_;
   rtc::scoped_refptr<webrtc::FrameTransformerInterface> second_;
-  rtc::scoped_refptr<webrtc::TransformedFrameCallback> callback_;
 };
 
 webrtc::FrameCryptorTransformer::Algorithm AlgorithmToFrameCryptorAlgorithm(
