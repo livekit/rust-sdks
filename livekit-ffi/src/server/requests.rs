@@ -1224,6 +1224,20 @@ fn on_local_data_track_try_push(
     track.try_push(server, request)
 }
 
+fn on_subscribe_local_data_track(
+    server: &'static FfiServer,
+    request: proto::SubscribeDataTrackRequest
+) -> FfiResult<proto::SubscribeDataTrackResponse> {
+    todo!()
+}
+
+fn on_remote_data_track_is_published(
+    server: &'static FfiServer,
+    request: proto::RemoteDataTrackIsPublishedRequest
+) -> FfiResult<proto::RemoteDataTrackIsPublishedResponse> {
+    todo!()
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -1329,6 +1343,8 @@ pub fn handle_request(
         }
         Request::LocalDataTrackUnpublish(req) => on_local_data_track_unpublish(server, req)?.into(),
         Request::LocalDataTrackTryPush(req) => on_local_data_track_try_push(server, req)?.into(),
+        Request::SubscribeDataTrack(req) => on_subscribe_local_data_track(server, req)?.into(),
+        Request::RemoteDataTrackIsPublished(req) => on_remote_data_track_is_published(server, req)?.into()
     });
 
     Ok(res)

@@ -24,6 +24,7 @@ import "track.proto";
 import "video_frame.proto";
 import "stats.proto";
 import "data_stream.proto";
+import "data_track.proto";
 
 // Connect to a new LiveKit room
 message ConnectRequest {
@@ -402,6 +403,7 @@ message RoomEvent {
     ParticipantEncryptionStatusChanged participant_encryption_status_changed = 39;
     ParticipantPermissionChanged participant_permission_changed = 41;
     TokenRefreshed token_refreshed = 40;
+    RemoteDataTrackPublished remote_data_track_published = 42;
   }
 }
 
@@ -733,4 +735,9 @@ message ByteStreamOpened {
 message TextStreamOpened {
   required OwnedTextStreamReader reader = 1;
   required string participant_identity = 2;
+}
+
+// A remote participant published a data track.
+message RemoteDataTrackPublished {
+    required OwnedRemoteDataTrack track = 1;
 }

@@ -159,7 +159,11 @@ message FfiRequest {
     LocalDataTrackUnpublishRequest local_data_track_unpublish = 71;
     LocalDataTrackIsPublishedRequest local_data_track_is_published = 72;
 
-    // NEXT_ID: 73
+    // Data Track (remote)
+    SubscribeDataTrackRequest subscribe_data_track = 73;
+    RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
+
+    // NEXT_ID: 75
   }
 }
 
@@ -264,7 +268,11 @@ message FfiResponse {
     LocalDataTrackUnpublishResponse local_data_track_unpublish = 70;
     LocalDataTrackIsPublishedResponse local_data_track_is_published = 71;
 
-    // NEXT_ID: 72
+    // Data Track (remote)
+    SubscribeDataTrackResponse subscribe_data_track = 72;
+    RemoteDataTrackIsPublishedResponse remote_data_track_is_published = 73;
+
+    // NEXT_ID: 74
   }
 }
 
@@ -324,7 +332,10 @@ message FfiEvent {
     // Data Track (local)
     PublishDataTrackCallback publish_data_track = 42;
 
-    // NEXT_ID: 43
+    // Data Track (remote)
+    SubscribeDataTrackCallback subscribe_data_track = 43;
+
+    // NEXT_ID: 44
   }
 }
 
