@@ -59,6 +59,8 @@ where
 {
     pub rotation: VideoRotation,
     pub timestamp_us: i64, // When the frame was captured in microseconds
+    /// Optional user timestamp in microseconds, if available.
+    pub user_timestamp_us: Option<i64>,
     pub buffer: T,
 }
 

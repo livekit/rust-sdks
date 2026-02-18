@@ -34,6 +34,7 @@ pub mod rtp_receiver;
 pub mod rtp_sender;
 pub mod rtp_transceiver;
 pub mod session_description;
+pub mod user_timestamp;
 pub mod video_frame;
 pub mod video_source;
 pub mod video_stream;

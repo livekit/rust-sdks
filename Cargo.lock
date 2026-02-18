@@ -3413,7 +3413,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.47"
+version = "0.12.48"
 dependencies = [
  "bytes",
  "console-subscriber",
@@ -3497,10 +3497,11 @@ dependencies = [
 
 [[package]]
 name = "local_video"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "chrono",
  "clap",
  "eframe",
  "egui",

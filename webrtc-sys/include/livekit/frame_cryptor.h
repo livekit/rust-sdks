@@ -39,6 +39,7 @@ struct EncryptedPacket;
 enum class Algorithm : ::std::int32_t;
 class RtcFrameCryptorObserverWrapper;
 class NativeFrameCryptorObserver;
+class UserTimestampHandler;
 
 /// Shared secret key for frame encryption.
 class KeyProvider {
@@ -158,6 +159,10 @@ class FrameCryptor {
 
   void unregister_observer() const;
 
+  /// Attach a user timestamp transformer for chained processing.
+  void set_user_timestamp_handler(
+      std::shared_ptr<UserTimestampHandler> handler) const;
+
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   const rust::String participant_id_;
@@ -167,6 +172,8 @@ class FrameCryptor {
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
   mutable webrtc::scoped_refptr<NativeFrameCryptorObserver> observer_;
+  mutable rtc::scoped_refptr<webrtc::FrameTransformerInterface>
+      chained_transformer_;
 };
 
 class NativeFrameCryptorObserver
