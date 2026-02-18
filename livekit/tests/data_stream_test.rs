@@ -12,21 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "__lk-e2e-test")]
-use {
-    crate::common::test_rooms,
-    anyhow::{anyhow, Ok, Result},
-    chrono::{TimeDelta, Utc},
-    livekit::{RoomEvent, StreamByteOptions, StreamReader, StreamTextOptions},
-    std::time::Duration,
-    tokio::{time::timeout, try_join},
-};
+use anyhow::{anyhow, Ok, Result};
+use chrono::{TimeDelta, Utc};
+use common::test_rooms;
+use livekit::{RoomEvent, StreamByteOptions, StreamReader, StreamTextOptions};
+use std::time::Duration;
+use tokio::{time::timeout, try_join};
 
 mod common;
 
-#[cfg(feature = "__lk-e2e-test")]
 #[tokio::test]
-async fn test_send_bytes() -> Result<()> {
+async fn test_e2e_send_bytes() -> Result<()> {
     let mut rooms = test_rooms(2).await?;
     let (sending_room, _) = rooms.pop().unwrap();
     let (_, mut receiving_event_rx) = rooms.pop().unwrap();
@@ -70,9 +66,8 @@ async fn test_send_bytes() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "__lk-e2e-test")]
 #[tokio::test]
-async fn test_send_text() -> Result<()> {
+async fn test_e2e_send_text() -> Result<()> {
     let mut rooms = test_rooms(2).await?;
     let (sending_room, _) = rooms.pop().unwrap();
     let (_, mut receiving_event_rx) = rooms.pop().unwrap();

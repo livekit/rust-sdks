@@ -12,19 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "__lk-e2e-test")]
-use {
-    anyhow::{anyhow, Ok, Result},
-    common::{
-        audio::{ChannelIterExt, FreqAnalyzer, SineParameters, SineTrack},
-        test_rooms,
-    },
-    futures_util::StreamExt,
-    libwebrtc::audio_stream::native::NativeAudioStream,
-    livekit::prelude::*,
-    std::{sync::Arc, time::Duration},
-    tokio::time::timeout,
+use anyhow::{anyhow, Ok, Result};
+use common::{
+    audio::{ChannelIterExt, FreqAnalyzer, SineParameters, SineTrack},
+    test_rooms,
 };
+use futures_util::StreamExt;
+use libwebrtc::audio_stream::native::NativeAudioStream;
+use livekit::prelude::*;
+use std::{sync::Arc, time::Duration};
+use tokio::time::timeout;
 
 mod common;
 
@@ -35,9 +32,8 @@ struct TestParams {
     sub_channels: u32,
 }
 
-#[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-async fn test_audio() -> Result<()> {
+async fn test_e2e_audio() -> Result<()> {
     let test_params = [
         TestParams { pub_rate_hz: 48_000, pub_channels: 1, sub_rate_hz: 48_000, sub_channels: 1 },
         TestParams { pub_rate_hz: 48_000, pub_channels: 2, sub_rate_hz: 48_000, sub_channels: 2 },
@@ -56,7 +52,6 @@ async fn test_audio() -> Result<()> {
 /// Verifies that audio can be published and received correctly
 /// between two participants by detecting the frequency of the sine wave on the subscriber end.
 ///
-#[cfg(feature = "__lk-e2e-test")]
 async fn test_audio_with(params: TestParams) -> Result<()> {
     let mut rooms = test_rooms(2).await?;
     let (pub_room, _) = rooms.pop().unwrap();
