@@ -83,8 +83,7 @@ impl PeerConnectionFactory {
     pub fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack {
         RtcVideoTrack {
             handle: imp_vt::RtcVideoTrack::new(
-                self.sys_handle
-                    .create_video_track(label.to_string(), source.handle.sys_handle()),
+                self.sys_handle.create_video_track(label.to_string(), source.handle.sys_handle()),
             ),
         }
     }

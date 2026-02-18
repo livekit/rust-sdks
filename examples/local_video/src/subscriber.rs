@@ -128,17 +128,17 @@ fn infer_quality_from_dims(
 
 /// Returns the current wall-clock time as microseconds since Unix epoch.
 fn current_timestamp_us() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_micros() as i64
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_micros() as i64
 }
 
 /// Format a user timestamp (microseconds since Unix epoch) as
 /// `yyyy-mm-dd hh:mm:ss:xxx` where xxx is milliseconds.
 fn format_timestamp_us(ts_us: i64) -> String {
     DateTime::<Utc>::from_timestamp_micros(ts_us)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S:").to_string() + &format!("{:03}", dt.timestamp_subsec_millis()))
+        .map(|dt| {
+            dt.format("%Y-%m-%d %H:%M:%S:").to_string()
+                + &format!("{:03}", dt.timestamp_subsec_millis())
+        })
         .unwrap_or_else(|| format!("<invalid timestamp {ts_us}>"))
 }
 
@@ -668,10 +668,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             KeyProviderOptions::default(),
             e2ee_key.as_bytes().to_vec(),
         );
-        room_options.encryption = Some(E2eeOptions {
-            encryption_type: EncryptionType::Gcm,
-            key_provider,
-        });
+        room_options.encryption =
+            Some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
         info!("E2EE enabled with AES-GCM encryption");
     }
 

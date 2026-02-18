@@ -33,10 +33,7 @@ impl RtcVideoTrack {
     impl_media_stream_track!(video_to_media);
 
     pub(crate) fn new(sys_handle: SharedPtr<sys_vt::ffi::VideoTrack>) -> Self {
-        Self {
-            sys_handle,
-            user_timestamp_handler: Arc::new(Mutex::new(None)),
-        }
+        Self { sys_handle, user_timestamp_handler: Arc::new(Mutex::new(None)) }
     }
 
     pub fn sys_handle(&self) -> SharedPtr<sys_vt::ffi::MediaStreamTrack> {

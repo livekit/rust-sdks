@@ -153,10 +153,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             KeyProviderOptions::default(),
             e2ee_key.as_bytes().to_vec(),
         );
-        room_options.encryption = Some(E2eeOptions {
-            encryption_type: EncryptionType::Gcm,
-            key_provider,
-        });
+        room_options.encryption =
+            Some(E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider });
         info!("E2EE enabled with AES-GCM encryption");
     }
 

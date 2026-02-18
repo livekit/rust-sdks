@@ -81,11 +81,7 @@ impl NativeVideoSource {
                     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
                     builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
 
-                    source.sys_handle.on_captured_frame(
-                        &builder.pin_mut().build(),
-                        false,
-                        0,
-                    );
+                    source.sys_handle.on_captured_frame(&builder.pin_mut().build(), false, 0);
                 }
             }
         });

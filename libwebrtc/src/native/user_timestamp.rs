@@ -30,8 +30,7 @@ use cxx::SharedPtr;
 use webrtc_sys::user_timestamp::ffi as sys_ut;
 
 use crate::{
-    peer_connection_factory::PeerConnectionFactory,
-    rtp_receiver::RtpReceiver,
+    peer_connection_factory::PeerConnectionFactory, rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
 };
 

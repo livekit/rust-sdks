@@ -141,10 +141,8 @@ impl E2eeManager {
 
         // Always set up user timestamp embedding for local video tracks.
         if let LocalTrack::Video(video_track) = &track {
-            let handler = user_timestamp::create_sender_handler(
-                LkRuntime::instance().pc_factory(),
-                &sender,
-            );
+            let handler =
+                user_timestamp::create_sender_handler(LkRuntime::instance().pc_factory(), &sender);
             video_track.set_user_timestamp_handler(handler.clone());
 
             // Also set the handler on the video source so that capture_frame()
