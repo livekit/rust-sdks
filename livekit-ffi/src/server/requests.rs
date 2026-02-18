@@ -24,7 +24,7 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, colorcvt, data_stream,
+    audio_source, audio_stream, colorcvt, data_stream, data_track,
     participant::FfiParticipant,
     resampler,
     room::{self, FfiPublication, FfiTrack},
@@ -1190,6 +1190,40 @@ fn on_text_stream_close(
     writer.close(server, request)
 }
 
+fn on_publish_data_track(
+    server: &'static FfiServer,
+    request: proto::PublishDataTrackRequest,
+) -> FfiResult<proto::PublishDataTrackResponse> {
+    let ffi_participant =
+        server.retrieve_handle::<FfiParticipant>(request.local_participant_handle)?.clone();
+    ffi_participant.publish_data_track(server, request)
+
+}
+
+fn on_local_data_track_is_published(
+    server: &'static FfiServer,
+    request: proto::LocalDataTrackIsPublishedRequest,
+) -> FfiResult<proto::LocalDataTrackIsPublishedResponse> {
+    let track = server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.handle)?.clone();
+    track.is_published(server, request)
+}
+
+fn on_local_data_track_unpublish(
+    server: &'static FfiServer,
+    request: proto::LocalDataTrackUnpublishRequest,
+) -> FfiResult<proto::LocalDataTrackUnpublishResponse> {
+    let track = server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.handle)?.clone();
+    track.unpublish(server, request)
+}
+
+fn on_local_data_track_try_push(
+    server: &'static FfiServer,
+    request: proto::LocalDataTrackTryPushRequest,
+) -> FfiResult<proto::LocalDataTrackTryPushResponse> {
+    let track = server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.handle)?.clone();
+    track.try_push(server, request)
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -1289,6 +1323,12 @@ pub fn handle_request(
         Request::SetTrackSubscriptionPermissions(req) => {
             on_set_track_subscription_permissions(server, req)?.into()
         }
+        Request::PublishDataTrack(req) => on_publish_data_track(server, req)?.into(),
+        Request::LocalDataTrackIsPublished(req) => {
+            on_local_data_track_is_published(server, req)?.into()
+        }
+        Request::LocalDataTrackUnpublish(req) => on_local_data_track_unpublish(server, req)?.into(),
+        Request::LocalDataTrackTryPush(req) => on_local_data_track_try_push(server, req)?.into(),
     });
 
     Ok(res)

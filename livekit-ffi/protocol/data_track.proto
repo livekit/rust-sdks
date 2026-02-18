@@ -1,0 +1,96 @@
+// Copyright 2026 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto2";
+
+package livekit.proto;
+
+import "handle.proto";
+
+option csharp_namespace = "LiveKit.Proto";
+
+// MARK: - Common
+
+// Information about a published data track.
+message DataTrackInfo {
+  required string name = 1;
+  required string sid = 2;
+  required bool uses_e2ee = 3;
+}
+
+message DataTrackFrame {
+  required bytes payload = 1;
+  optional uint64 user_timestamp = 2;
+}
+
+// MARK: - Local
+
+// Options for publishing a data track.
+message DataTrackOptions {
+  required string name = 1;
+}
+
+// Publish a data track
+message PublishDataTrackRequest {
+  required uint64 local_participant_handle = 1;
+  required DataTrackOptions options = 2;
+  optional uint64 request_async_id = 3;
+}
+message PublishDataTrackResponse {
+  required uint64 async_id = 1;
+}
+message PublishDataTrackCallback {
+  required uint64 async_id = 1;
+  oneof result {
+    OwnedLocalDataTrack track = 2;
+    string error = 3;
+  }
+}
+
+message OwnedLocalDataTrack {
+  required FfiOwnedHandle handle = 1;
+  required DataTrackInfo info = 2;
+}
+
+// Try pushing a frame to subscribers of the track.
+message LocalDataTrackTryPushRequest {
+  required uint64 handle = 1;
+  required DataTrackFrame frame = 2;
+}
+message LocalDataTrackTryPushResponse {
+  optional string error = 2;
+}
+
+// Checks if the track is still published.
+message LocalDataTrackIsPublishedRequest {
+  required uint64 handle = 1;
+}
+message LocalDataTrackIsPublishedResponse {
+  required bool is_published = 1;
+}
+
+// Unpublishes the track.
+message LocalDataTrackUnpublishRequest {
+  required uint64 handle = 1;
+}
+message LocalDataTrackUnpublishResponse {}
+
+// MARK: - Remote
+
+message OwnedRemoteDataTrack {
+  required FfiOwnedHandle handle = 1;
+  required DataTrackInfo info = 2;
+  // Identity of the remote participant who published the track.
+  required string publisher_identity = 3;
+}

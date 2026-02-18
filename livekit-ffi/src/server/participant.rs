@@ -19,13 +19,9 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 
 use crate::{
-    proto,
-    server::{
-        data_stream::{FfiByteStreamWriter, FfiTextStreamWriter},
-        room::RoomInner,
-        FfiHandle, FfiServer,
-    },
-    FfiError, FfiHandleId, FfiResult,
+    FfiError, FfiHandleId, FfiResult, proto, server::{
+        FfiHandle, FfiServer, data_stream::{FfiByteStreamWriter, FfiTextStreamWriter}, data_track::FfiLocalDataTrack, room::RoomInner
+    }
 };
 
 #[derive(Clone)]
@@ -241,6 +237,30 @@ impl FfiParticipant {
         });
         server.watch_panic(handle);
         Ok(proto::TextStreamOpenResponse { async_id })
+    }
+
+    pub fn publish_data_track(
+        &self,
+        server: &'static FfiServer,
+        request: proto::PublishDataTrackRequest
+    ) -> FfiResult<proto::PublishDataTrackResponse> {
+        let async_id = server.resolve_async_id(request.request_async_id);
+        let local = self.guard_local_participant()?;
+
+        let handle = server.async_runtime.spawn(async move {
+            let result = match local.publish_data_track(request.options).await {
+                Ok(track) => {
+                    let ffi_track = FfiLocalDataTrack::from_track(server, track);
+                    proto::publish_data_track_callback::Result::Track(ffi_track)
+                }
+                Err(err) => proto::publish_data_track_callback::Result::Error(err.to_string())
+                // TODO: consider better error reporting
+            };
+            let callback = proto::PublishDataTrackCallback { async_id, result: Some(result) };
+            let _ = server.send_event(callback.into());
+        });
+        server.watch_panic(handle);
+        Ok(proto::PublishDataTrackResponse { async_id })
     }
 }
 
