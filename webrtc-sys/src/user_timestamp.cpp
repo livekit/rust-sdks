@@ -179,8 +179,10 @@ void UserTimestampTransformer::TransformReceive(
         recv_map_.erase(recv_map_order_.front());
         recv_map_order_.pop_front();
       }
+      if (recv_map_.find(rtp_timestamp) == recv_map_.end()) {
+        recv_map_order_.push_back(rtp_timestamp);
+      }
       recv_map_[rtp_timestamp] = user_ts.value();
-      recv_map_order_.push_back(rtp_timestamp);
     }
 
     // Update frame with stripped data
@@ -372,8 +374,10 @@ void UserTimestampTransformer::store_user_timestamp(
     send_map_order_.pop_front();
   }
 
+  if (send_map_.find(key) == send_map_.end()) {
+    send_map_order_.push_back(key);
+  }
   send_map_[key] = user_timestamp_us;
-  send_map_order_.push_back(key);
 
   RTC_LOG(LS_INFO) << "UserTimestampTransformer::store_user_timestamp"
                    << " capture_ts_us=" << capture_timestamp_us
