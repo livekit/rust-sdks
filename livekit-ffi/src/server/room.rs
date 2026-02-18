@@ -132,28 +132,40 @@ impl FfiRoom {
         let connect = async move {
             match Room::connect(&connect.url, &connect.token, options.clone()).await {
                 Ok((room, mut events)) => {
-                    // initialize audio filters
-                    let result = server
-                        .async_runtime
-                        .spawn_blocking(move || {
-                            for filter in registered_audio_filter_plugins().into_iter() {
-                                filter.on_load(&req.url, &req.token).map_err(|e| e.to_string())?;
+                    // Skip audio filter initialization for local dev servers
+                    // Local servers don't support audio filters and the on_load call
+                    // causes unnecessary HTTP requests and delays
+                    let is_local_server = connect.url.starts_with("ws://") 
+                        || connect.url.contains("localhost") 
+                        || connect.url.contains("127.0.0.1")
+                        || connect.url.contains("livekit_server");
+                    
+                    if !is_local_server {
+                        // initialize audio filters only for Cloud servers
+                        let result = server
+                            .async_runtime
+                            .spawn_blocking(move || {
+                                for filter in registered_audio_filter_plugins().into_iter() {
+                                    filter.on_load(&req.url, &req.token).map_err(|e| e.to_string())?;
+                                }
+                                Ok::<(), String>(())
+                            })
+                            .await
+                            .map_err(|e| e.to_string());
+                        match result {
+                            Err(e) | Ok(Err(e)) => {
+                                log::debug!("error while initializing audio filter: {}", e);
+                                log::error!(
+                                    "audio filter cannot be enabled: LiveKit Cloud is required"
+                                );
+                                // Skip returning an error here to keep the rtc session alive
+                                // But in this case, the filter isn't enabled in the session.
                             }
-                            Ok::<(), String>(())
-                        })
-                        .await
-                        .map_err(|e| e.to_string());
-                    match result {
-                        Err(e) | Ok(Err(e)) => {
-                            log::debug!("error while initializing audio filter: {}", e);
-                            log::error!(
-                                "audio filter cannot be enabled: LiveKit Cloud is required"
-                            );
-                            // Skip returning an error here to keep the rtc session alive
-                            // But in this case, the filter isn't enabled in the session.
-                        }
-                        Ok(Ok(_)) => (),
-                    };
+                            Ok(Ok(_)) => (),
+                        };
+                    } else {
+                        log::debug!("Skipping audio filter initialization for local dev server");
+                    }
 
                     // Successfully connected to the room
                     // Forward the initial state for the FfiClient
