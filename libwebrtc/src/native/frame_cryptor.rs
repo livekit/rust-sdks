@@ -32,6 +32,7 @@ pub struct KeyProviderOptions {
     pub ratchet_salt: Vec<u8>,
     pub failure_tolerance: i32,
     pub key_ring_size: i32,
+    pub custom_key_derivation_function: Option<fn(Vec<u8>, &mut [u8]) -> bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,8 +65,13 @@ pub struct KeyProvider {
 }
 
 impl KeyProvider {
-    pub fn new(options: KeyProviderOptions) -> Self {
-        Self { sys_handle: sys_fc::ffi::new_key_provider(options.into()) }
+    pub fn new(mut options: KeyProviderOptions) -> Self {
+        let custom_key_derivation_function = options.custom_key_derivation_function.take();
+        let sys_handle = sys_fc::ffi::new_key_provider(options.into());
+        if let Some(custom_key_derivation_function) = custom_key_derivation_function {
+            sys_handle.set_custom_key_derivation_function(custom_key_derivation_function);
+        }
+        Self { sys_handle }
     }
 
     pub fn set_shared_key(&self, key_index: i32, key: Vec<u8>) -> bool {

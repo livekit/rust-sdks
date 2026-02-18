@@ -16,6 +16,7 @@
 
 #include "livekit/frame_cryptor.h"
 
+#include <cstdint>
 #include <memory>
 
 #include "absl/types/optional.h"
@@ -24,6 +25,7 @@
 #include "livekit/peer_connection_factory.h"
 #include "livekit/webrtc.h"
 #include "rtc_base/thread.h"
+#include "rust/cxx.h"
 #include "webrtc-sys/src/frame_cryptor.rs.h"
 
 namespace livekit_ffi {
@@ -52,9 +54,41 @@ KeyProvider::KeyProvider(KeyProviderOptions options) {
   rtc_options.ratchet_window_size = options.ratchet_window_size;
   rtc_options.failure_tolerance = options.failure_tolerance;
   rtc_options.key_ring_size = options.key_ring_size;
+  custom_key_derivation_function_ = {};
 
   impl_ =
       new rtc::RefCountedObject<webrtc::DefaultKeyProviderImpl>(rtc_options);
+}
+
+bool KeyProvider::set_key(const ::rust::String participant_id,
+                          int32_t index,
+                          rust::Vec<::std::uint8_t> key) const {
+  std::string pid(participant_id.data(), participant_id.size());
+  std::vector<uint8_t> key_vec;
+  std::copy(key.begin(), key.end(), std::back_inserter(key_vec));
+  bool ok = impl_->SetKey(pid, index, key_vec);
+  if (!ok) {
+    return ok;
+  }
+
+  if (auto kdf = custom_key_derivation_function_) {
+    auto handler = impl_->GetKey(pid);
+    if (!handler) {
+      return false;
+    }
+    auto key_set = handler->GetKeySet(index);
+    if (!key_set) {
+      return false;
+    }
+
+    uint8_t buffer[16] = {0};
+    rust::Slice<uint8_t> derrived_key(buffer, sizeof(buffer));
+    (*kdf)(std::move(key), derrived_key);
+
+    key_set->encryption_key.assign(derrived_key.begin(), derrived_key.end());
+    return true;
+  }
+  return false;
 }
 
 FrameCryptor::FrameCryptor(

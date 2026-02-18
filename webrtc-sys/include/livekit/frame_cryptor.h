@@ -40,12 +40,20 @@ enum class Algorithm : ::std::int32_t;
 class RtcFrameCryptorObserverWrapper;
 class NativeFrameCryptorObserver;
 
+using CustomKeyDerivationFunction =
+    rust::Fn<bool(rust::Vec<::std::uint8_t>, rust::Slice<::std::uint8_t>)>;
 /// Shared secret key for frame encryption.
 class KeyProvider {
  public:
   KeyProvider(KeyProviderOptions options);
   ~KeyProvider() {}
 
+  void set_custom_key_derivation_function(
+      CustomKeyDerivationFunction custom_key_derivation_function) const {
+    (const_cast<KeyProvider*>(this))->custom_key_derivation_function_ =
+        std::optional<CustomKeyDerivationFunction>(
+            custom_key_derivation_function);
+  }
   bool set_shared_key(int32_t index, rust::Vec<::std::uint8_t> key) const {
     std::vector<uint8_t> key_vec;
     std::copy(key.begin(), key.end(), std::back_inserter(key_vec));
@@ -77,13 +85,7 @@ class KeyProvider {
   /// Set the key at the given index.
   bool set_key(const ::rust::String participant_id,
                int32_t index,
-               rust::Vec<::std::uint8_t> key) const {
-    std::vector<uint8_t> key_vec;
-    std::copy(key.begin(), key.end(), std::back_inserter(key_vec));
-    return impl_->SetKey(
-        std::string(participant_id.data(), participant_id.size()), index,
-        key_vec);
-  }
+               rust::Vec<::std::uint8_t> key) const;
 
   rust::Vec<::std::uint8_t> ratchet_key(const ::rust::String participant_id,
                                         int32_t key_index) const {
@@ -117,10 +119,13 @@ class KeyProvider {
     impl_->SetSifTrailer(trailer_vec);
   }
 
-  webrtc::scoped_refptr<webrtc::KeyProvider> rtc_key_provider() { return impl_; }
+  webrtc::scoped_refptr<webrtc::KeyProvider> rtc_key_provider() {
+    return impl_;
+  }
 
  private:
   webrtc::scoped_refptr<webrtc::DefaultKeyProviderImpl> impl_;
+  std::optional<CustomKeyDerivationFunction> custom_key_derivation_function_;
 };
 
 class FrameCryptor {
@@ -187,12 +192,11 @@ class NativeFrameCryptorObserver
 class DataPacketCryptor {
  public:
   DataPacketCryptor(webrtc::FrameCryptorTransformer::Algorithm algorithm,
-                   webrtc::scoped_refptr<webrtc::KeyProvider> key_provider);
+                    webrtc::scoped_refptr<webrtc::KeyProvider> key_provider);
 
-  EncryptedPacket encrypt_data_packet(
-      const ::rust::String participant_id,
-      uint32_t key_index,
-      rust::Vec<::std::uint8_t> data) const;
+  EncryptedPacket encrypt_data_packet(const ::rust::String participant_id,
+                                      uint32_t key_index,
+                                      rust::Vec<::std::uint8_t> data) const;
 
   rust::Vec<::std::uint8_t> decrypt_data_packet(
       const ::rust::String participant_id,

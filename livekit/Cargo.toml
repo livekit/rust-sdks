@@ -22,8 +22,8 @@ native-tls-vendored = ["livekit-api/native-tls-vendored"]
 rustls-tls-native-roots = ["livekit-api/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit-api/rustls-tls-webpki-roots"]
 __rustls-tls = ["livekit-api/__rustls-tls"]
-__lk-internal = [] # internal features (used by livekit-ffi)
-__lk-e2e-test = [] # end-to-end testing with a LiveKit server
+__lk-internal = []                                                # internal features (used by livekit-ffi)
+__lk-e2e-test = []                                                # end-to-end testing with a LiveKit server
 
 [dependencies]
 livekit-runtime = { workspace = true }
@@ -33,9 +33,15 @@ livekit-protocol = { workspace = true }
 prost = "0.12"
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
-tokio = { workspace = true, default-features = false, features = ["sync", "macros", "fs"] }
+tokio = { workspace = true, default-features = false, features = [
+    "sync",
+    "macros",
+    "fs",
+] }
 parking_lot = { workspace = true }
-futures-util = { workspace = true, default-features = false, features = ["sink"] }
+futures-util = { workspace = true, default-features = false, features = [
+    "sink",
+] }
 thiserror = { workspace = true }
 lazy_static = { workspace = true }
 log = { workspace = true }
@@ -45,6 +51,8 @@ libloading = { version = "0.8.6" }
 bytes = { workspace = true }
 bmrng = "0.5.2"
 base64 = "0.22"
+sha2 = "0.10.9"
+hkdf = "0.12.4"
 
 [dev-dependencies]
 anyhow = { workspace = true }

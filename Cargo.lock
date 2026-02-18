@@ -2586,6 +2586,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dfa686283ad6dd069f105e5ab091b04c62850d3e4cf5d67debad1933f55023df"
 
 [[package]]
+name = "hkdf"
+version = "0.12.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b5f8eb2ad728638ea2c7d47a21db23b7b58a72ed6a38256b8a1849f15fbbdf7"
+dependencies = [
+ "hmac",
+]
+
+[[package]]
 name = "hmac"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3364,6 +3373,7 @@ dependencies = [
  "bytes",
  "chrono",
  "futures-util",
+ "hkdf",
  "lazy_static",
  "libloading 0.8.9",
  "libwebrtc",
@@ -3376,6 +3386,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha2",
  "test-log",
  "thiserror 1.0.69",
  "tokio",
@@ -3413,7 +3424,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.47"
+version = "0.12.48"
 dependencies = [
  "bytes",
  "console-subscriber",
