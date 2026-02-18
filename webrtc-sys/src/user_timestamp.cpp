@@ -170,10 +170,6 @@ void UserTimestampTransformer::TransformReceive(
     double recv_latency_ms =
         static_cast<double>(now_us - user_ts.value()) / 1000.0;
 
-    // Store the extracted timestamp for later retrieval (legacy atomic)
-    last_user_timestamp_.store(user_ts.value());
-    has_last_user_timestamp_.store(true);
-
     // Store in the receive map keyed by RTP timestamp so decoded frames
     // can look up their user timestamp regardless of frame drops.
     {
@@ -333,14 +329,6 @@ bool UserTimestampTransformer::enabled() const {
   return enabled_.load();
 }
 
-std::optional<int64_t> UserTimestampTransformer::last_user_timestamp()
-    const {
-  if (!has_last_user_timestamp_.load()) {
-    return std::nullopt;
-  }
-  return last_user_timestamp_.load();
-}
-
 std::optional<int64_t> UserTimestampTransformer::lookup_user_timestamp(
     uint32_t rtp_timestamp) {
   webrtc::MutexLock lock(&recv_map_mutex_);
@@ -422,18 +410,9 @@ bool UserTimestampHandler::enabled() const {
   return transformer_->enabled();
 }
 
-int64_t UserTimestampHandler::last_user_timestamp() const {
-  auto ts = transformer_->last_user_timestamp();
-  return ts.value_or(-1);
-}
-
 int64_t UserTimestampHandler::lookup_user_timestamp(uint32_t rtp_timestamp) const {
   auto ts = transformer_->lookup_user_timestamp(rtp_timestamp);
   return ts.value_or(-1);
-}
-
-bool UserTimestampHandler::has_user_timestamp() const {
-  return transformer_->last_user_timestamp().has_value();
 }
 
 void UserTimestampHandler::store_user_timestamp(

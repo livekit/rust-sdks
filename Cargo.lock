@@ -3497,10 +3497,11 @@ dependencies = [
 
 [[package]]
 name = "local_video"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "chrono",
  "clap",
  "eframe",
  "egui",

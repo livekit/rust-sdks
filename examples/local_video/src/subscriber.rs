@@ -135,10 +135,10 @@ fn current_timestamp_us() -> i64 {
 }
 
 /// Format a user timestamp (microseconds since Unix epoch) as
-/// `yyyy-mm-dd hh:mm:ss.ssss`.
+/// `yyyy-mm-dd hh:mm:ss:xxx` where xxx is milliseconds.
 fn format_timestamp_us(ts_us: i64) -> String {
     DateTime::<Utc>::from_timestamp_micros(ts_us)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S%.4f").to_string())
+        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S:").to_string() + &format!("{:03}", dt.timestamp_subsec_millis()))
         .unwrap_or_else(|| format!("<invalid timestamp {ts_us}>"))
 }
 

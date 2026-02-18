@@ -35,16 +35,9 @@ pub mod ffi {
         /// Check if timestamp embedding is enabled.
         fn enabled(self: &UserTimestampHandler) -> bool;
 
-        /// Get the last received user timestamp (receiver side only).
-        /// Returns -1 if no timestamp has been received yet.
-        fn last_user_timestamp(self: &UserTimestampHandler) -> i64;
-
         /// Lookup the user timestamp for a given RTP timestamp (receiver side).
         /// Returns -1 if not found. The entry is removed after lookup.
         fn lookup_user_timestamp(self: &UserTimestampHandler, rtp_timestamp: u32) -> i64;
-
-        /// Check if a user timestamp has been received.
-        fn has_user_timestamp(self: &UserTimestampHandler) -> bool;
 
         /// Store a user timestamp for a given capture timestamp (sender side).
         /// Call this when capturing a video frame with a user timestamp.

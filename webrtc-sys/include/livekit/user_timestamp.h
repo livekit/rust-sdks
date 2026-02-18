@@ -82,9 +82,6 @@ class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
   void set_enabled(bool enabled);
   bool enabled() const;
 
-  /// Get the last received user timestamp (receiver side only)
-  std::optional<int64_t> last_user_timestamp() const;
-
   /// Lookup the user timestamp associated with a given RTP timestamp.
   /// Returns the user timestamp if found, nullopt otherwise.
   /// The entry is removed from the map after lookup.
@@ -121,9 +118,6 @@ class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
   std::unordered_map<uint32_t,
                      rtc::scoped_refptr<webrtc::TransformedFrameCallback>>
       sink_callbacks_;
-  mutable std::atomic<int64_t> last_user_timestamp_{0};
-  mutable std::atomic<bool> has_last_user_timestamp_{false};
-
   // Send-side map: capture timestamp (us) -> user timestamp (us).
   // Populated by store_user_timestamp(), consumed by TransformSend()
   // via CaptureTime() lookup.
@@ -159,16 +153,9 @@ class UserTimestampHandler {
   void set_enabled(bool enabled) const;
   bool enabled() const;
 
-  /// Get the last received user timestamp (receiver side only)
-  /// Returns -1 if no timestamp has been received yet
-  int64_t last_user_timestamp() const;
-
   /// Lookup the user timestamp for a given RTP timestamp (receiver side).
   /// Returns -1 if not found.
   int64_t lookup_user_timestamp(uint32_t rtp_timestamp) const;
-
-  /// Check if a user timestamp has been received
-  bool has_user_timestamp() const;
 
   /// Store a user timestamp for a given capture timestamp (sender side).
   /// Call this when capturing a video frame with a user timestamp.

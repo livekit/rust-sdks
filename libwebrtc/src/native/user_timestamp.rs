@@ -60,21 +60,6 @@ impl UserTimestampHandler {
         self.sys_handle.enabled()
     }
 
-    /// Get the last received user timestamp (receiver side only).
-    /// Returns None if no timestamp has been received yet.
-    pub fn last_user_timestamp(&self) -> Option<i64> {
-        if self.sys_handle.has_user_timestamp() {
-            let ts = self.sys_handle.last_user_timestamp();
-            if ts >= 0 {
-                Some(ts)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
     /// Lookup the user timestamp for a given RTP timestamp (receiver side).
     /// Returns None if no timestamp was found for this RTP timestamp.
     /// The entry is removed from the map after a successful lookup.

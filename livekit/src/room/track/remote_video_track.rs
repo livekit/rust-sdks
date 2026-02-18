@@ -94,15 +94,6 @@ impl RemoteVideoTrack {
         true
     }
 
-    /// Returns the last parsed user timestamp (in microseconds) for this
-    /// remote video track, if the user timestamp transformer is enabled and
-    /// a timestamp has been received.
-    pub fn last_user_timestamp(&self) -> Option<i64> {
-        self.rtc_track()
-            .user_timestamp_handler()
-            .and_then(|h| h.last_user_timestamp())
-    }
-
     /// Returns a clone of the user timestamp handler, if one has been set.
     pub fn user_timestamp_handler(&self) -> Option<UserTimestampHandler> {
         self.rtc_track().user_timestamp_handler()
