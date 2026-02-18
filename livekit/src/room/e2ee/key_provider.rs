@@ -60,7 +60,7 @@ impl KeyDerivationFunction {
             KeyDerivationFunction::PBKDF2 => None,
             KeyDerivationFunction::HKDF => Some(|key, salt, derived_key| {
                 let hkdf = hkdf::Hkdf::<Sha256>::new(Some(salt), key);
-                hkdf.expand(&[], derived_key).is_ok()
+                hkdf.expand(&[0u8; 128], derived_key).is_ok()
             }),
         }
     }
