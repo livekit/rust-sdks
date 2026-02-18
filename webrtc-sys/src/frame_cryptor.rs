@@ -61,7 +61,7 @@ pub mod ffi {
         pub fn new_key_provider(options: KeyProviderOptions) -> SharedPtr<KeyProvider>;
         pub fn set_custom_key_derivation_function(
             self: &KeyProvider,
-            custom_key_derivation_function: fn(Vec<u8>, &mut [u8]) -> bool,
+            custom_key_derivation_function: fn(&[u8], &[u8], &mut [u8]) -> bool,
         );
 
         pub fn set_shared_key(self: &KeyProvider, key_index: i32, key: Vec<u8>) -> bool;

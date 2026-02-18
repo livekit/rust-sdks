@@ -54,7 +54,7 @@ KeyProvider::KeyProvider(KeyProviderOptions options) {
   rtc_options.ratchet_window_size = options.ratchet_window_size;
   rtc_options.failure_tolerance = options.failure_tolerance;
   rtc_options.key_ring_size = options.key_ring_size;
-  custom_key_derivation_function_ = {};
+  custom_key_derivation_function = {};
 
   impl_ =
       new rtc::RefCountedObject<webrtc::DefaultKeyProviderImpl>(rtc_options);
@@ -71,7 +71,7 @@ bool KeyProvider::set_key(const ::rust::String participant_id,
     return ok;
   }
 
-  if (auto kdf = custom_key_derivation_function_) {
+  if (auto kdf = custom_key_derivation_function) {
     auto handler = impl_->GetKey(pid);
     if (!handler) {
       return false;
@@ -81,9 +81,14 @@ bool KeyProvider::set_key(const ::rust::String participant_id,
       return false;
     }
 
+    auto options = impl_->options();
+    auto& cpp_salt = options.ratchet_salt;
+
+    rust::Slice<const uint8_t> key_slice(key.data(), sizeof(key));
+    rust::Slice<const uint8_t> salt(cpp_salt.data(), cpp_salt.size());
     uint8_t buffer[16] = {0};
     rust::Slice<uint8_t> derrived_key(buffer, sizeof(buffer));
-    (*kdf)(std::move(key), derrived_key);
+    (*kdf)(key_slice, salt, derrived_key);
 
     key_set->encryption_key.assign(derrived_key.begin(), derrived_key.end());
     return true;

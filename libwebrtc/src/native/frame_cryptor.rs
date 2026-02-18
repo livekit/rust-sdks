@@ -25,6 +25,9 @@ use crate::{
 
 pub type OnStateChange = Box<dyn FnMut(String, EncryptionState) + Send + Sync>;
 
+pub type CustomKeyDerivationFunctionType =
+    fn(key: &[u8], salt: &[u8], derived_key: &mut [u8]) -> bool;
+
 #[derive(Debug, Clone)]
 pub struct KeyProviderOptions {
     pub shared_key: bool,
@@ -32,7 +35,7 @@ pub struct KeyProviderOptions {
     pub ratchet_salt: Vec<u8>,
     pub failure_tolerance: i32,
     pub key_ring_size: i32,
-    pub custom_key_derivation_function: Option<fn(Vec<u8>, &mut [u8]) -> bool>,
+    pub custom_key_derivation_function: Option<CustomKeyDerivationFunctionType>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

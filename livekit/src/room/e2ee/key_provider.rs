@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use libwebrtc::native::frame_cryptor as fc;
+use libwebrtc::native::frame_cryptor::{self as fc, CustomKeyDerivationFunctionType};
 use sha2::Sha256;
 use std::sync::{
     atomic::{AtomicI32, Ordering},
@@ -27,6 +27,7 @@ const DEFAULT_FAILURE_TOLERANCE: i32 = -1; // no tolerance by default
 const DEFAULT_KEY_RING_SIZE: i32 = 16;
 
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct KeyProviderOptions {
     pub ratchet_window_size: i32,
     pub ratchet_salt: Vec<u8>,
@@ -54,12 +55,12 @@ pub enum KeyDerivationFunction {
 }
 
 impl KeyDerivationFunction {
-    fn get_custom_key_derivation_function(&self) -> Option<fn(Vec<u8>, &mut [u8]) -> bool> {
+    fn get_custom_key_derivation_function(&self) -> Option<CustomKeyDerivationFunctionType> {
         match self {
             KeyDerivationFunction::PBKDF2 => None,
-            KeyDerivationFunction::HKDF => Some(|key, derived_key| {
-                let hkdf = hkdf::Hkdf::<Sha256>::new(Some(b"LKFrameEncryptionKey"), &key);
-                hkdf.expand(&[0; 128], derived_key).is_ok()
+            KeyDerivationFunction::HKDF => Some(|key, salt, derived_key| {
+                let hkdf = hkdf::Hkdf::<Sha256>::new(Some(salt), key);
+                hkdf.expand(&[], derived_key).is_ok()
             }),
         }
     }

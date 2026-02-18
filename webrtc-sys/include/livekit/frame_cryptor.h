@@ -41,7 +41,9 @@ class RtcFrameCryptorObserverWrapper;
 class NativeFrameCryptorObserver;
 
 using CustomKeyDerivationFunction =
-    rust::Fn<bool(rust::Vec<::std::uint8_t>, rust::Slice<::std::uint8_t>)>;
+    rust::Fn<bool(rust::Slice<const ::std::uint8_t>,
+                  rust::Slice<const ::std::uint8_t>,
+                  rust::Slice<::std::uint8_t>)>;
 /// Shared secret key for frame encryption.
 class KeyProvider {
  public:
@@ -50,7 +52,7 @@ class KeyProvider {
 
   void set_custom_key_derivation_function(
       CustomKeyDerivationFunction custom_key_derivation_function) const {
-    (const_cast<KeyProvider*>(this))->custom_key_derivation_function_ =
+    (const_cast<KeyProvider*>(this))->custom_key_derivation_function =
         std::optional<CustomKeyDerivationFunction>(
             custom_key_derivation_function);
   }
@@ -125,7 +127,7 @@ class KeyProvider {
 
  private:
   webrtc::scoped_refptr<webrtc::DefaultKeyProviderImpl> impl_;
-  std::optional<CustomKeyDerivationFunction> custom_key_derivation_function_;
+  std::optional<CustomKeyDerivationFunction> custom_key_derivation_function;
 };
 
 class FrameCryptor {
