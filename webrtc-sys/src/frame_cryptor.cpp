@@ -84,7 +84,7 @@ bool KeyProvider::set_key(const ::rust::String participant_id,
     auto options = impl_->options();
     auto& cpp_salt = options.ratchet_salt;
 
-    rust::Slice<const uint8_t> key_slice(key.data(), sizeof(key));
+    rust::Slice<const uint8_t> key_slice(key.data(), key.size());
     rust::Slice<const uint8_t> salt(cpp_salt.data(), cpp_salt.size());
     uint8_t buffer[16] = {0};
     rust::Slice<uint8_t> derrived_key(buffer, sizeof(buffer));
