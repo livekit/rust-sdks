@@ -204,6 +204,29 @@ fn main() {
                 );
             }
 
+            if arm {
+                // Check for Rockchip MPP headers (installed at /usr/include/rockchip/)
+                let mpp_header = PathBuf::from("/usr/include/rockchip/rk_mpi.h");
+                if mpp_header.exists() {
+                    // Headers are included as <rockchip/rk_mpi.h>, so add /usr/include
+                    builder
+                        .include("/usr/include")
+                        .file("src/mpp/mpp_context.cpp")
+                        .file("src/mpp/mpp_encoder_factory.cpp")
+                        .file("src/mpp/h264_encoder_impl.cpp")
+                        .file("src/mpp/h265_encoder_impl.cpp")
+                        .flag("-DUSE_MPP_VIDEO_CODEC=1");
+
+                    add_lazy_load_so(
+                        &mut builder,
+                        "mpp",
+                        ["rockchip_mpp"].map(String::from).to_vec(),
+                    );
+                } else {
+                    println!("cargo:warning=rk_mpi.h not found; building without Rockchip MPP hardware encoder support");
+                }
+            }
+
             if x86 || arm {
                 let cuda_home = PathBuf::from(match env::var("CUDA_HOME") {
                     Ok(p) => p,

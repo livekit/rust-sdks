@@ -259,6 +259,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut sum_sleep_ms = 0.0;
     let mut sum_iter_ms = 0.0;
     let mut logged_mjpeg_fallback = false;
+    let mut consecutive_capture_errors: u32 = 0;
+    const MAX_CONSECUTIVE_CAPTURE_ERRORS: u32 = 30;
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
             break;
@@ -270,7 +272,29 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
         // Get frame as RGB24 (decoded by nokhwa if needed)
         let t0 = Instant::now();
-        let frame_buf = camera.frame()?;
+        let frame_buf = match camera.frame() {
+            Ok(buf) => {
+                consecutive_capture_errors = 0;
+                buf
+            }
+            Err(e) => {
+                consecutive_capture_errors += 1;
+                if consecutive_capture_errors >= MAX_CONSECUTIVE_CAPTURE_ERRORS {
+                    return Err(anyhow::anyhow!(
+                        "Camera capture failed {} consecutive times, last error: {}",
+                        consecutive_capture_errors,
+                        e
+                    ));
+                }
+                log::warn!(
+                    "Frame capture error (attempt {}/{}): {} -- skipping frame",
+                    consecutive_capture_errors,
+                    MAX_CONSECUTIVE_CAPTURE_ERRORS,
+                    e
+                );
+                continue;
+            }
+        };
         let t1 = Instant::now();
         let (stride_y, stride_u, stride_v) = frame.buffer.strides();
         let (data_y, data_u, data_v) = frame.buffer.data_mut();
