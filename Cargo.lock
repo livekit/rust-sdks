@@ -3430,6 +3430,7 @@ dependencies = [
  "livekit-api",
  "livekit-protocol",
  "log",
+ "metrics-logger",
  "parking_lot",
  "prost 0.14.3",
  "prost-build 0.14.3",
@@ -3622,6 +3623,25 @@ dependencies = [
  "log",
  "objc",
  "paste",
+]
+
+[[package]]
+name = "metrics"
+version = "0.22.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56d05972e8cbac2671e85aa9d04d9160d193f8bebd1a5c1a2f4542c62e65d1d0"
+dependencies = [
+ "ahash",
+ "portable-atomic",
+]
+
+[[package]]
+name = "metrics-logger"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "51842f541c2515cf93ee1a4ef97728816d5ca163d70cbc67d8605246725fec7d"
+dependencies = [
+ "metrics",
 ]
 
 [[package]]
