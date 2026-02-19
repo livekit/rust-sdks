@@ -22,10 +22,12 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
 use http::StatusCode;
 use livekit_protocol as proto;
 use livekit_runtime::{interval, sleep, Instant, JoinHandle};
 use parking_lot::Mutex;
+use prost::Message;
 use thiserror::Error;
 use tokio::sync::{mpsc, Mutex as AsyncMutex, RwLock as AsyncRwLock};
 
@@ -47,6 +49,9 @@ pub type SignalEvents = mpsc::UnboundedReceiver<SignalEvent>;
 pub type SignalResult<T> = Result<T, SignalError>;
 
 pub const JOIN_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
+pub const SIGNAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+const REGION_FETCH_TIMEOUT: Duration = Duration::from_secs(3);
+const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROTOCOL_VERSION: u32 = 16;
 
 #[derive(Error, Debug)]
@@ -69,6 +74,8 @@ pub enum SignalError {
     SendError,
     #[error("failed to retrieve region info: {0}")]
     RegionError(String),
+    #[error("server sent leave during reconnect: reason={reason:?}, action={action:?}")]
+    LeaveRequest { reason: proto::DisconnectReason, action: proto::leave_request::Action },
 }
 
 #[derive(Debug, Clone)]
@@ -90,6 +97,10 @@ pub struct SignalOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
     pub sdk_options: SignalSdkOptions,
+    /// Enable single peer connection mode
+    pub single_peer_connection: bool,
+    /// Timeout for each individual signal connection attempt
+    pub connect_timeout: Duration,
 }
 
 impl Default for SignalOptions {
@@ -98,6 +109,8 @@ impl Default for SignalOptions {
             auto_subscribe: true,
             adaptive_stream: false,
             sdk_options: SignalSdkOptions::default(),
+            single_peer_connection: false,
+            connect_timeout: SIGNAL_CONNECT_TIMEOUT,
         }
     }
 }
@@ -119,6 +132,8 @@ struct SignalInner {
     options: SignalOptions,
     join_response: proto::JoinResponse,
     request_id: AtomicU32,
+    /// Tracks whether single PC mode is active (v1 path succeeded)
+    single_pc_mode_active: bool,
 }
 
 pub struct SignalClient {
@@ -235,6 +250,12 @@ impl SignalClient {
     pub fn next_request_id(&self) -> u32 {
         self.inner.next_request_id().clone()
     }
+
+    /// Returns whether single peer connection mode is active.
+    /// This is determined by whether the /rtc/v1 path was used successfully.
+    pub fn is_single_pc_mode_active(&self) -> bool {
+        self.inner.is_single_pc_mode_active()
+    }
 }
 
 impl SignalInner {
@@ -247,20 +268,65 @@ impl SignalInner {
         proto::JoinResponse,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
-        let lk_url = get_livekit_url(url, &options)?;
-
+        // Try v1 path first if single_peer_connection is enabled
+        let use_v1_path = options.single_peer_connection;
+        // For initial connection: reconnect=false, reconnect_reason=None, participant_sid=""
+        let lk_url = get_livekit_url(url, &options, use_v1_path, false, None, "")?;
         // Try to connect to the SignalClient
-        let (stream, mut events) = match SignalStream::connect(lk_url.clone(), token).await {
-            Ok(stream) => stream,
-            Err(err) => {
-                if let SignalError::TokenFormat = err {
-                    return Err(err);
+        let (stream, mut events, single_pc_mode_active) =
+            match SignalStream::connect(lk_url.clone(), token, options.connect_timeout).await {
+                Ok((new_stream, stream_events)) => {
+                    log::debug!(
+                        "signal connection successful: path={}, single_pc_mode={}",
+                        if use_v1_path { "v1" } else { "v0" },
+                        use_v1_path
+                    );
+                    (new_stream, stream_events, use_v1_path)
                 }
-                // Connection failed, try to retrieve more information
-                Self::validate(lk_url).await?;
-                return Err(err);
-            }
-        };
+                Err(err) => {
+                    log::warn!(
+                        "signal connection failed on {} path: {:?}",
+                        if use_v1_path { "v1" } else { "v0" },
+                        err
+                    );
+
+                    if let SignalError::TokenFormat = err {
+                        return Err(err);
+                    }
+
+                    // Only fallback to v0 if the v1 endpoint returned 404 (not found).
+                    // Other errors (401, 403, 500, etc.) indicate real issues that shouldn't
+                    // be masked by falling back to a different signaling mode.
+                    let is_not_found =
+                        matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() == 404);
+
+                    if use_v1_path && is_not_found {
+                        let lk_url_v0 = get_livekit_url(url, &options, false, false, None, "")?;
+                        log::warn!("v1 path not found (404), falling back to v0 path");
+                        match SignalStream::connect(
+                            lk_url_v0.clone(),
+                            token,
+                            options.connect_timeout,
+                        )
+                        .await
+                        {
+                            Ok((new_stream, stream_events)) => (new_stream, stream_events, false),
+                            Err(err) => {
+                                log::error!("v0 fallback also failed: {:?}", err);
+                                if let SignalError::TokenFormat = err {
+                                    return Err(err);
+                                }
+                                Self::validate(lk_url_v0).await?;
+                                return Err(err);
+                            }
+                        }
+                    } else {
+                        // Connection failed, try to retrieve more information
+                        Self::validate(lk_url).await?;
+                        return Err(err);
+                    }
+                }
+            };
 
         let join_response = get_join_response(&mut events).await?;
 
@@ -274,6 +340,7 @@ impl SignalInner {
             url: url.to_string(),
             join_response: join_response.clone(),
             request_id: AtomicU32::new(1),
+            single_pc_mode_active,
         });
 
         Ok((inner, join_response, events))
@@ -283,18 +350,29 @@ impl SignalInner {
     async fn validate(ws_url: url::Url) -> SignalResult<()> {
         let validate_url = get_validate_url(ws_url);
 
-        if let Ok(res) = http_client::get(validate_url.as_str()).await {
-            let status = res.status();
-            let body = res.text().await.ok().unwrap_or_default();
+        let validate_fut = async {
+            if let Ok(res) = http_client::get(validate_url.as_str()).await {
+                let status = res.status();
+                let body = res.text().await.ok().unwrap_or_default();
 
-            if status.is_client_error() {
-                return Err(SignalError::Client(status, body));
-            } else if status.is_server_error() {
-                return Err(SignalError::Server(status, body));
+                if status.is_client_error() {
+                    return Err(SignalError::Client(status, body));
+                } else if status.is_server_error() {
+                    return Err(SignalError::Server(status, body));
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        };
+
+        livekit_runtime::timeout(VALIDATE_TIMEOUT, validate_fut)
+            .await
+            .map_err(|_| SignalError::Timeout("validate request timed out".into()))?
+    }
+
+    /// Returns whether single peer connection mode is active
+    pub fn is_single_pc_mode_active(&self) -> bool {
+        self.single_pc_mode_active
     }
 
     /// Restart is called when trying to resume the room (RtcSession resume)
@@ -315,10 +393,16 @@ impl SignalInner {
         let sid = &self.join_response.participant.as_ref().unwrap().sid;
         let token = self.token.lock().clone();
 
-        let mut lk_url = get_livekit_url(&self.url, &self.options).unwrap();
-        lk_url.query_pairs_mut().append_pair("reconnect", "1").append_pair("sid", sid);
+        // Use the same path that succeeded during initial connection
+        // For reconnects: reconnect=true, participant_sid=sid
+        // For v1 path: reconnect and sid are encoded in the join_request protobuf
+        // For v0 path: reconnect and sid are added as separate query parameters
+        let lk_url =
+            get_livekit_url(&self.url, &self.options, self.single_pc_mode_active, true, None, sid)
+                .unwrap();
 
-        let (new_stream, mut events) = SignalStream::connect(lk_url, &token).await?;
+        let (new_stream, mut events) =
+            SignalStream::connect(lk_url, &token, self.options.connect_timeout).await?;
         let reconnect_response = get_reconnect_response(&mut events).await?;
         *stream = Some(new_stream);
 
@@ -459,7 +543,78 @@ fn is_queuable(signal: &proto::signal_request::Message) -> bool {
     )
 }
 
-fn get_livekit_url(url: &str, options: &SignalOptions) -> SignalResult<url::Url> {
+/// Create the base64-encoded WrappedJoinRequest parameter required for v1 path
+///
+/// Parameters:
+/// - options: SignalOptions containing auto_subscribe, adaptive_stream, etc.
+/// - reconnect: true if this is a reconnection attempt
+/// - participant_sid: the participant SID (only used during reconnection)
+fn create_join_request_param(
+    options: &SignalOptions,
+    reconnect: bool,
+    reconnect_reason: Option<i32>,
+    participant_sid: &str,
+) -> String {
+    let connection_settings = proto::ConnectionSettings {
+        auto_subscribe: options.auto_subscribe,
+        adaptive_stream: options.adaptive_stream,
+        ..Default::default()
+    };
+
+    let client_info = proto::ClientInfo {
+        sdk: proto::client_info::Sdk::Rust as i32,
+        version: options.sdk_options.sdk_version.clone().unwrap_or_default(),
+        protocol: PROTOCOL_VERSION as i32,
+        os: std::env::consts::OS.to_string(),
+        ..Default::default()
+    };
+
+    let mut join_request = proto::JoinRequest {
+        client_info: Some(client_info),
+        connection_settings: Some(connection_settings),
+        reconnect,
+        ..Default::default()
+    };
+
+    // Only set participant_sid if non-empty (for reconnects)
+    if !participant_sid.is_empty() {
+        join_request.participant_sid = participant_sid.to_string();
+    }
+
+    // Only set reconnect_reason if provided
+    if let Some(reason) = reconnect_reason {
+        join_request.reconnect_reason = reason;
+    }
+
+    // Serialize JoinRequest to bytes
+    let join_request_bytes = join_request.encode_to_vec();
+
+    // Create WrappedJoinRequest (JS doesn't explicitly set compression, so default is NONE)
+    let wrapped_join_request =
+        proto::WrappedJoinRequest { join_request: join_request_bytes, ..Default::default() };
+
+    // Serialize WrappedJoinRequest to bytes and base64 encode
+    let wrapped_bytes = wrapped_join_request.encode_to_vec();
+    BASE64_STANDARD.encode(&wrapped_bytes)
+}
+
+/// Build the LiveKit WebSocket URL for connection
+///
+/// Parameters:
+/// - url: the base server URL
+/// - options: SignalOptions
+/// - use_v1_path: if true, use /rtc/v1 (single PC mode), otherwise /rtc (dual PC mode)
+/// - reconnect: true if this is a reconnection attempt
+/// - reconnect_reason: reason for reconnection (only used when reconnect=true)
+/// - participant_sid: the participant SID (only used during reconnection)
+fn get_livekit_url(
+    url: &str,
+    options: &SignalOptions,
+    use_v1_path: bool,
+    reconnect: bool,
+    reconnect_reason: Option<i32>,
+    participant_sid: &str,
+) -> SignalResult<url::Url> {
     let mut lk_url = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
 
     if !lk_url.has_host() {
@@ -477,26 +632,46 @@ fn get_livekit_url(url: &str, options: &SignalOptions) -> SignalResult<url::Url>
 
     if let Ok(mut segs) = lk_url.path_segments_mut() {
         segs.push("rtc");
+        if use_v1_path {
+            segs.push("v1");
+        }
     }
 
-    lk_url
-        .query_pairs_mut()
-        .append_pair("sdk", options.sdk_options.sdk.as_str())
-        .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
-        .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
-        .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
+    if use_v1_path {
+        // For v1 path (single PC mode): only join_request param
+        // All other info (sdk, protocol, auto_subscribe, etc.) is inside the JoinRequest protobuf
+        let join_request_param =
+            create_join_request_param(options, reconnect, reconnect_reason, participant_sid);
+        lk_url.query_pairs_mut().append_pair("join_request", &join_request_param);
+    } else {
+        // For v0 path (dual PC mode): use URL query parameters
+        lk_url
+            .query_pairs_mut()
+            .append_pair("sdk", options.sdk_options.sdk.as_str())
+            .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
+            .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
+            .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
-    if let Some(sdk_version) = &options.sdk_options.sdk_version {
-        lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
+        if let Some(sdk_version) = &options.sdk_options.sdk_version {
+            lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
+        }
+
+        // For reconnects in v0 path, add reconnect and sid as separate query parameters
+        if reconnect {
+            lk_url
+                .query_pairs_mut()
+                .append_pair("reconnect", "1")
+                .append_pair("sid", participant_sid);
+        }
     }
 
     Ok(lk_url)
 }
 
-/// Convert a WebSocket URL (with /rtc path) to the validate endpoint URL
+/// Convert a WebSocket URL (with /rtc or /rtc/v1 path) to the validate endpoint URL
 fn get_validate_url(mut ws_url: url::Url) -> url::Url {
     ws_url.set_scheme(if ws_url.scheme() == "wss" { "https" } else { "http" }).unwrap();
-    // ws_url already has /rtc from get_livekit_url, so only append /validate
+    // ws_url already has /rtc or /rtc/v1 from get_livekit_url, so only append /validate
     if let Ok(mut segs) = ws_url.path_segments_mut() {
         segs.push("validate");
     }
@@ -531,11 +706,33 @@ get_async_message!(
     proto::JoinResponse
 );
 
-get_async_message!(
-    get_reconnect_response,
-    proto::signal_response::Message::Reconnect(msg) => msg,
-    proto::ReconnectResponse
-);
+async fn get_reconnect_response(
+    receiver: &mut mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
+) -> SignalResult<proto::ReconnectResponse> {
+    let join = async {
+        while let Some(event) = receiver.recv().await {
+            match *event {
+                proto::signal_response::Message::Reconnect(msg) => return Ok(msg),
+                proto::signal_response::Message::Leave(leave) => {
+                    return Err(SignalError::LeaveRequest {
+                        reason: leave.reason(),
+                        action: leave.action(),
+                    });
+                }
+                _ => {}
+            }
+        }
+
+        Err(WsError::ConnectionClosed)?
+    };
+
+    livekit_runtime::timeout(JOIN_RESPONSE_TIMEOUT, join).await.map_err(|_| {
+        SignalError::Timeout(format!(
+            "failed to receive {}",
+            std::any::type_name::<proto::ReconnectResponse>()
+        ))
+    })?
+}
 
 #[cfg(test)]
 mod tests {
@@ -545,22 +742,135 @@ mod tests {
     fn livekit_url_test() {
         let io = SignalOptions::default();
 
-        assert!(get_livekit_url("localhost:7880", &io).is_err());
-        assert_eq!(get_livekit_url("https://localhost:7880", &io).unwrap().scheme(), "wss");
-        assert_eq!(get_livekit_url("http://localhost:7880", &io).unwrap().scheme(), "ws");
-        assert_eq!(get_livekit_url("wss://localhost:7880", &io).unwrap().scheme(), "wss");
-        assert_eq!(get_livekit_url("ws://localhost:7880", &io).unwrap().scheme(), "ws");
-        assert!(get_livekit_url("ftp://localhost:7880", &io).is_err());
+        assert!(get_livekit_url("localhost:7880", &io, false, false, None, "").is_err());
+        assert_eq!(
+            get_livekit_url("https://localhost:7880", &io, false, false, None, "")
+                .unwrap()
+                .scheme(),
+            "wss"
+        );
+        assert_eq!(
+            get_livekit_url("http://localhost:7880", &io, false, false, None, "").unwrap().scheme(),
+            "ws"
+        );
+        assert_eq!(
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap().scheme(),
+            "wss"
+        );
+        assert_eq!(
+            get_livekit_url("ws://localhost:7880", &io, false, false, None, "").unwrap().scheme(),
+            "ws"
+        );
+        assert!(get_livekit_url("ftp://localhost:7880", &io, false, false, None, "").is_err());
     }
 
     #[test]
     fn validate_url_test() {
         let io = SignalOptions::default();
-        let lk_url = get_livekit_url("wss://localhost:7880", &io).unwrap();
+        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap();
         let validate_url = get_validate_url(lk_url);
 
         // Should be /rtc/validate, not /rtc/rtc/validate
         assert_eq!(validate_url.path(), "/rtc/validate");
         assert_eq!(validate_url.scheme(), "https");
+    }
+
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn signal_stream_connect_timeout() {
+        use tokio::net::TcpListener;
+
+        // Bind a TCP listener that accepts connections but never sends data
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Spawn a task that accepts connections but does nothing (simulates a hanging server)
+        let _accept_task = tokio::spawn(async move {
+            loop {
+                let Ok((_socket, _)) = listener.accept().await else {
+                    break;
+                };
+                // Hold the connection open but never write anything
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        });
+
+        let url = url::Url::parse(&format!("ws://127.0.0.1:{}", addr.port())).unwrap();
+        let result = SignalStream::connect(url, "fake-token", Duration::from_millis(500)).await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, SignalError::Timeout(_)), "expected Timeout error, got: {:?}", err);
+    }
+
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn region_fetch_parses_response() {
+        use tokio::io::AsyncWriteExt;
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        // Spawn a task that serves a hand-crafted HTTP response with region JSON
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+
+            // Read the request (consume it so the connection doesn't stall)
+            let mut buf = [0u8; 4096];
+            let _ = tokio::io::AsyncReadExt::read(&mut socket, &mut buf).await;
+
+            let body = r#"{"regions":[{"region":"us-east-1","url":"wss://us-east.livekit.cloud","distance":"100"},{"region":"eu-west-1","url":"wss://eu-west.livekit.cloud","distance":"200"}]}"#;
+
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
+        let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
+
+        let urls = result.unwrap();
+        assert_eq!(
+            urls,
+            vec![
+                "wss://us-east.livekit.cloud".to_string(),
+                "wss://eu-west.livekit.cloud".to_string(),
+            ]
+        );
+    }
+
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn region_fetch_timeout() {
+        use tokio::net::TcpListener;
+
+        // Bind a listener that accepts but never responds
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((_socket, _)) = listener.accept().await else {
+                    break;
+                };
+                // Hold connection open, never write
+                tokio::time::sleep(Duration::from_secs(60)).await;
+            }
+        });
+
+        let endpoint = format!("http://127.0.0.1:{}/settings/regions", addr.port());
+        let result = region::fetch_from_endpoint(&endpoint, "fake-token").await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, SignalError::RegionError(ref msg) if msg.contains("timed out")),
+            "expected RegionError with 'timed out', got: {:?}",
+            err
+        );
     }
 }
