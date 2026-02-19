@@ -96,14 +96,11 @@ message OwnedRemoteDataTrack {
 }
 
 message OwnedDataTrackSubscription {
-    // Handle of the owned subscription.
-    required FfiOwnedHandle subscription_handle = 1;
-    /// Handle of the track that the subscription belongs to.
-    required uint64 track_handle = 2;
+  required FfiOwnedHandle handle = 1;
 }
 
 message DataTrackSubscribeOptions {
-    // Expose subscription options here
+  // Expose subscription options here
 }
 
 // Checks if the track is still published.
@@ -116,29 +113,29 @@ message RemoteDataTrackIsPublishedResponse {
 
 // Subscribe to a data track.
 message SubscribeDataTrackRequest {
-    required uint64 handle = 1;
-    required DataTrackSubscribeOptions options = 2;
-    optional uint64 request_async_id = 3;
+  required uint64 handle = 1;
+  required DataTrackSubscribeOptions options = 2;
+  optional uint64 request_async_id = 3;
 }
 message SubscribeDataTrackResponse {
-    required uint64 async_id = 1;
+  required uint64 async_id = 1;
 }
 message SubscribeDataTrackCallback {
-    required uint64 async_id = 1;
-    oneof result {
-        OwnedDataTrackSubscription subscription = 2;
-        string error = 3;
-    }
+  required uint64 async_id = 1;
+  oneof result {
+    OwnedDataTrackSubscription subscription = 2;
+    string error = 3;
+  }
 }
 
 message DataTrackSubscriptionEvent {
-    required uint64 subscription_handle = 1;
-    oneof detail {
-        DataTrackSubscriptionFrameReceived frame_received = 2;
-        DataTrackSubscriptionEOS eos = 3;
-    }
+  required uint64 subscription_handle = 1;
+  oneof detail {
+    DataTrackSubscriptionFrameReceived frame_received = 2;
+    DataTrackSubscriptionEOS eos = 3;
+  }
 }
 message DataTrackSubscriptionFrameReceived {
-    required DataTrackFrame frame = 1;
+  required DataTrackFrame frame = 1;
 }
 message DataTrackSubscriptionEOS {}

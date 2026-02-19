@@ -24,6 +24,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
+use crate::server::data_track::FfiRemoteDataTrack;
 use crate::{
     proto,
     server::data_stream::{FfiByteStreamReader, FfiTextStreamReader},
@@ -1437,6 +1438,10 @@ async fn forward_event(
         }
         RoomEvent::TokenRefreshed { token } => {
             let _ = send_event(proto::TokenRefreshed { token: token.into() }.into());
+        }
+        RoomEvent::RemoteDataTrackPublished(track) => {
+            let track = FfiRemoteDataTrack::from_track(server, track);
+            let _ = send_event(proto::RemoteDataTrackPublished { track }.into());
         }
         _ => {
             log::warn!("unhandled room event: {:?}", event);
