@@ -1204,7 +1204,7 @@ fn on_local_data_track_is_published(
     server: &'static FfiServer,
     request: proto::LocalDataTrackIsPublishedRequest,
 ) -> FfiResult<proto::LocalDataTrackIsPublishedResponse> {
-    let track = server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.handle)?.clone();
+    let track = server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.track_handle)?.clone();
     track.is_published(server, request)
 }
 
@@ -1212,7 +1212,7 @@ fn on_local_data_track_unpublish(
     server: &'static FfiServer,
     request: proto::LocalDataTrackUnpublishRequest,
 ) -> FfiResult<proto::LocalDataTrackUnpublishResponse> {
-    let track = server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.handle)?.clone();
+    let track = server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.track_handle)?.clone();
     track.unpublish(server, request)
 }
 
@@ -1220,7 +1220,7 @@ fn on_local_data_track_try_push(
     server: &'static FfiServer,
     request: proto::LocalDataTrackTryPushRequest,
 ) -> FfiResult<proto::LocalDataTrackTryPushResponse> {
-    let track = server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.handle)?.clone();
+    let track = server.retrieve_handle::<data_track::FfiLocalDataTrack>(request.track_handle)?.clone();
     track.try_push(server, request)
 }
 
@@ -1228,7 +1228,7 @@ fn on_subscribe_local_data_track(
     server: &'static FfiServer,
     request: proto::SubscribeDataTrackRequest
 ) -> FfiResult<proto::SubscribeDataTrackResponse> {
-    let track = server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.handle)?.clone();
+    let track = server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.track_handle)?.clone();
     track.subscribe(server, request)
 }
 
@@ -1236,7 +1236,7 @@ fn on_remote_data_track_is_published(
     server: &'static FfiServer,
     request: proto::RemoteDataTrackIsPublishedRequest
 ) -> FfiResult<proto::RemoteDataTrackIsPublishedResponse> {
-    let track = server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.handle)?.clone();
+    let track = server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.track_handle)?.clone();
     track.is_published(server, request)
 }
 

@@ -24,11 +24,15 @@ option csharp_namespace = "LiveKit.Proto";
 
 // Information about a published data track.
 message DataTrackInfo {
+  // Name of the track assigned by the publisher.
   required string name = 1;
+  // SFU-assigned track identifier.
   required string sid = 2;
+  // Whether or not frames sent on the track use end-to-end encryption.
   required bool uses_e2ee = 3;
 }
 
+// A frame published on a data track.
 message DataTrackFrame {
   required bytes payload = 1;
   optional uint64 user_timestamp = 2;
@@ -38,6 +42,10 @@ message DataTrackFrame {
 
 // Options for publishing a data track.
 message DataTrackOptions {
+  // Track name used to identify the track to other participants.
+  //
+  // Must not be empty and must be unique per publisher.
+  //
   required string name = 1;
 }
 
@@ -65,7 +73,7 @@ message OwnedLocalDataTrack {
 
 // Try pushing a frame to subscribers of the track.
 message LocalDataTrackTryPushRequest {
-  required uint64 handle = 1;
+  required uint64 track_handle = 1;
   required DataTrackFrame frame = 2;
 }
 message LocalDataTrackTryPushResponse {
@@ -74,7 +82,7 @@ message LocalDataTrackTryPushResponse {
 
 // Checks if the track is still published.
 message LocalDataTrackIsPublishedRequest {
-  required uint64 handle = 1;
+  required uint64 track_handle = 1;
 }
 message LocalDataTrackIsPublishedResponse {
   required bool is_published = 1;
@@ -82,7 +90,7 @@ message LocalDataTrackIsPublishedResponse {
 
 // Unpublishes the track.
 message LocalDataTrackUnpublishRequest {
-  required uint64 handle = 1;
+  required uint64 track_handle = 1;
 }
 message LocalDataTrackUnpublishResponse {}
 
@@ -95,17 +103,20 @@ message OwnedRemoteDataTrack {
   required string publisher_identity = 3;
 }
 
+// Handle to an active data track subscription.
+//
+// Dropping the handle will unsubscribe from the track.
+//
 message OwnedDataTrackSubscription {
   required FfiOwnedHandle handle = 1;
 }
 
-message DataTrackSubscribeOptions {
-  // Expose subscription options here
-}
+// Reserved for future subscription options.
+message DataTrackSubscribeOptions {}
 
 // Checks if the track is still published.
 message RemoteDataTrackIsPublishedRequest {
-  required uint64 handle = 1;
+  required uint64 track_handle = 1;
 }
 message RemoteDataTrackIsPublishedResponse {
   required bool is_published = 1;
@@ -113,7 +124,7 @@ message RemoteDataTrackIsPublishedResponse {
 
 // Subscribe to a data track.
 message SubscribeDataTrackRequest {
-  required uint64 handle = 1;
+  required uint64 track_handle = 1;
   required DataTrackSubscribeOptions options = 2;
   optional uint64 request_async_id = 3;
 }
@@ -128,6 +139,7 @@ message SubscribeDataTrackCallback {
   }
 }
 
+// Event emitted on an active subscription.
 message DataTrackSubscriptionEvent {
   required uint64 subscription_handle = 1;
   oneof detail {
@@ -135,7 +147,9 @@ message DataTrackSubscriptionEvent {
     DataTrackSubscriptionEOS eos = 3;
   }
 }
+// A frame was received.
 message DataTrackSubscriptionFrameReceived {
   required DataTrackFrame frame = 1;
 }
+// Subscription has ended (end of stream).
 message DataTrackSubscriptionEOS {}
