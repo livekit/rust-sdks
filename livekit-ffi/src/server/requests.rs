@@ -1228,14 +1228,16 @@ fn on_subscribe_local_data_track(
     server: &'static FfiServer,
     request: proto::SubscribeDataTrackRequest
 ) -> FfiResult<proto::SubscribeDataTrackResponse> {
-    todo!()
+    let track = server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.handle)?.clone();
+    track.subscribe(server, request)
 }
 
 fn on_remote_data_track_is_published(
     server: &'static FfiServer,
     request: proto::RemoteDataTrackIsPublishedRequest
 ) -> FfiResult<proto::RemoteDataTrackIsPublishedResponse> {
-    todo!()
+    let track = server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.handle)?.clone();
+    track.is_published(server, request)
 }
 
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
