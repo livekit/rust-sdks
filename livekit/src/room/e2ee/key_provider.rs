@@ -27,7 +27,6 @@ const DEFAULT_FAILURE_TOLERANCE: i32 = -1; // no tolerance by default
 const DEFAULT_KEY_RING_SIZE: i32 = 16;
 
 #[derive(Clone)]
-#[non_exhaustive]
 pub struct KeyProviderOptions {
     pub ratchet_window_size: i32,
     pub ratchet_salt: Vec<u8>,

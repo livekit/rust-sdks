@@ -15,7 +15,7 @@
 use crate::{proto, server::room::FfiRoom};
 use livekit::{
     e2ee::{
-        key_provider::{KeyProvider, KeyProviderOptions},
+        key_provider::{KeyDerivationFunction, KeyProvider, KeyProviderOptions},
         E2eeOptions, EncryptionType,
     },
     options::{AudioEncoding, TrackPublishOptions, VideoEncoding},
@@ -108,10 +108,22 @@ impl From<DisconnectReason> for proto::DisconnectReason {
 
 impl From<proto::KeyProviderOptions> for KeyProviderOptions {
     fn from(value: proto::KeyProviderOptions) -> Self {
+        let key_derivation_function = value.key_derivation_function().into();
         Self {
             ratchet_window_size: value.ratchet_window_size,
             ratchet_salt: value.ratchet_salt,
             failure_tolerance: value.failure_tolerance,
+            key_ring_size: value.key_ring_size,
+            key_derivation_function,
+        }
+    }
+}
+
+impl From<proto::KeyDerivationFunction> for KeyDerivationFunction {
+    fn from(value: proto::KeyDerivationFunction) -> Self {
+        match value {
+            proto::KeyDerivationFunction::Pbkdf2 => KeyDerivationFunction::PBKDF2,
+            proto::KeyDerivationFunction::Hkdf => KeyDerivationFunction::HKDF,
         }
     }
 }
