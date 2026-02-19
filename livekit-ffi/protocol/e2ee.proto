@@ -38,6 +38,13 @@ message KeyProviderOptions {
     required int32 ratchet_window_size = 2;
     required bytes ratchet_salt = 3;
     required int32 failure_tolerance = 4; // -1 = no tolerance
+    required int32 key_ring_size = 5; 
+    required KeyDerivationFunction key_derivation_function = 6;
+}
+
+enum KeyDerivationFunction {
+    PBKDF2 = 0;
+    HKDF = 1;
 }
 
 message E2eeOptions {

@@ -16,6 +16,7 @@
 
 #include "livekit/frame_cryptor.h"
 
+#include <cstdint>
 #include <memory>
 
 #include "absl/types/optional.h"
@@ -24,6 +25,7 @@
 #include "livekit/peer_connection_factory.h"
 #include "livekit/webrtc.h"
 #include "rtc_base/thread.h"
+#include "rust/cxx.h"
 #include "webrtc-sys/src/frame_cryptor.rs.h"
 
 namespace livekit_ffi {
@@ -51,9 +53,47 @@ KeyProvider::KeyProvider(KeyProviderOptions options) {
   rtc_options.ratchet_salt = ratchet_salt;
   rtc_options.ratchet_window_size = options.ratchet_window_size;
   rtc_options.failure_tolerance = options.failure_tolerance;
+  rtc_options.key_ring_size = options.key_ring_size;
+  custom_key_derivation_function = {};
 
   impl_ =
       new rtc::RefCountedObject<webrtc::DefaultKeyProviderImpl>(rtc_options);
+}
+
+bool KeyProvider::set_key(const ::rust::String participant_id,
+                          int32_t index,
+                          rust::Vec<::std::uint8_t> key) const {
+  std::string pid(participant_id.data(), participant_id.size());
+  std::vector<uint8_t> key_vec;
+  std::copy(key.begin(), key.end(), std::back_inserter(key_vec));
+  bool ok = impl_->SetKey(pid, index, key_vec);
+  if (!ok) {
+    return ok;
+  }
+
+  if (auto kdf = custom_key_derivation_function) {
+    auto handler = impl_->GetKey(pid);
+    if (!handler) {
+      return false;
+    }
+    auto key_set = handler->GetKeySet(index);
+    if (!key_set) {
+      return false;
+    }
+
+    auto options = impl_->options();
+    auto& cpp_salt = options.ratchet_salt;
+
+    rust::Slice<const uint8_t> key_slice(key.data(), key.size());
+    rust::Slice<const uint8_t> salt(cpp_salt.data(), cpp_salt.size());
+    uint8_t buffer[16] = {0};
+    rust::Slice<uint8_t> derrived_key(buffer, sizeof(buffer));
+    (*kdf)(key_slice, salt, derrived_key);
+
+    key_set->encryption_key.assign(derrived_key.begin(), derrived_key.end());
+    return true;
+  }
+  return false;
 }
 
 FrameCryptor::FrameCryptor(
@@ -154,10 +194,12 @@ int32_t FrameCryptor::key_index() const {
   return e2ee_transformer_->key_index();
 }
 
-DataPacketCryptor::DataPacketCryptor(webrtc::FrameCryptorTransformer::Algorithm algorithm,
-                 webrtc::scoped_refptr<webrtc::KeyProvider> key_provider)
+DataPacketCryptor::DataPacketCryptor(
+    webrtc::FrameCryptorTransformer::Algorithm algorithm,
+    webrtc::scoped_refptr<webrtc::KeyProvider> key_provider)
     : data_packet_cryptor_(
-          webrtc::make_ref_counted<webrtc::DataPacketCryptor>(algorithm, key_provider)) {}
+          webrtc::make_ref_counted<webrtc::DataPacketCryptor>(algorithm,
+                                                              key_provider)) {}
 
 EncryptedPacket DataPacketCryptor::encrypt_data_packet(
     const ::rust::String participant_id,
@@ -167,12 +209,12 @@ EncryptedPacket DataPacketCryptor::encrypt_data_packet(
   std::copy(data.begin(), data.end(), std::back_inserter(data_vec));
 
   auto result = data_packet_cryptor_->Encrypt(
-      std::string(participant_id.data(), participant_id.size()),
-      key_index,
+      std::string(participant_id.data(), participant_id.size()), key_index,
       data_vec);
 
   if (!result.ok()) {
-    throw std::runtime_error(std::string("Failed to encrypt data packet: ") + result.error().message());
+    throw std::runtime_error(std::string("Failed to encrypt data packet: ") +
+                             result.error().message());
   }
 
   auto& packet = result.value();
@@ -202,20 +244,23 @@ rust::Vec<::std::uint8_t> DataPacketCryptor::decrypt_data_packet(
   std::copy(encrypted_packet.iv.begin(), encrypted_packet.iv.end(),
             std::back_inserter(iv_vec));
 
-  auto native_encrypted_packet = webrtc::make_ref_counted<webrtc::EncryptedPacket>(
-      std::move(data_vec), std::move(iv_vec), encrypted_packet.key_index);
+  auto native_encrypted_packet =
+      webrtc::make_ref_counted<webrtc::EncryptedPacket>(
+          std::move(data_vec), std::move(iv_vec), encrypted_packet.key_index);
 
   auto result = data_packet_cryptor_->Decrypt(
       std::string(participant_id.data(), participant_id.size()),
       native_encrypted_packet);
 
   if (!result.ok()) {
-    throw std::runtime_error(std::string("Failed to decrypt data packet: ") + result.error().message());
+    throw std::runtime_error(std::string("Failed to decrypt data packet: ") +
+                             result.error().message());
   }
 
   rust::Vec<uint8_t> decrypted_data;
   auto& decrypted = result.value();
-  std::copy(decrypted.begin(), decrypted.end(), std::back_inserter(decrypted_data));
+  std::copy(decrypted.begin(), decrypted.end(),
+            std::back_inserter(decrypted_data));
   return decrypted_data;
 }
 

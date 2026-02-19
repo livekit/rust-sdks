@@ -25,6 +25,7 @@ pub mod ffi {
         pub ratchet_window_size: i32,
         pub ratchet_salt: Vec<u8>,
         pub failure_tolerance: i32,
+        pub key_ring_size: i32,
     }
 
     #[derive(Debug)]
@@ -52,13 +53,16 @@ pub mod ffi {
         pub iv: Vec<u8>,
         pub key_index: u32,
     }
-
     unsafe extern "C++" {
         include!("livekit/frame_cryptor.h");
 
         pub type KeyProvider;
 
         pub fn new_key_provider(options: KeyProviderOptions) -> SharedPtr<KeyProvider>;
+        pub fn set_custom_key_derivation_function(
+            self: &KeyProvider,
+            custom_key_derivation_function: fn(&[u8], &[u8], &mut [u8]) -> bool,
+        );
 
         pub fn set_shared_key(self: &KeyProvider, key_index: i32, key: Vec<u8>) -> bool;
 
@@ -249,6 +253,7 @@ mod tests {
             ratchet_window_size: 16,
             ratchet_salt: vec![],
             failure_tolerance: -1,
+            key_ring_size: 16,
         };
 
         let key_provider = ffi::new_key_provider(options);
