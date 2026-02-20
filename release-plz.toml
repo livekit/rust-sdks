@@ -91,5 +91,11 @@ git_only = true
 name = "rtc-node-ffi-bindings"
 publish = false
 publish_no_verify = true
+release = true
+
+[[package]]
+name = "livekit-datatrack"
+changelog_path = "livekit-datatrack/CHANGELOG.md"
+publish = true
 release = false
 git_only = true
