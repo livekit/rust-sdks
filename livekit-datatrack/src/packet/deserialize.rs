@@ -108,22 +108,19 @@ macro_rules! deserialize_ext {
 impl Extensions {
     fn deserialize(mut raw: impl Buf) -> Result<Self, DeserializeError> {
         let mut extensions = Self::default();
-        while raw.remaining() >= 4 {
+        while raw.remaining() >= 2 * size_of::<u16>() {
             let tag = raw.get_u16();
-            let len = raw.get_u16() as usize;
-            if tag == EXT_TAG_PADDING {
-                // Skip padding
-                continue;
-            }
+            let len = raw.get_u16() as usize + 1; // NOTE: extension length is encoded as length in bytes minus one.
             match tag {
-                E2eeExt::TAG => {
+                EXT_TAG_PADDING => {}, // Skip padding
+                E2eeExt::TAG if len == E2eeExt::LEN => {
                     extensions.e2ee = deserialize_ext!(E2eeExt, raw);
                 }
-                UserTimestampExt::TAG => {
+                UserTimestampExt::TAG if len == UserTimestampExt::LEN => {
                     extensions.user_timestamp = deserialize_ext!(UserTimestampExt, raw);
                 }
                 _ => {
-                    // Skip over unknown extensions (forward compatible).
+                    // Skip over unknown or length-mismatched extensions (forward compatible).
                     if raw.remaining() < len {
                         Err(DeserializeError::MalformedExt(tag))?
                     }
@@ -268,6 +265,20 @@ mod tests {
             packet.header.extensions.user_timestamp,
             UserTimestampExt(0x4411221111118811).into()
         );
+    }
+
+    #[test]
+    fn test_ext_unexpected_length() {
+        let mut raw = valid_packet();
+        raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
+        raw.put_u16(3); // Extension words
+
+        raw.put_u16(2); // User timestamp
+        raw.put_u16(11); // Expected length is 7
+        raw.put_bytes(0x3C, 12);
+
+        let packet = Packet::deserialize(raw.freeze()).unwrap();
+        assert!(packet.header.extensions.user_timestamp.is_none());
     }
 
     #[test]
