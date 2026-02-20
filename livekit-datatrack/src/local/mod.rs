@@ -195,6 +195,13 @@ pub enum PublishError {
     #[error("Track name already taken")]
     DuplicateName,
 
+    /// The track name is invalid.
+    ///
+    /// This occurs when the name is empty or exceeds the allowed maximum length.
+    ///
+    #[error("Track name invalid")]
+    InvalidName,
+
     /// Request to publish the track took long to complete.
     #[error("Publish data track timed-out")]
     Timeout,
