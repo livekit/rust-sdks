@@ -112,7 +112,7 @@ impl Extensions {
             let tag = raw.get_u16();
             let len = raw.get_u16() as usize + 1; // NOTE: extension length is encoded as length in bytes minus one.
             match tag {
-                EXT_TAG_PADDING => {}, // Skip padding
+                EXT_TAG_PADDING => {} // Skip padding
                 E2eeExt::TAG if len == E2eeExt::LEN => {
                     extensions.e2ee = deserialize_ext!(E2eeExt, raw);
                 }
