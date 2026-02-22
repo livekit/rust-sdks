@@ -17,7 +17,7 @@ use serde::Deserialize;
 
 use crate::http_client;
 
-use super::{get_livekit_url, SignalError, SignalResult};
+use super::{SignalError, SignalResult, REGION_FETCH_TIMEOUT};
 
 pub struct RegionUrlProvider;
 
@@ -36,34 +36,42 @@ pub struct RegionUrlInfo {
 impl RegionUrlProvider {
     pub async fn fetch_region_urls(url: &str, token: &str) -> SignalResult<Vec<String>> {
         if is_cloud_url(url)? {
-            let client = http_client::Client::new();
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                AUTHORIZATION,
-                HeaderValue::from_str(&format!("Bearer {}", token)).unwrap(),
-            );
-            let res = client
-                .get(region_endpoint(url)?)
-                .headers(headers)
-                .send()
-                .await
-                .map_err(|e| SignalError::RegionError(e.to_string()))?;
-
-            if !res.status().is_success() {
-                return Err(SignalError::Client(
-                    res.status(),
-                    res.text().await.unwrap_or_default(),
-                ));
-            }
-            let res = res
-                .json::<RegionUrlResponse>()
-                .await
-                .map_err(|e| SignalError::RegionError(e.to_string()))?;
-            Ok(res.regions.into_iter().map(|i| i.url).collect())
+            let endpoint = region_endpoint(url)?;
+            fetch_from_endpoint(&endpoint, token).await
         } else {
             Ok(vec![])
         }
     }
+}
+
+pub(crate) async fn fetch_from_endpoint(
+    endpoint_url: &str,
+    token: &str,
+) -> SignalResult<Vec<String>> {
+    let fetch_fut = async {
+        let client = http_client::Client::new();
+        let mut headers = HeaderMap::new();
+        headers.insert(AUTHORIZATION, HeaderValue::from_str(&format!("Bearer {}", token)).unwrap());
+        let res = client
+            .get(endpoint_url)
+            .headers(headers)
+            .send()
+            .await
+            .map_err(|e| SignalError::RegionError(e.to_string()))?;
+
+        if !res.status().is_success() {
+            return Err(SignalError::Client(res.status(), res.text().await.unwrap_or_default()));
+        }
+        let res = res
+            .json::<RegionUrlResponse>()
+            .await
+            .map_err(|e| SignalError::RegionError(e.to_string()))?;
+        Ok(res.regions.into_iter().map(|i| i.url).collect())
+    };
+
+    livekit_runtime::timeout(REGION_FETCH_TIMEOUT, fetch_fut)
+        .await
+        .map_err(|_| SignalError::RegionError("region fetch timed out".into()))?
 }
 
 fn is_cloud_url(url: &str) -> SignalResult<bool> {
@@ -88,4 +96,43 @@ fn region_endpoint(url: &str) -> SignalResult<String> {
     url.set_path("/settings/regions");
 
     Ok(url.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_cloud_url() {
+        assert!(is_cloud_url("wss://myapp.livekit.cloud").unwrap());
+        assert!(is_cloud_url("wss://myapp.livekit.run").unwrap());
+        assert!(is_cloud_url("https://myapp.livekit.cloud").unwrap());
+
+        assert!(!is_cloud_url("wss://localhost:7880").unwrap());
+        assert!(!is_cloud_url("wss://example.com").unwrap());
+        assert!(!is_cloud_url("wss://livekit.cloud.example.com").unwrap());
+    }
+
+    #[test]
+    fn test_region_endpoint() {
+        assert_eq!(
+            region_endpoint("wss://myapp.livekit.cloud").unwrap(),
+            "https://myapp.livekit.cloud/settings/regions"
+        );
+        assert_eq!(
+            region_endpoint("ws://myapp.livekit.run").unwrap(),
+            "http://myapp.livekit.run/settings/regions"
+        );
+        assert_eq!(
+            region_endpoint("https://myapp.livekit.cloud").unwrap(),
+            "https://myapp.livekit.cloud/settings/regions"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_non_cloud_url_returns_empty() {
+        let result =
+            RegionUrlProvider::fetch_region_urls("wss://localhost:7880", "fake-token").await;
+        assert_eq!(result.unwrap(), Vec::<String>::new());
+    }
 }

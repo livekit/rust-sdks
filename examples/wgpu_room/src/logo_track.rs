@@ -47,10 +47,10 @@ pub struct LogoTrack {
 impl LogoTrack {
     pub fn new(room: Arc<Room>) -> Self {
         Self {
-            rtc_source: NativeVideoSource::new(VideoResolution {
-                width: FB_WIDTH as u32,
-                height: FB_HEIGHT as u32,
-            }),
+            rtc_source: NativeVideoSource::new(
+                VideoResolution { width: FB_WIDTH as u32, height: FB_HEIGHT as u32 },
+                false,
+            ),
             room,
             handle: None,
         }

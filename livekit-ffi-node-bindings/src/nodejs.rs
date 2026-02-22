@@ -15,10 +15,8 @@
 use livekit_ffi::{proto, server, FFI_SERVER};
 use napi::{
     bindgen_prelude::*,
-    threadsafe_function::{
-        ErrorStrategy, ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode,
-    },
-    JsFunction, Status,
+    threadsafe_function::{ThreadSafeCallContext, ThreadsafeFunction, ThreadsafeFunctionCallMode},
+    Status,
 };
 use napi_derive::napi;
 use prost::Message;
@@ -27,12 +25,13 @@ use std::sync::Arc;
 #[napi(
     ts_args_type = "callback: (data: Uint8Array) => void, captureLogs: boolean, sdkVersion: string"
 )]
-fn livekit_initialize(cb: JsFunction, capture_logs: bool, sdk_version: String) {
-    let tsfn: ThreadsafeFunction<proto::FfiEvent, ErrorStrategy::Fatal> = cb
-        .create_threadsafe_function(0, |ctx: ThreadSafeCallContext<proto::FfiEvent>| {
+fn livekit_initialize(cb: Function<Uint8Array, ()>, capture_logs: bool, sdk_version: String) {
+    let tsfn: ThreadsafeFunction<proto::FfiEvent, (), Uint8Array, Status, false> = cb
+        .build_threadsafe_function::<proto::FfiEvent>()
+        .build_callback(|ctx: ThreadSafeCallContext<proto::FfiEvent>| {
             let data = ctx.value.encode_to_vec();
             let buf = Uint8Array::new(data);
-            Ok(vec![buf])
+            Ok(buf)
         })
         .unwrap();
 

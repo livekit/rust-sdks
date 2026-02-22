@@ -117,19 +117,14 @@ pub fn livekit_connect(url: String, token: String) {
         }
 
         // Create and publish local audio track
-        let track = LocalAudioTrack::create_audio_track(
-            "microphone",
-            RtcAudioSource::Native(audio_source),
-        );
+        let track =
+            LocalAudioTrack::create_audio_track("microphone", RtcAudioSource::Native(audio_source));
 
         if let Err(e) = room
             .local_participant()
             .publish_track(
                 LocalTrack::Audio(track),
-                TrackPublishOptions {
-                    source: TrackSource::Microphone,
-                    ..Default::default()
-                },
+                TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
             )
             .await
         {
@@ -141,11 +136,7 @@ pub fn livekit_connect(url: String, token: String) {
         // Handle room events
         while let Some(event) = events.recv().await {
             match event {
-                RoomEvent::TrackSubscribed {
-                    track,
-                    publication,
-                    participant,
-                } => {
+                RoomEvent::TrackSubscribed { track, publication, participant } => {
                     log::info!(
                         "Track subscribed from {}: {} ({:?})",
                         participant.identity(),
@@ -168,11 +159,7 @@ pub fn livekit_connect(url: String, token: String) {
                         });
                     }
                 }
-                RoomEvent::TrackUnsubscribed {
-                    track,
-                    participant,
-                    ..
-                } => {
+                RoomEvent::TrackUnsubscribed { track, participant, .. } => {
                     log::info!(
                         "Track unsubscribed from {}: {:?}",
                         participant.identity(),
@@ -216,11 +203,8 @@ async fn handle_remote_audio_stream(
         audio_track.sid()
     );
 
-    let mut audio_stream = NativeAudioStream::new(
-        audio_track.rtc_track(),
-        SAMPLE_RATE as i32,
-        NUM_CHANNELS as i32,
-    );
+    let mut audio_stream =
+        NativeAudioStream::new(audio_track.rtc_track(), SAMPLE_RATE as i32, NUM_CHANNELS as i32);
 
     let mut frame_count: u64 = 0;
     let mut total_samples: u64 = 0;
@@ -450,9 +434,7 @@ pub mod android {
     #[no_mangle]
     pub extern "C" fn JNI_OnLoad(vm: JavaVM, _: *mut c_void) -> jint {
         android_logger::init_once(
-            Config::default()
-                .with_max_level(LevelFilter::Debug)
-                .with_tag("livekit-rustexample"),
+            Config::default().with_max_level(LevelFilter::Debug).with_tag("livekit-rustexample"),
         );
 
         log::info!("JNI_OnLoad, initializing LiveKit");
@@ -478,10 +460,7 @@ pub mod android {
     /// Disconnect from the room
     #[allow(non_snake_case)]
     #[no_mangle]
-    pub extern "C" fn Java_io_livekit_rustexample_App_disconnectNative(
-        _env: JNIEnv,
-        _: JClass,
-    ) {
+    pub extern "C" fn Java_io_livekit_rustexample_App_disconnectNative(_env: JNIEnv, _: JClass) {
         super::disconnect();
     }
 
@@ -492,7 +471,11 @@ pub mod android {
         _env: JNIEnv,
         _: JClass,
     ) -> jboolean {
-        if super::is_connected() { 1 } else { 0 }
+        if super::is_connected() {
+            1
+        } else {
+            0
+        }
     }
 
     /// Push captured audio samples to LiveKit

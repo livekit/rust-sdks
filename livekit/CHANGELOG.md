@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.32](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.31...rust-sdks/livekit@0.7.32) - 2026-02-16
+
+### Fixed
+
+- fix full_reconnect downgrade & don't ignore Leave messages ([#893](https://github.com/livekit/rust-sdks/pull/893))
+
+### Other
+
+- turn single peerconnection off by default ([#897](https://github.com/livekit/rust-sdks/pull/897))
+- ensure signal connections times out properly and retries ([#895](https://github.com/livekit/rust-sdks/pull/895))
+- added Single Peer Connection support to Rust ([#888](https://github.com/livekit/rust-sdks/pull/888))
+- set the simulcast codec & layers ([#891](https://github.com/livekit/rust-sdks/pull/891))
+
+## [0.7.31](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.30...rust-sdks/livekit@0.7.31) - 2026-02-10
+
+### Other
+
+- don't use clamp as the ultimate_kbps can be lower than 300 ([#886](https://github.com/livekit/rust-sdks/pull/886))
+- pre-connect the publisher PC when an RPC handler is registered ([#880](https://github.com/livekit/rust-sdks/pull/880))
+
+## [0.7.30](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.29...rust-sdks/livekit@0.7.30) - 2026-02-09
+
+### Fixed
+
+- fix the RPC race condition ([#865](https://github.com/livekit/rust-sdks/pull/865))
+
+### Other
+
+- update proto & fix CI ([#871](https://github.com/livekit/rust-sdks/pull/871))
+- Use workspace dependencies & settings ([#856](https://github.com/livekit/rust-sdks/pull/856))
+- Upgrade protocol to v1.44.0 ([#857](https://github.com/livekit/rust-sdks/pull/857))
+- Expose participant's permission to ffi layer ([#824](https://github.com/livekit/rust-sdks/pull/824))
+
 ## [0.7.29](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.28...rust-sdks/livekit@0.7.29) - 2026-01-15
 
 ### Fixed

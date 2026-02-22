@@ -5,9 +5,11 @@ edition.workspace = true
 publish = false
 
 [dependencies]
+futures = { workspace = true }
 lazy_static = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 log = { workspace = true }
+parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
