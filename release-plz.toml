@@ -55,6 +55,7 @@ release = true
 name = "yuv-sys"
 changelog_path = "yuv-sys/CHANGELOG.md"
 publish = true
+publish_no_verify = true
 release = true
 
 [[package]]
