@@ -4,6 +4,7 @@ on:
   pull_request:
     types: [closed]
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   id-token: write
@@ -12,7 +13,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.merged && startsWith(github.head_ref, 'knope/release')
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.merged && startsWith(github.head_ref, 'knope/release'))
     outputs:
       ffi_tag: ${{ steps.ffi.outputs.ffi_tag }}
     steps:
@@ -47,8 +50,8 @@ jobs:
       - name: Install cargo-release
         run: cargo install cargo-release
 
-      - name: Publish to crates.io
-        run: cargo release publish --workspace --execute --no-confirm --no-verify
+      - name: Publish to crates.io (dry-run)
+        run: cargo release publish --workspace --no-confirm --no-verify
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
 
@@ -65,5 +68,3 @@ jobs:
     if: needs.release.outputs.ffi_tag != ''
     uses: ./.github/workflows/node-builds.yml
     needs: release
-    with:
-      tag: ${{ needs.release.outputs.ffi_tag }}

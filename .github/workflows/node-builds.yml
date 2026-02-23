@@ -200,6 +200,6 @@ jobs:
           git status
           git diff
 
-      - name: Publish
+      - name: Publish (dry-run)
         working-directory: livekit-ffi-node-bindings
-        run: pnpm publish -r --no-git-checks
+        run: pnpm publish -r --no-git-checks --dry-run
