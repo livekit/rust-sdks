@@ -17,7 +17,7 @@ on:
   push:
     branches: ["main"]
     tags:
-      - "rust-sdks/livekit-ffi@*"
+      - "livekit-ffi/v*"
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -212,12 +212,12 @@ jobs:
           path: ${{ matrix.name }}.zip
 
   release:
-    name: Release to GH (Draft)
+    name: Upload artifacts and publish GH release
     runs-on: ubuntu-latest
     needs: build
     permissions:
       contents: write
-    if: startsWith(inputs.tag || github.ref_name, 'rust-sdks/livekit-ffi@')
+    if: startsWith(inputs.tag || github.ref_name, 'livekit-ffi/v')
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -230,7 +230,7 @@ jobs:
           merge-multiple: true
           path: ${{ github.workspace }}/ffi-builds
 
-      - name: Create draft release
+      - name: Upload artifacts and publish release
         run: |
-          gh release create ${{ env.TAG_NAME }} --draft --title "${{ env.TAG_NAME }}"
           gh release upload ${{ env.TAG_NAME }} ${{ github.workspace }}/ffi-builds/*
+          gh release edit ${{ env.TAG_NAME }} --draft=false

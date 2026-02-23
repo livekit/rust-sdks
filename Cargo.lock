@@ -3413,7 +3413,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.47"
+version = "0.12.48"
 dependencies = [
  "bytes",
  "console-subscriber",
@@ -5247,7 +5247,7 @@ dependencies = [
 
 [[package]]
 name = "rtc-node-ffi-bindings"
-version = "0.0.1"
+version = "0.12.48"
 dependencies = [
  "livekit-ffi",
  "log",
