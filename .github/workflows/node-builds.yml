@@ -202,4 +202,4 @@ jobs:
 
       - name: Publish
         working-directory: livekit-ffi-node-bindings
-        run: pnpm publish -r
+        run: pnpm publish -r --no-git-checks
