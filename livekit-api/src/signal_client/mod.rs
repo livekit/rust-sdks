@@ -565,6 +565,7 @@ fn create_join_request_param(
         sdk: proto::client_info::Sdk::Rust as i32,
         version: options.sdk_options.sdk_version.clone().unwrap_or_default(),
         protocol: PROTOCOL_VERSION as i32,
+        client_protocol: proto::RPC_GZIP_CLIENT_PROTOCOL,
         os: std::env::consts::OS.to_string(),
         ..Default::default()
     };
@@ -642,18 +643,20 @@ fn get_livekit_url(
         // All other info (sdk, protocol, auto_subscribe, etc.) is inside the JoinRequest protobuf
         let join_request_param =
             create_join_request_param(options, reconnect, reconnect_reason, participant_sid);
-        lk_url.query_pairs_mut().append_pair("join_request", &join_request_param)
-                                .append_pair("client_protocol", "1");
+        lk_url
+            .query_pairs_mut()
+            .append_pair("join_request", &join_request_param);
     } else {
+        let client_protocol = proto::RPC_GZIP_CLIENT_PROTOCOL.to_string();
         // For v0 path (dual PC mode): use URL query parameters
         lk_url
             .query_pairs_mut()
             .append_pair("sdk", options.sdk_options.sdk.as_str())
             .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
-            .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
-            // client_protocol=1 indicates support for RPC compression
-            .append_pair("client_protocol", "1");
+            .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" })
+            // `client_protocol=1` indicates support for gzip RPC compression.
+            .append_pair("client_protocol", &client_protocol);
 
         if let Some(sdk_version) = &options.sdk_options.sdk_version {
             lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());

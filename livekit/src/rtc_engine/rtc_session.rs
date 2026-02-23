@@ -39,7 +39,7 @@ use tokio::sync::{mpsc, oneshot, watch, Notify};
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
     id::ParticipantIdentity,
-    room::participant::decompress_rpc_payload_bytes,
+    room::participant::{decompress_rpc_payload_bytes, RpcErrorCode},
     utils::{
         ttl_map::TtlMap,
         tx_queue::{TxQueue, TxQueueItem},
@@ -1296,26 +1296,44 @@ impl SessionInner {
             }
             proto::data_packet::Value::RpcRequest(rpc_request) => {
                 let caller_identity = participant_identity;
-                // Check for compressed_payload first, fall back to regular payload
+                // Prefer compressed payload when present.
+                // If decompression fails, only fall back to plain payload when it is non-empty.
                 let payload = if !rpc_request.compressed_payload.is_empty() {
                     match decompress_rpc_payload_bytes(&rpc_request.compressed_payload) {
-                        Ok(decompressed) => decompressed,
+                        Ok(decompressed) => Some(decompressed),
                         Err(e) => {
-                            log::error!("Failed to decompress RPC request payload: {}", e);
-                            rpc_request.payload
+                            if rpc_request.payload.is_empty() {
+                                log::error!(
+                                    "Failed to decompress RPC request payload and plain payload is empty: {}",
+                                    e
+                                );
+                                None
+                            } else {
+                                log::error!(
+                                    "Failed to decompress RPC request payload, falling back to plain payload: {}",
+                                    e
+                                );
+                                Some(rpc_request.payload)
+                            }
                         }
                     }
                 } else {
-                    rpc_request.payload
+                    Some(rpc_request.payload)
                 };
-                self.emitter.send(SessionEvent::RpcRequest {
-                    caller_identity,
-                    request_id: rpc_request.id.clone(),
-                    method: rpc_request.method,
-                    payload,
-                    response_timeout: Duration::from_millis(rpc_request.response_timeout_ms as u64),
-                    version: rpc_request.version,
-                })
+                if let Some(payload) = payload {
+                    self.emitter.send(SessionEvent::RpcRequest {
+                        caller_identity,
+                        request_id: rpc_request.id.clone(),
+                        method: rpc_request.method,
+                        payload,
+                        response_timeout: Duration::from_millis(
+                            rpc_request.response_timeout_ms as u64
+                        ),
+                        version: rpc_request.version,
+                    })
+                } else {
+                    Ok(())
+                }
             }
             proto::data_packet::Value::RpcResponse(rpc_response) => {
                 let (payload, error) = match rpc_response.value {
@@ -1326,7 +1344,15 @@ impl SessionInner {
                             Ok(decompressed) => (Some(decompressed), None),
                             Err(e) => {
                                 log::error!("Failed to decompress RPC response payload: {}", e);
-                                (None, None)
+                                (
+                                    None,
+                                    Some(proto::RpcError {
+                                        code: RpcErrorCode::ApplicationError as u32,
+                                        message: "Failed to decompress RPC response payload"
+                                            .to_string(),
+                                        data: e,
+                                    }),
+                                )
                             }
                         }
                     }

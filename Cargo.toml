@@ -57,6 +57,7 @@ console-subscriber = "0.1"
 env_logger = "0.11"
 futures = "0.3"
 futures-util = { version = "0.3", default-features = false }
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
 lazy_static = "1.4"
 log = "0.4"
 parking_lot = "0.12"

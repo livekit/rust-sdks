@@ -36,6 +36,7 @@ use crate::{
     prelude::*,
     room::participant::rpc::{
         compress_rpc_payload_bytes, RpcError, RpcErrorCode, RpcInvocationData, MAX_PAYLOAD_BYTES,
+        RPC_GZIP_CLIENT_PROTOCOL,
     },
     rtc_engine::{EngineError, RtcEngine},
     ChatMessage, DataPacket, RoomSession, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription,
@@ -618,7 +619,7 @@ impl LocalParticipant {
     }
 
     /// Check if a remote participant supports RPC compression.
-    /// Returns true if the participant has client_protocol >= 1.
+    /// Returns true if the participant advertises the gzip compression protocol.
     fn destination_supports_compression(&self, destination_identity: &str) -> bool {
         let Some(session) = self.session() else {
             return false;
@@ -627,11 +628,10 @@ impl LocalParticipant {
         let Some(participant) = session.get_participant_by_identity(&participant_identity) else {
             return false;
         };
-        participant.client_protocol() >= 1
+        participant.client_protocol() >= RPC_GZIP_CLIENT_PROTOCOL
     }
 
     async fn publish_rpc_request(&self, rpc_request: RpcRequest) -> RoomResult<()> {
-        // Compress the payload only if destination supports it
         let supports_compression =
             self.destination_supports_compression(&rpc_request.destination_identity);
 
@@ -670,7 +670,6 @@ impl LocalParticipant {
     }
 
     async fn publish_rpc_response(&self, rpc_response: RpcResponse) -> RoomResult<()> {
-        // Compress the payload only if destination supports it
         let supports_compression =
             self.destination_supports_compression(&rpc_response.destination_identity);
         let destination_identities = vec![rpc_response.destination_identity];
@@ -685,7 +684,6 @@ impl LocalParticipant {
             None => {
                 let payload = rpc_response.payload.unwrap_or_default();
                 if supports_compression {
-                    // Try to compress and use CompressedPayload variant
                     match compress_rpc_payload_bytes(&payload) {
                         Some(compressed) => {
                             proto::rpc_response::Value::CompressedPayload(compressed)
@@ -698,10 +696,8 @@ impl LocalParticipant {
             }
         };
 
-        let rpc_response_message = proto::RpcResponse {
-            request_id: rpc_response.request_id,
-            value: Some(response_value),
-        };
+        let rpc_response_message =
+            proto::RpcResponse { request_id: rpc_response.request_id, value: Some(response_value) };
 
         let data = proto::DataPacket {
             value: Some(proto::data_packet::Value::RpcResponse(rpc_response_message)),
