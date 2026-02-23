@@ -1327,7 +1327,7 @@ impl SessionInner {
                         method: rpc_request.method,
                         payload,
                         response_timeout: Duration::from_millis(
-                            rpc_request.response_timeout_ms as u64
+                            rpc_request.response_timeout_ms as u64,
                         ),
                         version: rpc_request.version,
                     })

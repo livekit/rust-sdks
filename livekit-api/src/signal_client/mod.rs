@@ -643,9 +643,7 @@ fn get_livekit_url(
         // All other info (sdk, protocol, auto_subscribe, etc.) is inside the JoinRequest protobuf
         let join_request_param =
             create_join_request_param(options, reconnect, reconnect_reason, participant_sid);
-        lk_url
-            .query_pairs_mut()
-            .append_pair("join_request", &join_request_param);
+        lk_url.query_pairs_mut().append_pair("join_request", &join_request_param);
     } else {
         let client_protocol = proto::RPC_GZIP_CLIENT_PROTOCOL.to_string();
         // For v0 path (dual PC mode): use URL query parameters
