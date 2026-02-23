@@ -195,6 +195,11 @@ jobs:
         run: ls -R ./livekit-ffi-node-bindings/npm
         shell: bash
 
+      - name: Echo changes
+        run: |
+          git status
+          git diff
+
       - name: Publish
         working-directory: livekit-ffi-node-bindings
         run: pnpm publish -r
