@@ -81,8 +81,6 @@ jobs:
     if: ${{ needs.release-plz-release.outputs.ffi_tag != '' }}
     uses: ./.github/workflows/node-builds.yml
     needs: release-plz-release
-    with:
-      tag: ${{ needs.release-plz-release.outputs.ffi_tag }}
 
   # Create a PR with the new versions and changelog, preparing the next release.
   release-plz-pr:
@@ -133,6 +131,7 @@ jobs:
       - name: Sync node package.json versions to livekit-ffi
         env:
           PR: ${{ steps.release-plz.outputs.pr }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
