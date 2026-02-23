@@ -1,6 +1,6 @@
 [package]
 name = "livekit-ffi"
-version = "0.12.48"
+version = "0.12.49"
 publish = false
 edition.workspace = true
 license.workspace = true

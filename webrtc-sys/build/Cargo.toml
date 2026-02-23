@@ -1,6 +1,6 @@
 [package]
 name = "webrtc-sys-build"
-version = "0.3.13"
+version = "0.3.14"
 edition.workspace = true
 license.workspace = true
 description = "Build utilities when working with libwebrtc"
