@@ -81,8 +81,6 @@ jobs:
     if: ${{ needs.release-plz-release.outputs.ffi_tag != '' }}
     uses: ./.github/workflows/node-builds.yml
     needs: release-plz-release
-    with:
-      tag: ${{ needs.release-plz-release.outputs.ffi_tag }}
 
   # Create a PR with the new versions and changelog, preparing the next release.
   release-plz-pr:
@@ -124,8 +122,46 @@ jobs:
             libglib2.0-dev -y
       - name: Run release-plz
         uses: release-plz/action@v0.5
+        id: release-plz
         with:
           command: release-pr
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+
+      - name: Sync node package.json versions to livekit-ffi
+        env:
+          PR: ${{ steps.release-plz.outputs.pr }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          HEAD_BRANCH=$(echo "$PR" | jq -r '.head_branch // empty')
+          if [ -z "$HEAD_BRANCH" ]; then
+            echo "No release PR, skipping"
+            exit 0
+          fi
+
+          git fetch origin "$HEAD_BRANCH"
+          git checkout "$HEAD_BRANCH"
+
+          # Read version from Cargo.toml on the PR branch
+          FFI_VERSION=$(grep '^version = ' livekit-ffi/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          CURRENT_VERSION=$(jq -r '.version' livekit-ffi-node-bindings/package.json)
+
+          if [ "$FFI_VERSION" = "$CURRENT_VERSION" ]; then
+            echo "Versions already in sync ($FFI_VERSION)"
+            exit 0
+          fi
+
+          echo "Updating node packages: $CURRENT_VERSION -> $FFI_VERSION"
+
+          for pkg in livekit-ffi-node-bindings/package.json livekit-ffi-node-bindings/npm/*/package.json; do
+            jq --arg v "$FFI_VERSION" '.version = $v' "$pkg" > tmp.json && mv tmp.json "$pkg"
+          done
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add livekit-ffi-node-bindings/package.json livekit-ffi-node-bindings/npm/*/package.json
+          git commit -m "sync node package.json versions to $FFI_VERSION"
+          git push origin "$HEAD_BRANCH"
