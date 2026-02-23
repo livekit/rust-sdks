@@ -27,7 +27,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - uses: knope-dev/action@v2
+      - uses: knope-dev/action@f5b66103ffbd41863822de6dad5606c1879545a5
 
       - run: knope prepare-release
         env:
