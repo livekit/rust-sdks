@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.pull_request.merged && startsWith(github.head_ref, 'knope/release'))
+      (github.event.pull_request.merged && startsWith(github.head_ref, 'release'))
     outputs:
       ffi_tag: ${{ steps.ffi.outputs.ffi_tag }}
     steps:
@@ -23,7 +23,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      - uses: knope-dev/action@v2
+      - uses: knope-dev/action@f5b66103ffbd41863822de6dad5606c1879545a5
 
       - name: Create tags and GitHub releases
         run: knope release
