@@ -43,6 +43,7 @@ release = true
 name = "webrtc-sys"
 changelog_path = "webrtc-sys/CHANGELOG.md"
 publish = true
+publish_no_verify = true
 release = true
 
 [[package]]
@@ -55,6 +56,7 @@ release = true
 name = "yuv-sys"
 changelog_path = "yuv-sys/CHANGELOG.md"
 publish = true
+publish_no_verify = true
 release = true
 
 [[package]]
