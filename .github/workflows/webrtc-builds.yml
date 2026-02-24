@@ -159,7 +159,7 @@ jobs:
       - name: Target OS
         run: echo -e "\ntarget_os = [\"${{ matrix.target.name }}\"]" >> .gclient
         shell: bash
-        working-directory: webrtc-sys/libwebrtc
+        working-directory: libwebrtc/libwebrtc
 
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
@@ -175,17 +175,17 @@ jobs:
 
       - name: Build WebRTC
         run: ${{ matrix.target.cmd }} --arch ${{ matrix.target.arch }} --profile ${{ matrix.profile }} ${{ matrix.target.buildargs }}
-        working-directory: webrtc-sys/libwebrtc
+        working-directory: libwebrtc/libwebrtc
 
       - name: Zip artifact (Unix)
         if: ${{ matrix.target.os != 'windows-2022' }}
         run: |
-          cd webrtc-sys/libwebrtc
+          cd libwebrtc/libwebrtc
           zip ${{ github.workspace }}/${{ steps.setup.outputs.ZIP }} ${{ steps.setup.outputs.OUT }} -r
 
       - name: Zip artifact (Windows)
         if: ${{ matrix.target.os == 'windows-2022' }}
-        run: Compress-Archive -Path .\webrtc-sys\libwebrtc\${{ steps.setup.outputs.OUT }} -DestinationPath ${{ steps.setup.outputs.ZIP }}
+        run: Compress-Archive -Path .\libwebrtc\libwebrtc\${{ steps.setup.outputs.OUT }} -DestinationPath ${{ steps.setup.outputs.ZIP }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

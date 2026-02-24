@@ -14,8 +14,6 @@
 
 #![allow(clippy::too_many_arguments)]
 
-use webrtc_sys::yuv_helper as yuv_sys;
-
 fn argb_assert_safety(src: &[u8], src_stride: u32, _width: i32, height: i32) {
     let height_abs = height.unsigned_abs();
     let min = (src_stride * height_abs) as usize;
@@ -33,7 +31,7 @@ fn i420_assert_safety(
     height: i32,
 ) {
     let height_abs = height.unsigned_abs();
-    let chroma_height = (height_abs + 1) / 2;
+    let chroma_height = height_abs.div_ceil(2);
     let min_y = (src_stride_y * height_abs) as usize;
     let min_u = (src_stride_u * chroma_height) as usize;
     let min_v = (src_stride_v * chroma_height) as usize;
@@ -52,7 +50,7 @@ fn nv12_assert_safety(
     height: i32,
 ) {
     let height_abs = height.unsigned_abs();
-    let chroma_height = (height_abs + 1) / 2;
+    let chroma_height = height_abs.div_ceil(2);
 
     let min_y = (src_stride_y * height_abs) as usize;
     let min_uv = (src_stride_uv * chroma_height) as usize;
@@ -123,8 +121,8 @@ fn i010_assert_safety(
 }
 
 macro_rules! i420_to_rgba {
-    ($x:ident) => {
-        pub fn $x(
+    ($rust_fnc:ident, $yuv_sys_fnc:ident) => {
+        pub fn $rust_fnc(
             src_y: &[u8],
             src_stride_y: u32,
             src_u: &[u8],
@@ -149,7 +147,7 @@ macro_rules! i420_to_rgba {
             argb_assert_safety(dst, dst_stride, width, height);
 
             unsafe {
-                yuv_sys::ffi::$x(
+                yuv_sys::$yuv_sys_fnc(
                     src_y.as_ptr(),
                     src_stride_y as i32,
                     src_u.as_ptr(),
@@ -160,16 +158,15 @@ macro_rules! i420_to_rgba {
                     dst_stride as i32,
                     width,
                     height,
-                )
-                .unwrap();
+                );
             }
         }
     };
 }
 
 macro_rules! rgba_to_i420 {
-    ($x:ident) => {
-        pub fn $x(
+    ($rust_fnc:ident, $yuv_sys_fnc:ident) => {
+        pub fn $rust_fnc(
             src_argb: &[u8],
             src_stride_argb: u32,
             dst_y: &mut [u8],
@@ -194,7 +191,7 @@ macro_rules! rgba_to_i420 {
             argb_assert_safety(src_argb, src_stride_argb, width, height);
 
             unsafe {
-                yuv_sys::ffi::$x(
+                yuv_sys::$yuv_sys_fnc(
                     src_argb.as_ptr(),
                     src_stride_argb as i32,
                     dst_y.as_mut_ptr(),
@@ -205,8 +202,7 @@ macro_rules! rgba_to_i420 {
                     dst_stride_v as i32,
                     width,
                     height,
-                )
-                .unwrap();
+                );
             }
         }
     };
@@ -224,26 +220,25 @@ pub fn argb_to_rgb24(
     argb_assert_safety(dst_rgb24, dst_stride_rgb24, width, height);
 
     unsafe {
-        yuv_sys::ffi::argb_to_rgb24(
+        yuv_sys::rs_ARGBToRGB24(
             src_argb.as_ptr(),
             src_stride_argb as i32,
             dst_rgb24.as_mut_ptr(),
             dst_stride_rgb24 as i32,
             width,
             height,
-        )
-        .unwrap();
+        );
     }
 }
 
 // I420 <> RGB conversion
-rgba_to_i420!(argb_to_i420);
-rgba_to_i420!(abgr_to_i420);
+rgba_to_i420!(argb_to_i420, rs_ARGBToI420);
+rgba_to_i420!(abgr_to_i420, rs_ABGRToI420);
 
-i420_to_rgba!(i420_to_argb);
-i420_to_rgba!(i420_to_bgra);
-i420_to_rgba!(i420_to_abgr);
-i420_to_rgba!(i420_to_rgba);
+i420_to_rgba!(i420_to_argb, rs_I420ToRGBA);
+i420_to_rgba!(i420_to_bgra, rs_I420ToBGRA);
+i420_to_rgba!(i420_to_abgr, rs_I420ToABGR);
+i420_to_rgba!(i420_to_rgba, rs_I420ToARGB);
 
 pub fn i420_to_nv12(
     src_y: &[u8],
@@ -272,7 +267,7 @@ pub fn i420_to_nv12(
     nv12_assert_safety(dst_y, dst_stride_y, dst_uv, dst_stride_uv, width, height);
 
     unsafe {
-        yuv_sys::ffi::i420_to_nv12(
+        yuv_sys::rs_I420ToNV12(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -285,8 +280,7 @@ pub fn i420_to_nv12(
             dst_stride_uv as i32,
             width,
             height,
-        )
-        .unwrap();
+        );
     }
 }
 
@@ -317,7 +311,7 @@ pub fn nv12_to_i420(
     );
 
     unsafe {
-        yuv_sys::ffi::nv12_to_i420(
+        yuv_sys::rs_NV12ToI420(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_uv.as_ptr(),
@@ -330,8 +324,7 @@ pub fn nv12_to_i420(
             dst_stride_v as i32,
             width,
             height,
-        )
-        .unwrap();
+        );
     }
 }
 
@@ -373,7 +366,7 @@ pub fn i444_to_i420(
     );
 
     unsafe {
-        yuv_sys::ffi::i444_to_i420(
+        yuv_sys::rs_I444ToI420(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -388,8 +381,7 @@ pub fn i444_to_i420(
             dst_stride_v as i32,
             width,
             height,
-        )
-        .unwrap();
+        );
     }
 }
 
@@ -431,7 +423,7 @@ pub fn i422_to_i420(
     );
 
     unsafe {
-        yuv_sys::ffi::i422_to_i420(
+        yuv_sys::rs_I422ToI420(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -446,8 +438,7 @@ pub fn i422_to_i420(
             dst_stride_v as i32,
             width,
             height,
-        )
-        .unwrap()
+        );
     }
 }
 
@@ -489,7 +480,7 @@ pub fn i010_to_i420(
     );
 
     unsafe {
-        yuv_sys::ffi::i010_to_i420(
+        yuv_sys::rs_I010ToI420(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -504,8 +495,7 @@ pub fn i010_to_i420(
             dst_stride_v as i32,
             width,
             height,
-        )
-        .unwrap()
+        );
     }
 }
 
@@ -523,7 +513,7 @@ pub fn nv12_to_argb(
     argb_assert_safety(dst_argb, dst_stride_argb, width, height);
 
     unsafe {
-        yuv_sys::ffi::nv12_to_argb(
+        yuv_sys::rs_NV12ToARGB(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_uv.as_ptr(),
@@ -532,8 +522,7 @@ pub fn nv12_to_argb(
             dst_stride_argb as i32,
             width,
             height,
-        )
-        .unwrap();
+        );
     }
 }
 
@@ -551,7 +540,7 @@ pub fn nv12_to_abgr(
     argb_assert_safety(dst_abgr, dst_stride_abgr, width, height);
 
     unsafe {
-        yuv_sys::ffi::nv12_to_abgr(
+        yuv_sys::rs_NV12ToABGR(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_uv.as_ptr(),
@@ -560,8 +549,7 @@ pub fn nv12_to_abgr(
             dst_stride_abgr as i32,
             width,
             height,
-        )
-        .unwrap();
+        );
     }
 }
 
@@ -590,7 +578,7 @@ pub fn i444_to_argb(
     argb_assert_safety(dst_argb, dst_stride_argb, width, height);
 
     unsafe {
-        yuv_sys::ffi::i444_to_argb(
+        yuv_sys::rs_I444ToARGB(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -601,8 +589,7 @@ pub fn i444_to_argb(
             dst_stride_argb as i32,
             width,
             height,
-        )
-        .unwrap();
+        );
     }
 }
 
@@ -631,7 +618,7 @@ pub fn i444_to_abgr(
     argb_assert_safety(dst_abgr, dst_stride_abgr, width, height);
 
     unsafe {
-        yuv_sys::ffi::i444_to_abgr(
+        yuv_sys::rs_I444ToABGR(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -642,8 +629,7 @@ pub fn i444_to_abgr(
             dst_stride_abgr as i32,
             width,
             height,
-        )
-        .unwrap()
+        );
     }
 }
 
@@ -672,7 +658,7 @@ pub fn i422_to_argb(
     argb_assert_safety(dst_argb, dst_stride_argb, width, height);
 
     unsafe {
-        yuv_sys::ffi::i422_to_argb(
+        yuv_sys::rs_I422ToARGB(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -683,8 +669,7 @@ pub fn i422_to_argb(
             dst_stride_argb as i32,
             width,
             height,
-        )
-        .unwrap();
+        );
     }
 }
 
@@ -713,7 +698,7 @@ pub fn i422_to_abgr(
     argb_assert_safety(dst_abgr, dst_stride_abgr, width, height);
 
     unsafe {
-        yuv_sys::ffi::i422_to_abgr(
+        yuv_sys::rs_I422ToABGR(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -724,8 +709,7 @@ pub fn i422_to_abgr(
             dst_stride_abgr as i32,
             width,
             height,
-        )
-        .unwrap()
+        );
     }
 }
 
@@ -754,7 +738,7 @@ pub fn i010_to_argb(
     argb_assert_safety(dst_argb, dst_stride_argb, width, height);
 
     unsafe {
-        yuv_sys::ffi::i010_to_argb(
+        yuv_sys::rs_I010ToARGB(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -765,8 +749,7 @@ pub fn i010_to_argb(
             dst_stride_argb as i32,
             width,
             height,
-        )
-        .unwrap()
+        );
     }
 }
 
@@ -795,7 +778,7 @@ pub fn i010_to_abgr(
     argb_assert_safety(dst_abgr, dst_stride_abgr, width, height);
 
     unsafe {
-        yuv_sys::ffi::i010_to_abgr(
+        yuv_sys::rs_I010ToABGR(
             src_y.as_ptr(),
             src_stride_y as i32,
             src_u.as_ptr(),
@@ -806,8 +789,7 @@ pub fn i010_to_abgr(
             dst_stride_abgr as i32,
             width,
             height,
-        )
-        .unwrap()
+        );
     }
 }
 
@@ -825,7 +807,7 @@ pub fn abgr_to_nv12(
     nv12_assert_safety(dst_y, dst_stride_y, dst_uv, dst_stride_uv, width, height);
 
     unsafe {
-        yuv_sys::ffi::abgr_to_nv12(
+        yuv_sys::rs_ABGRToNV12(
             src_abgr.as_ptr(),
             src_stride_abgr as i32,
             dst_y.as_mut_ptr(),
@@ -834,8 +816,7 @@ pub fn abgr_to_nv12(
             dst_stride_uv as i32,
             width,
             height,
-        )
-        .unwrap()
+        );
     }
 }
 
@@ -853,7 +834,7 @@ pub fn argb_to_nv12(
     nv12_assert_safety(dst_y, dst_stride_y, dst_uv, dst_stride_uv, width, height);
 
     unsafe {
-        yuv_sys::ffi::argb_to_nv12(
+        yuv_sys::rs_ARGBToNV12(
             src_argb.as_ptr(),
             src_stride_argb as i32,
             dst_y.as_mut_ptr(),
@@ -862,7 +843,6 @@ pub fn argb_to_nv12(
             dst_stride_uv as i32,
             width,
             height,
-        )
-        .unwrap()
+        );
     }
 }

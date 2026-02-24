@@ -29,9 +29,10 @@ pub use crate::{
         RtcConfiguration,
     },
     rtp_parameters::*,
+    rtp_parameters::{RtpTransceiverDirection, RtpTransceiverInit},
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
-    rtp_transceiver::{RtpTransceiver, RtpTransceiverDirection, RtpTransceiverInit},
+    rtp_transceiver::RtpTransceiver,
     session_description::{SdpType, SessionDescription},
     video_frame::{
         BoxVideoBuffer, BoxVideoFrame, I010Buffer, I420ABuffer, I420Buffer, I422Buffer, I444Buffer,

@@ -125,7 +125,7 @@ pub mod android {
     #[no_mangle]
     pub extern "C" fn JNI_OnLoad(vm: JavaVM, _: *mut c_void) -> jint {
         println!("JNI_OnLoad, initializing LiveKit");
-        livekit::webrtc::android::initialize_android(&vm);
+        libwebrtc::native::android::initialize_android(&vm);
         JNI_VERSION_1_6
     }
 }

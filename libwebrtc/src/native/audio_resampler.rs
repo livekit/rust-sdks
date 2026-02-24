@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use cxx::UniquePtr;
-use webrtc_sys::audio_resampler as sys_ar;
+use crate::sys;
 
 pub struct AudioResampler {
-    sys_handle: UniquePtr<sys_ar::ffi::AudioResampler>,
+    ffi: sys::RefCounted<sys::lkAudioResampler>,
 }
 
 impl Default for AudioResampler {
     fn default() -> Self {
-        Self { sys_handle: sys_ar::ffi::create_audio_resampler() }
+        unsafe {
+            let ffi = sys::lkAudioResamplerCreate();
+            Self { ffi: sys::RefCounted::from_raw(ffi) }
+        }
     }
 }
 
@@ -36,18 +38,18 @@ impl AudioResampler {
         dst_sample_rate: u32,
     ) -> &'a [i16] {
         assert!(src.len() >= (samples_per_channel * num_channels) as usize, "src buffer too small");
-
         unsafe {
-            let len = self.sys_handle.pin_mut().remix_and_resample(
+            let len = sys::lkAudioResamplerResample(
+                self.ffi.as_ptr(),
                 src.as_ptr(),
-                samples_per_channel as usize,
-                num_channels as usize,
-                sample_rate as i32,
-                dst_num_channels as usize,
-                dst_sample_rate as i32,
+                samples_per_channel,
+                num_channels,
+                sample_rate,
+                dst_num_channels,
+                dst_sample_rate,
             );
-
-            std::slice::from_raw_parts(self.sys_handle.data(), len / 2)
+            let data_ptr = sys::lkAudioResamplerGetData(self.ffi.as_ptr());
+            std::slice::from_raw_parts(data_ptr, len as usize / 2)
         }
     }
 }
