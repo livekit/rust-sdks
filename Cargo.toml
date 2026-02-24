@@ -6,6 +6,7 @@ members = [
     "livekit-protocol",
     "livekit-ffi",
     "livekit-uniffi",
+    "livekit-datatrack",
     "livekit-ffi-node-bindings",
     "livekit-runtime",
     "libwebrtc",
@@ -43,6 +44,7 @@ libwebrtc = { version = "0.3.26", path = "libwebrtc" }
 livekit = { version = "0.7.32", path = "livekit" }
 livekit-api = { version = "0.4.14", path = "livekit-api" }
 livekit-ffi = { version = "0.12.48", path = "livekit-ffi" }
+livekit-datatrack = { version = "0.1.0", path = "livekit-datatrack" }
 livekit-protocol = { version = "0.7.1", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
 soxr-sys = { version = "0.1.2", path = "soxr-sys" }
@@ -55,7 +57,9 @@ bytes = "1.10"
 clap = "4.5"
 console-subscriber = "0.1"
 env_logger = "0.11"
+from_variants = "1.0.2"
 futures = "0.3"
+futures-core = "0.3"
 futures-util = { version = "0.3", default-features = false }
 lazy_static = "1.4"
 log = "0.4"
@@ -68,6 +72,7 @@ serde = "1"
 serde_json = "1.0"
 thiserror = "1"
 tokio = { version = "1", default-features = false }
+tokio-stream = "0.1"
 
 [profile.release]
 opt-level = "z"

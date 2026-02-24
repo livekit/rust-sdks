@@ -1,0 +1,25 @@
+[package]
+name = "livekit-datatrack"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/livekit/rust-sdks"
+readme = "README.md"
+
+[dependencies]
+livekit-protocol = { workspace = true }
+livekit-runtime = { workspace = true }
+log = { workspace = true }
+thiserror = "2.0.17"  # TODO: upgrade workspace version to 2.x.x
+tokio = { workspace = true, default-features = false, features = ["sync"] }
+futures-util = { workspace = true, default-features = false, features = ["sink"] }
+futures-core = { workspace = true }
+bytes = { workspace = true }
+from_variants = { workspace = true }
+tokio-stream = { workspace = true, features = ["sync"] }
+anyhow = { workspace = true } # For internal error handling only
+rand = { workspace = true }
+
+[dev-dependencies]
+test-case = "3.3"
+fake = { version = "4.4", features = ["derive"] }
