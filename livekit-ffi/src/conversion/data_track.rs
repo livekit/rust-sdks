@@ -38,9 +38,9 @@ impl From<DataTrackFrame> for proto::DataTrackFrame {
 }
 
 impl From<proto::DataTrackFrame> for DataTrackFrame {
-    fn from(frame: proto::DataTrackFrame) -> Self {
-        let mut frame = Self::new(frame.payload);
-        if let Some(timestamp) = frame.user_timestamp() {
+    fn from(msg: proto::DataTrackFrame) -> Self {
+        let mut frame = Self::new(msg.payload);
+        if let Some(timestamp) = msg.user_timestamp {
             frame = frame.with_user_timestamp(timestamp);
         }
         frame
