@@ -69,13 +69,14 @@ void NativeVideoSink::OnConstraintsChanged(
 }
 
 VideoTrackSource::InternalSource::InternalSource(
-    const lkVideoResolution& resolution)
-    : webrtc::AdaptedVideoTrackSource(4), resolution_(resolution) {}
+    const lkVideoResolution& resolution, bool is_screencast)
+    : webrtc::AdaptedVideoTrackSource(4), resolution_(resolution),
+    is_screencast_(is_screencast) {}
 
 VideoTrackSource::InternalSource::~InternalSource() {}
 
 bool VideoTrackSource::InternalSource::is_screencast() const {
-  return false;
+  return is_screencast_;
 }
 
 std::optional<bool> VideoTrackSource::InternalSource::needs_denoising() const {
@@ -139,8 +140,8 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   return true;
 }
 
-VideoTrackSource::VideoTrackSource(const lkVideoResolution& resolution) {
-  source_ = webrtc::make_ref_counted<InternalSource>(resolution);
+VideoTrackSource::VideoTrackSource(const lkVideoResolution& resolution,bool is_screencast) {
+  source_ = webrtc::make_ref_counted<InternalSource>(resolution, is_screencast);
 }
 
 lkVideoResolution VideoTrackSource::video_resolution() const {

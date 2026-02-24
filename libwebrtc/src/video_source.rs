@@ -102,7 +102,7 @@ pub mod native {
 
     impl Default for NativeVideoSource {
         fn default() -> Self {
-            Self::new(VideoResolution::default())
+            Self::new(VideoResolution::default(), false)
         }
     }
 
@@ -211,9 +211,9 @@ use crate::video_source::native::VideoSourceInner;
 use parking_lot::Mutex;
 
 impl NativeVideoSource {
-    pub fn new(resolution: VideoResolution) -> NativeVideoSource {
+    pub fn new(resolution: VideoResolution, is_screencast: bool) -> NativeVideoSource {
         let res_copy = resolution.clone();
-        let ffi = unsafe { sys::lkCreateVideoTrackSource(res_copy.into()) };
+        let ffi = unsafe { sys::lkCreateVideoTrackSource(res_copy.into(), is_screencast) };
         let source = Self {
             ffi: unsafe { sys::RefCounted::from_raw(ffi) },
             inner: Arc::new(Mutex::new(VideoSourceInner { captured_frames: 0 })),

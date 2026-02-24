@@ -63,7 +63,7 @@ class VideoTrackSource : public webrtc::RefCountInterface {
   class InternalSource : public webrtc::AdaptedVideoTrackSource {
    public:
     InternalSource(const lkVideoResolution&
-                       resolution);  // (0, 0) means no resolution/optional, the
+                       resolution,bool is_screencast);  // (0, 0) means no resolution/optional, the
                                      // source will guess the resolution at the
                                      // first captured frame
     ~InternalSource() override;
@@ -79,10 +79,11 @@ class VideoTrackSource : public webrtc::RefCountInterface {
     mutable webrtc::Mutex mutex_;
     webrtc::TimestampAligner timestamp_aligner_;
     lkVideoResolution resolution_;
+    bool is_screencast_;
   };
 
  public:
-  VideoTrackSource(const lkVideoResolution& resolution);
+  VideoTrackSource(const lkVideoResolution& resolution, bool is_screencast);
 
   lkVideoResolution video_resolution() const;
 

@@ -284,6 +284,16 @@ impl LocalParticipant {
 
                 encodings = compute_video_encodings(req.width, req.height, &options);
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
+
+                // Populate simulcast_codecs so the server knows this track is simulcasted
+                if options.simulcast && encodings.len() > 1 {
+                    req.simulcast_codecs = vec![proto::SimulcastCodec {
+                        codec: options.video_codec.as_str().to_string(),
+                        cid: track.rtc_track().id(),
+                        layers: req.layers.clone(),
+                        ..Default::default()
+                    }];
+                }
             }
             LocalTrack::Audio(_audio_track) => {
                 // Setup audio encoding
@@ -799,7 +809,15 @@ impl LocalParticipant {
             min_effective_timeout,
         );
 
-        match self
+        // Register channels BEFORE sending the request to avoid race condition
+        // where the response arrives before we've registered the handlers
+        {
+            let mut rpc_state = self.local.rpc_state.lock();
+            rpc_state.pending_acks.insert(id.clone(), ack_tx);
+            rpc_state.pending_responses.insert(id.clone(), response_tx);
+        }
+
+        if let Err(e) = self
             .publish_rpc_request(RpcRequest {
                 destination_identity: data.destination_identity.clone(),
                 id: id.clone(),
@@ -810,15 +828,12 @@ impl LocalParticipant {
             })
             .await
         {
-            Ok(_) => {
-                let mut rpc_state = self.local.rpc_state.lock();
-                rpc_state.pending_acks.insert(id.clone(), ack_tx);
-                rpc_state.pending_responses.insert(id.clone(), response_tx);
-            }
-            Err(e) => {
-                log::error!("Failed to publish RPC request: {}", e);
-                return Err(RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())));
-            }
+            // Clean up on failure
+            let mut rpc_state = self.local.rpc_state.lock();
+            rpc_state.pending_acks.remove(&id);
+            rpc_state.pending_responses.remove(&id);
+            log::error!("Failed to publish RPC request: {}", e);
+            return Err(RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())));
         }
 
         // Wait for ack timeout
@@ -868,6 +883,11 @@ impl LocalParticipant {
             + 'static,
     ) {
         self.local.rpc_state.lock().handlers.insert(method, Arc::new(handler));
+
+        // Pre-connect the publisher PC so ACKs can be sent immediately when requests arrive.
+        // Without this, the first RPC request would trigger publisher negotiation, causing
+        // a ~300-500ms delay before the ACK can be sent (ICE negotiation time).
+        self.inner.rtc_engine.publisher_negotiation_needed();
     }
 
     pub fn unregister_rpc_method(&self, method: String) {

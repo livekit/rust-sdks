@@ -636,7 +636,8 @@ LK_EXPORT void lkVideoTrackRemoveSink(lkRtcVideoTrack* source,
                                       lkNativeVideoSink* sink);
 
 LK_EXPORT lkVideoTrackSource* lkCreateVideoTrackSource(
-    lkVideoResolution resolution);
+    lkVideoResolution resolution,
+    bool is_screencast);
 
 LK_EXPORT lkVideoResolution
 lkVideoTrackSourceGetResolution(lkVideoTrackSource* source);

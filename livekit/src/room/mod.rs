@@ -22,7 +22,7 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
-use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
+use livekit_api::signal_client::{SignalOptions, SignalSdkOptions, SIGNAL_CONNECT_TIMEOUT};
 use livekit_protocol::observer::Dispatcher;
 use livekit_protocol::{self as proto, encryption};
 use livekit_runtime::JoinHandle;
@@ -368,6 +368,12 @@ pub struct RoomOptions {
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
     pub sdk_options: RoomSdkOptions,
+    /// Enable single peer connection mode. When true, uses one RTCPeerConnection
+    /// for both publishing and subscribing instead of two separate connections.
+    /// Falls back to dual peer connection if the server doesn't support single PC.
+    pub single_peer_connection: bool,
+    /// Timeout for each individual signal connection attempt
+    pub connect_timeout: Duration,
 }
 
 impl Default for RoomOptions {
@@ -388,6 +394,8 @@ impl Default for RoomOptions {
             },
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
+            single_peer_connection: false,
+            connect_timeout: SIGNAL_CONNECT_TIMEOUT,
         }
     }
 }
@@ -481,6 +489,8 @@ impl Room {
         signal_options.sdk_options = options.sdk_options.clone().into();
         signal_options.auto_subscribe = options.auto_subscribe;
         signal_options.adaptive_stream = options.adaptive_stream;
+        signal_options.single_peer_connection = options.single_peer_connection;
+        signal_options.connect_timeout = options.connect_timeout;
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,
@@ -488,6 +498,7 @@ impl Room {
                 rtc_config: options.rtc_config.clone(),
                 signal_options,
                 join_retries: options.join_retries,
+                single_peer_connection: options.single_peer_connection,
             },
             Some(e2ee_manager.clone()),
         )
@@ -746,6 +757,12 @@ impl Room {
 
     pub fn connection_state(&self) -> ConnectionState {
         self.inner.info.read().state
+    }
+
+    /// Returns whether the room is currently using single peer connection signaling.
+    /// If requested but not supported by server, this will be false after v0 fallback.
+    pub fn is_single_peer_connection_active(&self) -> bool {
+        self.inner.rtc_engine.session().is_single_pc_mode()
     }
 
     pub fn remote_participants(&self) -> HashMap<ParticipantIdentity, RemoteParticipant> {
@@ -1055,12 +1072,53 @@ impl RoomSession {
 
         let (participant_sid, stream_id) = lk_stream_id.unwrap();
         let mut track_id = track.id();
-        if stream_id.starts_with("TR") {
+
+        // Resolve track ID based on signaling mode
+        let session = self.rtc_engine.session();
+        if session.is_single_pc_mode() {
+            // In single PC mode, resolve track ID from mid_to_track_id mapping
+            if let Some(mid) = transceiver.mid() {
+                if let Some(resolved_track_id) = session.get_track_id_for_mid(&mid) {
+                    log::debug!(
+                        "resolved track_id from mid: mid={}, track_id={}",
+                        mid,
+                        resolved_track_id
+                    );
+                    track_id = resolved_track_id.into();
+                } else {
+                    log::warn!(
+                        "could not resolve track_id for mid={}, using track.id()={}",
+                        mid,
+                        track_id
+                    );
+                }
+            }
+        } else if stream_id.starts_with("TR") {
+            // In dual PC mode, use stream_id if it's a valid track ID
             track_id = stream_id.into();
         }
 
+        if !track_id.starts_with("TR") {
+            log::warn!(
+                "track_id does not start with TR after resolution: track_id={}, stream_id={}",
+                track_id,
+                stream_id
+            );
+        }
+
         let participant_sid: ParticipantSid = participant_sid.to_owned().try_into().unwrap();
-        let track_id = track_id.to_owned().try_into().unwrap();
+        let track_id: TrackSid = match track_id.to_owned().try_into() {
+            Ok(track_id) => track_id,
+            Err(err) => {
+                log::error!(
+                    "dropping remote track due to invalid TrackSid: track_id={}, stream_id={}, err={:?}",
+                    track_id,
+                    stream_id,
+                    err
+                );
+                return;
+            }
+        };
 
         let remote_participant = self
             .remote_participants
@@ -1146,11 +1204,36 @@ impl RoomSession {
     async fn send_sync_state(self: &Arc<Self>) {
         let auto_subscribe = self.options.auto_subscribe;
         let session = self.rtc_engine.session();
+        let single_pc_mode = session.is_single_pc_mode();
 
-        if session.subscriber().peer_connection().current_local_description().is_none() {
-            log::warn!("skipping sendSyncState, no subscriber answer");
-            return;
-        }
+        // In single PC mode, use publisher's offer/answer
+        // In dual PC mode, use subscriber's offer/answer
+        let (offer, answer) = if single_pc_mode {
+            let pub_pc = session.publisher().peer_connection();
+            let Some(local_desc) = pub_pc.current_local_description() else {
+                log::warn!("skipping sendSyncState, no publisher offer");
+                return;
+            };
+            let remote_desc = pub_pc.current_remote_description();
+            // In single PC mode: offer is local (publisher initiates), answer is remote
+            (local_desc, remote_desc)
+        } else {
+            let Some(sub_pc) = session.subscriber() else {
+                log::warn!("skipping sendSyncState, no subscriber");
+                return;
+            };
+            let sub_pc = sub_pc.peer_connection();
+            let Some(local_desc) = sub_pc.current_local_description() else {
+                log::warn!("skipping sendSyncState, no subscriber answer");
+                return;
+            };
+            let Some(remote_desc) = sub_pc.current_remote_description() else {
+                log::warn!("skipping sendSyncState, no subscriber offer");
+                return;
+            };
+            // In dual PC mode: answer is local, offer is remote
+            (remote_desc, Some(local_desc))
+        };
 
         let mut track_sids = Vec::new();
         for (_, participant) in self.remote_participants.read().clone() {
@@ -1160,10 +1243,6 @@ impl RoomSession {
                 }
             }
         }
-
-        let answer = session.subscriber().peer_connection().current_local_description().unwrap();
-
-        let offer = session.subscriber().peer_connection().current_remote_description().unwrap();
 
         let mut dcs = Vec::with_capacity(4);
         if session.has_published() {
@@ -1206,9 +1285,9 @@ impl RoomSession {
         }
 
         let sync_state = proto::SyncState {
-            answer: Some(proto::SessionDescription {
-                sdp: answer.to_string(),
-                r#type: answer.sdp_type().to_string(),
+            answer: answer.map(|a| proto::SessionDescription {
+                sdp: a.to_string(),
+                r#type: a.sdp_type().to_string(),
                 id: 0,
                 mid_to_track_id: Default::default(),
             }),

@@ -603,9 +603,10 @@ void lkVideoTrackRemoveSink(lkRtcVideoTrack* track, lkNativeVideoSink* sink) {
           reinterpret_cast<livekit_ffi::NativeVideoSink*>(sink)));
 }
 
-lkVideoTrackSource* lkCreateVideoTrackSource(lkVideoResolution resolution) {
+lkVideoTrackSource* lkCreateVideoTrackSource(lkVideoResolution resolution,
+    bool is_screencast) {
   return reinterpret_cast<lkVideoTrackSource*>(
-      webrtc::make_ref_counted<livekit_ffi::VideoTrackSource>(resolution)
+      webrtc::make_ref_counted<livekit_ffi::VideoTrackSource>(resolution, is_screencast)
           .release());
 }
 

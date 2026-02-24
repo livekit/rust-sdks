@@ -1024,7 +1024,10 @@ unsafe extern "C" {
     pub fn lkVideoTrackRemoveSink(source: *mut lkRtcVideoTrack, sink: *mut lkNativeVideoSink);
 }
 unsafe extern "C" {
-    pub fn lkCreateVideoTrackSource(resolution: lkVideoResolution) -> *mut lkVideoTrackSource;
+    pub fn lkCreateVideoTrackSource(
+        resolution: lkVideoResolution,
+        is_screencast: bool,
+    ) -> *mut lkVideoTrackSource;
 }
 unsafe extern "C" {
     pub fn lkVideoTrackSourceGetResolution(source: *mut lkVideoTrackSource) -> lkVideoResolution;

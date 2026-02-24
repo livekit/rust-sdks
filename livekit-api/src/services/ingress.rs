@@ -149,6 +149,7 @@ impl IngressClient {
                         IngressListFilter::Room(room) => room,
                         _ => Default::default(),
                     },
+                    page_token: Default::default(),
                 },
                 self.base
                     .auth_header(VideoGrants { ingress_admin: true, ..Default::default() }, None)?,
