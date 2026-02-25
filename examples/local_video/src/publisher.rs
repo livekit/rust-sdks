@@ -3,8 +3,6 @@ use clap::Parser;
 use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
-#[cfg(target_os = "linux")]
-use livekit::webrtc::video_frame::{native::DmaBufBuffer, DmaBufPixelFormat};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
@@ -690,18 +688,17 @@ async fn run_mipi(
                 };
                 let t1 = Instant::now();
 
-                // Wrap in DmaBufBuffer and push to the WebRTC encoder.
-                // The C++ shim blits the Argus EGLStream frame into a
-                // persistent ring of NvBufSurface buffers and releases
-                // the EGLStream frame before returning, so the fd
-                // remains valid independently.
-                let dmabuf = DmaBufBuffer::new(dmabuf_fd, width, height, DmaBufPixelFormat::NV12);
-                let frame = VideoFrame {
-                    rotation: VideoRotation::VideoRotation0,
-                    timestamp_us: start_ts.elapsed().as_micros() as i64,
-                    buffer: dmabuf,
-                };
-                rtc_source.capture_frame(&frame);
+                // Push the DMA fd directly to the WebRTC encoder via the
+                // single-call FFI path.  This avoids 6 FFI round-trips
+                // and 2 C++ heap allocations per frame that the generic
+                // capture_frame() + DmaBufBuffer::new() path requires.
+                rtc_source.capture_dmabuf_frame(
+                    dmabuf_fd,
+                    width,
+                    height,
+                    0, // NV12
+                    start_ts.elapsed().as_micros() as i64,
+                );
                 let t2 = Instant::now();
 
                 frames += 1;

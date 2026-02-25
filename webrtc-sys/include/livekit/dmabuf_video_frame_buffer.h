@@ -44,6 +44,13 @@ class DmaBufVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   int width() const override;
   int height() const override;
   rtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() override;
+  rtc::scoped_refptr<webrtc::VideoFrameBuffer> CropAndScale(
+      int offset_x,
+      int offset_y,
+      int crop_width,
+      int crop_height,
+      int scaled_width,
+      int scaled_height) override;
 
   // DMA buffer accessors
   int dmabuf_fd() const { return dmabuf_fd_; }

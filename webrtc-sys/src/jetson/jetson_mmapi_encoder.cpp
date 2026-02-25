@@ -1327,6 +1327,7 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
   const uint64_t dequeue_num = total_dequeue_count.fetch_add(1);
   size_t bytesused = 0;
   int empty_retries = 0;
+  int backoff_ms = 1;
   for (int attempt = 0; attempt < kMaxEmptyRetries; ++attempt) {
     int dq_ret = encoder_->capture_plane.dqBuffer(v4l2_buf, &buffer, nullptr,
                                                   kDequeueTimeoutMs);
@@ -1360,7 +1361,8 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
       std::fflush(stderr);
       return false;
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    std::this_thread::sleep_for(std::chrono::milliseconds(backoff_ms));
+    backoff_ms = std::min(backoff_ms * 2, 8);
   }
 
   if (bytesused == 0) {

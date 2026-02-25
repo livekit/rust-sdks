@@ -17,6 +17,9 @@
 #include "livekit/video_track.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdio>
 #include <iostream>
 #include <memory>
 
@@ -25,6 +28,7 @@
 #include "api/video/video_rotation.h"
 #include "audio/remix_resample.h"
 #include "common_audio/include/audio_util.h"
+#include "livekit/dmabuf_video_frame_buffer.h"
 #include "livekit/media_stream.h"
 #include "livekit/video_track.h"
 #include "rtc_base/logging.h"
@@ -134,6 +138,18 @@ VideoResolution VideoTrackSource::InternalSource::video_resolution() const {
 
 bool VideoTrackSource::InternalSource::on_captured_frame(
     const webrtc::VideoFrame& frame) {
+  static const bool debug = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+  static std::atomic<uint64_t> frame_count(0);
+  static std::atomic<uint64_t> crop_scale_count(0);
+  static std::atomic<uint64_t> adapt_drop_count(0);
+  static std::atomic<double> sum_adapt_us(0);
+  static std::atomic<double> sum_crop_us(0);
+  static std::atomic<double> sum_broadcast_us(0);
+  static std::atomic<double> sum_total_us(0);
+  using Clock = std::chrono::steady_clock;
+
+  auto t_start = Clock::now();
+
   webrtc::MutexLock lock(&mutex_);
 
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
@@ -148,21 +164,27 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   }
 
   int adapted_width, adapted_height, crop_width, crop_height, crop_x, crop_y;
+  auto t_adapt_start = Clock::now();
   if (!AdaptFrame(buffer->width(), buffer->height(), aligned_timestamp_us,
                   &adapted_width, &adapted_height, &crop_width, &crop_height,
                   &crop_x, &crop_y)) {
+    if (debug) {
+      adapt_drop_count.fetch_add(1, std::memory_order_relaxed);
+    }
     return false;
   }
+  auto t_adapt_end = Clock::now();
 
+  bool did_crop_scale = false;
   if (adapted_width != frame.width() || adapted_height != frame.height()) {
+    did_crop_scale = true;
     buffer = buffer->CropAndScale(crop_x, crop_y, crop_width, crop_height,
                                   adapted_width, adapted_height);
   }
+  auto t_crop_end = Clock::now();
 
   webrtc::VideoRotation rotation = frame.rotation();
   if (apply_rotation() && rotation != webrtc::kVideoRotation_0) {
-    // If the buffer is I420, webrtc::AdaptedVideoTrackSource will handle the
-    // rotation for us.
     buffer = buffer->ToI420();
   }
 
@@ -171,6 +193,44 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
               .set_rotation(rotation)
               .set_timestamp_us(aligned_timestamp_us)
               .build());
+  auto t_end = Clock::now();
+
+  if (debug) {
+    uint64_t n = frame_count.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (did_crop_scale) {
+      crop_scale_count.fetch_add(1, std::memory_order_relaxed);
+    }
+    double adapt_us = std::chrono::duration<double, std::micro>(
+        t_adapt_end - t_adapt_start).count();
+    double crop_us = std::chrono::duration<double, std::micro>(
+        t_crop_end - t_adapt_end).count();
+    double broadcast_us = std::chrono::duration<double, std::micro>(
+        t_end - t_crop_end).count();
+    double total_us = std::chrono::duration<double, std::micro>(
+        t_end - t_start).count();
+    sum_adapt_us.store(sum_adapt_us.load(std::memory_order_relaxed) + adapt_us,
+                       std::memory_order_relaxed);
+    sum_crop_us.store(sum_crop_us.load(std::memory_order_relaxed) + crop_us,
+                      std::memory_order_relaxed);
+    sum_broadcast_us.store(
+        sum_broadcast_us.load(std::memory_order_relaxed) + broadcast_us,
+        std::memory_order_relaxed);
+    sum_total_us.store(
+        sum_total_us.load(std::memory_order_relaxed) + total_us,
+        std::memory_order_relaxed);
+
+    if (n % 60 == 0) {
+      double dn = static_cast<double>(n);
+      std::fprintf(stderr,
+                   "[VideoTrackSource] on_captured_frame stats (%lu frames): "
+                   "avg us: adapt=%.0f crop=%.0f broadcast=%.0f total=%.0f | "
+                   "crop_scale=%lu adapt_drop=%lu\n",
+                   n, sum_adapt_us.load() / dn, sum_crop_us.load() / dn,
+                   sum_broadcast_us.load() / dn, sum_total_us.load() / dn,
+                   crop_scale_count.load(), adapt_drop_count.load());
+      std::fflush(stderr);
+    }
+  }
 
   return true;
 }
@@ -187,6 +247,31 @@ bool VideoTrackSource::on_captured_frame(
     const std::unique_ptr<VideoFrame>& frame) const {
   auto rtc_frame = frame->get();
   return source_->on_captured_frame(rtc_frame);
+}
+
+bool VideoTrackSource::capture_dmabuf_frame(int dmabuf_fd,
+                                             int width,
+                                             int height,
+                                             int pixel_format,
+                                             int64_t timestamp_us) const {
+  auto dmabuf_pixel_format =
+      static_cast<livekit::DmaBufPixelFormat>(pixel_format);
+  auto buffer = rtc::make_ref_counted<livekit::DmaBufVideoFrameBuffer>(
+      dmabuf_fd, width, height, dmabuf_pixel_format);
+
+  int64_t ts = timestamp_us;
+  if (ts == 0) {
+    auto now = std::chrono::system_clock::now().time_since_epoch();
+    ts = std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+  }
+
+  auto frame = webrtc::VideoFrame::Builder()
+                   .set_video_frame_buffer(std::move(buffer))
+                   .set_rotation(webrtc::kVideoRotation_0)
+                   .set_timestamp_us(ts)
+                   .build();
+
+  return source_->on_captured_frame(frame);
 }
 
 webrtc::scoped_refptr<VideoTrackSource::InternalSource> VideoTrackSource::get()

@@ -78,6 +78,28 @@ pub mod native {
             self.handle.capture_frame(frame)
         }
 
+        /// Single-call DmaBuf frame capture optimized for Jetson zero-copy
+        /// pipelines. Avoids the multi-step builder pattern (6 FFI calls,
+        /// 2 heap allocs) by creating the DmaBufVideoFrameBuffer and
+        /// webrtc::VideoFrame entirely on the C++ side.
+        /// `pixel_format`: 0 = NV12, 1 = YUV420M
+        pub fn capture_dmabuf_frame(
+            &self,
+            dmabuf_fd: i32,
+            width: u32,
+            height: u32,
+            pixel_format: i32,
+            timestamp_us: i64,
+        ) -> bool {
+            self.handle.capture_dmabuf_frame(
+                dmabuf_fd,
+                width,
+                height,
+                pixel_format,
+                timestamp_us,
+            )
+        }
+
         pub fn video_resolution(&self) -> VideoResolution {
             self.handle.video_resolution()
         }

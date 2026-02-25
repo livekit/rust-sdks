@@ -18,6 +18,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <mutex>
 #include <unordered_map>
 
 #include "api/make_ref_counted.h"
@@ -60,21 +61,25 @@ DmaBufVideoFrameBuffer::ToI420() {
   // prints spurious "Wrong buffer index" warnings.  The surface pointer is
   // stable for the lifetime of the DMA buffer (freed only when the Argus
   // session is destroyed), so caching is safe.
+  static std::mutex cache_mutex;
   static std::unordered_map<int, NvBufSurface*> surface_cache;
 
   NvBufSurface* surface = nullptr;
-  auto cache_it = surface_cache.find(dmabuf_fd_);
-  if (cache_it != surface_cache.end()) {
-    surface = cache_it->second;
-  } else {
-    int ret = NvBufSurfaceFromFd(dmabuf_fd_, reinterpret_cast<void**>(&surface));
-    if (ret != 0 || !surface || surface->batchSize < 1) {
-      RTC_LOG(LS_ERROR) << "DmaBufVideoFrameBuffer::ToI420: "
-                           "NvBufSurfaceFromFd failed (fd=" << dmabuf_fd_
-                        << ", ret=" << ret << ")";
-      return nullptr;
+  {
+    std::lock_guard<std::mutex> lock(cache_mutex);
+    auto cache_it = surface_cache.find(dmabuf_fd_);
+    if (cache_it != surface_cache.end()) {
+      surface = cache_it->second;
+    } else {
+      int ret = NvBufSurfaceFromFd(dmabuf_fd_, reinterpret_cast<void**>(&surface));
+      if (ret != 0 || !surface || surface->batchSize < 1) {
+        RTC_LOG(LS_ERROR) << "DmaBufVideoFrameBuffer::ToI420: "
+                             "NvBufSurfaceFromFd failed (fd=" << dmabuf_fd_
+                          << ", ret=" << ret << ")";
+        return nullptr;
+      }
+      surface_cache[dmabuf_fd_] = surface;
     }
-    surface_cache[dmabuf_fd_] = surface;
   }
 
   int ret = NvBufSurfaceMap(surface, 0, -1, NVBUF_MAP_READ);
@@ -132,6 +137,37 @@ DmaBufVideoFrameBuffer::ToI420() {
                        "not supported without Jetson MMAPI";
   return nullptr;
 #endif
+}
+
+rtc::scoped_refptr<webrtc::VideoFrameBuffer>
+DmaBufVideoFrameBuffer::CropAndScale(int offset_x,
+                                      int offset_y,
+                                      int crop_width,
+                                      int crop_height,
+                                      int scaled_width,
+                                      int scaled_height) {
+  // Fast path: if the crop covers the full frame and no scaling is needed,
+  // return ourselves unchanged.  This avoids the catastrophic ToI420()
+  // fallback that maps the DMA buffer to CPU, performs NV12->I420
+  // conversion (~10-15 ms on Jetson), and loses the zero-copy encode path.
+  if (offset_x == 0 && offset_y == 0 &&
+      crop_width == width_ && crop_height == height_ &&
+      scaled_width == width_ && scaled_height == height_) {
+    return rtc::scoped_refptr<webrtc::VideoFrameBuffer>(this);
+  }
+
+  // Actual crop/scale requested (e.g. bandwidth adaptation).  Fall back to
+  // the base implementation which goes through ToI420().  Log so the user
+  // can diagnose unexpected resolution changes.
+  RTC_LOG(LS_WARNING) << "DmaBufVideoFrameBuffer::CropAndScale: "
+                         "falling back to ToI420 (crop="
+                      << offset_x << "," << offset_y << " "
+                      << crop_width << "x" << crop_height
+                      << " -> " << scaled_width << "x" << scaled_height
+                      << ", native=" << width_ << "x" << height_ << ")";
+  return webrtc::VideoFrameBuffer::CropAndScale(
+      offset_x, offset_y, crop_width, crop_height,
+      scaled_width, scaled_height);
 }
 
 DmaBufVideoFrameBuffer* DmaBufVideoFrameBuffer::FromNative(

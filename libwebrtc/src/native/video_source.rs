@@ -111,6 +111,28 @@ impl NativeVideoSource {
         self.sys_handle.on_captured_frame(&builder.pin_mut().build());
     }
 
+    /// Single-call DmaBuf frame capture that avoids the multi-step builder
+    /// pattern (6 FFI calls, 2 heap allocs). The DmaBufVideoFrameBuffer and
+    /// webrtc::VideoFrame are created entirely on the C++ side in one call.
+    pub fn capture_dmabuf_frame(
+        &self,
+        dmabuf_fd: i32,
+        width: u32,
+        height: u32,
+        pixel_format: i32,
+        timestamp_us: i64,
+    ) -> bool {
+        let mut inner = self.inner.lock();
+        inner.captured_frames += 1;
+        self.sys_handle.capture_dmabuf_frame(
+            dmabuf_fd,
+            width as i32,
+            height as i32,
+            pixel_format,
+            timestamp_us,
+        )
+    }
+
     pub fn video_resolution(&self) -> VideoResolution {
         self.sys_handle.video_resolution().into()
     }

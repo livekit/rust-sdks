@@ -115,6 +115,15 @@ class VideoTrackSource {
   bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame)
       const;  // frames pushed from Rust (+interior mutability)
 
+  // Single-call DmaBuf capture: creates the DmaBufVideoFrameBuffer and
+  // VideoFrame internally, avoiding multiple FFI round-trips and heap
+  // allocations on the hot path.
+  bool capture_dmabuf_frame(int dmabuf_fd,
+                            int width,
+                            int height,
+                            int pixel_format,
+                            int64_t timestamp_us) const;
+
   webrtc::scoped_refptr<InternalSource> get() const;
 
  private:
