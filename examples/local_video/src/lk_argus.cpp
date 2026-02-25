@@ -150,6 +150,7 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
 
         Argus::SensorMode* best_mode = nullptr;
         uint64_t best_pixels = UINT64_MAX;
+        uint64_t requested_dur_ns = 1000000000ULL / fps;
 
         for (size_t i = 0; i < modes.size(); i++) {
             auto* i_mode = Argus::interface_cast<Argus::ISensorMode>(modes[i]);
@@ -163,9 +164,13 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
                     min_fps_mode, max_fps_mode,
                     dur.min(), dur.max());
 
+            // Compare frame durations instead of floating-point fps.
+            // Sensor durations are in nanoseconds and often off by 1 ns
+            // from the ideal value (e.g., 33333334 vs 33333333 for 30fps).
+            // A 1ms tolerance handles this rounding.
             if (static_cast<int>(res.width()) >= width &&
                 static_cast<int>(res.height()) >= height &&
-                max_fps_mode >= static_cast<double>(fps)) {
+                dur.min() <= requested_dur_ns + 1000000) {
                 uint64_t pixels = static_cast<uint64_t>(res.width()) * res.height();
                 if (pixels < best_pixels) {
                     best_pixels = pixels;
