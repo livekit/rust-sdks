@@ -207,7 +207,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // Create LiveKit video source and track
     let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
     let track =
-        LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(rtc_source.clone()));
+        LocalVideoTrack::create_video_track("sam3/a", RtcVideoSource::Native(rtc_source.clone()));
 
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
     let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
@@ -586,13 +586,14 @@ async fn run_mipi(
         // presets; for 640x480 (4:3) that maps to the video43::H540 preset
         // which caps at 25 fps instead of the user's requested framerate.
         let pixels = (width * height) as u64;
-        let default_bitrate = match pixels {
-            0..=76800 => 150_000,       // up to 320x240
-            76801..=230400 => 300_000,  // up to 640x360
-            230401..=345600 => 450_000, // up to 640x480
-            345601..=518400 => 800_000, // up to 960x540
-            518401..=921600 => 1_700_000, // up to 1280x720
-            _ => 3_000_000,             // 1080p+
+        let fps_factor = if fps > 30 { 2 } else { 1 };
+        let default_bitrate = fps_factor * match pixels {
+            0..=76800 => 300_000,         // up to 320x240
+            76801..=230400 => 600_000,    // up to 640x360
+            230401..=345600 => 1_000_000, // up to 640x480
+            345601..=518400 => 1_500_000, // up to 960x540
+            518401..=921600 => 3_000_000, // up to 1280x720
+            _ => 5_000_000,              // 1080p+
         };
         TrackPublishOptions {
             source: TrackSource::Camera,
