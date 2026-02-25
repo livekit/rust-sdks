@@ -52,10 +52,6 @@ versioned_files = ["livekit/Cargo.toml"]
 changelog = "livekit/CHANGELOG.md"
 scopes = ["livekit"]
 
-# --- livekit-ffi: NOT published to crates.io ---
-# Gets git tag + GitHub Release which triggers cross-platform FFI + Node.js builds.
-# Scopes include dependencies so its changelog aggregates all user-facing changes.
-
 [packages.livekit-ffi]
 versioned_files = [
   "livekit-ffi/Cargo.toml",
