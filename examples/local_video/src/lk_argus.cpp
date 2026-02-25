@@ -6,6 +6,7 @@
 //   lk_argus_release_frame   – release frame back to Argus buffer pool
 //   lk_argus_destroy_session – tear down everything
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -135,12 +136,80 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
         Argus::interface_cast<Argus::IRequest>(s->request);
     i_request->enableOutputStream(s->stream.get());
 
-    // Set framerate via source settings
-    auto* i_source =
-        Argus::interface_cast<Argus::ISourceSettings>(i_request->getSourceSettings());
-    if (i_source) {
-        i_source->setFrameDurationRange(
-            Argus::Range<uint64_t>(1000000000ULL / fps, 1000000000ULL / fps));
+    // --- Sensor mode selection ---
+    // Argus auto-selects a sensor mode, but often picks the highest-resolution
+    // mode and downscales, running at that mode's (lower) framerate.  We
+    // explicitly pick the smallest mode that covers the requested resolution
+    // and supports the requested framerate.
+    auto* i_props = Argus::interface_cast<Argus::ICameraProperties>(
+        devices[sensor_index]);
+    if (i_props) {
+        std::vector<Argus::SensorMode*> modes;
+        i_props->getAllSensorModes(&modes);
+        fprintf(stderr, "[lk_argus] %zu sensor modes available:\n", modes.size());
+
+        Argus::SensorMode* best_mode = nullptr;
+        uint64_t best_pixels = UINT64_MAX;
+
+        for (size_t i = 0; i < modes.size(); i++) {
+            auto* i_mode = Argus::interface_cast<Argus::ISensorMode>(modes[i]);
+            if (!i_mode) continue;
+            auto res = i_mode->getResolution();
+            auto dur = i_mode->getFrameDurationRange();
+            double min_fps_mode = 1e9 / static_cast<double>(dur.max());
+            double max_fps_mode = 1e9 / static_cast<double>(dur.min());
+            fprintf(stderr, "  [%zu] %ux%u  fps %.1f-%.1f  duration %lu-%lu ns\n",
+                    i, res.width(), res.height(),
+                    min_fps_mode, max_fps_mode,
+                    dur.min(), dur.max());
+
+            if (static_cast<int>(res.width()) >= width &&
+                static_cast<int>(res.height()) >= height &&
+                max_fps_mode >= static_cast<double>(fps)) {
+                uint64_t pixels = static_cast<uint64_t>(res.width()) * res.height();
+                if (pixels < best_pixels) {
+                    best_pixels = pixels;
+                    best_mode = modes[i];
+                }
+            }
+        }
+
+        auto* i_source = Argus::interface_cast<Argus::ISourceSettings>(
+            i_request->getSourceSettings());
+
+        if (best_mode) {
+            auto* i_best = Argus::interface_cast<Argus::ISensorMode>(best_mode);
+            auto res = i_best->getResolution();
+            auto dur = i_best->getFrameDurationRange();
+            fprintf(stderr, "[lk_argus] Selected sensor mode: %ux%u  fps %.1f-%.1f\n",
+                    res.width(), res.height(),
+                    1e9 / static_cast<double>(dur.max()),
+                    1e9 / static_cast<double>(dur.min()));
+            if (i_source) {
+                i_source->setSensorMode(best_mode);
+            }
+        } else {
+            fprintf(stderr, "[lk_argus] WARNING: no sensor mode found for %dx%d @ %d fps, "
+                    "using Argus default (may be slower)\n", width, height, fps);
+        }
+
+        if (i_source) {
+            uint64_t frame_dur_ns = 1000000000ULL / fps;
+            i_source->setFrameDurationRange(
+                Argus::Range<uint64_t>(frame_dur_ns, frame_dur_ns));
+            i_source->setExposureTimeRange(
+                Argus::Range<uint64_t>(0, frame_dur_ns));
+            fprintf(stderr, "[lk_argus] Frame duration: %lu ns, max exposure: %lu ns\n",
+                    frame_dur_ns, frame_dur_ns);
+        }
+    } else {
+        fprintf(stderr, "[lk_argus] WARNING: could not query sensor modes\n");
+        auto* i_source = Argus::interface_cast<Argus::ISourceSettings>(
+            i_request->getSourceSettings());
+        if (i_source) {
+            i_source->setFrameDurationRange(
+                Argus::Range<uint64_t>(1000000000ULL / fps, 1000000000ULL / fps));
+        }
     }
 
     // Allocate a ring of persistent NvBufSurface buffers so the encoder can
@@ -182,6 +251,13 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
 }
 
 int lk_argus_acquire_frame(void* handle) {
+    using Clock = std::chrono::steady_clock;
+    static const bool debug = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+    static uint64_t frame_num = 0;
+    static double sum_acquire_us = 0;
+    static double sum_blit_us = 0;
+    static double sum_total_us = 0;
+
     auto* s = static_cast<LkArgusSession*>(handle);
     if (!s) return -1;
 
@@ -192,12 +268,16 @@ int lk_argus_acquire_frame(void* handle) {
     // Release any previously held frame
     s->current_frame.reset();
 
+    auto t0 = Clock::now();
+
     Argus::Status status;
     s->current_frame = Argus::UniqueObj<EGLStream::Frame>(
         i_consumer->acquireFrame(kAcquireTimeoutNs, &status));
     if (status != Argus::STATUS_OK || !s->current_frame) {
         return -1;
     }
+
+    auto t1 = Clock::now();
 
     auto* i_frame =
         Argus::interface_cast<EGLStream::IFrame>(s->current_frame);
@@ -223,6 +303,8 @@ int lk_argus_acquire_frame(void* handle) {
     // Copy (blit) the acquired frame into the selected NvBufSurface.
     status = i_native->copyToNvBuffer(fd);
 
+    auto t2 = Clock::now();
+
     // Release the Argus frame immediately – the pixel data has been blitted
     // into our persistent NvBufSurface so we no longer need the EGLStream frame.
     s->current_frame.reset();
@@ -233,13 +315,26 @@ int lk_argus_acquire_frame(void* handle) {
         return -1;
     }
 
-    // No NvBufSurfaceSyncForDevice() call here.  copyToNvBuffer() is a
-    // GPU-side VIC blit: data flows Argus EGLStream -> NvBufSurface
-    // entirely through DMA, with no CPU cache involvement.  The V4L2
-    // encoder also reads via DMA.  Calling SyncForDevice on these
-    // buffers is unnecessary and on many JetPack versions triggers
-    // "Wrong buffer index" errors from the NvBufSurface library while
-    // adding ~14ms of blocking latency per frame.
+    if (debug) {
+        double acquire_us = std::chrono::duration<double, std::micro>(t1 - t0).count();
+        double blit_us = std::chrono::duration<double, std::micro>(t2 - t1).count();
+        double total_us = std::chrono::duration<double, std::micro>(t2 - t0).count();
+        sum_acquire_us += acquire_us;
+        sum_blit_us += blit_us;
+        sum_total_us += total_us;
+        frame_num++;
+
+        if (frame_num % 60 == 0) {
+            double dn = static_cast<double>(frame_num);
+            fprintf(stderr,
+                    "[lk_argus] acquire_frame stats (%lu frames): "
+                    "avg ms: wait=%.2f blit=%.2f total=%.2f\n",
+                    frame_num, sum_acquire_us / dn / 1000.0,
+                    sum_blit_us / dn / 1000.0,
+                    sum_total_us / dn / 1000.0);
+            fflush(stderr);
+        }
+    }
 
     return fd;
 }
