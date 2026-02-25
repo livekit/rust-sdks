@@ -53,6 +53,8 @@ use async_tungstenite::{
     WebSocketStream,
 };
 
+use crate::signal_client::TlsConfig;
+
 use super::{SignalError, SignalResult};
 
 type WebSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
@@ -89,8 +91,9 @@ impl SignalStream {
         url: url::Url,
         token: &str,
         connect_timeout: Duration,
+        tls_config: TlsConfig,
     ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {
-        let connect_fut = Self::connect_inner(url, token);
+        let connect_fut = Self::connect_inner(url, token, tls_config);
         livekit_runtime::timeout(connect_timeout, connect_fut)
             .await
             .map_err(|_| SignalError::Timeout("signal connection timed out".into()))?
@@ -99,6 +102,7 @@ impl SignalStream {
     async fn connect_inner(
         url: url::Url,
         token: &str,
+        tls_config: TlsConfig,
     ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {
         log::info!("connecting to {}", url);
         let mut request = url.as_str().into_client_request()?;
@@ -116,155 +120,164 @@ impl SignalStream {
             };
 
             // Connect directly or through proxy
-            let ws_stream: WebSocketStream<_> = if let Ok(proxy_url) = proxy_env {
-                if !proxy_url.is_empty() {
-                    log::info!("Using proxy: {}", proxy_url);
-                    let proxy_url = url::Url::parse(&proxy_url).map_err(|e| {
-                        WsError::Io(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            format!("Invalid proxy URL: {}", e),
-                        ))
-                    })?;
+            let ws_stream: WebSocketStream<_> = if let Some(proxy_url) =
+                proxy_env.ok().filter(|proxy_url| !proxy_url.is_empty())
+            {
+                log::info!("Using proxy: {}", proxy_url);
+                let proxy_url = url::Url::parse(&proxy_url).map_err(|e| {
+                    WsError::Io(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("Invalid proxy URL: {}", e),
+                    ))
+                })?;
 
-                    let host = url.host_str().ok_or_else(|| {
-                        WsError::Io(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "Target URL has no host",
-                        ))
-                    })?;
+                let host = url.host_str().ok_or_else(|| {
+                    WsError::Io(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Target URL has no host",
+                    ))
+                })?;
 
-                    let port = url.port_or_known_default().ok_or_else(|| {
-                        WsError::Io(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "Target URL has no port and no default for scheme",
-                        ))
-                    })?;
+                let port = url.port_or_known_default().ok_or_else(|| {
+                    WsError::Io(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Target URL has no port and no default for scheme",
+                    ))
+                })?;
 
-                    let proxy_host = proxy_url.host_str().ok_or_else(|| {
-                        WsError::Io(io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "Proxy URL has no host",
-                        ))
-                    })?;
+                let proxy_host = proxy_url.host_str().ok_or_else(|| {
+                    WsError::Io(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "Proxy URL has no host",
+                    ))
+                })?;
 
-                    let proxy_port = proxy_url.port_or_known_default().unwrap_or(80);
-                    let proxy_addr = format!("{}:{}", proxy_host, proxy_port);
+                let proxy_port = proxy_url.port_or_known_default().unwrap_or(80);
+                let proxy_addr = format!("{}:{}", proxy_host, proxy_port);
 
-                    let mut proxy_stream =
-                        TokioTcpStream::connect(proxy_addr).await.map_err(WsError::Io)?;
+                let mut proxy_stream =
+                    TokioTcpStream::connect(proxy_addr).await.map_err(WsError::Io)?;
 
-                    let mut proxy_auth_header = None;
-                    if let Some(password) = proxy_url.password() {
-                        let auth = format!("{}:{}", proxy_url.username(), password);
-                        let auth = format!("Basic {}", general_purpose::STANDARD.encode(auth));
-                        proxy_auth_header = Some(auth);
-                    }
+                let mut proxy_auth_header = None;
+                if let Some(password) = proxy_url.password() {
+                    let auth = format!("{}:{}", proxy_url.username(), password);
+                    let auth = format!("Basic {}", general_purpose::STANDARD.encode(auth));
+                    proxy_auth_header = Some(auth);
+                }
 
-                    // Send CONNECT request
-                    let target = format!("{}:{}", host, port);
-                    let mut connect_req =
-                        format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n", target, target);
+                // Send CONNECT request
+                let target = format!("{}:{}", host, port);
+                let mut connect_req =
+                    format!("CONNECT {} HTTP/1.1\r\nHost: {}\r\n", target, target);
 
-                    // Add proxy authorization if needed
-                    if let Some(auth) = proxy_auth_header {
-                        connect_req.push_str(&format!("Proxy-Authorization: {}\r\n", auth));
-                    }
+                // Add proxy authorization if needed
+                if let Some(auth) = proxy_auth_header {
+                    connect_req.push_str(&format!("Proxy-Authorization: {}\r\n", auth));
+                }
 
-                    // Finalize request
-                    connect_req.push_str("\r\n");
+                // Finalize request
+                connect_req.push_str("\r\n");
 
-                    log::debug!("Sending CONNECT request to proxy");
-                    proxy_stream.write_all(connect_req.as_bytes()).await.map_err(WsError::Io)?;
+                log::debug!("Sending CONNECT request to proxy");
+                proxy_stream.write_all(connect_req.as_bytes()).await.map_err(WsError::Io)?;
 
-                    // Read and parse response
-                    let mut response = Vec::new();
-                    let mut buf = [0u8; 4096];
-                    let mut headers_complete = false;
+                // Read and parse response
+                let mut response = Vec::new();
+                let mut buf = [0u8; 4096];
+                let mut headers_complete = false;
 
-                    while !headers_complete {
-                        let n = proxy_stream.read(&mut buf).await.map_err(WsError::Io)?;
-                        if n == 0 {
-                            return Err(WsError::Io(io::Error::new(
-                                io::ErrorKind::UnexpectedEof,
-                                "Proxy connection closed while reading response",
-                            ))
-                            .into());
-                        }
-
-                        response.extend_from_slice(&buf[..n]);
-
-                        // Check if we've received the end of headers (double CRLF)
-                        if response.windows(4).any(|w| w == b"\r\n\r\n") {
-                            headers_complete = true;
-                        }
-                    }
-
-                    // Parse status line
-                    let response_str = String::from_utf8_lossy(&response);
-                    let status_line = response_str.lines().next().ok_or_else(|| {
-                        WsError::Io(io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            "Invalid proxy response",
-                        ))
-                    })?;
-
-                    // Check status code
-                    if !status_line.contains("200") {
+                while !headers_complete {
+                    let n = proxy_stream.read(&mut buf).await.map_err(WsError::Io)?;
+                    if n == 0 {
                         return Err(WsError::Io(io::Error::new(
-                            io::ErrorKind::ConnectionRefused,
-                            format!("Proxy connection failed: {}", status_line),
+                            io::ErrorKind::UnexpectedEof,
+                            "Proxy connection closed while reading response",
                         ))
                         .into());
                     }
 
-                    log::debug!("Proxy connection established to {}", target);
+                    response.extend_from_slice(&buf[..n]);
 
-                    // Create MaybeTlsStream based on original URL scheme
-                    let stream = if url.scheme() == "wss" {
-                        // Only enable proxy TLS support when rustls-tls-native-roots is enabled
-                        #[cfg(feature = "rustls-tls-native-roots")]
-                        {
-                            // For WSS, we need to establish TLS over the proxy connection
-                            use std::sync::Arc;
-                            use tokio_rustls::{rustls, TlsConnector};
+                    // Check if we've received the end of headers (double CRLF)
+                    if response.windows(4).any(|w| w == b"\r\n\r\n") {
+                        headers_complete = true;
+                    }
+                }
 
-                            // Load native root certificates
-                            let mut root_store = rustls::RootCertStore::empty();
-                            match rustls_native_certs::load_native_certs() {
-                                Ok(certs) => {
-                                    let roots: Vec<rustls::pki_types::CertificateDer> = certs
-                                        .into_iter()
-                                        .map(|cert| rustls::pki_types::CertificateDer::from(cert.0))
-                                        .collect();
+                // Parse status line
+                let response_str = String::from_utf8_lossy(&response);
+                let status_line = response_str.lines().next().ok_or_else(|| {
+                    WsError::Io(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "Invalid proxy response",
+                    ))
+                })?;
 
-                                    for root in roots {
-                                        root_store.add(root).map_err(|e| {
-                                            WsError::Io(io::Error::new(
-                                                io::ErrorKind::Other,
-                                                format!(
-                                                    "Failed to parse root certificate: {:?}",
-                                                    e
-                                                ),
-                                            ))
-                                        })?;
+                // Check status code
+                if !status_line.contains("200") {
+                    return Err(WsError::Io(io::Error::new(
+                        io::ErrorKind::ConnectionRefused,
+                        format!("Proxy connection failed: {}", status_line),
+                    ))
+                    .into());
+                }
+
+                log::debug!("Proxy connection established to {}", target);
+
+                // Create MaybeTlsStream based on original URL scheme
+                let stream = if url.scheme() == "wss" {
+                    // Only enable proxy TLS support when rustls-tls-native-roots is enabled
+                    #[cfg(feature = "rustls-tls-native-roots")]
+                    {
+                        // For WSS, we need to establish TLS over the proxy connection
+                        use std::sync::Arc;
+                        use tokio_rustls::{rustls, TlsConnector};
+
+                        let tls_config = match tls_config.0 {
+                            Some(tls_config) => tls_config,
+                            None => {
+                                // Load native root certificates
+                                let mut root_store = rustls::RootCertStore::empty();
+                                match rustls_native_certs::load_native_certs() {
+                                    Ok(certs) => {
+                                        let roots: Vec<rustls::pki_types::CertificateDer> = certs
+                                            .into_iter()
+                                            .map(|cert| {
+                                                rustls::pki_types::CertificateDer::from(cert.0)
+                                            })
+                                            .collect();
+
+                                        for root in roots {
+                                            root_store.add(root).map_err(|e| {
+                                                WsError::Io(io::Error::new(
+                                                    io::ErrorKind::Other,
+                                                    format!(
+                                                        "Failed to parse root certificate: {:?}",
+                                                        e
+                                                    ),
+                                                ))
+                                            })?;
+                                        }
+                                    }
+                                    Err(e) => {
+                                        return Err(WsError::Io(io::Error::new(
+                                            io::ErrorKind::Other,
+                                            format!(
+                                                "Could not load native root certificates: {}",
+                                                e
+                                            ),
+                                        ))
+                                        .into());
                                     }
                                 }
-                                Err(e) => {
-                                    return Err(WsError::Io(io::Error::new(
-                                        io::ErrorKind::Other,
-                                        format!("Could not load native root certificates: {}", e),
-                                    ))
-                                    .into());
-                                }
+
+                                rustls::ClientConfig::builder()
+                                    .with_root_certificates(root_store)
+                                    .with_no_client_auth()
                             }
+                        };
 
-                            let tls_config = rustls::ClientConfig::builder()
-                                .with_root_certificates(root_store)
-                                .with_no_client_auth();
-
-                            let server_name = rustls::pki_types::ServerName::try_from(
-                                host.to_string(),
-                            )
+                        let server_name = rustls::pki_types::ServerName::try_from(host.to_string())
                             .map_err(|_| {
                                 WsError::Io(io::Error::new(
                                     io::ErrorKind::InvalidInput,
@@ -272,47 +285,58 @@ impl SignalStream {
                                 ))
                             })?;
 
-                            let connector = TlsConnector::from(Arc::new(tls_config));
-                            let tls_stream = connector
-                                .connect(server_name, proxy_stream)
-                                .await
-                                .map_err(|e| {
-                                    WsError::Io(io::Error::new(
-                                        io::ErrorKind::Other,
-                                        format!("TLS connection error: {}", e),
-                                    ))
-                                })?;
+                        let connector = TlsConnector::from(Arc::new(tls_config));
+                        let tls_stream =
+                            connector.connect(server_name, proxy_stream).await.map_err(|e| {
+                                WsError::Io(io::Error::new(
+                                    io::ErrorKind::Other,
+                                    format!("TLS connection error: {}", e),
+                                ))
+                            })?;
 
-                            MaybeTlsStream::Rustls(tls_stream)
-                        }
+                        MaybeTlsStream::Rustls(tls_stream)
+                    }
 
-                        #[cfg(not(feature = "rustls-tls-native-roots"))]
-                        {
-                            // For non-rustls-tls-native-roots builds, don't support proxy for WSS
-                            return Err(WsError::Io(io::Error::new(
-                                io::ErrorKind::Other,
-                                "WSS over proxy requires rustls-tls-native-roots feature",
-                            ))
-                            .into());
-                        }
-                    } else {
-                        // For plain WS, just use the proxy stream directly
-                        MaybeTlsStream::Plain(proxy_stream)
-                    };
-
-                    // Now perform WebSocket handshake over the established connection
-                    let (ws_stream, _) =
-                        tokio_tungstenite::client_async_with_config(request, stream, None).await?;
-                    ws_stream
+                    #[cfg(not(feature = "rustls-tls-native-roots"))]
+                    {
+                        // For non-rustls-tls-native-roots builds, don't support proxy for WSS
+                        return Err(WsError::Io(io::Error::new(
+                            io::ErrorKind::Other,
+                            "WSS over proxy requires rustls-tls-native-roots feature",
+                        ))
+                        .into());
+                    }
                 } else {
-                    // No proxy specified, connect directly
+                    // For plain WS, just use the proxy stream directly
+                    MaybeTlsStream::Plain(proxy_stream)
+                };
+
+                // Now perform WebSocket handshake over the established connection
+                let (ws_stream, _) =
+                    tokio_tungstenite::client_async_with_config(request, stream, None).await?;
+                ws_stream
+            } else {
+                // No proxy specified, connect directly
+                #[cfg(feature = "rustls-tls-native-roots")]
+                {
+                    let connector = match tls_config.0 {
+                        Some(config) => {
+                            Some(tokio_tungstenite::Connector::Rustls(std::sync::Arc::new(config)))
+                        }
+                        None => None,
+                    };
+                    let (ws_stream, _) = tokio_tungstenite::connect_async_tls_with_config(
+                        request, None, false, connector,
+                    )
+                    .await?;
+                    ws_stream
+                }
+
+                #[cfg(not(feature = "rustls-tls-native-roots"))]
+                {
                     let (ws_stream, _) = connect_async(request).await?;
                     ws_stream
                 }
-            } else {
-                // Non-tokio build or no proxy - connect directly
-                let (ws_stream, _) = connect_async(request).await?;
-                ws_stream
             };
 
             ws_stream
