@@ -5,7 +5,13 @@ repo = "rust-sdks"
 [changes]
 ignore_conventional_commits = true
 
-# --- Published to crates.io ---
+[bot.checks]
+skip_labels = ["internal"]
+
+[bot.releases]
+enabled = true
+
+# --- Package configuration ---
 
 [packages.soxr-sys]
 versioned_files = ["soxr-sys/Cargo.toml"]
@@ -77,7 +83,3 @@ scopes = [
   "protocol",
   "webrtc-sys-build",
 ]
-
-
-[bot.releases]
-enabled = true
