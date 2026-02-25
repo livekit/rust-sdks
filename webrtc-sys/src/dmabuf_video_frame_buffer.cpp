@@ -146,28 +146,12 @@ DmaBufVideoFrameBuffer::CropAndScale(int offset_x,
                                       int crop_height,
                                       int scaled_width,
                                       int scaled_height) {
-  // Fast path: if the crop covers the full frame and no scaling is needed,
-  // return ourselves unchanged.  This avoids the catastrophic ToI420()
-  // fallback that maps the DMA buffer to CPU, performs NV12->I420
-  // conversion (~10-15 ms on Jetson), and loses the zero-copy encode path.
-  if (offset_x == 0 && offset_y == 0 &&
-      crop_width == width_ && crop_height == height_ &&
-      scaled_width == width_ && scaled_height == height_) {
-    return rtc::scoped_refptr<webrtc::VideoFrameBuffer>(this);
-  }
-
-  // Actual crop/scale requested (e.g. bandwidth adaptation).  Fall back to
-  // the base implementation which goes through ToI420().  Log so the user
-  // can diagnose unexpected resolution changes.
-  RTC_LOG(LS_WARNING) << "DmaBufVideoFrameBuffer::CropAndScale: "
-                         "falling back to ToI420 (crop="
-                      << offset_x << "," << offset_y << " "
-                      << crop_width << "x" << crop_height
-                      << " -> " << scaled_width << "x" << scaled_height
-                      << ", native=" << width_ << "x" << height_ << ")";
-  return webrtc::VideoFrameBuffer::CropAndScale(
-      offset_x, offset_y, crop_width, crop_height,
-      scaled_width, scaled_height);
+  // Always return the native DmaBuf buffer unchanged.  CPU-side crop/scale
+  // on a DMA buffer would call ToI420() which maps to CPU, performs
+  // NV12->I420 conversion, and destroys the zero-copy encode path.  The
+  // hardware encoder handles the native resolution efficiently; bandwidth
+  // adaptation should use bitrate control, not source-side rescaling.
+  return rtc::scoped_refptr<webrtc::VideoFrameBuffer>(this);
 }
 
 DmaBufVideoFrameBuffer* DmaBufVideoFrameBuffer::FromNative(

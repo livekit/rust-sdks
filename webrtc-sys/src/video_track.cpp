@@ -224,10 +224,15 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
       std::fprintf(stderr,
                    "[VideoTrackSource] on_captured_frame stats (%lu frames): "
                    "avg us: adapt=%.0f crop=%.0f broadcast=%.0f total=%.0f | "
-                   "crop_scale=%lu adapt_drop=%lu\n",
+                   "crop_scale=%lu adapt_drop=%lu | "
+                   "last: %dx%d -> adapted %dx%d (crop %d,%d %dx%d) buf_type=%d\n",
                    n, sum_adapt_us.load() / dn, sum_crop_us.load() / dn,
                    sum_broadcast_us.load() / dn, sum_total_us.load() / dn,
-                   crop_scale_count.load(), adapt_drop_count.load());
+                   crop_scale_count.load(), adapt_drop_count.load(),
+                   frame.width(), frame.height(),
+                   adapted_width, adapted_height,
+                   crop_x, crop_y, crop_width, crop_height,
+                   static_cast<int>(buffer->type()));
       std::fflush(stderr);
     }
   }
