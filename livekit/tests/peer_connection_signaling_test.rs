@@ -544,7 +544,8 @@ mod signaling_tests {
                         && last_retry.elapsed() >= Duration::from_millis(300)
                     {
                         for publication in publications.values() {
-                            if expected_names.contains(&publication.name()) && publication.track().is_none()
+                            if expected_names.contains(&publication.name())
+                                && publication.track().is_none()
                             {
                                 publication.set_subscribed(false);
                                 publication.set_subscribed(true);
