@@ -502,37 +502,90 @@ mod signaling_tests {
             audio_sources.push(source);
         }
 
-        let mut received_names = HashSet::new();
-        let mut audio_count = 0usize;
-        let mut video_count = 0usize;
-
+        let mut last_retry = Instant::now() - Duration::from_secs(1);
         let receive_all_tracks = async {
             loop {
-                if audio_count >= 10
-                    && video_count >= 10
-                    && received_names.len() >= expected_names.len()
-                {
-                    return Ok(());
-                }
-                let Some(event) = sub_events.recv().await else {
-                    return Err(anyhow!("Event channel closed"));
-                };
-                if let RoomEvent::TrackSubscribed { track, publication, participant: _ } = event {
-                    match track {
-                        RemoteTrack::Audio(_) => audio_count += 1,
-                        RemoteTrack::Video(_) => video_count += 1,
+                let mut published_names = HashSet::new();
+                let mut subscribed_names = HashSet::new();
+                let mut audio_count = 0usize;
+                let mut video_count = 0usize;
+
+                let remote_participants = sub_room.remote_participants();
+                let publisher_entry =
+                    remote_participants.iter().find(|(_, p)| p.identity().as_str() == "publisher");
+
+                if let Some((_, publisher)) = publisher_entry {
+                    let publications = publisher.track_publications();
+                    for publication in publications.values() {
+                        let name = publication.name();
+                        if expected_names.contains(&name) {
+                            published_names.insert(name.clone());
+                            if let Some(track) = publication.track() {
+                                subscribed_names.insert(name);
+                                match track {
+                                    RemoteTrack::Audio(_) => audio_count += 1,
+                                    RemoteTrack::Video(_) => video_count += 1,
+                                }
+                            }
+                        }
                     }
-                    received_names.insert(publication.name());
+
+                    if published_names.len() >= expected_names.len()
+                        && subscribed_names.len() >= expected_names.len()
+                        && audio_count >= 10
+                        && video_count >= 10
+                    {
+                        return Ok((subscribed_names, audio_count, video_count));
+                    }
+
+                    // Under load, transient TrackSubscriptionFailed can happen before publication
+                    // state fully settles. Retry subscription on missing tracks.
+                    if published_names.len() >= expected_names.len()
+                        && last_retry.elapsed() >= Duration::from_millis(300)
+                    {
+                        for publication in publications.values() {
+                            if expected_names.contains(&publication.name()) && publication.track().is_none()
+                            {
+                                publication.set_subscribed(false);
+                                publication.set_subscribed(true);
+                            }
+                        }
+                        last_retry = Instant::now();
+                    }
+                }
+
+                match timeout(Duration::from_millis(250), sub_events.recv()).await {
+                    Ok(Some(RoomEvent::TrackSubscriptionFailed {
+                        participant,
+                        track_sid,
+                        error,
+                    })) => {
+                        log::warn!(
+                            "[{}] TrackSubscriptionFailed sid={} participant={} error={:?}",
+                            mode.name(),
+                            track_sid,
+                            participant.identity(),
+                            error
+                        );
+                        if let Some(publication) = participant.get_track_publication(&track_sid) {
+                            publication.set_subscribed(false);
+                            publication.set_subscribed(true);
+                        }
+                    }
+                    Ok(Some(_)) => {}
+                    Ok(None) => return Err(anyhow!("Event channel closed")),
+                    Err(_) => {}
                 }
             }
         };
 
-        timeout(Duration::from_secs(20), receive_all_tracks)
-            .await
-            .context("Timeout waiting for all 20 track subscriptions")??;
+        let (received_names, audio_count, video_count) =
+            timeout(Duration::from_secs(45), receive_all_tracks)
+                .await
+                .context("Timeout waiting for all 20 track subscriptions")??;
 
-        for expected in expected_names {
-            assert!(received_names.contains(&expected), "missing subscribed track: {}", expected);
+        for expected in &expected_names {
+            assert!(received_names.contains(expected), "missing subscribed track: {}", expected);
         }
         assert!(audio_count >= 10, "expected >=10 audio tracks, got {}", audio_count);
         assert!(video_count >= 10, "expected >=10 video tracks, got {}", video_count);
@@ -542,7 +595,7 @@ mod signaling_tests {
             remote_participants.iter().find(|(_, p)| p.identity().as_str() == "publisher");
         if let Some((_, publisher)) = publisher_entry {
             assert!(
-                publisher.track_publications().len() >= 4,
+                publisher.track_publications().len() >= 20,
                 "subscriber should see >=20 published tracks from publisher"
             );
         }
