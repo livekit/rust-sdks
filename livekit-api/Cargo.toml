@@ -85,7 +85,7 @@ serde_json = { workspace = true, optional = true }
 base64 = { version = "0.21", optional = true, features = ["std"] }
 
 # access_token & services
-jsonwebtoken = { version = "9", default-features = false, optional = true }
+jsonwebtoken = { version = "10.3.0", default-features = false, optional = true }
 
 # signal_client
 livekit-runtime = { workspace = true, optional = true}
