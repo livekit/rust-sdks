@@ -8,7 +8,7 @@ repository.workspace = true
 
 [features]
 # By default ws TLS is not enabled
-default = ["services-tokio", "access-token", "webhooks"]
+default = ["services-tokio"]
 
 signal-client-tokio = [
     "dep:tokio-tungstenite",

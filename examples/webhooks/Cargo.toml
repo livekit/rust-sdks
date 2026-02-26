@@ -5,6 +5,6 @@ edition.workspace = true
 publish = false
 
 [dependencies]
-livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-api = { workspace = true, features = ["webhooks", "rustls-tls-native-roots"] }
 hyper = { version = "0.14", features = ["full"] }
 tokio = { workspace = true, features = ["full"] }
