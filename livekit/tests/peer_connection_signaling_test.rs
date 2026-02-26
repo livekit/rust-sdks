@@ -45,11 +45,16 @@ mod common;
 mod signaling_tests {
     use anyhow::{anyhow, Context, Result};
     use futures_util::StreamExt;
+    use libwebrtc::audio_source::native::NativeAudioSource;
     use libwebrtc::audio_stream::native::NativeAudioStream;
     use libwebrtc::native::create_random_uuid;
+    use libwebrtc::prelude::{AudioSourceOptions, RtcAudioSource, RtcVideoSource, VideoResolution};
+    use libwebrtc::video_source::native::NativeVideoSource;
+    use livekit::options::TrackPublishOptions;
     use livekit::prelude::*;
     use livekit::{Room, RoomEvent, RoomOptions, SimulateScenario};
     use livekit_api::access_token::{AccessToken, VideoGrants};
+    use std::collections::HashSet;
     use std::env;
     use std::sync::Arc;
     use std::time::{Duration, Instant};
@@ -220,6 +225,12 @@ mod signaling_tests {
         test_node_failure_impl(SignalingMode::DualPC).await
     }
 
+    /// Test publishing 10 video + 10 audio tracks with V0 signaling
+    #[test_log::test(tokio::test)]
+    async fn test_v0_publish_ten_video_and_ten_audio_tracks() -> Result<()> {
+        test_publish_ten_video_and_ten_audio_tracks_impl(SignalingMode::DualPC).await
+    }
+
     // ==================== V1 (Single PC) Tests ====================
 
     /// Test basic connection with V1 signaling (single PC)
@@ -256,6 +267,12 @@ mod signaling_tests {
     #[test_log::test(tokio::test)]
     async fn test_v1_node_failure() -> Result<()> {
         test_node_failure_impl(SignalingMode::SinglePC).await
+    }
+
+    /// Test publishing 10 video + 10 audio tracks with V1 signaling
+    #[test_log::test(tokio::test)]
+    async fn test_v1_publish_ten_video_and_ten_audio_tracks() -> Result<()> {
+        test_publish_ten_video_and_ten_audio_tracks_impl(SignalingMode::SinglePC).await
     }
 
     /// Test explicit localhost fallback behavior for V1 signaling
@@ -420,6 +437,119 @@ mod signaling_tests {
 
         log::info!("[{}] Received {} audio frames", mode.name(), frames_received);
         log::info!("[{}] Test passed - audio track working!", mode.name());
+        Ok(())
+    }
+
+    /// Test publishing 10 video + 10 audio tracks and verifying subscriber receives all tracks.
+    async fn test_publish_ten_video_and_ten_audio_tracks_impl(mode: SignalingMode) -> Result<()> {
+        let (url, api_key, api_secret) = get_env_for_mode(mode);
+        let room_name = format!("test_{:?}_multistream_{}", mode, create_random_uuid());
+
+        let token_pub = create_token(&api_key, &api_secret, &room_name, "publisher")?;
+        let token_sub = create_token(&api_key, &api_secret, &room_name, "subscriber")?;
+
+        log::info!("[{}] Testing publish 10 video + 10 audio tracks", mode.name());
+
+        let (pub_room, _pub_events) = connect_room(&url, &token_pub, mode).await?;
+        let (sub_room, mut sub_events) = connect_room(&url, &token_sub, mode).await?;
+
+        let wait_visible = async {
+            loop {
+                if pub_room.remote_participants().len() == 1
+                    && sub_room.remote_participants().len() == 1
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        };
+        timeout(Duration::from_secs(10), wait_visible)
+            .await
+            .context("Participants did not see each other")?;
+
+        let mut expected_names = HashSet::new();
+        let mut publications = Vec::new();
+        let mut video_sources = Vec::new();
+        let mut audio_sources = Vec::new();
+
+        for i in 0..10 {
+            let name = format!("video-track-{}", i);
+            let source =
+                NativeVideoSource::new(VideoResolution { width: 640, height: 360 }, i % 2 == 1);
+            let track =
+                LocalVideoTrack::create_video_track(&name, RtcVideoSource::Native(source.clone()));
+            let mut opts = TrackPublishOptions::default();
+            opts.source = if i % 2 == 0 { TrackSource::Camera } else { TrackSource::Screenshare };
+            let publication =
+                pub_room.local_participant().publish_track(LocalTrack::Video(track), opts).await?;
+            expected_names.insert(name);
+            publications.push(publication);
+            video_sources.push(source);
+        }
+
+        for i in 0..10 {
+            let name = format!("audio-track-{}", i);
+            let source = NativeAudioSource::new(AudioSourceOptions::default(), 48_000, 1, 1000);
+            let track =
+                LocalAudioTrack::create_audio_track(&name, RtcAudioSource::Native(source.clone()));
+            let mut opts = TrackPublishOptions::default();
+            opts.source =
+                if i % 2 == 0 { TrackSource::Microphone } else { TrackSource::ScreenshareAudio };
+            let publication =
+                pub_room.local_participant().publish_track(LocalTrack::Audio(track), opts).await?;
+            expected_names.insert(name);
+            publications.push(publication);
+            audio_sources.push(source);
+        }
+
+        let mut received_names = HashSet::new();
+        let mut audio_count = 0usize;
+        let mut video_count = 0usize;
+
+        let receive_all_tracks = async {
+            loop {
+                if audio_count >= 10
+                    && video_count >= 10
+                    && received_names.len() >= expected_names.len()
+                {
+                    return Ok(());
+                }
+                let Some(event) = sub_events.recv().await else {
+                    return Err(anyhow!("Event channel closed"));
+                };
+                if let RoomEvent::TrackSubscribed { track, publication, participant: _ } = event {
+                    match track {
+                        RemoteTrack::Audio(_) => audio_count += 1,
+                        RemoteTrack::Video(_) => video_count += 1,
+                    }
+                    received_names.insert(publication.name());
+                }
+            }
+        };
+
+        timeout(Duration::from_secs(20), receive_all_tracks)
+            .await
+            .context("Timeout waiting for all 20 track subscriptions")??;
+
+        for expected in expected_names {
+            assert!(received_names.contains(&expected), "missing subscribed track: {}", expected);
+        }
+        assert!(audio_count >= 10, "expected >=10 audio tracks, got {}", audio_count);
+        assert!(video_count >= 10, "expected >=10 video tracks, got {}", video_count);
+
+        let remote_participants = sub_room.remote_participants();
+        let publisher_entry =
+            remote_participants.iter().find(|(_, p)| p.identity().as_str() == "publisher");
+        if let Some((_, publisher)) = publisher_entry {
+            assert!(
+                publisher.track_publications().len() >= 4,
+                "subscriber should see >=20 published tracks from publisher"
+            );
+        }
+
+        for publication in publications {
+            pub_room.local_participant().unpublish_track(&publication.sid()).await?;
+        }
         Ok(())
     }
 
