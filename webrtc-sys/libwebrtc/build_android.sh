@@ -131,7 +131,14 @@ cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/libjingle_peerconnection_so.so" "$ARTIFACTS_DIR/lib"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
-cp "$OUTPUT_DIR/lib.java/sdk/android/libwebrtc.jar" "$ARTIFACTS_DIR"
+
+mkdir -p "$COMMAND_DIR/prefixed-jni/libs"
+cp "$OUTPUT_DIR/lib.java/sdk/android/libwebrtc.jar" "$COMMAND_DIR/prefixed-jni/libs/classes.jar"
+cd "$COMMAND_DIR/prefixed-jni" && ./gradlew shadowJar
+cp "$COMMAND_DIR/prefixed-jni/build/libs/prefixed-jni-all.jar" "$ARTIFACTS_DIR/libwebrtc.jar"
+
+cd ..
+
 cp "src/sdk/android/AndroidManifest.xml" "$ARTIFACTS_DIR"
 
 cd src
