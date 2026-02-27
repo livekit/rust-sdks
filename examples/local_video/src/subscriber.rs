@@ -980,14 +980,14 @@ impl CallbackTrait for YuvPaintCallback {
                     packed[dst_off..dst_off + shared.width as usize].copy_from_slice(src);
                 }
                 queue.write_texture(
-                    wgpu::ImageCopyTexture {
+                    wgpu::TexelCopyTextureInfo {
                         texture: &state.y_tex,
                         mip_level: 0,
                         origin: wgpu::Origin3d::ZERO,
                         aspect: wgpu::TextureAspect::All,
                     },
                     &packed,
-                    wgpu::ImageDataLayout {
+                    wgpu::TexelCopyBufferLayout {
                         offset: 0,
                         bytes_per_row: Some(y_bytes_per_row),
                         rows_per_image: Some(shared.height),
@@ -1012,14 +1012,14 @@ impl CallbackTrait for YuvPaintCallback {
                     packed_v[dst_off..dst_off + uv_w as usize].copy_from_slice(src_v);
                 }
                 queue.write_texture(
-                    wgpu::ImageCopyTexture {
+                    wgpu::TexelCopyTextureInfo {
                         texture: &state.u_tex,
                         mip_level: 0,
                         origin: wgpu::Origin3d::ZERO,
                         aspect: wgpu::TextureAspect::All,
                     },
                     &packed_u,
-                    wgpu::ImageDataLayout {
+                    wgpu::TexelCopyBufferLayout {
                         offset: 0,
                         bytes_per_row: Some(uv_bytes_per_row),
                         rows_per_image: Some(uv_h),
@@ -1031,14 +1031,14 @@ impl CallbackTrait for YuvPaintCallback {
                     },
                 );
                 queue.write_texture(
-                    wgpu::ImageCopyTexture {
+                    wgpu::TexelCopyTextureInfo {
                         texture: &state.v_tex,
                         mip_level: 0,
                         origin: wgpu::Origin3d::ZERO,
                         aspect: wgpu::TextureAspect::All,
                     },
                     &packed_v,
-                    wgpu::ImageDataLayout {
+                    wgpu::TexelCopyBufferLayout {
                         offset: 0,
                         bytes_per_row: Some(uv_bytes_per_row),
                         rows_per_image: Some(uv_h),
