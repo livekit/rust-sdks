@@ -13,13 +13,13 @@ tokio = { workspace = true, features = ["full", "parking_lot"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"]}
 webrtc-sys = { workspace = true }
 futures = { workspace = true }
-winit = { version = "0.30.12", features = [ "android-native-activity" ] }
 parking_lot = { workspace = true, features = ["deadlock_detection"] }
-image = "0.25"
-wgpu = "28.0"
-egui = "0.33.3"
-egui-wgpu = "0.33.3"
-eframe = { version = "0.33.3", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
+eframe = { workspace = true, features = ["default_fonts", "wgpu", "persistence"] }
+egui = { workspace = true }
+egui-wgpu = { workspace = true }
+image = { workspace = true }
+wgpu = { workspace = true }
+winit = { workspace = true, features = [ "android-native-activity" ] }
 serde = { workspace = true, features = ["derive"] }
 log = { workspace = true }
 env_logger = { workspace = true }
