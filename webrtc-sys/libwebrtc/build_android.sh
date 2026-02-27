@@ -71,6 +71,8 @@ cd src
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/android_use_libunwind.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+# livekit prefixed jni
+git apply "$COMMAND_DIR/patches/jni_prefix.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
 cd third_party/libyuv
 git apply "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
@@ -102,6 +104,7 @@ args="is_debug=$debug \
   rtc_use_pipewire=false \
   symbol_level=0 \
   enable_iterator_debugging=false \
+  android_package_prefix=\"livekit\" \
   use_rtti=true"
 
 if [ "$debug" = "true" ]; then
