@@ -23,7 +23,6 @@ use std::{
 };
 
 use anyhow::{anyhow, Context, Result};
-use fs2::FileExt;
 use regex::Regex;
 use reqwest::StatusCode;
 
@@ -85,12 +84,8 @@ pub fn custom_dir() -> Option<path::PathBuf> {
 }
 
 /// Location of the downloaded webrtc binaries
-/// The reason why we don't use OUT_DIR is because we sometimes need to share the same binaries
-/// across multiple crates without dependencies constraints
-/// This also has the benefit of not re-downloading the binaries for each crate
 pub fn prebuilt_dir() -> path::PathBuf {
-    let target_dir = scratch::path(SCRATH_PATH);
-    path::Path::new(&target_dir).join(format!(
+    path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join(format!(
         "livekit/{}-{}/{}",
         webrtc_triple(),
         WEBRTC_TAG,
@@ -197,17 +192,12 @@ pub fn configure_jni_symbols() -> Result<()> {
 }
 
 pub fn download_webrtc() -> Result<()> {
-    let dir = scratch::path(SCRATH_PATH);
-    // temporary fix to avoid github workflow issue
-    fs::create_dir_all(&dir).context("Failed to create scratch_path")?;
-    let flock = File::create(dir.join(".lock"))
-        .context("Failed to create lock file for WebRTC download")?;
-    flock.lock_exclusive().context("Failed to acquire exclusive lock for WebRTC download")?;
-
-    let webrtc_dir = webrtc_dir();
-    if webrtc_dir.exists() {
+    if custom_dir().is_some() {
         return Ok(());
     }
+
+    let webrtc_dir = prebuilt_dir();
+    let _ = fs::remove_dir_all(&webrtc_dir);
 
     let mut resp = reqwest::blocking::get(download_url())
         .context("Failed to send HTTP request to download WebRTC")?;
@@ -221,6 +211,7 @@ pub fn download_webrtc() -> Result<()> {
         .write(true)
         .read(true)
         .create(true)
+        .truncate(true)
         .open(&tmp_path)
         .context("Failed to create temporary file for WebRTC download")?;
     resp.copy_to(&mut file).context("Failed to write WebRTC download to temporary file")?;
