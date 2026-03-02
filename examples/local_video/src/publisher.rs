@@ -413,6 +413,18 @@ impl MplaneStream {
             self.start()?;
         }
         unsafe {
+            // Wait for a buffer to become ready (the fd may be non-blocking)
+            let mut pfd = libc::pollfd { fd: self.fd, events: libc::POLLIN, revents: 0 };
+            let ret = libc::poll(&mut pfd, 1, 5000);
+            if ret == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "VIDIOC_DQBUF poll timeout",
+                ));
+            } else if ret < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
             let mut plane: v4l2_plane = std::mem::zeroed();
             let mut buf: v4l2_buffer = std::mem::zeroed();
             buf.type_ = BufType::VideoCaptureMplane as u32;
