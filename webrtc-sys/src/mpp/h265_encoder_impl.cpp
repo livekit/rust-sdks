@@ -22,6 +22,7 @@
 #include <string>
 
 #include "api/video/video_codec_constants.h"
+#include "api/video/nv12_buffer.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
@@ -30,6 +31,7 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/time_utils.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
+#include "third_party/libyuv/include/libyuv/planar_functions.h"
 
 // MPP alignment macros
 #define MPP_ALIGN(x, a) (((x) + (a) - 1) & ~((a) - 1))
@@ -290,13 +292,22 @@ int32_t MppH265EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
 
-  scoped_refptr<I420BufferInterface> frame_buffer =
-      input_frame.video_frame_buffer()->ToI420();
-  if (!frame_buffer) {
-    RTC_LOG(LS_ERROR) << "Failed to convert frame to I420.";
-    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+  rtc::scoped_refptr<VideoFrameBuffer> vfb = input_frame.video_frame_buffer();
+  const bool is_nv12 = (vfb->type() == VideoFrameBuffer::Type::kNV12);
+
+  scoped_refptr<I420BufferInterface> i420_buffer;
+  const NV12BufferInterface* nv12_buffer = nullptr;
+
+  if (is_nv12) {
+    nv12_buffer = vfb->GetNV12();
+    RTC_CHECK(nv12_buffer);
+  } else {
+    i420_buffer = vfb->ToI420();
+    if (!i420_buffer) {
+      RTC_LOG(LS_ERROR) << "Failed to convert frame to I420.";
+      return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+    }
   }
-  RTC_CHECK(frame_buffer->type() == VideoFrameBuffer::Type::kI420);
 
   bool is_keyframe_needed = false;
   if (configuration_.key_frame_request && configuration_.sending) {
@@ -329,20 +340,39 @@ int32_t MppH265EncoderImpl::Encode(
 
   current_encoding_is_keyframe_ = is_keyframe_needed;
 
-  // Copy I420 data into MPP frame buffer with proper stride alignment
   void* buf = mpp_buffer_get_ptr(frame_buf_);
-  uint8_t* dst_y = static_cast<uint8_t*>(buf);
-  uint8_t* dst_u = dst_y + hor_stride_ * ver_stride_;
-  uint8_t* dst_v = dst_u + (hor_stride_ / 2) * (ver_stride_ / 2);
+  MppFrameFormat mpp_fmt;
 
-  libyuv::I420Copy(
-      frame_buffer->DataY(), frame_buffer->StrideY(),
-      frame_buffer->DataU(), frame_buffer->StrideU(),
-      frame_buffer->DataV(), frame_buffer->StrideV(),
-      dst_y, hor_stride_,
-      dst_u, hor_stride_ / 2,
-      dst_v, hor_stride_ / 2,
-      codec_.width, codec_.height);
+  if (is_nv12) {
+    // NV12 (YUV420SP): Y plane + interleaved UV plane — native MPP format
+    uint8_t* dst_y = static_cast<uint8_t*>(buf);
+    uint8_t* dst_uv = dst_y + hor_stride_ * ver_stride_;
+
+    libyuv::NV12Copy(
+        nv12_buffer->DataY(), nv12_buffer->StrideY(),
+        nv12_buffer->DataUV(), nv12_buffer->StrideUV(),
+        dst_y, hor_stride_,
+        dst_uv, hor_stride_,
+        codec_.width, codec_.height);
+
+    mpp_fmt = MPP_FMT_YUV420SP;
+  } else {
+    // I420 (YUV420P): separate Y, U, V planes
+    uint8_t* dst_y = static_cast<uint8_t*>(buf);
+    uint8_t* dst_u = dst_y + hor_stride_ * ver_stride_;
+    uint8_t* dst_v = dst_u + (hor_stride_ / 2) * (ver_stride_ / 2);
+
+    libyuv::I420Copy(
+        i420_buffer->DataY(), i420_buffer->StrideY(),
+        i420_buffer->DataU(), i420_buffer->StrideU(),
+        i420_buffer->DataV(), i420_buffer->StrideV(),
+        dst_y, hor_stride_,
+        dst_u, hor_stride_ / 2,
+        dst_v, hor_stride_ / 2,
+        codec_.width, codec_.height);
+
+    mpp_fmt = MPP_FMT_YUV420P;
+  }
 
   // Set up MPP frame
   MppFrame frame = nullptr;
@@ -356,7 +386,7 @@ int32_t MppH265EncoderImpl::Encode(
   mpp_frame_set_height(frame, codec_.height);
   mpp_frame_set_hor_stride(frame, hor_stride_);
   mpp_frame_set_ver_stride(frame, ver_stride_);
-  mpp_frame_set_fmt(frame, MPP_FMT_YUV420P);
+  mpp_frame_set_fmt(frame, mpp_fmt);
   mpp_frame_set_buffer(frame, frame_buf_);
   mpp_frame_set_eos(frame, 0);
 

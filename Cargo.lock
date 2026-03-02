@@ -3484,6 +3484,7 @@ dependencies = [
  "objc2 0.6.3",
  "parking_lot",
  "tokio",
+ "v4l",
  "webrtc-sys",
  "wgpu 25.0.2",
  "winit",
