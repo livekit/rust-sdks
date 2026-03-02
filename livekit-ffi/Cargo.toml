@@ -6,6 +6,7 @@ license.workspace = true
 description = "FFI interface for bindings in other languages"
 repository.workspace = true
 readme = "README.md"
+publish = false
 
 [features]
 default = ["rustls-tls-native-roots"]
