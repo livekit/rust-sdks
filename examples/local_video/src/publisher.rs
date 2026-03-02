@@ -314,6 +314,168 @@ struct MplaneFormat {
     stride: u32,
 }
 
+/// Multiplanar mmap capture stream.
+///
+/// The v4l crate's `mmap::Stream` doesn't set `v4l2_buffer.m.planes` for
+/// QUERYBUF / QBUF / DQBUF, so the kernel rejects every ioctl with EINVAL.
+/// This struct reimplements the mmap lifecycle for single-plane-within-mplane
+/// buffers (num_planes == 1), which is what Rockchip ISP cameras expose.
+#[cfg(target_os = "linux")]
+struct MplaneStream {
+    fd: std::os::unix::io::RawFd,
+    bufs: Vec<(*mut u8, usize)>,
+    buf_count: u32,
+    active: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl MplaneStream {
+    fn new(dev: &Device, buf_count: u32) -> std::io::Result<Self> {
+        let fd = dev.handle().fd();
+
+        unsafe {
+            let mut reqbufs: v4l2_requestbuffers = std::mem::zeroed();
+            reqbufs.count = buf_count;
+            reqbufs.type_ = BufType::VideoCaptureMplane as u32;
+            reqbufs.memory = v4l::memory::Memory::Mmap as u32;
+            v4l2::ioctl(
+                fd,
+                v4l2::vidioc::VIDIOC_REQBUFS,
+                &mut reqbufs as *mut _ as *mut std::os::raw::c_void,
+            )?;
+
+            let count = reqbufs.count;
+            let mut bufs = Vec::with_capacity(count as usize);
+
+            for i in 0..count {
+                let mut plane: v4l2_plane = std::mem::zeroed();
+                let mut buf: v4l2_buffer = std::mem::zeroed();
+                buf.type_ = BufType::VideoCaptureMplane as u32;
+                buf.memory = v4l::memory::Memory::Mmap as u32;
+                buf.index = i;
+                buf.length = 1;
+                buf.m.planes = &mut plane as *mut _;
+
+                v4l2::ioctl(
+                    fd,
+                    v4l2::vidioc::VIDIOC_QUERYBUF,
+                    &mut buf as *mut _ as *mut std::os::raw::c_void,
+                )?;
+
+                let len = plane.length as usize;
+                let offset = plane.m.mem_offset as libc::off_t;
+                let ptr = v4l2::mmap(
+                    std::ptr::null_mut(),
+                    len,
+                    libc::PROT_READ | libc::PROT_WRITE,
+                    libc::MAP_SHARED,
+                    fd,
+                    offset,
+                )?;
+                bufs.push((ptr as *mut u8, len));
+            }
+
+            Ok(MplaneStream { fd, bufs, buf_count: count, active: false })
+        }
+    }
+
+    fn start(&mut self) -> std::io::Result<()> {
+        unsafe {
+            for i in 0..self.buf_count {
+                let mut plane: v4l2_plane = std::mem::zeroed();
+                let mut buf: v4l2_buffer = std::mem::zeroed();
+                buf.type_ = BufType::VideoCaptureMplane as u32;
+                buf.memory = v4l::memory::Memory::Mmap as u32;
+                buf.index = i;
+                buf.length = 1;
+                buf.m.planes = &mut plane as *mut _;
+                v4l2::ioctl(
+                    self.fd,
+                    v4l2::vidioc::VIDIOC_QBUF,
+                    &mut buf as *mut _ as *mut std::os::raw::c_void,
+                )?;
+            }
+            let mut typ = BufType::VideoCaptureMplane as u32;
+            v4l2::ioctl(
+                self.fd,
+                v4l2::vidioc::VIDIOC_STREAMON,
+                &mut typ as *mut _ as *mut std::os::raw::c_void,
+            )?;
+        }
+        self.active = true;
+        Ok(())
+    }
+
+    fn next(&mut self) -> std::io::Result<&[u8]> {
+        if !self.active {
+            self.start()?;
+        }
+        unsafe {
+            let mut plane: v4l2_plane = std::mem::zeroed();
+            let mut buf: v4l2_buffer = std::mem::zeroed();
+            buf.type_ = BufType::VideoCaptureMplane as u32;
+            buf.memory = v4l::memory::Memory::Mmap as u32;
+            buf.length = 1;
+            buf.m.planes = &mut plane as *mut _;
+
+            v4l2::ioctl(
+                self.fd,
+                v4l2::vidioc::VIDIOC_DQBUF,
+                &mut buf as *mut _ as *mut std::os::raw::c_void,
+            )?;
+
+            let idx = buf.index as usize;
+            let (ptr, _len) = self.bufs[idx];
+            let used = plane.bytesused as usize;
+            let slice = std::slice::from_raw_parts(ptr, used);
+
+            // Re-queue immediately
+            let mut plane2: v4l2_plane = std::mem::zeroed();
+            let mut qbuf: v4l2_buffer = std::mem::zeroed();
+            qbuf.type_ = BufType::VideoCaptureMplane as u32;
+            qbuf.memory = v4l::memory::Memory::Mmap as u32;
+            qbuf.index = buf.index;
+            qbuf.length = 1;
+            qbuf.m.planes = &mut plane2 as *mut _;
+            v4l2::ioctl(
+                self.fd,
+                v4l2::vidioc::VIDIOC_QBUF,
+                &mut qbuf as *mut _ as *mut std::os::raw::c_void,
+            )?;
+
+            Ok(slice)
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for MplaneStream {
+    fn drop(&mut self) {
+        unsafe {
+            if self.active {
+                let mut typ = BufType::VideoCaptureMplane as u32;
+                let _ = v4l2::ioctl(
+                    self.fd,
+                    v4l2::vidioc::VIDIOC_STREAMOFF,
+                    &mut typ as *mut _ as *mut std::os::raw::c_void,
+                );
+            }
+            for &(ptr, len) in &self.bufs {
+                let _ = v4l2::munmap(ptr as *mut std::ffi::c_void, len);
+            }
+            let mut reqbufs: v4l2_requestbuffers = std::mem::zeroed();
+            reqbufs.count = 0;
+            reqbufs.type_ = BufType::VideoCaptureMplane as u32;
+            reqbufs.memory = v4l::memory::Memory::Mmap as u32;
+            let _ = v4l2::ioctl(
+                self.fd,
+                v4l2::vidioc::VIDIOC_REQBUFS,
+                &mut reqbufs as *mut _ as *mut std::os::raw::c_void,
+            );
+        }
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn v4l2_mplane_set_format(
     dev: &Device,
@@ -445,13 +607,7 @@ async fn run_v4l2(
     let _room = connect_and_publish(&args, &rtc_source).await?;
 
     let pace_fps = args.fps as f64;
-    let mut ticker = tokio::time::interval(Duration::from_secs_f64(1.0 / pace_fps));
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    ticker.tick().await;
     let start_ts = Instant::now();
-
-    let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, buf_type, 4)?;
-
     let target = Duration::from_secs_f64(1.0 / pace_fps);
     info!(
         "V4L2 capture started ({}): {}x{} {:?}, target {:.2} ms",
@@ -460,17 +616,34 @@ async fn run_v4l2(
         target.as_secs_f64() * 1000.0
     );
 
-    if pix_fmt == PixFmt::Nv12 {
-        info!("NV12 zero-conversion path: camera -> NV12Buffer -> MPP encoder");
-        run_v4l2_nv12_loop(
-            &rtc_source, &mut stream, stride, width, height,
-            pace_fps, target, start_ts, &ctrl_c_received,
-        )?;
+    if use_mplane {
+        let mut stream = MplaneStream::new(&dev, 4)?;
+        if pix_fmt == PixFmt::Nv12 {
+            info!("NV12 zero-conversion path (mplane): camera -> NV12Buffer -> MPP encoder");
+            run_v4l2_nv12_loop_mplane(
+                &rtc_source, &mut stream, stride, width, height,
+                target, start_ts, &ctrl_c_received,
+            )?;
+        } else {
+            run_v4l2_convert_loop_mplane(
+                &rtc_source, &mut stream, pix_fmt, width, height,
+                target, start_ts, &ctrl_c_received,
+            )?;
+        }
     } else {
-        run_v4l2_convert_loop(
-            &rtc_source, &mut stream, pix_fmt, width, height,
-            pace_fps, target, start_ts, &ctrl_c_received,
-        )?;
+        let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, buf_type, 4)?;
+        if pix_fmt == PixFmt::Nv12 {
+            info!("NV12 zero-conversion path: camera -> NV12Buffer -> MPP encoder");
+            run_v4l2_nv12_loop(
+                &rtc_source, &mut stream, stride, width, height,
+                pace_fps, target, start_ts, &ctrl_c_received,
+            )?;
+        } else {
+            run_v4l2_convert_loop(
+                &rtc_source, &mut stream, pix_fmt, width, height,
+                pace_fps, target, start_ts, &ctrl_c_received,
+            )?;
+        }
     }
 
     Ok(())
@@ -693,6 +866,233 @@ fn run_v4l2_convert_loop(
             let n = frames.max(1) as f64;
             info!(
                 "{}x{} {:?} ~{:.1} fps | avg ms: v4l2 {:.2}, cvt {:.2}, pub {:.2} | target {:.2}",
+                width, height, pix_fmt, fps_est,
+                sum_get_ms / n, sum_convert_ms / n, sum_capture_ms / n,
+                target.as_secs_f64() * 1000.0,
+            );
+            frames = 0;
+            sum_get_ms = 0.0;
+            sum_convert_ms = 0.0;
+            sum_capture_ms = 0.0;
+            last_fps_log = Instant::now();
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Multiplanar mmap capture loops (MplaneStream)
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "linux")]
+fn run_v4l2_nv12_loop_mplane(
+    rtc_source: &NativeVideoSource,
+    stream: &mut MplaneStream,
+    stride: u32,
+    width: u32,
+    height: u32,
+    target: Duration,
+    start_ts: Instant,
+    ctrl_c_received: &AtomicBool,
+) -> Result<()> {
+    let src_stride_y = stride;
+    let src_stride_uv = stride;
+    let mut nv12_buf = NV12Buffer::with_strides(width, height, src_stride_y, src_stride_uv);
+
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        timestamp_us: 0,
+        buffer: NV12Buffer::new(width, height),
+    };
+
+    let mut frames: u64 = 0;
+    let mut last_fps_log = Instant::now();
+    let mut sum_get_ms = 0.0;
+    let mut sum_copy_ms = 0.0;
+    let mut sum_capture_ms = 0.0;
+    let mut consecutive_errors: u32 = 0;
+    const MAX_ERRORS: u32 = 30;
+
+    loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            break;
+        }
+
+        let t0 = Instant::now();
+        let buf = match stream.next() {
+            Ok(b) => {
+                consecutive_errors = 0;
+                b
+            }
+            Err(e) => {
+                consecutive_errors += 1;
+                if consecutive_errors >= MAX_ERRORS {
+                    return Err(anyhow::anyhow!(
+                        "V4L2 mplane capture failed {} times: {}",
+                        consecutive_errors, e
+                    ));
+                }
+                log::warn!("V4L2 mplane error ({}/{}): {}", consecutive_errors, MAX_ERRORS, e);
+                continue;
+            }
+        };
+        let t1 = Instant::now();
+
+        let y_plane_size = (src_stride_y as usize) * (height as usize);
+        let uv_plane_size = (src_stride_uv as usize) * ((height as usize + 1) / 2);
+        let (dst_y, dst_uv) = nv12_buf.data_mut();
+        let copy_y = y_plane_size.min(dst_y.len()).min(buf.len());
+        dst_y[..copy_y].copy_from_slice(&buf[..copy_y]);
+        let uv_start = y_plane_size;
+        let copy_uv = uv_plane_size.min(dst_uv.len()).min(buf.len().saturating_sub(uv_start));
+        dst_uv[..copy_uv].copy_from_slice(&buf[uv_start..uv_start + copy_uv]);
+        let t2 = Instant::now();
+
+        std::mem::swap(&mut frame.buffer, &mut nv12_buf);
+        frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
+        rtc_source.capture_frame(&frame);
+        std::mem::swap(&mut frame.buffer, &mut nv12_buf);
+        let t3 = Instant::now();
+
+        frames += 1;
+        sum_get_ms += (t1 - t0).as_secs_f64() * 1000.0;
+        sum_copy_ms += (t2 - t1).as_secs_f64() * 1000.0;
+        sum_capture_ms += (t3 - t2).as_secs_f64() * 1000.0;
+
+        if last_fps_log.elapsed() >= Duration::from_secs(2) {
+            let secs = last_fps_log.elapsed().as_secs_f64();
+            let fps_est = frames as f64 / secs;
+            let n = frames.max(1) as f64;
+            info!(
+                "{}x{} NV12 mplane ~{:.1} fps | avg ms: v4l2 {:.2}, copy {:.2}, pub {:.2} | target {:.2}",
+                width, height, fps_est,
+                sum_get_ms / n, sum_copy_ms / n, sum_capture_ms / n,
+                target.as_secs_f64() * 1000.0,
+            );
+            frames = 0;
+            sum_get_ms = 0.0;
+            sum_copy_ms = 0.0;
+            sum_capture_ms = 0.0;
+            last_fps_log = Instant::now();
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn run_v4l2_convert_loop_mplane(
+    rtc_source: &NativeVideoSource,
+    stream: &mut MplaneStream,
+    pix_fmt: PixFmt,
+    width: u32,
+    height: u32,
+    target: Duration,
+    start_ts: Instant,
+    ctrl_c_received: &AtomicBool,
+) -> Result<()> {
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        timestamp_us: 0,
+        buffer: I420Buffer::new(width, height),
+    };
+
+    let mut frames: u64 = 0;
+    let mut last_fps_log = Instant::now();
+    let mut sum_get_ms = 0.0;
+    let mut sum_convert_ms = 0.0;
+    let mut sum_capture_ms = 0.0;
+    let mut consecutive_errors: u32 = 0;
+    const MAX_ERRORS: u32 = 30;
+
+    loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            break;
+        }
+
+        let t0 = Instant::now();
+        let buf = match stream.next() {
+            Ok(b) => {
+                consecutive_errors = 0;
+                b
+            }
+            Err(e) => {
+                consecutive_errors += 1;
+                if consecutive_errors >= MAX_ERRORS {
+                    return Err(anyhow::anyhow!(
+                        "V4L2 mplane capture failed {} times: {}",
+                        consecutive_errors, e
+                    ));
+                }
+                log::warn!("V4L2 mplane error ({}/{}): {}", consecutive_errors, MAX_ERRORS, e);
+                continue;
+            }
+        };
+        let t1 = Instant::now();
+
+        let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+        let (data_y, data_u, data_v) = frame.buffer.data_mut();
+
+        match pix_fmt {
+            PixFmt::Nv12 => unreachable!("NV12 handled by nv12 loop"),
+            PixFmt::Yuyv => {
+                let src_stride = (width * 2) as i32;
+                unsafe {
+                    yuv_sys::rs_YUY2ToI420(
+                        buf.as_ptr(),
+                        src_stride,
+                        data_y.as_mut_ptr(),
+                        stride_y as i32,
+                        data_u.as_mut_ptr(),
+                        stride_u as i32,
+                        data_v.as_mut_ptr(),
+                        stride_v as i32,
+                        width as i32,
+                        height as i32,
+                    );
+                }
+            }
+            PixFmt::Mjpeg => {
+                let ret = unsafe {
+                    yuv_sys::rs_MJPGToI420(
+                        buf.as_ptr(),
+                        buf.len(),
+                        data_y.as_mut_ptr(),
+                        stride_y as i32,
+                        data_u.as_mut_ptr(),
+                        stride_u as i32,
+                        data_v.as_mut_ptr(),
+                        stride_v as i32,
+                        width as i32,
+                        height as i32,
+                        width as i32,
+                        height as i32,
+                    )
+                };
+                if ret != 0 {
+                    log::warn!("MJPGToI420 failed (ret={}), skipping", ret);
+                    continue;
+                }
+            }
+        }
+        let t2 = Instant::now();
+
+        frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
+        rtc_source.capture_frame(&frame);
+        let t3 = Instant::now();
+
+        frames += 1;
+        sum_get_ms += (t1 - t0).as_secs_f64() * 1000.0;
+        sum_convert_ms += (t2 - t1).as_secs_f64() * 1000.0;
+        sum_capture_ms += (t3 - t2).as_secs_f64() * 1000.0;
+
+        if last_fps_log.elapsed() >= Duration::from_secs(2) {
+            let secs = last_fps_log.elapsed().as_secs_f64();
+            let fps_est = frames as f64 / secs;
+            let n = frames.max(1) as f64;
+            info!(
+                "{}x{} {:?} mplane ~{:.1} fps | avg ms: v4l2 {:.2}, cvt {:.2}, pub {:.2} | target {:.2}",
                 width, height, pix_fmt, fps_est,
                 sum_get_ms / n, sum_convert_ms / n, sum_capture_ms / n,
                 target.as_secs_f64() * 1000.0,
