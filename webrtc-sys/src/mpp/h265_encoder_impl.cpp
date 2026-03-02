@@ -374,6 +374,20 @@ int32_t MppH265EncoderImpl::Encode(
     mpp_fmt = MPP_FMT_YUV420P;
   }
 
+  // Reconfigure MPP prep:format when the input pixel format changes
+  if (mpp_fmt != configured_fmt_) {
+    mpp_enc_cfg_set_s32(mpp_cfg_, "prep:format", mpp_fmt);
+    MPP_RET cfg_ret = mpp_api_->control(mpp_ctx_, MPP_ENC_SET_CFG, mpp_cfg_);
+    if (cfg_ret == MPP_OK) {
+      RTC_LOG(LS_INFO) << "MPP H265 prep:format reconfigured from "
+                       << configured_fmt_ << " to " << mpp_fmt;
+      configured_fmt_ = mpp_fmt;
+    } else {
+      RTC_LOG(LS_WARNING) << "MPP H265 prep:format reconfigure failed: "
+                          << cfg_ret;
+    }
+  }
+
   // Set up MPP frame
   MppFrame frame = nullptr;
   MPP_RET ret = mpp_frame_init(&frame);

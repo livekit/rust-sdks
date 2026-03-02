@@ -109,6 +109,10 @@ class MppH264EncoderImpl : public VideoEncoder {
   int hor_stride_ = 0;
   int ver_stride_ = 0;
   size_t frame_size_ = 0;
+
+  // Tracks the pixel format currently configured in MPP (prep:format).
+  // Updated lazily when the input frame type changes (e.g. I420 vs NV12).
+  MppFrameFormat configured_fmt_ = MPP_FMT_YUV420P;
 };
 
 }  // namespace webrtc
