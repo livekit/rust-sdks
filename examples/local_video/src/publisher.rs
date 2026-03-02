@@ -409,8 +409,18 @@ async fn run_v4l2(
             "V4L2 negotiated (mplane): {}x{} fourcc={} stride={}",
             mf.width, mf.height, mf.fourcc, mf.stride
         );
-        let (fps_num, fps_den) = v4l2_mplane_set_fps(&dev, args.fps)?;
-        info!("V4L2 framerate (mplane): {}/{}", fps_num, fps_den);
+        match v4l2_mplane_set_fps(&dev, args.fps) {
+            Ok((fps_num, fps_den)) => {
+                info!("V4L2 framerate (mplane): {}/{}", fps_num, fps_den);
+            }
+            Err(e) => {
+                log::warn!(
+                    "VIDIOC_S_PARM not supported for mplane device ({}); \
+                     framerate governed by sensor/driver defaults",
+                    e
+                );
+            }
+        }
         (mf.width, mf.height, mf.stride, BufType::VideoCaptureMplane)
     } else {
         let mut fmt = dev.format()?;
