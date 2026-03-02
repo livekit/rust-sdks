@@ -285,7 +285,7 @@ async fn run_v4l2(
 
     let dev = Device::with_path(&dev_path)?;
 
-    let format_descs: Vec<_> = dev.enum_formats()?.collect();
+    let format_descs = dev.enum_formats()?;
     info!("Device supports {} format(s):", format_descs.len());
     for fd in &format_descs {
         info!("  {:?}", fd);
