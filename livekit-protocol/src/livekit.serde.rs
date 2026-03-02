@@ -10412,6 +10412,7 @@ impl serde::Serialize for DisconnectReason {
             Self::SipTrunkFailure => "SIP_TRUNK_FAILURE",
             Self::ConnectionTimeout => "CONNECTION_TIMEOUT",
             Self::MediaFailure => "MEDIA_FAILURE",
+            Self::AgentError => "AGENT_ERROR",
         };
         serializer.serialize_str(variant)
     }
@@ -10439,6 +10440,7 @@ impl<'de> serde::Deserialize<'de> for DisconnectReason {
             "SIP_TRUNK_FAILURE",
             "CONNECTION_TIMEOUT",
             "MEDIA_FAILURE",
+            "AGENT_ERROR",
         ];
 
         struct GeneratedVisitor;
@@ -10495,6 +10497,7 @@ impl<'de> serde::Deserialize<'de> for DisconnectReason {
                     "SIP_TRUNK_FAILURE" => Ok(DisconnectReason::SipTrunkFailure),
                     "CONNECTION_TIMEOUT" => Ok(DisconnectReason::ConnectionTimeout),
                     "MEDIA_FAILURE" => Ok(DisconnectReason::MediaFailure),
+                    "AGENT_ERROR" => Ok(DisconnectReason::AgentError),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }

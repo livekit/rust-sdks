@@ -24,6 +24,7 @@ use std::{
 
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
+use livekit::prelude::DisconnectReason;
 use livekit::webrtc::{
     native::apm::AudioProcessingModule, native::audio_resampler::AudioResampler, prelude::*,
 };
@@ -169,7 +170,7 @@ impl FfiServer {
         }
 
         for room in rooms {
-            room.close(self).await;
+            room.close(self, DisconnectReason::ClientInitiated).await;
         }
 
         // Drop all handles

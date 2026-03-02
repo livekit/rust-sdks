@@ -1887,6 +1887,8 @@ pub enum DisconnectReason {
     ConnectionTimeout = 14,
     /// media stream failure or media timeout
     MediaFailure = 15,
+    /// agent encountered an error
+    AgentError = 16,
 }
 impl DisconnectReason {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -1911,6 +1913,7 @@ impl DisconnectReason {
             DisconnectReason::SipTrunkFailure => "SIP_TRUNK_FAILURE",
             DisconnectReason::ConnectionTimeout => "CONNECTION_TIMEOUT",
             DisconnectReason::MediaFailure => "MEDIA_FAILURE",
+            DisconnectReason::AgentError => "AGENT_ERROR",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
@@ -1932,6 +1935,7 @@ impl DisconnectReason {
             "SIP_TRUNK_FAILURE" => Some(Self::SipTrunkFailure),
             "CONNECTION_TIMEOUT" => Some(Self::ConnectionTimeout),
             "MEDIA_FAILURE" => Some(Self::MediaFailure),
+            "AGENT_ERROR" => Some(Self::AgentError),
             _ => None,
         }
     }
