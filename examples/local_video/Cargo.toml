@@ -52,6 +52,7 @@ objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 nokhwa = { version = "0.10", default-features = false, features = ["input-v4l"] }
 v4l = "0.14"
+libc = "0.2"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 nokhwa = { version = "0.10", default-features = false, features = ["input-msmf"] }

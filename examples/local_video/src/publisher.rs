@@ -37,6 +37,8 @@ use v4l::FourCC;
 use v4l::v4l_sys::*;
 #[cfg(target_os = "linux")]
 use v4l::v4l2;
+#[cfg(target_os = "linux")]
+extern crate libc;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
