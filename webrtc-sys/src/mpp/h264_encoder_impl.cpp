@@ -559,7 +559,7 @@ VideoEncoder::EncoderInfo MppH264EncoderImpl::GetEncoderInfo() const {
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
-  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kI420};
+  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNV12, VideoFrameBuffer::Type::kI420};
   return info;
 }
 
@@ -596,6 +596,8 @@ void MppH264EncoderImpl::SetRates(const RateControlParameters& parameters) {
     mpp_enc_cfg_set_s32(mpp_cfg_, "rc:bps_target", new_target_bps);
     mpp_enc_cfg_set_s32(mpp_cfg_, "rc:bps_max", new_target_bps * 3 / 2);
     mpp_enc_cfg_set_s32(mpp_cfg_, "rc:bps_min", new_target_bps / 2);
+    mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_in_num", fps_num);
+    mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_in_denorm", 1);
     mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_out_num", fps_num);
     mpp_enc_cfg_set_s32(mpp_cfg_, "rc:fps_out_denorm", 1);
 

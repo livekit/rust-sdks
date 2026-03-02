@@ -219,17 +219,17 @@ async fn connect_and_publish(
     info!("Attempting publish with codec: {}", requested_codec.as_str());
 
     let publish_opts = |codec: VideoCodec| {
-        let mut opts = TrackPublishOptions {
+        let max_bitrate = args.max_bitrate.unwrap_or(5_000_000);
+        TrackPublishOptions {
             source: TrackSource::Camera,
             simulcast: args.simulcast,
             video_codec: codec,
+            video_encoding: Some(VideoEncoding {
+                max_bitrate,
+                max_framerate: args.fps as f64,
+            }),
             ..Default::default()
-        };
-        if let Some(bitrate) = args.max_bitrate {
-            opts.video_encoding =
-                Some(VideoEncoding { max_bitrate: bitrate, max_framerate: args.fps as f64 });
         }
-        opts
     };
 
     let publish_result = room
