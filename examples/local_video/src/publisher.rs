@@ -524,7 +524,8 @@ fn v4l2_mplane_set_format(
 
 #[cfg(target_os = "linux")]
 fn v4l2_mplane_set_fps(dev: &Device, fps: u32) -> std::io::Result<(u32, u32)> {
-    unsafe {
+    // Try standard VIDIOC_S_PARM first
+    let sparm_result = unsafe {
         let mut v4l2_params: v4l2_streamparm = std::mem::zeroed();
         v4l2_params.type_ = BufType::VideoCaptureMplane as u32;
         v4l2_params.parm.capture.timeperframe.numerator = 1;
@@ -534,11 +535,200 @@ fn v4l2_mplane_set_fps(dev: &Device, fps: u32) -> std::io::Result<(u32, u32)> {
             dev.handle().fd(),
             v4l2::vidioc::VIDIOC_S_PARM,
             &mut v4l2_params as *mut _ as *mut std::os::raw::c_void,
-        )?;
+        )
+        .map(|_| {
+            let tf = v4l2_params.parm.capture.timeperframe;
+            (tf.denominator, tf.numerator)
+        })
+    };
 
-        let tf = v4l2_params.parm.capture.timeperframe;
-        Ok((tf.denominator, tf.numerator))
+    if let Ok(result) = sparm_result {
+        return Ok(result);
     }
+
+    // VIDIOC_S_PARM failed — try setting framerate on the sensor subdevice.
+    // Rockchip ISP mplane devices require VIDIOC_SUBDEV_S_FRAME_INTERVAL on
+    // the sensor's /dev/v4l-subdevN node.
+    info!(
+        "VIDIOC_S_PARM not supported, attempting sensor subdevice frame interval for {}fps",
+        fps
+    );
+
+    match set_sensor_subdev_fps(dev, fps) {
+        Ok((num, den)) => Ok((num, den)),
+        Err(e) => {
+            log::warn!("Sensor subdevice frame interval also failed: {}", e);
+            Err(e)
+        }
+    }
+}
+
+/// Find the sensor subdevice associated with a V4L2 video device and set its
+/// frame interval. On Rockchip ISP pipelines the video capture node doesn't
+/// support VIDIOC_S_PARM; the framerate must be configured on the sensor's
+/// v4l-subdev node via VIDIOC_SUBDEV_S_FRAME_INTERVAL.
+#[cfg(target_os = "linux")]
+fn set_sensor_subdev_fps(dev: &Device, fps: u32) -> std::io::Result<(u32, u32)> {
+    use std::fs;
+    use std::path::Path;
+
+    // VIDIOC_SUBDEV_S_FRAME_INTERVAL = _IOWR('V', 22, struct v4l2_subdev_frame_interval)
+    // struct v4l2_subdev_frame_interval {
+    //   u32 pad; struct v4l2_fract interval; u32 reserved[9];
+    // }
+    // Total 48 bytes. On newer kernels (6.x+) reserved[0..1] become stream/which,
+    // but zero-init is compatible with both layouts.
+    #[repr(C)]
+    struct SubdevFrameInterval {
+        pad: u32,
+        numerator: u32,
+        denominator: u32,
+        reserved: [u32; 9],
+    }
+
+    const _IOC_WRITE: u32 = 1;
+    const _IOC_READ: u32 = 2;
+    fn iowr(ty: u8, nr: u8, size: usize) -> libc::c_ulong {
+        ((((_IOC_READ | _IOC_WRITE) as libc::c_ulong) << 30)
+            | ((ty as libc::c_ulong) << 8)
+            | (nr as libc::c_ulong)
+            | ((size as libc::c_ulong) << 16))
+    }
+    let vidioc_subdev_s_frame_interval =
+        iowr(b'V', 22, std::mem::size_of::<SubdevFrameInterval>());
+
+    // Resolve the video device's sysfs name (e.g. "video0") from its fd.
+    // /proc/self/fd/N may return a udev symlink like /dev/video-camera0,
+    // so canonicalize to get the real device node (e.g. /dev/video0).
+    let dev_fd = dev.handle().fd();
+    let fd_link = format!("/proc/self/fd/{}", dev_fd);
+    let dev_realpath = fs::canonicalize(&fd_link)
+        .or_else(|_| fs::read_link(&fd_link))
+        .unwrap_or_default();
+    let dev_name = dev_realpath
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("");
+
+    if dev_name.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "Cannot resolve video device name from fd",
+        ));
+    }
+
+    info!("Looking for sensor subdevice for {}", dev_name);
+
+    let mut subdev_paths: Vec<String> = Vec::new();
+
+    // Strategy 1: look for v4l-subdev* siblings under the same parent device.
+    // On some ISP pipelines the sensor subdev is registered under the same
+    // parent device as the video node.
+    for suffix in &["", "/video4linux"] {
+        let dir = format!("/sys/class/video4linux/{}/device{}", dev_name, suffix);
+        if let Ok(entries) = fs::read_dir(Path::new(&dir)) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.starts_with("v4l-subdev") {
+                    subdev_paths.push(format!("/dev/{}", name_str));
+                }
+            }
+        }
+    }
+
+    // Strategy 2: scan all v4l-subdev* nodes in /sys/class/video4linux/
+    // and read their sysfs "name" to prioritize sensor subdevices.
+    if subdev_paths.is_empty() {
+        let mut candidates: Vec<(String, String)> = Vec::new(); // (dev_path, sysfs_name)
+        if let Ok(entries) = fs::read_dir("/sys/class/video4linux") {
+            for entry in entries.flatten() {
+                let fname = entry.file_name();
+                let fname_str = fname.to_string_lossy().to_string();
+                if fname_str.starts_with("v4l-subdev") {
+                    let name_path = format!("/sys/class/video4linux/{}/name", fname_str);
+                    let sysfs_name = fs::read_to_string(&name_path)
+                        .unwrap_or_default()
+                        .trim()
+                        .to_string();
+                    candidates.push((format!("/dev/{}", fname_str), sysfs_name));
+                }
+            }
+        }
+        // Sort sensor-like names first (heuristic: names not containing "isp"
+        // or "csi" are more likely to be the actual sensor).
+        candidates.sort_by(|(_, a_name), (_, b_name)| {
+            let a_is_infra = a_name.to_lowercase().contains("isp")
+                || a_name.to_lowercase().contains("csi")
+                || a_name.to_lowercase().contains("bridge");
+            let b_is_infra = b_name.to_lowercase().contains("isp")
+                || b_name.to_lowercase().contains("csi")
+                || b_name.to_lowercase().contains("bridge");
+            a_is_infra.cmp(&b_is_infra)
+        });
+        for (path, name) in &candidates {
+            info!("  subdev candidate: {} (\"{}\")", path, name);
+        }
+        subdev_paths = candidates.into_iter().map(|(p, _)| p).collect();
+    }
+
+    if subdev_paths.is_empty() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "No v4l-subdev nodes found",
+        ));
+    }
+
+    info!("Found {} subdevice candidate(s): {:?}", subdev_paths.len(), subdev_paths);
+
+    for subdev_path in &subdev_paths {
+        let c_path = match std::ffi::CString::new(subdev_path.as_str()) {
+            Ok(p) => p,
+            Err(_) => continue,
+        };
+        let fd = unsafe { libc::open(c_path.as_ptr(), libc::O_RDWR) };
+        if fd < 0 {
+            info!("  {} - cannot open", subdev_path);
+            continue;
+        }
+
+        let mut fi = SubdevFrameInterval {
+            pad: 0,
+            numerator: 1,
+            denominator: fps,
+            reserved: [0u32; 9],
+        };
+
+        let ret = unsafe {
+            libc::ioctl(
+                fd,
+                vidioc_subdev_s_frame_interval,
+                &mut fi as *mut _ as *mut libc::c_void,
+            )
+        };
+
+        if ret == 0 {
+            info!(
+                "  {} - set frame interval {}/{} (pad 0)",
+                subdev_path, fi.numerator, fi.denominator
+            );
+            unsafe { libc::close(fd); }
+            return Ok((fi.denominator, fi.numerator));
+        } else {
+            let err = std::io::Error::last_os_error();
+            info!("  {} - SUBDEV_S_FRAME_INTERVAL failed: {}", subdev_path, err);
+        }
+
+        unsafe { libc::close(fd); }
+    }
+
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        format!(
+            "No subdevice accepted VIDIOC_SUBDEV_S_FRAME_INTERVAL for {}fps",
+            fps
+        ),
+    ))
 }
 
 // ---------------------------------------------------------------------------
@@ -587,13 +777,13 @@ async fn run_v4l2(
         );
         match v4l2_mplane_set_fps(&dev, args.fps) {
             Ok((fps_num, fps_den)) => {
-                info!("V4L2 framerate (mplane): {}/{}", fps_num, fps_den);
+                info!("V4L2 framerate set: {}/{}", fps_num, fps_den);
             }
             Err(e) => {
                 log::warn!(
-                    "VIDIOC_S_PARM not supported for mplane device ({}); \
+                    "Could not set framerate to {} on mplane device ({}); \
                      framerate governed by sensor/driver defaults",
-                    e
+                    args.fps, e
                 );
             }
         }
