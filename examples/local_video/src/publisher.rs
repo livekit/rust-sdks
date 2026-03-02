@@ -33,6 +33,10 @@ use v4l::prelude::*;
 use v4l::video::Capture;
 #[cfg(target_os = "linux")]
 use v4l::FourCC;
+#[cfg(target_os = "linux")]
+use v4l::v4l_sys::*;
+#[cfg(target_os = "linux")]
+use v4l::v4l2;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -272,7 +276,98 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
+// V4L2 multiplanar helpers — the v4l crate's Capture trait only supports
+// single-planar (VideoCapture). Many embedded devices (e.g. Rockchip ISP)
+// only expose VideoCaptureMplane, so we need raw ioctls.
+// ---------------------------------------------------------------------------
+
+#[cfg(target_os = "linux")]
+fn v4l2_mplane_enum_formats(dev: &Device) -> std::io::Result<Vec<v4l::format::Description>> {
+    let mut formats = Vec::new();
+    let mut v4l2_fmt: v4l2_fmtdesc = unsafe { std::mem::zeroed() };
+    v4l2_fmt.type_ = BufType::VideoCaptureMplane as u32;
+
+    loop {
+        let ret = unsafe {
+            v4l2::ioctl(
+                dev.handle().fd(),
+                v4l2::vidioc::VIDIOC_ENUM_FMT,
+                &mut v4l2_fmt as *mut _ as *mut std::os::raw::c_void,
+            )
+        };
+        if ret.is_err() {
+            break;
+        }
+        formats.push(v4l::format::Description::from(v4l2_fmt));
+        v4l2_fmt.index += 1;
+        unsafe { v4l2_fmt.description = std::mem::zeroed(); }
+    }
+    Ok(formats)
+}
+
+/// Negotiated multiplanar format info returned by our helpers.
+#[cfg(target_os = "linux")]
+struct MplaneFormat {
+    width: u32,
+    height: u32,
+    fourcc: FourCC,
+    stride: u32,
+}
+
+#[cfg(target_os = "linux")]
+fn v4l2_mplane_set_format(
+    dev: &Device,
+    width: u32,
+    height: u32,
+    fourcc: FourCC,
+) -> std::io::Result<MplaneFormat> {
+    unsafe {
+        let mut v4l2_fmt: v4l2_format = std::mem::zeroed();
+        v4l2_fmt.type_ = BufType::VideoCaptureMplane as u32;
+        let pix_mp = &mut v4l2_fmt.fmt.pix_mp;
+        pix_mp.width = width;
+        pix_mp.height = height;
+        pix_mp.pixelformat = fourcc.into();
+        pix_mp.num_planes = 1;
+
+        v4l2::ioctl(
+            dev.handle().fd(),
+            v4l2::vidioc::VIDIOC_S_FMT,
+            &mut v4l2_fmt as *mut _ as *mut std::os::raw::c_void,
+        )?;
+
+        let pix_mp = &v4l2_fmt.fmt.pix_mp;
+        Ok(MplaneFormat {
+            width: pix_mp.width,
+            height: pix_mp.height,
+            fourcc: FourCC::from(pix_mp.pixelformat),
+            stride: pix_mp.plane_fmt[0].bytesperline,
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn v4l2_mplane_set_fps(dev: &Device, fps: u32) -> std::io::Result<(u32, u32)> {
+    unsafe {
+        let mut v4l2_params: v4l2_streamparm = std::mem::zeroed();
+        v4l2_params.type_ = BufType::VideoCaptureMplane as u32;
+        v4l2_params.parm.capture.timeperframe.numerator = 1;
+        v4l2_params.parm.capture.timeperframe.denominator = fps;
+
+        v4l2::ioctl(
+            dev.handle().fd(),
+            v4l2::vidioc::VIDIOC_S_PARM,
+            &mut v4l2_params as *mut _ as *mut std::os::raw::c_void,
+        )?;
+
+        let tf = v4l2_params.parm.capture.timeperframe;
+        Ok((tf.denominator, tf.numerator))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // V4L2 direct capture (Linux only) — supports NV12, YUYV, MJPEG
+// Automatically detects single-planar vs multiplanar devices.
 // ---------------------------------------------------------------------------
 #[cfg(target_os = "linux")]
 async fn run_v4l2(
@@ -285,37 +380,56 @@ async fn run_v4l2(
 
     let dev = Device::with_path(&dev_path)?;
 
-    let format_descs = dev.enum_formats()?;
-    info!("Device supports {} format(s):", format_descs.len());
-    for fd in &format_descs {
-        info!("  {:?}", fd);
-    }
-
     let fourcc = match pix_fmt {
         PixFmt::Nv12 => FourCC::new(b"NV12"),
         PixFmt::Yuyv => FourCC::new(b"YUYV"),
         PixFmt::Mjpeg => FourCC::new(b"MJPG"),
     };
 
-    let mut fmt = dev.format()?;
-    fmt.width = args.width;
-    fmt.height = args.height;
-    fmt.fourcc = fourcc;
-    let fmt = dev.set_format(&fmt)?;
+    // Try single-planar first; fall back to multiplanar if no formats found.
+    let sp_formats = dev.enum_formats().unwrap_or_default();
+    let use_mplane = sp_formats.is_empty();
 
-    let width = fmt.width;
-    let height = fmt.height;
-    info!(
-        "V4L2 negotiated: {}x{} fourcc={} stride={}",
-        width, height, fmt.fourcc, fmt.stride
-    );
+    if use_mplane {
+        let mp_formats = v4l2_mplane_enum_formats(&dev)?;
+        info!("Device is multiplanar, supports {} format(s):", mp_formats.len());
+        for fd in &mp_formats {
+            info!("  {:?}", fd);
+        }
+    } else {
+        info!("Device supports {} format(s):", sp_formats.len());
+        for fd in &sp_formats {
+            info!("  {:?}", fd);
+        }
+    }
 
-    let params = v4l::video::capture::Parameters::with_fps(args.fps);
-    let params = dev.set_params(&params)?;
-    info!(
-        "V4L2 framerate: {}/{}",
-        params.interval.denominator, params.interval.numerator
-    );
+    let (width, height, stride, buf_type) = if use_mplane {
+        let mf = v4l2_mplane_set_format(&dev, args.width, args.height, fourcc)?;
+        info!(
+            "V4L2 negotiated (mplane): {}x{} fourcc={} stride={}",
+            mf.width, mf.height, mf.fourcc, mf.stride
+        );
+        let (fps_num, fps_den) = v4l2_mplane_set_fps(&dev, args.fps)?;
+        info!("V4L2 framerate (mplane): {}/{}", fps_num, fps_den);
+        (mf.width, mf.height, mf.stride, BufType::VideoCaptureMplane)
+    } else {
+        let mut fmt = dev.format()?;
+        fmt.width = args.width;
+        fmt.height = args.height;
+        fmt.fourcc = fourcc;
+        let fmt = dev.set_format(&fmt)?;
+        info!(
+            "V4L2 negotiated: {}x{} fourcc={} stride={}",
+            fmt.width, fmt.height, fmt.fourcc, fmt.stride
+        );
+        let params = v4l::video::capture::Parameters::with_fps(args.fps);
+        let params = dev.set_params(&params)?;
+        info!(
+            "V4L2 framerate: {}/{}",
+            params.interval.denominator, params.interval.numerator
+        );
+        (fmt.width, fmt.height, fmt.stride, BufType::VideoCapture)
+    };
 
     let rtc_source = NativeVideoSource::new(VideoResolution { width, height });
     let _room = connect_and_publish(&args, &rtc_source).await?;
@@ -326,11 +440,12 @@ async fn run_v4l2(
     ticker.tick().await;
     let start_ts = Instant::now();
 
-    let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, BufType::VideoCapture, 4)?;
+    let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, buf_type, 4)?;
 
     let target = Duration::from_secs_f64(1.0 / pace_fps);
     info!(
-        "V4L2 capture started: {}x{} {:?}, target {:.2} ms",
+        "V4L2 capture started ({}): {}x{} {:?}, target {:.2} ms",
+        if use_mplane { "mplane" } else { "splane" },
         width, height, pix_fmt,
         target.as_secs_f64() * 1000.0
     );
@@ -338,7 +453,7 @@ async fn run_v4l2(
     if pix_fmt == PixFmt::Nv12 {
         info!("NV12 zero-conversion path: camera -> NV12Buffer -> MPP encoder");
         run_v4l2_nv12_loop(
-            &rtc_source, &mut stream, &fmt, width, height,
+            &rtc_source, &mut stream, stride, width, height,
             pace_fps, target, start_ts, &ctrl_c_received,
         )?;
     } else {
@@ -357,7 +472,7 @@ async fn run_v4l2(
 fn run_v4l2_nv12_loop(
     rtc_source: &NativeVideoSource,
     stream: &mut v4l::io::mmap::Stream,
-    fmt: &v4l::Format,
+    stride: u32,
     width: u32,
     height: u32,
     _pace_fps: f64,
@@ -365,8 +480,8 @@ fn run_v4l2_nv12_loop(
     start_ts: Instant,
     ctrl_c_received: &AtomicBool,
 ) -> Result<()> {
-    let src_stride_y = fmt.stride as u32;
-    let src_stride_uv = fmt.stride as u32;
+    let src_stride_y = stride;
+    let src_stride_uv = stride;
     let mut nv12_buf = NV12Buffer::with_strides(width, height, src_stride_y, src_stride_uv);
 
     let mut frame = VideoFrame {
