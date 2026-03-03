@@ -1,10 +1,12 @@
-pub mod models;
+pub mod melspectrogram;
+pub mod embedding;
+mod wakeword;
 
 #[cfg(test)]
 mod tests {
-    use crate::models::melspectrogram::MelspectrogramModel;
-    use crate::models::embedding::EmbeddingModel;
-    use ndarray::{ Array1, Array2 };
+    use crate::melspectrogram::MelspectrogramModel;
+    use crate::embedding::EmbeddingModel;
+    use ndarray::Array1;
 
     fn generate_sine(freq: f64, sample_rate: usize, duration: f64) -> Array1<i16> {
         let samples = ((sample_rate as f64) * duration) as usize;
@@ -17,39 +19,9 @@ mod tests {
     }
 
     #[test]
-    fn test_melspectrogram_output_shape() {
-        let mut model = MelspectrogramModel::new("models/melspectrogram.onnx").unwrap();
-
-        let audio_1s = generate_sine(440.0, 16000, 1.0);
-        let audio_2s = generate_sine(440.0, 16000, 2.0);
-
-        let output_1s = model.detect(&audio_1s).unwrap();
-        let output_2s = model.detect(&audio_2s).unwrap();
-
-        // mel_bins is always 32
-        assert_eq!(output_1s.shape()[1], 32);
-        assert_eq!(output_2s.shape()[1], 32);
-
-        // longer audio should produce more time frames
-        assert!(output_2s.shape()[0] > output_1s.shape()[0]);
-    }
-
-    #[test]
-    fn test_embedding_output_shape() {
-        let mut model = EmbeddingModel::new("models/embedding_model.onnx").unwrap();
-
-        // Create a dummy mel spectrogram input of shape (76, 32)
-        let mel_features = Array2::<f32>::zeros((76, 32));
-        let output = model.detect(&mel_features).unwrap();
-
-        // Output should be a 96-dim embedding vector
-        assert_eq!(output.shape(), &[96]);
-    }
-
-    #[test]
     fn test_mel_to_embedding_pipeline() {
-        let mut mel_model = MelspectrogramModel::new("models/melspectrogram.onnx").unwrap();
-        let mut emb_model = EmbeddingModel::new("models/embedding_model.onnx").unwrap();
+        let mut mel_model = MelspectrogramModel::new().unwrap();
+        let mut emb_model = EmbeddingModel::new().unwrap();
 
         // Generate two different audio signals
         let audio_a = generate_sine(440.0, 16000, 1.0);

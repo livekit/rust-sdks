@@ -1,4 +1,8 @@
-use crate::models::prelude::*;
+use ndarray::{Array1, Array2, Axis};
+use ort::session::{builder::GraphOptimizationLevel, Session};
+use ort::value::Tensor;
+
+const MODEL_BYTES: &[u8] = include_bytes!("../onnx/embedding_model.onnx");
 
 // Produces a 96-dim embedding from mel spectrogram features using a pre-trained ONNX model.
 //
@@ -12,13 +16,12 @@ pub struct EmbeddingModel {
 }
 
 impl EmbeddingModel {
-    // Initialize the embedding model from the given file path
-    // The model file is expected to be in ONNX format
-    pub fn new(model_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
+    // Initialize the embedding model from the embedded ONNX bytes
+    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let session = Session::builder()?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
             .with_intra_threads(4)?
-            .commit_from_file(model_path)?;
+            .commit_from_memory(MODEL_BYTES)?;
 
         Ok(Self { session })
     }
@@ -41,5 +44,23 @@ impl EmbeddingModel {
         let embedding = raw.into_owned().into_shape_with_order(96)?;
 
         Ok(embedding)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ndarray::Array2;
+
+    #[test]
+    fn test_output_shape() {
+        let mut model = EmbeddingModel::new().unwrap();
+
+        // Create a dummy mel spectrogram input of shape (76, 32)
+        let mel_features = Array2::<f32>::zeros((76, 32));
+        let output = model.detect(&mel_features).unwrap();
+
+        // Output should be a 96-dim embedding vector
+        assert_eq!(output.shape(), &[96]);
     }
 }
