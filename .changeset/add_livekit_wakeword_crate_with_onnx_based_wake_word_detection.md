@@ -1,14 +1,5 @@
 ---
-webrtc-sys-build: minor
-livekit-protocol: minor
-livekit: minor
-imgproc: minor
-livekit-ffi: minor
-yuv-sys: minor
-webrtc-sys: minor
-soxr-sys: minor
-libwebrtc: minor
-livekit-api: minor
+livekit-wakeword: minor
 ---
 
 # Add livekit-wakeword crate with ONNX-based wake word detection
