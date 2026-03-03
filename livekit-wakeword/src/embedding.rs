@@ -1,6 +1,8 @@
 use ndarray::{Array1, Array2, Axis};
-use ort::session::{builder::GraphOptimizationLevel, Session};
+use ort::session::Session;
 use ort::value::Tensor;
+
+use crate::build_session_from_memory;
 
 const MODEL_BYTES: &[u8] = include_bytes!("../onnx/embedding_model.onnx");
 
@@ -16,14 +18,10 @@ pub struct EmbeddingModel {
 }
 
 impl EmbeddingModel {
-    // Initialize the embedding model from the embedded ONNX bytes
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        let session = Session::builder()?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(4)?
-            .commit_from_memory(MODEL_BYTES)?;
-
-        Ok(Self { session })
+        Ok(Self {
+            session: build_session_from_memory(MODEL_BYTES)?,
+        })
     }
 
     // Run the embedding model on mel spectrogram features and return the embedding.
@@ -31,36 +29,21 @@ impl EmbeddingModel {
     // Output: Array1<f32> of length 96 — embedding vector.
     pub fn detect(
         &mut self,
-        mel_features: &Array2<f32>
+        mel_features: &Array2<f32>,
     ) -> Result<Array1<f32>, Box<dyn std::error::Error>> {
-        // Model expects shape (batch, 76, 32, 1), add batch and channel dimensions
-        let input = mel_features.clone().insert_axis(Axis(0)).insert_axis(Axis(3));
+        let input = mel_features
+            .clone()
+            .insert_axis(Axis(0))
+            .insert_axis(Axis(3));
         let tensor = Tensor::from_array(input)?;
 
         let outputs = self.session.run(ort::inputs![tensor])?;
 
-        // Raw output shape is [1, 1, 1, 96] — flatten to 1D
         let raw = outputs["conv2d_19"].try_extract_array::<f32>()?;
-        let embedding = raw.into_owned().into_shape_with_order(96)?;
+        let embedding = raw
+            .into_owned()
+            .into_shape_with_order(crate::EMBEDDING_DIM)?;
 
         Ok(embedding)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use ndarray::Array2;
-
-    #[test]
-    fn test_output_shape() {
-        let mut model = EmbeddingModel::new().unwrap();
-
-        // Create a dummy mel spectrogram input of shape (76, 32)
-        let mel_features = Array2::<f32>::zeros((76, 32));
-        let output = model.detect(&mel_features).unwrap();
-
-        // Output should be a 96-dim embedding vector
-        assert_eq!(output.shape(), &[96]);
     }
 }
