@@ -19,7 +19,6 @@
 #include <cstring>
 #include <algorithm>
 #include <optional>
-#include <chrono>
 
 #include "api/make_ref_counted.h"
 #include "livekit/peer_connection_factory.h"
@@ -150,16 +149,6 @@ void UserTimestampTransformer::TransformReceive(
   auto user_ts = ExtractTimestampTrailer(data, stripped_data);
 
   if (user_ts.has_value()) {
-    // Compute latency from embedded user timestamp to RTP receive
-    // time (both in microseconds since Unix epoch), so we can compare
-    // this with the latency logged after decode on the subscriber side.
-    int64_t now_us =
-        std::chrono::duration_cast<std::chrono::microseconds>(
-            std::chrono::system_clock::now().time_since_epoch())
-            .count();
-    double recv_latency_ms =
-        static_cast<double>(now_us - user_ts.value()) / 1000.0;
-
     // Store in the receive map keyed by RTP timestamp so decoded frames
     // can look up their user timestamp regardless of frame drops.
     {
