@@ -8,6 +8,7 @@ members = [
     "livekit-uniffi",
     "livekit-ffi-node-bindings",
     "livekit-runtime",
+    "livekit-wakeword",
     "libwebrtc",
     "soxr-sys",
     "yuv-sys",
