@@ -1,0 +1,10 @@
+[package]
+name = "livekit-wakeword"
+version = "0.1.0"
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+ndarray = "0.17.2"
+ort = "2.0.0-rc.11"
