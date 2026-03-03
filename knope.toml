@@ -83,3 +83,7 @@ scopes = [
   "protocol",
   "webrtc-sys-build",
 ]
+
+[packages.livekit-wakeword]
+versioned_files = ["livekit-wakeword/Cargo.toml"]
+changelog = "livekit-wakeword/CHANGELOG.md"
