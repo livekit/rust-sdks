@@ -13,8 +13,17 @@
 // limitations under the License.
 
 use std::path::Path;
+use std::sync::Once;
 
-use ort::session::{builder::GraphOptimizationLevel, Session};
+use ort::session::Session;
+
+static INIT_TRACT: Once = Once::new();
+
+pub(crate) fn ensure_tract_backend() {
+    INIT_TRACT.call_once(|| {
+        ort::set_api(ort_tract::api());
+    });
+}
 
 pub mod embedding;
 pub mod melspectrogram;
@@ -32,19 +41,16 @@ pub const MIN_EMBEDDINGS: usize = 16; // classifier input length
 pub(crate) fn build_session_from_memory(
     bytes: &[u8],
 ) -> Result<Session, Box<dyn std::error::Error>> {
-    Ok(Session::builder()?
-        .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_intra_threads(4)?
-        .commit_from_memory(bytes)?)
+    ensure_tract_backend();
+    Ok(Session::builder()?.commit_from_memory(bytes)?)
 }
 
 pub(crate) fn build_session_from_file(
     path: impl AsRef<Path>,
 ) -> Result<Session, Box<dyn std::error::Error>> {
-    Ok(Session::builder()?
-        .with_optimization_level(GraphOptimizationLevel::Level3)?
-        .with_intra_threads(4)?
-        .commit_from_file(path)?)
+    ensure_tract_backend();
+    let bytes = std::fs::read(path)?;
+    Ok(Session::builder()?.commit_from_memory(&bytes)?)
 }
 
 #[cfg(test)]
