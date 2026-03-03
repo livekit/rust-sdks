@@ -52,11 +52,7 @@ impl WakeWordModel {
 
         let name = match model_name {
             Some(n) => n.to_string(),
-            None => path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("unknown")
-                .to_string(),
+            None => path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string(),
         };
 
         let session = build_session_from_file(path)?;
@@ -88,9 +84,7 @@ impl WakeWordModel {
         let mut embeddings = Vec::new();
         let mut start = 0;
         while start + EMBEDDING_WINDOW <= num_frames {
-            let window = mel
-                .slice(ndarray::s![start..start + EMBEDDING_WINDOW, ..])
-                .to_owned();
+            let window = mel.slice(ndarray::s![start..start + EMBEDDING_WINDOW, ..]).to_owned();
             let emb = self.emb_model.detect(&window)?;
             embeddings.push(emb);
             start += EMBEDDING_STRIDE;
