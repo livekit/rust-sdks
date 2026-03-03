@@ -19,9 +19,7 @@ pub struct EmbeddingModel {
 
 impl EmbeddingModel {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
-            session: build_session_from_memory(MODEL_BYTES)?,
-        })
+        Ok(Self { session: build_session_from_memory(MODEL_BYTES)? })
     }
 
     // Run the embedding model on mel spectrogram features and return the embedding.
@@ -31,18 +29,13 @@ impl EmbeddingModel {
         &mut self,
         mel_features: &Array2<f32>,
     ) -> Result<Array1<f32>, Box<dyn std::error::Error>> {
-        let input = mel_features
-            .clone()
-            .insert_axis(Axis(0))
-            .insert_axis(Axis(3));
+        let input = mel_features.clone().insert_axis(Axis(0)).insert_axis(Axis(3));
         let tensor = Tensor::from_array(input)?;
 
         let outputs = self.session.run(ort::inputs![tensor])?;
 
         let raw = outputs["conv2d_19"].try_extract_array::<f32>()?;
-        let embedding = raw
-            .into_owned()
-            .into_shape_with_order(crate::EMBEDDING_DIM)?;
+        let embedding = raw.into_owned().into_shape_with_order(crate::EMBEDDING_DIM)?;
 
         Ok(embedding)
     }

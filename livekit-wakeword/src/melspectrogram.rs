@@ -19,9 +19,7 @@ pub struct MelspectrogramModel {
 
 impl MelspectrogramModel {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
-        Ok(Self {
-            session: build_session_from_memory(MODEL_BYTES)?,
-        })
+        Ok(Self { session: build_session_from_memory(MODEL_BYTES)? })
     }
 
     // Run the melspectrogram model on raw audio and return mel features.
