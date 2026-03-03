@@ -23,8 +23,8 @@ use libwebrtc::{
     },
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
-    video_source::RtcVideoSource,
 };
+use livekit_protocol::PacketTrailerFeature;
 use parking_lot::Mutex;
 
 use super::{key_provider::KeyProvider, EncryptionType};
@@ -105,14 +105,31 @@ impl E2eeManager {
         let receiver = track.transceiver().unwrap().receiver();
         let mut user_timestamp_handler = None;
 
-        // Always set up user timestamp extraction for remote video tracks.
-        if let RemoteTrack::Video(video_track) = &track {
-            let handler = user_timestamp::create_receiver_handler(
-                LkRuntime::instance().pc_factory(),
-                &receiver,
+        let has_user_timestamp = publication
+            .proto_info()
+            .packet_trailer_features
+            .contains(&(PacketTrailerFeature::PtfUserTimestamp as i32));
+
+        if has_user_timestamp {
+            if let RemoteTrack::Video(video_track) = &track {
+                log::info!(
+                    "user_timestamp enabled for subscribed track {} from {}",
+                    publication.sid(),
+                    identity,
+                );
+                let handler = user_timestamp::create_receiver_handler(
+                    LkRuntime::instance().pc_factory(),
+                    &receiver,
+                );
+                video_track.set_user_timestamp_handler(handler.clone());
+                user_timestamp_handler = Some(handler);
+            }
+        } else {
+            log::info!(
+                "user_timestamp not present for subscribed track {} from {}",
+                publication.sid(),
+                identity,
             );
-            video_track.set_user_timestamp_handler(handler.clone());
-            user_timestamp_handler = Some(handler);
         }
 
         if !self.initialized() || publication.encryption_type() == EncryptionType::None {
@@ -137,23 +154,26 @@ impl E2eeManager {
     ) {
         let identity = participant.identity();
         let sender = track.transceiver().unwrap().sender();
-        let mut user_timestamp_handler = None;
 
-        // Always set up user timestamp embedding for local video tracks.
-        if let LocalTrack::Video(video_track) = &track {
-            let handler =
-                user_timestamp::create_sender_handler(LkRuntime::instance().pc_factory(), &sender);
-            video_track.set_user_timestamp_handler(handler.clone());
-
-            // Also set the handler on the video source so that capture_frame()
-            // can automatically store user timestamps into it.
-            #[cfg(not(target_arch = "wasm32"))]
-            if let RtcVideoSource::Native(ref native_source) = video_track.rtc_source() {
-                native_source.set_user_timestamp_handler(handler.clone());
+        let user_timestamp_handler = if let LocalTrack::Video(video_track) = &track {
+            let handler = video_track.user_timestamp_handler();
+            if handler.is_some() {
+                log::info!(
+                    "user_timestamp enabled for published track {} from {}",
+                    publication.sid(),
+                    identity,
+                );
+            } else {
+                log::info!(
+                    "user_timestamp not enabled for published track {} from {}",
+                    publication.sid(),
+                    identity,
+                );
             }
-
-            user_timestamp_handler = Some(handler);
-        }
+            handler
+        } else {
+            None
+        };
 
         if !self.initialized() || publication.encryption_type() == EncryptionType::None {
             return;

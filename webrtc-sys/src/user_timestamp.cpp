@@ -117,16 +117,6 @@ void UserTimestampTransformer::TransformSend(
   if (enabled_.load()) {
     new_data = AppendTimestampTrailer(data, ts_to_embed);
     frame->SetData(rtc::ArrayView<const uint8_t>(new_data));
-
-    RTC_LOG(LS_INFO) << "UserTimestampTransformer::TransformSend appended "
-                        "trailer"
-                     << " ts_us=" << ts_to_embed
-                     << " rtp_ts=" << rtp_timestamp
-                     << " ssrc=" << ssrc
-                     << " capture_us="
-                     << (capture_time.has_value() ? capture_time->us() : -1)
-                     << " orig_size=" << data.size()
-                     << " new_size=" << new_data.size();
   }
 
   // Forward to the appropriate callback (either global or per-SSRC sink).
@@ -188,10 +178,6 @@ void UserTimestampTransformer::TransformReceive(
     // Update frame with stripped data
     frame->SetData(rtc::ArrayView<const uint8_t>(stripped_data));
 
-    RTC_LOG(LS_INFO) << "UserTimestampTransformer"
-                     << " user_ts=" << user_ts.value()
-                     << " rtp_ts=" << frame->GetTimestamp()
-                     << " recv_latency=" << recv_latency_ms << " ms";
   } else {
     // Log the last few bytes so we can see whether the magic marker is present.
     size_t log_len = std::min<size_t>(data.size(), 16);

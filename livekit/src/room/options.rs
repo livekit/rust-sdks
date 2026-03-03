@@ -88,6 +88,7 @@ pub struct TrackPublishOptions {
     pub source: TrackSource,
     pub stream: String,
     pub preconnect_buffer: bool,
+    pub user_timestamp: bool,
 }
 
 impl Default for TrackPublishOptions {
@@ -102,6 +103,7 @@ impl Default for TrackPublishOptions {
             source: TrackSource::Unknown,
             stream: "".to_string(),
             preconnect_buffer: false,
+            user_timestamp: false,
         }
     }
 }

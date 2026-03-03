@@ -225,6 +225,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             source: TrackSource::Camera,
             simulcast: args.simulcast,
             video_codec: codec,
+            user_timestamp: args.attach_timestamp,
             ..Default::default()
         };
         if let Some(bitrate) = args.max_bitrate {
