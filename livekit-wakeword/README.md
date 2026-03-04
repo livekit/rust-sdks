@@ -49,7 +49,7 @@ model.load_model("path/to/another.onnx", "custom_wakeword")?;
 |-----------|-------|
 | Sample rate | 16,000 Hz |
 | Format | `i16` PCM |
-| Minimum duration | ~4 seconds (196 mel frames) |
+| Minimum duration | ~2 seconds (196 mel frames) |
 
 Audio shorter than the minimum duration will return a score of `0.0` for all classifiers.
 
