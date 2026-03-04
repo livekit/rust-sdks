@@ -35,8 +35,8 @@ use crate::{
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
     room::participant::rpc::{RpcError, RpcErrorCode, RpcInvocationData, MAX_PAYLOAD_BYTES},
-    rtc_engine::{EngineError, RtcEngine},
     rtc_engine::lk_runtime::LkRuntime,
+    rtc_engine::{EngineError, RtcEngine},
     ChatMessage, DataPacket, RoomSession, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription,
 };
 use chrono::Utc;
@@ -279,8 +279,7 @@ impl LocalParticipant {
         }
 
         if options.user_timestamp {
-            req.packet_trailer_features
-                .push(proto::PacketTrailerFeature::PtfUserTimestamp as i32);
+            req.packet_trailer_features.push(proto::PacketTrailerFeature::PtfUserTimestamp as i32);
         }
 
         let mut encodings = Vec::default();
@@ -330,10 +329,7 @@ impl LocalParticipant {
 
         if options.user_timestamp {
             if let LocalTrack::Video(video_track) = &track {
-                log::info!(
-                    "user_timestamp enabled for local video track {}",
-                    publication.sid(),
-                );
+                log::info!("user_timestamp enabled for local video track {}", publication.sid(),);
                 let sender = track.transceiver().unwrap().sender();
                 let handler = user_timestamp::create_sender_handler(
                     LkRuntime::instance().pc_factory(),
