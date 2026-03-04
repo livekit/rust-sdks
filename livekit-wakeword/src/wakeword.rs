@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use ndarray::{Array1, Axis};
+use ndarray::Axis;
 use ort::session::Session;
 use ort::value::Tensor;
 
@@ -80,7 +80,7 @@ impl WakeWordModel {
     /// fewer than [`MIN_EMBEDDINGS`] embeddings return zero scores.
     pub fn predict(
         &mut self,
-        audio_chunk: &Array1<i16>,
+        audio_chunk: &[i16],
     ) -> Result<HashMap<String, f32>, Box<dyn std::error::Error>> {
         if self.classifiers.is_empty() {
             return Ok(HashMap::new());
@@ -98,8 +98,9 @@ impl WakeWordModel {
         let mut embeddings = Vec::new();
         let mut start = 0;
         while start + EMBEDDING_WINDOW <= num_frames {
-            let window = mel.slice(ndarray::s![start..start + EMBEDDING_WINDOW, ..]).to_owned();
-            let emb = self.emb_model.detect(&window)?;
+            let window = mel.slice(ndarray::s![start..start + EMBEDDING_WINDOW, ..]);
+            let window_slice = window.as_standard_layout();
+            let emb = self.emb_model.detect(window_slice.as_slice().unwrap())?;
             embeddings.push(emb);
             start += EMBEDDING_STRIDE;
         }

@@ -37,13 +37,13 @@ impl MelspectrogramModel {
     }
 
     // Run the melspectrogram model on raw audio and return mel features.
-    // Input: 1D array of i16 PCM samples.
+    // Input: slice of i16 PCM samples.
     // Output: Array2<f32> of shape (time_frames, mel_bins) e.g. (97, 32).
     pub fn detect(
         &mut self,
-        audio: &Array1<i16>,
+        samples: &[i16],
     ) -> Result<Array2<f32>, Box<dyn std::error::Error>> {
-        let audio_f32: Array1<f32> = audio.iter().map(|&x| (x as f32) / 32768.0).collect();
+        let audio_f32: Array1<f32> = samples.iter().map(|&x| (x as f32) / 32768.0).collect();
 
         let audio_2d = audio_f32.insert_axis(Axis(0));
         let audio_tensor = Tensor::from_array(audio_2d)?;
