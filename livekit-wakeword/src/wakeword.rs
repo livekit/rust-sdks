@@ -21,7 +21,9 @@ use ort::value::Tensor;
 
 use crate::embedding::EmbeddingModel;
 use crate::melspectrogram::MelspectrogramModel;
-use crate::{build_session_from_file, EMBEDDING_STRIDE, EMBEDDING_WINDOW, MIN_EMBEDDINGS};
+use crate::{
+    build_session_from_file, WakeWordError, EMBEDDING_STRIDE, EMBEDDING_WINDOW, MIN_EMBEDDINGS,
+};
 
 /// Stateless wake word detection model.
 ///
@@ -37,7 +39,7 @@ pub struct WakeWordModel {
 }
 
 impl WakeWordModel {
-    pub fn new(models: &[impl AsRef<Path>]) -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new(models: &[impl AsRef<Path>]) -> Result<Self, WakeWordError> {
         let mut wakeword = Self {
             mel_model: MelspectrogramModel::new()?,
             emb_model: EmbeddingModel::new()?,
@@ -58,10 +60,10 @@ impl WakeWordModel {
         &mut self,
         model_path: impl AsRef<Path>,
         model_name: Option<&str>,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), WakeWordError> {
         let path = model_path.as_ref();
         if !path.exists() {
-            return Err(format!("Wake word model not found: {}", path.display()).into());
+            return Err(WakeWordError::ModelNotFound(path.display().to_string()));
         }
 
         let name = match model_name {
@@ -81,7 +83,7 @@ impl WakeWordModel {
     pub fn predict(
         &mut self,
         audio_chunk: &[i16],
-    ) -> Result<HashMap<String, f32>, Box<dyn std::error::Error>> {
+    ) -> Result<HashMap<String, f32>, WakeWordError> {
         if self.classifiers.is_empty() {
             return Ok(HashMap::new());
         }

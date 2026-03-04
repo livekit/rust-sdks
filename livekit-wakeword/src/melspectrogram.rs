@@ -16,7 +16,7 @@ use ndarray::{Array1, Array2, Axis};
 use ort::session::Session;
 use ort::value::Tensor;
 
-use crate::build_session_from_memory;
+use crate::{build_session_from_memory, WakeWordError};
 
 const MODEL_BYTES: &[u8] = include_bytes!("../onnx/melspectrogram.onnx");
 
@@ -32,7 +32,7 @@ pub struct MelspectrogramModel {
 }
 
 impl MelspectrogramModel {
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new() -> Result<Self, WakeWordError> {
         Ok(Self { session: build_session_from_memory(MODEL_BYTES)? })
     }
 
@@ -42,7 +42,7 @@ impl MelspectrogramModel {
     pub fn detect(
         &mut self,
         samples: &[i16],
-    ) -> Result<Array2<f32>, Box<dyn std::error::Error>> {
+    ) -> Result<Array2<f32>, WakeWordError> {
         let audio_f32: Array1<f32> = samples.iter().map(|&x| (x as f32) / 32768.0).collect();
 
         let audio_2d = audio_f32.insert_axis(Axis(0));

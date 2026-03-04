@@ -9,3 +9,4 @@ license.workspace = true
 ndarray = "0.17.2"
 ort = { version = "2.0.0-rc.11", default-features = false, features = ["alternative-backend", "ndarray", "std"] }
 ort-tract = "0.2.0+0.22"
+thiserror = "2"
