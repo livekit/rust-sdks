@@ -108,8 +108,7 @@ impl WakeWordModel {
         let chunk_out = rs.fft.chunk_size_output();
 
         // Expected output length based on ratio
-        let expected_len =
-            (samples.len() as f64 * 16000.0 / rs.input_rate as f64).round() as usize;
+        let expected_len = (samples.len() as f64 * 16000.0 / rs.input_rate as f64).round() as usize;
 
         let mut output = Vec::with_capacity(expected_len);
 
@@ -146,10 +145,7 @@ impl WakeWordModel {
     /// Pass ~2 seconds of i16 PCM audio at the sample rate configured in
     /// [`new`](Self::new). Shorter chunks that produce fewer than
     /// [`MIN_EMBEDDINGS`] embeddings return zero scores.
-    pub fn predict(
-        &mut self,
-        audio_chunk: &[i16],
-    ) -> Result<HashMap<String, f32>, WakeWordError> {
+    pub fn predict(&mut self, audio_chunk: &[i16]) -> Result<HashMap<String, f32>, WakeWordError> {
         if self.classifiers.is_empty() {
             return Ok(HashMap::new());
         }

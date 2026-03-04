@@ -40,10 +40,7 @@ impl EmbeddingModel {
     // Run the embedding model on mel spectrogram features and return the embedding.
     // Input: flat slice of f32 values (76 * 32 = 2432 elements, row-major).
     // Output: Array1<f32> of length 96 — embedding vector.
-    pub fn detect(
-        &mut self,
-        mel_features: &[f32],
-    ) -> Result<Array1<f32>, WakeWordError> {
+    pub fn detect(&mut self, mel_features: &[f32]) -> Result<Array1<f32>, WakeWordError> {
         let input = Array::from_shape_vec((1, 76, 32, 1), mel_features.to_vec())?;
         let tensor = Tensor::from_array(input)?;
 
