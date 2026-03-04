@@ -17,7 +17,6 @@
 #include "livekit/user_timestamp.h"
 
 #include <cstring>
-#include <algorithm>
 #include <optional>
 
 #include "api/make_ref_counted.h"
@@ -32,10 +31,7 @@ namespace livekit_ffi {
 // UserTimestampTransformer implementation
 
 UserTimestampTransformer::UserTimestampTransformer(Direction direction)
-    : direction_(direction) {
-  RTC_LOG(LS_INFO) << "UserTimestampTransformer created direction="
-                   << (direction_ == Direction::kSend ? "send" : "recv");
-}
+    : direction_(direction) {}
 
 void UserTimestampTransformer::Transform(
     std::unique_ptr<webrtc::TransformableFrameInterface> frame) {
@@ -43,13 +39,6 @@ void UserTimestampTransformer::Transform(
   uint32_t rtp_timestamp = frame->GetTimestamp();
 
   if (!enabled_.load()) {
-    // Pass through without modification, but still log basic info so we know
-    // frames are flowing through the transformer.
-    RTC_LOG(LS_INFO) << "UserTimestampTransformer::Transform (disabled)"
-                     << " direction="
-                     << (direction_ == Direction::kSend ? "send" : "recv")
-                     << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
-
     rtc::scoped_refptr<webrtc::TransformedFrameCallback> cb;
     {
       webrtc::MutexLock lock(&mutex_);
@@ -167,26 +156,6 @@ void UserTimestampTransformer::TransformReceive(
     // Update frame with stripped data
     frame->SetData(rtc::ArrayView<const uint8_t>(stripped_data));
 
-  } else {
-    // Log the last few bytes so we can see whether the magic marker is present.
-    size_t log_len = std::min<size_t>(data.size(), 16);
-    std::string tail_bytes;
-    tail_bytes.reserve(log_len * 4);
-    for (size_t i = data.size() - log_len; i < data.size(); ++i) {
-      char buf[8];
-      std::snprintf(buf, sizeof(buf), "%u",
-                    static_cast<unsigned>(data[i]));
-      if (!tail_bytes.empty()) {
-        tail_bytes.append(",");
-      }
-      tail_bytes.append(buf);
-    }
-
-    RTC_LOG(LS_INFO)
-        << "UserTimestampTransformer::TransformReceive no trailer found"
-        << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp
-        << " size=" << data.size()
-        << " tail_bytes_dec=[" << tail_bytes << "]";
   }
 
   // Forward to the appropriate callback (either global or per-SSRC sink).
@@ -236,10 +205,6 @@ std::optional<int64_t> UserTimestampTransformer::ExtractTimestampTrailer(
     rtc::ArrayView<const uint8_t> data,
     std::vector<uint8_t>& out_data) {
   if (data.size() < kUserTimestampTrailerSize) {
-    RTC_LOG(LS_INFO)
-        << "UserTimestampTransformer::ExtractTimestampTrailer data too small"
-        << " size=" << data.size()
-        << " required=" << kUserTimestampTrailerSize;
     out_data.assign(data.begin(), data.end());
     return std::nullopt;
   }
@@ -247,14 +212,6 @@ std::optional<int64_t> UserTimestampTransformer::ExtractTimestampTrailer(
   // Check for magic bytes at the end
   const uint8_t* magic_start = data.data() + data.size() - 4;
   if (std::memcmp(magic_start, kUserTimestampMagic, 4) != 0) {
-    RTC_LOG(LS_INFO)
-        << "UserTimestampTransformer::ExtractTimestampTrailer magic mismatch"
-        << " size=" << data.size()
-        << " magic_bytes_dec=["
-        << static_cast<unsigned>(magic_start[0]) << ","
-        << static_cast<unsigned>(magic_start[1]) << ","
-        << static_cast<unsigned>(magic_start[2]) << ","
-        << static_cast<unsigned>(magic_start[3]) << "]";
     out_data.assign(data.begin(), data.end());
     return std::nullopt;
   }
@@ -353,12 +310,6 @@ void UserTimestampTransformer::store_user_timestamp(
     send_map_order_.push_back(key);
   }
   send_map_[key] = user_timestamp_us;
-
-  RTC_LOG(LS_INFO) << "UserTimestampTransformer::store_user_timestamp"
-                   << " capture_ts_us=" << capture_timestamp_us
-                   << " key_us=" << key
-                   << " user_ts_us=" << user_timestamp_us
-                   << " size=" << send_map_.size();
 }
 
 // UserTimestampHandler implementation
