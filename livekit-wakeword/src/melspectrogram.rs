@@ -25,8 +25,8 @@ const MODEL_BYTES: &[u8] = include_bytes!("../onnx/melspectrogram.onnx");
 // Model input:  f32 tensor of shape (1, num_samples) — mono PCM audio normalized to [-1.0, 1.0]
 // Model output: f32 tensor of shape (1, 1, time_frames, mel_bins) — e.g. (1, 1, 97, 32) for 16000 samples
 //
-// The detect() method accepts i16 PCM samples, handles normalization internally,
-// and returns the mel features as an Array2<f32> of shape (time_frames, mel_bins).
+// The detect() method accepts f32 samples normalized to [-1.0, 1.0] and returns
+// the mel features as an Array2<f32> of shape (time_frames, mel_bins).
 pub struct MelspectrogramModel {
     session: Session,
 }
@@ -36,14 +36,14 @@ impl MelspectrogramModel {
         Ok(Self { session: build_session_from_memory(MODEL_BYTES)? })
     }
 
-    // Run the melspectrogram model on raw audio and return mel features.
-    // Input: slice of i16 PCM samples.
+    // Run the melspectrogram model on normalized f32 audio and return mel features.
+    // Input: slice of f32 samples normalized to [-1.0, 1.0].
     // Output: Array2<f32> of shape (time_frames, mel_bins) e.g. (97, 32).
     pub fn detect(
         &mut self,
-        samples: &[i16],
+        samples: &[f32],
     ) -> Result<Array2<f32>, WakeWordError> {
-        let audio_f32: Array1<f32> = samples.iter().map(|&x| (x as f32) / 32768.0).collect();
+        let audio_f32 = Array1::from_vec(samples.to_vec());
 
         let audio_2d = audio_f32.insert_axis(Axis(0));
         let audio_tensor = Tensor::from_array(audio_2d)?;

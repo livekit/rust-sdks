@@ -3793,6 +3793,7 @@ dependencies = [
  "ndarray 0.17.2",
  "ort",
  "ort-tract",
+ "resampler",
  "thiserror 2.0.18",
 ]
 
@@ -5797,6 +5798,12 @@ dependencies = [
  "web-sys",
  "webpki-roots 1.0.5",
 ]
+
+[[package]]
+name = "resampler"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80f5ab61459422b1a350caae1aadef48ebae234b12e80248e9ba9557018ef060"
 
 [[package]]
 name = "rfc6979"

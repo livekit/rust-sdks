@@ -25,8 +25,8 @@ pub(crate) fn ensure_tract_backend() {
     });
 }
 
-pub mod embedding;
-pub mod melspectrogram;
+pub(crate) mod embedding;
+pub(crate) mod melspectrogram;
 pub mod wakeword;
 
 pub use wakeword::WakeWordModel;
@@ -41,6 +41,10 @@ pub enum WakeWordError {
     Io(#[from] std::io::Error),
     #[error("wake word model not found: {0}")]
     ModelNotFound(String),
+    #[error("unsupported sample rate: {0} Hz")]
+    UnsupportedSampleRate(u32),
+    #[error(transparent)]
+    Resample(#[from] resampler::ResampleError),
 }
 
 pub const SAMPLE_RATE: usize = 16000;
@@ -49,6 +53,23 @@ pub const EMBEDDING_WINDOW: usize = 76; // mel frames per embedding
 pub const EMBEDDING_STRIDE: usize = 8; // mel frames between embeddings
 pub const EMBEDDING_DIM: usize = 96;
 pub const MIN_EMBEDDINGS: usize = 16; // classifier input length
+
+pub(crate) fn to_resampler_rate(hz: u32) -> Result<resampler::SampleRate, WakeWordError> {
+    use resampler::SampleRate;
+    match hz {
+        16000 => Ok(SampleRate::Hz16000),
+        22050 => Ok(SampleRate::Hz22050),
+        32000 => Ok(SampleRate::Hz32000),
+        44100 => Ok(SampleRate::Hz44100),
+        48000 => Ok(SampleRate::Hz48000),
+        88200 => Ok(SampleRate::Hz88200),
+        96000 => Ok(SampleRate::Hz96000),
+        176400 => Ok(SampleRate::Hz176400),
+        192000 => Ok(SampleRate::Hz192000),
+        384000 => Ok(SampleRate::Hz384000),
+        _ => Err(WakeWordError::UnsupportedSampleRate(hz)),
+    }
+}
 
 pub(crate) fn build_session_from_memory(bytes: &[u8]) -> Result<Session, WakeWordError> {
     ensure_tract_backend();
@@ -82,7 +103,7 @@ mod tests {
 
     #[test]
     fn test_predict() {
-        let mut model = WakeWordModel::new(&[classifier_path()]).unwrap();
+        let mut model = WakeWordModel::new(&[classifier_path()], SAMPLE_RATE as u32).unwrap();
 
         // Full pipeline: audio -> mel -> embeddings -> classifier score
         let audio = generate_sine(440.0, SAMPLE_RATE, 2.0);
