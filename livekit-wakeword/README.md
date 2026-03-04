@@ -26,10 +26,10 @@ Detect a wake word:
 ```rust
 use livekit_wakeword::wakeword::WakeWordModel;
 
-// Load one or more classifier ONNX models
-let mut model = WakeWordModel::new(&["path/to/hey_livekit.onnx"])?;
+// Load one or more classifier ONNX models, specifying the input sample rate
+let mut model = WakeWordModel::new(&["path/to/hey_livekit.onnx"], 48000)?;
 
-// Feed i16 PCM audio at 16 kHz
+// Feed i16 PCM audio — resampling to 16 kHz is handled internally
 let predictions = model.predict(&audio)?;
 
 for (name, score) in &predictions {
@@ -47,11 +47,11 @@ model.load_model("path/to/another.onnx", "custom_wakeword")?;
 
 | Parameter | Value |
 |-----------|-------|
-| Sample rate | 16,000 Hz |
+| Sample rate | 16,000 / 22,050 / 32,000 / 44,100 / 48,000 / 88,200 / 96,000 / 176,400 / 192,000 / 384,000 Hz |
 | Format | `i16` PCM |
-| Minimum duration | ~2 seconds (196 mel frames) |
+| Minimum duration | ~2 seconds at the input sample rate |
 
-Audio shorter than the minimum duration will return a score of `0.0` for all classifiers.
+Pass the input sample rate to `WakeWordModel::new()`. Non-16 kHz audio is resampled internally. Audio shorter than the minimum duration will return a score of `0.0` for all classifiers.
 
 ## Pre-trained models
 

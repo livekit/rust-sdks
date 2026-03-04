@@ -18,32 +18,58 @@ use std::path::Path;
 use ndarray::Axis;
 use ort::session::Session;
 use ort::value::Tensor;
+use resampler::{ResamplerFft, SampleRate};
 
 use crate::embedding::EmbeddingModel;
 use crate::melspectrogram::MelspectrogramModel;
 use crate::{
-    build_session_from_file, WakeWordError, EMBEDDING_STRIDE, EMBEDDING_WINDOW, MIN_EMBEDDINGS,
+    build_session_from_file, to_resampler_rate, WakeWordError, EMBEDDING_STRIDE, EMBEDDING_WINDOW,
+    MIN_EMBEDDINGS,
 };
 
-/// Stateless wake word detection model.
+struct Resampler {
+    fft: ResamplerFft,
+    input_buf: Vec<f32>,
+    output_buf: Vec<f32>,
+    input_rate: u32,
+}
+
+/// Wake word detection model with optional input resampling.
 ///
 /// The mel spectrogram and speech embedding models are bundled at compile time.
 /// Wake word classifier models are loaded dynamically from disk at runtime.
 ///
-/// Pass ~2 seconds of 16 kHz i16 PCM audio to [`predict`](Self::predict) and
-/// receive per-classifier confidence scores.
+/// Pass ~2 seconds of i16 PCM audio at the configured sample rate to
+/// [`predict`](Self::predict) and receive per-classifier confidence scores.
 pub struct WakeWordModel {
     mel_model: MelspectrogramModel,
     emb_model: EmbeddingModel,
     classifiers: HashMap<String, Session>,
+    resampler: Option<Resampler>,
 }
 
 impl WakeWordModel {
-    pub fn new(models: &[impl AsRef<Path>]) -> Result<Self, WakeWordError> {
+    /// Create a new wake word model.
+    ///
+    /// The recommended sample rate is 16 kHz. Other supported rates
+    /// (22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000, 384000 Hz)
+    /// are resampled internally to 16 kHz.
+    pub fn new(models: &[impl AsRef<Path>], sample_rate: u32) -> Result<Self, WakeWordError> {
+        let resampler = if sample_rate != 16000 {
+            let input_rate = to_resampler_rate(sample_rate)?;
+            let fft = ResamplerFft::new(1, input_rate, SampleRate::Hz16000);
+            let input_buf = vec![0.0f32; fft.chunk_size_input()];
+            let output_buf = vec![0.0f32; fft.chunk_size_output()];
+            Some(Resampler { fft, input_buf, output_buf, input_rate: sample_rate })
+        } else {
+            None
+        };
+
         let mut wakeword = Self {
             mel_model: MelspectrogramModel::new()?,
             emb_model: EmbeddingModel::new()?,
             classifiers: HashMap::new(),
+            resampler,
         };
 
         for path in models {
@@ -76,10 +102,50 @@ impl WakeWordModel {
         Ok(())
     }
 
+    fn resample_to_16k(&mut self, samples: &[i16]) -> Result<Vec<f32>, WakeWordError> {
+        let rs = self.resampler.as_mut().unwrap();
+        let chunk_in = rs.fft.chunk_size_input();
+        let chunk_out = rs.fft.chunk_size_output();
+
+        // Expected output length based on ratio
+        let expected_len =
+            (samples.len() as f64 * 16000.0 / rs.input_rate as f64).round() as usize;
+
+        let mut output = Vec::with_capacity(expected_len);
+
+        let mut pos = 0;
+        while pos < samples.len() {
+            let remaining = samples.len() - pos;
+            let n = remaining.min(chunk_in);
+
+            // Fill input buffer, zero-pad if last chunk is short
+            for (i, v) in rs.input_buf.iter_mut().enumerate() {
+                *v = if i < n { samples[pos + i] as f32 / 32768.0 } else { 0.0 };
+            }
+
+            rs.fft.resample(&rs.input_buf.clone(), &mut rs.output_buf)?;
+
+            let take = if remaining < chunk_in {
+                // Last (partial) chunk: scale output proportionally
+                (n as f64 * chunk_out as f64 / chunk_in as f64).round() as usize
+            } else {
+                chunk_out
+            };
+
+            output.extend_from_slice(&rs.output_buf[..take]);
+
+            pos += chunk_in;
+        }
+
+        output.truncate(expected_len);
+        Ok(output)
+    }
+
     /// Get wake word predictions for an audio chunk.
     ///
-    /// Pass ~2 seconds of 16 kHz i16 PCM audio. Shorter chunks that produce
-    /// fewer than [`MIN_EMBEDDINGS`] embeddings return zero scores.
+    /// Pass ~2 seconds of i16 PCM audio at the sample rate configured in
+    /// [`new`](Self::new). Shorter chunks that produce fewer than
+    /// [`MIN_EMBEDDINGS`] embeddings return zero scores.
     pub fn predict(
         &mut self,
         audio_chunk: &[i16],
@@ -88,8 +154,15 @@ impl WakeWordModel {
             return Ok(HashMap::new());
         }
 
+        // Resample if needed, then normalize to f32
+        let samples_f32 = if self.resampler.is_some() {
+            self.resample_to_16k(audio_chunk)?
+        } else {
+            audio_chunk.iter().map(|&x| x as f32 / 32768.0).collect()
+        };
+
         // Mel spectrogram over the full chunk
-        let mel = self.mel_model.detect(audio_chunk)?;
+        let mel = self.mel_model.detect(&samples_f32)?;
         let num_frames = mel.shape()[0];
 
         if num_frames < EMBEDDING_WINDOW {
