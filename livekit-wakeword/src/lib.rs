@@ -31,6 +31,18 @@ pub mod wakeword;
 
 pub use wakeword::WakeWordModel;
 
+#[derive(Debug, thiserror::Error)]
+pub enum WakeWordError {
+    #[error(transparent)]
+    Ort(#[from] ort::Error),
+    #[error(transparent)]
+    Shape(#[from] ndarray::ShapeError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error("wake word model not found: {0}")]
+    ModelNotFound(String),
+}
+
 pub const SAMPLE_RATE: usize = 16000;
 pub const MEL_BINS: usize = 32;
 pub const EMBEDDING_WINDOW: usize = 76; // mel frames per embedding
@@ -38,16 +50,12 @@ pub const EMBEDDING_STRIDE: usize = 8; // mel frames between embeddings
 pub const EMBEDDING_DIM: usize = 96;
 pub const MIN_EMBEDDINGS: usize = 16; // classifier input length
 
-pub(crate) fn build_session_from_memory(
-    bytes: &[u8],
-) -> Result<Session, Box<dyn std::error::Error>> {
+pub(crate) fn build_session_from_memory(bytes: &[u8]) -> Result<Session, WakeWordError> {
     ensure_tract_backend();
     Ok(Session::builder()?.commit_from_memory(bytes)?)
 }
 
-pub(crate) fn build_session_from_file(
-    path: impl AsRef<Path>,
-) -> Result<Session, Box<dyn std::error::Error>> {
+pub(crate) fn build_session_from_file(path: impl AsRef<Path>) -> Result<Session, WakeWordError> {
     ensure_tract_backend();
     let bytes = std::fs::read(path)?;
     Ok(Session::builder()?.commit_from_memory(&bytes)?)

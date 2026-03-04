@@ -16,7 +16,7 @@ use ndarray::{Array, Array1};
 use ort::session::Session;
 use ort::value::Tensor;
 
-use crate::build_session_from_memory;
+use crate::{build_session_from_memory, WakeWordError};
 
 const MODEL_BYTES: &[u8] = include_bytes!("../onnx/embedding_model.onnx");
 
@@ -33,7 +33,7 @@ pub struct EmbeddingModel {
 }
 
 impl EmbeddingModel {
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    pub fn new() -> Result<Self, WakeWordError> {
         Ok(Self { session: build_session_from_memory(MODEL_BYTES)? })
     }
 
@@ -43,7 +43,7 @@ impl EmbeddingModel {
     pub fn detect(
         &mut self,
         mel_features: &[f32],
-    ) -> Result<Array1<f32>, Box<dyn std::error::Error>> {
+    ) -> Result<Array1<f32>, WakeWordError> {
         let input = Array::from_shape_vec((1, 76, 32, 1), mel_features.to_vec())?;
         let tensor = Tensor::from_array(input)?;
 
