@@ -39,10 +39,7 @@ impl MelspectrogramModel {
     // Run the melspectrogram model on normalized f32 audio and return mel features.
     // Input: slice of f32 samples normalized to [-1.0, 1.0].
     // Output: Array2<f32> of shape (time_frames, mel_bins) e.g. (97, 32).
-    pub fn detect(
-        &mut self,
-        samples: &[f32],
-    ) -> Result<Array2<f32>, WakeWordError> {
+    pub fn detect(&mut self, samples: &[f32]) -> Result<Array2<f32>, WakeWordError> {
         let audio_f32 = Array1::from_vec(samples.to_vec());
 
         let audio_2d = audio_f32.insert_axis(Axis(0));
