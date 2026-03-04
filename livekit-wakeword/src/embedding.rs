@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use ndarray::{Array1, Array2, Axis};
+use ndarray::{Array, Array1};
 use ort::session::Session;
 use ort::value::Tensor;
 
@@ -25,8 +25,9 @@ const MODEL_BYTES: &[u8] = include_bytes!("../onnx/embedding_model.onnx");
 // Model input:  f32 tensor of shape (batch, 76, 32, 1) — mel spectrogram features
 // Model output: f32 tensor of shape (batch, 1, 1, 96) — embedding vector
 //
-// The detect() method accepts mel spectrogram features as an Array2<f32> of shape (76, 32),
-// and returns the embedding as an Array1<f32> of length 96.
+// The detect() method accepts mel spectrogram features as a flat slice of f32 values
+// (76 * 32 = 2432 elements in row-major order), and returns the embedding as an
+// Array1<f32> of length 96.
 pub struct EmbeddingModel {
     session: Session,
 }
@@ -37,13 +38,13 @@ impl EmbeddingModel {
     }
 
     // Run the embedding model on mel spectrogram features and return the embedding.
-    // Input: Array2<f32> of shape (76, 32) — mel spectrogram features.
+    // Input: flat slice of f32 values (76 * 32 = 2432 elements, row-major).
     // Output: Array1<f32> of length 96 — embedding vector.
     pub fn detect(
         &mut self,
-        mel_features: &Array2<f32>,
+        mel_features: &[f32],
     ) -> Result<Array1<f32>, Box<dyn std::error::Error>> {
-        let input = mel_features.clone().insert_axis(Axis(0)).insert_axis(Axis(3));
+        let input = Array::from_shape_vec((1, 76, 32, 1), mel_features.to_vec())?;
         let tensor = Tensor::from_array(input)?;
 
         let outputs = self.session.run(ort::inputs![tensor])?;

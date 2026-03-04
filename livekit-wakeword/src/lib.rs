@@ -54,11 +54,13 @@ pub(crate) fn build_session_from_file(
 }
 
 #[cfg(test)]
-fn generate_sine(freq: f64, sample_rate: usize, duration: f64) -> ndarray::Array1<i16> {
-    ndarray::Array1::from_iter((0..((sample_rate as f64 * duration) as usize)).map(|i| {
-        let t = (i as f64) / (sample_rate as f64);
-        (f64::sin(2.0 * std::f64::consts::PI * freq * t) * 32767.0) as i16
-    }))
+fn generate_sine(freq: f64, sample_rate: usize, duration: f64) -> Vec<i16> {
+    (0..((sample_rate as f64 * duration) as usize))
+        .map(|i| {
+            let t = (i as f64) / (sample_rate as f64);
+            (f64::sin(2.0 * std::f64::consts::PI * freq * t) * 32767.0) as i16
+        })
+        .collect()
 }
 
 #[cfg(test)]
