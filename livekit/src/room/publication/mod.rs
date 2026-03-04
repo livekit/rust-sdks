@@ -15,7 +15,7 @@
 use std::sync::Arc;
 
 use livekit_protocol::enum_dispatch;
-use livekit_protocol::{self as proto, AudioTrackFeature};
+use livekit_protocol::{self as proto, AudioTrackFeature, PacketTrailerFeature};
 use parking_lot::{Mutex, RwLock};
 
 use super::track::TrackDimension;
@@ -60,6 +60,7 @@ impl TrackPublication {
         pub fn is_remote(self: &Self) -> bool;
         pub fn encryption_type(self: &Self) -> EncryptionType;
         pub fn audio_features(self: &Self) -> Vec<AudioTrackFeature>;
+        pub fn packet_trailer_features(self: &Self) -> Vec<PacketTrailerFeature>;
 
         pub(crate) fn on_muted(self: &Self, on_mute: impl Fn(TrackPublication) + Send + 'static) -> ();
         pub(crate) fn on_unmuted(self: &Self, on_unmute: impl Fn(TrackPublication) + Send + 'static) -> ();
@@ -96,6 +97,7 @@ struct PublicationInfo {
     pub proto_info: proto::TrackInfo,
     pub encryption_type: EncryptionType,
     pub audio_features: Vec<AudioTrackFeature>,
+    pub packet_trailer_features: Vec<PacketTrailerFeature>,
 }
 
 pub(crate) type MutedHandler = Box<dyn Fn(TrackPublication) + Send>;
@@ -133,6 +135,11 @@ pub(super) fn new_inner(
             .into_iter()
             .map(|item| item.try_into().unwrap())
             .collect(),
+        packet_trailer_features: info
+            .packet_trailer_features
+            .iter()
+            .filter_map(|v| PacketTrailerFeature::try_from(*v).ok())
+            .collect(),
     };
 
     Arc::new(TrackPublicationInner { info: RwLock::new(info), events: Default::default() })
@@ -154,6 +161,11 @@ pub(super) fn update_info(
     info.mime_type = new_info.mime_type.clone();
     info.simulcasted = new_info.simulcast;
     info.audio_features = new_info.audio_features().collect();
+    info.packet_trailer_features = new_info
+        .packet_trailer_features
+        .iter()
+        .filter_map(|v| PacketTrailerFeature::try_from(*v).ok())
+        .collect();
 }
 
 pub(super) fn set_track(
