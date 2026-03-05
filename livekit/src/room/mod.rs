@@ -22,6 +22,7 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
+pub use livekit_api::signal_client::TlsConfig;
 use livekit_api::signal_client::{SignalOptions, SignalSdkOptions, SIGNAL_CONNECT_TIMEOUT};
 use livekit_protocol::observer::Dispatcher;
 use livekit_protocol::{self as proto, encryption};
@@ -374,6 +375,8 @@ pub struct RoomOptions {
     pub single_peer_connection: bool,
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
+    /// Custom TLS config
+    pub tls_config: TlsConfig,
 }
 
 impl Default for RoomOptions {
@@ -396,6 +399,7 @@ impl Default for RoomOptions {
             sdk_options: RoomSdkOptions::default(),
             single_peer_connection: false,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
+            tls_config: TlsConfig::default(),
         }
     }
 }
@@ -491,6 +495,7 @@ impl Room {
         signal_options.adaptive_stream = options.adaptive_stream;
         signal_options.single_peer_connection = options.single_peer_connection;
         signal_options.connect_timeout = options.connect_timeout;
+        signal_options.tls_config = options.tls_config.clone();
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,
