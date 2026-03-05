@@ -147,11 +147,6 @@ AudioTrackSource::InternalSource::InternalSource(
     return;  // no audio queue
   }
 
-  // start sending silence when there is nothing on the queue for 10 frames
-  // (100ms)
-  const int silence_frames_threshold = 10;
-  missed_frames_ = silence_frames_threshold;
-
   int samples10ms = sample_rate / 100 * num_channels;
 
   silence_buffer_.assign(samples10ms, 0);
@@ -171,20 +166,16 @@ AudioTrackSource::InternalSource::InternalSource(
         constexpr int kBitsPerSample = sizeof(int16_t) * 8;
 
         if (buffer_.size() >= samples10ms) {
-          // Reset |missed_frames_| to 0 so that it won't keep sending silence to webrtc due to audio callback timing drifts.
-          missed_frames_ = 0;
           for (auto sink : sinks_)
             sink->OnData(buffer_.data(), kBitsPerSample, sample_rate_,
                          num_channels_, samples10ms / num_channels_);
 
           buffer_.erase(buffer_.begin(), buffer_.begin() + samples10ms);
         } else {
-          missed_frames_++;
-          if (missed_frames_ >= silence_frames_threshold) {
-            for (auto sink : sinks_)
-              sink->OnData(silence_buffer_.data(), kBitsPerSample, sample_rate_,
-                           num_channels_, samples10ms / num_channels_);
-          }
+          // Always provide a 10ms frame to avoid playout underruns.
+          for (auto sink : sinks_)
+            sink->OnData(silence_buffer_.data(), kBitsPerSample, sample_rate_,
+                         num_channels_, samples10ms / num_channels_);
         }
 
         if (on_complete_ && buffer_.size() <= notify_threshold_samples_) {
