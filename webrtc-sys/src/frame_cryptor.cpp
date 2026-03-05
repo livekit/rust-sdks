@@ -40,6 +40,19 @@ webrtc::FrameCryptorTransformer::Algorithm AlgorithmToFrameCryptorAlgorithm(
   }
 }
 
+webrtc::KeyDerivationAlgorithm
+KeyDerivationAlgorithmToFrameCryptorKeyDerivationAlgorithm(
+    KeyDerivationAlgorithm algorithm) {
+  switch (algorithm) {
+    case KeyDerivationAlgorithm::PBKDF2:
+      return webrtc::KeyDerivationAlgorithm::kPBKDF2;
+    case KeyDerivationAlgorithm::HKDF:
+      return webrtc::KeyDerivationAlgorithm::kHKDF;
+    default:
+      return webrtc::KeyDerivationAlgorithm::kPBKDF2;
+  }
+}
+
 KeyProvider::KeyProvider(KeyProviderOptions options) {
   webrtc::KeyProviderOptions rtc_options;
   rtc_options.shared_key = options.shared_key;
@@ -52,7 +65,9 @@ KeyProvider::KeyProvider(KeyProviderOptions options) {
   rtc_options.ratchet_window_size = options.ratchet_window_size;
   rtc_options.failure_tolerance = options.failure_tolerance;
   rtc_options.key_ring_size = options.key_ring_size;
-
+  rtc_options.key_derivation_algorithm =
+      KeyDerivationAlgorithmToFrameCryptorKeyDerivationAlgorithm(
+          options.key_derivation_algorithm);
   impl_ =
       new rtc::RefCountedObject<webrtc::DefaultKeyProviderImpl>(rtc_options);
 }

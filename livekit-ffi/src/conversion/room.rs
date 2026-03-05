@@ -21,7 +21,7 @@ use livekit::{
     options::{AudioEncoding, TrackPublishOptions, VideoEncoding},
     prelude::*,
     webrtc::{
-        native::frame_cryptor::EncryptionState,
+        native::frame_cryptor::{EncryptionState, KeyDerivationAlgorithm},
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
     },
     RoomInfo,
@@ -133,10 +133,22 @@ impl From<proto::DisconnectReason> for DisconnectReason {
 
 impl From<proto::KeyProviderOptions> for KeyProviderOptions {
     fn from(value: proto::KeyProviderOptions) -> Self {
+        let key_derivation_algorithm = value.key_derivation_function().into();
         Self {
             ratchet_window_size: value.ratchet_window_size,
             ratchet_salt: value.ratchet_salt,
             failure_tolerance: value.failure_tolerance,
+            key_ring_size: value.key_ring_size,
+            key_derivation_algorithm,
+        }
+    }
+}
+
+impl From<proto::KeyDerivationFunction> for KeyDerivationAlgorithm {
+    fn from(value: proto::KeyDerivationFunction) -> Self {
+        match value {
+            proto::KeyDerivationFunction::Pbkdf2 => KeyDerivationAlgorithm::PBKDF2,
+            proto::KeyDerivationFunction::Hkdf => KeyDerivationAlgorithm::HKDF,
         }
     }
 }

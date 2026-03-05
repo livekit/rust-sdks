@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use libwebrtc::native::frame_cryptor as fc;
+use libwebrtc::native::frame_cryptor::{self as fc, KeyDerivationAlgorithm};
 use std::sync::{
     atomic::{AtomicI32, Ordering},
     Arc,
@@ -31,6 +31,7 @@ pub struct KeyProviderOptions {
     pub ratchet_salt: Vec<u8>,
     pub failure_tolerance: i32,
     pub key_ring_size: i32,
+    pub key_derivation_algorithm: KeyDerivationAlgorithm,
 }
 
 impl Default for KeyProviderOptions {
@@ -40,6 +41,7 @@ impl Default for KeyProviderOptions {
             ratchet_salt: DEFAULT_RATCHET_SALT.to_owned().into_bytes(),
             failure_tolerance: DEFAULT_FAILURE_TOLERANCE,
             key_ring_size: DEFAULT_KEY_RING_SIZE,
+            key_derivation_algorithm: KeyDerivationAlgorithm::PBKDF2,
         }
     }
 }
@@ -60,6 +62,7 @@ impl KeyProvider {
                 ratchet_salt: options.ratchet_salt,
                 failure_tolerance: options.failure_tolerance,
                 key_ring_size: options.key_ring_size,
+                key_derivation_algorithm: options.key_derivation_algorithm,
             }),
             latest_key_index: Arc::new(AtomicI32::new(0)),
         }
@@ -72,6 +75,7 @@ impl KeyProvider {
             ratchet_salt: options.ratchet_salt,
             failure_tolerance: options.failure_tolerance,
             key_ring_size: options.key_ring_size,
+            key_derivation_algorithm: options.key_derivation_algorithm,
         });
         handle.set_shared_key(0, shared_key);
         Self { handle, latest_key_index: Arc::new(AtomicI32::new(0)) }
