@@ -25,6 +25,21 @@ use crate::{
 
 pub type OnStateChange = Box<dyn FnMut(String, EncryptionState) + Send + Sync>;
 
+#[derive(Copy, Clone, Debug)]
+#[non_exhaustive]
+pub enum KeyDerivationAlgorithm {
+    PBKDF2,
+    HKDF,
+}
+impl Into<sys_fc::ffi::KeyDerivationAlgorithm> for KeyDerivationAlgorithm {
+    fn into(self) -> sys_fc::ffi::KeyDerivationAlgorithm {
+        match self {
+            KeyDerivationAlgorithm::PBKDF2 => sys_fc::ffi::KeyDerivationAlgorithm::PBKDF2,
+            KeyDerivationAlgorithm::HKDF => sys_fc::ffi::KeyDerivationAlgorithm::HKDF,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct KeyProviderOptions {
     pub shared_key: bool,
@@ -32,6 +47,7 @@ pub struct KeyProviderOptions {
     pub ratchet_salt: Vec<u8>,
     pub failure_tolerance: i32,
     pub key_ring_size: i32,
+    pub key_derivation_algorithm: KeyDerivationAlgorithm,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -274,6 +290,7 @@ impl From<KeyProviderOptions> for sys_fc::ffi::KeyProviderOptions {
             ratchet_salt: value.ratchet_salt,
             failure_tolerance: value.failure_tolerance,
             key_ring_size: value.key_ring_size,
+            key_derivation_algorithm: value.key_derivation_algorithm.into(),
         }
     }
 }
