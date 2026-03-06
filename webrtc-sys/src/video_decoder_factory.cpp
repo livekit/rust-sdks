@@ -106,6 +106,20 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
     }
   }
 
+  // Platform HW decoders (VideoToolbox, MediaCodec) can decode any H.264
+  // stream regardless of packetization-mode. IsSameCodec treats different
+  // packetization-modes as distinct codecs, so when the SFU sends mode=0 but
+  // the platform factory only advertises mode=1 the strict match above fails.
+  // Retry with a relaxed name-only check before falling through to software.
+  if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName)) {
+    for (const auto& factory : factories_) {
+      for (const auto& sf : factory->GetSupportedFormats()) {
+        if (absl::EqualsIgnoreCase(sf.name, cricket::kH264CodecName))
+          return factory->Create(env, format);
+      }
+    }
+  }
+
   if (absl::EqualsIgnoreCase(format.name, cricket::kVp8CodecName))
     return webrtc::CreateVp8Decoder(env);
   if (absl::EqualsIgnoreCase(format.name, cricket::kVp9CodecName))
