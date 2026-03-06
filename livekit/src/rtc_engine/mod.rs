@@ -17,7 +17,7 @@ use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
 use livekit_protocol as proto;
-use livekit_runtime::{interval, Interval, JoinHandle};
+use livekit_runtime::{interval, Interval, JoinHandle, MissedTickBehavior};
 use parking_lot::{RwLock, RwLockReadGuard};
 use thiserror::Error;
 use tokio::sync::{
@@ -366,6 +366,8 @@ impl EngineInner {
                     session.wait_pc_connection().await?;
 
                     let (engine_tx, engine_rx) = mpsc::unbounded_channel();
+                    let mut interval = interval(RECONNECT_INTERVAL);
+                    interval.set_missed_tick_behavior(MissedTickBehavior::Delay);
                     let inner = Arc::new(Self {
                         lk_runtime,
                         engine_tx,
@@ -380,7 +382,7 @@ impl EngineInner {
                         }),
                         options,
                         reconnecting_lock: AsyncRwLock::default(),
-                        reconnecting_interval: AsyncMutex::new(interval(RECONNECT_INTERVAL)),
+                        reconnecting_interval: AsyncMutex::new(interval),
                     });
 
                     // Start initial tasks
@@ -736,7 +738,7 @@ impl EngineInner {
             )
         };
 
-        for i in 0..RECONNECT_ATTEMPTS {
+        for i in 1..=RECONNECT_ATTEMPTS {
             let (is_closed, full_reconnect) = {
                 let running_handle = self.running_handle.read();
                 (running_handle.closed, running_handle.full_reconnect)
@@ -747,7 +749,7 @@ impl EngineInner {
             }
 
             if full_reconnect {
-                if i == 0 {
+                if i == 1 {
                     let (tx, rx) = oneshot::channel();
                     let _ = self.engine_tx.send(EngineEvent::Restarting(tx));
                     let _ = rx.await;
@@ -771,7 +773,7 @@ impl EngineInner {
                     return Ok(());
                 }
             } else {
-                if i == 0 {
+                if i == 1 {
                     let (tx, rx) = oneshot::channel();
                     let _ = self.engine_tx.send(EngineEvent::Resuming(tx));
                     let _ = rx.await;
