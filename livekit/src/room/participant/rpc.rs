@@ -146,6 +146,89 @@ impl RpcError {
 /// Maximum payload size in bytes
 pub const MAX_PAYLOAD_BYTES: usize = 15360; // 15 KB
 
+pub use livekit_protocol::RPC_GZIP_CLIENT_PROTOCOL;
+
+/// Minimum payload size to trigger compression (1 KB)
+pub const COMPRESSION_THRESHOLD_BYTES: usize = 1024;
+
+fn compress_rpc_payload_gzip(payload_bytes: &[u8]) -> Option<Vec<u8>> {
+    use flate2::{read::GzEncoder, Compression};
+    use std::io::Read;
+
+    // Compress the payload
+    let mut encoder = GzEncoder::new(payload_bytes, Compression::fast());
+    let mut compressed = Vec::new();
+    match encoder.read_to_end(&mut compressed) {
+        Ok(_) => {
+            // Only use compressed version if it's actually smaller
+            if compressed.len() < payload_bytes.len() {
+                return Some(compressed);
+            }
+            // Compression didn't help
+            None
+        }
+        Err(e) => {
+            log::warn!("Failed to compress RPC payload: {}", e);
+            None
+        }
+    }
+}
+
+/// Compress an RPC payload to raw bytes using gzip.
+/// Returns Some(compressed_bytes) if compression is beneficial, None otherwise.
+/// This is used with the `compressed_payload` proto field (no base64 overhead).
+pub fn compress_rpc_payload_bytes(payload: &str) -> Option<Vec<u8>> {
+    let payload_bytes = payload.as_bytes();
+
+    // Only compress if payload is large enough
+    if payload_bytes.len() < COMPRESSION_THRESHOLD_BYTES {
+        return None;
+    }
+
+    compress_rpc_payload_gzip(payload_bytes)
+}
+
+/// Decompress raw bytes RPC payload using Gzip.
+/// Returns the decompressed string payload.
+pub fn decompress_rpc_payload_bytes_gzip(compressed: &[u8]) -> Result<String, String> {
+    use flate2::read::GzDecoder;
+    use std::io::Read;
+
+    let mut decoder = GzDecoder::new(compressed);
+    let mut decompressed = Vec::new();
+    let mut chunk = [0_u8; 4096];
+
+    loop {
+        let bytes_read = decoder
+            .read(&mut chunk)
+            .map_err(|e| format!("Failed to decompress RPC payload: {}", e))?;
+        if bytes_read == 0 {
+            break;
+        }
+
+        if decompressed.len() + bytes_read > MAX_PAYLOAD_BYTES {
+            return Err(format!(
+                "Decompressed RPC payload exceeds max size: {} bytes",
+                MAX_PAYLOAD_BYTES
+            ));
+        }
+
+        decompressed.extend_from_slice(&chunk[..bytes_read]);
+    }
+
+    match String::from_utf8(decompressed) {
+        Ok(s) => Ok(s),
+        Err(e) => Err(format!("Failed to decode decompressed RPC payload as UTF-8: {}", e)),
+    }
+}
+
+/// Decompress raw bytes RPC payload using Gzip.
+/// Returns the decompressed string payload.
+/// This is used with the `compressed_payload` proto field.
+pub fn decompress_rpc_payload_bytes(compressed: &[u8]) -> Result<String, String> {
+    decompress_rpc_payload_bytes_gzip(compressed)
+}
+
 /// Calculate the byte length of a string
 pub(crate) fn byte_length(s: &str) -> usize {
     s.as_bytes().len()

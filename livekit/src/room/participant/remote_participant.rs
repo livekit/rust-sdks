@@ -85,6 +85,7 @@ impl RemoteParticipant {
         attributes: HashMap<String, String>,
         auto_subscribe: bool,
         permission: Option<proto::ParticipantPermission>,
+        client_protocol: i32,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -97,6 +98,7 @@ impl RemoteParticipant {
                 kind,
                 kind_details,
                 permission,
+                client_protocol,
             ),
             remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
         }
@@ -516,6 +518,10 @@ impl RemoteParticipant {
 
     pub fn attributes(&self) -> HashMap<String, String> {
         self.inner.info.read().attributes.clone()
+    }
+
+    pub fn client_protocol(&self) -> i32 {
+        self.inner.info.read().client_protocol
     }
 
     pub fn is_speaking(&self) -> bool {

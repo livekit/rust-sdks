@@ -45,6 +45,7 @@ libloading = { version = "0.8.6" }
 bytes = { workspace = true }
 bmrng = "0.5.2"
 base64 = "0.22"
+flate2 = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
