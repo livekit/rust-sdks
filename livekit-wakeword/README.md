@@ -21,6 +21,10 @@ Add the dependency to your `Cargo.toml`:
 livekit-wakeword = "0.1.0"
 ```
 
+### ONNX backend
+
+By default the crate uses [`ort-tract`](https://crates.io/crates/ort-tract) (pure-Rust ONNX inference), so no native libraries are needed. On `aarch64-pc-windows-msvc`, where tract cannot compile due to MSVC-incompatible assembly, the crate automatically falls back to native ONNX Runtime. This is handled at build time — no feature flags or configuration required.
+
 Detect a wake word:
 
 ```rust
