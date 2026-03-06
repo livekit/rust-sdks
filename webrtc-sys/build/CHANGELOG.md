@@ -57,3 +57,10 @@
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.14 (2026-03-06)
+
+### Fixes
+
+#### Upgrade example dependencies
+
+##920 by @ladvoc
