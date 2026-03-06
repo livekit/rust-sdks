@@ -13,12 +13,15 @@
 // limitations under the License.
 
 use std::path::Path;
+#[cfg(use_tract)]
 use std::sync::Once;
 
 use ort::session::Session;
 
+#[cfg(use_tract)]
 static INIT_TRACT: Once = Once::new();
 
+#[cfg(use_tract)]
 pub(crate) fn ensure_tract_backend() {
     INIT_TRACT.call_once(|| {
         ort::set_api(ort_tract::api());
@@ -72,11 +75,13 @@ pub(crate) fn to_resampler_rate(hz: u32) -> Result<resampler::SampleRate, WakeWo
 }
 
 pub(crate) fn build_session_from_memory(bytes: &[u8]) -> Result<Session, WakeWordError> {
+    #[cfg(use_tract)]
     ensure_tract_backend();
     Ok(Session::builder()?.commit_from_memory(bytes)?)
 }
 
 pub(crate) fn build_session_from_file(path: impl AsRef<Path>) -> Result<Session, WakeWordError> {
+    #[cfg(use_tract)]
     ensure_tract_backend();
     let bytes = std::fs::read(path)?;
     Ok(Session::builder()?.commit_from_memory(&bytes)?)
