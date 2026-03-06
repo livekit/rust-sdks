@@ -18,3 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Other
 
 - License check ([#746](https://github.com/livekit/rust-sdks/pull/746))
+## 0.1.3 (2026-03-06)
+
+### Fixes
+
+#### Upgrade example dependencies
+
+##920 by @ladvoc

@@ -62,3 +62,10 @@
 ### Changed
 
 - Update protocol version to v1.31.0
+## 0.7.2 (2026-03-06)
+
+### Fixes
+
+#### Upgrade example dependencies
+
+##920 by @ladvoc

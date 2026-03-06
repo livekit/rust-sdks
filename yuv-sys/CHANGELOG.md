@@ -55,3 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - fix yuv simd errors
+## 0.3.14 (2026-03-06)
+
+### Fixes
+
+#### Upgrade example dependencies
+
+##920 by @ladvoc
