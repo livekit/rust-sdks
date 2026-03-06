@@ -67,6 +67,7 @@ impl FfiVideoSource {
                 let frame = VideoFrame {
                     rotation: capture.rotation().into(),
                     timestamp_us: capture.timestamp_us,
+                    user_timestamp_us: None,
                     buffer,
                 };
 

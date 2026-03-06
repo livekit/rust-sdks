@@ -26,6 +26,7 @@
 #include "audio/remix_resample.h"
 #include "common_audio/include/audio_util.h"
 #include "livekit/media_stream.h"
+#include "livekit/user_timestamp.h"
 #include "livekit/video_track.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
@@ -133,11 +134,22 @@ VideoResolution VideoTrackSource::InternalSource::video_resolution() const {
 }
 
 bool VideoTrackSource::InternalSource::on_captured_frame(
-    const webrtc::VideoFrame& frame) {
+    const webrtc::VideoFrame& frame,
+    bool has_user_timestamp,
+    int64_t user_timestamp_us) {
   webrtc::MutexLock lock(&mutex_);
 
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
       frame.timestamp_us(), webrtc::TimeMicros());
+
+  // If a user timestamp was provided on this frame and we have a handler,
+  // store the mapping keyed by the aligned timestamp.  This is the value
+  // that CaptureTime() will return in TransformSend, so the lookup will
+  // succeed.
+  if (has_user_timestamp && user_timestamp_handler_) {
+    user_timestamp_handler_->store_user_timestamp(
+        aligned_timestamp_us, user_timestamp_us);
+  }
 
   webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
       frame.video_frame_buffer();
@@ -175,6 +187,12 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   return true;
 }
 
+void VideoTrackSource::InternalSource::set_user_timestamp_handler(
+    std::shared_ptr<UserTimestampHandler> handler) {
+  webrtc::MutexLock lock(&mutex_);
+  user_timestamp_handler_ = std::move(handler);
+}
+
 VideoTrackSource::VideoTrackSource(const VideoResolution& resolution, bool is_screencast) {
   source_ = webrtc::make_ref_counted<InternalSource>(resolution, is_screencast);
 }
@@ -184,9 +202,17 @@ VideoResolution VideoTrackSource::video_resolution() const {
 }
 
 bool VideoTrackSource::on_captured_frame(
-    const std::unique_ptr<VideoFrame>& frame) const {
+    const std::unique_ptr<VideoFrame>& frame,
+    bool has_user_timestamp,
+    int64_t user_timestamp_us) const {
   auto rtc_frame = frame->get();
-  return source_->on_captured_frame(rtc_frame);
+  return source_->on_captured_frame(rtc_frame, has_user_timestamp,
+                                    user_timestamp_us);
+}
+
+void VideoTrackSource::set_user_timestamp_handler(
+    std::shared_ptr<UserTimestampHandler> handler) const {
+  source_->set_user_timestamp_handler(std::move(handler));
 }
 
 webrtc::scoped_refptr<VideoTrackSource::InternalSource> VideoTrackSource::get()

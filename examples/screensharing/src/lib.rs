@@ -185,8 +185,9 @@ mod test {
         let callback = {
             let mut frame_buffer = VideoFrame {
                 rotation: VideoRotation::VideoRotation0,
-                buffer: I420Buffer::new(1, 1),
                 timestamp_us: 0,
+                user_timestamp_us: None,
+                buffer: I420Buffer::new(1, 1),
             };
             move |result: Result<DesktopFrame, CaptureError>| {
                 let frame = match result {

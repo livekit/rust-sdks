@@ -68,7 +68,9 @@ pub mod video_track;
 pub mod native {
     pub use webrtc_sys::webrtc::ffi::create_random_uuid;
 
-    pub use crate::imp::{apm, audio_mixer, audio_resampler, frame_cryptor, yuv_helper};
+    pub use crate::imp::{
+        apm, audio_mixer, audio_resampler, frame_cryptor, user_timestamp, yuv_helper,
+    };
 }
 
 #[cfg(target_os = "android")]

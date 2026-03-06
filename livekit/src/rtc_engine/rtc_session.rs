@@ -1309,6 +1309,10 @@ impl SessionInner {
                     None => (None, None),
                     Some(proto::rpc_response::Value::Payload(payload)) => (Some(payload), None),
                     Some(proto::rpc_response::Value::Error(err)) => (None, Some(err)),
+                    Some(proto::rpc_response::Value::CompressedPayload(_)) => {
+                        log::warn!("received compressed RPC response payload, decompression not yet supported");
+                        (None, None)
+                    }
                 };
                 self.emitter.send(SessionEvent::RpcResponse {
                     request_id: rpc_response.request_id,

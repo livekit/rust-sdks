@@ -256,6 +256,7 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             preconnect_buffer: opts
                 .preconnect_buffer
                 .unwrap_or(default_publish_options.preconnect_buffer),
+            user_timestamp: default_publish_options.user_timestamp,
         }
     }
 }
