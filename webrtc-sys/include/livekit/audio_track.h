@@ -137,7 +137,6 @@ class AudioTrackSource {
     const SourceContext* capture_userdata_ RTC_GUARDED_BY(mutex_);
     void (*on_complete_)(const SourceContext*) RTC_GUARDED_BY(mutex_);
 
-    int missed_frames_ RTC_GUARDED_BY(mutex_) = 0;
     std::vector<int16_t> silence_buffer_;
 
     int sample_rate_ = 0;
