@@ -18,7 +18,7 @@ use std::path::Path;
 use ndarray::Axis;
 use ort::session::Session;
 use ort::value::Tensor;
-use resampler::{ResamplerFft, SampleRate};
+use resampler::{Attenuation, Latency, ResamplerFir, SampleRate};
 
 use crate::embedding::EmbeddingModel;
 use crate::melspectrogram::MelspectrogramModel;
@@ -28,8 +28,7 @@ use crate::{
 };
 
 struct Resampler {
-    fft: ResamplerFft,
-    input_buf: Vec<f32>,
+    fir: ResamplerFir,
     output_buf: Vec<f32>,
     input_rate: u32,
 }
@@ -57,10 +56,17 @@ impl WakeWordModel {
     pub fn new(models: &[impl AsRef<Path>], sample_rate: u32) -> Result<Self, WakeWordError> {
         let resampler = if sample_rate != 16000 {
             let input_rate = to_resampler_rate(sample_rate)?;
-            let fft = ResamplerFft::new(1, input_rate, SampleRate::Hz16000);
-            let input_buf = vec![0.0f32; fft.chunk_size_input()];
-            let output_buf = vec![0.0f32; fft.chunk_size_output()];
-            Some(Resampler { fft, input_buf, output_buf, input_rate: sample_rate })
+            // FIR resampler: 64-sample latency (~1.3ms at 48kHz) with 90dB
+            // stopband attenuation to match the quality of training data.
+            let fir = ResamplerFir::new(
+                1,
+                input_rate,
+                SampleRate::Hz16000,
+                Latency::Sample64,
+                Attenuation::Db90,
+            );
+            let output_buf = vec![0.0f32; fir.buffer_size_output()];
+            Some(Resampler { fir, output_buf, input_rate: sample_rate })
         } else {
             None
         };
@@ -104,39 +110,22 @@ impl WakeWordModel {
 
     fn resample_to_16k(&mut self, samples: &[i16]) -> Result<Vec<f32>, WakeWordError> {
         let rs = self.resampler.as_mut().unwrap();
-        let chunk_in = rs.fft.chunk_size_input();
-        let chunk_out = rs.fft.chunk_size_output();
 
-        // Expected output length based on ratio
-        let expected_len = (samples.len() as f64 * 16000.0 / rs.input_rate as f64).round() as usize;
-
-        let mut output = Vec::with_capacity(expected_len);
+        let input: Vec<f32> = samples.iter().map(|&x| x as f32 / 32768.0).collect();
+        let mut output = Vec::with_capacity(
+            (input.len() as f64 * 16000.0 / rs.input_rate as f64).ceil() as usize,
+        );
 
         let mut pos = 0;
-        while pos < samples.len() {
-            let remaining = samples.len() - pos;
-            let n = remaining.min(chunk_in);
-
-            // Fill input buffer, zero-pad if last chunk is short
-            for (i, v) in rs.input_buf.iter_mut().enumerate() {
-                *v = if i < n { samples[pos + i] as f32 / 32768.0 } else { 0.0 };
+        while pos < input.len() {
+            let (consumed, produced) = rs.fir.resample(&input[pos..], &mut rs.output_buf)?;
+            output.extend_from_slice(&rs.output_buf[..produced]);
+            pos += consumed;
+            if consumed == 0 && produced == 0 {
+                break;
             }
-
-            rs.fft.resample(&rs.input_buf.clone(), &mut rs.output_buf)?;
-
-            let take = if remaining < chunk_in {
-                // Last (partial) chunk: scale output proportionally
-                (n as f64 * chunk_out as f64 / chunk_in as f64).round() as usize
-            } else {
-                chunk_out
-            };
-
-            output.extend_from_slice(&rs.output_buf[..take]);
-
-            pos += chunk_in;
         }
 
-        output.truncate(expected_len);
         Ok(output)
     }
 
