@@ -628,7 +628,7 @@ impl EngineInner {
         };
 
         if let Some((engine_task, close_tx)) = engine_task {
-            session.close().await;
+            session.close(reason).await;
             let _ = close_tx.send(());
             let _ = engine_task.await;
             let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
@@ -817,7 +817,7 @@ impl EngineInner {
         };
 
         if let Some((engine_task, close_tx)) = engine_task {
-            session.close().await;
+            session.close(DisconnectReason::ClientInitiated).await;
             let _ = close_tx.send(());
             let _ = engine_task.await;
         }
