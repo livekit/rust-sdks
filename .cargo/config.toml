@@ -15,3 +15,7 @@ rustflags = ["-C", "link-args=-ObjC"]
 
 [target.aarch64-apple-ios-sim]
 rustflags = ["-C", "link-args=-ObjC"]
+
+[env]
+# DO not merge! WIP change to for custom webrtc-sys build
+LK_CUSTOM_WEBRTC = { value = "webrtc-sys/libwebrtc/linux-x64-release", relative = true }
