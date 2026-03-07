@@ -110,26 +110,25 @@ impl E2eeManager {
             .packet_trailer_features
             .contains(&(PacketTrailerFeature::PtfUserTimestamp as i32));
 
-        if has_user_timestamp {
-            if let RemoteTrack::Video(video_track) = &track {
+        if let RemoteTrack::Video(video_track) = &track {
+            let handler =
+                user_timestamp::create_receiver_handler(LkRuntime::instance().pc_factory(), &receiver);
+            video_track.set_user_timestamp_handler(handler.clone());
+            user_timestamp_handler = Some(handler);
+
+            if has_user_timestamp {
                 log::info!(
-                    "user_timestamp enabled for subscribed track {} from {}",
+                    "attached user_timestamp handler for subscribed track {} from {}",
                     publication.sid(),
                     identity,
                 );
-                let handler = user_timestamp::create_receiver_handler(
-                    LkRuntime::instance().pc_factory(),
-                    &receiver,
+            } else {
+                log::info!(
+                    "attached user_timestamp handler for subscribed track {} from {} without advertised packet trailer support",
+                    publication.sid(),
+                    identity,
                 );
-                video_track.set_user_timestamp_handler(handler.clone());
-                user_timestamp_handler = Some(handler);
             }
-        } else {
-            log::info!(
-                "user_timestamp not present for subscribed track {} from {}",
-                publication.sid(),
-                identity,
-            );
         }
 
         if !self.initialized() || publication.encryption_type() == EncryptionType::None {
