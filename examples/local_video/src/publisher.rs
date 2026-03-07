@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
-use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
+use livekit::options::{self, TrackPublishOptions, VideoCodec, VideoEncoding, VideoPreset, video as video_presets};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
@@ -146,6 +146,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
+    room_options.dynacast = true;
 
     // Configure E2EE if an encryption key is provided
     if let Some(ref e2ee_key) = args.e2ee_key {
@@ -220,19 +221,40 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
     info!("Attempting publish with codec: {}", requested_codec.as_str());
 
+    // Compute an explicit video encoding so all simulcast layers use 30 fps.
+    // The SDK defaults reduce lower layers to 15/20 fps; we override that here.
+    let target_fps = args.fps as f64;
+    let main_encoding = {
+        let base = options::compute_appropriate_encoding(false, width, height, VideoCodec::H264);
+        VideoEncoding {
+            max_bitrate: args.max_bitrate.unwrap_or(base.max_bitrate),
+            max_framerate: target_fps,
+        }
+    };
+    let simulcast_presets = compute_simulcast_presets_30fps(width, height, target_fps);
+    info!(
+        "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast layers: {})",
+        width,
+        height,
+        target_fps,
+        main_encoding.max_bitrate,
+        simulcast_presets
+            .iter()
+            .map(|p| format!("{}x{}@{:.0}fps/{}bps", p.width, p.height, p.encoding.max_framerate, p.encoding.max_bitrate))
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+
     let publish_opts = |codec: VideoCodec| {
-        let mut opts = TrackPublishOptions {
+        TrackPublishOptions {
             source: TrackSource::Camera,
             simulcast: args.simulcast,
             video_codec: codec,
             user_timestamp: args.attach_timestamp,
+            video_encoding: Some(main_encoding.clone()),
+            simulcast_layers: Some(simulcast_presets.clone()),
             ..Default::default()
-        };
-        if let Some(bitrate) = args.max_bitrate {
-            opts.video_encoding =
-                Some(VideoEncoding { max_bitrate: bitrate, max_framerate: args.fps as f64 });
         }
-        opts
     };
 
     let publish_result = room
@@ -485,4 +507,20 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Build simulcast presets that match the SDK defaults but with a uniform frame rate.
+/// The SDK's built-in `DEFAULT_SIMULCAST_PRESETS` use 15/20 fps for lower layers;
+/// this keeps the same resolutions and bitrates but overrides fps to `target_fps`.
+fn compute_simulcast_presets_30fps(width: u32, height: u32, target_fps: f64) -> Vec<VideoPreset> {
+    let ar = width as f32 / height as f32;
+    let defaults: &[VideoPreset] = if f32::abs(ar - 16.0 / 9.0) < f32::abs(ar - 4.0 / 3.0) {
+        video_presets::DEFAULT_SIMULCAST_PRESETS
+    } else {
+        livekit::options::video43::DEFAULT_SIMULCAST_PRESETS
+    };
+    defaults
+        .iter()
+        .map(|p| VideoPreset::new(p.width, p.height, p.encoding.max_bitrate, target_fps))
+        .collect()
 }

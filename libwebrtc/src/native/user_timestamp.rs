@@ -66,6 +66,12 @@ impl UserTimestampHandler {
         let ts = self.sys_handle.lookup_user_timestamp(rtp_timestamp);
         if ts >= 0 {
             let frame_id = self.sys_handle.last_lookup_frame_id();
+            if ts > 2_000_000_000_000_000 || ts < 0 {
+                log::warn!(
+                    "[UserTS-FFI] C++ returned bad ts={} (0x{:016x}) fid={} rtp_ts={}",
+                    ts, ts, frame_id, rtp_timestamp
+                );
+            }
             Some((ts, frame_id))
         } else {
             None

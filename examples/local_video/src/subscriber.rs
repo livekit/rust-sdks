@@ -334,6 +334,26 @@ async fn handle_track_subscribed(
             std::mem::swap(&mut s.u, &mut u_buf);
             std::mem::swap(&mut s.v, &mut v_buf);
             s.dirty = true;
+
+            if let Some(ts) = frame.user_timestamp_us {
+                let now_us = current_timestamp_us();
+                let delta_ms = (now_us - ts) as f64 / 1000.0;
+                if ts < 0 || ts > 2_000_000_000_000_000 || delta_ms < -60_000.0 {
+                    log::warn!(
+                        "[Subscriber] BAD TIMESTAMP: frame_id={:?} user_ts={} \
+                         timestamp_us={} now_us={} delta_ms={:.1} \
+                         prev_user_ts={:?} prev_frame_id={:?}",
+                        frame.frame_id,
+                        ts,
+                        frame.timestamp_us,
+                        now_us,
+                        delta_ms,
+                        s.user_timestamp_us,
+                        s.frame_id,
+                    );
+                }
+            }
+
             s.user_timestamp_us = frame.user_timestamp_us;
             s.frame_id = frame.frame_id;
 
@@ -674,6 +694,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
+    room_options.dynacast = true;
+    room_options.adaptive_stream = true;
 
     // Configure E2EE if an encryption key is provided
     if let Some(ref e2ee_key) = args.e2ee_key {
