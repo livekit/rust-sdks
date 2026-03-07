@@ -77,6 +77,7 @@ pub mod ffi {
             frame: &UniquePtr<VideoFrame>,
             has_user_timestamp: bool,
             user_timestamp_us: i64,
+            frame_id: u32,
         ) -> bool;
         fn set_user_timestamp_handler(
             self: &VideoTrackSource,

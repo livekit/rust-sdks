@@ -81,7 +81,7 @@ impl NativeVideoSource {
                     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
                     builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
 
-                    source.sys_handle.on_captured_frame(&builder.pin_mut().build(), false, 0);
+                    source.sys_handle.on_captured_frame(&builder.pin_mut().build(), false, 0, 0);
                 }
             }
         });
@@ -106,20 +106,23 @@ impl NativeVideoSource {
         };
         builder.pin_mut().set_timestamp_us(capture_ts);
 
-        // Pass the user timestamp to the C++ on_captured_frame so it can
-        // store the mapping keyed by the TimestampAligner-adjusted capture
-        // timestamp.  This is the only correct key because the aligner runs
-        // inside on_captured_frame and replaces timestamp_us with a value
-        // derived from rtc::TimeMicros() (monotonic), which is what
-        // CaptureTime() returns in TransformSend.
+        // Pass the user timestamp and frame_id to the C++ on_captured_frame
+        // so it can store the mapping keyed by the TimestampAligner-adjusted
+        // capture timestamp.
         let (has_user_ts, user_ts) = match frame.user_timestamp_us {
             Some(ts) => (true, ts),
             None => (false, 0),
         };
+        let frame_id = frame.frame_id.unwrap_or(0);
 
         self.inner.lock().captured_frames += 1;
 
-        self.sys_handle.on_captured_frame(&builder.pin_mut().build(), has_user_ts, user_ts);
+        self.sys_handle.on_captured_frame(
+            &builder.pin_mut().build(),
+            has_user_ts,
+            user_ts,
+            frame_id,
+        );
     }
 
     /// Set the user timestamp handler used by this source.

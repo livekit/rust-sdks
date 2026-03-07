@@ -76,12 +76,12 @@ void UserTimestampTransformer::TransformSend(
 
   auto data = frame->GetData();
 
-  // Look up the user timestamp by the frame's capture time.
+  // Look up the frame metadata by the frame's capture time.
   // CaptureTime() returns Timestamp::Millis(capture_time_ms_) where
   // capture_time_ms_ = timestamp_us / 1000.  So capture_time->us()
   // has millisecond precision (bottom 3 digits always zero).
-  // store_user_timestamp() truncates its key the same way.
-  int64_t ts_to_embed = 0;
+  // store_frame_metadata() truncates its key the same way.
+  FrameMetadata meta_to_embed{0, 0};
   auto capture_time = frame->CaptureTime();
   if (capture_time.has_value()) {
     int64_t capture_us = capture_time->us();
@@ -89,9 +89,9 @@ void UserTimestampTransformer::TransformSend(
     webrtc::MutexLock lock(&send_map_mutex_);
     auto it = send_map_.find(capture_us);
     if (it != send_map_.end()) {
-      ts_to_embed = it->second;
+      meta_to_embed = it->second;
       // Don't erase — simulcast layers share the same capture time.
-      // Entries are pruned by capacity in store_user_timestamp().
+      // Entries are pruned by capacity in store_frame_metadata().
     }
   } else {
     RTC_LOG(LS_WARNING)
@@ -100,10 +100,11 @@ void UserTimestampTransformer::TransformSend(
   }
 
   // Always append trailer when enabled (even if timestamp is 0,
-  // which indicates no user timestamp was set for this frame)
+  // which indicates no metadata was set for this frame)
   std::vector<uint8_t> new_data;
   if (enabled_.load()) {
-    new_data = AppendTimestampTrailer(data, ts_to_embed);
+    new_data = AppendTrailer(data, meta_to_embed.user_timestamp_us,
+                             meta_to_embed.frame_id);
     frame->SetData(rtc::ArrayView<const uint8_t>(new_data));
   }
 
@@ -135,11 +136,11 @@ void UserTimestampTransformer::TransformReceive(
   auto data = frame->GetData();
   std::vector<uint8_t> stripped_data;
 
-  auto user_ts = ExtractTimestampTrailer(data, stripped_data);
+  auto meta = ExtractTrailer(data, stripped_data);
 
-  if (user_ts.has_value()) {
+  if (meta.has_value()) {
     // Store in the receive map keyed by RTP timestamp so decoded frames
-    // can look up their user timestamp regardless of frame drops.
+    // can look up their metadata regardless of frame drops.
     {
       webrtc::MutexLock lock(&recv_map_mutex_);
       // Evict oldest entry if at capacity
@@ -150,12 +151,11 @@ void UserTimestampTransformer::TransformReceive(
       if (recv_map_.find(rtp_timestamp) == recv_map_.end()) {
         recv_map_order_.push_back(rtp_timestamp);
       }
-      recv_map_[rtp_timestamp] = user_ts.value();
+      recv_map_[rtp_timestamp] = meta.value();
     }
 
     // Update frame with stripped data
     frame->SetData(rtc::ArrayView<const uint8_t>(stripped_data));
-
   }
 
   // Forward to the appropriate callback (either global or per-SSRC sink).
@@ -179,19 +179,26 @@ void UserTimestampTransformer::TransformReceive(
   }
 }
 
-std::vector<uint8_t> UserTimestampTransformer::AppendTimestampTrailer(
+std::vector<uint8_t> UserTimestampTransformer::AppendTrailer(
     rtc::ArrayView<const uint8_t> data,
-    int64_t user_timestamp_us) {
+    int64_t user_timestamp_us,
+    uint32_t frame_id) {
   std::vector<uint8_t> result;
   result.reserve(data.size() + kUserTimestampTrailerSize);
 
   // Copy original data
   result.insert(result.end(), data.begin(), data.end());
 
-  // Append timestamp (big-endian)
+  // Append user_timestamp_us (big-endian, 8 bytes)
   for (int i = 7; i >= 0; --i) {
     result.push_back(
         static_cast<uint8_t>((user_timestamp_us >> (i * 8)) & 0xFF));
+  }
+
+  // Append frame_id (big-endian, 4 bytes)
+  for (int i = 3; i >= 0; --i) {
+    result.push_back(
+        static_cast<uint8_t>((frame_id >> (i * 8)) & 0xFF));
   }
 
   // Append magic bytes
@@ -201,7 +208,7 @@ std::vector<uint8_t> UserTimestampTransformer::AppendTimestampTrailer(
   return result;
 }
 
-std::optional<int64_t> UserTimestampTransformer::ExtractTimestampTrailer(
+std::optional<FrameMetadata> UserTimestampTransformer::ExtractTrailer(
     rtc::ArrayView<const uint8_t> data,
     std::vector<uint8_t>& out_data) {
   if (data.size() < kUserTimestampTrailerSize) {
@@ -216,19 +223,26 @@ std::optional<int64_t> UserTimestampTransformer::ExtractTimestampTrailer(
     return std::nullopt;
   }
 
-  // Extract timestamp (big-endian)
-  const uint8_t* ts_start =
+  const uint8_t* trailer_start =
       data.data() + data.size() - kUserTimestampTrailerSize;
+
+  // Extract user_timestamp_us (big-endian, 8 bytes)
   int64_t timestamp = 0;
   for (int i = 0; i < 8; ++i) {
-    timestamp = (timestamp << 8) | ts_start[i];
+    timestamp = (timestamp << 8) | trailer_start[i];
+  }
+
+  // Extract frame_id (big-endian, 4 bytes)
+  uint32_t frame_id = 0;
+  for (int i = 0; i < 4; ++i) {
+    frame_id = (frame_id << 8) | trailer_start[8 + i];
   }
 
   // Copy data without trailer
   out_data.assign(data.begin(),
                   data.end() - kUserTimestampTrailerSize);
 
-  return timestamp;
+  return FrameMetadata{timestamp, frame_id};
 }
 
 void UserTimestampTransformer::RegisterTransformedFrameCallback(
@@ -263,14 +277,14 @@ bool UserTimestampTransformer::enabled() const {
   return enabled_.load();
 }
 
-std::optional<int64_t> UserTimestampTransformer::lookup_user_timestamp(
+std::optional<FrameMetadata> UserTimestampTransformer::lookup_frame_metadata(
     uint32_t rtp_timestamp) {
   webrtc::MutexLock lock(&recv_map_mutex_);
   auto it = recv_map_.find(rtp_timestamp);
   if (it == recv_map_.end()) {
     return std::nullopt;
   }
-  int64_t ts = it->second;
+  FrameMetadata meta = it->second;
   recv_map_.erase(it);
   // Remove from insertion-order tracker (linear scan is fine for bounded size)
   for (auto oit = recv_map_order_.begin(); oit != recv_map_order_.end(); ++oit) {
@@ -279,12 +293,13 @@ std::optional<int64_t> UserTimestampTransformer::lookup_user_timestamp(
       break;
     }
   }
-  return ts;
+  return meta;
 }
 
-void UserTimestampTransformer::store_user_timestamp(
+void UserTimestampTransformer::store_frame_metadata(
     int64_t capture_timestamp_us,
-    int64_t user_timestamp_us) {
+    int64_t user_timestamp_us,
+    uint32_t frame_id) {
   // Truncate to millisecond precision to match what WebRTC stores
   // internally.  The encoder pipeline converts the VideoFrame's
   // timestamp_us to capture_time_ms_ = timestamp_us / 1000, and
@@ -309,7 +324,7 @@ void UserTimestampTransformer::store_user_timestamp(
   if (send_map_.find(key) == send_map_.end()) {
     send_map_order_.push_back(key);
   }
-  send_map_[key] = user_timestamp_us;
+  send_map_[key] = FrameMetadata{user_timestamp_us, frame_id};
 }
 
 // UserTimestampHandler implementation
@@ -341,14 +356,23 @@ bool UserTimestampHandler::enabled() const {
 }
 
 int64_t UserTimestampHandler::lookup_user_timestamp(uint32_t rtp_timestamp) const {
-  auto ts = transformer_->lookup_user_timestamp(rtp_timestamp);
-  return ts.value_or(-1);
+  auto meta = transformer_->lookup_frame_metadata(rtp_timestamp);
+  if (meta.has_value()) {
+    last_frame_id_ = meta->frame_id;
+    return meta->user_timestamp_us;
+  }
+  return -1;
 }
 
-void UserTimestampHandler::store_user_timestamp(
+uint32_t UserTimestampHandler::last_lookup_frame_id() const {
+  return last_frame_id_;
+}
+
+void UserTimestampHandler::store_frame_metadata(
     int64_t capture_timestamp_us,
-    int64_t user_timestamp_us) const {
-  transformer_->store_user_timestamp(capture_timestamp_us, user_timestamp_us);
+    int64_t user_timestamp_us,
+    uint32_t frame_id) const {
+  transformer_->store_frame_metadata(capture_timestamp_us, user_timestamp_us, frame_id);
 }
 
 rtc::scoped_refptr<UserTimestampTransformer> UserTimestampHandler::transformer() const {

@@ -118,6 +118,7 @@ impl LogoTrack {
                 rotation: VideoRotation::VideoRotation0,
                 timestamp_us: 0,
                 user_timestamp_us: None,
+                frame_id: None,
                 buffer: I420Buffer::new(FB_WIDTH as u32, FB_HEIGHT as u32),
             })),
             pos: (0, 0),

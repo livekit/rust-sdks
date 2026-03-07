@@ -37,14 +37,19 @@ pub mod ffi {
 
         /// Lookup the user timestamp for a given RTP timestamp (receiver side).
         /// Returns -1 if not found. The entry is removed after lookup.
+        /// Also caches the frame_id for retrieval via last_lookup_frame_id().
         fn lookup_user_timestamp(self: &UserTimestampHandler, rtp_timestamp: u32) -> i64;
 
-        /// Store a user timestamp for a given capture timestamp (sender side).
-        /// Call this when capturing a video frame with a user timestamp.
-        fn store_user_timestamp(
+        /// Returns the frame_id from the most recent successful
+        /// lookup_user_timestamp() call.
+        fn last_lookup_frame_id(self: &UserTimestampHandler) -> u32;
+
+        /// Store frame metadata for a given capture timestamp (sender side).
+        fn store_frame_metadata(
             self: &UserTimestampHandler,
             capture_timestamp_us: i64,
             user_timestamp_us: i64,
+            frame_id: u32,
         );
 
         /// Create a new user timestamp handler for a sender.

@@ -22,9 +22,9 @@
 //! map keyed by capture timestamp. When the encoder produces a frame,
 //! the transformer looks up the user timestamp via the frame's CaptureTime().
 //!
-//! On the receive side, extracted user timestamps are stored in an
+//! On the receive side, extracted frame metadata is stored in an
 //! internal map keyed by RTP timestamp. Decoded frames look up their
-//! user timestamp via lookup_user_timestamp(rtp_timestamp).
+//! metadata via lookup_frame_metadata(rtp_timestamp).
 
 use cxx::SharedPtr;
 use webrtc_sys::user_timestamp::ffi as sys_ut;
@@ -36,13 +36,13 @@ use crate::{
 
 /// Handler for user timestamp embedding/extraction on RTP streams.
 ///
-/// For sender side: Stores user timestamps keyed by capture timestamp
-/// and embeds them as 12-byte trailers on encoded frames before they
-/// are sent. Use `store_user_timestamp()` to associate a user timestamp
-/// with a captured frame.
+/// For sender side: Stores frame metadata keyed by capture timestamp
+/// and embeds them as 16-byte trailers on encoded frames before they
+/// are sent. Use `store_frame_metadata()` to associate metadata with
+/// a captured frame.
 ///
-/// For receiver side: Extracts user timestamps from received frames
-/// and makes them available for retrieval via `lookup_user_timestamp()`.
+/// For receiver side: Extracts frame metadata from received frames
+/// and makes them available for retrieval via `lookup_frame_metadata()`.
 #[derive(Clone)]
 pub struct UserTimestampHandler {
     sys_handle: SharedPtr<sys_ut::UserTimestampHandler>,
@@ -59,40 +59,45 @@ impl UserTimestampHandler {
         self.sys_handle.enabled()
     }
 
-    /// Lookup the user timestamp for a given RTP timestamp (receiver side).
-    /// Returns None if no timestamp was found for this RTP timestamp.
+    /// Lookup the frame metadata for a given RTP timestamp (receiver side).
+    /// Returns `Some((user_timestamp_us, frame_id))` if found, `None` otherwise.
     /// The entry is removed from the map after a successful lookup.
-    ///
-    /// Use the RTP timestamp from the decoded video frame to correlate
-    /// it with the user timestamp that was embedded in the encoded frame.
-    pub fn lookup_user_timestamp(&self, rtp_timestamp: u32) -> Option<i64> {
+    pub fn lookup_frame_metadata(&self, rtp_timestamp: u32) -> Option<(i64, u32)> {
         let ts = self.sys_handle.lookup_user_timestamp(rtp_timestamp);
         if ts >= 0 {
-            Some(ts)
+            let frame_id = self.sys_handle.last_lookup_frame_id();
+            Some((ts, frame_id))
         } else {
             None
         }
     }
 
-    /// Store a user timestamp for a given capture timestamp (sender side).
+    /// Store frame metadata for a given capture timestamp (sender side).
     ///
     /// The `capture_timestamp_us` must be the TimestampAligner-adjusted
     /// timestamp (as produced by `VideoTrackSource::on_captured_frame`),
     /// NOT the original `timestamp_us` from the VideoFrame. The transformer
-    /// looks up the user timestamp by the frame's `CaptureTime()` which is
+    /// looks up the metadata by the frame's `CaptureTime()` which is
     /// derived from the aligned value.
     ///
-    /// In normal usage this is called automatically by the C++ layer —
-    /// callers should set `user_timestamp_us` on the `VideoFrame` and let
-    /// `capture_frame` / `on_captured_frame` handle the rest.
-    pub fn store_user_timestamp(&self, capture_timestamp_us: i64, user_timestamp_us: i64) {
+    /// In normal usage this is called automatically by the C++ layer --
+    /// callers should set `user_timestamp_us` and `frame_id` on the
+    /// `VideoFrame` and let `capture_frame` / `on_captured_frame` handle
+    /// the rest.
+    pub fn store_frame_metadata(
+        &self,
+        capture_timestamp_us: i64,
+        user_timestamp_us: i64,
+        frame_id: u32,
+    ) {
         log::info!(
             target: "user_timestamp",
-            "store: capture_ts_us={}, user_ts_us={}",
+            "store: capture_ts_us={}, user_ts_us={}, frame_id={}",
             capture_timestamp_us,
-            user_timestamp_us
+            user_timestamp_us,
+            frame_id
         );
-        self.sys_handle.store_user_timestamp(capture_timestamp_us, user_timestamp_us);
+        self.sys_handle.store_frame_metadata(capture_timestamp_us, user_timestamp_us, frame_id);
     }
 
     pub(crate) fn sys_handle(&self) -> SharedPtr<sys_ut::UserTimestampHandler> {
@@ -102,9 +107,9 @@ impl UserTimestampHandler {
 
 /// Create a sender-side user timestamp handler.
 ///
-/// This handler will embed user timestamps into encoded frames before
-/// they are packetized and sent. Use `store_user_timestamp()` to
-/// associate a user timestamp with a captured frame's capture timestamp.
+/// This handler will embed frame metadata into encoded frames before
+/// they are packetized and sent. Use `store_frame_metadata()` to
+/// associate metadata with a captured frame's capture timestamp.
 pub fn create_sender_handler(
     peer_factory: &PeerConnectionFactory,
     sender: &RtpSender,
@@ -119,10 +124,10 @@ pub fn create_sender_handler(
 
 /// Create a receiver-side user timestamp handler.
 ///
-/// This handler will extract user timestamps from received frames
+/// This handler will extract frame metadata from received frames
 /// and store them in a map keyed by RTP timestamp. Use
-/// `lookup_user_timestamp(rtp_timestamp)` to retrieve the user
-/// timestamp for a specific decoded frame.
+/// `lookup_frame_metadata(rtp_timestamp)` to retrieve the metadata
+/// for a specific decoded frame.
 pub fn create_receiver_handler(
     peer_factory: &PeerConnectionFactory,
     receiver: &RtpReceiver,

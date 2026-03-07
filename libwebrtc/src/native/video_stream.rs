@@ -106,16 +106,22 @@ struct VideoTrackObserver {
 impl sys_vt::VideoSink for VideoTrackObserver {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
         let rtp_timestamp = frame.timestamp();
-        let user_timestamp_us = self
+        let meta = self
             .user_timestamp_handler
             .lock()
             .as_ref()
-            .and_then(|h| h.lookup_user_timestamp(rtp_timestamp));
+            .and_then(|h| h.lookup_frame_metadata(rtp_timestamp));
+
+        let (user_timestamp_us, frame_id) = match meta {
+            Some((ts, fid)) => (Some(ts), Some(fid)),
+            None => (None, None),
+        };
 
         let _ = self.frame_tx.send(VideoFrame {
             rotation: frame.rotation().into(),
             timestamp_us: frame.timestamp_us(),
             user_timestamp_us,
+            frame_id,
             buffer: new_video_frame_buffer(unsafe { frame.video_frame_buffer() }),
         });
     }

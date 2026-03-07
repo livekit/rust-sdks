@@ -78,6 +78,8 @@ struct SharedYuv {
     dirty: bool,
     /// Last received user timestamp in microseconds, if any.
     user_timestamp_us: Option<i64>,
+    /// Last received frame_id, if any.
+    frame_id: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -333,6 +335,7 @@ async fn handle_track_subscribed(
             std::mem::swap(&mut s.v, &mut v_buf);
             s.dirty = true;
             s.user_timestamp_us = frame.user_timestamp_us;
+            s.frame_id = frame.frame_id;
 
             // Update smoothed FPS (~500ms window)
             fps_window_frames += 1;
@@ -447,6 +450,8 @@ struct VideoApp {
     /// Cached user timestamp so the overlay doesn't flicker when the shared
     /// state momentarily has `None` between frame swaps.
     cached_user_timestamp_us: Option<i64>,
+    /// Cached frame_id so the overlay doesn't flicker.
+    cached_frame_id: Option<u32>,
 }
 
 impl eframe::App for VideoApp {
@@ -543,6 +548,9 @@ impl eframe::App for VideoApp {
                 if let Some(ts) = s.user_timestamp_us {
                     self.cached_user_timestamp_us = Some(ts);
                 }
+                if let Some(fid) = s.frame_id {
+                    self.cached_frame_id = Some(fid);
+                }
             }
             if let Some(user_ts) = self.cached_user_timestamp_us {
                 egui::Area::new("timestamp_hud".into())
@@ -558,8 +566,13 @@ impl eframe::App for VideoApp {
                             self.latency_last_update = Instant::now();
                         }
 
+                        let frame_id_line = match self.cached_frame_id {
+                            Some(fid) => format!("Frame ID:   {}", fid),
+                            None => "Frame ID:   N/A".to_string(),
+                        };
                         let lines = format!(
-                            "Publish:    {}\nSubscribe:  {}\nLatency:    {}",
+                            "{}\nPublish:    {}\nSubscribe:  {}\nLatency:    {}",
+                            frame_id_line,
                             format_timestamp_us(user_ts),
                             format_timestamp_us(now_us),
                             self.latency_display,
@@ -697,6 +710,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         fps: 0.0,
         dirty: false,
         user_timestamp_us: None,
+        frame_id: None,
     }));
 
     // Subscribe to room events: on first video track, start sink task
@@ -752,6 +766,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         latency_display: String::new(),
         latency_last_update: Instant::now(),
         cached_user_timestamp_us: None,
+        cached_frame_id: None,
     };
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(

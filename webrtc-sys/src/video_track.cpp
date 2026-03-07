@@ -136,7 +136,8 @@ VideoResolution VideoTrackSource::InternalSource::video_resolution() const {
 bool VideoTrackSource::InternalSource::on_captured_frame(
     const webrtc::VideoFrame& frame,
     bool has_user_timestamp,
-    int64_t user_timestamp_us) {
+    int64_t user_timestamp_us,
+    uint32_t frame_id) {
   webrtc::MutexLock lock(&mutex_);
 
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
@@ -147,8 +148,8 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   // that CaptureTime() will return in TransformSend, so the lookup will
   // succeed.
   if (has_user_timestamp && user_timestamp_handler_) {
-    user_timestamp_handler_->store_user_timestamp(
-        aligned_timestamp_us, user_timestamp_us);
+    user_timestamp_handler_->store_frame_metadata(
+        aligned_timestamp_us, user_timestamp_us, frame_id);
   }
 
   webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
@@ -204,10 +205,11 @@ VideoResolution VideoTrackSource::video_resolution() const {
 bool VideoTrackSource::on_captured_frame(
     const std::unique_ptr<VideoFrame>& frame,
     bool has_user_timestamp,
-    int64_t user_timestamp_us) const {
+    int64_t user_timestamp_us,
+    uint32_t frame_id) const {
   auto rtc_frame = frame->get();
   return source_->on_captured_frame(rtc_frame, has_user_timestamp,
-                                    user_timestamp_us);
+                                    user_timestamp_us, frame_id);
 }
 
 void VideoTrackSource::set_user_timestamp_handler(

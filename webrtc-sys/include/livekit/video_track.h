@@ -101,7 +101,8 @@ class VideoTrackSource {
     VideoResolution video_resolution() const;
     bool on_captured_frame(const webrtc::VideoFrame& frame,
                            bool has_user_timestamp,
-                           int64_t user_timestamp_us);
+                           int64_t user_timestamp_us,
+                           uint32_t frame_id);
 
     void set_user_timestamp_handler(
         std::shared_ptr<UserTimestampHandler> handler);
@@ -121,7 +122,8 @@ class VideoTrackSource {
 
   bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame,
                          bool has_user_timestamp,
-                         int64_t user_timestamp_us)
+                         int64_t user_timestamp_us,
+                         uint32_t frame_id)
       const;  // frames pushed from Rust (+interior mutability)
 
   void set_user_timestamp_handler(

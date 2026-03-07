@@ -259,6 +259,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         rotation: VideoRotation::VideoRotation0,
         timestamp_us: 0,
         user_timestamp_us: None,
+        frame_id: None,
         buffer: I420Buffer::new(width, height),
     };
     let is_yuyv = fmt.format() == FrameFormat::YUYV;
@@ -288,6 +289,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut sum_sleep_ms = 0.0;
     let mut sum_iter_ms = 0.0;
     let mut logged_mjpeg_fallback = false;
+    let mut frame_counter: u32 = 0;
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
             break;
@@ -422,12 +424,16 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
         // Update RTP timestamp (monotonic, microseconds since start)
         frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
-        // Optionally attach wall-clock time as user timestamp
-        frame.user_timestamp_us = if args.attach_timestamp {
-            Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64)
+        // Optionally attach wall-clock time as user timestamp and frame_id
+        if args.attach_timestamp {
+            frame.user_timestamp_us =
+                Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64);
+            frame.frame_id = Some(frame_counter);
+            frame_counter = frame_counter.wrapping_add(1);
         } else {
-            None
-        };
+            frame.user_timestamp_us = None;
+            frame.frame_id = None;
+        }
         rtc_source.capture_frame(&frame);
         let t4 = Instant::now();
 
