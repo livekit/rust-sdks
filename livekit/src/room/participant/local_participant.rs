@@ -630,6 +630,25 @@ impl LocalParticipant {
         participant.client_protocol() >= 1
     }
 
+    fn destinations_support_stream_packet_coalescing(
+        &self,
+        destination_identities: &[ParticipantIdentity],
+    ) -> bool {
+        if destination_identities.is_empty() {
+            return false;
+        }
+        let Some(session) = self.session() else {
+            return false;
+        };
+
+        destination_identities.iter().all(|participant_identity| {
+            session
+                .get_participant_by_identity(participant_identity)
+                .map(|participant| participant.client_protocol() >= 1)
+                .unwrap_or(false)
+        })
+    }
+
     async fn publish_rpc_request(&self, rpc_request: RpcRequest) -> RoomResult<()> {
         // Compress the payload only if destination supports it
         let supports_compression =
@@ -698,10 +717,8 @@ impl LocalParticipant {
             }
         };
 
-        let rpc_response_message = proto::RpcResponse {
-            request_id: rpc_response.request_id,
-            value: Some(response_value),
-        };
+        let rpc_response_message =
+            proto::RpcResponse { request_id: rpc_response.request_id, value: Some(response_value) };
 
         let data = proto::DataPacket {
             value: Some(proto::data_packet::Value::RpcResponse(rpc_response_message)),
@@ -1141,8 +1158,10 @@ impl LocalParticipant {
     pub async fn send_text(
         &self,
         text: &str,
-        options: StreamTextOptions,
+        mut options: StreamTextOptions,
     ) -> StreamResult<TextStreamInfo> {
+        options.packet_coalescing_enabled =
+            self.destinations_support_stream_packet_coalescing(&options.destination_identities);
         self.session().unwrap().outgoing_stream_manager.send_text(text, options).await
     }
 
@@ -1161,8 +1180,10 @@ impl LocalParticipant {
     pub async fn send_file(
         &self,
         path: impl AsRef<Path>,
-        options: StreamByteOptions,
+        mut options: StreamByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
+        options.packet_coalescing_enabled =
+            self.destinations_support_stream_packet_coalescing(&options.destination_identities);
         self.session().unwrap().outgoing_stream_manager.send_file(path, options).await
     }
 
@@ -1178,8 +1199,10 @@ impl LocalParticipant {
     pub async fn send_bytes(
         &self,
         data: impl AsRef<[u8]>,
-        options: StreamByteOptions,
+        mut options: StreamByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
+        options.packet_coalescing_enabled =
+            self.destinations_support_stream_packet_coalescing(&options.destination_identities);
         self.session().unwrap().outgoing_stream_manager.send_bytes(data, options).await
     }
 
@@ -1194,7 +1217,12 @@ impl LocalParticipant {
     /// * `options` - Configuration options for the text stream, including topic and
     ///   destination participants.
     ///
-    pub async fn stream_text(&self, options: StreamTextOptions) -> StreamResult<TextStreamWriter> {
+    pub async fn stream_text(
+        &self,
+        mut options: StreamTextOptions,
+    ) -> StreamResult<TextStreamWriter> {
+        options.packet_coalescing_enabled =
+            self.destinations_support_stream_packet_coalescing(&options.destination_identities);
         self.session().unwrap().outgoing_stream_manager.stream_text(options).await
     }
 
@@ -1209,7 +1237,12 @@ impl LocalParticipant {
     /// * `options` - Configuration options for the byte stream, including topic and
     ///   destination participants.
     ///
-    pub async fn stream_bytes(&self, options: StreamByteOptions) -> StreamResult<ByteStreamWriter> {
+    pub async fn stream_bytes(
+        &self,
+        mut options: StreamByteOptions,
+    ) -> StreamResult<ByteStreamWriter> {
+        options.packet_coalescing_enabled =
+            self.destinations_support_stream_packet_coalescing(&options.destination_identities);
         self.session().unwrap().outgoing_stream_manager.stream_bytes(options).await
     }
 

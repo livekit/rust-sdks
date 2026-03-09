@@ -187,16 +187,10 @@ pub fn decompress_rpc_payload_bytes(compressed: &[u8]) -> Result<String, String>
 
     match zstd::decode_all(Cursor::new(compressed)) {
         Ok(decompressed) => match String::from_utf8(decompressed) {
-            Ok(s) => {
-                Ok(s)
-            }
-            Err(e) => {
-                Err(format!("Failed to decode decompressed RPC payload as UTF-8: {}", e))
-            }
+            Ok(s) => Ok(s),
+            Err(e) => Err(format!("Failed to decode decompressed RPC payload as UTF-8: {}", e)),
         },
-        Err(e) => {
-            Err(format!("Failed to decompress RPC payload: {}", e))
-        }
+        Err(e) => Err(format!("Failed to decompress RPC payload: {}", e)),
     }
 }
 

@@ -137,12 +137,16 @@ struct RawStreamOpenOptions {
     header: proto::data_stream::Header,
     destination_identities: Vec<ParticipantIdentity>,
     packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
+    packet_coalescing_enabled: bool,
 }
 
 struct RawStream {
     id: String,
     progress: StreamProgress,
     is_closed: bool,
+    pending_header: Option<proto::DataPacket>,
+    pending_chunk: Option<proto::data_stream::Chunk>,
+    packet_coalescing_enabled: bool,
     /// Request channel for sending packets.
     packet_tx: UnboundedRequestSender<proto::DataPacket, Result<(), EngineError>>,
 }
@@ -151,19 +155,30 @@ impl RawStream {
     async fn open(options: RawStreamOpenOptions) -> StreamResult<Self> {
         let id = options.header.stream_id.to_string();
         let bytes_total = options.header.total_length;
-
-        let packet = Self::create_header_packet(options.header, options.destination_identities);
-        Self::send_packet(&options.packet_tx, packet).await?;
+        let header_packet =
+            Self::create_header_packet(options.header, options.destination_identities);
+        let pending_header = if options.packet_coalescing_enabled {
+            Some(header_packet)
+        } else {
+            Self::send_packet(&options.packet_tx, header_packet).await?;
+            None
+        };
 
         Ok(Self {
             id,
             progress: StreamProgress { bytes_total, ..Default::default() },
             is_closed: false,
+            pending_header,
+            pending_chunk: None,
+            packet_coalescing_enabled: options.packet_coalescing_enabled,
             packet_tx: options.packet_tx,
         })
     }
 
     async fn write_chunk(&mut self, bytes: &[u8]) -> StreamResult<()> {
+        if self.packet_coalescing_enabled {
+            return self.write_chunk_with_coalescing(bytes).await;
+        }
         let packet = Self::create_chunk_packet(&self.id, self.progress.chunk_index, bytes);
         Self::send_packet(&self.packet_tx, packet).await?;
         self.progress.bytes_processed += bytes.len() as u64;
@@ -174,6 +189,9 @@ impl RawStream {
     async fn close(&mut self, reason: Option<&str>) -> StreamResult<()> {
         if self.is_closed {
             Err(StreamError::AlreadyClosed)?
+        }
+        if self.packet_coalescing_enabled {
+            return self.close_with_coalescing(reason).await;
         }
         let packet = Self::create_trailer_packet(&self.id, reason);
         Self::send_packet(&self.packet_tx, packet).await?;
@@ -220,6 +238,15 @@ impl RawStream {
         }
     }
 
+    fn create_chunk_packet_from(chunk: proto::data_stream::Chunk) -> proto::DataPacket {
+        proto::DataPacket {
+            kind: proto::data_packet::Kind::Reliable.into(),
+            participant_identity: String::new(), // populate later
+            value: Some(livekit_protocol::data_packet::Value::StreamChunk(chunk)),
+            ..Default::default()
+        }
+    }
+
     fn create_trailer_packet(id: &str, reason: Option<&str>) -> proto::DataPacket {
         let trailer = proto::data_stream::Trailer {
             stream_id: id.to_string(),
@@ -233,6 +260,91 @@ impl RawStream {
             ..Default::default()
         }
     }
+
+    fn create_trailer(id: &str, reason: Option<&str>) -> proto::data_stream::Trailer {
+        proto::data_stream::Trailer {
+            stream_id: id.to_string(),
+            reason: reason.unwrap_or_default().to_owned(),
+            ..Default::default()
+        }
+    }
+
+    async fn write_chunk_with_coalescing(&mut self, bytes: &[u8]) -> StreamResult<()> {
+        let mut offset = 0;
+
+        if let Some(mut header_packet) = self.pending_header.take() {
+            if let Some(livekit_protocol::data_packet::Value::StreamHeader(ref mut header)) =
+                header_packet.value
+            {
+                let remaining_header_capacity = CHUNK_SIZE.saturating_sub(header.content.len());
+                let inline_len = bytes.len().min(remaining_header_capacity);
+                if inline_len > 0 {
+                    header.content.extend_from_slice(&bytes[..inline_len]);
+                    self.progress.bytes_processed += inline_len as u64;
+                    if self.progress.chunk_index == 0 {
+                        self.progress.chunk_index += 1;
+                    }
+                    offset = inline_len;
+                }
+            }
+
+            // Keep a chance to emit a one-packet open/body/close on close().
+            if offset < bytes.len() {
+                Self::send_packet(&self.packet_tx, header_packet).await?;
+            } else {
+                self.pending_header = Some(header_packet);
+                return Ok(());
+            }
+        }
+
+        while offset < bytes.len() {
+            let end = (offset + CHUNK_SIZE).min(bytes.len());
+            let chunk = proto::data_stream::Chunk {
+                stream_id: self.id.clone(),
+                chunk_index: self.progress.chunk_index,
+                content: bytes[offset..end].to_vec(),
+                ..Default::default()
+            };
+            self.progress.bytes_processed += (end - offset) as u64;
+            self.progress.chunk_index += 1;
+            offset = end;
+
+            if let Some(previous) = self.pending_chunk.replace(chunk) {
+                Self::send_packet(&self.packet_tx, Self::create_chunk_packet_from(previous))
+                    .await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn close_with_coalescing(&mut self, reason: Option<&str>) -> StreamResult<()> {
+        let trailer = Self::create_trailer(&self.id, reason);
+
+        if let Some(mut header_packet) = self.pending_header.take() {
+            if let Some(livekit_protocol::data_packet::Value::StreamHeader(ref mut header)) =
+                header_packet.value
+            {
+                header.trailer = Some(trailer);
+            }
+            Self::send_packet(&self.packet_tx, header_packet).await?;
+            self.is_closed = true;
+            return Ok(());
+        }
+
+        if let Some(mut chunk) = self.pending_chunk.take() {
+            chunk.trailer = Some(trailer);
+            Self::send_packet(&self.packet_tx, Self::create_chunk_packet_from(chunk)).await?;
+            self.is_closed = true;
+            return Ok(());
+        }
+
+        // No body was buffered in this mode, fallback to standalone trailer packet.
+        let packet = Self::create_trailer_packet(&self.id, reason);
+        Self::send_packet(&self.packet_tx, packet).await?;
+        self.is_closed = true;
+        Ok(())
+    }
 }
 
 impl Drop for RawStream {
@@ -241,7 +353,23 @@ impl Drop for RawStream {
         if self.is_closed {
             return;
         }
-        let packet = Self::create_trailer_packet(&self.id, None);
+        let packet = if self.packet_coalescing_enabled {
+            if let Some(mut header_packet) = self.pending_header.take() {
+                if let Some(livekit_protocol::data_packet::Value::StreamHeader(ref mut header)) =
+                    header_packet.value
+                {
+                    header.trailer = Some(Self::create_trailer(&self.id, None));
+                }
+                header_packet
+            } else if let Some(mut chunk) = self.pending_chunk.take() {
+                chunk.trailer = Some(Self::create_trailer(&self.id, None));
+                Self::create_chunk_packet_from(chunk)
+            } else {
+                Self::create_trailer_packet(&self.id, None)
+            }
+        } else {
+            Self::create_trailer_packet(&self.id, None)
+        };
         let packet_tx = self.packet_tx.clone();
         tokio::spawn(async move { Self::send_packet(&packet_tx, packet).await });
     }
@@ -257,6 +385,7 @@ pub struct StreamByteOptions {
     pub mime_type: Option<String>,
     pub name: Option<String>,
     pub total_length: Option<u64>,
+    pub(crate) packet_coalescing_enabled: bool,
 }
 
 /// Options used when opening an outgoing text data stream.
@@ -271,6 +400,7 @@ pub struct StreamTextOptions {
     pub reply_to_stream_id: Option<String>,
     pub attached_stream_ids: Vec<String>,
     pub generated: Option<bool>,
+    pub(crate) packet_coalescing_enabled: bool,
 }
 
 #[derive(Clone)]
@@ -310,6 +440,7 @@ impl OutgoingStreamManager {
             header: header.clone(),
             destination_identities: options.destination_identities,
             packet_tx: self.packet_tx.clone(),
+            packet_coalescing_enabled: options.packet_coalescing_enabled,
         };
         let writer = TextStreamWriter {
             info: Arc::new(TextStreamInfo::from_headers(header, text_header)),
@@ -337,6 +468,7 @@ impl OutgoingStreamManager {
             header: header.clone(),
             destination_identities: options.destination_identities,
             packet_tx: self.packet_tx.clone(),
+            packet_coalescing_enabled: options.packet_coalescing_enabled,
         };
         let writer = ByteStreamWriter {
             info: Arc::new(ByteStreamInfo::from_headers(header, byte_header)),
@@ -373,6 +505,7 @@ impl OutgoingStreamManager {
             header: header.clone(),
             destination_identities: options.destination_identities,
             packet_tx: self.packet_tx.clone(),
+            packet_coalescing_enabled: options.packet_coalescing_enabled,
         };
         let writer = TextStreamWriter {
             info: Arc::new(TextStreamInfo::from_headers(header, text_header)),
@@ -422,6 +555,7 @@ impl OutgoingStreamManager {
             header: header.clone(),
             destination_identities: options.destination_identities,
             packet_tx: self.packet_tx.clone(),
+            packet_coalescing_enabled: options.packet_coalescing_enabled,
         };
         let writer = ByteStreamWriter {
             info: Arc::new(ByteStreamInfo::from_headers(header, byte_header)),
@@ -465,6 +599,7 @@ impl OutgoingStreamManager {
             header: header.clone(),
             destination_identities: options.destination_identities,
             packet_tx: self.packet_tx.clone(),
+            packet_coalescing_enabled: options.packet_coalescing_enabled,
         };
         let writer = ByteStreamWriter {
             info: Arc::new(ByteStreamInfo::from_headers(header, byte_header)),
