@@ -31,10 +31,7 @@ pub fn read_wav(name: &str) -> (u32, Vec<i16>) {
 
     // Down-mix to mono by taking every Nth sample (first channel)
     let samples = if spec.channels > 1 {
-        all_samples
-            .chunks(spec.channels as usize)
-            .map(|chunk| chunk[0])
-            .collect()
+        all_samples.chunks(spec.channels as usize).map(|chunk| chunk[0]).collect()
     } else {
         all_samples
     };
@@ -43,7 +40,5 @@ pub fn read_wav(name: &str) -> (u32, Vec<i16>) {
 }
 
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures")
 }

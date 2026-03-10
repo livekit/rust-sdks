@@ -19,9 +19,7 @@ use livekit_wakeword::{WakeWordModel, SAMPLE_RATE};
 mod common;
 
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests")
-        .join("fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures")
 }
 
 fn classifier_path() -> PathBuf {
