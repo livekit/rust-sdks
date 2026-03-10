@@ -1,14 +1,5 @@
 ---
-livekit-protocol: patch
-webrtc-sys-build: patch
-livekit: patch
 webrtc-sys: patch
-livekit-ffi: patch
-livekit-api: patch
-libwebrtc: patch
-soxr-sys: patch
-yuv-sys: patch
-imgproc: patch
 ---
 
 # avoid getting webrtc into underrun
