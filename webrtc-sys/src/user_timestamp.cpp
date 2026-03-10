@@ -16,8 +16,6 @@
 
 #include "livekit/user_timestamp.h"
 
-#include <chrono>
-#include <cstdio>
 #include <cstring>
 #include <optional>
 
@@ -110,35 +108,6 @@ void UserTimestampTransformer::TransformSend(
     frame->SetData(rtc::ArrayView<const uint8_t>(new_data));
   }
 
-  // Track per-SSRC encoding delay for simulcast diagnostics.
-  {
-    auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                      std::chrono::system_clock::now().time_since_epoch())
-                      .count();
-    webrtc::MutexLock lock(&send_map_mutex_);
-    auto& stats = send_ssrc_stats_[ssrc];
-    stats.frame_count++;
-    if (meta_to_embed.user_timestamp_us > 0) {
-      int64_t delay_us = now_us - meta_to_embed.user_timestamp_us;
-      stats.sum_encode_delay_us += delay_us;
-      stats.encode_delay_samples++;
-      if ((stats.frame_count % 60) == 1) {
-        double avg_ms = stats.encode_delay_samples > 0
-                            ? (stats.sum_encode_delay_us /
-                               (double)stats.encode_delay_samples / 1000.0)
-                            : 0.0;
-        fprintf(stderr,
-                "[UserTS-Send] ssrc=%u frames=%llu fid=%u "
-                "encode_delay=%.1fms (cur=%.1fms) user_ts=%lld\n",
-                ssrc, (unsigned long long)stats.frame_count,
-                meta_to_embed.frame_id, avg_ms, delay_us / 1000.0,
-                (long long)meta_to_embed.user_timestamp_us);
-        stats.sum_encode_delay_us = 0;
-        stats.encode_delay_samples = 0;
-      }
-    }
-  }
-
   // Forward to the appropriate callback (either global or per-SSRC sink).
   rtc::scoped_refptr<webrtc::TransformedFrameCallback> cb;
   {
@@ -175,93 +144,25 @@ void UserTimestampTransformer::TransformReceive(
     {
       webrtc::MutexLock lock(&recv_map_mutex_);
 
-      recv_frame_count_++;
-
       // Detect simulcast layer switch (SSRC change).
       // When the SFU switches us to a different layer, the old layer's
       // entries are stale and can cause RTP timestamp collisions or
       // return wrong user timestamps on lookup.  Flush them.
       if (recv_active_ssrc_ != 0 && recv_active_ssrc_ != ssrc) {
-        size_t flushed = 0;
         auto oit = recv_map_order_.begin();
         while (oit != recv_map_order_.end()) {
           auto mit = recv_map_.find(*oit);
           if (mit != recv_map_.end() && mit->second.ssrc != ssrc) {
             recv_map_.erase(mit);
             oit = recv_map_order_.erase(oit);
-            flushed++;
           } else {
             ++oit;
           }
         }
-        fprintf(stderr,
-                "[UserTS-Recv] SSRC_SWITCH old=%u new=%u flushed=%zu "
-                "remaining=%zu frame_count=%llu\n",
-                recv_active_ssrc_, ssrc, flushed, recv_map_.size(),
-                (unsigned long long)recv_frame_count_);
       }
       recv_active_ssrc_ = ssrc;
 
       bool collision = recv_map_.find(rtp_timestamp) != recv_map_.end();
-      if (collision) {
-        auto& existing = recv_map_[rtp_timestamp];
-        fprintf(stderr,
-                "[UserTS-Recv] COLLISION rtp_ts=%u ssrc=%u "
-                "existing: ts=%lld fid=%u ssrc=%u  "
-                "new: ts=%lld fid=%u ssrc=%u\n",
-                rtp_timestamp, ssrc,
-                (long long)existing.user_timestamp_us, existing.frame_id,
-                existing.ssrc,
-                (long long)meta->user_timestamp_us, meta->frame_id,
-                meta->ssrc);
-      }
-
-      // Check for timestamp regression (non-monotonic user timestamps
-      // indicate stale data or clock issues).
-      if (recv_last_user_ts_ > 0 &&
-          meta->user_timestamp_us < recv_last_user_ts_ &&
-          meta->user_timestamp_us > 0) {
-        int64_t regression_ms =
-            (recv_last_user_ts_ - meta->user_timestamp_us) / 1000;
-        fprintf(stderr,
-                "[UserTS-Recv] TS_REGRESSION ssrc=%u rtp_ts=%u "
-                "prev_ts=%lld new_ts=%lld regression=%lldms fid=%u\n",
-                ssrc, rtp_timestamp,
-                (long long)recv_last_user_ts_,
-                (long long)meta->user_timestamp_us,
-                (long long)regression_ms, meta->frame_id);
-      }
-      if (meta->user_timestamp_us > 0) {
-        recv_last_user_ts_ = meta->user_timestamp_us;
-
-        // Measure end-to-end latency per SSRC.
-        auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                          std::chrono::system_clock::now().time_since_epoch())
-                          .count();
-        int64_t latency_us = now_us - meta->user_timestamp_us;
-        auto& rstats = recv_ssrc_stats_[ssrc];
-        rstats.frame_count++;
-        rstats.sum_latency_us += latency_us;
-        rstats.latency_samples++;
-        if (latency_us > rstats.max_latency_us) {
-          rstats.max_latency_us = latency_us;
-        }
-        if ((rstats.frame_count % 60) == 1) {
-          double avg_ms = rstats.latency_samples > 0
-                              ? (rstats.sum_latency_us /
-                                 (double)rstats.latency_samples / 1000.0)
-                              : 0.0;
-          double max_ms = rstats.max_latency_us / 1000.0;
-          fprintf(stderr,
-                  "[UserTS-Recv] LATENCY ssrc=%u frames=%llu "
-                  "avg=%.1fms max=%.1fms cur=%.1fms fid=%u\n",
-                  ssrc, (unsigned long long)rstats.frame_count,
-                  avg_ms, max_ms, latency_us / 1000.0, meta->frame_id);
-          rstats.sum_latency_us = 0;
-          rstats.latency_samples = 0;
-          rstats.max_latency_us = 0;
-        }
-      }
 
       // Evict oldest entry if at capacity
       while (recv_map_.size() >= kMaxRecvMapEntries &&
@@ -278,10 +179,6 @@ void UserTimestampTransformer::TransformReceive(
 
     // Update frame with stripped data
     frame->SetData(rtc::ArrayView<const uint8_t>(stripped_data));
-  } else {
-    fprintf(stderr,
-            "[UserTS-Recv] NO_TRAILER rtp_ts=%u ssrc=%u data_size=%zu\n",
-            rtp_timestamp, ssrc, data.size());
   }
 
   // Forward to the appropriate callback (either global or per-SSRC sink).
@@ -369,32 +266,6 @@ std::optional<FrameMetadata> UserTimestampTransformer::ExtractTrailer(
     frame_id = (frame_id << 8) | (trailer_start[8 + i] ^ 0xFF);
   }
 
-  if (timestamp < 946684800000000LL || timestamp > 4102444800000000LL) {
-    std::string hex;
-    for (size_t i = 0; i < kUserTimestampTrailerSize; ++i) {
-      char buf[4];
-      snprintf(buf, sizeof(buf), "%02x", trailer_start[i]);
-      hex += buf;
-      if (i == 7 || i == 11) hex += "|";
-    }
-    size_t context_bytes = std::min<size_t>(data.size(), kUserTimestampTrailerSize + 8);
-    std::string context_hex;
-    const uint8_t* ctx_start = data.data() + data.size() - context_bytes;
-    for (size_t i = 0; i < context_bytes; ++i) {
-      char buf[4];
-      snprintf(buf, sizeof(buf), "%02x", ctx_start[i]);
-      context_hex += buf;
-      if (&ctx_start[i] == trailer_start - 1) context_hex += "|";
-      else if (&ctx_start[i] == trailer_start + 7) context_hex += "|";
-      else if (&ctx_start[i] == trailer_start + 11) context_hex += "|";
-    }
-    fprintf(stderr,
-            "[UserTS-Extract] BAD ts=%lld fid=%u data_size=%zu "
-            "trailer=%s context=%s\n",
-            (long long)timestamp, frame_id, data.size(),
-            hex.c_str(), context_hex.c_str());
-  }
-
   // Copy data without trailer
   out_data.assign(data.begin(),
                   data.end() - kUserTimestampTrailerSize);
@@ -439,19 +310,8 @@ std::optional<FrameMetadata> UserTimestampTransformer::lookup_frame_metadata(
   webrtc::MutexLock lock(&recv_map_mutex_);
   auto it = recv_map_.find(rtp_timestamp);
   if (it == recv_map_.end()) {
-    recv_lookup_misses_++;
-    if ((recv_lookup_misses_ % 30) == 1) {
-      fprintf(stderr,
-              "[UserTS-Lookup] MISS rtp_ts=%u map=%zu "
-              "hits=%llu misses=%llu active_ssrc=%u\n",
-              rtp_timestamp, recv_map_.size(),
-              (unsigned long long)recv_lookup_hits_,
-              (unsigned long long)recv_lookup_misses_,
-              recv_active_ssrc_);
-    }
     return std::nullopt;
   }
-  recv_lookup_hits_++;
   FrameMetadata meta = it->second;
   recv_map_.erase(it);
   for (auto oit = recv_map_order_.begin(); oit != recv_map_order_.end();
@@ -460,13 +320,6 @@ std::optional<FrameMetadata> UserTimestampTransformer::lookup_frame_metadata(
       recv_map_order_.erase(oit);
       break;
     }
-  }
-  if (meta.user_timestamp_us < 946684800000000LL ||
-      meta.user_timestamp_us > 4102444800000000LL) {
-    fprintf(stderr,
-            "[UserTS-Lookup] BAD rtp_ts=%u ts=%lld fid=%u ssrc=%u map=%zu\n",
-            rtp_timestamp, (long long)meta.user_timestamp_us,
-            meta.frame_id, meta.ssrc, recv_map_.size());
   }
   return meta;
 }

@@ -133,15 +133,6 @@ class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
   mutable std::deque<int64_t> send_map_order_;
   static constexpr size_t kMaxSendMapEntries = 300;
 
-  // Send-side per-SSRC stats for diagnosing simulcast encoding delay.
-  struct SendSsrcStats {
-    uint64_t frame_count{0};
-    int64_t last_user_ts{0};
-    int64_t sum_encode_delay_us{0};
-    uint64_t encode_delay_samples{0};
-  };
-  mutable std::unordered_map<uint32_t, SendSsrcStats> send_ssrc_stats_;
-
   // Receive-side map: RTP timestamp -> frame metadata.
   // Keyed by RTP timestamp so decoded frames can look up their
   // metadata regardless of frame drops or reordering.
@@ -152,19 +143,6 @@ class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
 
   // Simulcast tracking: detect layer switches and flush stale entries.
   mutable uint32_t recv_active_ssrc_{0};
-  mutable int64_t recv_last_user_ts_{0};
-  mutable uint64_t recv_frame_count_{0};
-  mutable uint64_t recv_lookup_hits_{0};
-  mutable uint64_t recv_lookup_misses_{0};
-
-  // Receive-side per-SSRC latency tracking.
-  struct RecvSsrcStats {
-    uint64_t frame_count{0};
-    int64_t sum_latency_us{0};
-    uint64_t latency_samples{0};
-    int64_t max_latency_us{0};
-  };
-  mutable std::unordered_map<uint32_t, RecvSsrcStats> recv_ssrc_stats_;
 };
 
 /// Wrapper class for Rust FFI that manages user timestamp transformers.
