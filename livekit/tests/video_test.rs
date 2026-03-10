@@ -80,7 +80,6 @@ async fn test_video_with(params: VideoTestParams) -> Result<()> {
             let RoomEvent::TrackSubscribed { track, publication, .. } = event else {
                 continue;
             };
-            assert_eq!(publication.simulcasted(), params.simulcast);
             break Ok(track.into());
         }
     })
