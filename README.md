@@ -164,6 +164,7 @@ match event {
 ![](https://github.com/livekit/rust-sdks/blob/main/examples/images/simple-room-demo.gif)
 
 - [basic room](https://github.com/livekit/rust-sdks/tree/main/examples/basic_room): simple example connecting to a room.
+- [agent_audio_latency](https://github.com/livekit/rust-sdks/tree/main/examples/agent_audio_latency): audio-only mic/speaker example for talking to an agent and estimating response latency.
 - [wgpu_room](https://github.com/livekit/rust-sdks/tree/main/examples/wgpu_room): complete example app with video rendering using wgpu and egui.
 - [mobile](https://github.com/livekit/rust-sdks/tree/main/examples/mobile): mobile app targeting iOS and Android
 - [play_from_disk](https://github.com/livekit/rust-sdks/tree/main/examples/play_from_disk): publish audio from a wav file
