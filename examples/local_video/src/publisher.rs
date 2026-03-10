@@ -1,8 +1,11 @@
 use anyhow::Result;
 use clap::Parser;
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
-use livekit::options::{self, TrackPublishOptions, VideoCodec, VideoEncoding, VideoPreset, video as video_presets};
+use livekit::options::{
+    self, video as video_presets, TrackPublishOptions, VideoCodec, VideoEncoding, VideoPreset,
+};
 use livekit::prelude::*;
+use livekit::webrtc::stats::RtcStats;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
@@ -14,6 +17,7 @@ use nokhwa::utils::{
     Resolution,
 };
 use nokhwa::Camera;
+use std::collections::VecDeque;
 use std::env;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -84,6 +88,212 @@ struct Args {
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set)
     #[arg(long)]
     e2ee_key: Option<String>,
+}
+
+const OUTBOUND_STATS_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const MAX_PENDING_TIMING_FRAMES: usize = 512;
+
+fn unix_time_us_now() -> i64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64
+}
+
+#[derive(Default)]
+struct RollingMs {
+    total_ms: f64,
+    samples: u64,
+}
+
+impl RollingMs {
+    fn record(&mut self, value_ms: f64) {
+        self.total_ms += value_ms;
+        self.samples += 1;
+    }
+
+    fn record_total(&mut self, total_ms: f64, samples: u64) {
+        if samples == 0 {
+            return;
+        }
+
+        self.total_ms += total_ms;
+        self.samples += samples;
+    }
+
+    fn average(&self) -> Option<f64> {
+        (self.samples > 0).then_some(self.total_ms / self.samples as f64)
+    }
+
+    fn display(&self) -> String {
+        self.average().map(|value| format!("{value:.2}")).unwrap_or_else(|| "n/a".to_string())
+    }
+
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
+
+#[derive(Default)]
+struct PublisherTimingSummary {
+    camera_capture_ms: RollingMs,
+    decode_ms: RollingMs,
+    buffer_convert_ms: RollingMs,
+    buffer_prepare_ms: RollingMs,
+    webrtc_capture_ms: RollingMs,
+    capture_to_buffer_ready_ms: RollingMs,
+    capture_to_webrtc_capture_ms: RollingMs,
+    encode_complete_estimate_ms: RollingMs,
+    packet_departure_estimate_ms: RollingMs,
+    encode_cpu_ms: RollingMs,
+    packet_send_delay_ms: RollingMs,
+    sleep_ms: RollingMs,
+    iteration_ms: RollingMs,
+}
+
+impl PublisherTimingSummary {
+    fn reset(&mut self) {
+        self.camera_capture_ms.reset();
+        self.decode_ms.reset();
+        self.buffer_convert_ms.reset();
+        self.buffer_prepare_ms.reset();
+        self.webrtc_capture_ms.reset();
+        self.capture_to_buffer_ready_ms.reset();
+        self.capture_to_webrtc_capture_ms.reset();
+        self.encode_complete_estimate_ms.reset();
+        self.packet_departure_estimate_ms.reset();
+        self.encode_cpu_ms.reset();
+        self.packet_send_delay_ms.reset();
+        self.sleep_ms.reset();
+        self.iteration_ms.reset();
+    }
+}
+
+#[derive(Clone)]
+struct PrimaryOutboundStatsSnapshot {
+    stream_key: String,
+    frames_encoded: u32,
+    frames_sent: u32,
+    packets_sent: u64,
+    total_encode_time_s: f64,
+    total_packet_send_delay_s: f64,
+}
+
+#[derive(Default)]
+struct OutboundTimingTracker {
+    pending_encode_capture_times_us: VecDeque<i64>,
+    pending_departure_capture_times_us: VecDeque<i64>,
+    last_snapshot: Option<PrimaryOutboundStatsSnapshot>,
+}
+
+impl OutboundTimingTracker {
+    fn on_frame_captured(&mut self, capture_wall_time_us: i64) {
+        self.pending_encode_capture_times_us.push_back(capture_wall_time_us);
+        self.pending_departure_capture_times_us.push_back(capture_wall_time_us);
+
+        while self.pending_encode_capture_times_us.len() > MAX_PENDING_TIMING_FRAMES {
+            self.pending_encode_capture_times_us.pop_front();
+        }
+
+        while self.pending_departure_capture_times_us.len() > MAX_PENDING_TIMING_FRAMES {
+            self.pending_departure_capture_times_us.pop_front();
+        }
+    }
+
+    fn update_from_stats(&mut self, stats: &[RtcStats], timings: &mut PublisherTimingSummary) {
+        let Some(snapshot) = select_primary_outbound_video_stats(stats) else {
+            return;
+        };
+
+        let Some(previous_snapshot) = self.last_snapshot.as_ref() else {
+            self.last_snapshot = Some(snapshot);
+            return;
+        };
+
+        if previous_snapshot.stream_key != snapshot.stream_key {
+            self.last_snapshot = Some(snapshot);
+            return;
+        }
+
+        let encoded_delta =
+            snapshot.frames_encoded.saturating_sub(previous_snapshot.frames_encoded);
+        let frames_sent_delta = snapshot.frames_sent.saturating_sub(previous_snapshot.frames_sent);
+        let packets_sent_delta =
+            snapshot.packets_sent.saturating_sub(previous_snapshot.packets_sent);
+        let now_us = unix_time_us_now();
+
+        for _ in 0..encoded_delta.min(self.pending_encode_capture_times_us.len() as u32) {
+            if let Some(capture_wall_time_us) = self.pending_encode_capture_times_us.pop_front() {
+                timings
+                    .encode_complete_estimate_ms
+                    .record((now_us - capture_wall_time_us) as f64 / 1000.0);
+            }
+        }
+
+        for _ in 0..frames_sent_delta.min(self.pending_departure_capture_times_us.len() as u32) {
+            if let Some(capture_wall_time_us) = self.pending_departure_capture_times_us.pop_front()
+            {
+                timings
+                    .packet_departure_estimate_ms
+                    .record((now_us - capture_wall_time_us) as f64 / 1000.0);
+            }
+        }
+
+        if encoded_delta > 0 {
+            let encode_total_delta_ms =
+                (snapshot.total_encode_time_s - previous_snapshot.total_encode_time_s).max(0.0)
+                    * 1000.0;
+            timings.encode_cpu_ms.record_total(encode_total_delta_ms, encoded_delta as u64);
+        }
+
+        if packets_sent_delta > 0 {
+            let packet_send_delay_total_delta_ms = (snapshot.total_packet_send_delay_s
+                - previous_snapshot.total_packet_send_delay_s)
+                .max(0.0)
+                * 1000.0;
+            timings
+                .packet_send_delay_ms
+                .record_total(packet_send_delay_total_delta_ms, packets_sent_delta);
+        }
+
+        self.last_snapshot = Some(snapshot);
+    }
+}
+
+fn select_primary_outbound_video_stats(stats: &[RtcStats]) -> Option<PrimaryOutboundStatsSnapshot> {
+    stats
+        .iter()
+        .filter_map(|stat| match stat {
+            RtcStats::OutboundRtp(outbound) if outbound.outbound.active => Some(outbound),
+            _ => None,
+        })
+        .max_by(|left, right| {
+            let left_rank = (
+                left.outbound.frame_width as u64 * left.outbound.frame_height as u64,
+                left.outbound.frames_sent as u64,
+                left.outbound.frames_encoded as u64,
+            );
+            let right_rank = (
+                right.outbound.frame_width as u64 * right.outbound.frame_height as u64,
+                right.outbound.frames_sent as u64,
+                right.outbound.frames_encoded as u64,
+            );
+            left_rank.cmp(&right_rank)
+        })
+        .map(|outbound| PrimaryOutboundStatsSnapshot {
+            stream_key: format!(
+                "{}:{}x{}",
+                if outbound.outbound.rid.is_empty() {
+                    "primary"
+                } else {
+                    outbound.outbound.rid.as_str()
+                },
+                outbound.outbound.frame_width,
+                outbound.outbound.frame_height,
+            ),
+            frames_encoded: outbound.outbound.frames_encoded,
+            frames_sent: outbound.outbound.frames_sent,
+            packets_sent: outbound.sent.packets_sent,
+            total_encode_time_s: outbound.outbound.total_encode_time,
+            total_packet_send_delay_s: outbound.outbound.total_packet_send_delay,
+        })
 }
 
 fn list_cameras() -> Result<()> {
@@ -240,21 +450,22 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         main_encoding.max_bitrate,
         simulcast_presets
             .iter()
-            .map(|p| format!("{}x{}@{:.0}fps/{}bps", p.width, p.height, p.encoding.max_framerate, p.encoding.max_bitrate))
+            .map(|p| format!(
+                "{}x{}@{:.0}fps/{}bps",
+                p.width, p.height, p.encoding.max_framerate, p.encoding.max_bitrate
+            ))
             .collect::<Vec<_>>()
             .join(", "),
     );
 
-    let publish_opts = |codec: VideoCodec| {
-        TrackPublishOptions {
-            source: TrackSource::Camera,
-            simulcast: args.simulcast,
-            video_codec: codec,
-            user_timestamp: args.attach_timestamp,
-            video_encoding: Some(main_encoding.clone()),
-            simulcast_layers: Some(simulcast_presets.clone()),
-            ..Default::default()
-        }
+    let publish_opts = |codec: VideoCodec| TrackPublishOptions {
+        source: TrackSource::Camera,
+        simulcast: args.simulcast,
+        video_codec: codec,
+        user_timestamp: args.attach_timestamp,
+        video_encoding: Some(main_encoding.clone()),
+        simulcast_layers: Some(simulcast_presets.clone()),
+        ..Default::default()
     };
 
     let publish_result = room
@@ -300,16 +511,13 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // Capture loop
     let mut frames: u64 = 0;
     let mut last_fps_log = Instant::now();
+    let mut last_outbound_stats_poll = Instant::now();
     let target = Duration::from_secs_f64(1.0 / pace_fps);
     info!("Target frame interval: {:.2} ms", target.as_secs_f64() * 1000.0);
 
     // Timing accumulators (ms) for rolling stats
-    let mut sum_get_ms = 0.0;
-    let mut sum_decode_ms = 0.0;
-    let mut sum_convert_ms = 0.0;
-    let mut sum_capture_ms = 0.0;
-    let mut sum_sleep_ms = 0.0;
-    let mut sum_iter_ms = 0.0;
+    let mut timings = PublisherTimingSummary::default();
+    let mut outbound_timing_tracker = OutboundTimingTracker::default();
     let mut logged_mjpeg_fallback = false;
     let mut frame_counter: u32 = 0;
     loop {
@@ -321,18 +529,19 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         ticker.tick().await;
         let iter_start = Instant::now();
 
-        // Get frame as RGB24 (decoded by nokhwa if needed)
-        let t0 = Instant::now();
+        // Capture the frame as early as possible and use the wall clock as the
+        // end-to-end reference for later encode and egress estimates.
+        let capture_wall_time_us = unix_time_us_now();
+        let camera_capture_started_at = Instant::now();
         let frame_buf = camera.frame()?;
-        let t1 = Instant::now();
+        let camera_frame_acquired_at = Instant::now();
         let (stride_y, stride_u, stride_v) = frame.buffer.strides();
         let (data_y, data_u, data_v) = frame.buffer.data_mut();
-        // Fast path for YUYV: convert directly to I420 via libyuv
-        let t2 = if is_yuyv {
+        let (decode_finished_at, buffer_ready_at) = if is_yuyv {
+            // Fast path for YUYV: convert directly to I420 via libyuv
             let src = frame_buf.buffer();
             let src_bytes = src.as_ref();
             let src_stride = (width * 2) as i32; // YUYV packed 4:2:2
-            let t2_local = t1; // no decode step in YUYV path
             unsafe {
                 // returns 0 on success
                 let _ = yuv_sys::rs_YUY2ToI420(
@@ -348,11 +557,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     height as i32,
                 );
             }
-            t2_local
+            (camera_frame_acquired_at, Instant::now())
         } else {
             // Auto path (either RGB24 already or compressed MJPEG)
             let src = frame_buf.buffer();
-            let t2_local = if src.len() == (width as usize * height as usize * 3) {
+            if src.len() == (width as usize * height as usize * 3) {
                 // Already RGB24 from backend; convert directly
                 unsafe {
                     let _ = yuv_sys::rs_RGB24ToI420(
@@ -368,11 +577,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         height as i32,
                     );
                 }
-                Instant::now()
+                (camera_frame_acquired_at, Instant::now())
             } else {
                 // Try fast MJPEG->I420 via libyuv if available; fallback to image crate
                 let mut used_fast_mjpeg = false;
-                let t2_try = unsafe {
+                let fast_mjpeg_buffer_ready_at = unsafe {
                     // rs_MJPGToI420 returns 0 on success
                     let ret = yuv_sys::rs_MJPGToI420(
                         src.as_ref().as_ptr(),
@@ -392,16 +601,17 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         used_fast_mjpeg = true;
                         Instant::now()
                     } else {
-                        t1
+                        camera_frame_acquired_at
                     }
                 };
                 if used_fast_mjpeg {
-                    t2_try
+                    (camera_frame_acquired_at, fast_mjpeg_buffer_ready_at)
                 } else {
                     // Fallback: decode MJPEG using image crate then RGB24->I420
                     match image::load_from_memory(src.as_ref()) {
                         Ok(img_dyn) => {
                             let rgb8 = img_dyn.to_rgb8();
+                            let decode_finished_at = Instant::now();
                             let dec_w = rgb8.width() as u32;
                             let dec_h = rgb8.height() as u32;
                             if dec_w != width || dec_h != height {
@@ -425,7 +635,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                                     height as i32,
                                 );
                             }
-                            Instant::now()
+                            (decode_finished_at, Instant::now())
                         }
                         Err(e2) => {
                             if !logged_mjpeg_fallback {
@@ -439,17 +649,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         }
                     }
                 }
-            };
-            t2_local
+            }
         };
-        let t3 = Instant::now();
 
         // Update RTP timestamp (monotonic, microseconds since start)
         frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
         // Optionally attach wall-clock time as user timestamp and frame_id
         if args.attach_timestamp {
-            frame.user_timestamp_us =
-                Some(SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64);
+            frame.user_timestamp_us = Some(capture_wall_time_us);
             frame.frame_id = Some(frame_counter);
             frame_counter = frame_counter.wrapping_add(1);
         } else {
@@ -457,51 +664,71 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             frame.frame_id = None;
         }
         rtc_source.capture_frame(&frame);
-        let t4 = Instant::now();
+        let webrtc_capture_finished_at = Instant::now();
+        outbound_timing_tracker.on_frame_captured(capture_wall_time_us);
 
         frames += 1;
         // We already paced via interval; measure actual sleep time for logging only
-        let sleep_dur = iter_start - wait_start;
+        let sleep_duration = iter_start - wait_start;
 
         // Per-iteration timing bookkeeping
-        let t_end = Instant::now();
-        let get_ms = (t1 - t0).as_secs_f64() * 1000.0;
-        let decode_ms = (t2 - t1).as_secs_f64() * 1000.0;
-        let convert_ms = (t3 - t2).as_secs_f64() * 1000.0;
-        let capture_ms = (t4 - t3).as_secs_f64() * 1000.0;
-        let sleep_ms = sleep_dur.as_secs_f64() * 1000.0;
-        let iter_ms = (t_end - iter_start).as_secs_f64() * 1000.0;
-        sum_get_ms += get_ms;
-        sum_decode_ms += decode_ms;
-        sum_convert_ms += convert_ms;
-        sum_capture_ms += capture_ms;
-        sum_sleep_ms += sleep_ms;
-        sum_iter_ms += iter_ms;
+        let iteration_finished_at = Instant::now();
+        timings
+            .camera_capture_ms
+            .record((camera_frame_acquired_at - camera_capture_started_at).as_secs_f64() * 1000.0);
+        timings
+            .decode_ms
+            .record((decode_finished_at - camera_frame_acquired_at).as_secs_f64() * 1000.0);
+        timings
+            .buffer_convert_ms
+            .record((buffer_ready_at - decode_finished_at).as_secs_f64() * 1000.0);
+        timings
+            .buffer_prepare_ms
+            .record((buffer_ready_at - camera_frame_acquired_at).as_secs_f64() * 1000.0);
+        timings
+            .webrtc_capture_ms
+            .record((webrtc_capture_finished_at - buffer_ready_at).as_secs_f64() * 1000.0);
+        timings
+            .capture_to_buffer_ready_ms
+            .record((buffer_ready_at - camera_capture_started_at).as_secs_f64() * 1000.0);
+        timings.capture_to_webrtc_capture_ms.record(
+            (webrtc_capture_finished_at - camera_capture_started_at).as_secs_f64() * 1000.0,
+        );
+        timings.sleep_ms.record(sleep_duration.as_secs_f64() * 1000.0);
+        timings.iteration_ms.record((iteration_finished_at - iter_start).as_secs_f64() * 1000.0);
+
+        if last_outbound_stats_poll.elapsed() >= OUTBOUND_STATS_POLL_INTERVAL {
+            if let Ok(stats) = track.get_stats().await {
+                outbound_timing_tracker.update_from_stats(&stats, &mut timings);
+            }
+            last_outbound_stats_poll = Instant::now();
+        }
 
         if last_fps_log.elapsed() >= std::time::Duration::from_secs(2) {
             let secs = last_fps_log.elapsed().as_secs_f64();
             let fps_est = frames as f64 / secs;
-            let n = frames.max(1) as f64;
             info!(
-                "Publishing video: {}x{}, ~{:.1} fps | avg ms: get {:.2}, decode {:.2}, convert {:.2}, capture {:.2}, sleep {:.2}, iter {:.2} | target {:.2}",
+                "Publishing video: {}x{}, ~{:.1} fps | stage ms: camera {:.2}, decode {:.2}, convert {:.2}, buffer {:.2}, webrtc {:.2}, sleep {:.2}, iter {:.2} | capture->ms: i420 {:.2}, webrtc {:.2}, encode~ {}, egress~ {} | stats ms: encode_cpu {}, packet_send_delay {} | target {:.2}",
                 width,
                 height,
                 fps_est,
-                sum_get_ms / n,
-                sum_decode_ms / n,
-                sum_convert_ms / n,
-                sum_capture_ms / n,
-                sum_sleep_ms / n,
-                sum_iter_ms / n,
+                timings.camera_capture_ms.average().unwrap_or_default(),
+                timings.decode_ms.average().unwrap_or_default(),
+                timings.buffer_convert_ms.average().unwrap_or_default(),
+                timings.buffer_prepare_ms.average().unwrap_or_default(),
+                timings.webrtc_capture_ms.average().unwrap_or_default(),
+                timings.sleep_ms.average().unwrap_or_default(),
+                timings.iteration_ms.average().unwrap_or_default(),
+                timings.capture_to_buffer_ready_ms.average().unwrap_or_default(),
+                timings.capture_to_webrtc_capture_ms.average().unwrap_or_default(),
+                timings.encode_complete_estimate_ms.display(),
+                timings.packet_departure_estimate_ms.display(),
+                timings.encode_cpu_ms.display(),
+                timings.packet_send_delay_ms.display(),
                 target.as_secs_f64() * 1000.0,
             );
             frames = 0;
-            sum_get_ms = 0.0;
-            sum_decode_ms = 0.0;
-            sum_convert_ms = 0.0;
-            sum_capture_ms = 0.0;
-            sum_sleep_ms = 0.0;
-            sum_iter_ms = 0.0;
+            timings.reset();
             last_fps_log = Instant::now();
         }
     }
