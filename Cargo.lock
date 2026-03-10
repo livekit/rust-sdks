@@ -3959,6 +3959,7 @@ dependencies = [
 name = "livekit-wakeword"
 version = "0.1.0"
 dependencies = [
+ "hound",
  "ndarray 0.17.2",
  "ort",
  "ort-tract",

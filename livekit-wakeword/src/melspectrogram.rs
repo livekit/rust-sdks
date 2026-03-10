@@ -50,7 +50,10 @@ impl MelspectrogramModel {
         let raw = features["output"].try_extract_array::<f32>()?;
         let rows = raw.shape()[2];
         let cols = raw.shape()[3];
-        let output = raw.into_owned().into_shape_with_order((rows, cols))?;
+        let mut output = raw.into_owned().into_shape_with_order((rows, cols))?;
+
+        // Post-processing: x/10 + 2 (matches openWakeWord's melspec_transform)
+        output.mapv_inplace(|x| x / 10.0 + 2.0);
 
         Ok(output)
     }

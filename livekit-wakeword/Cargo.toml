@@ -14,3 +14,6 @@ thiserror = "2"
 [target.'cfg(not(all(target_arch = "aarch64", target_os = "windows", target_env = "msvc")))'.dependencies]
 ort = { version = "2.0.0-rc.11", default-features = false, features = ["alternative-backend"] }
 ort-tract = "0.2.0+0.22"
+
+[dev-dependencies]
+hound = "3.5"

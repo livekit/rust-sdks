@@ -16,8 +16,16 @@ use std::path::PathBuf;
 
 use livekit_wakeword::{WakeWordModel, SAMPLE_RATE};
 
+mod common;
+
+fn fixtures_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+}
+
 fn classifier_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("onnx/hey_livekit.onnx")
+    fixtures_dir().join("hey_livekit.onnx")
 }
 
 fn generate_sine(freq: f64, sample_rate: usize, duration: f64) -> Vec<i16> {
@@ -43,4 +51,36 @@ fn test_predict() {
     let short = generate_sine(440.0, SAMPLE_RATE, 0.1);
     let predictions = model.predict(&short).unwrap();
     assert_eq!(predictions["hey_livekit"], 0.0);
+}
+
+const THRESHOLD: f32 = 0.5;
+
+/// Test that a positive WAV sample (containing the wake word) scores above the threshold.
+#[test]
+fn test_positive_wav_above_threshold() {
+    let (sample_rate, samples) = common::read_wav("positive.wav");
+    let mut model = WakeWordModel::new(&[classifier_path()], sample_rate).unwrap();
+
+    let predictions = model.predict(&samples).unwrap();
+    let score = predictions["hey_livekit"];
+    println!("positive.wav score: {score}");
+    assert!(
+        score >= THRESHOLD,
+        "expected positive sample score ({score}) >= threshold ({THRESHOLD})"
+    );
+}
+
+/// Test that a negative WAV sample (NOT containing the wake word) scores below the threshold.
+#[test]
+fn test_negative_wav_below_threshold() {
+    let (sample_rate, samples) = common::read_wav("negative.wav");
+    let mut model = WakeWordModel::new(&[classifier_path()], sample_rate).unwrap();
+
+    let predictions = model.predict(&samples).unwrap();
+    let score = predictions["hey_livekit"];
+    println!("negative.wav score: {score}");
+    assert!(
+        score < THRESHOLD,
+        "expected negative sample score ({score}) < threshold ({THRESHOLD})"
+    );
 }
