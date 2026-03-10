@@ -5,7 +5,6 @@ use livekit::options::{
     self, video as video_presets, TrackPublishOptions, VideoCodec, VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
-use livekit::webrtc::stats::RtcStats;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
@@ -17,7 +16,6 @@ use nokhwa::utils::{
     Resolution,
 };
 use nokhwa::Camera;
-use std::collections::VecDeque;
 use std::env;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -90,9 +88,6 @@ struct Args {
     e2ee_key: Option<String>,
 }
 
-const OUTBOUND_STATS_POLL_INTERVAL: Duration = Duration::from_millis(100);
-const MAX_PENDING_TIMING_FRAMES: usize = 512;
-
 fn unix_time_us_now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64
 }
@@ -109,21 +104,8 @@ impl RollingMs {
         self.samples += 1;
     }
 
-    fn record_total(&mut self, total_ms: f64, samples: u64) {
-        if samples == 0 {
-            return;
-        }
-
-        self.total_ms += total_ms;
-        self.samples += samples;
-    }
-
     fn average(&self) -> Option<f64> {
         (self.samples > 0).then_some(self.total_ms / self.samples as f64)
-    }
-
-    fn display(&self) -> String {
-        self.average().map(|value| format!("{value:.2}")).unwrap_or_else(|| "n/a".to_string())
     }
 
     fn reset(&mut self) {
@@ -138,14 +120,7 @@ struct PublisherTimingSummary {
     buffer_convert_ms: RollingMs,
     buffer_prepare_ms: RollingMs,
     webrtc_capture_ms: RollingMs,
-    capture_to_buffer_ready_ms: RollingMs,
     capture_to_webrtc_capture_ms: RollingMs,
-    encode_complete_estimate_ms: RollingMs,
-    packet_departure_estimate_ms: RollingMs,
-    encode_cpu_ms: RollingMs,
-    packet_send_delay_ms: RollingMs,
-    sleep_ms: RollingMs,
-    iteration_ms: RollingMs,
 }
 
 impl PublisherTimingSummary {
@@ -155,145 +130,33 @@ impl PublisherTimingSummary {
         self.buffer_convert_ms.reset();
         self.buffer_prepare_ms.reset();
         self.webrtc_capture_ms.reset();
-        self.capture_to_buffer_ready_ms.reset();
         self.capture_to_webrtc_capture_ms.reset();
-        self.encode_complete_estimate_ms.reset();
-        self.packet_departure_estimate_ms.reset();
-        self.encode_cpu_ms.reset();
-        self.packet_send_delay_ms.reset();
-        self.sleep_ms.reset();
-        self.iteration_ms.reset();
     }
 }
 
-#[derive(Clone)]
-struct PrimaryOutboundStatsSnapshot {
-    stream_key: String,
-    frames_encoded: u32,
-    frames_sent: u32,
-    packets_sent: u64,
-    total_encode_time_s: f64,
-    total_packet_send_delay_s: f64,
-}
+fn format_timing_line(timings: &PublisherTimingSummary) -> String {
+    let mut parts =
+        vec![format!("capture {:.2}", timings.camera_capture_ms.average().unwrap_or_default())];
 
-#[derive(Default)]
-struct OutboundTimingTracker {
-    pending_encode_capture_times_us: VecDeque<i64>,
-    pending_departure_capture_times_us: VecDeque<i64>,
-    last_snapshot: Option<PrimaryOutboundStatsSnapshot>,
-}
-
-impl OutboundTimingTracker {
-    fn on_frame_captured(&mut self, capture_wall_time_us: i64) {
-        self.pending_encode_capture_times_us.push_back(capture_wall_time_us);
-        self.pending_departure_capture_times_us.push_back(capture_wall_time_us);
-
-        while self.pending_encode_capture_times_us.len() > MAX_PENDING_TIMING_FRAMES {
-            self.pending_encode_capture_times_us.pop_front();
-        }
-
-        while self.pending_departure_capture_times_us.len() > MAX_PENDING_TIMING_FRAMES {
-            self.pending_departure_capture_times_us.pop_front();
-        }
+    if let Some(decode_ms) = timings.decode_ms.average() {
+        parts.push(format!("decode {:.2}", decode_ms));
     }
 
-    fn update_from_stats(&mut self, stats: &[RtcStats], timings: &mut PublisherTimingSummary) {
-        let Some(snapshot) = select_primary_outbound_video_stats(stats) else {
-            return;
-        };
+    parts.push(format!(
+        "convert_to_i420 {:.2}",
+        timings.buffer_convert_ms.average().unwrap_or_default()
+    ));
+    parts.push(format!("buffer {:.2}", timings.buffer_prepare_ms.average().unwrap_or_default()));
+    parts.push(format!(
+        "webrtc_capture {:.2}",
+        timings.webrtc_capture_ms.average().unwrap_or_default()
+    ));
+    parts.push(format!(
+        "capture_to_webrtc {:.2}",
+        timings.capture_to_webrtc_capture_ms.average().unwrap_or_default()
+    ));
 
-        let Some(previous_snapshot) = self.last_snapshot.as_ref() else {
-            self.last_snapshot = Some(snapshot);
-            return;
-        };
-
-        if previous_snapshot.stream_key != snapshot.stream_key {
-            self.last_snapshot = Some(snapshot);
-            return;
-        }
-
-        let encoded_delta =
-            snapshot.frames_encoded.saturating_sub(previous_snapshot.frames_encoded);
-        let frames_sent_delta = snapshot.frames_sent.saturating_sub(previous_snapshot.frames_sent);
-        let packets_sent_delta =
-            snapshot.packets_sent.saturating_sub(previous_snapshot.packets_sent);
-        let now_us = unix_time_us_now();
-
-        for _ in 0..encoded_delta.min(self.pending_encode_capture_times_us.len() as u32) {
-            if let Some(capture_wall_time_us) = self.pending_encode_capture_times_us.pop_front() {
-                timings
-                    .encode_complete_estimate_ms
-                    .record((now_us - capture_wall_time_us) as f64 / 1000.0);
-            }
-        }
-
-        for _ in 0..frames_sent_delta.min(self.pending_departure_capture_times_us.len() as u32) {
-            if let Some(capture_wall_time_us) = self.pending_departure_capture_times_us.pop_front()
-            {
-                timings
-                    .packet_departure_estimate_ms
-                    .record((now_us - capture_wall_time_us) as f64 / 1000.0);
-            }
-        }
-
-        if encoded_delta > 0 {
-            let encode_total_delta_ms =
-                (snapshot.total_encode_time_s - previous_snapshot.total_encode_time_s).max(0.0)
-                    * 1000.0;
-            timings.encode_cpu_ms.record_total(encode_total_delta_ms, encoded_delta as u64);
-        }
-
-        if packets_sent_delta > 0 {
-            let packet_send_delay_total_delta_ms = (snapshot.total_packet_send_delay_s
-                - previous_snapshot.total_packet_send_delay_s)
-                .max(0.0)
-                * 1000.0;
-            timings
-                .packet_send_delay_ms
-                .record_total(packet_send_delay_total_delta_ms, packets_sent_delta);
-        }
-
-        self.last_snapshot = Some(snapshot);
-    }
-}
-
-fn select_primary_outbound_video_stats(stats: &[RtcStats]) -> Option<PrimaryOutboundStatsSnapshot> {
-    stats
-        .iter()
-        .filter_map(|stat| match stat {
-            RtcStats::OutboundRtp(outbound) if outbound.outbound.active => Some(outbound),
-            _ => None,
-        })
-        .max_by(|left, right| {
-            let left_rank = (
-                left.outbound.frame_width as u64 * left.outbound.frame_height as u64,
-                left.outbound.frames_sent as u64,
-                left.outbound.frames_encoded as u64,
-            );
-            let right_rank = (
-                right.outbound.frame_width as u64 * right.outbound.frame_height as u64,
-                right.outbound.frames_sent as u64,
-                right.outbound.frames_encoded as u64,
-            );
-            left_rank.cmp(&right_rank)
-        })
-        .map(|outbound| PrimaryOutboundStatsSnapshot {
-            stream_key: format!(
-                "{}:{}x{}",
-                if outbound.outbound.rid.is_empty() {
-                    "primary"
-                } else {
-                    outbound.outbound.rid.as_str()
-                },
-                outbound.outbound.frame_width,
-                outbound.outbound.frame_height,
-            ),
-            frames_encoded: outbound.outbound.frames_encoded,
-            frames_sent: outbound.outbound.frames_sent,
-            packets_sent: outbound.sent.packets_sent,
-            total_encode_time_s: outbound.outbound.total_encode_time,
-            total_packet_send_delay_s: outbound.outbound.total_packet_send_delay,
-        })
+    format!("Timing ms: {}", parts.join(" | "))
 }
 
 fn list_cameras() -> Result<()> {
@@ -511,13 +374,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // Capture loop
     let mut frames: u64 = 0;
     let mut last_fps_log = Instant::now();
-    let mut last_outbound_stats_poll = Instant::now();
     let target = Duration::from_secs_f64(1.0 / pace_fps);
     info!("Target frame interval: {:.2} ms", target.as_secs_f64() * 1000.0);
 
     // Timing accumulators (ms) for rolling stats
     let mut timings = PublisherTimingSummary::default();
-    let mut outbound_timing_tracker = OutboundTimingTracker::default();
     let mut logged_mjpeg_fallback = false;
     let mut frame_counter: u32 = 0;
     loop {
@@ -529,15 +390,15 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         ticker.tick().await;
         let iter_start = Instant::now();
 
-        // Capture the frame as early as possible and use the wall clock as the
-        // end-to-end reference for later encode and egress estimates.
+        // Capture the frame as early as possible so the attached timestamp is
+        // close to the camera acquisition point.
         let capture_wall_time_us = unix_time_us_now();
         let camera_capture_started_at = Instant::now();
         let frame_buf = camera.frame()?;
         let camera_frame_acquired_at = Instant::now();
         let (stride_y, stride_u, stride_v) = frame.buffer.strides();
         let (data_y, data_u, data_v) = frame.buffer.data_mut();
-        let (decode_finished_at, buffer_ready_at) = if is_yuyv {
+        let (decode_finished_at, buffer_ready_at, used_decode_path) = if is_yuyv {
             // Fast path for YUYV: convert directly to I420 via libyuv
             let src = frame_buf.buffer();
             let src_bytes = src.as_ref();
@@ -557,7 +418,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     height as i32,
                 );
             }
-            (camera_frame_acquired_at, Instant::now())
+            (camera_frame_acquired_at, Instant::now(), false)
         } else {
             // Auto path (either RGB24 already or compressed MJPEG)
             let src = frame_buf.buffer();
@@ -577,7 +438,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         height as i32,
                     );
                 }
-                (camera_frame_acquired_at, Instant::now())
+                (camera_frame_acquired_at, Instant::now(), false)
             } else {
                 // Try fast MJPEG->I420 via libyuv if available; fallback to image crate
                 let mut used_fast_mjpeg = false;
@@ -605,7 +466,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     }
                 };
                 if used_fast_mjpeg {
-                    (camera_frame_acquired_at, fast_mjpeg_buffer_ready_at)
+                    (fast_mjpeg_buffer_ready_at, fast_mjpeg_buffer_ready_at, true)
                 } else {
                     // Fallback: decode MJPEG using image crate then RGB24->I420
                     match image::load_from_memory(src.as_ref()) {
@@ -635,7 +496,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                                     height as i32,
                                 );
                             }
-                            (decode_finished_at, Instant::now())
+                            (decode_finished_at, Instant::now(), true)
                         }
                         Err(e2) => {
                             if !logged_mjpeg_fallback {
@@ -665,20 +526,18 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         }
         rtc_source.capture_frame(&frame);
         let webrtc_capture_finished_at = Instant::now();
-        outbound_timing_tracker.on_frame_captured(capture_wall_time_us);
 
         frames += 1;
-        // We already paced via interval; measure actual sleep time for logging only
-        let sleep_duration = iter_start - wait_start;
 
         // Per-iteration timing bookkeeping
-        let iteration_finished_at = Instant::now();
         timings
             .camera_capture_ms
             .record((camera_frame_acquired_at - camera_capture_started_at).as_secs_f64() * 1000.0);
-        timings
-            .decode_ms
-            .record((decode_finished_at - camera_frame_acquired_at).as_secs_f64() * 1000.0);
+        if used_decode_path {
+            timings
+                .decode_ms
+                .record((decode_finished_at - camera_frame_acquired_at).as_secs_f64() * 1000.0);
+        }
         timings
             .buffer_convert_ms
             .record((buffer_ready_at - decode_finished_at).as_secs_f64() * 1000.0);
@@ -688,45 +547,21 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         timings
             .webrtc_capture_ms
             .record((webrtc_capture_finished_at - buffer_ready_at).as_secs_f64() * 1000.0);
-        timings
-            .capture_to_buffer_ready_ms
-            .record((buffer_ready_at - camera_capture_started_at).as_secs_f64() * 1000.0);
         timings.capture_to_webrtc_capture_ms.record(
             (webrtc_capture_finished_at - camera_capture_started_at).as_secs_f64() * 1000.0,
         );
-        timings.sleep_ms.record(sleep_duration.as_secs_f64() * 1000.0);
-        timings.iteration_ms.record((iteration_finished_at - iter_start).as_secs_f64() * 1000.0);
-
-        if last_outbound_stats_poll.elapsed() >= OUTBOUND_STATS_POLL_INTERVAL {
-            if let Ok(stats) = track.get_stats().await {
-                outbound_timing_tracker.update_from_stats(&stats, &mut timings);
-            }
-            last_outbound_stats_poll = Instant::now();
-        }
 
         if last_fps_log.elapsed() >= std::time::Duration::from_secs(2) {
             let secs = last_fps_log.elapsed().as_secs_f64();
             let fps_est = frames as f64 / secs;
             info!(
-                "Publishing video: {}x{}, ~{:.1} fps | stage ms: camera {:.2}, decode {:.2}, convert {:.2}, buffer {:.2}, webrtc {:.2}, sleep {:.2}, iter {:.2} | capture->ms: i420 {:.2}, webrtc {:.2}, encode~ {}, egress~ {} | stats ms: encode_cpu {}, packet_send_delay {} | target {:.2}",
+                "Video status: {}x{} | ~{:.1} fps | target {:.2} ms",
                 width,
                 height,
                 fps_est,
-                timings.camera_capture_ms.average().unwrap_or_default(),
-                timings.decode_ms.average().unwrap_or_default(),
-                timings.buffer_convert_ms.average().unwrap_or_default(),
-                timings.buffer_prepare_ms.average().unwrap_or_default(),
-                timings.webrtc_capture_ms.average().unwrap_or_default(),
-                timings.sleep_ms.average().unwrap_or_default(),
-                timings.iteration_ms.average().unwrap_or_default(),
-                timings.capture_to_buffer_ready_ms.average().unwrap_or_default(),
-                timings.capture_to_webrtc_capture_ms.average().unwrap_or_default(),
-                timings.encode_complete_estimate_ms.display(),
-                timings.packet_departure_estimate_ms.display(),
-                timings.encode_cpu_ms.display(),
-                timings.packet_send_delay_ms.display(),
                 target.as_secs_f64() * 1000.0,
             );
+            info!("{}", format_timing_line(&timings));
             frames = 0;
             timings.reset();
             last_fps_log = Instant::now();
