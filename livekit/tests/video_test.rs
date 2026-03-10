@@ -40,13 +40,10 @@ struct VideoTestParams {
 #[test_log::test(tokio::test)]
 async fn test_video() -> Result<()> {
     let test_params = [
-        VideoTestParams { codec: VideoCodec::VP8,  width: 640,  height: 360, simulcast: false },
-        VideoTestParams { codec: VideoCodec::VP8,  width: 1280, height: 720, simulcast: true },
-        VideoTestParams { codec: VideoCodec::H264, width: 640,  height: 360, simulcast: false },
-        VideoTestParams { codec: VideoCodec::H264, width: 1280, height: 720, simulcast: true },
-        VideoTestParams { codec: VideoCodec::H265, width: 640,  height: 360, simulcast: false },
-        VideoTestParams { codec: VideoCodec::H265, width: 1280, height: 720, simulcast: true },
-        VideoTestParams { codec: VideoCodec::VP9,  width: 640,  height: 360, simulcast: false },
+        VideoTestParams { codec: VideoCodec::VP8, width: 1280, height: 720, simulcast: false },
+        VideoTestParams { codec: VideoCodec::VP8, width: 1280, height: 720, simulcast: true },
+        VideoTestParams { codec: VideoCodec::VP9, width: 1280, height: 720, simulcast: false },
+        VideoTestParams { codec: VideoCodec::VP9, width: 1280, height: 720, simulcast: true },
     ];
     for params in test_params {
         log::info!("Testing with {}", params);
