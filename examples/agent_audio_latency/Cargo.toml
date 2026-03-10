@@ -13,4 +13,5 @@ futures-util = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 log = { workspace = true }
+rand = "0.8"
 tokio = { workspace = true, features = ["full"] }

@@ -24,7 +24,9 @@ impl AudioCapture {
         num_input_channels: u32,
         benchmark: Option<Arc<Mutex<TurnLatencyBench>>>,
     ) -> Result<Self> {
+        info!("creating audio capture stream");
         let is_running = Arc::new(AtomicBool::new(true));
+        info!("selected audio input device: {} with config: {:?}, channel: {}, num_input_channels: {}", device.name()?, config, channel_index, num_input_channels);
         let stream = match sample_format {
             SampleFormat::F32 => Self::create_input_stream::<f32>(
                 device,
@@ -56,6 +58,7 @@ impl AudioCapture {
             other => return Err(anyhow!("unsupported input sample format: {other:?}")),
         };
 
+        info!("stream.play()");
         stream.play()?;
         info!("audio capture stream started");
 

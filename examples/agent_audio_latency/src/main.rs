@@ -25,6 +25,7 @@ use livekit::{
 };
 use livekit_api::access_token;
 use log::{debug, info};
+use rand::Rng;
 use std::env;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
@@ -34,7 +35,21 @@ use tokio::sync::mpsc;
 use tokio::sync::oneshot;
 
 const SAMPLE_RATE_HZ: u32 = 48_000;
-const CPAL_BUFFER_FRAMES_10MS: u32 = SAMPLE_RATE_HZ / 100;
+
+fn generate_random_string(length: usize) -> String {
+    const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ\
+                             abcdefghijklmnopqrstuvwxyz\
+                             0123456789";
+    let mut rng = rand::thread_rng();
+
+    (0..length)
+        .map(|_| {
+            let idx = rng.gen_range(0..CHARSET.len());
+            CHARSET[idx] as char
+        })
+        .collect()
+}
+
 
 #[derive(Parser, Debug)]
 #[command(
@@ -58,7 +73,7 @@ struct Args {
     #[arg(long)]
     api_secret: Option<String>,
 
-    #[arg(long, default_value = "audio-room")]
+    #[arg(long, default_value = "test-room")]
     room_name: String,
 
     #[arg(long, default_value = "rust-agent-client")]
@@ -182,6 +197,7 @@ async fn main() -> Result<()> {
     let input_supported_config = input_device.default_input_config()?;
     let output_supported_config = output_device.default_output_config()?;
 
+    /*
     if args.sample_rate != SAMPLE_RATE_HZ {
         return Err(anyhow!(
             "this example is tuned for {} Hz real-time audio; got {}",
@@ -189,6 +205,7 @@ async fn main() -> Result<()> {
             args.sample_rate
         ));
     }
+    */
 
     let available_channels = input_supported_config.channels() as u32;
     if args.channel >= available_channels {
@@ -264,13 +281,19 @@ async fn main() -> Result<()> {
     let mut uplink_runtime = DedicatedRuntime::new("uplink")?;
     let mut downlink_runtime = DedicatedRuntime::new("downlink")?;
 
+    let cpal_buffer_frames_10ms: u32 = args.sample_rate / 100;
+    info!("about to start audio capture on device '{}': sample rate: {} Hz, {} channels, channel {}, StreamConfig(channels: {}, sample_rate: {}, buffer_size: Fixed({} frames), format: {}, num_channels: {}",
+        input_name,
+        args.sample_rate, available_channels, args.channel, input_supported_config.channels(),
+        args.sample_rate, cpal_buffer_frames_10ms, input_supported_config.sample_format(),
+        input_supported_config.channels());
     let _capture = AudioCapture::new(
         input_device,
         StreamConfig {
             channels: input_supported_config.channels(),
             sample_rate: SampleRate(args.sample_rate),
             // Request a 10 ms device buffer to keep capture latency predictable.
-            buffer_size: cpal::BufferSize::Fixed(CPAL_BUFFER_FRAMES_10MS),
+            buffer_size: cpal::BufferSize::Fixed(cpal_buffer_frames_10ms),
         },
         input_supported_config.sample_format(),
         audio_tx,
@@ -279,22 +302,25 @@ async fn main() -> Result<()> {
         if args.benchmark { Some(latency_bench.clone()) } else { None },
     )?;
 
+    info!("about to start audio playback");
     let _playback = AudioPlayback::new(
         output_device,
         StreamConfig {
             channels: 1,
             sample_rate: SampleRate(args.sample_rate),
             // Match speaker output to the same 10 ms pacing used by capture and WebRTC.
-            buffer_size: cpal::BufferSize::Fixed(CPAL_BUFFER_FRAMES_10MS),
+            buffer_size: cpal::BufferSize::Fixed(cpal_buffer_frames_10ms),
         },
         output_supported_config.sample_format(),
         mixer.clone(),
         if args.benchmark { Some(latency_bench.clone()) } else { None },
     )?;
 
+    info!("starting uplink to LiveKit task");
     let uplink_task =
         uplink_runtime.spawn(stream_audio_to_livekit(audio_rx, livekit_source, args.sample_rate));
 
+    info!("starting remote audio handling task");
     let remote_audio_task = downlink_runtime.spawn(handle_remote_audio(
         room.clone(),
         mixer,
@@ -411,12 +437,14 @@ fn resolve_token(args: &Args) -> Result<String> {
         .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
         .ok_or_else(|| anyhow!("missing token and API secret; set --token or --api-secret"))?;
 
+    let room_name: String = args.room_name.clone() + "-" + &generate_random_string(8);
+    info!("connnecting to room: {}", room_name);
     Ok(access_token::AccessToken::with_api_key(&api_key, &api_secret)
         .with_identity(&args.identity)
         .with_name(&args.identity)
         .with_grants(access_token::VideoGrants {
             room_join: true,
-            room: args.room_name.clone(),
+            room: room_name,
             ..Default::default()
         })
         .to_jwt()?)
