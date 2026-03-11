@@ -206,8 +206,12 @@ std::vector<uint8_t> UserTimestampTransformer::AppendTrailer(
     rtc::ArrayView<const uint8_t> data,
     int64_t user_timestamp_us,
     uint32_t frame_id) {
+  const bool has_frame_id = frame_id != 0;
+  const size_t trailer_len = kTimestampTlvSize +
+                             (has_frame_id ? kFrameIdTlvSize : 0) +
+                             kTrailerEnvelopeSize;
   std::vector<uint8_t> result;
-  result.reserve(data.size() + kUserTimestampTrailerSize);
+  result.reserve(data.size() + trailer_len);
 
   // Copy original data
   result.insert(result.end(), data.begin(), data.end());
@@ -223,17 +227,18 @@ std::vector<uint8_t> UserTimestampTransformer::AppendTrailer(
         static_cast<uint8_t>(((user_timestamp_us >> (i * 8)) & 0xFF) ^ 0xFF));
   }
 
-  // TLV: frame_id (tag=0x02, len=4, 4 bytes big-endian)
-  result.push_back(kTagFrameId ^ 0xFF);
-  result.push_back(4 ^ 0xFF);
-  for (int i = 3; i >= 0; --i) {
-    result.push_back(
-        static_cast<uint8_t>(((frame_id >> (i * 8)) & 0xFF) ^ 0xFF));
+  if (has_frame_id) {
+    // TLV: frame_id (tag=0x02, len=4, 4 bytes big-endian)
+    result.push_back(kTagFrameId ^ 0xFF);
+    result.push_back(4 ^ 0xFF);
+    for (int i = 3; i >= 0; --i) {
+      result.push_back(
+          static_cast<uint8_t>(((frame_id >> (i * 8)) & 0xFF) ^ 0xFF));
+    }
   }
 
   // Envelope: trailer_len (1B, XORed) + magic (4B, NOT XORed)
-  result.push_back(
-      static_cast<uint8_t>(kUserTimestampTrailerSize ^ 0xFF));
+  result.push_back(static_cast<uint8_t>(trailer_len ^ 0xFF));
   result.insert(result.end(), std::begin(kUserTimestampMagic),
                 std::end(kUserTimestampMagic));
 

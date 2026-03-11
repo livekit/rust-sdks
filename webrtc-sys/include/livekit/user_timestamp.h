@@ -59,9 +59,14 @@ constexpr size_t kTrailerEnvelopeSize = 5;
 constexpr uint8_t kTagTimestampUs = 0x01;  // value: 8 bytes big-endian int64
 constexpr uint8_t kTagFrameId = 0x02;      // value: 4 bytes big-endian uint32
 
-// Current trailer size with both TLV elements:
-//   (1+1+8) + (1+1+4) + 5 envelope = 21 bytes
-constexpr size_t kUserTimestampTrailerSize = 21;
+constexpr size_t kTimestampTlvSize = 10;  // tag + len + 8-byte value
+constexpr size_t kFrameIdTlvSize = 6;     // tag + len + 4-byte value
+
+// Trailer size varies because frame_id is omitted when it is unset (0).
+constexpr size_t kUserTimestampTrailerMinSize =
+    kTimestampTlvSize + kTrailerEnvelopeSize;
+constexpr size_t kUserTimestampTrailerMaxSize =
+    kTimestampTlvSize + kFrameIdTlvSize + kTrailerEnvelopeSize;
 
 struct FrameMetadata {
   int64_t user_timestamp_us;

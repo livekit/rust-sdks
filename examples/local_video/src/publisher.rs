@@ -123,47 +123,62 @@ impl RollingMs {
 
 #[derive(Default)]
 struct PublisherTimingSummary {
-    camera_capture_ms: RollingMs,
-    decode_ms: RollingMs,
+    paced_wait_ms: RollingMs,
+    camera_frame_read_ms: RollingMs,
+    decode_mjpeg_ms: RollingMs,
     buffer_convert_ms: RollingMs,
     frame_draw_ms: RollingMs,
-    buffer_prepare_ms: RollingMs,
-    capture_to_webrtc_capture_ms: RollingMs,
+    submit_to_webrtc_ms: RollingMs,
+    capture_to_webrtc_total_ms: RollingMs,
 }
 
 impl PublisherTimingSummary {
     fn reset(&mut self) {
-        self.camera_capture_ms.reset();
-        self.decode_ms.reset();
+        self.paced_wait_ms.reset();
+        self.camera_frame_read_ms.reset();
+        self.decode_mjpeg_ms.reset();
         self.buffer_convert_ms.reset();
         self.frame_draw_ms.reset();
-        self.buffer_prepare_ms.reset();
-        self.capture_to_webrtc_capture_ms.reset();
+        self.submit_to_webrtc_ms.reset();
+        self.capture_to_webrtc_total_ms.reset();
     }
 }
 
 fn format_timing_line(timings: &PublisherTimingSummary) -> String {
-    let mut parts =
-        vec![format!("capture {:.2}", timings.camera_capture_ms.average().unwrap_or_default())];
+    let line_one = vec![
+        format!("paced_wait {:.2}", timings.paced_wait_ms.average().unwrap_or_default()),
+        format!(
+            "camera_frame_read {:.2}",
+            timings.camera_frame_read_ms.average().unwrap_or_default()
+        ),
+    ];
+    let mut line_two = Vec::new();
 
-    if let Some(decode_ms) = timings.decode_ms.average() {
-        parts.push(format!("decode {:.2}", decode_ms));
+    if let Some(decode_ms) = timings.decode_mjpeg_ms.average() {
+        line_two.push(format!("decode_mjpeg {:.2}", decode_ms));
     }
 
-    parts.push(format!(
+    line_two.push(format!(
         "convert_to_i420 {:.2}",
         timings.buffer_convert_ms.average().unwrap_or_default()
     ));
     if let Some(frame_draw_ms) = timings.frame_draw_ms.average() {
-        parts.push(format!("frame_draw {:.2}", frame_draw_ms));
+        line_two.push(format!("frame_draw {:.2}", frame_draw_ms));
     }
-    parts.push(format!("buffer {:.2}", timings.buffer_prepare_ms.average().unwrap_or_default()));
-    parts.push(format!(
-        "capture_to_webrtc {:.2}",
-        timings.capture_to_webrtc_capture_ms.average().unwrap_or_default()
+    line_two.push(format!(
+        "submit_to_webrtc {:.2}",
+        timings.submit_to_webrtc_ms.average().unwrap_or_default()
+    ));
+    line_two.push(format!(
+        "capture_to_webrtc_total {:.2}",
+        timings.capture_to_webrtc_total_ms.average().unwrap_or_default()
     ));
 
-    format!("Timing ms: {}", parts.join(" | "))
+    format!(
+        "Timing ms: {}\nTiming ms: {}",
+        line_one.join(" | "),
+        line_two.join(" | ")
+    )
 }
 
 fn list_cameras() -> Result<()> {
@@ -395,7 +410,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             break;
         }
         // Wait until the scheduled next frame time
+        let paced_wait_started_at = Instant::now();
         ticker.tick().await;
+        let paced_wait_finished_at = Instant::now();
 
         // Capture the frame as early as possible so the attached timestamp is
         // close to the camera acquisition point.
@@ -406,7 +423,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         let (stride_y, stride_u, stride_v) = frame.buffer.strides();
         let (data_y, data_u, data_v) = frame.buffer.data_mut();
         let stride_y_usize = stride_y as usize;
-        let (decode_finished_at, mut buffer_ready_at, used_decode_path) = if is_yuyv {
+        let (decode_finished_at, convert_finished_at, used_decode_path) = if is_yuyv {
             // Fast path for YUYV: convert directly to I420 via libyuv
             let src = frame_buf.buffer();
             let src_bytes = src.as_ref();
@@ -521,6 +538,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             }
         };
 
+        let mut buffer_ready_at = convert_finished_at;
         let mut frame_draw_ms = None;
         if let Some(overlay) = timestamp_overlay.as_mut() {
             let overlay_started_at = Instant::now();
@@ -548,23 +566,26 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
         // Per-iteration timing bookkeeping
         timings
-            .camera_capture_ms
+            .paced_wait_ms
+            .record((paced_wait_finished_at - paced_wait_started_at).as_secs_f64() * 1000.0);
+        timings
+            .camera_frame_read_ms
             .record((camera_frame_acquired_at - camera_capture_started_at).as_secs_f64() * 1000.0);
         if used_decode_path {
             timings
-                .decode_ms
+                .decode_mjpeg_ms
                 .record((decode_finished_at - camera_frame_acquired_at).as_secs_f64() * 1000.0);
         }
         timings
             .buffer_convert_ms
-            .record((buffer_ready_at - decode_finished_at).as_secs_f64() * 1000.0);
+            .record((convert_finished_at - decode_finished_at).as_secs_f64() * 1000.0);
         if let Some(frame_draw_ms) = frame_draw_ms {
             timings.frame_draw_ms.record(frame_draw_ms);
         }
         timings
-            .buffer_prepare_ms
-            .record((buffer_ready_at - camera_frame_acquired_at).as_secs_f64() * 1000.0);
-        timings.capture_to_webrtc_capture_ms.record(
+            .submit_to_webrtc_ms
+            .record((webrtc_capture_finished_at - buffer_ready_at).as_secs_f64() * 1000.0);
+        timings.capture_to_webrtc_total_ms.record(
             (webrtc_capture_finished_at - camera_capture_started_at).as_secs_f64() * 1000.0,
         );
 
