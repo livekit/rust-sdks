@@ -24,6 +24,10 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use yuv_sys;
 
+mod timestamp_burn;
+
+use timestamp_burn::TimestampOverlay;
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -83,6 +87,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     attach_timestamp: bool,
 
+    /// Burn the attached timestamp into each video frame; does nothing unless --attach-timestamp is also enabled
+    #[arg(long, default_value_t = false)]
+    burn_timestamp: bool,
+
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set)
     #[arg(long)]
     e2ee_key: Option<String>,
@@ -118,8 +126,8 @@ struct PublisherTimingSummary {
     camera_capture_ms: RollingMs,
     decode_ms: RollingMs,
     buffer_convert_ms: RollingMs,
+    frame_draw_ms: RollingMs,
     buffer_prepare_ms: RollingMs,
-    webrtc_capture_ms: RollingMs,
     capture_to_webrtc_capture_ms: RollingMs,
 }
 
@@ -128,8 +136,8 @@ impl PublisherTimingSummary {
         self.camera_capture_ms.reset();
         self.decode_ms.reset();
         self.buffer_convert_ms.reset();
+        self.frame_draw_ms.reset();
         self.buffer_prepare_ms.reset();
-        self.webrtc_capture_ms.reset();
         self.capture_to_webrtc_capture_ms.reset();
     }
 }
@@ -146,11 +154,10 @@ fn format_timing_line(timings: &PublisherTimingSummary) -> String {
         "convert_to_i420 {:.2}",
         timings.buffer_convert_ms.average().unwrap_or_default()
     ));
+    if let Some(frame_draw_ms) = timings.frame_draw_ms.average() {
+        parts.push(format!("frame_draw {:.2}", frame_draw_ms));
+    }
     parts.push(format!("buffer {:.2}", timings.buffer_prepare_ms.average().unwrap_or_default()));
-    parts.push(format!(
-        "webrtc_capture {:.2}",
-        timings.webrtc_capture_ms.average().unwrap_or_default()
-    ));
     parts.push(format!(
         "capture_to_webrtc {:.2}",
         timings.capture_to_webrtc_capture_ms.average().unwrap_or_default()
@@ -381,14 +388,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut timings = PublisherTimingSummary::default();
     let mut logged_mjpeg_fallback = false;
     let mut frame_counter: u32 = 0;
+    let mut timestamp_overlay = (args.attach_timestamp && args.burn_timestamp)
+        .then(|| TimestampOverlay::new(width, height));
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
             break;
         }
         // Wait until the scheduled next frame time
-        let wait_start = Instant::now();
         ticker.tick().await;
-        let iter_start = Instant::now();
 
         // Capture the frame as early as possible so the attached timestamp is
         // close to the camera acquisition point.
@@ -398,7 +405,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         let camera_frame_acquired_at = Instant::now();
         let (stride_y, stride_u, stride_v) = frame.buffer.strides();
         let (data_y, data_u, data_v) = frame.buffer.data_mut();
-        let (decode_finished_at, buffer_ready_at, used_decode_path) = if is_yuyv {
+        let stride_y_usize = stride_y as usize;
+        let (decode_finished_at, mut buffer_ready_at, used_decode_path) = if is_yuyv {
             // Fast path for YUYV: convert directly to I420 via libyuv
             let src = frame_buf.buffer();
             let src_bytes = src.as_ref();
@@ -513,6 +521,15 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             }
         };
 
+        let mut frame_draw_ms = None;
+        if let Some(overlay) = timestamp_overlay.as_mut() {
+            let overlay_started_at = Instant::now();
+            overlay.draw(data_y, stride_y_usize, capture_wall_time_us);
+            let overlay_finished_at = Instant::now();
+            frame_draw_ms = Some((overlay_finished_at - overlay_started_at).as_secs_f64() * 1000.0);
+            buffer_ready_at = overlay_finished_at;
+        }
+
         // Update RTP timestamp (monotonic, microseconds since start)
         frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
         // Optionally attach wall-clock time as user timestamp and frame_id
@@ -541,12 +558,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         timings
             .buffer_convert_ms
             .record((buffer_ready_at - decode_finished_at).as_secs_f64() * 1000.0);
+        if let Some(frame_draw_ms) = frame_draw_ms {
+            timings.frame_draw_ms.record(frame_draw_ms);
+        }
         timings
             .buffer_prepare_ms
             .record((buffer_ready_at - camera_frame_acquired_at).as_secs_f64() * 1000.0);
-        timings
-            .webrtc_capture_ms
-            .record((webrtc_capture_finished_at - buffer_ready_at).as_secs_f64() * 1000.0);
         timings.capture_to_webrtc_capture_ms.record(
             (webrtc_capture_finished_at - camera_capture_started_at).as_secs_f64() * 1000.0,
         );
