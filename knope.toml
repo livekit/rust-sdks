@@ -110,3 +110,11 @@ changelog = "livekit-ffi/CHANGELOG.md"
 # Assets makes knope create a draft release; CI uploads the actual binaries and publishes.
 assets = "marker"
 scopes = ["ffi", "livekit-ffi"]
+
+[packages.livekit-wakeword]
+versioned_files = [
+  "livekit-wakeword/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-wakeword" },
+]
+changelog = "livekit-wakeword/CHANGELOG.md"
