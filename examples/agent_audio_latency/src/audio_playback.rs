@@ -1,4 +1,5 @@
 use crate::audio_mixer::AudioMixer;
+use crate::audio_processing::SharedAudioProcessing;
 use crate::latency::TurnLatencyBench;
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, StreamTrait};
@@ -20,6 +21,7 @@ impl AudioPlayback {
         config: StreamConfig,
         sample_format: SampleFormat,
         mixer: AudioMixer,
+        apm: Option<Arc<SharedAudioProcessing>>,
         benchmark: Option<Arc<Mutex<TurnLatencyBench>>>,
     ) -> Result<Self> {
         let is_running = Arc::new(AtomicBool::new(true));
@@ -29,6 +31,7 @@ impl AudioPlayback {
                 config,
                 mixer,
                 is_running.clone(),
+                apm.clone(),
                 benchmark.clone(),
             )?,
             SampleFormat::I16 => Self::create_output_stream::<i16>(
@@ -36,6 +39,7 @@ impl AudioPlayback {
                 config,
                 mixer,
                 is_running.clone(),
+                apm.clone(),
                 benchmark.clone(),
             )?,
             SampleFormat::U16 => Self::create_output_stream::<u16>(
@@ -43,6 +47,7 @@ impl AudioPlayback {
                 config,
                 mixer,
                 is_running.clone(),
+                apm,
                 benchmark,
             )?,
             other => return Err(anyhow!("unsupported output sample format: {other:?}")),
@@ -59,6 +64,7 @@ impl AudioPlayback {
         config: StreamConfig,
         mixer: AudioMixer,
         is_running: Arc<AtomicBool>,
+        apm: Option<Arc<SharedAudioProcessing>>,
         benchmark: Option<Arc<Mutex<TurnLatencyBench>>>,
     ) -> Result<Stream>
     where
@@ -77,7 +83,12 @@ impl AudioPlayback {
                     return;
                 }
 
-                let samples = mixer.get_samples(data.len());
+                let mut samples = mixer.get_samples(data.len());
+                if let Some(apm) = &apm {
+                    // APM reverse processing must see the render-side audio so the echo
+                    // canceller can correlate future mic input against what we played.
+                    apm.process_render(&mut samples);
+                }
                 if let Some(benchmark) = &benchmark {
                     // Detect speaker response on the render callback thread so the benchmark
                     // measures when audio is actually handed to the output device path.

@@ -34,6 +34,7 @@ pub struct TurnLatencyBench {
     user_is_speaking: bool,
     user_speech_accum: Duration,
     user_silence_accum: Duration,
+    user_silence_start_at: Option<Instant>,
     waiting_for_speaker: bool,
     user_speech_end_at: Option<Instant>,
     speaker_loud_accum: Duration,
@@ -49,6 +50,7 @@ impl TurnLatencyBench {
             user_is_speaking: false,
             user_speech_accum: Duration::ZERO,
             user_silence_accum: Duration::ZERO,
+            user_silence_start_at: None,
             waiting_for_speaker: false,
             user_speech_end_at: None,
             speaker_loud_accum: Duration::ZERO,
@@ -70,6 +72,7 @@ impl TurnLatencyBench {
         let level_dbfs = rms_dbfs(samples);
         let chunk_duration = chunk_duration(samples.len(), sample_rate);
         let now = Instant::now();
+        let chunk_start = now.checked_sub(chunk_duration).unwrap_or(now);
 
         if level_dbfs >= self.config.user_speech_threshold_dbfs {
             if self.waiting_for_speaker {
@@ -84,6 +87,7 @@ impl TurnLatencyBench {
             self.user_is_speaking = true;
             self.user_speech_accum += chunk_duration;
             self.user_silence_accum = Duration::ZERO;
+            self.user_silence_start_at = None;
             return;
         }
 
@@ -91,6 +95,9 @@ impl TurnLatencyBench {
             return;
         }
 
+        if self.user_silence_start_at.is_none() {
+            self.user_silence_start_at = Some(chunk_start);
+        }
         self.user_silence_accum += chunk_duration;
         if self.user_silence_accum < self.config.user_silence_hold {
             return;
@@ -107,7 +114,8 @@ impl TurnLatencyBench {
         self.user_speech_accum = Duration::ZERO;
         self.user_silence_accum = Duration::ZERO;
         self.waiting_for_speaker = true;
-        self.user_speech_end_at = Some(now);
+        self.user_speech_end_at = Some(self.user_silence_start_at.unwrap_or(chunk_start));
+        self.user_silence_start_at = None;
         self.reset_speaker_tracking();
         info!("benchmark: detected end of user speech");
     }

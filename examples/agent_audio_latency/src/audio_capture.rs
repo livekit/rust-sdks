@@ -1,3 +1,4 @@
+use crate::audio_processing::SharedAudioProcessing;
 use crate::latency::TurnLatencyBench;
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, StreamTrait};
@@ -22,6 +23,7 @@ impl AudioCapture {
         audio_tx: mpsc::UnboundedSender<Vec<i16>>,
         channel_index: u32,
         num_input_channels: u32,
+        apm: Option<Arc<SharedAudioProcessing>>,
         benchmark: Option<Arc<Mutex<TurnLatencyBench>>>,
     ) -> Result<Self> {
         info!("creating audio capture stream");
@@ -35,6 +37,7 @@ impl AudioCapture {
                 is_running.clone(),
                 channel_index,
                 num_input_channels,
+                apm.clone(),
                 benchmark.clone(),
             )?,
             SampleFormat::I16 => Self::create_input_stream::<i16>(
@@ -44,6 +47,7 @@ impl AudioCapture {
                 is_running.clone(),
                 channel_index,
                 num_input_channels,
+                apm.clone(),
                 benchmark.clone(),
             )?,
             SampleFormat::U16 => Self::create_input_stream::<u16>(
@@ -53,6 +57,7 @@ impl AudioCapture {
                 is_running.clone(),
                 channel_index,
                 num_input_channels,
+                apm,
                 benchmark,
             )?,
             other => return Err(anyhow!("unsupported input sample format: {other:?}")),
@@ -72,6 +77,7 @@ impl AudioCapture {
         is_running: Arc<AtomicBool>,
         channel_index: u32,
         num_input_channels: u32,
+        apm: Option<Arc<SharedAudioProcessing>>,
         benchmark: Option<Arc<Mutex<TurnLatencyBench>>>,
     ) -> Result<Stream>
     where
@@ -87,12 +93,18 @@ impl AudioCapture {
                     return;
                 }
 
-                let converted: Vec<i16> = data
+                let mut converted: Vec<i16> = data
                     .iter()
                     .skip(channel_index as usize)
                     .step_by(num_input_channels as usize)
                     .map(|&sample| convert_sample_to_i16(sample))
                     .collect();
+
+                if let Some(apm) = &apm {
+                    // APM forward processing belongs on the capture thread so the mic signal
+                    // is cleaned up before it enters the app's async/network pipeline.
+                    apm.process_capture(&mut converted);
+                }
 
                 if let Some(benchmark) = &benchmark {
                     // Detect turn-end directly on the capture callback thread. For this

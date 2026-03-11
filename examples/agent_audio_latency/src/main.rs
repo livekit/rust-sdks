@@ -1,12 +1,14 @@
 mod audio_capture;
 mod audio_mixer;
 mod audio_playback;
+mod audio_processing;
 mod latency;
 
 use anyhow::{anyhow, Result};
 use audio_capture::AudioCapture;
 use audio_mixer::AudioMixer;
 use audio_playback::AudioPlayback;
+use audio_processing::SharedAudioProcessing;
 use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, SampleRate, StreamConfig};
@@ -49,7 +51,6 @@ fn generate_random_string(length: usize) -> String {
         })
         .collect()
 }
-
 
 #[derive(Parser, Debug)]
 #[command(
@@ -274,6 +275,7 @@ async fn main() -> Result<()> {
 
     let mixer = AudioMixer::new(args.sample_rate, 1, args.volume);
     let (audio_tx, audio_rx) = mpsc::unbounded_channel();
+    let apm = Arc::new(SharedAudioProcessing::new(args.sample_rate, 1));
 
     // Real-time audio is sensitive to scheduler stalls. The microphone uplink path and
     // the room downlink/playback path each get a dedicated Tokio runtime thread so that
@@ -299,6 +301,7 @@ async fn main() -> Result<()> {
         audio_tx,
         args.channel,
         available_channels,
+        Some(apm.clone()),
         if args.benchmark { Some(latency_bench.clone()) } else { None },
     )?;
 
@@ -313,6 +316,7 @@ async fn main() -> Result<()> {
         },
         output_supported_config.sample_format(),
         mixer.clone(),
+        Some(apm),
         if args.benchmark { Some(latency_bench.clone()) } else { None },
     )?;
 
