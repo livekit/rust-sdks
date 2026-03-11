@@ -1,0 +1,17 @@
+[package]
+name = "agent_audio_latency"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true, features = ["derive"] }
+cpal = "0.15"
+env_logger = { workspace = true }
+futures-util = { workspace = true }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
+log = { workspace = true }
+rand = "0.8"
+tokio = { workspace = true, features = ["full"] }
