@@ -47,8 +47,21 @@ namespace livekit_ffi {
 
 // Magic bytes to identify user timestamp trailers: "LKTS" (LiveKit TimeStamp)
 constexpr uint8_t kUserTimestampMagic[4] = {'L', 'K', 'T', 'S'};
-constexpr size_t kUserTimestampTrailerSize =
-    16;  // 8 bytes timestamp + 4 bytes frame_id + 4 bytes magic
+
+// Trailer envelope: [trailer_len: 1B] [magic: 4B] = 5 bytes.
+// Always present at the end of every trailer.
+constexpr size_t kTrailerEnvelopeSize = 5;
+
+// TLV element overhead: [tag: 1B] [len: 1B] = 2 bytes before value.
+// All TLV bytes (tag, len, value) are XORed with 0xFF.
+
+// TLV tag IDs
+constexpr uint8_t kTagTimestampUs = 0x01;  // value: 8 bytes big-endian int64
+constexpr uint8_t kTagFrameId = 0x02;      // value: 4 bytes big-endian uint32
+
+// Current trailer size with both TLV elements:
+//   (1+1+8) + (1+1+4) + 5 envelope = 21 bytes
+constexpr size_t kUserTimestampTrailerSize = 21;
 
 struct FrameMetadata {
   int64_t user_timestamp_us;

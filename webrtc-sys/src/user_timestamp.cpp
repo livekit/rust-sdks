@@ -212,24 +212,28 @@ std::vector<uint8_t> UserTimestampTransformer::AppendTrailer(
   // Copy original data
   result.insert(result.end(), data.begin(), data.end());
 
-  // Append user_timestamp_us (big-endian, 8 bytes) XORed with 0xFF to
-  // prevent H.264 NAL start code sequences (0x000001 / 0x00000001) from
-  // appearing inside the trailer.  The H.264 packetizer scans the full
-  // frame payload for start codes, and the trailer's raw bytes can
-  // contain 0x000001 (e.g. frame_id 256 = 0x00000100).
+  // All TLV bytes are XORed with 0xFF to prevent H.264 NAL start code
+  // sequences (0x000001 / 0x00000001) from appearing inside the trailer.
+
+  // TLV: timestamp_us (tag=0x01, len=8, 8 bytes big-endian)
+  result.push_back(kTagTimestampUs ^ 0xFF);
+  result.push_back(8 ^ 0xFF);
   for (int i = 7; i >= 0; --i) {
     result.push_back(
         static_cast<uint8_t>(((user_timestamp_us >> (i * 8)) & 0xFF) ^ 0xFF));
   }
 
-  // Append frame_id (big-endian, 4 bytes), also XORed
+  // TLV: frame_id (tag=0x02, len=4, 4 bytes big-endian)
+  result.push_back(kTagFrameId ^ 0xFF);
+  result.push_back(4 ^ 0xFF);
   for (int i = 3; i >= 0; --i) {
     result.push_back(
         static_cast<uint8_t>(((frame_id >> (i * 8)) & 0xFF) ^ 0xFF));
   }
 
-  // Append magic bytes (NOT XORed — they must remain recognizable and
-  // already contain no 0x00/0x01 bytes)
+  // Envelope: trailer_len (1B, XORed) + magic (4B, NOT XORed)
+  result.push_back(
+      static_cast<uint8_t>(kUserTimestampTrailerSize ^ 0xFF));
   result.insert(result.end(), std::begin(kUserTimestampMagic),
                 std::end(kUserTimestampMagic));
 
@@ -239,7 +243,7 @@ std::vector<uint8_t> UserTimestampTransformer::AppendTrailer(
 std::optional<FrameMetadata> UserTimestampTransformer::ExtractTrailer(
     rtc::ArrayView<const uint8_t> data,
     std::vector<uint8_t>& out_data) {
-  if (data.size() < kUserTimestampTrailerSize) {
+  if (data.size() < kTrailerEnvelopeSize) {
     out_data.assign(data.begin(), data.end());
     return std::nullopt;
   }
@@ -251,26 +255,58 @@ std::optional<FrameMetadata> UserTimestampTransformer::ExtractTrailer(
     return std::nullopt;
   }
 
-  const uint8_t* trailer_start =
-      data.data() + data.size() - kUserTimestampTrailerSize;
+  uint8_t trailer_len = data[data.size() - 5] ^ 0xFF;
 
-  // Extract user_timestamp_us (big-endian, 8 bytes, XORed with 0xFF)
-  int64_t timestamp = 0;
-  for (int i = 0; i < 8; ++i) {
-    timestamp = (timestamp << 8) | (trailer_start[i] ^ 0xFF);
+  if (trailer_len < kTrailerEnvelopeSize || trailer_len > data.size()) {
+    out_data.assign(data.begin(), data.end());
+    return std::nullopt;
   }
 
-  // Extract frame_id (big-endian, 4 bytes, XORed with 0xFF)
-  uint32_t frame_id = 0;
-  for (int i = 0; i < 4; ++i) {
-    frame_id = (frame_id << 8) | (trailer_start[8 + i] ^ 0xFF);
+  // Walk the TLV region: everything from trailer_start up to the envelope.
+  const uint8_t* trailer_start = data.data() + data.size() - trailer_len;
+  size_t tlv_region_len = trailer_len - kTrailerEnvelopeSize;
+
+  FrameMetadata meta{0, 0, 0};
+  bool found_any = false;
+  size_t pos = 0;
+
+  while (pos + 2 <= tlv_region_len) {
+    uint8_t tag = trailer_start[pos] ^ 0xFF;
+    uint8_t len = trailer_start[pos + 1] ^ 0xFF;
+    pos += 2;
+
+    if (pos + len > tlv_region_len) {
+      break;
+    }
+
+    const uint8_t* val = trailer_start + pos;
+
+    if (tag == kTagTimestampUs && len == 8) {
+      int64_t ts = 0;
+      for (int i = 0; i < 8; ++i) {
+        ts = (ts << 8) | (val[i] ^ 0xFF);
+      }
+      meta.user_timestamp_us = ts;
+      found_any = true;
+    } else if (tag == kTagFrameId && len == 4) {
+      uint32_t fid = 0;
+      for (int i = 0; i < 4; ++i) {
+        fid = (fid << 8) | (val[i] ^ 0xFF);
+      }
+      meta.frame_id = fid;
+      found_any = true;
+    }
+    // Unknown tags are silently skipped.
+
+    pos += len;
   }
 
-  // Copy data without trailer
-  out_data.assign(data.begin(),
-                  data.end() - kUserTimestampTrailerSize);
+  out_data.assign(data.begin(), data.end() - trailer_len);
 
-  return FrameMetadata{timestamp, frame_id, 0};
+  if (!found_any) {
+    return std::nullopt;
+  }
+  return meta;
 }
 
 void UserTimestampTransformer::RegisterTransformedFrameCallback(
