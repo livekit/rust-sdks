@@ -46,6 +46,7 @@ livekit-api = { version = "0.4.14", path = "livekit-api" }
 livekit-ffi = { version = "0.12.48", path = "livekit-ffi" }
 livekit-protocol = { version = "0.7.1", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
+livekit-wakeword = { version = "0.1.0", path = "livekit-wakeword" }
 soxr-sys = { version = "0.1.2", path = "soxr-sys" }
 webrtc-sys = { version = "0.3.23", path = "webrtc-sys" }
 webrtc-sys-build = { version = "0.3.13", path = "webrtc-sys/build" }
