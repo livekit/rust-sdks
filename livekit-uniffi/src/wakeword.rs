@@ -12,37 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_wakeword::{WakeWordError as InnerWakeWordError, WakeWordModel};
+use livekit_wakeword::{WakeWordError, WakeWordModel};
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-/// An error that can occur during wake word detection.
-#[derive(Debug, thiserror::Error, uniffi::Error)]
+#[uniffi::remote(Error)]
 #[uniffi(flat_error)]
 pub enum WakeWordError {
-    #[error("{msg}")]
-    ModelNotFound { msg: String },
-    #[error("{msg}")]
-    UnsupportedSampleRate { msg: String },
-    #[error("{msg}")]
-    IoError { msg: String },
-    #[error("{msg}")]
-    InferenceError { msg: String },
-}
-
-impl From<InnerWakeWordError> for WakeWordError {
-    fn from(e: InnerWakeWordError) -> Self {
-        match &e {
-            InnerWakeWordError::ModelNotFound(_) => {
-                WakeWordError::ModelNotFound { msg: e.to_string() }
-            }
-            InnerWakeWordError::UnsupportedSampleRate(_) => {
-                WakeWordError::UnsupportedSampleRate { msg: e.to_string() }
-            }
-            InnerWakeWordError::Io(_) => WakeWordError::IoError { msg: e.to_string() },
-            _ => WakeWordError::InferenceError { msg: e.to_string() },
-        }
-    }
+    Ort,
+    Shape,
+    Io,
+    ModelNotFound,
+    UnsupportedSampleRate,
+    Resample,
 }
 
 /// Wake word detector backed by ONNX classifier models.
