@@ -118,3 +118,12 @@ versioned_files = [
   { path = "Cargo.toml", dependency = "livekit-wakeword" },
 ]
 changelog = "livekit-wakeword/CHANGELOG.md"
+
+[packages.livekit-datatrack]
+versioned_files = [
+  "livekit-datatrack/Cargo.toml",
+  "Cargo.lock",
+  { path = "Cargo.toml", dependency = "livekit-datatrack" },
+]
+changelog = "livekit-datatrack/CHANGELOG.md"
+# TODO: add livekit and ffi scopes once other PRs are merged
