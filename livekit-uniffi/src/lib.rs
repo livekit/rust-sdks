@@ -22,6 +22,7 @@ pub mod log_forward;
 pub mod build_info;
 
 /// Wake word detection from [`livekit-wakeword`].
+#[cfg(feature = "wakeword")]
 pub mod wakeword;
 
 uniffi::setup_scaffolding!();
