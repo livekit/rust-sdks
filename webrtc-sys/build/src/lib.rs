@@ -86,8 +86,7 @@ pub fn custom_dir() -> Option<path::PathBuf> {
 /// Location of the downloaded webrtc binaries
 pub fn prebuilt_dir() -> path::PathBuf {
     path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join(format!(
-        "livekit/{}-{}/{}",
-        webrtc_triple(),
+        "{}/{}",
         WEBRTC_TAG,
         webrtc_triple()
     ))
