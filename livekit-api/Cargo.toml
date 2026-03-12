@@ -1,14 +1,14 @@
 [package]
 name = "livekit-api"
-version = "0.4.14"
-license.workspace = true
+version = "0.4.2"
+license = "Apache-2.0"
 description = "Rust Server SDK for LiveKit"
-edition.workspace = true
-repository.workspace = true
+edition = "2021"
+repository = "https://github.com/livekit/rust-sdks"
 
 [features]
 # By default ws TLS is not enabled
-default = ["services-tokio"]
+default = ["services-tokio", "access-token", "webhooks"]
 
 signal-client-tokio = [
     "dep:tokio-tungstenite",
@@ -17,26 +17,24 @@ signal-client-tokio = [
     "dep:reqwest",
     "dep:livekit-runtime",
     "livekit-runtime/tokio",
-    "dep:base64"
 ]
 
 signal-client-async = [
     "__signal-client-async-compatible",
-    "livekit-runtime/async"
+    "livekit-runtime/async",
 ]
 
 signal-client-dispatcher = [
     "__signal-client-async-compatible",
-    "livekit-runtime/dispatcher"
+    "livekit-runtime/dispatcher",
 ]
 
 __signal-client-async-compatible = [
     "dep:async-tungstenite",
-    "dep:tokio", # For macros and sync
+    "dep:tokio",             # For macros and sync
     "dep:futures-util",
     "dep:isahc",
     "dep:livekit-runtime",
-    "dep:base64"
 ]
 
 
@@ -50,7 +48,7 @@ webhooks = ["access-token", "dep:serde_json", "dep:base64"]
 native-tls = [
     "tokio-tungstenite?/native-tls",
     "async-tungstenite?/async-native-tls",
-    "reqwest?/native-tls"
+    "reqwest?/native-tls",
 ]
 native-tls-vendored = [
     "tokio-tungstenite?/native-tls-vendored",
@@ -59,9 +57,6 @@ native-tls-vendored = [
 rustls-tls-native-roots = [
     "tokio-tungstenite?/rustls-tls-native-roots",
     "reqwest?/rustls-tls-native-roots",
-    "tokio-tungstenite?/__rustls-tls",
-    "dep:tokio-rustls",
-    "dep:rustls-native-certs"
 ]
 rustls-tls-webpki-roots = [
     "tokio-tungstenite?/rustls-tls-webpki-roots",
@@ -70,39 +65,48 @@ rustls-tls-webpki-roots = [
 __rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
 
 [dependencies]
-livekit-protocol = { workspace = true }
-thiserror = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
+livekit-protocol = { path = "../livekit-protocol", version = "0.3.9" }
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 sha2 = "0.10"
 url = "2.3"
-log = { workspace = true }
-parking_lot = { workspace = true }
+log = "0.4"
+parking_lot = { version = "0.12" }
 prost = "0.12"
 pbjson-types = "0.6"
 
 # webhooks
-serde_json = { workspace = true, optional = true }
-base64 = { version = "0.21", optional = true, features = ["std"] }
+serde_json = { version = "1.0", optional = true }
+base64 = { version = "0.21", optional = true }
 
 # access_token & services
-jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"], optional = true }
+jsonwebtoken = { version = "9", default-features = false, optional = true }
 
 # signal_client
-livekit-runtime = { workspace = true, optional = true}
-tokio-tungstenite = { version = "0.28", optional = true }
-async-tungstenite = { version = "0.25.0", features = [ "async-std-runtime", "async-native-tls"], optional = true }
-tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
-tokio-rustls = { version = "0.26", optional = true }
-rustls-native-certs = { version = "0.6", optional = true }
-futures-util = { workspace = true, default-features = false, features = [ "sink" ], optional = true }
+livekit-runtime = { path = "../livekit-runtime", version = "0.4.0", optional = true }
+tokio-tungstenite = { version = "0.26", optional = true }
+async-tungstenite = { version = "0.25.0", features = [
+    "async-std-runtime",
+    "async-native-tls",
+], optional = true }
+tokio = { version = "1", default-features = false, features = [
+    "sync",
+    "macros",
+    "signal",
+], optional = true }
+futures-util = { version = "0.3", default-features = false, features = [
+    "sink",
+], optional = true }
 
 # This dependency must be kept in sync with reqwest's version
-http = "1.1"
-reqwest = { version = "0.12", default-features = false, features = [ "json" ], optional = true }
-isahc = { version = "1.7.2", default-features = false, features = [ "json", "text-decoding" ], optional = true }
+http = "0.2.1"
+reqwest = { version = "0.11", default-features = false, features = [
+    "json",
+], optional = true }
+isahc = { version = "1.7.2", default-features = false, features = [
+    "json",
+    "text-decoding",
+], optional = true }
 
 scopeguard = "1.2.0"
-rand = { workspace = true }
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }
+rand = "0.9.0"

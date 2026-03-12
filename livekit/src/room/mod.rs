@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2023 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use bmrng::unbounded::UnboundedRequestReceiver;
+use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
+
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
     prelude::{
@@ -22,40 +23,30 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
-pub use livekit_api::signal_client::TlsConfig;
-use livekit_api::signal_client::{SignalOptions, SignalSdkOptions, SIGNAL_CONNECT_TIMEOUT};
+use livekit_api::signal_client::{SignalOptions, SignalSdkOptions};
+use livekit_protocol as proto;
 use livekit_protocol::observer::Dispatcher;
-use livekit_protocol::{self as proto, encryption};
 use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
-use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
-use tokio::sync::{
-    broadcast,
-    mpsc::{self, UnboundedReceiver},
-    oneshot, Mutex as AsyncMutex,
-};
-pub use utils::take_cell::TakeCell;
+use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 
 pub use self::{
-    data_stream::*,
     e2ee::{manager::E2eeManager, E2eeOptions},
-    participant::{ParticipantKind, ParticipantKindDetail},
+    participant::ParticipantKind,
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
     participant::ConnectionQuality,
     prelude::*,
-    registered_audio_filter_plugins,
     rtc_engine::{
         EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, RtcEngine,
         SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
     },
 };
 
-pub mod data_stream;
 pub mod e2ee;
 pub mod id;
 pub mod options;
@@ -150,14 +141,6 @@ pub enum RoomEvent {
         participant: Participant,
         changed_attributes: HashMap<String, String>,
     },
-    ParticipantEncryptionStatusChanged {
-        participant: Participant,
-        is_encrypted: bool,
-    },
-    ParticipantPermissionChanged {
-        participant: Participant,
-        permission: Option<proto::ParticipantPermission>,
-    },
     ActiveSpeakersChanged {
         speakers: Vec<Participant>,
     },
@@ -185,27 +168,14 @@ pub enum RoomEvent {
         message: ChatMessage,
         participant: Option<RemoteParticipant>,
     },
-    ByteStreamOpened {
-        reader: TakeCell<ByteStreamReader>,
-        topic: String,
-        participant_identity: ParticipantIdentity,
-    },
-    TextStreamOpened {
-        reader: TakeCell<TextStreamReader>,
-        topic: String,
-        participant_identity: ParticipantIdentity,
-    },
-    #[deprecated(note = "Use high-level data streams API instead.")]
     StreamHeaderReceived {
         header: proto::data_stream::Header,
         participant_identity: String,
     },
-    #[deprecated(note = "Use high-level data streams API instead.")]
     StreamChunkReceived {
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
     },
-    #[deprecated(note = "Use high-level data streams API instead.")]
     StreamTrailerReceived {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
@@ -229,18 +199,6 @@ pub enum RoomEvent {
     DataChannelBufferedAmountLowThresholdChanged {
         kind: DataPacketKind,
         threshold: u64,
-    },
-    RoomUpdated {
-        room: RoomInfo,
-    },
-    Moved {
-        room: RoomInfo,
-    },
-    ParticipantsUpdated {
-        participants: Vec<Participant>,
-    },
-    TokenRefreshed {
-        token: String,
     },
 }
 
@@ -356,29 +314,34 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct RoomOptions {
     pub auto_subscribe: bool,
     pub adaptive_stream: bool,
     pub dynacast: bool,
-    // TODO: link to encryption docs in deprecation notice once available
-    #[deprecated(note = "Use `encryption` field instead")]
     pub e2ee: Option<E2eeOptions>,
-    pub encryption: Option<E2eeOptions>,
     pub rtc_config: RtcConfiguration,
     pub join_retries: u32,
     pub sdk_options: RoomSdkOptions,
-    /// Enable single peer connection mode. When true, uses one RTCPeerConnection
-    /// for both publishing and subscribing instead of two separate connections.
-    /// Falls back to dual peer connection if the server doesn't support single PC.
-    pub single_peer_connection: bool,
-    /// Timeout for each individual signal connection attempt
-    pub connect_timeout: Duration,
-    /// Custom TLS config
-    pub tls_config: TlsConfig,
+    pub signal_options: SignalOptions,
+    pub connector: Option<livekit_api::signal_client::Connector>,
 }
-
+impl Debug for RoomOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RoomOptions")
+            .field("auto_subscribe", &self.auto_subscribe)
+            .field("adaptive_stream", &self.adaptive_stream)
+            .field("dynacast", &self.dynacast)
+            .field("e2ee", &self.e2ee)
+            .field("rtc_config", &self.rtc_config)
+            .field("join_retries", &self.join_retries)
+            .field("sdk_options", &self.sdk_options)
+            .field("signal_options", &self.signal_options)
+            // Exclude connector field as it's not Debug
+            .finish()
+    }
+}
 impl Default for RoomOptions {
     fn default() -> Self {
         Self {
@@ -386,7 +349,6 @@ impl Default for RoomOptions {
             adaptive_stream: false,
             dynacast: false,
             e2ee: None,
-            encryption: None,
 
             // Explicitly set the default values
             rtc_config: RtcConfiguration {
@@ -397,9 +359,8 @@ impl Default for RoomOptions {
             },
             join_retries: 3,
             sdk_options: RoomSdkOptions::default(),
-            single_peer_connection: false,
-            connect_timeout: SIGNAL_CONNECT_TIMEOUT,
-            tls_config: TlsConfig::default(),
+            signal_options: SignalOptions::default(),
+            connector: None,
         }
     }
 }
@@ -418,24 +379,14 @@ impl Debug for Room {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct RoomInfo {
-    pub sid: Option<RoomSid>,
-    pub name: String,
-    pub metadata: String,
-    pub state: ConnectionState,
-    pub lossy_dc_options: DataChannelOptions,
-    pub reliable_dc_options: DataChannelOptions,
-    pub empty_timeout: u32,
-    pub departure_timeout: u32,
-    pub max_participants: u32,
-    pub creation_time: i64,
-    pub num_publishers: u32,
-    pub num_participants: u32,
-    pub active_recording: bool,
+struct RoomInfo {
+    metadata: String,
+    state: ConnectionState,
+    lossy_dc_options: DataChannelOptions,
+    reliable_dc_options: DataChannelOptions,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct DataChannelOptions {
     pub buffered_amount_low_threshold: u64,
 }
@@ -448,7 +399,8 @@ impl Default for DataChannelOptions {
 
 pub(crate) struct RoomSession {
     rtc_engine: Arc<RtcEngine>,
-    sid_promise: Promise<RoomSid>,
+    sid: Promise<RoomSid>,
+    name: String,
     info: RwLock<RoomInfo>,
     dispatcher: Dispatcher<RoomEvent>,
     options: RoomOptions,
@@ -456,24 +408,14 @@ pub(crate) struct RoomSession {
     local_participant: LocalParticipant,
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
-    incoming_stream_manager: IncomingStreamManager,
-    outgoing_stream_manager: OutgoingStreamManager,
-    handle: AsyncMutex<Option<Handle>>,
-}
-
-struct Handle {
-    room_handle: JoinHandle<()>,
-    incoming_stream_handle: JoinHandle<()>,
-    outgoing_stream_handle: JoinHandle<()>,
-    close_tx: broadcast::Sender<()>,
+    room_task: AsyncMutex<Option<(JoinHandle<()>, oneshot::Sender<()>)>>,
 }
 
 impl Debug for RoomSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let info = self.info.read();
         f.debug_struct("SessionInner")
-            .field("sid", &info.sid)
-            .field("name", &info.name)
+            .field("sid", &self.sid.try_result())
+            .field("name", &self.name)
             .field("rtc_engine", &self.rtc_engine)
             .finish()
     }
@@ -483,19 +425,15 @@ impl Room {
     pub async fn connect(
         url: &str,
         token: &str,
-        mut options: RoomOptions,
+        options: RoomOptions,
     ) -> RoomResult<(Self, mpsc::UnboundedReceiver<RoomEvent>)> {
         // TODO(theomonnom): move connection logic to the RoomSession
-        let with_dc_encryption = options.encryption.is_some();
-        let encryption_options = options.encryption.take().or(options.e2ee.take());
-        let e2ee_manager = E2eeManager::new(encryption_options, with_dc_encryption);
+        let e2ee_manager = E2eeManager::new(options.e2ee.clone());
         let mut signal_options = SignalOptions::default();
         signal_options.sdk_options = options.sdk_options.clone().into();
         signal_options.auto_subscribe = options.auto_subscribe;
         signal_options.adaptive_stream = options.adaptive_stream;
-        signal_options.single_peer_connection = options.single_peer_connection;
-        signal_options.connect_timeout = options.connect_timeout;
-        signal_options.tls_config = options.tls_config.clone();
+        signal_options.connector = options.connector.clone();
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,
@@ -503,9 +441,7 @@ impl Room {
                 rtc_config: options.rtc_config.clone(),
                 signal_options,
                 join_retries: options.join_retries,
-                single_peer_connection: options.single_peer_connection,
             },
-            Some(e2ee_manager.clone()),
         )
         .await?;
         let rtc_engine = Arc::new(rtc_engine);
@@ -518,14 +454,12 @@ impl Room {
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
             pi.kind().into(),
-            utils::convert_kind_details(&pi.kind_details),
             pi.sid.try_into().unwrap(),
             pi.identity.into(),
             pi.name,
             pi.metadata,
             pi.attributes,
             e2ee_manager.encryption_type(),
-            pi.permission,
         );
 
         let dispatcher = Dispatcher::<RoomEvent>::default();
@@ -601,32 +535,13 @@ impl Room {
             }
         });
 
-        local_participant.on_permission_changed({
-            let dispatcher = dispatcher.clone();
-            move |participant, permission| {
-                let event = RoomEvent::ParticipantPermissionChanged { participant, permission };
-                dispatcher.dispatch(&event);
-            }
-        });
-
-        let (incoming_stream_manager, open_rx) = IncomingStreamManager::new();
-        let (outgoing_stream_manager, packet_rx) = OutgoingStreamManager::new();
-
         let room_info = join_response.room.unwrap();
         let inner = Arc::new(RoomSession {
-            sid_promise: Promise::new(),
+            sid: Promise::new(),
+            name: room_info.name,
             info: RwLock::new(RoomInfo {
-                sid: room_info.sid.try_into().ok(),
-                name: room_info.name,
-                metadata: room_info.metadata,
-                empty_timeout: room_info.empty_timeout,
-                departure_timeout: room_info.departure_timeout,
-                max_participants: room_info.max_participants,
-                creation_time: room_info.creation_time_ms,
-                num_publishers: room_info.num_publishers,
-                num_participants: room_info.num_participants,
-                active_recording: room_info.active_recording,
                 state: ConnectionState::Disconnected,
+                metadata: room_info.metadata,
                 lossy_dc_options: Default::default(),
                 reliable_dc_options: Default::default(),
             }),
@@ -637,11 +552,8 @@ impl Room {
             local_participant,
             dispatcher: dispatcher.clone(),
             e2ee_manager: e2ee_manager.clone(),
-            incoming_stream_manager,
-            outgoing_stream_manager,
-            handle: Default::default(),
+            room_task: Default::default(),
         });
-        inner.local_participant.set_session(Arc::downgrade(&inner));
 
         e2ee_manager.on_state_changed({
             let dispatcher = dispatcher.clone();
@@ -672,13 +584,11 @@ impl Room {
                 let pi = pi.clone();
                 inner.create_participant(
                     pi.kind().into(),
-                    utils::convert_kind_details(&pi.kind_details),
                     pi.sid.try_into().unwrap(),
                     pi.identity.into(),
                     pi.name,
                     pi.metadata,
                     pi.attributes,
-                    pi.permission,
                 )
             };
             participant.update_info(pi.clone());
@@ -697,24 +607,9 @@ impl Room {
         inner.dispatcher.dispatch(&RoomEvent::Connected { participants_with_tracks });
         inner.update_connection_state(ConnectionState::Connected);
 
-        let (close_tx, close_rx) = broadcast::channel(1);
-
-        let incoming_stream_handle = livekit_runtime::spawn(incoming_data_stream_task(
-            open_rx,
-            dispatcher.clone(),
-            close_rx.resubscribe(),
-        ));
-        let outgoing_stream_handle = livekit_runtime::spawn(outgoing_data_stream_task(
-            packet_rx,
-            rtc_engine.clone(),
-            close_rx.resubscribe(),
-        ));
-
-        let room_handle = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
-
-        let handle =
-            Handle { room_handle, incoming_stream_handle, outgoing_stream_handle, close_tx };
-        inner.handle.lock().await.replace(handle);
+        let (close_tx, close_rx) = oneshot::channel();
+        let room_task = livekit_runtime::spawn(inner.clone().room_task(engine_events, close_rx));
+        inner.room_task.lock().await.replace((room_task, close_tx));
 
         Ok((Self { inner }, events))
     }
@@ -736,20 +631,15 @@ impl Room {
     }
 
     pub async fn sid(&self) -> RoomSid {
-        // sid could have been updated due to room move
-        let sid = self.inner.info.read().sid.clone();
-        if sid.is_none() {
-            return self.inner.sid_promise.result().await;
-        }
-        sid.unwrap()
+        self.inner.sid.result().await
     }
 
     pub fn maybe_sid(&self) -> Option<RoomSid> {
-        self.inner.info.read().sid.clone()
+        self.inner.sid.try_result()
     }
 
     pub fn name(&self) -> String {
-        self.inner.info.read().name.clone()
+        self.inner.name.clone()
     }
 
     pub fn metadata(&self) -> String {
@@ -762,12 +652,6 @@ impl Room {
 
     pub fn connection_state(&self) -> ConnectionState {
         self.inner.info.read().state
-    }
-
-    /// Returns whether the room is currently using single peer connection signaling.
-    /// If requested but not supported by server, this will be false after v0 fallback.
-    pub fn is_single_peer_connection_active(&self) -> bool {
-        self.inner.rtc_engine.session().is_single_pc_mode()
     }
 
     pub fn remote_participants(&self) -> HashMap<ParticipantIdentity, RemoteParticipant> {
@@ -784,41 +668,13 @@ impl Room {
             DataPacketKind::Reliable => self.inner.info.read().reliable_dc_options.clone(),
         }
     }
-
-    pub fn empty_timeout(&self) -> u32 {
-        self.inner.info.read().empty_timeout
-    }
-
-    pub fn departure_timeout(&self) -> u32 {
-        self.inner.info.read().departure_timeout
-    }
-
-    pub fn max_participants(&self) -> u32 {
-        self.inner.info.read().max_participants
-    }
-    /// Returns the room creation time in milliseconds since Unix epoch.
-    pub fn creation_time(&self) -> i64 {
-        self.inner.info.read().creation_time
-    }
-
-    pub fn num_participants(&self) -> u32 {
-        self.inner.info.read().num_participants
-    }
-
-    pub fn num_publishers(&self) -> u32 {
-        self.inner.info.read().num_publishers
-    }
-
-    pub fn active_recording(&self) -> bool {
-        self.inner.info.read().active_recording
-    }
 }
 
 impl RoomSession {
     async fn room_task(
         self: Arc<Self>,
         mut engine_events: EngineEvents,
-        mut close_rx: broadcast::Receiver<()>,
+        mut close_receiver: oneshot::Receiver<()>,
     ) {
         loop {
             tokio::select! {
@@ -843,7 +699,7 @@ impl RoomSession {
 
                     task.await;
                 },
-                _ = close_rx.recv() => {
+                 _ = &mut close_receiver => {
                     break;
                 }
             }
@@ -859,7 +715,6 @@ impl RoomSession {
                 self.handle_media_track(track, stream, transceiver)
             }
             EngineEvent::RoomUpdate { room } => self.handle_room_update(room),
-            EngineEvent::RoomMoved { moved } => self.handle_room_moved(moved),
             EngineEvent::Resuming(tx) => self.handle_resuming(tx),
             EngineEvent::Resumed(tx) => self.handle_resumed(tx),
             EngineEvent::SignalResumed { reconnect_response, tx } => {
@@ -871,22 +726,8 @@ impl RoomSession {
                 self.handle_signal_restarted(join_response, tx)
             }
             EngineEvent::Disconnected { reason } => self.handle_disconnected(reason),
-            EngineEvent::Data {
-                payload,
-                topic,
-                kind,
-                participant_sid,
-                participant_identity,
-                encryption_type,
-            } => {
-                self.handle_data(
-                    payload,
-                    topic,
-                    kind,
-                    participant_sid,
-                    participant_identity,
-                    encryption_type,
-                );
+            EngineEvent::Data { payload, topic, kind, participant_sid, participant_identity } => {
+                self.handle_data(payload, topic, kind, participant_sid, participant_identity);
             }
             EngineEvent::ChatMessage { participant_identity, message } => {
                 self.handle_chat_message(participant_identity, message);
@@ -936,23 +777,17 @@ impl RoomSession {
             EngineEvent::LocalTrackSubscribed { track_sid } => {
                 self.handle_track_subscribed(track_sid)
             }
-            EngineEvent::DataStreamHeader { header, participant_identity, encryption_type } => {
-                self.handle_data_stream_header(header, participant_identity, encryption_type);
+            EngineEvent::DataStreamHeader { header, participant_identity } => {
+                self.handle_data_stream_header(header, participant_identity);
             }
-            EngineEvent::DataStreamChunk { chunk, participant_identity, encryption_type } => {
-                self.handle_data_stream_chunk(chunk, participant_identity, encryption_type);
+            EngineEvent::DataStreamChunk { chunk, participant_identity } => {
+                self.handle_data_stream_chunk(chunk, participant_identity);
             }
             EngineEvent::DataStreamTrailer { trailer, participant_identity } => {
                 self.handle_data_stream_trailer(trailer, participant_identity);
             }
             EngineEvent::DataChannelBufferedAmountLowThresholdChanged { kind, threshold } => {
                 self.handle_data_channel_buffered_low_threshold_change(kind, threshold);
-            }
-            EngineEvent::RefreshToken { url, token } => {
-                self.handle_refresh_token(url, token);
-            }
-            EngineEvent::TrackMuted { sid, muted } => {
-                self.handle_server_initiated_mute_track(sid, muted);
             }
             _ => {}
         }
@@ -961,23 +796,18 @@ impl RoomSession {
     }
 
     async fn close(&self, reason: DisconnectReason) -> RoomResult<()> {
-        let Some(handle) = self.handle.lock().await.take() else { Err(RoomError::AlreadyClosed)? };
+        if let Some((room_task, close_tx)) = self.room_task.lock().await.take() {
+            self.rtc_engine.close(reason).await;
+            self.e2ee_manager.cleanup();
 
-        // remove published tracks
-        for (sid, _) in self.local_participant.track_publications().iter() {
-            let _ = self.local_participant.unpublish_track(sid).await;
+            let _ = close_tx.send(());
+            let _ = room_task.await;
+
+            self.dispatcher.clear();
+            Ok(())
+        } else {
+            Err(RoomError::AlreadyClosed)
         }
-
-        self.rtc_engine.close(reason).await;
-        self.e2ee_manager.cleanup();
-
-        let _ = handle.close_tx.send(());
-        let _ = handle.incoming_stream_handle.await;
-        let _ = handle.outgoing_stream_handle.await;
-        let _ = handle.room_handle.await;
-
-        self.dispatcher.clear();
-        Ok(())
     }
 
     /// Change the connection state and emit an event
@@ -998,8 +828,6 @@ impl RoomSession {
     /// It'll create, update or remove a participant
     /// It also update the participant tracks.
     fn handle_participant_update(self: &Arc<Self>, updates: Vec<proto::ParticipantInfo>) {
-        // only update non-disconnected participants to refresh info
-        let mut participants: Vec<Participant> = Vec::new();
         for pi in updates {
             let participant_sid = pi.sid.clone().try_into().unwrap();
             let participant_identity: ParticipantIdentity = pi.identity.clone().into();
@@ -1008,7 +836,6 @@ impl RoomSession {
                 || participant_identity == self.local_participant.identity()
             {
                 self.local_participant.clone().update_info(pi);
-                participants.push(Participant::Local(self.local_participant.clone()));
                 continue;
             }
 
@@ -1034,20 +861,17 @@ impl RoomSession {
                 }
             } else if let Some(remote_participant) = remote_participant {
                 remote_participant.update_info(pi.clone());
-                participants.push(Participant::Remote(remote_participant));
             } else {
                 // Create a new participant
                 let remote_participant = {
                     let pi = pi.clone();
                     self.create_participant(
                         pi.kind().into(),
-                        utils::convert_kind_details(&pi.kind_details),
                         pi.sid.try_into().unwrap(),
                         pi.identity.into(),
                         pi.name,
                         pi.metadata,
                         pi.attributes,
-                        pi.permission,
                     )
                 };
 
@@ -1056,9 +880,6 @@ impl RoomSession {
 
                 remote_participant.update_info(pi.clone()); // Add tracks
             }
-        }
-        if !participants.is_empty() {
-            self.dispatcher.dispatch(&RoomEvent::ParticipantsUpdated { participants });
         }
     }
 
@@ -1077,53 +898,12 @@ impl RoomSession {
 
         let (participant_sid, stream_id) = lk_stream_id.unwrap();
         let mut track_id = track.id();
-
-        // Resolve track ID based on signaling mode
-        let session = self.rtc_engine.session();
-        if session.is_single_pc_mode() {
-            // In single PC mode, resolve track ID from mid_to_track_id mapping
-            if let Some(mid) = transceiver.mid() {
-                if let Some(resolved_track_id) = session.get_track_id_for_mid(&mid) {
-                    log::debug!(
-                        "resolved track_id from mid: mid={}, track_id={}",
-                        mid,
-                        resolved_track_id
-                    );
-                    track_id = resolved_track_id.into();
-                } else {
-                    log::warn!(
-                        "could not resolve track_id for mid={}, using track.id()={}",
-                        mid,
-                        track_id
-                    );
-                }
-            }
-        } else if stream_id.starts_with("TR") {
-            // In dual PC mode, use stream_id if it's a valid track ID
+        if stream_id.starts_with("TR") {
             track_id = stream_id.into();
         }
 
-        if !track_id.starts_with("TR") {
-            log::warn!(
-                "track_id does not start with TR after resolution: track_id={}, stream_id={}",
-                track_id,
-                stream_id
-            );
-        }
-
         let participant_sid: ParticipantSid = participant_sid.to_owned().try_into().unwrap();
-        let track_id: TrackSid = match track_id.to_owned().try_into() {
-            Ok(track_id) => track_id,
-            Err(err) => {
-                log::error!(
-                    "dropping remote track due to invalid TrackSid: track_id={}, stream_id={}, err={:?}",
-                    track_id,
-                    stream_id,
-                    err
-                );
-                return;
-            }
-        };
+        let track_id = track_id.to_owned().try_into().unwrap();
 
         let remote_participant = self
             .remote_participants
@@ -1207,38 +987,13 @@ impl RoomSession {
     }
 
     async fn send_sync_state(self: &Arc<Self>) {
-        let auto_subscribe = self.options.auto_subscribe;
+        let auto_subscribe = self.options.signal_options.auto_subscribe;
         let session = self.rtc_engine.session();
-        let single_pc_mode = session.is_single_pc_mode();
 
-        // In single PC mode, use publisher's offer/answer
-        // In dual PC mode, use subscriber's offer/answer
-        let (offer, answer) = if single_pc_mode {
-            let pub_pc = session.publisher().peer_connection();
-            let Some(local_desc) = pub_pc.current_local_description() else {
-                log::warn!("skipping sendSyncState, no publisher offer");
-                return;
-            };
-            let remote_desc = pub_pc.current_remote_description();
-            // In single PC mode: offer is local (publisher initiates), answer is remote
-            (local_desc, remote_desc)
-        } else {
-            let Some(sub_pc) = session.subscriber() else {
-                log::warn!("skipping sendSyncState, no subscriber");
-                return;
-            };
-            let sub_pc = sub_pc.peer_connection();
-            let Some(local_desc) = sub_pc.current_local_description() else {
-                log::warn!("skipping sendSyncState, no subscriber answer");
-                return;
-            };
-            let Some(remote_desc) = sub_pc.current_remote_description() else {
-                log::warn!("skipping sendSyncState, no subscriber offer");
-                return;
-            };
-            // In dual PC mode: answer is local, offer is remote
-            (remote_desc, Some(local_desc))
-        };
+        if session.subscriber().peer_connection().current_local_description().is_none() {
+            log::warn!("skipping sendSyncState, no subscriber answer");
+            return;
+        }
 
         let mut track_sids = Vec::new();
         for (_, participant) in self.remote_participants.read().clone() {
@@ -1248,6 +1003,10 @@ impl RoomSession {
                 }
             }
         }
+
+        let answer = session.subscriber().peer_connection().current_local_description().unwrap();
+
+        let offer = session.subscriber().peer_connection().current_remote_description().unwrap();
 
         let mut dcs = Vec::with_capacity(4);
         if session.has_published() {
@@ -1290,17 +1049,13 @@ impl RoomSession {
         }
 
         let sync_state = proto::SyncState {
-            answer: answer.map(|a| proto::SessionDescription {
-                sdp: a.to_string(),
-                r#type: a.sdp_type().to_string(),
-                id: 0,
-                mid_to_track_id: Default::default(),
+            answer: Some(proto::SessionDescription {
+                sdp: answer.to_string(),
+                r#type: answer.sdp_type().to_string(),
             }),
             offer: Some(proto::SessionDescription {
                 sdp: offer.to_string(),
                 r#type: offer.sdp_type().to_string(),
-                id: 0,
-                mid_to_track_id: Default::default(),
             }),
             track_sids_disabled: Vec::default(), // TODO: New protocol version
             subscription: Some(proto::UpdateSubscription {
@@ -1310,8 +1065,6 @@ impl RoomSession {
             }),
             publish_tracks: self.local_participant.published_tracks_info(),
             data_channels: dcs,
-            datachannel_receive_states: session.data_channel_receive_states(),
-            publish_data_tracks: Default::default(),
         };
 
         log::debug!("sending sync state {:?}", sync_state);
@@ -1321,69 +1074,15 @@ impl RoomSession {
     fn handle_room_update(self: &Arc<Self>, room: proto::Room) {
         let mut info = self.info.write();
         let old_metadata = std::mem::replace(&mut info.metadata, room.metadata.clone());
-        let mut updated = false;
         if old_metadata != room.metadata {
-            updated = true;
             self.dispatcher.dispatch(&RoomEvent::RoomMetadataChanged {
                 old_metadata,
                 metadata: info.metadata.clone(),
             });
         }
         if !room.sid.is_empty() {
-            let sid = room.sid.try_into().ok();
-            info.sid = sid.clone();
-            if let Some(sid) = sid {
-                let _ = self.sid_promise.resolve(sid);
-            }
+            let _ = self.sid.resolve(room.sid.try_into().unwrap());
         }
-        if info.name != room.name {
-            updated = true;
-            info.name = room.name;
-        }
-        if info.empty_timeout != room.empty_timeout {
-            updated = true;
-            info.empty_timeout = room.empty_timeout;
-        }
-        if info.departure_timeout != room.departure_timeout {
-            updated = true;
-            info.departure_timeout = room.departure_timeout;
-        }
-        if info.max_participants != room.max_participants {
-            updated = true;
-            info.max_participants = room.max_participants;
-        }
-        if info.num_participants != room.num_participants {
-            updated = true;
-            info.num_participants = room.num_participants;
-        }
-        if info.num_publishers != room.num_publishers {
-            updated = true;
-            info.num_publishers = room.num_publishers;
-        }
-        if info.active_recording != room.active_recording {
-            updated = true;
-            info.active_recording = room.active_recording;
-        }
-        info.creation_time = room.creation_time_ms;
-        if updated {
-            self.dispatcher.dispatch(&RoomEvent::RoomUpdated { room: info.clone() });
-        }
-    }
-
-    fn handle_room_moved(self: &Arc<Self>, moved: proto::RoomMovedResponse) {
-        self.handle_refresh_token(self.rtc_engine.session().signal_client().url(), moved.token);
-        if let Some(local_participant) = moved.participant {
-            self.local_participant.update_info(local_participant);
-            self.dispatcher.dispatch(&RoomEvent::ParticipantsUpdated {
-                participants: vec![Participant::Local(self.local_participant.clone())],
-            });
-        }
-        self.handle_participant_update(moved.other_participants);
-        if let Some(room) = moved.room {
-            self.handle_room_update(room);
-        }
-        let info = self.info.read();
-        self.dispatcher.dispatch(&RoomEvent::Moved { room: info.clone() });
     }
 
     fn handle_resuming(self: &Arc<Self>, tx: oneshot::Sender<()>) {
@@ -1526,7 +1225,6 @@ impl RoomSession {
         kind: DataPacketKind,
         participant_sid: Option<ParticipantSid>,
         participant_identity: Option<ParticipantIdentity>,
-        encryption_type: proto::encryption::Type,
     ) {
         let mut participant = participant_identity
             .as_ref()
@@ -1540,11 +1238,9 @@ impl RoomSession {
                 .unwrap_or(None);
         }
 
-        // Update participant's data encryption status for regular data messages
-        if let Some(ref p) = participant {
-            use crate::e2ee::EncryptionType;
-            let is_encrypted = EncryptionType::from(encryption_type) != EncryptionType::None;
-            p.update_data_encryption_status(is_encrypted);
+        if participant.is_none() && (participant_identity.is_some() || participant_sid.is_some()) {
+            // We received a data packet from a participant that is not in the participants list
+            return;
         }
 
         self.dispatcher.dispatch(&RoomEvent::DataReceived {
@@ -1618,24 +1314,7 @@ impl RoomSession {
         &self,
         header: proto::data_stream::Header,
         participant_identity: String,
-        encryption_type: proto::encryption::Type,
     ) {
-        self.incoming_stream_manager.handle_header(
-            header.clone(),
-            participant_identity.clone(),
-            encryption_type,
-        );
-
-        // Update participant's data encryption status
-        if let Some(participant) =
-            self.remote_participants.read().get(&participant_identity.clone().into()).cloned()
-        {
-            use crate::e2ee::EncryptionType;
-            let is_encrypted = EncryptionType::from(encryption_type) != EncryptionType::None;
-            participant.update_data_encryption_status(is_encrypted);
-        }
-
-        // For backwards compatibly
         let event = RoomEvent::StreamHeaderReceived { header, participant_identity };
         self.dispatcher.dispatch(&event);
     }
@@ -1644,11 +1323,7 @@ impl RoomSession {
         &self,
         chunk: proto::data_stream::Chunk,
         participant_identity: String,
-        encryption_type: proto::encryption::Type,
     ) {
-        self.incoming_stream_manager.handle_chunk(chunk.clone(), encryption_type);
-
-        // For backwards compatibly
         let event = RoomEvent::StreamChunkReceived { chunk, participant_identity };
         self.dispatcher.dispatch(&event);
     }
@@ -1658,9 +1333,6 @@ impl RoomSession {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
     ) {
-        self.incoming_stream_manager.handle_trailer(trailer.clone());
-
-        // For backwards compatibly
         let event = RoomEvent::StreamTrailerReceived { trailer, participant_identity };
         self.dispatcher.dispatch(&event);
     }
@@ -1683,52 +1355,26 @@ impl RoomSession {
         self.dispatcher.dispatch(&event);
     }
 
-    fn handle_server_initiated_mute_track(&self, sid: String, muted: bool) {
-        let sid_for_log = sid.clone();
-        let track_sid = match sid.try_into() {
-            Ok(sid) => sid,
-            Err(_) => {
-                log::warn!("Invalid track sid in mute request: {}", sid_for_log);
-                return;
-            }
-        };
-
-        if let Some(publication) = self.local_participant.get_track_publication(&track_sid) {
-            if muted {
-                publication.mute();
-            } else {
-                publication.unmute();
-            }
-            return;
-        }
-
-        log::warn!("Track not found in mute request: {}", sid_for_log);
-    }
-
     /// Create a new participant
     /// Also add it to the participants list
     fn create_participant(
         self: &Arc<Self>,
         kind: ParticipantKind,
-        kind_details: Vec<ParticipantKindDetail>,
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
         metadata: String,
         attributes: HashMap<String, String>,
-        permission: Option<proto::ParticipantPermission>,
     ) -> RemoteParticipant {
         let participant = RemoteParticipant::new(
             self.rtc_engine.clone(),
             kind,
-            kind_details,
             sid.clone(),
             identity.clone(),
             name,
             metadata,
             attributes,
-            self.options.auto_subscribe,
-            permission,
+            self.options.signal_options.auto_subscribe,
         );
 
         participant.on_track_published({
@@ -1826,23 +1472,6 @@ impl RoomSession {
             }
         });
 
-        participant.on_permission_changed({
-            let dispatcher = self.dispatcher.clone();
-            move |participant, permission| {
-                let event = RoomEvent::ParticipantPermissionChanged { participant, permission };
-                dispatcher.dispatch(&event);
-            }
-        });
-
-        participant.on_encryption_status_changed({
-            let dispatcher = self.dispatcher.clone();
-            move |participant, is_encrypted| {
-                let event =
-                    RoomEvent::ParticipantEncryptionStatusChanged { participant, is_encrypted };
-                dispatcher.dispatch(&event);
-            }
-        });
-
         let mut participants = self.remote_participants.write();
         participants.insert(identity, participant.clone());
         participant
@@ -1879,63 +1508,6 @@ impl RoomSession {
             return Some(Participant::Local(self.local_participant.clone()));
         }
         return self.get_participant_by_identity(identity).map(Participant::Remote);
-    }
-
-    fn handle_refresh_token(self: &Arc<Self>, url: String, token: String) {
-        // notify refreshed token to registered audio filters
-        for filter in registered_audio_filter_plugins().into_iter() {
-            filter.update_token(url.clone(), token.clone());
-        }
-        let event = RoomEvent::TokenRefreshed { token };
-        self.dispatcher.dispatch(&event);
-    }
-}
-
-/// Receives stream readers for newly-opened streams and dispatches room events.
-async fn incoming_data_stream_task(
-    mut open_rx: UnboundedReceiver<(AnyStreamReader, String)>,
-    dispatcher: Dispatcher<RoomEvent>,
-    mut close_rx: broadcast::Receiver<()>,
-) {
-    loop {
-        tokio::select! {
-            Some((reader, identity)) = open_rx.recv() => {
-                match reader {
-                    AnyStreamReader::Byte(reader) => dispatcher.dispatch(&RoomEvent::ByteStreamOpened {
-                        topic: reader.info().topic.clone(),
-                        reader: TakeCell::new(reader),
-                        participant_identity: ParticipantIdentity(identity)
-                    }),
-                    AnyStreamReader::Text(reader) => dispatcher.dispatch(&RoomEvent::TextStreamOpened {
-                        topic: reader.info().topic.clone(),
-                        reader: TakeCell::new(reader),
-                        participant_identity: ParticipantIdentity(identity)
-                    }),
-                }
-            },
-            _ = close_rx.recv() => {
-                break;
-            }
-        }
-    }
-}
-
-/// Receives packets from the outgoing stream manager and send them.
-async fn outgoing_data_stream_task(
-    mut packet_rx: UnboundedRequestReceiver<proto::DataPacket, Result<(), EngineError>>,
-    engine: Arc<RtcEngine>,
-    mut close_rx: broadcast::Receiver<()>,
-) {
-    loop {
-        tokio::select! {
-            Ok((packet, responder)) = packet_rx.recv() => {
-                let result = engine.publish_data(packet, DataPacketKind::Reliable, false).await;
-                let _ = responder.respond(result);
-            },
-            _ = close_rx.recv() => {
-                break;
-            }
-        }
     }
 }
 

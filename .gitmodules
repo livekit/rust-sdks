@@ -3,4 +3,4 @@
 	url = https://github.com/livekit/protocol
 [submodule "yuv-sys/libyuv"]
 	path = yuv-sys/libyuv
-	url = https://chromium.googlesource.com/libyuv/libyuv
+	url = https://github.com/zed-industries/libyuv
