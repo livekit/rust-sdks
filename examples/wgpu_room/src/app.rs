@@ -504,11 +504,11 @@ fn draw_remote_data_track(tile: &RemoteDataTrackTile, ui: &mut egui::Ui) {
     let bg = Color32::from_rgb(0x1a, 0x1a, 0x2e);
     painter.rect_filled(rect, CornerRadius::default(), bg);
 
-    let label_height = 20.0;
-    let pad = 10.0;
+    let v_margin = rect.height() * 0.25;
+    let h_margin = 8.0;
     let plot_rect = Rect::from_min_max(
-        pos2(rect.min.x + pad, rect.min.y + pad),
-        pos2(rect.max.x - pad, rect.max.y - label_height - pad),
+        pos2(rect.min.x + h_margin, rect.min.y + v_margin),
+        pos2(rect.max.x - h_margin, rect.max.y - v_margin),
     );
 
     let time_window_secs = TIME_WINDOW.as_secs_f32();
@@ -517,14 +517,16 @@ fn draw_remote_data_track(tile: &RemoteDataTrackTile, ui: &mut egui::Ui) {
         plot_rect,
     );
 
-    let axis_color = Color32::from_rgb(0x6c, 0x75, 0x7d);
+    let guide_color = Color32::from_rgb(0x40, 0x40, 0x50);
+    let max_y = (to_screen * pos2(0.0, MAX_VALUE)).y;
+    let min_y = (to_screen * pos2(0.0, 0.0)).y;
     painter.line_segment(
-        [to_screen * pos2(0.0, 0.0), to_screen * pos2(0.0, MAX_VALUE)],
-        Stroke::new(1.0, axis_color),
+        [pos2(plot_rect.min.x, max_y), pos2(plot_rect.max.x, max_y)],
+        Stroke::new(1.0, guide_color),
     );
     painter.line_segment(
-        [to_screen * pos2(0.0, 0.0), to_screen * pos2(time_window_secs, 0.0)],
-        Stroke::new(1.0, axis_color),
+        [pos2(plot_rect.min.x, min_y), pos2(plot_rect.max.x, min_y)],
+        Stroke::new(1.0, guide_color),
     );
 
     let now = std::time::Instant::now();
