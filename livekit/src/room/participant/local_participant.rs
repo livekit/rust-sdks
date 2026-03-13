@@ -254,7 +254,7 @@ impl LocalParticipant {
     ///
     /// # Returns
     ///
-    /// The published data track if successful. Use [`LocalDataTrack::publish`]
+    /// The published data track if successful. Use [`LocalDataTrack::try_push`]
     /// to send data frames on the track.
     ///
     /// # Examples
