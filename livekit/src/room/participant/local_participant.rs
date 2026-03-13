@@ -41,7 +41,7 @@ use crate::{
 };
 use chrono::Utc;
 use libwebrtc::{
-    native::{create_random_uuid, user_timestamp},
+    native::{create_random_uuid, packet_trailer},
     rtp_parameters::RtpEncodingParameters,
     video_source::RtcVideoSource,
 };
@@ -278,7 +278,7 @@ impl LocalParticipant {
             req.audio_features.push(proto::AudioTrackFeature::TfPreconnectBuffer as i32);
         }
 
-        if options.user_timestamp {
+        if options.packet_trailer {
             req.packet_trailer_features.push(proto::PacketTrailerFeature::PtfUserTimestamp as i32);
         }
 
@@ -327,19 +327,19 @@ impl LocalParticipant {
 
         track.set_transceiver(Some(transceiver));
 
-        if options.user_timestamp {
+        if options.packet_trailer {
             if let LocalTrack::Video(video_track) = &track {
-                log::info!("user_timestamp enabled for local video track {}", publication.sid(),);
+                log::info!("packet_trailer enabled for local video track {}", publication.sid(),);
                 let sender = track.transceiver().unwrap().sender();
-                let handler = user_timestamp::create_sender_handler(
+                let handler = packet_trailer::create_sender_handler(
                     LkRuntime::instance().pc_factory(),
                     &sender,
                 );
-                video_track.set_user_timestamp_handler(handler.clone());
+                video_track.set_packet_trailer_handler(handler.clone());
 
                 #[cfg(not(target_arch = "wasm32"))]
                 if let RtcVideoSource::Native(ref native_source) = video_track.rtc_source() {
-                    native_source.set_user_timestamp_handler(handler.clone());
+                    native_source.set_packet_trailer_handler(handler.clone());
                 }
             }
         }

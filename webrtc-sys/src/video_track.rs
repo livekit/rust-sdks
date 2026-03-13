@@ -51,10 +51,10 @@ pub mod ffi {
     }
 
     extern "C++" {
-        include!("livekit/user_timestamp.h");
+        include!("livekit/packet_trailer.h");
         include!("livekit/video_track.h");
 
-        type UserTimestampHandler = crate::user_timestamp::ffi::UserTimestampHandler;
+        type PacketTrailerHandler = crate::packet_trailer::ffi::PacketTrailerHandler;
     }
 
     unsafe extern "C++" {
@@ -75,13 +75,13 @@ pub mod ffi {
         fn on_captured_frame(
             self: &VideoTrackSource,
             frame: &UniquePtr<VideoFrame>,
-            has_user_timestamp: bool,
+            has_packet_trailer: bool,
             user_timestamp_us: i64,
             frame_id: u32,
         ) -> bool;
-        fn set_user_timestamp_handler(
+        fn set_packet_trailer_handler(
             self: &VideoTrackSource,
-            handler: SharedPtr<UserTimestampHandler>,
+            handler: SharedPtr<PacketTrailerHandler>,
         );
         fn new_video_track_source(
             resolution: &VideoResolution,

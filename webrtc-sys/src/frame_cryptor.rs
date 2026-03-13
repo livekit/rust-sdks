@@ -93,12 +93,12 @@ pub mod ffi {
         include!("livekit/rtp_sender.h");
         include!("livekit/rtp_receiver.h");
         include!("livekit/peer_connection_factory.h");
-        include!("livekit/user_timestamp.h");
+        include!("livekit/packet_trailer.h");
 
         type RtpSender = crate::rtp_sender::ffi::RtpSender;
         type RtpReceiver = crate::rtp_receiver::ffi::RtpReceiver;
         type PeerConnectionFactory = crate::peer_connection_factory::ffi::PeerConnectionFactory;
-        type UserTimestampHandler = crate::user_timestamp::ffi::UserTimestampHandler;
+        type PacketTrailerHandler = crate::packet_trailer::ffi::PacketTrailerHandler;
 
         pub type FrameCryptor;
 
@@ -135,9 +135,9 @@ pub mod ffi {
 
         pub fn unregister_observer(self: &FrameCryptor);
 
-        pub fn set_user_timestamp_handler(
+        pub fn set_packet_trailer_handler(
             self: &FrameCryptor,
-            handler: SharedPtr<UserTimestampHandler>,
+            handler: SharedPtr<PacketTrailerHandler>,
         );
     }
 

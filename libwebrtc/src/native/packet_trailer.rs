@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! User timestamp support for end-to-end timestamp propagation.
+//! Packet trailer support for end-to-end timestamp propagation.
 //!
 //! This module provides functionality to embed user-supplied timestamps
 //! in encoded video frames as trailers. The timestamps are preserved
@@ -27,14 +27,14 @@
 //! metadata via lookup_frame_metadata(rtp_timestamp).
 
 use cxx::SharedPtr;
-use webrtc_sys::user_timestamp::ffi as sys_ut;
+use webrtc_sys::packet_trailer::ffi as sys_pt;
 
 use crate::{
     peer_connection_factory::PeerConnectionFactory, rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
 };
 
-/// Handler for user timestamp embedding/extraction on RTP streams.
+/// Handler for packet trailer embedding/extraction on RTP streams.
 ///
 /// For sender side: Stores frame metadata keyed by capture timestamp
 /// and embeds them as 16-byte trailers on encoded frames before they
@@ -44,11 +44,11 @@ use crate::{
 /// For receiver side: Extracts frame metadata from received frames
 /// and makes them available for retrieval via `lookup_frame_metadata()`.
 #[derive(Clone)]
-pub struct UserTimestampHandler {
-    sys_handle: SharedPtr<sys_ut::UserTimestampHandler>,
+pub struct PacketTrailerHandler {
+    sys_handle: SharedPtr<sys_pt::PacketTrailerHandler>,
 }
 
-impl UserTimestampHandler {
+impl PacketTrailerHandler {
     /// Enable or disable timestamp embedding/extraction.
     pub fn set_enabled(&self, enabled: bool) {
         self.sys_handle.set_enabled(enabled);
@@ -63,12 +63,12 @@ impl UserTimestampHandler {
     /// Returns `Some((user_timestamp_us, frame_id))` if found, `None` otherwise.
     /// The entry is removed from the map after a successful lookup.
     pub fn lookup_frame_metadata(&self, rtp_timestamp: u32) -> Option<(i64, u32)> {
-        let ts = self.sys_handle.lookup_user_timestamp(rtp_timestamp);
+        let ts = self.sys_handle.lookup_timestamp(rtp_timestamp);
         if ts >= 0 {
             let frame_id = self.sys_handle.last_lookup_frame_id();
             if ts > 2_000_000_000_000_000 || ts < 0 {
                 log::warn!(
-                    "[UserTS-FFI] C++ returned bad ts={} (0x{:016x}) fid={} rtp_ts={}",
+                    "[PacketTrailer-FFI] C++ returned bad ts={} (0x{:016x}) fid={} rtp_ts={}",
                     ts, ts, frame_id, rtp_timestamp
                 );
             }
@@ -97,7 +97,7 @@ impl UserTimestampHandler {
         frame_id: u32,
     ) {
         log::info!(
-            target: "user_timestamp",
+            target: "packet_trailer",
             "store: capture_ts_us={}, user_ts_us={}, frame_id={}",
             capture_timestamp_us,
             user_timestamp_us,
@@ -106,12 +106,12 @@ impl UserTimestampHandler {
         self.sys_handle.store_frame_metadata(capture_timestamp_us, user_timestamp_us, frame_id);
     }
 
-    pub(crate) fn sys_handle(&self) -> SharedPtr<sys_ut::UserTimestampHandler> {
+    pub(crate) fn sys_handle(&self) -> SharedPtr<sys_pt::PacketTrailerHandler> {
         self.sys_handle.clone()
     }
 }
 
-/// Create a sender-side user timestamp handler.
+/// Create a sender-side packet trailer handler.
 ///
 /// This handler will embed frame metadata into encoded frames before
 /// they are packetized and sent. Use `store_frame_metadata()` to
@@ -119,16 +119,16 @@ impl UserTimestampHandler {
 pub fn create_sender_handler(
     peer_factory: &PeerConnectionFactory,
     sender: &RtpSender,
-) -> UserTimestampHandler {
-    UserTimestampHandler {
-        sys_handle: sys_ut::new_user_timestamp_sender(
+) -> PacketTrailerHandler {
+    PacketTrailerHandler {
+        sys_handle: sys_pt::new_packet_trailer_sender(
             peer_factory.handle.sys_handle.clone(),
             sender.handle.sys_handle.clone(),
         ),
     }
 }
 
-/// Create a receiver-side user timestamp handler.
+/// Create a receiver-side packet trailer handler.
 ///
 /// This handler will extract frame metadata from received frames
 /// and store them in a map keyed by RTP timestamp. Use
@@ -137,9 +137,9 @@ pub fn create_sender_handler(
 pub fn create_receiver_handler(
     peer_factory: &PeerConnectionFactory,
     receiver: &RtpReceiver,
-) -> UserTimestampHandler {
-    UserTimestampHandler {
-        sys_handle: sys_ut::new_user_timestamp_receiver(
+) -> PacketTrailerHandler {
+    PacketTrailerHandler {
+        sys_handle: sys_pt::new_packet_trailer_receiver(
             peer_factory.handle.sys_handle.clone(),
             receiver.handle.sys_handle.clone(),
         ),

@@ -19,7 +19,7 @@ use libwebrtc::{
         frame_cryptor::{
             DataPacketCryptor, EncryptedPacket, EncryptionAlgorithm, EncryptionState, FrameCryptor,
         },
-        user_timestamp,
+        packet_trailer,
     },
     rtp_receiver::RtpReceiver,
     rtp_sender::RtpSender,
@@ -103,28 +103,28 @@ impl E2eeManager {
     ) {
         let identity = participant.identity();
         let receiver = track.transceiver().unwrap().receiver();
-        let mut user_timestamp_handler = None;
+        let mut packet_trailer_handler = None;
 
-        let has_user_timestamp = publication
+        let has_packet_trailer = publication
             .proto_info()
             .packet_trailer_features
             .contains(&(PacketTrailerFeature::PtfUserTimestamp as i32));
 
         if let RemoteTrack::Video(video_track) = &track {
             let handler =
-                user_timestamp::create_receiver_handler(LkRuntime::instance().pc_factory(), &receiver);
-            video_track.set_user_timestamp_handler(handler.clone());
-            user_timestamp_handler = Some(handler);
+                packet_trailer::create_receiver_handler(LkRuntime::instance().pc_factory(), &receiver);
+            video_track.set_packet_trailer_handler(handler.clone());
+            packet_trailer_handler = Some(handler);
 
-            if has_user_timestamp {
+            if has_packet_trailer {
                 log::info!(
-                    "attached user_timestamp handler for subscribed track {} from {}",
+                    "attached packet_trailer handler for subscribed track {} from {}",
                     publication.sid(),
                     identity,
                 );
             } else {
                 log::info!(
-                    "attached user_timestamp handler for subscribed track {} from {} without advertised packet trailer support",
+                    "attached packet_trailer handler for subscribed track {} from {} without advertised packet trailer support",
                     publication.sid(),
                     identity,
                 );
@@ -136,8 +136,8 @@ impl E2eeManager {
         }
 
         let frame_cryptor = self.setup_rtp_receiver(&identity, receiver);
-        if let Some(handler) = user_timestamp_handler.as_ref() {
-            frame_cryptor.set_user_timestamp_handler(handler);
+        if let Some(handler) = packet_trailer_handler.as_ref() {
+            frame_cryptor.set_packet_trailer_handler(handler);
         }
         self.setup_cryptor(&frame_cryptor);
 
@@ -154,17 +154,17 @@ impl E2eeManager {
         let identity = participant.identity();
         let sender = track.transceiver().unwrap().sender();
 
-        let user_timestamp_handler = if let LocalTrack::Video(video_track) = &track {
-            let handler = video_track.user_timestamp_handler();
+        let packet_trailer_handler = if let LocalTrack::Video(video_track) = &track {
+            let handler = video_track.packet_trailer_handler();
             if handler.is_some() {
                 log::info!(
-                    "user_timestamp enabled for published track {} from {}",
+                    "packet_trailer enabled for published track {} from {}",
                     publication.sid(),
                     identity,
                 );
             } else {
                 log::info!(
-                    "user_timestamp not enabled for published track {} from {}",
+                    "packet_trailer not enabled for published track {} from {}",
                     publication.sid(),
                     identity,
                 );
@@ -179,8 +179,8 @@ impl E2eeManager {
         }
 
         let frame_cryptor = self.setup_rtp_sender(&identity, sender);
-        if let Some(handler) = user_timestamp_handler.as_ref() {
-            frame_cryptor.set_user_timestamp_handler(handler);
+        if let Some(handler) = packet_trailer_handler.as_ref() {
+            frame_cryptor.set_packet_trailer_handler(handler);
         }
         self.setup_cryptor(&frame_cryptor);
 

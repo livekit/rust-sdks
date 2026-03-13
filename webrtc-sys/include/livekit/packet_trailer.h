@@ -36,7 +36,7 @@
 #include "rust/cxx.h"
 
 // Forward declarations to avoid circular includes
-// (video_track.h -> user_timestamp.h -> peer_connection.h -> media_stream.h -> video_track.h)
+// (video_track.h -> packet_trailer.h -> peer_connection.h -> media_stream.h -> video_track.h)
 namespace livekit_ffi {
 class PeerConnectionFactory;
 class RtpSender;
@@ -45,8 +45,8 @@ class RtpReceiver;
 
 namespace livekit_ffi {
 
-// Magic bytes to identify user timestamp trailers: "LKTS" (LiveKit TimeStamp)
-constexpr uint8_t kUserTimestampMagic[4] = {'L', 'K', 'T', 'S'};
+// Magic bytes to identify packet trailers: "LKTS" (LiveKit TimeStamp)
+constexpr uint8_t kPacketTrailerMagic[4] = {'L', 'K', 'T', 'S'};
 
 // Trailer envelope: [trailer_len: 1B] [magic: 4B] = 5 bytes.
 // Always present at the end of every trailer.
@@ -63,9 +63,9 @@ constexpr size_t kTimestampTlvSize = 10;  // tag + len + 8-byte value
 constexpr size_t kFrameIdTlvSize = 6;     // tag + len + 4-byte value
 
 // Trailer size varies because frame_id is omitted when it is unset (0).
-constexpr size_t kUserTimestampTrailerMinSize =
+constexpr size_t kPacketTrailerMinSize =
     kTimestampTlvSize + kTrailerEnvelopeSize;
-constexpr size_t kUserTimestampTrailerMaxSize =
+constexpr size_t kPacketTrailerMaxSize =
     kTimestampTlvSize + kFrameIdTlvSize + kTrailerEnvelopeSize;
 
 struct FrameMetadata {
@@ -74,7 +74,7 @@ struct FrameMetadata {
   uint32_t ssrc;  // SSRC that produced this entry (for simulcast tracking)
 };
 
-/// Frame transformer that appends/extracts user timestamp trailers.
+/// Frame transformer that appends/extracts packet trailers.
 /// This transformer can be used standalone or in conjunction with e2ee.
 ///
 /// On the send side, user timestamps are stored in an internal map keyed
@@ -84,12 +84,12 @@ struct FrameMetadata {
 /// On the receive side, extracted frame metadata is stored in an
 /// internal map keyed by RTP timestamp (uint32_t).  Decoded frames can
 /// look up their metadata via lookup_frame_metadata(rtp_ts).
-class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
+class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
  public:
   enum class Direction { kSend, kReceive };
 
-  explicit UserTimestampTransformer(Direction direction);
-  ~UserTimestampTransformer() override = default;
+  explicit PacketTrailerTransformer(Direction direction);
+  ~PacketTrailerTransformer() override = default;
 
   // FrameTransformerInterface implementation
   void Transform(
@@ -163,18 +163,18 @@ class UserTimestampTransformer : public webrtc::FrameTransformerInterface {
   mutable uint32_t recv_active_ssrc_{0};
 };
 
-/// Wrapper class for Rust FFI that manages user timestamp transformers.
-class UserTimestampHandler {
+/// Wrapper class for Rust FFI that manages packet trailer transformers.
+class PacketTrailerHandler {
  public:
-  UserTimestampHandler(
+  PacketTrailerHandler(
       std::shared_ptr<RtcRuntime> rtc_runtime,
       rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
 
-  UserTimestampHandler(
+  PacketTrailerHandler(
       std::shared_ptr<RtcRuntime> rtc_runtime,
       rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
 
-  ~UserTimestampHandler() = default;
+  ~PacketTrailerHandler() = default;
 
   /// Enable/disable timestamp embedding
   void set_enabled(bool enabled) const;
@@ -183,10 +183,10 @@ class UserTimestampHandler {
   /// Lookup the user timestamp for a given RTP timestamp (receiver side).
   /// Returns -1 if not found. The entry is removed after lookup.
   /// Also caches the frame_id for retrieval via last_lookup_frame_id().
-  int64_t lookup_user_timestamp(uint32_t rtp_timestamp) const;
+  int64_t lookup_timestamp(uint32_t rtp_timestamp) const;
 
   /// Returns the frame_id from the most recent successful
-  /// lookup_user_timestamp() call. Returns 0 if no lookup succeeded.
+  /// lookup_timestamp() call. Returns 0 if no lookup succeeded.
   uint32_t last_lookup_frame_id() const;
 
   /// Store frame metadata for a given capture timestamp (sender side).
@@ -195,11 +195,11 @@ class UserTimestampHandler {
                             uint32_t frame_id) const;
 
   /// Access the underlying transformer for chaining.
-  rtc::scoped_refptr<UserTimestampTransformer> transformer() const;
+  rtc::scoped_refptr<PacketTrailerTransformer> transformer() const;
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  rtc::scoped_refptr<UserTimestampTransformer> transformer_;
+  rtc::scoped_refptr<PacketTrailerTransformer> transformer_;
   rtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
   mutable uint32_t last_frame_id_{0};
@@ -207,11 +207,11 @@ class UserTimestampHandler {
 
 // Factory functions for Rust FFI
 
-std::shared_ptr<UserTimestampHandler> new_user_timestamp_sender(
+std::shared_ptr<PacketTrailerHandler> new_packet_trailer_sender(
     std::shared_ptr<PeerConnectionFactory> peer_factory,
     std::shared_ptr<RtpSender> sender);
 
-std::shared_ptr<UserTimestampHandler> new_user_timestamp_receiver(
+std::shared_ptr<PacketTrailerHandler> new_packet_trailer_receiver(
     std::shared_ptr<PeerConnectionFactory> peer_factory,
     std::shared_ptr<RtpReceiver> receiver);
 

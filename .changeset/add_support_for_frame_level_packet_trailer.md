@@ -12,7 +12,7 @@ libwebrtc: minor
 imgproc: no changelog additions
 ---
 
-# Add support for frame level user timestamp
+# Add support for frame level packet trailer
 
 #890 by @chenosaurus
 

@@ -22,7 +22,7 @@
 #include "api/make_ref_counted.h"
 #include "livekit/peer_connection.h"
 #include "livekit/peer_connection_factory.h"
-#include "livekit/user_timestamp.h"
+#include "livekit/packet_trailer.h"
 #include "livekit/webrtc.h"
 #include "rtc_base/thread.h"
 #include "webrtc-sys/src/frame_cryptor.rs.h"
@@ -169,8 +169,8 @@ void FrameCryptor::unregister_observer() const {
   e2ee_transformer_->UnRegisterFrameCryptorTransformerObserver();
 }
 
-void FrameCryptor::set_user_timestamp_handler(
-    std::shared_ptr<UserTimestampHandler> handler) const {
+void FrameCryptor::set_packet_trailer_handler(
+    std::shared_ptr<PacketTrailerHandler> handler) const {
   if (!handler) {
     return;
   }

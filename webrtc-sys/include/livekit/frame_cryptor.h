@@ -39,7 +39,7 @@ struct EncryptedPacket;
 enum class Algorithm : ::std::int32_t;
 class RtcFrameCryptorObserverWrapper;
 class NativeFrameCryptorObserver;
-class UserTimestampHandler;
+class PacketTrailerHandler;
 
 /// Shared secret key for frame encryption.
 class KeyProvider {
@@ -159,9 +159,9 @@ class FrameCryptor {
 
   void unregister_observer() const;
 
-  /// Attach a user timestamp transformer for chained processing.
-  void set_user_timestamp_handler(
-      std::shared_ptr<UserTimestampHandler> handler) const;
+  /// Attach a packet trailer transformer for chained processing.
+  void set_packet_trailer_handler(
+      std::shared_ptr<PacketTrailerHandler> handler) const;
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;

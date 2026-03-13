@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-#include "livekit/user_timestamp.h"
+#include "livekit/packet_trailer.h"
 
 #include <cstring>
 #include <optional>
@@ -24,16 +24,16 @@
 #include "livekit/rtp_receiver.h"
 #include "livekit/rtp_sender.h"
 #include "rtc_base/logging.h"
-#include "webrtc-sys/src/user_timestamp.rs.h"
+#include "webrtc-sys/src/packet_trailer.rs.h"
 
 namespace livekit_ffi {
 
-// UserTimestampTransformer implementation
+// PacketTrailerTransformer implementation
 
-UserTimestampTransformer::UserTimestampTransformer(Direction direction)
+PacketTrailerTransformer::PacketTrailerTransformer(Direction direction)
     : direction_(direction) {}
 
-void UserTimestampTransformer::Transform(
+void PacketTrailerTransformer::Transform(
     std::unique_ptr<webrtc::TransformableFrameInterface> frame) {
   uint32_t ssrc = frame->GetSsrc();
   uint32_t rtp_timestamp = frame->GetTimestamp();
@@ -54,7 +54,7 @@ void UserTimestampTransformer::Transform(
       cb->OnTransformedFrame(std::move(frame));
     } else {
       RTC_LOG(LS_WARNING)
-          << "UserTimestampTransformer::Transform (disabled) has no callback"
+          << "PacketTrailerTransformer::Transform (disabled) has no callback"
           << " direction="
           << (direction_ == Direction::kSend ? "send" : "recv")
           << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
@@ -69,7 +69,7 @@ void UserTimestampTransformer::Transform(
   }
 }
 
-void UserTimestampTransformer::TransformSend(
+void PacketTrailerTransformer::TransformSend(
     std::unique_ptr<webrtc::TransformableFrameInterface> frame) {
   uint32_t rtp_timestamp = frame->GetTimestamp();
   uint32_t ssrc = frame->GetSsrc();
@@ -95,7 +95,7 @@ void UserTimestampTransformer::TransformSend(
     }
   } else {
     RTC_LOG(LS_WARNING)
-        << "UserTimestampTransformer::TransformSend CaptureTime() not available"
+        << "PacketTrailerTransformer::TransformSend CaptureTime() not available"
         << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
   }
 
@@ -124,12 +124,12 @@ void UserTimestampTransformer::TransformSend(
     cb->OnTransformedFrame(std::move(frame));
   } else {
     RTC_LOG(LS_WARNING)
-        << "UserTimestampTransformer::TransformSend has no callback"
+        << "PacketTrailerTransformer::TransformSend has no callback"
         << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
   }
 }
 
-void UserTimestampTransformer::TransformReceive(
+void PacketTrailerTransformer::TransformReceive(
     std::unique_ptr<webrtc::TransformableFrameInterface> frame) {
   uint32_t ssrc = frame->GetSsrc();
   uint32_t rtp_timestamp = frame->GetTimestamp();
@@ -197,12 +197,12 @@ void UserTimestampTransformer::TransformReceive(
     cb->OnTransformedFrame(std::move(frame));
   } else {
     RTC_LOG(LS_WARNING)
-        << "UserTimestampTransformer::TransformReceive has no callback"
+        << "PacketTrailerTransformer::TransformReceive has no callback"
         << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
   }
 }
 
-std::vector<uint8_t> UserTimestampTransformer::AppendTrailer(
+std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
     rtc::ArrayView<const uint8_t> data,
     int64_t user_timestamp_us,
     uint32_t frame_id) {
@@ -239,13 +239,13 @@ std::vector<uint8_t> UserTimestampTransformer::AppendTrailer(
 
   // Envelope: trailer_len (1B, XORed) + magic (4B, NOT XORed)
   result.push_back(static_cast<uint8_t>(trailer_len ^ 0xFF));
-  result.insert(result.end(), std::begin(kUserTimestampMagic),
-                std::end(kUserTimestampMagic));
+  result.insert(result.end(), std::begin(kPacketTrailerMagic),
+                std::end(kPacketTrailerMagic));
 
   return result;
 }
 
-std::optional<FrameMetadata> UserTimestampTransformer::ExtractTrailer(
+std::optional<FrameMetadata> PacketTrailerTransformer::ExtractTrailer(
     rtc::ArrayView<const uint8_t> data,
     std::vector<uint8_t>& out_data) {
   if (data.size() < kTrailerEnvelopeSize) {
@@ -255,7 +255,7 @@ std::optional<FrameMetadata> UserTimestampTransformer::ExtractTrailer(
 
   // Check for magic bytes at the end
   const uint8_t* magic_start = data.data() + data.size() - 4;
-  if (std::memcmp(magic_start, kUserTimestampMagic, 4) != 0) {
+  if (std::memcmp(magic_start, kPacketTrailerMagic, 4) != 0) {
     out_data.assign(data.begin(), data.end());
     return std::nullopt;
   }
@@ -314,39 +314,39 @@ std::optional<FrameMetadata> UserTimestampTransformer::ExtractTrailer(
   return meta;
 }
 
-void UserTimestampTransformer::RegisterTransformedFrameCallback(
+void PacketTrailerTransformer::RegisterTransformedFrameCallback(
     rtc::scoped_refptr<webrtc::TransformedFrameCallback> callback) {
   webrtc::MutexLock lock(&mutex_);
   callback_ = callback;
 }
 
-void UserTimestampTransformer::RegisterTransformedFrameSinkCallback(
+void PacketTrailerTransformer::RegisterTransformedFrameSinkCallback(
     rtc::scoped_refptr<webrtc::TransformedFrameCallback> callback,
     uint32_t ssrc) {
   webrtc::MutexLock lock(&mutex_);
   sink_callbacks_[ssrc] = callback;
 }
 
-void UserTimestampTransformer::UnregisterTransformedFrameCallback() {
+void PacketTrailerTransformer::UnregisterTransformedFrameCallback() {
   webrtc::MutexLock lock(&mutex_);
   callback_ = nullptr;
 }
 
-void UserTimestampTransformer::UnregisterTransformedFrameSinkCallback(
+void PacketTrailerTransformer::UnregisterTransformedFrameSinkCallback(
     uint32_t ssrc) {
   webrtc::MutexLock lock(&mutex_);
   sink_callbacks_.erase(ssrc);
 }
 
-void UserTimestampTransformer::set_enabled(bool enabled) {
+void PacketTrailerTransformer::set_enabled(bool enabled) {
   enabled_.store(enabled);
 }
 
-bool UserTimestampTransformer::enabled() const {
+bool PacketTrailerTransformer::enabled() const {
   return enabled_.load();
 }
 
-std::optional<FrameMetadata> UserTimestampTransformer::lookup_frame_metadata(
+std::optional<FrameMetadata> PacketTrailerTransformer::lookup_frame_metadata(
     uint32_t rtp_timestamp) {
   webrtc::MutexLock lock(&recv_map_mutex_);
   auto it = recv_map_.find(rtp_timestamp);
@@ -365,7 +365,7 @@ std::optional<FrameMetadata> UserTimestampTransformer::lookup_frame_metadata(
   return meta;
 }
 
-void UserTimestampTransformer::store_frame_metadata(
+void PacketTrailerTransformer::store_frame_metadata(
     int64_t capture_timestamp_us,
     int64_t user_timestamp_us,
     uint32_t frame_id) {
@@ -396,35 +396,35 @@ void UserTimestampTransformer::store_frame_metadata(
   send_map_[key] = FrameMetadata{user_timestamp_us, frame_id, 0};
 }
 
-// UserTimestampHandler implementation
+// PacketTrailerHandler implementation
 
-UserTimestampHandler::UserTimestampHandler(
+PacketTrailerHandler::PacketTrailerHandler(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     rtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
     : rtc_runtime_(rtc_runtime), sender_(sender) {
-  transformer_ = rtc::make_ref_counted<UserTimestampTransformer>(
-      UserTimestampTransformer::Direction::kSend);
+  transformer_ = rtc::make_ref_counted<PacketTrailerTransformer>(
+      PacketTrailerTransformer::Direction::kSend);
   sender->SetEncoderToPacketizerFrameTransformer(transformer_);
 }
 
-UserTimestampHandler::UserTimestampHandler(
+PacketTrailerHandler::PacketTrailerHandler(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
     : rtc_runtime_(rtc_runtime), receiver_(receiver) {
-  transformer_ = rtc::make_ref_counted<UserTimestampTransformer>(
-      UserTimestampTransformer::Direction::kReceive);
+  transformer_ = rtc::make_ref_counted<PacketTrailerTransformer>(
+      PacketTrailerTransformer::Direction::kReceive);
   receiver->SetDepacketizerToDecoderFrameTransformer(transformer_);
 }
 
-void UserTimestampHandler::set_enabled(bool enabled) const {
+void PacketTrailerHandler::set_enabled(bool enabled) const {
   transformer_->set_enabled(enabled);
 }
 
-bool UserTimestampHandler::enabled() const {
+bool PacketTrailerHandler::enabled() const {
   return transformer_->enabled();
 }
 
-int64_t UserTimestampHandler::lookup_user_timestamp(uint32_t rtp_timestamp) const {
+int64_t PacketTrailerHandler::lookup_timestamp(uint32_t rtp_timestamp) const {
   auto meta = transformer_->lookup_frame_metadata(rtp_timestamp);
   if (meta.has_value()) {
     last_frame_id_ = meta->frame_id;
@@ -433,34 +433,34 @@ int64_t UserTimestampHandler::lookup_user_timestamp(uint32_t rtp_timestamp) cons
   return -1;
 }
 
-uint32_t UserTimestampHandler::last_lookup_frame_id() const {
+uint32_t PacketTrailerHandler::last_lookup_frame_id() const {
   return last_frame_id_;
 }
 
-void UserTimestampHandler::store_frame_metadata(
+void PacketTrailerHandler::store_frame_metadata(
     int64_t capture_timestamp_us,
     int64_t user_timestamp_us,
     uint32_t frame_id) const {
   transformer_->store_frame_metadata(capture_timestamp_us, user_timestamp_us, frame_id);
 }
 
-rtc::scoped_refptr<UserTimestampTransformer> UserTimestampHandler::transformer() const {
+rtc::scoped_refptr<PacketTrailerTransformer> PacketTrailerHandler::transformer() const {
   return transformer_;
 }
 
 // Factory functions
 
-std::shared_ptr<UserTimestampHandler> new_user_timestamp_sender(
+std::shared_ptr<PacketTrailerHandler> new_packet_trailer_sender(
     std::shared_ptr<PeerConnectionFactory> peer_factory,
     std::shared_ptr<RtpSender> sender) {
-  return std::make_shared<UserTimestampHandler>(
+  return std::make_shared<PacketTrailerHandler>(
       peer_factory->rtc_runtime(), sender->rtc_sender());
 }
 
-std::shared_ptr<UserTimestampHandler> new_user_timestamp_receiver(
+std::shared_ptr<PacketTrailerHandler> new_packet_trailer_receiver(
     std::shared_ptr<PeerConnectionFactory> peer_factory,
     std::shared_ptr<RtpReceiver> receiver) {
-  return std::make_shared<UserTimestampHandler>(
+  return std::make_shared<PacketTrailerHandler>(
       peer_factory->rtc_runtime(), receiver->rtc_receiver());
 }
 

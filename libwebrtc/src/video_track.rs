@@ -20,7 +20,7 @@ use crate::{
 };
 
 #[cfg(not(target_arch = "wasm32"))]
-use crate::native::user_timestamp::UserTimestampHandler;
+use crate::native::packet_trailer::PacketTrailerHandler;
 
 #[derive(Clone)]
 pub struct RtcVideoTrack {
@@ -30,20 +30,20 @@ pub struct RtcVideoTrack {
 impl RtcVideoTrack {
     media_stream_track!();
 
-    /// Set the user timestamp handler for this track.
+    /// Set the packet trailer handler for this track.
     ///
     /// When set, any `NativeVideoStream` created from this track will
     /// automatically use this handler to populate `user_timestamp_us`
     /// on each decoded frame.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn set_user_timestamp_handler(&self, handler: UserTimestampHandler) {
-        self.handle.set_user_timestamp_handler(handler);
+    pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        self.handle.set_packet_trailer_handler(handler);
     }
 
-    /// Get the user timestamp handler, if one has been set.
+    /// Get the packet trailer handler, if one has been set.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn user_timestamp_handler(&self) -> Option<UserTimestampHandler> {
-        self.handle.user_timestamp_handler()
+    pub fn packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
+        self.handle.packet_trailer_handler()
     }
 }
 

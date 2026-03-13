@@ -19,7 +19,7 @@ use parking_lot::Mutex;
 use webrtc_sys::frame_cryptor::{self as sys_fc};
 
 use crate::{
-    native::user_timestamp::UserTimestampHandler, peer_connection_factory::PeerConnectionFactory,
+    native::packet_trailer::PacketTrailerHandler, peer_connection_factory::PeerConnectionFactory,
     rtp_receiver::RtpReceiver, rtp_sender::RtpSender,
 };
 
@@ -169,8 +169,8 @@ impl FrameCryptor {
         *self.observer.state_change_handler.lock() = handler;
     }
 
-    pub fn set_user_timestamp_handler(&self, handler: &UserTimestampHandler) {
-        self.sys_handle.set_user_timestamp_handler(handler.sys_handle());
+    pub fn set_packet_trailer_handler(&self, handler: &PacketTrailerHandler) {
+        self.sys_handle.set_packet_trailer_handler(handler.sys_handle());
     }
 }
 

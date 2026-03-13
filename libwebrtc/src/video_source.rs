@@ -50,7 +50,7 @@ pub mod native {
     use std::fmt::{Debug, Formatter};
 
     use super::*;
-    use crate::native::user_timestamp::UserTimestampHandler;
+    use crate::native::packet_trailer::PacketTrailerHandler;
     use crate::video_frame::{VideoBuffer, VideoFrame};
 
     #[derive(Clone)]
@@ -79,14 +79,14 @@ pub mod native {
             self.handle.capture_frame(frame)
         }
 
-        /// Set the user timestamp handler used by this source.
+        /// Set the packet trailer handler used by this source.
         ///
         /// When set, any frame captured with a `user_timestamp_us` value will
         /// automatically have its timestamp stored in the handler (keyed by
         /// the TimestampAligner-adjusted capture timestamp) so the
-        /// `UserTimestampTransformer` can embed it into the encoded frame.
-        pub fn set_user_timestamp_handler(&self, handler: UserTimestampHandler) {
-            self.handle.set_user_timestamp_handler(handler)
+        /// `PacketTrailerTransformer` can embed it into the encoded frame.
+        pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+            self.handle.set_packet_trailer_handler(handler)
         }
 
         pub fn video_resolution(&self) -> VideoResolution {

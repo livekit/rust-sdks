@@ -26,7 +26,7 @@
 #include "audio/remix_resample.h"
 #include "common_audio/include/audio_util.h"
 #include "livekit/media_stream.h"
-#include "livekit/user_timestamp.h"
+#include "livekit/packet_trailer.h"
 #include "livekit/video_track.h"
 #include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
@@ -135,7 +135,7 @@ VideoResolution VideoTrackSource::InternalSource::video_resolution() const {
 
 bool VideoTrackSource::InternalSource::on_captured_frame(
     const webrtc::VideoFrame& frame,
-    bool has_user_timestamp,
+    bool has_packet_trailer,
     int64_t user_timestamp_us,
     uint32_t frame_id) {
   webrtc::MutexLock lock(&mutex_);
@@ -143,12 +143,12 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
       frame.timestamp_us(), webrtc::TimeMicros());
 
-  // If a user timestamp was provided on this frame and we have a handler,
+  // If a packet trailer was provided on this frame and we have a handler,
   // store the mapping keyed by the aligned timestamp.  This is the value
   // that CaptureTime() will return in TransformSend, so the lookup will
   // succeed.
-  if (has_user_timestamp && user_timestamp_handler_) {
-    user_timestamp_handler_->store_frame_metadata(
+  if (has_packet_trailer && packet_trailer_handler_) {
+    packet_trailer_handler_->store_frame_metadata(
         aligned_timestamp_us, user_timestamp_us, frame_id);
   }
 
@@ -188,10 +188,10 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   return true;
 }
 
-void VideoTrackSource::InternalSource::set_user_timestamp_handler(
-    std::shared_ptr<UserTimestampHandler> handler) {
+void VideoTrackSource::InternalSource::set_packet_trailer_handler(
+    std::shared_ptr<PacketTrailerHandler> handler) {
   webrtc::MutexLock lock(&mutex_);
-  user_timestamp_handler_ = std::move(handler);
+  packet_trailer_handler_ = std::move(handler);
 }
 
 VideoTrackSource::VideoTrackSource(const VideoResolution& resolution, bool is_screencast) {
@@ -204,17 +204,17 @@ VideoResolution VideoTrackSource::video_resolution() const {
 
 bool VideoTrackSource::on_captured_frame(
     const std::unique_ptr<VideoFrame>& frame,
-    bool has_user_timestamp,
+    bool has_packet_trailer,
     int64_t user_timestamp_us,
     uint32_t frame_id) const {
   auto rtc_frame = frame->get();
-  return source_->on_captured_frame(rtc_frame, has_user_timestamp,
+  return source_->on_captured_frame(rtc_frame, has_packet_trailer,
                                     user_timestamp_us, frame_id);
 }
 
-void VideoTrackSource::set_user_timestamp_handler(
-    std::shared_ptr<UserTimestampHandler> handler) const {
-  source_->set_user_timestamp_handler(std::move(handler));
+void VideoTrackSource::set_packet_trailer_handler(
+    std::shared_ptr<PacketTrailerHandler> handler) const {
+  source_->set_packet_trailer_handler(std::move(handler));
 }
 
 webrtc::scoped_refptr<VideoTrackSource::InternalSource> VideoTrackSource::get()

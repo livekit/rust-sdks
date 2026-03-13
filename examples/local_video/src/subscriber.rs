@@ -81,21 +81,6 @@ struct SharedYuv {
     user_timestamp_us: Option<i64>,
     /// Last received frame_id, if any.
     frame_id: Option<u32>,
-    /// Timing for the latest received frame on the subscriber thread.
-    latest_to_i420_ms: f32,
-    latest_pack_ms: f32,
-    /// Timing for the last frame uploaded to the GPU in `prepare()`.
-    last_uploaded_frame_id: Option<u32>,
-    last_uploaded_user_timestamp_us: Option<i64>,
-    last_uploaded_receive_us: Option<i64>,
-    last_uploaded_us: Option<i64>,
-    last_upload_ms: f32,
-    /// Timing for the last frame seen by the paint callback.
-    last_painted_frame_id: Option<u32>,
-    last_painted_user_timestamp_us: Option<i64>,
-    last_painted_receive_us: Option<i64>,
-    last_painted_upload_us: Option<i64>,
-    last_painted_us: Option<i64>,
 }
 
 #[derive(Clone)]
@@ -224,13 +209,6 @@ fn format_optional_timestamp_us(ts_us: Option<i64>) -> String {
     ts_us.map(format_timestamp_us).unwrap_or_else(|| "N/A".to_string())
 }
 
-fn format_delta_ms(start_us: Option<i64>, end_us: Option<i64>) -> String {
-    match (start_us, end_us) {
-        (Some(start), Some(end)) => format!("{:.1}ms", (end - start) as f64 / 1000.0),
-        _ => "N/A".to_string(),
-    }
-}
-
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
     let sc = state.lock();
     sc.full_dims
@@ -346,10 +324,7 @@ async fn handle_track_subscribed(
                 logged_first = true;
             }
 
-            // Convert to I420 on CPU, but keep planes separate for GPU sampling
-            let to_i420_started = Instant::now();
             let i420 = frame.buffer.to_i420();
-            let to_i420_ms = to_i420_started.elapsed().as_secs_f64() * 1000.0;
             let (sy, su, sv) = i420.strides();
             let (dy, du, dv) = i420.data();
 
@@ -360,13 +335,9 @@ async fn handle_track_subscribed(
             let y_bytes_per_row = align_up(width, 256);
             let uv_bytes_per_row = align_up(uv_w, 256);
 
-            // Pre-pack planes into GPU-ready rows on the sink thread so prepare()
-            // can upload directly without another repack pass.
-            let pack_started = Instant::now();
             pack_plane(dy, sy as u32, width, height, y_bytes_per_row, &mut y_buf);
             pack_plane(du, su as u32, uv_w, uv_h, uv_bytes_per_row, &mut u_buf);
             pack_plane(dv, sv as u32, uv_w, uv_h, uv_bytes_per_row, &mut v_buf);
-            let pack_ms = pack_started.elapsed().as_secs_f64() * 1000.0;
 
             // Swap buffers into shared state
             let mut s = shared2.lock();
@@ -400,8 +371,6 @@ async fn handle_track_subscribed(
 
             s.user_timestamp_us = frame.user_timestamp_us;
             s.frame_id = frame.frame_id;
-            s.latest_to_i420_ms = to_i420_ms as f32;
-            s.latest_pack_ms = pack_ms as f32;
 
             // Update smoothed FPS (~500ms window)
             fps_window_frames += 1;
@@ -481,15 +450,6 @@ fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex
         s.received_at_us = None;
         s.user_timestamp_us = None;
         s.frame_id = None;
-        s.last_uploaded_frame_id = None;
-        s.last_uploaded_user_timestamp_us = None;
-        s.last_uploaded_receive_us = None;
-        s.last_uploaded_us = None;
-        s.last_painted_frame_id = None;
-        s.last_painted_user_timestamp_us = None;
-        s.last_painted_receive_us = None;
-        s.last_painted_upload_us = None;
-        s.last_painted_us = None;
     }
     let mut sc = simulcast.lock();
     *sc = SimulcastState::default();
@@ -531,8 +491,6 @@ struct VideoApp {
     ctrl_c_received: Arc<AtomicBool>,
     locked_aspect: Option<f32>,
     display_timestamp: bool,
-    timestamp_metrics_text: String,
-    timestamp_metrics_last_update: Instant,
 }
 
 impl eframe::App for VideoApp {
@@ -619,52 +577,30 @@ impl eframe::App for VideoApp {
                     });
             });
 
-        // Timestamp overlay: publish, receive, upload, and paint milestones.
-        // `Paint` is the time when the callback issued the draw call, not the
-        // exact physical scan-out time on the display.
         if self.display_timestamp {
             let s = self.shared.lock();
-            let frame_id = s.last_painted_frame_id.or(s.frame_id);
-            let publish_us = s.last_painted_user_timestamp_us.or(s.user_timestamp_us);
-            let receive_us = s.last_painted_receive_us.or(s.received_at_us);
-            let upload_us = s.last_painted_upload_us.or(s.last_uploaded_us);
-            let paint_us = s.last_painted_us;
-            let to_i420_ms = s.latest_to_i420_ms;
-            let pack_ms = s.latest_pack_ms;
-            let upload_ms = s.last_upload_ms;
+            let frame_id = s.frame_id;
+            let publish_us = s.user_timestamp_us;
+            let receive_us = s.received_at_us;
             drop(s);
 
             if publish_us.is_some() || frame_id.is_some() {
-                if self.timestamp_metrics_last_update.elapsed() >= Duration::from_millis(500)
-                    || self.timestamp_metrics_text.is_empty()
-                {
-                    self.timestamp_metrics_text = format!(
-                        "Pub->Recv:  {}\nRecv->Up:   {}\nUp->Paint:  {}\nPub->Paint: {}\nPaint->Now: {}\nto_i420:    {:.2}ms\nPack:       {:.2}ms\nUpload:     {:.2}ms",
-                        format_delta_ms(publish_us, receive_us),
-                        format_delta_ms(receive_us, upload_us),
-                        format_delta_ms(upload_us, paint_us),
-                        format_delta_ms(publish_us, paint_us),
-                        format_delta_ms(paint_us, Some(current_timestamp_us())),
-                        to_i420_ms,
-                        pack_ms,
-                        upload_ms,
-                    );
-                    self.timestamp_metrics_last_update = Instant::now();
-                }
-
                 let frame_id_line = match frame_id {
                     Some(fid) => format!("Frame ID:   {}", fid),
                     None => "Frame ID:   N/A".to_string(),
                 };
+                let latency = match (publish_us, receive_us) {
+                    (Some(pub_ts), Some(recv_ts)) => {
+                        format!("{:.1}ms", (recv_ts - pub_ts) as f64 / 1000.0)
+                    }
+                    _ => "N/A".to_string(),
+                };
                 let timestamp_overlay_text = format!(
-                    "{}\nPublish:    {}\nReceive:    {}\nUpload:     {}\nPaint:      {}\nNow:        {}\n{}",
+                    "{}\nPublish:    {}\nReceive:    {}\nLatency:    {}",
                     frame_id_line,
                     format_optional_timestamp_us(publish_us),
                     format_optional_timestamp_us(receive_us),
-                    format_optional_timestamp_us(upload_us),
-                    format_optional_timestamp_us(paint_us),
-                    format_timestamp_us(current_timestamp_us()),
-                    self.timestamp_metrics_text,
+                    latency,
                 );
 
                 egui::Area::new("timestamp_hud".into())
@@ -686,8 +622,6 @@ impl eframe::App for VideoApp {
                                 );
                             });
                     });
-            } else {
-                self.timestamp_metrics_text.clear();
             }
         }
 
@@ -809,18 +743,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         received_at_us: None,
         user_timestamp_us: None,
         frame_id: None,
-        latest_to_i420_ms: 0.0,
-        latest_pack_ms: 0.0,
-        last_uploaded_frame_id: None,
-        last_uploaded_user_timestamp_us: None,
-        last_uploaded_receive_us: None,
-        last_uploaded_us: None,
-        last_upload_ms: 0.0,
-        last_painted_frame_id: None,
-        last_painted_user_timestamp_us: None,
-        last_painted_receive_us: None,
-        last_painted_upload_us: None,
-        last_painted_us: None,
     }));
 
     // Subscribe to room events: on first video track, start sink task
@@ -873,8 +795,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         ctrl_c_received: ctrl_c_received.clone(),
         locked_aspect: None,
         display_timestamp: args.display_timestamp,
-        timestamp_metrics_text: String::new(),
-        timestamp_metrics_last_update: Instant::now(),
     };
     let native_options = eframe::NativeOptions { vsync: false, ..Default::default() };
     eframe::run_native(
@@ -913,10 +833,6 @@ struct YuvGpuState {
     upload_y: Vec<u8>,
     upload_u: Vec<u8>,
     upload_v: Vec<u8>,
-    uploaded_frame_id: Option<u32>,
-    uploaded_user_timestamp_us: Option<i64>,
-    uploaded_receive_us: Option<i64>,
-    uploaded_at_us: Option<i64>,
 }
 
 impl YuvGpuState {
@@ -1191,10 +1107,6 @@ impl CallbackTrait for YuvPaintCallback {
                 upload_y: Vec::new(),
                 upload_u: Vec::new(),
                 upload_v: Vec::new(),
-                uploaded_frame_id: None,
-                uploaded_user_timestamp_us: None,
-                uploaded_receive_us: None,
-                uploaded_at_us: None,
             };
             resources.insert(new_state);
         }
@@ -1202,11 +1114,6 @@ impl CallbackTrait for YuvPaintCallback {
 
         let dims = (shared.width, shared.height);
         let upload_row_bytes = (shared.y_bytes_per_row, shared.uv_bytes_per_row);
-        let dirty_frame_meta = (
-            shared.frame_id,
-            shared.user_timestamp_us,
-            shared.received_at_us,
-        );
         let has_dirty_frame = if shared.dirty {
             std::mem::swap(&mut state.upload_y, &mut shared.y);
             std::mem::swap(&mut state.upload_u, &mut shared.u);
@@ -1264,7 +1171,6 @@ impl CallbackTrait for YuvPaintCallback {
         }
 
         if has_dirty_frame {
-            let upload_started = Instant::now();
             let uv_w = (dims.0 + 1) / 2;
             let uv_h = (dims.1 + 1) / 2;
 
@@ -1341,20 +1247,6 @@ impl CallbackTrait for YuvPaintCallback {
                     uv_tex_w: state.uv_pad_w,
                 }),
             );
-
-            let uploaded_at_us = current_timestamp_us();
-            let upload_ms = upload_started.elapsed().as_secs_f64() * 1000.0;
-            state.uploaded_frame_id = dirty_frame_meta.0;
-            state.uploaded_user_timestamp_us = dirty_frame_meta.1;
-            state.uploaded_receive_us = dirty_frame_meta.2;
-            state.uploaded_at_us = Some(uploaded_at_us);
-
-            let mut shared = self.shared.lock();
-            shared.last_uploaded_frame_id = dirty_frame_meta.0;
-            shared.last_uploaded_user_timestamp_us = dirty_frame_meta.1;
-            shared.last_uploaded_receive_us = dirty_frame_meta.2;
-            shared.last_uploaded_us = Some(uploaded_at_us);
-            shared.last_upload_ms = upload_ms as f32;
         }
 
         Vec::new()
@@ -1375,15 +1267,6 @@ impl CallbackTrait for YuvPaintCallback {
 
         render_pass.set_pipeline(&state.pipeline);
         render_pass.set_bind_group(0, &state.bind_group, &[]);
-        // Fullscreen triangle without vertex buffer
         render_pass.draw(0..3, 0..1);
-
-        let painted_at_us = current_timestamp_us();
-        let mut shared = self.shared.lock();
-        shared.last_painted_frame_id = state.uploaded_frame_id;
-        shared.last_painted_user_timestamp_us = state.uploaded_user_timestamp_us;
-        shared.last_painted_receive_us = state.uploaded_receive_us;
-        shared.last_painted_upload_us = state.uploaded_at_us;
-        shared.last_painted_us = Some(painted_at_us);
     }
 }

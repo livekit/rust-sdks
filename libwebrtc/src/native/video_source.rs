@@ -23,7 +23,7 @@ use parking_lot::Mutex;
 use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
 
 use crate::{
-    native::user_timestamp::UserTimestampHandler,
+    native::packet_trailer::PacketTrailerHandler,
     video_frame::{I420Buffer, VideoBuffer, VideoFrame},
     video_source::VideoResolution,
 };
@@ -106,10 +106,7 @@ impl NativeVideoSource {
         };
         builder.pin_mut().set_timestamp_us(capture_ts);
 
-        // Pass the user timestamp and frame_id to the C++ on_captured_frame
-        // so it can store the mapping keyed by the TimestampAligner-adjusted
-        // capture timestamp.
-        let (has_user_ts, user_ts) = match frame.user_timestamp_us {
+        let (has_trailer, user_ts) = match frame.user_timestamp_us {
             Some(ts) => (true, ts),
             None => (false, 0),
         };
@@ -119,21 +116,21 @@ impl NativeVideoSource {
 
         self.sys_handle.on_captured_frame(
             &builder.pin_mut().build(),
-            has_user_ts,
+            has_trailer,
             user_ts,
             frame_id,
         );
     }
 
-    /// Set the user timestamp handler used by this source.
+    /// Set the packet trailer handler used by this source.
     ///
     /// When set, any frame captured with a `user_timestamp_us` value will
     /// automatically have its timestamp stored in the handler so the
-    /// `UserTimestampTransformer` can embed it into the encoded frame.
+    /// `PacketTrailerTransformer` can embed it into the encoded frame.
     /// The handler is set on the C++ VideoTrackSource so it has access to
     /// the TimestampAligner-adjusted capture timestamp for correct keying.
-    pub fn set_user_timestamp_handler(&self, handler: UserTimestampHandler) {
-        self.sys_handle.set_user_timestamp_handler(handler.sys_handle());
+    pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        self.sys_handle.set_packet_trailer_handler(handler.sys_handle());
     }
 
     pub fn video_resolution(&self) -> VideoResolution {
