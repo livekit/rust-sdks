@@ -610,8 +610,6 @@ pub struct TrackInfo {
     pub audio_features: ::prost::alloc::vec::Vec<i32>,
     #[prost(enumeration="BackupCodecPolicy", tag="20")]
     pub backup_codec_policy: i32,
-    #[prost(enumeration="PacketTrailerFeature", repeated, tag="21")]
-    pub packet_trailer_features: ::prost::alloc::vec::Vec<i32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -948,9 +946,6 @@ pub struct RpcRequest {
     pub response_timeout_ms: u32,
     #[prost(uint32, tag="5")]
     pub version: u32,
-    /// Compressed payload data. When set, this field is used instead of `payload`.
-    #[prost(bytes="vec", tag="6")]
-    pub compressed_payload: ::prost::alloc::vec::Vec<u8>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -963,7 +958,7 @@ pub struct RpcAck {
 pub struct RpcResponse {
     #[prost(string, tag="1")]
     pub request_id: ::prost::alloc::string::String,
-    #[prost(oneof="rpc_response::Value", tags="2, 3, 4")]
+    #[prost(oneof="rpc_response::Value", tags="2, 3")]
     pub value: ::core::option::Option<rpc_response::Value>,
 }
 /// Nested message and enum types in `RpcResponse`.
@@ -975,9 +970,6 @@ pub mod rpc_response {
         Payload(::prost::alloc::string::String),
         #[prost(message, tag="3")]
         Error(super::RpcError),
-        /// Compressed payload data. When set, this field is used instead of `payload`.
-        #[prost(bytes, tag="4")]
-        CompressedPayload(::prost::alloc::vec::Vec<u8>),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -2046,29 +2038,6 @@ impl AudioTrackFeature {
             "TF_NOISE_SUPPRESSION" => Some(Self::TfNoiseSuppression),
             "TF_ENHANCED_NOISE_CANCELLATION" => Some(Self::TfEnhancedNoiseCancellation),
             "TF_PRECONNECT_BUFFER" => Some(Self::TfPreconnectBuffer),
-            _ => None,
-        }
-    }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
-#[repr(i32)]
-pub enum PacketTrailerFeature {
-    PtfUserTimestamp = 0,
-}
-impl PacketTrailerFeature {
-    /// String value of the enum field names used in the ProtoBuf definition.
-    ///
-    /// The values are not transformed in any way and thus are considered stable
-    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
-    pub fn as_str_name(&self) -> &'static str {
-        match self {
-            PacketTrailerFeature::PtfUserTimestamp => "PTF_USER_TIMESTAMP",
-        }
-    }
-    /// Creates an enum from field names used in the ProtoBuf definition.
-    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
-        match value {
-            "PTF_USER_TIMESTAMP" => Some(Self::PtfUserTimestamp),
             _ => None,
         }
     }
@@ -3387,8 +3356,6 @@ pub struct AddTrackRequest {
     pub backup_codec_policy: i32,
     #[prost(enumeration="AudioTrackFeature", repeated, tag="17")]
     pub audio_features: ::prost::alloc::vec::Vec<i32>,
-    #[prost(enumeration="PacketTrailerFeature", repeated, tag="18")]
-    pub packet_trailer_features: ::prost::alloc::vec::Vec<i32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4276,7 +4243,7 @@ pub struct JobState {
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct WorkerMessage {
-    #[prost(oneof="worker_message::Message", tags="1, 2, 3, 4, 5, 6, 7")]
+    #[prost(oneof="worker_message::Message", tags="1, 2, 3, 4, 5, 6, 7, 8, 9")]
     pub message: ::core::option::Option<worker_message::Message>,
 }
 /// Nested message and enum types in `WorkerMessage`.
@@ -4302,13 +4269,17 @@ pub mod worker_message {
         SimulateJob(super::SimulateJobRequest),
         #[prost(message, tag="7")]
         MigrateJob(super::MigrateJobRequest),
+        #[prost(message, tag="8")]
+        TextResponse(super::TextMessageResponse),
+        #[prost(message, tag="9")]
+        PushText(super::PushTextRequest),
     }
 }
 /// from Server to Worker
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ServerMessage {
-    #[prost(oneof="server_message::Message", tags="1, 2, 3, 5, 4")]
+    #[prost(oneof="server_message::Message", tags="1, 2, 3, 5, 4, 6")]
     pub message: ::core::option::Option<server_message::Message>,
 }
 /// Nested message and enum types in `ServerMessage`.
@@ -4328,6 +4299,8 @@ pub mod server_message {
         Termination(super::JobTermination),
         #[prost(message, tag="4")]
         Pong(super::WorkerPong),
+        #[prost(message, tag="6")]
+        TextRequest(super::TextMessageRequest),
     }
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -4456,6 +4429,61 @@ pub struct JobAssignment {
 pub struct JobTermination {
     #[prost(string, tag="1")]
     pub job_id: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct AgentSessionState {
+    #[prost(uint64, tag="1")]
+    pub version: u64,
+    #[prost(oneof="agent_session_state::Data", tags="2, 3")]
+    pub data: ::core::option::Option<agent_session_state::Data>,
+}
+/// Nested message and enum types in `AgentSessionState`.
+pub mod agent_session_state {
+    #[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Data {
+        #[prost(bytes, tag="2")]
+        Snapshot(::prost::alloc::vec::Vec<u8>),
+        #[prost(bytes, tag="3")]
+        Delta(::prost::alloc::vec::Vec<u8>),
+    }
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TextMessageRequest {
+    #[prost(string, tag="1")]
+    pub message_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub session_id: ::prost::alloc::string::String,
+    #[prost(string, tag="3")]
+    pub agent_name: ::prost::alloc::string::String,
+    #[prost(string, tag="4")]
+    pub metadata: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="5")]
+    pub session_state: ::core::option::Option<AgentSessionState>,
+    #[prost(string, tag="6")]
+    pub text: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct PushTextRequest {
+    /// The message_id of the TextMessageRequest that this push is for
+    #[prost(string, tag="1")]
+    pub message_id: ::prost::alloc::string::String,
+    #[prost(string, tag="2")]
+    pub content: ::prost::alloc::string::String,
+}
+#[allow(clippy::derive_partial_eq_without_eq)]
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct TextMessageResponse {
+    /// Indicate the request is completed
+    #[prost(string, tag="1")]
+    pub message_id: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="2")]
+    pub session_state: ::core::option::Option<AgentSessionState>,
+    #[prost(string, tag="3")]
+    pub error: ::prost::alloc::string::String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
