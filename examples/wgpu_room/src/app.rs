@@ -1,4 +1,5 @@
 use crate::{
+    data_track::{LocalDataTrackTile, RemoteDataTrackTile},
     service::{AsyncCmd, LkService, UiCmd},
     video_grid::VideoGrid,
     video_renderer::VideoRenderer,
@@ -22,6 +23,8 @@ pub struct LkApp {
     async_runtime: tokio::runtime::Runtime,
     state: AppState,
     video_renderers: HashMap<(ParticipantIdentity, TrackSid), VideoRenderer>,
+    local_data_tracks: Vec<LocalDataTrackTile>,
+    remote_data_tracks: Vec<RemoteDataTrackTile>,
     connecting: bool,
     connection_failure: Option<String>,
     render_state: egui_wgpu::RenderState,
@@ -55,6 +58,8 @@ impl LkApp {
             async_runtime,
             state,
             video_renderers: HashMap::new(),
+            local_data_tracks: Vec::new(),
+            remote_data_tracks: Vec::new(),
             connecting: false,
             connection_failure: None,
             render_state: cc.wgpu_render_state.clone().unwrap(),
@@ -69,12 +74,17 @@ impl LkApp {
                     self.connection_failure = Some(err.to_string());
                 }
             }
+            UiCmd::DataTrackPublished { track } => {
+                self.local_data_tracks.push(LocalDataTrackTile::new(track));
+            }
+            UiCmd::DataTrackUnpublished => {
+                self.local_data_tracks.clear();
+            }
             UiCmd::RoomEvent { event } => {
                 log::info!("{:?}", event);
                 match event {
                     RoomEvent::TrackSubscribed { track, publication: _, participant } => {
                         if let RemoteTrack::Video(ref video_track) = track {
-                            // Create a new VideoRenderer
                             let video_renderer = VideoRenderer::new(
                                 self.async_runtime.handle(),
                                 self.render_state.clone(),
@@ -82,8 +92,6 @@ impl LkApp {
                             );
                             self.video_renderers
                                 .insert((participant.identity(), track.sid()), video_renderer);
-                        } else if let RemoteTrack::Audio(_) = track {
-                            // TODO(theomonnom): Once we support media devices, we can play audio tracks here
                         }
                     }
                     RoomEvent::TrackUnsubscribed { track, publication: _, participant } => {
@@ -91,7 +99,6 @@ impl LkApp {
                     }
                     RoomEvent::LocalTrackPublished { track, publication: _, participant } => {
                         if let LocalTrack::Video(ref video_track) = track {
-                            // Also create a new VideoRenderer for local tracks
                             let video_renderer = VideoRenderer::new(
                                 self.async_runtime.handle(),
                                 self.render_state.clone(),
@@ -104,8 +111,16 @@ impl LkApp {
                     RoomEvent::LocalTrackUnpublished { publication, participant } => {
                         self.video_renderers.remove(&(participant.identity(), publication.sid()));
                     }
+                    RoomEvent::RemoteDataTrackPublished(track) => {
+                        self.remote_data_tracks.push(RemoteDataTrackTile::new(
+                            self.async_runtime.handle(),
+                            track,
+                        ));
+                    }
                     RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
+                        self.local_data_tracks.clear();
+                        self.remote_data_tracks.clear();
                     }
                     _ => {}
                 }
@@ -139,6 +154,9 @@ impl LkApp {
                 }
                 if ui.button("SineWave").clicked() {
                     let _ = self.service.send(AsyncCmd::ToggleSine);
+                }
+                if ui.button("DataTrack").clicked() {
+                    let _ = self.service.send(AsyncCmd::ToggleDataTrack);
                 }
             });
 
@@ -319,47 +337,46 @@ impl LkApp {
         });
     }
 
-    /// Draw a video grid of all participants
+    /// Draw a grid of all track tiles (video + data)
     fn central_panel(&mut self, ui: &mut egui::Ui) {
         let room = self.service.room();
-        let show_videos = self.service.room().is_some();
+        let connected = room.is_some();
 
-        if show_videos && self.video_renderers.is_empty() {
+        let has_tiles = !self.video_renderers.is_empty()
+            || !self.local_data_tracks.is_empty()
+            || !self.remote_data_tracks.is_empty();
+
+        if connected && !has_tiles {
             ui.centered_and_justified(|ui| {
-                ui.label("No video tracks subscribed");
+                ui.label("No tracks subscribed");
             });
             return;
         }
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             VideoGrid::new("default_grid").max_columns(6).show(ui, |ui| {
-                if show_videos {
-                    // Draw participant videos
-                    for ((participant_sid, _), video_renderer) in &self.video_renderers {
-                        ui.video_frame(|ui| {
-                            let room = room.as_ref().unwrap().clone();
+                if connected {
+                    let room = room.as_ref().unwrap();
 
-                            if let Some(participant) =
-                                room.remote_participants().get(participant_sid)
-                            {
-                                draw_video(
-                                    participant.name().as_str(),
-                                    participant.is_speaking(),
-                                    video_renderer,
-                                    ui,
-                                );
+                    for ((participant_id, _), video_renderer) in &self.video_renderers {
+                        ui.video_frame(|ui| {
+                            if let Some(p) = room.remote_participants().get(participant_id) {
+                                draw_video(p.name().as_str(), p.is_speaking(), video_renderer, ui);
                             } else {
-                                draw_video(
-                                    room.local_participant().name().as_str(),
-                                    room.local_participant().is_speaking(),
-                                    video_renderer,
-                                    ui,
-                                );
+                                let lp = room.local_participant();
+                                draw_video(lp.name().as_str(), lp.is_speaking(), video_renderer, ui);
                             }
                         });
                     }
+
+                    for tile in &mut self.local_data_tracks {
+                        ui.video_frame(|ui| draw_local_data_track(tile, ui));
+                    }
+
+                    for tile in &self.remote_data_tracks {
+                        ui.video_frame(|ui| draw_remote_data_track(tile, ui));
+                    }
                 } else {
-                    // Draw video skeletons when we're not connected
                     for _ in 0..5 {
                         ui.video_frame(|ui| {
                             egui::Frame::none().fill(ui.style().visuals.code_bg_color).show(
@@ -419,7 +436,6 @@ impl eframe::App for LkApp {
     }
 }
 
-/// Draw a wgpu texture to the VideoGrid
 fn draw_video(name: &str, speaking: bool, video_renderer: &VideoRenderer, ui: &mut egui::Ui) {
     let rect = ui.available_rect_before_wrap();
     let inner_rect = rect.shrink(1.0);
@@ -434,7 +450,6 @@ fn draw_video(name: &str, speaking: bool, video_renderer: &VideoRenderer, ui: &m
         );
     }
 
-    // Always draw a background in case we still didn't receive a frame
     let resolution = video_renderer.resolution();
     if let Some(tex) = video_renderer.texture_id() {
         ui.painter().image(
@@ -449,6 +464,56 @@ fn draw_video(name: &str, speaking: bool, video_renderer: &VideoRenderer, ui: &m
         egui::pos2(rect.min.x + 5.0, rect.max.y - 5.0),
         egui::Align2::LEFT_BOTTOM,
         format!("{}x{} {}", resolution.0, resolution.1, name),
+        egui::FontId::default(),
+        egui::Color32::WHITE,
+    );
+}
+
+fn draw_local_data_track(tile: &mut LocalDataTrackTile, ui: &mut egui::Ui) {
+    let rect = ui.available_rect_before_wrap();
+    ui.painter().rect_filled(rect, CornerRadius::default(), ui.style().visuals.code_bg_color);
+
+    let padding = 16.0;
+    let item_spacing = ui.spacing().item_spacing.x;
+    let text_edit_width = ui.spacing().interact_size.x;
+    let rail_width = (rect.width() - padding * 2.0 - item_spacing - text_edit_width).max(20.0);
+
+    ui.add_space(((rect.height() - 20.0) / 2.0).max(0.0));
+    ui.horizontal(|ui| {
+        ui.add_space(padding);
+        ui.spacing_mut().slider_width = rail_width;
+        let slider = egui::Slider::new(&mut tile.slider_value, 0..=512);
+        if ui.add(slider).changed() {
+            tile.push_value();
+        }
+    });
+
+    ui.painter().text(
+        egui::pos2(rect.min.x + 5.0, rect.max.y - 5.0),
+        egui::Align2::LEFT_BOTTOM,
+        format!("Data: {} (local)", tile.name),
+        egui::FontId::default(),
+        egui::Color32::WHITE,
+    );
+}
+
+fn draw_remote_data_track(tile: &RemoteDataTrackTile, ui: &mut egui::Ui) {
+    let rect = ui.available_rect_before_wrap();
+    ui.painter().rect_filled(rect, CornerRadius::default(), ui.style().visuals.code_bg_color);
+
+    let text = tile.latest_value_str().unwrap_or_else(|| "Waiting...".to_string());
+    ui.painter().text(
+        rect.center(),
+        egui::Align2::CENTER_CENTER,
+        text,
+        egui::FontId::proportional(36.0),
+        egui::Color32::WHITE,
+    );
+
+    ui.painter().text(
+        egui::pos2(rect.min.x + 5.0, rect.max.y - 5.0),
+        egui::Align2::LEFT_BOTTOM,
+        format!("Data: {} ({})", tile.name, tile.publisher_identity),
         egui::FontId::default(),
         egui::Color32::WHITE,
     );

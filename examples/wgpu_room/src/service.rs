@@ -19,6 +19,7 @@ pub enum AsyncCmd {
     SimulateScenario { scenario: SimulateScenario },
     ToggleLogo,
     ToggleSine,
+    ToggleDataTrack,
     SubscribeTrack { publication: RemoteTrackPublication },
     UnsubscribeTrack { publication: RemoteTrackPublication },
     SetVideoQuality { publication: RemoteTrackPublication, quality: VideoQuality },
@@ -30,6 +31,8 @@ pub enum AsyncCmd {
 pub enum UiCmd {
     ConnectResult { result: RoomResult<()> },
     RoomEvent { event: RoomEvent },
+    DataTrackPublished { track: LocalDataTrack },
+    DataTrackUnpublished,
 }
 
 /// AppService is the "asynchronous" part of our application, where we connect to a room and
@@ -82,6 +85,7 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
         room: Arc<Room>,
         logo_track: LogoTrack,
         sine_track: SineTrack,
+        data_track: Option<LocalDataTrack>,
     }
 
     let mut running_state = None;
@@ -111,6 +115,7 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                         room: new_room.clone(),
                         logo_track: LogoTrack::new(new_room.clone()),
                         sine_track: SineTrack::new(new_room.clone(), SineParameters::default()),
+                        data_track: None,
                     });
 
                     // Allow direct access to the room from the UI (Used for sync access)
@@ -152,6 +157,24 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                         state.sine_track.unpublish().await.unwrap();
                     } else {
                         state.sine_track.publish().await.unwrap();
+                    }
+                }
+            }
+            AsyncCmd::ToggleDataTrack => {
+                if let Some(state) = running_state.as_mut() {
+                    if let Some(track) = state.data_track.take() {
+                        track.unpublish();
+                        let _ = inner.ui_tx.send(UiCmd::DataTrackUnpublished);
+                    } else {
+                        match state.room.local_participant().publish_data_track("slider").await {
+                            Ok(track) => {
+                                let _ = inner
+                                    .ui_tx
+                                    .send(UiCmd::DataTrackPublished { track: track.clone() });
+                                state.data_track = Some(track);
+                            }
+                            Err(err) => log::error!("failed to publish data track: {err}"),
+                        }
                     }
                 }
             }
