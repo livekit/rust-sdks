@@ -35,11 +35,16 @@ use crate::{
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
     room::participant::rpc::{RpcError, RpcErrorCode, RpcInvocationData, MAX_PAYLOAD_BYTES},
+    rtc_engine::lk_runtime::LkRuntime,
     rtc_engine::{EngineError, RtcEngine},
     ChatMessage, DataPacket, RoomSession, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription,
 };
 use chrono::Utc;
-use libwebrtc::{native::create_random_uuid, rtp_parameters::RtpEncodingParameters};
+use libwebrtc::{
+    native::{create_random_uuid, user_timestamp},
+    rtp_parameters::RtpEncodingParameters,
+    video_source::RtcVideoSource,
+};
 use livekit_api::signal_client::SignalError;
 use livekit_protocol as proto;
 use livekit_runtime::timeout;
@@ -273,6 +278,10 @@ impl LocalParticipant {
             req.audio_features.push(proto::AudioTrackFeature::TfPreconnectBuffer as i32);
         }
 
+        if options.user_timestamp {
+            req.packet_trailer_features.push(proto::PacketTrailerFeature::PtfUserTimestamp as i32);
+        }
+
         let mut encodings = Vec::default();
         match &track {
             LocalTrack::Video(video_track) => {
@@ -317,6 +326,23 @@ impl LocalParticipant {
             self.inner.rtc_engine.create_sender(track.clone(), options.clone(), encodings).await?;
 
         track.set_transceiver(Some(transceiver));
+
+        if options.user_timestamp {
+            if let LocalTrack::Video(video_track) = &track {
+                log::info!("user_timestamp enabled for local video track {}", publication.sid(),);
+                let sender = track.transceiver().unwrap().sender();
+                let handler = user_timestamp::create_sender_handler(
+                    LkRuntime::instance().pc_factory(),
+                    &sender,
+                );
+                video_track.set_user_timestamp_handler(handler.clone());
+
+                #[cfg(not(target_arch = "wasm32"))]
+                if let RtcVideoSource::Native(ref native_source) = video_track.rtc_source() {
+                    native_source.set_user_timestamp_handler(handler.clone());
+                }
+            }
+        }
 
         self.inner.rtc_engine.publisher_negotiation_needed();
 

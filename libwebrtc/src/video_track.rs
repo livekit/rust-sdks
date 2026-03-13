@@ -19,6 +19,9 @@ use crate::{
     media_stream_track::{media_stream_track, RtcTrackState},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native::user_timestamp::UserTimestampHandler;
+
 #[derive(Clone)]
 pub struct RtcVideoTrack {
     pub(crate) handle: imp_vt::RtcVideoTrack,
@@ -26,6 +29,22 @@ pub struct RtcVideoTrack {
 
 impl RtcVideoTrack {
     media_stream_track!();
+
+    /// Set the user timestamp handler for this track.
+    ///
+    /// When set, any `NativeVideoStream` created from this track will
+    /// automatically use this handler to populate `user_timestamp_us`
+    /// on each decoded frame.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_user_timestamp_handler(&self, handler: UserTimestampHandler) {
+        self.handle.set_user_timestamp_handler(handler);
+    }
+
+    /// Get the user timestamp handler, if one has been set.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn user_timestamp_handler(&self) -> Option<UserTimestampHandler> {
+        self.handle.user_timestamp_handler()
+    }
 }
 
 impl Debug for RtcVideoTrack {

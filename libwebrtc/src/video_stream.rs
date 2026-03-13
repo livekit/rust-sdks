@@ -26,7 +26,10 @@ pub mod native {
     };
 
     use super::stream_imp;
-    use crate::{video_frame::BoxVideoFrame, video_track::RtcVideoTrack};
+    use crate::{
+        native::user_timestamp::UserTimestampHandler, video_frame::BoxVideoFrame,
+        video_track::RtcVideoTrack,
+    };
     use livekit_runtime::Stream;
 
     pub struct NativeVideoStream {
@@ -42,6 +45,20 @@ pub mod native {
     impl NativeVideoStream {
         pub fn new(video_track: RtcVideoTrack) -> Self {
             Self { handle: stream_imp::NativeVideoStream::new(video_track) }
+        }
+
+        /// Set the user timestamp handler for this stream.
+        ///
+        /// When set, each frame produced by this stream will have its
+        /// `user_timestamp_us` field populated by looking up the user
+        /// timestamp for each frame's RTP timestamp.
+        ///
+        /// Note: If the handler was already set on the `RtcVideoTrack`
+        /// before creating this stream, it is automatically wired up.
+        /// This method is only needed to override or set the handler
+        /// after construction.
+        pub fn set_user_timestamp_handler(&self, handler: UserTimestampHandler) {
+            self.handle.set_user_timestamp_handler(handler);
         }
 
         pub fn track(&self) -> RtcVideoTrack {
