@@ -12,21 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[cfg(feature = "__lk-e2e-test")]
-use {
-    anyhow::{Ok, Result},
-    chrono::{TimeDelta, TimeZone, Utc},
-    common::test_rooms,
-    livekit::{ConnectionState, ParticipantKind, RoomEvent},
-    std::time::Duration,
-    tokio::time::{self, timeout},
-};
+use anyhow::{Ok, Result};
+use chrono::{TimeDelta, TimeZone, Utc};
+use common::test_rooms;
+use livekit::{ConnectionState, ParticipantKind, RoomEvent};
+use std::time::Duration;
+use tokio::time::{self, timeout};
 
 mod common;
 
-#[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-async fn test_connect() -> Result<()> {
+async fn test_e2e_connect() -> Result<()> {
     let (room, _) = test_rooms(1).await?.pop().unwrap();
 
     assert_eq!(room.connection_state(), ConnectionState::Connected);
@@ -45,9 +41,8 @@ async fn test_connect() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-async fn test_connect_multiple() -> Result<()> {
+async fn test_e2e_connect_multiple() -> Result<()> {
     let mut rooms = test_rooms(2).await?;
 
     let (second, _) = rooms.pop().unwrap();
@@ -61,9 +56,8 @@ async fn test_connect_multiple() -> Result<()> {
     Ok(())
 }
 
-#[cfg(feature = "__lk-e2e-test")]
 #[test_log::test(tokio::test)]
-async fn test_participant_disconnect() -> Result<()> {
+async fn test_e2e_participant_disconnect() -> Result<()> {
     let mut rooms = test_rooms(2).await?;
     let (second, _) = rooms.pop().unwrap();
     let second_sid = second.local_participant().sid();
