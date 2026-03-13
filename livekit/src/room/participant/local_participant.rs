@@ -551,10 +551,6 @@ impl LocalParticipant {
     }
 
     /// Publishes a data packet.
-    ///
-    /// This API will be deprecated in the near future. For new applications,
-    /// please consider using data tracks (see [`LocalParticipant::publish_data_track`]).
-    ///
     pub async fn publish_data(&self, packet: DataPacket) -> RoomResult<()> {
         let kind = match packet.reliable {
             true => DataPacketKind::Reliable,
