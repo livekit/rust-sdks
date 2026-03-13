@@ -15,3 +15,23 @@ rustflags = ["-C", "link-args=-ObjC"]
 
 [target.aarch64-apple-ios-sim]
 rustflags = ["-C", "link-args=-ObjC"]
+
+# Settings for building livekit-uniffi
+
+# Use unwind panic for tier III Apple platforms until they
+# become tier II (see rust-lang/rust#151705).
+
+[target.aarch64-apple-tvos]
+rustflags = ["-C", "panic=unwind"]
+
+[target.aarch64-apple-tvos-sim]
+rustflags = ["-C", "panic=unwind"]
+
+[target.x86_64-apple-tvos]
+rustflags = ["-C", "panic=unwind"]
+
+[target.aarch64-apple-visionos]
+rustflags = ["-C", "panic=unwind"]
+
+[target.aarch64-apple-visionos-sim]
+rustflags = ["-C", "panic=unwind"]
