@@ -165,7 +165,10 @@ async fn data_track_subscription_task(
     loop {
         tokio::select! {
             _ = &mut drop_rx => break,
-            Some(frame) = stream.next() => {
+            frame = stream.next() => {
+                let Some(frame) = frame else {
+                    break;
+                };
                 let event = proto::DataTrackSubscriptionEvent {
                     subscription_handle,
                     detail: Some(proto::DataTrackSubscriptionFrameReceived { frame: frame.into() }.into()),
