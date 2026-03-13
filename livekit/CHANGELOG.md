@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.32](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.31...rust-sdks/livekit@0.7.32) - 2026-02-16
+
+### Fixed
+
+- fix full_reconnect downgrade & don't ignore Leave messages ([#893](https://github.com/livekit/rust-sdks/pull/893))
+
+### Other
+
+- turn single peerconnection off by default ([#897](https://github.com/livekit/rust-sdks/pull/897))
+- ensure signal connections times out properly and retries ([#895](https://github.com/livekit/rust-sdks/pull/895))
+- added Single Peer Connection support to Rust ([#888](https://github.com/livekit/rust-sdks/pull/888))
+- set the simulcast codec & layers ([#891](https://github.com/livekit/rust-sdks/pull/891))
+
 ## [0.7.31](https://github.com/livekit/rust-sdks/compare/rust-sdks/livekit@0.7.30...rust-sdks/livekit@0.7.31) - 2026-02-10
 
 ### Other

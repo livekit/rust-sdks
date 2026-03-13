@@ -85,6 +85,7 @@ pub fn publish_result_from_request_response(
         // to the public error enum if they are useful to the user.
         Reason::NotAllowed => PublishError::NotAllowed,
         Reason::DuplicateName => PublishError::DuplicateName,
+        Reason::InvalidName => PublishError::InvalidName,
         _ => PublishError::Internal(anyhow!("SFU rejected: {}", msg.message).into()),
     };
     let event = SfuPublishResponse { handle, result: Err(error) };

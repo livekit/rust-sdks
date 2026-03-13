@@ -1,6 +1,6 @@
 [package]
 name = "livekit"
-version = "0.7.31"
+version = "0.7.32"
 edition.workspace = true
 license.workspace = true
 description = "Rust Client SDK for LiveKit"
@@ -45,6 +45,7 @@ semver = "1.0"
 libloading = { version = "0.8.6" }
 bytes = "1.10.1"
 bmrng = "0.5.2"
+base64 = "0.22"
 
 [dev-dependencies]
 anyhow = "1.0.99"
