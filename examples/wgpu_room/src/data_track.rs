@@ -1,7 +1,12 @@
 use futures::StreamExt;
 use livekit::prelude::*;
 use parking_lot::Mutex;
+use std::collections::VecDeque;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+pub const TIME_WINDOW: Duration = Duration::from_secs(30);
+pub const MAX_VALUE: f32 = 512.0;
 
 pub struct LocalDataTrackTile {
     track: LocalDataTrack,
@@ -22,15 +27,15 @@ impl LocalDataTrackTile {
 }
 
 pub struct RemoteDataTrackTile {
-    latest_payload: Arc<Mutex<Option<Vec<u8>>>>,
+    pub points: Arc<Mutex<VecDeque<(Instant, i32)>>>,
     pub publisher_identity: String,
     pub name: String,
 }
 
 impl RemoteDataTrackTile {
     pub fn new(async_handle: &tokio::runtime::Handle, track: RemoteDataTrack) -> Self {
-        let latest_payload = Arc::new(Mutex::new(None));
-        let payload_ref = latest_payload.clone();
+        let points = Arc::new(Mutex::new(VecDeque::new()));
+        let points_ref = points.clone();
         let publisher_identity = track.publisher_identity().to_string();
         let name = track.info().name().to_string();
 
@@ -43,15 +48,13 @@ impl RemoteDataTrackTile {
                 }
             };
             while let Some(frame) = stream.next().await {
-                *payload_ref.lock() = Some(frame.payload().to_vec());
+                let payload = frame.payload();
+                let Ok(s) = std::str::from_utf8(&payload) else { continue };
+                let Ok(value) = s.parse::<i32>() else { continue };
+                points_ref.lock().push_front((Instant::now(), value));
             }
         });
 
-        Self { latest_payload, publisher_identity, name }
-    }
-
-    pub fn latest_value_str(&self) -> Option<String> {
-        let payload = self.latest_payload.lock();
-        String::from_utf8(payload.as_ref()?.clone()).ok()
+        Self { points, publisher_identity, name }
     }
 }

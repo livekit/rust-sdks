@@ -1,10 +1,10 @@
 use crate::{
-    data_track::{LocalDataTrackTile, RemoteDataTrackTile},
+    data_track::{LocalDataTrackTile, RemoteDataTrackTile, MAX_VALUE, TIME_WINDOW},
     service::{AsyncCmd, LkService, UiCmd},
     video_grid::VideoGrid,
     video_renderer::VideoRenderer,
 };
-use egui::{CornerRadius, Stroke};
+use egui::{emath, epaint, pos2, Color32, CornerRadius, Rect, Stroke};
 use livekit::{e2ee::EncryptionType, prelude::*, track::VideoQuality, SimulateScenario};
 use std::collections::HashMap;
 
@@ -499,22 +499,73 @@ fn draw_local_data_track(tile: &mut LocalDataTrackTile, ui: &mut egui::Ui) {
 
 fn draw_remote_data_track(tile: &RemoteDataTrackTile, ui: &mut egui::Ui) {
     let rect = ui.available_rect_before_wrap();
-    ui.painter().rect_filled(rect, CornerRadius::default(), ui.style().visuals.code_bg_color);
+    let painter = ui.painter();
 
-    let text = tile.latest_value_str().unwrap_or_else(|| "Waiting...".to_string());
-    ui.painter().text(
-        rect.center(),
-        egui::Align2::CENTER_CENTER,
-        text,
-        egui::FontId::proportional(36.0),
-        egui::Color32::WHITE,
+    let bg = Color32::from_rgb(0x1a, 0x1a, 0x2e);
+    painter.rect_filled(rect, CornerRadius::default(), bg);
+
+    let label_height = 20.0;
+    let pad = 10.0;
+    let plot_rect = Rect::from_min_max(
+        pos2(rect.min.x + pad, rect.min.y + pad),
+        pos2(rect.max.x - pad, rect.max.y - label_height - pad),
     );
 
-    ui.painter().text(
-        egui::pos2(rect.min.x + 5.0, rect.max.y - 5.0),
+    let time_window_secs = TIME_WINDOW.as_secs_f32();
+    let to_screen = emath::RectTransform::from_to(
+        Rect::from_x_y_ranges(0.0..=time_window_secs, MAX_VALUE..=0.0),
+        plot_rect,
+    );
+
+    let axis_color = Color32::from_rgb(0x6c, 0x75, 0x7d);
+    painter.line_segment(
+        [to_screen * pos2(0.0, 0.0), to_screen * pos2(0.0, MAX_VALUE)],
+        Stroke::new(1.0, axis_color),
+    );
+    painter.line_segment(
+        [to_screen * pos2(0.0, 0.0), to_screen * pos2(time_window_secs, 0.0)],
+        Stroke::new(1.0, axis_color),
+    );
+
+    let now = std::time::Instant::now();
+    let mut points = tile.points.lock();
+    while points.back().is_some_and(|(t, _)| now.duration_since(*t) > TIME_WINDOW) {
+        points.pop_back();
+    }
+
+    if points.is_empty() {
+        drop(points);
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "Waiting...",
+            egui::FontId::proportional(24.0),
+            Color32::WHITE,
+        );
+    } else {
+        let line_color = Color32::from_rgb(0xFF, 0x44, 0x44);
+        let mut screen_points = Vec::with_capacity(points.len() + 1);
+
+        let (_, newest_val) = points[0];
+        screen_points.push(to_screen * pos2(0.0, newest_val as f32));
+
+        for &(t, val) in points.iter() {
+            let age = now.duration_since(t).as_secs_f32();
+            screen_points.push(to_screen * pos2(age, val as f32));
+        }
+
+        drop(points);
+        painter.add(epaint::Shape::line(
+            screen_points,
+            epaint::PathStroke::new(2.0, line_color),
+        ));
+    }
+
+    painter.text(
+        pos2(rect.min.x + 5.0, rect.max.y - 5.0),
         egui::Align2::LEFT_BOTTOM,
         format!("Data: {} ({})", tile.name, tile.publisher_identity),
         egui::FontId::default(),
-        egui::Color32::WHITE,
+        Color32::WHITE,
     );
 }
