@@ -3832,7 +3832,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.7.32"
+version = "0.7.33"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -3859,7 +3859,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.4.14"
+version = "0.4.15"
 dependencies = [
  "async-tungstenite",
  "base64 0.21.7",
@@ -3889,7 +3889,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.48"
+version = "0.12.49"
 dependencies = [
  "bytes",
  "console-subscriber",
@@ -3957,7 +3957,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-wakeword"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hound",
  "ndarray 0.17.2",
@@ -8292,7 +8292,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.23"
+version = "0.3.24"
 dependencies = [
  "cc",
  "cxx",
