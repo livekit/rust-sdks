@@ -506,8 +506,9 @@ fn draw_remote_data_track(tile: &RemoteDataTrackTile, ui: &mut egui::Ui) {
 
     let v_margin = rect.height() * 0.25;
     let h_margin = 8.0;
+    let label_width = 32.0;
     let plot_rect = Rect::from_min_max(
-        pos2(rect.min.x + h_margin, rect.min.y + v_margin),
+        pos2(rect.min.x + h_margin + label_width, rect.min.y + v_margin),
         pos2(rect.max.x - h_margin, rect.max.y - v_margin),
     );
 
@@ -549,7 +550,8 @@ fn draw_remote_data_track(tile: &RemoteDataTrackTile, ui: &mut egui::Ui) {
         let mut screen_points = Vec::with_capacity(points.len() + 1);
 
         let (_, newest_val) = points[0];
-        screen_points.push(to_screen * pos2(0.0, newest_val as f32));
+        let newest_screen = to_screen * pos2(0.0, newest_val as f32);
+        screen_points.push(newest_screen);
 
         for &(t, val) in points.iter() {
             let age = now.duration_since(t).as_secs_f32();
@@ -561,6 +563,16 @@ fn draw_remote_data_track(tile: &RemoteDataTrackTile, ui: &mut egui::Ui) {
             screen_points,
             epaint::PathStroke::new(2.0, line_color),
         ));
+
+        painter.circle_filled(newest_screen, 4.0, line_color);
+
+        painter.text(
+            pos2(plot_rect.min.x - 4.0, newest_screen.y),
+            egui::Align2::RIGHT_CENTER,
+            newest_val.to_string(),
+            egui::FontId::proportional(14.0),
+            Color32::WHITE,
+        );
     }
 
     painter.text(
