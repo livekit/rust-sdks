@@ -11,9 +11,14 @@ repository.workspace = true
 readme = "README.md"
 publish = false
 
+[features]
+default = ["wakeword"]
+wakeword = ["livekit-wakeword"]
+
 [dependencies]
 livekit-protocol = { workspace = true }
 livekit-api = { workspace = true }
+livekit-wakeword = { workspace = true, optional = true }
 uniffi = { version = "0.30.0", features = ["cli", "scaffolding-ffi-buffer-fns"] }
 log = { workspace = true }
 tokio = { workspace = true, features = ["sync"] }
