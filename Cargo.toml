@@ -8,6 +8,7 @@ members = [
     "livekit-uniffi",
     "livekit-ffi-node-bindings",
     "livekit-runtime",
+    "livekit-wakeword",
     "libwebrtc",
     "soxr-sys",
     "yuv-sys",
@@ -68,6 +69,14 @@ serde = "1"
 serde_json = "1.0"
 thiserror = "1"
 tokio = { version = "1", default-features = false }
+
+# For examples
+eframe = { version = "0.33.3", default-features = false }
+egui = "0.33.3"
+egui-wgpu = "0.33.3"
+image = "0.25"
+wgpu = "28.0"
+winit = "0.30.12"
 
 [profile.release]
 opt-level = "z"
