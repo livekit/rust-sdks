@@ -473,6 +473,7 @@ struct DataTrackChart<'a> {
     points: &'a parking_lot::Mutex<std::collections::VecDeque<(std::time::Instant, i32)>>,
     name: &'a str,
     publisher_label: &'a str,
+    drag_value: Option<&'a mut i32>,
 }
 
 impl<'a> DataTrackChart<'a> {
@@ -481,14 +482,27 @@ impl<'a> DataTrackChart<'a> {
         name: &'a str,
         publisher_label: &'a str,
     ) -> Self {
-        Self { points, name, publisher_label }
+        Self { points, name, publisher_label, drag_value: None }
+    }
+
+    fn interactive(mut self, value: &'a mut i32) -> Self {
+        self.drag_value = Some(value);
+        self
     }
 }
 
 impl egui::Widget for DataTrackChart<'_> {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        let mut drag_value = self.drag_value;
+        let interactive = drag_value.is_some();
+        let sense = if interactive {
+            egui::Sense::click_and_drag()
+        } else {
+            egui::Sense::hover()
+        };
+
         let desired_size = ui.available_size();
-        let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+        let (rect, mut response) = ui.allocate_exact_size(desired_size, sense);
         let painter = ui.painter();
 
         let bg = Color32::from_rgb(0x1a, 0x1a, 0x2e);
@@ -520,47 +534,76 @@ impl egui::Widget for DataTrackChart<'_> {
             Stroke::new(1.0, guide_color),
         );
 
+        if let Some(value) = &mut drag_value {
+            if let Some(pointer_pos) = response.interact_pointer_pos() {
+                let from_screen = to_screen.inverse();
+                let logical = from_screen * pointer_pos;
+                let new_val = (logical.y as i32).clamp(0, MAX_VALUE as i32);
+                if **value != new_val {
+                    **value = new_val;
+                    response.mark_changed();
+                }
+            }
+        }
+
         let now = std::time::Instant::now();
         let mut points = self.points.lock();
         while points.back().is_some_and(|(t, _)| now.duration_since(*t) > TIME_WINDOW) {
             points.pop_back();
         }
 
-        if points.is_empty() {
-            drop(points);
-            painter.text(
-                rect.center(),
-                egui::Align2::CENTER_CENTER,
-                "Waiting...",
-                egui::FontId::proportional(24.0),
-                Color32::WHITE,
-            );
-        } else {
-            let line_color = Color32::from_rgb(0xFF, 0x44, 0x44);
+        let display_val = drag_value
+            .as_deref()
+            .copied()
+            .or_else(|| points.front().map(|(_, v)| *v));
+
+        let line_color = Color32::from_rgb(0xFF, 0x44, 0x44);
+
+        if !points.is_empty() {
             let mut screen_points = Vec::with_capacity(points.len() + 1);
-
-            let (_, newest_val) = points[0];
-            let newest_screen = to_screen * pos2(0.0, newest_val as f32);
-            screen_points.push(newest_screen);
-
+            if let Some(val) = display_val {
+                screen_points.push(to_screen * pos2(0.0, val as f32));
+            }
             for &(t, val) in points.iter() {
                 let age = now.duration_since(t).as_secs_f32();
                 screen_points.push(to_screen * pos2(age, val as f32));
             }
-
             drop(points);
             painter.add(epaint::Shape::line(
                 screen_points,
                 epaint::PathStroke::new(2.0, line_color),
             ));
+            ui.ctx().request_repaint();
+        } else {
+            drop(points);
+        }
 
-            painter.circle_filled(newest_screen, 4.0, line_color);
+        if let Some(val) = display_val {
+            let newest_screen = to_screen * pos2(0.0, val as f32);
+            let is_active = interactive && (response.hovered() || response.dragged());
+            let dot_radius = if is_active { 8.0 } else { 4.0 };
+            painter.circle_filled(newest_screen, dot_radius, line_color);
+            if is_active {
+                painter.circle_stroke(
+                    newest_screen,
+                    dot_radius + 2.0,
+                    Stroke::new(1.5, Color32::WHITE),
+                );
+            }
 
             painter.text(
                 pos2(plot_rect.min.x - 4.0, newest_screen.y),
                 egui::Align2::RIGHT_CENTER,
-                newest_val.to_string(),
+                val.to_string(),
                 egui::FontId::proportional(14.0),
+                Color32::WHITE,
+            );
+        } else {
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "Waiting...",
+                egui::FontId::proportional(24.0),
                 Color32::WHITE,
             );
         }
@@ -573,33 +616,20 @@ impl egui::Widget for DataTrackChart<'_> {
             Color32::WHITE,
         );
 
+        if interactive {
+            response = response.on_hover_cursor(egui::CursorIcon::ResizeVertical);
+        }
+
         response
     }
 }
 
 fn draw_local_data_track(tile: &mut LocalDataTrackTile, ui: &mut egui::Ui) {
-    let rect = ui.available_rect_before_wrap();
-
-    let slider_height = 24.0;
-    let chart_rect = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.max.y - slider_height));
-
-    let mut chart_ui = ui.new_child(egui::UiBuilder::new().max_rect(chart_rect));
-    chart_ui.add(DataTrackChart::new(&tile.points, &tile.name, "local"));
-
-    let slider_rect = Rect::from_min_max(pos2(rect.min.x, rect.max.y - slider_height), rect.max);
-    let mut slider_ui = ui.new_child(egui::UiBuilder::new().max_rect(slider_rect));
-    let padding = 8.0;
-    let item_spacing = slider_ui.spacing().item_spacing.x;
-    let text_edit_width = slider_ui.spacing().interact_size.x;
-    let rail_width =
-        (slider_rect.width() - padding * 2.0 - item_spacing - text_edit_width).max(20.0);
-    slider_ui.horizontal(|ui| {
-        ui.add_space(padding);
-        ui.spacing_mut().slider_width = rail_width;
-        if ui.add(egui::Slider::new(&mut tile.slider_value, 0..=512)).changed() {
-            tile.push_value();
-        }
-    });
+    let chart = DataTrackChart::new(&tile.points, &tile.name, "local")
+        .interactive(&mut tile.slider_value);
+    if ui.add(chart).changed() {
+        tile.push_value();
+    }
 }
 
 fn draw_remote_data_track(tile: &RemoteDataTrackTile, ui: &mut egui::Ui) {
