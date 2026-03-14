@@ -30,6 +30,11 @@ message NewAudioStreamRequest {
   optional string audio_filter_module_id = 5; // Unique identifier passed in LoadAudioFilterPluginRequest
   optional string audio_filter_options = 6;
   optional uint32 frame_size_ms = 7;
+  // Maximum number of queued WebRTC sink frames. Each frame is typically 10 ms
+  // of decoded PCM audio on the receive path. Omit this field to use the
+  // default bounded queue size of 10 frames. Set it to 0 to request unbounded
+  // buffering.
+  optional uint32 queue_size_frames = 8;
 }
 message NewAudioStreamResponse { required OwnedAudioStream stream = 1; }
 
@@ -42,6 +47,11 @@ message AudioStreamFromParticipantRequest {
   optional string audio_filter_module_id = 7;
   optional string audio_filter_options = 8;
   optional uint32 frame_size_ms = 9;
+  // Maximum number of queued WebRTC sink frames. Each frame is typically 10 ms
+  // of decoded PCM audio on the receive path. Omit this field to use the
+  // default bounded queue size of 10 frames. Set it to 0 to request unbounded
+  // buffering.
+  optional uint32 queue_size_frames = 10;
 }
 
 message AudioStreamFromParticipantResponse { required OwnedAudioStream stream = 1; }
