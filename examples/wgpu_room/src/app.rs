@@ -512,13 +512,13 @@ impl egui::Widget for DataTrackChart<'_> {
         let h_margin = 8.0;
         let label_width = 32.0;
         let plot_rect = Rect::from_min_max(
-            pos2(rect.min.x + h_margin + label_width, rect.min.y + v_margin),
-            pos2(rect.max.x - h_margin, rect.max.y - v_margin),
+            pos2(rect.min.x + h_margin, rect.min.y + v_margin),
+            pos2(rect.max.x - h_margin - label_width, rect.max.y - v_margin),
         );
 
         let time_window_secs = TIME_WINDOW.as_secs_f32();
         let to_screen = emath::RectTransform::from_to(
-            Rect::from_x_y_ranges(0.0..=time_window_secs, MAX_VALUE..=0.0),
+            Rect::from_x_y_ranges(time_window_secs..=0.0, MAX_VALUE..=0.0),
             plot_rect,
         );
 
@@ -592,8 +592,8 @@ impl egui::Widget for DataTrackChart<'_> {
             }
 
             painter.text(
-                pos2(plot_rect.min.x - 12.0, newest_screen.y),
-                egui::Align2::RIGHT_CENTER,
+                pos2(plot_rect.max.x + 8.0, newest_screen.y),
+                egui::Align2::LEFT_CENTER,
                 val.to_string(),
                 egui::FontId::monospace(14.0),
                 Color32::WHITE,
