@@ -581,7 +581,7 @@ impl egui::Widget for DataTrackChart<'_> {
         if let Some(val) = display_val {
             let newest_screen = to_screen * pos2(0.0, val as f32);
             let is_active = interactive && (response.hovered() || response.dragged());
-            let dot_radius = if is_active { 8.0 } else { 4.0 };
+            let dot_radius = if is_active { 6.0 } else { 4.0 };
             painter.circle_filled(newest_screen, dot_radius, line_color);
             if is_active {
                 painter.circle_stroke(
@@ -592,10 +592,10 @@ impl egui::Widget for DataTrackChart<'_> {
             }
 
             painter.text(
-                pos2(plot_rect.min.x - 4.0, newest_screen.y),
+                pos2(plot_rect.min.x - 12.0, newest_screen.y),
                 egui::Align2::RIGHT_CENTER,
                 val.to_string(),
-                egui::FontId::proportional(14.0),
+                egui::FontId::monospace(14.0),
                 Color32::WHITE,
             );
         } else {
