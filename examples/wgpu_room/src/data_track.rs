@@ -11,18 +11,20 @@ pub const MAX_VALUE: f32 = 512.0;
 pub struct LocalDataTrackTile {
     track: LocalDataTrack,
     pub slider_value: i32,
+    pub points: Arc<Mutex<VecDeque<(Instant, i32)>>>,
     pub name: String,
 }
 
 impl LocalDataTrackTile {
     pub fn new(track: LocalDataTrack) -> Self {
         let name = track.info().name().to_string();
-        Self { track, slider_value: 0, name }
+        Self { track, slider_value: 0, points: Arc::new(Mutex::new(VecDeque::new())), name }
     }
 
     pub fn push_value(&self) {
         let frame = DataTrackFrame::new(self.slider_value.to_string().into_bytes());
         let _ = self.track.try_push(frame);
+        self.points.lock().push_front((Instant::now(), self.slider_value));
     }
 }
 

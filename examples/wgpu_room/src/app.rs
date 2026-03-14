@@ -469,117 +469,139 @@ fn draw_video(name: &str, speaking: bool, video_renderer: &VideoRenderer, ui: &m
     );
 }
 
+struct DataTrackChart<'a> {
+    points: &'a parking_lot::Mutex<std::collections::VecDeque<(std::time::Instant, i32)>>,
+    name: &'a str,
+    publisher_label: &'a str,
+}
+
+impl<'a> DataTrackChart<'a> {
+    fn new(
+        points: &'a parking_lot::Mutex<std::collections::VecDeque<(std::time::Instant, i32)>>,
+        name: &'a str,
+        publisher_label: &'a str,
+    ) -> Self {
+        Self { points, name, publisher_label }
+    }
+}
+
+impl egui::Widget for DataTrackChart<'_> {
+    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        let desired_size = ui.available_size();
+        let (rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::hover());
+        let painter = ui.painter();
+
+        let bg = Color32::from_rgb(0x1a, 0x1a, 0x2e);
+        painter.rect_filled(rect, CornerRadius::default(), bg);
+
+        let v_margin = rect.height() * 0.15;
+        let h_margin = 8.0;
+        let label_width = 32.0;
+        let plot_rect = Rect::from_min_max(
+            pos2(rect.min.x + h_margin + label_width, rect.min.y + v_margin),
+            pos2(rect.max.x - h_margin, rect.max.y - v_margin),
+        );
+
+        let time_window_secs = TIME_WINDOW.as_secs_f32();
+        let to_screen = emath::RectTransform::from_to(
+            Rect::from_x_y_ranges(0.0..=time_window_secs, MAX_VALUE..=0.0),
+            plot_rect,
+        );
+
+        let guide_color = Color32::from_rgb(0x40, 0x40, 0x50);
+        let max_y = (to_screen * pos2(0.0, MAX_VALUE)).y;
+        let min_y = (to_screen * pos2(0.0, 0.0)).y;
+        painter.line_segment(
+            [pos2(plot_rect.min.x, max_y), pos2(plot_rect.max.x, max_y)],
+            Stroke::new(1.0, guide_color),
+        );
+        painter.line_segment(
+            [pos2(plot_rect.min.x, min_y), pos2(plot_rect.max.x, min_y)],
+            Stroke::new(1.0, guide_color),
+        );
+
+        let now = std::time::Instant::now();
+        let mut points = self.points.lock();
+        while points.back().is_some_and(|(t, _)| now.duration_since(*t) > TIME_WINDOW) {
+            points.pop_back();
+        }
+
+        if points.is_empty() {
+            drop(points);
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "Waiting...",
+                egui::FontId::proportional(24.0),
+                Color32::WHITE,
+            );
+        } else {
+            let line_color = Color32::from_rgb(0xFF, 0x44, 0x44);
+            let mut screen_points = Vec::with_capacity(points.len() + 1);
+
+            let (_, newest_val) = points[0];
+            let newest_screen = to_screen * pos2(0.0, newest_val as f32);
+            screen_points.push(newest_screen);
+
+            for &(t, val) in points.iter() {
+                let age = now.duration_since(t).as_secs_f32();
+                screen_points.push(to_screen * pos2(age, val as f32));
+            }
+
+            drop(points);
+            painter.add(epaint::Shape::line(
+                screen_points,
+                epaint::PathStroke::new(2.0, line_color),
+            ));
+
+            painter.circle_filled(newest_screen, 4.0, line_color);
+
+            painter.text(
+                pos2(plot_rect.min.x - 4.0, newest_screen.y),
+                egui::Align2::RIGHT_CENTER,
+                newest_val.to_string(),
+                egui::FontId::proportional(14.0),
+                Color32::WHITE,
+            );
+        }
+
+        painter.text(
+            pos2(rect.min.x + 5.0, rect.max.y - 5.0),
+            egui::Align2::LEFT_BOTTOM,
+            format!("Data: {} ({})", self.name, self.publisher_label),
+            egui::FontId::default(),
+            Color32::WHITE,
+        );
+
+        response
+    }
+}
+
 fn draw_local_data_track(tile: &mut LocalDataTrackTile, ui: &mut egui::Ui) {
     let rect = ui.available_rect_before_wrap();
-    ui.painter().rect_filled(rect, CornerRadius::default(), ui.style().visuals.code_bg_color);
 
-    let padding = 16.0;
-    let item_spacing = ui.spacing().item_spacing.x;
-    let text_edit_width = ui.spacing().interact_size.x;
-    let rail_width = (rect.width() - padding * 2.0 - item_spacing - text_edit_width).max(20.0);
+    let slider_height = 24.0;
+    let chart_rect = Rect::from_min_max(rect.min, pos2(rect.max.x, rect.max.y - slider_height));
 
-    ui.add_space(((rect.height() - 20.0) / 2.0).max(0.0));
-    ui.horizontal(|ui| {
+    let mut chart_ui = ui.new_child(egui::UiBuilder::new().max_rect(chart_rect));
+    chart_ui.add(DataTrackChart::new(&tile.points, &tile.name, "local"));
+
+    let slider_rect = Rect::from_min_max(pos2(rect.min.x, rect.max.y - slider_height), rect.max);
+    let mut slider_ui = ui.new_child(egui::UiBuilder::new().max_rect(slider_rect));
+    let padding = 8.0;
+    let item_spacing = slider_ui.spacing().item_spacing.x;
+    let text_edit_width = slider_ui.spacing().interact_size.x;
+    let rail_width =
+        (slider_rect.width() - padding * 2.0 - item_spacing - text_edit_width).max(20.0);
+    slider_ui.horizontal(|ui| {
         ui.add_space(padding);
         ui.spacing_mut().slider_width = rail_width;
-        let slider = egui::Slider::new(&mut tile.slider_value, 0..=512);
-        if ui.add(slider).changed() {
+        if ui.add(egui::Slider::new(&mut tile.slider_value, 0..=512)).changed() {
             tile.push_value();
         }
     });
-
-    ui.painter().text(
-        egui::pos2(rect.min.x + 5.0, rect.max.y - 5.0),
-        egui::Align2::LEFT_BOTTOM,
-        format!("Data: {} (local)", tile.name),
-        egui::FontId::default(),
-        egui::Color32::WHITE,
-    );
 }
 
 fn draw_remote_data_track(tile: &RemoteDataTrackTile, ui: &mut egui::Ui) {
-    let rect = ui.available_rect_before_wrap();
-    let painter = ui.painter();
-
-    let bg = Color32::from_rgb(0x1a, 0x1a, 0x2e);
-    painter.rect_filled(rect, CornerRadius::default(), bg);
-
-    let v_margin = rect.height() * 0.25;
-    let h_margin = 8.0;
-    let label_width = 32.0;
-    let plot_rect = Rect::from_min_max(
-        pos2(rect.min.x + h_margin + label_width, rect.min.y + v_margin),
-        pos2(rect.max.x - h_margin, rect.max.y - v_margin),
-    );
-
-    let time_window_secs = TIME_WINDOW.as_secs_f32();
-    let to_screen = emath::RectTransform::from_to(
-        Rect::from_x_y_ranges(0.0..=time_window_secs, MAX_VALUE..=0.0),
-        plot_rect,
-    );
-
-    let guide_color = Color32::from_rgb(0x40, 0x40, 0x50);
-    let max_y = (to_screen * pos2(0.0, MAX_VALUE)).y;
-    let min_y = (to_screen * pos2(0.0, 0.0)).y;
-    painter.line_segment(
-        [pos2(plot_rect.min.x, max_y), pos2(plot_rect.max.x, max_y)],
-        Stroke::new(1.0, guide_color),
-    );
-    painter.line_segment(
-        [pos2(plot_rect.min.x, min_y), pos2(plot_rect.max.x, min_y)],
-        Stroke::new(1.0, guide_color),
-    );
-
-    let now = std::time::Instant::now();
-    let mut points = tile.points.lock();
-    while points.back().is_some_and(|(t, _)| now.duration_since(*t) > TIME_WINDOW) {
-        points.pop_back();
-    }
-
-    if points.is_empty() {
-        drop(points);
-        painter.text(
-            rect.center(),
-            egui::Align2::CENTER_CENTER,
-            "Waiting...",
-            egui::FontId::proportional(24.0),
-            Color32::WHITE,
-        );
-    } else {
-        let line_color = Color32::from_rgb(0xFF, 0x44, 0x44);
-        let mut screen_points = Vec::with_capacity(points.len() + 1);
-
-        let (_, newest_val) = points[0];
-        let newest_screen = to_screen * pos2(0.0, newest_val as f32);
-        screen_points.push(newest_screen);
-
-        for &(t, val) in points.iter() {
-            let age = now.duration_since(t).as_secs_f32();
-            screen_points.push(to_screen * pos2(age, val as f32));
-        }
-
-        drop(points);
-        painter.add(epaint::Shape::line(
-            screen_points,
-            epaint::PathStroke::new(2.0, line_color),
-        ));
-
-        painter.circle_filled(newest_screen, 4.0, line_color);
-
-        painter.text(
-            pos2(plot_rect.min.x - 4.0, newest_screen.y),
-            egui::Align2::RIGHT_CENTER,
-            newest_val.to_string(),
-            egui::FontId::proportional(14.0),
-            Color32::WHITE,
-        );
-    }
-
-    painter.text(
-        pos2(rect.min.x + 5.0, rect.max.y - 5.0),
-        egui::Align2::LEFT_BOTTOM,
-        format!("Data: {} ({})", tile.name, tile.publisher_identity),
-        egui::FontId::default(),
-        Color32::WHITE,
-    );
+    ui.add(DataTrackChart::new(&tile.points, &tile.name, &tile.publisher_identity));
 }
