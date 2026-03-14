@@ -552,9 +552,11 @@ impl egui::Widget for DataTrackChart<'_> {
             points.pop_back();
         }
 
+        let is_interacting = response.interact_pointer_pos().is_some();
         let display_val = drag_value
             .as_deref()
             .copied()
+            .filter(|_| !points.is_empty() || is_interacting)
             .or_else(|| points.front().map(|(_, v)| *v));
 
         let line_color = Color32::from_rgb(0xFF, 0x44, 0x44);
@@ -599,11 +601,12 @@ impl egui::Widget for DataTrackChart<'_> {
                 Color32::WHITE,
             );
         } else {
+            let hint = if interactive { "Drag to Push Frames…" } else { "Waiting for Frames…" };
             painter.text(
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
-                "Waiting...",
-                egui::FontId::proportional(24.0),
+                hint,
+                egui::FontId::proportional(18.0),
                 Color32::WHITE,
             );
         }
