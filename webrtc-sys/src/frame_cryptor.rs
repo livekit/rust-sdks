@@ -25,6 +25,15 @@ pub mod ffi {
         pub ratchet_window_size: i32,
         pub ratchet_salt: Vec<u8>,
         pub failure_tolerance: i32,
+        pub key_ring_size: i32,
+        pub key_derivation_algorithm: KeyDerivationAlgorithm,
+    }
+
+    #[derive(Debug)]
+    #[repr(i32)]
+    pub enum KeyDerivationAlgorithm {
+        PBKDF2 = 0,
+        HKDF,
     }
 
     #[derive(Debug)]
@@ -249,6 +258,8 @@ mod tests {
             ratchet_window_size: 16,
             ratchet_salt: vec![],
             failure_tolerance: -1,
+            key_ring_size: 16,
+            key_derivation_algorithm: ffi::KeyDerivationAlgorithm::HKDF,
         };
 
         let key_provider = ffi::new_key_provider(options);
