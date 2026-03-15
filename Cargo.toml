@@ -21,6 +21,7 @@ members = [
     "examples/basic_room",
     "examples/basic_text_stream",
     "examples/encrypted_text_stream",
+    "examples/agent_audio_latency",
     "examples/local_audio",
     "examples/local_video",
     "examples/mobile",
