@@ -257,9 +257,7 @@ impl FfiAudioStream {
                 let num_channels = request.num_channels.unwrap_or(1) as i32;
                 let track_sid = track.sid();
                 let options = NativeAudioStreamOptions {
-                    queue_size_frames: request
-                        .queue_size_frames
-                        .map(|capacity| capacity as usize),
+                    queue_size_frames: request.queue_size_frames.map(|capacity| capacity as usize),
                 };
 
                 let mut track_finished_rx = track_finished_tx.subscribe();
@@ -309,12 +307,8 @@ impl FfiAudioStream {
                     None => (None, None),
                 };
 
-                let native_stream = NativeAudioStream::with_options(
-                    rtc_track,
-                    sample_rate,
-                    num_channels,
-                    options,
-                );
+                let native_stream =
+                    NativeAudioStream::with_options(rtc_track, sample_rate, num_channels, options);
 
                 let stream = if let Some(session) = audio_filter_session.take() {
                     let stream = AudioFilterAudioStream::new(
