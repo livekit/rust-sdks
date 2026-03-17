@@ -71,11 +71,16 @@ git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --i
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
-cd build
-
-git apply "$COMMAND_DIR/patches/disable_crel.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-
-cd ..
+# Disable CREL (compact relocations). Chromium's build enables experimental
+# CREL via -Wa,--crel which causes segfaults on aarch64-linux (and is known
+# broken on arm32 and s390x too).
+# See: https://crbug.com/376278218
+# See: https://github.com/zed-industries/zed/pull/51433#discussion_r2944567608
+git -C build apply "$COMMAND_DIR/patches/disable_crel.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+if grep -q 'allow-experimental-crel' build/config/compiler/BUILD.gn; then
+  echo "Error: failed to remove CREL flags from build/config/compiler/BUILD.gn"
+  exit 1
+fi
 
 cd third_party
 

@@ -1,28 +1,17 @@
 diff --git a/config/compiler/BUILD.gn b/config/compiler/BUILD.gn
 --- a/config/compiler/BUILD.gn
 +++ b/config/compiler/BUILD.gn
-@@ -1,8 +1,14 @@
-       cflags += [ "-ffp-contract=off" ]
-     }
- 
--    # Enable ELF CREL (see crbug.com/357878242) for all platforms that use ELF.
-+    # Disable ELF CREL (compact relocations).
-+    # CREL is still experimental and causes segfaults on multiple
-+    # architectures, including aarch64:
-+    #   - https://crbug.com/376278218
-+    #   - https://github.com/zed-industries/zed/pull/51433#discussion_r2944567608
-+    #
-+    # Original block (disabled):
-+    # Enable ELF CREL (see crbug.com/357878242) for all platforms that use ELF.
-     # TODO(crbug.com/376278218): This causes segfault on Linux ARM builds.
-     # It also causes segfault on Linux s390x:
-     # https://github.com/llvm/llvm-project/issues/149511
--    if (is_linux && use_lld && current_cpu != "arm" && current_cpu != "s390x") {
+@@ -617,13 +617,6 @@ config("compiler") {
+    cflags += [ "-ffp-contract=off" ]
+    }
+
+-    # Enable ELF CREL (see crbug.com/357878242) for all platforms that use ELF
+-    # (excluding toolchains that use an older version of LLVM).
+-    if (is_linux && use_lld && !llvm_android_mainline &&
+-        default_toolchain != "//build/toolchain/cros:target") {
 -      cflags += [ "-Wa,--crel,--allow-experimental-crel" ]
 -    }
-+    # if (is_linux && use_lld && current_cpu != "arm" && current_cpu != "s390x") {
-+    #   cflags += [ "-Wa,--crel,--allow-experimental-crel" ]
-+    # }
-   }
- 
-   # C11/C++11 compiler flags setup.
+-
+    # TODO(crbug.com/413427035): Remove once
+    # https://github.com/llvm/llvm-project/pull/136867/ is landed.
+    if (!is_win && !llvm_android_mainline &&
