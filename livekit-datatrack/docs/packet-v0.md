@@ -61,7 +61,7 @@ packet
 
 ### Extensions
 
-If the extension flag in the base header is set, one or more extensions will follow. The format is a variant of [RFC 5285 §4.2](https://datatracker.ietf.org/doc/html/rfc5285#section-4.2) with two notable differences:
+If the extension flag in the base header is set, one or more extensions will follow. The format is a variant of [RFC 5285 §4.3](https://datatracker.ietf.org/doc/html/rfc5285#section-4.3) with two notable differences:
 
 1. Instead of a fixed-bit pattern (e.g., *0xBEDE*), a 16-bit integer follows the base header indicating total length of all header extensions and padding expressed in number of 32-bit words (i.e., 1 word = 4 bytes).
 
@@ -100,17 +100,17 @@ packet
 +16: "Frame Number"
 +32: "Timestamp"
 
-+16: "Extension Words (8)"
++16: "Extension Words (7)"
 
 %% E2EE extension
-+16: "ID (2)"
-+16: "Length (12)"
++8: "ID (2)"
++8: "Length (12)"
 +8: "Key Index"
 +96: "IV"
 
 %% User timestamp extension
-+16: "ID (1)"
-+16: "Length (7)"
++8: "ID (1)"
++8: "Length (7)"
 +64: "User Timestamp"
 
 +24: "Padding (0)"
@@ -119,10 +119,10 @@ packet
 + 32: "Payload"
 ```
 
-- 50 bytes total
-  - Header: 46 bytes
+- 46 bytes total
+  - Header: 42 bytes
   - Payload: 4 bytes
-- Note the padding between the two extensions. This is required per [RFC 5285](https://datatracker.ietf.org/doc/html/rfc5285#section-4.2) to ensure the extension block is word aligned. This example shows it placed between the two extensions, but it is allowed before or after any extension.
+- Note the padding between the two extensions. This is required per [RFC 5285](https://datatracker.ietf.org/doc/html/rfc5285#section-4.3) to ensure the extension block is word aligned. This example shows it placed between the two extensions, but it is allowed before or after any extension.
 
 ## Length calculations
 

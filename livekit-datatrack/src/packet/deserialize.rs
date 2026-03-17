@@ -108,9 +108,9 @@ macro_rules! deserialize_ext {
 impl Extensions {
     fn deserialize(mut raw: impl Buf) -> Result<Self, DeserializeError> {
         let mut extensions = Self::default();
-        while raw.remaining() >= 2 * size_of::<u16>() {
-            let tag = raw.get_u16();
-            let len = raw.get_u16() as usize + 1; // NOTE: extension length is encoded as length in bytes minus one.
+        while raw.remaining() >= 2 * size_of::<u8>() {
+            let tag = raw.get_u8();
+            let len = raw.get_u8() as usize + 1; // NOTE: extension length is encoded as length in bytes minus one.
             match tag {
                 EXT_TAG_PADDING => {} // Skip padding
                 E2eeExt::TAG if len == E2eeExt::LEN => {
@@ -236,13 +236,13 @@ mod tests {
     fn test_ext_e2ee() {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
-        raw.put_u16(4); // Extension words
+        raw.put_u16(3); // Extension words
 
-        raw.put_u16(1); // ID 1
-        raw.put_u16(12); // Length 12
+        raw.put_u8(1); // ID 1
+        raw.put_u8(12); // Length 12
         raw.put_u8(0xFA); // Key index
         raw.put_bytes(0x3C, 12); // IV
-        raw.put_bytes(0, 3); // Padding
+        raw.put_bytes(0, 1); // Padding
 
         let packet = Packet::deserialize(raw.freeze()).unwrap();
         let e2ee = packet.header.extensions.e2ee.unwrap();
@@ -256,9 +256,10 @@ mod tests {
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
         raw.put_u16(2); // Extension words
 
-        raw.put_u16(2);
-        raw.put_u16(7);
+        raw.put_u8(2);
+        raw.put_u8(7);
         raw.put_slice(&[0x44, 0x11, 0x22, 0x11, 0x11, 0x11, 0x88, 0x11]); // User timestamp
+        raw.put_bytes(0, 2); // Padding
 
         let packet = Packet::deserialize(raw.freeze()).unwrap();
         assert_eq!(
@@ -273,9 +274,10 @@ mod tests {
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
         raw.put_u16(3); // Extension words
 
-        raw.put_u16(2); // User timestamp
-        raw.put_u16(11); // Expected length is 7
+        raw.put_u8(2); // User timestamp
+        raw.put_u8(11); // Expected length is 7
         raw.put_bytes(0x3C, 12);
+        raw.put_bytes(0, 2); // Padding
 
         let packet = Packet::deserialize(raw.freeze()).unwrap();
         assert!(packet.header.extensions.user_timestamp.is_none());
@@ -285,10 +287,10 @@ mod tests {
     fn test_ext_unknown() {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
-        raw.put_u16(1); // Extension words
+        raw.put_u16(0); // Extension words
 
-        raw.put_u16(8); // ID 8 (unknown)
-        raw.put_bytes(0, 6);
+        raw.put_u8(8); // ID 8 (unknown)
+        raw.put_bytes(0, 7);
         Packet::deserialize(raw.freeze()).expect("Should skip unknown extension");
     }
 
