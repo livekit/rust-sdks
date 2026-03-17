@@ -25,6 +25,7 @@ use tokio::{
 };
 
 pub mod audio;
+pub mod video;
 
 struct TestEnvironment {
     api_key: String,
