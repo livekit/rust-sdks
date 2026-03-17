@@ -110,7 +110,7 @@ impl Extensions {
         let mut extensions = Self::default();
         while raw.remaining() >= 2 * size_of::<u8>() {
             let tag = raw.get_u8();
-            let len = raw.get_u8() as usize + 1; // NOTE: extension length is encoded as length in bytes minus one.
+            let len = raw.get_u8() as usize;
             match tag {
                 EXT_TAG_PADDING => {} // Skip padding
                 E2eeExt::TAG if len == E2eeExt::LEN => {
@@ -239,7 +239,7 @@ mod tests {
         raw.put_u16(3); // Extension words
 
         raw.put_u8(1); // ID 1
-        raw.put_u8(12); // Length 12
+        raw.put_u8(13); // Length
         raw.put_u8(0xFA); // Key index
         raw.put_bytes(0x3C, 12); // IV
         raw.put_bytes(0, 1); // Padding
@@ -257,7 +257,7 @@ mod tests {
         raw.put_u16(2); // Extension words
 
         raw.put_u8(2);
-        raw.put_u8(7);
+        raw.put_u8(8); // Length
         raw.put_slice(&[0x44, 0x11, 0x22, 0x11, 0x11, 0x11, 0x88, 0x11]); // User timestamp
         raw.put_bytes(0, 2); // Padding
 
@@ -275,7 +275,7 @@ mod tests {
         raw.put_u16(3); // Extension words
 
         raw.put_u8(2); // User timestamp
-        raw.put_u8(11); // Expected length is 7
+        raw.put_u8(12); // Wrong length (expected 8)
         raw.put_bytes(0x3C, 12);
         raw.put_bytes(0, 2); // Padding
 

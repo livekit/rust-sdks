@@ -63,14 +63,11 @@ packet
 
 If the extension flag in the base header is set, one or more extensions will follow. The format is a variant of [RFC 5285 §4.3](https://datatracker.ietf.org/doc/html/rfc5285#section-4.3) with two notable differences:
 
-1. Instead of a fixed-bit pattern (e.g., *0xBEDE*), a 16-bit integer follows the base header indicating total length of all header extensions and padding expressed in number of 32-bit words (i.e., 1 word = 4 bytes).
+1. There is no fixed-bit pattern following the base header. Instead, it is immediately followed by 16-bit integer indicating total length of all header extensions and padding expressed in number of 32-bit words (i.e., 1 word = 4 bytes) minus one.
 
 2. Available extensions and their format are defined by this specification rather than out-of-band. The following extensions are currently defined:
 
-> [!NOTE]
-> Extension lengths are encoded as number of bytes minus one.
-
-### 1. E2EE (length 12)
+### 1. E2EE (length 13)
 
 If included, the packet's payload is encrypted using end-to-end encryption.
 
@@ -79,7 +76,7 @@ If included, the packet's payload is encrypted using end-to-end encryption.
 | Key Index | 8 | Index into the participant's key ring, used to enable key rotation. |
 | IV | 96 | 12-bit AES initialization vector. |
 
-### 2. User Timestamp (length 7)
+### 2. User Timestamp (length 8)
 
 | Name | Bits | Description |
 | ---- | ---- | ----------- |
@@ -104,13 +101,13 @@ packet
 
 %% E2EE extension
 +8: "ID (2)"
-+8: "Length (12)"
++8: "Length (13)"
 +8: "Key Index"
 +96: "IV"
 
 %% User timestamp extension
 +8: "ID (1)"
-+8: "Length (7)"
++8: "Length (8)"
 +64: "User Timestamp"
 
 +24: "Padding (0)"
