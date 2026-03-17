@@ -3718,6 +3718,7 @@ dependencies = [
  "livekit-runtime",
  "log",
  "parking_lot",
+ "rtrb",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
@@ -6186,6 +6187,12 @@ dependencies = [
  "prost-types 0.14.3",
  "tokio",
 ]
+
+[[package]]
+name = "rtrb"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7204ed6420f698836b76d4d5c2ec5dec7585fd5c3a788fd1cde855d1de598239"
 
 [[package]]
 name = "rustc-demangle"
