@@ -404,6 +404,7 @@ impl Default for RoomOptions {
     }
 }
 
+#[derive(Clone)]
 pub struct Room {
     inner: Arc<RoomSession>,
 }
@@ -727,8 +728,8 @@ impl Room {
         self.inner.rtc_engine.simulate_scenario(scenario).await
     }
 
-    pub async fn get_stats(&self) -> EngineResult<SessionStats> {
-        self.inner.rtc_engine.get_stats().await
+    pub async fn get_stats(&self) -> RoomResult<SessionStats> {
+        self.inner.rtc_engine.get_stats().await.map_err(Into::into)
     }
 
     pub fn subscribe(&self) -> mpsc::UnboundedReceiver<RoomEvent> {
