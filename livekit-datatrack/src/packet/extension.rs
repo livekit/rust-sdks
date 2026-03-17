@@ -39,7 +39,7 @@ impl fmt::Debug for E2eeExt {
     }
 }
 
-pub(super) type ExtensionTag = u16;
+pub(super) type ExtensionTag = u8;
 
 impl UserTimestampExt {
     pub(super) const TAG: ExtensionTag = 2;

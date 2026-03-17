@@ -35,13 +35,6 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
 
-  call-ffi:
-    name: Call FFI Builds
-    if: (github.head_ref == 'knope/release' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'
-    uses: ./.github/workflows/ffi-builds.yml
-    with:
-      dry_run: ${{ inputs.dry_run || false }}
-
   call-node-ffi:
     name: Call Node FFI Builds
     if: (github.head_ref == 'knope/release' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'

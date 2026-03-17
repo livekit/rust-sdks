@@ -1,6 +1,7 @@
 [package]
 name = "livekit-wakeword"
-version = "0.1.0"
+version = "0.1.1"
+description = "ONNX-based wake word detection for LiveKit"
 edition.workspace = true
 repository.workspace = true
 license.workspace = true
