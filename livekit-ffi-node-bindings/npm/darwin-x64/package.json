@@ -1,6 +1,6 @@
 {
   "name": "@livekit/rtc-ffi-bindings-darwin-x64",
-  "version": "0.12.48",
+  "version": "0.12.49",
   "cpu": [
     "x64"
   ],
@@ -16,8 +16,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/livekit/node-sdks.git",
-    "directory": "packages/livekit-rtc"
+    "url": "https://github.com/livekit/rust-sdks.git",
+    "directory": "livekit-ffi-node-bindings/npm/darwin-x64"
   },
   "os": [
     "darwin"

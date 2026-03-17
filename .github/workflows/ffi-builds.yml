@@ -27,13 +27,6 @@ on:
         required: false
         type: boolean
         default: false
-  workflow_call:
-    inputs:
-      dry_run:
-        description: "Dry run: build artifacts but skip release upload/publish."
-        required: false
-        type: boolean
-        default: false
 
 env:
   CARGO_TERM_COLOR: always
