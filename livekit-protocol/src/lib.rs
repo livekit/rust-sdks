@@ -20,6 +20,9 @@ pub mod enum_dispatch;
 pub mod observer;
 pub mod promise;
 
+/// `client_protocol=1` indicates support for RPC `compressed_payload` using gzip.
+pub const RPC_GZIP_CLIENT_PROTOCOL: i32 = 1;
+
 include!("livekit.rs");
 
 #[cfg(feature = "serde")]
