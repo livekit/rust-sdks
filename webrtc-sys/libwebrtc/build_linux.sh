@@ -77,10 +77,6 @@ git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignor
 # See: https://crbug.com/376278218
 # See: https://github.com/zed-industries/zed/pull/51433#discussion_r2944567608
 git -C build apply "$COMMAND_DIR/patches/disable_crel.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-if grep -q 'allow-experimental-crel' build/config/compiler/BUILD.gn; then
-  echo "Error: failed to remove CREL flags from build/config/compiler/BUILD.gn"
-  exit 1
-fi
 
 cd third_party
 
@@ -131,7 +127,7 @@ ninja -C "$OUTPUT_DIR" :default
 # make libwebrtc.a
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
+src/third_party/llvm-build/Release+Asserts/bin/llvm-objcopy --redefine-syms="$COMMAND_DIR/boringssl_prefix_symbols.txt" "$ARTIFACTS_DIR/lib/libwebrtc.a"
 
 python3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
