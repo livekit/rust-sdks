@@ -562,7 +562,7 @@ fn create_join_request_param(
         adaptive_stream: options.adaptive_stream,
         ..Default::default()
     };
-    
+
     let client_info = proto::ClientInfo {
         sdk: proto::client_info::Sdk::Rust as i32,
         version: options.sdk_options.sdk_version.clone().unwrap_or_default(),
@@ -644,15 +644,14 @@ fn get_livekit_url(
     if use_v1_path {
         // For v1 path (single PC mode): only join_request param
         // All other info (sdk, protocol, auto_subscribe, etc.) is inside the JoinRequest protobuf
-        let join_request_param =
-            create_join_request_param(
-                options, 
-                reconnect, 
-                reconnect_reason, 
-                participant_sid, 
-                os_info.os_type().to_string(), 
-                os_info.version().to_string()
-            );
+        let join_request_param = create_join_request_param(
+            options,
+            reconnect,
+            reconnect_reason,
+            participant_sid,
+            os_info.os_type().to_string(),
+            os_info.version().to_string(),
+        );
         lk_url.query_pairs_mut().append_pair("join_request", &join_request_param);
     } else {
         // For v0 path (dual PC mode): use URL query parameters
