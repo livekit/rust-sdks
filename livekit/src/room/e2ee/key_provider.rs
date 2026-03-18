@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use libwebrtc::native::frame_cryptor::{self as fc, KeyDerivationAlgorithm};
+use libwebrtc::native::frame_cryptor as fc;
 use std::sync::{
     atomic::{AtomicI32, Ordering},
     Arc,
@@ -20,10 +20,13 @@ use std::sync::{
 
 use crate::id::ParticipantIdentity;
 
+pub use libwebrtc::native::frame_cryptor::KeyDerivationAlgorithm;
+
 const DEFAULT_RATCHET_SALT: &str = "LKFrameEncryptionKey";
 const DEFAULT_RATCHET_WINDOW_SIZE: i32 = 16;
 const DEFAULT_FAILURE_TOLERANCE: i32 = -1; // no tolerance by default
 const DEFAULT_KEY_RING_SIZE: i32 = 16;
+const DEFAULT_KEY_DERIVATION_ALGORITHM: KeyDerivationAlgorithm = KeyDerivationAlgorithm::PBKDF2;
 
 #[derive(Clone)]
 pub struct KeyProviderOptions {
@@ -41,7 +44,7 @@ impl Default for KeyProviderOptions {
             ratchet_salt: DEFAULT_RATCHET_SALT.to_owned().into_bytes(),
             failure_tolerance: DEFAULT_FAILURE_TOLERANCE,
             key_ring_size: DEFAULT_KEY_RING_SIZE,
-            key_derivation_algorithm: KeyDerivationAlgorithm::PBKDF2,
+            key_derivation_algorithm: DEFAULT_KEY_DERIVATION_ALGORITHM,
         }
     }
 }
