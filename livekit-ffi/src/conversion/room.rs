@@ -102,6 +102,31 @@ impl From<DisconnectReason> for proto::DisconnectReason {
             DisconnectReason::SipTrunkFailure => Self::SipTrunkFailure,
             DisconnectReason::ConnectionTimeout => Self::ConnectionTimeout,
             DisconnectReason::MediaFailure => Self::MediaFailure,
+            DisconnectReason::AgentError => Self::AgentError,
+        }
+    }
+}
+
+impl From<proto::DisconnectReason> for DisconnectReason {
+    fn from(value: proto::DisconnectReason) -> Self {
+        match value {
+            proto::DisconnectReason::UnknownReason => Self::UnknownReason,
+            proto::DisconnectReason::ClientInitiated => Self::ClientInitiated,
+            proto::DisconnectReason::DuplicateIdentity => Self::DuplicateIdentity,
+            proto::DisconnectReason::ServerShutdown => Self::ServerShutdown,
+            proto::DisconnectReason::ParticipantRemoved => Self::ParticipantRemoved,
+            proto::DisconnectReason::RoomDeleted => Self::RoomDeleted,
+            proto::DisconnectReason::StateMismatch => Self::StateMismatch,
+            proto::DisconnectReason::JoinFailure => Self::JoinFailure,
+            proto::DisconnectReason::Migration => Self::Migration,
+            proto::DisconnectReason::SignalClose => Self::SignalClose,
+            proto::DisconnectReason::RoomClosed => Self::RoomClosed,
+            proto::DisconnectReason::UserUnavailable => Self::UserUnavailable,
+            proto::DisconnectReason::UserRejected => Self::UserRejected,
+            proto::DisconnectReason::SipTrunkFailure => Self::SipTrunkFailure,
+            proto::DisconnectReason::ConnectionTimeout => Self::ConnectionTimeout,
+            proto::DisconnectReason::MediaFailure => Self::MediaFailure,
+            proto::DisconnectReason::AgentError => Self::AgentError,
         }
     }
 }

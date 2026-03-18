@@ -75,6 +75,7 @@ pub enum DisconnectReason {
     SipTrunkFailure,
     ConnectionTimeout,
     MediaFailure,
+    AgentError,
 }
 
 #[derive(Debug, Clone)]

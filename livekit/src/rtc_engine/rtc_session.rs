@@ -577,7 +577,7 @@ impl RtcSession {
     }
 
     /// Close the PeerConnections and the SignalClient
-    pub async fn close(&self) {
+    pub async fn close(&self, reason: DisconnectReason) {
         // Close the tasks
         let handle = self.handle.lock().take();
         if let Some(handle) = handle {
@@ -589,7 +589,7 @@ impl RtcSession {
 
         // Close the PeerConnections after the task
         // So if a sensitive operation is running, we can wait for it
-        self.inner.close().await;
+        self.inner.close(reason).await;
     }
 
     pub async fn publish_data(
@@ -1309,6 +1309,7 @@ impl SessionInner {
                     None => (None, None),
                     Some(proto::rpc_response::Value::Payload(payload)) => (Some(payload), None),
                     Some(proto::rpc_response::Value::Error(err)) => (None, Some(err)),
+                    Some(proto::rpc_response::Value::CompressedPayload(_)) => (None, None),
                 };
                 self.emitter.send(SessionEvent::RpcResponse {
                     request_id: rpc_response.request_id,
@@ -1529,13 +1530,13 @@ impl SessionInner {
         });
     }
 
-    async fn close(&self) {
+    async fn close(&self, reason: DisconnectReason) {
         self.closed.store(true, Ordering::Release);
 
         self.signal_client
             .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
                 action: proto::leave_request::Action::Disconnect.into(),
-                reason: DisconnectReason::ClientInitiated as i32,
+                reason: reason as i32,
                 ..Default::default()
             }))
             .await;
