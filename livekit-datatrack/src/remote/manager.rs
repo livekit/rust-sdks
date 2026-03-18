@@ -122,14 +122,15 @@ impl Manager {
         };
         match &mut descriptor.subscription {
             SubscriptionState::None => {
-                let update_event =
-                    SfuUpdateSubscription { sid: event.sid.clone(), subscribe: true };
+                let update_event = SfuUpdateSubscription { sid: event.sid, subscribe: true };
                 _ = self.event_out_tx.send(update_event.into()).await;
-                descriptor.subscription =
-                    SubscriptionState::Pending { result_txs: vec![event.result_tx] };
+                descriptor.subscription = SubscriptionState::Pending {
+                    result_txs: vec![event.result_tx],
+                    buffer_size: event.options.buffer_size,
+                };
                 // TODO: schedule timeout internally
             }
-            SubscriptionState::Pending { result_txs } => {
+            SubscriptionState::Pending { result_txs, .. } => {
                 result_txs.push(event.result_tx);
             }
             SubscriptionState::Active { frame_tx, .. } => {
@@ -231,7 +232,7 @@ impl Manager {
             log::warn!("Unknown track: {}", sid);
             return;
         };
-        let result_txs = match &mut descriptor.subscription {
+        let (result_txs, buffer_size) = match &mut descriptor.subscription {
             SubscriptionState::None => {
                 // Handle assigned when there is no pending or active subscription is unexpected.
                 log::warn!("No subscription for {}", sid);
@@ -244,14 +245,14 @@ impl Manager {
                 self.sub_handles.insert(assigned_handle, sid);
                 return;
             }
-            SubscriptionState::Pending { result_txs } => {
+            SubscriptionState::Pending { result_txs, buffer_size } => {
                 // Handle assigned for pending subscription, transition to active.
-                mem::take(result_txs)
+                (mem::take(result_txs), *buffer_size)
             }
         };
 
         let (packet_tx, packet_rx) = mpsc::channel(Self::PACKET_BUFFER_COUNT);
-        let (frame_tx, frame_rx) = broadcast::channel(Self::FRAME_BUFFER_COUNT);
+        let (frame_tx, frame_rx) = broadcast::channel(buffer_size);
 
         let decryption_provider = if descriptor.info.uses_e2ee() {
             self.decryption_provider.as_ref().map(Arc::clone)
@@ -333,7 +334,7 @@ impl Manager {
             _ = descriptor.published_tx.send(false);
             match descriptor.subscription {
                 SubscriptionState::None => {}
-                SubscriptionState::Pending { result_txs } => {
+                SubscriptionState::Pending { result_txs, .. } => {
                     for result_tx in result_txs {
                         _ = result_tx.send(Err(SubscribeError::Disconnected));
                     }
@@ -346,9 +347,6 @@ impl Manager {
     /// Maximum number of incoming packets to buffer per track to be sent
     /// to the track's pipeline.
     const PACKET_BUFFER_COUNT: usize = 16;
-
-    /// Maximum number of frames to buffer per track to be sent to the application.
-    const FRAME_BUFFER_COUNT: usize = 16;
 
     /// Maximum number of input and output events to buffer.
     const EVENT_BUFFER_COUNT: usize = 16;
@@ -368,7 +366,12 @@ enum SubscriptionState {
     /// Track is not subscribed to.
     None,
     /// Track is being subscribed to, waiting for subscriber handle.
-    Pending { result_txs: Vec<oneshot::Sender<SubscribeResult>> },
+    Pending {
+        /// All currently pending requests to subscribe to the track.
+        result_txs: Vec<oneshot::Sender<SubscribeResult>>,
+        /// Internal frame buffer size to use once active.
+        buffer_size: usize,
+    },
     /// Track has an active subscription.
     Active {
         sub_handle: Handle,

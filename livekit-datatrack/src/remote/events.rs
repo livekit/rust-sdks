@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    api::{DataTrackFrame, DataTrackInfo, DataTrackSid, RemoteDataTrack, SubscribeError},
+    api::{DataTrackFrame, DataTrackInfo, DataTrackSid, DataTrackSubscribeOptions, RemoteDataTrack, SubscribeError},
     packet::Handle,
 };
 use bytes::Bytes;
@@ -70,6 +70,8 @@ pub(super) type SubscribeResult = Result<broadcast::Receiver<DataTrackFrame>, Su
 pub struct SubscribeRequest {
     /// Identifier of the track.
     pub(super) sid: DataTrackSid,
+    /// Options to use for the subscription.
+    pub(super) options: DataTrackSubscribeOptions,
     /// Async completion channel.
     pub(super) result_tx: oneshot::Sender<SubscribeResult>,
 }

@@ -52,11 +52,15 @@ impl DataTrack<Remote> {
 }
 
 impl DataTrack<Remote> {
-    /// Subscribes to the data track to receive frames.
+    /// Subscribes to the data track.
     ///
     /// # Returns
     ///
     /// A stream that yields [`DataTrackFrame`]s as they arrive.
+    ///
+    /// # Options
+    ///
+    /// To set custom subscription options, see [`Self::subscribe_with_options`].
     ///
     /// # Multiple Subscriptions
     ///
@@ -72,8 +76,20 @@ impl DataTrack<Remote> {
     /// the initial subscription is established.
     ///
     pub async fn subscribe(&self) -> Result<impl Stream<Item = DataTrackFrame>, SubscribeError> {
+        self.subscribe_with_options(DataTrackSubscribeOptions::default()).await
+    }
+
+    /// Subscribes to the data track, specifying custom options.
+    ///
+    /// Same usage and return as [`Self::subscribe`] with an additional argument
+    /// to specify options.
+    ///
+    pub async fn subscribe_with_options(
+        &self,
+        options: DataTrackSubscribeOptions,
+    ) -> Result<impl Stream<Item = DataTrackFrame>, SubscribeError> {
         let (result_tx, result_rx) = oneshot::channel();
-        let subscribe_event = SubscribeRequest { sid: self.info.sid(), result_tx };
+        let subscribe_event = SubscribeRequest { sid: self.info.sid(), options, result_tx };
         self.inner()
             .event_in_tx
             .upgrade()
@@ -90,6 +106,7 @@ impl DataTrack<Remote> {
 
         let frame_stream =
             BroadcastStream::new(frame_rx).filter_map(|result| async move { result.ok() });
+
         Ok(Box::pin(frame_stream))
     }
 
@@ -127,4 +144,51 @@ pub enum SubscribeError {
     Disconnected,
     #[error(transparent)]
     Internal(#[from] InternalError),
+}
+
+/// Options for subscribing to a data track.
+///
+/// # Examples
+///
+/// Specify a custom buffer size:
+///
+/// ```
+/// # use livekit_datatrack::api::DataTrackSubscribeOptions;
+/// let options = DataTrackSubscribeOptions::default()
+///     .with_buffer_size(128); // Buffer 128 frames internally
+///
+/// # assert_eq!(options.buffer_size(), 128);
+/// ```
+///
+#[derive(Debug, Clone)]
+pub struct DataTrackSubscribeOptions {
+    buffer_size: usize,
+}
+
+impl DataTrackSubscribeOptions {
+    /// Returns the maximum number of received frames buffered internally.
+    pub fn buffer_size(&self) -> usize {
+        self.buffer_size
+    }
+
+    /// Sets the maximum number of received frames buffered internally.
+    ///
+    /// Note: if there is already an active subscription for a given track, specifying a
+    /// different buffer size when obtaining a new subscription will have no effect.
+    ///
+    /// # Panics
+    ///
+    /// This will panic if the specified buffer size is zero.
+    ///
+    pub fn with_buffer_size(mut self, frames: usize) -> Self {
+        assert!(frames != 0, "Subscription buffer size cannot be zero");
+        self.buffer_size = frames;
+        self
+    }
+}
+
+impl Default for DataTrackSubscribeOptions {
+    fn default() -> Self {
+        Self { buffer_size: 16 }
+    }
 }
