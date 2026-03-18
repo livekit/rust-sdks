@@ -22,6 +22,7 @@ pub mod webrtc {
 }
 
 pub use room::*;
+pub use rtc_engine::SessionStats;
 
 /// `use livekit::prelude::*;` to import livekit types
 pub mod prelude;
