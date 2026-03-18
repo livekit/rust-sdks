@@ -22,7 +22,12 @@ AARCH64_TARGET := aarch64-unknown-linux-gnu
 
 DOCKER_RUN = docker run --rm -v $(ROOT_DIR):/workspace -w /workspace
 
-.PHONY: env-x86_64 env-aarch64 sdk-x86_64 sdk-aarch64 ffi-x86_64 ffi-aarch64 clean
+.PHONY: submodules env-x86_64 env-aarch64 sdk-x86_64 sdk-aarch64 ffi-x86_64 ffi-aarch64 clean
+
+# --- Submodules ---
+
+submodules:
+	git -C $(ROOT_DIR) submodule update --init --recursive
 
 # --- Environment images ---
 
@@ -38,21 +43,21 @@ env-aarch64:
 
 # --- SDK builds ---
 
-sdk-x86_64: env-x86_64
+sdk-x86_64: submodules env-x86_64
 	$(DOCKER_RUN) $(X86_IMAGE) \
 		cargo build --release --target $(X86_TARGET) -p livekit
 
-sdk-aarch64: env-aarch64
+sdk-aarch64: submodules env-aarch64
 	$(DOCKER_RUN) $(AARCH64_IMAGE) \
 		cargo build --release --target $(AARCH64_TARGET) -p livekit
 
 # --- FFI builds ---
 
-ffi-x86_64: env-x86_64
+ffi-x86_64: submodules env-x86_64
 	$(DOCKER_RUN) $(X86_IMAGE) \
 		bash -c "cd livekit-ffi && cargo build --release --target $(X86_TARGET)"
 
-ffi-aarch64: env-aarch64
+ffi-aarch64: submodules env-aarch64
 	$(DOCKER_RUN) $(AARCH64_IMAGE) \
 		bash -c "cd livekit-ffi && cargo build --release --target $(AARCH64_TARGET)"
 
