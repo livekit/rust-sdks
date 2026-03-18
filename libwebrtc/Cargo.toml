@@ -35,6 +35,7 @@ lazy_static = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros"] }
 cxx = "1.0"
+rtrb = "0.3.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"
