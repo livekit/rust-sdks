@@ -166,6 +166,14 @@ pub struct DataTrackSubscribeOptions {
 }
 
 impl DataTrackSubscribeOptions {
+    /// Creates subscribe options with default values.
+    ///
+    /// Equivalent to [`Self::default`].
+    ///
+    pub fn new() -> Self {
+        Self { buffer_size: 16 }
+    }
+
     /// Returns the maximum number of received frames buffered internally.
     pub fn buffer_size(&self) -> usize {
         self.buffer_size
@@ -189,6 +197,6 @@ impl DataTrackSubscribeOptions {
 
 impl Default for DataTrackSubscribeOptions {
     fn default() -> Self {
-        Self { buffer_size: 16 }
+        Self::new()
     }
 }
