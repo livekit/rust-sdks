@@ -160,10 +160,11 @@ impl Manager {
         if event.updates.is_empty() {
             return;
         }
-        let mut sids_in_update = HashSet::new();
+        let mut participant_to_sids: HashMap<String, HashSet<DataTrackSid>> = HashMap::new();
 
-        // Detect published track
+        // Detect published tracks
         for (publisher_identity, tracks) in event.updates {
+            let sids_in_update = participant_to_sids.entry(publisher_identity.clone()).or_default();
             for info in tracks {
                 let sid = info.sid();
                 sids_in_update.insert(sid.clone());
@@ -174,11 +175,18 @@ impl Manager {
             }
         }
 
-        // Detect unpublished tracks
-        let unpublished_sids: Vec<_> =
-            self.descriptors.keys().filter(|sid| !sids_in_update.contains(*sid)).cloned().collect();
-        for sid in unpublished_sids {
-            self.handle_track_unpublished(sid.clone());
+        // Detect unpublished tracks (scoped per publisher in the update)
+        for (publisher_identity, sids_in_update) in &participant_to_sids {
+            let unpublished_sids: Vec<_> = self
+                .descriptors
+                .iter()
+                .filter(|(_, desc)| desc.publisher_identity.as_ref() == publisher_identity)
+                .filter(|(sid, _)| !sids_in_update.contains(*sid))
+                .map(|(sid, _)| sid.clone())
+                .collect();
+            for sid in unpublished_sids {
+                self.handle_track_unpublished(sid);
+            }
         }
     }
 
