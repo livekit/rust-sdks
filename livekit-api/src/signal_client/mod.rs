@@ -91,14 +91,6 @@ impl Default for SignalSdkOptions {
     }
 }
 
-#[cfg(all(feature = "signal-client-tokio", feature = "rustls-tls-native-roots"))]
-#[derive(Debug, Default, Clone)]
-pub struct TlsConfig(pub Option<tokio_rustls::rustls::ClientConfig>);
-
-#[cfg(not(all(feature = "signal-client-tokio", feature = "rustls-tls-native-roots")))]
-#[derive(Debug, Default, Clone)]
-pub struct TlsConfig;
-
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct SignalOptions {
@@ -109,8 +101,6 @@ pub struct SignalOptions {
     pub single_peer_connection: bool,
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
-    /// Custom TLS config
-    pub tls_config: TlsConfig,
 }
 
 impl Default for SignalOptions {
@@ -121,7 +111,6 @@ impl Default for SignalOptions {
             sdk_options: SignalSdkOptions::default(),
             single_peer_connection: false,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
-            tls_config: TlsConfig::default(),
         }
     }
 }
@@ -284,67 +273,60 @@ impl SignalInner {
         // For initial connection: reconnect=false, reconnect_reason=None, participant_sid=""
         let lk_url = get_livekit_url(url, &options, use_v1_path, false, None, "")?;
         // Try to connect to the SignalClient
-        let (stream, mut events, single_pc_mode_active) = match SignalStream::connect(
-            lk_url.clone(),
-            token,
-            options.connect_timeout,
-            options.tls_config.clone(),
-        )
-        .await
-        {
-            Ok((new_stream, stream_events)) => {
-                log::debug!(
-                    "signal connection successful: path={}, single_pc_mode={}",
-                    if use_v1_path { "v1" } else { "v0" },
-                    use_v1_path
-                );
-                (new_stream, stream_events, use_v1_path)
-            }
-            Err(err) => {
-                log::warn!(
-                    "signal connection failed on {} path: {:?}",
-                    if use_v1_path { "v1" } else { "v0" },
-                    err
-                );
-
-                if let SignalError::TokenFormat = err {
-                    return Err(err);
+        let (stream, mut events, single_pc_mode_active) =
+            match SignalStream::connect(lk_url.clone(), token, options.connect_timeout).await {
+                Ok((new_stream, stream_events)) => {
+                    log::debug!(
+                        "signal connection successful: path={}, single_pc_mode={}",
+                        if use_v1_path { "v1" } else { "v0" },
+                        use_v1_path
+                    );
+                    (new_stream, stream_events, use_v1_path)
                 }
+                Err(err) => {
+                    log::warn!(
+                        "signal connection failed on {} path: {:?}",
+                        if use_v1_path { "v1" } else { "v0" },
+                        err
+                    );
 
-                // Only fallback to v0 if the v1 endpoint returned 404 (not found).
-                // Other errors (401, 403, 500, etc.) indicate real issues that shouldn't
-                // be masked by falling back to a different signaling mode.
-                let is_not_found =
-                    matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() == 404);
+                    if let SignalError::TokenFormat = err {
+                        return Err(err);
+                    }
 
-                if use_v1_path && is_not_found {
-                    let lk_url_v0 = get_livekit_url(url, &options, false, false, None, "")?;
-                    log::warn!("v1 path not found (404), falling back to v0 path");
-                    match SignalStream::connect(
-                        lk_url_v0.clone(),
-                        token,
-                        options.connect_timeout,
-                        options.tls_config.clone(),
-                    )
-                    .await
-                    {
-                        Ok((new_stream, stream_events)) => (new_stream, stream_events, false),
-                        Err(err) => {
-                            log::error!("v0 fallback also failed: {:?}", err);
-                            if let SignalError::TokenFormat = err {
+                    // Only fallback to v0 if the v1 endpoint returned 404 (not found).
+                    // Other errors (401, 403, 500, etc.) indicate real issues that shouldn't
+                    // be masked by falling back to a different signaling mode.
+                    let is_not_found =
+                        matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() == 404);
+
+                    if use_v1_path && is_not_found {
+                        let lk_url_v0 = get_livekit_url(url, &options, false, false, None, "")?;
+                        log::warn!("v1 path not found (404), falling back to v0 path");
+                        match SignalStream::connect(
+                            lk_url_v0.clone(),
+                            token,
+                            options.connect_timeout,
+                        )
+                        .await
+                        {
+                            Ok((new_stream, stream_events)) => (new_stream, stream_events, false),
+                            Err(err) => {
+                                log::error!("v0 fallback also failed: {:?}", err);
+                                if let SignalError::TokenFormat = err {
+                                    return Err(err);
+                                }
+                                Self::validate(lk_url_v0).await?;
                                 return Err(err);
                             }
-                            Self::validate(lk_url_v0).await?;
-                            return Err(err);
                         }
+                    } else {
+                        // Connection failed, try to retrieve more information
+                        Self::validate(lk_url).await?;
+                        return Err(err);
                     }
-                } else {
-                    // Connection failed, try to retrieve more information
-                    Self::validate(lk_url).await?;
-                    return Err(err);
                 }
-            }
-        };
+            };
 
         let join_response = get_join_response(&mut events).await?;
 
@@ -419,13 +401,8 @@ impl SignalInner {
             get_livekit_url(&self.url, &self.options, self.single_pc_mode_active, true, None, sid)
                 .unwrap();
 
-        let (new_stream, mut events) = SignalStream::connect(
-            lk_url,
-            &token,
-            self.options.connect_timeout,
-            self.options.tls_config.clone(),
-        )
-        .await?;
+        let (new_stream, mut events) =
+            SignalStream::connect(lk_url, &token, self.options.connect_timeout).await?;
         let reconnect_response = get_reconnect_response(&mut events).await?;
         *stream = Some(new_stream);
 
@@ -819,13 +796,7 @@ mod tests {
         });
 
         let url = url::Url::parse(&format!("ws://127.0.0.1:{}", addr.port())).unwrap();
-        let result = SignalStream::connect(
-            url,
-            "fake-token",
-            Duration::from_millis(500),
-            TlsConfig::default(),
-        )
-        .await;
+        let result = SignalStream::connect(url, "fake-token", Duration::from_millis(500)).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();

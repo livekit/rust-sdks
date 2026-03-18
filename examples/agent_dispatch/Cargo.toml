@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 tokio = { workspace = true, features = ["full", "parking_lot"] }
-livekit-api = { workspace = true, features = ["webhooks", "rustls-tls-native-roots"] }
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 env_logger = { workspace = true }
 log = { workspace = true }
 livekit-protocol = { workspace = true }

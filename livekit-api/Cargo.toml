@@ -8,7 +8,7 @@ repository.workspace = true
 
 [features]
 # By default ws TLS is not enabled
-default = ["services-tokio"]
+default = ["services-tokio", "access-token", "webhooks"]
 
 signal-client-tokio = [
     "dep:tokio-tungstenite",
@@ -89,10 +89,10 @@ jsonwebtoken = { version = "10", default-features = false, features = ["rust_cry
 
 # signal_client
 livekit-runtime = { workspace = true, optional = true}
-tokio-tungstenite = { version = "0.28", optional = true }
+tokio-tungstenite = { version = "0.20", optional = true }
 async-tungstenite = { version = "0.25.0", features = [ "async-std-runtime", "async-native-tls"], optional = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
-tokio-rustls = { version = "0.26", optional = true }
+tokio-rustls = { version = "0.24", optional = true }
 rustls-native-certs = { version = "0.6", optional = true }
 futures-util = { workspace = true, default-features = false, features = [ "sink" ], optional = true }
 

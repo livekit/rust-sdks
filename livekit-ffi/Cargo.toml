@@ -48,7 +48,7 @@ prost-build = { workspace = true }
 webrtc-sys-build = { workspace = true }
 
 [dev-dependencies]
-livekit-api = { workspace = true, features = ["webhooks"] }
+livekit-api = { workspace = true }
 
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]

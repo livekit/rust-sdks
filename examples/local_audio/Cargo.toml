@@ -8,7 +8,7 @@ publish = false
 tokio = { workspace = true, features = ["full"] }
 env_logger = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
-livekit-api = { workspace = true, features = ["webhooks", "rustls-tls-native-roots"] }
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
 libwebrtc = { workspace = true }
 log = { workspace = true }
 cpal = "0.15"

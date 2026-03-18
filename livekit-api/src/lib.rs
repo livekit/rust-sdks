@@ -15,7 +15,7 @@
 #[cfg(feature = "access-token")]
 pub mod access_token;
 
-#[cfg(all(any(feature = "services-tokio", feature = "services-async"), feature = "access-token"))]
+#[cfg(any(feature = "services-tokio", feature = "services-async"))]
 pub mod services;
 
 #[cfg(any(
