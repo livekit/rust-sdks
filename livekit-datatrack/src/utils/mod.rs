@@ -19,3 +19,6 @@ mod counter;
 
 pub use bytes::*;
 pub use counter::*;
+
+#[cfg(test)]
+pub(crate) mod testing;
