@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use crate::{
-    api::{DataTrackFrame, DataTrackInfo, DataTrackSid, DataTrackSubscribeOptions, RemoteDataTrack, SubscribeError},
+    api::{
+        DataTrackFrame, DataTrackInfo, DataTrackSid, DataTrackSubscribeOptions, RemoteDataTrack,
+        SubscribeError,
+    },
     packet::Handle,
 };
 use bytes::Bytes;
