@@ -610,6 +610,8 @@ pub struct TrackInfo {
     pub audio_features: ::prost::alloc::vec::Vec<i32>,
     #[prost(enumeration="BackupCodecPolicy", tag="20")]
     pub backup_codec_policy: i32,
+    #[prost(enumeration="PacketTrailerFeature", repeated, tag="21")]
+    pub packet_trailer_features: ::prost::alloc::vec::Vec<i32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -2052,6 +2054,29 @@ impl AudioTrackFeature {
         }
     }
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum PacketTrailerFeature {
+    PtfUserTimestamp = 0,
+}
+impl PacketTrailerFeature {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            PacketTrailerFeature::PtfUserTimestamp => "PTF_USER_TIMESTAMP",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "PTF_USER_TIMESTAMP" => Some(Self::PtfUserTimestamp),
+            _ => None,
+        }
+    }
+}
 /// composite using a web browser
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -3368,6 +3393,8 @@ pub struct AddTrackRequest {
     pub backup_codec_policy: i32,
     #[prost(enumeration="AudioTrackFeature", repeated, tag="17")]
     pub audio_features: ::prost::alloc::vec::Vec<i32>,
+    #[prost(enumeration="PacketTrailerFeature", repeated, tag="18")]
+    pub packet_trailer_features: ::prost::alloc::vec::Vec<i32>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5555,6 +5582,10 @@ pub struct SipInboundTrunkInfo {
     pub krisp_enabled: bool,
     #[prost(enumeration="SipMediaEncryption", tag="16")]
     pub media_encryption: i32,
+    #[prost(message, optional, tag="17")]
+    pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="18")]
+    pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5654,6 +5685,15 @@ pub struct SipOutboundTrunkInfo {
     pub include_headers: i32,
     #[prost(enumeration="SipMediaEncryption", tag="13")]
     pub media_encryption: i32,
+    /// Optional custom hostname for the 'From' SIP header in outbound INVITEs.
+    /// When set, outbound calls from this trunk will use this host instead of the default project SIP domain.
+    /// Enables originating calls from custom domains.
+    #[prost(string, tag="15")]
+    pub from_host: ::prost::alloc::string::String,
+    #[prost(message, optional, tag="16")]
+    pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="17")]
+    pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5676,6 +5716,8 @@ pub struct SipOutboundTrunkUpdate {
     pub metadata: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(enumeration="SipMediaEncryption", optional, tag="8")]
     pub media_encryption: ::core::option::Option<i32>,
+    #[prost(string, optional, tag="10")]
+    pub from_host: ::core::option::Option<::prost::alloc::string::String>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5919,9 +5961,12 @@ pub struct SipDispatchRuleInfo {
     pub room_config: ::core::option::Option<RoomConfiguration>,
     #[prost(bool, tag="11")]
     pub krisp_enabled: bool,
-    /// NEXT ID: 14
     #[prost(enumeration="SipMediaEncryption", tag="12")]
     pub media_encryption: i32,
+    #[prost(message, optional, tag="14")]
+    pub created_at: ::core::option::Option<::pbjson_types::Timestamp>,
+    #[prost(message, optional, tag="15")]
+    pub updated_at: ::core::option::Option<::pbjson_types::Timestamp>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5991,6 +6036,9 @@ pub struct SipOutboundConfig {
     /// Keys are the names of attributes and values are the names of X-* headers they will be mapped to.
     #[prost(map="string, string", tag="6")]
     pub attributes_to_headers: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
+    /// Optional custom hostname for the 'From' SIP header. When set, outbound calls use this host instead of the default project SIP domain.
+    #[prost(string, tag="8")]
+    pub from_host: ::prost::alloc::string::String,
 }
 /// A SIP Participant is a singular SIP session connected to a LiveKit room via
 /// a SIP Trunk into a SIP DispatchRule
@@ -6750,10 +6798,11 @@ pub struct DialWhatsAppCallRequest {
     #[prost(map="string, string", tag="10")]
     pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     /// Optional - Country where the call terminates as ISO 3166-1 alpha-2 (<https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>). This will be used by the livekit infrastructure to route calls.
-    ///
-    /// Next - 13
     #[prost(string, tag="11")]
     pub destination_country: ::prost::alloc::string::String,
+    /// Max time for the callee to answer the call.
+    #[prost(message, optional, tag="13")]
+    pub ringing_timeout: ::core::option::Option<::pbjson_types::Duration>,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -6876,10 +6925,14 @@ pub struct AcceptWhatsAppCallRequest {
     #[prost(map="string, string", tag="11")]
     pub participant_attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     /// Optional - Country where the call terminates as ISO 3166-1 alpha-2 (<https://en.wikipedia.org/wiki/ISO_3166-1_alpha-2>). This will be used by the livekit infrastructure to route calls.
-    ///
-    /// Next - 14
     #[prost(string, tag="12")]
     pub destination_country: ::prost::alloc::string::String,
+    /// Max time for the callee to answer the call.
+    #[prost(message, optional, tag="14")]
+    pub ringing_timeout: ::core::option::Option<::pbjson_types::Duration>,
+    /// Wait for the answer for the call before returning.
+    #[prost(bool, tag="15")]
+    pub wait_until_answered: bool,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
