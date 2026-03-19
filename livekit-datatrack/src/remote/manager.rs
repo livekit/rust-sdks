@@ -651,6 +651,9 @@ mod tests {
 
         time::timeout(Duration::from_secs(1), track.wait_for_unpublish()).await.unwrap();
         assert!(!track.is_published());
+
+        let event = expect_event!(output, OutputEvent::TrackUnpublished);
+        assert_eq!(event.sid, track_sid);
     }
 
     #[tokio::test]
@@ -925,7 +928,7 @@ mod tests {
         // Subscribe (enters Pending state)
         let (result_tx, result_rx) = oneshot::channel();
         let event = SubscribeRequest {
-            sid: track_sid,
+            sid: track_sid.clone(),
             options: DataTrackSubscribeOptions::default(),
             result_tx,
         };
@@ -940,6 +943,9 @@ mod tests {
 
         let result = time::timeout(Duration::from_secs(1), result_rx).await.unwrap();
         assert!(result.is_err());
+
+        let event = expect_event!(output, OutputEvent::TrackUnpublished);
+        assert_eq!(event.sid, track_sid);
     }
 
     #[tokio::test]
@@ -975,7 +981,8 @@ mod tests {
         assert!(event.subscribe);
 
         // Simulate SFU assigning subscriber handle
-        let event = SfuSubscriberHandles { mapping: HashMap::from([(sub_handle, track_sid)]) };
+        let event =
+            SfuSubscriberHandles { mapping: HashMap::from([(sub_handle, track_sid.clone())]) };
         input.send(event.into()).unwrap();
 
         let mut frame_rx =
@@ -987,6 +994,9 @@ mod tests {
 
         let result = time::timeout(Duration::from_secs(1), frame_rx.recv()).await.unwrap();
         assert!(result.is_err());
+
+        let event = expect_event!(output, OutputEvent::TrackUnpublished);
+        assert_eq!(event.sid, track_sid);
     }
 
     #[tokio::test]
