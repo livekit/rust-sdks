@@ -434,7 +434,6 @@ impl RtcSession {
         log::debug!("received JoinResponse: {:?}", join_response);
         let subscriber_primary = join_response.subscriber_primary;
 
-
         // Determine if single PC mode is active based on the path used
         let single_pc_mode = signal_client.is_single_pc_mode_active();
 
@@ -520,7 +519,7 @@ impl RtcSession {
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
             e2ee_manager,
-            subscriber_primary
+            subscriber_primary,
         });
 
         // Start session tasks
