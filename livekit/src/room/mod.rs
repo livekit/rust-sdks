@@ -249,9 +249,9 @@ pub enum RoomEvent {
         token: String,
     },
     /// A remote participant published a data track.
-    RemoteDataTrackPublished(RemoteDataTrack),
+    DataTrackPublished(RemoteDataTrack),
     /// A remote participant has unpublished a data track.
-    RemoteDataTrackUnpublished(DataTrackSid),
+    DataTrackUnpublished(DataTrackSid),
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1992,10 +1992,10 @@ impl RoomSession {
                 event = events.next() => match event {
                     Some(event) => match event {
                         dt::remote::OutputEvent::TrackPublished(event) => {
-                            _ = self.dispatcher.dispatch(&RoomEvent::RemoteDataTrackPublished(event.track));
+                            _ = self.dispatcher.dispatch(&RoomEvent::DataTrackPublished(event.track));
                         }
                         dt::remote::OutputEvent::TrackUnpublished(event) => {
-                            _ = self.dispatcher.dispatch(&RoomEvent::RemoteDataTrackUnpublished(event.sid));
+                            _ = self.dispatcher.dispatch(&RoomEvent::DataTrackUnpublished(event.sid));
                         }
                         other => _ = self.rtc_engine.handle_remote_data_track_output(other).await
                     },

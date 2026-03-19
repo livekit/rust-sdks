@@ -111,7 +111,7 @@ impl LkApp {
                     RoomEvent::LocalTrackUnpublished { publication, participant } => {
                         self.video_renderers.remove(&(participant.identity(), publication.sid()));
                     }
-                    RoomEvent::RemoteDataTrackPublished(track) => {
+                    RoomEvent::DataTrackPublished(track) => {
                         self.remote_data_tracks.push(RemoteDataTrackTile::new(
                             self.async_runtime.handle(),
                             track,
