@@ -28,6 +28,7 @@ ARG RUST_TARGET=x86_64-unknown-linux-gnu
 RUN yum install -y \
         llvm \
         llvm-libs \
+        lld \
         clang \
         protobuf-compiler \
         openssl-devel \
