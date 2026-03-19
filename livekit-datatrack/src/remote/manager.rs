@@ -18,7 +18,7 @@ use super::{
     RemoteDataTrack, RemoteTrackInner,
 };
 use crate::{
-    api::{DataTrackFrame, DataTrackInfo, DataTrackSid, InternalError, DataTrackSubscribeError},
+    api::{DataTrackFrame, DataTrackInfo, DataTrackSid, DataTrackSubscribeError, InternalError},
     e2ee::DecryptionProvider,
     packet::{Handle, Packet},
 };
@@ -115,8 +115,9 @@ impl Manager {
 
     async fn on_subscribe_request(&mut self, event: SubscribeRequest) {
         let Some(descriptor) = self.descriptors.get_mut(&event.sid) else {
-            let error =
-                DataTrackSubscribeError::Internal(anyhow!("Cannot subscribe to unknown track").into());
+            let error = DataTrackSubscribeError::Internal(
+                anyhow!("Cannot subscribe to unknown track").into(),
+            );
             _ = event.result_tx.send(Err(error));
             return;
         };

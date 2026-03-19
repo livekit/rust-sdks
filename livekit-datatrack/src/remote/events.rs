@@ -14,8 +14,8 @@
 
 use crate::{
     api::{
-        DataTrackFrame, DataTrackInfo, DataTrackSid, DataTrackSubscribeOptions, RemoteDataTrack,
-        DataTrackSubscribeError,
+        DataTrackFrame, DataTrackInfo, DataTrackSid, DataTrackSubscribeError,
+        DataTrackSubscribeOptions, RemoteDataTrack,
     },
     packet::Handle,
 };
@@ -59,7 +59,8 @@ pub enum OutputEvent {
 // MARK: - Input events
 
 /// Result of a [`SubscribeRequest`].
-pub(super) type SubscribeResult = Result<broadcast::Receiver<DataTrackFrame>, DataTrackSubscribeError>;
+pub(super) type SubscribeResult =
+    Result<broadcast::Receiver<DataTrackFrame>, DataTrackSubscribeError>;
 
 /// Client requested to subscribe to a data track.
 ///
