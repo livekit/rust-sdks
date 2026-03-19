@@ -533,7 +533,7 @@ impl RtcSession {
 
         // In single PC mode (or with fast_publish), trigger initial negotiation
         // This matches JS SDK behavior: if (!this.subscriberPrimary || joinResponse.fastPublish) { this.negotiate(); }
-        if single_pc_mode || join_response.fast_publish {
+        if single_pc_mode || join_response.fast_publish || !subscriber_primary {
             inner.publisher_negotiation_needed();
         }
 
