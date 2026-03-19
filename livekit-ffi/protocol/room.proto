@@ -406,6 +406,7 @@ message RoomEvent {
     ParticipantPermissionChanged participant_permission_changed = 41;
     TokenRefreshed token_refreshed = 40;
     DataTrackPublished data_track_published = 42;
+    DataTrackUnpublished data_track_unpublished = 43;
   }
 }
 
@@ -742,4 +743,10 @@ message TextStreamOpened {
 // A remote participant published a data track.
 message DataTrackPublished {
   required OwnedRemoteDataTrack track = 1;
+}
+
+// A remote participant unpublished a data track.
+message DataTrackUnpublished {
+  // SID of the track that was unpublished.
+  required string sid = 1;
 }

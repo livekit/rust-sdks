@@ -1443,6 +1443,9 @@ async fn forward_event(
             let track = FfiRemoteDataTrack::from_track(server, track);
             let _ = send_event(proto::DataTrackPublished { track }.into());
         }
+        RoomEvent::DataTrackUnpublished(sid) => {
+            let _ = send_event(proto::DataTrackUnpublished { sid: sid.to_string() }.into());
+        }
         _ => {
             log::warn!("unhandled room event: {:?}", event);
         }
