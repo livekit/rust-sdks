@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use crate::proto;
-use livekit::{data_track::{DataTrackFrame, DataTrackInfo, DataTrackOptions}, prelude::DataTrackSubscribeOptions};
+use livekit::{
+    data_track::{DataTrackFrame, DataTrackInfo, DataTrackOptions},
+    prelude::DataTrackSubscribeOptions,
+};
 
 impl From<proto::DataTrackOptions> for DataTrackOptions {
     fn from(options: proto::DataTrackOptions) -> Self {
