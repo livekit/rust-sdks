@@ -204,15 +204,16 @@ impl DataTrackSubscribeOptions {
 
     /// Sets the maximum number of received frames buffered internally.
     ///
+    /// Zero is not a valid buffer size; if a value of zero is provided, it will be clamped to one.
+    ///
     /// Note: if there is already an active subscription for a given track, specifying a
     /// different buffer size when obtaining a new subscription will have no effect.
     ///
-    /// # Panics
-    ///
-    /// This will panic if the specified buffer size is zero.
-    ///
-    pub fn with_buffer_size(mut self, frames: usize) -> Self {
-        assert!(frames != 0, "Subscription buffer size cannot be zero");
+    pub fn with_buffer_size(mut self, mut frames: usize) -> Self {
+        if frames == 0 {
+            log::warn!("Zero is not a valid buffer size, using one");
+            frames = 1;
+        }
         self.buffer_size = frames;
         self
     }
