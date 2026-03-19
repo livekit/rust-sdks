@@ -405,7 +405,7 @@ message RoomEvent {
     ParticipantEncryptionStatusChanged participant_encryption_status_changed = 39;
     ParticipantPermissionChanged participant_permission_changed = 41;
     TokenRefreshed token_refreshed = 40;
-    RemoteDataTrackPublished remote_data_track_published = 42;
+    DataTrackPublished data_track_published = 42;
   }
 }
 
@@ -740,6 +740,6 @@ message TextStreamOpened {
 }
 
 // A remote participant published a data track.
-message RemoteDataTrackPublished {
-    required OwnedRemoteDataTrack track = 1;
+message DataTrackPublished {
+  required OwnedRemoteDataTrack track = 1;
 }
