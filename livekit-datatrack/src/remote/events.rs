@@ -53,7 +53,7 @@ pub enum OutputEvent {
     /// Emit a public event to deliver the track to the user, allowing them to subscribe
     /// with [`RemoteDataTrack::subscribe`] if desired.
     ///
-    TrackAvailable(RemoteDataTrack),
+    TrackPublished(RemoteDataTrack),
 }
 
 // MARK: - Input events

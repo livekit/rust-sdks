@@ -577,7 +577,7 @@ mod tests {
         let wait_for_track = async {
             while let Some(event) = output.next().await {
                 match event {
-                    OutputEvent::TrackAvailable(track) => return track,
+                    OutputEvent::TrackPublished(track) => return track,
                     _ => continue,
                 }
             }
@@ -638,7 +638,7 @@ mod tests {
             SfuPublicationUpdates { updates: HashMap::from([("identity1".into(), vec![info])]) };
         input.send(event.into()).unwrap();
 
-        let track = expect_event!(output, OutputEvent::TrackAvailable);
+        let track = expect_event!(output, OutputEvent::TrackPublished);
         assert_eq!(track.info().sid(), track_sid);
         assert_eq!(track.info().name, "test");
         assert!(track.is_published());
@@ -674,12 +674,12 @@ mod tests {
             input.send(event.into()).unwrap();
         }
 
-        expect_event!(output, OutputEvent::TrackAvailable);
+        expect_event!(output, OutputEvent::TrackPublished);
 
         // Drain remaining events; no second TrackAvailable should appear
         input.send(InputEvent::Shutdown).unwrap();
         while let Some(event) = output.next().await {
-            assert!(!matches!(event, OutputEvent::TrackAvailable(_)));
+            assert!(!matches!(event, OutputEvent::TrackPublished(_)));
         }
     }
 
@@ -701,7 +701,7 @@ mod tests {
         // Simulate track published
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
-        expect_event!(output, OutputEvent::TrackAvailable);
+        expect_event!(output, OutputEvent::TrackPublished);
 
         // Subscribe to the track
         let (result_tx, result_rx) = oneshot::channel();
@@ -760,7 +760,7 @@ mod tests {
         // Simulate track published (with e2ee)
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
-        expect_event!(output, OutputEvent::TrackAvailable);
+        expect_event!(output, OutputEvent::TrackPublished);
 
         // Subscribe to the track
         let (result_tx, result_rx) = oneshot::channel();
@@ -821,7 +821,7 @@ mod tests {
         // Simulate track published
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
-        expect_event!(output, OutputEvent::TrackAvailable);
+        expect_event!(output, OutputEvent::TrackPublished);
 
         // First subscriber triggers SFU interaction
         let (result_tx1, result_rx1) = oneshot::channel();
@@ -919,7 +919,7 @@ mod tests {
         // Simulate track published
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
-        expect_event!(output, OutputEvent::TrackAvailable);
+        expect_event!(output, OutputEvent::TrackPublished);
 
         // Subscribe (enters Pending state)
         let (result_tx, result_rx) = oneshot::channel();
@@ -959,7 +959,7 @@ mod tests {
         // Simulate track published
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
-        expect_event!(output, OutputEvent::TrackAvailable);
+        expect_event!(output, OutputEvent::TrackPublished);
 
         // Subscribe to the track
         let (result_tx, result_rx) = oneshot::channel();
@@ -1006,7 +1006,7 @@ mod tests {
         // Simulate track published
         let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
         input.send(event.into()).unwrap();
-        expect_event!(output, OutputEvent::TrackAvailable);
+        expect_event!(output, OutputEvent::TrackPublished);
 
         // Subscribe to the track
         let (result_tx, result_rx) = oneshot::channel();
