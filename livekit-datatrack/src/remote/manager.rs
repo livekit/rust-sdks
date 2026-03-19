@@ -186,7 +186,7 @@ impl Manager {
                 .map(|(sid, _)| sid.clone())
                 .collect();
             for sid in unpublished_sids {
-                self.handle_track_unpublished(sid);
+                self.handle_track_unpublished(sid).await;
             }
         }
     }
@@ -216,10 +216,10 @@ impl Manager {
             publisher_identity,
         };
         let track = RemoteDataTrack::new(info, inner);
-        _ = self.event_out_tx.send(track.into()).await;
+        _ = self.event_out_tx.send(TrackPublished { track }.into()).await;
     }
 
-    fn handle_track_unpublished(&mut self, sid: DataTrackSid) {
+    async fn handle_track_unpublished(&mut self, sid: DataTrackSid) {
         let Some(descriptor) = self.descriptors.remove(&sid) else {
             log::error!("Unknown track {}", sid);
             return;
@@ -228,6 +228,7 @@ impl Manager {
             self.sub_handles.remove(&sub_handle);
         };
         _ = descriptor.published_tx.send(false);
+        _ = self.event_out_tx.send(TrackUnpublished { sid }.into()).await;
     }
 
     fn on_sfu_subscriber_handles(&mut self, event: SfuSubscriberHandles) {
@@ -584,7 +585,7 @@ mod tests {
             panic!("No track received");
         };
 
-        let track = wait_for_track.await;
+        let track = wait_for_track.await.track;
         assert!(track.is_published());
         assert_eq!(track.info().name, track_name);
         assert_eq!(track.info().sid(), track_sid);
@@ -638,7 +639,7 @@ mod tests {
             SfuPublicationUpdates { updates: HashMap::from([("identity1".into(), vec![info])]) };
         input.send(event.into()).unwrap();
 
-        let track = expect_event!(output, OutputEvent::TrackPublished);
+        let track = expect_event!(output, OutputEvent::TrackPublished).track;
         assert_eq!(track.info().sid(), track_sid);
         assert_eq!(track.info().name, "test");
         assert!(track.is_published());

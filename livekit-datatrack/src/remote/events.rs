@@ -47,13 +47,8 @@ pub enum InputEvent {
 #[derive(Debug, FromVariants)]
 pub enum OutputEvent {
     SfuUpdateSubscription(SfuUpdateSubscription),
-    /// A track has been published by a remote participant and is available to be
-    /// subscribed to.
-    ///
-    /// Emit a public event to deliver the track to the user, allowing them to subscribe
-    /// with [`RemoteDataTrack::subscribe`] if desired.
-    ///
-    TrackPublished(RemoteDataTrack),
+    TrackPublished(TrackPublished),
+    TrackUnpublished(TrackUnpublished),
 }
 
 // MARK: - Input events
@@ -129,4 +124,26 @@ pub struct SfuUpdateSubscription {
     pub sid: DataTrackSid,
     /// Whether to subscribe or unsubscribe.
     pub subscribe: bool,
+}
+
+/// A track has been published by a remote participant and is available to be
+/// subscribed to.
+///
+/// Emit a public event to deliver the track to the user, allowing them to subscribe
+/// with [`RemoteDataTrack::subscribe`] if desired.
+///
+#[derive(Debug)]
+pub struct TrackPublished {
+    /// Track that was published.
+    pub track: RemoteDataTrack,
+}
+
+/// A track has been unpublished by a remote participant.
+///
+/// Emit a public event to inform the user.
+///
+#[derive(Debug)]
+pub struct TrackUnpublished {
+    /// SID of the track that was unpublished.
+    pub sid: DataTrackSid,
 }
