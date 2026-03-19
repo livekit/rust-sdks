@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::proto;
-use livekit::data_track::{DataTrackFrame, DataTrackInfo, DataTrackOptions};
+use livekit::{data_track::{DataTrackFrame, DataTrackInfo, DataTrackOptions}, prelude::DataTrackSubscribeOptions};
 
 impl From<proto::DataTrackOptions> for DataTrackOptions {
     fn from(options: proto::DataTrackOptions) -> Self {
@@ -44,5 +44,15 @@ impl From<proto::DataTrackFrame> for DataTrackFrame {
             frame = frame.with_user_timestamp(timestamp);
         }
         frame
+    }
+}
+
+impl From<proto::DataTrackSubscribeOptions> for DataTrackSubscribeOptions {
+    fn from(msg: proto::DataTrackSubscribeOptions) -> Self {
+        let mut options = DataTrackSubscribeOptions::new();
+        if let Some(buffer_size) = msg.buffer_size {
+            options = options.with_buffer_size(buffer_size as usize);
+        }
+        options
     }
 }

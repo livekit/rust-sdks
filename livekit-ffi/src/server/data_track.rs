@@ -113,7 +113,7 @@ impl FfiRemoteDataTrack {
         let async_id = server.resolve_async_id(request.request_async_id);
 
         let handle = server.async_runtime.spawn(async move {
-            let result = match self.inner.subscribe().await {
+            let result = match self.inner.subscribe_with_options(request.options.into()).await {
                 Ok(stream) => proto::subscribe_data_track_callback::Result::Subscription(
                     FfiDataTrackSubscription::from_stream(server, stream),
                 ),

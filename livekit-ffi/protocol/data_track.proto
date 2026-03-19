@@ -112,7 +112,10 @@ message OwnedDataTrackSubscription {
 }
 
 // Reserved for future subscription options.
-message DataTrackSubscribeOptions {}
+message DataTrackSubscribeOptions {
+  // Maximum number of frames to buffer internally.
+  optional uint32 buffer_size = 1;
+}
 
 // Checks if the track is still published.
 message RemoteDataTrackIsPublishedRequest {
@@ -147,9 +150,11 @@ message DataTrackSubscriptionEvent {
     DataTrackSubscriptionEOS eos = 3;
   }
 }
+
 // A frame was received.
 message DataTrackSubscriptionFrameReceived {
   required DataTrackFrame frame = 1;
 }
+
 // Subscription has ended (end of stream).
 message DataTrackSubscriptionEOS {}
