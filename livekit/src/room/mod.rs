@@ -1986,8 +1986,8 @@ impl RoomSession {
             tokio::select! {
                 event = events.next() => match event {
                     Some(event) => match event {
-                        dt::remote::OutputEvent::TrackAvailable(track) => {
-                            _ = self.dispatcher.dispatch(&RoomEvent::RemoteDataTrackPublished(track));
+                        dt::remote::OutputEvent::TrackPublished(event) => {
+                            _ = self.dispatcher.dispatch(&RoomEvent::RemoteDataTrackPublished(event.track));
                         }
                         other => _ = self.rtc_engine.handle_remote_data_track_output(other).await
                     },
