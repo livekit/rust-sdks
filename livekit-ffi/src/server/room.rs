@@ -1439,7 +1439,7 @@ async fn forward_event(
         RoomEvent::TokenRefreshed { token } => {
             let _ = send_event(proto::TokenRefreshed { token: token.into() }.into());
         }
-        RoomEvent::RemoteDataTrackPublished(track) => {
+        RoomEvent::DataTrackPublished(track) => {
             let track = FfiRemoteDataTrack::from_track(server, track);
             let _ = send_event(proto::RemoteDataTrackPublished { track }.into());
         }

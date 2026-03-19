@@ -14,8 +14,8 @@
 
 use super::{FfiHandle, FfiServer};
 use crate::{proto, FfiHandleId, FfiResult};
-use futures_util::{Stream, StreamExt};
-use livekit::data_track::{DataTrackFrame, LocalDataTrack, RemoteDataTrack};
+use futures_util::StreamExt;
+use livekit::data_track::{DataTrackFrame, DataTrackSubscription, LocalDataTrack, RemoteDataTrack};
 use tokio::sync::oneshot;
 
 /// FFI wrapper around [`LocalDataTrack`].
@@ -138,7 +138,7 @@ impl FfiHandle for FfiDataTrackSubscription {}
 impl FfiDataTrackSubscription {
     fn from_stream(
         server: &'static FfiServer,
-        stream: impl Stream<Item = DataTrackFrame> + Send + 'static,
+        stream: DataTrackSubscription,
     ) -> proto::OwnedDataTrackSubscription {
         let (drop_tx, drop_rx) = oneshot::channel();
         let handle_id = server.next_id();
@@ -158,10 +158,9 @@ impl FfiDataTrackSubscription {
 async fn data_track_subscription_task(
     server: &'static FfiServer,
     subscription_handle: FfiHandleId,
-    stream: impl Stream<Item = DataTrackFrame> + Send + 'static,
+    mut stream: DataTrackSubscription,
     mut drop_rx: oneshot::Receiver<()>,
 ) {
-    tokio::pin!(stream);
     loop {
         tokio::select! {
             _ = &mut drop_rx => break,
