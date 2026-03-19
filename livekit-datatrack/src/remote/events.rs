@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use crate::{
-    api::{DataTrackFrame, DataTrackInfo, DataTrackSid, RemoteDataTrack, SubscribeError},
+    api::{
+        DataTrackFrame, DataTrackInfo, DataTrackSid, DataTrackSubscribeError,
+        DataTrackSubscribeOptions, RemoteDataTrack,
+    },
     packet::Handle,
 };
 use bytes::Bytes;
@@ -44,19 +47,15 @@ pub enum InputEvent {
 #[derive(Debug, FromVariants)]
 pub enum OutputEvent {
     SfuUpdateSubscription(SfuUpdateSubscription),
-    /// A track has been published by a remote participant and is available to be
-    /// subscribed to.
-    ///
-    /// Emit a public event to deliver the track to the user, allowing them to subscribe
-    /// with [`RemoteDataTrack::subscribe`] if desired.
-    ///
-    TrackAvailable(RemoteDataTrack),
+    TrackPublished(TrackPublished),
+    TrackUnpublished(TrackUnpublished),
 }
 
 // MARK: - Input events
 
 /// Result of a [`SubscribeRequest`].
-pub(super) type SubscribeResult = Result<broadcast::Receiver<DataTrackFrame>, SubscribeError>;
+pub(super) type SubscribeResult =
+    Result<broadcast::Receiver<DataTrackFrame>, DataTrackSubscribeError>;
 
 /// Client requested to subscribe to a data track.
 ///
@@ -70,6 +69,8 @@ pub(super) type SubscribeResult = Result<broadcast::Receiver<DataTrackFrame>, Su
 pub struct SubscribeRequest {
     /// Identifier of the track.
     pub(super) sid: DataTrackSid,
+    /// Options to use for the subscription.
+    pub(super) options: DataTrackSubscribeOptions,
     /// Async completion channel.
     pub(super) result_tx: oneshot::Sender<SubscribeResult>,
 }
@@ -123,4 +124,26 @@ pub struct SfuUpdateSubscription {
     pub sid: DataTrackSid,
     /// Whether to subscribe or unsubscribe.
     pub subscribe: bool,
+}
+
+/// A track has been published by a remote participant and is available to be
+/// subscribed to.
+///
+/// Emit a public event to deliver the track to the user, allowing them to subscribe
+/// with [`RemoteDataTrack::subscribe`] if desired.
+///
+#[derive(Debug)]
+pub struct TrackPublished {
+    /// Track that was published.
+    pub track: RemoteDataTrack,
+}
+
+/// A track has been unpublished by a remote participant.
+///
+/// Emit a public event to inform the user.
+///
+#[derive(Debug)]
+pub struct TrackUnpublished {
+    /// SID of the track that was unpublished.
+    pub sid: DataTrackSid,
 }

@@ -61,16 +61,13 @@ packet
 
 ### Extensions
 
-If the extension flag in the base header is set, one or more extensions will follow. The format is a variant of [RFC 5285 §4.2](https://datatracker.ietf.org/doc/html/rfc5285#section-4.2) with two notable differences:
+If the extension flag in the base header is set, one or more extensions will follow. The format is a variant of [RFC 5285 §4.3](https://datatracker.ietf.org/doc/html/rfc5285#section-4.3) with two notable differences:
 
-1. Instead of a fixed-bit pattern (e.g., *0xBEDE*), a 16-bit integer follows the base header indicating total length of all header extensions and padding expressed in number of 32-bit words (i.e., 1 word = 4 bytes).
+1. There is no fixed-bit pattern following the base header. Instead, it is immediately followed by 16-bit integer indicating total length of all header extensions and padding expressed in number of 32-bit words (i.e., 1 word = 4 bytes) minus one.
 
 2. Available extensions and their format are defined by this specification rather than out-of-band. The following extensions are currently defined:
 
-> [!NOTE]
-> Extension lengths are encoded as number of bytes minus one.
-
-### 1. E2EE (length 12)
+### 1. E2EE (length 13)
 
 If included, the packet's payload is encrypted using end-to-end encryption.
 
@@ -79,7 +76,7 @@ If included, the packet's payload is encrypted using end-to-end encryption.
 | Key Index | 8 | Index into the participant's key ring, used to enable key rotation. |
 | IV | 96 | 12-bit AES initialization vector. |
 
-### 2. User Timestamp (length 7)
+### 2. User Timestamp (length 8)
 
 | Name | Bits | Description |
 | ---- | ---- | ----------- |
@@ -100,17 +97,17 @@ packet
 +16: "Frame Number"
 +32: "Timestamp"
 
-+16: "Extension Words (8)"
++16: "Extension Words (7)"
 
 %% E2EE extension
-+16: "ID (2)"
-+16: "Length (12)"
++8: "ID (2)"
++8: "Length (13)"
 +8: "Key Index"
 +96: "IV"
 
 %% User timestamp extension
-+16: "ID (1)"
-+16: "Length (7)"
++8: "ID (1)"
++8: "Length (8)"
 +64: "User Timestamp"
 
 +24: "Padding (0)"
@@ -119,10 +116,10 @@ packet
 + 32: "Payload"
 ```
 
-- 50 bytes total
-  - Header: 46 bytes
+- 46 bytes total
+  - Header: 42 bytes
   - Payload: 4 bytes
-- Note the padding between the two extensions. This is required per [RFC 5285](https://datatracker.ietf.org/doc/html/rfc5285#section-4.2) to ensure the extension block is word aligned. This example shows it placed between the two extensions, but it is allowed before or after any extension.
+- Note the padding between the two extensions. This is required per [RFC 5285](https://datatracker.ietf.org/doc/html/rfc5285#section-4.3) to ensure the extension block is word aligned. This example shows it placed between the two extensions, but it is allowed before or after any extension.
 
 ## Length calculations
 

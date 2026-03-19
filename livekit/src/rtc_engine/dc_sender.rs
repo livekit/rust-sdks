@@ -62,6 +62,9 @@ pub struct DataChannelSender {
 }
 
 impl DataChannelSender {
+    /// Buffer size of the channel used to sending events to the task.
+    const CHANNEL_BUFFER_SIZE: usize = 128;
+
     /// Creates a new sender.
     ///
     /// Returns a tuple containing the following:
@@ -69,7 +72,7 @@ impl DataChannelSender {
     /// - Channel for sending payloads over the data channel.
     ///
     pub fn new(options: DataChannelSenderOptions) -> (Self, mpsc::Sender<Bytes>) {
-        let (send_tx, send_rx) = mpsc::channel(128);
+        let (send_tx, send_rx) = mpsc::channel(Self::CHANNEL_BUFFER_SIZE);
         let (dc_event_tx, dc_event_rx) = mpsc::unbounded_channel();
 
         let sender = Self {

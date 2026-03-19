@@ -153,8 +153,8 @@ impl Extensions {
 
 impl E2eeExt {
     fn serialize_into(self, buf: &mut impl BufMut) {
-        buf.put_u16(Self::TAG);
-        buf.put_u16(Self::LEN as u16 - 1);
+        buf.put_u8(Self::TAG);
+        buf.put_u8(Self::LEN as u8);
         buf.put_u8(self.key_index);
         buf.put_slice(&self.iv);
     }
@@ -162,8 +162,8 @@ impl E2eeExt {
 
 impl UserTimestampExt {
     fn serialize_into(self, buf: &mut impl BufMut) {
-        buf.put_u16(Self::TAG);
-        buf.put_u16(Self::LEN as u16 - 1);
+        buf.put_u8(Self::TAG);
+        buf.put_u8(Self::LEN as u8);
         buf.put_u64(self.0);
     }
 }
@@ -196,23 +196,23 @@ mod tests {
     #[test]
     fn test_header_metrics() {
         let metrics = packet().header.metrics();
-        assert_eq!(metrics.ext_len, 29);
-        assert_eq!(metrics.ext_words, 8);
+        assert_eq!(metrics.ext_len, 25);
+        assert_eq!(metrics.ext_words, 7);
         assert_eq!(metrics.padding_len, 3);
     }
 
     #[test]
     fn test_serialized_length() {
         let packet = packet();
-        assert_eq!(packet.serialized_len(), 1070);
-        assert_eq!(packet.header.serialized_len(), 46);
-        assert_eq!(packet.header.extensions.serialized_len(), 29);
+        assert_eq!(packet.serialized_len(), 1066);
+        assert_eq!(packet.header.serialized_len(), 42);
+        assert_eq!(packet.header.extensions.serialized_len(), 25);
     }
 
     #[test]
     fn test_serialize() {
         let mut buf = packet().serialize().try_into_mut().unwrap();
-        assert_eq!(buf.len(), 1070);
+        assert_eq!(buf.len(), 1066);
 
         // Base header
         assert_eq!(buf.get_u8(), 0xC); // Version 0, final, extension
@@ -221,17 +221,17 @@ mod tests {
         assert_eq!(buf.get_u16(), 0x4422); // Sequence
         assert_eq!(buf.get_u16(), 0x4411); // Frame number
         assert_eq!(buf.get_u32(), 0x44221188); // Timestamp
-        assert_eq!(buf.get_u16(), 7); // Extension words
+        assert_eq!(buf.get_u16(), 6); // Extension words
 
         // E2EE extension
-        assert_eq!(buf.get_u16(), 1); // ID 1,
-        assert_eq!(buf.get_u16(), 12); // Length 12
+        assert_eq!(buf.get_u8(), 1); // ID 1,
+        assert_eq!(buf.get_u8(), 13); // Length
         assert_eq!(buf.get_u8(), 0xFA); // Key index
         assert_eq!(buf.copy_to_bytes(12), vec![0x3C; 12]);
 
         // User timestamp extension
-        assert_eq!(buf.get_u16(), 2); // ID 2
-        assert_eq!(buf.get_u16(), 7); // Length 7
+        assert_eq!(buf.get_u8(), 2); // ID 2
+        assert_eq!(buf.get_u8(), 8); // Length
         assert_eq!(buf.get_u64(), 0x4411221111118811);
 
         assert_eq!(buf.copy_to_bytes(3), vec![0; 3]); // Padding

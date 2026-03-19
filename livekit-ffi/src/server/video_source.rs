@@ -36,7 +36,9 @@ impl FfiVideoSource {
             proto::VideoSourceType::VideoSourceNative => {
                 use livekit::webrtc::video_source::native::NativeVideoSource;
 
-                let video_source = NativeVideoSource::new(new_source.resolution.into());
+                let is_screencast = new_source.is_screencast.unwrap_or(false);
+                let video_source =
+                    NativeVideoSource::new(new_source.resolution.into(), is_screencast);
                 RtcVideoSource::Native(video_source)
             }
             _ => return Err(FfiError::InvalidRequest("unsupported video source type".into())),

@@ -44,11 +44,12 @@ message VideoStreamFromParticipantResponse { required OwnedVideoStream stream = 
 
 // Create a new VideoSource
 // VideoSource is used to send video frame to a track
-message NewVideoSourceRequest { 
-  required VideoSourceType type = 1; 
+message NewVideoSourceRequest {
+  required VideoSourceType type = 1;
   // Used to determine which encodings to use + simulcast layers
-  // Most of the time it corresponds to the source resolution 
+  // Most of the time it corresponds to the source resolution
   required VideoSourceResolution resolution = 2;
+  optional bool is_screencast = 3;
 }
 message NewVideoSourceResponse { required OwnedVideoSource source = 1; }
 

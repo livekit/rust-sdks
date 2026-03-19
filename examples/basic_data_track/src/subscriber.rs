@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
 /// Subscribes to any published data tracks.
 async fn handle_publications(mut rx: UnboundedReceiver<RoomEvent>) -> Result<()> {
     while let Some(event) = rx.recv().await {
-        let RoomEvent::RemoteDataTrackPublished(track) = event else {
+        let RoomEvent::DataTrackPublished(track) = event else {
             continue;
         };
         subscribe(track).await?

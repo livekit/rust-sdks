@@ -69,10 +69,10 @@ impl Packetizer {
         }
         header.frame_number = self.frame_number.get_then_increment();
 
-        let packet_payloads: Vec<_> = frame.payload.into_chunks(max_payload_size).collect();
-        let packet_count = packet_payloads.len();
-        let packets = packet_payloads
-            .into_iter()
+        let packet_count = frame.payload.len().div_ceil(max_payload_size);
+        let packets = frame
+            .payload
+            .into_chunks(max_payload_size)
             .enumerate()
             .map(|(index, payload)| Packet {
                 header: Header {

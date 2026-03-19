@@ -39,6 +39,12 @@ impl dt::EncryptionProvider for DataTrackEncryptionProvider {
             .encrypt_data(payload.into(), &self.sender_identity, key_index)
             .map_err(|_| dt::EncryptionError)?;
 
+        debug_assert_eq!(
+            encrypted.key_index as u32,
+            key_index,
+            "E2EE key index changed during encryption (possible race or inconsistent key selection)"
+            );
+
         let payload = encrypted.data.into();
         let iv = encrypted.iv.try_into().map_err(|_| dt::EncryptionError)?;
         let key_index = encrypted.key_index.try_into().map_err(|_| dt::EncryptionError)?;

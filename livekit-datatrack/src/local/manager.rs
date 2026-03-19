@@ -461,13 +461,30 @@ impl ManagerInput {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::RwLock;
-
     use super::*;
-    use crate::{api::DataTrackSid, packet::Packet};
+    use crate::{
+        api::DataTrackSid,
+        e2ee::{EncryptedPayload, EncryptionError, EncryptionProvider},
+        packet::Packet,
+        utils::testing::expect_event,
+    };
+    use bytes::Bytes;
     use fake::{Fake, Faker};
     use futures_util::StreamExt;
     use livekit_runtime::{sleep, timeout};
+    use std::sync::RwLock;
+
+    #[derive(Debug)]
+    struct PrefixingEncryptor;
+
+    impl EncryptionProvider for PrefixingEncryptor {
+        fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, EncryptionError> {
+            let mut output = Vec::with_capacity(4 + payload.len());
+            output.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF]);
+            output.extend_from_slice(&payload);
+            Ok(EncryptedPayload { payload: output.into(), iv: [0; 12], key_index: 0 })
+        }
+    }
 
     #[tokio::test]
     async fn test_task_shutdown() {
@@ -542,5 +559,230 @@ mod tests {
         timeout(Duration::from_secs(1), async { tokio::join!(publish_track, handle_events) })
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_publish_sfu_error() {
+        let options = ManagerOptions { encryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
+
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = PublishRequest { options: DataTrackOptions::new("test"), result_tx };
+        input.send(event.into()).unwrap();
+
+        // SFU rejects publication
+        let event = expect_event!(output, OutputEvent::SfuPublishRequest);
+        let event =
+            SfuPublishResponse { handle: event.handle, result: Err(PublishError::LimitReached) };
+        input.send(event.into()).unwrap();
+
+        assert!(result_rx.await.unwrap().is_err());
+    }
+
+    #[tokio::test]
+    async fn test_publish_cancelled() {
+        let options = ManagerOptions { encryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
+
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = PublishRequest { options: DataTrackOptions::new("test"), result_tx };
+        input.send(event.into()).unwrap();
+
+        let event = expect_event!(output, OutputEvent::SfuPublishRequest);
+        let handle = event.handle;
+
+        // Caller drops receiver before SFU responds
+        drop(result_rx);
+        sleep(Duration::from_millis(50)).await;
+
+        // Late SFU response arrives after cancellation
+        let track_sid: DataTrackSid = Faker.fake();
+        let info = DataTrackInfo {
+            sid: RwLock::new(track_sid).into(),
+            pub_handle: handle,
+            name: "test".into(),
+            uses_e2ee: false,
+        };
+        let event = SfuPublishResponse { handle, result: Ok(info) };
+        input.send(event.into()).unwrap();
+
+        // Manager sends unpublish for the orphaned handle
+        let event = expect_event!(output, OutputEvent::SfuUnpublishRequest);
+        assert_eq!(event.handle, handle);
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_e2ee() {
+        let options = ManagerOptions { encryption_provider: Some(Arc::new(PrefixingEncryptor)) };
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
+
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = PublishRequest { options: DataTrackOptions::new("secure"), result_tx };
+        input.send(event.into()).unwrap();
+
+        // SFU publish request should indicate e2ee
+        let event = expect_event!(output, OutputEvent::SfuPublishRequest);
+        assert!(event.uses_e2ee);
+
+        // SFU accepts publication with e2ee
+        let track_sid: DataTrackSid = Faker.fake();
+        let info = DataTrackInfo {
+            sid: RwLock::new(track_sid).into(),
+            pub_handle: event.handle,
+            name: "secure".into(),
+            uses_e2ee: true,
+        };
+        let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
+        input.send(event.into()).unwrap();
+
+        let track = result_rx.await.unwrap().unwrap();
+        assert!(track.info().uses_e2ee());
+
+        // Push a frame and verify encryption was applied
+        track.try_push(vec![1, 2, 3, 4, 5].into()).unwrap();
+
+        let packets = expect_event!(output, OutputEvent::PacketsAvailable);
+        let packet = Packet::deserialize(packets.into_iter().next().unwrap()).unwrap();
+        assert_eq!(&packet.payload[..4], &[0xDE, 0xAD, 0xBE, 0xEF]);
+        assert_eq!(&packet.payload[4..], &[1, 2, 3, 4, 5]);
+        assert!(packet.header.extensions.e2ee.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_republish_tracks() {
+        let options = ManagerOptions { encryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
+
+        // Publish a track through the full flow
+        let track_name: String = Faker.fake();
+        let track_sid: DataTrackSid = Faker.fake();
+
+        let (result_tx, result_rx) = oneshot::channel();
+        let event =
+            PublishRequest { options: DataTrackOptions::new(track_name.clone()), result_tx };
+        input.send(event.into()).unwrap();
+
+        let event = expect_event!(output, OutputEvent::SfuPublishRequest);
+        let handle = event.handle;
+
+        let info = DataTrackInfo {
+            sid: RwLock::new(track_sid.clone()).into(),
+            pub_handle: handle,
+            name: track_name.clone(),
+            uses_e2ee: false,
+        };
+        let event = SfuPublishResponse { handle, result: Ok(info) };
+        input.send(event.into()).unwrap();
+
+        let track = result_rx.await.unwrap().unwrap();
+        assert_eq!(track.info().sid(), track_sid);
+
+        // Simulate reconnect
+        input.send(InputEvent::RepublishTracks).unwrap();
+        sleep(Duration::from_millis(50)).await;
+
+        // try_push should fail while republishing
+        assert!(track.try_push(vec![0xFF].into()).is_err());
+
+        // SFU re-publishes with a new SID
+        let event = expect_event!(output, OutputEvent::SfuPublishRequest);
+        assert_eq!(event.handle, handle);
+        assert_eq!(event.name, track_name);
+
+        let new_sid: DataTrackSid = Faker.fake();
+        let info = DataTrackInfo {
+            sid: RwLock::new(new_sid.clone()).into(),
+            pub_handle: handle,
+            name: track_name.clone(),
+            uses_e2ee: false,
+        };
+        let event = SfuPublishResponse { handle, result: Ok(info) };
+        input.send(event.into()).unwrap();
+        sleep(Duration::from_millis(50)).await;
+
+        // SID updated in place, pushes succeed again
+        assert_eq!(track.info().sid(), new_sid);
+        assert!(track.try_push(vec![0xFF].into()).is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_query_published() {
+        let options = ManagerOptions { encryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
+
+        // Publish two tracks
+        let mut tracks = Vec::new();
+        for name in ["track_a", "track_b"] {
+            let (result_tx, result_rx) = oneshot::channel();
+            let event = PublishRequest { options: DataTrackOptions::new(name), result_tx };
+            input.send(event.into()).unwrap();
+
+            let event = expect_event!(output, OutputEvent::SfuPublishRequest);
+            let info = DataTrackInfo {
+                sid: RwLock::new(Faker.fake()).into(),
+                pub_handle: event.handle,
+                name: name.into(),
+                uses_e2ee: false,
+            };
+            let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
+            input.send(event.into()).unwrap();
+
+            tracks.push(result_rx.await.unwrap().unwrap());
+        }
+
+        let published = input.query_tracks().await;
+        assert_eq!(published.len(), 2);
+
+        let names: Vec<&str> = published.iter().map(|i| i.name()).collect();
+        assert!(names.contains(&"track_a"));
+        assert!(names.contains(&"track_b"));
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_with_pending_and_active() {
+        let options = ManagerOptions { encryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
+
+        // Pending publication (no SFU response sent)
+        let (result_tx, pending_rx) = oneshot::channel();
+        let event = PublishRequest { options: DataTrackOptions::new("pending"), result_tx };
+        input.send(event.into()).unwrap();
+
+        expect_event!(output, OutputEvent::SfuPublishRequest);
+
+        // Active publication (fully published)
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = PublishRequest { options: DataTrackOptions::new("active"), result_tx };
+        input.send(event.into()).unwrap();
+
+        let event = expect_event!(output, OutputEvent::SfuPublishRequest);
+        let info = DataTrackInfo {
+            sid: RwLock::new(Faker.fake()).into(),
+            pub_handle: event.handle,
+            name: "active".into(),
+            uses_e2ee: false,
+        };
+        let event = SfuPublishResponse { handle: event.handle, result: Ok(info) };
+        input.send(event.into()).unwrap();
+
+        let active_track = result_rx.await.unwrap().unwrap();
+        assert!(active_track.is_published());
+
+        // Shutdown the manager
+        input.send(InputEvent::Shutdown).unwrap();
+        sleep(Duration::from_millis(50)).await;
+
+        // Pending publish receives disconnected error
+        let pending_result = pending_rx.await.unwrap();
+        assert!(pending_result.is_err());
+
+        // Active track is no longer published
+        assert!(!active_track.is_published());
     }
 }

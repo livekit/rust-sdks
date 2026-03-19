@@ -8,12 +8,13 @@ publish = false
 crate-type = ["cdylib"]
 
 [dependencies]
-napi = { version = "2.12.2", default-features = false, features = [
+napi = { version = "3.8.2", default-features = false, features = [
+    "compat-mode",
     "async",
     "napi6",
 ] }
-napi-derive = "2.12.2"
-livekit-ffi = { path = "../livekit-ffi" }
+napi-derive = "3.5.1"
+livekit-ffi = { workspace = true }
 prost = { workspace = true }
 prost-types = { workspace = true }
 log = { workspace = true }

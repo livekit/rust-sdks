@@ -19,7 +19,7 @@ use futures_util::{
 use livekit_protocol as proto;
 use livekit_runtime::{JoinHandle, TcpStream};
 use prost::Message as ProtoMessage;
-use std::{env, io};
+use std::{env, io, time::Duration};
 
 use tokio::sync::{mpsc, oneshot};
 
@@ -86,6 +86,17 @@ impl SignalStream {
     /// SignalStream will never try to reconnect if the connection has been
     /// closed.
     pub async fn connect(
+        url: url::Url,
+        token: &str,
+        connect_timeout: Duration,
+    ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {
+        let connect_fut = Self::connect_inner(url, token);
+        livekit_runtime::timeout(connect_timeout, connect_fut)
+            .await
+            .map_err(|_| SignalError::Timeout("signal connection timed out".into()))?
+    }
+
+    async fn connect_inner(
         url: url::Url,
         token: &str,
     ) -> SignalResult<(Self, mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>)> {

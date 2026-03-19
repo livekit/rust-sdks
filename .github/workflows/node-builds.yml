@@ -7,18 +7,21 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        required: true
-        type: string
+      dry_run:
+        description: "Dry run: build artifacts but skip npm publish."
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
-      tag:
-        required: true
-        type: string
+      dry_run:
+        description: "Dry run: build artifacts but skip npm publish."
+        required: false
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
-  TAG_NAME: ${{ inputs.tag || github.ref_name }}
   APP_NAME: rtc-node
 
 jobs:
@@ -55,6 +58,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+
       - uses: pnpm/action-setup@v4
         with:
           package_json_file: livekit-ffi-node-bindings/package.json
@@ -131,7 +135,7 @@ jobs:
                 cd /workspace
                 cd livekit-ffi-node-bindings
                 CI=true pnpm install
-                pnpm build --target $TARGET        
+                pnpm build --target $TARGET
               "
             '
 
@@ -147,20 +151,27 @@ jobs:
         working-directory: livekit-ffi-node-bindings
         run: pnpm build --target ${{ matrix.target }}
 
-      - name: Upload artifact
+      - name: Upload binary artifact
         uses: actions/upload-artifact@v4
-        if: github.event_name != 'pull-request'
         with:
-          name: bindings-${{ matrix.target }}
-          path: livekit-ffi-node-bindings/src/napi/${{ env.APP_NAME }}.*.node
+          name: native-bindings-${{ matrix.target }}
+          path: livekit-ffi-node-bindings/${{ env.APP_NAME }}.*.node
           if-no-files-found: error
 
-  release:
+      - name: Upload JS
+        uses: actions/upload-artifact@v4
+        if: ${{ matrix.os == 'macos-15' }}
+        with:
+          name: js-bindings
+          path: livekit-ffi-node-bindings/native.*
+          if-no-files-found: error
+
+  publish:
     needs: build
-    name: Release
+    name: Publish to npm
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v4
         with:
@@ -176,46 +187,31 @@ jobs:
       - working-directory: livekit-ffi-node-bindings
         run: pnpm install
 
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "25.1"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download all artifacts
+      - name: Download native build artifacts
         uses: actions/download-artifact@v4
         with:
+          pattern: native-bindings-*
           path: livekit-ffi-node-bindings/artifacts
 
-      - name: Set package version from tag
-        working-directory: livekit-ffi-node-bindings
-        run: |
-          # Extract version from tag (e.g., rust-sdks/livekit-ffi@0.12.43 -> 0.12.43)
-          VERSION=$(echo "${{ env.TAG_NAME }}" | sed 's/.*@//')
-          echo "Setting package version to $VERSION"
-          npm version $VERSION --no-git-tag-version
-          pnpm run version
-
-      - name: Commit and push versioning changes
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
-          git add .
-          git commit -m "chore: update livekit-ffi-node-bindings version to $(echo "${{ env.TAG_NAME }}" | sed 's/.*@//')" || echo "No changes to commit"
-          git push origin HEAD
-
-      - name: Build TS parts
-        working-directory: livekit-ffi-node-bindings
-        run: pnpm build:ts
+      - name: Download js artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: js-bindings
+          path: livekit-ffi-node-bindings
 
       - name: Move artifacts
-        run: pnpm artifacts
+        run: pnpm run ci:artifacts
         working-directory: livekit-ffi-node-bindings
 
       - name: List packages
         run: ls -R ./livekit-ffi-node-bindings/npm
         shell: bash
 
+      - name: Echo changes
+        run: |
+          git status
+          git diff
+
       - name: Publish
         working-directory: livekit-ffi-node-bindings
-        run: pnpm publish --tag dev
+        run: pnpm publish -r ${{ inputs.dry_run == true && '--dry-run --no-git-checks' || '' }}

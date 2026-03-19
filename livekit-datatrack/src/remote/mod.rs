@@ -14,9 +14,14 @@
 
 use crate::api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError};
 use events::{InputEvent, SubscribeRequest};
-use futures_util::StreamExt;
 use livekit_runtime::timeout;
-use std::{marker::PhantomData, sync::Arc, time::Duration};
+use std::{
+    marker::PhantomData,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
@@ -52,11 +57,15 @@ impl DataTrack<Remote> {
 }
 
 impl DataTrack<Remote> {
-    /// Subscribes to the data track to receive frames.
+    /// Subscribes to the data track.
     ///
     /// # Returns
     ///
     /// A stream that yields [`DataTrackFrame`]s as they arrive.
+    ///
+    /// # Options
+    ///
+    /// To set custom subscription options, see [`Self::subscribe_with_options`].
     ///
     /// # Multiple Subscriptions
     ///
@@ -71,31 +80,62 @@ impl DataTrack<Remote> {
     /// Note that newly created subscriptions only receive frames published after
     /// the initial subscription is established.
     ///
-    pub async fn subscribe(&self) -> Result<impl Stream<Item = DataTrackFrame>, SubscribeError> {
+    pub async fn subscribe(&self) -> Result<DataTrackSubscription, DataTrackSubscribeError> {
+        self.subscribe_with_options(DataTrackSubscribeOptions::default()).await
+    }
+
+    /// Subscribes to the data track, specifying custom options.
+    ///
+    /// Same usage and return as [`Self::subscribe`] with an additional argument
+    /// to specify options.
+    ///
+    pub async fn subscribe_with_options(
+        &self,
+        options: DataTrackSubscribeOptions,
+    ) -> Result<DataTrackSubscription, DataTrackSubscribeError> {
         let (result_tx, result_rx) = oneshot::channel();
-        let subscribe_event = SubscribeRequest { sid: self.info.sid(), result_tx };
+        let subscribe_event = SubscribeRequest { sid: self.info.sid(), options, result_tx };
         self.inner()
             .event_in_tx
             .upgrade()
-            .ok_or(SubscribeError::Disconnected)?
+            .ok_or(DataTrackSubscribeError::Disconnected)?
             .send(subscribe_event.into())
             .await
-            .map_err(|_| SubscribeError::Disconnected)?;
+            .map_err(|_| DataTrackSubscribeError::Disconnected)?;
 
         // TODO: standardize timeout
         let frame_rx = timeout(Duration::from_secs(10), result_rx)
             .await
-            .map_err(|_| SubscribeError::Timeout)?
-            .map_err(|_| SubscribeError::Disconnected)??;
+            .map_err(|_| DataTrackSubscribeError::Timeout)?
+            .map_err(|_| DataTrackSubscribeError::Disconnected)??;
 
-        let frame_stream =
-            BroadcastStream::new(frame_rx).filter_map(|result| async move { result.ok() });
-        Ok(Box::pin(frame_stream))
+        Ok(DataTrackSubscription { inner: BroadcastStream::new(frame_rx) })
     }
 
     /// Identity of the participant who published the track.
     pub fn publisher_identity(&self) -> &str {
         &self.inner().publisher_identity
+    }
+}
+
+/// A stream of [`DataTrackFrame`]s received from a [`RemoteDataTrack`].
+pub struct DataTrackSubscription {
+    inner: BroadcastStream<DataTrackFrame>,
+}
+
+impl Stream for DataTrackSubscription {
+    type Item = DataTrackFrame;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        loop {
+            match Pin::new(&mut this.inner).poll_next(cx) {
+                Poll::Ready(Some(Ok(frame))) => return Poll::Ready(Some(frame)),
+                Poll::Ready(Some(Err(_))) => continue,
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
     }
 }
 
@@ -118,7 +158,7 @@ impl RemoteTrackInner {
 }
 
 #[derive(Debug, Error)]
-pub enum SubscribeError {
+pub enum DataTrackSubscribeError {
     #[error("The track has been unpublished and is no longer available")]
     Unpublished,
     #[error("Request to subscribe to data track timed-out")]
@@ -127,4 +167,59 @@ pub enum SubscribeError {
     Disconnected,
     #[error(transparent)]
     Internal(#[from] InternalError),
+}
+
+/// Options for subscribing to a data track.
+///
+/// # Examples
+///
+/// Specify a custom buffer size:
+///
+/// ```
+/// # use livekit_datatrack::api::DataTrackSubscribeOptions;
+/// let options = DataTrackSubscribeOptions::default()
+///     .with_buffer_size(128); // Buffer 128 frames internally
+///
+/// # assert_eq!(options.buffer_size(), 128);
+/// ```
+///
+#[derive(Debug, Clone)]
+pub struct DataTrackSubscribeOptions {
+    buffer_size: usize,
+}
+
+impl DataTrackSubscribeOptions {
+    /// Creates subscribe options with default values.
+    ///
+    /// Equivalent to [`Self::default`].
+    ///
+    pub fn new() -> Self {
+        Self { buffer_size: 16 }
+    }
+
+    /// Returns the maximum number of received frames buffered internally.
+    pub fn buffer_size(&self) -> usize {
+        self.buffer_size
+    }
+
+    /// Sets the maximum number of received frames buffered internally.
+    ///
+    /// Note: if there is already an active subscription for a given track, specifying a
+    /// different buffer size when obtaining a new subscription will have no effect.
+    ///
+    /// # Panics
+    ///
+    /// This will panic if the specified buffer size is zero.
+    ///
+    pub fn with_buffer_size(mut self, frames: usize) -> Self {
+        assert!(frames != 0, "Subscription buffer size cannot be zero");
+        self.buffer_size = frames;
+        self
+    }
+}
+
+impl Default for DataTrackSubscribeOptions {
+    fn default() -> Self {
+        Self::new()
+    }
 }

@@ -85,8 +85,8 @@ pub(crate) mod consts {
     pub const EXT_WORDS_INDICATOR_SIZE: usize = 2;
     pub const EXT_FLAG_SHIFT: u8 = 0x2;
     pub const EXT_FLAG_MASK: u8 = 0x1;
-    pub const EXT_MARKER_LEN: usize = 4;
-    pub const EXT_TAG_PADDING: u16 = 0;
+    pub const EXT_MARKER_LEN: usize = 2;
+    pub const EXT_TAG_PADDING: u8 = 0;
 }
 
 #[cfg(test)]
