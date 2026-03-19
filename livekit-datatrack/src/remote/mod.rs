@@ -14,9 +14,14 @@
 
 use crate::api::{DataTrack, DataTrackFrame, DataTrackInfo, DataTrackInner, InternalError};
 use events::{InputEvent, SubscribeRequest};
-use futures_util::StreamExt;
 use livekit_runtime::timeout;
-use std::{marker::PhantomData, sync::Arc, time::Duration};
+use std::{
+    marker::PhantomData,
+    pin::Pin,
+    sync::Arc,
+    task::{Context, Poll},
+    time::Duration,
+};
 use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, watch};
 use tokio_stream::{wrappers::BroadcastStream, Stream};
@@ -75,7 +80,7 @@ impl DataTrack<Remote> {
     /// Note that newly created subscriptions only receive frames published after
     /// the initial subscription is established.
     ///
-    pub async fn subscribe(&self) -> Result<impl Stream<Item = DataTrackFrame>, SubscribeError> {
+    pub async fn subscribe(&self) -> Result<DataTrackSubscription, SubscribeError> {
         self.subscribe_with_options(DataTrackSubscribeOptions::default()).await
     }
 
@@ -87,7 +92,7 @@ impl DataTrack<Remote> {
     pub async fn subscribe_with_options(
         &self,
         options: DataTrackSubscribeOptions,
-    ) -> Result<impl Stream<Item = DataTrackFrame>, SubscribeError> {
+    ) -> Result<DataTrackSubscription, SubscribeError> {
         let (result_tx, result_rx) = oneshot::channel();
         let subscribe_event = SubscribeRequest { sid: self.info.sid(), options, result_tx };
         self.inner()
@@ -104,15 +109,33 @@ impl DataTrack<Remote> {
             .map_err(|_| SubscribeError::Timeout)?
             .map_err(|_| SubscribeError::Disconnected)??;
 
-        let frame_stream =
-            BroadcastStream::new(frame_rx).filter_map(|result| async move { result.ok() });
-
-        Ok(Box::pin(frame_stream))
+        Ok(DataTrackSubscription { inner: BroadcastStream::new(frame_rx) })
     }
 
     /// Identity of the participant who published the track.
     pub fn publisher_identity(&self) -> &str {
         &self.inner().publisher_identity
+    }
+}
+
+/// A stream of [`DataTrackFrame`]s received from a [`RemoteDataTrack`].
+pub struct DataTrackSubscription {
+    inner: BroadcastStream<DataTrackFrame>,
+}
+
+impl Stream for DataTrackSubscription {
+    type Item = DataTrackFrame;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        loop {
+            match Pin::new(&mut this.inner).poll_next(cx) {
+                Poll::Ready(Some(Ok(frame))) => return Poll::Ready(Some(frame)),
+                Poll::Ready(Some(Err(_))) => continue,
+                Poll::Ready(None) => return Poll::Ready(None),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
     }
 }
 
