@@ -1,10 +1,11 @@
 [package]
 name = "livekit-datatrack"
+description = "Data track core for LiveKit"
 version = "0.1.0"
-edition = "2021"
-license = "Apache-2.0"
-repository = "https://github.com/livekit/rust-sdks"
 readme = "README.md"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
 
 [dependencies]
 livekit-protocol = { workspace = true }

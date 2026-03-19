@@ -95,12 +95,18 @@ impl Header {
 }
 
 macro_rules! deserialize_ext {
-    ($ext_type:ty, $raw:expr) => {{
-        if $raw.remaining() < <$ext_type>::LEN {
+    ($ext_type:ty, $raw:expr, $len:expr) => {{
+        if $raw.remaining() < $len {
             Err(DeserializeError::MalformedExt(<$ext_type>::TAG))?
         }
         let mut buf = [0u8; <$ext_type>::LEN];
         $raw.copy_to_slice(&mut buf);
+
+        let extra_bytes = $len - <$ext_type>::LEN;
+        if extra_bytes > 0 {
+            // Extra bytes, possibly from future extension version (skip)
+            $raw.advance(extra_bytes);
+        }
         Some(<$ext_type>::deserialize(buf))
     }};
 }
@@ -110,14 +116,14 @@ impl Extensions {
         let mut extensions = Self::default();
         while raw.remaining() >= 2 * size_of::<u8>() {
             let tag = raw.get_u8();
-            let len = raw.get_u8() as usize + 1; // NOTE: extension length is encoded as length in bytes minus one.
+            let len = raw.get_u8() as usize;
             match tag {
                 EXT_TAG_PADDING => {} // Skip padding
-                E2eeExt::TAG if len == E2eeExt::LEN => {
-                    extensions.e2ee = deserialize_ext!(E2eeExt, raw);
+                E2eeExt::TAG if len >= E2eeExt::LEN => {
+                    extensions.e2ee = deserialize_ext!(E2eeExt, raw, len);
                 }
-                UserTimestampExt::TAG if len == UserTimestampExt::LEN => {
-                    extensions.user_timestamp = deserialize_ext!(UserTimestampExt, raw);
+                UserTimestampExt::TAG if len >= UserTimestampExt::LEN => {
+                    extensions.user_timestamp = deserialize_ext!(UserTimestampExt, raw, len);
                 }
                 _ => {
                     // Skip over unknown or length-mismatched extensions (forward compatible).
@@ -239,7 +245,7 @@ mod tests {
         raw.put_u16(3); // Extension words
 
         raw.put_u8(1); // ID 1
-        raw.put_u8(12); // Length 12
+        raw.put_u8(13); // Length
         raw.put_u8(0xFA); // Key index
         raw.put_bytes(0x3C, 12); // IV
         raw.put_bytes(0, 1); // Padding
@@ -257,7 +263,7 @@ mod tests {
         raw.put_u16(2); // Extension words
 
         raw.put_u8(2);
-        raw.put_u8(7);
+        raw.put_u8(8); // Length
         raw.put_slice(&[0x44, 0x11, 0x22, 0x11, 0x11, 0x11, 0x88, 0x11]); // User timestamp
         raw.put_bytes(0, 2); // Padding
 
@@ -269,14 +275,33 @@ mod tests {
     }
 
     #[test]
-    fn test_ext_unexpected_length() {
+    fn test_ext_forward_compat_longer_length() {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
         raw.put_u16(3); // Extension words
 
         raw.put_u8(2); // User timestamp
-        raw.put_u8(11); // Expected length is 7
-        raw.put_bytes(0x3C, 12);
+        raw.put_u8(12); // Longer than known length (8), extra bytes are skipped
+        raw.put_slice(&[0x44, 0x11, 0x22, 0x11, 0x11, 0x11, 0x88, 0x11]); // Known 8 bytes
+        raw.put_bytes(0xFF, 4); // 4 extra bytes from a future version
+        raw.put_bytes(0, 2); // Padding
+
+        let packet = Packet::deserialize(raw.freeze()).unwrap();
+        assert_eq!(
+            packet.header.extensions.user_timestamp,
+            UserTimestampExt(0x4411221111118811).into()
+        );
+    }
+
+    #[test]
+    fn test_ext_shorter_than_known_length_skipped() {
+        let mut raw = valid_packet();
+        raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
+        raw.put_u16(1); // Extension words
+
+        raw.put_u8(2); // User timestamp tag
+        raw.put_u8(4); // Shorter than known length (8), treated as unknown
+        raw.put_bytes(0x3C, 4);
         raw.put_bytes(0, 2); // Padding
 
         let packet = Packet::deserialize(raw.freeze()).unwrap();
