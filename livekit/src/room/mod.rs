@@ -24,7 +24,10 @@ use libwebrtc::{
     RtcError,
 };
 use livekit_api::signal_client::{SignalOptions, SignalSdkOptions, SIGNAL_CONNECT_TIMEOUT};
-use livekit_datatrack::{api::RemoteDataTrack, backend as dt};
+use livekit_datatrack::{
+    api::{DataTrackSid, RemoteDataTrack},
+    backend as dt,
+};
 use livekit_protocol::observer::Dispatcher;
 use livekit_protocol::{self as proto, encryption};
 use livekit_runtime::JoinHandle;
@@ -247,6 +250,8 @@ pub enum RoomEvent {
     },
     /// A remote participant published a data track.
     RemoteDataTrackPublished(RemoteDataTrack),
+    /// A remote participant has unpublished a data track.
+    RemoteDataTrackUnpublished(DataTrackSid),
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -1988,6 +1993,9 @@ impl RoomSession {
                     Some(event) => match event {
                         dt::remote::OutputEvent::TrackPublished(event) => {
                             _ = self.dispatcher.dispatch(&RoomEvent::RemoteDataTrackPublished(event.track));
+                        }
+                        dt::remote::OutputEvent::TrackUnpublished(event) => {
+                            _ = self.dispatcher.dispatch(&RoomEvent::RemoteDataTrackUnpublished(event.sid));
                         }
                         other => _ = self.rtc_engine.handle_remote_data_track_output(other).await
                     },
