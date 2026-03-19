@@ -80,7 +80,7 @@ impl DataTrack<Remote> {
     /// Note that newly created subscriptions only receive frames published after
     /// the initial subscription is established.
     ///
-    pub async fn subscribe(&self) -> Result<DataTrackSubscription, SubscribeError> {
+    pub async fn subscribe(&self) -> Result<DataTrackSubscription, DataTrackSubscribeError> {
         self.subscribe_with_options(DataTrackSubscribeOptions::default()).await
     }
 
@@ -92,22 +92,22 @@ impl DataTrack<Remote> {
     pub async fn subscribe_with_options(
         &self,
         options: DataTrackSubscribeOptions,
-    ) -> Result<DataTrackSubscription, SubscribeError> {
+    ) -> Result<DataTrackSubscription, DataTrackSubscribeError> {
         let (result_tx, result_rx) = oneshot::channel();
         let subscribe_event = SubscribeRequest { sid: self.info.sid(), options, result_tx };
         self.inner()
             .event_in_tx
             .upgrade()
-            .ok_or(SubscribeError::Disconnected)?
+            .ok_or(DataTrackSubscribeError::Disconnected)?
             .send(subscribe_event.into())
             .await
-            .map_err(|_| SubscribeError::Disconnected)?;
+            .map_err(|_| DataTrackSubscribeError::Disconnected)?;
 
         // TODO: standardize timeout
         let frame_rx = timeout(Duration::from_secs(10), result_rx)
             .await
-            .map_err(|_| SubscribeError::Timeout)?
-            .map_err(|_| SubscribeError::Disconnected)??;
+            .map_err(|_| DataTrackSubscribeError::Timeout)?
+            .map_err(|_| DataTrackSubscribeError::Disconnected)??;
 
         Ok(DataTrackSubscription { inner: BroadcastStream::new(frame_rx) })
     }
@@ -158,7 +158,7 @@ impl RemoteTrackInner {
 }
 
 #[derive(Debug, Error)]
-pub enum SubscribeError {
+pub enum DataTrackSubscribeError {
     #[error("The track has been unpublished and is no longer available")]
     Unpublished,
     #[error("Request to subscribe to data track timed-out")]
