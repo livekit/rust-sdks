@@ -28,6 +28,15 @@ message NewVideoStreamRequest {
   // Get the frame on a specific format
   optional VideoBufferType format = 3;
   optional bool normalize_stride = 4; // if true, stride will be set to width/chroma_width
+  // Maximum number of queued WebRTC sink frames on the receive path. Omit this
+  // field to use the default bounded queue size of 1 frame. Set it to 0 to
+  // request unbounded buffering.
+  //
+  // If your application consumes both audio and video, keep the queue sizing
+  // strategy coordinated across both streams. Using a much larger queue, or
+  // unbounded buffering, for only one of them can increase end-to-end latency
+  // for that stream and cause audio/video drift.
+  optional uint32 queue_size_frames = 5;
 }
 message NewVideoStreamResponse { required OwnedVideoStream stream = 1; }
 
@@ -38,6 +47,15 @@ message VideoStreamFromParticipantRequest {
   required TrackSource track_source = 3;
   optional VideoBufferType format = 4;
   optional bool normalize_stride = 5;
+  // Maximum number of queued WebRTC sink frames on the receive path. Omit this
+  // field to use the default bounded queue size of 1 frame. Set it to 0 to
+  // request unbounded buffering.
+  //
+  // If your application consumes both audio and video, keep the queue sizing
+  // strategy coordinated across both streams. Using a much larger queue, or
+  // unbounded buffering, for only one of them can increase end-to-end latency
+  // for that stream and cause audio/video drift.
+  optional uint32 queue_size_frames = 6;
 }
 
 message VideoStreamFromParticipantResponse { required OwnedVideoStream stream = 1;}
