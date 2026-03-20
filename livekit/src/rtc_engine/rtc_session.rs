@@ -376,6 +376,7 @@ struct SessionInner {
     pending_requests: Mutex<HashMap<u32, oneshot::Sender<proto::RequestResponse>>>,
 
     e2ee_manager: Option<E2eeManager>,
+    subscriber_primary: bool,
 }
 
 /// Information about the local participant needed for outgoing
@@ -431,6 +432,7 @@ impl RtcSession {
             SignalClient::connect(url, token, options.signal_options.clone()).await?;
         let signal_client = Arc::new(signal_client);
         log::debug!("received JoinResponse: {:?}", join_response);
+        let subscriber_primary = join_response.subscriber_primary;
 
         // Determine if single PC mode is active based on the path used
         let single_pc_mode = signal_client.is_single_pc_mode_active();
@@ -517,6 +519,7 @@ impl RtcSession {
             negotiation_queue: NegotiationQueue::new(),
             pending_requests: Default::default(),
             e2ee_manager,
+            subscriber_primary,
         });
 
         // Start session tasks
@@ -530,7 +533,7 @@ impl RtcSession {
 
         // In single PC mode (or with fast_publish), trigger initial negotiation
         // This matches JS SDK behavior: if (!this.subscriberPrimary || joinResponse.fastPublish) { this.negotiate(); }
-        if single_pc_mode || join_response.fast_publish {
+        if single_pc_mode || join_response.fast_publish || !subscriber_primary {
             inner.publisher_negotiation_needed();
         }
 
@@ -1750,8 +1753,8 @@ impl SessionInner {
                 }
 
                 let publisher_connected = self.publisher_pc.is_connected();
-                let subscriber_connected = if self.single_pc_mode {
-                    true // No subscriber in single PC mode
+                let subscriber_connected = if self.single_pc_mode || !self.subscriber_primary {
+                    true // No subscriber in single PC mode or if PC is publisher primary
                 } else {
                     self.subscriber_pc.as_ref().map(|pc| pc.is_connected()).unwrap_or(true)
                 };
