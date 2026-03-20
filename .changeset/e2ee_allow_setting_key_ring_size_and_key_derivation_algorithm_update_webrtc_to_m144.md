@@ -20,6 +20,4 @@ This PR uses [this webrtc-sdk PR](https://github.com/webrtc-sdk/webrtc/pull/224)
 
 I've tested this with https://codeberg.org/esoteric_programmer/matrix-jukebox and it is compatible with Element Call.
 
-Since this PR needs to use a new webrtc build it also updates webtc to m144. See [this PR](https://github.com/webrtc-sdk/webrtc/pull/217)
-
 Fixed: https://github.com/livekit/rust-sdks/issues/796
