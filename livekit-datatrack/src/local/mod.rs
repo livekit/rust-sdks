@@ -97,7 +97,7 @@ impl DataTrack<Local> {
     }
 
     /// Unpublishes the track.
-    pub fn unpublish(self) {
+    pub fn unpublish(&self) {
         self.inner().local_unpublish();
     }
 }
