@@ -122,7 +122,7 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
         else
           adjusted.parameters.erase("packetization-mode");
         if (sf.IsSameCodec(adjusted))
-          return factory->Create(env, format);
+          return factory->Create(env, adjusted);
       }
     }
   }
