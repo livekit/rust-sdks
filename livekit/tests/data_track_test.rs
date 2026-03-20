@@ -438,7 +438,7 @@ async fn wait_for_remote_track(
     rx: &mut tokio::sync::mpsc::UnboundedReceiver<RoomEvent>,
 ) -> Result<RemoteDataTrack> {
     while let Some(event) = rx.recv().await {
-        if let RoomEvent::RemoteDataTrackPublished(track) = event {
+        if let RoomEvent::DataTrackPublished(track) = event {
             return Ok(track);
         }
     }
