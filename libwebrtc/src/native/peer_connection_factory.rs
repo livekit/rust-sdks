@@ -56,6 +56,22 @@ impl Default for PeerConnectionFactory {
 }
 
 impl PeerConnectionFactory {
+    pub fn with_platform_adm() -> Self {
+        let mut log_sink = LOG_SINK.lock();
+        if log_sink.is_none() {
+            *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _| {
+                let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
+
+                log::debug!(target: "libwebrtc", "{}", msg);
+            }));
+        }
+
+        let sys_handle = sys_pcf::ffi::create_peer_connection_factory_with_platform_adm();
+        assert!(!sys_handle.is_null(), "platform default ADM is unavailable");
+
+        Self { sys_handle }
+    }
+
     pub fn create_peer_connection(
         &self,
         config: RtcConfiguration,
@@ -94,11 +110,11 @@ impl PeerConnectionFactory {
         }
     }
 
-    pub fn create_adm_audio_track(&self, label: &str) -> RtcAudioTrack {
-        RtcAudioTrack {
-            handle: imp_at::RtcAudioTrack {
-                sys_handle: self.sys_handle.create_adm_audio_track(label.to_string()),
-            },
+    pub fn create_audio_source(&self) -> NativeAudioSource {
+        NativeAudioSource {
+            handle: crate::imp::audio_source::NativeAudioSource::from_sys_handle(
+                self.sys_handle.create_audio_source(),
+            ),
         }
     }
 

@@ -276,7 +276,12 @@ AudioTrackSource::AudioTrackSource(AudioSourceOptions options,
           sample_rate,
           num_channels,
           queue_size_ms,
-          task_queue_factory)) {}
+          task_queue_factory)),
+      internal_source_(static_cast<InternalSource*>(source_.get())) {}
+
+AudioTrackSource::AudioTrackSource(
+    webrtc::scoped_refptr<webrtc::AudioSourceInterface> source)
+    : source_(std::move(source)) {}
 
 AudioSourceOptions AudioTrackSource::audio_options() const {
   return to_rust_audio_options(source_->options());
@@ -284,7 +289,11 @@ AudioSourceOptions AudioTrackSource::audio_options() const {
 
 void AudioTrackSource::set_audio_options(
     const AudioSourceOptions& options) const {
-  source_->set_options(to_native_audio_options(options));
+  if (internal_source_.get() == nullptr) {
+    return;
+  }
+
+  internal_source_->set_options(to_native_audio_options(options));
 }
 
 bool AudioTrackSource::capture_frame(
@@ -294,12 +303,21 @@ bool AudioTrackSource::capture_frame(
     size_t number_of_frames,
     const SourceContext* ctx,
     void (*on_complete)(const SourceContext*)) const {
-  return source_->capture_frame(audio_data, sample_rate, number_of_channels,
-                                number_of_frames, ctx, on_complete);
+  if (internal_source_.get() == nullptr) {
+    return false;
+  }
+
+  return internal_source_->capture_frame(audio_data, sample_rate,
+                                         number_of_channels, number_of_frames,
+                                         ctx, on_complete);
 }
 
 void AudioTrackSource::clear_buffer() const {
-  source_->clear_buffer();
+  if (internal_source_.get() == nullptr) {
+    return;
+  }
+
+  internal_source_->clear_buffer();
 }
 
 std::shared_ptr<AudioTrackSource> new_audio_track_source(
@@ -312,7 +330,7 @@ std::shared_ptr<AudioTrackSource> new_audio_track_source(
                                             GetGlobalTaskQueueFactory());
 }
 
-webrtc::scoped_refptr<AudioTrackSource::InternalSource> AudioTrackSource::get()
+webrtc::scoped_refptr<webrtc::AudioSourceInterface> AudioTrackSource::get()
     const {
   return source_;
 }

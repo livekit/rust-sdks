@@ -88,6 +88,7 @@ pub mod ffi {
         type PeerConnectionFactory;
 
         fn create_peer_connection_factory() -> SharedPtr<PeerConnectionFactory>;
+        fn create_peer_connection_factory_with_platform_adm() -> SharedPtr<PeerConnectionFactory>;
 
         fn create_peer_connection(
             self: &PeerConnectionFactory,
@@ -107,10 +108,7 @@ pub mod ffi {
             source: SharedPtr<AudioTrackSource>,
         ) -> SharedPtr<AudioTrack>;
 
-        fn create_adm_audio_track(
-            self: &PeerConnectionFactory,
-            label: String,
-        ) -> SharedPtr<AudioTrack>;
+        fn create_audio_source(self: &PeerConnectionFactory) -> SharedPtr<AudioTrackSource>;
 
         fn rtp_sender_capabilities(
             self: &PeerConnectionFactory,

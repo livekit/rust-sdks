@@ -153,6 +153,8 @@ class AudioTrackSource {
                    int num_channels,
                    int queue_size_ms,
                    webrtc::TaskQueueFactory* task_queue_factory);
+  explicit AudioTrackSource(
+      webrtc::scoped_refptr<webrtc::AudioSourceInterface> source);
 
   AudioSourceOptions audio_options() const;
 
@@ -167,10 +169,11 @@ class AudioTrackSource {
 
   void clear_buffer() const;
 
-  webrtc::scoped_refptr<InternalSource> get() const;
+  webrtc::scoped_refptr<webrtc::AudioSourceInterface> get() const;
 
  private:
-  webrtc::scoped_refptr<InternalSource> source_;
+  webrtc::scoped_refptr<webrtc::AudioSourceInterface> source_;
+  webrtc::scoped_refptr<InternalSource> internal_source_;
 };
 
 std::shared_ptr<AudioTrackSource> new_audio_track_source(

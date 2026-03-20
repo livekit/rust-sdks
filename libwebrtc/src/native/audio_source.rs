@@ -65,6 +65,10 @@ impl NativeAudioSource {
         Self { sys_handle, sample_rate, num_channels, queue_size_samples }
     }
 
+    pub(crate) fn from_sys_handle(sys_handle: SharedPtr<sys_at::ffi::AudioTrackSource>) -> Self {
+        Self { sys_handle, sample_rate: 0, num_channels: 0, queue_size_samples: 0 }
+    }
+
     pub fn sys_handle(&self) -> SharedPtr<sys_at::ffi::AudioTrackSource> {
         self.sys_handle.clone()
     }

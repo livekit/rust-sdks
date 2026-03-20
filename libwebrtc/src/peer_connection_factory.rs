@@ -68,6 +68,10 @@ impl Debug for PeerConnectionFactory {
 }
 
 impl PeerConnectionFactory {
+    pub fn with_platform_adm() -> Self {
+        Self { handle: imp_pcf::PeerConnectionFactory::with_platform_adm() }
+    }
+
     pub fn create_peer_connection(
         &self,
         config: RtcConfiguration,
@@ -94,7 +98,7 @@ pub mod native {
     pub trait PeerConnectionFactoryExt {
         fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;
         fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack;
-        fn create_adm_audio_track(&self, label: &str) -> RtcAudioTrack;
+        fn create_audio_source(&self) -> NativeAudioSource;
     }
 
     impl PeerConnectionFactoryExt for PeerConnectionFactory {
@@ -106,8 +110,8 @@ pub mod native {
             self.handle.create_audio_track(label, source)
         }
 
-        fn create_adm_audio_track(&self, label: &str) -> RtcAudioTrack {
-            self.handle.create_adm_audio_track(label)
+        fn create_audio_source(&self) -> NativeAudioSource {
+            self.handle.create_audio_source()
         }
     }
 }
