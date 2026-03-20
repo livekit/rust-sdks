@@ -106,6 +106,27 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
     }
   }
 
+  // IsSameCodec treats H.264 packetization-modes as distinct codecs, so when
+  // the SFU sends mode=0 but the platform factory only advertises mode=1 the
+  // strict match above fails. Retry with the factory's packetization-mode so
+  // only that parameter is relaxed while the profile-level-id check is kept.
+  if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName)) {
+    for (const auto& factory : factories_) {
+      for (const auto& sf : factory->GetSupportedFormats()) {
+        if (!absl::EqualsIgnoreCase(sf.name, cricket::kH264CodecName))
+          continue;
+        auto adjusted = format;
+        auto it = sf.parameters.find("packetization-mode");
+        if (it != sf.parameters.end())
+          adjusted.parameters["packetization-mode"] = it->second;
+        else
+          adjusted.parameters.erase("packetization-mode");
+        if (sf.IsSameCodec(adjusted))
+          return factory->Create(env, adjusted);
+      }
+    }
+  }
+
   if (absl::EqualsIgnoreCase(format.name, cricket::kVp8CodecName))
     return webrtc::CreateVp8Decoder(env);
   if (absl::EqualsIgnoreCase(format.name, cricket::kVp9CodecName))
