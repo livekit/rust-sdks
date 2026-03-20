@@ -94,6 +94,14 @@ impl PeerConnectionFactory {
         }
     }
 
+    pub fn create_adm_audio_track(&self, label: &str) -> RtcAudioTrack {
+        RtcAudioTrack {
+            handle: imp_at::RtcAudioTrack {
+                sys_handle: self.sys_handle.create_adm_audio_track(label.to_string()),
+            },
+        }
+    }
+
     pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.sys_handle.rtp_sender_capabilities(media_type.into()).into()
     }

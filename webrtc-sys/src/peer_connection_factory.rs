@@ -107,6 +107,11 @@ pub mod ffi {
             source: SharedPtr<AudioTrackSource>,
         ) -> SharedPtr<AudioTrack>;
 
+        fn create_adm_audio_track(
+            self: &PeerConnectionFactory,
+            label: String,
+        ) -> SharedPtr<AudioTrack>;
+
         fn rtp_sender_capabilities(
             self: &PeerConnectionFactory,
             kind: MediaType,

@@ -56,6 +56,8 @@ class PeerConnectionFactory {
       rust::String label,
       std::shared_ptr<AudioTrackSource> source) const;
 
+  std::shared_ptr<AudioTrack> create_adm_audio_track(rust::String label) const;
+
   RtpCapabilities rtp_sender_capabilities(MediaType type) const;
 
   RtpCapabilities rtp_receiver_capabilities(MediaType type) const;
@@ -64,7 +66,7 @@ class PeerConnectionFactory {
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  webrtc::scoped_refptr<AudioDevice> audio_device_;
+  webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device_;
   webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
   webrtc::TaskQueueFactory* task_queue_factory_;
 };

@@ -19,6 +19,7 @@
 #include <memory>
 #include <utility>
 
+#include "api/audio_options.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/audio/builtin_audio_processing_builder.h"
@@ -61,10 +62,16 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
   dependencies.trials = std::make_unique<webrtc::FieldTrialBasedConfig>();
 
+#if defined(WEBRTC_MAC)
+  audio_device_ = webrtc::AudioDeviceModule::Create(
+      webrtc::AudioDeviceModule::kPlatformDefaultAudio,
+      dependencies.task_queue_factory.get());
+#else
   audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
     return webrtc::make_ref_counted<livekit_ffi::AudioDevice>(
         dependencies.task_queue_factory.get());
   });
+#endif
 
   dependencies.adm = audio_device_;
 
@@ -126,6 +133,19 @@ std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
   return std::static_pointer_cast<AudioTrack>(
       rtc_runtime_->get_or_create_media_stream_track(
           peer_factory_->CreateAudioTrack(label.c_str(), source->get().get())));
+}
+
+std::shared_ptr<AudioTrack> PeerConnectionFactory::create_adm_audio_track(
+    rust::String label) const {
+  cricket::AudioOptions options{};
+  options.echo_cancellation = true;
+  options.noise_suppression = true;
+  options.auto_gain_control = true;
+
+  return std::static_pointer_cast<AudioTrack>(
+      rtc_runtime_->get_or_create_media_stream_track(
+          peer_factory_->CreateAudioTrack(
+              label.c_str(), peer_factory_->CreateAudioSource(options).get())));
 }
 
 RtpCapabilities PeerConnectionFactory::rtp_sender_capabilities(

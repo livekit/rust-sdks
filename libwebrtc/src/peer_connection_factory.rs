@@ -94,6 +94,7 @@ pub mod native {
     pub trait PeerConnectionFactoryExt {
         fn create_video_track(&self, label: &str, source: NativeVideoSource) -> RtcVideoTrack;
         fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack;
+        fn create_adm_audio_track(&self, label: &str) -> RtcAudioTrack;
     }
 
     impl PeerConnectionFactoryExt for PeerConnectionFactory {
@@ -103,6 +104,10 @@ pub mod native {
 
         fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack {
             self.handle.create_audio_track(label, source)
+        }
+
+        fn create_adm_audio_track(&self, label: &str) -> RtcAudioTrack {
+            self.handle.create_adm_audio_track(label)
         }
     }
 }
