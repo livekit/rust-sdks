@@ -96,6 +96,7 @@ impl From<DisconnectReason> for proto::DisconnectReason {
             DisconnectReason::SipTrunkFailure => proto::DisconnectReason::SipTrunkFailure,
             DisconnectReason::ConnectionTimeout => proto::DisconnectReason::ConnectionTimeout,
             DisconnectReason::MediaFailure => proto::DisconnectReason::MediaFailure,
+            DisconnectReason::AgentError => proto::DisconnectReason::AgentError,
         }
     }
 }
