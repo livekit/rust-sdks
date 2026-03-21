@@ -1244,6 +1244,15 @@ fn on_remote_data_track_is_published(
     track.is_published(server, request)
 }
 
+fn on_data_track_subscription_read(
+    server: &'static FfiServer,
+    request: proto::DataTrackSubscriptionReadRequest,
+) -> FfiResult<proto::DataTrackSubscriptionReadResponse> {
+    let subscription = server
+        .retrieve_handle::<data_track::FfiDataTrackSubscription>(request.subscription_handle)?;
+    Ok(subscription.read(request))
+}
+
 #[allow(clippy::field_reassign_with_default)] // Avoid uggly format
 pub fn handle_request(
     server: &'static FfiServer,
@@ -1352,6 +1361,9 @@ pub fn handle_request(
         Request::SubscribeDataTrack(req) => on_subscribe_local_data_track(server, req)?.into(),
         Request::RemoteDataTrackIsPublished(req) => {
             on_remote_data_track_is_published(server, req)?.into()
+        }
+        Request::DataTrackSubscriptionRead(req) => {
+            on_data_track_subscription_read(server, req)?.into()
         }
     });
 

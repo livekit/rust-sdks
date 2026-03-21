@@ -142,6 +142,17 @@ message SubscribeDataTrackCallback {
   }
 }
 
+// Signal readiness to handle the next frame.
+//
+// This allows the client to put backpressure on the internal receive buffer.
+// Sending this request will cause the next frame to be sent via `DataTrackSubscriptionFrameReceived`
+// once one is available.
+//
+message DataTrackSubscriptionReadRequest {
+  required uint64 subscription_handle = 1;
+}
+message DataTrackSubscriptionReadResponse {}
+
 // Event emitted on an active subscription.
 message DataTrackSubscriptionEvent {
   required uint64 subscription_handle = 1;
