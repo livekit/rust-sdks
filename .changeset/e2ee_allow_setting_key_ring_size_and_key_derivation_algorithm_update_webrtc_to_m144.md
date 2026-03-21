@@ -1,15 +1,8 @@
 ---
-soxr-sys: patch
-webrtc-sys: patch
-livekit-ffi: minor
-livekit-protocol: patch
-livekit: minor
-livekit-wakeword: patch
-livekit-api: patch
-imgproc: patch
 libwebrtc: minor
-webrtc-sys-build: patch
-yuv-sys: patch
+livekit-ffi: minor
+livekit: minor
+webrtc-sys: patch
 ---
 
 # E2EE: allow setting key_ring_size and key_derivation_algorithm, update webrtc to m144
