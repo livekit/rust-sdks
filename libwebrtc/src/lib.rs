@@ -34,7 +34,7 @@ pub enum RtcErrorType {
 }
 
 #[derive(Error, Debug)]
-#[error("an RtcError occured: {error_type:?} - {message}")]
+#[error("an RtcError occurred: {error_type:?} - {message}")]
 pub struct RtcError {
     pub error_type: RtcErrorType,
     pub message: String,
