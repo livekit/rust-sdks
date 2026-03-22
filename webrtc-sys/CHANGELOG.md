@@ -165,6 +165,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.25 (2026-03-22)
+
+### Fixes
+
+- fix: enable AGC2 adaptive digital controller
+- Fix H.264 codec matching
+
+#### E2EE: allow setting key_ring_size and key_derivation_algorithm, update webrtc to m144
+
+##921 by @onestacked
+
+This PR uses [this webrtc-sdk PR](https://github.com/webrtc-sdk/webrtc/pull/224) to configure the KDF.
+
+I've tested this with https://codeberg.org/esoteric_programmer/matrix-jukebox and it is compatible with Element Call.
+
+Fixed: https://github.com/livekit/rust-sdks/issues/796
+
+#### fix clang build issue from zed patches (#949)
+
+##950 by @cloudwebrtc
+
+* webrtc-sys: Use clang instead of gcc
+
+* Debug CI output for aarch64-linux
+
+* ci: Install lld for aarch64-linux FFI builders
+
+* webrtc-sys: Disable CREL
+
 ## 0.3.24 (2026-03-13)
 
 ### Fixes

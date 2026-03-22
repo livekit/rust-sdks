@@ -62,3 +62,8 @@
 ### Changed
 
 - Update protocol version to v1.31.0
+## 0.7.2 (2026-03-22)
+
+### Fixes
+
+- Add disconnectReason to Room::close
