@@ -11,7 +11,7 @@ repository.workspace = true
 livekit-protocol = { workspace = true }
 livekit-runtime = { workspace = true }
 log = { workspace = true }
-thiserror = "2.0.17"  # TODO: upgrade workspace version to 2.x.x
+thiserror = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync"] }
 futures-util = { workspace = true, default-features = false, features = ["sink"] }
 futures-core = { workspace = true }
