@@ -170,6 +170,9 @@ impl From<livekit_protocol::PacketTrailerFeature> for proto::PacketTrailerFeatur
             livekit_protocol::PacketTrailerFeature::PtfUserTimestamp => {
                 proto::PacketTrailerFeature::PtfUserTimestamp
             }
+            livekit_protocol::PacketTrailerFeature::PtfFrameId => {
+                proto::PacketTrailerFeature::PtfFrameId
+            }
         }
     }
 }
