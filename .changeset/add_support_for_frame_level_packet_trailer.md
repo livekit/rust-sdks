@@ -7,7 +7,7 @@ soxr-sys: no changelog additions
 webrtc-sys-build: no changelog additions
 webrtc-sys: minor
 livekit-ffi: minor
-yuv-sys: CHANGE_TYno changelog additionsPE
+yuv-sys: no changelog additions
 libwebrtc: minor
 imgproc: no changelog additions
 ---
