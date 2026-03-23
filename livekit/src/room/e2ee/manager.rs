@@ -105,18 +105,16 @@ impl E2eeManager {
         let receiver = track.transceiver().unwrap().receiver();
         let mut packet_trailer_handler = None;
 
-        let has_packet_trailer = publication
-            .proto_info()
-            .packet_trailer_features
-            .iter()
-            .any(|f| {
-                *f == PacketTrailerFeature::PtfUserTimestamp as i32
-                    || *f == PacketTrailerFeature::PtfFrameId as i32
-            });
+        let has_packet_trailer = publication.proto_info().packet_trailer_features.iter().any(|f| {
+            *f == PacketTrailerFeature::PtfUserTimestamp as i32
+                || *f == PacketTrailerFeature::PtfFrameId as i32
+        });
 
         if let RemoteTrack::Video(video_track) = &track {
-            let handler =
-                packet_trailer::create_receiver_handler(LkRuntime::instance().pc_factory(), &receiver);
+            let handler = packet_trailer::create_receiver_handler(
+                LkRuntime::instance().pc_factory(),
+                &receiver,
+            );
             video_track.set_packet_trailer_handler(handler.clone());
             packet_trailer_handler = Some(handler);
 

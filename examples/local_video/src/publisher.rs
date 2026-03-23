@@ -178,11 +178,7 @@ fn format_timing_line(timings: &PublisherTimingSummary) -> String {
         timings.capture_to_webrtc_total_ms.average().unwrap_or_default()
     ));
 
-    format!(
-        "Timing ms: {}\nTiming ms: {}",
-        line_one.join(" | "),
-        line_two.join(" | ")
-    )
+    format!("Timing ms: {}\nTiming ms: {}", line_one.join(" | "), line_two.join(" | "))
 }
 
 fn list_cameras() -> Result<()> {

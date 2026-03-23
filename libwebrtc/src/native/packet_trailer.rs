@@ -69,7 +69,10 @@ impl PacketTrailerHandler {
             if ts > 2_000_000_000_000_000 || ts < 0 {
                 log::warn!(
                     "[PacketTrailer-FFI] C++ returned bad ts={} (0x{:016x}) fid={} rtp_ts={}",
-                    ts, ts, frame_id, rtp_timestamp
+                    ts,
+                    ts,
+                    frame_id,
+                    rtp_timestamp
                 );
             }
             Some((ts, frame_id))

@@ -117,7 +117,9 @@ impl sys_vt::VideoSink for VideoTrackObserver {
                 if ts < 0 || ts > 2_000_000_000_000_000 {
                     log::warn!(
                         "[on_frame] SUSPICIOUS user_ts={} fid={} rtp_ts={}",
-                        ts, fid, rtp_timestamp
+                        ts,
+                        fid,
+                        rtp_timestamp
                     );
                 }
                 (Some(ts), Some(fid))

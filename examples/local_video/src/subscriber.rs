@@ -263,9 +263,8 @@ async fn handle_track_subscribed(
     {
         let mut s = shared.lock();
         s.codec = codec;
-        s.has_user_timestamp = publication
-            .packet_trailer_features()
-            .contains(&PacketTrailerFeature::PtfUserTimestamp);
+        s.has_user_timestamp =
+            publication.packet_trailer_features().contains(&PacketTrailerFeature::PtfUserTimestamp);
     }
 
     info!(
@@ -1205,11 +1204,7 @@ impl CallbackTrait for YuvPaintCallback {
                         bytes_per_row: Some(upload_row_bytes.0),
                         rows_per_image: Some(dims.1),
                     },
-                    wgpu::Extent3d {
-                        width: dims.0,
-                        height: dims.1,
-                        depth_or_array_layers: 1,
-                    },
+                    wgpu::Extent3d { width: dims.0, height: dims.1, depth_or_array_layers: 1 },
                 );
             }
 
@@ -1227,11 +1222,7 @@ impl CallbackTrait for YuvPaintCallback {
                         bytes_per_row: Some(upload_row_bytes.1),
                         rows_per_image: Some(uv_h),
                     },
-                    wgpu::Extent3d {
-                        width: uv_w,
-                        height: uv_h,
-                        depth_or_array_layers: 1,
-                    },
+                    wgpu::Extent3d { width: uv_w, height: uv_h, depth_or_array_layers: 1 },
                 );
                 queue.write_texture(
                     wgpu::TexelCopyTextureInfo {
@@ -1246,11 +1237,7 @@ impl CallbackTrait for YuvPaintCallback {
                         bytes_per_row: Some(upload_row_bytes.1),
                         rows_per_image: Some(uv_h),
                     },
-                    wgpu::Extent3d {
-                        width: uv_w,
-                        height: uv_h,
-                        depth_or_array_layers: 1,
-                    },
+                    wgpu::Extent3d { width: uv_w, height: uv_h, depth_or_array_layers: 1 },
                 );
             }
 
