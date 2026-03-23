@@ -21,7 +21,7 @@ use livekit::{
     options::{AudioEncoding, TrackPublishOptions, VideoEncoding},
     prelude::*,
     webrtc::{
-        native::frame_cryptor::EncryptionState,
+        native::frame_cryptor::{EncryptionState, KeyDerivationAlgorithm},
         prelude::{ContinualGatheringPolicy, IceServer, IceTransportsType, RtcConfiguration},
     },
     RoomInfo,
@@ -102,16 +102,53 @@ impl From<DisconnectReason> for proto::DisconnectReason {
             DisconnectReason::SipTrunkFailure => Self::SipTrunkFailure,
             DisconnectReason::ConnectionTimeout => Self::ConnectionTimeout,
             DisconnectReason::MediaFailure => Self::MediaFailure,
+            DisconnectReason::AgentError => Self::AgentError,
+        }
+    }
+}
+
+impl From<proto::DisconnectReason> for DisconnectReason {
+    fn from(value: proto::DisconnectReason) -> Self {
+        match value {
+            proto::DisconnectReason::UnknownReason => Self::UnknownReason,
+            proto::DisconnectReason::ClientInitiated => Self::ClientInitiated,
+            proto::DisconnectReason::DuplicateIdentity => Self::DuplicateIdentity,
+            proto::DisconnectReason::ServerShutdown => Self::ServerShutdown,
+            proto::DisconnectReason::ParticipantRemoved => Self::ParticipantRemoved,
+            proto::DisconnectReason::RoomDeleted => Self::RoomDeleted,
+            proto::DisconnectReason::StateMismatch => Self::StateMismatch,
+            proto::DisconnectReason::JoinFailure => Self::JoinFailure,
+            proto::DisconnectReason::Migration => Self::Migration,
+            proto::DisconnectReason::SignalClose => Self::SignalClose,
+            proto::DisconnectReason::RoomClosed => Self::RoomClosed,
+            proto::DisconnectReason::UserUnavailable => Self::UserUnavailable,
+            proto::DisconnectReason::UserRejected => Self::UserRejected,
+            proto::DisconnectReason::SipTrunkFailure => Self::SipTrunkFailure,
+            proto::DisconnectReason::ConnectionTimeout => Self::ConnectionTimeout,
+            proto::DisconnectReason::MediaFailure => Self::MediaFailure,
+            proto::DisconnectReason::AgentError => Self::AgentError,
         }
     }
 }
 
 impl From<proto::KeyProviderOptions> for KeyProviderOptions {
     fn from(value: proto::KeyProviderOptions) -> Self {
+        let key_derivation_algorithm = value.key_derivation_function().into();
         Self {
             ratchet_window_size: value.ratchet_window_size,
             ratchet_salt: value.ratchet_salt,
             failure_tolerance: value.failure_tolerance,
+            key_ring_size: value.key_ring_size,
+            key_derivation_algorithm,
+        }
+    }
+}
+
+impl From<proto::KeyDerivationFunction> for KeyDerivationAlgorithm {
+    fn from(value: proto::KeyDerivationFunction) -> Self {
+        match value {
+            proto::KeyDerivationFunction::Pbkdf2 => KeyDerivationAlgorithm::PBKDF2,
+            proto::KeyDerivationFunction::Hkdf => KeyDerivationAlgorithm::HKDF,
         }
     }
 }

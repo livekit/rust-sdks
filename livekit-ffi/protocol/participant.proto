@@ -85,6 +85,7 @@ enum DisconnectReason {
   SIP_TRUNK_FAILURE = 13;
   CONNECTION_TIMEOUT = 14;
   MEDIA_FAILURE = 15;
+  AGENT_ERROR = 16;
 }
 
 // copied from livekit-protocol/protocol/protobufs/livekit_models.proto and removed deprecated fields

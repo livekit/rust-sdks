@@ -65,11 +65,16 @@ fn on_disconnect(
     disconnect: proto::DisconnectRequest,
 ) -> FfiResult<proto::DisconnectResponse> {
     let async_id = server.resolve_async_id(disconnect.request_async_id);
+    let reason = disconnect
+        .reason
+        .and_then(|r| proto::DisconnectReason::try_from(r).ok())
+        .map(DisconnectReason::from)
+        .unwrap_or(DisconnectReason::ClientInitiated);
     let handle = server.async_runtime.spawn(async move {
         let ffi_room =
             server.retrieve_handle::<room::FfiRoom>(disconnect.room_handle).unwrap().clone();
 
-        ffi_room.close(server).await;
+        ffi_room.close(server, reason).await;
 
         let _ = server.send_event(proto::DisconnectCallback { async_id }.into());
     });
