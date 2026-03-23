@@ -776,6 +776,10 @@ impl Room {
         self.inner.close(DisconnectReason::ClientInitiated).await
     }
 
+    pub async fn close_with_reason(&self, reason: DisconnectReason) -> RoomResult<()> {
+        self.inner.close(reason).await
+    }
+
     pub async fn simulate_scenario(&self, scenario: SimulateScenario) -> EngineResult<()> {
         self.inner.rtc_engine.simulate_scenario(scenario).await
     }

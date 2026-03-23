@@ -298,6 +298,17 @@ async fn test_v1_localhost_fallback_to_v0() -> Result<()> {
     Ok(())
 }
 
+/// Test that a participant with can_subscribe=false in their token can connect without timing out.
+#[test_log::test(tokio::test)]
+async fn test_v0_connect_can_subscribe_false() -> Result<()> {
+    test_connect_can_subscribe_false_impl(SignalingMode::DualPC).await
+}
+
+#[test_log::test(tokio::test)]
+async fn test_v1_connect_can_subscribe_false() -> Result<()> {
+    test_connect_can_subscribe_false_impl(SignalingMode::SinglePC).await
+}
+
 /// Corner case: reconnect twice in a row
 #[test_log::test(tokio::test)]
 async fn test_v0_double_reconnect() -> Result<()> {
@@ -769,6 +780,39 @@ async fn test_node_failure_impl(mode: SignalingMode) -> Result<()> {
     assert_eq!(tracks_before, tracks_after, "Tracks should be restored after node failure");
 
     log::info!("[{}] Test passed - node failure recovery working!", mode.name());
+    Ok(())
+}
+
+/// Test that a participant with can_subscribe=false in their token can connect without timing out.
+async fn test_connect_can_subscribe_false_impl(mode: SignalingMode) -> Result<()> {
+    let (url, api_key, api_secret) = get_env_for_mode(mode);
+    let room_name = format!("test_{:?}_no_subscribe_{}", mode, create_random_uuid());
+
+    let grants = VideoGrants {
+        room_join: true,
+        room: room_name.clone(),
+        can_publish: true,
+        can_subscribe: false,
+        ..Default::default()
+    };
+    let token = AccessToken::with_api_key(&api_key, &api_secret)
+        .with_ttl(Duration::from_secs(30 * 60))
+        .with_grants(grants)
+        .with_identity("no-subscribe-participant")
+        .with_name("no-subscribe-participant")
+        .to_jwt()
+        .context("Failed to generate JWT")?;
+
+    log::info!("[{}] Connecting with can_subscribe=false", mode.name());
+    let (room, _events) = connect_room(&url, &token, mode).await?;
+
+    assert_eq!(
+        room.connection_state(),
+        ConnectionState::Connected,
+        "Room should be connected even when can_subscribe=false"
+    );
+
+    log::info!("[{}] Test passed - can_subscribe=false connects without timeout!", mode.name());
     Ok(())
 }
 

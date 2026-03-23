@@ -27,6 +27,22 @@ pub mod native {
     use super::stream_imp;
     use crate::{audio_frame::AudioFrame, audio_track::RtcAudioTrack};
 
+    const DEFAULT_QUEUE_SIZE_FRAMES: usize = 10;
+
+    #[derive(Clone, Debug, Default)]
+    pub struct NativeAudioStreamOptions {
+        /// Maximum number of queued WebRTC sink frames after the audio callback.
+        ///
+        /// Each queued frame corresponds to roughly 10 ms of decoded PCM audio
+        /// on the WebRTC sink path.
+        ///
+        /// `None` uses the default bounded queue size of 10 frames. `Some(0)`
+        /// opts into unbounded buffering. Positive values bound the queue, and
+        /// the stream drops the oldest queued frames on overflow so latency
+        /// stays bounded.
+        pub queue_size_frames: Option<usize>,
+    }
+
     pub struct NativeAudioStream {
         pub(crate) handle: stream_imp::NativeAudioStream,
     }
@@ -40,7 +56,28 @@ pub mod native {
     impl NativeAudioStream {
         pub fn new(audio_track: RtcAudioTrack, sample_rate: i32, num_channels: i32) -> Self {
             Self {
-                handle: stream_imp::NativeAudioStream::new(audio_track, sample_rate, num_channels),
+                handle: stream_imp::NativeAudioStream::new(
+                    audio_track,
+                    sample_rate,
+                    num_channels,
+                    Some(DEFAULT_QUEUE_SIZE_FRAMES),
+                ),
+            }
+        }
+
+        pub fn with_options(
+            audio_track: RtcAudioTrack,
+            sample_rate: i32,
+            num_channels: i32,
+            options: NativeAudioStreamOptions,
+        ) -> Self {
+            Self {
+                handle: stream_imp::NativeAudioStream::new(
+                    audio_track,
+                    sample_rate,
+                    num_channels,
+                    normalize_queue_size_frames(options.queue_size_frames),
+                ),
             }
         }
 
@@ -58,6 +95,14 @@ pub mod native {
 
         fn poll_next(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Option<Self::Item>> {
             Pin::new(&mut self.get_mut().handle).poll_next(cx)
+        }
+    }
+
+    fn normalize_queue_size_frames(queue_size_frames: Option<usize>) -> Option<usize> {
+        match queue_size_frames {
+            None => Some(DEFAULT_QUEUE_SIZE_FRAMES),
+            Some(0) => None,
+            Some(value) => Some(value),
         }
     }
 }
