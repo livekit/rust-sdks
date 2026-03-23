@@ -108,7 +108,11 @@ impl E2eeManager {
         let has_packet_trailer = publication
             .proto_info()
             .packet_trailer_features
-            .contains(&(PacketTrailerFeature::PtfUserTimestamp as i32));
+            .iter()
+            .any(|f| {
+                *f == PacketTrailerFeature::PtfUserTimestamp as i32
+                    || *f == PacketTrailerFeature::PtfFrameId as i32
+            });
 
         if let RemoteTrack::Video(video_track) = &track {
             let handler =

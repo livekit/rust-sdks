@@ -278,9 +278,8 @@ impl LocalParticipant {
             req.audio_features.push(proto::AudioTrackFeature::TfPreconnectBuffer as i32);
         }
 
-        if options.packet_trailer {
-            req.packet_trailer_features.push(proto::PacketTrailerFeature::PtfUserTimestamp as i32);
-        }
+        req.packet_trailer_features =
+            options.packet_trailer_features.iter().map(|f| *f as i32).collect();
 
         let mut encodings = Vec::default();
         match &track {
@@ -327,7 +326,7 @@ impl LocalParticipant {
 
         track.set_transceiver(Some(transceiver));
 
-        if options.packet_trailer {
+        if !options.packet_trailer_features.is_empty() {
             if let LocalTrack::Video(video_track) = &track {
                 log::info!("packet_trailer enabled for local video track {}", publication.sid(),);
                 let sender = track.transceiver().unwrap().sender();

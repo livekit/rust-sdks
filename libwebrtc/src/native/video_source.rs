@@ -106,11 +106,9 @@ impl NativeVideoSource {
         };
         builder.pin_mut().set_timestamp_us(capture_ts);
 
-        let (has_trailer, user_ts) = match frame.user_timestamp_us {
-            Some(ts) => (true, ts),
-            None => (false, 0),
-        };
+        let user_ts = frame.user_timestamp_us.unwrap_or(0);
         let frame_id = frame.frame_id.unwrap_or(0);
+        let has_trailer = frame.user_timestamp_us.is_some() || frame.frame_id.is_some();
 
         self.inner.lock().captured_frames += 1;
 

@@ -136,6 +136,7 @@ impl ConnectorClient {
                     participant_metadata: options.participant_metadata.unwrap_or_default(),
                     participant_attributes: options.participant_attributes.unwrap_or_default(),
                     destination_country: options.destination_country.unwrap_or_default(),
+                    ringing_timeout: Default::default(),
                 },
                 self.base
                     .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
@@ -242,6 +243,8 @@ impl ConnectorClient {
                     participant_metadata: options.participant_metadata.unwrap_or_default(),
                     participant_attributes: options.participant_attributes.unwrap_or_default(),
                     destination_country: options.destination_country.unwrap_or_default(),
+                    ringing_timeout: Default::default(),
+                    wait_until_answered: Default::default(),
                 },
                 self.base
                     .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,

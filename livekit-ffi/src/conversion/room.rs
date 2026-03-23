@@ -257,7 +257,7 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             preconnect_buffer: opts
                 .preconnect_buffer
                 .unwrap_or(default_publish_options.preconnect_buffer),
-            packet_trailer: default_publish_options.packet_trailer,
+            packet_trailer_features: default_publish_options.packet_trailer_features,
         }
     }
 }

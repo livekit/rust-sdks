@@ -91,6 +91,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     burn_timestamp: bool,
 
+    /// Attach a monotonically increasing frame ID to each published frame via the packet trailer
+    #[arg(long, default_value_t = false)]
+    attach_frame_id: bool,
+
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set)
     #[arg(long)]
     e2ee_key: Option<String>,
@@ -343,11 +347,19 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             .join(", "),
     );
 
+    let mut packet_trailer_features = Vec::new();
+    if args.attach_timestamp {
+        packet_trailer_features.push(PacketTrailerFeature::PtfUserTimestamp);
+    }
+    if args.attach_frame_id {
+        packet_trailer_features.push(PacketTrailerFeature::PtfFrameId);
+    }
+
     let publish_opts = |codec: VideoCodec| TrackPublishOptions {
         source: TrackSource::Camera,
         simulcast: args.simulcast,
         video_codec: codec,
-        packet_trailer: args.attach_timestamp,
+        packet_trailer_features: packet_trailer_features.clone(),
         video_encoding: Some(main_encoding.clone()),
         simulcast_layers: Some(simulcast_presets.clone()),
         ..Default::default()
@@ -402,7 +414,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // Timing accumulators (ms) for rolling stats
     let mut timings = PublisherTimingSummary::default();
     let mut logged_mjpeg_fallback = false;
-    let mut frame_counter: u32 = 0;
+    let mut frame_counter: u32 = 1;
     let mut timestamp_overlay = (args.attach_timestamp && args.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
     loop {
@@ -550,13 +562,17 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
         // Update RTP timestamp (monotonic, microseconds since start)
         frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
-        // Optionally attach wall-clock time as user timestamp and frame_id
+        // Optionally attach wall-clock time as user timestamp
         if args.attach_timestamp {
             frame.user_timestamp_us = Some(capture_wall_time_us);
+        } else {
+            frame.user_timestamp_us = None;
+        }
+        // Optionally attach a monotonically increasing frame ID
+        if args.attach_frame_id {
             frame.frame_id = Some(frame_counter);
             frame_counter = frame_counter.wrapping_add(1);
         } else {
-            frame.user_timestamp_us = None;
             frame.frame_id = None;
         }
         rtc_source.capture_frame(&frame);

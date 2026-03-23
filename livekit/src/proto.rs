@@ -49,6 +49,7 @@ impl From<DisconnectReason> for participant::DisconnectReason {
             DisconnectReason::SipTrunkFailure => Self::SipTrunkFailure,
             DisconnectReason::ConnectionTimeout => Self::ConnectionTimeout,
             DisconnectReason::MediaFailure => Self::MediaFailure,
+            DisconnectReason::AgentError => Self::AgentError,
         }
     }
 }

@@ -81,6 +81,8 @@ struct SharedYuv {
     user_timestamp_us: Option<i64>,
     /// Last received frame_id, if any.
     frame_id: Option<u32>,
+    /// Whether the publisher advertised PTF_USER_TIMESTAMP in its track info.
+    has_user_timestamp: bool,
 }
 
 #[derive(Clone)]
@@ -257,10 +259,13 @@ async fn handle_track_subscribed(
         *active = Some(sid.clone());
     }
 
-    // Update HUD codec label early (before first frame arrives)
+    // Update HUD codec label and feature flags early (before first frame arrives)
     {
         let mut s = shared.lock();
         s.codec = codec;
+        s.has_user_timestamp = publication
+            .packet_trailer_features()
+            .contains(&PacketTrailerFeature::PtfUserTimestamp);
     }
 
     info!(
@@ -450,6 +455,7 @@ fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex
         s.received_at_us = None;
         s.user_timestamp_us = None;
         s.frame_id = None;
+        s.has_user_timestamp = false;
     }
     let mut sc = simulcast.lock();
     *sc = SimulcastState::default();
@@ -491,6 +497,8 @@ struct VideoApp {
     ctrl_c_received: Arc<AtomicBool>,
     locked_aspect: Option<f32>,
     display_timestamp: bool,
+    /// Cached timestamp overlay text to avoid layout churn on every repaint.
+    last_timestamp_text: String,
 }
 
 impl eframe::App for VideoApp {
@@ -582,6 +590,7 @@ impl eframe::App for VideoApp {
             let frame_id = s.frame_id;
             let publish_us = s.user_timestamp_us;
             let receive_us = s.received_at_us;
+            let has_user_timestamp = s.has_user_timestamp;
             drop(s);
 
             if publish_us.is_some() || frame_id.is_some() {
@@ -589,20 +598,26 @@ impl eframe::App for VideoApp {
                     Some(fid) => format!("Frame ID:   {}", fid),
                     None => "Frame ID:   N/A".to_string(),
                 };
-                let latency = match (publish_us, receive_us) {
-                    (Some(pub_ts), Some(recv_ts)) => {
-                        format!("{:.1}ms", (recv_ts - pub_ts) as f64 / 1000.0)
-                    }
-                    _ => "N/A".to_string(),
-                };
-                let timestamp_overlay_text = format!(
-                    "{}\nPublish:    {}\nReceive:    {}\nLatency:    {}",
-                    frame_id_line,
-                    format_optional_timestamp_us(publish_us),
-                    format_optional_timestamp_us(receive_us),
-                    latency,
-                );
+                if has_user_timestamp {
+                    let latency = match (publish_us, receive_us) {
+                        (Some(pub_ts), Some(recv_ts)) => {
+                            format!("{:.1}ms", (recv_ts - pub_ts) as f64 / 1000.0)
+                        }
+                        _ => "N/A".to_string(),
+                    };
+                    self.last_timestamp_text = format!(
+                        "{}\nPublish:    {}\nReceive:    {}\nLatency:    {}",
+                        frame_id_line,
+                        format_optional_timestamp_us(publish_us),
+                        format_optional_timestamp_us(receive_us),
+                        latency,
+                    );
+                } else {
+                    self.last_timestamp_text = frame_id_line;
+                }
+            }
 
+            if !self.last_timestamp_text.is_empty() {
                 egui::Area::new("timestamp_hud".into())
                     .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
                     .interactable(false)
@@ -614,7 +629,7 @@ impl eframe::App for VideoApp {
                             .show(ui, |ui| {
                                 ui.add(
                                     egui::Label::new(
-                                        egui::RichText::new(&timestamp_overlay_text)
+                                        egui::RichText::new(&self.last_timestamp_text)
                                             .color(egui::Color32::WHITE)
                                             .monospace(),
                                     )
@@ -743,6 +758,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         received_at_us: None,
         user_timestamp_us: None,
         frame_id: None,
+        has_user_timestamp: false,
     }));
 
     // Subscribe to room events: on first video track, start sink task
@@ -795,6 +811,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         ctrl_c_received: ctrl_c_received.clone(),
         locked_aspect: None,
         display_timestamp: args.display_timestamp,
+        last_timestamp_text: String::new(),
     };
     let native_options = eframe::NativeOptions { vsync: false, ..Default::default() };
     eframe::run_native(

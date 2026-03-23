@@ -14,6 +14,7 @@
 
 use libwebrtc::prelude::*;
 use livekit_protocol as proto;
+use proto::PacketTrailerFeature;
 
 use crate::prelude::*;
 
@@ -91,7 +92,7 @@ pub struct TrackPublishOptions {
     pub source: TrackSource,
     pub stream: String,
     pub preconnect_buffer: bool,
-    pub packet_trailer: bool,
+    pub packet_trailer_features: Vec<PacketTrailerFeature>,
 }
 
 impl Default for TrackPublishOptions {
@@ -107,7 +108,7 @@ impl Default for TrackPublishOptions {
             source: TrackSource::Unknown,
             stream: "".to_string(),
             preconnect_buffer: false,
-            packet_trailer: false,
+            packet_trailer_features: Vec::new(),
         }
     }
 }
