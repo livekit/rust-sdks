@@ -19,11 +19,8 @@
 PROTOCOL=protocol/protobufs
 OUT_RUST=src
 
-PROTOBUF_INCLUDE=$(brew --prefix protobuf)/include
-
 protoc \
     -I=$PROTOCOL \
-    -I=$PROTOBUF_INCLUDE \
     --prost_out=$OUT_RUST \
     --prost_opt=compile_well_known_types \
     --prost_opt=extern_path=.google.protobuf=::pbjson_types \
