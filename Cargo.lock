@@ -59,7 +59,7 @@ name = "agent_dispatch"
 version = "0.1.0"
 dependencies = [
  "clap",
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "livekit-api",
  "livekit-protocol",
  "log",
@@ -146,7 +146,7 @@ dependencies = [
  "cc",
  "cesu8",
  "jni 0.21.1",
- "jni-sys 0.3.0",
+ "jni-sys 0.3.1",
  "libc",
  "log",
  "ndk 0.9.0",
@@ -191,27 +191,12 @@ dependencies = [
 
 [[package]]
 name = "anstream"
-version = "0.6.21"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43d5b281e737544384e969a5ccad3f1cdd24b48086a0fc1b2a5262a26b8f4f4a"
-dependencies = [
- "anstyle",
- "anstyle-parse 0.2.7",
- "anstyle-query",
- "anstyle-wincon",
- "colorchoice",
- "is_terminal_polyfill",
- "utf8parse",
-]
-
-[[package]]
-name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "824a212faf96e9acacdbd09febd34438f8f711fb84e09a8916013cd7815ca28d"
 dependencies = [
  "anstyle",
- "anstyle-parse 1.0.0",
+ "anstyle-parse",
  "anstyle-query",
  "anstyle-wincon",
  "colorchoice",
@@ -224,15 +209,6 @@ name = "anstyle"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "940b3a0ca603d1eade50a4846a2afffd5ef57a9feac2c0e2ec2e14f9ead76000"
-
-[[package]]
-name = "anstyle-parse"
-version = "0.2.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e7644824f0aa2c7b9384579234ef10eb7efb6a0deb83f9630a49594dd9c15c2"
-dependencies = [
- "utf8parse",
-]
 
 [[package]]
 name = "anstyle-parse"
@@ -707,7 +683,7 @@ dependencies = [
 name = "basic_room"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "livekit",
  "livekit-api",
  "log",
@@ -718,7 +694,7 @@ dependencies = [
 name = "basic_text_stream"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "futures-util",
  "livekit",
  "log",
@@ -1159,7 +1135,7 @@ version = "4.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "714a53001bf66416adb0e2ef5ac857140e7dc3a0c48fb28b2f10762fc4b5069f"
 dependencies = [
- "anstream 1.0.0",
+ "anstream",
  "anstyle",
  "clap_lex",
  "strsim 0.11.1",
@@ -2163,7 +2139,7 @@ dependencies = [
 name = "encrypted_text_stream"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "futures-util",
  "livekit",
  "livekit-api",
@@ -2184,9 +2160,9 @@ dependencies = [
 
 [[package]]
 name = "env_filter"
-version = "1.0.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a1c3cc8e57274ec99de65301228b537f1e4eedc1b8e0f9411c6caac8ae7308f"
+checksum = "32e90c2accc4b07a8456ea0debdc2e7587bdd890680d71173a15d4ae604f6eef"
 dependencies = [
  "log",
  "regex",
@@ -2204,11 +2180,11 @@ dependencies = [
 
 [[package]]
 name = "env_logger"
-version = "0.11.9"
+version = "0.11.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2daee4ea451f429a58296525ddf28b45a3b64f1acf6587e2067437bb11e218d"
+checksum = "0621c04f2196ac3f488dd583365b9c09be011a4ab8b9f37248ffcc8f6198b56a"
 dependencies = [
- "anstream 0.6.21",
+ "anstream",
  "anstyle",
  "env_filter",
  "jiff",
@@ -3521,9 +3497,9 @@ checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
 
 [[package]]
 name = "iri-string"
-version = "0.7.10"
+version = "0.7.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c91338f0783edbd6195decb37bae672fd3b165faffb89bf7b9e6942f8b1a731a"
+checksum = "d8e7418f59cc01c88316161279a7f665217ae316b388e58a0d10e29f54f1e5eb"
 dependencies = [
  "memchr",
  "serde",
@@ -3648,7 +3624,7 @@ dependencies = [
  "cesu8",
  "cfg-if 1.0.4",
  "combine",
- "jni-sys 0.3.0",
+ "jni-sys 0.3.1",
  "log",
  "thiserror 1.0.69",
  "walkdir",
@@ -3687,9 +3663,12 @@ dependencies = [
 
 [[package]]
 name = "jni-sys"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8eaf4bc02d17cbdd7ff4c7438cafcdf7fb9a4613313ad11b4f8fefe7d3fa0130"
+checksum = "41a652e1f9b6e0275df1f15b32661cf0d4b78d4d87ddec5e0c3c20f097433258"
+dependencies = [
+ "jni-sys 0.4.1",
+]
 
 [[package]]
 name = "jni-sys"
@@ -3873,7 +3852,7 @@ name = "libwebrtc"
 version = "0.3.27"
 dependencies = [
  "cxx",
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "glib",
  "jni 0.21.1",
  "js-sys",
@@ -3885,7 +3864,7 @@ dependencies = [
  "rtrb",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
@@ -4015,7 +3994,7 @@ dependencies = [
  "serde",
  "serde_json",
  "test-log",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -4043,7 +4022,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tokio-rustls 0.24.1",
  "tokio-tungstenite",
@@ -4078,7 +4057,7 @@ dependencies = [
  "console-subscriber",
  "dashmap",
  "downcast-rs",
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "from_variants",
  "futures-util",
  "imgproc",
@@ -4093,7 +4072,7 @@ dependencies = [
  "prost 0.14.3",
  "prost-build 0.14.3",
  "soxr-sys",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "webrtc-sys",
  "webrtc-sys-build",
@@ -4110,7 +4089,7 @@ dependencies = [
  "pbjson-types",
  "prost 0.12.6",
  "serde",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -4157,7 +4136,7 @@ dependencies = [
  "anyhow",
  "clap",
  "cpal",
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "futures-util",
  "libwebrtc",
  "livekit",
@@ -4176,7 +4155,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui-wgpu",
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "futures",
  "image",
  "libwebrtc",
@@ -4582,7 +4561,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2076a31b7010b17a38c01907c45b945e8f11495ee4dd588309718901b1f7a5b7"
 dependencies = [
  "bitflags 2.11.0",
- "jni-sys 0.3.0",
+ "jni-sys 0.3.1",
  "log",
  "ndk-sys 0.5.0+25.2.9519653",
  "num_enum",
@@ -4596,7 +4575,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3f42e7bbe13d351b6bead8286a43aac9534b82bd3cc43e47037f012ebfd62d4"
 dependencies = [
  "bitflags 2.11.0",
- "jni-sys 0.3.0",
+ "jni-sys 0.3.1",
  "log",
  "ndk-sys 0.6.0+11769913",
  "num_enum",
@@ -4616,7 +4595,7 @@ version = "0.5.0+25.2.9519653"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8c196769dd60fd4f363e11d948139556a344e79d451aeb2fa2fd040738ef7691"
 dependencies = [
- "jni-sys 0.3.0",
+ "jni-sys 0.3.1",
 ]
 
 [[package]]
@@ -4625,7 +4604,7 @@ version = "0.6.0+11769913"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
 dependencies = [
- "jni-sys 0.3.0",
+ "jni-sys 0.3.1",
 ]
 
 [[package]]
@@ -5732,10 +5711,10 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 name = "play_from_disk"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "livekit",
  "log",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -6456,7 +6435,7 @@ dependencies = [
 name = "rpc"
 version = "0.1.0"
 dependencies = [
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "livekit",
  "livekit-api",
  "log",
@@ -6744,7 +6723,7 @@ name = "screensharing"
 version = "0.1.0"
 dependencies = [
  "clap",
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "livekit",
  "livekit-api",
  "log",
@@ -6860,7 +6839,7 @@ version = "0.1.0"
 dependencies = [
  "bitfield-struct",
  "colored",
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "livekit",
  "log",
  "rand 0.9.2",
@@ -6912,9 +6891,9 @@ dependencies = [
 
 [[package]]
 name = "serde_spanned"
-version = "1.0.4"
+version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8bbf91e5a4d6315eee45e704372590b30e260ee83af6639d64557f51b067776"
+checksum = "876ac351060d4f882bb1032b6369eb0aef79ad9df1ea8bc404874d8cc3d0cd98"
 dependencies = [
  "serde_core",
 ]
@@ -7383,7 +7362,7 @@ version = "0.2.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "37d53ac171c92a39e4769491c4b4dde7022c60042254b5fc044ae409d34a24d4"
 dependencies = [
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "test-log-macros",
  "tracing-subscriber",
 ]
@@ -7690,39 +7669,39 @@ dependencies = [
 
 [[package]]
 name = "toml_datetime"
-version = "1.0.1+spec-1.1.0"
+version = "1.1.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b320e741db58cac564e26c607d3cc1fdc4a88fd36c879568c07856ed83ff3e9"
+checksum = "97251a7c317e03ad83774a8752a7e81fb6067740609f75ea2b585b569a59198f"
 dependencies = [
  "serde_core",
 ]
 
 [[package]]
 name = "toml_edit"
-version = "0.25.5+spec-1.1.0"
+version = "0.25.8+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ca1a40644a28bce036923f6a431df0b34236949d111cc07cb6dca830c9ef2e1"
+checksum = "16bff38f1d86c47f9ff0647e6838d7bb362522bdf44006c7068c2b1e606f1f3c"
 dependencies = [
  "indexmap 2.13.0",
- "toml_datetime 1.0.1+spec-1.1.0",
+ "toml_datetime 1.1.0+spec-1.1.0",
  "toml_parser",
  "winnow 1.0.0",
 ]
 
 [[package]]
 name = "toml_parser"
-version = "1.0.10+spec-1.1.0"
+version = "1.1.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7df25b4befd31c4816df190124375d5a20c6b6921e2cad937316de3fccd63420"
+checksum = "2334f11ee363607eb04df9b8fc8a13ca1715a72ba8662a26ac285c98aabb4011"
 dependencies = [
  "winnow 1.0.0",
 ]
 
 [[package]]
 name = "toml_writer"
-version = "1.0.7+spec-1.1.0"
+version = "1.1.0+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f17aaa1c6e3dc22b1da4b6bba97d066e354c7945cac2f7852d4e4e7ca7a6b56d"
+checksum = "d282ade6016312faf3e41e57ebbba0c073e4056dab1232ab1cb624199648f8ed"
 
 [[package]]
 name = "tonic"
@@ -8723,7 +8702,7 @@ dependencies = [
  "cc",
  "cxx",
  "cxx-build",
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "glob",
  "log",
  "pkg-config",
@@ -9067,7 +9046,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui-wgpu",
- "env_logger 0.11.9",
+ "env_logger 0.11.10",
  "futures",
  "image",
  "livekit",
@@ -10052,9 +10031,9 @@ dependencies = [
 
 [[package]]
 name = "zune-jpeg"
-version = "0.5.13"
+version = "0.5.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ec5f41c76397b7da451efd19915684f727d7e1d516384ca6bd0ec43ec94de23c"
+checksum = "0b7a1c0af6e5d8d1363f4994b7a091ccf963d8b694f7da5b0b9cceb82da2c0a6"
 dependencies = [
  "zune-core",
 ]
