@@ -246,8 +246,8 @@ impl SIPClient {
                         media_encryption: Default::default(),
                         destination_country: Default::default(),
                         created_at: Default::default(),
-                        from_host: Default::default(),
                         updated_at: Default::default(),
+                        from_host: Default::default(),
                     }),
                 },
                 self.base.auth_header(

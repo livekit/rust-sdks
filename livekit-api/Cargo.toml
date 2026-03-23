@@ -1,6 +1,6 @@
 [package]
 name = "livekit-api"
-version = "0.4.14"
+version = "0.4.15"
 license.workspace = true
 description = "Rust Server SDK for LiveKit"
 edition.workspace = true
@@ -103,6 +103,7 @@ isahc = { version = "1.7.2", default-features = false, features = [ "json", "tex
 
 scopeguard = "1.2.0"
 rand = { workspace = true }
+os_info = "3.14.0"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }

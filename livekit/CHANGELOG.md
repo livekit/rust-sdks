@@ -257,3 +257,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.33 (2026-03-13)
+
+### Fixes
+
+#### enhanced build configuration to support macOS and iOS platforms with proper system library linking
+
+##847 by @SchmErik
+
+#### fix video track subscription in single peer connection mode
+
+##914 by @xianshijing-lk

@@ -27,13 +27,6 @@ on:
         required: false
         type: boolean
         default: false
-  workflow_call:
-    inputs:
-      dry_run:
-        description: "Dry run: build artifacts but skip release upload/publish."
-        required: false
-        type: boolean
-        default: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -187,7 +180,7 @@ jobs:
           docker run --rm -v $PWD:/workspace -w /workspace ${{ matrix.build_image }} bash -c "\
             uname -a; \
             export PATH=/root/.cargo/bin:\$PATH; \
-            yum install llvm llvm-libs -y; \
+            yum install llvm llvm-libs lld -y; \
             yum install clang -y; \
             yum install protobuf-compiler -y; \
             yum groupinstall 'Development Tools' -y; \

@@ -17,7 +17,10 @@ use std::time::Duration;
 
 use futures_util::StreamExt;
 use livekit::track::Track;
-use livekit::webrtc::{audio_stream::native::NativeAudioStream, prelude::*};
+use livekit::webrtc::{
+    audio_stream::native::{NativeAudioStream, NativeAudioStreamOptions},
+    prelude::*,
+};
 use livekit::{registered_audio_filter_plugin, AudioFilterAudioStream, AudioFilterStreamInfo};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
@@ -97,9 +100,18 @@ impl FfiAudioStream {
                 let audio_stream = Self { handle_id, stream_type, self_dropped_tx };
                 let sample_rate = new_stream.sample_rate.unwrap_or(48000);
                 let num_channels = new_stream.num_channels.unwrap_or(1);
+                let options = NativeAudioStreamOptions {
+                    queue_size_frames: new_stream
+                        .queue_size_frames
+                        .map(|capacity| capacity as usize),
+                };
 
-                let native_stream =
-                    NativeAudioStream::new(rtc_track, sample_rate as i32, num_channels as i32);
+                let native_stream = NativeAudioStream::with_options(
+                    rtc_track,
+                    sample_rate as i32,
+                    num_channels as i32,
+                    options,
+                );
 
                 let stream = if let Some(audio_filter) = &audio_filter {
                     let session = audio_filter.clone().new_session(
@@ -244,6 +256,9 @@ impl FfiAudioStream {
                 let sample_rate = request.sample_rate.unwrap_or(48000) as i32;
                 let num_channels = request.num_channels.unwrap_or(1) as i32;
                 let track_sid = track.sid();
+                let options = NativeAudioStreamOptions {
+                    queue_size_frames: request.queue_size_frames.map(|capacity| capacity as usize),
+                };
 
                 let mut track_finished_rx = track_finished_tx.subscribe();
                 server.async_runtime.spawn(async move {
@@ -292,7 +307,8 @@ impl FfiAudioStream {
                     None => (None, None),
                 };
 
-                let native_stream = NativeAudioStream::new(rtc_track, sample_rate, num_channels);
+                let native_stream =
+                    NativeAudioStream::with_options(rtc_track, sample_rate, num_channels, options);
 
                 let stream = if let Some(session) = audio_filter_session.take() {
                     let stream = AudioFilterAudioStream::new(

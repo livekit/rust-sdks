@@ -62,6 +62,7 @@ message ConnectCallback {
 message DisconnectRequest {
   required uint64 room_handle = 1;
   optional uint64 request_async_id = 2;
+  optional DisconnectReason reason = 3;
 }
 message DisconnectResponse { required uint64 async_id = 1; }
 message DisconnectCallback { required uint64 async_id = 1; }

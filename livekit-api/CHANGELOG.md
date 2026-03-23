@@ -96,3 +96,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Update protocol and add SendDataRequest nonce
+## 0.4.15 (2026-03-13)
+
+### Fixes
+
+#### Bump jsonwebtoken to v10 to address CVE-2026-25537
+
+##917 by @gasmith

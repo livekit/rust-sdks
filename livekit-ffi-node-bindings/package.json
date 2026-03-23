@@ -3,14 +3,14 @@
   "description": "LiveKit RTC Node FFI bindings for internal use only",
   "license": "Apache-2.0",
   "author": "LiveKit",
-  "version": "0.12.48",
+  "version": "0.12.49",
   "main": "index.js",
   "types": "index.d.ts",
   "type": "commonjs",
   "repository": {
     "type": "git",
-    "url": "https://github.com/livekit/node-sdks.git",
-    "directory": "packages/livekit-rtc"
+    "url": "https://github.com/livekit/rust-sdks.git",
+    "directory": "livekit-ffi-node-bindings"
   },
   "files": [
     "index.js",
