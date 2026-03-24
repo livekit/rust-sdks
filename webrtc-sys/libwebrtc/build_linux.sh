@@ -98,7 +98,6 @@ args="is_debug=$debug  \
   target_cpu=\"$arch\" \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
-  use_custom_libcxx=false \
   use_llvm_libatomic=false \
   use_libcxx_modules=false \
   use_custom_libcxx_for_host=false \

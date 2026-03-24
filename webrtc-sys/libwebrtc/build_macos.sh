@@ -101,7 +101,6 @@ gn gen "$OUTPUT_DIR" --root="src" \
   rtc_include_dav1d_in_internal_decoder_factory = true \
   rtc_use_h264=true \
   rtc_use_h265=true \
-  use_custom_libcxx=false \
   clang_use_chrome_plugins=false \
   use_rtti=true \
   use_lld=false"

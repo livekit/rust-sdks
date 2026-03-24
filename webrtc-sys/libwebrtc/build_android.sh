@@ -92,7 +92,6 @@ args="is_debug=$debug \
   target_cpu=\"$arch\" \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
-  use_custom_libcxx=false \
   rtc_include_tests=false \
   rtc_build_tools=false \
   rtc_build_examples=false \
