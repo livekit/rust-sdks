@@ -66,6 +66,12 @@ where
     pub buffer: T,
 }
 
+impl<T: AsRef<dyn VideoBuffer>> VideoFrame<T> {
+    pub fn new(rotation: VideoRotation, buffer: T) -> Self {
+        Self { rotation, timestamp_us: 0, user_timestamp_us: None, frame_id: None, buffer }
+    }
+}
+
 pub type BoxVideoBuffer = Box<dyn VideoBuffer>;
 pub type BoxVideoFrame = VideoFrame<BoxVideoBuffer>;
 

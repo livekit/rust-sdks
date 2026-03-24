@@ -107,8 +107,7 @@ impl SolidColorTrack {
             data_u.fill(128);
             data_v.fill(128);
 
-            let frame =
-                VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us: 0, buffer };
+            let frame = VideoFrame::new(VideoRotation::VideoRotation0, buffer);
             rtc_source.capture_frame(&frame);
             time::sleep(interval).await;
         }
