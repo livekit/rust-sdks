@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use cc;
 use rayon::prelude::*;
 use regex::Regex;
 use std::borrow::Cow;
@@ -41,7 +40,7 @@ fn rename_symbols(
     source_files: &[fs::DirEntry],
 ) {
     include_files.par_iter().chain(source_files).for_each(|file| {
-        let mut content = fs::read_to_string(&file.path()).unwrap();
+        let mut content = fs::read_to_string(file.path()).unwrap();
         for line in fnc_list {
             let fnc = line.trim();
             if fnc.is_empty() {
@@ -63,7 +62,7 @@ fn rename_symbols(
             }
         }
 
-        fs::write(&file.path(), content.to_string()).unwrap();
+        fs::write(file.path(), &content).unwrap();
     });
 }
 
@@ -86,7 +85,7 @@ fn clone_if_needed(_output_dir: &PathBuf, libyuv_dir: &PathBuf) -> bool {
     }
 
     if let Err(err) = copy_dir("libyuv", libyuv_dir) {
-        fs::remove_dir_all(&libyuv_dir).unwrap();
+        fs::remove_dir_all(libyuv_dir).unwrap();
         panic!("failed to copy libyuv: {:?}", err);
     }
 
