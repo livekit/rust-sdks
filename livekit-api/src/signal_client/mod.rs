@@ -168,14 +168,14 @@ impl SignalClient {
 
         match SignalInner::connect(url, token, options.clone()).await {
             Ok((inner, join_response, stream_events)) => {
-                return Ok(handle_success(inner, join_response, stream_events))
+                Ok(handle_success(inner, join_response, stream_events))
             }
             Err(err) => {
                 // fallback to region urls
                 if matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() != 403) {
-                    log::error!("unexpected signal error: {}", err.to_string());
+                    log::error!("unexpected signal error: {}", err);
                 }
-                let urls = RegionUrlProvider::fetch_region_urls(url.into(), token.into()).await?;
+                let urls = RegionUrlProvider::fetch_region_urls(url, token).await?;
                 let mut last_err = err;
 
                 for url in urls.iter() {
@@ -248,7 +248,7 @@ impl SignalClient {
 
     /// Increment request_id for user-initiated requests and [`RequestResponse`][`proto::RequestResponse`]s
     pub fn next_request_id(&self) -> u32 {
-        self.inner.next_request_id().clone()
+        self.inner.next_request_id()
     }
 
     /// Returns whether single peer connection mode is active.
@@ -567,8 +567,8 @@ fn create_join_request_param(
         sdk: proto::client_info::Sdk::Rust as i32,
         version: options.sdk_options.sdk_version.clone().unwrap_or_default(),
         protocol: PROTOCOL_VERSION as i32,
-        os: os,
-        os_version: os_version,
+        os,
+        os_version,
         ..Default::default()
     };
 
