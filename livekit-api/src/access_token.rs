@@ -118,19 +118,13 @@ impl Default for VideoGrants {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SIPGrants {
     // manage sip resources
     pub admin: bool,
     // make outbound calls
     pub call: bool,
-}
-
-impl Default for SIPGrants {
-    fn default() -> Self {
-        Self { admin: false, call: false }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Default, Deserialize, PartialEq)]

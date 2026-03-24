@@ -262,7 +262,7 @@ impl SIPClient {
     #[deprecated]
     pub async fn list_sip_trunk(
         &self,
-        filter: ListSIPTrunkFilter,
+        _filter: ListSIPTrunkFilter,
     ) -> ServiceResult<Vec<proto::SipTrunkInfo>> {
         let resp: proto::ListSipTrunkResponse = self
             .client
@@ -285,7 +285,7 @@ impl SIPClient {
 
     pub async fn list_sip_inbound_trunk(
         &self,
-        filter: ListSIPInboundTrunkFilter,
+        _filter: ListSIPInboundTrunkFilter,
     ) -> ServiceResult<Vec<proto::SipInboundTrunkInfo>> {
         let resp: proto::ListSipInboundTrunkResponse = self
             .client
@@ -310,7 +310,7 @@ impl SIPClient {
 
     pub async fn list_sip_outbound_trunk(
         &self,
-        filter: ListSIPOutboundTrunkFilter,
+        _filter: ListSIPOutboundTrunkFilter,
     ) -> ServiceResult<Vec<proto::SipOutboundTrunkInfo>> {
         let resp: proto::ListSipOutboundTrunkResponse = self
             .client
@@ -379,7 +379,7 @@ impl SIPClient {
 
     pub async fn list_sip_dispatch_rule(
         &self,
-        filter: ListSIPDispatchRuleFilter,
+        _filter: ListSIPDispatchRuleFilter,
     ) -> ServiceResult<Vec<proto::SipDispatchRuleInfo>> {
         let resp: proto::ListSipDispatchRuleResponse = self
             .client
