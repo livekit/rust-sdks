@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,15 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Packet trailer support for end-to-end timestamp propagation.
+//! Packet trailer support for end-to-end frame metadata propagation.
 //!
-//! This module provides functionality to embed user-supplied timestamps
-//! in encoded video frames as trailers. The timestamps are preserved
+//! This module provides functionality to embed user-supplied metadata
+//! in encoded video frames as trailers. The timestamps/frameIDs are preserved
 //! through the WebRTC pipeline and can be extracted on the receiver side.
 //!
-//! On the send side, user timestamps are stored in the handler's internal
-//! map keyed by capture timestamp. When the encoder produces a frame,
-//! the transformer looks up the user timestamp via the frame's CaptureTime().
+//! On the send side, user timestamps/frameIDs are stored in the handler's internal
+//! map keyed by RTP timestamp. When the encoder produces a frame,
+//! the transformer looks up the metadata via the frame's CaptureTime().
 //!
 //! On the receive side, extracted frame metadata is stored in an
 //! internal map keyed by RTP timestamp. Decoded frames look up their
@@ -37,7 +37,7 @@ use crate::{
 /// Handler for packet trailer embedding/extraction on RTP streams.
 ///
 /// For sender side: Stores frame metadata keyed by capture timestamp
-/// and embeds them as 16-byte trailers on encoded frames before they
+/// and embeds them as binary payload trailers on encoded frames before they
 /// are sent. Use `store_frame_metadata()` to associate metadata with
 /// a captured frame.
 ///
@@ -66,15 +66,6 @@ impl PacketTrailerHandler {
         let ts = self.sys_handle.lookup_timestamp(rtp_timestamp);
         if ts >= 0 {
             let frame_id = self.sys_handle.last_lookup_frame_id();
-            if ts > 2_000_000_000_000_000 || ts < 0 {
-                log::warn!(
-                    "[PacketTrailer-FFI] C++ returned bad ts={} (0x{:016x}) fid={} rtp_ts={}",
-                    ts,
-                    ts,
-                    frame_id,
-                    rtp_timestamp
-                );
-            }
             Some((ts, frame_id))
         } else {
             None
@@ -99,13 +90,6 @@ impl PacketTrailerHandler {
         user_timestamp_us: i64,
         frame_id: u32,
     ) {
-        log::info!(
-            target: "packet_trailer",
-            "store: capture_ts_us={}, user_ts_us={}, frame_id={}",
-            capture_timestamp_us,
-            user_timestamp_us,
-            frame_id
-        );
         self.sys_handle.store_frame_metadata(capture_timestamp_us, user_timestamp_us, frame_id);
     }
 

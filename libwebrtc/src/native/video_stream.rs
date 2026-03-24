@@ -113,17 +113,7 @@ impl sys_vt::VideoSink for VideoTrackObserver {
             .and_then(|h| h.lookup_frame_metadata(rtp_timestamp));
 
         let (user_timestamp_us, frame_id) = match meta {
-            Some((ts, fid)) => {
-                if ts < 0 || ts > 2_000_000_000_000_000 {
-                    log::warn!(
-                        "[on_frame] SUSPICIOUS user_ts={} fid={} rtp_ts={}",
-                        ts,
-                        fid,
-                        rtp_timestamp
-                    );
-                }
-                (Some(ts), Some(fid))
-            }
+            Some((ts, fid)) => (Some(ts), Some(fid)),
             None => (None, None),
         };
 

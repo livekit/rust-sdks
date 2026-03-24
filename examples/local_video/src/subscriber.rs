@@ -355,24 +355,6 @@ async fn handle_track_subscribed(
             s.dirty = true;
             s.received_at_us = Some(received_at_us);
 
-            if let Some(ts) = frame.user_timestamp_us {
-                let delta_ms = (received_at_us - ts) as f64 / 1000.0;
-                if ts < 0 || ts > 2_000_000_000_000_000 || delta_ms < -60_000.0 {
-                    log::warn!(
-                        "[Subscriber] BAD TIMESTAMP: frame_id={:?} user_ts={} \
-                         timestamp_us={} now_us={} delta_ms={:.1} \
-                         prev_user_ts={:?} prev_frame_id={:?}",
-                        frame.frame_id,
-                        ts,
-                        frame.timestamp_us,
-                        received_at_us,
-                        delta_ms,
-                        s.user_timestamp_us,
-                        s.frame_id,
-                    );
-                }
-            }
-
             s.user_timestamp_us = frame.user_timestamp_us;
             s.frame_id = frame.frame_id;
 

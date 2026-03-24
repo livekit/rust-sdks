@@ -16,4 +16,4 @@ imgproc: no changelog additions
 
 #890 by @chenosaurus
 
-- Add support to attach/parse frame level timestamps to VideoTracks as a custom payload trailer.
+- Add support to attach/parse frame level timestamps & frame ID to VideoTracks as a custom payload trailer.
