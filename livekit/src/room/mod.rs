@@ -338,11 +338,16 @@ pub struct RpcAck {
 pub struct RoomSdkOptions {
     pub sdk: String,
     pub sdk_version: String,
+    pub device_model: String,
 }
 
 impl Default for RoomSdkOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string() }
+        Self {
+            sdk: "rust".to_string(),
+            sdk_version: SDK_VERSION.to_string(),
+            device_model: "Unknown".to_string(),
+        }
     }
 }
 
@@ -351,6 +356,7 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
         let mut sdk_options = SignalSdkOptions::default();
         sdk_options.sdk = options.sdk;
         sdk_options.sdk_version = Some(options.sdk_version);
+        sdk_options.device_model = options.device_model;
         sdk_options
     }
 }

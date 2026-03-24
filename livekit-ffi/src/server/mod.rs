@@ -56,6 +56,7 @@ pub struct FfiConfig {
     pub capture_logs: bool,
     pub sdk: String,
     pub sdk_version: String,
+    pub device_model: String,
 }
 
 /// To make sure we use the right types, only types that implement this trait

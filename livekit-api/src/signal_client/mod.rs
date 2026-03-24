@@ -83,11 +83,12 @@ pub enum SignalError {
 pub struct SignalSdkOptions {
     pub sdk: String,
     pub sdk_version: Option<String>,
+    pub device_model: String,
 }
 
 impl Default for SignalSdkOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: None }
+        Self { sdk: "rust".to_string(), sdk_version: None, device_model: "Unknown".to_string() }
     }
 }
 
@@ -569,6 +570,7 @@ fn create_join_request_param(
         protocol: PROTOCOL_VERSION as i32,
         os,
         os_version,
+        device_model: options.sdk_options.device_model.clone(),
         ..Default::default()
     };
 
