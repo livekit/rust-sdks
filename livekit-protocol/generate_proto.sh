@@ -13,7 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# dependencies: cargo install protoc-gen-prost@0.3.1 protoc-gen-prost-serde@0.3.1
+# dependencies: cargo install protoc-gen-prost@0.5.0 protoc-gen-prost-serde@0.4.0
 
 
 PROTOCOL=protocol/protobufs
