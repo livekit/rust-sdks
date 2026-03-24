@@ -38,6 +38,24 @@ Publisher usage:
    --identity cam-1 \
    --attach-timestamp
 
+ # publish with timestamp burned into the video and a frame ID in the packet trailer
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --room-name demo \
+   --identity cam-1 \
+   --attach-timestamp \
+   --burn-timestamp \
+   --attach-frame-id
+
+ # publish at a custom resolution and framerate
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --width 1920 \
+   --height 1080 \
+   --fps 60 \
+   --room-name demo \
+   --identity cam-1
+
  # publish with end-to-end encryption
  cargo run -p local_video -F desktop --bin publisher -- \
    --camera-index 0 \
@@ -52,10 +70,16 @@ List devices usage:
 ```
 
 Publisher flags (in addition to the common connection flags above):
+- `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
+- `--width <px>`: Desired capture width (default: `1280`).
+- `--height <px>`: Desired capture height (default: `720`).
+- `--fps <n>`: Desired capture framerate (default: `30`).
 - `--h265`: Use H.265/HEVC encoding if supported (falls back to H.264 on failure).
 - `--simulcast`: Publish simulcast video (multiple layers when the resolution is large enough).
 - `--max-bitrate <bps>`: Max video bitrate for the main (highest) layer in bits per second (e.g. `1500000`).
 - `--attach-timestamp`: Attach the current wall-clock time (microseconds since UNIX epoch) as the user timestamp on each published frame. The subscriber can display this to measure end-to-end latency.
+- `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set.
+- `--attach-frame-id`: Attach a monotonically increasing frame ID to each published frame via the packet trailer. The subscriber displays this in the timestamp overlay when `--display-timestamp` is used.
 - `--e2ee-key <key>`: Enable end-to-end encryption with the given shared key. The subscriber must use the same key to decrypt.
 
 Subscriber usage:
@@ -92,7 +116,7 @@ Subscriber usage:
 
 Subscriber flags (in addition to the common connection flags above):
 - `--participant <identity>`: Only subscribe to video tracks from the specified participant.
-- `--display-timestamp`: Show a top-left overlay with the publisher's timestamp, the subscriber's current time, and the computed end-to-end latency. Requires the publisher to use `--attach-timestamp`.
+- `--display-timestamp`: Show a top-left overlay with frame ID, the publisher's timestamp, the subscriber's current time, and the computed end-to-end latency. Timestamp fields require the publisher to use `--attach-timestamp`; frame ID requires `--attach-frame-id`.
 - `--e2ee-key <key>`: Enable end-to-end decryption with the given shared key. Must match the key used by the publisher.
 
 Notes:
