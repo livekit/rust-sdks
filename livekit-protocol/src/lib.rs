@@ -20,7 +20,7 @@ pub mod enum_dispatch;
 pub mod observer;
 pub mod promise;
 
-include!("livekit.rs");
+include!("livekit/livekit.rs");
 
 #[cfg(feature = "serde")]
-include!("livekit.serde.rs");
+include!("livekit/livekit.serde.rs");
