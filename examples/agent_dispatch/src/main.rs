@@ -1,7 +1,6 @@
 use clap::Parser;
 use livekit_api::services::agent_dispatch::AgentDispatchClient;
 use livekit_protocol as proto;
-use std::env;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about = "Create an Agent Dispatch in a LiveKit room", long_about = None)]

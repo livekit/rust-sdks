@@ -72,9 +72,9 @@ impl<T: AudioMixerSource> sys::AudioMixerSource for AudioMixerSourceImpl<T> {
                     frame.num_channels as usize,
                 );
             }
-            return ffi::AudioFrameInfo::Normal;
+            ffi::AudioFrameInfo::Normal
         } else {
-            return ffi::AudioFrameInfo::Muted;
+            ffi::AudioFrameInfo::Muted
         }
     }
 }

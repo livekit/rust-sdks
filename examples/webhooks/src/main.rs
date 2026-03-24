@@ -38,7 +38,7 @@ async fn handle(req: Request<Body>) -> Result<Response<Body>, Infallible> {
             let body = hyper::body::to_bytes(req.into_body()).await.unwrap();
             let body = std::str::from_utf8(&body).unwrap();
 
-            let res = webhook_receiver.receive(&body, &jwt);
+            let res = webhook_receiver.receive(body, jwt);
             if let Ok(event) = res {
                 println!("Received event: {:?}", event);
                 Ok(Response::new(Body::from("OK")))

@@ -198,7 +198,6 @@ impl Manager {
                 }
                 let result = event.result.map(|track_info| self.create_local_track(track_info));
                 _ = result_tx.send(result);
-                return;
             }
             Descriptor::Active { ref state_tx, ref info, .. } => {
                 if *state_tx.borrow() != PublishState::Republishing {

@@ -137,7 +137,7 @@ impl Depacketizer {
     fn finalize(mut partial: PartialFrame, end_sequence: u16) -> DepacketizerPushResult {
         let received = partial.payloads.len() as u16;
 
-        let payload_len: usize = partial.payloads.iter().map(|(_, payload)| payload.len()).sum();
+        let payload_len: usize = partial.payloads.values().map(|payload| payload.len()).sum();
         let mut payload = BytesMut::with_capacity(payload_len);
 
         let mut sequence = partial.start_sequence;
