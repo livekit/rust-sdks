@@ -338,7 +338,6 @@ pub struct RpcAck {
 pub struct RoomSdkOptions {
     pub sdk: String,
     pub sdk_version: String,
-    pub device_model: Option<String>,
 }
 
 impl Default for RoomSdkOptions {
@@ -346,7 +345,6 @@ impl Default for RoomSdkOptions {
         Self {
             sdk: "rust".to_string(),
             sdk_version: SDK_VERSION.to_string(),
-            device_model: None,
         }
     }
 }
@@ -356,7 +354,6 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
         let mut sdk_options = SignalSdkOptions::default();
         sdk_options.sdk = options.sdk;
         sdk_options.sdk_version = Some(options.sdk_version);
-        sdk_options.device_model = options.device_model;
         sdk_options
     }
 }
@@ -380,6 +377,8 @@ pub struct RoomOptions {
     pub single_peer_connection: bool,
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
+    /// Device model string for ClientInfo (e.g. "MacBookPro18,3")
+    pub device_model: Option<String>,
 }
 
 impl Default for RoomOptions {
@@ -402,6 +401,7 @@ impl Default for RoomOptions {
             sdk_options: RoomSdkOptions::default(),
             single_peer_connection: false,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
+            device_model: None,
         }
     }
 }
@@ -497,6 +497,7 @@ impl Room {
         signal_options.adaptive_stream = options.adaptive_stream;
         signal_options.single_peer_connection = options.single_peer_connection;
         signal_options.connect_timeout = options.connect_timeout;
+        signal_options.device_model = options.device_model.clone();
         let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
             url,
             token,
