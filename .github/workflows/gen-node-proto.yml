@@ -7,6 +7,9 @@ on:
     paths:
       - livekit-ffi/**
       - livekit-ffi-node-bindings/**
+      - Cargo.lock
+      - Cargo.toml
+      - .github/**
   workflow_dispatch:
   workflow_call:
 
