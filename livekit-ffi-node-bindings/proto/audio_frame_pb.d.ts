@@ -185,6 +185,16 @@ export declare class NewAudioStreamRequest extends Message<NewAudioStreamRequest
    */
   frameSizeMs?: number;
 
+  /**
+   * Maximum number of queued WebRTC sink frames. Each frame is typically 10 ms
+   * of decoded PCM audio on the receive path. Omit this field to use the
+   * default bounded queue size of 10 frames. Set it to 0 to request unbounded
+   * buffering.
+   *
+   * @generated from field: optional uint32 queue_size_frames = 8;
+   */
+  queueSizeFrames?: number;
+
   constructor(data?: PartialMessage<NewAudioStreamRequest>);
 
   static readonly runtime: typeof proto2;
@@ -267,6 +277,16 @@ export declare class AudioStreamFromParticipantRequest extends Message<AudioStre
    * @generated from field: optional uint32 frame_size_ms = 9;
    */
   frameSizeMs?: number;
+
+  /**
+   * Maximum number of queued WebRTC sink frames. Each frame is typically 10 ms
+   * of decoded PCM audio on the receive path. Omit this field to use the
+   * default bounded queue size of 10 frames. Set it to 0 to request unbounded
+   * buffering.
+   *
+   * @generated from field: optional uint32 queue_size_frames = 10;
+   */
+  queueSizeFrames?: number;
 
   constructor(data?: PartialMessage<AudioStreamFromParticipantRequest>);
 

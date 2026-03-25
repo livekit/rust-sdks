@@ -310,6 +310,11 @@ export declare class DisconnectRequest extends Message<DisconnectRequest> {
    */
   requestAsyncId?: bigint;
 
+  /**
+   * @generated from field: optional livekit.proto.DisconnectReason reason = 3;
+   */
+  reason?: DisconnectReason;
+
   constructor(data?: PartialMessage<DisconnectRequest>);
 
   static readonly runtime: typeof proto2;
@@ -1743,6 +1748,20 @@ export declare class RoomOptions extends Message<RoomOptions> {
    * @generated from field: optional livekit.proto.E2eeOptions encryption = 7;
    */
   encryption?: E2eeOptions;
+
+  /**
+   * use single peer connection for both publish/subscribe (default: false)
+   *
+   * @generated from field: optional bool single_peer_connection = 8;
+   */
+  singlePeerConnection?: boolean;
+
+  /**
+   * timeout in milliseconds for each signal connection attempt (default: 5000)
+   *
+   * @generated from field: optional uint64 connect_timeout_ms = 9;
+   */
+  connectTimeoutMs?: bigint;
 
   constructor(data?: PartialMessage<RoomOptions>);
 
