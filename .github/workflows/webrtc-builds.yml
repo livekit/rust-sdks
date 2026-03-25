@@ -36,12 +36,12 @@ jobs:
             arch: arm64
 
           - name: mac
-            os: macos-latest
+            os: macos-26
             cmd: ./build_macos.sh
             arch: x64
 
           - name: mac
-            os: macos-latest
+            os: macos-26
             cmd: ./build_macos.sh
             arch: arm64
 
@@ -72,13 +72,13 @@ jobs:
 
           - name: ios
             out: ios-device-arm64
-            os: macos-latest
+            os: macos-26
             cmd: ./build_ios.sh
             arch: arm64
 
           - name: ios
             out: ios-simulator-arm64
-            os: macos-latest
+            os: macos-26
             cmd: ./build_ios.sh
             arch: arm64
             buildargs: --environment simulator
@@ -110,7 +110,7 @@ jobs:
          python-version: '3.11' 
 
       - name: install setuptools (none-macOS)
-        if: ${{ matrix.target.os != 'macos-latest' }}
+        if: ${{ matrix.target.os != 'macos-26' }}
         run: |
          pip3 install setuptools # pkg_resources is sometimes not found?
 
@@ -120,12 +120,12 @@ jobs:
           sudo apt update -y
           sudo apt install -y ninja-build pkg-config openjdk-11-jdk
 
-      - name: Select Xcode 16.1
-        if: ${{ matrix.target.os == 'macos-latest' }}
-        run: sudo xcode-select --switch /Applications/Xcode_16.1.app/Contents/Developer
-  
+      - name: Select Xcode 26.0
+        if: ${{ matrix.target.os == 'macos-26' }}
+        run: sudo xcode-select --switch /Applications/Xcode_26.0.app/Contents/Developer
+
       - name: Install macos dependencies
-        if: ${{ matrix.target.os == 'macos-latest' }}
+        if: ${{ matrix.target.os == 'macos-26' }}
         run: brew install ninja
 
       - name: Install windows dependencies
