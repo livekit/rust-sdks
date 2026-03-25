@@ -159,6 +159,7 @@ const NewVideoSourceRequest = /*@__PURE__*/ proto2.makeMessageType(
   () => [
     { no: 1, name: "type", kind: "enum", T: proto2.getEnumType(VideoSourceType), req: true },
     { no: 2, name: "resolution", kind: "message", T: VideoSourceResolution, req: true },
+    { no: 3, name: "is_screencast", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
   ],
 );
 
