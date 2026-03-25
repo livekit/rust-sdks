@@ -666,8 +666,7 @@ fn get_livekit_url(
             .append_pair("os_version", os_info.version().to_string().as_str())
             .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
-            .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" })
-;
+            .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
         if let Some(sdk_version) = &options.sdk_options.sdk_version {
             lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
