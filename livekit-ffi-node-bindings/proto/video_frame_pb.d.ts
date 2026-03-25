@@ -324,11 +324,16 @@ export declare class NewVideoSourceRequest extends Message<NewVideoSourceRequest
 
   /**
    * Used to determine which encodings to use + simulcast layers
-   * Most of the time it corresponds to the source resolution 
+   * Most of the time it corresponds to the source resolution
    *
    * @generated from field: required livekit.proto.VideoSourceResolution resolution = 2;
    */
   resolution?: VideoSourceResolution;
+
+  /**
+   * @generated from field: optional bool is_screencast = 3;
+   */
+  isScreencast?: boolean;
 
   constructor(data?: PartialMessage<NewVideoSourceRequest>);
 
