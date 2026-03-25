@@ -338,7 +338,7 @@ pub struct RpcAck {
 pub struct RoomSdkOptions {
     pub sdk: String,
     pub sdk_version: String,
-    pub device_model: String,
+    pub device_model: Option<String>,
 }
 
 impl Default for RoomSdkOptions {
@@ -346,7 +346,7 @@ impl Default for RoomSdkOptions {
         Self {
             sdk: "rust".to_string(),
             sdk_version: SDK_VERSION.to_string(),
-            device_model: "Unknown".to_string(),
+            device_model: None,
         }
     }
 }
