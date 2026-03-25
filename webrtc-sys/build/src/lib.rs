@@ -100,9 +100,9 @@ pub fn prebuilt_dir() -> path::PathBuf {
 
 pub fn download_url() -> String {
     format!(
-        "https://github.com/livekit/rust-sdks/releases/download/{}/{}.zip",
+        "https://github.com/livekit/rust-sdks/releases/download/{}/webrtc-{}.zip",
         WEBRTC_TAG,
-        format!("webrtc-{}", webrtc_triple())
+        webrtc_triple()
     )
 }
 
@@ -221,6 +221,7 @@ pub fn download_webrtc() -> Result<()> {
         .write(true)
         .read(true)
         .create(true)
+        .truncate(true)
         .open(&tmp_path)
         .context("Failed to create temporary file for WebRTC download")?;
     resp.copy_to(&mut file).context("Failed to write WebRTC download to temporary file")?;

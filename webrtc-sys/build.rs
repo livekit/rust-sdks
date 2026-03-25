@@ -185,7 +185,7 @@ fn main() {
             let arm = target_arch == "aarch64" || target_arch.contains("arm");
 
             if x86 {
-                if let Some(libva_include) = pkg_config::get_variable("libva", "includedir").ok() {
+                if let Ok(libva_include) = pkg_config::get_variable("libva", "includedir") {
                     // Do not use pkg_config::probe_library because libva is dlopened
                     // and pkg_config::probe_library would link it.
                     builder
@@ -332,11 +332,11 @@ fn main() {
     }
 
     if target_os.as_str() == "android" {
-        copy_libwebrtc_jar(&PathBuf::from(Path::new(&webrtc_dir)));
+        copy_libwebrtc_jar(&webrtc_dir);
     }
 }
 
-fn copy_libwebrtc_jar(webrtc_dir: &PathBuf) {
+fn copy_libwebrtc_jar(webrtc_dir: &Path) {
     let jar_path = webrtc_dir.join("libwebrtc.jar");
     let output_path = get_output_path();
     let output_jar_path = output_path.join("libwebrtc.jar");
@@ -352,7 +352,7 @@ fn get_output_path() -> PathBuf {
     let build_target = env::var("TARGET").unwrap();
     let path =
         Path::new(&manifest_dir_string).join("../target").join(build_target).join(build_type);
-    return PathBuf::from(path);
+    path
 }
 
 fn configure_darwin_sysroot(builder: &mut cc::Build) {
