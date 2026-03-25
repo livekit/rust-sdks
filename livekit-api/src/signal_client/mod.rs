@@ -173,7 +173,7 @@ impl SignalClient {
             Err(err) => {
                 // fallback to region urls
                 if matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() != 403) {
-                    log::error!("unexpected signal error: {}", err.to_string());
+                    log::error!("unexpected signal error: {}", err);
                 }
                 let urls = RegionUrlProvider::fetch_region_urls(url, token).await?;
                 let mut last_err = err;
@@ -248,7 +248,7 @@ impl SignalClient {
 
     /// Increment request_id for user-initiated requests and [`RequestResponse`][`proto::RequestResponse`]s
     pub fn next_request_id(&self) -> u32 {
-        self.inner.next_request_id().clone()
+        self.inner.next_request_id()
     }
 
     /// Returns whether single peer connection mode is active.

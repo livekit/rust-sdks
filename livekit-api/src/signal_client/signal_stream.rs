@@ -24,7 +24,7 @@ use std::{env, io, time::Duration};
 use tokio::sync::{mpsc, oneshot};
 
 #[cfg(feature = "signal-client-tokio")]
-use base64;
+use base64::Engine;
 
 #[cfg(feature = "signal-client-tokio")]
 use tokio::{
@@ -156,7 +156,7 @@ impl SignalStream {
                     let mut proxy_auth_header = None;
                     if let Some(password) = proxy_url.password() {
                         let auth = format!("{}:{}", proxy_url.username(), password);
-                        let auth = format!("Basic {}", base64::encode(auth));
+                        let auth = format!("Basic {}", base64::engine::general_purpose::STANDARD.encode(auth));
                         proxy_auth_header = Some(auth);
                     }
 
@@ -287,8 +287,7 @@ impl SignalStream {
                         #[cfg(not(feature = "rustls-tls-native-roots"))]
                         {
                             // For non-rustls-tls-native-roots builds, don't support proxy for WSS
-                            return Err(WsError::Io(io::Error::new(
-                                io::ErrorKind::Other,
+                            return Err(WsError::Io(io::Error::other(
                                 "WSS over proxy requires rustls-tls-native-roots feature",
                             ))
                             .into());
