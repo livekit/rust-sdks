@@ -60,6 +60,6 @@ jobs:
       - name: Add changes
         uses: EndBug/add-and-commit@v9
         with:
-          add: '["livekit-ffi-node-bindings/src/proto"]'
+          add: '["livekit-ffi-node-bindings/proto"]'
           default_author: github_actions
           message: generated protobuf
