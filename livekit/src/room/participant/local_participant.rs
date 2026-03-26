@@ -279,7 +279,7 @@ impl LocalParticipant {
         }
 
         req.packet_trailer_features =
-            options.packet_trailer_features.iter().map(|f| *f as i32).collect();
+            options.packet_trailer_features.to_proto().into_iter().map(|f| f as i32).collect();
 
         let mut encodings = Vec::default();
         match &track {

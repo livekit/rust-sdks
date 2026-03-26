@@ -14,7 +14,6 @@
 
 use libwebrtc::prelude::*;
 use livekit_protocol as proto;
-use proto::PacketTrailerFeature;
 
 use crate::prelude::*;
 
@@ -70,6 +69,33 @@ pub struct AudioPreset {
     pub encoding: AudioEncoding,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PacketTrailerFeatures {
+    pub user_timestamp: bool,
+    pub frame_id: bool,
+}
+
+impl PacketTrailerFeatures {
+    pub(crate) fn is_empty(&self) -> bool {
+        !self.user_timestamp && !self.frame_id
+    }
+
+    pub(crate) fn to_proto(&self) -> Vec<proto::PacketTrailerFeature> {
+        let mut features = Vec::new();
+
+        if self.user_timestamp {
+            features.push(proto::PacketTrailerFeature::PtfUserTimestamp);
+        }
+
+        if self.frame_id {
+            features.push(proto::PacketTrailerFeature::PtfFrameId);
+        }
+
+        features
+    }
+}
+
 impl AudioPreset {
     pub const fn new(max_bitrate: u64) -> Self {
         Self { encoding: AudioEncoding { max_bitrate } }
@@ -92,7 +118,7 @@ pub struct TrackPublishOptions {
     pub source: TrackSource,
     pub stream: String,
     pub preconnect_buffer: bool,
-    pub packet_trailer_features: Vec<PacketTrailerFeature>,
+    pub packet_trailer_features: PacketTrailerFeatures,
 }
 
 impl Default for TrackPublishOptions {
@@ -108,7 +134,7 @@ impl Default for TrackPublishOptions {
             source: TrackSource::Unknown,
             stream: "".to_string(),
             preconnect_buffer: false,
-            packet_trailer_features: Vec::new(),
+            packet_trailer_features: PacketTrailerFeatures::default(),
         }
     }
 }
