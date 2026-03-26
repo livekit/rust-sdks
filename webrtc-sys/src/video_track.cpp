@@ -135,9 +135,7 @@ VideoResolution VideoTrackSource::InternalSource::video_resolution() const {
 
 bool VideoTrackSource::InternalSource::on_captured_frame(
     const webrtc::VideoFrame& frame,
-    bool has_packet_trailer,
-    int64_t user_timestamp_us,
-    uint32_t frame_id) {
+    const FrameMetadata& frame_metadata) {
   webrtc::MutexLock lock(&mutex_);
 
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
@@ -147,9 +145,10 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   // store the mapping keyed by the aligned timestamp.  This is the value
   // that CaptureTime() will return in TransformSend, so the lookup will
   // succeed.
-  if (has_packet_trailer && packet_trailer_handler_) {
+  if (frame_metadata.has_packet_trailer && packet_trailer_handler_) {
     packet_trailer_handler_->store_frame_metadata(
-        aligned_timestamp_us, user_timestamp_us, frame_id);
+        aligned_timestamp_us, frame_metadata.user_timestamp_us,
+        frame_metadata.frame_id);
   }
 
   webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
@@ -204,12 +203,9 @@ VideoResolution VideoTrackSource::video_resolution() const {
 
 bool VideoTrackSource::on_captured_frame(
     const std::unique_ptr<VideoFrame>& frame,
-    bool has_packet_trailer,
-    int64_t user_timestamp_us,
-    uint32_t frame_id) const {
+    const FrameMetadata& frame_metadata) const {
   auto rtc_frame = frame->get();
-  return source_->on_captured_frame(rtc_frame, has_packet_trailer,
-                                    user_timestamp_us, frame_id);
+  return source_->on_captured_frame(rtc_frame, frame_metadata);
 }
 
 void VideoTrackSource::set_packet_trailer_handler(

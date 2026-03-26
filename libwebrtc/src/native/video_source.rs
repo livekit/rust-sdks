@@ -81,7 +81,14 @@ impl NativeVideoSource {
                     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
                     builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
 
-                    source.sys_handle.on_captured_frame(&builder.pin_mut().build(), false, 0, 0);
+                    source.sys_handle.on_captured_frame(
+                        &builder.pin_mut().build(),
+                        &vt_sys::ffi::FrameMetadata {
+                            has_packet_trailer: false,
+                            user_timestamp_us: 0,
+                            frame_id: 0,
+                        },
+                    );
                 }
             }
         });
@@ -114,9 +121,11 @@ impl NativeVideoSource {
 
         self.sys_handle.on_captured_frame(
             &builder.pin_mut().build(),
-            has_trailer,
-            user_ts,
-            frame_id,
+            &vt_sys::ffi::FrameMetadata {
+                has_packet_trailer: has_trailer,
+                user_timestamp_us: user_ts,
+                frame_id,
+            },
         );
     }
 

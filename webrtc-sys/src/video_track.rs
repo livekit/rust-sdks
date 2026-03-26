@@ -42,6 +42,13 @@ pub mod ffi {
         pub height: u32,
     }
 
+    #[derive(Debug)]
+    pub struct FrameMetadata {
+        pub has_packet_trailer: bool,
+        pub user_timestamp_us: i64,
+        pub frame_id: u32,
+    }
+
     extern "C++" {
         include!("livekit/video_frame.h");
         include!("livekit/media_stream_track.h");
@@ -75,9 +82,7 @@ pub mod ffi {
         fn on_captured_frame(
             self: &VideoTrackSource,
             frame: &UniquePtr<VideoFrame>,
-            has_packet_trailer: bool,
-            user_timestamp_us: i64,
-            frame_id: u32,
+            frame_metadata: &FrameMetadata,
         ) -> bool;
         fn set_packet_trailer_handler(
             self: &VideoTrackSource,

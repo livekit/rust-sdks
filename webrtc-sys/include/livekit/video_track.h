@@ -100,9 +100,7 @@ class VideoTrackSource {
     bool remote() const override;
     VideoResolution video_resolution() const;
     bool on_captured_frame(const webrtc::VideoFrame& frame,
-                           bool has_packet_trailer,
-                           int64_t user_timestamp_us,
-                           uint32_t frame_id);
+                           const FrameMetadata& frame_metadata);
 
     void set_packet_trailer_handler(
         std::shared_ptr<PacketTrailerHandler> handler);
@@ -121,9 +119,7 @@ class VideoTrackSource {
   VideoResolution video_resolution() const;
 
   bool on_captured_frame(const std::unique_ptr<VideoFrame>& frame,
-                         bool has_packet_trailer,
-                         int64_t user_timestamp_us,
-                         uint32_t frame_id)
+                         const FrameMetadata& frame_metadata)
       const;  // frames pushed from Rust (+interior mutability)
 
   void set_packet_trailer_handler(

@@ -68,7 +68,7 @@ constexpr size_t kPacketTrailerMinSize =
 constexpr size_t kPacketTrailerMaxSize =
     kTimestampTlvSize + kFrameIdTlvSize + kTrailerEnvelopeSize;
 
-struct FrameMetadata {
+struct PacketTrailerMetadata {
   int64_t user_timestamp_us;
   uint32_t frame_id;
   uint32_t ssrc;  // SSRC that produced this entry (for simulcast tracking)
@@ -109,7 +109,7 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   /// Lookup the frame metadata associated with a given RTP timestamp.
   /// Returns the metadata if found, nullopt otherwise.
   /// The entry is removed from the map after lookup.
-  std::optional<FrameMetadata> lookup_frame_metadata(uint32_t rtp_timestamp);
+  std::optional<PacketTrailerMetadata> lookup_frame_metadata(uint32_t rtp_timestamp);
 
   /// Store frame metadata for a given capture timestamp (sender side).
   /// Called from VideoTrackSource::on_captured_frame with the
@@ -132,7 +132,7 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
       uint32_t frame_id);
 
   /// Extract and remove frame metadata trailer from frame data
-  std::optional<FrameMetadata> ExtractTrailer(
+  std::optional<PacketTrailerMetadata> ExtractTrailer(
       rtc::ArrayView<const uint8_t> data,
       std::vector<uint8_t>& out_data);
 
@@ -147,7 +147,7 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   // Populated by store_frame_metadata(), consumed by TransformSend()
   // via CaptureTime() lookup.
   mutable webrtc::Mutex send_map_mutex_;
-  mutable std::unordered_map<int64_t, FrameMetadata> send_map_;
+  mutable std::unordered_map<int64_t, PacketTrailerMetadata> send_map_;
   mutable std::deque<int64_t> send_map_order_;
   static constexpr size_t kMaxSendMapEntries = 300;
 
@@ -155,7 +155,7 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   // Keyed by RTP timestamp so decoded frames can look up their
   // metadata regardless of frame drops or reordering.
   mutable webrtc::Mutex recv_map_mutex_;
-  mutable std::unordered_map<uint32_t, FrameMetadata> recv_map_;
+  mutable std::unordered_map<uint32_t, PacketTrailerMetadata> recv_map_;
   mutable std::deque<uint32_t> recv_map_order_;
   static constexpr size_t kMaxRecvMapEntries = 300;
 

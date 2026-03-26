@@ -81,7 +81,7 @@ void PacketTrailerTransformer::TransformSend(
   // capture_time_ms_ = timestamp_us / 1000.  So capture_time->us()
   // has millisecond precision (bottom 3 digits always zero).
   // store_frame_metadata() truncates its key the same way.
-  FrameMetadata meta_to_embed{0, 0, 0};
+  PacketTrailerMetadata meta_to_embed{0, 0, 0};
   auto capture_time = frame->CaptureTime();
   if (capture_time.has_value()) {
     int64_t capture_us = capture_time->us();
@@ -245,7 +245,7 @@ std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
   return result;
 }
 
-std::optional<FrameMetadata> PacketTrailerTransformer::ExtractTrailer(
+std::optional<PacketTrailerMetadata> PacketTrailerTransformer::ExtractTrailer(
     rtc::ArrayView<const uint8_t> data,
     std::vector<uint8_t>& out_data) {
   if (data.size() < kTrailerEnvelopeSize) {
@@ -271,7 +271,7 @@ std::optional<FrameMetadata> PacketTrailerTransformer::ExtractTrailer(
   const uint8_t* trailer_start = data.data() + data.size() - trailer_len;
   size_t tlv_region_len = trailer_len - kTrailerEnvelopeSize;
 
-  FrameMetadata meta{0, 0, 0};
+  PacketTrailerMetadata meta{0, 0, 0};
   bool found_any = false;
   size_t pos = 0;
 
@@ -346,14 +346,14 @@ bool PacketTrailerTransformer::enabled() const {
   return enabled_.load();
 }
 
-std::optional<FrameMetadata> PacketTrailerTransformer::lookup_frame_metadata(
+std::optional<PacketTrailerMetadata> PacketTrailerTransformer::lookup_frame_metadata(
     uint32_t rtp_timestamp) {
   webrtc::MutexLock lock(&recv_map_mutex_);
   auto it = recv_map_.find(rtp_timestamp);
   if (it == recv_map_.end()) {
     return std::nullopt;
   }
-  FrameMetadata meta = it->second;
+  PacketTrailerMetadata meta = it->second;
   recv_map_.erase(it);
   for (auto oit = recv_map_order_.begin(); oit != recv_map_order_.end();
        ++oit) {
@@ -393,7 +393,7 @@ void PacketTrailerTransformer::store_frame_metadata(
   if (send_map_.find(key) == send_map_.end()) {
     send_map_order_.push_back(key);
   }
-  send_map_[key] = FrameMetadata{user_timestamp_us, frame_id, 0};
+  send_map_[key] = PacketTrailerMetadata{user_timestamp_us, frame_id, 0};
 }
 
 // PacketTrailerHandler implementation
