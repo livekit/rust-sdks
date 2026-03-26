@@ -268,14 +268,15 @@ async fn handle_track_subscribed(
     }
 
     info!(
-        "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}",
+        "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}, packet_trailer_features: {:?}",
         publication.name(),
         publication.sid(),
         participant.identity(),
         publication.mime_type(),
         publication.simulcasted(),
         publication.dimension().0,
-        publication.dimension().1
+        publication.dimension().1,
+        publication.packet_trailer_features(),
     );
 
     let rtc_track = video_track.rtc_track();
@@ -357,6 +358,10 @@ async fn handle_track_subscribed(
 
             s.user_timestamp_us = frame.user_timestamp_us;
             s.frame_id = frame.frame_id;
+
+            if !s.has_user_timestamp && frame.user_timestamp_us.is_some() {
+                s.has_user_timestamp = true;
+            }
 
             // Update smoothed FPS (~500ms window)
             fps_window_frames += 1;
