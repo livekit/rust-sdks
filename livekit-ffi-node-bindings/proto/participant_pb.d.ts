@@ -201,6 +201,11 @@ export declare enum DisconnectReason {
    * @generated from enum value: MEDIA_FAILURE = 15;
    */
   MEDIA_FAILURE = 15,
+
+  /**
+   * @generated from enum value: AGENT_ERROR = 16;
+   */
+  AGENT_ERROR = 16,
 }
 
 /**

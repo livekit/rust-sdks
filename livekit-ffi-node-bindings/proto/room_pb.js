@@ -160,6 +160,7 @@ const DisconnectRequest = /*@__PURE__*/ proto2.makeMessageType(
   () => [
     { no: 1, name: "room_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+    { no: 3, name: "reason", kind: "enum", T: proto2.getEnumType(DisconnectReason), opt: true },
   ],
 );
 
@@ -679,6 +680,8 @@ const RoomOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 5, name: "rtc_config", kind: "message", T: RtcConfig, opt: true },
     { no: 6, name: "join_retries", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
     { no: 7, name: "encryption", kind: "message", T: E2eeOptions, opt: true },
+    { no: 8, name: "single_peer_connection", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 9, name: "connect_timeout_ms", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ],
 );
 

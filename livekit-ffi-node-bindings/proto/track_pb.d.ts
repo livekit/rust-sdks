@@ -136,6 +136,21 @@ export declare enum AudioTrackFeature {
 }
 
 /**
+ * @generated from enum livekit.proto.PacketTrailerFeature
+ */
+export declare enum PacketTrailerFeature {
+  /**
+   * @generated from enum value: PTF_USER_TIMESTAMP = 0;
+   */
+  PTF_USER_TIMESTAMP = 0,
+
+  /**
+   * @generated from enum value: PTF_FRAME_ID = 1;
+   */
+  PTF_FRAME_ID = 1,
+}
+
+/**
  * Create a new VideoTrack from a VideoSource
  *
  * @generated from message livekit.proto.CreateVideoTrackRequest
@@ -414,6 +429,11 @@ export declare class TrackPublicationInfo extends Message<TrackPublicationInfo> 
    * @generated from field: repeated livekit.proto.AudioTrackFeature audio_features = 12;
    */
   audioFeatures: AudioTrackFeature[];
+
+  /**
+   * @generated from field: repeated livekit.proto.PacketTrailerFeature packet_trailer_features = 13;
+   */
+  packetTrailerFeatures: PacketTrailerFeature[];
 
   constructor(data?: PartialMessage<TrackPublicationInfo>);
 

@@ -76,6 +76,7 @@ const DisconnectReason = /*@__PURE__*/ proto2.makeEnum(
     {no: 13, name: "SIP_TRUNK_FAILURE"},
     {no: 14, name: "CONNECTION_TIMEOUT"},
     {no: 15, name: "MEDIA_FAILURE"},
+    {no: 16, name: "AGENT_ERROR"},
   ],
 );
 
