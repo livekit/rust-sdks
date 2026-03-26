@@ -89,7 +89,6 @@ impl NativeVideoSource {
                             frame_id: 0,
                         },
                     );
-
                 }
             }
         });
