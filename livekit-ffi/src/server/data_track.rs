@@ -15,7 +15,10 @@
 use super::{FfiHandle, FfiServer};
 use crate::{proto, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
-use livekit::data_track::{DataTrackFrame, DataTrackSubscription, LocalDataTrack, RemoteDataTrack};
+use livekit::data_track::{
+    DataTrackFrame, DataTrackSubscribeOptions, DataTrackSubscription, LocalDataTrack,
+    RemoteDataTrack,
+};
 use std::sync::Arc;
 use tokio::sync::{oneshot, Notify};
 
@@ -111,21 +114,22 @@ impl FfiRemoteDataTrack {
         server: &'static FfiServer,
         request: proto::SubscribeDataTrackRequest,
     ) -> FfiResult<proto::SubscribeDataTrackResponse> {
-        let async_id = server.resolve_async_id(request.request_async_id);
+        let handle_id = server.next_id();
+        let (drop_tx, drop_rx) = oneshot::channel();
+        let notify_read = Arc::new(Notify::new());
 
-        let handle = server.async_runtime.spawn(async move {
-            let result = match self.inner.subscribe_with_options(request.options.into()).await {
-                Ok(stream) => proto::subscribe_data_track_callback::Result::Subscription(
-                    FfiDataTrackSubscription::from_stream(server, stream),
-                ),
-                Err(err) => proto::subscribe_data_track_callback::Result::Error(err.to_string()),
-            };
-            let event = proto::SubscribeDataTrackCallback { async_id, result: Some(result) };
-            let _ = server.send_event(event.into());
-        });
-        server.watch_panic(handle);
+        let subscription = FfiDataTrackSubscription { notify_read: notify_read.clone(), drop_tx };
+        server.store_handle(handle_id, subscription);
 
-        Ok(proto::SubscribeDataTrackResponse { async_id })
+        let task = SubscriptionTask { server, handle_id, notify_read, drop_rx };
+        let task_handle =
+            server.async_runtime.spawn(task.run(self.inner, request.options.into()));
+        server.watch_panic(task_handle);
+
+        let subscription = proto::OwnedDataTrackSubscription {
+            handle: proto::FfiOwnedHandle { id: handle_id },
+        };
+        Ok(proto::SubscribeDataTrackResponse { subscription })
     }
 }
 
@@ -138,25 +142,6 @@ pub struct FfiDataTrackSubscription {
 impl FfiHandle for FfiDataTrackSubscription {}
 
 impl FfiDataTrackSubscription {
-    fn from_stream(
-        server: &'static FfiServer,
-        stream: DataTrackSubscription,
-    ) -> proto::OwnedDataTrackSubscription {
-        let handle_id = server.next_id();
-
-        let (drop_tx, drop_rx) = oneshot::channel();
-        let notify_read = Arc::new(Notify::new());
-
-        let subscription = Self { notify_read: notify_read.clone(), drop_tx };
-        server.store_handle(handle_id, subscription);
-
-        let task = SubscriptionTask { server, handle_id, stream, notify_read, drop_rx };
-        let task_handle = server.async_runtime.spawn(task.run());
-        server.watch_panic(task_handle);
-
-        proto::OwnedDataTrackSubscription { handle: proto::FfiOwnedHandle { id: handle_id } }
-    }
-
     pub fn read(
         &self,
         _request: proto::DataTrackSubscriptionReadRequest,
@@ -169,27 +154,42 @@ impl FfiDataTrackSubscription {
 struct SubscriptionTask {
     server: &'static FfiServer,
     handle_id: FfiHandleId,
-    stream: DataTrackSubscription,
     notify_read: Arc<Notify>,
     drop_rx: oneshot::Receiver<()>,
 }
 
 impl SubscriptionTask {
-    async fn run(mut self) {
-        while let Some(frame) = self.next().await {
+    async fn run(mut self, track: RemoteDataTrack, options: DataTrackSubscribeOptions) {
+        let Some(mut stream) = self.wait_for_subscription(track, options).await else {
+            return;
+        };
+        while let Some(frame) = self.next_frame(&mut stream).await {
             self.send_frame(frame);
         }
-        self.send_eos();
+        self.send_eos(None);
     }
 
-    async fn next(&mut self) -> Option<DataTrackFrame> {
+    async fn wait_for_subscription(
+        &mut self,
+        track: RemoteDataTrack,
+        options: DataTrackSubscribeOptions,
+    ) -> Option<DataTrackSubscription> {
         tokio::select! {
-            // FFI handle dropped
             _ = &mut self.drop_rx => None,
-            // Read requested
-            _ = self.notify_read.notified() => {
-                self.stream.next().await
-            }
+            result = track.subscribe_with_options(options) => match result {
+                Ok(stream) => Some(stream),
+                Err(err) => {
+                    self.send_eos(Some(err.to_string()));
+                    None
+                }
+            },
+        }
+    }
+
+    async fn next_frame(&mut self, stream: &mut DataTrackSubscription) -> Option<DataTrackFrame> {
+        tokio::select! {
+            _ = &mut self.drop_rx => None,
+            _ = self.notify_read.notified() => stream.next().await,
         }
     }
 
@@ -201,10 +201,10 @@ impl SubscriptionTask {
         let _ = self.server.send_event(event.into());
     }
 
-    fn send_eos(&self) {
+    fn send_eos(&self, error: Option<String>) {
         let event = proto::DataTrackSubscriptionEvent {
             subscription_handle: self.handle_id,
-            detail: Some(proto::DataTrackSubscriptionEos::default().into()),
+            detail: Some(proto::DataTrackSubscriptionEos { error }.into()),
         };
         let _ = self.server.send_event(event.into());
     }

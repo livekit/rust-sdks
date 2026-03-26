@@ -129,17 +129,9 @@ message RemoteDataTrackIsPublishedResponse {
 message SubscribeDataTrackRequest {
   required uint64 track_handle = 1;
   required DataTrackSubscribeOptions options = 2;
-  optional uint64 request_async_id = 3;
 }
 message SubscribeDataTrackResponse {
-  required uint64 async_id = 1;
-}
-message SubscribeDataTrackCallback {
-  required uint64 async_id = 1;
-  oneof result {
-    OwnedDataTrackSubscription subscription = 2;
-    string error = 3;
-  }
+  required OwnedDataTrackSubscription subscription = 1;
 }
 
 // Signal readiness to handle the next frame.
@@ -168,4 +160,8 @@ message DataTrackSubscriptionFrameReceived {
 }
 
 // Subscription has ended (end of stream).
-message DataTrackSubscriptionEOS {}
+message DataTrackSubscriptionEOS {
+  // If the track could not be subscribed to, a message describing the error.
+  // Absent if the stream ended normally.
+  optional string error = 1;
+}

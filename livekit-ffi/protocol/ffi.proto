@@ -335,10 +335,9 @@ message FfiEvent {
     PublishDataTrackCallback publish_data_track = 42;
 
     // Data Track (remote)
-    SubscribeDataTrackCallback subscribe_data_track = 43;
-    DataTrackSubscriptionEvent data_track_subscription_event = 44;
+    DataTrackSubscriptionEvent data_track_subscription_event = 43;
 
-    // NEXT_ID: 45
+    // NEXT_ID: 44
   }
 }
 
