@@ -107,7 +107,7 @@ jobs:
               cp /tmp/protoc /usr/local/bin/protoc
               chmod +x /usr/local/bin/protoc
 
-              yum install -y openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel clang clang-devel
+              yum install -y openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel clang clang-devel lld
               yum install -y gcc-toolset-12-gcc gcc-toolset-12-gcc-c++ gcc-toolset-12-libstdc++-devel libstdc++-devel
               source /opt/rh/gcc-toolset-12/enable
               gcc --version
