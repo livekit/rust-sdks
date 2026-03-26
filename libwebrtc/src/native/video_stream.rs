@@ -26,7 +26,7 @@ use webrtc_sys::video_track as sys_vt;
 use super::video_frame::new_video_frame_buffer;
 use crate::{
     native::packet_trailer::PacketTrailerHandler,
-    video_frame::{BoxVideoFrame, VideoFrame},
+    video_frame::{BoxVideoFrame, FrameMetadata, VideoFrame},
     video_track::RtcVideoTrack,
 };
 
@@ -106,22 +106,20 @@ struct VideoTrackObserver {
 impl sys_vt::VideoSink for VideoTrackObserver {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
         let rtp_timestamp = frame.timestamp();
-        let meta = self
+        let frame_metadata = self
             .packet_trailer_handler
             .lock()
             .as_ref()
-            .and_then(|h| h.lookup_frame_metadata(rtp_timestamp));
-
-        let (user_timestamp_us, frame_id) = match meta {
-            Some((ts, fid)) => (Some(ts), Some(fid)),
-            None => (None, None),
-        };
+            .and_then(|h| h.lookup_frame_metadata(rtp_timestamp))
+            .map(|(ts, fid)| FrameMetadata {
+                user_timestamp_us: Some(ts),
+                frame_id: if fid != 0 { Some(fid) } else { None },
+            });
 
         let _ = self.frame_tx.send(VideoFrame {
             rotation: frame.rotation().into(),
             timestamp_us: frame.timestamp_us(),
-            user_timestamp_us,
-            frame_id,
+            frame_metadata,
             buffer: new_video_frame_buffer(unsafe { frame.video_frame_buffer() }),
         });
     }

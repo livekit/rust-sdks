@@ -77,10 +77,8 @@ struct SharedYuv {
     dirty: bool,
     /// Time when the latest frame became available to the subscriber code.
     received_at_us: Option<i64>,
-    /// Last received user timestamp in microseconds, if any.
-    user_timestamp_us: Option<i64>,
-    /// Last received frame_id, if any.
-    frame_id: Option<u32>,
+    /// Packet-trailer metadata from the most recent frame, if any.
+    frame_metadata: Option<livekit::webrtc::video_frame::FrameMetadata>,
     /// Whether the publisher advertised PTF_USER_TIMESTAMP in its track info.
     has_user_timestamp: bool,
 }
@@ -356,10 +354,11 @@ async fn handle_track_subscribed(
             s.dirty = true;
             s.received_at_us = Some(received_at_us);
 
-            s.user_timestamp_us = frame.user_timestamp_us;
-            s.frame_id = frame.frame_id;
+            s.frame_metadata = frame.frame_metadata;
 
-            if !s.has_user_timestamp && frame.user_timestamp_us.is_some() {
+            if !s.has_user_timestamp
+                && frame.frame_metadata.and_then(|m| m.user_timestamp_us).is_some()
+            {
                 s.has_user_timestamp = true;
             }
 
@@ -439,8 +438,7 @@ fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex
         s.codec.clear();
         s.fps = 0.0;
         s.received_at_us = None;
-        s.user_timestamp_us = None;
-        s.frame_id = None;
+        s.frame_metadata = None;
         s.has_user_timestamp = false;
     }
     let mut sc = simulcast.lock();
@@ -573,11 +571,13 @@ impl eframe::App for VideoApp {
 
         if self.display_timestamp {
             let s = self.shared.lock();
-            let frame_id = s.frame_id;
-            let publish_us = s.user_timestamp_us;
+            let meta = s.frame_metadata;
             let receive_us = s.received_at_us;
             let has_user_timestamp = s.has_user_timestamp;
             drop(s);
+
+            let publish_us = meta.and_then(|m| m.user_timestamp_us);
+            let frame_id = meta.and_then(|m| m.frame_id);
 
             if publish_us.is_some() || frame_id.is_some() {
                 let frame_id_line = match frame_id {
@@ -742,8 +742,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         fps: 0.0,
         dirty: false,
         received_at_us: None,
-        user_timestamp_us: None,
-        frame_id: None,
+        frame_metadata: None,
         has_user_timestamp: false,
     }));
 

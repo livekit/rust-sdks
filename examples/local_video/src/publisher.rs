@@ -5,7 +5,7 @@ use livekit::options::{
     self, video as video_presets, TrackPublishOptions, VideoCodec, VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
-use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
+use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
@@ -384,8 +384,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut frame = VideoFrame {
         rotation: VideoRotation::VideoRotation0,
         timestamp_us: 0,
-        user_timestamp_us: None,
-        frame_id: None,
+        frame_metadata: None,
         buffer: I420Buffer::new(width, height),
     };
     let is_yuyv = fmt.format() == FrameFormat::YUYV;
@@ -558,19 +557,20 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
         // Update RTP timestamp (monotonic, microseconds since start)
         frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
-        // Optionally attach wall-clock time as user timestamp
-        if args.attach_timestamp {
-            frame.user_timestamp_us = Some(capture_wall_time_us);
-        } else {
-            frame.user_timestamp_us = None;
-        }
-        // Optionally attach a monotonically increasing frame ID
-        if args.attach_frame_id {
-            frame.frame_id = Some(frame_counter);
+        // Build frame metadata from enabled packet trailer features
+        let user_ts = if args.attach_timestamp { Some(capture_wall_time_us) } else { None };
+        let fid = if args.attach_frame_id {
+            let id = frame_counter;
             frame_counter = frame_counter.wrapping_add(1);
+            Some(id)
         } else {
-            frame.frame_id = None;
-        }
+            None
+        };
+        frame.frame_metadata = if user_ts.is_some() || fid.is_some() {
+            Some(FrameMetadata { user_timestamp_us: user_ts, frame_id: fid })
+        } else {
+            None
+        };
         rtc_source.capture_frame(&frame);
         let webrtc_capture_finished_at = Instant::now();
 

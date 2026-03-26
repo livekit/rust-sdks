@@ -89,6 +89,7 @@ impl NativeVideoSource {
                             frame_id: 0,
                         },
                     );
+
                 }
             }
         });
@@ -113,9 +114,10 @@ impl NativeVideoSource {
         };
         builder.pin_mut().set_timestamp_us(capture_ts);
 
-        let user_ts = frame.user_timestamp_us.unwrap_or(0);
-        let frame_id = frame.frame_id.unwrap_or(0);
-        let has_trailer = frame.user_timestamp_us.is_some() || frame.frame_id.is_some();
+        let (has_trailer, user_ts, fid) = match frame.frame_metadata {
+            Some(meta) => (true, meta.user_timestamp_us.unwrap_or(0), meta.frame_id.unwrap_or(0)),
+            None => (false, 0, 0),
+        };
 
         self.inner.lock().captured_frames += 1;
 
@@ -124,7 +126,7 @@ impl NativeVideoSource {
             &vt_sys::ffi::FrameMetadata {
                 has_packet_trailer: has_trailer,
                 user_timestamp_us: user_ts,
-                frame_id,
+                frame_id: fid,
             },
         );
     }

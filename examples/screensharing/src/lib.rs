@@ -186,8 +186,7 @@ mod test {
             let mut frame_buffer = VideoFrame {
                 rotation: VideoRotation::VideoRotation0,
                 timestamp_us: 0,
-                user_timestamp_us: None,
-                frame_id: None,
+                frame_metadata: None,
                 buffer: I420Buffer::new(1, 1),
             };
             move |result: Result<DesktopFrame, CaptureError>| {
