@@ -55,6 +55,8 @@ call git apply "%COMMAND_DIR%/patches/add_deps.patch" -v --ignore-space-change -
 call git apply "%COMMAND_DIR%/patches/windows_silence_warnings.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 call git apply "%COMMAND_DIR%/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
+copy ".vpython3" "..\"
+
 cd ..
 
 mkdir "%ARTIFACTS_DIR%\lib"
@@ -63,8 +65,6 @@ set "debug=false"
 if "!profile!" == "debug" (
   set "debug=true"
 )
-
-call copy "src\.vpython3" ..
 
 rem generate ninja for release
 call gn.bat gen %OUTPUT_DIR% --root="src" ^
