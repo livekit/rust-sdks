@@ -59,7 +59,7 @@ pub enum VideoBufferType {
 #[derive(Debug, Clone, Copy)]
 pub struct FrameMetadata {
     /// Wall-clock capture time in microseconds, when `PTF_USER_TIMESTAMP` is enabled.
-    pub user_timestamp_us: Option<i64>,
+    pub user_timestamp_us: Option<u64>,
     /// Monotonically increasing frame identifier, when `PTF_FRAME_ID` is enabled.
     pub frame_id: Option<u32>,
 }

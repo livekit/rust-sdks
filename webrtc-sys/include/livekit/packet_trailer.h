@@ -56,7 +56,7 @@ constexpr size_t kTrailerEnvelopeSize = 5;
 // All TLV bytes (tag, len, value) are XORed with 0xFF.
 
 // TLV tag IDs
-constexpr uint8_t kTagTimestampUs = 0x01;  // value: 8 bytes big-endian int64
+constexpr uint8_t kTagTimestampUs = 0x01;  // value: 8 bytes big-endian uint64
 constexpr uint8_t kTagFrameId = 0x02;      // value: 4 bytes big-endian uint32
 
 constexpr size_t kTimestampTlvSize = 10;  // tag + len + 8-byte value
@@ -69,7 +69,7 @@ constexpr size_t kPacketTrailerMaxSize =
     kTimestampTlvSize + kFrameIdTlvSize + kTrailerEnvelopeSize;
 
 struct PacketTrailerMetadata {
-  int64_t user_timestamp_us;
+  uint64_t user_timestamp_us;
   uint32_t frame_id;
   uint32_t ssrc;  // SSRC that produced this entry (for simulcast tracking)
 };
@@ -116,7 +116,7 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   /// TimestampAligner-adjusted timestamp, which matches CaptureTime()
   /// in the encoder pipeline.
   void store_frame_metadata(int64_t capture_timestamp_us,
-                            int64_t user_timestamp_us,
+                            uint64_t user_timestamp_us,
                             uint32_t frame_id);
 
  private:
@@ -128,7 +128,7 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   /// Append frame metadata trailer to frame data
   std::vector<uint8_t> AppendTrailer(
       rtc::ArrayView<const uint8_t> data,
-      int64_t user_timestamp_us,
+      uint64_t user_timestamp_us,
       uint32_t frame_id);
 
   /// Extract and remove frame metadata trailer from frame data
@@ -181,9 +181,9 @@ class PacketTrailerHandler {
   bool enabled() const;
 
   /// Lookup the user timestamp for a given RTP timestamp (receiver side).
-  /// Returns -1 if not found. The entry is removed after lookup.
+  /// Returns UINT64_MAX if not found. The entry is removed after lookup.
   /// Also caches the frame_id for retrieval via last_lookup_frame_id().
-  int64_t lookup_timestamp(uint32_t rtp_timestamp) const;
+  uint64_t lookup_timestamp(uint32_t rtp_timestamp) const;
 
   /// Returns the frame_id from the most recent successful
   /// lookup_timestamp() call. Returns 0 if no lookup succeeded.
@@ -191,7 +191,7 @@ class PacketTrailerHandler {
 
   /// Store frame metadata for a given capture timestamp (sender side).
   void store_frame_metadata(int64_t capture_timestamp_us,
-                            int64_t user_timestamp_us,
+                            uint64_t user_timestamp_us,
                             uint32_t frame_id) const;
 
   /// Access the underlying transformer for chaining.

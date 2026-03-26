@@ -76,7 +76,7 @@ struct SharedYuv {
     fps: f32,
     dirty: bool,
     /// Time when the latest frame became available to the subscriber code.
-    received_at_us: Option<i64>,
+    received_at_us: Option<u64>,
     /// Packet-trailer metadata from the most recent frame, if any.
     frame_metadata: Option<livekit::webrtc::video_frame::FrameMetadata>,
     /// Whether the publisher advertised PTF_USER_TIMESTAMP in its track info.
@@ -190,14 +190,14 @@ fn update_simulcast_quality_from_stats(
 }
 
 /// Returns the current wall-clock time as microseconds since Unix epoch.
-fn current_timestamp_us() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_micros() as i64
+fn current_timestamp_us() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_micros() as u64
 }
 
 /// Format a user timestamp (microseconds since Unix epoch) as
 /// `yyyy-mm-dd hh:mm:ss:xxx` where xxx is milliseconds.
-fn format_timestamp_us(ts_us: i64) -> String {
-    DateTime::<Utc>::from_timestamp_micros(ts_us)
+fn format_timestamp_us(ts_us: u64) -> String {
+    DateTime::<Utc>::from_timestamp_micros(ts_us as i64)
         .map(|dt| {
             dt.format("%Y-%m-%d %H:%M:%S:").to_string()
                 + &format!("{:03}", dt.timestamp_subsec_millis())
@@ -205,7 +205,7 @@ fn format_timestamp_us(ts_us: i64) -> String {
         .unwrap_or_else(|| format!("<invalid timestamp {ts_us}>"))
 }
 
-fn format_optional_timestamp_us(ts_us: Option<i64>) -> String {
+fn format_optional_timestamp_us(ts_us: Option<u64>) -> String {
     ts_us.map(format_timestamp_us).unwrap_or_else(|| "N/A".to_string())
 }
 
@@ -587,7 +587,7 @@ impl eframe::App for VideoApp {
                 if has_user_timestamp {
                     let latency = match (publish_us, receive_us) {
                         (Some(pub_ts), Some(recv_ts)) => {
-                            format!("{:.1}ms", (recv_ts - pub_ts) as f64 / 1000.0)
+                            format!("{:.1}ms", recv_ts.saturating_sub(pub_ts) as f64 / 1000.0)
                         }
                         _ => "N/A".to_string(),
                     };

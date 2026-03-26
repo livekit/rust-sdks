@@ -73,7 +73,7 @@ impl TimestampOverlay {
         }
     }
 
-    pub fn draw(&mut self, data_y: &mut [u8], stride_y: usize, timestamp_us: i64) {
+    pub fn draw(&mut self, data_y: &mut [u8], stride_y: usize, timestamp_us: u64) {
         if !self.enabled {
             return;
         }
@@ -121,8 +121,8 @@ fn rasterize_timestamp_glyphs() -> [TimestampGlyph; TIMESTAMP_GLYPH_COUNT] {
     glyphs
 }
 
-fn format_timestamp_glyphs(timestamp_us: i64, out: &mut [u8; TIMESTAMP_TEXT_LEN]) {
-    let Some(dt) = DateTime::<Utc>::from_timestamp_micros(timestamp_us) else {
+fn format_timestamp_glyphs(timestamp_us: u64, out: &mut [u8; TIMESTAMP_TEXT_LEN]) {
+    let Some(dt) = DateTime::<Utc>::from_timestamp_micros(timestamp_us as i64) else {
         out.fill(0);
         return;
     };

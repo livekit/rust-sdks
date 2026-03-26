@@ -38,7 +38,7 @@ pub mod ffi {
         /// Lookup the user timestamp for a given RTP timestamp (receiver side).
         /// Returns -1 if not found. The entry is removed after lookup.
         /// Also caches the frame_id for retrieval via last_lookup_frame_id().
-        fn lookup_timestamp(self: &PacketTrailerHandler, rtp_timestamp: u32) -> i64;
+        fn lookup_timestamp(self: &PacketTrailerHandler, rtp_timestamp: u32) -> u64;
 
         /// Returns the frame_id from the most recent successful
         /// lookup_timestamp() call.
@@ -48,7 +48,7 @@ pub mod ffi {
         fn store_frame_metadata(
             self: &PacketTrailerHandler,
             capture_timestamp_us: i64,
-            user_timestamp_us: i64,
+            user_timestamp_us: u64,
             frame_id: u32,
         );
 

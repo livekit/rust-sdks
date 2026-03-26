@@ -100,8 +100,8 @@ struct Args {
     e2ee_key: Option<String>,
 }
 
-fn unix_time_us_now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as i64
+fn unix_time_us_now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u64
 }
 
 #[derive(Default)]

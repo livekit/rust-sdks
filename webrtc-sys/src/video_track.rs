@@ -45,7 +45,7 @@ pub mod ffi {
     #[derive(Debug)]
     pub struct FrameMetadata {
         pub has_packet_trailer: bool,
-        pub user_timestamp_us: i64,
+        pub user_timestamp_us: u64,
         pub frame_id: u32,
     }
 
