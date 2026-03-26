@@ -47,11 +47,15 @@ pub unsafe extern "C" fn livekit_ffi_initialize(
         sdk: CStr::from_ptr(sdk).to_string_lossy().into_owned(),
         sdk_version: CStr::from_ptr(sdk_version).to_string_lossy().into_owned(),
         device_model: {
-            let s = CStr::from_ptr(device_model).to_string_lossy().into_owned();
-            if s.is_empty() {
+            if device_model.is_null() {
                 None
             } else {
-                Some(s)
+                let s = CStr::from_ptr(device_model).to_string_lossy().into_owned();
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
             }
         },
     });
