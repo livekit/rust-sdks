@@ -483,6 +483,9 @@ struct VideoApp {
     display_timestamp: bool,
     /// Cached timestamp overlay text to avoid layout churn on every repaint.
     last_timestamp_text: String,
+    /// Cached latency text, refreshed at 2 Hz for readability.
+    last_latency_text: String,
+    last_latency_refresh: Option<Instant>,
 }
 
 impl eframe::App for VideoApp {
@@ -587,9 +590,24 @@ impl eframe::App for VideoApp {
                 if has_user_timestamp {
                     let latency = match (publish_us, receive_us) {
                         (Some(pub_ts), Some(recv_ts)) => {
-                            format!("{:.1}ms", recv_ts.saturating_sub(pub_ts) as f64 / 1000.0)
+                            let should_refresh = self.last_latency_text.is_empty()
+                                || self
+                                    .last_latency_refresh
+                                    .is_none_or(|last| last.elapsed() >= Duration::from_millis(500));
+                            if should_refresh {
+                                self.last_latency_text = format!(
+                                    "{:.1}ms",
+                                    recv_ts.saturating_sub(pub_ts) as f64 / 1000.0
+                                );
+                                self.last_latency_refresh = Some(Instant::now());
+                            }
+                            self.last_latency_text.clone()
                         }
-                        _ => "N/A".to_string(),
+                        _ => {
+                            self.last_latency_text = "N/A".to_string();
+                            self.last_latency_refresh = None;
+                            self.last_latency_text.clone()
+                        }
                     };
                     self.last_timestamp_text = format!(
                         "{}\nPublish:    {}\nReceive:    {}\nLatency:    {}",
@@ -797,6 +815,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         locked_aspect: None,
         display_timestamp: args.display_timestamp,
         last_timestamp_text: String::new(),
+        last_latency_text: String::new(),
+        last_latency_refresh: None,
     };
     let native_options = eframe::NativeOptions { vsync: false, ..Default::default() };
     eframe::run_native(
