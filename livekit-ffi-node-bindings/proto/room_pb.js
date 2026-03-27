@@ -28,6 +28,7 @@ const { VideoCodec } = require("./video_frame_pb.js");
 const { E2eeOptions, EncryptionState } = require("./e2ee_pb.js");
 const { FfiOwnedHandle } = require("./handle_pb.js");
 const { OwnedByteStreamReader, OwnedTextStreamReader } = require("./data_stream_pb.js");
+const { OwnedRemoteDataTrack } = require("./data_track_pb.js");
 
 /**
  * @generated from enum livekit.proto.IceTransportType
@@ -160,6 +161,7 @@ const DisconnectRequest = /*@__PURE__*/ proto2.makeMessageType(
   () => [
     { no: 1, name: "room_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+    { no: 3, name: "reason", kind: "enum", T: proto2.getEnumType(DisconnectReason), opt: true },
   ],
 );
 
@@ -679,6 +681,8 @@ const RoomOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 5, name: "rtc_config", kind: "message", T: RtcConfig, opt: true },
     { no: 6, name: "join_retries", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
     { no: 7, name: "encryption", kind: "message", T: E2eeOptions, opt: true },
+    { no: 8, name: "single_peer_connection", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 9, name: "connect_timeout_ms", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ],
 );
 
@@ -766,6 +770,8 @@ const RoomEvent = /*@__PURE__*/ proto2.makeMessageType(
     { no: 39, name: "participant_encryption_status_changed", kind: "message", T: ParticipantEncryptionStatusChanged, oneof: "message" },
     { no: 41, name: "participant_permission_changed", kind: "message", T: ParticipantPermissionChanged, oneof: "message" },
     { no: 40, name: "token_refreshed", kind: "message", T: TokenRefreshed, oneof: "message" },
+    { no: 42, name: "data_track_published", kind: "message", T: DataTrackPublished, oneof: "message" },
+    { no: 43, name: "data_track_unpublished", kind: "message", T: DataTrackUnpublished, oneof: "message" },
   ],
 );
 
@@ -1478,6 +1484,30 @@ const TextStreamOpened = /*@__PURE__*/ proto2.makeMessageType(
   ],
 );
 
+/**
+ * A remote participant published a data track.
+ *
+ * @generated from message livekit.proto.DataTrackPublished
+ */
+const DataTrackPublished = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DataTrackPublished",
+  () => [
+    { no: 1, name: "track", kind: "message", T: OwnedRemoteDataTrack, req: true },
+  ],
+);
+
+/**
+ * A remote participant unpublished a data track.
+ *
+ * @generated from message livekit.proto.DataTrackUnpublished
+ */
+const DataTrackUnpublished = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DataTrackUnpublished",
+  () => [
+    { no: 1, name: "sid", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+  ],
+);
+
 
 exports.IceTransportType = IceTransportType;
 exports.ContinualGatheringPolicy = ContinualGatheringPolicy;
@@ -1599,3 +1629,5 @@ exports.SetDataChannelBufferedAmountLowThresholdResponse = SetDataChannelBuffere
 exports.DataChannelBufferedAmountLowThresholdChanged = DataChannelBufferedAmountLowThresholdChanged;
 exports.ByteStreamOpened = ByteStreamOpened;
 exports.TextStreamOpened = TextStreamOpened;
+exports.DataTrackPublished = DataTrackPublished;
+exports.DataTrackUnpublished = DataTrackUnpublished;

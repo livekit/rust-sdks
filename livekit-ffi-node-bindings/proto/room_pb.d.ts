@@ -26,6 +26,7 @@ import type { VideoCodec } from "./video_frame_pb.js";
 import type { E2eeOptions, EncryptionState } from "./e2ee_pb.js";
 import type { FfiOwnedHandle } from "./handle_pb.js";
 import type { OwnedByteStreamReader, OwnedTextStreamReader } from "./data_stream_pb.js";
+import type { OwnedRemoteDataTrack } from "./data_track_pb.js";
 
 /**
  * @generated from enum livekit.proto.IceTransportType
@@ -309,6 +310,11 @@ export declare class DisconnectRequest extends Message<DisconnectRequest> {
    * @generated from field: optional uint64 request_async_id = 2;
    */
   requestAsyncId?: bigint;
+
+  /**
+   * @generated from field: optional livekit.proto.DisconnectReason reason = 3;
+   */
+  reason?: DisconnectReason;
 
   constructor(data?: PartialMessage<DisconnectRequest>);
 
@@ -1744,6 +1750,20 @@ export declare class RoomOptions extends Message<RoomOptions> {
    */
   encryption?: E2eeOptions;
 
+  /**
+   * use single peer connection for both publish/subscribe (default: false)
+   *
+   * @generated from field: optional bool single_peer_connection = 8;
+   */
+  singlePeerConnection?: boolean;
+
+  /**
+   * timeout in milliseconds for each signal connection attempt (default: 5000)
+   *
+   * @generated from field: optional uint64 connect_timeout_ms = 9;
+   */
+  connectTimeoutMs?: bigint;
+
   constructor(data?: PartialMessage<RoomOptions>);
 
   static readonly runtime: typeof proto2;
@@ -2132,6 +2152,18 @@ export declare class RoomEvent extends Message<RoomEvent> {
      */
     value: TokenRefreshed;
     case: "tokenRefreshed";
+  } | {
+    /**
+     * @generated from field: livekit.proto.DataTrackPublished data_track_published = 42;
+     */
+    value: DataTrackPublished;
+    case: "dataTrackPublished";
+  } | {
+    /**
+     * @generated from field: livekit.proto.DataTrackUnpublished data_track_unpublished = 43;
+     */
+    value: DataTrackUnpublished;
+    case: "dataTrackUnpublished";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<RoomEvent>);
@@ -4082,5 +4114,59 @@ export declare class TextStreamOpened extends Message<TextStreamOpened> {
   static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): TextStreamOpened;
 
   static equals(a: TextStreamOpened | PlainMessage<TextStreamOpened> | undefined, b: TextStreamOpened | PlainMessage<TextStreamOpened> | undefined): boolean;
+}
+
+/**
+ * A remote participant published a data track.
+ *
+ * @generated from message livekit.proto.DataTrackPublished
+ */
+export declare class DataTrackPublished extends Message<DataTrackPublished> {
+  /**
+   * @generated from field: required livekit.proto.OwnedRemoteDataTrack track = 1;
+   */
+  track?: OwnedRemoteDataTrack;
+
+  constructor(data?: PartialMessage<DataTrackPublished>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DataTrackPublished";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DataTrackPublished;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DataTrackPublished;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DataTrackPublished;
+
+  static equals(a: DataTrackPublished | PlainMessage<DataTrackPublished> | undefined, b: DataTrackPublished | PlainMessage<DataTrackPublished> | undefined): boolean;
+}
+
+/**
+ * A remote participant unpublished a data track.
+ *
+ * @generated from message livekit.proto.DataTrackUnpublished
+ */
+export declare class DataTrackUnpublished extends Message<DataTrackUnpublished> {
+  /**
+   * SID of the track that was unpublished.
+   *
+   * @generated from field: required string sid = 1;
+   */
+  sid?: string;
+
+  constructor(data?: PartialMessage<DataTrackUnpublished>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.DataTrackUnpublished";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): DataTrackUnpublished;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): DataTrackUnpublished;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DataTrackUnpublished;
+
+  static equals(a: DataTrackUnpublished | PlainMessage<DataTrackUnpublished> | undefined, b: DataTrackUnpublished | PlainMessage<DataTrackUnpublished> | undefined): boolean;
 }
 

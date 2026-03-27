@@ -101,6 +101,7 @@ const NewAudioStreamRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 5, name: "audio_filter_module_id", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 6, name: "audio_filter_options", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 7, name: "frame_size_ms", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
+    { no: 8, name: "queue_size_frames", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
   ],
 );
 
@@ -128,6 +129,7 @@ const AudioStreamFromParticipantRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 7, name: "audio_filter_module_id", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 8, name: "audio_filter_options", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 9, name: "frame_size_ms", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
+    { no: 10, name: "queue_size_frames", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
   ],
 );
 
