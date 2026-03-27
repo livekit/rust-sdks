@@ -82,6 +82,9 @@ cd third_party
 
 git apply "$COMMAND_DIR/patches/david_disable_gun_source_macro.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
+cd ../libyuv
+git apply "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+
 cd ../..
 
 mkdir -p "$ARTIFACTS_DIR/lib"
