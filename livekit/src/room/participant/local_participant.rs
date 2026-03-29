@@ -101,6 +101,7 @@ impl Debug for LocalParticipant {
             .field("sid", &self.sid())
             .field("identity", &self.identity())
             .field("name", &self.name())
+            .field("state", &self.state())
             .finish()
     }
 }
