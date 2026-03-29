@@ -38,6 +38,14 @@ pub enum ConnectionQuality {
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum ParticipantState {
+    Joining,
+    Joined,
+    Active,
+    Disconnected,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum ParticipantKind {
     Standard,
     Ingress,
@@ -90,6 +98,7 @@ impl Participant {
         pub fn sid(self: &Self) -> ParticipantSid;
         pub fn identity(self: &Self) -> ParticipantIdentity;
         pub fn name(self: &Self) -> String;
+        pub fn state(self: &Self) -> ParticipantState;
         pub fn metadata(self: &Self) -> String;
         pub fn attributes(self: &Self) -> HashMap<String, String>;
         pub fn is_speaking(self: &Self) -> bool;
@@ -98,6 +107,7 @@ impl Participant {
         pub fn kind(self: &Self) -> ParticipantKind;
         pub fn kind_details(self: &Self) -> Vec<ParticipantKindDetail>;
         pub fn disconnect_reason(self: &Self) -> DisconnectReason;
+        pub fn joined_at(self: &Self) -> i64;
         pub fn is_encrypted(self: &Self) -> bool;
         pub fn permission(self: &Self) -> Option<proto::ParticipantPermission>;
 
@@ -124,6 +134,7 @@ struct ParticipantInfo {
     pub sid: ParticipantSid,
     pub identity: ParticipantIdentity,
     pub name: String,
+    pub state: ParticipantState,
     pub metadata: String,
     pub attributes: HashMap<String, String>,
     pub speaking: bool,
@@ -132,6 +143,7 @@ struct ParticipantInfo {
     pub kind: ParticipantKind,
     pub kind_details: Vec<ParticipantKindDetail>,
     pub disconnect_reason: DisconnectReason,
+    pub joined_at: i64,
     pub permission: Option<proto::ParticipantPermission>,
 }
 
@@ -176,10 +188,12 @@ pub(super) fn new_inner(
     sid: ParticipantSid,
     identity: ParticipantIdentity,
     name: String,
+    state: ParticipantState,
     metadata: String,
     attributes: HashMap<String, String>,
     kind: ParticipantKind,
     kind_details: Vec<ParticipantKindDetail>,
+    joined_at: i64,
     permission: Option<proto::ParticipantPermission>,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
@@ -188,6 +202,7 @@ pub(super) fn new_inner(
             sid,
             identity,
             name,
+            state,
             metadata,
             attributes,
             kind,
@@ -196,6 +211,7 @@ pub(super) fn new_inner(
             audio_level: 0.0,
             connection_quality: ConnectionQuality::Excellent,
             disconnect_reason: DisconnectReason::UnknownReason,
+            joined_at,
             permission,
         }),
         track_publications: Default::default(),
@@ -211,11 +227,13 @@ pub(super) fn update_info(
     new_info: proto::ParticipantInfo,
 ) {
     let mut info = inner.info.write();
+    info.state = new_info.state().into();
     info.disconnect_reason = new_info.disconnect_reason().into();
     info.kind = new_info.kind().into();
     info.kind_details = super::utils::convert_kind_details(&new_info.kind_details);
     info.sid = new_info.sid.try_into().unwrap();
     info.identity = new_info.identity.into();
+    info.joined_at = new_info.joined_at_ms;
 
     let old_name = std::mem::replace(&mut info.name, new_info.name.clone());
     if old_name != new_info.name {

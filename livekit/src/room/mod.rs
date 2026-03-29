@@ -41,7 +41,7 @@ pub use utils::take_cell::TakeCell;
 pub use self::{
     data_stream::*,
     e2ee::{manager::E2eeManager, E2eeOptions},
-    participant::{ParticipantKind, ParticipantKindDetail},
+    participant::{ParticipantKind, ParticipantKindDetail, ParticipantState},
 };
 pub use crate::rtc_engine::SimulateScenario;
 use crate::{
@@ -86,7 +86,16 @@ pub enum RoomError {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum RoomEvent {
+    /// Remote participant joined the room.
+    ///
+    /// This event is fired immediately after a participant joins before
+    /// it is able to receive data messages. To send data messages in response
+    /// to a participant joining, respond to the [`Self::ParticipantActive`] event instead.
+    ///
     ParticipantConnected(RemoteParticipant),
+    /// Remote participant is active and ready to receive data messages.
+    ParticipantActive(RemoteParticipant),
+    /// Remote participant disconnected from the room.
     ParticipantDisconnected(RemoteParticipant),
     LocalTrackPublished {
         publication: LocalTrackPublication,
@@ -510,15 +519,20 @@ impl Room {
         }
 
         let pi = join_response.participant.unwrap();
+        let pi_kind = pi.kind().into();
+        let pi_kind_details = utils::convert_kind_details(&pi.kind_details);
+        let pi_state = pi.state().into();
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
-            pi.kind().into(),
-            utils::convert_kind_details(&pi.kind_details),
+            pi_kind,
+            pi_kind_details,
             pi.sid.try_into().unwrap(),
             pi.identity.into(),
             pi.name,
+            pi_state,
             pi.metadata,
             pi.attributes,
+            pi.joined_at_ms,
             e2ee_manager.encryption_type(),
             pi.permission,
         );
@@ -665,14 +679,19 @@ impl Room {
         for pi in join_response.other_participants {
             let participant = {
                 let pi = pi.clone();
+                let pi_kind = pi.kind().into();
+                let pi_kind_details = utils::convert_kind_details(&pi.kind_details);
+                let pi_state = pi.state().into();
                 inner.create_participant(
-                    pi.kind().into(),
-                    utils::convert_kind_details(&pi.kind_details),
+                    pi_kind,
+                    pi_kind_details,
                     pi.sid.try_into().unwrap(),
                     pi.identity.into(),
                     pi.name,
+                    pi_state,
                     pi.metadata,
                     pi.attributes,
+                    pi.joined_at_ms,
                     pi.permission,
                 )
             };
@@ -1032,20 +1051,30 @@ impl RoomSession {
                     // disconnected
                 }
             } else if let Some(remote_participant) = remote_participant {
+                let already_active = remote_participant.state() == ParticipantState::Active;
                 remote_participant.update_info(pi.clone());
+                if !already_active && remote_participant.state() == ParticipantState::Active {
+                    self.dispatcher
+                        .dispatch(&RoomEvent::ParticipantActive(remote_participant.clone()));
+                }
                 participants.push(Participant::Remote(remote_participant));
             } else {
                 // Create a new participant
                 let remote_participant = {
                     let pi = pi.clone();
+                    let pi_kind = pi.kind().into();
+                    let pi_kind_details = utils::convert_kind_details(&pi.kind_details);
+                    let pi_state = pi.state().into();
                     self.create_participant(
-                        pi.kind().into(),
-                        utils::convert_kind_details(&pi.kind_details),
+                        pi_kind,
+                        pi_kind_details,
                         pi.sid.try_into().unwrap(),
                         pi.identity.into(),
                         pi.name,
+                        pi_state,
                         pi.metadata,
                         pi.attributes,
+                        pi.joined_at_ms,
                         pi.permission,
                     )
                 };
@@ -1053,6 +1082,11 @@ impl RoomSession {
                 self.dispatcher
                     .dispatch(&RoomEvent::ParticipantConnected(remote_participant.clone()));
 
+                if remote_participant.state() == ParticipantState::Active {
+                    // Already active, also emit active event
+                    self.dispatcher
+                        .dispatch(&RoomEvent::ParticipantActive(remote_participant.clone()));
+                }
                 remote_participant.update_info(pi.clone()); // Add tracks
             }
         }
@@ -1713,8 +1747,10 @@ impl RoomSession {
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
+        state: participant::ParticipantState,
         metadata: String,
         attributes: HashMap<String, String>,
+        joined_at: i64,
         permission: Option<proto::ParticipantPermission>,
     ) -> RemoteParticipant {
         let participant = RemoteParticipant::new(
@@ -1724,8 +1760,10 @@ impl RoomSession {
             sid.clone(),
             identity.clone(),
             name,
+            state,
             metadata,
             attributes,
+            joined_at,
             self.options.auto_subscribe,
             permission,
         );
