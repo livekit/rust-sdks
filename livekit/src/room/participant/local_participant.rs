@@ -113,8 +113,10 @@ impl LocalParticipant {
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
+        state: super::ParticipantState,
         metadata: String,
         attributes: HashMap<String, String>,
+        joined_at: i64,
         encryption_type: EncryptionType,
         permission: Option<proto::ParticipantPermission>,
     ) -> Self {
@@ -124,10 +126,12 @@ impl LocalParticipant {
                 sid,
                 identity,
                 name,
+                state,
                 metadata,
                 attributes,
                 kind,
                 kind_details,
+                joined_at,
                 permission,
             ),
             local: Arc::new(LocalInfo {
@@ -726,6 +730,10 @@ impl LocalParticipant {
         self.inner.info.read().name.clone()
     }
 
+    pub fn state(&self) -> super::ParticipantState {
+        self.inner.info.read().state
+    }
+
     pub fn metadata(&self) -> String {
         self.inner.info.read().metadata.clone()
     }
@@ -772,6 +780,10 @@ impl LocalParticipant {
 
     pub fn disconnect_reason(&self) -> DisconnectReason {
         self.inner.info.read().disconnect_reason
+    }
+
+    pub fn joined_at(&self) -> i64 {
+        self.inner.info.read().joined_at
     }
 
     pub fn permission(&self) -> Option<proto::ParticipantPermission> {
