@@ -86,7 +86,16 @@ pub enum RoomError {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum RoomEvent {
+    /// Remote participant joined the room.
+    ///
+    /// This event is fired immediately after a participant joins before
+    /// it is able to receive data messages. To send data messages in response
+    /// to a participant joining, respond to the [`Self::ParticipantActive`] event instead.
+    ///
     ParticipantConnected(RemoteParticipant),
+    /// Remote participant is active and ready to receive data messages.
+    ParticipantActive(RemoteParticipant),
+    /// Remote participant disconnected from the room.
     ParticipantDisconnected(RemoteParticipant),
     LocalTrackPublished {
         publication: LocalTrackPublication,
@@ -1042,7 +1051,12 @@ impl RoomSession {
                     // disconnected
                 }
             } else if let Some(remote_participant) = remote_participant {
+                let already_active = remote_participant.state() == ParticipantState::Active;
                 remote_participant.update_info(pi.clone());
+                if !already_active && remote_participant.state() == ParticipantState::Active {
+                    self.dispatcher
+                        .dispatch(&RoomEvent::ParticipantActive(remote_participant.clone()));
+                }
                 participants.push(Participant::Remote(remote_participant));
             } else {
                 // Create a new participant
@@ -1068,6 +1082,11 @@ impl RoomSession {
                 self.dispatcher
                     .dispatch(&RoomEvent::ParticipantConnected(remote_participant.clone()));
 
+                if remote_participant.state() == ParticipantState::Active {
+                    // Already active, also emit active event
+                    self.dispatcher
+                        .dispatch(&RoomEvent::ParticipantActive(remote_participant.clone()));
+                }
                 remote_participant.update_info(pi.clone()); // Add tracks
             }
         }
