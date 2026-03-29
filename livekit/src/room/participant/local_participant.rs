@@ -23,8 +23,8 @@ use std::{
 };
 
 use super::{
-    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail,
-    ParticipantState, ParticipantTrackPermission,
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail, ParticipantState,
+    ParticipantTrackPermission,
 };
 use crate::{
     data_stream::{
