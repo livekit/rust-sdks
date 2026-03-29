@@ -25,7 +25,8 @@ use livekit_runtime::timeout;
 use parking_lot::Mutex;
 
 use super::{
-    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail, TrackKind,
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail, ParticipantState,
+    TrackKind,
 };
 use crate::{
     prelude::*,
@@ -81,7 +82,7 @@ impl RemoteParticipant {
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
-        state: super::ParticipantState,
+        state: ParticipantState,
         metadata: String,
         attributes: HashMap<String, String>,
         joined_at: i64,
@@ -514,7 +515,7 @@ impl RemoteParticipant {
         self.inner.info.read().name.clone()
     }
 
-    pub fn state(&self) -> super::ParticipantState {
+    pub fn state(&self) -> ParticipantState {
         self.inner.info.read().state
     }
 

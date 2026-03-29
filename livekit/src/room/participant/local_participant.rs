@@ -24,7 +24,7 @@ use std::{
 
 use super::{
     ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail,
-    ParticipantTrackPermission,
+    ParticipantState, ParticipantTrackPermission,
 };
 use crate::{
     data_stream::{
@@ -113,7 +113,7 @@ impl LocalParticipant {
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
-        state: super::ParticipantState,
+        state: ParticipantState,
         metadata: String,
         attributes: HashMap<String, String>,
         joined_at: i64,
@@ -730,7 +730,7 @@ impl LocalParticipant {
         self.inner.info.read().name.clone()
     }
 
-    pub fn state(&self) -> super::ParticipantState {
+    pub fn state(&self) -> ParticipantState {
         self.inner.info.read().state
     }
 
