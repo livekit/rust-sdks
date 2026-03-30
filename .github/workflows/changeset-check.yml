@@ -76,9 +76,64 @@ jobs:
           CHANGED_FILES=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename')
 
           # --- Check for changeset in diff ---
-          if echo "$CHANGED_FILES" | grep -q '^\.changeset/.*\.md$'; then
+          CHANGESET_FILES=$(echo "$CHANGED_FILES" | grep '^\.changeset/.*\.md$' || true)
+
+          if [ -n "$CHANGESET_FILES" ]; then
             echo "Changeset found in PR diff"
-            delete_comment
+
+            # Parse changeset files to extract version bumps
+            export CHANGESET_FILES
+            BUMPS=$(python3 << 'PYEOF'
+          import json, os, re, sys
+
+          BUMP_ORDER = {"patch": 0, "minor": 1, "major": 2}
+          bumps = {}
+
+          for filepath in os.environ["CHANGESET_FILES"].strip().split("\n"):
+              filepath = filepath.strip()
+              if not filepath:
+                  continue
+              try:
+                  with open(filepath) as f:
+                      content = f.read()
+                  match = re.match(r"^---\s*\n(.*?)\n---", content, re.DOTALL)
+                  if not match:
+                      continue
+                  for line in match.group(1).strip().split("\n"):
+                      line = line.strip()
+                      if ":" not in line:
+                          continue
+                      pkg, bump = line.split(":", 1)
+                      pkg, bump = pkg.strip(), bump.strip()
+                      if bump in BUMP_ORDER:
+                          if pkg not in bumps or BUMP_ORDER[bump] > BUMP_ORDER[bumps[pkg]]:
+                              bumps[pkg] = bump
+              except Exception:
+                  continue
+
+          json.dump(sorted(bumps.items()), sys.stdout)
+          PYEOF
+            )
+
+            # Build summary comment with version bump table
+            TABLE_ROWS=$(echo "$BUMPS" | jq -r '.[] | "| `\(.[0])` | `\(.[1])` |"')
+
+            COMMENT_BODY=$(
+              echo "$COMMENT_MARKER"
+              echo "### Changeset"
+              echo ""
+              if [ -n "$TABLE_ROWS" ]; then
+                echo "The following version bumps will be published with this PR:"
+                echo ""
+                echo "| Package | Bump |"
+                echo "|---------|------|"
+                echo "$TABLE_ROWS"
+              else
+                echo "Changeset found but no version bumps declared."
+              fi
+            )
+
+            upsert_comment "$COMMENT_BODY" || true
             exit 0
           fi
 
