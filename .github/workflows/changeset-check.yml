@@ -1,0 +1,206 @@
+# Copyright 2023 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Changeset Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled, unlabeled]
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-changeset:
+    name: Check for changeset
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for changeset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_BRANCH: ${{ github.event.pull_request.head.ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -eo pipefail
+
+          COMMENT_MARKER="<!-- changeset-check -->"
+
+          delete_comment() {
+            local comment_id
+            comment_id=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+              --jq ".[] | select(.body | contains(\"${COMMENT_MARKER}\")) | .id" | head -1)
+            if [ -n "$comment_id" ]; then
+              gh api -X DELETE "repos/${REPO}/issues/comments/${comment_id}" || true
+            fi
+          }
+
+          upsert_comment() {
+            local body="$1"
+            local comment_id
+            comment_id=$(gh api "repos/${REPO}/issues/${PR_NUMBER}/comments" --paginate \
+              --jq ".[] | select(.body | contains(\"${COMMENT_MARKER}\")) | .id" | head -1)
+            if [ -n "$comment_id" ]; then
+              gh api -X PATCH "repos/${REPO}/issues/comments/${comment_id}" -f body="$body"
+            else
+              gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$body"
+            fi
+          }
+
+          # --- Check for internal label ---
+          HAS_INTERNAL=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels \
+            --jq '[.labels[].name] | any(. == "internal")')
+          if [ "$HAS_INTERNAL" = "true" ]; then
+            echo "PR has 'internal' label - changeset not required"
+            delete_comment
+            exit 0
+          fi
+
+          # --- Get changed files ---
+          CHANGED_FILES=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/files" --paginate --jq '.[].filename')
+
+          # --- Check for changeset in diff ---
+          if echo "$CHANGED_FILES" | grep -q '^\.changeset/.*\.md$'; then
+            echo "Changeset found in PR diff"
+            delete_comment
+            exit 0
+          fi
+
+          echo "No changeset found - detecting affected packages..."
+
+          # --- Map directory prefixes to knope-managed package names ---
+          # Order matters: more specific prefixes must come first (webrtc-sys/build before webrtc-sys)
+          DIRS=(
+            "webrtc-sys/build:webrtc-sys-build"
+            "soxr-sys:soxr-sys"
+            "yuv-sys:yuv-sys"
+            "imgproc:imgproc"
+            "webrtc-sys:webrtc-sys"
+            "livekit-protocol:livekit-protocol"
+            "livekit-api:livekit-api"
+            "libwebrtc:libwebrtc"
+            "livekit-datatrack:livekit-datatrack"
+            "livekit-wakeword:livekit-wakeword"
+            "livekit-ffi:livekit-ffi"
+            "livekit:livekit"
+          )
+
+          # --- Transitive downstream dependency graph ---
+          declare -A DOWNSTREAM
+          DOWNSTREAM["soxr-sys"]="livekit-ffi"
+          DOWNSTREAM["yuv-sys"]="imgproc livekit-ffi"
+          DOWNSTREAM["imgproc"]="livekit-ffi"
+          DOWNSTREAM["webrtc-sys-build"]="webrtc-sys libwebrtc livekit livekit-ffi"
+          DOWNSTREAM["webrtc-sys"]="libwebrtc livekit livekit-ffi"
+          DOWNSTREAM["livekit-protocol"]="livekit-api libwebrtc livekit livekit-ffi livekit-datatrack"
+          DOWNSTREAM["livekit-api"]="livekit livekit-ffi"
+          DOWNSTREAM["libwebrtc"]="livekit livekit-ffi"
+          DOWNSTREAM["livekit"]="livekit-ffi"
+          DOWNSTREAM["livekit-ffi"]=""
+          DOWNSTREAM["livekit-wakeword"]=""
+          DOWNSTREAM["livekit-datatrack"]=""
+
+          # --- Detect directly affected packages ---
+          declare -A DIRECT_AFFECTED
+
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            for mapping in "${DIRS[@]}"; do
+              dir="${mapping%%:*}"
+              pkg="${mapping##*:}"
+              if [[ "$file" == "${dir}/"* ]]; then
+                DIRECT_AFFECTED[$pkg]=1
+                break
+              fi
+            done
+          done <<< "$CHANGED_FILES"
+
+          # --- If no versioned packages affected, pass ---
+          if [ ${#DIRECT_AFFECTED[@]} -eq 0 ]; then
+            echo "No versioned packages affected - changeset not required"
+            delete_comment
+            exit 0
+          fi
+
+          # --- Collect all affected packages (direct + downstream) ---
+          declare -A ALL_AFFECTED
+          declare -A DOWNSTREAM_ONLY
+
+          for pkg in "${!DIRECT_AFFECTED[@]}"; do
+            ALL_AFFECTED[$pkg]=1
+            for dep in ${DOWNSTREAM[$pkg]:-}; do
+              ALL_AFFECTED[$dep]=1
+              if [ -z "${DIRECT_AFFECTED[$dep]:-}" ]; then
+                DOWNSTREAM_ONLY[$dep]=1
+              fi
+            done
+          done
+
+          # --- Build changeset file content ---
+          SORTED_PKGS=$(printf '%s\n' "${!ALL_AFFECTED[@]}" | sort)
+
+          CHANGESET_CONTENT=$(
+            echo "---"
+            while IFS= read -r pkg; do
+              echo "${pkg}: patch"
+            done <<< "$SORTED_PKGS"
+            echo "---"
+            echo ""
+            echo "Description of your change"
+          )
+
+          # --- Generate file name slug from PR title ---
+          SLUG=$(echo "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '_' | sed 's/^_//; s/_$//')
+          SLUG="${SLUG:0:60}"
+          [ -z "$SLUG" ] && SLUG="pr_${PR_NUMBER}"
+
+          # --- Build GitHub create-file URL ---
+          ENCODED_CONTENT=$(printf '%s' "$CHANGESET_CONTENT" | jq -sRr @uri)
+          CREATE_URL="https://github.com/${REPO}/new/${PR_BRANCH}?filename=.changeset/${SLUG}.md&value=${ENCODED_CONTENT}"
+
+          # --- Build comment body ---
+          COMMENT_BODY=$(
+            echo "$COMMENT_MARKER"
+            echo "### No changeset found"
+            echo ""
+            echo "This PR modifies the following packages but doesn't include a changeset:"
+            echo ""
+            echo "**Directly changed:**"
+            for pkg in $(printf '%s\n' "${!DIRECT_AFFECTED[@]}" | sort); do
+              echo "- \`${pkg}\`"
+            done
+            if [ ${#DOWNSTREAM_ONLY[@]} -gt 0 ]; then
+              echo ""
+              echo "**Downstream dependencies (also need a version bump):**"
+              for pkg in $(printf '%s\n' "${!DOWNSTREAM_ONLY[@]}" | sort); do
+                echo "- \`${pkg}\`"
+              done
+            fi
+            echo ""
+            echo "[**Click here to create a changeset**](${CREATE_URL})"
+            echo ""
+            echo "The link pre-populates a changeset file with \`patch\` bumps for all affected packages."
+            echo "Edit the description and bump types as needed before committing."
+            echo ""
+            echo "If this change doesn't require a version bump, add the \`internal\` label to this PR."
+          )
+
+          # --- Post or update comment ---
+          upsert_comment "$COMMENT_BODY" || echo "::warning::Could not post PR comment (this can happen for fork PRs with limited permissions)"
+
+          echo "::error::No changeset found. Add a changeset or apply the 'internal' label."
+          exit 1
