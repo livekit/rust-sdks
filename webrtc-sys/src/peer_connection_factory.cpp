@@ -19,6 +19,7 @@
 #include <memory>
 #include <utility>
 
+#include "api/audio_options.h"
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/audio/builtin_audio_processing_builder.h"
@@ -49,6 +50,12 @@ class PeerConnectionObserver;
 
 PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
+    : PeerConnectionFactory(std::move(rtc_runtime),
+                            AudioDeviceModuleSelection::LiveKitVirtual) {}
+
+PeerConnectionFactory::PeerConnectionFactory(
+    std::shared_ptr<RtcRuntime> rtc_runtime,
+    AudioDeviceModuleSelection adm_selection)
     : rtc_runtime_(rtc_runtime) {
   RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::PeerConnectionFactory()";
 
@@ -61,10 +68,20 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
   dependencies.trials = std::make_unique<webrtc::FieldTrialBasedConfig>();
 
-  audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
-    return webrtc::make_ref_counted<livekit_ffi::AudioDevice>(
+  if (adm_selection == AudioDeviceModuleSelection::PlatformDefault) {
+    audio_device_ = webrtc::AudioDeviceModule::Create(
+        webrtc::AudioDeviceModule::kPlatformDefaultAudio,
         dependencies.task_queue_factory.get());
-  });
+    if (audio_device_.get() == nullptr) {
+      RTC_LOG_ERR(LS_ERROR) << "Failed to create platform default AudioDeviceModule";
+      return;
+    }
+  } else {
+    audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
+      return webrtc::make_ref_counted<livekit_ffi::AudioDevice>(
+          dependencies.task_queue_factory.get());
+    });
+  }
 
   dependencies.adm = audio_device_;
 
@@ -128,6 +145,15 @@ std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
           peer_factory_->CreateAudioTrack(label.c_str(), source->get().get())));
 }
 
+std::shared_ptr<AudioTrackSource> PeerConnectionFactory::create_audio_source() const {
+  cricket::AudioOptions options{};
+  options.echo_cancellation = true;
+  options.noise_suppression = true;
+  options.auto_gain_control = true;
+
+  return std::make_shared<AudioTrackSource>(peer_factory_->CreateAudioSource(options));
+}
+
 RtpCapabilities PeerConnectionFactory::rtp_sender_capabilities(
     MediaType type) const {
   return to_rust_rtp_capabilities(peer_factory_->GetRtpSenderCapabilities(
@@ -142,6 +168,18 @@ RtpCapabilities PeerConnectionFactory::rtp_receiver_capabilities(
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {
   return std::make_shared<PeerConnectionFactory>(RtcRuntime::create());
+}
+
+std::shared_ptr<PeerConnectionFactory>
+create_peer_connection_factory_with_platform_adm() {
+  auto factory = std::shared_ptr<PeerConnectionFactory>(new PeerConnectionFactory(
+      RtcRuntime::create(),
+      PeerConnectionFactory::AudioDeviceModuleSelection::PlatformDefault));
+  if (factory->peer_factory_.get() == nullptr) {
+    return nullptr;
+  }
+
+  return factory;
 }
 
 }  // namespace livekit_ffi

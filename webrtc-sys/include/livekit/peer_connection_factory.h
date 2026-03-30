@@ -56,6 +56,8 @@ class PeerConnectionFactory {
       rust::String label,
       std::shared_ptr<AudioTrackSource> source) const;
 
+  std::shared_ptr<AudioTrackSource> create_audio_source() const;
+
   RtpCapabilities rtp_sender_capabilities(MediaType type) const;
 
   RtpCapabilities rtp_receiver_capabilities(MediaType type) const;
@@ -63,11 +65,24 @@ class PeerConnectionFactory {
   std::shared_ptr<RtcRuntime> rtc_runtime() const { return rtc_runtime_; }
 
  private:
+  enum class AudioDeviceModuleSelection {
+    LiveKitVirtual,
+    PlatformDefault,
+  };
+
+  PeerConnectionFactory(std::shared_ptr<RtcRuntime> rtc_runtime,
+                        AudioDeviceModuleSelection adm_selection);
+
+  friend std::shared_ptr<PeerConnectionFactory>
+  create_peer_connection_factory_with_platform_adm();
+
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  webrtc::scoped_refptr<AudioDevice> audio_device_;
+  webrtc::scoped_refptr<webrtc::AudioDeviceModule> audio_device_;
   webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
   webrtc::TaskQueueFactory* task_queue_factory_;
 };
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory();
+std::shared_ptr<PeerConnectionFactory>
+create_peer_connection_factory_with_platform_adm();
 }  // namespace livekit_ffi
