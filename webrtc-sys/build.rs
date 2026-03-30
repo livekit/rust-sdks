@@ -27,6 +27,7 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
+    println!("cargo:rerun-if-env-changed=CUDA_HOME");
 
     let mut rust_files = vec![
         "src/peer_connection.rs",

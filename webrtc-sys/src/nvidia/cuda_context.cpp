@@ -10,6 +10,7 @@
 #endif
 
 #include <iostream>
+#include <string>
 
 #if defined(WIN32)
 static const char CUDA_DYNAMIC_LIBRARY[] = "nvcuda.dll";
@@ -36,6 +37,17 @@ namespace livekit_ffi {
 static void* s_module_ptr = nullptr;
 static const int kRequiredDriverVersion = 11000;
 
+static void log_cuda_error(const char* action, CUresult result) {
+  const char* error_name = nullptr;
+  const char* error_string = nullptr;
+  cuGetErrorName(result, &error_name);
+  cuGetErrorString(result, &error_string);
+  RTC_LOG(LS_ERROR) << action << " failed: "
+                    << (error_name ? error_name : "<unknown>")
+                    << " (" << static_cast<int>(result) << ")"
+                    << (error_string ? std::string(": ") + error_string : "");
+}
+
 static bool load_cuda_modules() {
   if (s_module_ptr)
     return true;
@@ -50,8 +62,10 @@ static bool load_cuda_modules() {
   s_module_ptr = module;
 #elif defined(__linux__)
   s_module_ptr = dlopen("libcuda.so.1", RTLD_LAZY | RTLD_GLOBAL);
-  if (!s_module_ptr)
+  if (!s_module_ptr) {
+    RTC_LOG(LS_ERROR) << "Failed to dlopen libcuda.so.1: " << dlerror();
     return false;
+  }
 
   // Close handle immediately because going to call `dlopen` again
   // in the implib module when cuda api called on Linux.
@@ -66,6 +80,7 @@ static bool check_cuda_device() {
   int driver_version = 0;
 
   CUCTX_CUDA_CALL_ERROR(cuDriverGetVersion(&driver_version));
+  RTC_LOG(LS_INFO) << "Detected CUDA driver version: " << driver_version;
   if (kRequiredDriverVersion > driver_version) {
     RTC_LOG(LS_ERROR)
         << "CUDA driver version is not higher than the required version. "
@@ -75,15 +90,17 @@ static bool check_cuda_device() {
 
   CUresult result = cuInit(0);
   if (result != CUDA_SUCCESS) {
-    RTC_LOG(LS_ERROR) << "Failed to initialize CUDA.";
+    log_cuda_error("cuInit", result);
     return false;
   }
 
   result = cuDeviceGetCount(&device_count);
   if (result != CUDA_SUCCESS) {
-    RTC_LOG(LS_ERROR) << "Failed to get CUDA device count.";
+    log_cuda_error("cuDeviceGetCount", result);
     return false;
   }
+
+  RTC_LOG(LS_INFO) << "Detected CUDA device count: " << device_count;
 
   if (device_count == 0) {
     RTC_LOG(LS_ERROR) << "No CUDA devices found.";
@@ -119,6 +136,8 @@ bool CudaContext::Initialize() {
   int driverVersion = 0;
 
   CUCTX_CUDA_CALL_ERROR(cuDriverGetVersion(&driverVersion));
+  RTC_LOG(LS_INFO) << "Initializing CUDA context with driver version: "
+                   << driverVersion;
   if (kRequiredDriverVersion > driverVersion) {
     RTC_LOG(LS_ERROR)
         << "CUDA driver version is not higher than the required version. "
@@ -128,15 +147,18 @@ bool CudaContext::Initialize() {
 
   CUresult result = cuInit(0);
   if (result != CUDA_SUCCESS) {
-    RTC_LOG(LS_ERROR) << "Failed to initialize CUDA.";
+    log_cuda_error("cuInit", result);
     return false;
   }
 
   result = cuDeviceGetCount(&num_devices);
   if (result != CUDA_SUCCESS) {
-    RTC_LOG(LS_ERROR) << "Failed to get CUDA device count.";
+    log_cuda_error("cuDeviceGetCount", result);
     return false;
   }
+
+  RTC_LOG(LS_INFO) << "CUDA initialize sees " << num_devices
+                   << " available device(s).";
 
   if (num_devices == 0) {
     RTC_LOG(LS_ERROR) << "No CUDA devices found.";
