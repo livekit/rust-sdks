@@ -36,6 +36,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_BRANCH: ${{ github.event.pull_request.head.ref }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           REPO: ${{ github.repository }}
         run: |
           set -eo pipefail
@@ -218,7 +219,11 @@ jobs:
           lines = ["---"]
           for pkg in sorted(all_affected):
               lines.append(f"{pkg}: patch")
-          lines.extend(["---", "", os.environ.get("PR_TITLE", "Description of your change")])
+          pr_title = os.environ.get("PR_TITLE", "Description of your change")
+          pr_number = os.environ.get("PR_NUMBER", "")
+          pr_author = os.environ.get("PR_AUTHOR", "")
+          description = f"{pr_title} - #{pr_number} (@{pr_author})"
+          lines.extend(["---", "", description])
 
           json.dump({
               "direct": sorted(direct_affected),
