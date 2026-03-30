@@ -123,7 +123,7 @@ jobs:
               echo "### Changeset"
               echo ""
               if [ -n "$TABLE_ROWS" ]; then
-                echo "The following version bumps will be published with this PR:"
+                echo "The following package versions will be affected by this PR:"
                 echo ""
                 echo "| Package | Bump |"
                 echo "|---------|------|"
