@@ -28,6 +28,8 @@ jobs:
     name: Check for changeset
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: Check for changeset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -82,86 +84,111 @@ jobs:
 
           echo "No changeset found - detecting affected packages..."
 
-          # --- Map directory prefixes to knope-managed package names ---
-          # Order matters: more specific prefixes must come first (webrtc-sys/build before webrtc-sys)
-          DIRS=(
-            "webrtc-sys/build:webrtc-sys-build"
-            "soxr-sys:soxr-sys"
-            "yuv-sys:yuv-sys"
-            "imgproc:imgproc"
-            "webrtc-sys:webrtc-sys"
-            "livekit-protocol:livekit-protocol"
-            "livekit-api:livekit-api"
-            "libwebrtc:libwebrtc"
-            "livekit-datatrack:livekit-datatrack"
-            "livekit-wakeword:livekit-wakeword"
-            "livekit-ffi:livekit-ffi"
-            "livekit:livekit"
+          # --- Detect affected packages via cargo metadata + knope.toml ---
+          export CHANGED_FILES
+          DETECTION=$(python3 << 'PYEOF'
+          import json, os, re, subprocess, sys
+
+          changed_files = [f for f in os.environ["CHANGED_FILES"].strip().split("\n") if f]
+
+          # Parse knope-managed package names from knope.toml
+          with open("knope.toml") as f:
+              knope_packages = set(re.findall(r"^\[packages\.([^\]]+)\]", f.read(), re.MULTILINE))
+
+          # Get workspace metadata (--no-deps avoids network access)
+          try:
+              meta = json.loads(subprocess.check_output(
+                  ["cargo", "metadata", "--format-version", "1", "--no-deps"],
+                  text=True, stderr=subprocess.DEVNULL
+              ))
+          except Exception as e:
+              json.dump({"error": str(e), "direct": [], "downstream": [], "changeset_content": ""}, sys.stdout)
+              sys.exit(0)
+
+          workspace_root = meta["workspace_root"]
+
+          # Map knope-managed package name -> relative directory
+          pkg_to_dir = {}
+          for pkg in meta["packages"]:
+              if pkg["name"] in knope_packages:
+                  manifest_dir = os.path.dirname(pkg["manifest_path"])
+                  pkg_to_dir[pkg["name"]] = os.path.relpath(manifest_dir, workspace_root)
+
+          # Build direct dependency graph between knope-managed packages
+          # (packages[].dependencies includes both normal and build deps)
+          direct_deps = {name: set() for name in knope_packages}
+          for pkg in meta["packages"]:
+              if pkg["name"] not in knope_packages:
+                  continue
+              for dep in pkg.get("dependencies", []):
+                  if dep["name"] in knope_packages:
+                      direct_deps[pkg["name"]].add(dep["name"])
+
+          # Reverse the graph: for each package, who depends on it (downstream)
+          reverse = {name: set() for name in knope_packages}
+          for pkg, deps in direct_deps.items():
+              for dep in deps:
+                  reverse[dep].add(pkg)
+
+          # Compute transitive downstream closure
+          def transitive_downstream(pkg):
+              visited = set()
+              stack = list(reverse.get(pkg, set()))
+              while stack:
+                  node = stack.pop()
+                  if node not in visited:
+                      visited.add(node)
+                      stack.extend(reverse.get(node, set()) - visited)
+              return visited
+
+          # Match changed files to packages (longest directory prefix wins)
+          sorted_pkgs = sorted(pkg_to_dir.items(), key=lambda x: len(x[1]), reverse=True)
+          direct_affected = set()
+          for f in changed_files:
+              for pkg_name, pkg_dir in sorted_pkgs:
+                  if f.startswith(pkg_dir + "/"):
+                      direct_affected.add(pkg_name)
+                      break
+
+          # Expand with downstream dependencies
+          all_affected = set(direct_affected)
+          downstream_only = set()
+          for pkg in direct_affected:
+              for dep in transitive_downstream(pkg):
+                  all_affected.add(dep)
+                  if dep not in direct_affected:
+                      downstream_only.add(dep)
+
+          # Build changeset content
+          lines = ["---"]
+          for pkg in sorted(all_affected):
+              lines.append(f"{pkg}: patch")
+          lines.extend(["---", "", os.environ.get("PR_TITLE", "Description of your change")])
+
+          json.dump({
+              "direct": sorted(direct_affected),
+              "downstream": sorted(downstream_only),
+              "changeset_content": "\n".join(lines),
+          }, sys.stdout)
+          PYEOF
           )
 
-          # --- Transitive downstream dependency graph ---
-          declare -A DOWNSTREAM
-          DOWNSTREAM["soxr-sys"]="livekit-ffi"
-          DOWNSTREAM["yuv-sys"]="imgproc livekit-ffi"
-          DOWNSTREAM["imgproc"]="livekit-ffi"
-          DOWNSTREAM["webrtc-sys-build"]="webrtc-sys libwebrtc livekit livekit-ffi"
-          DOWNSTREAM["webrtc-sys"]="libwebrtc livekit livekit-ffi"
-          DOWNSTREAM["livekit-protocol"]="livekit-api libwebrtc livekit livekit-ffi livekit-datatrack"
-          DOWNSTREAM["livekit-api"]="livekit livekit-ffi"
-          DOWNSTREAM["libwebrtc"]="livekit livekit-ffi"
-          DOWNSTREAM["livekit"]="livekit-ffi"
-          DOWNSTREAM["livekit-ffi"]=""
-          DOWNSTREAM["livekit-wakeword"]=""
-          DOWNSTREAM["livekit-datatrack"]=""
+          # Handle cargo metadata errors gracefully
+          ERROR=$(echo "$DETECTION" | jq -r '.error // empty')
+          if [ -n "$ERROR" ]; then
+            echo "::warning::Failed to detect packages via cargo metadata: $ERROR"
+          fi
 
-          # --- Detect directly affected packages ---
-          declare -A DIRECT_AFFECTED
-
-          while IFS= read -r file; do
-            [ -z "$file" ] && continue
-            for mapping in "${DIRS[@]}"; do
-              dir="${mapping%%:*}"
-              pkg="${mapping##*:}"
-              if [[ "$file" == "${dir}/"* ]]; then
-                DIRECT_AFFECTED[$pkg]=1
-                break
-              fi
-            done
-          done <<< "$CHANGED_FILES"
-
-          # --- If no versioned packages affected, pass ---
-          if [ ${#DIRECT_AFFECTED[@]} -eq 0 ]; then
+          # --- If no packages affected, pass ---
+          NUM_DIRECT=$(echo "$DETECTION" | jq '.direct | length')
+          if [ "$NUM_DIRECT" = "0" ]; then
             echo "No versioned packages affected - changeset not required"
             delete_comment
             exit 0
           fi
 
-          # --- Collect all affected packages (direct + downstream) ---
-          declare -A ALL_AFFECTED
-          declare -A DOWNSTREAM_ONLY
-
-          for pkg in "${!DIRECT_AFFECTED[@]}"; do
-            ALL_AFFECTED[$pkg]=1
-            for dep in ${DOWNSTREAM[$pkg]:-}; do
-              ALL_AFFECTED[$dep]=1
-              if [ -z "${DIRECT_AFFECTED[$dep]:-}" ]; then
-                DOWNSTREAM_ONLY[$dep]=1
-              fi
-            done
-          done
-
-          # --- Build changeset file content ---
-          SORTED_PKGS=$(printf '%s\n' "${!ALL_AFFECTED[@]}" | sort)
-
-          CHANGESET_CONTENT=$(
-            echo "---"
-            while IFS= read -r pkg; do
-              echo "${pkg}: patch"
-            done <<< "$SORTED_PKGS"
-            echo "---"
-            echo ""
-            echo "Description of your change"
-          )
+          # --- Build changeset file content and URL ---
+          CHANGESET_CONTENT=$(echo "$DETECTION" | jq -r '.changeset_content')
 
           # --- Generate file name slug from PR title ---
           SLUG=$(echo "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -cs '[:alnum:]' '_' | sed 's/^_//; s/_$//')
@@ -173,6 +200,9 @@ jobs:
           CREATE_URL="https://github.com/${REPO}/new/${PR_BRANCH}?filename=.changeset/${SLUG}.md&value=${ENCODED_CONTENT}"
 
           # --- Build comment body ---
+          DIRECT_LIST=$(echo "$DETECTION" | jq -r '.direct[] | "- `\(.)`"')
+          DOWNSTREAM_LIST=$(echo "$DETECTION" | jq -r '.downstream[] | "- `\(.)`"')
+
           COMMENT_BODY=$(
             echo "$COMMENT_MARKER"
             echo "### No changeset found"
@@ -180,15 +210,11 @@ jobs:
             echo "This PR modifies the following packages but doesn't include a changeset:"
             echo ""
             echo "**Directly changed:**"
-            for pkg in $(printf '%s\n' "${!DIRECT_AFFECTED[@]}" | sort); do
-              echo "- \`${pkg}\`"
-            done
-            if [ ${#DOWNSTREAM_ONLY[@]} -gt 0 ]; then
+            echo "$DIRECT_LIST"
+            if [ -n "$DOWNSTREAM_LIST" ]; then
               echo ""
               echo "**Downstream dependencies (also need a version bump):**"
-              for pkg in $(printf '%s\n' "${!DOWNSTREAM_ONLY[@]}" | sort); do
-                echo "- \`${pkg}\`"
-              done
+              echo "$DOWNSTREAM_LIST"
             fi
             echo ""
             echo "[**Click here to create a changeset**](${CREATE_URL})"
