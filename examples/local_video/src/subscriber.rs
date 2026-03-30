@@ -591,9 +591,9 @@ impl eframe::App for VideoApp {
                     let latency = match (publish_us, receive_us) {
                         (Some(pub_ts), Some(recv_ts)) => {
                             let should_refresh = self.last_latency_text.is_empty()
-                                || self
-                                    .last_latency_refresh
-                                    .is_none_or(|last| last.elapsed() >= Duration::from_millis(500));
+                                || self.last_latency_refresh.is_none_or(|last| {
+                                    last.elapsed() >= Duration::from_millis(500)
+                                });
                             if should_refresh {
                                 self.last_latency_text = format!(
                                     "{:.1}ms",
