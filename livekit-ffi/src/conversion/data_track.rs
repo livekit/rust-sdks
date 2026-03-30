@@ -14,7 +14,10 @@
 
 use crate::proto;
 use livekit::{
-    data_track::{DataTrackFrame, DataTrackInfo, DataTrackOptions},
+    data_track::{
+        DataTrackFrame, DataTrackInfo, DataTrackOptions, DataTrackSubscribeError, PublishError,
+        PushFrameError, PushFrameErrorReason,
+    },
     prelude::DataTrackSubscribeOptions,
 };
 
@@ -57,5 +60,67 @@ impl From<proto::DataTrackSubscribeOptions> for DataTrackSubscribeOptions {
             options = options.with_buffer_size(buffer_size as usize);
         }
         options
+    }
+}
+
+impl From<&PublishError> for proto::PublishDataTrackErrorCode {
+    fn from(err: &PublishError) -> Self {
+        match err {
+            PublishError::DuplicateName => Self::DuplicateName,
+            PublishError::Timeout => Self::Timeout,
+            PublishError::Disconnected => Self::Disconnected,
+            PublishError::NotAllowed => Self::NotAllowed,
+            PublishError::InvalidName => Self::InvalidName,
+            PublishError::LimitReached => Self::LimitReached,
+            PublishError::Internal(_) => Self::Internal,
+        }
+    }
+}
+
+impl From<PublishError> for proto::PublishDataTrackError {
+    fn from(err: PublishError) -> Self {
+        proto::PublishDataTrackError {
+            code: proto::PublishDataTrackErrorCode::from(&err) as i32,
+            message: err.to_string()
+        }
+    }
+}
+
+impl From<PushFrameErrorReason> for proto::LocalDataTrackTryPushErrorCode {
+    fn from(reason: PushFrameErrorReason) -> Self {
+        match reason {
+            PushFrameErrorReason::TrackUnpublished => Self::TrackUnpublished,
+            PushFrameErrorReason::QueueFull => Self::QueueFull,
+        }
+    }
+}
+
+impl From<PushFrameError> for proto::LocalDataTrackTryPushError {
+    fn from(err: PushFrameError) -> Self {
+        let reason = err.reason();
+        proto::LocalDataTrackTryPushError {
+            code: proto::LocalDataTrackTryPushErrorCode::from(reason) as i32,
+            message: err.to_string()
+        }
+    }
+}
+
+impl From<&DataTrackSubscribeError> for proto::SubscribeDataTrackErrorCode {
+    fn from(err: &DataTrackSubscribeError) -> Self {
+        match err {
+            DataTrackSubscribeError::Unpublished => Self::Unpublished,
+            DataTrackSubscribeError::Timeout => Self::Timeout,
+            DataTrackSubscribeError::Disconnected => Self::Disconnected,
+            DataTrackSubscribeError::Internal(_) => Self::Internal,
+        }
+    }
+}
+
+impl From<DataTrackSubscribeError> for proto::SubscribeDataTrackError {
+    fn from(err: DataTrackSubscribeError) -> Self {
+        proto::SubscribeDataTrackError {
+            code: proto::SubscribeDataTrackErrorCode::from(&err) as i32,
+            message: err.to_string(),
+        }
     }
 }

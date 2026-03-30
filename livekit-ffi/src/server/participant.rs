@@ -258,7 +258,7 @@ impl FfiParticipant {
                     let ffi_track = FfiLocalDataTrack::from_track(server, track);
                     proto::publish_data_track_callback::Result::Track(ffi_track)
                 }
-                Err(err) => proto::publish_data_track_callback::Result::Error(err.to_string()), // TODO: consider better error reporting
+                Err(err) => proto::publish_data_track_callback::Result::Error(err.into()),
             };
             let callback = proto::PublishDataTrackCallback { async_id, result: Some(result) };
             let _ = server.send_event(callback.into());

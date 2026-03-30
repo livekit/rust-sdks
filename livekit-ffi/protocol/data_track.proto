@@ -38,6 +38,69 @@ message DataTrackFrame {
   optional uint64 user_timestamp = 2;
 }
 
+enum DataTrackErrorCode {
+  DATA_TRACK_ERROR_CODE_UNKNOWN = 0;
+  DATA_TRACK_ERROR_CODE_INVALID_HANDLE = 1;
+  DATA_TRACK_ERROR_CODE_DUPLICATE_TRACK_NAME = 2;
+  DATA_TRACK_ERROR_CODE_TRACK_UNPUBLISHED = 3;
+  DATA_TRACK_ERROR_CODE_BUFFER_FULL = 4;
+  DATA_TRACK_ERROR_CODE_SUBSCRIPTION_CLOSED = 5;
+  DATA_TRACK_ERROR_CODE_CANCELLED = 6;
+  DATA_TRACK_ERROR_CODE_PROTOCOL_ERROR = 7;
+  DATA_TRACK_ERROR_CODE_INTERNAL = 8;
+}
+
+message DataTrackError {
+  required DataTrackErrorCode code = 1;
+  required string message = 2;
+}
+
+enum PublishDataTrackErrorCode {
+  PUBLISH_DATA_TRACK_ERROR_CODE_UNKNOWN = 0;
+  PUBLISH_DATA_TRACK_ERROR_CODE_INVALID_HANDLE = 1;
+  PUBLISH_DATA_TRACK_ERROR_CODE_DUPLICATE_NAME = 2;
+  PUBLISH_DATA_TRACK_ERROR_CODE_TIMEOUT = 3;
+  PUBLISH_DATA_TRACK_ERROR_CODE_DISCONNECTED = 4;
+  PUBLISH_DATA_TRACK_ERROR_CODE_NOT_ALLOWED = 5;
+  PUBLISH_DATA_TRACK_ERROR_CODE_INVALID_NAME = 6;
+  PUBLISH_DATA_TRACK_ERROR_CODE_LIMIT_REACHED = 7;
+  PUBLISH_DATA_TRACK_ERROR_CODE_PROTOCOL_ERROR = 8;
+  PUBLISH_DATA_TRACK_ERROR_CODE_INTERNAL = 9;
+}
+
+message PublishDataTrackError {
+  required PublishDataTrackErrorCode code = 1;
+  required string message = 2;
+}
+
+enum LocalDataTrackTryPushErrorCode {
+  LOCAL_DATA_TRACK_TRY_PUSH_ERROR_CODE_UNKNOWN = 0;
+  LOCAL_DATA_TRACK_TRY_PUSH_ERROR_CODE_INVALID_HANDLE = 1;
+  LOCAL_DATA_TRACK_TRY_PUSH_ERROR_CODE_TRACK_UNPUBLISHED = 2;
+  LOCAL_DATA_TRACK_TRY_PUSH_ERROR_CODE_QUEUE_FULL = 3;
+  LOCAL_DATA_TRACK_TRY_PUSH_ERROR_CODE_INTERNAL = 4;
+}
+
+message LocalDataTrackTryPushError {
+  required LocalDataTrackTryPushErrorCode code = 1;
+  required string message = 2;
+}
+
+enum SubscribeDataTrackErrorCode {
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_UNKNOWN = 0;
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_INVALID_HANDLE = 1;
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_UNPUBLISHED = 2;
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_TIMEOUT = 3;
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_DISCONNECTED = 4;
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_PROTOCOL_ERROR = 5;
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_INTERNAL = 6;
+}
+
+message SubscribeDataTrackError {
+  required SubscribeDataTrackErrorCode code = 1;
+  required string message = 2;
+}
+
 // MARK: - Local
 
 // Options for publishing a data track.
@@ -62,7 +125,7 @@ message PublishDataTrackCallback {
   required uint64 async_id = 1;
   oneof result {
     OwnedLocalDataTrack track = 2;
-    string error = 3;
+    PublishDataTrackError error = 3;
   }
 }
 
@@ -77,7 +140,7 @@ message LocalDataTrackTryPushRequest {
   required DataTrackFrame frame = 2;
 }
 message LocalDataTrackTryPushResponse {
-  optional string error = 2;
+  optional LocalDataTrackTryPushError error = 2;
 }
 
 // Checks if the track is still published.
