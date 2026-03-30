@@ -20,7 +20,7 @@
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto2 } from "@bufbuild/protobuf";
 import type { DisconnectReason, OwnedParticipant, ParticipantInfo, ParticipantPermission } from "./participant_pb.js";
-import type { OwnedTrack, OwnedTrackPublication, TrackSource } from "./track_pb.js";
+import type { OwnedTrack, OwnedTrackPublication, PacketTrailerFeature, TrackSource } from "./track_pb.js";
 import type { RtcStats } from "./stats_pb.js";
 import type { VideoCodec } from "./video_frame_pb.js";
 import type { E2eeOptions, EncryptionState } from "./e2ee_pb.js";
@@ -1621,6 +1621,11 @@ export declare class TrackPublishOptions extends Message<TrackPublishOptions> {
    * @generated from field: optional bool preconnect_buffer = 9;
    */
   preconnectBuffer?: boolean;
+
+  /**
+   * @generated from field: repeated livekit.proto.PacketTrailerFeature packet_trailer_features = 10;
+   */
+  packetTrailerFeatures: PacketTrailerFeature[];
 
   constructor(data?: PartialMessage<TrackPublishOptions>);
 
@@ -4102,4 +4107,3 @@ export declare class TextStreamOpened extends Message<TextStreamOpened> {
 
   static equals(a: TextStreamOpened | PlainMessage<TextStreamOpened> | undefined, b: TextStreamOpened | PlainMessage<TextStreamOpened> | undefined): boolean;
 }
-

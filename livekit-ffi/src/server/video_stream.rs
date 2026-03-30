@@ -22,6 +22,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use super::{colorcvt, room::FfiTrack, FfiHandle};
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
+use livekit::webrtc::video_frame::FrameMetadata;
 
 pub struct FfiVideoStream {
     pub handle_id: FfiHandleId,
@@ -32,6 +33,13 @@ pub struct FfiVideoStream {
 }
 
 impl FfiHandle for FfiVideoStream {}
+
+fn frame_metadata_to_proto(metadata: Option<FrameMetadata>) -> Option<proto::FrameMetadata> {
+    metadata.map(|metadata| proto::FrameMetadata {
+        user_timestamp_us: metadata.user_timestamp_us,
+        frame_id: metadata.frame_id,
+    })
+}
 
 impl FfiVideoStream {
     /// Setup a new VideoStream and forward the frame data to the client/the foreign
@@ -136,6 +144,9 @@ impl FfiVideoStream {
                         break;
                     };
 
+                    let metadata = frame_metadata_to_proto(frame.frame_metadata);
+                    let timestamp_us = frame.timestamp_us;
+                    let rotation = proto::VideoRotation::from(frame.rotation).into();
                     let Ok((buffer, info)) = colorcvt::to_video_buffer_info(frame.buffer, dst_type, normalize_stride) else {
                         log::error!("video stream failed to convert video frame to {:?}", dst_type);
                         continue;
@@ -150,14 +161,15 @@ impl FfiVideoStream {
                             stream_handle,
                             message: Some(proto::video_stream_event::Message::FrameReceived(
                                 proto::VideoFrameReceived {
-                                    timestamp_us: frame.timestamp_us,
-                                    rotation: proto::VideoRotation::from(frame.rotation).into(),
+                                    timestamp_us,
+                                    rotation,
                                     buffer: proto::OwnedVideoBuffer {
                                         handle: proto::FfiOwnedHandle {
                                             id: handle_id,
                                         },
                                         info,
                                     },
+                                    metadata,
                                 }
                             )),
                         }.into()
@@ -275,5 +287,28 @@ impl FfiVideoStream {
         ) {
             log::warn!("failed to send video EOS: {}", err);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::frame_metadata_to_proto;
+    use livekit::webrtc::video_frame::FrameMetadata;
+
+    #[test]
+    fn missing_frame_metadata_stays_missing() {
+        assert!(frame_metadata_to_proto(None).is_none());
+    }
+
+    #[test]
+    fn frame_metadata_optionality_is_preserved() {
+        let metadata = frame_metadata_to_proto(Some(FrameMetadata {
+            user_timestamp_us: Some(123),
+            frame_id: None,
+        }))
+        .unwrap();
+
+        assert_eq!(metadata.user_timestamp_us, Some(123));
+        assert_eq!(metadata.frame_id, None);
     }
 }

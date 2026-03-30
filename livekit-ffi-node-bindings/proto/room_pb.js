@@ -22,7 +22,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 
 const { proto2 } = require("@bufbuild/protobuf");
 const { DisconnectReason, OwnedParticipant, ParticipantInfo, ParticipantPermission } = require("./participant_pb.js");
-const { OwnedTrack, OwnedTrackPublication, TrackSource } = require("./track_pb.js");
+const { OwnedTrack, OwnedTrackPublication, PacketTrailerFeature, TrackSource } = require("./track_pb.js");
 const { RtcStats } = require("./stats_pb.js");
 const { VideoCodec } = require("./video_frame_pb.js");
 const { E2eeOptions, EncryptionState } = require("./e2ee_pb.js");
@@ -640,6 +640,7 @@ const TrackPublishOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 7, name: "source", kind: "enum", T: proto2.getEnumType(TrackSource), opt: true },
     { no: 8, name: "stream", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 9, name: "preconnect_buffer", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 10, name: "packet_trailer_features", kind: "enum", T: proto2.getEnumType(PacketTrailerFeature), repeated: true },
   ],
 );
 

@@ -18,7 +18,7 @@ use livekit::{
         key_provider::{KeyProvider, KeyProviderOptions},
         E2eeOptions, EncryptionType,
     },
-    options::{AudioEncoding, TrackPublishOptions, VideoEncoding},
+    options::{AudioEncoding, PacketTrailerFeatures, TrackPublishOptions, VideoEncoding},
     prelude::*,
     webrtc::{
         native::frame_cryptor::{EncryptionState, KeyDerivationAlgorithm},
@@ -27,6 +27,25 @@ use livekit::{
     RoomInfo,
 };
 use std::time::Duration;
+
+fn packet_trailer_features_from_proto(features: Vec<i32>) -> PacketTrailerFeatures {
+    let mut packet_trailer_features = PacketTrailerFeatures::default();
+
+    for feature in
+        features.into_iter().filter_map(|value| proto::PacketTrailerFeature::try_from(value).ok())
+    {
+        match feature {
+            proto::PacketTrailerFeature::PtfUserTimestamp => {
+                packet_trailer_features.user_timestamp = true;
+            }
+            proto::PacketTrailerFeature::PtfFrameId => {
+                packet_trailer_features.frame_id = true;
+            }
+        }
+    }
+
+    packet_trailer_features
+}
 
 impl From<EncryptionState> for proto::EncryptionState {
     fn from(value: EncryptionState) -> Self {
@@ -294,7 +313,9 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             preconnect_buffer: opts
                 .preconnect_buffer
                 .unwrap_or(default_publish_options.preconnect_buffer),
-            packet_trailer_features: default_publish_options.packet_trailer_features,
+            packet_trailer_features: packet_trailer_features_from_proto(
+                opts.packet_trailer_features,
+            ),
         }
     }
 }
@@ -308,6 +329,31 @@ impl From<proto::VideoEncoding> for VideoEncoding {
 impl From<proto::AudioEncoding> for AudioEncoding {
     fn from(opts: proto::AudioEncoding) -> Self {
         Self { max_bitrate: opts.max_bitrate }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::packet_trailer_features_from_proto;
+    use crate::proto;
+
+    #[test]
+    fn packet_trailer_features_default_to_empty() {
+        let features = packet_trailer_features_from_proto(Vec::new());
+
+        assert!(!features.user_timestamp);
+        assert!(!features.frame_id);
+    }
+
+    #[test]
+    fn packet_trailer_features_enable_known_flags() {
+        let features = packet_trailer_features_from_proto(vec![
+            proto::PacketTrailerFeature::PtfUserTimestamp.into(),
+            proto::PacketTrailerFeature::PtfFrameId.into(),
+        ]);
+
+        assert!(features.user_timestamp);
+        assert!(features.frame_id);
     }
 }
 
