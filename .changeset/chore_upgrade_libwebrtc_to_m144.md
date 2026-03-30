@@ -1,5 +1,4 @@
 ---
-webrtc-sys: minor
 libwebrtc: minor
 ---
 
