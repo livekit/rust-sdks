@@ -36,6 +36,7 @@ pub unsafe extern "C" fn livekit_ffi_initialize(
     capture_logs: bool,
     sdk: *const c_char,
     sdk_version: *const c_char,
+    device_model: *const c_char,
 ) {
     FFI_SERVER.setup(FfiConfig {
         callback_fn: Arc::new(move |event| {
@@ -45,6 +46,18 @@ pub unsafe extern "C" fn livekit_ffi_initialize(
         capture_logs,
         sdk: CStr::from_ptr(sdk).to_string_lossy().into_owned(),
         sdk_version: CStr::from_ptr(sdk_version).to_string_lossy().into_owned(),
+        device_model: {
+            if device_model.is_null() {
+                None
+            } else {
+                let s = CStr::from_ptr(device_model).to_string_lossy().into_owned();
+                if s.is_empty() {
+                    None
+                } else {
+                    Some(s)
+                }
+            }
+        },
     });
 
     log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
