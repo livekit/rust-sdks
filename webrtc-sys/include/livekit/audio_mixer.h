@@ -80,7 +80,7 @@ class AudioMixer {
   mutable webrtc::Mutex sources_mutex_;
   webrtc::AudioFrame frame_;
   std::vector<std::shared_ptr<AudioMixerSource>> sources_;
-  rtc::scoped_refptr<webrtc::AudioMixer> audio_mixer_;
+  webrtc::scoped_refptr<webrtc::AudioMixer> audio_mixer_;
 };
 
 std::unique_ptr<AudioMixer> create_audio_mixer();

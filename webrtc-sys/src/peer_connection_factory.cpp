@@ -22,9 +22,9 @@
 #include "api/audio_codecs/builtin_audio_decoder_factory.h"
 #include "api/audio_codecs/builtin_audio_encoder_factory.h"
 #include "api/audio/builtin_audio_processing_builder.h"
+#include "api/create_modular_peer_connection_factory.h"
 #include "api/environment/environment_factory.h"
 #include "api/peer_connection_interface.h"
-#include "api/transport/field_trial_based_config.h"
 #include "api/rtc_error.h"
 #include "api/enable_media.h"
 #include "api/rtc_event_log/rtc_event_log_factory.h"
@@ -49,7 +49,8 @@ class PeerConnectionObserver;
 
 PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
-    : rtc_runtime_(rtc_runtime) {
+    : rtc_runtime_(rtc_runtime),
+    env_(webrtc::EnvironmentFactory().Create()) {
   RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::PeerConnectionFactory()";
 
   webrtc::PeerConnectionFactoryDependencies dependencies;
@@ -57,13 +58,12 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.worker_thread = rtc_runtime_->worker_thread();
   dependencies.signaling_thread = rtc_runtime_->signaling_thread();
   dependencies.socket_factory = rtc_runtime_->network_thread()->socketserver();
-  dependencies.task_queue_factory = webrtc::CreateDefaultTaskQueueFactory();
   dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
-  dependencies.trials = std::make_unique<webrtc::FieldTrialBasedConfig>();
+  // TODO:
+  // dependencies.trials = std::make_unique<webrtc::FieldTrialBasedConfig>();
 
   audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
-    return webrtc::make_ref_counted<livekit_ffi::AudioDevice>(
-        dependencies.task_queue_factory.get());
+    return webrtc::make_ref_counted<livekit_ffi::AudioDevice>(env_);
   });
 
   dependencies.adm = audio_device_;
@@ -74,15 +74,11 @@ PeerConnectionFactory::PeerConnectionFactory(
       std::move(std::make_unique<livekit_ffi::VideoDecoderFactory>());
   dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   dependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
-  dependencies.audio_processing = webrtc::BuiltinAudioProcessingBuilder()
-                                      .Build(webrtc::CreateEnvironment());
+  dependencies.audio_processing_builder = std::make_unique<webrtc::BuiltinAudioProcessingBuilder>();
 
   webrtc::EnableMedia(dependencies);
   peer_factory_ =
       webrtc::CreateModularPeerConnectionFactory(std::move(dependencies));
-
-
-  task_queue_factory_ = dependencies.task_queue_factory.get();
 
   if (peer_factory_.get() == nullptr) {
     RTC_LOG_ERR(LS_ERROR) << "Failed to create PeerConnectionFactory";
