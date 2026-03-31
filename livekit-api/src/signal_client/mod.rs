@@ -101,6 +101,8 @@ pub struct SignalOptions {
     pub single_peer_connection: bool,
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
+    /// Device model string for ClientInfo (e.g. "MacBookPro18,3")
+    pub device_model: Option<String>,
 }
 
 impl Default for SignalOptions {
@@ -111,6 +113,7 @@ impl Default for SignalOptions {
             sdk_options: SignalSdkOptions::default(),
             single_peer_connection: false,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
+            device_model: None,
         }
     }
 }
@@ -569,6 +572,7 @@ fn create_join_request_param(
         protocol: PROTOCOL_VERSION as i32,
         os,
         os_version,
+        device_model: options.device_model.clone().unwrap_or_default(),
         ..Default::default()
     };
 
@@ -666,6 +670,10 @@ fn get_livekit_url(
 
         if let Some(sdk_version) = &options.sdk_options.sdk_version {
             lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
+        }
+
+        if let Some(device_model) = &options.device_model {
+            lk_url.query_pairs_mut().append_pair("device_model", device_model.as_str());
         }
 
         // For reconnects in v0 path, add reconnect and sid as separate query parameters
