@@ -14,7 +14,10 @@
 
 use super::{colorcvt, FfiHandle};
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
-use livekit::webrtc::{prelude::*, video_frame::VideoFrame};
+use livekit::webrtc::{
+    prelude::*,
+    video_frame::{FrameMetadata, VideoFrame},
+};
 
 pub struct FfiVideoSource {
     pub handle_id: FfiHandleId,
@@ -23,6 +26,17 @@ pub struct FfiVideoSource {
 }
 
 impl FfiHandle for FfiVideoSource {}
+
+fn frame_metadata_from_proto(metadata: Option<proto::FrameMetadata>) -> Option<FrameMetadata> {
+    let metadata = metadata?;
+    let frame_metadata = FrameMetadata {
+        user_timestamp_us: metadata.user_timestamp_us,
+        frame_id: metadata.frame_id,
+    };
+
+    (frame_metadata.user_timestamp_us.is_some() || frame_metadata.frame_id.is_some())
+        .then_some(frame_metadata)
+}
 
 impl FfiVideoSource {
     pub fn setup(
@@ -67,7 +81,7 @@ impl FfiVideoSource {
                 let frame = VideoFrame {
                     rotation: capture.rotation().into(),
                     timestamp_us: capture.timestamp_us,
-                    frame_metadata: None,
+                    frame_metadata: frame_metadata_from_proto(capture.metadata),
                     buffer,
                 };
 
@@ -76,5 +90,28 @@ impl FfiVideoSource {
             _ => {}
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::frame_metadata_from_proto;
+    use crate::proto;
+
+    #[test]
+    fn empty_proto_frame_metadata_is_ignored() {
+        assert!(frame_metadata_from_proto(Some(proto::FrameMetadata::default())).is_none());
+    }
+
+    #[test]
+    fn proto_frame_metadata_preserves_present_fields() {
+        let metadata = frame_metadata_from_proto(Some(proto::FrameMetadata {
+            user_timestamp_us: Some(123),
+            frame_id: Some(456),
+        }))
+        .unwrap();
+
+        assert_eq!(metadata.user_timestamp_us, Some(123));
+        assert_eq!(metadata.frame_id, Some(456));
     }
 }
