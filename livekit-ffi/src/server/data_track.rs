@@ -15,9 +15,9 @@
 use super::{FfiHandle, FfiServer};
 use crate::{proto, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
-use livekit::data_track::{
-    DataTrackFrame, DataTrackSubscribeOptions, DataTrackSubscription, LocalDataTrack,
-    RemoteDataTrack,
+use livekit::{
+    data_track::{DataTrackFrame, DataTrackSubscription, LocalDataTrack, RemoteDataTrack},
+    prelude::DataTrackSubscribeOptions,
 };
 use std::sync::Arc;
 use tokio::sync::{oneshot, Notify};
@@ -78,7 +78,7 @@ impl FfiLocalDataTrack {
         request: proto::LocalDataTrackTryPushRequest,
     ) -> FfiResult<proto::LocalDataTrackTryPushResponse> {
         let frame: DataTrackFrame = request.frame.into();
-        let error: Option<String> = self.inner.try_push(frame).err().map(|err| err.to_string());
+        let error = self.inner.try_push(frame).err().map(Into::into);
         Ok(proto::LocalDataTrackTryPushResponse { error })
     }
 }
