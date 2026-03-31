@@ -923,3 +923,4 @@ export declare class OwnedVideoSource extends Message<OwnedVideoSource> {
 
   static equals(a: OwnedVideoSource | PlainMessage<OwnedVideoSource> | undefined, b: OwnedVideoSource | PlainMessage<OwnedVideoSource> | undefined): boolean;
 }
+

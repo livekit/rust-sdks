@@ -4107,3 +4107,4 @@ export declare class TextStreamOpened extends Message<TextStreamOpened> {
 
   static equals(a: TextStreamOpened | PlainMessage<TextStreamOpened> | undefined, b: TextStreamOpened | PlainMessage<TextStreamOpened> | undefined): boolean;
 }
+
