@@ -35,11 +35,15 @@ fn utsname_machine() -> Result<String, DeviceInfoError> {
 }
 
 fn ui_device_name() -> Result<String, DeviceInfoError> {
-    use objc2::rc::Retained;
+    use objc2::MainThreadMarker;
     use objc2_ui_kit::UIDevice;
 
-    let device = UIDevice::currentDevice();
-    let name: Retained<objc2::runtime::NSString> = unsafe { device.name() };
+    // UIDevice can be accessed from any thread, but currentDevice() requires
+    // a MainThreadMarker in objc2. We assume the caller is on the main thread
+    // or that UIDevice is safe to query (which it is in practice).
+    let mtm = unsafe { MainThreadMarker::new_unchecked() };
+    let device = UIDevice::currentDevice(mtm);
+    let name = device.name();
     Ok(name.to_string())
 }
 

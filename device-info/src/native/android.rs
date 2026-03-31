@@ -55,14 +55,11 @@ fn get_build_field(env: &mut jni::JNIEnv, field: &str) -> Result<String, DeviceI
 
     let value = env
         .get_static_field(build_class, field, "Ljava/lang/String;")
-        .map_err(|e| DeviceInfoError::Jni(format!("get Build.{field}: {e}")))?;
+        .map_err(|e| DeviceInfoError::Jni(format!("get Build.{field}: {e}")))?
+        .l()
+        .map_err(|e| DeviceInfoError::Jni(format!("Build.{field} is not an Object: {e}")))?;
 
-    let jstr = match value {
-        JValue::Object(obj) => obj,
-        _ => return Err(DeviceInfoError::Jni(format!("Build.{field} is not a String"))),
-    };
-
-    let jstring = jni::objects::JString::from(jstr);
+    let jstring: jni::objects::JString = value.into();
     let rust_str = env
         .get_string(&jstring)
         .map_err(|e| DeviceInfoError::Jni(format!("get string Build.{field}: {e}")))?;

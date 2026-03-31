@@ -34,7 +34,7 @@ fn registry_model() -> Result<String, DeviceInfoError> {
     let value_name: Vec<u16> = "SystemProductName\0".encode_utf16().collect();
 
     unsafe {
-        let mut hkey = 0isize;
+        let mut hkey = std::ptr::null_mut();
         let status = RegOpenKeyExW(HKEY_LOCAL_MACHINE, subkey.as_ptr(), 0, KEY_READ, &mut hkey);
         if status != 0 {
             return Err(DeviceInfoError::Query("failed to open BIOS registry key".into()));
