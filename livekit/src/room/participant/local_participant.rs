@@ -34,7 +34,9 @@ use crate::{
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
-    room::participant::rpc::{RpcError, RpcErrorCode, RpcInvocationData, MAX_PAYLOAD_BYTES},
+    room::participant::rpc::{
+        compress_rpc_payload_bytes, RpcError, RpcErrorCode, RpcInvocationData, MAX_PAYLOAD_BYTES,
+    },
     rtc_engine::{EngineError, RtcEngine},
     ChatMessage, DataPacket, RoomSession, RpcAck, RpcRequest, RpcResponse, SipDTMF, Transcription,
 };
@@ -120,6 +122,7 @@ impl LocalParticipant {
         joined_at: i64,
         encryption_type: EncryptionType,
         permission: Option<proto::ParticipantPermission>,
+        client_protocol: i32,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -134,6 +137,7 @@ impl LocalParticipant {
                 kind_details,
                 joined_at,
                 permission,
+                client_protocol,
             ),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
@@ -618,15 +622,62 @@ impl LocalParticipant {
             .map_err(Into::into)
     }
 
+    /// Check if a remote participant supports RPC compression.
+    /// Returns true if the participant has client_protocol >= 1.
+    fn destination_supports_compression(&self, destination_identity: &str) -> bool {
+        let Some(session) = self.session() else {
+            return false;
+        };
+        let participant_identity: ParticipantIdentity = destination_identity.to_string().into();
+        let Some(participant) = session.get_participant_by_identity(&participant_identity) else {
+            return false;
+        };
+        participant.client_protocol() >= 1
+    }
+
+    fn destinations_support_stream_packet_coalescing(
+        &self,
+        destination_identities: &[ParticipantIdentity],
+    ) -> bool {
+        if destination_identities.is_empty() {
+            return false;
+        }
+        let Some(session) = self.session() else {
+            return false;
+        };
+
+        destination_identities.iter().all(|participant_identity| {
+            session
+                .get_participant_by_identity(participant_identity)
+                .map(|participant| participant.client_protocol() >= 1)
+                .unwrap_or(false)
+        })
+    }
+
     async fn publish_rpc_request(&self, rpc_request: RpcRequest) -> RoomResult<()> {
+        // Compress the payload only if destination supports it
+        let supports_compression =
+            self.destination_supports_compression(&rpc_request.destination_identity);
+
+        // Use compressed_payload field (raw bytes) when compression is beneficial
+        let (payload, compressed_payload) = if supports_compression {
+            match compress_rpc_payload_bytes(&rpc_request.payload) {
+                Some(compressed) => (String::new(), compressed),
+                None => (rpc_request.payload, Vec::new()),
+            }
+        } else {
+            (rpc_request.payload, Vec::new())
+        };
+
         let destination_identities = vec![rpc_request.destination_identity];
+
         let rpc_request_message = proto::RpcRequest {
             id: rpc_request.id,
             method: rpc_request.method,
-            payload: rpc_request.payload,
+            payload,
+            compressed_payload,
             response_timeout_ms: rpc_request.response_timeout.as_millis() as u32,
             version: rpc_request.version,
-            ..Default::default()
         };
 
         let data = proto::DataPacket {
@@ -643,23 +694,40 @@ impl LocalParticipant {
     }
 
     async fn publish_rpc_response(&self, rpc_response: RpcResponse) -> RoomResult<()> {
+        // Compress the payload only if destination supports it
+        let supports_compression =
+            self.destination_supports_compression(&rpc_response.destination_identity);
         let destination_identities = vec![rpc_response.destination_identity];
-        let rpc_response_message = proto::RpcResponse {
-            request_id: rpc_response.request_id,
-            value: Some(match rpc_response.error {
-                Some(error) => proto::rpc_response::Value::Error(proto::RpcError {
-                    code: error.code,
-                    message: error.message,
-                    data: error.data,
-                }),
-                None => proto::rpc_response::Value::Payload(rpc_response.payload.unwrap()),
+
+        // Determine the response value (error, compressed payload, or plain payload)
+        let response_value = match rpc_response.error {
+            Some(error) => proto::rpc_response::Value::Error(proto::RpcError {
+                code: error.code,
+                message: error.message,
+                data: error.data,
             }),
-            ..Default::default()
+            None => {
+                let payload = rpc_response.payload.unwrap_or_default();
+                if supports_compression {
+                    // Try to compress and use CompressedPayload variant
+                    match compress_rpc_payload_bytes(&payload) {
+                        Some(compressed) => {
+                            proto::rpc_response::Value::CompressedPayload(compressed)
+                        }
+                        None => proto::rpc_response::Value::Payload(payload),
+                    }
+                } else {
+                    proto::rpc_response::Value::Payload(payload)
+                }
+            }
         };
+
+        let rpc_response_message =
+            proto::RpcResponse { request_id: rpc_response.request_id, value: Some(response_value) };
 
         let data = proto::DataPacket {
             value: Some(proto::data_packet::Value::RpcResponse(rpc_response_message)),
-            destination_identities: destination_identities.clone(),
+            destination_identities,
             ..Default::default()
         };
 
@@ -671,13 +739,12 @@ impl LocalParticipant {
     }
 
     async fn publish_rpc_ack(&self, rpc_ack: RpcAck) -> RoomResult<()> {
-        let destination_identities = vec![rpc_ack.destination_identity];
         let rpc_ack_message =
             proto::RpcAck { request_id: rpc_ack.request_id, ..Default::default() };
 
         let data = proto::DataPacket {
             value: Some(proto::data_packet::Value::RpcAck(rpc_ack_message)),
-            destination_identities: destination_identities.clone(),
+            destination_identities: vec![rpc_ack.destination_identity],
             ..Default::default()
         };
 
@@ -743,6 +810,10 @@ impl LocalParticipant {
         self.inner.info.read().attributes.clone()
     }
 
+    pub fn client_protocol(&self) -> i32 {
+        self.inner.info.read().client_protocol
+    }
+
     pub fn is_speaking(&self) -> bool {
         self.inner.info.read().speaking
     }
@@ -799,6 +870,13 @@ impl LocalParticipant {
         let min_effective_timeout = Duration::from_millis(1000);
 
         if data.payload.len() > MAX_PAYLOAD_BYTES {
+            log::error!(
+                "RPC request payload too large: {} bytes (max: {} bytes), method: {}, destination: {}",
+                data.payload.len(),
+                MAX_PAYLOAD_BYTES,
+                data.method,
+                data.destination_identity
+            );
             return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
         }
 
@@ -809,6 +887,13 @@ impl LocalParticipant {
                 let server_version = Version::parse(&server_info.version).unwrap();
                 let min_required_version = Version::parse("1.8.0").unwrap();
                 if server_version < min_required_version {
+                    log::error!(
+                        "RPC error code {}: Server version {} does not support RPC (requires >= 1.8.0), method: {}, destination: {}",
+                        RpcErrorCode::UnsupportedServer as u32,
+                        server_info.version,
+                        data.method,
+                        data.destination_identity
+                    );
                     return Err(RpcError::built_in(RpcErrorCode::UnsupportedServer, None));
                 }
             }
@@ -852,6 +937,14 @@ impl LocalParticipant {
         // Wait for ack timeout
         match tokio::time::timeout(max_round_trip_latency, ack_rx).await {
             Err(_) => {
+                log::error!(
+                    "RPC error code {}: Connection timeout waiting for ACK (timeout: {:?}), request_id: {}, method: {}, destination: {}",
+                    RpcErrorCode::ConnectionTimeout as u32,
+                    max_round_trip_latency,
+                    id,
+                    data.method,
+                    data.destination_identity
+                );
                 let mut rpc_state = self.local.rpc_state.lock();
                 rpc_state.pending_acks.remove(&id);
                 rpc_state.pending_responses.remove(&id);
@@ -862,9 +955,17 @@ impl LocalParticipant {
             }
         }
 
-        // Wait for response timout
+        // Wait for response timeout
         let response = match tokio::time::timeout(data.response_timeout, response_rx).await {
             Err(_) => {
+                log::error!(
+                    "RPC error code {}: Response timeout (timeout: {:?}), request_id: {}, method: {}, destination: {}",
+                    RpcErrorCode::ResponseTimeout as u32,
+                    data.response_timeout,
+                    id,
+                    data.method,
+                    data.destination_identity
+                );
                 self.local.rpc_state.lock().pending_responses.remove(&id);
                 return Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None));
             }
@@ -874,10 +975,26 @@ impl LocalParticipant {
         match response {
             Err(_) => {
                 // Something went wrong locally
+                log::error!(
+                    "RPC error code {}: Recipient disconnected, request_id: {}, method: {}, destination: {}",
+                    RpcErrorCode::RecipientDisconnected as u32,
+                    id,
+                    data.method,
+                    data.destination_identity
+                );
                 Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None))
             }
             Ok(Err(e)) => {
                 // RPC error from remote, forward it
+                log::error!(
+                    "RPC error code {}: {} (from remote), request_id: {}, method: {}, destination: {}, data: {:?}",
+                    e.code,
+                    e.message,
+                    id,
+                    data.method,
+                    data.destination_identity,
+                    e.data
+                );
                 Err(e)
             }
             Ok(Ok(payload)) => {
@@ -924,10 +1041,11 @@ impl LocalParticipant {
     ) {
         let mut rpc_state = self.local.rpc_state.lock();
         if let Some(tx) = rpc_state.pending_responses.remove(&request_id) {
-            let _ = tx.send(match error {
+            let result = match error {
                 Some(e) => Err(RpcError::from_proto(e)),
                 None => Ok(payload.unwrap_or_default()),
-            });
+            };
+            let _ = tx.send(result);
         } else {
             log::error!("Response received for unexpected RPC request: {}", request_id);
         }
@@ -956,6 +1074,14 @@ impl LocalParticipant {
         let request_id_2 = request_id.clone();
 
         let response = if version != 1 {
+            log::error!(
+                "RPC error code {}: Unsupported RPC version {}, request_id: {}, method: {}, caller: {}",
+                RpcErrorCode::UnsupportedVersion as u32,
+                version,
+                request_id,
+                method,
+                caller_identity
+            );
             Err(RpcError::built_in(RpcErrorCode::UnsupportedVersion, None))
         } else {
             let handler = self.local.rpc_state.lock().handlers.get(&method).cloned();
@@ -964,9 +1090,9 @@ impl LocalParticipant {
                 Some(handler) => {
                     match tokio::task::spawn(async move {
                         handler(RpcInvocationData {
-                            request_id: request_id.clone(),
-                            caller_identity: caller_identity.clone(),
-                            payload: payload.clone(),
+                            request_id,
+                            caller_identity,
+                            payload,
                             response_timeout,
                         })
                         .await
@@ -975,12 +1101,27 @@ impl LocalParticipant {
                     {
                         Ok(result) => result,
                         Err(e) => {
-                            log::error!("RPC method handler returned an error: {:?}", e);
+                            log::error!(
+                                "RPC error code {}: Method handler panicked: {:?}, request_id: {}, method: {}",
+                                RpcErrorCode::ApplicationError as u32,
+                                e,
+                                request_id_2,
+                                method
+                            );
                             Err(RpcError::built_in(RpcErrorCode::ApplicationError, None))
                         }
                     }
                 }
-                None => Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None)),
+                None => {
+                    log::error!(
+                        "RPC error code {}: Unsupported method '{}', request_id: {}, caller: {}",
+                        RpcErrorCode::UnsupportedMethod as u32,
+                        method,
+                        request_id_2,
+                        caller_identity_2
+                    );
+                    Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None))
+                }
             }
         };
 
@@ -988,7 +1129,17 @@ impl LocalParticipant {
             Ok(response_payload) if response_payload.len() <= MAX_PAYLOAD_BYTES => {
                 (Some(response_payload), None)
             }
-            Ok(_) => (None, Some(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None))),
+            Ok(response_payload) => {
+                log::error!(
+                    "RPC error code {}: Response payload too large: {} bytes (max: {} bytes), request_id: {}, caller: {}",
+                    RpcErrorCode::ResponsePayloadTooLarge as u32,
+                    response_payload.len(),
+                    MAX_PAYLOAD_BYTES,
+                    request_id_2,
+                    caller_identity_2
+                );
+                (None, Some(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None)))
+            }
             Err(e) => (None, Some(e.into())),
         };
 
@@ -1020,8 +1171,10 @@ impl LocalParticipant {
     pub async fn send_text(
         &self,
         text: &str,
-        options: StreamTextOptions,
+        mut options: StreamTextOptions,
     ) -> StreamResult<TextStreamInfo> {
+        options.packet_coalescing_enabled =
+            self.destinations_support_stream_packet_coalescing(&options.destination_identities);
         self.session().unwrap().outgoing_stream_manager.send_text(text, options).await
     }
 
@@ -1040,8 +1193,10 @@ impl LocalParticipant {
     pub async fn send_file(
         &self,
         path: impl AsRef<Path>,
-        options: StreamByteOptions,
+        mut options: StreamByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
+        options.packet_coalescing_enabled =
+            self.destinations_support_stream_packet_coalescing(&options.destination_identities);
         self.session().unwrap().outgoing_stream_manager.send_file(path, options).await
     }
 
@@ -1057,8 +1212,10 @@ impl LocalParticipant {
     pub async fn send_bytes(
         &self,
         data: impl AsRef<[u8]>,
-        options: StreamByteOptions,
+        mut options: StreamByteOptions,
     ) -> StreamResult<ByteStreamInfo> {
+        options.packet_coalescing_enabled =
+            self.destinations_support_stream_packet_coalescing(&options.destination_identities);
         self.session().unwrap().outgoing_stream_manager.send_bytes(data, options).await
     }
 
@@ -1073,7 +1230,12 @@ impl LocalParticipant {
     /// * `options` - Configuration options for the text stream, including topic and
     ///   destination participants.
     ///
-    pub async fn stream_text(&self, options: StreamTextOptions) -> StreamResult<TextStreamWriter> {
+    pub async fn stream_text(
+        &self,
+        mut options: StreamTextOptions,
+    ) -> StreamResult<TextStreamWriter> {
+        options.packet_coalescing_enabled =
+            self.destinations_support_stream_packet_coalescing(&options.destination_identities);
         self.session().unwrap().outgoing_stream_manager.stream_text(options).await
     }
 
@@ -1088,7 +1250,12 @@ impl LocalParticipant {
     /// * `options` - Configuration options for the byte stream, including topic and
     ///   destination participants.
     ///
-    pub async fn stream_bytes(&self, options: StreamByteOptions) -> StreamResult<ByteStreamWriter> {
+    pub async fn stream_bytes(
+        &self,
+        mut options: StreamByteOptions,
+    ) -> StreamResult<ByteStreamWriter> {
+        options.packet_coalescing_enabled =
+            self.destinations_support_stream_packet_coalescing(&options.destination_identities);
         self.session().unwrap().outgoing_stream_manager.stream_bytes(options).await
     }
 

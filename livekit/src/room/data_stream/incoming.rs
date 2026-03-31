@@ -249,10 +249,13 @@ impl IncomingStreamManager {
     /// Handles an incoming header packet.
     pub fn handle_header(
         &self,
-        header: proto::Header,
+        mut header: proto::Header,
         identity: String,
         encryption_type: livekit_protocol::encryption::Type,
     ) {
+        let inline_content = std::mem::take(&mut header.content);
+        let inline_trailer = header.trailer.take();
+
         let Ok(info) = AnyStreamInfo::try_from_with_encryption(header, encryption_type.into())
             .inspect_err(|e| log::error!("Invalid header: {}", e))
         else {
@@ -278,15 +281,37 @@ impl IncomingStreamManager {
             encryption_type: stream_encryption_type,
         };
         inner.open_streams.insert(id, descriptor);
+
+        if !inline_content.is_empty() {
+            let mut length_exceeded = false;
+            if let Some(descriptor) = inner.open_streams.get_mut(&id) {
+                descriptor.progress.bytes_processed += inline_content.len() as u64;
+                descriptor.progress.chunk_index += 1;
+                if let Some(total) = descriptor.progress.bytes_total {
+                    length_exceeded = descriptor.progress.bytes_processed > total;
+                }
+            }
+
+            if length_exceeded {
+                inner.close_stream_with_error(&id, StreamError::LengthExceeded);
+                return;
+            }
+            inner.yield_chunk(&id, Bytes::from(inline_content));
+        }
+
+        if let Some(trailer) = inline_trailer {
+            Self::apply_trailer(&mut inner, trailer);
+        }
     }
 
     /// Handles an incoming chunk packet.
     pub fn handle_chunk(
         &self,
-        chunk: proto::Chunk,
+        mut chunk: proto::Chunk,
         encryption_type: livekit_protocol::encryption::Type,
     ) {
-        let id = chunk.stream_id;
+        let id = chunk.stream_id.clone();
+        let trailer = chunk.trailer.take();
         let mut inner = self.inner.lock();
         let Some(descriptor) = inner.open_streams.get_mut(&id) else {
             return;
@@ -313,19 +338,27 @@ impl IncomingStreamManager {
             return;
         }
         inner.yield_chunk(&id, Bytes::from(chunk.content));
+
+        if let Some(trailer) = trailer {
+            Self::apply_trailer(&mut inner, trailer);
+        }
         // TODO: also yield progress
     }
 
     /// Handles an incoming trailer packet.
     pub fn handle_trailer(&self, trailer: proto::Trailer) {
-        let id = trailer.stream_id;
         let mut inner = self.inner.lock();
+        Self::apply_trailer(&mut inner, trailer);
+    }
+
+    fn apply_trailer(inner: &mut ManagerInner, trailer: proto::Trailer) {
+        let id = trailer.stream_id;
         let Some(descriptor) = inner.open_streams.get_mut(&id) else {
             return;
         };
 
         if !match descriptor.progress.bytes_total {
-            Some(total) => descriptor.progress.bytes_processed >= total as u64,
+            Some(total) => descriptor.progress.bytes_processed >= total,
             None => true,
         } {
             inner.close_stream_with_error(&id, StreamError::Incomplete);
