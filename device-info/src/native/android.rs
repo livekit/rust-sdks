@@ -35,25 +35,17 @@ pub fn init(vm: &JavaVM, context: JObject) {
 }
 
 pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
-    let ctx = ANDROID_CONTEXT
-        .get()
-        .ok_or(DeviceInfoError::NotInitialized)?;
+    let ctx = ANDROID_CONTEXT.get().ok_or(DeviceInfoError::NotInitialized)?;
 
-    let mut env = ctx
-        .vm
-        .attach_current_thread()
-        .map_err(|e| DeviceInfoError::Jni(e.to_string()))?;
+    let mut env =
+        ctx.vm.attach_current_thread().map_err(|e| DeviceInfoError::Jni(e.to_string()))?;
 
     let model = get_build_field(&mut env, "MODEL")?;
     let manufacturer = get_build_field(&mut env, "MANUFACTURER")?;
     let name = get_device_name(&mut env, &ctx.context).unwrap_or_else(|_| model.clone());
     let device_type = detect_device_type(&manufacturer);
 
-    Ok(DeviceInfo {
-        model,
-        name,
-        device_type,
-    })
+    Ok(DeviceInfo { model, name, device_type })
 }
 
 fn get_build_field(env: &mut jni::JNIEnv, field: &str) -> Result<String, DeviceInfoError> {
@@ -80,7 +72,12 @@ fn get_build_field(env: &mut jni::JNIEnv, field: &str) -> Result<String, DeviceI
 
 fn get_device_name(env: &mut jni::JNIEnv, context: &GlobalRef) -> Result<String, DeviceInfoError> {
     let content_resolver = env
-        .call_method(context.as_obj(), "getContentResolver", "()Landroid/content/ContentResolver;", &[])
+        .call_method(
+            context.as_obj(),
+            "getContentResolver",
+            "()Landroid/content/ContentResolver;",
+            &[],
+        )
         .map_err(|e| DeviceInfoError::Jni(format!("getContentResolver: {e}")))?
         .l()
         .map_err(|e| DeviceInfoError::Jni(format!("getContentResolver result: {e}")))?;
@@ -107,9 +104,8 @@ fn get_settings_string(
         .find_class("android/provider/Settings$Global")
         .map_err(|e| DeviceInfoError::Jni(format!("find Settings.Global: {e}")))?;
 
-    let key = env
-        .new_string(key_name)
-        .map_err(|e| DeviceInfoError::Jni(format!("new_string: {e}")))?;
+    let key =
+        env.new_string(key_name).map_err(|e| DeviceInfoError::Jni(format!("new_string: {e}")))?;
 
     let result = env
         .call_static_method(

@@ -17,23 +17,15 @@ use std::ffi::CStr;
 use std::fs;
 
 pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
-    let model = read_dmi_file("/sys/class/dmi/id/product_name")
-        .unwrap_or_else(|| "Unknown".into());
+    let model = read_dmi_file("/sys/class/dmi/id/product_name").unwrap_or_else(|| "Unknown".into());
     let name = hostname()?;
     let device_type = chassis_type();
 
-    Ok(DeviceInfo {
-        model,
-        name,
-        device_type,
-    })
+    Ok(DeviceInfo { model, name, device_type })
 }
 
 fn read_dmi_file(path: &str) -> Option<String> {
-    fs::read_to_string(path)
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+    fs::read_to_string(path).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
 }
 
 fn hostname() -> Result<String, DeviceInfoError> {

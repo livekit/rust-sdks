@@ -24,11 +24,7 @@ pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
     let device_type = parse_device_type(&user_agent);
     let name = parse_browser_name(&user_agent);
 
-    Ok(DeviceInfo {
-        model: platform,
-        name,
-        device_type,
-    })
+    Ok(DeviceInfo { model: platform, name, device_type })
 }
 
 fn parse_browser_name(ua: &str) -> String {
@@ -58,9 +54,14 @@ fn parse_device_type(ua: &str) -> DeviceType {
         DeviceType::Headset
     } else if ua_lower.contains("ipad") {
         DeviceType::Tablet
-    } else if ua_lower.contains("tablet") || ua_lower.contains("android") && !ua_lower.contains("mobile") {
+    } else if ua_lower.contains("tablet")
+        || ua_lower.contains("android") && !ua_lower.contains("mobile")
+    {
         DeviceType::Tablet
-    } else if ua_lower.contains("mobile") || ua_lower.contains("iphone") || ua_lower.contains("ipod") {
+    } else if ua_lower.contains("mobile")
+        || ua_lower.contains("iphone")
+        || ua_lower.contains("ipod")
+    {
         DeviceType::Phone
     } else {
         DeviceType::Desktop

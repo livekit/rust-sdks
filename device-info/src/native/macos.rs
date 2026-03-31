@@ -23,31 +23,23 @@ pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
     let name = computer_name()?;
     let device_type = parse_device_type(&model);
 
-    Ok(DeviceInfo {
-        model,
-        name,
-        device_type,
-    })
+    Ok(DeviceInfo { model, name, device_type })
 }
 
 fn sysctl_model() -> Result<String, DeviceInfoError> {
     let name = c"hw.model";
     let mut size: libc::size_t = 0;
 
-    let ret = unsafe { libc::sysctlbyname(name.as_ptr(), ptr::null_mut(), &mut size, ptr::null_mut(), 0) };
+    let ret = unsafe {
+        libc::sysctlbyname(name.as_ptr(), ptr::null_mut(), &mut size, ptr::null_mut(), 0)
+    };
     if ret != 0 || size == 0 {
         return Err(DeviceInfoError::Query("sysctlbyname hw.model failed".into()));
     }
 
     let mut buf = vec![0u8; size];
     let ret = unsafe {
-        libc::sysctlbyname(
-            name.as_ptr(),
-            buf.as_mut_ptr() as *mut _,
-            &mut size,
-            ptr::null_mut(),
-            0,
-        )
+        libc::sysctlbyname(name.as_ptr(), buf.as_mut_ptr() as *mut _, &mut size, ptr::null_mut(), 0)
     };
     if ret != 0 {
         return Err(DeviceInfoError::Query("sysctlbyname hw.model read failed".into()));
@@ -92,11 +84,7 @@ fn parse_device_type(model: &str) -> DeviceType {
 
     // Apple Silicon Macs all use "Mac{N},{N}" — detect laptop via battery presence
     if model.starts_with("Mac") {
-        return if has_battery() {
-            DeviceType::Laptop
-        } else {
-            DeviceType::Desktop
-        };
+        return if has_battery() { DeviceType::Laptop } else { DeviceType::Desktop };
     }
 
     DeviceType::Unknown
@@ -104,10 +92,7 @@ fn parse_device_type(model: &str) -> DeviceType {
 
 #[link(name = "IOKit", kind = "framework")]
 extern "C" {
-    fn IOServiceGetMatchingService(
-        main_port: u32,
-        matching: *const std::ffi::c_void,
-    ) -> u32;
+    fn IOServiceGetMatchingService(main_port: u32, matching: *const std::ffi::c_void) -> u32;
     fn IOServiceMatching(name: *const std::ffi::c_char) -> *mut std::ffi::c_void;
     fn IOObjectRelease(object: u32) -> i32;
 }

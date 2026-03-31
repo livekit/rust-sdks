@@ -26,17 +26,11 @@ pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
     let name = computer_name()?;
     let device_type = detect_device_type(&model);
 
-    Ok(DeviceInfo {
-        model,
-        name,
-        device_type,
-    })
+    Ok(DeviceInfo { model, name, device_type })
 }
 
 fn registry_model() -> Result<String, DeviceInfoError> {
-    let subkey: Vec<u16> = "HARDWARE\\DESCRIPTION\\System\\BIOS\0"
-        .encode_utf16()
-        .collect();
+    let subkey: Vec<u16> = "HARDWARE\\DESCRIPTION\\System\\BIOS\0".encode_utf16().collect();
     let value_name: Vec<u16> = "SystemProductName\0".encode_utf16().collect();
 
     unsafe {

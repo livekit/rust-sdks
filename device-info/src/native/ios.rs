@@ -20,11 +20,7 @@ pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
     let name = ui_device_name()?;
     let device_type = parse_device_type(&model);
 
-    Ok(DeviceInfo {
-        model,
-        name,
-        device_type,
-    })
+    Ok(DeviceInfo { model, name, device_type })
 }
 
 fn utsname_machine() -> Result<String, DeviceInfoError> {
