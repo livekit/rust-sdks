@@ -408,6 +408,7 @@ message RoomEvent {
     TokenRefreshed token_refreshed = 40;
     DataTrackPublished data_track_published = 42;
     DataTrackUnpublished data_track_unpublished = 43;
+    ParticipantActive participant_active = 42;
   }
 }
 
@@ -436,6 +437,10 @@ message ParticipantsUpdated {
 }
 
 message ParticipantConnected { required OwnedParticipant info = 1; }
+
+message ParticipantActive {
+  required string participant_identity = 1;
+}
 
 message ParticipantDisconnected {
   required string participant_identity = 1;

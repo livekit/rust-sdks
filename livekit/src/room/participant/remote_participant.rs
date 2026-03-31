@@ -25,7 +25,8 @@ use livekit_runtime::timeout;
 use parking_lot::Mutex;
 
 use super::{
-    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail, TrackKind,
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail, ParticipantState,
+    TrackKind,
 };
 use crate::{
     prelude::*,
@@ -69,6 +70,7 @@ impl Debug for RemoteParticipant {
             .field("sid", &self.sid())
             .field("identity", &self.identity())
             .field("name", &self.name())
+            .field("state", &self.state())
             .finish()
     }
 }
@@ -81,8 +83,10 @@ impl RemoteParticipant {
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
+        state: ParticipantState,
         metadata: String,
         attributes: HashMap<String, String>,
+        joined_at: i64,
         auto_subscribe: bool,
         permission: Option<proto::ParticipantPermission>,
     ) -> Self {
@@ -92,10 +96,12 @@ impl RemoteParticipant {
                 sid,
                 identity,
                 name,
+                state,
                 metadata,
                 attributes,
                 kind,
                 kind_details,
+                joined_at,
                 permission,
             ),
             remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
@@ -510,6 +516,10 @@ impl RemoteParticipant {
         self.inner.info.read().name.clone()
     }
 
+    pub fn state(&self) -> ParticipantState {
+        self.inner.info.read().state
+    }
+
     pub fn metadata(&self) -> String {
         self.inner.info.read().metadata.clone()
     }
@@ -555,6 +565,10 @@ impl RemoteParticipant {
 
     pub fn disconnect_reason(&self) -> DisconnectReason {
         self.inner.info.read().disconnect_reason
+    }
+
+    pub fn joined_at(&self) -> i64 {
+        self.inner.info.read().joined_at
     }
 
     pub fn permission(&self) -> Option<proto::ParticipantPermission> {

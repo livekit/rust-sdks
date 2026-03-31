@@ -25,6 +25,19 @@ const { FfiOwnedHandle } = require("./handle_pb.js");
 const { TrackSource } = require("./track_pb.js");
 
 /**
+ * @generated from enum livekit.proto.ParticipantState
+ */
+const ParticipantState = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.ParticipantState",
+  [
+    {no: 0, name: "PARTICIPANT_STATE_JOINING", localName: "JOINING"},
+    {no: 1, name: "PARTICIPANT_STATE_JOINED", localName: "JOINED"},
+    {no: 2, name: "PARTICIPANT_STATE_ACTIVE", localName: "ACTIVE"},
+    {no: 3, name: "PARTICIPANT_STATE_DISCONNECTED", localName: "DISCONNECTED"},
+  ],
+);
+
+/**
  * @generated from enum livekit.proto.ParticipantKind
  */
 const ParticipantKind = /*@__PURE__*/ proto2.makeEnum(
@@ -89,12 +102,14 @@ const ParticipantInfo = /*@__PURE__*/ proto2.makeMessageType(
     { no: 1, name: "sid", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
     { no: 3, name: "identity", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
-    { no: 4, name: "metadata", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
-    { no: 5, name: "attributes", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
-    { no: 6, name: "kind", kind: "enum", T: proto2.getEnumType(ParticipantKind), req: true },
-    { no: 7, name: "disconnect_reason", kind: "enum", T: proto2.getEnumType(DisconnectReason), req: true },
-    { no: 8, name: "kind_details", kind: "enum", T: proto2.getEnumType(ParticipantKindDetail), repeated: true },
-    { no: 9, name: "permission", kind: "message", T: ParticipantPermission, opt: true },
+    { no: 4, name: "state", kind: "enum", T: proto2.getEnumType(ParticipantState), req: true },
+    { no: 5, name: "metadata", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 6, name: "attributes", kind: "map", K: 9 /* ScalarType.STRING */, V: {kind: "scalar", T: 9 /* ScalarType.STRING */} },
+    { no: 7, name: "kind", kind: "enum", T: proto2.getEnumType(ParticipantKind), req: true },
+    { no: 8, name: "disconnect_reason", kind: "enum", T: proto2.getEnumType(DisconnectReason), req: true },
+    { no: 9, name: "joined_at", kind: "scalar", T: 3 /* ScalarType.INT64 */, req: true },
+    { no: 10, name: "kind_details", kind: "enum", T: proto2.getEnumType(ParticipantKindDetail), repeated: true },
+    { no: 11, name: "permission", kind: "message", T: ParticipantPermission, opt: true },
   ],
 );
 
@@ -129,6 +144,7 @@ const ParticipantPermission = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 
+exports.ParticipantState = ParticipantState;
 exports.ParticipantKind = ParticipantKind;
 exports.ParticipantKindDetail = ParticipantKindDetail;
 exports.DisconnectReason = DisconnectReason;

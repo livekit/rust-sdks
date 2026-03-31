@@ -1041,6 +1041,14 @@ async fn forward_event(
                 .into(),
             );
         }
+        RoomEvent::ParticipantActive(participant) => {
+            let _ = send_event(
+                proto::ParticipantActive {
+                    participant_identity: participant.identity().to_string(),
+                }
+                .into(),
+            );
+        }
         RoomEvent::LocalTrackPublished { publication, track: _, participant: _ } => {
             let sid = publication.sid();
             // If we're currently reconnecting, users can't publish tracks, if we receive this

@@ -21,14 +21,17 @@ jobs:
     if: (github.head_ref == 'knope/release' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
 
       - name: Install cargo-release
-        run: cargo install cargo-release
+        run: cargo binstall cargo-release@1.1.2 --no-confirm
 
       - name: Publish to crates.io
         run: cargo release publish --workspace --no-confirm --no-verify ${{ inputs.dry_run != true && '--execute' || '' }}

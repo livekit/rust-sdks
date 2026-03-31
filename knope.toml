@@ -6,7 +6,7 @@ repo = "rust-sdks"
 ignore_conventional_commits = true
 
 [bot.checks]
-skip_labels = ["internal", "no changelog additions"]
+enabled = false
 
 [bot.releases]
 enabled = true
