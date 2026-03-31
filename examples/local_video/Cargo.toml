@@ -44,14 +44,34 @@ anyhow = { workspace = true }
 chrono = "0.4"
 bytemuck = { version = "1.16", features = ["derive"] }
 
-nokhwa = { version = "0.10", default-features = false, features = ["output-threaded"] }
+nokhwa = { 
+    git = "https://github.com/chenosaurus/nokhwa.git",
+    branch = "dc/capture_timestamp",
+    default-features = false,
+    features = ["output-threaded"]
+}
 
 [target.'cfg(target_os = "macos")'.dependencies]
-nokhwa = { version = "0.10", default-features = false, features = ["input-avfoundation"] }
+nokhwa = { 
+    git = "https://github.com/chenosaurus/nokhwa.git",
+    branch = "dc/capture_timestamp",
+    default-features = false,
+    features = ["input-avfoundation"]
+}
 objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-nokhwa = { version = "0.10", default-features = false, features = ["input-v4l"] }
+nokhwa = { 
+    git = "https://github.com/chenosaurus/nokhwa.git",
+    branch = "dc/capture_timestamp",
+    default-features = false,
+    features = ["input-v4l"]
+}
 
 [target.'cfg(target_os = "windows")'.dependencies]
-nokhwa = { version = "0.10", default-features = false, features = ["input-msmf"] }
+nokhwa = { 
+    git = "https://github.com/chenosaurus/nokhwa.git",
+    branch = "dc/capture_timestamp",
+    default-features = false,
+    features = ["input-msmf"]
+}

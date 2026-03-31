@@ -130,6 +130,7 @@ impl RollingMs {
 struct PublisherTimingSummary {
     paced_wait_ms: RollingMs,
     camera_frame_read_ms: RollingMs,
+    capture_latency_ms: RollingMs,
     decode_mjpeg_ms: RollingMs,
     buffer_convert_ms: RollingMs,
     frame_draw_ms: RollingMs,
@@ -141,6 +142,7 @@ impl PublisherTimingSummary {
     fn reset(&mut self) {
         self.paced_wait_ms.reset();
         self.camera_frame_read_ms.reset();
+        self.capture_latency_ms.reset();
         self.decode_mjpeg_ms.reset();
         self.buffer_convert_ms.reset();
         self.frame_draw_ms.reset();
@@ -150,13 +152,17 @@ impl PublisherTimingSummary {
 }
 
 fn format_timing_line(timings: &PublisherTimingSummary) -> String {
-    let line_one = vec![
-        format!("paced_wait {:.2}", timings.paced_wait_ms.average().unwrap_or_default()),
-        format!(
-            "camera_frame_read {:.2}",
-            timings.camera_frame_read_ms.average().unwrap_or_default()
-        ),
-    ];
+    let mut line_one = vec![format!(
+        "paced_wait {:.2}",
+        timings.paced_wait_ms.average().unwrap_or_default()
+    )];
+    if let Some(capture_latency) = timings.capture_latency_ms.average() {
+        line_one.push(format!("capture_latency {:.2}", capture_latency));
+    }
+    line_one.push(format!(
+        "camera_frame_read {:.2}",
+        timings.camera_frame_read_ms.average().unwrap_or_default()
+    ));
     let mut line_two = Vec::new();
 
     if let Some(decode_ms) = timings.decode_mjpeg_ms.average() {
@@ -418,12 +424,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         ticker.tick().await;
         let paced_wait_finished_at = Instant::now();
 
-        // Capture the frame as early as possible so the attached timestamp is
-        // close to the camera acquisition point.
-        let capture_wall_time_us = unix_time_us_now();
         let camera_capture_started_at = Instant::now();
         let frame_buf = camera.frame()?;
         let camera_frame_acquired_at = Instant::now();
+        // Backend capture_timestamp is already wallclock (Unix epoch Duration).
+        let capture_wall_time_us = frame_buf
+            .capture_timestamp()
+            .map(|d| d.as_micros() as u64)
+            .unwrap_or_else(unix_time_us_now);
         let (stride_y, stride_u, stride_v) = frame.buffer.strides();
         let (data_y, data_u, data_v) = frame.buffer.data_mut();
         let stride_y_usize = stride_y as usize;
@@ -577,6 +585,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         timings
             .paced_wait_ms
             .record((paced_wait_finished_at - paced_wait_started_at).as_secs_f64() * 1000.0);
+        {
+            let acquired_wall_us = unix_time_us_now();
+            let latency_ms =
+                acquired_wall_us.saturating_sub(capture_wall_time_us) as f64 / 1000.0;
+            timings.capture_latency_ms.record(latency_ms);
+        }
         timings
             .camera_frame_read_ms
             .record((camera_frame_acquired_at - camera_capture_started_at).as_secs_f64() * 1000.0);

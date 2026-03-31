@@ -4635,8 +4635,7 @@ checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
 [[package]]
 name = "nokhwa"
 version = "0.10.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4cae50786bfa1214ed441f98addbea51ca1b9aaa9e4bf5369cda36654b3efaa"
+source = "git+https://github.com/chenosaurus/nokhwa.git?branch=dc%2Fcapture_timestamp#63e204c886895e1b24404421ad177b559d71d8c5"
 dependencies = [
  "flume",
  "image",
@@ -4652,8 +4651,7 @@ dependencies = [
 [[package]]
 name = "nokhwa-bindings-linux"
 version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4bd666aaa41d14357817bd9a981773a73c4d00b34d344cfc244e47ebd397b1ec"
+source = "git+https://github.com/chenosaurus/nokhwa.git?branch=dc%2Fcapture_timestamp#63e204c886895e1b24404421ad177b559d71d8c5"
 dependencies = [
  "nokhwa-core",
  "v4l",
@@ -4662,8 +4660,7 @@ dependencies = [
 [[package]]
 name = "nokhwa-bindings-macos"
 version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de78eb4a2d47a68f490899aa0516070d7a972f853ec2bb374ab53be0bd39b60f"
+source = "git+https://github.com/chenosaurus/nokhwa.git?branch=dc%2Fcapture_timestamp#63e204c886895e1b24404421ad177b559d71d8c5"
 dependencies = [
  "block",
  "cocoa-foundation",
@@ -4679,8 +4676,7 @@ dependencies = [
 [[package]]
 name = "nokhwa-bindings-windows"
 version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "899799275c93ef69bbe8cb888cf6f8249abe751cbc50be5299105022aec14a1c"
+source = "git+https://github.com/chenosaurus/nokhwa.git?branch=dc%2Fcapture_timestamp#63e204c886895e1b24404421ad177b559d71d8c5"
 dependencies = [
  "nokhwa-core",
  "once_cell",
@@ -4690,8 +4686,7 @@ dependencies = [
 [[package]]
 name = "nokhwa-core"
 version = "0.1.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "109975552bbd690894f613bce3d408222911e317197c72b2e8b9a1912dc261ae"
+source = "git+https://github.com/chenosaurus/nokhwa.git?branch=dc%2Fcapture_timestamp#63e204c886895e1b24404421ad177b559d71d8c5"
 dependencies = [
  "bytes",
  "image",
