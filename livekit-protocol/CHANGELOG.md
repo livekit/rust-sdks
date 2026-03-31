@@ -62,6 +62,12 @@
 ### Changed
 
 - Update protocol version to v1.31.0
+## 0.7.3 (2026-03-31)
+
+### Fixes
+
+- Upgrade to thiserror 2
+
 ## 0.7.2 (2026-03-22)
 
 ### Fixes
