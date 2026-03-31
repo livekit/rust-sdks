@@ -126,7 +126,6 @@ impl FfiRoom {
             if let Some(c) = config.as_ref() {
                 options.sdk_options.sdk = c.sdk.clone();
                 options.sdk_options.sdk_version = c.sdk_version.clone();
-                options.device_model = c.device_model.clone();
             }
         }
 
