@@ -4019,6 +4019,7 @@ version = "0.4.16"
 dependencies = [
  "async-tungstenite",
  "base64 0.21.7",
+ "device-info",
  "futures-util",
  "http 1.4.0",
  "isahc",
