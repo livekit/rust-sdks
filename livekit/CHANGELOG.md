@@ -257,6 +257,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.35 (2026-03-31)
+
+### Features
+
+- Expose participant active event, state, and joined at
+
+### Fixes
+
+- Upgrade to thiserror 2
+
 ## 0.7.34 (2026-03-22)
 
 ### Features

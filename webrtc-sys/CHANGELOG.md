@@ -165,6 +165,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.26 (2026-03-31)
+
+### Fixes
+
+- fix unity android build with "livekit" prefixed jni - #983 (@xianshijing-lk)
+
+#### fix: fix unavailable sem symbol for Linux aarch64.
+
+##975 by @cloudwebrtc
+
 ## 0.3.25 (2026-03-22)
 
 ### Fixes
