@@ -498,6 +498,7 @@ impl RtcSession {
         let data_track_dc = publisher_pc
             .peer_connection()
             .create_data_channel(DATA_TRACK_DC_LABEL, lossy_options)?;
+        handle_remote_dt_packets(&data_track_dc, emitter.downgrade());
 
         // Forward events received inside the signaling thread to our rtc channel
         rtc_events::forward_pc_events(&mut publisher_pc, rtc_emitter.clone());
