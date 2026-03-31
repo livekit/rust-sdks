@@ -81,7 +81,7 @@ impl From<PublishError> for proto::PublishDataTrackError {
     fn from(err: PublishError) -> Self {
         proto::PublishDataTrackError {
             code: proto::PublishDataTrackErrorCode::from(&err) as i32,
-            message: err.to_string()
+            message: err.to_string(),
         }
     }
 }
@@ -100,7 +100,7 @@ impl From<PushFrameError> for proto::LocalDataTrackTryPushError {
         let reason = err.reason();
         proto::LocalDataTrackTryPushError {
             code: proto::LocalDataTrackTryPushErrorCode::from(reason) as i32,
-            message: err.to_string()
+            message: err.to_string(),
         }
     }
 }

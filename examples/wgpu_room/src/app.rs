@@ -112,10 +112,8 @@ impl LkApp {
                         self.video_renderers.remove(&(participant.identity(), publication.sid()));
                     }
                     RoomEvent::DataTrackPublished(track) => {
-                        self.remote_data_tracks.push(RemoteDataTrackTile::new(
-                            self.async_runtime.handle(),
-                            track,
-                        ));
+                        self.remote_data_tracks
+                            .push(RemoteDataTrackTile::new(self.async_runtime.handle(), track));
                     }
                     RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
@@ -364,7 +362,12 @@ impl LkApp {
                                 draw_video(p.name().as_str(), p.is_speaking(), video_renderer, ui);
                             } else {
                                 let lp = room.local_participant();
-                                draw_video(lp.name().as_str(), lp.is_speaking(), video_renderer, ui);
+                                draw_video(
+                                    lp.name().as_str(),
+                                    lp.is_speaking(),
+                                    video_renderer,
+                                    ui,
+                                );
                             }
                         });
                     }
@@ -495,11 +498,7 @@ impl egui::Widget for DataTrackChart<'_> {
     fn ui(self, ui: &mut egui::Ui) -> egui::Response {
         let mut drag_value = self.drag_value;
         let interactive = drag_value.is_some();
-        let sense = if interactive {
-            egui::Sense::click_and_drag()
-        } else {
-            egui::Sense::hover()
-        };
+        let sense = if interactive { egui::Sense::click_and_drag() } else { egui::Sense::hover() };
 
         let desired_size = ui.available_size();
         let (rect, mut response) = ui.allocate_exact_size(desired_size, sense);
@@ -571,10 +570,8 @@ impl egui::Widget for DataTrackChart<'_> {
                 screen_points.push(to_screen * pos2(age, val as f32));
             }
             drop(points);
-            painter.add(epaint::Shape::line(
-                screen_points,
-                epaint::PathStroke::new(2.0, line_color),
-            ));
+            painter
+                .add(epaint::Shape::line(screen_points, epaint::PathStroke::new(2.0, line_color)));
             ui.ctx().request_repaint();
         } else {
             drop(points);
@@ -628,8 +625,8 @@ impl egui::Widget for DataTrackChart<'_> {
 }
 
 fn draw_local_data_track(tile: &mut LocalDataTrackTile, ui: &mut egui::Ui) {
-    let chart = DataTrackChart::new(&tile.points, &tile.name, "local")
-        .interactive(&mut tile.slider_value);
+    let chart =
+        DataTrackChart::new(&tile.points, &tile.name, "local").interactive(&mut tile.slider_value);
     if ui.add(chart).changed() {
         tile.push_value();
     }

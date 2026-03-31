@@ -122,13 +122,11 @@ impl FfiRemoteDataTrack {
         server.store_handle(handle_id, subscription);
 
         let task = SubscriptionTask { server, handle_id, notify_read, drop_rx };
-        let task_handle =
-            server.async_runtime.spawn(task.run(self.inner, request.options.into()));
+        let task_handle = server.async_runtime.spawn(task.run(self.inner, request.options.into()));
         server.watch_panic(task_handle);
 
-        let subscription = proto::OwnedDataTrackSubscription {
-            handle: proto::FfiOwnedHandle { id: handle_id },
-        };
+        let subscription =
+            proto::OwnedDataTrackSubscription { handle: proto::FfiOwnedHandle { id: handle_id } };
         Ok(proto::SubscribeDataTrackResponse { subscription })
     }
 }
