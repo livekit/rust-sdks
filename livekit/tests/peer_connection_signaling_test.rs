@@ -48,9 +48,14 @@ use futures_util::StreamExt;
 use libwebrtc::audio_source::native::NativeAudioSource;
 use libwebrtc::audio_stream::native::NativeAudioStream;
 use libwebrtc::native::create_random_uuid;
-use libwebrtc::prelude::{AudioSourceOptions, IceTransportsType, RtcAudioSource, RtcVideoSource, VideoResolution};
+use libwebrtc::prelude::{
+    AudioSourceOptions, IceTransportsType, RtcAudioSource, RtcVideoSource, VideoResolution,
+};
 use libwebrtc::video_source::native::NativeVideoSource;
-use livekit::e2ee::{E2eeOptions, EncryptionType, key_provider::{KeyProvider, KeyProviderOptions}};
+use livekit::e2ee::{
+    key_provider::{KeyProvider, KeyProviderOptions},
+    E2eeOptions, EncryptionType,
+};
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::track::VideoQuality;
@@ -966,7 +971,10 @@ async fn test_auto_subscribe_false_impl(mode: SignalingMode) -> Result<()> {
     let mut sine_track = SineTrack::new(pub_room_arc.clone(), sine_params);
     sine_track.publish().await?;
 
-    log::info!("[{}] Published track, waiting for TrackPublished event (not TrackSubscribed)", mode.name());
+    log::info!(
+        "[{}] Published track, waiting for TrackPublished event (not TrackSubscribed)",
+        mode.name()
+    );
 
     // Wait for TrackPublished event (NOT TrackSubscribed, since auto_subscribe=false)
     let wait_published = async {
@@ -1127,10 +1135,8 @@ async fn test_dynacast_impl(mode: SignalingMode) -> Result<()> {
     );
     let mut opts = TrackPublishOptions::default();
     opts.source = TrackSource::Camera;
-    let _publication = pub_room
-        .local_participant()
-        .publish_track(LocalTrack::Video(video_track), opts)
-        .await?;
+    let _publication =
+        pub_room.local_participant().publish_track(LocalTrack::Video(video_track), opts).await?;
 
     log::info!("[{}] Published video track with dynacast, waiting for subscription", mode.name());
 
@@ -1232,10 +1238,8 @@ async fn test_adaptive_stream_impl(mode: SignalingMode) -> Result<()> {
     );
     let mut opts = TrackPublishOptions::default();
     opts.source = TrackSource::Camera;
-    let _publication = pub_room
-        .local_participant()
-        .publish_track(LocalTrack::Video(video_track), opts)
-        .await?;
+    let _publication =
+        pub_room.local_participant().publish_track(LocalTrack::Video(video_track), opts).await?;
 
     log::info!(
         "[{}] Published video track, waiting for subscription with adaptive_stream",
@@ -1527,10 +1531,7 @@ async fn test_ice_relay_only_impl(mode: SignalingMode) -> Result<()> {
     if is_local_dev_server(&url) {
         match connect_result {
             Ok((room, _events)) => {
-                log::info!(
-                    "[{}] Relay-only connected on localhost (TURN available)",
-                    mode.name()
-                );
+                log::info!("[{}] Relay-only connected on localhost (TURN available)", mode.name());
                 assert_eq!(room.connection_state(), ConnectionState::Connected);
             }
             Err(e) => {
@@ -1795,11 +1796,9 @@ async fn test_v1_e2ee_data_channel() -> Result<()> {
 
 /// Create E2EE options with a shared key
 fn create_e2ee_options(shared_key: &[u8]) -> E2eeOptions {
-    let key_provider = KeyProvider::with_shared_key(KeyProviderOptions::default(), shared_key.to_vec());
-    E2eeOptions {
-        encryption_type: EncryptionType::Gcm,
-        key_provider,
-    }
+    let key_provider =
+        KeyProvider::with_shared_key(KeyProviderOptions::default(), shared_key.to_vec());
+    E2eeOptions { encryption_type: EncryptionType::Gcm, key_provider }
 }
 
 /// Create room options with E2EE enabled
@@ -2070,7 +2069,10 @@ async fn test_publish_during_reconnect_impl(mode: SignalingMode) -> Result<()> {
                 log::info!("[{}] Attempting to publish track during reconnection...", mode.name());
                 let publish_result = room_arc
                     .local_participant()
-                    .publish_track(LocalTrack::Audio(audio_track.clone()), TrackPublishOptions::default())
+                    .publish_track(
+                        LocalTrack::Audio(audio_track.clone()),
+                        TrackPublishOptions::default(),
+                    )
                     .await;
 
                 match &publish_result {
@@ -2134,12 +2136,8 @@ async fn test_unpublish_during_reconnect_impl(mode: SignalingMode) -> Result<()>
     let mut sine_track = SineTrack::new(room_arc.clone(), sine_params);
     sine_track.publish().await?;
 
-    let publications: Vec<_> = room_arc
-        .local_participant()
-        .track_publications()
-        .values()
-        .cloned()
-        .collect();
+    let publications: Vec<_> =
+        room_arc.local_participant().track_publications().values().cloned().collect();
     assert!(!publications.is_empty(), "Should have published track");
 
     let track_sid = publications[0].sid();
@@ -2159,11 +2157,12 @@ async fn test_unpublish_during_reconnect_impl(mode: SignalingMode) -> Result<()>
 
                 if !unpublish_attempted {
                     // Try to unpublish during reconnection
-                    log::info!("[{}] Attempting to unpublish track during reconnection...", mode.name());
-                    let unpublish_result = room_arc
-                        .local_participant()
-                        .unpublish_track(&track_sid)
-                        .await;
+                    log::info!(
+                        "[{}] Attempting to unpublish track during reconnection...",
+                        mode.name()
+                    );
+                    let unpublish_result =
+                        room_arc.local_participant().unpublish_track(&track_sid).await;
 
                     match &unpublish_result {
                         Ok(_) => log::info!("[{}] Track unpublished during reconnection", mode.name()),
@@ -2221,16 +2220,17 @@ async fn test_mute_during_reconnect_impl(mode: SignalingMode) -> Result<()> {
     let mut sine_track = SineTrack::new(room_arc.clone(), sine_params);
     sine_track.publish().await?;
 
-    let publications: Vec<_> = room_arc
-        .local_participant()
-        .track_publications()
-        .values()
-        .cloned()
-        .collect();
+    let publications: Vec<_> =
+        room_arc.local_participant().track_publications().values().cloned().collect();
     assert!(!publications.is_empty(), "Should have published track");
 
     let publication = &publications[0];
-    log::info!("[{}] Published track: {}, muted: {}", mode.name(), publication.sid(), publication.is_muted());
+    log::info!(
+        "[{}] Published track: {}, muted: {}",
+        mode.name(),
+        publication.sid(),
+        publication.is_muted()
+    );
 
     // Trigger reconnection
     log::info!("[{}] Triggering signal reconnect...", mode.name());
@@ -2355,7 +2355,12 @@ async fn test_multiple_subscribers_impl(mode: SignalingMode) -> Result<()> {
                 };
                 if let RoomEvent::TrackSubscribed { track, publication: _, participant } = event {
                     if participant.identity().as_str() == publisher_id {
-                        log::info!("[{}] {} received track: {:?}", mode_name, sub_name, track.sid());
+                        log::info!(
+                            "[{}] {} received track: {:?}",
+                            mode_name,
+                            sub_name,
+                            track.sid()
+                        );
                         return Ok(track);
                     }
                 }
@@ -2383,9 +2388,8 @@ async fn test_multiple_subscribers_impl(mode: SignalingMode) -> Result<()> {
     // Verify subscriber rooms see the publisher's track
     let verify_track_visible = |room: &Room, room_name: &str| {
         let remote_participants = room.remote_participants();
-        let publisher = remote_participants
-            .iter()
-            .find(|(_, p)| p.identity().as_str() == publisher_identity);
+        let publisher =
+            remote_participants.iter().find(|(_, p)| p.identity().as_str() == publisher_identity);
 
         if let Some((_, pub_participant)) = publisher {
             let tracks = pub_participant.track_publications();
@@ -2519,7 +2523,11 @@ async fn test_rapid_reconnect_impl(mode: SignalingMode) -> Result<()> {
     assert_eq!(room_arc.connection_state(), ConnectionState::Connected);
     let final_tracks = room_arc.local_participant().track_publications().len();
     log::info!("[{}] Final tracks: {}", mode.name(), final_tracks);
-    assert_eq!(initial_tracks, final_tracks, "Track count should be preserved after {} reconnects", NUM_RECONNECTS);
+    assert_eq!(
+        initial_tracks, final_tracks,
+        "Track count should be preserved after {} reconnects",
+        NUM_RECONNECTS
+    );
 
     log::info!("[{}] Test passed - {} sequential reconnects handled!", mode.name(), NUM_RECONNECTS);
     Ok(())
@@ -2561,8 +2569,12 @@ async fn test_reconnect_during_reconnect_impl(mode: SignalingMode) -> Result<()>
 
                 if !second_reconnect_triggered {
                     // Trigger another reconnect while still reconnecting
-                    log::info!("[{}] Triggering second reconnect during first reconnect...", mode.name());
-                    let result = room_arc.simulate_scenario(SimulateScenario::SignalReconnect).await;
+                    log::info!(
+                        "[{}] Triggering second reconnect during first reconnect...",
+                        mode.name()
+                    );
+                    let result =
+                        room_arc.simulate_scenario(SimulateScenario::SignalReconnect).await;
                     match result {
                         Ok(_) => log::info!("[{}] Second reconnect triggered", mode.name()),
                         Err(e) => log::info!(
@@ -2592,7 +2604,9 @@ async fn test_reconnect_during_reconnect_impl(mode: SignalingMode) -> Result<()>
             Ok(None) => return Err(anyhow!("Event channel closed")),
             Err(_) => {
                 // Check if we're stable
-                if second_reconnect_triggered && room_arc.connection_state() == ConnectionState::Connected {
+                if second_reconnect_triggered
+                    && room_arc.connection_state() == ConnectionState::Connected
+                {
                     break;
                 }
             }
@@ -2725,10 +2739,7 @@ async fn test_video_simulcast_impl(mode: SignalingMode) -> Result<()> {
     // Verify simulcast is enabled (depends on server support)
     // Note: simulcast may not be enabled on localhost dev server
     if !is_local_dev_server(&url) {
-        assert!(
-            remote_publication.simulcasted(),
-            "Track should be simulcasted on cloud server"
-        );
+        assert!(remote_publication.simulcasted(), "Track should be simulcasted on cloud server");
     } else {
         log::info!(
             "[{}] Localhost server - simulcast may not be enabled: {}",
