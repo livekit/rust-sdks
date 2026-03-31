@@ -104,6 +104,8 @@ args="is_debug=$debug \
   symbol_level=0 \
   enable_iterator_debugging=false \
   android_package_prefix=\"livekit\" \
+  use_custom_libcxx=false \
+  use_clang_modules=false \
   use_rtti=true"
 
 if [ "$debug" = "true" ]; then
