@@ -643,9 +643,7 @@ fn get_livekit_url(
     }
 
     let os_info = os_info::get();
-    let device_model = device_info::device_info()
-        .map(|info| info.model)
-        .unwrap_or_default();
+    let device_model = device_info::device_info().map(|info| info.model).unwrap_or_default();
 
     if use_v1_path {
         // For v1 path (single PC mode): only join_request param

@@ -40,8 +40,7 @@ pub fn init(vm: &JavaVM, context: JObject) {
 pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
     let vm = ANDROID_VM.get().ok_or(DeviceInfoError::NotInitialized)?;
 
-    let mut env =
-        vm.attach_current_thread().map_err(|e| DeviceInfoError::Jni(e.to_string()))?;
+    let mut env = vm.attach_current_thread().map_err(|e| DeviceInfoError::Jni(e.to_string()))?;
 
     let model = get_build_field(&mut env, "MODEL")?;
     let manufacturer = get_build_field(&mut env, "MANUFACTURER")?;
