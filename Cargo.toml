@@ -14,6 +14,7 @@ members = [
     "soxr-sys",
     "yuv-sys",
     "imgproc",
+    "device-info",
     "webrtc-sys",
     "webrtc-sys/build",
 
@@ -40,6 +41,7 @@ repository = "https://github.com/livekit/rust-sdks"
 license = "Apache-2.0"
 
 [workspace.dependencies]
+device-info = { version = "0.1.0", path = "device-info" }
 imgproc = { version = "0.3.18", path = "imgproc" }
 libwebrtc = { version = "0.3.27", path = "libwebrtc" }
 livekit = { version = "0.7.34", path = "livekit" }
