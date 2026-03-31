@@ -41,6 +41,21 @@ export declare enum EncryptionType {
 }
 
 /**
+ * @generated from enum livekit.proto.KeyDerivationFunction
+ */
+export declare enum KeyDerivationFunction {
+  /**
+   * @generated from enum value: PBKDF2 = 0;
+   */
+  PBKDF2 = 0,
+
+  /**
+   * @generated from enum value: HKDF = 1;
+   */
+  HKDF = 1,
+}
+
+/**
  * @generated from enum livekit.proto.EncryptionState
  */
 export declare enum EncryptionState {
@@ -146,6 +161,16 @@ export declare class KeyProviderOptions extends Message<KeyProviderOptions> {
    * @generated from field: required int32 failure_tolerance = 4;
    */
   failureTolerance?: number;
+
+  /**
+   * @generated from field: required int32 key_ring_size = 5;
+   */
+  keyRingSize?: number;
+
+  /**
+   * @generated from field: required livekit.proto.KeyDerivationFunction key_derivation_function = 6;
+   */
+  keyDerivationFunction?: KeyDerivationFunction;
 
   constructor(data?: PartialMessage<KeyProviderOptions>);
 

@@ -96,6 +96,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Update protocol and add SendDataRequest nonce
+## 0.4.17 (2026-03-31)
+
+### Fixes
+
+- Fix clippy warnings in livekit-api and build.rs
+- Upgrade to thiserror 2
+
+## 0.4.16 (2026-03-22)
+
+### Fixes
+
+#### Send client os and os_version from rust
+
+##952 by @MaxHeimbrock
+
+Adds [os_info](https://crates.io/crates/os_info) crate as dependency and sends the data for client connections.
+
 ## 0.4.15 (2026-03-13)
 
 ### Fixes

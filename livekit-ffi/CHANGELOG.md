@@ -316,6 +316,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.51 (2026-03-31)
+
+### Fixes
+
+- Expose participant active event, state, and joined at
+- fix unity android build with "livekit" prefixed jni - #983 (@xianshijing-lk)
+- Upgrade to thiserror 2
+
+## 0.12.50 (2026-03-22)
+
+### Features
+
+#### E2EE: allow setting key_ring_size and key_derivation_algorithm, update webrtc to m144
+
+##921 by @onestacked
+
+This PR uses [this webrtc-sdk PR](https://github.com/webrtc-sdk/webrtc/pull/224) to configure the KDF.
+
+I've tested this with https://codeberg.org/esoteric_programmer/matrix-jukebox and it is compatible with Element Call.
+
+Fixed: https://github.com/livekit/rust-sdks/issues/796
+
+### Fixes
+
+- Fix H.264 codec matching
+
+#### add bounded buffer to audio_stream, and use 10 frames as the default
+
+##945 by @xianshijing-lk
+
+#### Send client os and os_version from rust
+
+##952 by @MaxHeimbrock
+
+Adds [os_info](https://crates.io/crates/os_info) crate as dependency and sends the data for client connections.
+
 ## 0.12.49 (2026-03-13)
 
 ### Fixes

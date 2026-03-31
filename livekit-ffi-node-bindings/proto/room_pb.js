@@ -160,6 +160,7 @@ const DisconnectRequest = /*@__PURE__*/ proto2.makeMessageType(
   () => [
     { no: 1, name: "room_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
     { no: 2, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+    { no: 3, name: "reason", kind: "enum", T: proto2.getEnumType(DisconnectReason), opt: true },
   ],
 );
 
@@ -679,6 +680,8 @@ const RoomOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 5, name: "rtc_config", kind: "message", T: RtcConfig, opt: true },
     { no: 6, name: "join_retries", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
     { no: 7, name: "encryption", kind: "message", T: E2eeOptions, opt: true },
+    { no: 8, name: "single_peer_connection", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 9, name: "connect_timeout_ms", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ],
 );
 
@@ -766,6 +769,7 @@ const RoomEvent = /*@__PURE__*/ proto2.makeMessageType(
     { no: 39, name: "participant_encryption_status_changed", kind: "message", T: ParticipantEncryptionStatusChanged, oneof: "message" },
     { no: 41, name: "participant_permission_changed", kind: "message", T: ParticipantPermissionChanged, oneof: "message" },
     { no: 40, name: "token_refreshed", kind: "message", T: TokenRefreshed, oneof: "message" },
+    { no: 42, name: "participant_active", kind: "message", T: ParticipantActive, oneof: "message" },
   ],
 );
 
@@ -818,6 +822,16 @@ const ParticipantConnected = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.ParticipantConnected",
   () => [
     { no: 1, name: "info", kind: "message", T: OwnedParticipant, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.ParticipantActive
+ */
+const ParticipantActive = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.ParticipantActive",
+  () => [
+    { no: 1, name: "participant_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
   ],
 );
 
@@ -1541,6 +1555,7 @@ exports.RoomInfo = RoomInfo;
 exports.OwnedRoom = OwnedRoom;
 exports.ParticipantsUpdated = ParticipantsUpdated;
 exports.ParticipantConnected = ParticipantConnected;
+exports.ParticipantActive = ParticipantActive;
 exports.ParticipantDisconnected = ParticipantDisconnected;
 exports.LocalTrackPublished = LocalTrackPublished;
 exports.LocalTrackUnpublished = LocalTrackUnpublished;

@@ -57,3 +57,22 @@
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.14 (2026-03-22)
+
+### Fixes
+
+#### fix: Bump webrtc build to fix build for Android JNI prefixed.
+
+##954 by @cloudwebrtc
+
+#### fix clang build issue from zed patches (#949)
+
+##950 by @cloudwebrtc
+
+* webrtc-sys: Use clang instead of gcc
+
+* Debug CI output for aarch64-linux
+
+* ci: Install lld for aarch64-linux FFI builders
+
+* webrtc-sys: Disable CREL
