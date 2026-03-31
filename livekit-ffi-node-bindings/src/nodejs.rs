@@ -45,7 +45,6 @@ fn livekit_initialize(cb: Function<Uint8Array, ()>, capture_logs: bool, sdk_vers
         capture_logs,
         sdk: "node".to_string(),
         sdk_version,
-        device_model: None,
     });
 }
 

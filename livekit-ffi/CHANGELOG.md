@@ -316,6 +316,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.51 (2026-03-31)
+
+### Fixes
+
+- Expose participant active event, state, and joined at
+- fix unity android build with "livekit" prefixed jni - #983 (@xianshijing-lk)
+- Upgrade to thiserror 2
+
 ## 0.12.50 (2026-03-22)
 
 ### Features
