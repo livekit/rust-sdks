@@ -359,7 +359,7 @@ struct SessionInner {
     lossy_dc_buffered_amount_low_threshold: AtomicU64,
     reliable_dc: DataChannel,
     reliable_dc_buffered_amount_low_threshold: AtomicU64,
-    dt_transport: DataChannel,
+    data_track_dc: DataChannel,
 
     /// Next sequence number for reliable packets.
     next_packet_sequence: AtomicU32,
@@ -375,7 +375,7 @@ struct SessionInner {
     // so we can receive data from other participants
     sub_lossy_dc: Mutex<Option<DataChannel>>,
     sub_reliable_dc: Mutex<Option<DataChannel>>,
-    sub_dt_transport: Mutex<Option<DataChannel>>,
+    sub_data_track_dc: Mutex<Option<DataChannel>>,
 
     /// Channel for sending data track packets.
     dt_packet_tx: mpsc::Sender<Bytes>,
@@ -495,7 +495,7 @@ impl RtcSession {
             .peer_connection()
             .create_data_channel(LOSSY_DC_LABEL, lossy_options.clone())?;
 
-        let dt_transport = publisher_pc
+        let data_track_dc = publisher_pc
             .peer_connection()
             .create_data_channel(DATA_TRACK_DC_LABEL, lossy_options)?;
 
@@ -511,7 +511,7 @@ impl RtcSession {
 
         let dt_sender_options = DataChannelSenderOptions {
             low_buffer_threshold: INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
-            dc: dt_transport.clone(),
+            dc: data_track_dc.clone(),
             close_rx: close_rx.clone(),
         };
         let (dt_sender, dt_packet_tx) = DataChannelSender::new(dt_sender_options);
@@ -533,14 +533,14 @@ impl RtcSession {
             reliable_dc_buffered_amount_low_threshold: AtomicU64::new(
                 INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
             ),
-            dt_transport,
+            data_track_dc,
             next_packet_sequence: 1.into(),
             packet_rx_state: Mutex::new(TtlMap::new(RELIABLE_RECEIVED_STATE_TTL)),
             participant_info,
             dc_emitter,
             sub_lossy_dc: Mutex::new(None),
             sub_reliable_dc: Mutex::new(None),
-            sub_dt_transport: Mutex::new(None),
+            sub_data_track_dc: Mutex::new(None),
             dt_packet_tx,
             closed: Default::default(),
             emitter,
@@ -1297,7 +1297,7 @@ impl SessionInner {
                     RELIABLE_DC_LABEL => &self.sub_reliable_dc,
                     DATA_TRACK_DC_LABEL => {
                         handle_remote_dt_packets(&data_channel, self.emitter.downgrade());
-                        &self.sub_dt_transport
+                        &self.sub_data_track_dc
                     }
                     _ => return Ok(()),
                 };
@@ -2029,7 +2029,7 @@ impl SessionInner {
 
     /// Ensure the required data channel for publishing data track frames is open.
     async fn ensure_data_track_publisher_connected(self: &Arc<Self>) -> EngineResult<()> {
-        self.ensure_publisher_connected_with_dc(self.dt_transport.clone()).await?;
+        self.ensure_publisher_connected_with_dc(self.data_track_dc.clone()).await?;
         Ok(())
     }
 
