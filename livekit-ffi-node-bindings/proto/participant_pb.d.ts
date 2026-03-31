@@ -23,6 +23,31 @@ import type { FfiOwnedHandle } from "./handle_pb.js";
 import type { TrackSource } from "./track_pb.js";
 
 /**
+ * @generated from enum livekit.proto.ParticipantState
+ */
+export declare enum ParticipantState {
+  /**
+   * @generated from enum value: PARTICIPANT_STATE_JOINING = 0;
+   */
+  JOINING = 0,
+
+  /**
+   * @generated from enum value: PARTICIPANT_STATE_JOINED = 1;
+   */
+  JOINED = 1,
+
+  /**
+   * @generated from enum value: PARTICIPANT_STATE_ACTIVE = 2;
+   */
+  ACTIVE = 2,
+
+  /**
+   * @generated from enum value: PARTICIPANT_STATE_DISCONNECTED = 3;
+   */
+  DISCONNECTED = 3,
+}
+
+/**
  * @generated from enum livekit.proto.ParticipantKind
  */
 export declare enum ParticipantKind {
@@ -228,32 +253,44 @@ export declare class ParticipantInfo extends Message<ParticipantInfo> {
   identity?: string;
 
   /**
-   * @generated from field: required string metadata = 4;
+   * @generated from field: required livekit.proto.ParticipantState state = 4;
+   */
+  state?: ParticipantState;
+
+  /**
+   * @generated from field: required string metadata = 5;
    */
   metadata?: string;
 
   /**
-   * @generated from field: map<string, string> attributes = 5;
+   * @generated from field: map<string, string> attributes = 6;
    */
   attributes: { [key: string]: string };
 
   /**
-   * @generated from field: required livekit.proto.ParticipantKind kind = 6;
+   * @generated from field: required livekit.proto.ParticipantKind kind = 7;
    */
   kind?: ParticipantKind;
 
   /**
-   * @generated from field: required livekit.proto.DisconnectReason disconnect_reason = 7;
+   * @generated from field: required livekit.proto.DisconnectReason disconnect_reason = 8;
    */
   disconnectReason?: DisconnectReason;
 
   /**
-   * @generated from field: repeated livekit.proto.ParticipantKindDetail kind_details = 8;
+   * ms timestamp of when the participant joined the room, maps to joined_at_ms in livekit_models
+   *
+   * @generated from field: required int64 joined_at = 9;
+   */
+  joinedAt?: bigint;
+
+  /**
+   * @generated from field: repeated livekit.proto.ParticipantKindDetail kind_details = 10;
    */
   kindDetails: ParticipantKindDetail[];
 
   /**
-   * @generated from field: optional livekit.proto.ParticipantPermission permission = 9;
+   * @generated from field: optional livekit.proto.ParticipantPermission permission = 11;
    */
   permission?: ParticipantPermission;
 

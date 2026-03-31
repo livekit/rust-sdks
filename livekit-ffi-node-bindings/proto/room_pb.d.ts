@@ -2156,6 +2156,12 @@ export declare class RoomEvent extends Message<RoomEvent> {
      */
     value: TokenRefreshed;
     case: "tokenRefreshed";
+  } | {
+    /**
+     * @generated from field: livekit.proto.ParticipantActive participant_active = 42;
+     */
+    value: ParticipantActive;
+    case: "participantActive";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<RoomEvent>);
@@ -2327,6 +2333,30 @@ export declare class ParticipantConnected extends Message<ParticipantConnected> 
   static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ParticipantConnected;
 
   static equals(a: ParticipantConnected | PlainMessage<ParticipantConnected> | undefined, b: ParticipantConnected | PlainMessage<ParticipantConnected> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.ParticipantActive
+ */
+export declare class ParticipantActive extends Message<ParticipantActive> {
+  /**
+   * @generated from field: required string participant_identity = 1;
+   */
+  participantIdentity?: string;
+
+  constructor(data?: PartialMessage<ParticipantActive>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.ParticipantActive";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ParticipantActive;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ParticipantActive;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ParticipantActive;
+
+  static equals(a: ParticipantActive | PlainMessage<ParticipantActive> | undefined, b: ParticipantActive | PlainMessage<ParticipantActive> | undefined): boolean;
 }
 
 /**

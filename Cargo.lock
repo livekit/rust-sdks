@@ -3849,7 +3849,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.27"
+version = "0.3.28"
 dependencies = [
  "cxx",
  "env_logger 0.11.10",
@@ -3973,7 +3973,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.7.34"
+version = "0.7.35"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4000,7 +4000,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.4.16"
+version = "0.4.17"
 dependencies = [
  "async-tungstenite",
  "base64 0.21.7",
@@ -4031,7 +4031,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-datatrack"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4051,7 +4051,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.50"
+version = "0.12.51"
 dependencies = [
  "bytes",
  "console-subscriber",
@@ -4080,7 +4080,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.7.2"
+version = "0.7.3"
 dependencies = [
  "futures-util",
  "livekit-runtime",
@@ -4119,7 +4119,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-wakeword"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "hound",
  "ndarray 0.17.2",
@@ -8698,7 +8698,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.25"
+version = "0.3.26"
 dependencies = [
  "cc",
  "cxx",
