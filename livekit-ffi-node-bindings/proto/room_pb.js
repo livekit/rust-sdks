@@ -770,8 +770,9 @@ const RoomEvent = /*@__PURE__*/ proto2.makeMessageType(
     { no: 39, name: "participant_encryption_status_changed", kind: "message", T: ParticipantEncryptionStatusChanged, oneof: "message" },
     { no: 41, name: "participant_permission_changed", kind: "message", T: ParticipantPermissionChanged, oneof: "message" },
     { no: 40, name: "token_refreshed", kind: "message", T: TokenRefreshed, oneof: "message" },
-    { no: 42, name: "data_track_published", kind: "message", T: DataTrackPublished, oneof: "message" },
-    { no: 43, name: "data_track_unpublished", kind: "message", T: DataTrackUnpublished, oneof: "message" },
+    { no: 42, name: "participant_active", kind: "message", T: ParticipantActive, oneof: "message" },
+    { no: 43, name: "data_track_published", kind: "message", T: DataTrackPublished, oneof: "message" },
+    { no: 44, name: "data_track_unpublished", kind: "message", T: DataTrackUnpublished, oneof: "message" },
   ],
 );
 
@@ -824,6 +825,16 @@ const ParticipantConnected = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.ParticipantConnected",
   () => [
     { no: 1, name: "info", kind: "message", T: OwnedParticipant, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.ParticipantActive
+ */
+const ParticipantActive = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.ParticipantActive",
+  () => [
+    { no: 1, name: "participant_identity", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
   ],
 );
 
@@ -1571,6 +1582,7 @@ exports.RoomInfo = RoomInfo;
 exports.OwnedRoom = OwnedRoom;
 exports.ParticipantsUpdated = ParticipantsUpdated;
 exports.ParticipantConnected = ParticipantConnected;
+exports.ParticipantActive = ParticipantActive;
 exports.ParticipantDisconnected = ParticipantDisconnected;
 exports.LocalTrackPublished = LocalTrackPublished;
 exports.LocalTrackUnpublished = LocalTrackUnpublished;

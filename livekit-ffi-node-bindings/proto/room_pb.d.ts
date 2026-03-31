@@ -2154,13 +2154,19 @@ export declare class RoomEvent extends Message<RoomEvent> {
     case: "tokenRefreshed";
   } | {
     /**
-     * @generated from field: livekit.proto.DataTrackPublished data_track_published = 42;
+     * @generated from field: livekit.proto.ParticipantActive participant_active = 42;
+     */
+    value: ParticipantActive;
+    case: "participantActive";
+  } | {
+    /**
+     * @generated from field: livekit.proto.DataTrackPublished data_track_published = 43;
      */
     value: DataTrackPublished;
     case: "dataTrackPublished";
   } | {
     /**
-     * @generated from field: livekit.proto.DataTrackUnpublished data_track_unpublished = 43;
+     * @generated from field: livekit.proto.DataTrackUnpublished data_track_unpublished = 44;
      */
     value: DataTrackUnpublished;
     case: "dataTrackUnpublished";
@@ -2335,6 +2341,30 @@ export declare class ParticipantConnected extends Message<ParticipantConnected> 
   static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ParticipantConnected;
 
   static equals(a: ParticipantConnected | PlainMessage<ParticipantConnected> | undefined, b: ParticipantConnected | PlainMessage<ParticipantConnected> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.ParticipantActive
+ */
+export declare class ParticipantActive extends Message<ParticipantActive> {
+  /**
+   * @generated from field: required string participant_identity = 1;
+   */
+  participantIdentity?: string;
+
+  constructor(data?: PartialMessage<ParticipantActive>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.ParticipantActive";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ParticipantActive;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ParticipantActive;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ParticipantActive;
+
+  static equals(a: ParticipantActive | PlainMessage<ParticipantActive> | undefined, b: ParticipantActive | PlainMessage<ParticipantActive> | undefined): boolean;
 }
 
 /**
