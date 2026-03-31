@@ -104,6 +104,7 @@ isahc = { version = "1.7.2", default-features = false, features = [ "json", "tex
 scopeguard = "1.2.0"
 rand = { workspace = true }
 os_info = "3.14.0"
+device-info = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "net", "time", "macros", "io-util"] }

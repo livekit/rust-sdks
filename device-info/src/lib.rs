@@ -18,6 +18,9 @@ use std::fmt;
 #[cfg_attr(not(target_arch = "wasm32"), path = "native/mod.rs")]
 mod imp;
 
+#[cfg(target_os = "android")]
+pub use imp::android;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum DeviceType {

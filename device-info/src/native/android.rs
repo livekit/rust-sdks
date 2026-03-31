@@ -17,32 +17,38 @@ use jni::objects::{GlobalRef, JObject, JValue};
 use jni::JavaVM;
 use std::sync::OnceLock;
 
-struct AndroidContext {
-    vm: JavaVM,
-    context: GlobalRef,
+static ANDROID_VM: OnceLock<JavaVM> = OnceLock::new();
+static ANDROID_CONTEXT: OnceLock<GlobalRef> = OnceLock::new();
+
+/// Initialize with just the JavaVM. Sufficient for reading `Build.*` fields (model,
+/// manufacturer). Call from `JNI_OnLoad` where no application `Context` is available.
+pub fn init_vm(vm: &JavaVM) {
+    let vm = unsafe { JavaVM::from_raw(vm.get_java_vm_pointer()).unwrap() };
+    let _ = ANDROID_VM.set(vm);
 }
 
-static ANDROID_CONTEXT: OnceLock<AndroidContext> = OnceLock::new();
-
-/// Initialize the Android JNI context. Must be called before `device_info()`.
-///
-/// Typically called from `JNI_OnLoad` or early in your Android application's lifecycle.
+/// Initialize with both the JavaVM and an application `Context`.
+/// Provides full functionality including device name resolution via `Settings.Global`.
 pub fn init(vm: &JavaVM, context: JObject) {
     let vm = unsafe { JavaVM::from_raw(vm.get_java_vm_pointer()).unwrap() };
     let mut env = vm.get_env().expect("failed to get JNI env");
     let context = env.new_global_ref(context).expect("failed to create global ref");
-    let _ = ANDROID_CONTEXT.set(AndroidContext { vm, context });
+    let _ = ANDROID_VM.set(vm);
+    let _ = ANDROID_CONTEXT.set(context);
 }
 
 pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
-    let ctx = ANDROID_CONTEXT.get().ok_or(DeviceInfoError::NotInitialized)?;
+    let vm = ANDROID_VM.get().ok_or(DeviceInfoError::NotInitialized)?;
 
     let mut env =
-        ctx.vm.attach_current_thread().map_err(|e| DeviceInfoError::Jni(e.to_string()))?;
+        vm.attach_current_thread().map_err(|e| DeviceInfoError::Jni(e.to_string()))?;
 
     let model = get_build_field(&mut env, "MODEL")?;
     let manufacturer = get_build_field(&mut env, "MANUFACTURER")?;
-    let name = get_device_name(&mut env, &ctx.context).unwrap_or_else(|_| model.clone());
+    let name = ANDROID_CONTEXT
+        .get()
+        .and_then(|ctx| get_device_name(&mut env, ctx).ok())
+        .unwrap_or_else(|| model.clone());
     let device_type = detect_device_type(&manufacturer);
 
     Ok(DeviceInfo { model, name, device_type })
