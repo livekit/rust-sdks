@@ -26,6 +26,8 @@ pub enum DeviceType {
     Phone,
     Tablet,
     Headset,
+    Television,
+    Watch,
     Unknown,
 }
 
@@ -37,6 +39,8 @@ impl fmt::Display for DeviceType {
             DeviceType::Phone => write!(f, "Phone"),
             DeviceType::Tablet => write!(f, "Tablet"),
             DeviceType::Headset => write!(f, "Headset"),
+            DeviceType::Television => write!(f, "Television"),
+            DeviceType::Watch => write!(f, "Watch"),
             DeviceType::Unknown => write!(f, "Unknown"),
         }
     }
@@ -89,6 +93,8 @@ mod tests {
         assert_eq!(DeviceType::Phone.to_string(), "Phone");
         assert_eq!(DeviceType::Tablet.to_string(), "Tablet");
         assert_eq!(DeviceType::Headset.to_string(), "Headset");
+        assert_eq!(DeviceType::Television.to_string(), "Television");
+        assert_eq!(DeviceType::Watch.to_string(), "Watch");
         assert_eq!(DeviceType::Unknown.to_string(), "Unknown");
     }
 }

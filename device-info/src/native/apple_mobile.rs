@@ -48,6 +48,12 @@ fn parse_device_type(model: &str) -> DeviceType {
         DeviceType::Phone
     } else if model.starts_with("iPad") {
         DeviceType::Tablet
+    } else if model.starts_with("AppleTV") {
+        DeviceType::Television
+    } else if model.starts_with("Watch") {
+        DeviceType::Watch
+    } else if model.starts_with("RealityDevice") {
+        DeviceType::Headset
     } else {
         DeviceType::Unknown
     }

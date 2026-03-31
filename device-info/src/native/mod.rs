@@ -27,10 +27,15 @@ mod linux;
 #[cfg(target_os = "linux")]
 use linux as platform;
 
-#[cfg(target_os = "ios")]
-mod ios;
-#[cfg(target_os = "ios")]
-use ios as platform;
+#[cfg(any(target_os = "ios", target_os = "tvos", target_os = "visionos", target_os = "watchos"))]
+mod apple_mobile;
+#[cfg(any(
+    target_os = "ios",
+    target_os = "tvos",
+    target_os = "visionos",
+    target_os = "watchos"
+))]
+use apple_mobile as platform;
 
 #[cfg(target_os = "android")]
 pub mod android;
@@ -45,6 +50,9 @@ pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
         target_os = "windows",
         target_os = "linux",
         target_os = "ios",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "watchos",
         target_os = "android",
     ))]
     {
@@ -56,6 +64,9 @@ pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
         target_os = "windows",
         target_os = "linux",
         target_os = "ios",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "watchos",
         target_os = "android",
     )))]
     {
