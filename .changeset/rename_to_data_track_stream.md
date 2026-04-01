@@ -1,5 +1,5 @@
 ---
-livekit-datatrack: patch
+livekit-datatrack: minor
 ---
 
-# Rename type to DataTrackStream
+# Rename type to `DataTrackStream`
