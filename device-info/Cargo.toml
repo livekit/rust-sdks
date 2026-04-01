@@ -14,10 +14,6 @@ libc = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 
-[target.'cfg(any(target_os = "ios", target_os = "tvos", target_os = "visionos", target_os = "watchos"))'.dependencies]
-objc2 = "0.6"
-objc2-ui-kit = { version = "0.3", features = ["UIDevice"] }
-
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-sys = { version = "0.59", features = [
     "Win32_System_Registry",

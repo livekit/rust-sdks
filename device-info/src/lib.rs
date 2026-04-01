@@ -71,9 +71,21 @@ pub enum DeviceInfoError {
     Jni(String),
 }
 
+/// Query device model, name, and type for the current platform.
+///
+/// This function is safe to call from any thread.
 pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
     imp::device_info()
 }
+
+// Compile-time assertions: DeviceInfo and DeviceInfoError must be Send + Sync.
+const _: () = {
+    fn assert_send_sync<T: Send + Sync>() {}
+    fn assert_all() {
+        assert_send_sync::<DeviceInfo>();
+        assert_send_sync::<DeviceInfoError>();
+    }
+};
 
 #[cfg(test)]
 mod tests {
@@ -87,6 +99,17 @@ mod tests {
         println!("model: {}", info.model);
         println!("name: {}", info.name);
         println!("type: {}", info.device_type);
+    }
+
+    #[test]
+    fn test_device_info_from_multiple_threads() {
+        let handles: Vec<_> = (0..4)
+            .map(|_| std::thread::spawn(|| device_info().expect("device_info() should succeed")))
+            .collect();
+        for handle in handles {
+            let info = handle.join().expect("thread should not panic");
+            assert!(!info.model.is_empty());
+        }
     }
 
     #[test]

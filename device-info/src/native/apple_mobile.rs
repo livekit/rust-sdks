@@ -17,7 +17,7 @@ use std::ffi::CStr;
 
 pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
     let model = utsname_machine()?;
-    let name = ui_device_name()?;
+    let name = device_name()?;
     let device_type = parse_device_type(&model);
 
     Ok(DeviceInfo { model, name, device_type })
@@ -34,17 +34,17 @@ fn utsname_machine() -> Result<String, DeviceInfoError> {
     }
 }
 
-fn ui_device_name() -> Result<String, DeviceInfoError> {
-    use objc2::MainThreadMarker;
-    use objc2_ui_kit::UIDevice;
-
-    // UIDevice can be accessed from any thread, but currentDevice() requires
-    // a MainThreadMarker in objc2. We assume the caller is on the main thread
-    // or that UIDevice is safe to query (which it is in practice).
-    let mtm = unsafe { MainThreadMarker::new_unchecked() };
-    let device = UIDevice::currentDevice(mtm);
-    let name = device.name();
-    Ok(name.to_string())
+fn device_name() -> Result<String, DeviceInfoError> {
+    // Use gethostname instead of UIDevice.name to avoid main-thread requirement.
+    // UIDevice.name also returns a generic "iPhone"/"iPad" on iOS 16+ anyway.
+    let mut buf = [0u8; 256];
+    let ret = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut _, buf.len()) };
+    if ret != 0 {
+        return Err(DeviceInfoError::Query("gethostname failed".into()));
+    }
+    let cstr = CStr::from_bytes_until_nul(&buf)
+        .map_err(|e| DeviceInfoError::Query(format!("invalid hostname: {e}")))?;
+    Ok(cstr.to_string_lossy().into_owned())
 }
 
 fn parse_device_type(model: &str) -> DeviceType {

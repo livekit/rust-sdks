@@ -1841,8 +1841,6 @@ dependencies = [
  "core-foundation 0.10.1",
  "jni 0.21.1",
  "libc",
- "objc2 0.6.4",
- "objc2-ui-kit 0.3.2",
  "thiserror 2.0.18",
  "wasm-bindgen",
  "web-sys",
