@@ -25,15 +25,15 @@ class Candidate;
 }
 #include "webrtc-sys/src/candidate.rs.h"
 
-// cricket::Candidate
+// webrtc::Candidate
 namespace livekit_ffi {
 
 class Candidate {
  public:
-  explicit Candidate(const cricket::Candidate& candidate);
+  explicit Candidate(const webrtc::Candidate& candidate);
 
  private:
-  cricket::Candidate candidate_;
+  webrtc::Candidate candidate_;
 };
 
 static std::shared_ptr<Candidate> _shared_candidate() {

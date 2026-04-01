@@ -99,7 +99,7 @@ std::shared_ptr<NativeAudioSink> new_native_audio_sink(
 class AudioTrackSource {
   class InternalSource : public webrtc::LocalAudioSource {
    public:
-    InternalSource(const cricket::AudioOptions& options,
+    InternalSource(const webrtc::AudioOptions& options,
                    int sample_rate,
                    int num_channels,
                    int buffer_size_ms,
@@ -110,12 +110,12 @@ class AudioTrackSource {
     SourceState state() const override;
     bool remote() const override;
 
-    const cricket::AudioOptions options() const override;
+    const webrtc::AudioOptions options() const override;
 
     void AddSink(webrtc::AudioTrackSinkInterface* sink) override;
     void RemoveSink(webrtc::AudioTrackSinkInterface* sink) override;
 
-    void set_options(const cricket::AudioOptions& options);
+    void set_options(const webrtc::AudioOptions& options);
 
     bool capture_frame(rust::Slice<const int16_t> audio_data,
                        uint32_t sample_rate,
@@ -144,7 +144,7 @@ class AudioTrackSource {
     int queue_size_samples_ = 0;
     int notify_threshold_samples_ = 0;
 
-    cricket::AudioOptions options_{};
+    webrtc::AudioOptions options_{};
   };
 
  public:

@@ -118,6 +118,10 @@ jobs:
           sudo apt update -y
           sudo apt install -y ninja-build pkg-config openjdk-11-jdk
 
+      - name: Select Xcode 26.0
+        if: ${{ matrix.target.os == 'macos-latest' }}
+        run: sudo xcode-select --switch /Applications/Xcode_26.0.app/Contents/Developer
+
       - name: Install macos dependencies
         if: ${{ matrix.target.os == 'macos-latest' }}
         run: brew install ninja
