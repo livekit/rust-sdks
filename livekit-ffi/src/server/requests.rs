@@ -1253,8 +1253,7 @@ fn on_data_track_stream_read(
     server: &'static FfiServer,
     request: proto::DataTrackStreamReadRequest,
 ) -> FfiResult<proto::DataTrackStreamReadResponse> {
-    let stream = server
-        .retrieve_handle::<data_track::FfiDataTrackStream>(request.stream_handle)?;
+    let stream = server.retrieve_handle::<data_track::FfiDataTrackStream>(request.stream_handle)?;
     Ok(stream.read(request))
 }
 
@@ -1367,9 +1366,7 @@ pub fn handle_request(
         Request::RemoteDataTrackIsPublished(req) => {
             on_remote_data_track_is_published(server, req)?.into()
         }
-        Request::DataTrackStreamRead(req) => {
-            on_data_track_stream_read(server, req)?.into()
-        }
+        Request::DataTrackStreamRead(req) => on_data_track_stream_read(server, req)?.into(),
     });
 
     Ok(res)

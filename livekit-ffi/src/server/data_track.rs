@@ -16,8 +16,7 @@ use super::{FfiHandle, FfiServer};
 use crate::{proto, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
 use livekit::data_track::{
-    DataTrackFrame, DataTrackStream, DataTrackSubscribeOptions, LocalDataTrack,
-    RemoteDataTrack,
+    DataTrackFrame, DataTrackStream, DataTrackSubscribeOptions, LocalDataTrack, RemoteDataTrack,
 };
 use std::sync::Arc;
 use tokio::sync::{oneshot, Notify};
@@ -125,9 +124,8 @@ impl FfiRemoteDataTrack {
         let task_handle = server.async_runtime.spawn(task.run(self.inner, request.options.into()));
         server.watch_panic(task_handle);
 
-        let stream = proto::OwnedDataTrackStream {
-            handle: proto::FfiOwnedHandle { id: handle_id },
-        };
+        let stream =
+            proto::OwnedDataTrackStream { handle: proto::FfiOwnedHandle { id: handle_id } };
         Ok(proto::SubscribeDataTrackResponse { stream })
     }
 }
