@@ -172,7 +172,7 @@ class FrameCryptor {
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
   mutable webrtc::scoped_refptr<NativeFrameCryptorObserver> observer_;
-  mutable rtc::scoped_refptr<webrtc::FrameTransformerInterface>
+  mutable webrtc::scoped_refptr<webrtc::FrameTransformerInterface>
       chained_transformer_;
 };
 

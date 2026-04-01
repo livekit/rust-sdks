@@ -70,6 +70,7 @@ cd src
 git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/fix_desktop_capture_compile.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
 # Disable CREL (compact relocations). Chromium's build enables experimental
 # CREL via -Wa,--crel which causes segfaults on aarch64-linux (and is known
@@ -102,9 +103,9 @@ args="is_debug=$debug  \
   target_cpu=\"$arch\" \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
-  use_custom_libcxx=false \
   use_llvm_libatomic=false \
-  use_libcxx_modules=false \
+  use_custom_libcxx=false \
+  use_clang_modules=false \
   use_custom_libcxx_for_host=false \
   rtc_include_tests=false \
   rtc_build_tools=false \

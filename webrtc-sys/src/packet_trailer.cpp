@@ -39,7 +39,7 @@ void PacketTrailerTransformer::Transform(
   uint32_t rtp_timestamp = frame->GetTimestamp();
 
   if (!enabled_.load()) {
-    rtc::scoped_refptr<webrtc::TransformedFrameCallback> cb;
+    webrtc::scoped_refptr<webrtc::TransformedFrameCallback> cb;
     {
       webrtc::MutexLock lock(&mutex_);
       auto it = sink_callbacks_.find(ssrc);
@@ -105,11 +105,11 @@ void PacketTrailerTransformer::TransformSend(
   if (enabled_.load()) {
     new_data = AppendTrailer(data, meta_to_embed.user_timestamp_us,
                              meta_to_embed.frame_id);
-    frame->SetData(rtc::ArrayView<const uint8_t>(new_data));
+    frame->SetData(webrtc::ArrayView<const uint8_t>(new_data));
   }
 
   // Forward to the appropriate callback (either global or per-SSRC sink).
-  rtc::scoped_refptr<webrtc::TransformedFrameCallback> cb;
+  webrtc::scoped_refptr<webrtc::TransformedFrameCallback> cb;
   {
     webrtc::MutexLock lock(&mutex_);
     auto it = sink_callbacks_.find(ssrc);
@@ -178,11 +178,11 @@ void PacketTrailerTransformer::TransformReceive(
     }
 
     // Update frame with stripped data
-    frame->SetData(rtc::ArrayView<const uint8_t>(stripped_data));
+    frame->SetData(webrtc::ArrayView<const uint8_t>(stripped_data));
   }
 
   // Forward to the appropriate callback (either global or per-SSRC sink).
-  rtc::scoped_refptr<webrtc::TransformedFrameCallback> cb;
+  webrtc::scoped_refptr<webrtc::TransformedFrameCallback> cb;
   {
     webrtc::MutexLock lock(&mutex_);
     auto it = sink_callbacks_.find(ssrc);
@@ -203,7 +203,7 @@ void PacketTrailerTransformer::TransformReceive(
 }
 
 std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
-    rtc::ArrayView<const uint8_t> data,
+    webrtc::ArrayView<const uint8_t> data,
     uint64_t user_timestamp_us,
     uint32_t frame_id) {
   const bool has_frame_id = frame_id != 0;
@@ -246,7 +246,7 @@ std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
 }
 
 std::optional<PacketTrailerMetadata> PacketTrailerTransformer::ExtractTrailer(
-    rtc::ArrayView<const uint8_t> data,
+    webrtc::ArrayView<const uint8_t> data,
     std::vector<uint8_t>& out_data) {
   if (data.size() < kTrailerEnvelopeSize) {
     out_data.assign(data.begin(), data.end());
@@ -315,13 +315,13 @@ std::optional<PacketTrailerMetadata> PacketTrailerTransformer::ExtractTrailer(
 }
 
 void PacketTrailerTransformer::RegisterTransformedFrameCallback(
-    rtc::scoped_refptr<webrtc::TransformedFrameCallback> callback) {
+    webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback) {
   webrtc::MutexLock lock(&mutex_);
   callback_ = callback;
 }
 
 void PacketTrailerTransformer::RegisterTransformedFrameSinkCallback(
-    rtc::scoped_refptr<webrtc::TransformedFrameCallback> callback,
+    webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback,
     uint32_t ssrc) {
   webrtc::MutexLock lock(&mutex_);
   sink_callbacks_[ssrc] = callback;
@@ -400,18 +400,18 @@ void PacketTrailerTransformer::store_frame_metadata(
 
 PacketTrailerHandler::PacketTrailerHandler(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    rtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
+    webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
     : rtc_runtime_(rtc_runtime), sender_(sender) {
-  transformer_ = rtc::make_ref_counted<PacketTrailerTransformer>(
+  transformer_ = webrtc::make_ref_counted<PacketTrailerTransformer>(
       PacketTrailerTransformer::Direction::kSend);
   sender->SetEncoderToPacketizerFrameTransformer(transformer_);
 }
 
 PacketTrailerHandler::PacketTrailerHandler(
     std::shared_ptr<RtcRuntime> rtc_runtime,
-    rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
+    webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
     : rtc_runtime_(rtc_runtime), receiver_(receiver) {
-  transformer_ = rtc::make_ref_counted<PacketTrailerTransformer>(
+  transformer_ = webrtc::make_ref_counted<PacketTrailerTransformer>(
       PacketTrailerTransformer::Direction::kReceive);
   receiver->SetDepacketizerToDecoderFrameTransformer(transformer_);
 }
@@ -444,7 +444,7 @@ void PacketTrailerHandler::store_frame_metadata(
   transformer_->store_frame_metadata(capture_timestamp_us, user_timestamp_us, frame_id);
 }
 
-rtc::scoped_refptr<PacketTrailerTransformer> PacketTrailerHandler::transformer() const {
+webrtc::scoped_refptr<PacketTrailerTransformer> PacketTrailerHandler::transformer() const {
   return transformer_;
 }
 

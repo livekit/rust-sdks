@@ -15,7 +15,10 @@
 use futures_util::StreamExt;
 use livekit::{
     prelude::Track,
-    webrtc::{prelude::*, video_stream::native::NativeVideoStream},
+    webrtc::{
+        prelude::*,
+        video_stream::native::{NativeVideoStream, NativeVideoStreamOptions},
+    },
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
 
@@ -68,12 +71,17 @@ impl FfiVideoStream {
             #[cfg(not(target_arch = "wasm32"))]
             proto::VideoStreamType::VideoStreamNative => {
                 let video_stream = Self { handle_id, self_dropped_tx, stream_type };
+                let options = NativeVideoStreamOptions {
+                    queue_size_frames: new_stream
+                        .queue_size_frames
+                        .map(|capacity| capacity as usize),
+                };
                 let handle = server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
                     handle_id,
                     new_stream.format.and_then(|_| Some(new_stream.format())),
                     new_stream.normalize_stride.unwrap_or(true),
-                    NativeVideoStream::new(rtc_track),
+                    NativeVideoStream::with_options(rtc_track, options),
                     self_dropped_rx,
                     server.watch_handle_dropped(new_stream.track_handle),
                     true,
@@ -214,6 +222,8 @@ impl FfiVideoStream {
         };
 
         let track_source = request.track_source();
+        let normalize_stride = request.normalize_stride.unwrap_or(true);
+        let queue_size_frames = request.queue_size_frames.map(|capacity| capacity as usize);
         let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
         let (track_finished_tx, track_finished_rx) = broadcast::channel::<Track>(1);
         server.async_runtime.spawn(utils::track_changed_trigger(
@@ -234,6 +244,7 @@ impl FfiVideoStream {
                 let (c_tx, c_rx) = oneshot::channel::<()>();
                 let (handle_dropped_tx, handle_dropped_rx) = oneshot::channel::<()>();
                 let (done_tx, mut done_rx) = oneshot::channel::<()>();
+                let options = NativeVideoStreamOptions { queue_size_frames };
 
                 let mut track_finished_rx = track_finished_tx.subscribe();
                 server.async_runtime.spawn(async move {
@@ -255,8 +266,8 @@ impl FfiVideoStream {
                         server,
                         stream_handle,
                         dst_type,
-                        request.normalize_stride.unwrap_or(true),
-                        NativeVideoStream::new(rtc_track),
+                        normalize_stride,
+                        NativeVideoStream::with_options(rtc_track, options),
                         c_rx,
                         handle_dropped_rx,
                         false,

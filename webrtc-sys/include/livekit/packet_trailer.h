@@ -95,9 +95,9 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   void Transform(
       std::unique_ptr<webrtc::TransformableFrameInterface> frame) override;
   void RegisterTransformedFrameCallback(
-      rtc::scoped_refptr<webrtc::TransformedFrameCallback> callback) override;
+      webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback) override;
   void RegisterTransformedFrameSinkCallback(
-      rtc::scoped_refptr<webrtc::TransformedFrameCallback> callback,
+      webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback,
       uint32_t ssrc) override;
   void UnregisterTransformedFrameCallback() override;
   void UnregisterTransformedFrameSinkCallback(uint32_t ssrc) override;
@@ -127,21 +127,21 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
 
   /// Append frame metadata trailer to frame data
   std::vector<uint8_t> AppendTrailer(
-      rtc::ArrayView<const uint8_t> data,
+      webrtc::ArrayView<const uint8_t> data,
       uint64_t user_timestamp_us,
       uint32_t frame_id);
 
   /// Extract and remove frame metadata trailer from frame data
   std::optional<PacketTrailerMetadata> ExtractTrailer(
-      rtc::ArrayView<const uint8_t> data,
+      webrtc::ArrayView<const uint8_t> data,
       std::vector<uint8_t>& out_data);
 
   const Direction direction_;
   std::atomic<bool> enabled_{true};
   mutable webrtc::Mutex mutex_;
-  rtc::scoped_refptr<webrtc::TransformedFrameCallback> callback_;
+  webrtc::scoped_refptr<webrtc::TransformedFrameCallback> callback_;
   std::unordered_map<uint32_t,
-                     rtc::scoped_refptr<webrtc::TransformedFrameCallback>>
+                     webrtc::scoped_refptr<webrtc::TransformedFrameCallback>>
       sink_callbacks_;
   // Send-side map: capture timestamp (us) -> frame metadata.
   // Populated by store_frame_metadata(), consumed by TransformSend()
@@ -168,11 +168,11 @@ class PacketTrailerHandler {
  public:
   PacketTrailerHandler(
       std::shared_ptr<RtcRuntime> rtc_runtime,
-      rtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
+      webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender);
 
   PacketTrailerHandler(
       std::shared_ptr<RtcRuntime> rtc_runtime,
-      rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
+      webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver);
 
   ~PacketTrailerHandler() = default;
 
@@ -195,13 +195,13 @@ class PacketTrailerHandler {
                             uint32_t frame_id) const;
 
   /// Access the underlying transformer for chaining.
-  rtc::scoped_refptr<PacketTrailerTransformer> transformer() const;
+  webrtc::scoped_refptr<PacketTrailerTransformer> transformer() const;
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
-  rtc::scoped_refptr<PacketTrailerTransformer> transformer_;
-  rtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
-  rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
+  webrtc::scoped_refptr<PacketTrailerTransformer> transformer_;
+  webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
+  webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
   mutable uint32_t last_frame_id_{0};
 };
 
