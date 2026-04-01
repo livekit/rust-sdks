@@ -170,7 +170,7 @@ message OwnedRemoteDataTrack {
 //
 // Dropping the handle will unsubscribe from the track.
 //
-message OwnedDataTrackSubscription {
+message OwnedDataTrackStream {
   required FfiOwnedHandle handle = 1;
 }
 
@@ -194,36 +194,36 @@ message SubscribeDataTrackRequest {
   required DataTrackSubscribeOptions options = 2;
 }
 message SubscribeDataTrackResponse {
-  required OwnedDataTrackSubscription subscription = 1;
+  required OwnedDataTrackStream stream = 1;
 }
 
 // Signal readiness to handle the next frame.
 //
 // This allows the client to put backpressure on the internal receive buffer.
-// Sending this request will cause the next frame to be sent via `DataTrackSubscriptionFrameReceived`
+// Sending this request will cause the next frame to be sent via `DataTrackStreamFrameReceived`
 // once one is available.
 //
-message DataTrackSubscriptionReadRequest {
-  required uint64 subscription_handle = 1;
+message DataTrackStreamReadRequest {
+  required uint64 stream_handle = 1;
 }
-message DataTrackSubscriptionReadResponse {}
+message DataTrackStreamReadResponse {}
 
-// Event emitted on an active subscription.
-message DataTrackSubscriptionEvent {
-  required uint64 subscription_handle = 1;
+// Event emitted on an active stream.
+message DataTrackStreamEvent {
+  required uint64 stream_handle = 1;
   oneof detail {
-    DataTrackSubscriptionFrameReceived frame_received = 2;
-    DataTrackSubscriptionEOS eos = 3;
+    DataTrackStreamFrameReceived frame_received = 2;
+    DataTrackStreamEOS eos = 3;
   }
 }
 
 // A frame was received.
-message DataTrackSubscriptionFrameReceived {
+message DataTrackStreamFrameReceived {
   required DataTrackFrame frame = 1;
 }
 
-// Subscription has ended (end of stream).
-message DataTrackSubscriptionEOS {
+// Stream has ended.
+message DataTrackStreamEOS {
   // If the track could not be subscribed to, a message describing the error.
   // Absent if the stream ended normally.
   optional string error = 1;

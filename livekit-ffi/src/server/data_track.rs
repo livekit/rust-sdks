@@ -15,9 +15,9 @@
 use super::{FfiHandle, FfiServer};
 use crate::{proto, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
-use livekit::{
-    data_track::{DataTrackFrame, DataTrackSubscription, LocalDataTrack, RemoteDataTrack},
-    prelude::DataTrackSubscribeOptions,
+use livekit::data_track::{
+    DataTrackFrame, DataTrackStream, DataTrackSubscribeOptions, LocalDataTrack,
+    RemoteDataTrack,
 };
 use std::sync::Arc;
 use tokio::sync::{oneshot, Notify};
@@ -118,34 +118,35 @@ impl FfiRemoteDataTrack {
         let (drop_tx, drop_rx) = oneshot::channel();
         let notify_read = Arc::new(Notify::new());
 
-        let subscription = FfiDataTrackSubscription { notify_read: notify_read.clone(), drop_tx };
-        server.store_handle(handle_id, subscription);
+        let stream = FfiDataTrackStream { notify_read: notify_read.clone(), drop_tx };
+        server.store_handle(handle_id, stream);
 
         let task = SubscriptionTask { server, handle_id, notify_read, drop_rx };
         let task_handle = server.async_runtime.spawn(task.run(self.inner, request.options.into()));
         server.watch_panic(task_handle);
 
-        let subscription =
-            proto::OwnedDataTrackSubscription { handle: proto::FfiOwnedHandle { id: handle_id } };
-        Ok(proto::SubscribeDataTrackResponse { subscription })
+        let stream = proto::OwnedDataTrackStream {
+            handle: proto::FfiOwnedHandle { id: handle_id },
+        };
+        Ok(proto::SubscribeDataTrackResponse { stream })
     }
 }
 
-pub struct FfiDataTrackSubscription {
+pub struct FfiDataTrackStream {
     notify_read: Arc<Notify>,
     #[allow(dead_code)]
     drop_tx: oneshot::Sender<()>, // Used to drop the associated task when self is dropped
 }
 
-impl FfiHandle for FfiDataTrackSubscription {}
+impl FfiHandle for FfiDataTrackStream {}
 
-impl FfiDataTrackSubscription {
+impl FfiDataTrackStream {
     pub fn read(
         &self,
-        _request: proto::DataTrackSubscriptionReadRequest,
-    ) -> proto::DataTrackSubscriptionReadResponse {
+        _request: proto::DataTrackStreamReadRequest,
+    ) -> proto::DataTrackStreamReadResponse {
         self.notify_read.notify_one();
-        proto::DataTrackSubscriptionReadResponse::default()
+        proto::DataTrackStreamReadResponse::default()
     }
 }
 
@@ -171,7 +172,7 @@ impl SubscriptionTask {
         &mut self,
         track: RemoteDataTrack,
         options: DataTrackSubscribeOptions,
-    ) -> Option<DataTrackSubscription> {
+    ) -> Option<DataTrackStream> {
         tokio::select! {
             _ = &mut self.drop_rx => None,
             result = track.subscribe_with_options(options) => match result {
@@ -184,7 +185,7 @@ impl SubscriptionTask {
         }
     }
 
-    async fn next_frame(&mut self, stream: &mut DataTrackSubscription) -> Option<DataTrackFrame> {
+    async fn next_frame(&mut self, stream: &mut DataTrackStream) -> Option<DataTrackFrame> {
         tokio::select! {
             _ = &mut self.drop_rx => None,
             _ = self.notify_read.notified() => stream.next().await,
@@ -192,17 +193,17 @@ impl SubscriptionTask {
     }
 
     fn send_frame(&self, frame: DataTrackFrame) {
-        let event = proto::DataTrackSubscriptionEvent {
-            subscription_handle: self.handle_id,
-            detail: Some(proto::DataTrackSubscriptionFrameReceived { frame: frame.into() }.into()),
+        let event = proto::DataTrackStreamEvent {
+            stream_handle: self.handle_id,
+            detail: Some(proto::DataTrackStreamFrameReceived { frame: frame.into() }.into()),
         };
         let _ = self.server.send_event(event.into());
     }
 
     fn send_eos(&self, error: Option<String>) {
-        let event = proto::DataTrackSubscriptionEvent {
-            subscription_handle: self.handle_id,
-            detail: Some(proto::DataTrackSubscriptionEos { error }.into()),
+        let event = proto::DataTrackStreamEvent {
+            stream_handle: self.handle_id,
+            detail: Some(proto::DataTrackStreamEos { error }.into()),
         };
         let _ = self.server.send_event(event.into());
     }

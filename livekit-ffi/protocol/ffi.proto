@@ -162,7 +162,7 @@ message FfiRequest {
     // Data Track (remote)
     SubscribeDataTrackRequest subscribe_data_track = 73;
     RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
-    DataTrackSubscriptionReadRequest data_track_subscription_read = 75;
+    DataTrackStreamReadRequest data_track_stream_read = 75;
 
     // NEXT_ID: 76
   }
@@ -272,7 +272,7 @@ message FfiResponse {
     // Data Track (remote)
     SubscribeDataTrackResponse subscribe_data_track = 72;
     RemoteDataTrackIsPublishedResponse remote_data_track_is_published = 73;
-    DataTrackSubscriptionReadResponse data_track_subscription_read = 74;
+    DataTrackStreamReadResponse data_track_stream_read = 74;
 
     // NEXT_ID: 75
   }
@@ -335,7 +335,7 @@ message FfiEvent {
     PublishDataTrackCallback publish_data_track = 42;
 
     // Data Track (remote)
-    DataTrackSubscriptionEvent data_track_subscription_event = 43;
+    DataTrackStreamEvent data_track_stream_event = 43;
 
     // NEXT_ID: 44
   }
