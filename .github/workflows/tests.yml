@@ -113,6 +113,9 @@ jobs:
 
       - name: Run LiveKit server
         if: ${{ matrix.e2e-testing }}
+        env:
+          # TODO: once data tracks is enabled by default in a subsequent SFU release, remove this.
+          LIVEKIT_CONFIG: "enable_data_tracks: true"
         run: livekit-server --dev &
 
       - name: Test (no E2E)
