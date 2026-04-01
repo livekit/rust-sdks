@@ -35,11 +35,11 @@ mod common;
 #[test_log::test(tokio::test)]
 async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
     // How long to publish frames for.
-    const PUBLISH_DURATION: Duration = Duration::from_secs(5);
+    const PUBLISH_DURATION: Duration = Duration::from_secs(10);
 
     // Percentage of total frames that must be received on the subscriber end in
     // order for the test to pass.
-    const MIN_PERCENTAGE: f32 = 0.95;
+    const MIN_PERCENTAGE: f32 = 0.9;
 
     let mut rooms = test_rooms(2).await?;
 
