@@ -277,6 +277,9 @@ impl LocalParticipant {
     /// # }
     /// ```
     ///
+    /// Note: if you are self-hosting the LiveKit SFU and get [`data_track::PublishError::Timeout`],
+    /// this may indicate you are using an outdated release that does not support data tracks.
+    ///
     pub async fn publish_data_track(
         &self,
         options: impl Into<DataTrackOptions>,
