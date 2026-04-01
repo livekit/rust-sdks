@@ -173,7 +173,7 @@ class PeerConnection : webrtc::PeerConnectionObserver {
                            int error_code,
                            const std::string& error_text) override;
 
-  void OnIceCandidateRemoved(const webrtc::IceCandidate* candidate);
+  void OnIceCandidateRemoved(const webrtc::IceCandidate* candidate) override;
 
   void OnIceConnectionReceivingChange(bool receiving) override;
 
