@@ -30,7 +30,7 @@ livekit-runtime = { workspace = true }
 livekit-api = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-protocol = { workspace = true }
-prost = "0.12"
+prost = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros", "fs"] }
