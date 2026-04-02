@@ -80,7 +80,7 @@ impl DataTrack<Remote> {
     /// Note that newly created subscriptions only receive frames published after
     /// the initial subscription is established.
     ///
-    pub async fn subscribe(&self) -> Result<DataTrackSubscription, DataTrackSubscribeError> {
+    pub async fn subscribe(&self) -> Result<DataTrackStream, DataTrackSubscribeError> {
         self.subscribe_with_options(DataTrackSubscribeOptions::default()).await
     }
 
@@ -92,7 +92,7 @@ impl DataTrack<Remote> {
     pub async fn subscribe_with_options(
         &self,
         options: DataTrackSubscribeOptions,
-    ) -> Result<DataTrackSubscription, DataTrackSubscribeError> {
+    ) -> Result<DataTrackStream, DataTrackSubscribeError> {
         let (result_tx, result_rx) = oneshot::channel();
         let subscribe_event = SubscribeRequest { sid: self.info.sid(), options, result_tx };
         self.inner()
@@ -109,7 +109,7 @@ impl DataTrack<Remote> {
             .map_err(|_| DataTrackSubscribeError::Timeout)?
             .map_err(|_| DataTrackSubscribeError::Disconnected)??;
 
-        Ok(DataTrackSubscription { inner: BroadcastStream::new(frame_rx) })
+        Ok(DataTrackStream { inner: BroadcastStream::new(frame_rx) })
     }
 
     /// Identity of the participant who published the track.
@@ -119,11 +119,11 @@ impl DataTrack<Remote> {
 }
 
 /// A stream of [`DataTrackFrame`]s received from a [`RemoteDataTrack`].
-pub struct DataTrackSubscription {
+pub struct DataTrackStream {
     inner: BroadcastStream<DataTrackFrame>,
 }
 
-impl Stream for DataTrackSubscription {
+impl Stream for DataTrackStream {
     type Item = DataTrackFrame;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

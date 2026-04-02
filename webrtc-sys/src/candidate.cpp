@@ -17,6 +17,6 @@
 #include "livekit/candidate.h"
 
 namespace livekit_ffi {
-Candidate::Candidate(const cricket::Candidate& candidate)
+Candidate::Candidate(const webrtc::Candidate& candidate)
     : candidate_(candidate) {}
 }  // namespace livekit_ffi

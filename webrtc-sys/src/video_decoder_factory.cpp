@@ -67,7 +67,7 @@ std::vector<webrtc::SdpVideoFormat> VideoDecoderFactory::GetSupportedFormats()
                    supported_formats.end());
   }
 
-  formats.push_back(webrtc::SdpVideoFormat(cricket::kVp8CodecName));
+  formats.push_back(webrtc::SdpVideoFormat(webrtc::kVp8CodecName));
   for (const webrtc::SdpVideoFormat& format :
        webrtc::SupportedVP9DecoderCodecs())
     formats.push_back(format);
@@ -110,10 +110,10 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
   // the SFU sends mode=0 but the platform factory only advertises mode=1 the
   // strict match above fails. Retry with the factory's packetization-mode so
   // only that parameter is relaxed while the profile-level-id check is kept.
-  if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName)) {
+  if (absl::EqualsIgnoreCase(format.name, webrtc::kH264CodecName)) {
     for (const auto& factory : factories_) {
       for (const auto& sf : factory->GetSupportedFormats()) {
-        if (!absl::EqualsIgnoreCase(sf.name, cricket::kH264CodecName))
+        if (!absl::EqualsIgnoreCase(sf.name, webrtc::kH264CodecName))
           continue;
         auto adjusted = format;
         auto it = sf.parameters.find("packetization-mode");
@@ -127,16 +127,16 @@ std::unique_ptr<webrtc::VideoDecoder> VideoDecoderFactory::Create(
     }
   }
 
-  if (absl::EqualsIgnoreCase(format.name, cricket::kVp8CodecName))
+  if (absl::EqualsIgnoreCase(format.name, webrtc::kVp8CodecName))
     return webrtc::CreateVp8Decoder(env);
-  if (absl::EqualsIgnoreCase(format.name, cricket::kVp9CodecName))
+  if (absl::EqualsIgnoreCase(format.name, webrtc::kVp9CodecName))
     return webrtc::VP9Decoder::Create();
-  if (absl::EqualsIgnoreCase(format.name, cricket::kH264CodecName))
+  if (absl::EqualsIgnoreCase(format.name, webrtc::kH264CodecName))
     return webrtc::H264Decoder::Create();
 
 
 #if defined(RTC_DAV1D_IN_INTERNAL_DECODER_FACTORY)
-  if (absl::EqualsIgnoreCase(format.name, cricket::kAv1CodecName)) {
+  if (absl::EqualsIgnoreCase(format.name, webrtc::kAv1CodecName)) {
     return webrtc::CreateDav1dDecoder();
   }
 #endif

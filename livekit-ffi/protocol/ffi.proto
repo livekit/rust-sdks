@@ -26,6 +26,7 @@ import "video_frame.proto";
 import "audio_frame.proto";
 import "rpc.proto";
 import "data_stream.proto";
+import "data_track.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
@@ -152,7 +153,18 @@ message FfiRequest {
 
     SetRemoteTrackPublicationQualityRequest set_remote_track_publication_quality = 68;
 
-    // NEXT_ID: 69
+    // Data Track (local)
+    PublishDataTrackRequest publish_data_track = 69;
+    LocalDataTrackTryPushRequest local_data_track_try_push = 70;
+    LocalDataTrackUnpublishRequest local_data_track_unpublish = 71;
+    LocalDataTrackIsPublishedRequest local_data_track_is_published = 72;
+
+    // Data Track (remote)
+    SubscribeDataTrackRequest subscribe_data_track = 73;
+    RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
+    DataTrackStreamReadRequest data_track_stream_read = 75;
+
+    // NEXT_ID: 76
   }
 }
 
@@ -251,7 +263,18 @@ message FfiResponse {
 
     SetRemoteTrackPublicationQualityResponse set_remote_track_publication_quality = 67;
 
-    // NEXT_ID: 68
+    // Data Track (local)
+    PublishDataTrackResponse publish_data_track = 68;
+    LocalDataTrackTryPushResponse local_data_track_try_push = 69;
+    LocalDataTrackUnpublishResponse local_data_track_unpublish = 70;
+    LocalDataTrackIsPublishedResponse local_data_track_is_published = 71;
+
+    // Data Track (remote)
+    SubscribeDataTrackResponse subscribe_data_track = 72;
+    RemoteDataTrackIsPublishedResponse remote_data_track_is_published = 73;
+    DataTrackStreamReadResponse data_track_stream_read = 74;
+
+    // NEXT_ID: 75
   }
 }
 
@@ -307,6 +330,14 @@ message FfiEvent {
     TextStreamWriterCloseCallback text_stream_writer_close = 39;
     StreamSendTextCallback send_text = 40;
     StreamSendBytesCallback send_bytes = 41;
+
+    // Data Track (local)
+    PublishDataTrackCallback publish_data_track = 42;
+
+    // Data Track (remote)
+    DataTrackStreamEvent data_track_stream_event = 43;
+
+    // NEXT_ID: 44
   }
 }
 
@@ -350,6 +381,3 @@ message Panic {
 }
 
 // TODO(theomonnom): Debug messages (Print handles).
-
-
-
