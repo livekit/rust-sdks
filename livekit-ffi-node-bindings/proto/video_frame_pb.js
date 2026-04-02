@@ -109,6 +109,7 @@ const NewVideoStreamRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 2, name: "type", kind: "enum", T: proto2.getEnumType(VideoStreamType), req: true },
     { no: 3, name: "format", kind: "enum", T: proto2.getEnumType(VideoBufferType), opt: true },
     { no: 4, name: "normalize_stride", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 5, name: "queue_size_frames", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
   ],
 );
 
@@ -135,6 +136,7 @@ const VideoStreamFromParticipantRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 3, name: "track_source", kind: "enum", T: proto2.getEnumType(TrackSource), req: true },
     { no: 4, name: "format", kind: "enum", T: proto2.getEnumType(VideoBufferType), opt: true },
     { no: 5, name: "normalize_stride", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 6, name: "queue_size_frames", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
   ],
 );
 

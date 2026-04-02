@@ -201,6 +201,20 @@ export declare class NewVideoStreamRequest extends Message<NewVideoStreamRequest
    */
   normalizeStride?: boolean;
 
+  /**
+   * Maximum number of queued WebRTC sink frames on the receive path. Omit this
+   * field to use the default bounded queue size of 1 frame. Set it to 0 to
+   * request unbounded buffering.
+   *
+   * If your application consumes both audio and video, keep the queue sizing
+   * strategy coordinated across both streams. Using a much larger queue, or
+   * unbounded buffering, for only one of them can increase end-to-end latency
+   * for that stream and cause audio/video drift.
+   *
+   * @generated from field: optional uint32 queue_size_frames = 5;
+   */
+  queueSizeFrames?: number;
+
   constructor(data?: PartialMessage<NewVideoStreamRequest>);
 
   static readonly runtime: typeof proto2;
@@ -270,6 +284,20 @@ export declare class VideoStreamFromParticipantRequest extends Message<VideoStre
    * @generated from field: optional bool normalize_stride = 5;
    */
   normalizeStride?: boolean;
+
+  /**
+   * Maximum number of queued WebRTC sink frames on the receive path. Omit this
+   * field to use the default bounded queue size of 1 frame. Set it to 0 to
+   * request unbounded buffering.
+   *
+   * If your application consumes both audio and video, keep the queue sizing
+   * strategy coordinated across both streams. Using a much larger queue, or
+   * unbounded buffering, for only one of them can increase end-to-end latency
+   * for that stream and cause audio/video drift.
+   *
+   * @generated from field: optional uint32 queue_size_frames = 6;
+   */
+  queueSizeFrames?: number;
 
   constructor(data?: PartialMessage<VideoStreamFromParticipantRequest>);
 

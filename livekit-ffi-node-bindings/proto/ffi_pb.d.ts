@@ -27,7 +27,7 @@ import type { E2eeRequest, E2eeResponse } from "./e2ee_pb.js";
 import type { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, RegisterRpcMethodRequest, RegisterRpcMethodResponse, RpcMethodInvocationEvent, RpcMethodInvocationResponseRequest, RpcMethodInvocationResponseResponse, UnregisterRpcMethodRequest, UnregisterRpcMethodResponse } from "./rpc_pb.js";
 import type { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } from "./track_publication_pb.js";
 import type { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } from "./data_stream_pb.js";
-import type { DataTrackSubscriptionEvent, DataTrackSubscriptionReadRequest, DataTrackSubscriptionReadResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } from "./data_track_pb.js";
+import type { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } from "./data_track_pb.js";
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -533,10 +533,10 @@ export declare class FfiRequest extends Message<FfiRequest> {
     case: "remoteDataTrackIsPublished";
   } | {
     /**
-     * @generated from field: livekit.proto.DataTrackSubscriptionReadRequest data_track_subscription_read = 75;
+     * @generated from field: livekit.proto.DataTrackStreamReadRequest data_track_stream_read = 75;
      */
-    value: DataTrackSubscriptionReadRequest;
-    case: "dataTrackSubscriptionRead";
+    value: DataTrackStreamReadRequest;
+    case: "dataTrackStreamRead";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiRequest>);
@@ -1021,10 +1021,10 @@ export declare class FfiResponse extends Message<FfiResponse> {
     case: "remoteDataTrackIsPublished";
   } | {
     /**
-     * @generated from field: livekit.proto.DataTrackSubscriptionReadResponse data_track_subscription_read = 74;
+     * @generated from field: livekit.proto.DataTrackStreamReadResponse data_track_stream_read = 74;
      */
-    value: DataTrackSubscriptionReadResponse;
-    case: "dataTrackSubscriptionRead";
+    value: DataTrackStreamReadResponse;
+    case: "dataTrackStreamRead";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiResponse>);
@@ -1309,10 +1309,10 @@ export declare class FfiEvent extends Message<FfiEvent> {
     /**
      * Data Track (remote)
      *
-     * @generated from field: livekit.proto.DataTrackSubscriptionEvent data_track_subscription_event = 43;
+     * @generated from field: livekit.proto.DataTrackStreamEvent data_track_stream_event = 43;
      */
-    value: DataTrackSubscriptionEvent;
-    case: "dataTrackSubscriptionEvent";
+    value: DataTrackStreamEvent;
+    case: "dataTrackStreamEvent";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiEvent>);
