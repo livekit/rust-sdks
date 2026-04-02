@@ -6,6 +6,7 @@ homepage = "https://livekit.io"
 license.workspace = true
 description = "Unsafe bindings to libwebrtc"
 repository.workspace = true
+repository = "https://github.com/livekit/rust-sdks"
 
 [features]
 default = []
