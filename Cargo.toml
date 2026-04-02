@@ -37,6 +37,7 @@ members = [
 
 [workspace.package]
 edition = "2021"
+homepage = "https://livekit.io"
 repository = "https://github.com/livekit/rust-sdks"
 license = "Apache-2.0"
 
