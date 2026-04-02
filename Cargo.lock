@@ -680,6 +680,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "basic_data_track"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "env_logger 0.11.10",
+ "futures-util",
+ "livekit",
+ "log",
+ "tokio",
+]
+
+[[package]]
 name = "basic_room"
 version = "0.1.0"
 dependencies = [
@@ -3985,6 +3997,7 @@ dependencies = [
  "libloading 0.8.9",
  "libwebrtc",
  "livekit-api",
+ "livekit-datatrack",
  "livekit-protocol",
  "livekit-runtime",
  "log",
@@ -3993,8 +4006,9 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "test-case",
  "test-log",
- "thiserror 2.0.18",
+ "thiserror 1.0.69",
  "tokio",
 ]
 

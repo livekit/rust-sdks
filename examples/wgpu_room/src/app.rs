@@ -1,9 +1,10 @@
 use crate::{
+    data_track::{LocalDataTrackTile, RemoteDataTrackTile, MAX_VALUE, TIME_WINDOW},
     service::{AsyncCmd, LkService, UiCmd},
     video_grid::VideoGrid,
     video_renderer::VideoRenderer,
 };
-use egui::{CornerRadius, Stroke};
+use egui::{emath, epaint, pos2, Color32, CornerRadius, Rect, Stroke};
 use livekit::{e2ee::EncryptionType, prelude::*, track::VideoQuality, SimulateScenario};
 use std::collections::HashMap;
 
@@ -22,6 +23,8 @@ pub struct LkApp {
     async_runtime: tokio::runtime::Runtime,
     state: AppState,
     video_renderers: HashMap<(ParticipantIdentity, TrackSid), VideoRenderer>,
+    local_data_tracks: Vec<LocalDataTrackTile>,
+    remote_data_tracks: Vec<RemoteDataTrackTile>,
     connecting: bool,
     connection_failure: Option<String>,
     render_state: egui_wgpu::RenderState,
@@ -55,6 +58,8 @@ impl LkApp {
             async_runtime,
             state,
             video_renderers: HashMap::new(),
+            local_data_tracks: Vec::new(),
+            remote_data_tracks: Vec::new(),
             connecting: false,
             connection_failure: None,
             render_state: cc.wgpu_render_state.clone().unwrap(),
@@ -69,12 +74,17 @@ impl LkApp {
                     self.connection_failure = Some(err.to_string());
                 }
             }
+            UiCmd::DataTrackPublished { track } => {
+                self.local_data_tracks.push(LocalDataTrackTile::new(track));
+            }
+            UiCmd::DataTrackUnpublished => {
+                self.local_data_tracks.clear();
+            }
             UiCmd::RoomEvent { event } => {
                 log::info!("{:?}", event);
                 match event {
                     RoomEvent::TrackSubscribed { track, publication: _, participant } => {
                         if let RemoteTrack::Video(ref video_track) = track {
-                            // Create a new VideoRenderer
                             let video_renderer = VideoRenderer::new(
                                 self.async_runtime.handle(),
                                 self.render_state.clone(),
@@ -82,8 +92,6 @@ impl LkApp {
                             );
                             self.video_renderers
                                 .insert((participant.identity(), track.sid()), video_renderer);
-                        } else if let RemoteTrack::Audio(_) = track {
-                            // TODO(theomonnom): Once we support media devices, we can play audio tracks here
                         }
                     }
                     RoomEvent::TrackUnsubscribed { track, publication: _, participant } => {
@@ -91,7 +99,6 @@ impl LkApp {
                     }
                     RoomEvent::LocalTrackPublished { track, publication: _, participant } => {
                         if let LocalTrack::Video(ref video_track) = track {
-                            // Also create a new VideoRenderer for local tracks
                             let video_renderer = VideoRenderer::new(
                                 self.async_runtime.handle(),
                                 self.render_state.clone(),
@@ -104,8 +111,14 @@ impl LkApp {
                     RoomEvent::LocalTrackUnpublished { publication, participant } => {
                         self.video_renderers.remove(&(participant.identity(), publication.sid()));
                     }
+                    RoomEvent::DataTrackPublished(track) => {
+                        self.remote_data_tracks
+                            .push(RemoteDataTrackTile::new(self.async_runtime.handle(), track));
+                    }
                     RoomEvent::Disconnected { reason: _ } => {
                         self.video_renderers.clear();
+                        self.local_data_tracks.clear();
+                        self.remote_data_tracks.clear();
                     }
                     _ => {}
                 }
@@ -139,6 +152,9 @@ impl LkApp {
                 }
                 if ui.button("SineWave").clicked() {
                     let _ = self.service.send(AsyncCmd::ToggleSine);
+                }
+                if ui.button("DataTrack").clicked() {
+                    let _ = self.service.send(AsyncCmd::ToggleDataTrack);
                 }
             });
 
@@ -319,47 +335,51 @@ impl LkApp {
         });
     }
 
-    /// Draw a video grid of all participants
+    /// Draw a grid of all track tiles (video + data)
     fn central_panel(&mut self, ui: &mut egui::Ui) {
         let room = self.service.room();
-        let show_videos = self.service.room().is_some();
+        let connected = room.is_some();
 
-        if show_videos && self.video_renderers.is_empty() {
+        let has_tiles = !self.video_renderers.is_empty()
+            || !self.local_data_tracks.is_empty()
+            || !self.remote_data_tracks.is_empty();
+
+        if connected && !has_tiles {
             ui.centered_and_justified(|ui| {
-                ui.label("No video tracks subscribed");
+                ui.label("No tracks subscribed");
             });
             return;
         }
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             VideoGrid::new("default_grid").max_columns(6).show(ui, |ui| {
-                if show_videos {
-                    // Draw participant videos
-                    for ((participant_sid, _), video_renderer) in &self.video_renderers {
-                        ui.video_frame(|ui| {
-                            let room = room.as_ref().unwrap().clone();
+                if connected {
+                    let room = room.as_ref().unwrap();
 
-                            if let Some(participant) =
-                                room.remote_participants().get(participant_sid)
-                            {
-                                draw_video(
-                                    participant.name().as_str(),
-                                    participant.is_speaking(),
-                                    video_renderer,
-                                    ui,
-                                );
+                    for ((participant_id, _), video_renderer) in &self.video_renderers {
+                        ui.video_frame(|ui| {
+                            if let Some(p) = room.remote_participants().get(participant_id) {
+                                draw_video(p.name().as_str(), p.is_speaking(), video_renderer, ui);
                             } else {
+                                let lp = room.local_participant();
                                 draw_video(
-                                    room.local_participant().name().as_str(),
-                                    room.local_participant().is_speaking(),
+                                    lp.name().as_str(),
+                                    lp.is_speaking(),
                                     video_renderer,
                                     ui,
                                 );
                             }
                         });
                     }
+
+                    for tile in &mut self.local_data_tracks {
+                        ui.video_frame(|ui| draw_local_data_track(tile, ui));
+                    }
+
+                    for tile in &self.remote_data_tracks {
+                        ui.video_frame(|ui| draw_remote_data_track(tile, ui));
+                    }
                 } else {
-                    // Draw video skeletons when we're not connected
                     for _ in 0..5 {
                         ui.video_frame(|ui| {
                             egui::Frame::none().fill(ui.style().visuals.code_bg_color).show(
@@ -419,7 +439,6 @@ impl eframe::App for LkApp {
     }
 }
 
-/// Draw a wgpu texture to the VideoGrid
 fn draw_video(name: &str, speaking: bool, video_renderer: &VideoRenderer, ui: &mut egui::Ui) {
     let rect = ui.available_rect_before_wrap();
     let inner_rect = rect.shrink(1.0);
@@ -434,7 +453,6 @@ fn draw_video(name: &str, speaking: bool, video_renderer: &VideoRenderer, ui: &m
         );
     }
 
-    // Always draw a background in case we still didn't receive a frame
     let resolution = video_renderer.resolution();
     if let Some(tex) = video_renderer.texture_id() {
         ui.painter().image(
@@ -452,4 +470,168 @@ fn draw_video(name: &str, speaking: bool, video_renderer: &VideoRenderer, ui: &m
         egui::FontId::default(),
         egui::Color32::WHITE,
     );
+}
+
+struct DataTrackChart<'a> {
+    points: &'a parking_lot::Mutex<std::collections::VecDeque<(std::time::Instant, i32)>>,
+    name: &'a str,
+    publisher_label: &'a str,
+    drag_value: Option<&'a mut i32>,
+}
+
+impl<'a> DataTrackChart<'a> {
+    fn new(
+        points: &'a parking_lot::Mutex<std::collections::VecDeque<(std::time::Instant, i32)>>,
+        name: &'a str,
+        publisher_label: &'a str,
+    ) -> Self {
+        Self { points, name, publisher_label, drag_value: None }
+    }
+
+    fn interactive(mut self, value: &'a mut i32) -> Self {
+        self.drag_value = Some(value);
+        self
+    }
+}
+
+impl egui::Widget for DataTrackChart<'_> {
+    fn ui(self, ui: &mut egui::Ui) -> egui::Response {
+        let mut drag_value = self.drag_value;
+        let interactive = drag_value.is_some();
+        let sense = if interactive { egui::Sense::click_and_drag() } else { egui::Sense::hover() };
+
+        let desired_size = ui.available_size();
+        let (rect, mut response) = ui.allocate_exact_size(desired_size, sense);
+        let painter = ui.painter();
+
+        let bg = Color32::from_rgb(0x1a, 0x1a, 0x2e);
+        painter.rect_filled(rect, CornerRadius::default(), bg);
+
+        let v_margin = rect.height() * 0.15;
+        let h_margin = 8.0;
+        let label_width = 32.0;
+        let plot_rect = Rect::from_min_max(
+            pos2(rect.min.x + h_margin, rect.min.y + v_margin),
+            pos2(rect.max.x - h_margin - label_width, rect.max.y - v_margin),
+        );
+
+        let time_window_secs = TIME_WINDOW.as_secs_f32();
+        let to_screen = emath::RectTransform::from_to(
+            Rect::from_x_y_ranges(time_window_secs..=0.0, MAX_VALUE..=0.0),
+            plot_rect,
+        );
+
+        let guide_color = Color32::from_rgb(0x40, 0x40, 0x50);
+        let max_y = (to_screen * pos2(0.0, MAX_VALUE)).y;
+        let min_y = (to_screen * pos2(0.0, 0.0)).y;
+        painter.line_segment(
+            [pos2(plot_rect.min.x, max_y), pos2(plot_rect.max.x, max_y)],
+            Stroke::new(1.0, guide_color),
+        );
+        painter.line_segment(
+            [pos2(plot_rect.min.x, min_y), pos2(plot_rect.max.x, min_y)],
+            Stroke::new(1.0, guide_color),
+        );
+
+        if let Some(value) = &mut drag_value {
+            if let Some(pointer_pos) = response.interact_pointer_pos() {
+                let from_screen = to_screen.inverse();
+                let logical = from_screen * pointer_pos;
+                let new_val = (logical.y as i32).clamp(0, MAX_VALUE as i32);
+                if **value != new_val {
+                    **value = new_val;
+                    response.mark_changed();
+                }
+            }
+        }
+
+        let now = std::time::Instant::now();
+        let mut points = self.points.lock();
+        while points.back().is_some_and(|(t, _)| now.duration_since(*t) > TIME_WINDOW) {
+            points.pop_back();
+        }
+
+        let is_interacting = response.interact_pointer_pos().is_some();
+        let display_val = drag_value
+            .as_deref()
+            .copied()
+            .filter(|_| !points.is_empty() || is_interacting)
+            .or_else(|| points.front().map(|(_, v)| *v));
+
+        let line_color = Color32::from_rgb(0xFF, 0x44, 0x44);
+
+        if !points.is_empty() {
+            let mut screen_points = Vec::with_capacity(points.len() + 1);
+            if let Some(val) = display_val {
+                screen_points.push(to_screen * pos2(0.0, val as f32));
+            }
+            for &(t, val) in points.iter() {
+                let age = now.duration_since(t).as_secs_f32();
+                screen_points.push(to_screen * pos2(age, val as f32));
+            }
+            drop(points);
+            painter
+                .add(epaint::Shape::line(screen_points, epaint::PathStroke::new(2.0, line_color)));
+            ui.ctx().request_repaint();
+        } else {
+            drop(points);
+        }
+
+        if let Some(val) = display_val {
+            let newest_screen = to_screen * pos2(0.0, val as f32);
+            let is_active = interactive && (response.hovered() || response.dragged());
+            let dot_radius = if is_active { 6.0 } else { 4.0 };
+            painter.circle_filled(newest_screen, dot_radius, line_color);
+            if is_active {
+                painter.circle_stroke(
+                    newest_screen,
+                    dot_radius + 2.0,
+                    Stroke::new(1.5, Color32::WHITE),
+                );
+            }
+
+            painter.text(
+                pos2(plot_rect.max.x + 8.0, newest_screen.y),
+                egui::Align2::LEFT_CENTER,
+                val.to_string(),
+                egui::FontId::monospace(14.0),
+                Color32::WHITE,
+            );
+        } else {
+            let hint = if interactive { "Drag to Push Frames…" } else { "Waiting for Frames…" };
+            painter.text(
+                rect.center(),
+                egui::Align2::CENTER_CENTER,
+                hint,
+                egui::FontId::proportional(18.0),
+                Color32::WHITE,
+            );
+        }
+
+        painter.text(
+            pos2(rect.min.x + 5.0, rect.max.y - 5.0),
+            egui::Align2::LEFT_BOTTOM,
+            format!("Data: {} ({})", self.name, self.publisher_label),
+            egui::FontId::default(),
+            Color32::WHITE,
+        );
+
+        if interactive {
+            response = response.on_hover_cursor(egui::CursorIcon::ResizeVertical);
+        }
+
+        response
+    }
+}
+
+fn draw_local_data_track(tile: &mut LocalDataTrackTile, ui: &mut egui::Ui) {
+    let chart =
+        DataTrackChart::new(&tile.points, &tile.name, "local").interactive(&mut tile.slider_value);
+    if ui.add(chart).changed() {
+        tile.push_value();
+    }
+}
+
+fn draw_remote_data_track(tile: &RemoteDataTrackTile, ui: &mut egui::Ui) {
+    ui.add(DataTrackChart::new(&tile.points, &tile.name, &tile.publisher_identity));
 }
