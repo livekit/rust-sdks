@@ -5,6 +5,7 @@ edition.workspace = true
 authors = ["Theo Monnom <theo.8bits@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "libyuv bindings"
+repository = "https://github.com/livekit/rust-sdks"
 
 [features]
 default = []
