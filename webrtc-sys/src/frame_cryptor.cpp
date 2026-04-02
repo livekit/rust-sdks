@@ -69,15 +69,15 @@ KeyProvider::KeyProvider(KeyProviderOptions options) {
       KeyDerivationAlgorithmToFrameCryptorKeyDerivationAlgorithm(
           options.key_derivation_algorithm);
   impl_ =
-      new rtc::RefCountedObject<webrtc::DefaultKeyProviderImpl>(rtc_options);
+      new webrtc::RefCountedObject<webrtc::DefaultKeyProviderImpl>(rtc_options);
 }
 
 FrameCryptor::FrameCryptor(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     const std::string participant_id,
     webrtc::FrameCryptorTransformer::Algorithm algorithm,
-    rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
-    rtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
+    webrtc::scoped_refptr<webrtc::KeyProvider> key_provider,
+    webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
     : rtc_runtime_(rtc_runtime),
       participant_id_(participant_id),
       key_provider_(key_provider),
@@ -86,7 +86,7 @@ FrameCryptor::FrameCryptor(
       sender->track()->kind() == "audio"
           ? webrtc::FrameCryptorTransformer::MediaType::kAudioFrame
           : webrtc::FrameCryptorTransformer::MediaType::kVideoFrame;
-  e2ee_transformer_ = rtc::scoped_refptr<webrtc::FrameCryptorTransformer>(
+  e2ee_transformer_ = webrtc::scoped_refptr<webrtc::FrameCryptorTransformer>(
       new webrtc::FrameCryptorTransformer(rtc_runtime->signaling_thread(),
                                           participant_id, mediaType, algorithm,
                                           key_provider_));
@@ -98,8 +98,8 @@ FrameCryptor::FrameCryptor(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     const std::string participant_id,
     webrtc::FrameCryptorTransformer::Algorithm algorithm,
-    rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
-    rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
+    webrtc::scoped_refptr<webrtc::KeyProvider> key_provider,
+    webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
     : rtc_runtime_(rtc_runtime),
       participant_id_(participant_id),
       key_provider_(key_provider),
@@ -108,7 +108,7 @@ FrameCryptor::FrameCryptor(
       receiver->track()->kind() == "audio"
           ? webrtc::FrameCryptorTransformer::MediaType::kAudioFrame
           : webrtc::FrameCryptorTransformer::MediaType::kVideoFrame;
-  e2ee_transformer_ = rtc::scoped_refptr<webrtc::FrameCryptorTransformer>(
+  e2ee_transformer_ = webrtc::scoped_refptr<webrtc::FrameCryptorTransformer>(
       new webrtc::FrameCryptorTransformer(rtc_runtime->signaling_thread(),
                                           participant_id, mediaType, algorithm,
                                           key_provider_));
@@ -125,7 +125,7 @@ FrameCryptor::~FrameCryptor() {
 void FrameCryptor::register_observer(
     rust::Box<RtcFrameCryptorObserverWrapper> observer) const {
   webrtc::MutexLock lock(&mutex_);
-  observer_ = rtc::make_ref_counted<NativeFrameCryptorObserver>(
+  observer_ = webrtc::make_ref_counted<NativeFrameCryptorObserver>(
       std::move(observer), this);
   e2ee_transformer_->RegisterFrameCryptorTransformerObserver(observer_);
 }

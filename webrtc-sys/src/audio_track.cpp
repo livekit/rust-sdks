@@ -38,9 +38,9 @@
 
 namespace livekit_ffi {
 
-inline cricket::AudioOptions to_native_audio_options(
+inline webrtc::AudioOptions to_native_audio_options(
     const AudioSourceOptions& options) {
-  cricket::AudioOptions rtc_options{};
+  webrtc::AudioOptions rtc_options{};
   rtc_options.echo_cancellation = options.echo_cancellation;
   rtc_options.noise_suppression = options.noise_suppression;
   rtc_options.auto_gain_control = options.auto_gain_control;
@@ -48,7 +48,7 @@ inline cricket::AudioOptions to_native_audio_options(
 }
 
 inline AudioSourceOptions to_rust_audio_options(
-    const cricket::AudioOptions& rtc_options) {
+    const webrtc::AudioOptions& rtc_options) {
   AudioSourceOptions options{};
   options.echo_cancellation = rtc_options.echo_cancellation.value_or(false);
   options.noise_suppression = rtc_options.noise_suppression.value_or(false);
@@ -131,7 +131,7 @@ std::shared_ptr<NativeAudioSink> new_native_audio_sink(
 }
 
 AudioTrackSource::InternalSource::InternalSource(
-    const cricket::AudioOptions& options,
+    const webrtc::AudioOptions& options,
     int sample_rate,
     int num_channels,
     int queue_size_ms,  // must be a multiple of 10ms
@@ -243,13 +243,13 @@ bool AudioTrackSource::InternalSource::remote() const {
   return false;
 }
 
-const cricket::AudioOptions AudioTrackSource::InternalSource::options() const {
+const webrtc::AudioOptions AudioTrackSource::InternalSource::options() const {
   webrtc::MutexLock lock(&mutex_);
   return options_;
 }
 
 void AudioTrackSource::InternalSource::set_options(
-    const cricket::AudioOptions& options) {
+    const webrtc::AudioOptions& options) {
   webrtc::MutexLock lock(&mutex_);
   options_ = options;
 }

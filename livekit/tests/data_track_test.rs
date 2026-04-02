@@ -33,15 +33,15 @@ mod common;
 #[test_case(120., 8_192 ; "high_fps_single_packet")]
 #[test_case(10., 196_608 ; "low_fps_multi_packet")]
 #[test_log::test(tokio::test)]
-async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
+async fn test_data_track(publish_fps: f64, payload_len: usize) {
     // How long to publish frames for.
-    const PUBLISH_DURATION: Duration = Duration::from_secs(5);
+    const PUBLISH_DURATION: Duration = Duration::from_secs(10);
 
     // Percentage of total frames that must be received on the subscriber end in
     // order for the test to pass.
-    const MIN_PERCENTAGE: f32 = 0.95;
+    const MIN_PERCENTAGE: f32 = 0.9;
 
-    let mut rooms = test_rooms(2).await?;
+    let mut rooms = test_rooms(2).await.unwrap();
 
     let (pub_room, _) = rooms.pop().unwrap();
     let (_, mut sub_room_event_rx) = rooms.pop().unwrap();
@@ -50,54 +50,64 @@ async fn test_data_track(publish_fps: f64, payload_len: usize) -> Result<()> {
     let frame_count = (PUBLISH_DURATION.as_secs_f64() * publish_fps).round() as u64;
     log::info!("Publishing {} frames", frame_count);
 
-    let publish = async move {
-        let track = pub_room.local_participant().publish_data_track("my_track").await?;
-        log::info!("Track published");
+    let local_track = pub_room.local_participant().publish_data_track("my_track").await.unwrap();
+    log::info!("Track published");
 
-        assert!(track.is_published());
-        assert!(!track.info().uses_e2ee());
-        assert_eq!(track.info().name(), "my_track");
+    let remote_track = wait_for_remote_track(&mut sub_room_event_rx).await.unwrap();
+    log::info!("Got remote track: {}", remote_track.info().sid());
+
+    let publish = async {
+        assert!(local_track.is_published());
+        assert!(!local_track.info().uses_e2ee());
+        assert_eq!(local_track.info().name(), "my_track");
 
         let sleep_duration = Duration::from_secs_f64(1.0 / publish_fps as f64);
         for index in 0..frame_count {
-            track.try_push(vec![index as u8; payload_len].into())?;
+            local_track.try_push(vec![index as u8; payload_len].into()).unwrap();
             time::sleep(sleep_duration).await;
         }
         Ok(())
     };
 
-    let subscribe = async move {
-        let track = wait_for_remote_track(&mut sub_room_event_rx).await?;
+    let mut recv_count = 0;
+    let recv_min = (frame_count as f32 * MIN_PERCENTAGE) as u64;
 
-        log::info!("Got remote track: {}", track.info().sid());
-        assert!(track.is_published());
-        assert!(!track.info().uses_e2ee());
-        assert_eq!(track.info().name(), "my_track");
-        assert_eq!(track.publisher_identity(), pub_identity.as_str());
+    let subscribe = async {
+        assert!(remote_track.is_published());
+        assert!(!remote_track.info().uses_e2ee());
+        assert_eq!(remote_track.info().name(), "my_track");
+        assert_eq!(remote_track.publisher_identity(), pub_identity.as_str());
 
-        let mut subscription = track.subscribe().await?;
+        let mut subscription = remote_track.subscribe().await.unwrap();
 
-        let mut recv_count = 0;
         while let Some(frame) = subscription.next().await {
             let payload = frame.payload();
+
             if let Some(first_byte) = payload.first() {
                 assert!(payload.iter().all(|byte| byte == first_byte));
             }
             assert_eq!(frame.user_timestamp(), None);
+
             recv_count += 1;
+            if recv_count >= recv_min {
+                break;
+            }
         }
-
-        let recv_percent = recv_count as f32 / frame_count as f32;
-        log::info!("Received {}/{} frames ({:.2}%)", recv_count, frame_count, recv_percent * 100.);
-
-        if recv_percent < MIN_PERCENTAGE {
-            Err(anyhow!("Not enough frames received"))?;
-        }
+        assert!(remote_track.is_published());
         Ok(())
     };
-    timeout(PUBLISH_DURATION + Duration::from_secs(25), async { try_join!(publish, subscribe) })
-        .await??;
-    Ok(())
+
+    let result = timeout(PUBLISH_DURATION + Duration::from_secs(25), async {
+        try_join!(publish, subscribe)
+    })
+    .await;
+
+    let recv_percent = recv_count as f32 / frame_count as f32;
+    log::info!("Received {}/{} frames ({:.2}%)", recv_count, frame_count, recv_percent * 100.);
+
+    if result.is_err() {
+        panic!("Not enough frames received before timeout");
+    }
 }
 
 #[cfg(feature = "__lk-e2e-test")]

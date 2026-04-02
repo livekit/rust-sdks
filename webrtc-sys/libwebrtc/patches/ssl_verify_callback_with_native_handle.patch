@@ -1,8 +1,8 @@
 diff --git a/rtc_base/boringssl_certificate.cc b/rtc_base/boringssl_certificate.cc
-index 016b4dabba..1a0c1b8d42 100644
+index a4f919fbbe..fe3beeaed9 100644
 --- a/rtc_base/boringssl_certificate.cc
 +++ b/rtc_base/boringssl_certificate.cc
-@@ -259,6 +259,12 @@ BoringSSLCertificate::BoringSSLCertificate(
+@@ -252,6 +252,12 @@ BoringSSLCertificate::BoringSSLCertificate(
    RTC_DCHECK(cert_buffer_ != nullptr);
  }
  
@@ -16,7 +16,7 @@ index 016b4dabba..1a0c1b8d42 100644
      OpenSSLKeyPair* key_pair,
      const SSLIdentityParams& params) {
 diff --git a/rtc_base/boringssl_certificate.h b/rtc_base/boringssl_certificate.h
-index 926dd332ec..5c62c63390 100644
+index b5a18d0843..53759fd064 100644
 --- a/rtc_base/boringssl_certificate.h
 +++ b/rtc_base/boringssl_certificate.h
 @@ -34,6 +34,7 @@ namespace webrtc {
@@ -27,50 +27,36 @@ index 926dd332ec..5c62c63390 100644
  
    static std::unique_ptr<BoringSSLCertificate> Generate(
        OpenSSLKeyPair* key_pair,
-@@ -66,6 +67,11 @@ class BoringSSLCertificate final : public SSLCertificate {
+@@ -66,6 +67,10 @@ class BoringSSLCertificate final : public SSLCertificate {
   private:
    // A handle to the DER encoded certificate data.
    bssl::UniquePtr<CRYPTO_BUFFER> cert_buffer_;
-+
-+ private:
 +  SSL* ssl_ = nullptr;
++
 + public:
 +  SSL* ssl() const { return ssl_; }
  };
  
  }  //  namespace webrtc
 diff --git a/rtc_base/openssl_adapter.cc b/rtc_base/openssl_adapter.cc
-index cb5dfc6a85..a2de51ee74 100644
+index b80e665d78..1f3dd28795 100644
 --- a/rtc_base/openssl_adapter.cc
 +++ b/rtc_base/openssl_adapter.cc
-@@ -840,7 +840,7 @@ enum ssl_verify_result_t OpenSSLAdapter::SSLVerifyInternal(SSL* ssl,
-     return ssl_verify_invalid;
+@@ -846,7 +846,7 @@ enum ssl_verify_result_t OpenSSLAdapter::SSLVerifyInternal(SSL* ssl,
+   std::vector<std::unique_ptr<SSLCertificate>> certs;
+   for (size_t i = 0; i < sk_CRYPTO_BUFFER_num(chain); ++i) {
+     certs.emplace_back(new BoringSSLCertificate(
+-        bssl::UpRef(sk_CRYPTO_BUFFER_value(chain, i))));
++        bssl::UpRef(sk_CRYPTO_BUFFER_value(chain, i)), ssl));
    }
  
--  BoringSSLCertificate cert(bssl::UpRef(sk_CRYPTO_BUFFER_value(chain, 0)));
-+  BoringSSLCertificate cert(bssl::UpRef(sk_CRYPTO_BUFFER_value(chain, 0)), ssl);
-   if (!ssl_cert_verifier_->Verify(cert)) {
-     RTC_LOG(LS_WARNING) << "Failed to verify certificate using custom callback";
-     return ssl_verify_invalid;
-@@ -912,7 +912,7 @@ int OpenSSLAdapter::SSLVerifyInternal(int previous_status,
-     RTC_LOG(LS_ERROR) << "Failed to allocate CRYPTO_BUFFER.";
-     return previous_status;
-   }
--  const BoringSSLCertificate cert(std::move(crypto_buffer));
-+  const BoringSSLCertificate cert(std::move(crypto_buffer), ssl);
+   SSLCertChain cert_chain(std::move(certs));
+@@ -932,7 +932,7 @@ int OpenSSLAdapter::SSLVerifyInternal(int previous_status,
+       RTC_LOG(LS_ERROR) << "Failed to allocate CRYPTO_BUFFER.";
+       return previous_status;
+     }
+-    certs.emplace_back(new BoringSSLCertificate(std::move(crypto_buffer)));
++    certs.emplace_back(new BoringSSLCertificate(std::move(crypto_buffer), ssl));
  #else
-   const webrtc::OpenSSLCertificate cert(X509_STORE_CTX_get_current_cert(store));
+     certs.emplace_back(new OpenSSLCertificate(x509_cert));
  #endif
-diff --git a/rtc_base/openssl_stream_adapter.cc b/rtc_base/openssl_stream_adapter.cc
-index b46faff911..537171b1f3 100644
---- a/rtc_base/openssl_stream_adapter.cc
-+++ b/rtc_base/openssl_stream_adapter.cc
-@@ -1181,7 +1181,7 @@ enum ssl_verify_result_t OpenSSLStreamAdapter::SSLVerifyCallback(
-   // Creates certificate chain.
-   std::vector<std::unique_ptr<SSLCertificate>> cert_chain;
-   for (CRYPTO_BUFFER* cert : chain) {
--    cert_chain.emplace_back(new BoringSSLCertificate(bssl::UpRef(cert)));
-+    cert_chain.emplace_back(new BoringSSLCertificate(bssl::UpRef(cert), ssl));
-   }
-   stream->peer_cert_chain_.reset(new SSLCertChain(std::move(cert_chain)));
- 
