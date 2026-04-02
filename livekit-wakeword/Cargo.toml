@@ -8,7 +8,7 @@ license.workspace = true
 
 [dependencies]
 ndarray = "0.17.2"
-ort = { version = "2.0.0-rc.11", default-features = false, features = ["ndarray", "std"] }
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["ndarray", "std", "download-binaries", "tls-native"] }
 resampler = "0.4"
 thiserror = "2"
 

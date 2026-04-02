@@ -6,7 +6,7 @@ rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 rustflags = ["-C", "target-feature=+crt-static"]
 
 [target.aarch64-pc-windows-msvc]
-rustflags = ["-C", "target-feature=+crt-static"]
+rustflags = []
 
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "link-args=-ObjC"]
