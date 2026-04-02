@@ -28,6 +28,7 @@ const { VideoCodec } = require("./video_frame_pb.js");
 const { E2eeOptions, EncryptionState } = require("./e2ee_pb.js");
 const { FfiOwnedHandle } = require("./handle_pb.js");
 const { OwnedByteStreamReader, OwnedTextStreamReader } = require("./data_stream_pb.js");
+const { OwnedRemoteDataTrack } = require("./data_track_pb.js");
 
 /**
  * @generated from enum livekit.proto.IceTransportType
@@ -770,6 +771,8 @@ const RoomEvent = /*@__PURE__*/ proto2.makeMessageType(
     { no: 41, name: "participant_permission_changed", kind: "message", T: ParticipantPermissionChanged, oneof: "message" },
     { no: 40, name: "token_refreshed", kind: "message", T: TokenRefreshed, oneof: "message" },
     { no: 42, name: "participant_active", kind: "message", T: ParticipantActive, oneof: "message" },
+    { no: 43, name: "data_track_published", kind: "message", T: DataTrackPublished, oneof: "message" },
+    { no: 44, name: "data_track_unpublished", kind: "message", T: DataTrackUnpublished, oneof: "message" },
   ],
 );
 
@@ -1492,6 +1495,30 @@ const TextStreamOpened = /*@__PURE__*/ proto2.makeMessageType(
   ],
 );
 
+/**
+ * A remote participant published a data track.
+ *
+ * @generated from message livekit.proto.DataTrackPublished
+ */
+const DataTrackPublished = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DataTrackPublished",
+  () => [
+    { no: 1, name: "track", kind: "message", T: OwnedRemoteDataTrack, req: true },
+  ],
+);
+
+/**
+ * A remote participant unpublished a data track.
+ *
+ * @generated from message livekit.proto.DataTrackUnpublished
+ */
+const DataTrackUnpublished = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.DataTrackUnpublished",
+  () => [
+    { no: 1, name: "sid", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+  ],
+);
+
 
 exports.IceTransportType = IceTransportType;
 exports.ContinualGatheringPolicy = ContinualGatheringPolicy;
@@ -1614,3 +1641,5 @@ exports.SetDataChannelBufferedAmountLowThresholdResponse = SetDataChannelBuffere
 exports.DataChannelBufferedAmountLowThresholdChanged = DataChannelBufferedAmountLowThresholdChanged;
 exports.ByteStreamOpened = ByteStreamOpened;
 exports.TextStreamOpened = TextStreamOpened;
+exports.DataTrackPublished = DataTrackPublished;
+exports.DataTrackUnpublished = DataTrackUnpublished;
