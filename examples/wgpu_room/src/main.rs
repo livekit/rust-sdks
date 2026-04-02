@@ -5,6 +5,7 @@ use std::thread;
 use std::time::Duration;
 
 mod app;
+mod data_track;
 mod logo_track;
 mod service;
 mod sine_track;

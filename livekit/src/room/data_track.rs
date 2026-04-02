@@ -12,12 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod audio_frame;
-pub mod data_stream;
-pub mod data_track;
-pub mod participant;
-pub mod resampler;
-pub mod room;
-pub mod stats;
-pub mod track;
-pub mod video_frame;
+// Re-export everything in the "api" module publicly.
+pub use livekit_datatrack::api::*;

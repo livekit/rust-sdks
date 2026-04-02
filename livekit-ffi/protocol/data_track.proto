@@ -1,0 +1,230 @@
+// Copyright 2026 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto2";
+
+package livekit.proto;
+
+import "handle.proto";
+
+option csharp_namespace = "LiveKit.Proto";
+
+// MARK: - Common
+
+// Information about a published data track.
+message DataTrackInfo {
+  // Name of the track assigned by the publisher.
+  required string name = 1;
+  // SFU-assigned track identifier.
+  required string sid = 2;
+  // Whether or not frames sent on the track use end-to-end encryption.
+  required bool uses_e2ee = 3;
+}
+
+// A frame published on a data track.
+message DataTrackFrame {
+  required bytes payload = 1;
+  optional uint64 user_timestamp = 2;
+}
+
+enum DataTrackErrorCode {
+  DATA_TRACK_ERROR_CODE_UNKNOWN = 0;
+  DATA_TRACK_ERROR_CODE_INVALID_HANDLE = 1;
+  DATA_TRACK_ERROR_CODE_DUPLICATE_TRACK_NAME = 2;
+  DATA_TRACK_ERROR_CODE_TRACK_UNPUBLISHED = 3;
+  DATA_TRACK_ERROR_CODE_BUFFER_FULL = 4;
+  DATA_TRACK_ERROR_CODE_SUBSCRIPTION_CLOSED = 5;
+  DATA_TRACK_ERROR_CODE_CANCELLED = 6;
+  DATA_TRACK_ERROR_CODE_PROTOCOL_ERROR = 7;
+  DATA_TRACK_ERROR_CODE_INTERNAL = 8;
+}
+
+message DataTrackError {
+  required DataTrackErrorCode code = 1;
+  required string message = 2;
+}
+
+enum PublishDataTrackErrorCode {
+  PUBLISH_DATA_TRACK_ERROR_CODE_UNKNOWN = 0;
+  PUBLISH_DATA_TRACK_ERROR_CODE_INVALID_HANDLE = 1;
+  PUBLISH_DATA_TRACK_ERROR_CODE_DUPLICATE_NAME = 2;
+  PUBLISH_DATA_TRACK_ERROR_CODE_TIMEOUT = 3;
+  PUBLISH_DATA_TRACK_ERROR_CODE_DISCONNECTED = 4;
+  PUBLISH_DATA_TRACK_ERROR_CODE_NOT_ALLOWED = 5;
+  PUBLISH_DATA_TRACK_ERROR_CODE_INVALID_NAME = 6;
+  PUBLISH_DATA_TRACK_ERROR_CODE_LIMIT_REACHED = 7;
+  PUBLISH_DATA_TRACK_ERROR_CODE_PROTOCOL_ERROR = 8;
+  PUBLISH_DATA_TRACK_ERROR_CODE_INTERNAL = 9;
+}
+
+message PublishDataTrackError {
+  required PublishDataTrackErrorCode code = 1;
+  required string message = 2;
+}
+
+enum LocalDataTrackTryPushErrorCode {
+  LOCAL_DATA_TRACK_TRY_PUSH_ERROR_CODE_UNKNOWN = 0;
+  LOCAL_DATA_TRACK_TRY_PUSH_ERROR_CODE_INVALID_HANDLE = 1;
+  LOCAL_DATA_TRACK_TRY_PUSH_ERROR_CODE_TRACK_UNPUBLISHED = 2;
+  LOCAL_DATA_TRACK_TRY_PUSH_ERROR_CODE_QUEUE_FULL = 3;
+  LOCAL_DATA_TRACK_TRY_PUSH_ERROR_CODE_INTERNAL = 4;
+}
+
+message LocalDataTrackTryPushError {
+  required LocalDataTrackTryPushErrorCode code = 1;
+  required string message = 2;
+}
+
+enum SubscribeDataTrackErrorCode {
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_UNKNOWN = 0;
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_INVALID_HANDLE = 1;
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_UNPUBLISHED = 2;
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_TIMEOUT = 3;
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_DISCONNECTED = 4;
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_PROTOCOL_ERROR = 5;
+  SUBSCRIBE_DATA_TRACK_ERROR_CODE_INTERNAL = 6;
+}
+
+message SubscribeDataTrackError {
+  required SubscribeDataTrackErrorCode code = 1;
+  required string message = 2;
+}
+
+// MARK: - Local
+
+// Options for publishing a data track.
+message DataTrackOptions {
+  // Track name used to identify the track to other participants.
+  //
+  // Must not be empty and must be unique per publisher.
+  //
+  required string name = 1;
+}
+
+// Publish a data track
+message PublishDataTrackRequest {
+  required uint64 local_participant_handle = 1;
+  required DataTrackOptions options = 2;
+  optional uint64 request_async_id = 3;
+}
+message PublishDataTrackResponse {
+  required uint64 async_id = 1;
+}
+message PublishDataTrackCallback {
+  required uint64 async_id = 1;
+  oneof result {
+    OwnedLocalDataTrack track = 2;
+    PublishDataTrackError error = 3;
+  }
+}
+
+message OwnedLocalDataTrack {
+  required FfiOwnedHandle handle = 1;
+  required DataTrackInfo info = 2;
+}
+
+// Try pushing a frame to subscribers of the track.
+message LocalDataTrackTryPushRequest {
+  required uint64 track_handle = 1;
+  required DataTrackFrame frame = 2;
+}
+message LocalDataTrackTryPushResponse {
+  optional LocalDataTrackTryPushError error = 2;
+}
+
+// Checks if the track is still published.
+message LocalDataTrackIsPublishedRequest {
+  required uint64 track_handle = 1;
+}
+message LocalDataTrackIsPublishedResponse {
+  required bool is_published = 1;
+}
+
+// Unpublishes the track.
+message LocalDataTrackUnpublishRequest {
+  required uint64 track_handle = 1;
+}
+message LocalDataTrackUnpublishResponse {}
+
+// MARK: - Remote
+
+message OwnedRemoteDataTrack {
+  required FfiOwnedHandle handle = 1;
+  required DataTrackInfo info = 2;
+  // Identity of the remote participant who published the track.
+  required string publisher_identity = 3;
+}
+
+// Handle to an active data track subscription.
+//
+// Dropping the handle will unsubscribe from the track.
+//
+message OwnedDataTrackStream {
+  required FfiOwnedHandle handle = 1;
+}
+
+// Reserved for future subscription options.
+message DataTrackSubscribeOptions {
+  // Maximum number of frames to buffer internally.
+  optional uint32 buffer_size = 1;
+}
+
+// Checks if the track is still published.
+message RemoteDataTrackIsPublishedRequest {
+  required uint64 track_handle = 1;
+}
+message RemoteDataTrackIsPublishedResponse {
+  required bool is_published = 1;
+}
+
+// Subscribe to a data track.
+message SubscribeDataTrackRequest {
+  required uint64 track_handle = 1;
+  required DataTrackSubscribeOptions options = 2;
+}
+message SubscribeDataTrackResponse {
+  required OwnedDataTrackStream stream = 1;
+}
+
+// Signal readiness to handle the next frame.
+//
+// This allows the client to put backpressure on the internal receive buffer.
+// Sending this request will cause the next frame to be sent via `DataTrackStreamFrameReceived`
+// once one is available.
+//
+message DataTrackStreamReadRequest {
+  required uint64 stream_handle = 1;
+}
+message DataTrackStreamReadResponse {}
+
+// Event emitted on an active stream.
+message DataTrackStreamEvent {
+  required uint64 stream_handle = 1;
+  oneof detail {
+    DataTrackStreamFrameReceived frame_received = 2;
+    DataTrackStreamEOS eos = 3;
+  }
+}
+
+// A frame was received.
+message DataTrackStreamFrameReceived {
+  required DataTrackFrame frame = 1;
+}
+
+// Stream has ended.
+message DataTrackStreamEOS {
+  // If the track could not be subscribed to, a message describing the error.
+  // Absent if the stream ended normally.
+  optional string error = 1;
+}
