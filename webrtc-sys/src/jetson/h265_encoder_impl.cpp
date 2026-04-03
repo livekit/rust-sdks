@@ -101,10 +101,10 @@ int32_t JetsonH265EncoderImpl::InitEncode(
   if (debug) {
     std::fprintf(stderr,
                  "[H265Impl] InitEncode(): %dx%d @ %d fps, startBitrate=%d "
-                 "kbps, maxBitrate=%d kbps, simulcast_streams=%zu\n",
+                 "kbps, maxBitrate=%d kbps, simulcast_streams=%d\n",
                  inst->width, inst->height, inst->maxFramerate,
                  inst->startBitrate, inst->maxBitrate,
-                 inst->numberOfSimulcastStreams);
+                 static_cast<int>(inst->numberOfSimulcastStreams));
     std::fflush(stderr);
   }
 
@@ -447,6 +447,7 @@ VideoEncoder::EncoderInfo JetsonH265EncoderImpl::GetEncoderInfo() const {
   info.supports_native_handle = true;
   info.implementation_name = "Jetson MMAPI H265 Encoder";
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
+  info.has_trusted_rate_controller = true;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
   info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNative,

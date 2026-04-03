@@ -116,11 +116,11 @@ int32_t JetsonH264EncoderImpl::InitEncode(
     std::fprintf(stderr,
                  "[H264Impl] InitEncode(): %dx%d @ %d fps, startBitrate=%d "
                  "kbps, maxBitrate=%d kbps, packetization_mode=%d, "
-                 "simulcast_streams=%zu, key_frame_interval=%d\n",
+                 "simulcast_streams=%d, key_frame_interval=%d\n",
                  inst->width, inst->height, inst->maxFramerate,
                  inst->startBitrate, inst->maxBitrate,
                  static_cast<int>(packetization_mode_),
-                 inst->numberOfSimulcastStreams,
+                 static_cast<int>(inst->numberOfSimulcastStreams),
                  inst->H264().keyFrameInterval);
     std::fflush(stderr);
   }
@@ -559,6 +559,7 @@ VideoEncoder::EncoderInfo JetsonH264EncoderImpl::GetEncoderInfo() const {
   info.supports_native_handle = true;
   info.implementation_name = "Jetson MMAPI H264 Encoder";
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
+  info.has_trusted_rate_controller = true;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
   info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNative,
