@@ -1,6 +1,7 @@
 #include "jetson_nvmm_buffer.h"
 
 #include <cstdio>
+#include <execinfo.h>
 
 #include "rtc_base/logging.h"
 
@@ -42,6 +43,13 @@ rtc::scoped_refptr<webrtc::I420BufferInterface> JetsonNvmmBuffer::ToI420() {
                "[JetsonNvmmBuffer] ToI420() called unexpectedly for fd=%d "
                "(%dx%d, y_stride=%d, uv_stride=%d)\n",
                dmabuf_fd_, width_, height_, y_stride_, uv_stride_);
+  void* frames[32];
+  const int frame_count = backtrace(frames, 32);
+  if (frame_count > 0) {
+    std::fprintf(stderr, "[JetsonNvmmBuffer] Backtrace (%d frames):\n",
+                 frame_count);
+    backtrace_symbols_fd(frames, frame_count, fileno(stderr));
+  }
   std::fflush(stderr);
   return nullptr;
 }
