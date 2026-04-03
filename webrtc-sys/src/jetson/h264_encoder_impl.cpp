@@ -121,7 +121,7 @@ int32_t JetsonH264EncoderImpl::InitEncode(
                  inst->startBitrate, inst->maxBitrate,
                  static_cast<int>(packetization_mode_),
                  inst->numberOfSimulcastStreams,
-                 inst->codecSpecific.H264.keyFrameInterval);
+                 inst->H264().keyFrameInterval);
     std::fflush(stderr);
   }
 
