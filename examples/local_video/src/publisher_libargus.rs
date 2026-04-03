@@ -48,6 +48,8 @@ use livekit::webrtc::video_frame::native::NativeBuffer;
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 use livekit::webrtc::video_frame::{VideoFrame, VideoRotation};
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+use livekit::webrtc::video_source::native::NativeVideoSource;
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 use livekit::webrtc::video_source::VideoResolution;
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 use log::info;
@@ -60,7 +62,7 @@ use nokhwa::{
 };
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 use publisher_common::{
-    connect_and_publish_video, timestamp_us_from_duration, PublishedVideoContext,
+    connect_and_publish_video_with_source, timestamp_us_from_duration, PublishedVideoContext,
 };
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 use std::sync::atomic::Ordering;
@@ -122,15 +124,51 @@ async fn run(
         libargus.camera_info().human_name()
     );
 
-    let PublishedVideoContext { room: _room, rtc_source } = connect_and_publish_video(
-        &args.publish,
-        "libargus-camera",
-        VideoResolution { width, height },
-        fps as f64,
-    )
-    .await?;
+    // Create the NativeVideoSource and immediately feed it a real NVMM camera
+    // frame *before* any async work. NativeVideoSource::new() spawns a warm-up
+    // loop that sends black I420 frames until capture_frame is called. The
+    // Jetson MMAPI encoder uses DMABUF-only input and cannot encode I420,
+    // causing WebRTC to fall back to a software encoder that then rejects NVMM
+    // native buffers (ToI420 returns null), producing blank video.
+    //
+    // By calling capture_frame synchronously before the first .await, the
+    // warm-up task never gets a chance to run its first tick.
+    let rtc_source =
+        NativeVideoSource::new(VideoResolution { width, height }, false);
+    {
+        let frame = libargus.frame_dmabuf_pooled()?;
+        let resolution = frame.resolution();
+        let timestamp_us = timestamp_us_from_duration(frame.capture_timestamp());
+        let dmabuf_fd = frame.dmabuf_fd();
+        let y_stride = frame.y_stride();
+        let uv_stride = frame.uv_stride();
+        let video_frame: VideoFrame<NativeBuffer> = VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
+            timestamp_us,
+            buffer: unsafe {
+                NativeBuffer::from_jetson_dmabuf(
+                    dmabuf_fd,
+                    resolution.width(),
+                    resolution.height(),
+                    y_stride,
+                    uv_stride,
+                    Some(Box::new(frame)),
+                )
+            },
+        };
+        rtc_source.capture_frame(&video_frame);
+    }
 
-    let mut frames: u64 = 0;
+    let PublishedVideoContext { room: _room, rtc_source } =
+        connect_and_publish_video_with_source(
+            &args.publish,
+            "libargus-camera",
+            fps as f64,
+            rtc_source,
+        )
+        .await?;
+
+    let mut frames: u64 = 1;
     let mut last_log = Instant::now();
 
     loop {

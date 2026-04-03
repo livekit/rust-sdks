@@ -72,6 +72,16 @@ pub async fn connect_and_publish_video(
     resolution: VideoResolution,
     max_framerate: f64,
 ) -> Result<PublishedVideoContext> {
+    let rtc_source = NativeVideoSource::new(resolution, false);
+    connect_and_publish_video_with_source(args, track_name, max_framerate, rtc_source).await
+}
+
+pub async fn connect_and_publish_video_with_source(
+    args: &PublishCommonArgs,
+    track_name: &str,
+    max_framerate: f64,
+    rtc_source: NativeVideoSource,
+) -> Result<PublishedVideoContext> {
     let url = resolve_required(&args.url, "LIVEKIT_URL")?;
     let api_key = resolve_required(&args.api_key, "LIVEKIT_API_KEY")?;
     let api_secret = resolve_required(&args.api_secret, "LIVEKIT_API_SECRET")?;
@@ -105,7 +115,6 @@ pub async fn connect_and_publish_video(
         });
     }
 
-    let rtc_source = NativeVideoSource::new(resolution, false);
     let track =
         LocalVideoTrack::create_video_track(track_name, RtcVideoSource::Native(rtc_source.clone()));
 
