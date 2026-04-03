@@ -126,6 +126,16 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         libargus.camera_info().human_name()
     );
 
+    // Block until the V4L2 sensor pipeline has fully initialized and is
+    // producing frames.  ICaptureSession::repeat() starts sensor mode-setting
+    // asynchronously; if we proceed to Room::connect() too soon (especially
+    // in --release builds), the WebRTC MMAPI encoder factory's V4L2 probe
+    // races with the sensor's VIDIOC_S_FMT, causing the sensor to enter an
+    // unrecoverable error state (black video).
+    info!("Waiting for first sensor frame...");
+    drop(libargus.frame_dmabuf_pooled()?);
+    info!("Sensor active, first frame received");
+
     // Suppress the NativeVideoSource warm-up loop before any .await.
     // The warm-up sends black I420 frames that the Jetson MMAPI encoder
     // (DMABUF-only input) cannot encode, causing WebRTC to fall back to a
