@@ -111,8 +111,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         RequestedFormat::with_formats(RequestedFormatType::Closest(target), &[FrameFormat::NV12]);
 
     let mut libargus = LibArgusCamera::open(camera.index(), request)?;
-    libargus.configure_dmabuf_pool(args.dmabuf_pool_size)?;
-    libargus.start()?;
 
     let format = libargus.camera_format();
     let width = format.width();
@@ -126,16 +124,38 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         libargus.camera_info().human_name()
     );
 
-    // Block until the sensor's VIDIOC_S_FMT has completed and frames are
-    // flowing.  ICaptureSession::repeat() starts mode-setting asynchronously;
-    // Room::connect() later triggers the WebRTC MMAPI encoder factory which
-    // also touches V4L2 ("Opening in BLOCKING MODE").  If the sensor's
-    // VIDIOC_S_FMT hasn't finished yet, the concurrent V4L2 activity corrupts
-    // the sensor state.  Conversely, if the encoder device is already held
-    // open before start(), the sensor's VIDIOC_S_FMT is also rejected.
-    // The only safe order is: sensor streams first, then encoder factory opens.
+    let compat = libargus.compatible_camera_formats();
+    info!("Available sensor modes ({}):", compat.len());
+    for f in compat {
+        info!("  {}x{} @ {} fps [{}]", f.width(), f.height(), f.frame_rate(), f.format());
+    }
+
+    if format.width() != args.width || format.height() != args.height {
+        warn!(
+            "Requested {}x{} but closest available sensor mode is {}x{}",
+            args.width, args.height, width, height
+        );
+    }
+
+    libargus.configure_dmabuf_pool(args.dmabuf_pool_size)?;
+    libargus.start()?;
+
+    // ICaptureSession::repeat() starts mode-setting asynchronously.
+    // We must wait for the first frame before opening the WebRTC MMAPI
+    // encoder, because concurrent V4L2 activity corrupts the sensor state.
     info!("Waiting for first sensor frame (VIDIOC_S_FMT sync)...");
-    drop(libargus.frame_dmabuf_pooled()?);
+    drop(libargus.frame_dmabuf_pooled().map_err(|e| {
+        anyhow::anyhow!(
+            "Sensor failed to produce first frame at {}x{} @ {}fps: {}. \
+             The V4L2 driver may have rejected this mode. \
+             Try: sudo systemctl restart nvargus-daemon, \
+             or use a different resolution from the sensor modes listed above.",
+            width,
+            height,
+            fps,
+            e
+        )
+    })?);
     info!("Sensor active, first frame received");
 
     // Suppress the NativeVideoSource warm-up loop before any .await.
