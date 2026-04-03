@@ -92,6 +92,15 @@ impl NativeVideoSource {
         self.sys_handle.clone()
     }
 
+    /// Signal that real frames will be provided externally, suppressing
+    /// the black-frame warm-up loop without actually submitting a frame.
+    /// Call this before the first `.await` when the caller will drive
+    /// `capture_frame` directly.
+    pub fn skip_warmup(&self) {
+        let mut inner = self.inner.lock();
+        inner.captured_frames = inner.captured_frames.max(1);
+    }
+
     pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
         let mut inner = self.inner.lock();
         inner.captured_frames += 1;

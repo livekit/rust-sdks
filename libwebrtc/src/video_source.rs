@@ -74,6 +74,10 @@ pub mod native {
             Self { handle: vs_imp::NativeVideoSource::new(resolution, is_screencast) }
         }
 
+        pub fn skip_warmup(&self) {
+            self.handle.skip_warmup()
+        }
+
         pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
             self.handle.capture_frame(frame)
         }
