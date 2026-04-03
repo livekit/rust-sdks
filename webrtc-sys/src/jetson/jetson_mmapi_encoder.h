@@ -101,6 +101,8 @@ class JetsonMmapiEncoder {
   int output_u_stride_ = 0;
   int output_v_stride_ = 0;
   bool output_is_nv12_ = false;
+  bool output_uses_dmabuf_ = true;
+  std::vector<int> output_dmabuf_fds_;
 };
 
 }  // namespace livekit

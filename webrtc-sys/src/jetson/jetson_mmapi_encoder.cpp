@@ -776,9 +776,11 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
 bool JetsonMmapiEncoder::SetupPlanes() {
   output_buffer_count_ = kDefaultOutputBufferCount;
   capture_buffer_count_ = kDefaultCaptureBufferCount;
+  output_dmabuf_fds_.assign(output_buffer_count_, -1);
+  next_output_index_ = 0;
 
-  if (encoder_->output_plane.setupPlane(V4L2_MEMORY_MMAP,
-                                        output_buffer_count_, true, false) <
+  if (encoder_->output_plane.setupPlane(V4L2_MEMORY_DMABUF,
+                                        output_buffer_count_, false, false) <
       0) {
     RTC_LOG(LS_ERROR) << "Failed to setup output plane.";
     return false;
@@ -831,6 +833,14 @@ void JetsonMmapiEncoder::StopStreaming() {
   }
   encoder_->output_plane.setStreamStatus(false);
   encoder_->capture_plane.setStreamStatus(false);
+  if (output_uses_dmabuf_) {
+    for (int index = 0; index < static_cast<int>(output_dmabuf_fds_.size());
+         ++index) {
+      if (output_dmabuf_fds_[index] >= 0) {
+        encoder_->output_plane.unmapOutputBuffers(index, output_dmabuf_fds_[index]);
+      }
+    }
+  }
   streaming_ = false;
 }
 
@@ -840,6 +850,11 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
                                            int stride_u,
                                            const uint8_t* src_v,
                                            int stride_v) {
+  if (output_uses_dmabuf_) {
+    RTC_LOG(LS_ERROR)
+        << "CPU I420 staging is unavailable with DMABUF-configured output plane.";
+    return false;
+  }
   static std::atomic<bool> logged_first_queue(false);
   static std::atomic<bool> logged_plane_layout(false);
   const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
@@ -1166,6 +1181,11 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
                                                int stride_y,
                                                const uint8_t* src_uv,
                                                int stride_uv) {
+  if (output_uses_dmabuf_) {
+    RTC_LOG(LS_ERROR)
+        << "CPU NV12 staging is unavailable with DMABUF-configured output plane.";
+    return false;
+  }
   static std::atomic<bool> logged_first_queue(false);
   static std::atomic<bool> logged_plane_layout(false);
   const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
@@ -1391,99 +1411,112 @@ bool JetsonMmapiEncoder::QueueOutputBufferDmabuf(int dmabuf_fd) {
         << "QueueOutputBufferDmabuf requires NV12 output buffers.";
     return false;
   }
-
-  NvBuffer* buffer = encoder_->output_plane.getNthBuffer(next_output_index_);
-  if (!buffer || buffer->n_planes < 2) {
-    RTC_LOG(LS_ERROR) << "Failed to get an NV12 output buffer.";
-    return false;
-  }
-
   NvBufSurface* src_surface = nullptr;
-  NvBufSurface* dst_surface = nullptr;
   if (NvBufSurfaceFromFd(dmabuf_fd, reinterpret_cast<void**>(&src_surface)) !=
           0 ||
       !src_surface) {
     RTC_LOG(LS_ERROR) << "Failed to map source DMA-BUF surface.";
     return false;
   }
-  if (NvBufSurfaceFromFd(buffer->planes[0].fd,
-                         reinterpret_cast<void**>(&dst_surface)) != 0 ||
-      !dst_surface) {
-    RTC_LOG(LS_ERROR) << "Failed to map destination DMA-BUF surface.";
-    return false;
-  }
-
-  if (src_surface->batchSize < 1 || dst_surface->batchSize < 1) {
+  if (src_surface->batchSize < 1) {
     RTC_LOG(LS_ERROR) << "Jetson NVMM DMA-BUF surface has no batches.";
     return false;
   }
 
   const NvBufSurfacePlaneParams& src_params = src_surface->surfaceList[0].planeParams;
-  const NvBufSurfacePlaneParams& dst_params = dst_surface->surfaceList[0].planeParams;
-  if (src_params.num_planes < 2 || dst_params.num_planes < 2) {
-    // Some MMAPI output-plane allocations expose per-plane DMA-BUF fds rather than
-    // a single two-plane surfarray fd. NvBufSurfaceCopy cannot safely import into
-    // that layout, so let the caller fall back to the CPU path.
-    RTC_LOG(LS_WARNING)
-        << "Jetson NVMM fast-path unavailable: src planes="
-        << src_params.num_planes << " dst planes=" << dst_params.num_planes;
-    if (verbose) {
-      std::fprintf(stderr,
-                   "[MMAPI] QueueOutputBufferDmabuf fallback: src planes=%u "
-                   "dst planes=%u src_fd=%d dst_fd=%d\n",
-                   src_params.num_planes, dst_params.num_planes, dmabuf_fd,
-                   buffer->planes[0].fd);
-      std::fflush(stderr);
-    }
+  if (src_params.num_planes < 2) {
+    RTC_LOG(LS_ERROR) << "Jetson NVMM source surface is not multi-planar NV12.";
     return false;
   }
 
-  if (NvBufSurfaceCopy(src_surface, dst_surface) != 0) {
-    RTC_LOG(LS_ERROR) << "NvBufSurfaceCopy failed for Jetson NVMM input.";
+  int output_index = -1;
+  for (int index = 0; index < static_cast<int>(output_dmabuf_fds_.size()); ++index) {
+    if (output_dmabuf_fds_[index] == dmabuf_fd) {
+      output_index = index;
+      break;
+    }
+  }
+
+  if (output_index < 0) {
+    for (int index = 0; index < static_cast<int>(output_dmabuf_fds_.size()); ++index) {
+      if (output_dmabuf_fds_[index] < 0) {
+        output_index = index;
+        break;
+      }
+    }
+  }
+
+  if (output_index < 0) {
+    RTC_LOG(LS_ERROR)
+        << "No free MMAPI output plane slot available for source DMA-BUF fd "
+        << dmabuf_fd;
     return false;
   }
 
   const uint32_t y_stride =
-      dst_params.pitch[0] > 0 ? dst_params.pitch[0]
+      src_params.pitch[0] > 0 ? src_params.pitch[0]
                               : static_cast<uint32_t>(output_y_stride_);
   const uint32_t uv_stride =
-      dst_params.pitch[1] > 0 ? dst_params.pitch[1]
+      src_params.pitch[1] > 0 ? src_params.pitch[1]
                               : static_cast<uint32_t>(output_u_stride_);
   const uint32_t y_height =
-      dst_params.height[0] > 0 ? dst_params.height[0]
+      src_params.height[0] > 0 ? src_params.height[0]
                                : static_cast<uint32_t>(height_);
   const uint32_t uv_height =
-      dst_params.height[1] > 0 ? dst_params.height[1]
+      src_params.height[1] > 0 ? src_params.height[1]
                                : static_cast<uint32_t>((height_ + 1) / 2);
 
-  buffer->planes[0].bytesused = y_stride * y_height;
-  buffer->planes[1].bytesused = uv_stride * uv_height;
-
-  if (verbose) {
-    std::fprintf(stderr,
-                 "[MMAPI] QueueOutputBufferDmabuf: src_fd=%d dst_fd=%d "
-                 "bytesused(y,uv)=(%u,%u)\n",
-                 dmabuf_fd, buffer->planes[0].fd, buffer->planes[0].bytesused,
-                 buffer->planes[1].bytesused);
-    std::fflush(stderr);
+  NvBuffer* buffer = encoder_->output_plane.getNthBuffer(output_index);
+  if (!buffer) {
+    RTC_LOG(LS_ERROR) << "Failed to get MMAPI output buffer slot " << output_index;
+    return false;
   }
 
   v4l2_buffer v4l2_buf = {};
   v4l2_plane planes[VIDEO_MAX_PLANES] = {};
-  v4l2_buf.index = next_output_index_;
+  v4l2_buf.index = output_index;
   v4l2_buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-  v4l2_buf.memory = V4L2_MEMORY_MMAP;
+  v4l2_buf.memory = V4L2_MEMORY_DMABUF;
   v4l2_buf.m.planes = planes;
   v4l2_buf.length = encoder_->output_plane.getNumPlanes();
-  planes[0].bytesused = buffer->planes[0].bytesused;
-  planes[1].bytesused = buffer->planes[1].bytesused;
+  if (output_dmabuf_fds_[output_index] != dmabuf_fd) {
+    if (encoder_->output_plane.mapOutputBuffers(v4l2_buf, dmabuf_fd) < 0) {
+      RTC_LOG(LS_ERROR) << "Failed to map source DMA-BUF into MMAPI output slot "
+                        << output_index;
+      return false;
+    }
+    output_dmabuf_fds_[output_index] = dmabuf_fd;
+  }
 
-  if (encoder_->output_plane.qBuffer(v4l2_buf, nullptr) < 0) {
+  for (uint32_t plane = 0; plane < v4l2_buf.length; ++plane) {
+    planes[plane].m.fd = dmabuf_fd;
+  }
+  planes[0].bytesused = y_stride * y_height;
+  if (v4l2_buf.length > 1) {
+    planes[1].bytesused = uv_stride * uv_height;
+  }
+
+  buffer->planes[0].fd = dmabuf_fd;
+  buffer->planes[0].bytesused = planes[0].bytesused;
+  if (buffer->n_planes > 1) {
+    buffer->planes[1].fd = dmabuf_fd;
+    buffer->planes[1].bytesused = planes[1].bytesused;
+  }
+
+  if (verbose) {
+    std::fprintf(stderr,
+                 "[MMAPI] QueueOutputBufferDmabuf: src_fd=%d slot=%d "
+                 "bytesused(y,uv)=(%u,%u)\n",
+                 dmabuf_fd, output_index, planes[0].bytesused,
+                 v4l2_buf.length > 1 ? planes[1].bytesused : 0);
+    std::fflush(stderr);
+  }
+
+  if (encoder_->output_plane.qBuffer(v4l2_buf, buffer) < 0) {
     RTC_LOG(LS_ERROR) << "Failed to queue Jetson NVMM output buffer.";
     return false;
   }
 
-  next_output_index_ = (next_output_index_ + 1) % output_buffer_count_;
   return true;
 }
 
@@ -1644,13 +1677,16 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
 }
 
 bool JetsonMmapiEncoder::DequeueOutputBuffer() {
+  NvBuffer* shared_buffer = nullptr;
   v4l2_buffer v4l2_buf = {};
   v4l2_plane planes[VIDEO_MAX_PLANES] = {};
   v4l2_buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-  v4l2_buf.memory = V4L2_MEMORY_MMAP;
+  v4l2_buf.memory = output_uses_dmabuf_ ? V4L2_MEMORY_DMABUF : V4L2_MEMORY_MMAP;
   v4l2_buf.m.planes = planes;
   v4l2_buf.length = encoder_->output_plane.getNumPlanes();
-  if (encoder_->output_plane.dqBuffer(v4l2_buf, nullptr, nullptr, 0) < 0) {
+  if (encoder_->output_plane.dqBuffer(v4l2_buf, nullptr,
+                                      output_uses_dmabuf_ ? &shared_buffer : nullptr,
+                                      0) < 0) {
     RTC_LOG(LS_ERROR) << "Failed to dequeue output buffer.";
     return false;
   }
