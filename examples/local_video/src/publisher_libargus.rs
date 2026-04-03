@@ -27,8 +27,10 @@ struct Args {
     #[arg(long, default_value_t = 30)]
     fps: u32,
 
-    /// Number of reusable DMA-BUF frames to keep in the LibArgus pool
-    #[arg(long, default_value_t = 4)]
+    /// Number of reusable DMA-BUF frames to keep in the LibArgus pool.
+    /// Must exceed the encoder's internal output buffer count (typically 4)
+    /// plus headroom for the capture thread and WebRTC pipeline.
+    #[arg(long, default_value_t = 8)]
     dmabuf_pool_size: u32,
 
     #[command(flatten)]
