@@ -299,12 +299,15 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let _ = tokio::signal::ctrl_c().await;
     ctrl_c_flag.store(true, Ordering::Release);
     info!("Ctrl-C received, shutting down...");
+
+    // Stop the capture thread first so no new frames enter the encoder pipeline.
+    capture_thread.join().map_err(|e| anyhow::anyhow!("capture thread panicked: {:?}", e))??;
+
     info!("Closing LiveKit room...");
     if let Err(err) = room.close().await {
         warn!("Failed to close LiveKit room cleanly: {}", err);
     }
 
-    capture_thread.join().map_err(|e| anyhow::anyhow!("capture thread panicked: {:?}", e))??;
     Ok(())
 }
 
