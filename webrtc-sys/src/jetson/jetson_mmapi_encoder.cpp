@@ -1401,7 +1401,9 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
 }
 
 bool JetsonMmapiEncoder::QueueOutputBufferDmabuf(int dmabuf_fd) {
+  static std::atomic<uint64_t> queue_dmabuf_count(0);
   const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+  const uint64_t queue_num = queue_dmabuf_count.fetch_add(1);
   if (dmabuf_fd < 0) {
     RTC_LOG(LS_ERROR) << "QueueOutputBufferDmabuf received an invalid fd.";
     return false;
@@ -1427,6 +1429,20 @@ bool JetsonMmapiEncoder::QueueOutputBufferDmabuf(int dmabuf_fd) {
   if (src_params.num_planes < 2) {
     RTC_LOG(LS_ERROR) << "Jetson NVMM source surface is not multi-planar NV12.";
     return false;
+  }
+
+  if (verbose && (queue_num < 10 || queue_num % 100 == 0)) {
+    const NvBufSurfaceParams& src = src_surface->surfaceList[0];
+    std::fprintf(stderr,
+                 "[MMAPI] QueueOutputBufferDmabuf: src_fd=%d surface=%ux%u "
+                 "layout=%d colorFormat=%d memType=%d num_planes=%u "
+                 "pitch=(%u,%u) height=(%u,%u)\n",
+                 dmabuf_fd, src.width, src.height, static_cast<int>(src.layout),
+                 static_cast<int>(src.colorFormat),
+                 static_cast<int>(src_surface->memType), src_params.num_planes,
+                 src_params.pitch[0], src_params.pitch[1], src_params.height[0],
+                 src_params.height[1]);
+    std::fflush(stderr);
   }
 
   int output_index = -1;
@@ -1596,9 +1612,11 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
     const int remaining = verbose_left.fetch_sub(1);
     if (remaining > 0) {
       std::fprintf(stderr,
-                   "[MMAPI] capture dqBuffer: bytesused=%zu flags=0x%x "
-                   "index=%d empty_retries=%d\n",
-                   bytesused, v4l2_buf.flags, v4l2_buf.index, empty_retries);
+                   "[MMAPI] capture dqBuffer: encoded_size=%zu flags=0x%x "
+                   "index=%d empty_retries=%d keyframe=%d\n",
+                   encoded->size(), v4l2_buf.flags, v4l2_buf.index,
+                   empty_retries,
+                   is_keyframe ? (*is_keyframe ? 1 : 0) : -1);
       std::fflush(stderr);
     }
   }

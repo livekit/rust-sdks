@@ -67,6 +67,8 @@ use publisher_common::{
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 use std::sync::atomic::Ordering;
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+use std::sync::OnceLock;
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 use std::time::Instant;
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
@@ -128,21 +130,38 @@ async fn run(
     // The warm-up sends black I420 frames that the Jetson MMAPI encoder
     // (DMABUF-only input) cannot encode, causing WebRTC to fall back to a
     // software encoder that rejects NVMM native buffers.
-    let rtc_source =
-        NativeVideoSource::new(VideoResolution { width, height }, false);
+    let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
     rtc_source.skip_warmup();
+    let source_resolution = rtc_source.video_resolution();
+    info!(
+        "NativeVideoSource configured: {}x{} (camera output {}x{})",
+        source_resolution.width, source_resolution.height, width, height
+    );
+    if publish_debug_enabled() {
+        info!(
+            "[publisher] LK_PUBLISH_DEBUG enabled: source={}x{}, camera={}x{}, fps={}, dmabuf_pool_size={}",
+            source_resolution.width,
+            source_resolution.height,
+            width,
+            height,
+            fps,
+            args.dmabuf_pool_size
+        );
+    }
 
-    let PublishedVideoContext { room: _room, rtc_source } =
-        connect_and_publish_video_with_source(
-            &args.publish,
-            "libargus-camera",
-            fps as f64,
-            rtc_source,
-        )
-        .await?;
+    let PublishedVideoContext { room: _room, rtc_source } = connect_and_publish_video_with_source(
+        &args.publish,
+        "libargus-camera",
+        fps as f64,
+        rtc_source,
+    )
+    .await?;
 
     let mut frames: u64 = 0;
+    let mut total_frames: u64 = 0;
     let mut last_log = Instant::now();
+    let mut last_debug_log = Instant::now();
+    let mut last_timestamp_us: Option<i64> = None;
 
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
@@ -151,10 +170,34 @@ async fn run(
 
         let frame = libargus.frame_dmabuf_pooled()?;
         let resolution = frame.resolution();
+        let capture_timestamp = frame.capture_timestamp();
         let timestamp_us = timestamp_us_from_duration(frame.capture_timestamp());
         let dmabuf_fd = frame.dmabuf_fd();
+        let bytes_used = frame.bytes_used();
         let y_stride = frame.y_stride();
         let uv_stride = frame.uv_stride();
+        total_frames += 1;
+        let should_log_debug = publish_debug_enabled()
+            && (total_frames <= 10 || last_debug_log.elapsed().as_secs_f64() >= 2.0);
+
+        if should_log_debug {
+            let timestamp_delta = last_timestamp_us.map(|prev| timestamp_us.saturating_sub(prev));
+            info!(
+                "[publisher] LibArgus frame #{}: fd={}, {}x{}, y_stride={}, uv_stride={}, bytes_used={}, capture_ts={:?}, timestamp_us={}, delta_us={:?}",
+                total_frames,
+                dmabuf_fd,
+                resolution.width(),
+                resolution.height(),
+                y_stride,
+                uv_stride,
+                bytes_used,
+                capture_timestamp,
+                timestamp_us,
+                timestamp_delta
+            );
+            last_debug_log = Instant::now();
+        }
+        last_timestamp_us = Some(timestamp_us);
 
         let video_frame: VideoFrame<NativeBuffer> = VideoFrame {
             rotation: VideoRotation::VideoRotation0,
@@ -171,7 +214,21 @@ async fn run(
             },
         };
 
+        if should_log_debug {
+            info!(
+                "[publisher] VideoFrame #{} built: fd={}, {}x{}, timestamp_us={}, submitting to NativeVideoSource",
+                total_frames,
+                dmabuf_fd,
+                resolution.width(),
+                resolution.height(),
+                timestamp_us
+            );
+        }
         rtc_source.capture_frame(&video_frame);
+        if should_log_debug {
+            info!("[publisher] VideoFrame #{} submitted to NativeVideoSource", total_frames);
+            last_debug_log = Instant::now();
+        }
         frames += 1;
 
         if last_log.elapsed().as_secs_f64() >= 2.0 {
@@ -189,4 +246,10 @@ async fn run(
 
     libargus.stop()?;
     Ok(())
+}
+
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+fn publish_debug_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("LK_PUBLISH_DEBUG").is_ok())
 }

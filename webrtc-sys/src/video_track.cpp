@@ -17,6 +17,9 @@
 #include "livekit/video_track.h"
 
 #include <algorithm>
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 
@@ -32,6 +35,56 @@
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/time_utils.h"
 #include "webrtc-sys/src/video_track.rs.h"
+
+namespace {
+
+const char* BufferTypeToString(webrtc::VideoFrameBuffer::Type type) {
+  switch (type) {
+    case webrtc::VideoFrameBuffer::Type::kNative:
+      return "kNative";
+    case webrtc::VideoFrameBuffer::Type::kI420:
+      return "kI420";
+    case webrtc::VideoFrameBuffer::Type::kI420A:
+      return "kI420A";
+    case webrtc::VideoFrameBuffer::Type::kI444:
+      return "kI444";
+    case webrtc::VideoFrameBuffer::Type::kI010:
+      return "kI010";
+    case webrtc::VideoFrameBuffer::Type::kI210:
+      return "kI210";
+    case webrtc::VideoFrameBuffer::Type::kI410:
+      return "kI410";
+    case webrtc::VideoFrameBuffer::Type::kNV12:
+      return "kNV12";
+  }
+  return "unknown";
+}
+
+bool PublishDebugEnabled() {
+  static const bool enabled = std::getenv("LK_PUBLISH_DEBUG") != nullptr;
+  return enabled;
+}
+
+void MaybeLogPublishSummary(uint64_t received,
+                            uint64_t delivered,
+                            uint64_t adapt_rejected,
+                            uint64_t crop_scale_dropped,
+                            uint64_t rotation_dropped) {
+  if (!PublishDebugEnabled()) {
+    return;
+  }
+  if (received <= 10 || received % 100 == 0) {
+    std::fprintf(stderr,
+                 "[VideoTrackSource] summary: received=%lu delivered=%lu "
+                 "adapt_rejected=%lu crop_scale_dropped=%lu "
+                 "rotation_dropped=%lu\n",
+                 received, delivered, adapt_rejected, crop_scale_dropped,
+                 rotation_dropped);
+    std::fflush(stderr);
+  }
+}
+
+}  // namespace
 
 namespace livekit_ffi {
 
@@ -134,7 +187,14 @@ VideoResolution VideoTrackSource::InternalSource::video_resolution() const {
 
 bool VideoTrackSource::InternalSource::on_captured_frame(
     const webrtc::VideoFrame& frame) {
+  static std::atomic<uint64_t> received_count(0);
+  static std::atomic<uint64_t> delivered_count(0);
+  static std::atomic<uint64_t> adapt_rejected_count(0);
+  static std::atomic<uint64_t> crop_scale_drop_count(0);
+  static std::atomic<uint64_t> rotation_drop_count(0);
+
   webrtc::MutexLock lock(&mutex_);
+  const uint64_t received = received_count.fetch_add(1) + 1;
 
   int64_t aligned_timestamp_us = timestamp_aligner_.TranslateTimestamp(
       frame.timestamp_us(), webrtc::TimeMicros());
@@ -142,6 +202,20 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
       frame.video_frame_buffer();
   const auto buffer_type = buffer->type();
+  const bool debug = PublishDebugEnabled();
+  if (debug && (received <= 10 || received % 100 == 0)) {
+    std::fprintf(stderr,
+                 "[VideoTrackSource] on_captured_frame #%lu: frame=%dx%d "
+                 "buffer=%s(%d) timestamp_us=%lld aligned_timestamp_us=%lld "
+                 "rotation=%d source_resolution=%ux%u\n",
+                 received, frame.width(), frame.height(),
+                 BufferTypeToString(buffer_type), static_cast<int>(buffer_type),
+                 static_cast<long long>(frame.timestamp_us()),
+                 static_cast<long long>(aligned_timestamp_us),
+                 static_cast<int>(frame.rotation()), resolution_.width,
+                 resolution_.height);
+    std::fflush(stderr);
+  }
 
   if (resolution_.height == 0 || resolution_.width == 0) {
     resolution_ = VideoResolution{static_cast<uint32_t>(buffer->width()),
@@ -149,20 +223,56 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   }
 
   int adapted_width, adapted_height, crop_width, crop_height, crop_x, crop_y;
-  if (!AdaptFrame(buffer->width(), buffer->height(), aligned_timestamp_us,
-                  &adapted_width, &adapted_height, &crop_width, &crop_height,
-                  &crop_x, &crop_y)) {
+  const bool adapted = AdaptFrame(buffer->width(), buffer->height(),
+                                  aligned_timestamp_us, &adapted_width,
+                                  &adapted_height, &crop_width, &crop_height,
+                                  &crop_x, &crop_y);
+  if (debug && (received <= 10 || received % 100 == 0)) {
+    std::fprintf(stderr,
+                 "[VideoTrackSource] AdaptFrame #%lu: accepted=%d input=%dx%d "
+                 "adapted=%dx%d crop=%dx%d@%d,%d\n",
+                 received, adapted ? 1 : 0, buffer->width(), buffer->height(),
+                 adapted_width, adapted_height, crop_width, crop_height, crop_x,
+                 crop_y);
+    std::fflush(stderr);
+  }
+  if (!adapted) {
+    const uint64_t adapt_rejected = adapt_rejected_count.fetch_add(1) + 1;
+    if (debug) {
+      std::fprintf(stderr,
+                   "[VideoTrackSource] Dropping frame #%lu because AdaptFrame "
+                   "rejected it (buffer=%s, timestamp_us=%lld)\n",
+                   received, BufferTypeToString(buffer_type),
+                   static_cast<long long>(aligned_timestamp_us));
+      std::fflush(stderr);
+    }
+    MaybeLogPublishSummary(received, delivered_count.load(), adapt_rejected,
+                           crop_scale_drop_count.load(),
+                           rotation_drop_count.load());
     return false;
   }
 
   if (adapted_width != frame.width() || adapted_height != frame.height()) {
     if (buffer_type == webrtc::VideoFrameBuffer::Type::kNative) {
+      const uint64_t crop_scale_dropped = crop_scale_drop_count.fetch_add(1) + 1;
       RTC_LOG(LS_WARNING)
           << "Dropping native frame because WebRTC requested CropAndScale from "
           << frame.width() << "x" << frame.height() << " to " << adapted_width
           << "x" << adapted_height << " (crop " << crop_width << "x"
           << crop_height << " @ " << crop_x << "," << crop_y
           << "). Native CropAndScale falls back to ToI420().";
+      if (debug) {
+        std::fprintf(stderr,
+                     "[VideoTrackSource] Dropping native frame #%lu because "
+                     "CropAndScale was requested: %dx%d -> %dx%d (crop "
+                     "%dx%d@%d,%d)\n",
+                     received, frame.width(), frame.height(), adapted_width,
+                     adapted_height, crop_width, crop_height, crop_x, crop_y);
+        std::fflush(stderr);
+      }
+      MaybeLogPublishSummary(received, delivered_count.load(),
+                             adapt_rejected_count.load(), crop_scale_dropped,
+                             rotation_drop_count.load());
       return false;
     }
     buffer = buffer->CropAndScale(crop_x, crop_y, crop_width, crop_height,
@@ -172,10 +282,21 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   webrtc::VideoRotation rotation = frame.rotation();
   if (apply_rotation() && rotation != webrtc::kVideoRotation_0) {
     if (buffer_type == webrtc::VideoFrameBuffer::Type::kNative) {
+      const uint64_t rotation_dropped = rotation_drop_count.fetch_add(1) + 1;
       RTC_LOG(LS_WARNING)
           << "Dropping native frame because rotation " << rotation
           << " was requested with apply_rotation(). Native rotation would "
              "fall back to ToI420().";
+      if (debug) {
+        std::fprintf(stderr,
+                     "[VideoTrackSource] Dropping native frame #%lu because "
+                     "apply_rotation requested rotation=%d\n",
+                     received, static_cast<int>(rotation));
+        std::fflush(stderr);
+      }
+      MaybeLogPublishSummary(received, delivered_count.load(),
+                             adapt_rejected_count.load(),
+                             crop_scale_drop_count.load(), rotation_dropped);
       return false;
     }
     // If the buffer is I420, webrtc::AdaptedVideoTrackSource will handle the
@@ -188,6 +309,19 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
               .set_rotation(rotation)
               .set_timestamp_us(aligned_timestamp_us)
               .build());
+
+  const uint64_t delivered = delivered_count.fetch_add(1) + 1;
+  if (debug && (received <= 10 || received % 100 == 0)) {
+    std::fprintf(stderr,
+                 "[VideoTrackSource] OnFrame delivered #%lu: output=%dx%d "
+                 "rotation=%d delivered_total=%lu\n",
+                 received, buffer->width(), buffer->height(),
+                 static_cast<int>(rotation), delivered);
+    std::fflush(stderr);
+  }
+  MaybeLogPublishSummary(received, delivered, adapt_rejected_count.load(),
+                         crop_scale_drop_count.load(),
+                         rotation_drop_count.load());
 
   return true;
 }

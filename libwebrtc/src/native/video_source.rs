@@ -13,12 +13,15 @@
 // limitations under the License.
 
 use std::{
+    any::type_name,
     sync::Arc,
+    sync::OnceLock,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use cxx::SharedPtr;
 use livekit_runtime::interval;
+use log::debug;
 use parking_lot::Mutex;
 use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
 
@@ -99,22 +102,51 @@ impl NativeVideoSource {
     pub fn skip_warmup(&self) {
         let mut inner = self.inner.lock();
         inner.captured_frames = inner.captured_frames.max(1);
+        if publish_debug_enabled() {
+            let resolution = self.video_resolution();
+            debug!(
+                "[capture_frame] skip_warmup(): captured_frames={}, source={}x{}",
+                inner.captured_frames, resolution.width, resolution.height
+            );
+        }
     }
 
     pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
         let mut inner = self.inner.lock();
         inner.captured_frames += 1;
+        let captured_frames = inner.captured_frames;
+        drop(inner);
 
         let mut builder = vf_sys::ffi::new_video_frame_builder();
         builder.pin_mut().set_rotation(frame.rotation.into());
         builder.pin_mut().set_video_frame_buffer(frame.buffer.as_ref().sys_handle());
 
-        if frame.timestamp_us == 0 {
+        let (timestamp_us, timestamp_source) = if frame.timestamp_us == 0 {
             // If the timestamp is set to 0, default to now
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-            builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
+            (now.as_micros() as i64, "now")
         } else {
-            builder.pin_mut().set_timestamp_us(frame.timestamp_us);
+            (frame.timestamp_us, "original")
+        };
+
+        if frame.timestamp_us == 0 {
+            builder.pin_mut().set_timestamp_us(timestamp_us);
+        } else {
+            builder.pin_mut().set_timestamp_us(timestamp_us);
+        }
+
+        if publish_debug_enabled() && (captured_frames <= 10 || captured_frames % 100 == 0) {
+            let resolution = self.video_resolution();
+            debug!(
+                "[capture_frame] frame_count={}, source={}x{}, frame_rotation={:?}, buffer_type={}, timestamp_us={} ({})",
+                captured_frames,
+                resolution.width,
+                resolution.height,
+                frame.rotation,
+                type_name::<T>(),
+                timestamp_us,
+                timestamp_source
+            );
         }
 
         self.sys_handle.on_captured_frame(&builder.pin_mut().build());
@@ -123,4 +155,9 @@ impl NativeVideoSource {
     pub fn video_resolution(&self) -> VideoResolution {
         self.sys_handle.video_resolution().into()
     }
+}
+
+fn publish_debug_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var("LK_PUBLISH_DEBUG").is_ok())
 }

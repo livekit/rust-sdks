@@ -115,9 +115,12 @@ int32_t JetsonH264EncoderImpl::InitEncode(
   if (debug) {
     std::fprintf(stderr,
                  "[H264Impl] InitEncode(): %dx%d @ %d fps, startBitrate=%d "
-                 "kbps, maxBitrate=%d kbps\n",
+                 "kbps, maxBitrate=%d kbps, packetization_mode=%d, "
+                 "simulcast_streams=%zu, key_frame_interval=%d\n",
                  inst->width, inst->height, inst->maxFramerate,
-                 inst->startBitrate, inst->maxBitrate);
+                 inst->startBitrate, inst->maxBitrate,
+                 static_cast<int>(packetization_mode_),
+                 inst->numberOfSimulcastStreams, inst->H264()->keyFrameInterval);
     std::fflush(stderr);
   }
 
@@ -288,6 +291,15 @@ int32_t JetsonH264EncoderImpl::Encode(
   }
 
   auto frame_buffer_base = input_frame.video_frame_buffer();
+  if (debug && frame_buffer_base && (frame_num < 5 || frame_num % 100 == 0)) {
+    std::fprintf(stderr,
+                 "[H264Impl] Encode() input buffer (frame %lu): type=%d "
+                 "size=%dx%d keyframe_needed=%d\n",
+                 frame_num, static_cast<int>(frame_buffer_base->type()),
+                 frame_buffer_base->width(), frame_buffer_base->height(),
+                 is_keyframe_needed ? 1 : 0);
+    std::fflush(stderr);
+  }
   if (frame_buffer_base) {
     if (const auto* nvmm_buffer =
             dynamic_cast<const livekit::JetsonNvmmBuffer*>(
@@ -300,7 +312,15 @@ int32_t JetsonH264EncoderImpl::Encode(
                      nvmm_buffer->dmabuf_fd());
         std::fflush(stderr);
       }
-      return EncodeNvmmBuffer(*nvmm_buffer, input_frame, is_keyframe_needed);
+      const int32_t encode_result =
+          EncodeNvmmBuffer(*nvmm_buffer, input_frame, is_keyframe_needed);
+      if (debug || frame_num < 5 || encode_result != WEBRTC_VIDEO_CODEC_OK) {
+        std::fprintf(stderr,
+                     "[H264Impl] EncodeNvmmBuffer() returned %d (frame %lu)\n",
+                     encode_result, frame_num);
+        std::fflush(stderr);
+      }
+      return encode_result;
     }
   }
   if (frame_buffer_base &&
@@ -516,6 +536,15 @@ int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(
 
   const auto result =
       encoded_image_callback_->OnEncodedImage(encoded_image_, &codecInfo);
+  const bool debug = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+  if (debug) {
+    std::fprintf(stderr,
+                 "[H264Impl] OnEncodedImage: size=%zu frameType=%d qp=%d "
+                 "result=%d\n",
+                 packet.size(), static_cast<int>(encoded_image_._frameType),
+                 encoded_image_.qp_, static_cast<int>(result.error));
+    std::fflush(stderr);
+  }
   if (result.error != EncodedImageCallback::Result::OK) {
     RTC_LOG(LS_ERROR) << "Encode m_encodedCompleteCallback failed "
                       << result.error;
