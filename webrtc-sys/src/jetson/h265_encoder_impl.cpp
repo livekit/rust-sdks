@@ -177,6 +177,14 @@ int32_t JetsonH265EncoderImpl::Encode(
                 frame_buffer_base.get())) {
       return EncodeNvmmBuffer(*nvmm_buffer, input_frame, is_keyframe_needed);
     }
+    RTC_LOG(LS_ERROR)
+        << "Received native video frame buffer, but it is not a JetsonNvmmBuffer. "
+           "Zero-copy is required; refusing I420 fallback.";
+    std::fprintf(stderr,
+                 "[H265Impl] Native buffer rejected: type=kNative but "
+                 "JetsonNvmmBuffer cast failed\n");
+    std::fflush(stderr);
+    return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
   webrtc::scoped_refptr<I420BufferInterface> frame_buffer =

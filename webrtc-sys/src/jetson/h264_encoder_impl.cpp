@@ -295,6 +295,17 @@ int32_t JetsonH264EncoderImpl::Encode(
                 frame_buffer_base.get())) {
       return EncodeNvmmBuffer(*nvmm_buffer, input_frame, is_keyframe_needed);
     }
+    RTC_LOG(LS_ERROR)
+        << "Received native video frame buffer, but it is not a JetsonNvmmBuffer. "
+           "Zero-copy is required; refusing I420 fallback.";
+    if (debug || frame_num < 10) {
+      std::fprintf(stderr,
+                   "[H264Impl] Native buffer rejected: type=kNative but "
+                   "JetsonNvmmBuffer cast failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
   webrtc::scoped_refptr<I420BufferInterface> frame_buffer =
