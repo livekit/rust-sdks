@@ -1,25 +1,8 @@
 #include "jetson_nvmm_buffer.h"
 
-#include <cstdint>
+#include <cstdio>
 
-#include "NvBufSurface.h"
-#include "api/video/i420_buffer.h"
-#include "third_party/libyuv/include/libyuv/convert.h"
-
-namespace {
-
-bool map_plane_read(NvBufSurface* surface, uint32_t plane) {
-  return NvBufSurfaceMap(surface, 0, static_cast<int>(plane), NVBUF_MAP_READ) == 0 &&
-         NvBufSurfaceSyncForCpu(surface, 0, static_cast<int>(plane)) == 0;
-}
-
-void unmap_plane(NvBufSurface* surface, uint32_t plane) {
-  if (surface) {
-    NvBufSurfaceUnMap(surface, 0, static_cast<int>(plane));
-  }
-}
-
-}  // namespace
+#include "rtc_base/logging.h"
 
 namespace livekit {
 
@@ -52,47 +35,15 @@ int JetsonNvmmBuffer::height() const {
 }
 
 rtc::scoped_refptr<webrtc::I420BufferInterface> JetsonNvmmBuffer::ToI420() {
-  NvBufSurface* surface = nullptr;
-  if (dmabuf_fd_ < 0 ||
-      NvBufSurfaceFromFd(dmabuf_fd_, reinterpret_cast<void**>(&surface)) != 0 ||
-      !surface || surface->batchSize < 1) {
-    return nullptr;
-  }
-
-  if (!map_plane_read(surface, 0)) {
-    return nullptr;
-  }
-  if (!map_plane_read(surface, 1)) {
-    unmap_plane(surface, 0);
-    return nullptr;
-  }
-
-  const NvBufSurfaceParams& params = surface->surfaceList[0];
-  const uint8_t* src_y =
-      static_cast<const uint8_t*>(params.mappedAddr.addr[0]);
-  const uint8_t* src_uv =
-      static_cast<const uint8_t*>(params.mappedAddr.addr[1]);
-  const int src_y_stride =
-      params.planeParams.pitch[0] > 0 ? params.planeParams.pitch[0] : y_stride_;
-  const int src_uv_stride =
-      params.planeParams.pitch[1] > 0 ? params.planeParams.pitch[1] : uv_stride_;
-
-  auto i420 = webrtc::I420Buffer::Create(width_, height_);
-  if (!src_y || !src_uv || !i420) {
-    unmap_plane(surface, 1);
-    unmap_plane(surface, 0);
-    return nullptr;
-  }
-
-  const int ret = libyuv::NV12ToI420(
-      src_y, src_y_stride, src_uv, src_uv_stride, i420->MutableDataY(),
-      i420->StrideY(), i420->MutableDataU(), i420->StrideU(),
-      i420->MutableDataV(), i420->StrideV(), width_, height_);
-
-  unmap_plane(surface, 1);
-  unmap_plane(surface, 0);
-
-  return ret == 0 ? i420 : nullptr;
+  RTC_LOG(LS_ERROR)
+      << "JetsonNvmmBuffer::ToI420() was called unexpectedly. "
+         "Zero-copy Jetson NVMM buffers must not fall back to I420.";
+  std::fprintf(stderr,
+               "[JetsonNvmmBuffer] ToI420() called unexpectedly for fd=%d "
+               "(%dx%d, y_stride=%d, uv_stride=%d)\n",
+               dmabuf_fd_, width_, height_, y_stride_, uv_stride_);
+  std::fflush(stderr);
+  return nullptr;
 }
 
 int JetsonNvmmBuffer::dmabuf_fd() const {
