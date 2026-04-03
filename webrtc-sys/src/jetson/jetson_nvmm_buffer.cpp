@@ -51,7 +51,7 @@ int JetsonNvmmBuffer::height() const {
   return height_;
 }
 
-rtc::scoped_refptr<webrtc::I420BufferInterface> JetsonNvmmBuffer::ToI420() {
+rtc::scoped_refptr<webrtc::I420BufferInterface> JetsonNvmmBuffer::ToI420() const {
   NvBufSurface* surface = nullptr;
   if (dmabuf_fd_ < 0 ||
       NvBufSurfaceFromFd(dmabuf_fd_, reinterpret_cast<void**>(&surface)) != 0 ||
