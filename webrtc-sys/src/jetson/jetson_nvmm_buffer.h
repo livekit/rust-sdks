@@ -5,8 +5,8 @@
 
 #include "api/video/i420_buffer.h"
 #include "api/video/video_frame_buffer.h"
+#include "livekit/video_frame_buffer.h"
 #include "rust/cxx.h"
-#include "webrtc-sys/src/video_frame_buffer.rs.h"
 
 namespace livekit {
 

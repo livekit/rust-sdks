@@ -38,6 +38,8 @@ class I422Buffer;
 class I444Buffer;
 class I010Buffer;
 class NV12Buffer;
+enum class VideoFrameBufferType : std::int32_t;
+struct JetsonBufferDropGuard;
 }  // namespace livekit_ffi
 
 #ifdef __APPLE__
