@@ -2,7 +2,7 @@ mod publisher_common;
 
 use anyhow::Result;
 use clap::Parser;
-use publisher_common::{spawn_ctrl_c_handler, PublishCommonArgs};
+use publisher_common::PublishCommonArgs;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -65,9 +65,9 @@ use publisher_common::{
     connect_and_publish_video_with_source, timestamp_us_from_duration, PublishedVideoContext,
 };
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 use std::time::Instant;
 
@@ -86,14 +86,12 @@ fn list_cameras() -> Result<()> {
 async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
-    run(args, spawn_ctrl_c_handler()).await
+    let ctrl_c_received = Arc::new(AtomicBool::new(false));
+    run(args, ctrl_c_received).await
 }
 
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-async fn run(
-    args: Args,
-    ctrl_c_received: std::sync::Arc<std::sync::atomic::AtomicBool>,
-) -> Result<()> {
+async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if args.list_cameras {
         return list_cameras();
     }
@@ -157,94 +155,118 @@ async fn run(
     )
     .await?;
 
-    let mut frames: u64 = 0;
-    let mut total_frames: u64 = 0;
-    let mut last_log = Instant::now();
-    let mut last_debug_log = Instant::now();
-    let mut last_timestamp_us: Option<i64> = None;
+    // Run the blocking capture loop on a dedicated OS thread so that the
+    // async runtime stays responsive to the Ctrl-C signal.  LibArgusCamera
+    // is !Send, so it must live entirely on this thread.
+    let ctrl_c_flag = Arc::clone(&ctrl_c_received);
+    let capture_thread = std::thread::spawn(move || -> Result<()> {
+        let mut frames: u64 = 0;
+        let mut total_frames: u64 = 0;
+        let mut last_log = Instant::now();
+        let mut last_debug_log = Instant::now();
+        let mut last_timestamp_us: Option<i64> = None;
 
-    loop {
-        if ctrl_c_received.load(Ordering::Acquire) {
-            break;
-        }
+        while !ctrl_c_received.load(Ordering::Acquire) {
+            let frame = match libargus.frame_dmabuf_pooled() {
+                Ok(f) => f,
+                Err(e) => {
+                    if ctrl_c_received.load(Ordering::Acquire) {
+                        break;
+                    }
+                    return Err(e.into());
+                }
+            };
 
-        let frame = libargus.frame_dmabuf_pooled()?;
-        let resolution = frame.resolution();
-        let capture_timestamp = frame.capture_timestamp();
-        let timestamp_us = timestamp_us_from_duration(frame.capture_timestamp());
-        let dmabuf_fd = frame.dmabuf_fd();
-        let bytes_used = frame.bytes_used();
-        let y_stride = frame.y_stride();
-        let uv_stride = frame.uv_stride();
-        total_frames += 1;
-        let should_log_debug = publish_debug_enabled()
-            && (total_frames <= 10 || last_debug_log.elapsed().as_secs_f64() >= 2.0);
+            let resolution = frame.resolution();
+            let capture_timestamp = frame.capture_timestamp();
+            let timestamp_us = timestamp_us_from_duration(frame.capture_timestamp());
+            let dmabuf_fd = frame.dmabuf_fd();
+            let bytes_used = frame.bytes_used();
+            let y_stride = frame.y_stride();
+            let uv_stride = frame.uv_stride();
+            total_frames += 1;
+            let should_log_debug = publish_debug_enabled()
+                && (total_frames <= 10 || last_debug_log.elapsed().as_secs_f64() >= 2.0);
 
-        if should_log_debug {
-            let timestamp_delta = last_timestamp_us.map(|prev| timestamp_us.saturating_sub(prev));
-            info!(
-                "[publisher] LibArgus frame #{}: fd={}, {}x{}, y_stride={}, uv_stride={}, bytes_used={}, capture_ts={:?}, timestamp_us={}, delta_us={:?}",
-                total_frames,
-                dmabuf_fd,
-                resolution.width(),
-                resolution.height(),
-                y_stride,
-                uv_stride,
-                bytes_used,
-                capture_timestamp,
-                timestamp_us,
-                timestamp_delta
-            );
-            last_debug_log = Instant::now();
-        }
-        last_timestamp_us = Some(timestamp_us);
-
-        let video_frame: VideoFrame<NativeBuffer> = VideoFrame {
-            rotation: VideoRotation::VideoRotation0,
-            timestamp_us,
-            buffer: unsafe {
-                NativeBuffer::from_jetson_dmabuf(
+            if should_log_debug {
+                let timestamp_delta =
+                    last_timestamp_us.map(|prev| timestamp_us.saturating_sub(prev));
+                info!(
+                    "[publisher] LibArgus frame #{}: fd={}, {}x{}, y_stride={}, uv_stride={}, bytes_used={}, capture_ts={:?}, timestamp_us={}, delta_us={:?}",
+                    total_frames,
                     dmabuf_fd,
                     resolution.width(),
                     resolution.height(),
                     y_stride,
                     uv_stride,
-                    Some(Box::new(frame)),
-                )
-            },
-        };
+                    bytes_used,
+                    capture_timestamp,
+                    timestamp_us,
+                    timestamp_delta
+                );
+                last_debug_log = Instant::now();
+            }
+            last_timestamp_us = Some(timestamp_us);
 
-        if should_log_debug {
-            info!(
-                "[publisher] VideoFrame #{} built: fd={}, {}x{}, timestamp_us={}, submitting to NativeVideoSource",
-                total_frames,
-                dmabuf_fd,
-                resolution.width(),
-                resolution.height(),
-                timestamp_us
-            );
-        }
-        rtc_source.capture_frame(&video_frame);
-        if should_log_debug {
-            info!("[publisher] VideoFrame #{} submitted to NativeVideoSource", total_frames);
-            last_debug_log = Instant::now();
-        }
-        frames += 1;
+            let video_frame: VideoFrame<NativeBuffer> = VideoFrame {
+                rotation: VideoRotation::VideoRotation0,
+                timestamp_us,
+                buffer: unsafe {
+                    NativeBuffer::from_jetson_dmabuf(
+                        dmabuf_fd,
+                        resolution.width(),
+                        resolution.height(),
+                        y_stride,
+                        uv_stride,
+                        Some(Box::new(frame)),
+                    )
+                },
+            };
 
-        if last_log.elapsed().as_secs_f64() >= 2.0 {
-            let elapsed = last_log.elapsed().as_secs_f64();
-            info!(
-                "Publishing LibArgus video: {}x{}, ~{:.1} fps",
-                width,
-                height,
-                frames as f64 / elapsed,
-            );
-            frames = 0;
-            last_log = Instant::now();
-        }
-    }
+            if should_log_debug {
+                info!(
+                    "[publisher] VideoFrame #{} built: fd={}, {}x{}, timestamp_us={}, submitting to NativeVideoSource",
+                    total_frames,
+                    dmabuf_fd,
+                    resolution.width(),
+                    resolution.height(),
+                    timestamp_us
+                );
+            }
+            rtc_source.capture_frame(&video_frame);
+            if should_log_debug {
+                info!(
+                    "[publisher] VideoFrame #{} submitted to NativeVideoSource",
+                    total_frames
+                );
+                last_debug_log = Instant::now();
+            }
+            frames += 1;
 
-    libargus.stop()?;
+            if last_log.elapsed().as_secs_f64() >= 2.0 {
+                let elapsed = last_log.elapsed().as_secs_f64();
+                info!(
+                    "Publishing LibArgus video: {}x{}, ~{:.1} fps",
+                    width,
+                    height,
+                    frames as f64 / elapsed,
+                );
+                frames = 0;
+                last_log = Instant::now();
+            }
+        }
+
+        info!("Stopping LibArgus camera...");
+        libargus.stop()?;
+        Ok(())
+    });
+
+    // Wait for Ctrl-C on the async side, signal the capture thread, then join it.
+    let _ = tokio::signal::ctrl_c().await;
+    ctrl_c_flag.store(true, Ordering::Release);
+    info!("Ctrl-C received, shutting down...");
+
+    capture_thread.join().map_err(|e| anyhow::anyhow!("capture thread panicked: {:?}", e))??;
     Ok(())
 }
 
