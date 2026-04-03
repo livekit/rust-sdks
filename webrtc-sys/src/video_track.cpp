@@ -141,6 +141,7 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
 
   webrtc::scoped_refptr<webrtc::VideoFrameBuffer> buffer =
       frame.video_frame_buffer();
+  const auto buffer_type = buffer->type();
 
   if (resolution_.height == 0 || resolution_.width == 0) {
     resolution_ = VideoResolution{static_cast<uint32_t>(buffer->width()),
@@ -155,12 +156,28 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   }
 
   if (adapted_width != frame.width() || adapted_height != frame.height()) {
+    if (buffer_type == webrtc::VideoFrameBuffer::Type::kNative) {
+      RTC_LOG(LS_WARNING)
+          << "Dropping native frame because WebRTC requested CropAndScale from "
+          << frame.width() << "x" << frame.height() << " to " << adapted_width
+          << "x" << adapted_height << " (crop " << crop_width << "x"
+          << crop_height << " @ " << crop_x << "," << crop_y
+          << "). Native CropAndScale falls back to ToI420().";
+      return false;
+    }
     buffer = buffer->CropAndScale(crop_x, crop_y, crop_width, crop_height,
                                   adapted_width, adapted_height);
   }
 
   webrtc::VideoRotation rotation = frame.rotation();
   if (apply_rotation() && rotation != webrtc::kVideoRotation_0) {
+    if (buffer_type == webrtc::VideoFrameBuffer::Type::kNative) {
+      RTC_LOG(LS_WARNING)
+          << "Dropping native frame because rotation " << rotation
+          << " was requested with apply_rotation(). Native rotation would "
+             "fall back to ToI420().";
+      return false;
+    }
     // If the buffer is I420, webrtc::AdaptedVideoTrackSource will handle the
     // rotation for us.
     buffer = buffer->ToI420();
