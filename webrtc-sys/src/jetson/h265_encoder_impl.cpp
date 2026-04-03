@@ -170,13 +170,21 @@ int32_t JetsonH265EncoderImpl::Encode(
   }
 
   auto frame_buffer_base = input_frame.video_frame_buffer();
-  if (frame_buffer_base &&
-      frame_buffer_base->type() == VideoFrameBuffer::Type::kNative) {
+  if (frame_buffer_base) {
     if (const auto* nvmm_buffer =
             dynamic_cast<const livekit::JetsonNvmmBuffer*>(
                 frame_buffer_base.get())) {
+      std::fprintf(stderr,
+                   "[H265Impl] JetsonNvmmBuffer detected via dynamic_cast "
+                   "(type=%d, fd=%d)\n",
+                   static_cast<int>(frame_buffer_base->type()),
+                   nvmm_buffer->dmabuf_fd());
+      std::fflush(stderr);
       return EncodeNvmmBuffer(*nvmm_buffer, input_frame, is_keyframe_needed);
     }
+  }
+  if (frame_buffer_base &&
+      frame_buffer_base->type() == VideoFrameBuffer::Type::kNative) {
     RTC_LOG(LS_ERROR)
         << "Received native video frame buffer, but it is not a JetsonNvmmBuffer. "
            "Zero-copy is required; refusing I420 fallback.";
