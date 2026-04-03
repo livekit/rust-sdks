@@ -13,6 +13,8 @@
 // limitations under the License.
 
 use std::slice;
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+use std::os::fd::RawFd;
 
 use cxx::UniquePtr;
 use webrtc_sys::{video_frame as vf_sys, video_frame_buffer as vfb_sys};
@@ -164,6 +166,42 @@ impl NativeBuffer {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
         unsafe { vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _ }
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    pub unsafe fn from_jetson_dmabuf(
+        dmabuf_fd: RawFd,
+        width: u32,
+        height: u32,
+        y_stride: u32,
+        uv_stride: u32,
+        guard: Option<Box<dyn Send + Sync>>,
+    ) -> vf::native::NativeBuffer {
+        let sys_handle = vfb_sys::ffi::new_jetson_nvmm_buffer(
+            dmabuf_fd,
+            width.try_into().unwrap(),
+            height.try_into().unwrap(),
+            y_stride.try_into().unwrap(),
+            uv_stride.try_into().unwrap(),
+            webrtc_sys::video_frame_buffer::JetsonBufferDropGuard::new(guard),
+        );
+
+        assert!(
+            !sys_handle.is_null(),
+            "Jetson NVMM buffers require a Jetson-enabled webrtc-sys build"
+        );
+
+        vf::native::NativeBuffer {
+            handle: NativeBuffer { sys_handle },
+        }
+    }
+
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    pub fn jetson_dmabuf_fd(&self) -> Option<RawFd> {
+        self.sys_handle.as_ref().and_then(|buffer| {
+            let dmabuf_fd = vfb_sys::ffi::jetson_nvmm_buffer_dmabuf_fd(buffer);
+            (dmabuf_fd >= 0).then_some(dmabuf_fd)
+        })
     }
 
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {

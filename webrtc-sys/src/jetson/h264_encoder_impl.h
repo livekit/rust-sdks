@@ -22,6 +22,14 @@
 
 namespace webrtc {
 
+}  // namespace webrtc
+
+namespace livekit {
+class JetsonNvmmBuffer;
+}
+
+namespace webrtc {
+
 class JetsonH264EncoderImpl : public VideoEncoder {
  public:
   struct LayerConfig {
@@ -61,6 +69,9 @@ class JetsonH264EncoderImpl : public VideoEncoder {
   EncoderInfo GetEncoderInfo() const override;
 
  private:
+  int32_t EncodeNvmmBuffer(const livekit::JetsonNvmmBuffer& buffer,
+                           const ::webrtc::VideoFrame& input_frame,
+                           bool is_keyframe_needed);
   int32_t ProcessEncodedFrame(std::vector<uint8_t>& packet,
                               const ::webrtc::VideoFrame& input_frame,
                               bool is_keyframe);

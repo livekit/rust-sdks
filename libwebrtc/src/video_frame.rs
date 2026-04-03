@@ -468,6 +468,8 @@ impl NV12Buffer {
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
     use std::fmt::Debug;
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    use std::os::fd::RawFd;
 
     use super::{vf_imp, I420Buffer, VideoBuffer, VideoBufferType, VideoFormatType};
 
@@ -491,6 +493,34 @@ pub mod native {
         #[cfg(any(target_os = "macos", target_os = "ios"))]
         pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
             self.handle.get_cv_pixel_buffer()
+        }
+
+        /// Creates a `NativeBuffer` from a Jetson NVMM DMA-BUF frame.
+        ///
+        /// If `guard` is provided, it is retained until libwebrtc drops the last
+        /// reference to the native buffer. This is typically used to keep the
+        /// originating DMA-BUF or pool slot alive across the async encoder path.
+        ///
+        /// Safety: the DMA-BUF must remain a valid NV12/NVMM surface for the full
+        /// lifetime of the returned buffer. Passing a matching `guard` is the
+        /// preferred way to guarantee that.
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        pub unsafe fn from_jetson_dmabuf(
+            dmabuf_fd: RawFd,
+            width: u32,
+            height: u32,
+            y_stride: u32,
+            uv_stride: u32,
+            guard: Option<Box<dyn Send + Sync>>,
+        ) -> Self {
+            vf_imp::NativeBuffer::from_jetson_dmabuf(
+                dmabuf_fd, width, height, y_stride, uv_stride, guard,
+            )
+        }
+
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        pub fn jetson_dmabuf_fd(&self) -> Option<RawFd> {
+            self.handle.jetson_dmabuf_fd()
         }
     }
 

@@ -453,6 +453,91 @@ bool JetsonMmapiEncoder::EncodeNV12(const uint8_t* src_y,
   return true;
 }
 
+bool JetsonMmapiEncoder::EncodeNvmmDmabuf(int dmabuf_fd,
+                                          bool force_keyframe,
+                                          std::vector<uint8_t>* encoded,
+                                          bool* is_keyframe) {
+  static std::atomic<uint64_t> encode_count(0);
+  static std::atomic<uint64_t> success_count(0);
+  static std::atomic<uint64_t> fail_count(0);
+  static std::atomic<bool> logged_first_encode(false);
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+  const uint64_t frame_num = encode_count.fetch_add(1);
+
+  if (!initialized_ || !encoder_) {
+    if (verbose || frame_num < 5) {
+      std::fprintf(stderr,
+                   "[MMAPI] EncodeNvmmDmabuf() called but encoder not "
+                   "initialized (initialized=%d, encoder=%p)\n",
+                   initialized_ ? 1 : 0, static_cast<void*>(encoder_));
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  if (!logged_first_encode.exchange(true)) {
+    std::fprintf(stderr,
+                 "[MMAPI] First EncodeNvmmDmabuf() call: dmabuf_fd=%d, "
+                 "force_keyframe=%d\n",
+                 dmabuf_fd, force_keyframe ? 1 : 0);
+    std::fflush(stderr);
+  }
+
+  if (force_keyframe && !ForceKeyframe()) {
+    RTC_LOG(LS_WARNING) << "Failed to request keyframe.";
+    if (verbose) {
+      std::fprintf(stderr, "[MMAPI] ForceKeyframe() failed\n");
+      std::fflush(stderr);
+    }
+  }
+
+  if (!QueueOutputBufferDmabuf(dmabuf_fd)) {
+    if (verbose || frame_num < 10) {
+      std::fprintf(stderr,
+                   "[MMAPI] QueueOutputBufferDmabuf() failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  if (!DequeueCaptureBuffer(encoded, is_keyframe)) {
+    if (verbose || frame_num < 10) {
+      std::fprintf(stderr,
+                   "[MMAPI] DequeueCaptureBuffer() failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  if (!DequeueOutputBuffer()) {
+    if (verbose || frame_num < 10) {
+      std::fprintf(stderr,
+                   "[MMAPI] DequeueOutputBuffer() failed (frame %lu)\n",
+                   frame_num);
+      std::fflush(stderr);
+    }
+    fail_count.fetch_add(1);
+    return false;
+  }
+
+  success_count.fetch_add(1);
+  if (verbose && (frame_num < 5 || frame_num % 100 == 0)) {
+    std::fprintf(stderr,
+                 "[MMAPI] EncodeNvmmDmabuf() succeeded (frame %lu, "
+                 "encoded_size=%zu, keyframe=%d, success=%lu, fail=%lu)\n",
+                 frame_num, encoded->size(), is_keyframe ? *is_keyframe : -1,
+                 success_count.load(), fail_count.load());
+    std::fflush(stderr);
+  }
+
+  return true;
+}
+
 void JetsonMmapiEncoder::SetRates(int framerate, int bitrate_bps) {
   framerate_ = framerate;
   bitrate_bps_ = bitrate_bps;
@@ -527,29 +612,29 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     std::fflush(stderr);
   }
 
-  // Prefer planar YUV420 (I420-style) for Jetson end-to-end.
-  // If that fails, fall back to NV12M. The I420 input path can still be used
-  // with NV12 by interleaving U/V into UV in QueueOutputBuffer().
-  output_is_nv12_ = false;
-  ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_, height_);
+  // Prefer NV12M so Jetson NVMM camera frames can stay in NV12 all the way into
+  // the encoder. The CPU-backed I420 path still works by interleaving U/V into
+  // the encoder's UV plane when needed.
+  output_is_nv12_ = true;
+  ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_);
   if (ret < 0) {
     if (verbose) {
       std::fprintf(stderr,
-                   "[MMAPI] YUV420M format failed (ret=%d), trying NV12M\n",
+                   "[MMAPI] NV12M format failed (ret=%d), trying YUV420M\n",
                    ret);
       std::fflush(stderr);
     }
-    ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_);
+    ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_, height_);
     if (ret < 0) {
       RTC_LOG(LS_ERROR) << "Failed to set output plane format.";
       std::fprintf(stderr,
-                   "[MMAPI] setOutputPlaneFormat failed for both YUV420M and "
-                   "NV12M: ret=%d, errno=%d (%s)\n",
+                   "[MMAPI] setOutputPlaneFormat failed for both NV12M and "
+                   "YUV420M: ret=%d, errno=%d (%s)\n",
                    ret, errno, strerror(errno));
       std::fflush(stderr);
       return false;
     }
-    output_is_nv12_ = true;
+    output_is_nv12_ = false;
   }
   if (verbose) {
     std::fprintf(stderr,
@@ -1288,6 +1373,96 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
                  "errno=%d (%s)\n",
                  next_output_index_, qbuf_ret, errno, strerror(errno));
     std::fflush(stderr);
+    return false;
+  }
+
+  next_output_index_ = (next_output_index_ + 1) % output_buffer_count_;
+  return true;
+}
+
+bool JetsonMmapiEncoder::QueueOutputBufferDmabuf(int dmabuf_fd) {
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+  if (dmabuf_fd < 0) {
+    RTC_LOG(LS_ERROR) << "QueueOutputBufferDmabuf received an invalid fd.";
+    return false;
+  }
+  if (!output_is_nv12_) {
+    RTC_LOG(LS_WARNING)
+        << "QueueOutputBufferDmabuf requires NV12 output buffers.";
+    return false;
+  }
+
+  NvBuffer* buffer = encoder_->output_plane.getNthBuffer(next_output_index_);
+  if (!buffer || buffer->n_planes < 2) {
+    RTC_LOG(LS_ERROR) << "Failed to get an NV12 output buffer.";
+    return false;
+  }
+
+  NvBufSurface* src_surface = nullptr;
+  NvBufSurface* dst_surface = nullptr;
+  if (NvBufSurfaceFromFd(dmabuf_fd, reinterpret_cast<void**>(&src_surface)) !=
+          0 ||
+      !src_surface) {
+    RTC_LOG(LS_ERROR) << "Failed to map source DMA-BUF surface.";
+    return false;
+  }
+  if (NvBufSurfaceFromFd(buffer->planes[0].fd,
+                         reinterpret_cast<void**>(&dst_surface)) != 0 ||
+      !dst_surface) {
+    RTC_LOG(LS_ERROR) << "Failed to map destination DMA-BUF surface.";
+    return false;
+  }
+
+  if (NvBufSurfaceCopy(src_surface, dst_surface) != 0) {
+    RTC_LOG(LS_ERROR) << "NvBufSurfaceCopy failed for Jetson NVMM input.";
+    return false;
+  }
+
+  const NvBufSurfacePlaneParams& params = dst_surface->surfaceList[0].planeParams;
+  const uint32_t y_stride =
+      params.pitch[0] > 0 ? params.pitch[0]
+                          : static_cast<uint32_t>(output_y_stride_);
+  const uint32_t uv_stride =
+      params.pitch[1] > 0 ? params.pitch[1]
+                          : static_cast<uint32_t>(output_u_stride_);
+  const uint32_t y_height =
+      params.height[0] > 0 ? params.height[0]
+                           : static_cast<uint32_t>(height_);
+  const uint32_t uv_height =
+      params.height[1] > 0 ? params.height[1]
+                           : static_cast<uint32_t>((height_ + 1) / 2);
+
+  buffer->planes[0].bytesused = y_stride * y_height;
+  buffer->planes[1].bytesused = uv_stride * uv_height;
+
+  for (int plane = 0; plane < 2; ++plane) {
+    if (NvBufSurfaceSyncForDevice(dst_surface, 0, plane) != 0) {
+      RTC_LOG(LS_ERROR) << "Failed to sync Jetson NVMM output plane.";
+      return false;
+    }
+  }
+
+  if (verbose) {
+    std::fprintf(stderr,
+                 "[MMAPI] QueueOutputBufferDmabuf: src_fd=%d dst_fd=%d "
+                 "bytesused(y,uv)=(%u,%u)\n",
+                 dmabuf_fd, buffer->planes[0].fd, buffer->planes[0].bytesused,
+                 buffer->planes[1].bytesused);
+    std::fflush(stderr);
+  }
+
+  v4l2_buffer v4l2_buf = {};
+  v4l2_plane planes[VIDEO_MAX_PLANES] = {};
+  v4l2_buf.index = next_output_index_;
+  v4l2_buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
+  v4l2_buf.memory = V4L2_MEMORY_MMAP;
+  v4l2_buf.m.planes = planes;
+  v4l2_buf.length = encoder_->output_plane.getNumPlanes();
+  planes[0].bytesused = buffer->planes[0].bytesused;
+  planes[1].bytesused = buffer->planes[1].bytesused;
+
+  if (encoder_->output_plane.qBuffer(v4l2_buf, nullptr) < 0) {
+    RTC_LOG(LS_ERROR) << "Failed to queue Jetson NVMM output buffer.";
     return false;
   }
 

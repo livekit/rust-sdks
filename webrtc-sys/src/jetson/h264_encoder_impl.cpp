@@ -26,6 +26,7 @@
 #include "rtc_base/time_utils.h"
 #include "system_wrappers/include/metrics.h"
 #include "third_party/libyuv/include/libyuv/convert.h"
+#include "jetson_nvmm_buffer.h"
 
 namespace webrtc {
 
@@ -286,6 +287,16 @@ int32_t JetsonH264EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
+  auto frame_buffer_base = input_frame.video_frame_buffer();
+  if (frame_buffer_base &&
+      frame_buffer_base->type() == VideoFrameBuffer::Type::kNative) {
+    if (const auto* nvmm_buffer =
+            dynamic_cast<const livekit::JetsonNvmmBuffer*>(
+                frame_buffer_base.get())) {
+      return EncodeNvmmBuffer(*nvmm_buffer, input_frame, is_keyframe_needed);
+    }
+  }
+
   webrtc::scoped_refptr<I420BufferInterface> frame_buffer =
       input_frame.video_frame_buffer()->ToI420();
   if (!frame_buffer) {
@@ -358,6 +369,35 @@ int32_t JetsonH264EncoderImpl::Encode(
                  encode_success_count.load(), encode_fail_count.load(),
                  empty_packet_count.load());
     std::fflush(stderr);
+  }
+
+  return ProcessEncodedFrame(packet, input_frame, is_keyframe);
+}
+
+int32_t JetsonH264EncoderImpl::EncodeNvmmBuffer(
+    const livekit::JetsonNvmmBuffer& buffer,
+    const ::webrtc::VideoFrame& input_frame,
+    bool is_keyframe_needed) {
+  RTC_DCHECK_EQ(configuration_.width, buffer.width());
+  RTC_DCHECK_EQ(configuration_.height, buffer.height());
+
+  std::vector<uint8_t> packet;
+  bool is_keyframe = false;
+  if (!encoder_.EncodeNvmmDmabuf(buffer.dmabuf_fd(), is_keyframe_needed,
+                                 &packet, &is_keyframe)) {
+    RTC_LOG(LS_ERROR)
+        << "Failed to encode Jetson NVMM frame with MMAPI encoder.";
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  if (packet.empty()) {
+    RTC_LOG(LS_WARNING) << "Jetson MMAPI encoder returned empty packet; "
+                           "skipping output.";
+    return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+  }
+
+  if (is_keyframe_needed) {
+    configuration_.key_frame_request = false;
   }
 
   return ProcessEncodedFrame(packet, input_frame, is_keyframe);
@@ -464,12 +504,13 @@ int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(
 
 VideoEncoder::EncoderInfo JetsonH264EncoderImpl::GetEncoderInfo() const {
   EncoderInfo info;
-  info.supports_native_handle = false;
+  info.supports_native_handle = true;
   info.implementation_name = "Jetson MMAPI H264 Encoder";
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
-  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kI420};
+  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNative,
+                                  VideoFrameBuffer::Type::kI420};
   return info;
 }
 

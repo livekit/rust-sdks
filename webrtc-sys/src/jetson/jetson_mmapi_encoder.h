@@ -49,6 +49,10 @@ class JetsonMmapiEncoder {
                   bool force_keyframe,
                   std::vector<uint8_t>* encoded,
                   bool* is_keyframe);
+  bool EncodeNvmmDmabuf(int dmabuf_fd,
+                        bool force_keyframe,
+                        std::vector<uint8_t>* encoded,
+                        bool* is_keyframe);
 
   void SetRates(int framerate, int bitrate_bps);
   void SetKeyframeInterval(int keyframe_interval);
@@ -70,6 +74,7 @@ class JetsonMmapiEncoder {
                              int stride_y,
                              const uint8_t* src_uv,
                              int stride_uv);
+  bool QueueOutputBufferDmabuf(int dmabuf_fd);
   bool DequeueCaptureBuffer(std::vector<uint8_t>* encoded, bool* is_keyframe);
   bool DequeueOutputBuffer();
   bool ForceKeyframe();

@@ -1,11 +1,9 @@
+mod publisher_common;
+
 use anyhow::Result;
 use clap::Parser;
-use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
-use livekit::prelude::*;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
-use livekit::webrtc::video_source::native::NativeVideoSource;
-use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
-use livekit_api::access_token;
+use livekit::webrtc::video_source::VideoResolution;
 use log::{debug, info};
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
@@ -13,7 +11,9 @@ use nokhwa::utils::{
     Resolution,
 };
 use nokhwa::Camera;
-use std::env;
+use publisher_common::{
+    connect_and_publish_video, spawn_ctrl_c_handler, PublishCommonArgs, PublishedVideoContext,
+};
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
@@ -44,37 +44,8 @@ struct Args {
     #[arg(long, default_value_t = 30)]
     fps: u32,
 
-    /// Max video bitrate for the main layer in bps (optional)
-    #[arg(long)]
-    max_bitrate: Option<u64>,
-
-    /// Enable simulcast publishing (low/medium/high layers as appropriate)
-    #[arg(long, default_value_t = false)]
-    simulcast: bool,
-
-    /// LiveKit participant identity
-    #[arg(long, default_value = "rust-camera-pub")]
-    identity: String,
-
-    /// LiveKit room name
-    #[arg(long, default_value = "video-room")]
-    room_name: String,
-
-    /// LiveKit server URL
-    #[arg(long)]
-    url: Option<String>,
-
-    /// LiveKit API key
-    #[arg(long)]
-    api_key: Option<String>,
-
-    /// LiveKit API secret
-    #[arg(long)]
-    api_secret: Option<String>,
-
-    /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
-    #[arg(long, default_value_t = false)]
-    h265: bool,
+    #[command(flatten)]
+    publish: PublishCommonArgs,
 }
 
 fn list_cameras() -> Result<()> {
@@ -90,67 +61,12 @@ fn list_cameras() -> Result<()> {
 async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
-
-    let ctrl_c_received = Arc::new(AtomicBool::new(false));
-    tokio::spawn({
-        let ctrl_c_received = ctrl_c_received.clone();
-        async move {
-            let _ = tokio::signal::ctrl_c().await;
-            ctrl_c_received.store(true, Ordering::Release);
-            info!("Ctrl-C received, exiting...");
-        }
-    });
-
-    run(args, ctrl_c_received).await
+    run(args, spawn_ctrl_c_handler()).await
 }
 
 async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if args.list_cameras {
         return list_cameras();
-    }
-
-    // LiveKit connection details
-    let url = args
-        .url
-        .or_else(|| env::var("LIVEKIT_URL").ok())
-        .expect("LIVEKIT_URL must be provided via --url or env");
-    let api_key = args
-        .api_key
-        .or_else(|| env::var("LIVEKIT_API_KEY").ok())
-        .expect("LIVEKIT_API_KEY must be provided via --api-key or env");
-    let api_secret = args
-        .api_secret
-        .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
-        .expect("LIVEKIT_API_SECRET must be provided via --api-secret or env");
-
-    let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
-        .with_identity(&args.identity)
-        .with_name(&args.identity)
-        .with_grants(access_token::VideoGrants {
-            room_join: true,
-            room: args.room_name.clone(),
-            can_publish: true,
-            ..Default::default()
-        })
-        .to_jwt()?;
-
-    info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
-    let mut room_options = RoomOptions::default();
-    room_options.auto_subscribe = true;
-    let (room, _) = Room::connect(&url, &token, room_options).await?;
-    let room = std::sync::Arc::new(room);
-    info!("Connected: {} - {}", room.name(), room.sid().await);
-
-    // Log room events
-    {
-        let room_clone = room.clone();
-        tokio::spawn(async move {
-            let mut events = room_clone.subscribe();
-            info!("Subscribed to room events");
-            while let Some(evt) = events.recv().await {
-                debug!("Room event: {:?}", evt);
-            }
-        });
     }
 
     // Setup camera
@@ -184,47 +100,13 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
     let pace_fps = args.fps as f64;
 
-    // Create LiveKit video source and track
-    let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
-    let track =
-        LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(rtc_source.clone()));
-
-    // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
-    let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
-    info!("Attempting publish with codec: {}", requested_codec.as_str());
-
-    let publish_opts = |codec: VideoCodec| {
-        let mut opts = TrackPublishOptions {
-            source: TrackSource::Camera,
-            simulcast: args.simulcast,
-            video_codec: codec,
-            ..Default::default()
-        };
-        if let Some(bitrate) = args.max_bitrate {
-            opts.video_encoding =
-                Some(VideoEncoding { max_bitrate: bitrate, max_framerate: args.fps as f64 });
-        }
-        opts
-    };
-
-    let publish_result = room
-        .local_participant()
-        .publish_track(LocalTrack::Video(track.clone()), publish_opts(requested_codec))
-        .await;
-
-    if let Err(e) = publish_result {
-        if matches!(requested_codec, VideoCodec::H265) {
-            log::warn!("H.265 publish failed ({}). Falling back to H.264...", e);
-            room.local_participant()
-                .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
-                .await?;
-            info!("Published camera track with H.264 fallback");
-        } else {
-            return Err(e.into());
-        }
-    } else {
-        info!("Published camera track");
-    }
+    let PublishedVideoContext { room: _room, rtc_source } = connect_and_publish_video(
+        &args.publish,
+        "camera",
+        VideoResolution { width, height },
+        args.fps as f64,
+    )
+    .await?;
 
     // Reusable I420 buffer and frame
     let mut frame = VideoFrame {

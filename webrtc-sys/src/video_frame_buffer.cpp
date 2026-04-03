@@ -18,6 +18,10 @@
 
 #include "api/make_ref_counted.h"
 
+#if defined(USE_JETSON_VIDEO_CODEC)
+#include "jetson/jetson_nvmm_buffer.h"
+#endif
+
 namespace livekit_ffi {
 
 VideoFrameBuffer::VideoFrameBuffer(
@@ -358,5 +362,39 @@ PlatformImageBuffer* native_buffer_to_platform_image_buffer(
 }
 
 #endif
+
+std::unique_ptr<VideoFrameBuffer> new_jetson_nvmm_buffer(
+    int dmabuf_fd,
+    int width,
+    int height,
+    int stride_y,
+    int stride_uv,
+    rust::Box<JetsonBufferDropGuard> guard) {
+#if defined(USE_JETSON_VIDEO_CODEC)
+  auto buffer = webrtc::make_ref_counted<livekit::JetsonNvmmBuffer>(
+      dmabuf_fd, width, height, stride_y, stride_uv, std::move(guard));
+  return std::make_unique<VideoFrameBuffer>(buffer);
+#else
+  (void)dmabuf_fd;
+  (void)width;
+  (void)height;
+  (void)stride_y;
+  (void)stride_uv;
+  (void)guard;
+  return nullptr;
+#endif
+}
+
+int jetson_nvmm_buffer_dmabuf_fd(const VideoFrameBuffer& buffer) {
+#if defined(USE_JETSON_VIDEO_CODEC)
+  const auto scoped = buffer.get();
+  const auto* native =
+      dynamic_cast<const livekit::JetsonNvmmBuffer*>(scoped.get());
+  return native ? native->dmabuf_fd() : -1;
+#else
+  (void)buffer;
+  return -1;
+#endif
+}
 
 }  // namespace livekit_ffi

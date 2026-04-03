@@ -14,6 +14,16 @@
 
 use crate::impl_thread_safety;
 
+pub struct JetsonBufferDropGuard {
+    _guard: Option<Box<dyn Send + Sync>>,
+}
+
+impl JetsonBufferDropGuard {
+    pub fn new(guard: Option<Box<dyn Send + Sync>>) -> Box<Self> {
+        Box::new(Self { _guard: guard })
+    }
+}
+
 #[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
     #[derive(Debug)]
@@ -149,6 +159,15 @@ pub mod ffi {
         unsafe fn native_buffer_to_platform_image_buffer(
             buffer: &UniquePtr<VideoFrameBuffer>,
         ) -> *mut PlatformImageBuffer;
+        fn new_jetson_nvmm_buffer(
+            dmabuf_fd: i32,
+            width: i32,
+            height: i32,
+            stride_y: i32,
+            stride_uv: i32,
+            guard: Box<JetsonBufferDropGuard>,
+        ) -> UniquePtr<VideoFrameBuffer>;
+        fn jetson_nvmm_buffer_dmabuf_fd(buffer: &VideoFrameBuffer) -> i32;
 
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;
@@ -163,6 +182,10 @@ pub mod ffi {
         unsafe fn nv12_to_biyuv8(nv12: *const NV12Buffer) -> *const BiplanarYuv8Buffer;
 
         fn _unique_video_frame_buffer() -> UniquePtr<VideoFrameBuffer>;
+    }
+
+    extern "Rust" {
+        type JetsonBufferDropGuard;
     }
 }
 

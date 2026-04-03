@@ -216,6 +216,7 @@ fn main() {
                     builder
                         .include(&jetson_mmapi_include)
                         .include("src/jetson")
+                        .file("src/jetson/jetson_nvmm_buffer.cpp")
                         .file("src/jetson/jetson_mmapi_encoder.cpp")
                         .file("src/jetson/h264_encoder_impl.cpp")
                         .file("src/jetson/h265_encoder_impl.cpp")
