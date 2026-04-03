@@ -1413,34 +1413,51 @@ bool JetsonMmapiEncoder::QueueOutputBufferDmabuf(int dmabuf_fd) {
     return false;
   }
 
+  if (src_surface->batchSize < 1 || dst_surface->batchSize < 1) {
+    RTC_LOG(LS_ERROR) << "Jetson NVMM DMA-BUF surface has no batches.";
+    return false;
+  }
+
+  const NvBufSurfacePlaneParams& src_params = src_surface->surfaceList[0].planeParams;
+  const NvBufSurfacePlaneParams& dst_params = dst_surface->surfaceList[0].planeParams;
+  if (src_params.num_planes < 2 || dst_params.num_planes < 2) {
+    // Some MMAPI output-plane allocations expose per-plane DMA-BUF fds rather than
+    // a single two-plane surfarray fd. NvBufSurfaceCopy cannot safely import into
+    // that layout, so let the caller fall back to the CPU path.
+    RTC_LOG(LS_WARNING)
+        << "Jetson NVMM fast-path unavailable: src planes="
+        << src_params.num_planes << " dst planes=" << dst_params.num_planes;
+    if (verbose) {
+      std::fprintf(stderr,
+                   "[MMAPI] QueueOutputBufferDmabuf fallback: src planes=%u "
+                   "dst planes=%u src_fd=%d dst_fd=%d\n",
+                   src_params.num_planes, dst_params.num_planes, dmabuf_fd,
+                   buffer->planes[0].fd);
+      std::fflush(stderr);
+    }
+    return false;
+  }
+
   if (NvBufSurfaceCopy(src_surface, dst_surface) != 0) {
     RTC_LOG(LS_ERROR) << "NvBufSurfaceCopy failed for Jetson NVMM input.";
     return false;
   }
 
-  const NvBufSurfacePlaneParams& params = dst_surface->surfaceList[0].planeParams;
   const uint32_t y_stride =
-      params.pitch[0] > 0 ? params.pitch[0]
-                          : static_cast<uint32_t>(output_y_stride_);
+      dst_params.pitch[0] > 0 ? dst_params.pitch[0]
+                              : static_cast<uint32_t>(output_y_stride_);
   const uint32_t uv_stride =
-      params.pitch[1] > 0 ? params.pitch[1]
-                          : static_cast<uint32_t>(output_u_stride_);
+      dst_params.pitch[1] > 0 ? dst_params.pitch[1]
+                              : static_cast<uint32_t>(output_u_stride_);
   const uint32_t y_height =
-      params.height[0] > 0 ? params.height[0]
-                           : static_cast<uint32_t>(height_);
+      dst_params.height[0] > 0 ? dst_params.height[0]
+                               : static_cast<uint32_t>(height_);
   const uint32_t uv_height =
-      params.height[1] > 0 ? params.height[1]
-                           : static_cast<uint32_t>((height_ + 1) / 2);
+      dst_params.height[1] > 0 ? dst_params.height[1]
+                               : static_cast<uint32_t>((height_ + 1) / 2);
 
   buffer->planes[0].bytesused = y_stride * y_height;
   buffer->planes[1].bytesused = uv_stride * uv_height;
-
-  for (int plane = 0; plane < 2; ++plane) {
-    if (NvBufSurfaceSyncForDevice(dst_surface, 0, plane) != 0) {
-      RTC_LOG(LS_ERROR) << "Failed to sync Jetson NVMM output plane.";
-      return false;
-    }
-  }
 
   if (verbose) {
     std::fprintf(stderr,

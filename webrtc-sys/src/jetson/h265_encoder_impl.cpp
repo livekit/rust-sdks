@@ -223,9 +223,24 @@ int32_t JetsonH265EncoderImpl::EncodeNvmmBuffer(
   bool is_keyframe = false;
   if (!encoder_.EncodeNvmmDmabuf(buffer.dmabuf_fd(), is_keyframe_needed,
                                  &packet, &is_keyframe)) {
-    RTC_LOG(LS_ERROR)
-        << "Failed to encode Jetson NVMM frame with MMAPI encoder.";
-    return WEBRTC_VIDEO_CODEC_ERROR;
+    RTC_LOG(LS_WARNING)
+        << "Jetson NVMM fast-path failed, falling back to ToI420().";
+
+    webrtc::scoped_refptr<I420BufferInterface> frame_buffer = buffer.ToI420();
+    if (!frame_buffer) {
+      RTC_LOG(LS_ERROR)
+          << "Failed to convert Jetson NVMM frame to I420 after fast-path failure.";
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
+
+    if (!encoder_.Encode(frame_buffer->DataY(), frame_buffer->StrideY(),
+                         frame_buffer->DataU(), frame_buffer->StrideU(),
+                         frame_buffer->DataV(), frame_buffer->StrideV(),
+                         is_keyframe_needed, &packet, &is_keyframe)) {
+      RTC_LOG(LS_ERROR)
+          << "Failed to encode Jetson NVMM frame after ToI420() fallback.";
+      return WEBRTC_VIDEO_CODEC_ERROR;
+    }
   }
 
   if (packet.empty()) {
