@@ -1,5 +1,7 @@
 #include "h264_encoder_impl.h"
 
+#include <linux/v4l2-controls.h>
+
 #include <algorithm>
 #include <atomic>
 #include <cstdio>
@@ -36,6 +38,45 @@ enum H264EncoderImplEvent {
   kH264EncoderEventError = 1,
   kH264EncoderEventMax = 16,
 };
+
+uint32_t H264LevelToV4L2Level(webrtc::H264Level level) {
+  switch (level) {
+    case H264Level::kLevel1_b:
+    case H264Level::kLevel1:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_1_0;
+    case H264Level::kLevel1_1:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_1_1;
+    case H264Level::kLevel1_2:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_1_2;
+    case H264Level::kLevel1_3:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_1_3;
+    case H264Level::kLevel2:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_2_0;
+    case H264Level::kLevel2_1:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_2_1;
+    case H264Level::kLevel2_2:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_2_2;
+    case H264Level::kLevel3:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_3_0;
+    case H264Level::kLevel3_1:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_3_1;
+    case H264Level::kLevel3_2:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_3_2;
+    case H264Level::kLevel4:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_4_0;
+    case H264Level::kLevel4_1:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_4_1;
+    case H264Level::kLevel4_2:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_4_2;
+    case H264Level::kLevel5:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_5_0;
+    case H264Level::kLevel5_1:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_5_1;
+    case H264Level::kLevel5_2:
+      return V4L2_MPEG_VIDEO_H264_LEVEL_5_2;
+  }
+  return V4L2_MPEG_VIDEO_H264_LEVEL_3_1;
+}
 
 JetsonH264EncoderImpl::JetsonH264EncoderImpl(const webrtc::Environment& env,
                                              const SdpVideoFormat& format)
@@ -134,6 +175,7 @@ int32_t JetsonH264EncoderImpl::InitEncode(
   }
 
   codec_ = *inst;
+  encoder_.SetH264Level(H264LevelToV4L2Level(level_));
 
   if (codec_.numberOfSimulcastStreams == 0) {
     codec_.simulcastStream[0].width = codec_.width;

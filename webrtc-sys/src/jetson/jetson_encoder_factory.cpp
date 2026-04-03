@@ -13,7 +13,7 @@ namespace webrtc {
 
 JetsonVideoEncoderFactory::JetsonVideoEncoderFactory() {
   std::map<std::string, std::string> baselineParameters = {
-      {"profile-level-id", "42e01f"},
+      {"profile-level-id", "42e028"},
       {"level-asymmetry-allowed", "1"},
       {"packetization-mode", "1"},
   };

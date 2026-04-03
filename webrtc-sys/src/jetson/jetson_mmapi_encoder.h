@@ -54,6 +54,7 @@ class JetsonMmapiEncoder {
                         std::vector<uint8_t>* encoded,
                         bool* is_keyframe);
 
+  void SetH264Level(uint32_t h264_level);
   void SetRates(int framerate, int bitrate_bps);
   void SetKeyframeInterval(int keyframe_interval);
 
@@ -102,6 +103,7 @@ class JetsonMmapiEncoder {
   int output_v_stride_ = 0;
   bool output_is_nv12_ = false;
   bool output_uses_dmabuf_ = true;
+  uint32_t h264_level_ = V4L2_MPEG_VIDEO_H264_LEVEL_3_1;
   std::vector<int> output_dmabuf_fds_;
 };
 
