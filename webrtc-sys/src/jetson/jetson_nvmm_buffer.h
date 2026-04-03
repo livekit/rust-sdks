@@ -23,7 +23,7 @@ class JetsonNvmmBuffer : public webrtc::VideoFrameBuffer {
   Type type() const override;
   int width() const override;
   int height() const override;
-  rtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() const override;
+  rtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() override;
 
   int dmabuf_fd() const;
   int y_stride() const;
