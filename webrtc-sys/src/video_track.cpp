@@ -254,29 +254,20 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
 
   if (adapted_width != frame.width() || adapted_height != frame.height()) {
     if (buffer_type == webrtc::VideoFrameBuffer::Type::kNative) {
-      const uint64_t crop_scale_dropped = crop_scale_drop_count.fetch_add(1) + 1;
-      RTC_LOG(LS_WARNING)
-          << "Dropping native frame because WebRTC requested CropAndScale from "
-          << frame.width() << "x" << frame.height() << " to " << adapted_width
-          << "x" << adapted_height << " (crop " << crop_width << "x"
-          << crop_height << " @ " << crop_x << "," << crop_y
-          << "). Native CropAndScale falls back to ToI420().";
-      if (debug) {
+      crop_scale_drop_count.fetch_add(1);
+      if (debug && (received <= 10 || received % 100 == 0)) {
         std::fprintf(stderr,
-                     "[VideoTrackSource] Dropping native frame #%lu because "
-                     "CropAndScale was requested: %dx%d -> %dx%d (crop "
-                     "%dx%d@%d,%d)\n",
+                     "[VideoTrackSource] Native frame #%lu: ignoring "
+                     "CropAndScale request %dx%d -> %dx%d, delivering at "
+                     "original resolution\n",
                      received, frame.width(), frame.height(), adapted_width,
-                     adapted_height, crop_width, crop_height, crop_x, crop_y);
+                     adapted_height);
         std::fflush(stderr);
       }
-      MaybeLogPublishSummary(received, delivered_count.load(),
-                             adapt_rejected_count.load(), crop_scale_dropped,
-                             rotation_drop_count.load());
-      return false;
+    } else {
+      buffer = buffer->CropAndScale(crop_x, crop_y, crop_width, crop_height,
+                                    adapted_width, adapted_height);
     }
-    buffer = buffer->CropAndScale(crop_x, crop_y, crop_width, crop_height,
-                                  adapted_width, adapted_height);
   }
 
   webrtc::VideoRotation rotation = frame.rotation();
