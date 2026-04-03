@@ -54,7 +54,7 @@ use livekit::webrtc::video_source::native::NativeVideoSource;
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 use livekit::webrtc::video_source::VideoResolution;
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-use log::info;
+use log::{info, warn};
 #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
 use nokhwa::{
     backends::capture::{query_libargus, LibArgusCamera},
@@ -161,7 +161,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         );
     }
 
-    let PublishedVideoContext { room: _room, rtc_source } = connect_and_publish_video_with_source(
+    let PublishedVideoContext { room, rtc_source } = connect_and_publish_video_with_source(
         &args.publish,
         "libargus-camera",
         fps as f64,
@@ -279,6 +279,10 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let _ = tokio::signal::ctrl_c().await;
     ctrl_c_flag.store(true, Ordering::Release);
     info!("Ctrl-C received, shutting down...");
+    info!("Closing LiveKit room...");
+    if let Err(err) = room.close().await {
+        warn!("Failed to close LiveKit room cleanly: {}", err);
+    }
 
     capture_thread.join().map_err(|e| anyhow::anyhow!("capture thread panicked: {:?}", e))??;
     Ok(())
