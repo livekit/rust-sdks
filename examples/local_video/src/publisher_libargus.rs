@@ -112,7 +112,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     let mut libargus = LibArgusCamera::open(camera.index(), request)?;
     libargus.configure_dmabuf_pool(args.dmabuf_pool_size)?;
-    libargus.start()?;
 
     let format = libargus.camera_format();
     let width = format.width();
@@ -125,16 +124,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         fps,
         libargus.camera_info().human_name()
     );
-
-    // Block until the V4L2 sensor pipeline has fully initialized and is
-    // producing frames.  ICaptureSession::repeat() starts sensor mode-setting
-    // asynchronously; if we proceed to Room::connect() too soon (especially
-    // in --release builds), the WebRTC MMAPI encoder factory's V4L2 probe
-    // races with the sensor's VIDIOC_S_FMT, causing the sensor to enter an
-    // unrecoverable error state (black video).
-    info!("Waiting for first sensor frame...");
-    drop(libargus.frame_dmabuf_pooled()?);
-    info!("Sensor active, first frame received");
 
     // Suppress the NativeVideoSource warm-up loop before any .await.
     // The warm-up sends black I420 frames that the Jetson MMAPI encoder
@@ -159,6 +148,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         );
     }
 
+    // Connect and publish the track BEFORE starting the camera.  Room::connect
+    // triggers the WebRTC PeerConnectionFactory which probes V4L2 encoder
+    // devices ("Opening in BLOCKING MODE").  If the LibArgus sensor is already
+    // streaming when this probe runs, the V4L2 activity corrupts the sensor's
+    // VIDIOC_S_FMT state, putting it into an unrecoverable error (black video
+    // in --release builds).
     let PublishedVideoContext { room: _room, rtc_source } = connect_and_publish_video_with_source(
         &args.publish,
         "libargus-camera",
@@ -166,6 +161,10 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         rtc_source,
     )
     .await?;
+
+    // Safe to start the camera now that the encoder factory V4L2 probe is done.
+    libargus.start()?;
+    info!("LibArgus capture started");
 
     // Run the blocking capture loop on a dedicated OS thread so that the
     // async runtime stays responsive to the Ctrl-C signal.  LibArgusCamera
