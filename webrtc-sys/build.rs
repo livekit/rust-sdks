@@ -148,17 +148,45 @@ fn main() {
             //println!("cargo:rustc-link-lib=dylib=va_win32");
 
             builder
-                //.include("./vaapi-windows/DirectX-Headers-1.0/include")
-                //.include(path::PathBuf::from("./vaapi-windows/x64/include"))
-                //.file("vaapi-windows/DirectX-Headers-1.0/src/dxguids.cpp")
-                //.file("src/vaapi/vaapi_display_win32.cpp")
-                //.file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
-                //.file("src/vaapi/vaapi_encoder_factory.cpp")
-                //.file("src/vaapi/h264_encoder_impl.cpp")
                 .flag("/std:c++20")
-                //.flag("/wd4819")
-                //.flag("/wd4068")
                 .flag("/EHsc");
+
+            // NVIDIA NVENC hardware encoding support (requires CUDA Toolkit headers)
+            let cuda_home = PathBuf::from(env::var("CUDA_HOME").unwrap_or_else(|_| {
+                // Try common CUDA install paths on Windows
+                for ver in ["v12.9", "v12.8", "v12.7", "v12.6", "v12.5", "v12.4", "v12.3", "v12.2", "v12.1", "v12.0", "v11.8"] {
+                    let p = format!("C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\{ver}");
+                    if PathBuf::from(&p).join("include").join("cuda.h").exists() {
+                        return p;
+                    }
+                }
+                "C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v12.0".to_owned()
+            }));
+            let cuda_include_dir = cuda_home.join("include");
+
+            if cuda_include_dir.join("cuda.h").exists() {
+                builder
+                    .include(&cuda_include_dir)
+                    .include("src/nvidia/NvCodec/include")
+                    .include("src/nvidia/NvCodec/NvCodec")
+                    .file("src/nvidia/NvCodec/NvCodec/NvDecoder/NvDecoder.cpp")
+                    .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoder.cpp")
+                    .file("src/nvidia/NvCodec/NvCodec/NvEncoder/NvEncoderCuda.cpp")
+                    .file("src/nvidia/h264_encoder_impl.cpp")
+                    .file("src/nvidia/h265_encoder_impl.cpp")
+                    .file("src/nvidia/h264_decoder_impl.cpp")
+                    .file("src/nvidia/h265_decoder_impl.cpp")
+                    .file("src/nvidia/nvidia_decoder_factory.cpp")
+                    .file("src/nvidia/nvidia_encoder_factory.cpp")
+                    .file("src/nvidia/cuda_context.cpp")
+                    .define("USE_NVIDIA_VIDEO_CODEC", "1")
+                    .flag("/wd4819")   // suppress codepage warnings in NVIDIA headers
+                    .flag("/wd4068");  // suppress unknown pragma warnings
+
+                println!("cargo:warning=NVENC support enabled (CUDA found at {})", cuda_home.display());
+            } else {
+                println!("cargo:warning=cuda.h not found at {}; building without NVENC hardware encoding", cuda_include_dir.display());
+            }
         }
         "linux" => {
             println!("cargo:rustc-link-lib=dylib=rt");
