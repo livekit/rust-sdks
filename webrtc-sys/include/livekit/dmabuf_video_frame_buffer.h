@@ -43,8 +43,8 @@ class DmaBufVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   Type type() const override;
   int width() const override;
   int height() const override;
-  rtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() override;
-  rtc::scoped_refptr<webrtc::VideoFrameBuffer> CropAndScale(
+  webrtc::scoped_refptr<webrtc::I420BufferInterface> ToI420() override;
+  webrtc::scoped_refptr<webrtc::VideoFrameBuffer> CropAndScale(
       int offset_x,
       int offset_y,
       int crop_width,

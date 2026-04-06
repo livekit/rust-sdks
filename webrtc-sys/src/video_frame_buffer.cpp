@@ -365,7 +365,7 @@ std::unique_ptr<VideoFrameBuffer> new_dmabuf_buffer(int fd,
                                                      int pixel_format) {
   auto dmabuf_pixel_format =
       static_cast<livekit::DmaBufPixelFormat>(pixel_format);
-  auto dmabuf = rtc::make_ref_counted<livekit::DmaBufVideoFrameBuffer>(
+  auto dmabuf = webrtc::make_ref_counted<livekit::DmaBufVideoFrameBuffer>(
       fd, width, height, dmabuf_pixel_format);
   return std::make_unique<VideoFrameBuffer>(std::move(dmabuf));
 }

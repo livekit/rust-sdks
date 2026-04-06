@@ -261,7 +261,7 @@ bool VideoTrackSource::capture_dmabuf_frame(int dmabuf_fd,
                                              int64_t timestamp_us) const {
   auto dmabuf_pixel_format =
       static_cast<livekit::DmaBufPixelFormat>(pixel_format);
-  auto buffer = rtc::make_ref_counted<livekit::DmaBufVideoFrameBuffer>(
+  auto buffer = webrtc::make_ref_counted<livekit::DmaBufVideoFrameBuffer>(
       dmabuf_fd, width, height, dmabuf_pixel_format);
 
   int64_t ts = timestamp_us;

@@ -53,7 +53,7 @@ int DmaBufVideoFrameBuffer::height() const {
   return height_;
 }
 
-rtc::scoped_refptr<webrtc::I420BufferInterface>
+webrtc::scoped_refptr<webrtc::I420BufferInterface>
 DmaBufVideoFrameBuffer::ToI420() {
 #ifdef USE_JETSON_VIDEO_CODEC
   // Cache NvBufSurface pointers per fd to avoid calling NvBufSurfaceFromFd
@@ -92,7 +92,7 @@ DmaBufVideoFrameBuffer::ToI420() {
   NvBufSurfaceSyncForCpu(surface, 0, -1);
 
   const NvBufSurfaceParams& params = surface->surfaceList[0];
-  rtc::scoped_refptr<webrtc::I420Buffer> i420 =
+  webrtc::scoped_refptr<webrtc::I420Buffer> i420 =
       webrtc::I420Buffer::Create(width_, height_);
 
   if (pixel_format_ == DmaBufPixelFormat::kNV12) {
@@ -139,7 +139,7 @@ DmaBufVideoFrameBuffer::ToI420() {
 #endif
 }
 
-rtc::scoped_refptr<webrtc::VideoFrameBuffer>
+webrtc::scoped_refptr<webrtc::VideoFrameBuffer>
 DmaBufVideoFrameBuffer::CropAndScale(int offset_x,
                                       int offset_y,
                                       int crop_width,
@@ -151,7 +151,7 @@ DmaBufVideoFrameBuffer::CropAndScale(int offset_x,
   // NV12->I420 conversion, and destroys the zero-copy encode path.  The
   // hardware encoder handles the native resolution efficiently; bandwidth
   // adaptation should use bitrate control, not source-side rescaling.
-  return rtc::scoped_refptr<webrtc::VideoFrameBuffer>(this);
+  return webrtc::scoped_refptr<webrtc::VideoFrameBuffer>(this);
 }
 
 DmaBufVideoFrameBuffer* DmaBufVideoFrameBuffer::FromNative(
