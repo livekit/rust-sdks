@@ -51,14 +51,15 @@ cargo test -p livekit --features "__lk-e2e-test,native-tls" --test peer_connecti
 
 ```sh
 # On localhost (V0 will work, V1 falls back to V0)
+# Note, suggest running with --test-threads=1 to avoid flakiness
 livekit-server --dev
-cargo test -p livekit --features "__lk-e2e-test,native-tls" --test peer_connection_signaling_test -- --nocapture
+cargo test -p livekit --features "__lk-e2e-test,native-tls" --test peer_connection_signaling_test -- --nocapture --test-threads=1
 
 # On LiveKit Cloud (both V0 and V1 work correctly)
 export LIVEKIT_URL="wss://your-project.livekit.cloud"
 export LIVEKIT_API_KEY="your-api-key"
 export LIVEKIT_API_SECRET="your-api-secret"
-cargo test -p livekit --features "__lk-e2e-test,native-tls" --test peer_connection_signaling_test -- --nocapture
+cargo test -p livekit --features "__lk-e2e-test,native-tls" --test peer_connection_signaling_test -- --nocapture --test-threads=1
 ```
 
 ## VS Code Integration

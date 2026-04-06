@@ -57,3 +57,36 @@
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.15 (2026-04-02)
+
+### Fixes
+
+#### use the bounded buffer for video stream
+
+##956 by @xianshijing-lk
+
+Before this PR, it uses an unbounded buffer for video stream, that will cause multiple problems:
+1, video will be lagged behind if rendering is slow or just wake up from background
+2, it will be out of sync with audio
+
+This PRs provides options to set a bounded buffer for video stream, and use 1 buffer as the default option.
+
+## 0.3.14 (2026-03-22)
+
+### Fixes
+
+#### fix: Bump webrtc build to fix build for Android JNI prefixed.
+
+##954 by @cloudwebrtc
+
+#### fix clang build issue from zed patches (#949)
+
+##950 by @cloudwebrtc
+
+* webrtc-sys: Use clang instead of gcc
+
+* Debug CI output for aarch64-linux
+
+* ci: Install lld for aarch64-linux FFI builders
+
+* webrtc-sys: Disable CREL

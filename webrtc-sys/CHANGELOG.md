@@ -165,3 +165,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.27 (2026-04-02)
+
+### Features
+
+#### chore: upgrade libwebrtc to m144.
+
+##965 by @cloudwebrtc
+
+### Fixes
+
+#### use the bounded buffer for video stream
+
+##956 by @xianshijing-lk
+
+Before this PR, it uses an unbounded buffer for video stream, that will cause multiple problems:
+1, video will be lagged behind if rendering is slow or just wake up from background
+2, it will be out of sync with audio
+
+This PRs provides options to set a bounded buffer for video stream, and use 1 buffer as the default option.
+
+## 0.3.26 (2026-03-31)
+
+### Fixes
+
+- fix unity android build with "livekit" prefixed jni - #983 (@xianshijing-lk)
+
+#### fix: fix unavailable sem symbol for Linux aarch64.
+
+##975 by @cloudwebrtc
+
+## 0.3.25 (2026-03-22)
+
+### Fixes
+
+- fix: enable AGC2 adaptive digital controller
+- Fix H.264 codec matching
+
+#### E2EE: allow setting key_ring_size and key_derivation_algorithm, update webrtc to m144
+
+##921 by @onestacked
+
+This PR uses [this webrtc-sdk PR](https://github.com/webrtc-sdk/webrtc/pull/224) to configure the KDF.
+
+I've tested this with https://codeberg.org/esoteric_programmer/matrix-jukebox and it is compatible with Element Call.
+
+Fixed: https://github.com/livekit/rust-sdks/issues/796
+
+#### fix clang build issue from zed patches (#949)
+
+##950 by @cloudwebrtc
+
+* webrtc-sys: Use clang instead of gcc
+
+* Debug CI output for aarch64-linux
+
+* ci: Install lld for aarch64-linux FFI builders
+
+* webrtc-sys: Disable CREL
+
+## 0.3.24 (2026-03-13)
+
+### Fixes
+
+#### avoid getting webrtc into underrun
+
+Before this change, the Rust implementation would only start sending silence frames after missing 10 consecutive audio frames. This could cause WebRTC's audio pipeline to enter an underrun state when audio stopped temporarily.
+
+Once WebRTC enters underrun, resuming audio can significantly increase latency until the pipeline stabilizes again. In testing, this could add hundreds of milliseconds of additional latency when audio resumed shortly after the underrun.
+
+This change ensures silence frames are sent earlier to prevent the audio pipeline from entering underrun. By maintaining a continuous stream of audio (including silence), WebRTC can avoid unnecessary buffering and latency spikes when audio resumes.
+
+In testing, this reduces the additional latency observed after underrun recovery and results in more stable end-to-end audio latency.
+
+#### webrtc-sys: Handle gracefully lack of libva on linux
+
+##924 by @kubkon

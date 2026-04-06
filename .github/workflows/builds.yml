@@ -60,12 +60,12 @@ jobs:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           submodules: true
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v2
+        uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0
         with:
           version: "25.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -76,7 +76,9 @@ jobs:
           sudo apt update -y
           # libasound2-dev is needed for local_audio example
           # libdrm, libgbm, libxfixes, libxdamage, libxrandr, libxcomposite and libglib are needed for DesktopCapturer
+          # lld is needed on aarch64 because GNU ld cannot link libwebrtc.a for some reason
           sudo apt install -y \
+            lld \
             libasound2-dev \
             libssl-dev \
             libx11-dev \
@@ -99,7 +101,7 @@ jobs:
         run: |
           rustup target add ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2.8.2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
       - name: Build (Cargo)
         if: ${{ !contains(matrix.target, 'android') }}
@@ -109,7 +111,6 @@ jobs:
       - name: Build (Android)
         if: ${{ contains(matrix.target, 'android') }}
         run: |
-          ln -sf $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/${{ matrix.ndk_arch }}/{libunwind.so,libc++abi.a} $ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/lib/
           cargo install cargo-ndk
           # FIXME: wgpu_room does not link on aarch64
           cargo ndk --target ${{ matrix.target }} build --release -p livekit --workspace -vv

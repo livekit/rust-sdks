@@ -71,6 +71,8 @@ cd src
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/android_use_libunwind.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+# livekit prefixed jni
+git apply "$COMMAND_DIR/patches/jni_prefix.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
 cd third_party/libyuv
 git apply "$COMMAND_DIR/patches/disable_sme_for_libyuv.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
@@ -90,7 +92,6 @@ args="is_debug=$debug \
   target_cpu=\"$arch\" \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
-  use_custom_libcxx=false \
   rtc_include_tests=false \
   rtc_build_tools=false \
   rtc_build_examples=false \
@@ -102,6 +103,9 @@ args="is_debug=$debug \
   rtc_use_pipewire=false \
   symbol_level=0 \
   enable_iterator_debugging=false \
+  android_package_prefix=\"livekit\" \
+  use_custom_libcxx=false \
+  use_clang_modules=false \
   use_rtti=true"
 
 if [ "$debug" = "true" ]; then
@@ -128,7 +132,14 @@ cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/libjingle_peerconnection_so.so" "$ARTIFACTS_DIR/lib"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
-cp "$OUTPUT_DIR/lib.java/sdk/android/libwebrtc.jar" "$ARTIFACTS_DIR"
+
+mkdir -p "$COMMAND_DIR/prefixed-jni/libs"
+cp "$OUTPUT_DIR/lib.java/sdk/android/libwebrtc.jar" "$COMMAND_DIR/prefixed-jni/libs/classes.jar"
+cd "$COMMAND_DIR/prefixed-jni" && ./gradlew shadowJar
+cp "$COMMAND_DIR/prefixed-jni/build/libs/prefixed-jni-all.jar" "$ARTIFACTS_DIR/libwebrtc.jar"
+
+cd ..
+
 cp "src/sdk/android/AndroidManifest.xml" "$ARTIFACTS_DIR"
 
 cd src

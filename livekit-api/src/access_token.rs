@@ -153,15 +153,7 @@ pub struct Claims {
 
 impl Claims {
     pub fn from_unverified(token: &str) -> Result<Self, AccessTokenError> {
-        let mut validation = jsonwebtoken::Validation::new(jsonwebtoken::Algorithm::HS256);
-        validation.validate_exp = true;
-        validation.validate_nbf = true;
-        validation.set_required_spec_claims::<String>(&[]);
-        validation.insecure_disable_signature_validation();
-
-        let token =
-            jsonwebtoken::decode::<Claims>(token, &DecodingKey::from_secret(&[]), &validation)?;
-
+        let token = jsonwebtoken::dangerous::insecure_decode::<Claims>(token)?;
         Ok(token.claims)
     }
 }

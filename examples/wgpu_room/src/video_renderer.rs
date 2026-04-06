@@ -126,14 +126,14 @@ impl RendererInternal {
                 size: eframe::wgpu::Extent3d { width, height, ..Default::default() },
                 sample_count: 1,
                 mip_level_count: 1,
-                format: eframe::wgpu::TextureFormat::Rgba8UnormSrgb,
-                view_formats: &[eframe::wgpu::TextureFormat::Rgba8UnormSrgb],
+                format: eframe::wgpu::TextureFormat::Rgba8Unorm,
+                view_formats: &[eframe::wgpu::TextureFormat::Rgba8Unorm],
             }));
 
         self.texture_view = Some(self.texture.as_mut().unwrap().create_view(
             &eframe::wgpu::TextureViewDescriptor {
                 label: Some("lk-videotexture-view"),
-                format: Some(eframe::wgpu::TextureFormat::Rgba8UnormSrgb),
+                format: Some(eframe::wgpu::TextureFormat::Rgba8Unorm),
                 dimension: Some(eframe::wgpu::TextureViewDimension::D2),
                 mip_level_count: Some(1),
                 array_layer_count: Some(1),

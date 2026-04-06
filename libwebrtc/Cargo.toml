@@ -1,6 +1,6 @@
 [package]
 name = "libwebrtc"
-version = "0.3.26"
+version = "0.3.29"
 edition.workspace = true
 homepage = "https://livekit.io"
 license.workspace = true
@@ -35,6 +35,7 @@ lazy_static = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros"] }
 cxx = "1.0"
+rtrb = "0.3.3"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2"

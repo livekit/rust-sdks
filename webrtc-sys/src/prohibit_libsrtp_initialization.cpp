@@ -18,6 +18,6 @@
 
 namespace livekit_ffi {
 void ProhibitLibsrtpInitialization() {
-    cricket::ProhibitLibsrtpInitialization();
+    webrtc::ProhibitLibsrtpInitialization();
 }
 }

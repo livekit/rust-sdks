@@ -40,6 +40,19 @@ webrtc::FrameCryptorTransformer::Algorithm AlgorithmToFrameCryptorAlgorithm(
   }
 }
 
+webrtc::KeyDerivationAlgorithm
+KeyDerivationAlgorithmToFrameCryptorKeyDerivationAlgorithm(
+    KeyDerivationAlgorithm algorithm) {
+  switch (algorithm) {
+    case KeyDerivationAlgorithm::PBKDF2:
+      return webrtc::KeyDerivationAlgorithm::kPBKDF2;
+    case KeyDerivationAlgorithm::HKDF:
+      return webrtc::KeyDerivationAlgorithm::kHKDF;
+    default:
+      return webrtc::KeyDerivationAlgorithm::kPBKDF2;
+  }
+}
+
 KeyProvider::KeyProvider(KeyProviderOptions options) {
   webrtc::KeyProviderOptions rtc_options;
   rtc_options.shared_key = options.shared_key;
@@ -51,17 +64,20 @@ KeyProvider::KeyProvider(KeyProviderOptions options) {
   rtc_options.ratchet_salt = ratchet_salt;
   rtc_options.ratchet_window_size = options.ratchet_window_size;
   rtc_options.failure_tolerance = options.failure_tolerance;
-
+  rtc_options.key_ring_size = options.key_ring_size;
+  rtc_options.key_derivation_algorithm =
+      KeyDerivationAlgorithmToFrameCryptorKeyDerivationAlgorithm(
+          options.key_derivation_algorithm);
   impl_ =
-      new rtc::RefCountedObject<webrtc::DefaultKeyProviderImpl>(rtc_options);
+      new webrtc::RefCountedObject<webrtc::DefaultKeyProviderImpl>(rtc_options);
 }
 
 FrameCryptor::FrameCryptor(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     const std::string participant_id,
     webrtc::FrameCryptorTransformer::Algorithm algorithm,
-    rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
-    rtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
+    webrtc::scoped_refptr<webrtc::KeyProvider> key_provider,
+    webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender)
     : rtc_runtime_(rtc_runtime),
       participant_id_(participant_id),
       key_provider_(key_provider),
@@ -70,7 +86,7 @@ FrameCryptor::FrameCryptor(
       sender->track()->kind() == "audio"
           ? webrtc::FrameCryptorTransformer::MediaType::kAudioFrame
           : webrtc::FrameCryptorTransformer::MediaType::kVideoFrame;
-  e2ee_transformer_ = rtc::scoped_refptr<webrtc::FrameCryptorTransformer>(
+  e2ee_transformer_ = webrtc::scoped_refptr<webrtc::FrameCryptorTransformer>(
       new webrtc::FrameCryptorTransformer(rtc_runtime->signaling_thread(),
                                           participant_id, mediaType, algorithm,
                                           key_provider_));
@@ -82,8 +98,8 @@ FrameCryptor::FrameCryptor(
     std::shared_ptr<RtcRuntime> rtc_runtime,
     const std::string participant_id,
     webrtc::FrameCryptorTransformer::Algorithm algorithm,
-    rtc::scoped_refptr<webrtc::KeyProvider> key_provider,
-    rtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
+    webrtc::scoped_refptr<webrtc::KeyProvider> key_provider,
+    webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver)
     : rtc_runtime_(rtc_runtime),
       participant_id_(participant_id),
       key_provider_(key_provider),
@@ -92,7 +108,7 @@ FrameCryptor::FrameCryptor(
       receiver->track()->kind() == "audio"
           ? webrtc::FrameCryptorTransformer::MediaType::kAudioFrame
           : webrtc::FrameCryptorTransformer::MediaType::kVideoFrame;
-  e2ee_transformer_ = rtc::scoped_refptr<webrtc::FrameCryptorTransformer>(
+  e2ee_transformer_ = webrtc::scoped_refptr<webrtc::FrameCryptorTransformer>(
       new webrtc::FrameCryptorTransformer(rtc_runtime->signaling_thread(),
                                           participant_id, mediaType, algorithm,
                                           key_provider_));
@@ -109,7 +125,7 @@ FrameCryptor::~FrameCryptor() {
 void FrameCryptor::register_observer(
     rust::Box<RtcFrameCryptorObserverWrapper> observer) const {
   webrtc::MutexLock lock(&mutex_);
-  observer_ = rtc::make_ref_counted<NativeFrameCryptorObserver>(
+  observer_ = webrtc::make_ref_counted<NativeFrameCryptorObserver>(
       std::move(observer), this);
   e2ee_transformer_->RegisterFrameCryptorTransformerObserver(observer_);
 }
@@ -154,10 +170,12 @@ int32_t FrameCryptor::key_index() const {
   return e2ee_transformer_->key_index();
 }
 
-DataPacketCryptor::DataPacketCryptor(webrtc::FrameCryptorTransformer::Algorithm algorithm,
-                 webrtc::scoped_refptr<webrtc::KeyProvider> key_provider)
+DataPacketCryptor::DataPacketCryptor(
+    webrtc::FrameCryptorTransformer::Algorithm algorithm,
+    webrtc::scoped_refptr<webrtc::KeyProvider> key_provider)
     : data_packet_cryptor_(
-          webrtc::make_ref_counted<webrtc::DataPacketCryptor>(algorithm, key_provider)) {}
+          webrtc::make_ref_counted<webrtc::DataPacketCryptor>(algorithm,
+                                                              key_provider)) {}
 
 EncryptedPacket DataPacketCryptor::encrypt_data_packet(
     const ::rust::String participant_id,
@@ -167,12 +185,12 @@ EncryptedPacket DataPacketCryptor::encrypt_data_packet(
   std::copy(data.begin(), data.end(), std::back_inserter(data_vec));
 
   auto result = data_packet_cryptor_->Encrypt(
-      std::string(participant_id.data(), participant_id.size()),
-      key_index,
+      std::string(participant_id.data(), participant_id.size()), key_index,
       data_vec);
 
   if (!result.ok()) {
-    throw std::runtime_error(std::string("Failed to encrypt data packet: ") + result.error().message());
+    throw std::runtime_error(std::string("Failed to encrypt data packet: ") +
+                             result.error().message());
   }
 
   auto& packet = result.value();
@@ -202,20 +220,23 @@ rust::Vec<::std::uint8_t> DataPacketCryptor::decrypt_data_packet(
   std::copy(encrypted_packet.iv.begin(), encrypted_packet.iv.end(),
             std::back_inserter(iv_vec));
 
-  auto native_encrypted_packet = webrtc::make_ref_counted<webrtc::EncryptedPacket>(
-      std::move(data_vec), std::move(iv_vec), encrypted_packet.key_index);
+  auto native_encrypted_packet =
+      webrtc::make_ref_counted<webrtc::EncryptedPacket>(
+          std::move(data_vec), std::move(iv_vec), encrypted_packet.key_index);
 
   auto result = data_packet_cryptor_->Decrypt(
       std::string(participant_id.data(), participant_id.size()),
       native_encrypted_packet);
 
   if (!result.ok()) {
-    throw std::runtime_error(std::string("Failed to decrypt data packet: ") + result.error().message());
+    throw std::runtime_error(std::string("Failed to decrypt data packet: ") +
+                             result.error().message());
   }
 
   rust::Vec<uint8_t> decrypted_data;
   auto& decrypted = result.value();
-  std::copy(decrypted.begin(), decrypted.end(), std::back_inserter(decrypted_data));
+  std::copy(decrypted.begin(), decrypted.end(),
+            std::back_inserter(decrypted_data));
   return decrypted_data;
 }
 

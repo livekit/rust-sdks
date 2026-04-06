@@ -38,9 +38,9 @@
 
 namespace livekit_ffi {
 
-inline cricket::AudioOptions to_native_audio_options(
+inline webrtc::AudioOptions to_native_audio_options(
     const AudioSourceOptions& options) {
-  cricket::AudioOptions rtc_options{};
+  webrtc::AudioOptions rtc_options{};
   rtc_options.echo_cancellation = options.echo_cancellation;
   rtc_options.noise_suppression = options.noise_suppression;
   rtc_options.auto_gain_control = options.auto_gain_control;
@@ -48,7 +48,7 @@ inline cricket::AudioOptions to_native_audio_options(
 }
 
 inline AudioSourceOptions to_rust_audio_options(
-    const cricket::AudioOptions& rtc_options) {
+    const webrtc::AudioOptions& rtc_options) {
   AudioSourceOptions options{};
   options.echo_cancellation = rtc_options.echo_cancellation.value_or(false);
   options.noise_suppression = rtc_options.noise_suppression.value_or(false);
@@ -131,7 +131,7 @@ std::shared_ptr<NativeAudioSink> new_native_audio_sink(
 }
 
 AudioTrackSource::InternalSource::InternalSource(
-    const cricket::AudioOptions& options,
+    const webrtc::AudioOptions& options,
     int sample_rate,
     int num_channels,
     int queue_size_ms,  // must be a multiple of 10ms
@@ -146,11 +146,6 @@ AudioTrackSource::InternalSource::InternalSource(
     queue_size_samples_ = 0;
     return;  // no audio queue
   }
-
-  // start sending silence when there is nothing on the queue for 10 frames
-  // (100ms)
-  const int silence_frames_threshold = 10;
-  missed_frames_ = silence_frames_threshold;
 
   int samples10ms = sample_rate / 100 * num_channels;
 
@@ -171,20 +166,16 @@ AudioTrackSource::InternalSource::InternalSource(
         constexpr int kBitsPerSample = sizeof(int16_t) * 8;
 
         if (buffer_.size() >= samples10ms) {
-          // Reset |missed_frames_| to 0 so that it won't keep sending silence to webrtc due to audio callback timing drifts.
-          missed_frames_ = 0;
           for (auto sink : sinks_)
             sink->OnData(buffer_.data(), kBitsPerSample, sample_rate_,
                          num_channels_, samples10ms / num_channels_);
 
           buffer_.erase(buffer_.begin(), buffer_.begin() + samples10ms);
         } else {
-          missed_frames_++;
-          if (missed_frames_ >= silence_frames_threshold) {
-            for (auto sink : sinks_)
-              sink->OnData(silence_buffer_.data(), kBitsPerSample, sample_rate_,
-                           num_channels_, samples10ms / num_channels_);
-          }
+          // Always provide a 10ms frame to avoid playout underruns.
+          for (auto sink : sinks_)
+            sink->OnData(silence_buffer_.data(), kBitsPerSample, sample_rate_,
+                         num_channels_, samples10ms / num_channels_);
         }
 
         if (on_complete_ && buffer_.size() <= notify_threshold_samples_) {
@@ -252,13 +243,13 @@ bool AudioTrackSource::InternalSource::remote() const {
   return false;
 }
 
-const cricket::AudioOptions AudioTrackSource::InternalSource::options() const {
+const webrtc::AudioOptions AudioTrackSource::InternalSource::options() const {
   webrtc::MutexLock lock(&mutex_);
   return options_;
 }
 
 void AudioTrackSource::InternalSource::set_options(
-    const cricket::AudioOptions& options) {
+    const webrtc::AudioOptions& options) {
   webrtc::MutexLock lock(&mutex_);
   options_ = options;
 }

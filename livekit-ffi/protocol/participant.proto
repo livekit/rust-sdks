@@ -24,17 +24,27 @@ message ParticipantInfo {
   required string sid = 1;
   required string name = 2;
   required string identity = 3;
-  required string metadata = 4;
-  map<string, string> attributes = 5;
-  required ParticipantKind kind = 6;
-  required DisconnectReason disconnect_reason = 7;
-  repeated ParticipantKindDetail kind_details = 8;
-  optional ParticipantPermission permission = 9;
+  required ParticipantState state = 4;
+  required string metadata = 5;
+  map<string, string> attributes = 6;
+  required ParticipantKind kind = 7;
+  required DisconnectReason disconnect_reason = 8;
+  // ms timestamp of when the participant joined the room, maps to joined_at_ms in livekit_models
+  required int64 joined_at = 9;
+  repeated ParticipantKindDetail kind_details = 10;
+  optional ParticipantPermission permission = 11;
 }
 
 message OwnedParticipant {
   required FfiOwnedHandle handle = 1;
   required ParticipantInfo info = 2;
+}
+
+enum ParticipantState {
+  PARTICIPANT_STATE_JOINING = 0;
+  PARTICIPANT_STATE_JOINED = 1;
+  PARTICIPANT_STATE_ACTIVE = 2;
+  PARTICIPANT_STATE_DISCONNECTED = 3;
 }
 
 enum ParticipantKind {
@@ -85,6 +95,7 @@ enum DisconnectReason {
   SIP_TRUNK_FAILURE = 13;
   CONNECTION_TIMEOUT = 14;
   MEDIA_FAILURE = 15;
+  AGENT_ERROR = 16;
 }
 
 // copied from livekit-protocol/protocol/protobufs/livekit_models.proto and removed deprecated fields

@@ -24,6 +24,7 @@ import "track.proto";
 import "video_frame.proto";
 import "stats.proto";
 import "data_stream.proto";
+import "data_track.proto";
 
 // Connect to a new LiveKit room
 message ConnectRequest {
@@ -62,6 +63,7 @@ message ConnectCallback {
 message DisconnectRequest {
   required uint64 room_handle = 1;
   optional uint64 request_async_id = 2;
+  optional DisconnectReason reason = 3;
 }
 message DisconnectResponse { required uint64 async_id = 1; }
 message DisconnectCallback { required uint64 async_id = 1; }
@@ -404,6 +406,9 @@ message RoomEvent {
     ParticipantEncryptionStatusChanged participant_encryption_status_changed = 39;
     ParticipantPermissionChanged participant_permission_changed = 41;
     TokenRefreshed token_refreshed = 40;
+    ParticipantActive participant_active = 42;
+    DataTrackPublished data_track_published = 43;
+    DataTrackUnpublished data_track_unpublished = 44;
   }
 }
 
@@ -432,6 +437,10 @@ message ParticipantsUpdated {
 }
 
 message ParticipantConnected { required OwnedParticipant info = 1; }
+
+message ParticipantActive {
+  required string participant_identity = 1;
+}
 
 message ParticipantDisconnected {
   required string participant_identity = 1;
@@ -735,4 +744,15 @@ message ByteStreamOpened {
 message TextStreamOpened {
   required OwnedTextStreamReader reader = 1;
   required string participant_identity = 2;
+}
+
+// A remote participant published a data track.
+message DataTrackPublished {
+  required OwnedRemoteDataTrack track = 1;
+}
+
+// A remote participant unpublished a data track.
+message DataTrackUnpublished {
+  // SID of the track that was unpublished.
+  required string sid = 1;
 }

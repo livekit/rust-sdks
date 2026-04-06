@@ -186,23 +186,25 @@ fn main() {
             let arm = target_arch == "aarch64" || target_arch.contains("arm");
 
             if x86 {
-                // Do not use pkg_config::probe_library because libva is dlopened
-                // and pkg_config::probe_library would link it.
-                let libva_include = pkg_config::get_variable("libva", "includedir")
-                    .expect("libva development headers not found");
-                builder
-                    .include(libva_include)
-                    .file("src/vaapi/vaapi_display_drm.cpp")
-                    .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
-                    .file("src/vaapi/vaapi_encoder_factory.cpp")
-                    .file("src/vaapi/h264_encoder_impl.cpp")
-                    .flag("-DUSE_VAAPI_VIDEO_CODEC=1");
+                if let Some(libva_include) = pkg_config::get_variable("libva", "includedir").ok() {
+                    // Do not use pkg_config::probe_library because libva is dlopened
+                    // and pkg_config::probe_library would link it.
+                    builder
+                        .include(libva_include)
+                        .file("src/vaapi/vaapi_display_drm.cpp")
+                        .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
+                        .file("src/vaapi/vaapi_encoder_factory.cpp")
+                        .file("src/vaapi/h264_encoder_impl.cpp")
+                        .flag("-DUSE_VAAPI_VIDEO_CODEC=1");
 
-                add_lazy_load_so(
-                    &mut builder,
-                    "vaapi",
-                    ["va", "va-drm"].map(String::from).to_vec(),
-                );
+                    add_lazy_load_so(
+                        &mut builder,
+                        "vaapi",
+                        ["va", "va-drm"].map(String::from).to_vec(),
+                    );
+                } else {
+                    println!("cargo:warning=libva not found; building without hardware accelerated video codecs");
+                }
             }
 
             if arm {

@@ -1,130 +1,48 @@
 name: Release
 
-permissions:
-  id-token: write # Required for OIDC
-  pull-requests: write
-  contents: write
-  actions: write
-
 on:
-  push:
-    branches:
-      - main
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: build artifacts but skip publishing/releasing."
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write
+  contents: write
 
 jobs:
-  # Release unpublished packages.
-  release-plz-release:
-    name: Release-plz release
+  publish-crates:
+    if: (github.head_ref == 'knope/release' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    if: ${{ github.repository_owner == 'livekit' }}
-    permissions:
-      contents: write
-    outputs:
-      ffi_tag: ${{ steps.ffi.outputs.ffi_tag }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          fetch-depth: 0
           submodules: recursive
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install VA-API/NVIDIA drivers and other dependencies for build
-        run: |
-          sudo apt update -y
-          sudo apt install \
-            libnvidia-compute-570 \
-            libnvidia-decode-570 \
-            nvidia-cuda-dev \
-            libasound2-dev \
-            libssl-dev \
-            libx11-dev \
-            libgl1-mesa-dev \
-            libxext-dev \
-            libva-dev \
-            libdrm-dev \
-            libgbm-dev \
-            libxfixes-dev \
-            libxdamage-dev \
-            libxrandr-dev \
-            libxcomposite-dev \
-            libglib2.0-dev -y
 
-      - name: Run release-plz
-        uses: release-plz/action@v0.5
-        id: release-plz
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
-          command: release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
-      - name: Extract ffi tag
-        id: ffi
-        env:
-          RELEASES: ${{ steps.release-plz.outputs.releases }}
-        run: |
-          set -e
-          ffi_tag=$(echo "$RELEASES" | jq -r '.[].tag' | grep 'rust-sdks/livekit-ffi@' || true)
-          echo "ffi_tag=$ffi_tag"
-          echo "ffi_tag=$ffi_tag" >> $GITHUB_OUTPUT
+          toolchain: stable
 
-  call-ffi:
-    name: Call FFI Builds
-    if: ${{ needs.release-plz-release.outputs.ffi_tag != '' }}
-    uses: ./.github/workflows/ffi-builds.yml
-    needs: release-plz-release
-    with:
-      tag: ${{ needs.release-plz-release.outputs.ffi_tag }}
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
+
+      - name: Install cargo-release
+        run: cargo binstall cargo-release@1.1.2 --no-confirm
+
+      - name: Publish to crates.io
+        run: cargo release publish --workspace --no-confirm --no-verify ${{ inputs.dry_run != true && '--execute' || '' }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
 
   call-node-ffi:
-    name: Call node FFI Builds
-    if: ${{ needs.release-plz-release.outputs.ffi_tag != '' }}
+    name: Call Node FFI Builds
+    if: (github.head_ref == 'knope/release' && github.event.pull_request.merged == true) || github.event_name == 'workflow_dispatch'
     uses: ./.github/workflows/node-builds.yml
-    needs: release-plz-release
     with:
-      tag: ${{ needs.release-plz-release.outputs.ffi_tag }}
-
-  # Create a PR with the new versions and changelog, preparing the next release.
-  release-plz-pr:
-    name: Release-plz PR
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    concurrency:
-      group: release-plz-${{ github.ref }}
-      cancel-in-progress: false
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install VA-API/NVIDIA drivers and other dependencies for build
-        run: |
-          sudo apt update -y
-          sudo apt install \
-            libnvidia-compute-570 \
-            libnvidia-decode-570 \
-            nvidia-cuda-dev \
-            libasound2-dev \
-            libssl-dev \
-            libx11-dev \
-            libgl1-mesa-dev \
-            libxext-dev \
-            libva-dev \
-            libdrm-dev \
-            libgbm-dev \
-            libxfixes-dev \
-            libxdamage-dev \
-            libxrandr-dev \
-            libxcomposite-dev \
-            libglib2.0-dev -y
-      - name: Run release-plz
-        uses: release-plz/action@v0.5
-        with:
-          command: release-pr
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_TOKEN }}
+      dry_run: ${{ inputs.dry_run || false }}

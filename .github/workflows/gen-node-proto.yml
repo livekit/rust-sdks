@@ -7,6 +7,9 @@ on:
     paths:
       - livekit-ffi/**
       - livekit-ffi-node-bindings/**
+      - Cargo.lock
+      - Cargo.toml
+      - .github/**
   workflow_dispatch:
   workflow_call:
 
@@ -24,29 +27,27 @@ jobs:
   generate_protobuf:
     runs-on: ubuntu-latest
     name: Generating protobuf
-    if: github.event_name == 'pull_request'
-
     defaults:
       run:
         working-directory: ${{ env.PACKAGE_DIR }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           submodules: true
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref }}
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
         with:
           version: "25.1"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           package_json_file: livekit-ffi-node-bindings/package.json
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: 24
           cache: pnpm
@@ -58,8 +59,8 @@ jobs:
         run: ./generate_proto.sh
 
       - name: Add changes
-        uses: EndBug/add-and-commit@v9
+        uses: EndBug/add-and-commit@a94899bca583c204427a224a7af87c02f9b325d5 # v9.1.4
         with:
-          add: '["livekit-ffi-node-bindings/src/proto"]'
+          add: '["livekit-ffi-node-bindings/proto"]'
           default_author: github_actions
           message: generated protobuf

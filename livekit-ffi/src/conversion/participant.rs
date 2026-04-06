@@ -17,6 +17,7 @@ use livekit::prelude::*;
 use livekit::DisconnectReason;
 use livekit::ParticipantKind;
 use livekit::ParticipantKindDetail;
+use livekit::ParticipantState;
 use livekit_protocol as livekit_proto;
 
 impl From<&FfiParticipant> for proto::ParticipantInfo {
@@ -34,17 +35,30 @@ impl From<&Participant> for proto::ParticipantInfo {
             sid: participant.sid().into(),
             name: participant.name(),
             identity: participant.identity().into(),
+            state: proto::ParticipantState::from(participant.state()).into(),
             metadata: participant.metadata(),
             attributes: participant.attributes(),
             kind: proto::ParticipantKind::from(participant.kind()).into(),
             disconnect_reason: proto::DisconnectReason::from(participant.disconnect_reason())
                 .into(),
+            joined_at: participant.joined_at(),
             kind_details: participant
                 .kind_details()
                 .into_iter()
                 .map(|k| proto::ParticipantKindDetail::from(k).into())
                 .collect(),
             permission,
+        }
+    }
+}
+
+impl From<ParticipantState> for proto::ParticipantState {
+    fn from(state: ParticipantState) -> Self {
+        match state {
+            ParticipantState::Joining => proto::ParticipantState::Joining,
+            ParticipantState::Joined => proto::ParticipantState::Joined,
+            ParticipantState::Active => proto::ParticipantState::Active,
+            ParticipantState::Disconnected => proto::ParticipantState::Disconnected,
         }
     }
 }
@@ -96,6 +110,7 @@ impl From<DisconnectReason> for proto::DisconnectReason {
             DisconnectReason::SipTrunkFailure => proto::DisconnectReason::SipTrunkFailure,
             DisconnectReason::ConnectionTimeout => proto::DisconnectReason::ConnectionTimeout,
             DisconnectReason::MediaFailure => proto::DisconnectReason::MediaFailure,
+            DisconnectReason::AgentError => proto::DisconnectReason::AgentError,
         }
     }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@livekit/rtc-ffi-bindings-linux-arm64-gnu",
-  "version": "0.12.46-dev.8",
+  "version": "0.12.52",
   "cpu": [
     "arm64"
   ],
@@ -16,8 +16,8 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/livekit/node-sdks.git",
-    "directory": "packages/livekit-rtc"
+    "url": "https://github.com/livekit/rust-sdks.git",
+    "directory": "livekit-ffi-node-bindings/npm/linux-arm64-gnu"
   },
   "os": [
     "linux"

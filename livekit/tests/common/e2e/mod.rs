@@ -25,6 +25,7 @@ use tokio::{
 };
 
 pub mod audio;
+pub mod video;
 
 struct TestEnvironment {
     api_key: String,
@@ -44,18 +45,47 @@ impl TestEnvironment {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TestRoomOptions {
+    /// Grants for the generated token.
+    pub grants: VideoGrants,
+    /// Options used for creating the [`Room`].
+    pub room: RoomOptions,
+}
+
+impl Default for TestRoomOptions {
+    fn default() -> Self {
+        Self {
+            grants: VideoGrants { room_join: true, ..Default::default() },
+            room: Default::default(),
+        }
+    }
+}
+
+impl From<RoomOptions> for TestRoomOptions {
+    fn from(room: RoomOptions) -> Self {
+        Self { room, ..Default::default() }
+    }
+}
+
+impl From<VideoGrants> for TestRoomOptions {
+    fn from(grants: VideoGrants) -> Self {
+        Self { grants, ..Default::default() }
+    }
+}
+
 fn is_local_server_url(url: &str) -> bool {
     url.contains("localhost:7880") || url.contains("127.0.0.1:7880")
 }
 
 /// Creates the specified number of connections to a shared room for testing.
 pub async fn test_rooms(count: usize) -> Result<Vec<(Room, UnboundedReceiver<RoomEvent>)>> {
-    test_rooms_with_options((0..count).map(|_| RoomOptions::default())).await
+    test_rooms_with_options((0..count).map(|_| TestRoomOptions::default())).await
 }
 
 /// Creates multiple connections to a shared room for testing, one for each configuration.
 pub async fn test_rooms_with_options(
-    options: impl IntoIterator<Item = RoomOptions>,
+    options: impl IntoIterator<Item = TestRoomOptions>,
 ) -> Result<Vec<(Room, UnboundedReceiver<RoomEvent>)>> {
     let test_env = TestEnvironment::from_env_or_defaults();
     let force_v0 = is_local_server_url(&test_env.server_url);
@@ -72,18 +102,18 @@ pub async fn test_rooms_with_options(
             if force_v0 {
                 // Local dev server generally does not support /rtc/v1. Force v0 in generic E2E
                 // tests to avoid extra fallback latency/flakiness.
-                options.single_peer_connection = false;
+                options.room.single_peer_connection = false;
             }
-            let grants =
-                VideoGrants { room_join: true, room: room_name.clone(), ..Default::default() };
+            options.grants.room = room_name.clone();
+
             let token = AccessToken::with_api_key(&test_env.api_key, &test_env.api_secret)
                 .with_ttl(Duration::from_secs(30 * 60)) // 30 minutes
-                .with_grants(grants)
+                .with_grants(options.grants)
                 .with_identity(&format!("p{}", id))
                 .with_name(&format!("Participant {}", id))
                 .to_jwt()
                 .context("Failed to generate JWT")?;
-            Ok((token, options))
+            Ok((token, options.room))
         })
         .collect::<Result<Vec<_>>>()?;
 

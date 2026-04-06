@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <iostream>
+#include <dlfcn.h>
 
 #include "h264_encoder_impl.h"
 #include "rtc_base/logging.h"
@@ -37,6 +38,22 @@ VAAPIVideoEncoderFactory::VAAPIVideoEncoderFactory() {
 VAAPIVideoEncoderFactory::~VAAPIVideoEncoderFactory() {}
 
 bool VAAPIVideoEncoderFactory::IsSupported() {
+  // Ensure that libva and libva-drm are actually available for loading.
+  // Otherwise, we will immediately abort.
+  void* libva_ptr = dlopen("libva.so.2", RTLD_LAZY);
+  if (!libva_ptr) {
+    RTC_LOG(LS_INFO) << "libva.so.2 is not found";
+    return false;
+  }
+  dlclose(libva_ptr);
+
+  void* libvadrm_ptr = dlopen("libva-drm.so.2", RTLD_LAZY);
+  if (!libvadrm_ptr) {
+    RTC_LOG(LS_INFO) << "libva-drm.so.2 is not found";
+    return false;
+  }
+  dlclose(libvadrm_ptr);
+  
   // Check if VAAPI is supported by the environment.
   // This could involve checking if the VAAPI display can be opened.
   VaapiDisplay vaapi_display;

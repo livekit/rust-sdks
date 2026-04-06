@@ -14,6 +14,7 @@
 
 pub mod audio_frame;
 pub mod data_stream;
+pub mod data_track;
 pub mod participant;
 pub mod resampler;
 pub mod room;

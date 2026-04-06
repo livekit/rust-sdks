@@ -196,4 +196,7 @@ Cargo.lock
 !.yarn/sdks
 !.yarn/versions
 
+# napi build artifacts
 *.node
+native.js
+native.d.ts

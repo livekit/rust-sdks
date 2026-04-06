@@ -23,7 +23,7 @@ use std::{
 };
 
 use super::{
-    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail,
+    ConnectionQuality, ParticipantInner, ParticipantKind, ParticipantKindDetail, ParticipantState,
     ParticipantTrackPermission,
 };
 use crate::{
@@ -31,6 +31,7 @@ use crate::{
         ByteStreamInfo, ByteStreamWriter, StreamByteOptions, StreamResult, StreamTextOptions,
         TextStreamInfo, TextStreamWriter,
     },
+    data_track::{self, DataTrack, DataTrackOptions, Local},
     e2ee::EncryptionType,
     options::{self, compute_video_encodings, video_layers_from_encodings, TrackPublishOptions},
     prelude::*,
@@ -101,6 +102,7 @@ impl Debug for LocalParticipant {
             .field("sid", &self.sid())
             .field("identity", &self.identity())
             .field("name", &self.name())
+            .field("state", &self.state())
             .finish()
     }
 }
@@ -113,8 +115,10 @@ impl LocalParticipant {
         sid: ParticipantSid,
         identity: ParticipantIdentity,
         name: String,
+        state: ParticipantState,
         metadata: String,
         attributes: HashMap<String, String>,
+        joined_at: i64,
         encryption_type: EncryptionType,
         permission: Option<proto::ParticipantPermission>,
     ) -> Self {
@@ -124,10 +128,12 @@ impl LocalParticipant {
                 sid,
                 identity,
                 name,
+                state,
                 metadata,
                 attributes,
                 kind,
                 kind_details,
+                joined_at,
                 permission,
             ),
             local: Arc::new(LocalInfo {
@@ -249,6 +255,43 @@ impl LocalParticipant {
         vec
     }
 
+    /// Publishes a data track.
+    ///
+    /// # Returns
+    ///
+    /// The published data track if successful. Use [`LocalDataTrack::try_push`]
+    /// to send data frames on the track.
+    ///
+    /// # Examples
+    ///
+    /// Publish a track named "my_track":
+    ///
+    /// ```
+    /// # use livekit::prelude::*;
+    /// # async fn with_room(room: Room) -> Result<(), PublishError> {
+    /// let track = room
+    ///     .local_participant()
+    ///     .publish_data_track("my_track")
+    ///     .await?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    ///
+    /// Note: if you are self-hosting the LiveKit SFU and get [`data_track::PublishError::Timeout`],
+    /// this may indicate you are using an outdated release that does not support data tracks.
+    ///
+    pub async fn publish_data_track(
+        &self,
+        options: impl Into<DataTrackOptions>,
+    ) -> Result<DataTrack<Local>, data_track::PublishError> {
+        self.session()
+            .ok_or(PublishError::Disconnected)?
+            .local_dt_input
+            .publish_track(options.into())
+            .await
+    }
+
+    /// Publishes a media track.
     pub async fn publish_track(
         &self,
         track: LocalTrack,
@@ -515,6 +558,7 @@ impl LocalParticipant {
         self.inner.rtc_engine.publish_data(packet, kind, true).await.map_err(Into::into)
     }
 
+    /// Publishes a data packet.
     pub async fn publish_data(&self, packet: DataPacket) -> RoomResult<()> {
         let kind = match packet.reliable {
             true => DataPacketKind::Reliable,
@@ -726,6 +770,10 @@ impl LocalParticipant {
         self.inner.info.read().name.clone()
     }
 
+    pub fn state(&self) -> ParticipantState {
+        self.inner.info.read().state
+    }
+
     pub fn metadata(&self) -> String {
         self.inner.info.read().metadata.clone()
     }
@@ -772,6 +820,10 @@ impl LocalParticipant {
 
     pub fn disconnect_reason(&self) -> DisconnectReason {
         self.inner.info.read().disconnect_reason
+    }
+
+    pub fn joined_at(&self) -> i64 {
+        self.inner.info.read().joined_at
     }
 
     pub fn permission(&self) -> Option<proto::ParticipantPermission> {

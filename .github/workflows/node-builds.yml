@@ -7,61 +7,25 @@ permissions:
 on:
   workflow_dispatch:
     inputs:
-      tag:
-        required: true
-        type: string
+      dry_run:
+        description: "Dry run: build artifacts but skip npm publish."
+        required: false
+        type: boolean
+        default: false
   workflow_call:
     inputs:
-      tag:
-        required: true
-        type: string
+      dry_run:
+        description: "Dry run: build artifacts but skip npm publish."
+        required: false
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
-  TAG_NAME: ${{ inputs.tag || github.ref_name }}
   APP_NAME: rtc-node
 
 jobs:
-  bump_version:
-    runs-on: macos-15
-    outputs:
-      commit_sha: ${{ steps.commit.outputs.commit_long_sha }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          package_json_file: livekit-ffi-node-bindings/package.json
-
-      - name: Setup node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: livekit-ffi-node-bindings/pnpm-lock.yaml
-
-      - working-directory: livekit-ffi-node-bindings
-        run: pnpm install
-
-      - name: Set package version from tag
-        working-directory: livekit-ffi-node-bindings
-        run: |
-          # Extract version from tag (e.g., rust-sdks/livekit-ffi@0.12.43 -> 0.12.43)
-          VERSION=$(echo "${{ env.TAG_NAME }}" | sed 's/.*@//')
-          echo "Setting package version to $VERSION"
-          npm version $VERSION --no-git-tag-version
-          pnpm run ci:version
-
-      - name: Add changes
-        id: commit
-        uses: EndBug/add-and-commit@v9
-        with:
-          add: '["**/package.json"]'
-          default_author: github_actions
-          message: bump livekit-ffi-node-binding version
-
   build:
-    needs: bump_version
     strategy:
       fail-fast: false
       matrix:
@@ -91,17 +55,16 @@ jobs:
     env:
       RUST_BACKTRACE: full
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
-          ref: ${{ needs.bump_version.outputs.commit_sha }}
-          fetch-depth: 0
-      - uses: pnpm/action-setup@v4
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           package_json_file: livekit-ffi-node-bindings/package.json
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: 24
           cache: pnpm
@@ -110,15 +73,15 @@ jobs:
       - run: pnpm install
         working-directory: livekit-ffi-node-bindings
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2.8.2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3.0.0
         with:
           version: "25.1"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -144,7 +107,7 @@ jobs:
               cp /tmp/protoc /usr/local/bin/protoc
               chmod +x /usr/local/bin/protoc
 
-              yum install -y openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel clang clang-devel
+              yum install -y openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel clang clang-devel lld
               yum install -y gcc-toolset-12-gcc gcc-toolset-12-gcc-c++ gcc-toolset-12-libstdc++-devel libstdc++-devel
               source /opt/rh/gcc-toolset-12/enable
               gcc --version
@@ -172,7 +135,7 @@ jobs:
                 cd /workspace
                 cd livekit-ffi-node-bindings
                 CI=true pnpm install
-                pnpm build --target $TARGET        
+                pnpm build --target $TARGET
               "
             '
 
@@ -189,38 +152,33 @@ jobs:
         run: pnpm build --target ${{ matrix.target }}
 
       - name: Upload binary artifact
-        uses: actions/upload-artifact@v4
-        if: github.event_name != 'pull-request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: native-bindings-${{ matrix.target }}
           path: livekit-ffi-node-bindings/${{ env.APP_NAME }}.*.node
           if-no-files-found: error
 
       - name: Upload JS
-        uses: actions/upload-artifact@v4
-        if: ${{ github.event_name != 'pull-request' && matrix.os == 'macos-15' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ matrix.os == 'macos-15' }}
         with:
           name: js-bindings
           path: livekit-ffi-node-bindings/native.*
           if-no-files-found: error
 
-  commit_and_release:
-    needs: [bump_version, build]
-    name: Commit and Release
+  publish:
+    needs: build
+    name: Publish to npm
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-      - run: git fetch origin ${{ needs.bump_version.outputs.commit_sha }}
-
-      - run: git reset --hard ${{ needs.bump_version.outputs.commit_sha }}
-
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
         with:
           package_json_file: livekit-ffi-node-bindings/package.json
 
       - name: Setup node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: 24
           cache: pnpm
@@ -230,23 +188,16 @@ jobs:
         run: pnpm install
 
       - name: Download native build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: native-bindings-*
           path: livekit-ffi-node-bindings/artifacts
 
       - name: Download js artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: js-bindings
           path: livekit-ffi-node-bindings
-
-      - name: Add changes
-        uses: EndBug/add-and-commit@v9
-        with:
-          add: '["livekit-ffi-node-bindings/native.js", "livekit-ffi-node-bindings/native.d.ts"]'
-          default_author: github_actions
-          message: update js bindings for release
 
       - name: Move artifacts
         run: pnpm run ci:artifacts
@@ -256,6 +207,11 @@ jobs:
         run: ls -R ./livekit-ffi-node-bindings/npm
         shell: bash
 
+      - name: Echo changes
+        run: |
+          git status
+          git diff
+
       - name: Publish
         working-directory: livekit-ffi-node-bindings
-        run: pnpm publish -r
+        run: pnpm publish -r ${{ inputs.dry_run == true && '--dry-run --no-git-checks' || '' }}

@@ -16,20 +16,46 @@ name: FFI
 on:
   push:
     branches: ["main"]
-    tags:
-      - "rust-sdks/livekit-ffi@*"
   workflow_dispatch:
-  workflow_call:
     inputs:
-      tag:
+      tag_name:
+        description: "Release tag (e.g. livekit-ffi/v0.12.49). Takes precedence over draft release lookup and creates a draft release."
         required: false
         type: string
+      dry_run:
+        description: "Dry run: build artifacts but skip release upload/publish."
+        required: false
+        type: boolean
+        default: false
 
 env:
   CARGO_TERM_COLOR: always
-  TAG_NAME: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  get-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+      - name: "Resolve tag"
+        run: |
+          MANUAL_TAG="${{ inputs.tag_name }}"
+          if [ -n "$MANUAL_TAG" ]; then
+            echo "Using manually provided tag: '${MANUAL_TAG}'"
+            gh release create "$MANUAL_TAG" --draft --title "$MANUAL_TAG" --generate-notes
+            echo "tag_name=${MANUAL_TAG}" >> $GITHUB_OUTPUT
+          else
+            TAG=$(gh release list --repo ${{ github.repository }} --json 'isDraft,tagName' --jq '[.[] | select(.isDraft and (.tagName | startswith("livekit-ffi/")))] | first | .tagName // empty')
+            echo "Resolved FFI draft release tag: '${TAG:-}'"
+            echo "tag_name=${TAG:-}" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+        id: get-tag
+    outputs:
+      tag_name: ${{ steps.get-tag.outputs.tag_name }}
+
   build:
     strategy:
       fail-fast: false
@@ -109,7 +135,7 @@ jobs:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
         with:
           submodules: true
 
@@ -117,17 +143,17 @@ jobs:
         run: |
           rustup target add ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2.8.2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v2
+        uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0
         with:
           version: "25.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up QEMU
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - name: Build (macOS)
         if: ${{ matrix.platform == 'macos' }}
@@ -154,7 +180,7 @@ jobs:
           docker run --rm -v $PWD:/workspace -w /workspace ${{ matrix.build_image }} bash -c "\
             uname -a; \
             export PATH=/root/.cargo/bin:\$PATH; \
-            yum install llvm llvm-libs -y; \
+            yum install llvm llvm-libs lld -y; \
             yum install clang -y; \
             yum install protobuf-compiler -y; \
             yum groupinstall 'Development Tools' -y; \
@@ -206,31 +232,31 @@ jobs:
           Get-ChildItem -Path ${{ matrix.dylib }}, livekit_ffi.h, LICENSE.md | Compress-Archive -DestinationPath ${{ github.workspace }}\${{ matrix.name }}.zip
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ffi-builds-${{ matrix.target }}
           path: ${{ matrix.name }}.zip
 
   release:
-    name: Release to GH (Draft)
+    name: Upload artifacts and publish GH release
     runs-on: ubuntu-latest
-    needs: build
+    needs: [get-tag, build]
     permissions:
       contents: write
-    if: startsWith(inputs.tag || github.ref_name, 'rust-sdks/livekit-ffi@')
+    if: needs.get-tag.outputs.tag_name != '' && inputs.dry_run != true
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: ffi-builds-*
           merge-multiple: true
           path: ${{ github.workspace }}/ffi-builds
 
-      - name: Create draft release
+      - name: Upload artifacts and publish release
         run: |
-          gh release create ${{ env.TAG_NAME }} --draft --title "${{ env.TAG_NAME }}"
-          gh release upload ${{ env.TAG_NAME }} ${{ github.workspace }}/ffi-builds/*
+          gh release upload ${{ needs.get-tag.outputs.tag_name }} ${{ github.workspace }}/ffi-builds/*
+          gh release edit ${{ needs.get-tag.outputs.tag_name }} --draft=false

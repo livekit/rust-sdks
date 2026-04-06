@@ -1,0 +1,20 @@
+[package]
+name = "livekit-wakeword"
+version = "0.1.3"
+description = "ONNX-based wake word detection for LiveKit"
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+
+[dependencies]
+ndarray = "0.17.2"
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["ndarray", "std"] }
+resampler = "0.4"
+thiserror = "2"
+
+[target.'cfg(not(all(target_arch = "aarch64", target_os = "windows", target_env = "msvc")))'.dependencies]
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["alternative-backend"] }
+ort-tract = "0.2.0+0.22"
+
+[dev-dependencies]
+hound = "3.5"

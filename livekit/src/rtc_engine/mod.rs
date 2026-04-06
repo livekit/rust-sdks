@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
-
 use libwebrtc::prelude::*;
 use livekit_api::signal_client::{SignalError, SignalOptions};
+use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
 use livekit_runtime::{interval, Interval, JoinHandle};
 use parking_lot::{RwLock, RwLockReadGuard};
+use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{
     mpsc, oneshot, Mutex as AsyncMutex, Notify, RwLock as AsyncRwLock,
@@ -40,6 +40,7 @@ use crate::{
 };
 use crate::{ChatMessage, E2eeManager, TranscriptionSegment};
 
+mod dc_sender;
 pub mod lk_runtime;
 mod peer_transport;
 mod rtc_events;
@@ -191,6 +192,8 @@ pub enum EngineEvent {
         sid: String,
         muted: bool,
     },
+    LocalDataTrackInput(dt::local::InputEvent),
+    RemoteDataTrackInput(dt::remote::InputEvent),
 }
 
 /// Represents a running RtcSession with the ability to close the session
@@ -271,6 +274,30 @@ impl RtcEngine {
             (handle.session.clone(), _r_lock)
         };
         session.simulate_scenario(scenario).await
+    }
+
+    pub async fn handle_local_data_track_output(
+        &self,
+        event: dt::local::OutputEvent,
+    ) -> EngineResult<()> {
+        let (session, _r_lock) = {
+            let (handle, _r_lock) = self.inner.wait_reconnection().await?;
+            (handle.session.clone(), _r_lock)
+        };
+        session.handle_local_data_track_output(event).await;
+        Ok(())
+    }
+
+    pub async fn handle_remote_data_track_output(
+        &self,
+        event: dt::remote::OutputEvent,
+    ) -> EngineResult<()> {
+        let (session, _r_lock) = {
+            let (handle, _r_lock) = self.inner.wait_reconnection().await?;
+            (handle.session.clone(), _r_lock)
+        };
+        session.handle_remote_data_track_output(event).await;
+        Ok(())
     }
 
     pub async fn add_track(&self, req: proto::AddTrackRequest) -> EngineResult<proto::TrackInfo> {
@@ -611,6 +638,12 @@ impl EngineInner {
             SessionEvent::TrackMuted { sid, muted } => {
                 let _ = self.engine_tx.send(EngineEvent::TrackMuted { sid, muted });
             }
+            SessionEvent::LocalDataTrackInput(event) => {
+                let _ = self.engine_tx.send(EngineEvent::LocalDataTrackInput(event));
+            }
+            SessionEvent::RemoteDataTrackInput(event) => {
+                let _ = self.engine_tx.send(EngineEvent::RemoteDataTrackInput(event));
+            }
         }
         Ok(())
     }
@@ -628,7 +661,7 @@ impl EngineInner {
         };
 
         if let Some((engine_task, close_tx)) = engine_task {
-            session.close().await;
+            session.close(reason).await;
             let _ = close_tx.send(());
             let _ = engine_task.await;
             let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
@@ -817,7 +850,7 @@ impl EngineInner {
         };
 
         if let Some((engine_task, close_tx)) = engine_task {
-            session.close().await;
+            session.close(DisconnectReason::ClientInitiated).await;
             let _ = close_tx.send(());
             let _ = engine_task.await;
         }
@@ -862,5 +895,11 @@ impl EngineInner {
         // The publisher offer must be sent AFTER the SyncState message
         session.restart_publisher().await?;
         session.wait_pc_connection().await
+    }
+}
+
+impl From<livekit_datatrack::api::InternalError> for EngineError {
+    fn from(err: livekit_datatrack::api::InternalError) -> Self {
+        Self::Internal(err.to_string().into())
     }
 }

@@ -35,6 +35,17 @@ const EncryptionType = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
+ * @generated from enum livekit.proto.KeyDerivationFunction
+ */
+const KeyDerivationFunction = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.KeyDerivationFunction",
+  [
+    {no: 0, name: "PBKDF2"},
+    {no: 1, name: "HKDF"},
+  ],
+);
+
+/**
  * @generated from enum livekit.proto.EncryptionState
  */
 const EncryptionState = /*@__PURE__*/ proto2.makeEnum(
@@ -73,6 +84,8 @@ const KeyProviderOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 2, name: "ratchet_window_size", kind: "scalar", T: 5 /* ScalarType.INT32 */, req: true },
     { no: 3, name: "ratchet_salt", kind: "scalar", T: 12 /* ScalarType.BYTES */, req: true },
     { no: 4, name: "failure_tolerance", kind: "scalar", T: 5 /* ScalarType.INT32 */, req: true },
+    { no: 5, name: "key_ring_size", kind: "scalar", T: 5 /* ScalarType.INT32 */, req: true },
+    { no: 6, name: "key_derivation_function", kind: "enum", T: proto2.getEnumType(KeyDerivationFunction), req: true },
   ],
 );
 
@@ -325,6 +338,7 @@ const E2eeResponse = /*@__PURE__*/ proto2.makeMessageType(
 
 
 exports.EncryptionType = EncryptionType;
+exports.KeyDerivationFunction = KeyDerivationFunction;
 exports.EncryptionState = EncryptionState;
 exports.FrameCryptor = FrameCryptor;
 exports.KeyProviderOptions = KeyProviderOptions;
