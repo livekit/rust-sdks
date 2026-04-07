@@ -28,4 +28,5 @@ module.exports = {
   ...require("./proto/stats_pb.js"),
   ...require("./proto/rpc_pb.js"),
   ...require("./proto/data_stream_pb.js"),
+  ...require("./proto/data_track_pb.js"),
 };
