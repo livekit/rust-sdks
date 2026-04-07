@@ -43,7 +43,6 @@ pub struct NativeVideoStream {
 }
 
 impl NativeVideoStream {
-
     pub fn new(video_track: RtcVideoTrack, queue_size_frames: Option<usize>) -> Self {
         let frame_queue = Arc::new(VideoFrameQueue::new(queue_size_frames));
         // Auto-wire the packet trailer handler from the track if one is set.
@@ -59,12 +58,7 @@ impl NativeVideoStream {
         let video = unsafe { sys_vt::ffi::media_to_video(video_track.sys_handle()) };
         video.add_sink(&native_sink);
 
-        Self {
-            native_sink,
-            observer,
-            video_track,
-            frame_queue,
-        }
+        Self { native_sink, observer, video_track, frame_queue }
     }
 
     /// Set the packet trailer handler for this stream.
@@ -113,7 +107,6 @@ struct VideoTrackObserver {
 
 impl sys_vt::VideoSink for VideoTrackObserver {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
-        
         let rtp_timestamp = frame.timestamp();
         let frame_metadata = self
             .packet_trailer_handler
@@ -124,7 +117,7 @@ impl sys_vt::VideoSink for VideoTrackObserver {
                 user_timestamp_us: Some(ts),
                 frame_id: if fid != 0 { Some(fid) } else { None },
             });
-            
+
         self.frame_queue.push(VideoFrame {
             rotation: frame.rotation().into(),
             timestamp_us: frame.timestamp_us(),
