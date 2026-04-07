@@ -5,8 +5,19 @@ use crate::{
     video_renderer::VideoRenderer,
 };
 use egui::{emath, epaint, pos2, Color32, CornerRadius, Rect, Stroke};
-use livekit::{e2ee::EncryptionType, prelude::*, track::VideoQuality, SimulateScenario};
+use livekit::{
+    e2ee::EncryptionType, options::VideoCodec, prelude::*, track::VideoQuality, SimulateScenario,
+};
 use std::collections::HashMap;
+
+#[derive(PartialEq, serde::Deserialize, serde::Serialize)]
+enum VideoCodecEnum {
+    VP8,
+    VP9,
+    H264,
+    H265,
+    AV1,
+}
 
 /// The state of the application are saved on app exit and restored on app start.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -17,6 +28,8 @@ struct AppState {
     key: String,
     auto_subscribe: bool,
     enable_e2ee: bool,
+    simulcast: bool,
+    video_codec: VideoCodecEnum,
 }
 
 pub struct LkApp {
@@ -39,6 +52,8 @@ impl Default for AppState {
             auto_subscribe: true,
             enable_e2ee: false,
             key: "".to_string(),
+            simulcast: false,
+            video_codec: VideoCodecEnum::VP8,
         }
     }
 }
@@ -148,7 +163,16 @@ impl LkApp {
 
             ui.menu_button("Publish", |ui| {
                 if ui.button("Logo").clicked() {
-                    let _ = self.service.send(AsyncCmd::ToggleLogo);
+                    let _ = self.service.send(AsyncCmd::ToggleLogo {
+                        simulcast: self.state.simulcast,
+                        video_codec: match self.state.video_codec {
+                            VideoCodecEnum::VP8 => VideoCodec::VP8,
+                            VideoCodecEnum::VP9 => VideoCodec::VP9,
+                            VideoCodecEnum::H264 => VideoCodec::H264,
+                            VideoCodecEnum::H265 => VideoCodec::H265,
+                            VideoCodecEnum::AV1 => VideoCodec::AV1,
+                        },
+                    });
                 }
                 if ui.button("SineWave").clicked() {
                     let _ = self.service.send(AsyncCmd::ToggleSine);
@@ -194,6 +218,23 @@ impl LkApp {
         ui.horizontal(|ui| {
             ui.add_enabled_ui(true, |ui| {
                 ui.checkbox(&mut self.state.enable_e2ee, "Enable E2ee");
+            });
+        });
+
+        ui.horizontal(|ui| {
+            ui.add_enabled_ui(true, |ui| {
+                ui.checkbox(&mut self.state.simulcast, "Enable Simulcast");
+            });
+        });
+
+        ui.horizontal(|ui| {
+            ui.add_enabled_ui(true, |ui| {
+                ui.label("Video Codec: ");
+                ui.radio_value(&mut self.state.video_codec, VideoCodecEnum::VP8, "VP8");
+                ui.radio_value(&mut self.state.video_codec, VideoCodecEnum::VP9, "VP9");
+                ui.radio_value(&mut self.state.video_codec, VideoCodecEnum::AV1, "AV1");
+                ui.radio_value(&mut self.state.video_codec, VideoCodecEnum::H264, "H264");
+                ui.radio_value(&mut self.state.video_codec, VideoCodecEnum::H265, "H265");
             });
         });
 
@@ -309,6 +350,9 @@ impl LkApp {
                         }
                     });
 
+                    let codec = publication.mime_type();
+                    ui.label(format!("Codec: {:?}", codec));
+
                     ui.horizontal(|ui| {
                         if publication.is_muted() {
                             ui.colored_label(egui::Color32::DARK_GRAY, "Muted");
@@ -319,7 +363,6 @@ impl LkApp {
                         } else {
                             ui.colored_label(egui::Color32::RED, "Unsubscribed");
                         }
-
                         if publication.is_subscribed() {
                             if ui.button("Unsubscribe").clicked() {
                                 let _ =
