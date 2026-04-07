@@ -15,6 +15,7 @@
 use std::{
     borrow::Cow,
     fmt::Debug,
+    io::Write,
     sync::{
         atomic::{AtomicBool, AtomicU32, Ordering},
         Arc,
@@ -22,7 +23,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine};
+use base64::{
+    engine::general_purpose::URL_SAFE as BASE64_URL_SAFE,
+    Engine,
+};
+use flate2::{write::GzEncoder, Compression};
 use http::StatusCode;
 use livekit_protocol as proto;
 use livekit_runtime::{interval, sleep, Instant, JoinHandle};
@@ -157,6 +162,7 @@ impl SignalClient {
         url: &str,
         token: &str,
         options: SignalOptions,
+        publisher_offer: Option<proto::SessionDescription>,
     ) -> SignalResult<(Self, proto::JoinResponse, SignalEvents)> {
         let handle_success = |inner: Arc<SignalInner>, join_response, stream_events| {
             let (emitter, events) = mpsc::unbounded_channel();
@@ -166,7 +172,7 @@ impl SignalClient {
             (Self { inner, emitter, handle: Mutex::new(Some(signal_task)) }, join_response, events)
         };
 
-        match SignalInner::connect(url, token, options.clone()).await {
+        match SignalInner::connect(url, token, options.clone(), publisher_offer.clone()).await {
             Ok((inner, join_response, stream_events)) => {
                 Ok(handle_success(inner, join_response, stream_events))
             }
@@ -180,7 +186,9 @@ impl SignalClient {
 
                 for url in urls.iter() {
                     log::info!("fallback connection to: {}", url);
-                    match SignalInner::connect(url, token, options.clone()).await {
+                    match SignalInner::connect(url, token, options.clone(), publisher_offer.clone())
+                        .await
+                    {
                         Ok((inner, join_response, stream_events)) => {
                             return Ok(handle_success(inner, join_response, stream_events))
                         }
@@ -263,6 +271,7 @@ impl SignalInner {
         url: &str,
         token: &str,
         options: SignalOptions,
+        publisher_offer: Option<proto::SessionDescription>,
     ) -> SignalResult<(
         Arc<Self>,
         proto::JoinResponse,
@@ -271,7 +280,15 @@ impl SignalInner {
         // Try v1 path first if single_peer_connection is enabled
         let use_v1_path = options.single_peer_connection;
         // For initial connection: reconnect=false, reconnect_reason=None, participant_sid=""
-        let lk_url = get_livekit_url(url, &options, use_v1_path, false, None, "")?;
+        let lk_url = get_livekit_url(
+            url,
+            &options,
+            use_v1_path,
+            false,
+            None,
+            "",
+            publisher_offer.as_ref(),
+        )?;
         // Try to connect to the SignalClient
         let (stream, mut events, single_pc_mode_active) =
             match SignalStream::connect(lk_url.clone(), token, options.connect_timeout).await {
@@ -301,7 +318,8 @@ impl SignalInner {
                         matches!(&err, SignalError::WsError(WsError::Http(e)) if e.status() == 404);
 
                     if use_v1_path && is_not_found {
-                        let lk_url_v0 = get_livekit_url(url, &options, false, false, None, "")?;
+                        let lk_url_v0 =
+                            get_livekit_url(url, &options, false, false, None, "", None)?;
                         log::warn!("v1 path not found (404), falling back to v0 path");
                         match SignalStream::connect(
                             lk_url_v0.clone(),
@@ -397,9 +415,17 @@ impl SignalInner {
         // For reconnects: reconnect=true, participant_sid=sid
         // For v1 path: reconnect and sid are encoded in the join_request protobuf
         // For v0 path: reconnect and sid are added as separate query parameters
-        let lk_url =
-            get_livekit_url(&self.url, &self.options, self.single_pc_mode_active, true, None, sid)
-                .unwrap();
+        // No publisher offer for reconnections
+        let lk_url = get_livekit_url(
+            &self.url,
+            &self.options,
+            self.single_pc_mode_active,
+            true,
+            None,
+            sid,
+            None,
+        )
+        .unwrap();
 
         let (new_stream, mut events) =
             SignalStream::connect(lk_url, &token, self.options.connect_timeout).await?;
@@ -556,6 +582,7 @@ fn create_join_request_param(
     participant_sid: &str,
     os: String,
     os_version: String,
+    publisher_offer: Option<&proto::SessionDescription>,
 ) -> String {
     let connection_settings = proto::ConnectionSettings {
         auto_subscribe: options.auto_subscribe,
@@ -576,6 +603,7 @@ fn create_join_request_param(
         client_info: Some(client_info),
         connection_settings: Some(connection_settings),
         reconnect,
+        publisher_offer: publisher_offer.cloned(),
         ..Default::default()
     };
 
@@ -592,13 +620,31 @@ fn create_join_request_param(
     // Serialize JoinRequest to bytes
     let join_request_bytes = join_request.encode_to_vec();
 
-    // Create WrappedJoinRequest (JS doesn't explicitly set compression, so default is NONE)
-    let wrapped_join_request =
-        proto::WrappedJoinRequest { join_request: join_request_bytes, ..Default::default() };
+    // Use gzip compression when publisher offer is included (SDP makes payload large)
+    let (compressed_bytes, compression) = if publisher_offer.is_some() {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        if encoder.write_all(&join_request_bytes).is_ok() {
+            if let Ok(compressed) = encoder.finish() {
+                (compressed, proto::wrapped_join_request::Compression::Gzip as i32)
+            } else {
+                (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
+            }
+        } else {
+            (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
+        }
+    } else {
+        (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
+    };
 
-    // Serialize WrappedJoinRequest to bytes and base64 encode
+    let wrapped_join_request = proto::WrappedJoinRequest {
+        join_request: compressed_bytes,
+        compression,
+    };
+
+    // Serialize WrappedJoinRequest to bytes and base64url encode
+    // (URL-safe base64 avoids percent-encoding issues in query parameters)
     let wrapped_bytes = wrapped_join_request.encode_to_vec();
-    BASE64_STANDARD.encode(&wrapped_bytes)
+    BASE64_URL_SAFE.encode(&wrapped_bytes)
 }
 
 /// Build the LiveKit WebSocket URL for connection
@@ -617,6 +663,7 @@ fn get_livekit_url(
     reconnect: bool,
     reconnect_reason: Option<i32>,
     participant_sid: &str,
+    publisher_offer: Option<&proto::SessionDescription>,
 ) -> SignalResult<url::Url> {
     let mut lk_url = url::Url::parse(url).map_err(|err| SignalError::UrlParse(err.to_string()))?;
 
@@ -651,6 +698,7 @@ fn get_livekit_url(
             participant_sid,
             os_info.os_type().to_string(),
             os_info.version().to_string(),
+            publisher_offer,
         );
         lk_url.query_pairs_mut().append_pair("join_request", &join_request_param);
     } else {
@@ -754,32 +802,32 @@ mod tests {
     fn livekit_url_test() {
         let io = SignalOptions::default();
 
-        assert!(get_livekit_url("localhost:7880", &io, false, false, None, "").is_err());
+        assert!(get_livekit_url("localhost:7880", &io, false, false, None, "", None).is_err());
         assert_eq!(
-            get_livekit_url("https://localhost:7880", &io, false, false, None, "")
+            get_livekit_url("https://localhost:7880", &io, false, false, None, "", None)
                 .unwrap()
                 .scheme(),
             "wss"
         );
         assert_eq!(
-            get_livekit_url("http://localhost:7880", &io, false, false, None, "").unwrap().scheme(),
+            get_livekit_url("http://localhost:7880", &io, false, false, None, "", None).unwrap().scheme(),
             "ws"
         );
         assert_eq!(
-            get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap().scheme(),
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap().scheme(),
             "wss"
         );
         assert_eq!(
-            get_livekit_url("ws://localhost:7880", &io, false, false, None, "").unwrap().scheme(),
+            get_livekit_url("ws://localhost:7880", &io, false, false, None, "", None).unwrap().scheme(),
             "ws"
         );
-        assert!(get_livekit_url("ftp://localhost:7880", &io, false, false, None, "").is_err());
+        assert!(get_livekit_url("ftp://localhost:7880", &io, false, false, None, "", None).is_err());
     }
 
     #[test]
     fn validate_url_test() {
         let io = SignalOptions::default();
-        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap();
+        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
         let validate_url = get_validate_url(lk_url);
 
         // Should be /rtc/validate, not /rtc/rtc/validate

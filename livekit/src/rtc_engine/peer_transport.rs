@@ -33,6 +33,7 @@ struct TransportInner {
     single_pc_mode: bool,
     // Publish-side target bitrate (bps) for offer munging
     max_send_bitrate_bps: Option<u64>,
+    pending_initial_offer: Option<SessionDescription>,
 }
 
 pub struct PeerTransport {
@@ -64,6 +65,7 @@ impl PeerTransport {
                 restarting_ice: false,
                 single_pc_mode,
                 max_send_bitrate_bps: None,
+                pending_initial_offer: None,
             })),
         }
     }
@@ -108,6 +110,11 @@ impl PeerTransport {
     ) -> EngineResult<()> {
         let mut inner = self.inner.lock().await;
 
+        if let Some(pending_offer) = inner.pending_initial_offer.take() {
+            log::debug!("applying pending initial offer as local description before answer");
+            self.peer_connection.set_local_description(pending_offer).await?;
+        }
+
         self.peer_connection.set_remote_description(remote_description).await?;
 
         for ic in inner.pending_candidates.drain(..) {
@@ -134,6 +141,34 @@ impl PeerTransport {
         self.peer_connection().set_local_description(answer.clone()).await?;
 
         Ok(answer)
+    }
+
+    /// Create an initial offer without setting it as local description.
+    /// The offer is stored as pending and will be applied when the server's answer arrives.
+    pub async fn create_initial_offer(&self) -> EngineResult<Option<SessionDescription>> {
+        let mut inner = self.inner.lock().await;
+        if !inner.single_pc_mode {
+            return Ok(None);
+        }
+
+        let offer = self.peer_connection.create_offer(OfferOptions::default()).await?;
+        let sdp = offer.to_string();
+
+        let recvonly_munged = Self::munge_inactive_to_recvonly_for_media(&sdp);
+        if recvonly_munged != sdp {
+            if let Ok(parsed) = SessionDescription::parse(&recvonly_munged, offer.sdp_type()) {
+                inner.pending_initial_offer = Some(parsed.clone());
+                return Ok(Some(parsed));
+            }
+        }
+
+        inner.pending_initial_offer = Some(offer.clone());
+        Ok(Some(offer))
+    }
+
+    pub async fn clear_pending_initial_offer(&self) {
+        let mut inner = self.inner.lock().await;
+        inner.pending_initial_offer = None;
     }
 
     pub async fn set_max_send_bitrate_bps(&self, bps: Option<u64>) {
@@ -331,6 +366,11 @@ impl PeerTransport {
         let mut inner = self.inner.lock().await;
         if options.ice_restart {
             inner.restarting_ice = true;
+        }
+
+        if inner.pending_initial_offer.is_some() {
+            inner.renegotiate = true;
+            return Ok(());
         }
 
         if self.peer_connection.signaling_state() == SignalingState::HaveLocalOffer {
