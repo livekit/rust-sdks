@@ -457,11 +457,10 @@ impl RtcSession {
             );
 
             let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
-            Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3);
+            Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
 
             match publisher_pc.create_initial_offer().await {
                 Ok(Some(offer)) => {
-                    log::debug!("created initial publisher offer for join request");
                     publisher_offer = Some(proto::SessionDescription {
                         r#type: "offer".to_string(),
                         sdp: offer.to_string(),
@@ -650,7 +649,7 @@ impl RtcSession {
         pc: &PeerConnection,
         audio_count: u32,
         video_count: u32,
-    ) {
+    ) -> EngineResult<()> {
         let recvonly_init = RtpTransceiverInit {
             direction: RtpTransceiverDirection::RecvOnly,
             stream_ids: Vec::new(),
@@ -658,19 +657,12 @@ impl RtcSession {
         };
 
         for _ in 0..audio_count {
-            if let Err(err) =
-                pc.add_transceiver_for_media(MediaType::Audio, recvonly_init.clone())
-            {
-                log::warn!("failed to add recvonly audio transceiver: {:?}", err);
-            }
+            pc.add_transceiver_for_media(MediaType::Audio, recvonly_init.clone())?;
         }
         for _ in 0..video_count {
-            if let Err(err) =
-                pc.add_transceiver_for_media(MediaType::Video, recvonly_init.clone())
-            {
-                log::warn!("failed to add recvonly video transceiver: {:?}", err);
-            }
+            pc.add_transceiver_for_media(MediaType::Video, recvonly_init.clone())?;
         }
+        Ok(())
     }
 
     pub fn has_published(&self) -> bool {
@@ -1325,7 +1317,7 @@ impl SessionInner {
             &self.publisher_pc.peer_connection(),
             req.num_audios,
             req.num_videos,
-        );
+        )?;
 
         // Trigger renegotiation
         self.publisher_negotiation_needed();

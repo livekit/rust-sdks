@@ -111,7 +111,6 @@ impl PeerTransport {
         let mut inner = self.inner.lock().await;
 
         if let Some(pending_offer) = inner.pending_initial_offer.take() {
-            log::debug!("applying pending initial offer as local description before answer");
             self.peer_connection.set_local_description(pending_offer).await?;
         }
 
