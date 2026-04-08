@@ -133,6 +133,10 @@ impl DesktopCapturer {
         }
         sources
     }
+
+    pub fn set_excluded_applications(&self, applications: Vec<u64>) {
+        self.sys_handle.set_excluded_applications(applications);
+    }
 }
 
 #[cfg(all(any(target_os = "linux", target_os = "freebsd"), feature = "glib-main-loop"))]

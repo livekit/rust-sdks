@@ -58,6 +58,7 @@ pub mod ffi {
         fn get_source_list(self: &DesktopCapturer) -> Vec<Source>;
         fn select_source(self: &DesktopCapturer, id: u64) -> bool;
         fn start(self: Pin<&mut DesktopCapturer>, callback: Box<DesktopCapturerCallbackWrapper>);
+        fn set_excluded_applications(self: &DesktopCapturer, applications: Vec<u64>);
 
         fn width(self: &DesktopFrame) -> i32;
         fn height(self: &DesktopFrame) -> i32;

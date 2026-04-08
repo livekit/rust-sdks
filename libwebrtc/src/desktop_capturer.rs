@@ -148,6 +148,10 @@ impl DesktopCapturer {
         let source_list = self.handle.get_source_list();
         source_list.into_iter().map(|source| CaptureSource { sys_handle: source }).collect()
     }
+
+    pub fn set_excluded_applications(&self, applications: Vec<u64>) {
+        self.handle.set_excluded_applications(applications);
+    }
 }
 
 pub struct DesktopFrame {
