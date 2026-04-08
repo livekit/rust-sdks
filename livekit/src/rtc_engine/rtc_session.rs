@@ -54,7 +54,7 @@ use crate::{
 use crate::{
     id::ParticipantSid,
     options::TrackPublishOptions,
-    prelude::TrackKind,
+    prelude::{TrackKind, TrackSource},
     room::{e2ee::manager::E2eeManager, DisconnectReason},
     rtc_engine::{
         lk_runtime::LkRuntime,
@@ -1617,7 +1617,12 @@ impl SessionInner {
                     if let Some(sdp_fmtp_line) = codec.sdp_fmtp_line.as_ref() {
                         // for h264 codecs that have sdpFmtpLine available, use only if the
                         // profile-level-id is 42e01f for cross-browser compatibility
-                        if sdp_fmtp_line.contains("profile-level-id=42e01f") {
+                        let mut profile_level = "profile-level-id=42e01f";
+                        if options.source == TrackSource::Screenshare {
+                            // for screen share, we prefer 640033 profile which has better performance
+                            profile_level = "profile-level-id=640033";
+                        }
+                        if sdp_fmtp_line.contains(profile_level) {
                             matched.push(codec);
                             continue;
                         }
