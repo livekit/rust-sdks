@@ -1630,7 +1630,11 @@ impl SessionInner {
 
             matched.append(&mut partial_matched);
 
-            transceiver.set_codec_preferences(matched)?;
+            let preferred: Vec<_> =
+                matched.into_iter().chain(partial_matched).chain(unmatched).collect();
+            if !preferred.is_empty() {
+                transceiver.set_codec_preferences(preferred)?;
+            }
         }
 
         Ok(transceiver)
