@@ -23,10 +23,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use base64::{
-    engine::general_purpose::URL_SAFE as BASE64_URL_SAFE,
-    Engine,
-};
+use base64::{engine::general_purpose::URL_SAFE as BASE64_URL_SAFE, Engine};
 use flate2::{write::GzEncoder, Compression};
 use http::StatusCode;
 use livekit_protocol as proto;
@@ -280,15 +277,8 @@ impl SignalInner {
         // Try v1 path first if single_peer_connection is enabled
         let use_v1_path = options.single_peer_connection;
         // For initial connection: reconnect=false, reconnect_reason=None, participant_sid=""
-        let lk_url = get_livekit_url(
-            url,
-            &options,
-            use_v1_path,
-            false,
-            None,
-            "",
-            publisher_offer.as_ref(),
-        )?;
+        let lk_url =
+            get_livekit_url(url, &options, use_v1_path, false, None, "", publisher_offer.as_ref())?;
         // Try to connect to the SignalClient
         let (stream, mut events, single_pc_mode_active) =
             match SignalStream::connect(lk_url.clone(), token, options.connect_timeout).await {
@@ -636,10 +626,8 @@ fn create_join_request_param(
         (join_request_bytes, proto::wrapped_join_request::Compression::None as i32)
     };
 
-    let wrapped_join_request = proto::WrappedJoinRequest {
-        join_request: compressed_bytes,
-        compression,
-    };
+    let wrapped_join_request =
+        proto::WrappedJoinRequest { join_request: compressed_bytes, compression };
 
     // Serialize WrappedJoinRequest to bytes and base64url encode
     // (URL-safe base64 avoids percent-encoding issues in query parameters)
@@ -810,15 +798,21 @@ mod tests {
             "wss"
         );
         assert_eq!(
-            get_livekit_url("http://localhost:7880", &io, false, false, None, "", None).unwrap().scheme(),
+            get_livekit_url("http://localhost:7880", &io, false, false, None, "", None)
+                .unwrap()
+                .scheme(),
             "ws"
         );
         assert_eq!(
-            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap().scheme(),
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None)
+                .unwrap()
+                .scheme(),
             "wss"
         );
         assert_eq!(
-            get_livekit_url("ws://localhost:7880", &io, false, false, None, "", None).unwrap().scheme(),
+            get_livekit_url("ws://localhost:7880", &io, false, false, None, "", None)
+                .unwrap()
+                .scheme(),
             "ws"
         );
         assert!(get_livekit_url("ftp://localhost:7880", &io, false, false, None, "", None).is_err());
@@ -827,7 +821,8 @@ mod tests {
     #[test]
     fn validate_url_test() {
         let io = SignalOptions::default();
-        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
+        let lk_url =
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
         let validate_url = get_validate_url(lk_url);
 
         // Should be /rtc/validate, not /rtc/rtc/validate

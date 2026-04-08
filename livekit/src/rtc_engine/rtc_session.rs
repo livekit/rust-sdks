@@ -449,9 +449,7 @@ impl RtcSession {
         let mut publisher_offer = None;
         let early_publisher_pc = if use_single_pc {
             let publisher_pc = PeerTransport::new(
-                lk_runtime
-                    .pc_factory()
-                    .create_peer_connection(options.rtc_config.clone())?,
+                lk_runtime.pc_factory().create_peer_connection(options.rtc_config.clone())?,
                 proto::SignalTarget::Publisher,
                 true,
             );
