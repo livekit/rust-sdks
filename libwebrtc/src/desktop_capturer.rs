@@ -215,6 +215,7 @@ impl std::fmt::Display for CaptureSource {
 pub enum CaptureError {
     Temporary,
     Permanent,
+    UserStopped,
 }
 
 fn capture_result_from_sys(
@@ -225,6 +226,7 @@ fn capture_result_from_sys(
         Err(error) => Err(match error {
             imp_dc::CaptureError::Temporary => CaptureError::Temporary,
             imp_dc::CaptureError::Permanent => CaptureError::Permanent,
+            imp_dc::CaptureError::UserStopped => CaptureError::UserStopped,
         }),
     }
 }

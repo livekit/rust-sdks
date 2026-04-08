@@ -44,6 +44,7 @@ pub mod ffi {
         Success,
         ErrorTemporary,
         ErrorPermanent,
+        ErrorUserStopped,
     }
 
     unsafe extern "C++" {
@@ -83,6 +84,7 @@ impl_thread_safety!(ffi::DesktopCapturer, Send + Sync);
 pub enum CaptureError {
     Temporary,
     Permanent,
+    UserStopped,
 }
 
 pub trait DesktopCapturerCallback: Send {
@@ -106,6 +108,9 @@ impl DesktopCapturerCallbackWrapper {
             }
             CaptureResult::ErrorPermanent => {
                 self.callback.on_capture_result(Err(CaptureError::Permanent))
+            }
+            CaptureResult::ErrorUserStopped => {
+                self.callback.on_capture_result(Err(CaptureError::UserStopped))
             }
             _ => self.callback.on_capture_result(Err(CaptureError::Permanent)),
         }

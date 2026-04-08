@@ -94,6 +94,9 @@ void DesktopCapturer::OnCaptureResult(
     case webrtc::DesktopCapturer::Result::ERROR_TEMPORARY:
       ret_result = CaptureResult::ErrorTemporary;
       break;
+    case webrtc::DesktopCapturer::Result::ERROR_USER_STOPPED:
+        ret_result = CaptureResult::ErrorUserStopped;
+        break;
     default:
       break;
   }
