@@ -1510,6 +1510,20 @@ impl SessionInner {
 
             matched.append(&mut partial_matched);
 
+            if matched.is_empty() {
+                log::warn!(
+                    "No RTP codec capability matched 'video/{}'; \
+                     codec preferences will be empty and WebRTC may use a fallback codec",
+                    options.video_codec.as_str()
+                );
+            } else {
+                log::info!(
+                    "Setting codec preferences for video/{}: {} entries",
+                    options.video_codec.as_str(),
+                    matched.len()
+                );
+            }
+
             transceiver.set_codec_preferences(matched)?;
         }
 

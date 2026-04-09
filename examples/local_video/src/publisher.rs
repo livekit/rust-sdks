@@ -216,22 +216,54 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         .publish_track(LocalTrack::Video(track.clone()), publish_opts(requested_codec))
         .await;
 
-    if let Err(e) = publish_result {
-        if !matches!(requested_codec, VideoCodec::H264) {
+    let publication = match publish_result {
+        Ok(pub_) => {
+            info!("Published camera track with codec: {}", requested_codec.as_str());
+            pub_
+        }
+        Err(e) => {
+            if !matches!(requested_codec, VideoCodec::H264) {
+                log::warn!(
+                    "{} publish failed ({}). Falling back to H.264...",
+                    requested_codec.as_str(),
+                    e
+                );
+                room.local_participant()
+                    .publish_track(
+                        LocalTrack::Video(track.clone()),
+                        publish_opts(VideoCodec::H264),
+                    )
+                    .await?
+            } else {
+                return Err(e.into());
+            }
+        }
+    };
+
+    // Verify the negotiated codec matches what we requested
+    let pub_mime = publication.mime_type();
+    let dim = publication.dimension();
+    info!(
+        "Track published: sid={}, mime_type='{}', source={:?}, dimension={}x{}",
+        publication.sid(),
+        pub_mime,
+        publication.source(),
+        dim.0,
+        dim.1,
+    );
+    if !pub_mime.is_empty() {
+        let expected_mime = format!("video/{}", requested_codec.as_str());
+        if !pub_mime.eq_ignore_ascii_case(&expected_mime) {
             log::warn!(
-                "{} publish failed ({}). Falling back to H.264...",
-                requested_codec.as_str(),
-                e
+                "CODEC MISMATCH: requested '{}' but server reports mime_type='{}'",
+                expected_mime,
+                pub_mime,
             );
-            room.local_participant()
-                .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
-                .await?;
-            info!("Published camera track with H.264 fallback");
-        } else {
-            return Err(e.into());
         }
     } else {
-        info!("Published camera track");
+        log::warn!(
+            "Server returned empty mime_type for track; codec may not have been negotiated yet"
+        );
     }
 
     // Reusable I420 buffer and frame
