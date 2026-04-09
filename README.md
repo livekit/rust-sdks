@@ -31,7 +31,7 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
 - [x] Hardware video enc/dec
   - [x] H.264, H.265 using VideoToolbox (MacOS/iOS)
   - [x] H.264 on NVidia and AMD GPUs (Linux)
-  - [ ] H.264, H.265 on NVidia Jetson (Linux)
+  - [ ] H.264, H.265, AV1 on NVidia Jetson (Linux)
 - Supported Platforms
   - [x] Windows
   - [x] MacOS

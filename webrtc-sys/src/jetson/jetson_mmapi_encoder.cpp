@@ -95,6 +95,10 @@ bool GetPitchAndHeightFromNvBufSurfaceFd(int dmabuf_fd,
 #define V4L2_PIX_FMT_H265 v4l2_fourcc('H', '2', '6', '5')
 #endif
 
+#ifndef V4L2_PIX_FMT_AV1
+#define V4L2_PIX_FMT_AV1 v4l2_fourcc('A', 'V', '0', '1')
+#endif
+
 }  // namespace
 
 namespace livekit {
@@ -107,7 +111,8 @@ JetsonMmapiEncoder::~JetsonMmapiEncoder() {
 
 bool JetsonMmapiEncoder::IsSupported() {
   return IsCodecSupported(JetsonCodec::kH264) ||
-         IsCodecSupported(JetsonCodec::kH265);
+         IsCodecSupported(JetsonCodec::kH265) ||
+         IsCodecSupported(JetsonCodec::kAV1);
 }
 
 bool JetsonMmapiEncoder::IsCodecSupported(JetsonCodec codec) {
@@ -147,14 +152,22 @@ std::optional<std::string> JetsonMmapiEncoder::FindEncoderDevice() {
 }
 
 uint32_t JetsonMmapiEncoder::CodecToV4L2PixFmt(JetsonCodec codec) {
-  return codec == JetsonCodec::kH264 ? V4L2_PIX_FMT_H264
-                                     : V4L2_PIX_FMT_HEVC;
+  switch (codec) {
+    case JetsonCodec::kH264:
+      return V4L2_PIX_FMT_H264;
+    case JetsonCodec::kH265:
+      return V4L2_PIX_FMT_HEVC;
+    case JetsonCodec::kAV1:
+      return V4L2_PIX_FMT_AV1;
+  }
+  return V4L2_PIX_FMT_H264;
 }
 
 uint32_t JetsonMmapiEncoder::CodecToV4L2FallbackPixFmt(JetsonCodec codec) {
   if (codec == JetsonCodec::kH265) {
     return V4L2_PIX_FMT_H265;
   }
+  // AV1 and H264 have no alternate fourcc.
   return CodecToV4L2PixFmt(codec);
 }
 
@@ -487,11 +500,20 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
   const uint32_t bitstream_size =
       std::max(kMinBitstreamBufferSize, width_ * height_);
 
+  auto codec_name = [](JetsonCodec c) -> const char* {
+    switch (c) {
+      case JetsonCodec::kH264: return "H264";
+      case JetsonCodec::kH265: return "H265";
+      case JetsonCodec::kAV1:  return "AV1";
+    }
+    return "unknown";
+  };
+
   if (verbose) {
     std::fprintf(stderr,
                  "[MMAPI] ConfigureEncoder: codec=%s, pixfmt=0x%x, "
                  "bitstream_size=%u\n",
-                 codec_ == JetsonCodec::kH264 ? "H264" : "H265", codec_pixfmt,
+                 codec_name(codec_), codec_pixfmt,
                  bitstream_size);
     std::fflush(stderr);
   }
@@ -592,11 +614,15 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     std::fflush(stderr);
   }
 
-  ret = encoder_->setInsertSpsPpsAtIdrEnabled(true);
-  if (verbose) {
-    std::fprintf(stderr, "[MMAPI] setInsertSpsPpsAtIdrEnabled(true): ret=%d\n",
-                 ret);
-    std::fflush(stderr);
+  // SPS/PPS insertion and profile/level are H.264/H.265-specific.
+  // AV1 uses Sequence Header OBUs which the encoder inserts automatically.
+  if (codec_ != JetsonCodec::kAV1) {
+    ret = encoder_->setInsertSpsPpsAtIdrEnabled(true);
+    if (verbose) {
+      std::fprintf(stderr, "[MMAPI] setInsertSpsPpsAtIdrEnabled(true): ret=%d\n",
+                   ret);
+      std::fflush(stderr);
+    }
   }
 
   if (codec_ == JetsonCodec::kH264) {
@@ -612,7 +638,7 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
       std::fprintf(stderr, "[MMAPI] setLevel(3.1): ret=%d\n", ret);
       std::fflush(stderr);
     }
-  } else {
+  } else if (codec_ == JetsonCodec::kH265) {
     ret = encoder_->setProfile(V4L2_MPEG_VIDEO_H265_PROFILE_MAIN);
     if (verbose) {
       std::fprintf(stderr, "[MMAPI] setProfile(MAIN): ret=%d\n", ret);

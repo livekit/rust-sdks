@@ -12,7 +12,7 @@ class NvVideoEncoder;
 
 namespace livekit {
 
-enum class JetsonCodec { kH264, kH265 };
+enum class JetsonCodec { kH264, kH265, kAV1 };
 
 class JetsonMmapiEncoder {
  public:
