@@ -4139,6 +4139,7 @@ name = "livekit-uniffi"
 version = "0.1.0"
 dependencies = [
  "livekit-api",
+ "livekit-datatrack",
  "livekit-protocol",
  "log",
  "once_cell",
