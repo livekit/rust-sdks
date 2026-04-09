@@ -56,6 +56,7 @@ class JetsonMmapiEncoder {
  private:
   bool CreateEncoder();
   bool ConfigureEncoder();
+  void UpdateStridesFromBuffer(bool verbose);
   bool SetupPlanes();
   bool QueueCaptureBuffers();
   bool StartStreaming();

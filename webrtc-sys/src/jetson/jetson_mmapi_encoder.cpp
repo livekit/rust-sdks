@@ -68,7 +68,6 @@ bool GetPitchAndHeightFromNvBufSurfaceFd(int dmabuf_fd,
   if (ret != 0 || !surface) {
     return false;
   }
-  // Most MMAPI buffers are not batched; guard anyway.
   if (surface->batchSize < 1) {
     return false;
   }
@@ -80,12 +79,18 @@ bool GetPitchAndHeightFromNvBufSurfaceFd(int dmabuf_fd,
   if (p.planeParams.num_planes < 1) {
     return false;
   }
-  if (plane_index >= static_cast<int>(p.planeParams.num_planes)) {
-    return false;
+
+  // With YUV420M each V4L2 plane may have its own FD. If this FD backs a
+  // multi-plane surface (num_planes >= plane_index+1), use plane_index
+  // directly. Otherwise the FD represents a single-plane surface and the
+  // data lives at index 0.
+  int effective_index = plane_index;
+  if (effective_index >= static_cast<int>(p.planeParams.num_planes)) {
+    effective_index = 0;
   }
 
-  const uint32_t pitch = p.planeParams.pitch[plane_index];
-  const uint32_t height = p.planeParams.height[plane_index];
+  const uint32_t pitch = p.planeParams.pitch[effective_index];
+  const uint32_t height = p.planeParams.height[effective_index];
   if (out_pitch) *out_pitch = pitch;
   if (out_height) *out_height = height;
   return pitch > 0 && height > 0;
@@ -248,6 +253,12 @@ bool JetsonMmapiEncoder::Initialize(int width,
                  output_buffer_count_, capture_buffer_count_);
     std::fflush(stderr);
   }
+
+  // getFormat() in ConfigureEncoder() often returns zero strides when called
+  // before buffers are allocated.  Now that setupPlane() has created MMAP
+  // buffers, re-query the real strides from the first buffer so the member
+  // variables used as fallbacks in QueueOutputBuffer() are correct.
+  UpdateStridesFromBuffer(verbose);
 
   if (!QueueCaptureBuffers()) {
     std::fprintf(stderr, "[MMAPI] ERROR: QueueCaptureBuffers() failed\n");
@@ -549,29 +560,39 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     std::fflush(stderr);
   }
 
-  // Prefer planar YUV420 (I420-style) for Jetson end-to-end.
-  // If that fails, fall back to NV12M. The I420 input path can still be used
-  // with NV12 by interleaving U/V into UV in QueueOutputBuffer().
+  // For AV1, prefer NV12M: Jetson's AV1 hardware encoder natively works with
+  // NV12 and the YUV420M → internal blit path can produce incorrect output on
+  // some Orin platforms.  For H.264/H.265, prefer planar YUV420M which avoids
+  // the CPU-side U/V interleave.  QueueOutputBuffer() handles I420→NV12
+  // conversion when output_is_nv12_ is set.
   output_is_nv12_ = false;
-  ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_, height_);
+  const bool prefer_nv12 = (codec_ == JetsonCodec::kAV1);
+  const uint32_t first_fmt  = prefer_nv12 ? V4L2_PIX_FMT_NV12M  : V4L2_PIX_FMT_YUV420M;
+  const uint32_t second_fmt = prefer_nv12 ? V4L2_PIX_FMT_YUV420M : V4L2_PIX_FMT_NV12M;
+  const char* first_name  = prefer_nv12 ? "NV12M"  : "YUV420M";
+  const char* second_name = prefer_nv12 ? "YUV420M" : "NV12M";
+
+  ret = encoder_->setOutputPlaneFormat(first_fmt, width_, height_);
   if (ret < 0) {
     if (verbose) {
       std::fprintf(stderr,
-                   "[MMAPI] YUV420M format failed (ret=%d), trying NV12M\n",
-                   ret);
+                   "[MMAPI] %s format failed (ret=%d), trying %s\n",
+                   first_name, ret, second_name);
       std::fflush(stderr);
     }
-    ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_);
+    ret = encoder_->setOutputPlaneFormat(second_fmt, width_, height_);
     if (ret < 0) {
       RTC_LOG(LS_ERROR) << "Failed to set output plane format.";
       std::fprintf(stderr,
-                   "[MMAPI] setOutputPlaneFormat failed for both YUV420M and "
-                   "NV12M: ret=%d, errno=%d (%s)\n",
-                   ret, errno, strerror(errno));
+                   "[MMAPI] setOutputPlaneFormat failed for both %s and "
+                   "%s: ret=%d, errno=%d (%s)\n",
+                   first_name, second_name, ret, errno, strerror(errno));
       std::fflush(stderr);
       return false;
     }
-    output_is_nv12_ = true;
+    output_is_nv12_ = !prefer_nv12;
+  } else {
+    output_is_nv12_ = prefer_nv12;
   }
   if (verbose) {
     std::fprintf(stderr,
@@ -712,6 +733,60 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
   }
 
   return true;
+}
+
+void JetsonMmapiEncoder::UpdateStridesFromBuffer(bool verbose) {
+  NvBuffer* buf = encoder_->output_plane.getNthBuffer(0);
+  if (!buf || buf->n_planes == 0) {
+    return;
+  }
+
+  auto update = [](int* member, int new_val, int min_val) {
+    if (new_val >= min_val) {
+      *member = new_val;
+    }
+  };
+
+  // Prefer NvBufSurface pitch (ground truth), then NvBufferPlane fmt.stride.
+  uint32_t pitch = 0, h = 0, np = 0;
+  if (GetPitchAndHeightFromNvBufSurfaceFd(buf->planes[0].fd, 0, &pitch, &h, &np)) {
+    update(&output_y_stride_, static_cast<int>(pitch), width_);
+  } else {
+    update(&output_y_stride_,
+           static_cast<int>(buf->planes[0].fmt.stride), width_);
+  }
+
+  const int min_chroma = output_is_nv12_ ? width_ : (width_ + 1) / 2;
+  if (buf->n_planes > 1) {
+    pitch = 0;
+    if (GetPitchAndHeightFromNvBufSurfaceFd(buf->planes[1].fd, 1, &pitch, &h, &np)) {
+      update(&output_u_stride_, static_cast<int>(pitch), min_chroma);
+    } else {
+      update(&output_u_stride_,
+             static_cast<int>(buf->planes[1].fmt.stride), min_chroma);
+    }
+  }
+  if (!output_is_nv12_ && buf->n_planes > 2) {
+    pitch = 0;
+    if (GetPitchAndHeightFromNvBufSurfaceFd(buf->planes[2].fd, 2, &pitch, &h, &np)) {
+      update(&output_v_stride_, static_cast<int>(pitch), (width_ + 1) / 2);
+    } else {
+      update(&output_v_stride_,
+             static_cast<int>(buf->planes[2].fmt.stride), (width_ + 1) / 2);
+    }
+  }
+  if (output_is_nv12_) {
+    output_v_stride_ = output_u_stride_;
+  }
+
+  if (verbose) {
+    std::fprintf(stderr,
+                 "[MMAPI] UpdateStridesFromBuffer: y=%d, u=%d, v=%d "
+                 "(is_nv12=%d)\n",
+                 output_y_stride_, output_u_stride_, output_v_stride_,
+                 output_is_nv12_ ? 1 : 0);
+    std::fflush(stderr);
+  }
 }
 
 bool JetsonMmapiEncoder::SetupPlanes() {
