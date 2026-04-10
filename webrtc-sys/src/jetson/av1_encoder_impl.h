@@ -73,6 +73,7 @@ class JetsonAV1EncoderImpl : public VideoEncoder {
   void ReportError();
   bool has_reported_init_ = false;
   bool has_reported_error_ = false;
+  bool ivf_header_detected_ = false;
   const SdpVideoFormat format_;
 };
 

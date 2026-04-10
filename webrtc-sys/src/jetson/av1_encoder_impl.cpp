@@ -150,6 +150,7 @@ int32_t JetsonAV1EncoderImpl::Release() {
   if (encoder_.IsInitialized()) {
     encoder_.Destroy();
   }
+  ivf_header_detected_ = false;
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -223,6 +224,54 @@ int32_t JetsonAV1EncoderImpl::Encode(
     RTC_LOG(LS_WARNING) << "Jetson MMAPI AV1 encoder returned empty packet; "
                            "skipping output.";
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+  }
+
+  // The Jetson MMAPI AV1 encoder wraps output in an IVF container.
+  // WebRTC's AV1 RTP packetizer expects raw OBU data, so strip the IVF
+  // headers before handing off to the packetizer.
+  //
+  // First frame: 32-byte IVF file header + 12-byte IVF frame header = 44 bytes
+  // Subsequent:  12-byte IVF frame header
+  {
+    size_t strip = 0;
+    if (packet.size() >= 32 + 12 &&
+        packet[0] == 'D' && packet[1] == 'K' &&
+        packet[2] == 'I' && packet[3] == 'F') {
+      uint16_t hdr_len = packet[6] | (static_cast<uint16_t>(packet[7]) << 8);
+      strip = static_cast<size_t>(hdr_len) + 12;
+      if (frame_num < 3) {
+        std::fprintf(stderr,
+                     "[AV1Impl] Stripping IVF file header (%u bytes) + "
+                     "frame header (12 bytes) = %zu bytes from %zu byte packet\n",
+                     hdr_len, strip, packet.size());
+        std::fflush(stderr);
+      }
+    } else if (packet.size() >= 12 + 2 && ivf_header_detected_) {
+      // IVF frame header: 4 bytes size (LE) + 8 bytes timestamp
+      uint32_t ivf_frame_size = packet[0] |
+          (static_cast<uint32_t>(packet[1]) << 8) |
+          (static_cast<uint32_t>(packet[2]) << 16) |
+          (static_cast<uint32_t>(packet[3]) << 24);
+      if (ivf_frame_size + 12 == packet.size() ||
+          ivf_frame_size + 12 <= packet.size()) {
+        strip = 12;
+        if (frame_num < 5) {
+          std::fprintf(stderr,
+                       "[AV1Impl] Stripping IVF frame header (12 bytes) "
+                       "from %zu byte packet (ivf_frame_size=%u)\n",
+                       packet.size(), ivf_frame_size);
+          std::fflush(stderr);
+        }
+      }
+    }
+    if (strip > 0) {
+      ivf_header_detected_ = true;
+      if (strip >= packet.size()) {
+        RTC_LOG(LS_WARNING) << "IVF strip offset exceeds packet size";
+        return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+      }
+      packet.erase(packet.begin(), packet.begin() + strip);
+    }
   }
 
   if (frame_num < 5 && packet.size() >= 2) {
