@@ -23,10 +23,11 @@ use livekit_datatrack::backend::local::{
 use livekit_datatrack::backend::EncryptionError;
 use livekit_datatrack::{
     api::{DataTrackOptions, PublishError},
-    backend::{local as inner, EncryptedPayload, InitializationVector},
+    backend::{local as inner, EncryptedPayload, EncryptionProvider, InitializationVector},
 };
 use livekit_protocol as proto;
 use prost::Message;
+use std::fmt;
 use std::sync::Arc;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
@@ -88,12 +89,13 @@ impl LocalDataTrackManager {
     #[uniffi::constructor]
     pub fn new(
         delegate: Arc<dyn LocalDataTrackManagerDelegate>,
-        e2ee_provider: Option<Arc<dyn LocalDataTrackEncryptionProvider>>,
+        encryption_provider: Option<Arc<dyn LocalDataTrackEncryptionProvider>>,
     ) -> Arc<Self> {
         let token = CancellationToken::new();
 
-        let manager_options = inner::ManagerOptions { encryption_provider: None };
-        // TODO: encryption provider
+        let encryption_provider = encryption_provider
+            .map(|p| Arc::new(FfiEncryptionProvider(p)) as Arc<dyn EncryptionProvider>);
+        let manager_options = inner::ManagerOptions { encryption_provider };
 
         let (manager, input, output) = inner::Manager::new(manager_options);
         tokio::spawn(Self::shutdown_forward_task(input.clone(), token.clone()));
@@ -249,4 +251,19 @@ pub enum EncryptionError {}
 pub trait LocalDataTrackEncryptionProvider: Send + Sync {
     /// Encrypts the given payload being sent by the local participant.
     fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, EncryptionError>;
+}
+
+/// Adapts [`LocalDataTrackEncryptionProvider`] to implement [`EncryptionProvider`].
+struct FfiEncryptionProvider(Arc<dyn LocalDataTrackEncryptionProvider>);
+
+impl EncryptionProvider for FfiEncryptionProvider {
+    fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, EncryptionError> {
+        self.0.encrypt(payload)
+    }
+}
+
+impl fmt::Debug for FfiEncryptionProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FfiEncryptionProvider").finish_non_exhaustive()
+    }
 }
