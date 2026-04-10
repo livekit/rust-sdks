@@ -1212,7 +1212,6 @@ impl SessionInner {
                     self.handle_media_sections_requirement(req)?;
                 }
             }
-            #[allow(deprecated)]
             proto::signal_response::Message::SubscribedQualityUpdate(update) => {
                 log::debug!(
                     "received subscribed quality update for track {}: {:?}",
