@@ -238,6 +238,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     attach_timestamp: bool,
 
+    /// Enable dynacast (pause unused simulcast layers based on subscriber demand)
+    #[arg(long, default_value_t = false)]
+    dynacast: bool,
+
     /// Burn the attached timestamp into each video frame; does nothing unless --attach-timestamp is also enabled
     #[arg(long, default_value_t = false)]
     burn_timestamp: bool,
@@ -924,8 +928,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
-    room_options.auto_subscribe = false;
-    room_options.dynacast = true;
+    room_options.auto_subscribe = true;
+    room_options.dynacast = args.dynacast;
 
     // Configure E2EE if an encryption key is provided
     if let Some(ref e2ee_key) = args.e2ee_key {
@@ -1253,6 +1257,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 let capture_task = tokio::spawn(run_capture_loop(
                     capture_config,
                     ctrl_c_received.clone(),
+                    track.clone(),
                     rtc_source,
                     video_input,
                     width,
@@ -1277,6 +1282,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 let capture_result = run_capture_loop(
                     capture_config,
                     ctrl_c_received,
+                    track,
                     rtc_source,
                     video_input,
                     width,
@@ -1297,6 +1303,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 async fn run_capture_loop(
     config: CaptureConfig,
     ctrl_c_received: Arc<AtomicBool>,
+    track: LocalVideoTrack,
     rtc_source: NativeVideoSource,
     mut video_input: VideoInput,
     width: u32,
@@ -1646,11 +1653,29 @@ async fn run_capture_loop(
         if last_fps_log.elapsed() >= std::time::Duration::from_secs(2) {
             let secs = last_fps_log.elapsed().as_secs_f64();
             let fps_est = frames as f64 / secs;
+            let layers = track.publishing_layers();
+            let layers_str = if layers.is_empty() {
+                "n/a".to_string()
+            } else {
+                layers
+                    .iter()
+                    .map(|layer| {
+                        format!(
+                            "{}({})={}",
+                            layer.rid,
+                            layer.quality,
+                            if layer.active { "ON" } else { "off" }
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
             info!(
-                "Video status: {}x{} | ~{:.1} fps | target {:.2} ms",
+                "Video status: {}x{} | ~{:.1} fps | layers: [{}] | target {:.2} ms",
                 width,
                 height,
                 fps_est,
+                layers_str,
                 target.as_secs_f64() * 1000.0,
             );
             info!("{}", format_timing_line(&timings));
