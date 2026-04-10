@@ -81,6 +81,8 @@ struct Args {
 enum CodecChoice {
     H264,
     H265,
+    Vp8,
+    Vp9,
     Av1,
 }
 
@@ -200,6 +202,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let requested_codec = match args.codec {
         CodecChoice::H264 => VideoCodec::H264,
         CodecChoice::H265 => VideoCodec::H265,
+        CodecChoice::Vp8 => VideoCodec::VP8,
+        CodecChoice::Vp9 => VideoCodec::VP9,
         CodecChoice::Av1 => VideoCodec::AV1,
     };
     info!("Attempting publish with codec: {}", requested_codec.as_str());
