@@ -24,6 +24,7 @@ use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
+use crate::server::data_track::FfiRemoteDataTrack;
 use crate::{
     proto,
     server::data_stream::{FfiByteStreamReader, FfiTextStreamReader},
@@ -1040,6 +1041,14 @@ async fn forward_event(
                 .into(),
             );
         }
+        RoomEvent::ParticipantActive(participant) => {
+            let _ = send_event(
+                proto::ParticipantActive {
+                    participant_identity: participant.identity().to_string(),
+                }
+                .into(),
+            );
+        }
         RoomEvent::LocalTrackPublished { publication, track: _, participant: _ } => {
             let sid = publication.sid();
             // If we're currently reconnecting, users can't publish tracks, if we receive this
@@ -1437,6 +1446,13 @@ async fn forward_event(
         }
         RoomEvent::TokenRefreshed { token } => {
             let _ = send_event(proto::TokenRefreshed { token: token.into() }.into());
+        }
+        RoomEvent::DataTrackPublished(track) => {
+            let track = FfiRemoteDataTrack::from_track(server, track);
+            let _ = send_event(proto::DataTrackPublished { track }.into());
+        }
+        RoomEvent::DataTrackUnpublished(sid) => {
+            let _ = send_event(proto::DataTrackUnpublished { sid: sid.to_string() }.into());
         }
         _ => {
             log::warn!("unhandled room event: {:?}", event);

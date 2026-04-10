@@ -23,8 +23,8 @@ const int kSamplesPer10Ms = kSampleRate / 100;
 
 namespace livekit_ffi {
 
-AudioDevice::AudioDevice(webrtc::TaskQueueFactory* task_queue_factory)
-    : task_queue_factory_(task_queue_factory),
+AudioDevice::AudioDevice(const webrtc::Environment& env)
+    : env_(env),
       data_(kSamplesPer10Ms * kChannels) {}
 
 AudioDevice::~AudioDevice() {
@@ -48,7 +48,7 @@ int32_t AudioDevice::Init() {
     return 0;
 
   audio_queue_ =
-      task_queue_factory_->CreateTaskQueue(
+      env_.task_queue_factory().CreateTaskQueue(
           "AudioDevice", webrtc::TaskQueueFactory::Priority::NORMAL);
 
   audio_task_ =

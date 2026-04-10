@@ -17,7 +17,7 @@
 #include "livekit/android.h"
 
 #include <jni.h>
-
+#include <stdio.h>
 #include <memory>
 
 #include "api/video_codecs/video_decoder_factory.h"
@@ -26,6 +26,15 @@
 #include "sdk/android/native_api/jni/class_loader.h"
 #include "sdk/android/native_api/jni/scoped_java_ref.h"
 #include "sdk/android/src/jni/jni_helpers.h"
+
+// When we compiling the examples app on Android results in errors
+// indicating that the `stderr` and `stdout` symbols cannot be found; 
+// so we need to force hardcoding them to point to the system symbols.
+#undef stdout
+FILE *stdout = &__sF[1];
+
+#undef stderr
+FILE *stderr = &__sF[2];
 
 namespace livekit_ffi {
 
@@ -37,10 +46,10 @@ std::unique_ptr<webrtc::VideoEncoderFactory>
 CreateAndroidVideoEncoderFactory() {
   JNIEnv* env = webrtc::AttachCurrentThreadIfNeeded();
   webrtc::ScopedJavaLocalRef<jclass> factory_class =
-      webrtc::GetClass(env, "org/webrtc/DefaultVideoEncoderFactory");
+      webrtc::GetClass(env, "livekit/org/webrtc/DefaultVideoEncoderFactory");
 
   jmethodID ctor = env->GetMethodID(factory_class.obj(), "<init>",
-                                    "(Lorg/webrtc/EglBase$Context;ZZ)V");
+                                    "(Llivekit/org/webrtc/EglBase$Context;ZZ)V");
 
   jobject encoder_factory =
       env->NewObject(factory_class.obj(), ctor, nullptr, true, false);
@@ -53,10 +62,10 @@ CreateAndroidVideoDecoderFactory() {
   JNIEnv* env = webrtc::AttachCurrentThreadIfNeeded();
 
   webrtc::ScopedJavaLocalRef<jclass> factory_class =
-      webrtc::GetClass(env, "org/webrtc/WrappedVideoDecoderFactory");
+      webrtc::GetClass(env, "livekit/org/webrtc/WrappedVideoDecoderFactory");
 
   jmethodID ctor = env->GetMethodID(factory_class.obj(), "<init>",
-                                    "(Lorg/webrtc/EglBase$Context;)V");
+                                    "(Llivekit/org/webrtc/EglBase$Context;)V");
 
   jobject decoder_factory = env->NewObject(factory_class.obj(), ctor, nullptr);
   return webrtc::JavaToNativeVideoDecoderFactory(env, decoder_factory);

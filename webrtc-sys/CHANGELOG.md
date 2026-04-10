@@ -165,6 +165,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.27 (2026-04-02)
+
+### Features
+
+#### chore: upgrade libwebrtc to m144.
+
+##965 by @cloudwebrtc
+
+### Fixes
+
+#### use the bounded buffer for video stream
+
+##956 by @xianshijing-lk
+
+Before this PR, it uses an unbounded buffer for video stream, that will cause multiple problems:
+1, video will be lagged behind if rendering is slow or just wake up from background
+2, it will be out of sync with audio
+
+This PRs provides options to set a bounded buffer for video stream, and use 1 buffer as the default option.
+
+## 0.3.26 (2026-03-31)
+
+### Fixes
+
+- fix unity android build with "livekit" prefixed jni - #983 (@xianshijing-lk)
+
+#### fix: fix unavailable sem symbol for Linux aarch64.
+
+##975 by @cloudwebrtc
+
 ## 0.3.25 (2026-03-22)
 
 ### Fixes

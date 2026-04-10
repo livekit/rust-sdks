@@ -1,7 +1,9 @@
 [package]
 name = "imgproc"
-version = "0.3.18"
+version = "0.3.19"
 edition.workspace = true
+homepage.workspace = true
+repository.workspace = true
 authors = ["Theo Monnom <theo.8bits@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "image processing library"

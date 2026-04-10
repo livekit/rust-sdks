@@ -556,6 +556,7 @@ fn create_join_request_param(
     participant_sid: &str,
     os: String,
     os_version: String,
+    device_model: String,
 ) -> String {
     let connection_settings = proto::ConnectionSettings {
         auto_subscribe: options.auto_subscribe,
@@ -569,6 +570,7 @@ fn create_join_request_param(
         protocol: PROTOCOL_VERSION as i32,
         os,
         os_version,
+        device_model,
         ..Default::default()
     };
 
@@ -641,6 +643,8 @@ fn get_livekit_url(
     }
 
     let os_info = os_info::get();
+    let device_model = device_info::device_info().map(|info| info.model).unwrap_or_default();
+
     if use_v1_path {
         // For v1 path (single PC mode): only join_request param
         // All other info (sdk, protocol, auto_subscribe, etc.) is inside the JoinRequest protobuf
@@ -651,6 +655,7 @@ fn get_livekit_url(
             participant_sid,
             os_info.os_type().to_string(),
             os_info.version().to_string(),
+            device_model.to_string(),
         );
         lk_url.query_pairs_mut().append_pair("join_request", &join_request_param);
     } else {
@@ -660,6 +665,7 @@ fn get_livekit_url(
             .append_pair("sdk", options.sdk_options.sdk.as_str())
             .append_pair("os", os_info.os_type().to_string().as_str())
             .append_pair("os_version", os_info.version().to_string().as_str())
+            .append_pair("device_model", device_model.to_string().as_str())
             .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
             .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });

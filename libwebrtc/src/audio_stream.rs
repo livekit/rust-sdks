@@ -40,6 +40,11 @@ pub mod native {
         /// opts into unbounded buffering. Positive values bound the queue, and
         /// the stream drops the oldest queued frames on overflow so latency
         /// stays bounded.
+        ///
+        /// If your application consumes both audio and video, keep the queue
+        /// sizing strategy coordinated across both streams. Using a much larger
+        /// queue, or unbounded buffering, for only one of them can increase
+        /// end-to-end latency for that stream and cause audio/video drift.
         pub queue_size_frames: Option<usize>,
     }
 

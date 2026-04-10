@@ -92,7 +92,6 @@ args="is_debug=$debug \
   target_cpu=\"$arch\" \
   rtc_enable_protobuf=false \
   treat_warnings_as_errors=false \
-  use_custom_libcxx=false \
   rtc_include_tests=false \
   rtc_build_tools=false \
   rtc_build_examples=false \
@@ -105,6 +104,8 @@ args="is_debug=$debug \
   symbol_level=0 \
   enable_iterator_debugging=false \
   android_package_prefix=\"livekit\" \
+  use_custom_libcxx=false \
+  use_clang_modules=false \
   use_rtti=true"
 
 if [ "$debug" = "true" ]; then

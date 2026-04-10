@@ -43,7 +43,7 @@ jobs:
     name: Test (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
         with:
           submodules: true
 
@@ -53,13 +53,13 @@ jobs:
           rustup target add ${{ matrix.target }} --toolchain nightly
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v2
+        uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0
         with:
           version: "25.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Cache Cargo registry
-        uses: actions/cache@v3
+        uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3.5.0
         with:
           path: |
             ~/.cargo/registry/index/
@@ -70,7 +70,7 @@ jobs:
             ${{ runner.os }}-cargo-registry-
 
       - name: Cache Cargo build
-        uses: actions/cache@v3
+        uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3.5.0
         with:
           path: target/
           key: ${{ runner.os }}-cargo-build-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
@@ -113,6 +113,9 @@ jobs:
 
       - name: Run LiveKit server
         if: ${{ matrix.e2e-testing }}
+        env:
+          # TODO: once data tracks is enabled by default in a subsequent SFU release, remove this.
+          LIVEKIT_CONFIG: "enable_data_tracks: true"
         run: livekit-server --dev &
 
       - name: Wait for LiveKit server
@@ -139,4 +142,4 @@ jobs:
         env:
           RUST_LOG: info
           LIVEKIT_URL: ws://localhost:7880
-        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} --features "__lk-e2e-test,native-tls" -- --nocapture
+        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} --features "__lk-e2e-test,native-tls" -- --nocapture --test-threads=1

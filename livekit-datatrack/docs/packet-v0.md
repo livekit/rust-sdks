@@ -47,8 +47,8 @@ packet
 | Version (0) | 3 | Frame header version, initially will be zero. |
 | Start Flag (S) | 1 | If set, this is the first packet in a frame. |
 | Final Flag (F) | 1 | If set, this is the final packet in a frame. |
-| Reserved | 10 | Reserved for future use. |
 | Extension Flag (X) | 1 | If set, extensions follow the base header. See format details below. |
+| Reserved | 10 | Reserved for future use. |
 | Track Handle | 16 |  Unique identifier of the track the frame belongs to, assigned during signaling. Zero is not a valid track identifier. |
 | Sequence Number | 16 | Incremented by the publisher for each packet sent, used to detect missing/out-of-order packets. |
 | Frame Number | 16 | The frame this packet belongs to. |

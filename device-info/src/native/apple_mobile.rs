@@ -1,0 +1,64 @@
+// Copyright 2025 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::{DeviceInfo, DeviceInfoError, DeviceType};
+use std::ffi::CStr;
+
+pub fn device_info() -> Result<DeviceInfo, DeviceInfoError> {
+    let model = utsname_machine()?;
+    let name = device_name()?;
+    let device_type = parse_device_type(&model);
+
+    Ok(DeviceInfo { model, name, device_type })
+}
+
+fn utsname_machine() -> Result<String, DeviceInfoError> {
+    unsafe {
+        let mut uts: libc::utsname = std::mem::zeroed();
+        if libc::uname(&mut uts) != 0 {
+            return Err(DeviceInfoError::Query("uname failed".into()));
+        }
+        let cstr = CStr::from_ptr(uts.machine.as_ptr());
+        Ok(cstr.to_string_lossy().into_owned())
+    }
+}
+
+fn device_name() -> Result<String, DeviceInfoError> {
+    // Use gethostname instead of UIDevice.name to avoid main-thread requirement.
+    // UIDevice.name also returns a generic "iPhone"/"iPad" on iOS 16+ anyway.
+    let mut buf = [0u8; 256];
+    let ret = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut _, buf.len()) };
+    if ret != 0 {
+        return Err(DeviceInfoError::Query("gethostname failed".into()));
+    }
+    let cstr = CStr::from_bytes_until_nul(&buf)
+        .map_err(|e| DeviceInfoError::Query(format!("invalid hostname: {e}")))?;
+    Ok(cstr.to_string_lossy().into_owned())
+}
+
+fn parse_device_type(model: &str) -> DeviceType {
+    if model.starts_with("iPhone") || model.starts_with("iPod") {
+        DeviceType::Phone
+    } else if model.starts_with("iPad") {
+        DeviceType::Tablet
+    } else if model.starts_with("AppleTV") {
+        DeviceType::Television
+    } else if model.starts_with("Watch") {
+        DeviceType::Watch
+    } else if model.starts_with("RealityDevice") {
+        DeviceType::Headset
+    } else {
+        DeviceType::Unknown
+    }
+}

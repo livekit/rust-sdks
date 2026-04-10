@@ -141,6 +141,11 @@ async fn acquire_exclusive_test_permit() -> OwnedSemaphorePermit {
 }
 
 use crate::common::audio::{SineParameters, SineTrack};
+use crate::common::TestRoomOptions;
+use crate::common::{
+    audio::{SineParameters, SineTrack},
+    test_rooms_with_options,
+};
 
 /// Signaling mode for tests
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -230,12 +235,12 @@ fn create_token(
 }
 
 /// Create room options for the specified signaling mode
-fn room_options(mode: SignalingMode) -> RoomOptions {
-    let mut options = RoomOptions::default();
-    options.auto_subscribe = true;
-    options.dynacast = false;
-    options.single_peer_connection = mode.is_single_pc();
-    options
+fn room_options(mode: SignalingMode) -> TestRoomOptions {
+    let mut room = RoomOptions::default();
+    room.auto_subscribe = true;
+    room.dynacast = false;
+    room.single_peer_connection = mode.is_single_pc();
+    TestRoomOptions { room, ..Default::default() }
 }
 
 /// Connect to a room with specified signaling mode
@@ -246,7 +251,8 @@ async fn connect_room(
 ) -> Result<(Room, UnboundedReceiver<RoomEvent>)> {
     let options = room_options(mode);
     let started_at = Instant::now();
-    let result = Room::connect(url, token, options).await;
+    // TODO: this should be using the common testing utilities.
+    let result = Room::connect(url, token, options.room).await;
     let elapsed = started_at.elapsed();
 
     match &result {
