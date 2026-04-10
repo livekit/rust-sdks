@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::DataTrackInfo;
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use inner::OutputEvent;
@@ -21,7 +22,7 @@ use livekit_datatrack::backend::local::{
 };
 use livekit_datatrack::backend::EncryptionError;
 use livekit_datatrack::{
-    api::{DataTrackOptions, DataTrackSid, PublishError},
+    api::{DataTrackOptions, PublishError},
     backend::{local as inner, EncryptedPayload, InitializationVector},
 };
 use livekit_protocol as proto;
@@ -29,29 +30,9 @@ use prost::Message;
 use std::sync::Arc;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-uniffi::custom_type!(DataTrackSid, String, {
-    remote,
-    lower: |s| String::from(s),
-    try_lift: |s| DataTrackSid::try_from(s).map_err(|e| uniffi::deps::anyhow::anyhow!("{e}")),
-});
-
 #[uniffi::remote(Record)]
 pub struct DataTrackOptions {
     pub name: String,
-}
-
-/// Information about a published data track.
-#[derive(uniffi::Record)]
-pub struct DataTrackInfo {
-    pub sid: DataTrackSid,
-    pub name: String,
-    pub uses_e2ee: bool,
-}
-
-impl From<&livekit_datatrack::api::DataTrackInfo> for DataTrackInfo {
-    fn from(info: &livekit_datatrack::api::DataTrackInfo) -> Self {
-        Self { sid: info.sid(), name: info.name().to_string(), uses_e2ee: info.uses_e2ee() }
-    }
 }
 
 #[uniffi::remote(Error)]

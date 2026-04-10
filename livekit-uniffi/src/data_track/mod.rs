@@ -12,4 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use bytes::Bytes;
+use livekit_datatrack::api::{DataTrackFrame, DataTrackSid};
+
 pub mod local;
+
+uniffi::custom_type!(DataTrackSid, String, {
+    remote,
+    lower: |s| String::from(s),
+    try_lift: |s| DataTrackSid::try_from(s).map_err(|e| uniffi::deps::anyhow::anyhow!("{e}")),
+});
+
+#[uniffi::remote(Record)]
+pub struct DataTrackFrame {
+    payload: Bytes,
+    user_timestamp: Option<u64>
+}
+/// Information about a published data track.
+#[derive(uniffi::Record)]
+pub struct DataTrackInfo {
+    pub sid: DataTrackSid,
+    pub name: String,
+    pub uses_e2ee: bool,
+}
+
+impl From<&livekit_datatrack::api::DataTrackInfo> for DataTrackInfo {
+    fn from(info: &livekit_datatrack::api::DataTrackInfo) -> Self {
+        Self { sid: info.sid(), name: info.name().to_string(), uses_e2ee: info.uses_e2ee() }
+    }
+}
