@@ -63,10 +63,82 @@ use livekit::{Room, RoomEvent, RoomOptions, SimulateScenario};
 use livekit_api::access_token::{AccessToken, VideoGrants};
 use std::collections::HashSet;
 use std::env;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::time::timeout;
+
+/// Increase file descriptor limit to avoid "Too many open files" errors.
+/// This runs once at test initialization.
+static INIT_FD_LIMIT: LazyLock<()> = LazyLock::new(|| {
+    #[cfg(unix)]
+    {
+        use rlimit::{getrlimit, setrlimit, Resource};
+        let (soft, hard) = getrlimit(Resource::NOFILE).expect("Failed to get NOFILE limit");
+        // Try to increase to 10240 or the hard limit, whichever is lower
+        let target = hard.min(10240);
+        if soft < target {
+            if let Err(e) = setrlimit(Resource::NOFILE, target, hard) {
+                log::warn!("Failed to increase file descriptor limit: {}", e);
+            } else {
+                log::info!("Increased file descriptor limit from {} to {}", soft, target);
+            }
+        }
+    }
+});
+
+/// Determine max concurrent tests based on target server.
+/// Can be overridden with LIVEKIT_TEST_CONCURRENCY env var.
+fn max_concurrent_tests() -> u32 {
+    // Allow override via env var for tuning
+    if let Ok(val) = env::var("LIVEKIT_TEST_CONCURRENCY") {
+        if let Ok(n) = val.parse::<u32>() {
+            log::info!("Using LIVEKIT_TEST_CONCURRENCY={}", n);
+            return n;
+        }
+    }
+
+    match env::var("LIVEKIT_URL") {
+        Ok(url) if !url.contains("localhost") && !url.contains("127.0.0.1") => {
+            // Cloud/staging: can handle more concurrent tests
+            10
+        }
+        _ => {
+            // Localhost default
+            3
+        }
+    }
+}
+
+static TEST_SEMAPHORE: LazyLock<Arc<Semaphore>> =
+    LazyLock::new(|| Arc::new(Semaphore::new(max_concurrent_tests() as usize)));
+
+/// Acquire a permit to run a test. This limits how many tests run concurrently.
+/// Also ensures the file descriptor limit has been increased.
+async fn acquire_test_permit() -> OwnedSemaphorePermit {
+    // Ensure FD limit is increased
+    LazyLock::force(&INIT_FD_LIMIT);
+
+    TEST_SEMAPHORE
+        .clone()
+        .acquire_owned()
+        .await
+        .expect("semaphore closed unexpectedly")
+}
+
+/// Acquire ALL permits to run a resource-intensive test exclusively.
+/// This ensures no other tests run concurrently with this test.
+async fn acquire_exclusive_test_permit() -> OwnedSemaphorePermit {
+    // Ensure FD limit is increased
+    LazyLock::force(&INIT_FD_LIMIT);
+
+    TEST_SEMAPHORE
+        .clone()
+        .acquire_many_owned(max_concurrent_tests())
+        .await
+        .expect("semaphore closed unexpectedly")
+}
 
 use crate::common::audio::{SineParameters, SineTrack};
 
@@ -242,42 +314,50 @@ async fn create_test_rooms(
 /// Test basic connection with V0 signaling (dual PC)
 #[test_log::test(tokio::test)]
 async fn test_v0_connect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_connect_impl(SignalingMode::DualPC).await
 }
 
 /// Test two participants with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_two_participants() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_two_participants_impl(SignalingMode::DualPC).await
 }
 
 /// Test audio track with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_audio_track() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_audio_track_impl(SignalingMode::DualPC).await
 }
 
 /// Test reconnection with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_reconnect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_reconnect_impl(SignalingMode::DualPC).await
 }
 
 /// Test data channel with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_data_channel() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_data_channel_impl(SignalingMode::DualPC).await
 }
 
 /// Test node failure with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_node_failure() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_node_failure_impl(SignalingMode::DualPC).await
 }
 
 /// Test publishing 10 video + 10 audio tracks with V0 signaling
+/// This test is resource-intensive so it runs exclusively (no other tests in parallel).
 #[test_log::test(tokio::test)]
 async fn test_v0_publish_ten_video_and_ten_audio_tracks() -> Result<()> {
+    let _permit = acquire_exclusive_test_permit().await;
     test_publish_ten_video_and_ten_audio_tracks_impl(SignalingMode::DualPC).await
 }
 
@@ -286,48 +366,57 @@ async fn test_v0_publish_ten_video_and_ten_audio_tracks() -> Result<()> {
 /// Test basic connection with V1 signaling (single PC)
 #[test_log::test(tokio::test)]
 async fn test_v1_connect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_connect_impl(SignalingMode::SinglePC).await
 }
 
 /// Test two participants with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_two_participants() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_two_participants_impl(SignalingMode::SinglePC).await
 }
 
 /// Test audio track with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_audio_track() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_audio_track_impl(SignalingMode::SinglePC).await
 }
 
 /// Test reconnection with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_reconnect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_reconnect_impl(SignalingMode::SinglePC).await
 }
 
 /// Test data channel with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_data_channel() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_data_channel_impl(SignalingMode::SinglePC).await
 }
 
 /// Test node failure with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_node_failure() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_node_failure_impl(SignalingMode::SinglePC).await
 }
 
 /// Test publishing 10 video + 10 audio tracks with V1 signaling
+/// This test is resource-intensive so it runs exclusively (no other tests in parallel).
 #[test_log::test(tokio::test)]
 async fn test_v1_publish_ten_video_and_ten_audio_tracks() -> Result<()> {
+    let _permit = acquire_exclusive_test_permit().await;
     test_publish_ten_video_and_ten_audio_tracks_impl(SignalingMode::SinglePC).await
 }
 
 /// Test explicit localhost fallback behavior for V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_localhost_fallback_to_v0() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     if env::var("LIVEKIT_URL").is_ok() {
         log::info!("Skipping localhost fallback test because LIVEKIT_URL override is set");
         return Ok(());
@@ -348,23 +437,27 @@ async fn test_v1_localhost_fallback_to_v0() -> Result<()> {
 /// Test that a participant with can_subscribe=false in their token can connect without timing out.
 #[test_log::test(tokio::test)]
 async fn test_v0_connect_can_subscribe_false() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_connect_can_subscribe_false_impl(SignalingMode::DualPC).await
 }
 
 #[test_log::test(tokio::test)]
 async fn test_v1_connect_can_subscribe_false() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_connect_can_subscribe_false_impl(SignalingMode::SinglePC).await
 }
 
 /// Corner case: reconnect twice in a row
 #[test_log::test(tokio::test)]
 async fn test_v0_double_reconnect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_double_reconnect_impl(SignalingMode::DualPC).await
 }
 
 /// Corner case: reconnect twice in a row
 #[test_log::test(tokio::test)]
 async fn test_v1_double_reconnect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_double_reconnect_impl(SignalingMode::SinglePC).await
 }
 
@@ -922,12 +1015,14 @@ async fn test_double_reconnect_impl(mode: SignalingMode) -> Result<()> {
 /// Test auto_subscribe=false with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_auto_subscribe_false() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_auto_subscribe_false_impl(SignalingMode::DualPC).await
 }
 
 /// Test auto_subscribe=false with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_auto_subscribe_false() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_auto_subscribe_false_impl(SignalingMode::SinglePC).await
 }
 
@@ -1082,12 +1177,14 @@ async fn test_auto_subscribe_false_impl(mode: SignalingMode) -> Result<()> {
 /// Test dynacast=true with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_dynacast() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_dynacast_impl(SignalingMode::DualPC).await
 }
 
 /// Test dynacast=true with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_dynacast() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_dynacast_impl(SignalingMode::SinglePC).await
 }
 
@@ -1186,12 +1283,14 @@ async fn test_dynacast_impl(mode: SignalingMode) -> Result<()> {
 /// Test adaptive_stream=true with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_adaptive_stream() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_adaptive_stream_impl(SignalingMode::DualPC).await
 }
 
 /// Test adaptive_stream=true with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_adaptive_stream() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_adaptive_stream_impl(SignalingMode::SinglePC).await
 }
 
@@ -1291,36 +1390,42 @@ async fn test_adaptive_stream_impl(mode: SignalingMode) -> Result<()> {
 /// Test ForceTcp scenario with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_force_tcp() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_force_tcp_impl(SignalingMode::DualPC).await
 }
 
 /// Test ForceTcp scenario with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_force_tcp() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_force_tcp_impl(SignalingMode::SinglePC).await
 }
 
 /// Test ForceTls scenario with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_force_tls() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_force_tls_impl(SignalingMode::DualPC).await
 }
 
 /// Test ForceTls scenario with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_force_tls() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_force_tls_impl(SignalingMode::SinglePC).await
 }
 
 /// Test Relay-only ICE transport with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_ice_relay_only() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_ice_relay_only_impl(SignalingMode::DualPC).await
 }
 
 /// Test Relay-only ICE transport with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_ice_relay_only() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_ice_relay_only_impl(SignalingMode::SinglePC).await
 }
 
@@ -1564,36 +1669,44 @@ async fn test_ice_relay_only_impl(mode: SignalingMode) -> Result<()> {
 /// Test Migration scenario with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_migration() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_migration_impl(SignalingMode::DualPC).await
 }
 
 /// Test Migration scenario with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_migration() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_migration_impl(SignalingMode::SinglePC).await
 }
 
 /// Test ServerLeave scenario with V0 signaling
+/// This test is resource-sensitive so it runs exclusively (no other tests in parallel).
 #[test_log::test(tokio::test)]
 async fn test_v0_server_leave() -> Result<()> {
+    let _permit = acquire_exclusive_test_permit().await;
     test_server_leave_impl(SignalingMode::DualPC).await
 }
 
 /// Test ServerLeave scenario with V1 signaling
+/// This test is resource-sensitive so it runs exclusively (no other tests in parallel).
 #[test_log::test(tokio::test)]
 async fn test_v1_server_leave() -> Result<()> {
+    let _permit = acquire_exclusive_test_permit().await;
     test_server_leave_impl(SignalingMode::SinglePC).await
 }
 
 /// Test Speaker scenario with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_speaker() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_speaker_impl(SignalingMode::DualPC).await
 }
 
 /// Test Speaker scenario with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_speaker() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_speaker_impl(SignalingMode::SinglePC).await
 }
 
@@ -1773,24 +1886,28 @@ async fn test_speaker_impl(mode: SignalingMode) -> Result<()> {
 /// Test E2EE with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_e2ee() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_e2ee_impl(SignalingMode::DualPC).await
 }
 
 /// Test E2EE with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_e2ee() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_e2ee_impl(SignalingMode::SinglePC).await
 }
 
 /// Test E2EE data channel encryption with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_e2ee_data_channel() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_e2ee_data_channel_impl(SignalingMode::DualPC).await
 }
 
 /// Test E2EE data channel encryption with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_e2ee_data_channel() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_e2ee_data_channel_impl(SignalingMode::SinglePC).await
 }
 
@@ -1984,36 +2101,42 @@ async fn test_e2ee_data_channel_impl(mode: SignalingMode) -> Result<()> {
 /// Test publishing track during reconnection with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_publish_during_reconnect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_publish_during_reconnect_impl(SignalingMode::DualPC).await
 }
 
 /// Test publishing track during reconnection with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_publish_during_reconnect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_publish_during_reconnect_impl(SignalingMode::SinglePC).await
 }
 
 /// Test unpublishing track during reconnection with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_unpublish_during_reconnect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_unpublish_during_reconnect_impl(SignalingMode::DualPC).await
 }
 
 /// Test unpublishing track during reconnection with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_unpublish_during_reconnect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_unpublish_during_reconnect_impl(SignalingMode::SinglePC).await
 }
 
 /// Test mute/unmute during reconnection with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_mute_during_reconnect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_mute_during_reconnect_impl(SignalingMode::DualPC).await
 }
 
 /// Test mute/unmute during reconnection with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_mute_during_reconnect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_mute_during_reconnect_impl(SignalingMode::SinglePC).await
 }
 
@@ -2293,12 +2416,14 @@ async fn test_mute_during_reconnect_impl(mode: SignalingMode) -> Result<()> {
 /// Test multiple subscribers with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_multiple_subscribers() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_multiple_subscribers_impl(SignalingMode::DualPC).await
 }
 
 /// Test multiple subscribers with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_multiple_subscribers() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_multiple_subscribers_impl(SignalingMode::SinglePC).await
 }
 
@@ -2427,26 +2552,32 @@ async fn test_multiple_subscribers_impl(mode: SignalingMode) -> Result<()> {
 // - No resource leaks or crashes
 
 /// Test rapid sequential reconnects with V0 signaling
+/// This test is resource-intensive so it runs exclusively (no other tests in parallel).
 #[test_log::test(tokio::test)]
 async fn test_v0_rapid_reconnect() -> Result<()> {
+    let _permit = acquire_exclusive_test_permit().await;
     test_rapid_reconnect_impl(SignalingMode::DualPC).await
 }
 
 /// Test rapid sequential reconnects with V1 signaling
+/// This test is resource-intensive so it runs exclusively (no other tests in parallel).
 #[test_log::test(tokio::test)]
 async fn test_v1_rapid_reconnect() -> Result<()> {
+    let _permit = acquire_exclusive_test_permit().await;
     test_rapid_reconnect_impl(SignalingMode::SinglePC).await
 }
 
 /// Test reconnect while reconnect in progress with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_reconnect_during_reconnect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_reconnect_during_reconnect_impl(SignalingMode::DualPC).await
 }
 
 /// Test reconnect while reconnect in progress with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_reconnect_during_reconnect() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_reconnect_during_reconnect_impl(SignalingMode::SinglePC).await
 }
 
@@ -2641,24 +2772,28 @@ async fn test_reconnect_during_reconnect_impl(mode: SignalingMode) -> Result<()>
 /// Test video simulcast with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_video_simulcast() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_video_simulcast_impl(SignalingMode::DualPC).await
 }
 
 /// Test video simulcast with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_video_simulcast() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_video_simulcast_impl(SignalingMode::SinglePC).await
 }
 
 /// Test simulcast quality switching with V0 signaling
 #[test_log::test(tokio::test)]
 async fn test_v0_simulcast_quality_switch() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_simulcast_quality_switch_impl(SignalingMode::DualPC).await
 }
 
 /// Test simulcast quality switching with V1 signaling
 #[test_log::test(tokio::test)]
 async fn test_v1_simulcast_quality_switch() -> Result<()> {
+    let _permit = acquire_test_permit().await;
     test_simulcast_quality_switch_impl(SignalingMode::SinglePC).await
 }
 

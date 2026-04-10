@@ -115,6 +115,19 @@ jobs:
         if: ${{ matrix.e2e-testing }}
         run: livekit-server --dev &
 
+      - name: Wait for LiveKit server
+        if: ${{ matrix.e2e-testing }}
+        run: |
+          # Wait for server to be ready (up to 30 seconds)
+          for i in {1..30}; do
+            if curl -s http://localhost:7880 > /dev/null 2>&1; then
+              echo "LiveKit server is ready"
+              break
+            fi
+            echo "Waiting for LiveKit server... ($i/30)"
+            sleep 1
+          done
+
       - name: Test (no E2E)
         if: ${{ !matrix.e2e-testing }}
         env:
@@ -125,4 +138,5 @@ jobs:
         if: ${{ matrix.e2e-testing }}
         env:
           RUST_LOG: info
-        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} --features __lk-e2e-test -- --nocapture
+          LIVEKIT_URL: ws://localhost:7880
+        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} --features "__lk-e2e-test,native-tls" -- --nocapture
