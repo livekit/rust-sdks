@@ -75,6 +75,10 @@ struct Args {
     /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
     #[arg(long, default_value_t = false)]
     h265: bool,
+
+    /// Enable dynacast (pause unused simulcast layers based on subscriber demand)
+    #[arg(long, default_value_t = false)]
+    dynacast: bool,
 }
 
 fn list_cameras() -> Result<()> {
@@ -137,6 +141,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
+    room_options.dynacast = args.dynacast;
     let (room, _) = Room::connect(&url, &token, room_options).await?;
     let room = std::sync::Arc::new(room);
     info!("Connected: {} - {}", room.name(), room.sid().await);
@@ -419,11 +424,24 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             let secs = last_fps_log.elapsed().as_secs_f64();
             let fps_est = frames as f64 / secs;
             let n = frames.max(1) as f64;
+            let layers = track.publishing_layers();
+            let layers_str = if layers.is_empty() {
+                "n/a".to_string()
+            } else {
+                layers
+                    .iter()
+                    .map(|(rid, quality, active)| {
+                        format!("{}({})={}", rid, quality, if *active { "ON" } else { "off" })
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            };
             info!(
-                "Publishing video: {}x{}, ~{:.1} fps | avg ms: get {:.2}, decode {:.2}, convert {:.2}, capture {:.2}, sleep {:.2}, iter {:.2} | target {:.2}",
+                "Publishing video: {}x{}, ~{:.1} fps | layers: [{}] | avg ms: get {:.2}, decode {:.2}, convert {:.2}, capture {:.2}, sleep {:.2}, iter {:.2} | target {:.2}",
                 width,
                 height,
                 fps_est,
+                layers_str,
                 sum_get_ms / n,
                 sum_decode_ms / n,
                 sum_convert_ms / n,

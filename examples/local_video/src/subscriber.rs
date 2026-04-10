@@ -502,6 +502,7 @@ impl eframe::App for VideoApp {
                         let resp = ui.selectable_label(is_selected, label);
                         if resp.clicked() {
                             if let Some(ref pub_remote) = sc.publication {
+                                info!("Requesting layer: {:?}", q);
                                 pub_remote.set_video_quality(q);
                                 sc.requested_quality = Some(q);
                             }
