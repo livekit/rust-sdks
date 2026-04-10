@@ -15,6 +15,9 @@
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use inner::OutputEvent;
+use livekit_datatrack::backend::local::{
+    publish_result_from_request_response, InputEvent, ManagerInput, SfuPublishResponse,
+};
 use livekit_datatrack::backend::EncryptionError;
 use livekit_datatrack::{
     api::{DataTrackOptions, DataTrackSid, PublishError},
@@ -67,6 +70,7 @@ impl From<livekit_datatrack::api::LocalDataTrack> for LocalDataTrack {
     }
 }
 
+/// System for managing data track publications.
 #[derive(uniffi::Object)]
 struct LocalDataTrackManager {
     input: inner::ManagerInput,
@@ -86,16 +90,21 @@ impl LocalDataTrackManager {
         // TODO: encryption provider
 
         let (manager, input, output) = inner::Manager::new(manager_options);
-        tokio::spawn(manager.run());
+        tokio::spawn(Self::shutdown_forward_task(input.clone(), token.clone()));
         tokio::spawn(Self::delegate_forward_task(output, delegate, token.clone()));
-
-        // TODO: send shutdown on drop
+        tokio::spawn(manager.run());
 
         Self { input, _drop_guard: token.drop_guard() }.into()
     }
 }
 
 impl LocalDataTrackManager {
+    async fn shutdown_forward_task(input: ManagerInput, token: CancellationToken) {
+        // TODO: consider having manager work with cancellation token out-of-the-box.
+        token.cancelled().await;
+        _ = input.send(InputEvent::Shutdown);
+    }
+
     async fn delegate_forward_task(
         output: impl Stream<Item = inner::OutputEvent>,
         delegate: Arc<dyn LocalDataTrackManagerDelegate>,
@@ -135,6 +144,7 @@ impl LocalDataTrackManager {
 
 #[uniffi::export]
 impl LocalDataTrackManager {
+    /// Publishes a data track with given options.
     pub async fn publish_track(
         &self,
         options: DataTrackOptions,
@@ -142,6 +152,10 @@ impl LocalDataTrackManager {
         self.input.publish_track(options).await.map(|track| track.into())
     }
 
+    /// Get information about all currently published tracks.
+    ///
+    /// This does not include publications that are still pending.
+    ///
     pub async fn query_tracks(&self) -> Vec<DataTrackInfo> {
         self.input
             .query_tracks()
@@ -155,8 +169,54 @@ impl LocalDataTrackManager {
             .collect()
     }
 
+    /// Republish all tracks.
+    ///
+    /// This must be invoked after a full reconnect in order for existing publications
+    /// to be recognized by the SFU. Each republished track will be assigned a new SID.
+    ///
     pub async fn republish_tracks(&self) {
         _ = self.input.send(inner::InputEvent::RepublishTracks);
+    }
+
+    /// Handles a serialized signal response from the SFU.
+    ///
+    /// This must be invoked for the following response types in order for the
+    /// manager to function properly:
+    ///
+    /// - `RequestResponse`
+    /// - `PublishDataTrackResponse`
+    ///
+    /// Invoking for other response types not listed above will log an error.
+    ///
+    pub fn handle_signal_response(&self, res: &[u8]) {
+        // TODO: consider returning a result
+        let Ok(Some(msg)) = proto::SignalResponse::decode(res).map(|res| res.message) else {
+            log::error!("Failed to decode signal response");
+            return;
+        };
+
+        use proto::signal_response::Message;
+        let publish_res = match msg {
+            Message::RequestResponse(msg) => {
+                let Some(res) = publish_result_from_request_response(&msg) else {
+                    // Not from data track publish request.
+                    return;
+                };
+                res
+            }
+            Message::PublishDataTrackResponse(res) => {
+                // TODO: handle error
+                let res: SfuPublishResponse = res.try_into().unwrap();
+                res
+            }
+            _ => {
+                log::error!("Unsupported signal response type");
+                return;
+            }
+        };
+
+        let event: InputEvent = publish_res.into();
+        _ = self.input.send(event);
     }
 }
 
