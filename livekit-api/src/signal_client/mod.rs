@@ -692,6 +692,7 @@ fn create_join_request_param(
         os_version,
         device_model,
         capabilities: CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect(),
+        client_protocol: 1, // CLIENT_PROTOCOL_DATA_STREAM_RPC
         ..Default::default()
     };
 
