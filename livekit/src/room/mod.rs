@@ -67,6 +67,7 @@ pub mod id;
 pub mod options;
 pub mod participant;
 pub mod publication;
+pub mod rpc;
 pub mod track;
 pub(crate) mod utils;
 
@@ -330,30 +331,6 @@ pub struct ChatMessage {
 }
 
 #[derive(Debug, Clone)]
-pub struct RpcRequest {
-    pub destination_identity: String,
-    pub id: String,
-    pub method: String,
-    pub payload: String,
-    pub response_timeout: Duration,
-    pub version: u32,
-}
-
-#[derive(Debug, Clone)]
-pub struct RpcResponse {
-    destination_identity: String,
-    request_id: String,
-    payload: Option<String>,
-    error: Option<proto::RpcError>,
-}
-
-#[derive(Debug, Clone)]
-pub struct RpcAck {
-    destination_identity: String,
-    request_id: String,
-}
-
-#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RoomSdkOptions {
     pub sdk: String,
@@ -473,9 +450,11 @@ pub(crate) struct RoomSession {
     remote_participants: RwLock<HashMap<ParticipantIdentity, RemoteParticipant>>,
     e2ee_manager: E2eeManager,
     incoming_stream_manager: IncomingStreamManager,
-    outgoing_stream_manager: OutgoingStreamManager,
+    pub(crate) outgoing_stream_manager: OutgoingStreamManager,
     local_dt_input: dt::local::ManagerInput,
     remote_dt_input: dt::remote::ManagerInput,
+    pub(crate) rpc_client: rpc::RpcClientManager,
+    pub(crate) rpc_server: rpc::RpcServerManager,
     handle: AsyncMutex<Option<Handle>>,
 }
 
@@ -689,6 +668,8 @@ impl Room {
             outgoing_stream_manager,
             local_dt_input,
             remote_dt_input,
+            rpc_client: rpc::RpcClientManager::new(),
+            rpc_server: rpc::RpcServerManager::new(),
             handle: Default::default(),
         });
         inner.local_participant.set_session(Arc::downgrade(&inner));
@@ -759,6 +740,7 @@ impl Room {
             open_rx,
             dispatcher.clone(),
             close_rx.resubscribe(),
+            inner.clone(),
         ));
         let outgoing_stream_handle = livekit_runtime::spawn(outgoing_data_stream_task(
             packet_rx,
@@ -987,25 +969,29 @@ impl RoomSession {
                     log::warn!("Received RPC request with null caller identity");
                     return Ok(());
                 }
-                let local_participant = self.local_participant.clone();
+                let rtc_engine = self.rtc_engine.clone();
+                let session = self.clone();
+                let caller = caller_identity.unwrap();
                 livekit_runtime::spawn(async move {
-                    local_participant
-                        .handle_incoming_rpc_request(
-                            caller_identity.unwrap(),
+                    session
+                        .rpc_server
+                        .handle_request(
+                            caller,
                             request_id,
                             method,
                             payload,
                             response_timeout,
                             version,
+                            &rtc_engine,
                         )
                         .await;
                 });
             }
             EngineEvent::RpcResponse { request_id, payload, error } => {
-                self.local_participant.handle_incoming_rpc_response(request_id, payload, error);
+                self.rpc_client.handle_response(request_id, payload, error);
             }
             EngineEvent::RpcAck { request_id } => {
-                self.local_participant.handle_incoming_rpc_ack(request_id);
+                self.rpc_client.handle_ack(request_id);
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
             EngineEvent::ConnectionQuality { updates } => {
@@ -1989,6 +1975,17 @@ impl RoomSession {
         self.remote_participants.read().get(identity).cloned()
     }
 
+    pub(crate) fn get_remote_client_protocol(
+        &self,
+        identity: &ParticipantIdentity,
+    ) -> i32 {
+        self.remote_participants
+            .read()
+            .get(identity)
+            .map(|p| p.client_protocol())
+            .unwrap_or(rpc::CLIENT_PROTOCOL_DEFAULT)
+    }
+
     fn get_local_or_remote_participant(
         &self,
         identity: &ParticipantIdentity,
@@ -2058,10 +2055,14 @@ impl RoomSession {
 }
 
 /// Receives stream readers for newly-opened streams and dispatches room events.
+///
+/// Intercepts text streams on RPC topics (`lk.rpc_request`, `lk.rpc_response`)
+/// and routes them to the RPC managers instead of emitting them as room events.
 async fn incoming_data_stream_task(
     mut open_rx: UnboundedReceiver<(AnyStreamReader, String)>,
     dispatcher: Dispatcher<RoomEvent>,
     mut close_rx: broadcast::Receiver<()>,
+    session: Arc<RoomSession>,
 ) {
     loop {
         tokio::select! {
@@ -2072,11 +2073,35 @@ async fn incoming_data_stream_task(
                         reader: TakeCell::new(reader),
                         participant_identity: ParticipantIdentity(identity)
                     }),
-                    AnyStreamReader::Text(reader) => dispatcher.dispatch(&RoomEvent::TextStreamOpened {
-                        topic: reader.info().topic.clone(),
-                        reader: TakeCell::new(reader),
-                        participant_identity: ParticipantIdentity(identity)
-                    }),
+                    AnyStreamReader::Text(reader) => {
+                        let topic = reader.info().topic.clone();
+                        match topic.as_str() {
+                            rpc::RPC_REQUEST_TOPIC => {
+                                let caller_identity = ParticipantIdentity(identity);
+                                let session = session.clone();
+                                livekit_runtime::spawn(async move {
+                                    session.rpc_server.handle_request_stream(
+                                        reader,
+                                        caller_identity,
+                                        &session,
+                                    ).await;
+                                });
+                            }
+                            rpc::RPC_RESPONSE_TOPIC => {
+                                let session = session.clone();
+                                livekit_runtime::spawn(async move {
+                                    session.rpc_client.handle_response_stream(reader).await;
+                                });
+                            }
+                            _ => {
+                                dispatcher.dispatch(&RoomEvent::TextStreamOpened {
+                                    topic,
+                                    reader: TakeCell::new(reader),
+                                    participant_identity: ParticipantIdentity(identity)
+                                });
+                            }
+                        }
+                    }
                 }
             },
             _ = close_rx.recv() => {
