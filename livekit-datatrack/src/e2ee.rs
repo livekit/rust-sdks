@@ -19,22 +19,25 @@ use thiserror::Error;
 // TODO: If a core module for end-to-end encryption is created in the future
 // (livekit-e2ee), these traits should be moved to there.
 
+/// Twelve byte AES initialization vector (IV).
+pub type InitializationVector = [u8; 12];
+
 /// Encrypted payload and metadata required for decryption.
 pub struct EncryptedPayload {
     pub payload: Bytes,
-    pub iv: [u8; 12],
+    pub iv: InitializationVector,
     pub key_index: u8,
 }
 
 /// An error indicating a payload could not be encrypted.
 #[derive(Debug, Error)]
 #[error("Encryption failed")]
-pub struct EncryptionError;
+pub enum EncryptionError {}
 
 /// An error indicating a payload could not be decrypted.
 #[derive(Debug, Error)]
 #[error("Decryption failed")]
-pub struct DecryptionError;
+pub enum DecryptionError {}
 
 /// Provider for encrypting payloads for E2EE.
 pub trait EncryptionProvider: Send + Sync + Debug {
