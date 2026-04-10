@@ -120,11 +120,7 @@ async fn acquire_test_permit() -> OwnedSemaphorePermit {
     // Ensure FD limit is increased
     LazyLock::force(&INIT_FD_LIMIT);
 
-    TEST_SEMAPHORE
-        .clone()
-        .acquire_owned()
-        .await
-        .expect("semaphore closed unexpectedly")
+    TEST_SEMAPHORE.clone().acquire_owned().await.expect("semaphore closed unexpectedly")
 }
 
 /// Acquire ALL permits to run a resource-intensive test exclusively.
