@@ -201,23 +201,100 @@ async fn handle_track_subscribed(
                 }
             }
 
-            if let Some(i) = inbound {
+            if let Some(ref i) = inbound {
                 if let Some((mime, fmtp)) = codec_by_id.get(&i.stream.codec_id) {
                     info!("Inbound codec: {} (fmtp: {})", mime, fmtp);
                 } else {
                     info!("Inbound codec id: {}", i.stream.codec_id);
                 }
                 info!(
-                    "Inbound current layer: {}x{} ~{:.1} fps, decoder: {}, power_efficient: {}",
+                    "Inbound RTP: frame={}x{} fps={:.1} decoder='{}' power_efficient={} \
+                     frames_decoded={} frames_received={} frames_dropped={} \
+                     key_frames_decoded={} bytes_received={}",
                     i.inbound.frame_width,
                     i.inbound.frame_height,
                     i.inbound.frames_per_second,
                     i.inbound.decoder_implementation,
-                    i.inbound.power_efficient_decoder
+                    i.inbound.power_efficient_decoder,
+                    i.inbound.frames_decoded,
+                    i.inbound.frames_received,
+                    i.inbound.frames_dropped,
+                    i.inbound.key_frames_decoded,
+                    i.inbound.bytes_received,
                 );
+            } else {
+                info!("Inbound RTP stats: no video inbound stats yet (track may still be negotiating)");
             }
         }
-        Err(e) => debug!("Failed to get stats for video track: {:?}", e),
+        Err(e) => info!("Failed to get initial stats for video track: {:?}", e),
+    }
+
+    // Independent stats poller - runs even if no decoded frames arrive.
+    // This lets us distinguish "no RTP data arriving" from "decoder silently failing".
+    {
+        let track_for_stats = video_track.clone();
+        let ctrl_c_stats = ctrl_c_received.clone();
+        let sid_for_stats = sid.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(Duration::from_secs(3));
+            interval.tick().await; // skip immediate tick
+            loop {
+                interval.tick().await;
+                if ctrl_c_stats.load(Ordering::Acquire) {
+                    break;
+                }
+                match track_for_stats.get_stats().await {
+                    Ok(stats) => {
+                        let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> = None;
+                        let mut codec_info = String::new();
+                        for s in stats.iter() {
+                            match s {
+                                livekit::webrtc::stats::RtcStats::InboundRtp(i) => {
+                                    if i.stream.kind == "video" {
+                                        inbound = Some(i.clone());
+                                    }
+                                }
+                                livekit::webrtc::stats::RtcStats::Codec(c) => {
+                                    if c.codec.mime_type.starts_with("video/") {
+                                        codec_info = format!(
+                                            "{} (fmtp: {})",
+                                            c.codec.mime_type, c.codec.sdp_fmtp_line
+                                        );
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        if let Some(i) = inbound {
+                            info!(
+                                "[stats-poll {}] rtp_frame={}x{} fps={:.1} decoder='{}' \
+                                 decoded={} received={} dropped={} key_decoded={} \
+                                 bytes={} nack={} pli={} fir={} codec={}",
+                                sid_for_stats,
+                                i.inbound.frame_width,
+                                i.inbound.frame_height,
+                                i.inbound.frames_per_second,
+                                i.inbound.decoder_implementation,
+                                i.inbound.frames_decoded,
+                                i.inbound.frames_received,
+                                i.inbound.frames_dropped,
+                                i.inbound.key_frames_decoded,
+                                i.inbound.bytes_received,
+                                i.inbound.nack_count,
+                                i.inbound.pli_count,
+                                i.inbound.fir_count,
+                                if codec_info.is_empty() { i.stream.codec_id.clone() } else { codec_info },
+                            );
+                        } else {
+                            info!("[stats-poll {}] no video inbound stats yet", sid_for_stats);
+                        }
+                    }
+                    Err(e) => {
+                        info!("[stats-poll {}] get_stats failed: {:?}", sid_for_stats, e);
+                    }
+                }
+            }
+        });
     }
 
     // Start background sink thread
@@ -265,7 +342,10 @@ async fn handle_track_subscribed(
             let h = frame.buffer.height();
 
             if !logged_first {
-                debug!("First frame: {}x{}, type {:?}", w, h, frame.buffer.buffer_type());
+                info!(
+                    "First decoded frame: {}x{}, buffer_type={:?}",
+                    w, h, frame.buffer.buffer_type()
+                );
                 logged_first = true;
             }
 
@@ -329,18 +409,42 @@ async fn handle_track_subscribed(
                 frames = 0;
                 last_log = Instant::now();
             }
-            // Periodically infer active simulcast quality from inbound stats
-            if last_stats.elapsed() >= Duration::from_secs(1) {
+            // Periodically fetch inbound RTP stats for simulcast quality + diagnostics
+            if last_stats.elapsed() >= Duration::from_secs(2) {
                 if let Ok(stats) = rt_clone.block_on(video_track.get_stats()) {
                     let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> = None;
+                    let mut codec_mime = String::new();
                     for s in stats.iter() {
-                        if let livekit::webrtc::stats::RtcStats::InboundRtp(i) = s {
-                            if i.stream.kind == "video" {
-                                inbound = Some(i.clone());
+                        match s {
+                            livekit::webrtc::stats::RtcStats::InboundRtp(i) => {
+                                if i.stream.kind == "video" {
+                                    inbound = Some(i.clone());
+                                }
                             }
+                            livekit::webrtc::stats::RtcStats::Codec(c) => {
+                                if c.codec.mime_type.starts_with("video/") {
+                                    codec_mime = c.codec.mime_type.clone();
+                                }
+                            }
+                            _ => {}
                         }
                     }
-                    if let Some(i) = inbound {
+                    if let Some(ref i) = inbound {
+                        info!(
+                            "Inbound RTP stats: rtp_frame={}x{} fps={:.1} decoder='{}' \
+                             decoded={} received={} dropped={} key_decoded={} \
+                             bytes={} codec={}",
+                            i.inbound.frame_width,
+                            i.inbound.frame_height,
+                            i.inbound.frames_per_second,
+                            i.inbound.decoder_implementation,
+                            i.inbound.frames_decoded,
+                            i.inbound.frames_received,
+                            i.inbound.frames_dropped,
+                            i.inbound.key_frames_decoded,
+                            i.inbound.bytes_received,
+                            if codec_mime.is_empty() { &i.stream.codec_id } else { &codec_mime },
+                        );
                         if let Some((fw, fh)) = simulcast_state_full_dims(&simulcast2) {
                             let q = infer_quality_from_dims(
                                 fw,

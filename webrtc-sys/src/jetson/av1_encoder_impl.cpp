@@ -1,6 +1,7 @@
 #include "av1_encoder_impl.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <limits>
 #include <string>
 
@@ -58,6 +59,16 @@ int32_t JetsonAV1EncoderImpl::InitEncode(
     const VideoCodec* inst,
     const VideoEncoder::Settings& settings) {
   (void)settings;
+
+  std::fprintf(stderr,
+               "[AV1Impl] InitEncode() called: %dx%d @ %d fps, "
+               "startBitrate=%d kbps, maxBitrate=%d kbps\n",
+               inst ? inst->width : 0, inst ? inst->height : 0,
+               inst ? inst->maxFramerate : 0,
+               inst ? inst->startBitrate : 0,
+               inst ? inst->maxBitrate : 0);
+  std::fflush(stderr);
+
   if (!inst || inst->codecType != kVideoCodecAV1) {
     ReportError();
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
@@ -112,6 +123,13 @@ int32_t JetsonAV1EncoderImpl::InitEncode(
     }
   }
 
+  std::fprintf(stderr,
+               "[AV1Impl] InitEncode() completed: encoder %dx%d, "
+               "config %dx%d\n",
+               codec_.width, codec_.height,
+               configuration_.width, configuration_.height);
+  std::fflush(stderr);
+
   ReportInit();
 
   SimulcastRateAllocator init_allocator(env_, codec_);
@@ -138,6 +156,9 @@ int32_t JetsonAV1EncoderImpl::Release() {
 int32_t JetsonAV1EncoderImpl::Encode(
     const VideoFrame& input_frame,
     const std::vector<VideoFrameType>* frame_types) {
+  static uint64_t encode_count = 0;
+  const uint64_t frame_num = encode_count++;
+
   if (!encoder_.IsInitialized()) {
     ReportError();
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
@@ -174,6 +195,17 @@ int32_t JetsonAV1EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
   }
 
+  if (frame_num < 3) {
+    std::fprintf(stderr,
+                 "[AV1Impl] Encode() frame %lu: input=%dx%d, config=%dx%d, "
+                 "keyframe_needed=%d, sending=%d\n",
+                 frame_num, frame_buffer->width(), frame_buffer->height(),
+                 configuration_.width, configuration_.height,
+                 is_keyframe_needed ? 1 : 0,
+                 configuration_.sending ? 1 : 0);
+    std::fflush(stderr);
+  }
+
   RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
   RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
 
@@ -193,6 +225,63 @@ int32_t JetsonAV1EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
+  if (frame_num < 5 && packet.size() >= 2) {
+    std::fprintf(stderr,
+                 "[AV1Impl] Encode() frame %lu: encoded %zu bytes, "
+                 "keyframe=%d, first_bytes=[",
+                 frame_num, packet.size(), is_keyframe ? 1 : 0);
+    for (size_t b = 0; b < std::min(packet.size(), (size_t)16); ++b)
+      std::fprintf(stderr, "%02x ", packet[b]);
+    std::fprintf(stderr, "]\n");
+
+    // Parse and log OBU headers to verify bitstream format
+    size_t pos = 0;
+    int obu_count = 0;
+    while (pos < packet.size() && obu_count < 8) {
+      uint8_t hdr = packet[pos];
+      int obu_type = (hdr >> 3) & 0xF;
+      bool has_extension = (hdr >> 2) & 1;
+      bool has_size = (hdr >> 1) & 1;
+      const char* type_name = "unknown";
+      switch (obu_type) {
+        case 1: type_name = "SEQ_HDR"; break;
+        case 2: type_name = "TD"; break;
+        case 3: type_name = "FRAME_HDR"; break;
+        case 4: type_name = "TILE_GROUP"; break;
+        case 5: type_name = "METADATA"; break;
+        case 6: type_name = "FRAME"; break;
+        case 7: type_name = "REDUNDANT_FRAME_HDR"; break;
+        case 8: type_name = "TILE_LIST"; break;
+        case 15: type_name = "PADDING"; break;
+      }
+      std::fprintf(stderr,
+                   "[AV1Impl]   OBU[%d] @%zu: type=%d(%s) ext=%d has_size=%d",
+                   obu_count, pos, obu_type, type_name,
+                   has_extension ? 1 : 0, has_size ? 1 : 0);
+      pos += 1;
+      if (has_extension && pos < packet.size()) pos += 1;
+      if (has_size && pos < packet.size()) {
+        // Read LEB128 size
+        uint64_t obu_size = 0;
+        int shift = 0;
+        while (pos < packet.size()) {
+          uint8_t byte = packet[pos++];
+          obu_size |= (uint64_t)(byte & 0x7F) << shift;
+          shift += 7;
+          if (!(byte & 0x80)) break;
+        }
+        std::fprintf(stderr, " size=%lu", (unsigned long)obu_size);
+        pos += obu_size;
+      } else if (!has_size) {
+        std::fprintf(stderr, " (NO SIZE FIELD - rest of bitstream is this OBU)");
+        pos = packet.size();
+      }
+      std::fprintf(stderr, "\n");
+      obu_count++;
+    }
+    std::fflush(stderr);
+  }
+
   if (is_keyframe_needed) {
     configuration_.key_frame_request = false;
   }
@@ -204,6 +293,9 @@ int32_t JetsonAV1EncoderImpl::ProcessEncodedFrame(
     std::vector<uint8_t>& packet,
     const ::webrtc::VideoFrame& input_frame,
     bool is_keyframe) {
+  static uint64_t process_count = 0;
+  const uint64_t frame_num = process_count++;
+
   encoded_image_._encodedWidth = codec_.width;
   encoded_image_._encodedHeight = codec_.height;
   encoded_image_.SetRtpTimestamp(input_frame.rtp_timestamp());
@@ -232,7 +324,21 @@ int32_t JetsonAV1EncoderImpl::ProcessEncodedFrame(
   if (result.error != EncodedImageCallback::Result::OK) {
     RTC_LOG(LS_ERROR) << "Encode m_encodedCompleteCallback failed "
                       << result.error;
+    std::fprintf(stderr,
+                 "[AV1Impl] OnEncodedImage FAILED: error=%d, frame=%lu, "
+                 "size=%zu, declared=%dx%d\n",
+                 static_cast<int>(result.error), frame_num, packet.size(),
+                 codec_.width, codec_.height);
+    std::fflush(stderr);
     return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+  if (frame_num < 10 || (frame_num % 100 == 0)) {
+    std::fprintf(stderr,
+                 "[AV1Impl] OnEncodedImage OK: frame=%lu, size=%zu, "
+                 "declared=%dx%d, keyframe=%d\n",
+                 frame_num, packet.size(),
+                 codec_.width, codec_.height, is_keyframe ? 1 : 0);
+    std::fflush(stderr);
   }
   return WEBRTC_VIDEO_CODEC_OK;
 }
@@ -282,6 +388,11 @@ void JetsonAV1EncoderImpl::SetRates(
 }
 
 void JetsonAV1EncoderImpl::LayerConfig::SetStreamState(bool send_stream) {
+  if (send_stream != sending) {
+    std::fprintf(stderr, "[AV1Impl] SetStreamState: sending %d -> %d\n",
+                 sending ? 1 : 0, send_stream ? 1 : 0);
+    std::fflush(stderr);
+  }
   if (send_stream && !sending) {
     key_frame_request = true;
   }
