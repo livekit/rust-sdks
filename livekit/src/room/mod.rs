@@ -1063,6 +1063,9 @@ impl RoomSession {
             EngineEvent::TrackMuted { sid, muted } => {
                 self.handle_server_initiated_mute_track(sid, muted);
             }
+            EngineEvent::SubscribedQualityUpdate { update } => {
+                self.handle_subscribed_quality_update(update);
+            }
             EngineEvent::LocalDataTrackInput(event) => {
                 _ = self.local_dt_input.send(event);
             }
@@ -1872,6 +1875,99 @@ impl RoomSession {
         }
 
         log::warn!("Track not found in mute request: {}", sid_for_log);
+    }
+
+    #[allow(deprecated)]
+    fn handle_subscribed_quality_update(&self, update: proto::SubscribedQualityUpdate) {
+        if !self.options.dynacast {
+            return;
+        }
+
+        let track_sid: TrackSid = match update.track_sid.clone().try_into() {
+            Ok(sid) => sid,
+            Err(_) => {
+                log::warn!(
+                    "dynacast: invalid track sid in subscribed quality update: {}",
+                    update.track_sid
+                );
+                return;
+            }
+        };
+
+        let publication = match self.local_participant.get_track_publication(&track_sid) {
+            Some(pub_) => pub_,
+            None => {
+                log::warn!("dynacast: local track publication not found for sid {}", track_sid);
+                return;
+            }
+        };
+
+        let video_track = match publication.track() {
+            Some(LocalTrack::Video(vt)) => vt,
+            _ => {
+                log::debug!(
+                    "dynacast: track {} is not a local video track, ignoring quality update",
+                    track_sid
+                );
+                return;
+            }
+        };
+
+        let qualities: Vec<proto::SubscribedQuality> = if !update.subscribed_codecs.is_empty() {
+            // This is the requested codec, which we also advertise in simulcast_codecs and use
+            // for sender codec preferences, so it should match the SFU's subscribed codec key.
+            let codec = publication.publish_options().video_codec.as_str().to_lowercase();
+            log::info!(
+                "dynacast: SFU quality update for {}: subscribed_codecs={:?}, looking for codec '{}'",
+                track_sid,
+                update.subscribed_codecs.iter().map(|sc| {
+                    let qs: Vec<String> = sc.qualities.iter().map(|q| {
+                        format!(
+                            "{:?}={}",
+                            crate::options::video_quality_from_i32_or_default(q.quality),
+                            q.enabled
+                        )
+                    }).collect();
+                    format!("{}:[{}]", sc.codec, qs.join(", "))
+                }).collect::<Vec<_>>().join("; "),
+                codec,
+            );
+            update
+                .subscribed_codecs
+                .iter()
+                .find(|sc| sc.codec.to_lowercase() == codec)
+                .map(|sc| sc.qualities.clone())
+                .unwrap_or_else(|| {
+                    log::warn!("dynacast: codec '{}' not found in subscribed_codecs, falling back to first", codec);
+                    update
+                        .subscribed_codecs
+                        .first()
+                        .map(|sc| sc.qualities.clone())
+                        .unwrap_or_default()
+                })
+        } else {
+            let qs: Vec<String> = update
+                .subscribed_qualities
+                .iter()
+                .map(|q| {
+                    format!(
+                        "{:?}={}",
+                        crate::options::video_quality_from_i32_or_default(q.quality),
+                        q.enabled
+                    )
+                })
+                .collect();
+            log::info!(
+                "dynacast: SFU quality update for {} (legacy): [{}]",
+                track_sid,
+                qs.join(", "),
+            );
+            update.subscribed_qualities.clone()
+        };
+
+        if let Err(e) = video_track.set_publishing_layers(&qualities) {
+            log::error!("dynacast: failed to set publishing layers for {}: {}", track_sid, e);
+        }
     }
 
     /// Create a new participant
