@@ -54,6 +54,7 @@ pub enum PublishError {
     Internal,
 }
 
+/// Data track published by the local participant.
 #[derive(uniffi::Object)]
 pub struct LocalDataTrack(DataTrack<Local>);
 
@@ -72,12 +73,17 @@ impl LocalDataTrack {
     /// Try pushing a frame to subscribers of the track.
     fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameErrorReason> {
         // `PushFrameError` returns ownership of the unpublished frame to the caller;
-        // since this not applicable in an FFI context, just provide the reason.
+        // since this isn't applicable in an FFI context, just provide the reason.
         self.0.try_push(frame).map_err(|err| err.reason())
     }
 }
 
 /// System for managing data track publications.
+///
+/// FFI clients construct an instance of this inside `Room`,
+/// send it relevant signal responses via [`Self::handle_signal_response`],
+/// and handle outputs via [`LocalDataTrackManagerDelegate`].
+///
 #[derive(uniffi::Object)]
 struct LocalDataTrackManager {
     input: inner::ManagerInput,
@@ -247,6 +253,7 @@ pub struct EncryptedPayload {
 #[uniffi(flat_error)]
 pub enum EncryptionError {}
 
+/// Provider for encrypting payloads for E2EE.
 #[uniffi::export(with_foreign)]
 pub trait LocalDataTrackEncryptionProvider: Send + Sync {
     /// Encrypts the given payload being sent by the local participant.
