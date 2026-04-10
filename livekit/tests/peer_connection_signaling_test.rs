@@ -141,11 +141,7 @@ async fn acquire_exclusive_test_permit() -> OwnedSemaphorePermit {
 }
 
 use crate::common::audio::{SineParameters, SineTrack};
-use crate::common::TestRoomOptions;
-use crate::common::{
-    audio::{SineParameters, SineTrack},
-    test_rooms_with_options,
-};
+use crate::common::{test_rooms_with_options, TestRoomOptions};
 
 /// Signaling mode for tests
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -287,7 +283,7 @@ async fn create_test_rooms(
     for i in 0..participant_count {
         let identity = format!("participant_{}", i);
         let token = create_token(&api_key, &api_secret, &room_name, &identity)?;
-        let (room, events) = Room::connect(&url, &token, options.clone())
+        let (room, events) = Room::connect(&url, &token, options.room.clone())
             .await
             .context(format!("Failed to connect participant {} with {}", i, mode.name()))?;
         rooms.push((room, events));
