@@ -1137,13 +1137,22 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
       std::fflush(stderr);
       return false;
     }
-    int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, plane);
+    // With separate-FD multiplanar (NV12M/YUV420M), each FD backs a
+    // single-plane NvBufSurface. Use plane 0 of that surface rather than
+    // the V4L2 plane index which would be out of bounds.
+    const uint32_t num_surf_planes =
+        surface->surfaceList[0].planeParams.num_planes;
+    const uint32_t sync_plane =
+        (static_cast<uint32_t>(plane) < num_surf_planes)
+            ? static_cast<uint32_t>(plane)
+            : 0;
+    int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, sync_plane);
     if (sync_ret != 0) {
       RTC_LOG(LS_ERROR) << "Failed to sync output plane for device.";
       std::fprintf(stderr,
                    "[MMAPI] NvBufSurfaceSyncForDevice failed: plane=%d, "
-                   "ret=%d\n",
-                   plane, sync_ret);
+                   "sync_plane=%u, num_surf_planes=%u, ret=%d\n",
+                   plane, sync_plane, num_surf_planes, sync_ret);
       std::fflush(stderr);
       return false;
     }
@@ -1156,7 +1165,6 @@ bool JetsonMmapiEncoder::QueueOutputBuffer(const uint8_t* src_y,
   v4l2_buf.memory = V4L2_MEMORY_MMAP;
   v4l2_buf.m.planes = planes;
   v4l2_buf.length = encoder_->output_plane.getNumPlanes();
-  // Use the configured plane strides to satisfy driver expectations.
   planes[0].bytesused = buffer->planes[0].bytesused;
   planes[1].bytesused = buffer->planes[1].bytesused;
   if (!output_is_nv12_) {
@@ -1359,13 +1367,19 @@ bool JetsonMmapiEncoder::QueueOutputBufferNV12(const uint8_t* src_y,
       std::fflush(stderr);
       return false;
     }
-    int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, plane);
+    const uint32_t num_surf_planes =
+        surface->surfaceList[0].planeParams.num_planes;
+    const uint32_t sync_plane =
+        (static_cast<uint32_t>(plane) < num_surf_planes)
+            ? static_cast<uint32_t>(plane)
+            : 0;
+    int sync_ret = NvBufSurfaceSyncForDevice(surface, 0, sync_plane);
     if (sync_ret != 0) {
       RTC_LOG(LS_ERROR) << "Failed to sync output plane for device.";
       std::fprintf(stderr,
                    "[MMAPI] NvBufSurfaceSyncForDevice failed: plane=%d, "
-                   "ret=%d\n",
-                   plane, sync_ret);
+                   "sync_plane=%u, num_surf_planes=%u, ret=%d\n",
+                   plane, sync_plane, num_surf_planes, sync_ret);
       std::fflush(stderr);
       return false;
     }

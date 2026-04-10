@@ -282,43 +282,45 @@ int32_t JetsonAV1EncoderImpl::Encode(
     }
   }
 
-  if (frame_num < 5 && packet.size() >= 2) {
-    std::fprintf(stderr,
-                 "[AV1Impl] Encode() frame %lu: encoded %zu bytes, "
-                 "keyframe=%d, first_bytes=[",
-                 frame_num, packet.size(), is_keyframe ? 1 : 0);
-    for (size_t b = 0; b < std::min(packet.size(), (size_t)16); ++b)
-      std::fprintf(stderr, "%02x ", packet[b]);
-    std::fprintf(stderr, "]\n");
-
-    // Parse and log OBU headers to verify bitstream format
+  // Detect keyframes from the OBU stream: presence of a Sequence Header OBU
+  // (type 1) indicates a keyframe. This is more reliable than
+  // V4L2_BUF_FLAG_KEYFRAME which Jetson's AV1 encoder may not set.
+  bool obu_detected_keyframe = false;
+  {
     size_t pos = 0;
     int obu_count = 0;
-    while (pos < packet.size() && obu_count < 8) {
+    while (pos < packet.size() && obu_count < 16) {
       uint8_t hdr = packet[pos];
       int obu_type = (hdr >> 3) & 0xF;
       bool has_extension = (hdr >> 2) & 1;
       bool has_size = (hdr >> 1) & 1;
-      const char* type_name = "unknown";
-      switch (obu_type) {
-        case 1: type_name = "SEQ_HDR"; break;
-        case 2: type_name = "TD"; break;
-        case 3: type_name = "FRAME_HDR"; break;
-        case 4: type_name = "TILE_GROUP"; break;
-        case 5: type_name = "METADATA"; break;
-        case 6: type_name = "FRAME"; break;
-        case 7: type_name = "REDUNDANT_FRAME_HDR"; break;
-        case 8: type_name = "TILE_LIST"; break;
-        case 15: type_name = "PADDING"; break;
+
+      if (obu_type == 1) {
+        obu_detected_keyframe = true;
       }
-      std::fprintf(stderr,
-                   "[AV1Impl]   OBU[%d] @%zu: type=%d(%s) ext=%d has_size=%d",
-                   obu_count, pos, obu_type, type_name,
-                   has_extension ? 1 : 0, has_size ? 1 : 0);
+
+      if (frame_num < 5) {
+        const char* type_name = "unknown";
+        switch (obu_type) {
+          case 1: type_name = "SEQ_HDR"; break;
+          case 2: type_name = "TD"; break;
+          case 3: type_name = "FRAME_HDR"; break;
+          case 4: type_name = "TILE_GROUP"; break;
+          case 5: type_name = "METADATA"; break;
+          case 6: type_name = "FRAME"; break;
+          case 7: type_name = "REDUNDANT_FRAME_HDR"; break;
+          case 8: type_name = "TILE_LIST"; break;
+          case 15: type_name = "PADDING"; break;
+        }
+        std::fprintf(stderr,
+                     "[AV1Impl]   OBU[%d] @%zu: type=%d(%s) ext=%d has_size=%d",
+                     obu_count, pos, obu_type, type_name,
+                     has_extension ? 1 : 0, has_size ? 1 : 0);
+      }
+
       pos += 1;
       if (has_extension && pos < packet.size()) pos += 1;
       if (has_size && pos < packet.size()) {
-        // Read LEB128 size
         uint64_t obu_size = 0;
         int shift = 0;
         while (pos < packet.size()) {
@@ -327,15 +329,42 @@ int32_t JetsonAV1EncoderImpl::Encode(
           shift += 7;
           if (!(byte & 0x80)) break;
         }
-        std::fprintf(stderr, " size=%lu", (unsigned long)obu_size);
+        if (frame_num < 5) {
+          std::fprintf(stderr, " size=%lu", (unsigned long)obu_size);
+        }
         pos += obu_size;
       } else if (!has_size) {
-        std::fprintf(stderr, " (NO SIZE FIELD - rest of bitstream is this OBU)");
+        if (frame_num < 5) {
+          std::fprintf(stderr, " (NO SIZE FIELD - rest of bitstream is this OBU)");
+        }
         pos = packet.size();
       }
-      std::fprintf(stderr, "\n");
+      if (frame_num < 5) {
+        std::fprintf(stderr, "\n");
+      }
       obu_count++;
     }
+  }
+
+  if (obu_detected_keyframe && !is_keyframe) {
+    is_keyframe = true;
+    if (frame_num < 10) {
+      std::fprintf(stderr,
+                   "[AV1Impl] frame %lu: V4L2 did not flag keyframe but "
+                   "OBU stream contains SEQ_HDR -> overriding to keyframe\n",
+                   frame_num);
+    }
+  }
+
+  if (frame_num < 5 && packet.size() >= 2) {
+    std::fprintf(stderr,
+                 "[AV1Impl] Encode() frame %lu: encoded %zu bytes, "
+                 "keyframe=%d (obu_detected=%d), first_bytes=[",
+                 frame_num, packet.size(), is_keyframe ? 1 : 0,
+                 obu_detected_keyframe ? 1 : 0);
+    for (size_t b = 0; b < std::min(packet.size(), (size_t)16); ++b)
+      std::fprintf(stderr, "%02x ", packet[b]);
+    std::fprintf(stderr, "]\n");
     std::fflush(stderr);
   }
 
