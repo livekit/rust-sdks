@@ -1,0 +1,195 @@
+// Copyright 2026 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use bytes::Bytes;
+use futures_util::{Stream, StreamExt};
+use inner::OutputEvent;
+use livekit_datatrack::backend::EncryptionError;
+use livekit_datatrack::{
+    api::{DataTrackOptions, DataTrackSid, PublishError},
+    backend::{local as inner, EncryptedPayload, InitializationVector},
+};
+use livekit_protocol as proto;
+use prost::Message;
+use std::sync::Arc;
+use tokio_util::sync::{CancellationToken, DropGuard};
+
+uniffi::custom_type!(DataTrackSid, String, {
+    remote,
+    lower: |s| String::from(s),
+    try_lift: |s| DataTrackSid::try_from(s).map_err(|e| uniffi::deps::anyhow::anyhow!("{e}")),
+});
+
+#[uniffi::remote(Record)]
+pub struct DataTrackOptions {
+    pub name: String,
+}
+
+/// Information about a published data track.
+#[derive(uniffi::Record)]
+pub struct DataTrackInfo {
+    pub sid: DataTrackSid,
+    pub name: String,
+    pub uses_e2ee: bool,
+}
+
+#[uniffi::remote(Error)]
+#[uniffi(flat_error)]
+pub enum PublishError {
+    NotAllowed,
+    DuplicateName,
+    InvalidName,
+    Timeout,
+    LimitReached,
+    Disconnected,
+    Internal,
+}
+
+#[derive(uniffi::Object)]
+pub struct LocalDataTrack {
+    inner: livekit_datatrack::api::LocalDataTrack,
+}
+
+impl From<livekit_datatrack::api::LocalDataTrack> for LocalDataTrack {
+    fn from(inner: livekit_datatrack::api::LocalDataTrack) -> Self {
+        Self { inner }
+    }
+}
+
+#[derive(uniffi::Object)]
+struct LocalDataTrackManager {
+    input: inner::ManagerInput,
+    _drop_guard: DropGuard,
+}
+
+#[uniffi::export]
+impl LocalDataTrackManager {
+    #[uniffi::constructor]
+    pub fn new(
+        delegate: Arc<dyn LocalDataTrackManagerDelegate>,
+        e2ee_provider: Option<Arc<dyn LocalDataTrackEncryptionProvider>>,
+    ) -> Arc<Self> {
+        let token = CancellationToken::new();
+
+        let manager_options = inner::ManagerOptions { encryption_provider: None };
+        // TODO: encryption provider
+
+        let (manager, input, output) = inner::Manager::new(manager_options);
+        tokio::spawn(manager.run());
+        tokio::spawn(Self::delegate_forward_task(output, delegate, token.clone()));
+
+        // TODO: send shutdown on drop
+
+        Self { input, _drop_guard: token.drop_guard() }.into()
+    }
+}
+
+impl LocalDataTrackManager {
+    async fn delegate_forward_task(
+        output: impl Stream<Item = inner::OutputEvent>,
+        delegate: Arc<dyn LocalDataTrackManagerDelegate>,
+        token: CancellationToken,
+    ) {
+        tokio::pin!(output);
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => break,
+                Some(event) = output.next() => Self::forward_event(event, &delegate)
+            }
+        }
+    }
+
+    fn forward_event(event: OutputEvent, delegate: &Arc<dyn LocalDataTrackManagerDelegate>) {
+        match event {
+            OutputEvent::PacketsAvailable(packets) => delegate.on_packets_available(packets),
+            OutputEvent::SfuPublishRequest(req) => {
+                let req = proto::signal_request::Message::PublishDataTrackRequest(req.into());
+                Self::forward_signal_request(req, &delegate);
+            }
+            OutputEvent::SfuUnpublishRequest(req) => {
+                let req = proto::signal_request::Message::UnpublishDataTrackRequest(req.into());
+                Self::forward_signal_request(req, &delegate);
+            }
+        }
+    }
+
+    fn forward_signal_request(
+        message: proto::signal_request::Message,
+        delegate: &Arc<dyn LocalDataTrackManagerDelegate>,
+    ) {
+        let req = proto::SignalRequest { message: Some(message) }.encode_to_vec();
+        delegate.on_signal_request(req);
+    }
+}
+
+#[uniffi::export]
+impl LocalDataTrackManager {
+    pub async fn publish_track(
+        &self,
+        options: DataTrackOptions,
+    ) -> Result<LocalDataTrack, PublishError> {
+        self.input.publish_track(options).await.map(|track| track.into())
+    }
+
+    pub async fn query_tracks(&self) -> Vec<DataTrackInfo> {
+        self.input
+            .query_tracks()
+            .await
+            .into_iter()
+            .map(|info| DataTrackInfo {
+                sid: info.sid(),
+                name: info.name().to_string(),
+                uses_e2ee: info.uses_e2ee(),
+            })
+            .collect()
+    }
+
+    pub async fn republish_tracks(&self) {
+        _ = self.input.send(inner::InputEvent::RepublishTracks);
+    }
+}
+
+/// Delegate for receiving output events from [`LocalDataTrackManager`].
+#[uniffi::export(with_foreign)]
+pub trait LocalDataTrackManagerDelegate: Send + Sync {
+    /// Encoded signal request to be forwarded to the SFU.
+    fn on_signal_request(&self, request: Vec<u8>);
+
+    /// Packets available to be sent over the data channel transport.
+    fn on_packets_available(&self, packets: Vec<Bytes>);
+}
+
+uniffi::custom_type!(InitializationVector, Vec<u8>, {
+    remote,
+    lower: |iv| iv.to_vec(),
+    try_lift: |v| v.try_into()
+        .map_err(|_| uniffi::deps::anyhow::anyhow!("IV must be exactly 12 bytes"))
+});
+
+#[uniffi::remote(Record)]
+pub struct EncryptedPayload {
+    pub payload: Bytes,
+    pub iv: InitializationVector,
+    pub key_index: u8,
+}
+
+#[uniffi::remote(Error)]
+#[uniffi(flat_error)]
+pub enum EncryptionError {}
+
+#[uniffi::export(with_foreign)]
+pub trait LocalDataTrackEncryptionProvider: Send + Sync {
+    /// Encrypts the given payload being sent by the local participant.
+    fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, EncryptionError>;
+}
