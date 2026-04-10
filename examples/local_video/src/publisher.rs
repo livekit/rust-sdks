@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use livekit::options::{TrackPublishOptions, VideoCodec, VideoEncoding};
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
@@ -72,9 +72,16 @@ struct Args {
     #[arg(long)]
     api_secret: Option<String>,
 
-    /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
-    #[arg(long, default_value_t = false)]
-    h265: bool,
+    /// Video codec to use (falls back to h264 on failure)
+    #[arg(long, value_enum, default_value_t = CodecChoice::H264)]
+    codec: CodecChoice,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum CodecChoice {
+    H264,
+    H265,
+    Av1,
 }
 
 fn list_cameras() -> Result<()> {
@@ -189,8 +196,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let track =
         LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(rtc_source.clone()));
 
-    // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
-    let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
+    // Choose requested codec and attempt to publish; fall back to H.264 on failure
+    let requested_codec = match args.codec {
+        CodecChoice::H264 => VideoCodec::H264,
+        CodecChoice::H265 => VideoCodec::H265,
+        CodecChoice::Av1 => VideoCodec::AV1,
+    };
     info!("Attempting publish with codec: {}", requested_codec.as_str());
 
     let publish_opts = |codec: VideoCodec| {
@@ -213,8 +224,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         .await;
 
     if let Err(e) = publish_result {
-        if matches!(requested_codec, VideoCodec::H265) {
-            log::warn!("H.265 publish failed ({}). Falling back to H.264...", e);
+        if !matches!(requested_codec, VideoCodec::H264) {
+            log::warn!("{} publish failed ({}). Falling back to H.264...", requested_codec.as_str(), e);
             room.local_participant()
                 .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
                 .await?;
