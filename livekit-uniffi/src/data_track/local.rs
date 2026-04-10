@@ -15,6 +15,7 @@
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use inner::OutputEvent;
+use livekit_datatrack::api::{DataTrack, DataTrackFrame, Local, PushFrameErrorReason};
 use livekit_datatrack::backend::local::{
     publish_result_from_request_response, InputEvent, ManagerInput, SfuPublishResponse,
 };
@@ -47,6 +48,18 @@ pub struct DataTrackInfo {
     pub uses_e2ee: bool,
 }
 
+impl From<&livekit_datatrack::api::DataTrackInfo> for DataTrackInfo {
+    fn from(info: &livekit_datatrack::api::DataTrackInfo) -> Self {
+        Self { sid: info.sid(), name: info.name().to_string(), uses_e2ee: info.uses_e2ee() }
+    }
+}
+
+#[uniffi::remote(Error)]
+pub enum PushFrameErrorReason {
+    TrackUnpublished,
+    QueueFull,
+}
+
 #[uniffi::remote(Error)]
 #[uniffi(flat_error)]
 pub enum PublishError {
@@ -60,13 +73,25 @@ pub enum PublishError {
 }
 
 #[derive(uniffi::Object)]
-pub struct LocalDataTrack {
-    inner: livekit_datatrack::api::LocalDataTrack,
-}
+pub struct LocalDataTrack(DataTrack<Local>);
 
-impl From<livekit_datatrack::api::LocalDataTrack> for LocalDataTrack {
-    fn from(inner: livekit_datatrack::api::LocalDataTrack) -> Self {
-        Self { inner }
+#[uniffi::export]
+impl LocalDataTrack {
+    /// Whether or not the track is currently published.
+    fn is_published(&self) -> bool {
+        self.0.is_published()
+    }
+
+    /// Information about the data track.
+    fn info(&self) -> DataTrackInfo {
+        self.0.info().into()
+    }
+
+    /// Try pushing a frame to subscribers of the track.
+    fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameErrorReason> {
+        // `PushFrameError` returns ownership of the unpublished frame to the caller;
+        // since this not applicable in an FFI context, just provide the reason.
+        self.0.try_push(frame).map_err(|err| err.reason())
     }
 }
 
@@ -149,7 +174,7 @@ impl LocalDataTrackManager {
         &self,
         options: DataTrackOptions,
     ) -> Result<LocalDataTrack, PublishError> {
-        self.input.publish_track(options).await.map(|track| track.into())
+        self.input.publish_track(options).await.map(|track| LocalDataTrack(track))
     }
 
     /// Get information about all currently published tracks.
@@ -157,16 +182,7 @@ impl LocalDataTrackManager {
     /// This does not include publications that are still pending.
     ///
     pub async fn query_tracks(&self) -> Vec<DataTrackInfo> {
-        self.input
-            .query_tracks()
-            .await
-            .into_iter()
-            .map(|info| DataTrackInfo {
-                sid: info.sid(),
-                name: info.name().to_string(),
-                uses_e2ee: info.uses_e2ee(),
-            })
-            .collect()
+        self.input.query_tracks().await.into_iter().map(|info| info.as_ref().into()).collect()
     }
 
     /// Republish all tracks.
