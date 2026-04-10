@@ -998,6 +998,24 @@ impl SessionInner {
 
                 // Dual PC mode: handle offer on subscriber PC
                 log::debug!("received subscriber offer: {:?}", offer);
+
+                // Log whether AV1 appears in the SFU's subscriber offer
+                {
+                    let has_av1 = offer.sdp.contains("AV1") || offer.sdp.contains("av1");
+                    log::info!(
+                        "Subscriber SDP offer from SFU: has_av1={}, sdp_len={}",
+                        has_av1, offer.sdp.len()
+                    );
+                    if has_av1 {
+                        for line in offer.sdp.lines() {
+                            let ll = line.to_ascii_lowercase();
+                            if ll.contains("av1") || ll.contains("rtpmap") {
+                                log::info!("  offer> {}", line);
+                            }
+                        }
+                    }
+                }
+
                 let offer_sdp =
                     SessionDescription::parse(&offer.sdp, offer.r#type.parse().unwrap()).unwrap();
 
@@ -1008,10 +1026,29 @@ impl SessionInner {
                     .create_anwser(offer_sdp, AnswerOptions::default())
                     .await?;
 
+                let answer_str = answer.to_string();
+
+                // Log whether AV1 survived into the subscriber's SDP answer
+                {
+                    let has_av1 = answer_str.contains("AV1") || answer_str.contains("av1");
+                    log::info!(
+                        "Subscriber SDP answer (local): has_av1={}, sdp_len={}",
+                        has_av1, answer_str.len()
+                    );
+                    if has_av1 {
+                        for line in answer_str.lines() {
+                            let ll = line.to_ascii_lowercase();
+                            if ll.contains("av1") || ll.contains("rtpmap") {
+                                log::info!("  answer> {}", line);
+                            }
+                        }
+                    }
+                }
+
                 self.signal_client
                     .send(proto::signal_request::Message::Answer(proto::SessionDescription {
                         r#type: "answer".to_string(),
-                        sdp: answer.to_string(),
+                        sdp: answer_str,
                         id: 0,
                         mid_to_track_id: Default::default(),
                     }))

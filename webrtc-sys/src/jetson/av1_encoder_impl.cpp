@@ -130,6 +130,13 @@ int32_t JetsonAV1EncoderImpl::InitEncode(
                configuration_.width, configuration_.height);
   std::fflush(stderr);
 
+  svc_controller_ = CreateScalabilityStructure(ScalabilityMode::kL1T1);
+  if (!svc_controller_) {
+    RTC_LOG(LS_ERROR) << "Failed to create L1T1 scalability controller";
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
   ReportInit();
 
   SimulcastRateAllocator init_allocator(env_, codec_);
@@ -151,6 +158,7 @@ int32_t JetsonAV1EncoderImpl::Release() {
     encoder_.Destroy();
   }
   ivf_header_detected_ = false;
+  svc_controller_.reset();
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -367,6 +375,21 @@ int32_t JetsonAV1EncoderImpl::ProcessEncodedFrame(
 
   CodecSpecificInfo codecInfo;
   codecInfo.codecType = kVideoCodecAV1;
+
+  // Generate dependency descriptor via the L1T1 scalability controller.
+  // The SFU requires this RTP header extension to forward AV1 packets.
+  if (svc_controller_) {
+    auto configs = svc_controller_->NextFrameConfig(is_keyframe);
+    if (!configs.empty()) {
+      auto& cfg = configs[0];
+      codecInfo.generic_frame_info =
+          svc_controller_->OnEncodeDone(std::move(cfg));
+    }
+    if (is_keyframe) {
+      codecInfo.template_structure = svc_controller_->DependencyStructure();
+    }
+    codecInfo.scalability_mode = ScalabilityMode::kL1T1;
+  }
 
   const auto result =
       encoded_image_callback_->OnEncodedImage(encoded_image_, &codecInfo);

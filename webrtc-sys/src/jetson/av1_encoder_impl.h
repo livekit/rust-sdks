@@ -74,6 +74,7 @@ class JetsonAV1EncoderImpl : public VideoEncoder {
   bool has_reported_init_ = false;
   bool has_reported_error_ = false;
   bool ivf_header_detected_ = false;
+  std::unique_ptr<ScalableVideoController> svc_controller_;
   const SdpVideoFormat format_;
 };
 
