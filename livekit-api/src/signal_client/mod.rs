@@ -571,6 +571,7 @@ fn create_join_request_param(
         os,
         os_version,
         device_model,
+        client_protocol: 1, // CLIENT_PROTOCOL_DATA_STREAM_RPC
         ..Default::default()
     };
 

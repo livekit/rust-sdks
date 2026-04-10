@@ -126,6 +126,7 @@ impl LocalParticipant {
         joined_at: i64,
         encryption_type: EncryptionType,
         permission: Option<proto::ParticipantPermission>,
+        client_protocol: i32,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -140,6 +141,7 @@ impl LocalParticipant {
                 kind_details,
                 joined_at,
                 permission,
+                client_protocol,
             ),
             local: Arc::new(LocalInfo {
                 events: LocalEvents::default(),
@@ -853,6 +855,10 @@ impl LocalParticipant {
 
     pub fn permission(&self) -> Option<proto::ParticipantPermission> {
         self.inner.info.read().permission.clone()
+    }
+
+    pub fn client_protocol(&self) -> i32 {
+        self.inner.info.read().client_protocol
     }
 
     pub async fn perform_rpc(&self, data: PerformRpcData) -> Result<String, RpcError> {
