@@ -16,21 +16,57 @@ name: FFI
 on:
   push:
     branches: ["main"]
-    tags:
-      - "rust-sdks/livekit-ffi@*"
   workflow_dispatch:
-  workflow_call:
     inputs:
-      tag:
+      tag_name:
+        description: "Release tag (e.g. livekit-ffi/v0.12.49). Takes precedence over draft release lookup and creates a draft release."
         required: false
         type: string
+      dry_run:
+        description: "Dry run: build artifacts but skip release upload/publish."
+        required: false
+        type: boolean
+        default: false
+      build_profile:
+        description: "Build profile"
+        type: choice
+        options:
+          - release
+          - debug
+        default: release
 
 env:
   CARGO_TERM_COLOR: always
-  TAG_NAME: ${{ inputs.tag || github.ref_name }}
 
 jobs:
+  get-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
+      - name: "Resolve tag"
+        run: |
+          MANUAL_TAG="${{ inputs.tag_name }}"
+          if [ -n "$MANUAL_TAG" ]; then
+            echo "Using manually provided tag: '${MANUAL_TAG}'"
+            gh release create "$MANUAL_TAG" --draft --title "$MANUAL_TAG" --generate-notes
+            echo "tag_name=${MANUAL_TAG}" >> $GITHUB_OUTPUT
+          else
+            TAG=$(gh release list --repo ${{ github.repository }} --json 'isDraft,tagName' --jq '[.[] | select(.isDraft and (.tagName | startswith("livekit-ffi/")))] | first | .tagName // empty')
+            echo "Resolved FFI draft release tag: '${TAG:-}'"
+            echo "tag_name=${TAG:-}" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+        id: get-tag
+    outputs:
+      tag_name: ${{ steps.get-tag.outputs.tag_name }}
+
   build:
+    env:
+      CARGO_PROFILE_DIR: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_profile == 'debug' && 'debug' || 'release' }}
+      CARGO_RUST_PROFILE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.build_profile == 'debug' && 'dev' || 'release' }}
     strategy:
       fail-fast: false
       matrix:
@@ -106,10 +142,10 @@ jobs:
             name: ffi-android-x86_64
             buildargs: --no-default-features --features "rustls-tls-webpki-roots"
 
-    name: Build (${{ matrix.target }})
+    name: Build (${{ matrix.target }}${{ github.event_name == 'workflow_dispatch' && format(' [{0}]', github.event.inputs.build_profile) || '' }})
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
         with:
           submodules: true
 
@@ -117,23 +153,25 @@ jobs:
         run: |
           rustup target add ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@v2.8.2
+      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v2
+        uses: arduino/setup-protoc@a8b67ba40b37d35169e222f3bb352603327985b6 # v2.1.0
         with:
           version: "25.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up QEMU
         if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
 
       - name: Build (macOS)
         if: ${{ matrix.platform == 'macos' }}
         env:
           MACOSX_DEPLOYMENT_TARGET: ${{ matrix.macosx_deployment_target }}
-        run: cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
+        run: |
+          cd livekit-ffi
+          cargo build --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
       - name: Build (iOS)
         if: ${{ matrix.platform == 'ios' }}
@@ -141,29 +179,33 @@ jobs:
         #env:
         #  IPHONEOS_DEPLOYMENT_TARGET: ${{ matrix.iphoneos_deployment_target }}
         # run: cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
-        run: cd livekit-ffi && cargo rustc --crate-type staticlib --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
+        run: |
+          cd livekit-ffi
+          cargo rustc --crate-type staticlib --profile "$CARGO_RUST_PROFILE" --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
       - name: Build (Windows)
         if: ${{ matrix.platform == 'windows' }}
-        run: cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}
+        run: |
+          cd livekit-ffi
+          cargo build --profile $env:CARGO_RUST_PROFILE --target ${{ matrix.target }} ${{ matrix.buildargs }}
 
       # Use Docker on linux, so we can use manylinux images (ensure maximum mcompatibility)
       - name: Build (Linux)
         if: ${{ matrix.platform == 'linux' }}
         run: |
-          docker run --rm -v $PWD:/workspace -w /workspace ${{ matrix.build_image }} bash -c "\
+          docker run --rm -e CARGO_RUST_PROFILE="$CARGO_RUST_PROFILE" -v $PWD:/workspace -w /workspace ${{ matrix.build_image }} bash -c "\
             uname -a; \
             export PATH=/root/.cargo/bin:\$PATH; \
-            yum install llvm llvm-libs -y; \
+            yum install llvm llvm-libs lld -y; \
             yum install clang -y; \
             yum install protobuf-compiler -y; \
             yum groupinstall 'Development Tools' -y; \
             clang --version; \
             yum install openssl-devel libX11-devel mesa-libGL-devel libXext-devel libva-devel libdrm-devel libgbm-devel libXdamage-devel libXrandr-devel libXfixes-devel libXcomposite-devel -y; \
             curl --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y; \
-            cd livekit-ffi && cargo build --release --target ${{ matrix.target }} ${{ matrix.buildargs }}"
+            cd livekit-ffi && cargo build --profile \"\$CARGO_RUST_PROFILE\" --target ${{ matrix.target }} ${{ matrix.buildargs }}"
 
-          sudo chown -R $USER:$USER target/${{ matrix.target }}/release/
+          sudo chown -R $USER:$USER "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/"
 
       # on android use cargo ndk
       - name: Build (Android)
@@ -171,7 +213,7 @@ jobs:
         run: |
           cd livekit-ffi/
           cargo install cargo-ndk
-          cargo ndk --target ${{ matrix.target }} build --release ${{ matrix.buildargs }}
+          cargo ndk --target ${{ matrix.target }} build --profile "$CARGO_RUST_PROFILE" ${{ matrix.buildargs }}
 
       - name: Copy/Build licenses
         run: |
@@ -180,57 +222,57 @@ jobs:
           cat LICENSE >> TEMP_LICENSE.md
           echo "```" >> TEMP_LICENSE.md
           cat livekit-ffi/WEBRTC_LICENSE.md >> TEMP_LICENSE.md
-          mv TEMP_LICENSE.md target/${{ matrix.target }}/release/LICENSE.md
+          mv TEMP_LICENSE.md "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/LICENSE.md"
         shell: bash
 
       # zip the files
       - name: Zip artifact (Unix)
         if: ${{ matrix.os != 'windows-latest' && matrix.platform != 'android'}}
         run: |
-          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
-          cd target/${{ matrix.target }}/release/
+          cp livekit-ffi/include/livekit_ffi.h "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/"
+          cd "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/"
           zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} livekit_ffi.h LICENSE.md
 
       - name: Zip artifact (Unix for Android)
         if: ${{ matrix.os != 'windows-latest' && matrix.platform == 'android'}}
         run: |
-          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
-          cd target/${{ matrix.target }}/release/
+          cp livekit-ffi/include/livekit_ffi.h "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/"
+          cd "target/${{ matrix.target }}/$CARGO_PROFILE_DIR/"
           zip ${{ github.workspace }}/${{ matrix.name }}.zip ${{ matrix.dylib }} ${{ matrix.jar }} livekit_ffi.h LICENSE.md
 
       - name: Zip artifact (Windows)
         if: ${{ matrix.os == 'windows-latest' }}
         run: |
-          cp livekit-ffi/include/livekit_ffi.h target/${{ matrix.target }}/release/
-          cd target/${{ matrix.target }}/release/
+          cp livekit-ffi/include/livekit_ffi.h "target/${{ matrix.target }}/$env:CARGO_PROFILE_DIR/"
+          cd "target/${{ matrix.target }}/$env:CARGO_PROFILE_DIR/"
           Get-ChildItem -Path ${{ matrix.dylib }}, livekit_ffi.h, LICENSE.md | Compress-Archive -DestinationPath ${{ github.workspace }}\${{ matrix.name }}.zip
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ffi-builds-${{ matrix.target }}
           path: ${{ matrix.name }}.zip
 
   release:
-    name: Release to GH (Draft)
+    name: Upload artifacts and publish GH release
     runs-on: ubuntu-latest
-    needs: build
+    needs: [get-tag, build]
     permissions:
       contents: write
-    if: startsWith(inputs.tag || github.ref_name, 'rust-sdks/livekit-ffi@')
+    if: needs.get-tag.outputs.tag_name != '' && inputs.dry_run != true
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3.6.0
 
       - name: Download artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: ffi-builds-*
           merge-multiple: true
           path: ${{ github.workspace }}/ffi-builds
 
-      - name: Create draft release
+      - name: Upload artifacts and publish release
         run: |
-          gh release create ${{ env.TAG_NAME }} --draft --title "${{ env.TAG_NAME }}"
-          gh release upload ${{ env.TAG_NAME }} ${{ github.workspace }}/ffi-builds/*
+          gh release upload ${{ needs.get-tag.outputs.tag_name }} ${{ github.workspace }}/ffi-builds/*
+          gh release edit ${{ needs.get-tag.outputs.tag_name }} --draft=false
