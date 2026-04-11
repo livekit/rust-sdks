@@ -20,17 +20,10 @@ fn main() {
     if env::var("DOCS_RS").is_ok() {
         return;
     }
-    download_webrtc();
+    webrtc_sys_build::download_webrtc().unwrap();
     copy_webrtc_license();
     configure_linker();
     generate_protobuf();
-}
-
-fn download_webrtc() {
-    let webrtc_dir = webrtc_sys_build::webrtc_dir();
-    if !webrtc_dir.exists() {
-        webrtc_sys_build::download_webrtc().unwrap();
-    }
 }
 
 /// Copy the webrtc license to `CARGO_MANIFEST_DIR`, used by the FFI release action.

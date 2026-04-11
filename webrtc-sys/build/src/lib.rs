@@ -115,6 +115,13 @@ pub fn webrtc_dir() -> path::PathBuf {
     prebuilt_dir()
 }
 
+/// True when the downloaded (or custom) prebuilt looks complete. `exists()` alone is not enough:
+/// CI caches or interrupted extracts can leave an empty/partial tree, which would skip re-download
+/// and break later steps (e.g. copying `LICENSE.md`).
+fn prebuilt_ready(webrtc_dir: &path::Path) -> bool {
+    webrtc_dir.join("LICENSE.md").exists() && webrtc_dir.join("webrtc.ninja").exists()
+}
+
 pub fn webrtc_defines() -> Vec<(String, Option<String>)> {
     // read preprocessor definitions from webrtc.ninja
     let defines_re = Regex::new(r"-D(\w+)(?:=([^\s]+))?").unwrap();
@@ -205,8 +212,19 @@ pub fn download_webrtc() -> Result<()> {
     flock.lock_exclusive().context("Failed to acquire exclusive lock for WebRTC download")?;
 
     let webrtc_dir = webrtc_dir();
-    if webrtc_dir.exists() {
+    if prebuilt_ready(&webrtc_dir) {
         return Ok(());
+    }
+
+    if webrtc_dir.exists() {
+        if custom_dir().is_some() {
+            return Err(anyhow!(
+                "LK_CUSTOM_WEBRTC directory {:?} is missing LICENSE.md or webrtc.ninja",
+                webrtc_dir
+            ));
+        }
+        fs::remove_dir_all(&webrtc_dir)
+            .with_context(|| format!("Failed to remove incomplete WebRTC directory: {:?}", webrtc_dir))?;
     }
 
     let mut resp = reqwest::blocking::get(download_url())
