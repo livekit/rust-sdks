@@ -73,11 +73,7 @@ impl From<sys_rp::ffi::RtpCodecParameters> for RtpCodecParameters {
                     message_type: unsafe { std::mem::transmute(f.message_type) },
                 })
                 .collect(),
-            parameters: value
-                .parameters
-                .into_iter()
-                .map(|kv| (kv.key, kv.value))
-                .collect(),
+            parameters: value.parameters.into_iter().map(|kv| (kv.key, kv.value)).collect(),
         }
     }
 }

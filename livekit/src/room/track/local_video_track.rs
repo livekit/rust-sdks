@@ -224,9 +224,9 @@ impl LocalVideoTrack {
             log::debug!("dynacast: layers unchanged [{}]", layers.join(", "));
         }
 
-        sender.set_parameters(params).map_err(|e| {
-            RoomError::Internal(format!("failed to set sender parameters: {}", e))
-        })?;
+        sender
+            .set_parameters(params)
+            .map_err(|e| RoomError::Internal(format!("failed to set sender parameters: {}", e)))?;
 
         Ok(())
     }

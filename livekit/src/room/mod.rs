@@ -1837,10 +1837,7 @@ impl RoomSession {
         let publication = match self.local_participant.get_track_publication(&track_sid) {
             Some(pub_) => pub_,
             None => {
-                log::warn!(
-                    "dynacast: local track publication not found for sid {}",
-                    track_sid
-                );
+                log::warn!("dynacast: local track publication not found for sid {}", track_sid);
                 return;
             }
         };
@@ -1883,9 +1880,18 @@ impl RoomSession {
                         .unwrap_or_default()
                 })
         } else {
-            let qs: Vec<String> = update.subscribed_qualities.iter().map(|q| {
-                format!("{:?}={}", proto::VideoQuality::try_from(q.quality).unwrap_or(proto::VideoQuality::High), q.enabled)
-            }).collect();
+            let qs: Vec<String> = update
+                .subscribed_qualities
+                .iter()
+                .map(|q| {
+                    format!(
+                        "{:?}={}",
+                        proto::VideoQuality::try_from(q.quality)
+                            .unwrap_or(proto::VideoQuality::High),
+                        q.enabled
+                    )
+                })
+                .collect();
             log::info!(
                 "dynacast: SFU quality update for {} (legacy): [{}]",
                 track_sid,

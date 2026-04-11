@@ -1218,8 +1218,7 @@ impl SessionInner {
                     update.track_sid,
                     update.subscribed_codecs
                 );
-                let _ =
-                    self.emitter.send(SessionEvent::SubscribedQualityUpdate { update });
+                let _ = self.emitter.send(SessionEvent::SubscribedQualityUpdate { update });
             }
             _ => {}
         }
