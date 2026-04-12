@@ -456,21 +456,21 @@ impl RemoteParticipant {
                 let rtc_engine = rtc_engine.clone();
                 livekit_runtime::spawn(async move {
                     let tsid: String = publication.sid().into();
-                    let proto_quality = match quality {
+                    let quality = match quality {
                         VideoQuality::Low => proto::VideoQuality::Low,
                         VideoQuality::Medium => proto::VideoQuality::Medium,
                         VideoQuality::High => proto::VideoQuality::High,
-                    };
+                    }.into();
                     let update_track_settings = proto::UpdateTrackSettings {
                         track_sids: vec![tsid.clone()],
-                        quality: proto_quality.into(),
+                        quality,
                         ..Default::default()
                     };
 
                     log::info!(
                         "subscriber: sending UpdateTrackSettings to SFU: track={}, quality={:?}",
                         tsid,
-                        proto_quality,
+                        proto::VideoQuality::try_from(quality),
                     );
                     rtc_engine
                         .send_request(proto::signal_request::Message::TrackSetting(
