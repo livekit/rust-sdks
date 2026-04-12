@@ -460,7 +460,8 @@ impl RemoteParticipant {
                         VideoQuality::Low => proto::VideoQuality::Low,
                         VideoQuality::Medium => proto::VideoQuality::Medium,
                         VideoQuality::High => proto::VideoQuality::High,
-                    }.into();
+                    }
+                    .into();
                     let update_track_settings = proto::UpdateTrackSettings {
                         track_sids: vec![tsid.clone()],
                         quality,
