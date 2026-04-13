@@ -13,21 +13,17 @@
 // limitations under the License.
 
 use super::{
-    PerformRpcData, RpcError, RpcErrorCode, ATTR_METHOD, ATTR_REQUEST_ID,
-    ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, CLIENT_PROTOCOL_DATA_STREAM_RPC,
-    MAX_PAYLOAD_BYTES, RPC_REQUEST_TOPIC,
+    PerformRpcData, RpcError, RpcErrorCode, RpcTransport, ATTR_METHOD,
+    ATTR_REQUEST_ID, ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION,
+    CLIENT_PROTOCOL_DATA_STREAM_RPC, MAX_PAYLOAD_BYTES, RPC_REQUEST_TOPIC,
 };
 use crate::data_stream::{StreamReader, StreamTextOptions, TextStreamReader};
 use crate::room::id::ParticipantIdentity;
-use crate::room::RoomSession;
-use crate::rtc_engine::RtcEngine;
-use crate::DataPacketKind;
 use libwebrtc::native::create_random_uuid;
 use livekit_protocol as proto;
 use parking_lot::Mutex;
 use semver::Version;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::oneshot;
 
@@ -56,37 +52,26 @@ impl RpcClientManager {
     pub(crate) async fn perform_rpc(
         &self,
         data: PerformRpcData,
-        session: &Arc<RoomSession>,
+        transport: &(impl RpcTransport + 'static),
     ) -> Result<String, RpcError> {
         let max_round_trip_latency = Duration::from_millis(7000);
         let min_effective_timeout = Duration::from_millis(1000);
 
-        let rtc_engine = &session.rtc_engine;
-
-        if let Some(server_info) = rtc_engine
-            .session()
-            .signal_client()
-            .join_response()
-            .server_info
-        {
-            if !server_info.version.is_empty() {
-                let server_version =
-                    Version::parse(&server_info.version).unwrap();
-                let min_required_version = Version::parse("1.8.0").unwrap();
-                if server_version < min_required_version {
-                    return Err(RpcError::built_in(
-                        RpcErrorCode::UnsupportedServer,
-                        None,
-                    ));
-                }
+        if let Some(version_str) = transport.server_version() {
+            let server_version = Version::parse(&version_str).unwrap();
+            let min_required_version = Version::parse("1.8.0").unwrap();
+            if server_version < min_required_version {
+                return Err(RpcError::built_in(
+                    RpcErrorCode::UnsupportedServer,
+                    None,
+                ));
             }
         }
 
         // Determine transport version based on remote participant's client_protocol
-        let remote_protocol = session
-            .get_remote_client_protocol(&ParticipantIdentity(
-                data.destination_identity.clone(),
-            ));
+        let remote_protocol = transport.remote_client_protocol(
+            &ParticipantIdentity(data.destination_identity.clone()),
+        );
         let use_v2 = remote_protocol >= CLIENT_PROTOCOL_DATA_STREAM_RPC;
 
         // Only enforce payload size limit for v1 transport
@@ -116,7 +101,7 @@ impl RpcClientManager {
 
         let send_result = if use_v2 {
             self.send_v2_request(
-                session,
+                transport,
                 &data.destination_identity,
                 &id,
                 &data.method,
@@ -126,7 +111,7 @@ impl RpcClientManager {
             .await
         } else {
             publish_rpc_request(
-                rtc_engine,
+                transport,
                 &data.destination_identity,
                 &id,
                 &data.method,
@@ -187,7 +172,7 @@ impl RpcClientManager {
 
         match response {
             Err(_) => {
-                // Something went wrong locally
+                // Channel closed — sender dropped (e.g. disconnect)
                 Err(RpcError::built_in(
                     RpcErrorCode::RecipientDisconnected,
                     None,
@@ -207,7 +192,7 @@ impl RpcClientManager {
     /// Send an RPC request as a v2 text data stream.
     async fn send_v2_request(
         &self,
-        session: &Arc<RoomSession>,
+        transport: &impl RpcTransport,
         destination_identity: &str,
         id: &str,
         method: &str,
@@ -235,8 +220,7 @@ impl RpcClientManager {
             ..Default::default()
         };
 
-        session
-            .outgoing_stream_manager
+        transport
             .send_text(payload, options)
             .await
             .map(|_| ())
@@ -246,6 +230,22 @@ impl RpcClientManager {
                     Some(e.to_string()),
                 )
             })
+    }
+
+    /// Drop the pending response sender for a request, simulating a disconnect.
+    #[cfg(test)]
+    pub(crate) fn drop_pending_response(&self, request_id: &str) {
+        self.pending_responses.lock().remove(request_id);
+    }
+
+    /// Register a pending response channel for testing.
+    #[cfg(test)]
+    pub(crate) fn insert_pending_response(
+        &self,
+        request_id: String,
+        tx: tokio::sync::oneshot::Sender<Result<String, RpcError>>,
+    ) {
+        self.pending_responses.lock().insert(request_id, tx);
     }
 
     pub(crate) fn handle_ack(&self, request_id: String) {
@@ -319,7 +319,10 @@ impl RpcClientManager {
                 if let Some(tx) = pending.remove(&request_id) {
                     let _ = tx.send(Err(RpcError::built_in(
                         RpcErrorCode::ApplicationError,
-                        Some(format!("Failed to read response stream: {}", e)),
+                        Some(format!(
+                            "Failed to read response stream: {}",
+                            e
+                        )),
                     )));
                 }
                 return;
@@ -340,7 +343,7 @@ impl RpcClientManager {
 
 /// Publish a v1 RPC request data packet.
 pub(crate) async fn publish_rpc_request(
-    rtc_engine: &Arc<RtcEngine>,
+    transport: &impl RpcTransport,
     destination_identity: &str,
     id: &str,
     method: &str,
@@ -365,15 +368,12 @@ pub(crate) async fn publish_rpc_request(
         ..Default::default()
     };
 
-    rtc_engine
-        .publish_data(data, DataPacketKind::Reliable, false)
-        .await
-        .map_err(Into::into)
+    transport.publish_data(data).await
 }
 
 /// Publish a v1 RPC response data packet.
 pub(crate) async fn publish_rpc_response(
-    rtc_engine: &Arc<RtcEngine>,
+    transport: &impl RpcTransport,
     destination_identity: &str,
     request_id: &str,
     payload: Option<String>,
@@ -396,15 +396,12 @@ pub(crate) async fn publish_rpc_response(
         ..Default::default()
     };
 
-    rtc_engine
-        .publish_data(data, DataPacketKind::Reliable, false)
-        .await
-        .map_err(Into::into)
+    transport.publish_data(data).await
 }
 
 /// Publish a v1 RPC ack data packet.
 pub(crate) async fn publish_rpc_ack(
-    rtc_engine: &Arc<RtcEngine>,
+    transport: &impl RpcTransport,
     destination_identity: &str,
     request_id: &str,
 ) -> Result<(), crate::room::RoomError> {
@@ -419,8 +416,5 @@ pub(crate) async fn publish_rpc_ack(
         ..Default::default()
     };
 
-    rtc_engine
-        .publish_data(data, DataPacketKind::Reliable, false)
-        .await
-        .map_err(Into::into)
+    transport.publish_data(data).await
 }

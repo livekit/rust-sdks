@@ -335,11 +335,14 @@ pub struct ChatMessage {
 pub struct RoomSdkOptions {
     pub sdk: String,
     pub sdk_version: String,
+    /// Override the client_protocol advertised during join.
+    /// If None, uses the default (currently 1 = data stream RPC support).
+    pub client_protocol: Option<i32>,
 }
 
 impl Default for RoomSdkOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string() }
+        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string(), client_protocol: None }
     }
 }
 
@@ -348,6 +351,7 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
         let mut sdk_options = SignalSdkOptions::default();
         sdk_options.sdk = options.sdk;
         sdk_options.sdk_version = Some(options.sdk_version);
+        sdk_options.client_protocol = options.client_protocol;
         sdk_options
     }
 }
@@ -969,10 +973,10 @@ impl RoomSession {
                     log::warn!("Received RPC request with null caller identity");
                     return Ok(());
                 }
-                let rtc_engine = self.rtc_engine.clone();
                 let session = self.clone();
                 let caller = caller_identity.unwrap();
                 livekit_runtime::spawn(async move {
+                    let transport = rpc::SessionTransport(session.clone());
                     session
                         .rpc_server
                         .handle_request(
@@ -982,7 +986,7 @@ impl RoomSession {
                             payload,
                             response_timeout,
                             version,
-                            &rtc_engine,
+                            &transport,
                         )
                         .await;
                 });
@@ -2080,10 +2084,11 @@ async fn incoming_data_stream_task(
                                 let caller_identity = ParticipantIdentity(identity);
                                 let session = session.clone();
                                 livekit_runtime::spawn(async move {
+                                    let transport = rpc::SessionTransport(session.clone());
                                     session.rpc_server.handle_request_stream(
                                         reader,
                                         caller_identity,
-                                        &session,
+                                        &transport,
                                     ).await;
                                 });
                             }

@@ -770,7 +770,8 @@ impl LocalParticipant {
         let session = self.session().ok_or_else(|| {
             RpcError::built_in(RpcErrorCode::SendFailed, Some("Not connected".to_string()))
         })?;
-        session.rpc_client.perform_rpc(data, &session).await
+        let transport = crate::room::rpc::SessionTransport(session.clone());
+        session.rpc_client.perform_rpc(data, &transport).await
     }
 
     pub fn register_rpc_method(

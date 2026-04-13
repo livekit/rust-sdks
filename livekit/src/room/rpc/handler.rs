@@ -14,19 +14,23 @@
 
 use super::caller::{publish_rpc_ack, publish_rpc_response};
 use super::{
-    RpcError, RpcErrorCode, RpcInvocationData, ATTR_METHOD, ATTR_REQUEST_ID,
-    ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, MAX_PAYLOAD_BYTES,
-    RPC_RESPONSE_TOPIC,
+    RpcError, RpcErrorCode, RpcInvocationData, RpcTransport, ATTR_METHOD,
+    ATTR_REQUEST_ID, ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION,
+    MAX_PAYLOAD_BYTES, RPC_RESPONSE_TOPIC,
 };
 use crate::data_stream::{StreamReader, StreamTextOptions, TextStreamReader};
 use crate::room::id::ParticipantIdentity;
-use crate::room::RoomSession;
-use crate::rtc_engine::RtcEngine;
 use parking_lot::Mutex;
-use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap, future::Future, pin::Pin, sync::Arc,
+    time::Duration,
+};
 
 pub(crate) type RpcHandlerFn = Arc<
-    dyn Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+    dyn Fn(
+            RpcInvocationData,
+        )
+            -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
         + Send
         + Sync,
 >;
@@ -48,8 +52,11 @@ impl RpcServerManager {
     pub fn register_method(
         &self,
         method: String,
-        handler: impl Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
-            + Send
+        handler: impl Fn(
+                RpcInvocationData,
+            ) -> Pin<
+                Box<dyn Future<Output = Result<String, RpcError>> + Send>,
+            > + Send
             + Sync
             + 'static,
     ) {
@@ -76,19 +83,29 @@ impl RpcServerManager {
         payload: String,
         response_timeout: Duration,
         version: u32,
-        rtc_engine: &Arc<RtcEngine>,
+        transport: &(impl RpcTransport + 'static),
     ) {
         // Send ACK immediately
         if let Err(e) =
-            publish_rpc_ack(rtc_engine, &caller_identity.0, &request_id).await
+            publish_rpc_ack(transport, &caller_identity.0, &request_id).await
         {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
 
         let response = if version != 1 {
-            Err(RpcError::built_in(RpcErrorCode::UnsupportedVersion, None))
+            Err(RpcError::built_in(
+                RpcErrorCode::UnsupportedVersion,
+                None,
+            ))
         } else {
-            self.invoke_handler(&caller_identity, &request_id, &method, &payload, response_timeout).await
+            self.invoke_handler(
+                &caller_identity,
+                &request_id,
+                &method,
+                &payload,
+                response_timeout,
+            )
+            .await
         };
 
         let (resp_payload, error) = match response {
@@ -111,7 +128,7 @@ impl RpcServerManager {
         };
 
         if let Err(e) = publish_rpc_response(
-            rtc_engine,
+            transport,
             &caller_identity.0,
             &request_id,
             resp_payload,
@@ -132,18 +149,13 @@ impl RpcServerManager {
         &self,
         reader: TextStreamReader,
         caller_identity: ParticipantIdentity,
-        session: &Arc<RoomSession>,
+        transport: &(impl RpcTransport + 'static),
     ) {
         let attrs = &reader.info().attributes;
 
-        let request_id = attrs
-            .get(ATTR_REQUEST_ID)
-            .cloned()
-            .unwrap_or_default();
-        let method = attrs
-            .get(ATTR_METHOD)
-            .cloned()
-            .unwrap_or_default();
+        let request_id =
+            attrs.get(ATTR_REQUEST_ID).cloned().unwrap_or_default();
+        let method = attrs.get(ATTR_METHOD).cloned().unwrap_or_default();
         let response_timeout_ms: u64 = attrs
             .get(ATTR_RESPONSE_TIMEOUT_MS)
             .and_then(|v| v.parse().ok())
@@ -154,19 +166,19 @@ impl RpcServerManager {
             .unwrap_or(0);
 
         let response_timeout = Duration::from_millis(response_timeout_ms);
-        let rtc_engine = &session.rtc_engine;
 
         // Send ACK immediately (always v1 packet)
         if let Err(e) =
-            publish_rpc_ack(rtc_engine, &caller_identity.0, &request_id).await
+            publish_rpc_ack(transport, &caller_identity.0, &request_id).await
         {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
 
         if version != 2 {
-            let error = RpcError::built_in(RpcErrorCode::UnsupportedVersion, None);
+            let error =
+                RpcError::built_in(RpcErrorCode::UnsupportedVersion, None);
             let _ = publish_rpc_response(
-                rtc_engine,
+                transport,
                 &caller_identity.0,
                 &request_id,
                 None,
@@ -180,13 +192,19 @@ impl RpcServerManager {
         let payload = match reader.read_all().await {
             Ok(payload) => payload,
             Err(e) => {
-                log::error!("Failed to read RPC v2 request stream: {:?}", e);
+                log::error!(
+                    "Failed to read RPC v2 request stream: {:?}",
+                    e
+                );
                 let error = RpcError::built_in(
                     RpcErrorCode::ApplicationError,
-                    Some(format!("Failed to read request stream: {}", e)),
+                    Some(format!(
+                        "Failed to read request stream: {}",
+                        e
+                    )),
                 );
                 let _ = publish_rpc_response(
-                    rtc_engine,
+                    transport,
                     &caller_identity.0,
                     &request_id,
                     None,
@@ -197,13 +215,15 @@ impl RpcServerManager {
             }
         };
 
-        let response = self.invoke_handler(
-            &caller_identity,
-            &request_id,
-            &method,
-            &payload,
-            response_timeout,
-        ).await;
+        let response = self
+            .invoke_handler(
+                &caller_identity,
+                &request_id,
+                &method,
+                &payload,
+                response_timeout,
+            )
+            .await;
 
         match response {
             Ok(response_payload) => {
@@ -217,14 +237,14 @@ impl RpcServerManager {
                 let options = StreamTextOptions {
                     topic: RPC_RESPONSE_TOPIC.to_string(),
                     attributes,
-                    destination_identities: vec![caller_identity.clone()],
+                    destination_identities: vec![
+                        caller_identity.clone(),
+                    ],
                     ..Default::default()
                 };
 
-                if let Err(e) = session
-                    .outgoing_stream_manager
-                    .send_text(&response_payload, options)
-                    .await
+                if let Err(e) =
+                    transport.send_text(&response_payload, options).await
                 {
                     log::error!(
                         "Failed to send RPC v2 response stream: {:?}",
@@ -236,7 +256,7 @@ impl RpcServerManager {
                         Some(e.to_string()),
                     );
                     let _ = publish_rpc_response(
-                        rtc_engine,
+                        transport,
                         &caller_identity.0,
                         &request_id,
                         None,
@@ -248,7 +268,7 @@ impl RpcServerManager {
             Err(e) => {
                 // Error: always send as v1 packet
                 if let Err(send_err) = publish_rpc_response(
-                    rtc_engine,
+                    transport,
                     &caller_identity.0,
                     &request_id,
                     None,
@@ -305,9 +325,10 @@ impl RpcServerManager {
                     }
                 }
             }
-            None => {
-                Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None))
-            }
+            None => Err(RpcError::built_in(
+                RpcErrorCode::UnsupportedMethod,
+                None,
+            )),
         }
     }
 }

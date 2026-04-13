@@ -15,12 +15,16 @@
 mod caller;
 mod handler;
 
+#[cfg(test)]
+mod tests;
+
 pub use caller::RpcClientManager;
 pub use handler::RpcServerManager;
 
+use crate::data_stream::{StreamResult, StreamTextOptions, TextStreamInfo};
 use crate::room::id::ParticipantIdentity;
 use livekit_protocol::RpcError as RpcError_Proto;
-use std::{error::Error, fmt::Display, time::Duration};
+use std::{error::Error, fmt::Display, future::Future, time::Duration};
 
 // Client protocol version constants
 pub(crate) const CLIENT_PROTOCOL_DEFAULT: i32 = 0;
@@ -36,6 +40,75 @@ pub(crate) const ATTR_METHOD: &str = "lk.rpc_request_method";
 pub(crate) const ATTR_RESPONSE_TIMEOUT_MS: &str =
     "lk.rpc_request_response_timeout_ms";
 pub(crate) const ATTR_VERSION: &str = "lk.rpc_request_version";
+
+/// Transport abstraction for RPC operations.
+///
+/// Decouples the RPC managers from concrete engine/session types,
+/// enabling in-memory unit testing with a mock transport.
+pub(crate) trait RpcTransport: Send + Sync {
+    /// Send a data packet (used for v1 RPC packets and ACKs).
+    fn publish_data(
+        &self,
+        data: livekit_protocol::DataPacket,
+    ) -> impl Future<Output = Result<(), crate::room::RoomError>> + Send;
+
+    /// Send text as a data stream (used for v2 RPC requests and responses).
+    fn send_text(
+        &self,
+        text: &str,
+        options: StreamTextOptions,
+    ) -> impl Future<Output = StreamResult<TextStreamInfo>> + Send;
+
+    /// Look up a remote participant's client_protocol value.
+    fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32;
+
+    /// Get the server version string, if available.
+    fn server_version(&self) -> Option<String>;
+}
+
+/// Production implementation of `RpcTransport` backed by a `RoomSession`.
+pub(crate) struct SessionTransport(pub(crate) std::sync::Arc<super::RoomSession>);
+
+impl RpcTransport for SessionTransport {
+    async fn publish_data(
+        &self,
+        data: livekit_protocol::DataPacket,
+    ) -> Result<(), crate::room::RoomError> {
+        self.0
+            .rtc_engine
+            .publish_data(data, crate::DataPacketKind::Reliable, false)
+            .await
+            .map_err(Into::into)
+    }
+
+    async fn send_text(
+        &self,
+        text: &str,
+        options: StreamTextOptions,
+    ) -> StreamResult<TextStreamInfo> {
+        self.0.outgoing_stream_manager.send_text(text, options).await
+    }
+
+    fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32 {
+        self.0.get_remote_client_protocol(identity)
+    }
+
+    fn server_version(&self) -> Option<String> {
+        self.0
+            .rtc_engine
+            .session()
+            .signal_client()
+            .join_response()
+            .server_info
+            .and_then(|info| {
+                if info.version.is_empty() {
+                    None
+                } else {
+                    Some(info.version)
+                }
+            })
+    }
+}
 
 /// Parameters for performing an RPC call
 #[derive(Debug, Clone)]

@@ -83,11 +83,14 @@ pub enum SignalError {
 pub struct SignalSdkOptions {
     pub sdk: String,
     pub sdk_version: Option<String>,
+    /// Override the client_protocol advertised during join.
+    /// If None, uses the default (currently 1 = data stream RPC support).
+    pub client_protocol: Option<i32>,
 }
 
 impl Default for SignalSdkOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: None }
+        Self { sdk: "rust".to_string(), sdk_version: None, client_protocol: None }
     }
 }
 
@@ -571,7 +574,7 @@ fn create_join_request_param(
         os,
         os_version,
         device_model,
-        client_protocol: 1, // CLIENT_PROTOCOL_DATA_STREAM_RPC
+        client_protocol: options.sdk_options.client_protocol.unwrap_or(1),
         ..Default::default()
     };
 
