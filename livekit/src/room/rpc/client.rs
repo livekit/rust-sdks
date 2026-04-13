@@ -16,6 +16,7 @@ use super::{
     PerformRpcData, RpcError, RpcErrorCode, RpcTransport, ATTR_METHOD,
     ATTR_REQUEST_ID, ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION,
     CLIENT_PROTOCOL_DATA_STREAM_RPC, MAX_PAYLOAD_BYTES, RPC_REQUEST_TOPIC,
+    RPC_VERSION_V1, RPC_VERSION_V2,
 };
 use crate::data_stream::{StreamReader, StreamTextOptions, TextStreamReader};
 use crate::room::id::ParticipantIdentity;
@@ -117,7 +118,7 @@ impl RpcClientManager {
                 &data.method,
                 &data.payload,
                 effective_timeout,
-                1, // version
+                RPC_VERSION_V1,
             )
             .await
             .map_err(|e| {
@@ -209,7 +210,7 @@ impl RpcClientManager {
             response_timeout.as_millis().to_string(),
         );
         attributes
-            .insert(ATTR_VERSION.to_string(), "2".to_string());
+            .insert(ATTR_VERSION.to_string(), RPC_VERSION_V2.to_string());
 
         let options = StreamTextOptions {
             topic: RPC_REQUEST_TOPIC.to_string(),

@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::caller::{publish_rpc_ack, publish_rpc_response};
+use super::client::{publish_rpc_ack, publish_rpc_response};
 use super::{
     RpcError, RpcErrorCode, RpcInvocationData, RpcTransport, ATTR_METHOD,
     ATTR_REQUEST_ID, ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION,
-    MAX_PAYLOAD_BYTES, RPC_RESPONSE_TOPIC,
+    MAX_PAYLOAD_BYTES, RPC_RESPONSE_TOPIC, RPC_VERSION_V1, RPC_VERSION_V2,
 };
 use crate::data_stream::{StreamReader, StreamTextOptions, TextStreamReader};
 use crate::room::id::ParticipantIdentity;
@@ -92,7 +92,7 @@ impl RpcServerManager {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
 
-        let response = if version != 1 {
+        let response = if version != RPC_VERSION_V1 {
             Err(RpcError::built_in(
                 RpcErrorCode::UnsupportedVersion,
                 None,
@@ -174,7 +174,7 @@ impl RpcServerManager {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
 
-        if version != 2 {
+        if version != RPC_VERSION_V2 {
             let error =
                 RpcError::built_in(RpcErrorCode::UnsupportedVersion, None);
             let _ = publish_rpc_response(

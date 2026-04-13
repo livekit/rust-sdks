@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod caller;
-mod handler;
+mod client;
+mod server;
 
 #[cfg(test)]
 mod tests;
 
-pub use caller::RpcClientManager;
-pub use handler::RpcServerManager;
+pub use client::RpcClientManager;
+pub use server::RpcServerManager;
 
 use crate::data_stream::{StreamResult, StreamTextOptions, TextStreamInfo};
 use crate::room::id::ParticipantIdentity;
@@ -29,6 +29,11 @@ use std::{error::Error, fmt::Display, future::Future, time::Duration};
 // Client protocol version constants
 pub(crate) const CLIENT_PROTOCOL_DEFAULT: i32 = 0;
 pub(crate) const CLIENT_PROTOCOL_DATA_STREAM_RPC: i32 = 1;
+
+// RPC protocol version constants (distinct from client_protocol; this is the
+// version field on RpcRequest / v2 stream attributes).
+pub(crate) const RPC_VERSION_V1: u32 = 1;
+pub(crate) const RPC_VERSION_V2: u32 = 2;
 
 // Data stream topic constants for RPC v2
 pub(crate) const RPC_REQUEST_TOPIC: &str = "lk.rpc_request";
