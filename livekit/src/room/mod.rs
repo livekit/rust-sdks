@@ -23,7 +23,10 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
-use livekit_api::signal_client::{SignalOptions, SignalSdkOptions, SIGNAL_CONNECT_TIMEOUT, CLIENT_PROTOCOL_DEFAULT};
+use livekit_api::signal_client::{
+    SignalOptions, SignalSdkOptions, CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT,
+    SIGNAL_CONNECT_TIMEOUT,
+};
 use livekit_datatrack::{
     api::{DataTrackSid, RemoteDataTrack},
     backend as dt,
@@ -335,14 +338,19 @@ pub struct ChatMessage {
 pub struct RoomSdkOptions {
     pub sdk: String,
     pub sdk_version: String,
-    /// Override the client_protocol advertised during join.
-    /// If None, uses the default (currently 1 = data stream RPC support).
+    /// Override the client_protocol advertised during join. If `None`, falls back
+    /// to `CLIENT_PROTOCOL_DEFAULT` (0). The default constructor sets this to
+    /// `CLIENT_PROTOCOL_DATA_STREAM_RPC` (1) to advertise data-stream RPC support.
     pub client_protocol: Option<i32>,
 }
 
 impl Default for RoomSdkOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string(), client_protocol: None }
+        Self {
+            sdk: "rust".to_string(),
+            sdk_version: SDK_VERSION.to_string(),
+            client_protocol: Some(CLIENT_PROTOCOL_DATA_STREAM_RPC),
+        }
     }
 }
 
