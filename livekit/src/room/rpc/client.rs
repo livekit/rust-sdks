@@ -15,13 +15,14 @@
 use super::{
     PerformRpcData, RpcError, RpcErrorCode, RpcTransport, ATTR_METHOD,
     ATTR_REQUEST_ID, ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION,
-    CLIENT_PROTOCOL_DATA_STREAM_RPC, MAX_PAYLOAD_BYTES, RPC_REQUEST_TOPIC,
+    MAX_PAYLOAD_BYTES, RPC_REQUEST_TOPIC,
     RPC_VERSION_V1, RPC_VERSION_V2,
 };
 use crate::data_stream::{StreamReader, StreamTextOptions, TextStreamReader};
 use crate::room::id::ParticipantIdentity;
 use libwebrtc::native::create_random_uuid;
 use livekit_protocol as proto;
+use livekit_api::signal_client::CLIENT_PROTOCOL_DATA_STREAM_RPC;
 use parking_lot::Mutex;
 use semver::Version;
 use std::collections::HashMap;
