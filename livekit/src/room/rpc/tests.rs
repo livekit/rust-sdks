@@ -9,6 +9,7 @@ use crate::room::RoomError;
 use bytes::Bytes;
 use chrono::Utc;
 use livekit_protocol as proto;
+use livekit_api::signal_client::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
 use parking_lot::Mutex as ParkingMutex;
 use std::collections::HashMap;
 use std::sync::Arc;
