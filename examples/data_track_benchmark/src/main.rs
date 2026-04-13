@@ -10,7 +10,9 @@ const HEADER_SIZE: usize = 12; // 4 bytes seq + 8 bytes timestamp
 const ROOM_NAME: &str = "data-track-benchmark";
 
 #[derive(Parser)]
-#[command(about = "Data track benchmark — measures delivery ratio and latency across payload sizes and frequencies")]
+#[command(
+    about = "Data track benchmark — measures delivery ratio and latency across payload sizes and frequencies"
+)]
 struct Args {
     /// Comma-separated payload sizes in KiB (e.g. "1,4,16,64")
     #[arg(short, long)]
@@ -50,14 +52,14 @@ struct BenchResult {
 
 enum SubCommand {
     /// Begin a new run; only count frames with timestamp >= this value.
-    StartRun { run_start_ts: u64 },
+    StartRun {
+        run_start_ts: u64,
+    },
     Collect(oneshot::Sender<BenchResult>),
 }
 
 fn parse_list(s: &str) -> Vec<u64> {
-    s.split(',')
-        .map(|v| v.trim().parse::<u64>().expect("invalid number in list"))
-        .collect()
+    s.split(',').map(|v| v.trim().parse::<u64>().expect("invalid number in list")).collect()
 }
 
 fn now_millis() -> u64 {
@@ -101,7 +103,8 @@ async fn main() -> Result<()> {
     let pub_token = create_token(&args.api_key, &args.api_secret, &args.room, "bench-publisher")?;
     let sub_token = create_token(&args.api_key, &args.api_secret, &args.room, "bench-subscriber")?;
 
-    let (sub_room, sub_events) = Room::connect(&args.url, &sub_token, RoomOptions::default()).await?;
+    let (sub_room, sub_events) =
+        Room::connect(&args.url, &sub_token, RoomOptions::default()).await?;
     log::info!("Subscriber connected");
 
     let (pub_room, _) = Room::connect(&args.url, &pub_token, RoomOptions::default()).await?;
@@ -125,9 +128,7 @@ async fn main() -> Result<()> {
         for &freq_hz in &frequencies {
             let payload_size = (size_kb as usize) * 1024;
             if payload_size < HEADER_SIZE {
-                log::warn!(
-                    "Skipping {size_kb} KiB @ {freq_hz} Hz: payload too small for header"
-                );
+                log::warn!("Skipping {size_kb} KiB @ {freq_hz} Hz: payload too small for header");
                 continue;
             }
 
@@ -143,11 +144,7 @@ async fn main() -> Result<()> {
             cmd_tx.send(SubCommand::Collect(tx))?;
             let stats = rx.await?;
 
-            let ratio = if sent == 0 {
-                0.0
-            } else {
-                stats.received as f64 / sent as f64
-            };
+            let ratio = if sent == 0 { 0.0 } else { stats.received as f64 / sent as f64 };
 
             println!(
                 "{size_kb},{freq_hz},{},{sent},{},{ratio:.2},{:.2},{:.2},{:.2}",
@@ -184,7 +181,12 @@ async fn wait_for_subscription(
     }
 }
 
-async fn publish_loop(track: &LocalDataTrack, payload_size: usize, freq_hz: u64, duration_s: u64) -> u64 {
+async fn publish_loop(
+    track: &LocalDataTrack,
+    payload_size: usize,
+    freq_hz: u64,
+    duration_s: u64,
+) -> u64 {
     let interval = Duration::from_secs_f64(1.0 / freq_hz as f64);
     let deadline = Instant::now() + Duration::from_secs(duration_s);
 

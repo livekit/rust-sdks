@@ -20,8 +20,8 @@ use thiserror::Error;
 /// Reassembles packets into frames.
 #[derive(Debug)]
 pub struct Depacketizer {
-    /// Partial frame currently being assembled.
-    partial: Option<PartialFrame>,
+    /// Partial frames currently being assembled.
+    partials: BTreeMap<u16, PartialFrame>,
 }
 
 /// A frame that has been fully reassembled by [`Depacketizer`].
@@ -33,29 +33,37 @@ pub struct DepacketizerFrame {
 
 impl Depacketizer {
     /// Maximum number of packets to buffer per frame before dropping.
-    const MAX_BUFFER_PACKETS: usize = 128;
+    ///
+    /// Large data-track frames can legitimately span well over 128 transport packets
+    /// once they are fragmented at the wire MTU, so keep enough headroom to avoid
+    /// dropping fully delivered frames during reassembly.
+    const MAX_BUFFER_PACKETS: usize = 512;
+
+    /// Maximum number of in-flight frames to buffer before evicting the oldest partial frame.
+    const MAX_BUFFER_FRAMES: usize = 64;
 
     /// Creates a new depacketizer.
     pub fn new() -> Self {
-        Self { partial: None }
+        Self { partials: BTreeMap::new() }
     }
 
     /// Push a packet into the depacketizer.
     pub fn push(&mut self, packet: Packet) -> DepacketizerPushResult {
         match packet.header.marker {
             FrameMarker::Single => self.frame_from_single(packet),
-            FrameMarker::Start => self.begin_partial(packet),
-            FrameMarker::Inter | FrameMarker::Final => self.push_to_partial(packet),
+            FrameMarker::Start | FrameMarker::Inter | FrameMarker::Final => {
+                self.push_to_partial(packet)
+            }
         }
     }
 
     fn frame_from_single(&mut self, packet: Packet) -> DepacketizerPushResult {
         debug_assert!(packet.header.marker == FrameMarker::Single);
         let mut result = DepacketizerPushResult::default();
-        if let Some(partial) = self.partial.take() {
+        if let Some(partial) = self.partials.remove(&packet.header.frame_number) {
             result.drop_error = DepacketizerDropError {
                 frame_number: partial.frame_number,
-                reason: DepacketizerDropReason::Interrupted,
+                reason: partial.drop_reason(),
             }
             .into();
         }
@@ -65,82 +73,63 @@ impl Depacketizer {
         result
     }
 
-    /// Begin assembling a new packet.
-    fn begin_partial(&mut self, packet: Packet) -> DepacketizerPushResult {
-        debug_assert!(packet.header.marker == FrameMarker::Start);
-
-        let mut result = DepacketizerPushResult::default();
-
-        if let Some(partial) = self.partial.take() {
-            result.drop_error = DepacketizerDropError {
-                frame_number: partial.frame_number,
-                reason: DepacketizerDropReason::Interrupted,
-            }
-            .into();
-        }
-
-        let start_sequence = packet.header.sequence;
-        let partial = PartialFrame {
-            frame_number: packet.header.frame_number,
-            start_sequence,
-            extensions: packet.header.extensions,
-            payloads: BTreeMap::from([(start_sequence, packet.payload)]),
-        };
-        self.partial = partial.into();
-
-        result
-    }
-
-    /// Push to the existing partial frame.
+    /// Push a non-single packet into the corresponding partial frame.
     fn push_to_partial(&mut self, packet: Packet) -> DepacketizerPushResult {
-        debug_assert!(matches!(packet.header.marker, FrameMarker::Inter | FrameMarker::Final));
+        let mut result = DepacketizerPushResult::default();
+        let frame_number = packet.header.frame_number;
 
-        let Some(mut partial) = self.partial.take() else {
-            return DepacketizerDropError {
-                frame_number: packet.header.frame_number,
-                reason: DepacketizerDropReason::UnknownFrame,
+        if !self.partials.contains_key(&frame_number) {
+            if let Some(drop) = self.make_room_for_partial() {
+                result.drop_error = Some(drop);
             }
-            .into();
-        };
-        if packet.header.frame_number != partial.frame_number {
-            return DepacketizerDropError {
-                frame_number: partial.frame_number,
-                reason: DepacketizerDropReason::Interrupted,
-            }
-            .into();
+            self.partials.insert(
+                frame_number,
+                PartialFrame::new(frame_number, packet.header.extensions.clone()),
+            );
         }
-        if partial.payloads.len() >= Self::MAX_BUFFER_PACKETS {
+
+        let Some(partial) = self.partials.get_mut(&frame_number) else {
+            return result;
+        };
+        if partial.payloads.len() >= Self::MAX_BUFFER_PACKETS
+            && !partial.payloads.contains_key(&packet.header.sequence)
+        {
+            self.partials.remove(&frame_number);
             return DepacketizerDropError {
-                frame_number: partial.frame_number,
+                frame_number,
                 reason: DepacketizerDropReason::BufferFull,
             }
             .into();
         }
 
-        if partial.payloads.insert(packet.header.sequence, packet.payload).is_some() {
-            log::warn!(
-                "Duplicate packet for sequence {} on frame {}, replacing with latest",
-                packet.header.sequence,
-                partial.frame_number
-            );
+        partial.push(packet);
+
+        if !partial.is_complete() {
+            return result;
         }
 
-        if packet.header.marker == FrameMarker::Final {
-            return Self::finalize(partial, packet.header.sequence);
-        }
-
-        self.partial = Some(partial);
-        DepacketizerPushResult::default()
+        let partial = self.partials.remove(&frame_number).unwrap();
+        result.frame = Self::finalize(partial).frame;
+        result
     }
 
-    /// Try to reassemble the complete frame.
-    fn finalize(mut partial: PartialFrame, end_sequence: u16) -> DepacketizerPushResult {
-        let received = partial.payloads.len() as u16;
+    fn make_room_for_partial(&mut self) -> Option<DepacketizerDropError> {
+        if self.partials.len() < Self::MAX_BUFFER_FRAMES {
+            return None;
+        }
+        let frame_number = *self.partials.first_key_value()?.0;
+        let partial = self.partials.remove(&frame_number)?;
+        Some(DepacketizerDropError { frame_number, reason: partial.drop_reason() })
+    }
 
+    /// Reassemble a complete frame.
+    fn finalize(mut partial: PartialFrame) -> DepacketizerPushResult {
+        let start_sequence = partial.start_sequence.expect("complete frame must have start");
+        let end_sequence = partial.end_sequence.expect("complete frame must have end");
         let payload_len: usize = partial.payloads.iter().map(|(_, payload)| payload.len()).sum();
         let mut payload = BytesMut::with_capacity(payload_len);
 
-        let mut sequence = partial.start_sequence;
+        let mut sequence = start_sequence;
 
         while let Some(partial_payload) = partial.payloads.remove(&sequence) {
             debug_assert!(payload.len() + partial_payload.len() <= payload.capacity());
@@ -153,14 +142,7 @@ impl Depacketizer {
             return DepacketizerFrame { payload: payload.freeze(), extensions: partial.extensions }
                 .into();
         }
-        DepacketizerDropError {
-            frame_number: partial.frame_number,
-            reason: DepacketizerDropReason::Incomplete {
-                received,
-                expected: end_sequence.wrapping_sub(partial.start_sequence).wrapping_add(1),
-            },
-        }
-        .into()
+        unreachable!("complete frame should contain every packet between start and end")
     }
 }
 
@@ -169,12 +151,77 @@ impl Depacketizer {
 struct PartialFrame {
     /// Frame number from the start packet.
     frame_number: u16,
-    /// Sequence of the start packet.
-    start_sequence: u16,
+    /// Sequence of the start packet once it has been observed.
+    start_sequence: Option<u16>,
+    /// Sequence of the final packet once it has been observed.
+    end_sequence: Option<u16>,
     /// Extensions from the start packet.
     extensions: Extensions,
     /// Mapping between sequence number and packet payload.
     payloads: BTreeMap<u16, Bytes>,
+}
+
+impl PartialFrame {
+    fn new(frame_number: u16, extensions: Extensions) -> Self {
+        Self {
+            frame_number,
+            start_sequence: None,
+            end_sequence: None,
+            extensions,
+            payloads: BTreeMap::default(),
+        }
+    }
+
+    fn push(&mut self, packet: Packet) {
+        if packet.header.marker == FrameMarker::Start {
+            self.start_sequence = Some(packet.header.sequence);
+            self.extensions = packet.header.extensions.clone();
+        }
+        if packet.header.marker == FrameMarker::Final {
+            self.end_sequence = Some(packet.header.sequence);
+            self.extensions = packet.header.extensions.clone();
+        }
+
+        if self.payloads.insert(packet.header.sequence, packet.payload).is_some() {
+            log::warn!(
+                "Duplicate packet for sequence {} on frame {}, replacing with latest",
+                packet.header.sequence,
+                self.frame_number
+            );
+        }
+    }
+
+    fn is_complete(&self) -> bool {
+        let (Some(start_sequence), Some(end_sequence)) = (self.start_sequence, self.end_sequence)
+        else {
+            return false;
+        };
+
+        let expected = end_sequence.wrapping_sub(start_sequence).wrapping_add(1) as usize;
+        if self.payloads.len() != expected {
+            return false;
+        }
+
+        let mut sequence = start_sequence;
+        for _ in 0..expected {
+            if !self.payloads.contains_key(&sequence) {
+                return false;
+            }
+            sequence = sequence.wrapping_add(1);
+        }
+        true
+    }
+
+    fn drop_reason(&self) -> DepacketizerDropReason {
+        match (self.start_sequence, self.end_sequence) {
+            (Some(start_sequence), Some(end_sequence)) => DepacketizerDropReason::Incomplete {
+                received: self.payloads.len() as u16,
+                expected: end_sequence.wrapping_sub(start_sequence).wrapping_add(1),
+            },
+            (Some(_), None) => DepacketizerDropReason::Interrupted,
+            (None, _) => DepacketizerDropReason::UnknownFrame,
+        }
+    }
 }
 
 /// Result from a call to [`Depacketizer::push`].
@@ -296,19 +343,19 @@ mod tests {
     }
 
     #[test]
-    fn test_interrupted() {
+    fn test_buffer_eviction_drops_oldest_partial() {
         let mut depacketizer = Depacketizer::new();
 
-        let mut packet: Packet = Faker.fake();
-        packet.header.marker = FrameMarker::Start;
-
-        let result = depacketizer.push(packet.clone());
-        assert!(result.frame.is_none() && result.drop_error.is_none());
-
-        let first_frame_number = packet.header.frame_number;
-        packet.header.frame_number = packet.header.frame_number.wrapping_add(1); // Next frame
-
-        let result = depacketizer.push(packet);
+        let mut sequence = Counter::new(0);
+        let first_frame_number = 0;
+        let mut result = DepacketizerPushResult::default();
+        for frame_number in 0..=Depacketizer::MAX_BUFFER_FRAMES as u16 {
+            let mut packet: Packet = Faker.fake();
+            packet.header.frame_number = frame_number;
+            packet.header.marker = FrameMarker::Start;
+            packet.header.sequence = sequence.get_then_increment();
+            result = depacketizer.push(packet);
+        }
         assert!(result.frame.is_none());
 
         let drop = result.drop_error.unwrap();
@@ -317,42 +364,58 @@ mod tests {
     }
 
     #[test]
-    fn test_incomplete() {
+    fn test_waits_for_missing_packets() {
         let mut depacketizer = Depacketizer::new();
 
         let mut packet: Packet = Faker.fake();
-        let frame_number = packet.header.frame_number;
+        let payload_len = packet.payload.len();
         packet.header.marker = FrameMarker::Start;
+        packet.header.sequence = 10;
 
-        depacketizer.push(packet.clone());
+        let result = depacketizer.push(packet.clone());
+        assert!(result.frame.is_none() && result.drop_error.is_none());
 
-        packet.header.sequence += 3;
+        packet.header.sequence = 13;
         packet.header.marker = FrameMarker::Final;
 
-        let result = depacketizer.push(packet);
-        assert!(result.frame.is_none());
+        let result = depacketizer.push(packet.clone());
+        assert!(result.frame.is_none() && result.drop_error.is_none());
 
-        let drop = result.drop_error.unwrap();
-        assert_eq!(drop.frame_number, frame_number);
-        assert!(matches!(
-            drop.reason,
-            DepacketizerDropReason::Incomplete { received: 2, expected: 4 }
-        ));
+        packet.header.sequence = 11;
+        packet.header.marker = FrameMarker::Inter;
+        let result = depacketizer.push(packet.clone());
+        assert!(result.frame.is_none() && result.drop_error.is_none());
+
+        packet.header.sequence = 12;
+        let result = depacketizer.push(packet);
+        assert!(result.drop_error.is_none());
+        let frame = result.frame.unwrap();
+        assert_eq!(frame.payload.len(), 4 * payload_len);
     }
 
     #[test]
-    fn test_unknown_frame() {
+    fn test_waits_for_start_packet() {
         let mut depacketizer = Depacketizer::new();
 
         let mut packet: Packet = Faker.fake();
-        let frame_number = packet.header.frame_number;
+        let payload_len = packet.payload.len();
+        packet.header.sequence = 20;
         packet.header.marker = FrameMarker::Inter;
-        // Start packet for this frame will never be pushed.
 
+        let result = depacketizer.push(packet.clone());
+        assert!(result.frame.is_none() && result.drop_error.is_none());
+
+        packet.header.sequence = 19;
+        packet.header.marker = FrameMarker::Start;
+        let result = depacketizer.push(packet.clone());
+        assert!(result.frame.is_none() && result.drop_error.is_none());
+
+        packet.header.sequence = 21;
+        packet.header.marker = FrameMarker::Final;
         let result = depacketizer.push(packet);
-        let drop = result.drop_error.unwrap();
-        assert_eq!(drop.frame_number, frame_number);
-        assert!(matches!(drop.reason, DepacketizerDropReason::UnknownFrame));
+        assert!(result.drop_error.is_none());
+        let frame = result.frame.unwrap();
+        assert_eq!(frame.payload.len(), 3 * payload_len);
     }
 
     #[test]
@@ -381,6 +444,41 @@ mod tests {
             let result = depacketizer.push(packet);
             assert!(result.drop_error.is_none() && result.frame.is_some());
         }
+    }
+
+    #[test]
+    fn test_interleaved_frames() {
+        let mut depacketizer = Depacketizer::new();
+
+        let mut first: Packet = Faker.fake();
+        first.header.frame_number = 10;
+        first.header.sequence = 100;
+        first.header.marker = FrameMarker::Start;
+        first.payload = Bytes::from(vec![0xAA; 3]);
+        let result = depacketizer.push(first.clone());
+        assert!(result.frame.is_none() && result.drop_error.is_none());
+
+        let mut second = first.clone();
+        second.header.frame_number = 11;
+        second.header.sequence = 102;
+        second.header.marker = FrameMarker::Start;
+        second.payload = Bytes::from(vec![0xBB; 3]);
+        let result = depacketizer.push(second.clone());
+        assert!(result.frame.is_none() && result.drop_error.is_none());
+
+        first.header.sequence = 101;
+        first.header.marker = FrameMarker::Final;
+        let result = depacketizer.push(first);
+        assert!(result.drop_error.is_none());
+        let frame = result.frame.unwrap();
+        assert_eq!(&frame.payload[..3], &[0xAA; 3]);
+
+        second.header.sequence = 103;
+        second.header.marker = FrameMarker::Final;
+        let result = depacketizer.push(second);
+        assert!(result.drop_error.is_none());
+        let frame = result.frame.unwrap();
+        assert_eq!(&frame.payload[..3], &[0xBB; 3]);
     }
 
     #[test]

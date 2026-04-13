@@ -25,6 +25,10 @@ pub use extension::*;
 pub use handle::*;
 pub use time::*;
 
+/// Maximum serialized packet size the local pipeline targets for a single
+/// transport packet on the data-track channel.
+pub(crate) const TRANSPORT_MTU: usize = 16_000;
+
 #[derive(Clone)]
 pub struct Packet {
     pub header: Header,
@@ -63,6 +67,25 @@ impl fmt::Debug for Packet {
             .field("payload_len", &self.payload.len())
             .finish()
     }
+}
+
+pub(crate) fn header_serialized_len(uses_e2ee: bool, has_user_timestamp: bool) -> usize {
+    use consts::{BASE_HEADER_LEN, EXT_WORDS_INDICATOR_SIZE};
+
+    // Each extension serializes as [tag, len, payload...].
+    let mut ext_len: usize = 0;
+    if uses_e2ee {
+        ext_len += 2 + 13;
+    }
+    if has_user_timestamp {
+        ext_len += 2 + 8;
+    }
+    if ext_len == 0 {
+        return BASE_HEADER_LEN;
+    }
+
+    let ext_words = ext_len.div_ceil(4);
+    BASE_HEADER_LEN + EXT_WORDS_INDICATOR_SIZE + (ext_words * 4)
 }
 
 /// Constants used for serialization and deserialization.

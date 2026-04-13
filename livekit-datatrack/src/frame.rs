@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::packet::{header_serialized_len, TRANSPORT_MTU};
 use bytes::Bytes;
 use core::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -86,6 +87,32 @@ impl DataTrackFrame {
         self.user_timestamp = timestamp;
         self
     }
+
+    /// Returns the largest payload size that still fits in a single transport
+    /// packet for the current data-track wire format.
+    ///
+    /// Larger payloads will be fragmented into multiple transport packets. On
+    /// the default unordered/unreliable data-track channel, losing any one of
+    /// those packets can make the whole frame unrecoverable.
+    pub fn single_packet_payload_capacity(uses_e2ee: bool, has_user_timestamp: bool) -> usize {
+        TRANSPORT_MTU.saturating_sub(header_serialized_len(uses_e2ee, has_user_timestamp))
+    }
+
+    /// Returns the largest payload size that still fits in a single transport
+    /// packet for this frame on the given track configuration.
+    pub fn single_packet_capacity_for(&self, uses_e2ee: bool) -> usize {
+        Self::single_packet_payload_capacity(uses_e2ee, self.user_timestamp.is_some())
+    }
+
+    /// Returns the number of transport packets this frame will be split across
+    /// for the given track configuration.
+    pub fn estimated_transport_packet_count(&self, uses_e2ee: bool) -> usize {
+        let payload_capacity = self.single_packet_capacity_for(uses_e2ee);
+        if payload_capacity == 0 {
+            return 0;
+        }
+        self.payload.len().div_ceil(payload_capacity).max(1)
+    }
 }
 
 impl fmt::Debug for DataTrackFrame {
@@ -120,5 +147,26 @@ impl From<Vec<u8>> for DataTrackFrame {
 impl From<Box<[u8]>> for DataTrackFrame {
     fn from(slice: Box<[u8]>) -> Self {
         Self { payload: slice.into(), ..Default::default() }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DataTrackFrame;
+
+    #[test]
+    fn test_single_packet_payload_capacity_without_extensions() {
+        assert_eq!(DataTrackFrame::single_packet_payload_capacity(false, false), 15_988);
+    }
+
+    #[test]
+    fn test_single_packet_payload_capacity_with_timestamp_and_e2ee() {
+        assert_eq!(DataTrackFrame::single_packet_payload_capacity(true, true), 15_958);
+    }
+
+    #[test]
+    fn test_estimated_transport_packet_count() {
+        let frame = DataTrackFrame::new(vec![0; 32_000]).with_user_timestamp_now();
+        assert_eq!(frame.estimated_transport_packet_count(false), 3);
     }
 }

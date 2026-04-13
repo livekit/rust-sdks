@@ -337,7 +337,7 @@ impl TrackTask {
                         // Drop frames while republishing.
                         continue;
                     }
-                    self.process_and_send(frame);
+                    self.process_and_send(frame).await;
                 }
             }
         }
@@ -348,19 +348,25 @@ impl TrackTask {
         log::debug!("Track task ended: sid={}", sid);
     }
 
-    fn process_and_send(&mut self, frame: DataTrackFrame) {
+    async fn process_and_send(&mut self, frame: DataTrackFrame) {
         let Ok(packets) = self
             .pipeline
             .process_frame(frame)
-            .inspect_err(|err| log::debug!("Process failed: {}", err))
+            .inspect_err(|err| log::error!("Processing frame failed: {}", err))
         else {
             return;
         };
+
+        let packet_count = packets.len();
         let packets: Vec<_> = packets.into_iter().map(|packet| packet.serialize()).collect();
-        _ = self
-            .event_out_tx
-            .try_send(packets.into())
-            .inspect_err(|err| log::debug!("Cannot send packets to transport: {}", err));
+        _ = self.event_out_tx.send(packets.into()).await.inspect_err(|err| {
+            log::debug!(
+                "Cannot send {} packet(s) to transport for sid={}: {}",
+                packet_count,
+                self.info.sid(),
+                err
+            )
+        });
     }
 }
 

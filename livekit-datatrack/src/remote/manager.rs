@@ -354,9 +354,13 @@ impl Manager {
         }
     }
 
-    /// Maximum number of incoming packets to buffer per track to be sent
-    /// to the track's pipeline.
-    const PACKET_BUFFER_COUNT: usize = 16;
+    /// Maximum number of incoming packets to buffer per track before they are
+    /// consumed by the depacketization pipeline.
+    ///
+    /// Large data-track frames can span dozens or hundreds of transport packets,
+    /// so this needs to be large enough to absorb at least a few in-flight frames
+    /// under bursty delivery without dropping packets at the SDK boundary.
+    const PACKET_BUFFER_COUNT: usize = 512;
 
     /// Maximum number of input and output events to buffer.
     const EVENT_BUFFER_COUNT: usize = 16;

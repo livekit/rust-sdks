@@ -73,6 +73,7 @@ pub const DATA_TRACK_DC_LABEL: &str = "_data_track";
 pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
+pub const INITIAL_DT_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 256 * 1024;
 
 #[derive(Debug)]
 enum NegotiationState {
@@ -511,7 +512,7 @@ impl RtcSession {
         let (close_tx, close_rx) = watch::channel(false);
 
         let dt_sender_options = DataChannelSenderOptions {
-            low_buffer_threshold: INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+            low_buffer_threshold: INITIAL_DT_BUFFERED_AMOUNT_LOW_THRESHOLD,
             dc: data_track_dc.clone(),
             close_rx: close_rx.clone(),
         };
@@ -712,7 +713,7 @@ impl RtcSession {
                     .send(proto::signal_request::Message::UnpublishDataTrackRequest(event.into()))
                     .await
             }
-            OutputEvent::PacketsAvailable(packets) => self.try_send_data_track_packets(packets),
+            OutputEvent::PacketsAvailable(packets) => self.send_data_track_packets(packets).await,
         }
     }
 
@@ -729,15 +730,15 @@ impl RtcSession {
         }
     }
 
-    /// Try to send data track packets over the transport.
+    /// Send data track packets over the transport.
     ///
-    /// Packets will be sent until the first error, at which point the rest of
-    /// the batch will be dropped.
-    ///
-    fn try_send_data_track_packets(&self, packets: Vec<Bytes>) {
-        for packet in packets {
-            if self.inner.dt_packet_tx.try_send(packet).is_err() {
-                log::error!("Failed to enqueue data track packet");
+    /// Once a frame has been accepted by the local data-track pipeline, apply backpressure here
+    /// instead of silently dropping trailing fragments.
+    async fn send_data_track_packets(&self, packets: Vec<Bytes>) {
+        let packet_count = packets.len();
+        for (index, packet) in packets.into_iter().enumerate() {
+            if self.inner.dt_packet_tx.send(packet).await.is_err() {
+                log::error!("Failed to enqueue data track packet {}/{}", index + 1, packet_count);
                 break;
             }
         }

@@ -46,7 +46,7 @@ impl Pipeline {
     /// Creates a new pipeline with the given options.
     pub fn new(options: PipelineOptions) -> Self {
         debug_assert_eq!(options.info.uses_e2ee, options.encryption_provider.is_some());
-        let packetizer = Packetizer::new(options.info.pub_handle, Self::TRANSPORT_MTU);
+        let packetizer = Packetizer::new(options.info.pub_handle, crate::packet::TRANSPORT_MTU);
         Self { encryption_provider: options.encryption_provider, packetizer }
     }
 
@@ -72,9 +72,6 @@ impl Pipeline {
             packet::E2eeExt { key_index: encrypted.key_index, iv: encrypted.iv }.into();
         Ok(frame)
     }
-
-    /// Maximum transmission unit (MTU) of the transport.
-    const TRANSPORT_MTU: usize = 16_000;
 }
 
 impl From<DataTrackFrame> for PacketizerFrame {

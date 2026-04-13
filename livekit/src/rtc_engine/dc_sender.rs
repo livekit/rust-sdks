@@ -96,12 +96,14 @@ impl DataChannelSender {
         log::debug!("Send task started for data channel '{}'", self.dc.label());
         self.register_dc_callbacks();
         loop {
+            let can_accept_more_payloads =
+                self.send_queue.is_empty() || self.buffered_amount <= self.low_buffer_threshold;
             tokio::select! {
                 Some(event) = self.dc_event_rx.recv() => {
                     let DataChannelEvent::BytesSent(bytes_sent) = event;
                     self.handle_bytes_sent(bytes_sent);
                 }
-                Some(payload) = self.send_rx.recv() => {
+                Some(payload) = self.send_rx.recv(), if can_accept_more_payloads => {
                     self.handle_enqueue_for_send(payload)
                 }
                 _ = self.close_rx.changed() => break
@@ -121,11 +123,21 @@ impl DataChannelSender {
             let Some(payload) = self.send_queue.pop_front() else {
                 break;
             };
-            self.buffered_amount += payload.len() as u64;
-            _ = self
-                .dc
-                .send(&payload, true)
-                .inspect_err(|err| log::error!("Failed to send data: {}", err));
+            match self.dc.send(&payload, true) {
+                Ok(()) => {
+                    self.buffered_amount += payload.len() as u64;
+                }
+                Err(err) => {
+                    self.send_queue.push_front(payload);
+                    log::error!(
+                        "Failed to send data on '{}': {} (queue_len={})",
+                        self.dc.label(),
+                        err,
+                        self.send_queue.len()
+                    );
+                    break;
+                }
+            }
         }
     }
 
