@@ -54,6 +54,12 @@ const REGION_FETCH_TIMEOUT: Duration = Duration::from_secs(3);
 const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROTOCOL_VERSION: u32 = 17;
 
+/// Default value for `ClientInfo.client_protocol` when a participant has not
+/// advertised one (treat as v1-only / no data-stream RPC support).
+pub const CLIENT_PROTOCOL_DEFAULT: i32 = 0;
+/// `ClientInfo.client_protocol` value indicating support for RPC v2 over data streams.
+pub const CLIENT_PROTOCOL_DATA_STREAM_RPC: i32 = 1;
+
 #[derive(Error, Debug)]
 pub enum SignalError {
     #[error("ws failure: {0}")]
@@ -83,14 +89,19 @@ pub enum SignalError {
 pub struct SignalSdkOptions {
     pub sdk: String,
     pub sdk_version: Option<String>,
-    /// Override the client_protocol advertised during join.
-    /// If None, uses the default (currently 1 = data stream RPC support).
+    /// Override the client_protocol advertised during join. If `None`, falls back
+    /// to `CLIENT_PROTOCOL_DEFAULT` (0). The SDK's default constructor sets this
+    /// to `CLIENT_PROTOCOL_DATA_STREAM_RPC` (1) to advertise data-stream RPC support.
     pub client_protocol: Option<i32>,
 }
 
 impl Default for SignalSdkOptions {
     fn default() -> Self {
-        Self { sdk: "rust".to_string(), sdk_version: None, client_protocol: None }
+        Self {
+            sdk: "rust".to_string(),
+            sdk_version: None,
+            client_protocol: Some(CLIENT_PROTOCOL_DATA_STREAM_RPC),
+        }
     }
 }
 
@@ -574,7 +585,7 @@ fn create_join_request_param(
         os,
         os_version,
         device_model,
-        client_protocol: options.sdk_options.client_protocol.unwrap_or(1),
+        client_protocol: options.sdk_options.client_protocol.unwrap_or(CLIENT_PROTOCOL_DEFAULT),
         ..Default::default()
     };
 
@@ -664,6 +675,8 @@ fn get_livekit_url(
         lk_url.query_pairs_mut().append_pair("join_request", &join_request_param);
     } else {
         // For v0 path (dual PC mode): use URL query parameters
+        let client_protocol =
+            options.sdk_options.client_protocol.unwrap_or(CLIENT_PROTOCOL_DEFAULT);
         lk_url
             .query_pairs_mut()
             .append_pair("sdk", options.sdk_options.sdk.as_str())
@@ -671,6 +684,7 @@ fn get_livekit_url(
             .append_pair("os_version", os_info.version().to_string().as_str())
             .append_pair("device_model", device_model.to_string().as_str())
             .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
+            .append_pair("client_protocol", client_protocol.to_string().as_str())
             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
             .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 

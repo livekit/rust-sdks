@@ -23,7 +23,7 @@ use libwebrtc::{
     rtp_transceiver::RtpTransceiver,
     RtcError,
 };
-use livekit_api::signal_client::{SignalOptions, SignalSdkOptions, SIGNAL_CONNECT_TIMEOUT};
+use livekit_api::signal_client::{SignalOptions, SignalSdkOptions, SIGNAL_CONNECT_TIMEOUT, CLIENT_PROTOCOL_DEFAULT};
 use livekit_datatrack::{
     api::{DataTrackSid, RemoteDataTrack},
     backend as dt,
@@ -1987,7 +1987,7 @@ impl RoomSession {
             .read()
             .get(identity)
             .map(|p| p.client_protocol())
-            .unwrap_or(rpc::CLIENT_PROTOCOL_DEFAULT)
+            .unwrap_or(CLIENT_PROTOCOL_DEFAULT)
     }
 
     fn get_local_or_remote_participant(

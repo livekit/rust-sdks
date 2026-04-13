@@ -26,10 +26,6 @@ use crate::room::id::ParticipantIdentity;
 use livekit_protocol::RpcError as RpcError_Proto;
 use std::{error::Error, fmt::Display, future::Future, time::Duration};
 
-// Client protocol version constants
-pub(crate) const CLIENT_PROTOCOL_DEFAULT: i32 = 0;
-pub(crate) const CLIENT_PROTOCOL_DATA_STREAM_RPC: i32 = 1;
-
 // RPC protocol version constants (distinct from client_protocol; this is the
 // version field on RpcRequest / v2 stream attributes).
 pub(crate) const RPC_VERSION_V1: u32 = 1;
