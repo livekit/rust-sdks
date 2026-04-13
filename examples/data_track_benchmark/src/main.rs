@@ -101,7 +101,7 @@ async fn main() -> Result<()> {
     let pub_token = create_token(&args.api_key, &args.api_secret, &args.room, "bench-publisher")?;
     let sub_token = create_token(&args.api_key, &args.api_secret, &args.room, "bench-subscriber")?;
 
-    let (_sub_room, sub_events) = Room::connect(&args.url, &sub_token, RoomOptions::default()).await?;
+    let (sub_room, sub_events) = Room::connect(&args.url, &sub_token, RoomOptions::default()).await?;
     log::info!("Subscriber connected");
 
     let (pub_room, _) = Room::connect(&args.url, &pub_token, RoomOptions::default()).await?;
@@ -117,7 +117,7 @@ async fn main() -> Result<()> {
     tokio::time::sleep(Duration::from_secs(1)).await;
 
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<SubCommand>();
-    tokio::spawn(subscriber_task(subscription, cmd_rx));
+    let sub_handle = tokio::spawn(subscriber_task(subscription, cmd_rx));
 
     println!("payload_size_kb,frequency_hz,duration_s,sent,received,delivery_ratio,avg_latency_ms,min_latency_ms,max_latency_ms");
 
@@ -159,6 +159,11 @@ async fn main() -> Result<()> {
             );
         }
     }
+
+    drop(cmd_tx);
+    let _ = sub_handle.await;
+    pub_room.close().await?;
+    sub_room.close().await?;
 
     Ok(())
 }
