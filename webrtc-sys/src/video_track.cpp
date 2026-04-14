@@ -147,7 +147,7 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
   // succeed.
   if (frame_metadata.has_packet_trailer && packet_trailer_handler_) {
     packet_trailer_handler_->store_frame_metadata(
-        aligned_timestamp_us, frame_metadata.user_timestamp_us,
+        aligned_timestamp_us, frame_metadata.user_timestamp,
         frame_metadata.frame_id);
   }
 

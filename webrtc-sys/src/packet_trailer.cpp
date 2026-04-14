@@ -103,7 +103,7 @@ void PacketTrailerTransformer::TransformSend(
   // which indicates no metadata was set for this frame)
   std::vector<uint8_t> new_data;
   if (enabled_.load()) {
-    new_data = AppendTrailer(data, meta_to_embed.user_timestamp_us,
+    new_data = AppendTrailer(data, meta_to_embed.user_timestamp,
                              meta_to_embed.frame_id);
     frame->SetData(webrtc::ArrayView<const uint8_t>(new_data));
   }
@@ -204,7 +204,7 @@ void PacketTrailerTransformer::TransformReceive(
 
 std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
     webrtc::ArrayView<const uint8_t> data,
-    uint64_t user_timestamp_us,
+    uint64_t user_timestamp,
     uint32_t frame_id) {
   const bool has_frame_id = frame_id != 0;
   const size_t trailer_len = kTimestampTlvSize +
@@ -224,7 +224,7 @@ std::vector<uint8_t> PacketTrailerTransformer::AppendTrailer(
   result.push_back(8 ^ 0xFF);
   for (int i = 7; i >= 0; --i) {
     result.push_back(
-        static_cast<uint8_t>(((user_timestamp_us >> (i * 8)) & 0xFF) ^ 0xFF));
+        static_cast<uint8_t>(((user_timestamp >> (i * 8)) & 0xFF) ^ 0xFF));
   }
 
   if (has_frame_id) {
@@ -291,7 +291,7 @@ std::optional<PacketTrailerMetadata> PacketTrailerTransformer::ExtractTrailer(
       for (int i = 0; i < 8; ++i) {
         ts = (ts << 8) | (val[i] ^ 0xFF);
       }
-      meta.user_timestamp_us = ts;
+      meta.user_timestamp = ts;
       found_any = true;
     } else if (tag == kTagFrameId && len == 4) {
       uint32_t fid = 0;
@@ -367,7 +367,7 @@ std::optional<PacketTrailerMetadata> PacketTrailerTransformer::lookup_frame_meta
 
 void PacketTrailerTransformer::store_frame_metadata(
     int64_t capture_timestamp_us,
-    uint64_t user_timestamp_us,
+    uint64_t user_timestamp,
     uint32_t frame_id) {
   // Truncate to millisecond precision to match what WebRTC stores
   // internally.  The encoder pipeline converts the VideoFrame's
@@ -393,7 +393,7 @@ void PacketTrailerTransformer::store_frame_metadata(
   if (send_map_.find(key) == send_map_.end()) {
     send_map_order_.push_back(key);
   }
-  send_map_[key] = PacketTrailerMetadata{user_timestamp_us, frame_id, 0};
+  send_map_[key] = PacketTrailerMetadata{user_timestamp, frame_id, 0};
 }
 
 // PacketTrailerHandler implementation
@@ -428,7 +428,7 @@ uint64_t PacketTrailerHandler::lookup_timestamp(uint32_t rtp_timestamp) const {
   auto meta = transformer_->lookup_frame_metadata(rtp_timestamp);
   if (meta.has_value()) {
     last_frame_id_ = meta->frame_id;
-    return meta->user_timestamp_us;
+    return meta->user_timestamp;
   }
   return UINT64_MAX;
 }
@@ -439,9 +439,9 @@ uint32_t PacketTrailerHandler::last_lookup_frame_id() const {
 
 void PacketTrailerHandler::store_frame_metadata(
     int64_t capture_timestamp_us,
-    uint64_t user_timestamp_us,
+    uint64_t user_timestamp,
     uint32_t frame_id) const {
-  transformer_->store_frame_metadata(capture_timestamp_us, user_timestamp_us, frame_id);
+  transformer_->store_frame_metadata(capture_timestamp_us, user_timestamp, frame_id);
 }
 
 webrtc::scoped_refptr<PacketTrailerTransformer> PacketTrailerHandler::transformer() const {

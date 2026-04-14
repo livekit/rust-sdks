@@ -155,7 +155,7 @@ message OwnedVideoBuffer {
 }
 
 message FrameMetadata {
-  optional uint64 user_timestamp_us = 1;
+  optional uint64 user_timestamp = 1;
   optional uint32 frame_id = 2;
 }
 

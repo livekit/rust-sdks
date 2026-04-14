@@ -81,7 +81,7 @@ pub mod native {
 
         /// Set the packet trailer handler used by this source.
         ///
-        /// When set, any frame captured with a `user_timestamp_us` value will
+        /// When set, any frame captured with a `user_timestamp` value will
         /// automatically have its timestamp stored in the handler (keyed by
         /// the TimestampAligner-adjusted capture timestamp) so the
         /// `PacketTrailerTransformer` can embed it into the encoded frame.

@@ -64,7 +64,7 @@ impl NativeVideoStream {
     /// Set the packet trailer handler for this stream.
     ///
     /// When set, each frame produced by this stream will have its
-    /// `user_timestamp_us` field populated from the handler's receive
+    /// `user_timestamp` field populated from the handler's receive
     /// map (looked up by RTP timestamp).
     ///
     /// Note: If the handler was already set on the `RtcVideoTrack` before
@@ -114,7 +114,7 @@ impl sys_vt::VideoSink for VideoTrackObserver {
             .as_ref()
             .and_then(|h| h.lookup_frame_metadata(rtp_timestamp))
             .map(|(ts, fid)| FrameMetadata {
-                user_timestamp_us: Some(ts),
+                user_timestamp: Some(ts),
                 frame_id: if fid != 0 { Some(fid) } else { None },
             });
 

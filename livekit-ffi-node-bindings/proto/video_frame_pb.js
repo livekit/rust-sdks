@@ -279,7 +279,7 @@ const OwnedVideoBuffer = /*@__PURE__*/ proto2.makeMessageType(
 const FrameMetadata = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.FrameMetadata",
   () => [
-    { no: 1, name: "user_timestamp_us", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+    { no: 1, name: "user_timestamp", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
     { no: 2, name: "frame_id", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
   ],
 );

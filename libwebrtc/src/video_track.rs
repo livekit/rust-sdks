@@ -33,7 +33,7 @@ impl RtcVideoTrack {
     /// Set the packet trailer handler for this track.
     ///
     /// When set, any `NativeVideoStream` created from this track will
-    /// automatically use this handler to populate `user_timestamp_us`
+    /// automatically use this handler to populate `user_timestamp`
     /// on each decoded frame.
     #[cfg(not(target_arch = "wasm32"))]
     pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {

@@ -48,7 +48,7 @@ pub mod ffi {
         fn store_frame_metadata(
             self: &PacketTrailerHandler,
             capture_timestamp_us: i64,
-            user_timestamp_us: u64,
+            user_timestamp: u64,
             frame_id: u32,
         );
 

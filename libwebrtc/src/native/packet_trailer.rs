@@ -60,7 +60,7 @@ impl PacketTrailerHandler {
     }
 
     /// Lookup the frame metadata for a given RTP timestamp (receiver side).
-    /// Returns `Some((user_timestamp_us, frame_id))` if found, `None` otherwise.
+    /// Returns `Some((user_timestamp, frame_id))` if found, `None` otherwise.
     /// The entry is removed from the map after a successful lookup.
     pub fn lookup_frame_metadata(&self, rtp_timestamp: u32) -> Option<(u64, u32)> {
         let ts = self.sys_handle.lookup_timestamp(rtp_timestamp);
@@ -81,16 +81,16 @@ impl PacketTrailerHandler {
     /// derived from the aligned value.
     ///
     /// In normal usage this is called automatically by the C++ layer --
-    /// callers should set `user_timestamp_us` and `frame_id` on the
+    /// callers should set `user_timestamp` and `frame_id` on the
     /// `VideoFrame` and let `capture_frame` / `on_captured_frame` handle
     /// the rest.
     pub fn store_frame_metadata(
         &self,
         capture_timestamp_us: i64,
-        user_timestamp_us: u64,
+        user_timestamp: u64,
         frame_id: u32,
     ) {
-        self.sys_handle.store_frame_metadata(capture_timestamp_us, user_timestamp_us, frame_id);
+        self.sys_handle.store_frame_metadata(capture_timestamp_us, user_timestamp, frame_id);
     }
 
     pub(crate) fn sys_handle(&self) -> SharedPtr<sys_pt::PacketTrailerHandler> {

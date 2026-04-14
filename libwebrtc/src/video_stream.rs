@@ -82,7 +82,7 @@ pub mod native {
         /// Set the packet trailer handler for this stream.
         ///
         /// When set, each frame produced by this stream will have its
-        /// `user_timestamp_us` field populated by looking up the user
+        /// `user_timestamp` field populated by looking up the user
         /// timestamp for each frame's RTP timestamp.
         ///
         /// Note: If the handler was already set on the `RtcVideoTrack`

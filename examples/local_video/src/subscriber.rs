@@ -357,7 +357,7 @@ async fn handle_track_subscribed(
             s.frame_metadata = frame.frame_metadata;
 
             if !s.has_user_timestamp
-                && frame.frame_metadata.and_then(|m| m.user_timestamp_us).is_some()
+                && frame.frame_metadata.and_then(|m| m.user_timestamp).is_some()
             {
                 s.has_user_timestamp = true;
             }
@@ -579,7 +579,7 @@ impl eframe::App for VideoApp {
             let has_user_timestamp = s.has_user_timestamp;
             drop(s);
 
-            let publish_us = meta.and_then(|m| m.user_timestamp_us);
+            let publish_us = meta.and_then(|m| m.user_timestamp);
             let frame_id = meta.and_then(|m| m.frame_id);
 
             if publish_us.is_some() || frame_id.is_some() {

@@ -39,7 +39,7 @@ impl FfiHandle for FfiVideoStream {}
 
 fn frame_metadata_to_proto(metadata: Option<FrameMetadata>) -> Option<proto::FrameMetadata> {
     metadata.map(|metadata| proto::FrameMetadata {
-        user_timestamp_us: metadata.user_timestamp_us,
+        user_timestamp: metadata.user_timestamp,
         frame_id: metadata.frame_id,
     })
 }
@@ -314,12 +314,12 @@ mod tests {
     #[test]
     fn frame_metadata_optionality_is_preserved() {
         let metadata = frame_metadata_to_proto(Some(FrameMetadata {
-            user_timestamp_us: Some(123),
+            user_timestamp: Some(123),
             frame_id: None,
         }))
         .unwrap();
 
-        assert_eq!(metadata.user_timestamp_us, Some(123));
+        assert_eq!(metadata.user_timestamp, Some(123));
         assert_eq!(metadata.frame_id, None);
     }
 }

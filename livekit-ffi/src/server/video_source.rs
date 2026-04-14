@@ -30,11 +30,11 @@ impl FfiHandle for FfiVideoSource {}
 fn frame_metadata_from_proto(metadata: Option<proto::FrameMetadata>) -> Option<FrameMetadata> {
     let metadata = metadata?;
     let frame_metadata = FrameMetadata {
-        user_timestamp_us: metadata.user_timestamp_us,
+        user_timestamp: metadata.user_timestamp,
         frame_id: metadata.frame_id,
     };
 
-    (frame_metadata.user_timestamp_us.is_some() || frame_metadata.frame_id.is_some())
+    (frame_metadata.user_timestamp.is_some() || frame_metadata.frame_id.is_some())
         .then_some(frame_metadata)
 }
 
@@ -106,12 +106,12 @@ mod tests {
     #[test]
     fn proto_frame_metadata_preserves_present_fields() {
         let metadata = frame_metadata_from_proto(Some(proto::FrameMetadata {
-            user_timestamp_us: Some(123),
+            user_timestamp: Some(123),
             frame_id: Some(456),
         }))
         .unwrap();
 
-        assert_eq!(metadata.user_timestamp_us, Some(123));
+        assert_eq!(metadata.user_timestamp, Some(123));
         assert_eq!(metadata.frame_id, Some(456));
     }
 }

@@ -85,7 +85,7 @@ impl NativeVideoSource {
                         &builder.pin_mut().build(),
                         &vt_sys::ffi::FrameMetadata {
                             has_packet_trailer: false,
-                            user_timestamp_us: 0,
+                            user_timestamp: 0,
                             frame_id: 0,
                         },
                     );
@@ -114,7 +114,7 @@ impl NativeVideoSource {
         builder.pin_mut().set_timestamp_us(capture_ts);
 
         let (has_trailer, user_ts, fid) = match frame.frame_metadata {
-            Some(meta) => (true, meta.user_timestamp_us.unwrap_or(0), meta.frame_id.unwrap_or(0)),
+            Some(meta) => (true, meta.user_timestamp.unwrap_or(0), meta.frame_id.unwrap_or(0)),
             None => (false, 0, 0),
         };
 
@@ -124,7 +124,7 @@ impl NativeVideoSource {
             &builder.pin_mut().build(),
             &vt_sys::ffi::FrameMetadata {
                 has_packet_trailer: has_trailer,
-                user_timestamp_us: user_ts,
+                user_timestamp: user_ts,
                 frame_id: fid,
             },
         );
@@ -132,7 +132,7 @@ impl NativeVideoSource {
 
     /// Set the packet trailer handler used by this source.
     ///
-    /// When set, any frame captured with a `user_timestamp_us` value will
+    /// When set, any frame captured with a `user_timestamp` value will
     /// automatically have its timestamp stored in the handler so the
     /// `PacketTrailerTransformer` can embed it into the encoded frame.
     /// The handler is set on the C++ VideoTrackSource so it has access to

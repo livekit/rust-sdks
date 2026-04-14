@@ -564,7 +564,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             None
         };
         frame.frame_metadata = if user_ts.is_some() || fid.is_some() {
-            Some(FrameMetadata { user_timestamp_us: user_ts, frame_id: fid })
+            Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
         } else {
             None
         };

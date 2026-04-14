@@ -69,7 +69,7 @@ constexpr size_t kPacketTrailerMaxSize =
     kTimestampTlvSize + kFrameIdTlvSize + kTrailerEnvelopeSize;
 
 struct PacketTrailerMetadata {
-  uint64_t user_timestamp_us;
+  uint64_t user_timestamp;
   uint32_t frame_id;
   uint32_t ssrc;  // SSRC that produced this entry (for simulcast tracking)
 };
@@ -116,7 +116,7 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   /// TimestampAligner-adjusted timestamp, which matches CaptureTime()
   /// in the encoder pipeline.
   void store_frame_metadata(int64_t capture_timestamp_us,
-                            uint64_t user_timestamp_us,
+                            uint64_t user_timestamp,
                             uint32_t frame_id);
 
  private:
@@ -128,7 +128,7 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   /// Append frame metadata trailer to frame data
   std::vector<uint8_t> AppendTrailer(
       webrtc::ArrayView<const uint8_t> data,
-      uint64_t user_timestamp_us,
+      uint64_t user_timestamp,
       uint32_t frame_id);
 
   /// Extract and remove frame metadata trailer from frame data
@@ -191,7 +191,7 @@ class PacketTrailerHandler {
 
   /// Store frame metadata for a given capture timestamp (sender side).
   void store_frame_metadata(int64_t capture_timestamp_us,
-                            uint64_t user_timestamp_us,
+                            uint64_t user_timestamp,
                             uint32_t frame_id) const;
 
   /// Access the underlying transformer for chaining.

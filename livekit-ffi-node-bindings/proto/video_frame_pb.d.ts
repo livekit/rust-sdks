@@ -692,9 +692,9 @@ export declare class OwnedVideoBuffer extends Message<OwnedVideoBuffer> {
  */
 export declare class FrameMetadata extends Message<FrameMetadata> {
   /**
-   * @generated from field: optional uint64 user_timestamp_us = 1;
+   * @generated from field: optional uint64 user_timestamp = 1;
    */
-  userTimestampUs?: bigint;
+  userTimestamp?: bigint;
 
   /**
    * @generated from field: optional uint32 frame_id = 2;
