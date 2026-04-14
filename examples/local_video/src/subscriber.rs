@@ -220,7 +220,6 @@ async fn handle_track_subscribed(
     participant: RemoteParticipant,
     allowed_identity: &Option<String>,
     shared: &Arc<Mutex<SharedYuv>>,
-    rt: &tokio::runtime::Handle,
     active_sid: &Arc<Mutex<Option<TrackSid>>>,
     ctrl_c_received: &Arc<AtomicBool>,
     simulcast: &Arc<Mutex<SimulcastState>>,
@@ -279,11 +278,10 @@ async fn handle_track_subscribed(
 
     let rtc_track = video_track.rtc_track();
 
-    // Start background sink thread immediately so stats lookup cannot delay first-frame handling.
+    // Start background sink task immediately so stats lookup cannot delay first-frame handling.
     let shared2 = shared.clone();
     let active_sid2 = active_sid.clone();
     let my_sid = sid.clone();
-    let rt_clone = rt.clone();
     let ctrl_c_sink = ctrl_c_received.clone();
     // Initialize simulcast state for this publication
     {
@@ -295,7 +293,7 @@ async fn handle_track_subscribed(
         sc.active_quality = None;
         sc.publication = Some(publication.clone());
     }
-    std::thread::spawn(move || {
+    tokio::spawn(async move {
         let mut sink = NativeVideoStream::new(rtc_track);
         let mut frames: u64 = 0;
         let mut last_log = Instant::now();
@@ -311,12 +309,10 @@ async fn handle_track_subscribed(
             if ctrl_c_sink.load(Ordering::Acquire) {
                 break;
             }
-            let next = rt_clone.block_on(async {
-                tokio::select! {
-                    _ = wait_for_shutdown(ctrl_c_sink.clone()) => None,
-                    frame = sink.next() => frame,
-                }
-            });
+            let next = tokio::select! {
+                _ = wait_for_shutdown(ctrl_c_sink.clone()) => None,
+                frame = sink.next() => frame,
+            };
             let Some(frame) = next else { break };
             let received_at_us = current_timestamp_us();
             let w = frame.buffer.width();
@@ -767,7 +763,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // Subscribe to room events: on first video track, start sink task
     let allowed_identity = args.participant.clone();
     let shared_clone = shared.clone();
-    let rt = tokio::runtime::Handle::current();
     // Track currently active video track SID to handle unpublish/unsubscribe
     let active_sid = Arc::new(Mutex::new(None::<TrackSid>));
     // Shared simulcast UI/control state
@@ -789,7 +784,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         participant,
                         &allowed_identity,
                         &shared_clone,
-                        &rt,
                         &active_sid,
                         &ctrl_c_events,
                         &simulcast,
