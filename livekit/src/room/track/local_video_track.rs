@@ -129,7 +129,7 @@ impl LocalVideoTrack {
     /// Returns the packet trailer handler associated with this track, if any.
     /// When present on the sender side, callers can store per-frame user
     /// timestamps which will be embedded into encoded frames.
-    pub fn packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
+    pub(crate) fn packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
         self.packet_trailer_handler.lock().clone()
     }
 
