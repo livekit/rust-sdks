@@ -29,10 +29,8 @@ impl FfiHandle for FfiVideoSource {}
 
 fn frame_metadata_from_proto(metadata: Option<proto::FrameMetadata>) -> Option<FrameMetadata> {
     let metadata = metadata?;
-    let frame_metadata = FrameMetadata {
-        user_timestamp: metadata.user_timestamp,
-        frame_id: metadata.frame_id,
-    };
+    let frame_metadata =
+        FrameMetadata { user_timestamp: metadata.user_timestamp, frame_id: metadata.frame_id };
 
     (frame_metadata.user_timestamp.is_some() || frame_metadata.frame_id.is_some())
         .then_some(frame_metadata)
