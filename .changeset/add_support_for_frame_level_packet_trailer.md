@@ -5,7 +5,6 @@ livekit-api: minor
 webrtc-sys: minor
 livekit-ffi: minor
 libwebrtc: minor
-imgproc: no changelog additions
 ---
 
 # Add support for frame level packet trailer
