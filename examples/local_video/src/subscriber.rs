@@ -329,49 +329,18 @@ async fn handle_track_subscribed(
                 frames = 0;
                 last_log = Instant::now();
             }
-            // Periodically infer active simulcast quality and log decoder details
-            if last_stats.elapsed() >= Duration::from_secs(5) {
+            // Periodically infer active simulcast quality from inbound stats
+            if last_stats.elapsed() >= Duration::from_secs(1) {
                 if let Ok(stats) = rt_clone.block_on(video_track.get_stats()) {
                     let mut inbound: Option<livekit::webrtc::stats::InboundRtpStats> = None;
-                    let mut codec_by_id: HashMap<String, (String, String)> = HashMap::new();
                     for s in stats.iter() {
-                        match s {
-                            livekit::webrtc::stats::RtcStats::InboundRtp(i) => {
-                                if i.stream.kind == "video" {
-                                    inbound = Some(i.clone());
-                                }
+                        if let livekit::webrtc::stats::RtcStats::InboundRtp(i) = s {
+                            if i.stream.kind == "video" {
+                                inbound = Some(i.clone());
                             }
-                            livekit::webrtc::stats::RtcStats::Codec(c) => {
-                                codec_by_id.insert(
-                                    c.rtc.id.clone(),
-                                    (c.codec.mime_type.clone(), c.codec.sdp_fmtp_line.clone()),
-                                );
-                            }
-                            _ => {}
                         }
                     }
                     if let Some(i) = inbound {
-                        let dec = &i.inbound.decoder_implementation;
-                        if !dec.is_empty() {
-                            let hw_sw = if i.inbound.power_efficient_decoder {
-                                "HW"
-                            } else {
-                                "SW"
-                            };
-                            let codec_label = codec_by_id
-                                .get(&i.stream.codec_id)
-                                .map(|(m, _)| m.as_str())
-                                .unwrap_or("?");
-                            info!(
-                                "Decoder: {} ({}, {}) — {}x{} @ {:.1} fps",
-                                dec,
-                                hw_sw,
-                                codec_label,
-                                i.inbound.frame_width,
-                                i.inbound.frame_height,
-                                i.inbound.frames_per_second,
-                            );
-                        }
                         if let Some((fw, fh)) = simulcast_state_full_dims(&simulcast2) {
                             let q = infer_quality_from_dims(
                                 fw,
