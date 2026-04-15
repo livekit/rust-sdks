@@ -281,6 +281,7 @@ mod tests {
         VideoFrame {
             rotation: VideoRotation::VideoRotation0,
             timestamp_us,
+            frame_metadata: None,
             buffer: Box::new(I420Buffer::new(2, 2)),
         }
     }
