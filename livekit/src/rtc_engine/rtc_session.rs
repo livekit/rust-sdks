@@ -391,6 +391,7 @@ struct SessionInner {
 
     e2ee_manager: Option<E2eeManager>,
     subscriber_primary: bool,
+    pc_state_notify: Notify,
 }
 
 /// Information about the local participant needed for outgoing
@@ -588,6 +589,7 @@ impl RtcSession {
             pending_requests: Default::default(),
             e2ee_manager,
             subscriber_primary,
+            pc_state_notify: Notify::new(),
         });
 
         // Start session tasks
@@ -1343,6 +1345,8 @@ impl SessionInner {
             RtcEvent::ConnectionChange { state, target } => {
                 log::debug!("connection change, {:?} {:?}", state, target);
 
+                self.pc_state_notify.notify_waiters();
+
                 if state == PeerConnectionState::Failed {
                     log::error!("{:?} pc state failed", target);
                     self.on_session_disconnected(
@@ -1725,6 +1729,7 @@ impl SessionInner {
 
     async fn close(&self, reason: DisconnectReason) {
         self.closed.store(true, Ordering::Release);
+        self.pc_state_notify.notify_waiters();
 
         self.signal_client
             .send(proto::signal_request::Message::Leave(proto::LeaveRequest {
@@ -1939,6 +1944,8 @@ impl SessionInner {
     async fn wait_pc_connection(&self) -> EngineResult<()> {
         let wait_connected = async move {
             loop {
+                let notified = self.pc_state_notify.notified();
+
                 if self.closed.load(Ordering::Acquire) {
                     return Err(EngineError::Connection("closed".into()));
                 }
@@ -1956,7 +1963,7 @@ impl SessionInner {
                     break;
                 }
 
-                livekit_runtime::sleep(Duration::from_millis(50)).await;
+                let _ = tokio::time::timeout(Duration::from_millis(50), notified).await;
             }
 
             Ok(())
