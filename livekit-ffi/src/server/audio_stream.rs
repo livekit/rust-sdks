@@ -109,14 +109,12 @@ impl FfiAudioStream {
                 // When the audio filter supports separate rates (v2), create
                 // the WebRTC sink at 48000 (WebRTC's internal pipeline rate)
                 // to skip resampling — the filter handles rate conversion.
-                let input_sample_rate = if audio_filter
-                    .as_ref()
-                    .is_some_and(|f| f.supports_separate_rates())
-                {
-                    48000
-                } else {
-                    output_sample_rate
-                };
+                let input_sample_rate =
+                    if audio_filter.as_ref().is_some_and(|f| f.supports_separate_rates()) {
+                        48000
+                    } else {
+                        output_sample_rate
+                    };
 
                 let native_stream = NativeAudioStream::with_options(
                     rtc_track,
@@ -289,14 +287,12 @@ impl FfiAudioStream {
                     }
                 });
 
-                let input_sample_rate = if filter
-                    .as_ref()
-                    .is_some_and(|f| f.supports_separate_rates())
-                {
-                    48000
-                } else {
-                    output_sample_rate
-                };
+                let input_sample_rate =
+                    if filter.as_ref().is_some_and(|f| f.supports_separate_rates()) {
+                        48000
+                    } else {
+                        output_sample_rate
+                    };
 
                 let (mut audio_filter_session, info) = match &filter {
                     Some(filter) => match &request.audio_filter_options {
