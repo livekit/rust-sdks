@@ -264,6 +264,7 @@ cargo swift package \
 --platforms visionos \
 --platforms tvos \
 --lib-type dynamic \
+--privacy-manifest ${SUPPORT_DIR}/swift/PrivacyInfo.xcprivacy \
 ${SWIFT_RELEASE_FLAG}
 """
 
@@ -278,25 +279,7 @@ script_runner = "@shell"
 script = """
 tera  --env --file ${SUPPORT_DIR}/${LANG}/Package.swift.tera > ${SPM_NAME}/Package.swift
 tera  --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.2.swift.tera > ${SPM_NAME}/Package@swift-6.2.swift
-cp ${SUPPORT_DIR}/${LANG}/PrivacyInfo.xcprivacy ${SPM_NAME}/PrivacyInfo.xcprivacy
 cp ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/LICENSE ${SPM_NAME}/LICENSE
-"""
-
-[tasks.swift-embed-privacy-manifest]
-private = true
-description = "Copy PrivacyInfo.xcprivacy into each .framework slice (next to Info.plist)"
-script_runner = "@shell"
-script = """
-manifest="${SUPPORT_DIR}/${LANG}/PrivacyInfo.xcprivacy"
-for framework in ${SPM_NAME}/*.xcframework/*/*.framework; do
-    if [ -d "${framework}/Versions/A/Resources" ]; then
-        # Versioned bundle (macOS, Mac Catalyst): manifest lives alongside Info.plist
-        cp "${manifest}" "${framework}/Versions/A/Resources/PrivacyInfo.xcprivacy"
-    else
-        # Shallow bundle (iOS, tvOS, visionOS, watchOS): manifest at framework root
-        cp "${manifest}" "${framework}/PrivacyInfo.xcprivacy"
-    fi
-done
 """
 
 [tasks.swift-move-to-packages]
@@ -314,7 +297,6 @@ private = true
 dependencies = [
     "swift-xcframework",
     "swift-generate-manifest",
-    "swift-embed-privacy-manifest",
     "swift-move-to-packages"
 ]
 
