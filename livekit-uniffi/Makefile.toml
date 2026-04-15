@@ -265,6 +265,7 @@ cargo swift package \
 --platforms tvos \
 --lib-type dynamic \
 --privacy-manifest ${SUPPORT_DIR}/swift/PrivacyInfo.xcprivacy \
+--exclude-arch x86_64-apple-tvos \
 ${SWIFT_RELEASE_FLAG}
 """
 
