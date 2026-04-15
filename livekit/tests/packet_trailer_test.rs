@@ -221,9 +221,7 @@ async fn run_packet_trailer_test(params: PacketTrailerTestParams) -> Result<()> 
 
             while let Some(frame) = stream.next().await {
                 let Some(meta) = frame.frame_metadata else {
-                    log::debug!(
-                        "Frame without metadata, skipping (waiting for trailer pipeline)"
-                    );
+                    log::debug!("Frame without metadata, skipping (waiting for trailer pipeline)");
                     continue;
                 };
 
@@ -235,9 +233,8 @@ async fn run_packet_trailer_test(params: PacketTrailerTestParams) -> Result<()> 
                 );
 
                 if attach_ts {
-                    let ts = meta
-                        .user_timestamp
-                        .expect("Expected user_timestamp in frame metadata");
+                    let ts =
+                        meta.user_timestamp.expect("Expected user_timestamp in frame metadata");
                     assert!(ts > 0, "user_timestamp should be a positive value, got {}", ts);
                     seen_timestamps.push(ts);
                 }
