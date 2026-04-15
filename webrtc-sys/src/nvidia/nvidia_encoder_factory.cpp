@@ -5,7 +5,10 @@
 #include "cuda_context.h"
 #include "h264_encoder_impl.h"
 #include "h265_encoder_impl.h"
+#include "nvEncodeAPI.h"
 #include "rtc_base/logging.h"
+
+#include <dlfcn.h>
 
 namespace webrtc {
 
@@ -36,12 +39,106 @@ NvidiaVideoEncoderFactory::~NvidiaVideoEncoderFactory() {}
 
 bool NvidiaVideoEncoderFactory::IsSupported() {
   if (!livekit_ffi::CudaContext::IsAvailable()) {
-    RTC_LOG(LS_WARNING) << "Cuda Context is not available.";
+    RTC_LOG(LS_WARNING) << "CUDA is not available, NVENC disabled.";
     return false;
   }
 
-  std::cout << "Nvidia Encoder is supported." << std::endl;
-  return true;
+  // CUDA being available does NOT imply NVENC is present. Compute-only GPUs
+  // (H100, A100, etc.) have full CUDA support but no encode hardware.
+  // Probe the NVENC library and try to open a session to be sure.
+  void* hModule = dlopen("libnvidia-encode.so.1", RTLD_LAZY);
+  if (!hModule) {
+    RTC_LOG(LS_WARNING) << "NVENC library (libnvidia-encode.so.1) not found, "
+                           "hardware encoding unavailable.";
+    return false;
+  }
+  auto NvEncodeAPIGetMaxSupportedVersion =
+      (NVENCSTATUS(NVENCAPI*)(uint32_t*))dlsym(
+          hModule, "NvEncodeAPIGetMaxSupportedVersion");
+  auto NvEncodeAPICreateInstance =
+      (NVENCSTATUS(NVENCAPI*)(NV_ENCODE_API_FUNCTION_LIST*))dlsym(
+          hModule, "NvEncodeAPICreateInstance");
+
+  bool supported = false;
+
+  do {
+    if (!NvEncodeAPIGetMaxSupportedVersion || !NvEncodeAPICreateInstance) {
+      RTC_LOG(LS_WARNING) << "NVENC API entry points not found in library.";
+      break;
+    }
+
+    uint32_t maxVersion = 0;
+    if (NvEncodeAPIGetMaxSupportedVersion(&maxVersion) != NV_ENC_SUCCESS) {
+      RTC_LOG(LS_WARNING) << "NvEncodeAPIGetMaxSupportedVersion failed.";
+      break;
+    }
+
+    uint32_t currentVersion =
+        (NVENCAPI_MAJOR_VERSION << 4) | NVENCAPI_MINOR_VERSION;
+    if (currentVersion > maxVersion) {
+      RTC_LOG(LS_WARNING) << "NVENC driver version too old: driver supports "
+                          << maxVersion << ", SDK requires " << currentVersion;
+      break;
+    }
+
+    NV_ENCODE_API_FUNCTION_LIST fnList = {NV_ENCODE_API_FUNCTION_LIST_VER};
+    if (NvEncodeAPICreateInstance(&fnList) != NV_ENC_SUCCESS) {
+      RTC_LOG(LS_WARNING) << "NvEncodeAPICreateInstance failed.";
+      break;
+    }
+
+    // Try opening an encode session with CUDA device 0 to confirm the GPU
+    // actually has NVENC hardware.
+    CUresult cuRes = cuInit(0);
+    if (cuRes != CUDA_SUCCESS) {
+      RTC_LOG(LS_WARNING) << "cuInit failed during NVENC probe.";
+      break;
+    }
+
+    CUdevice cuDevice;
+    cuRes = cuDeviceGet(&cuDevice, 0);
+    if (cuRes != CUDA_SUCCESS) {
+      RTC_LOG(LS_WARNING) << "cuDeviceGet failed during NVENC probe.";
+      break;
+    }
+
+    CUcontext cuCtx = nullptr;
+    cuRes = cuCtxCreate(&cuCtx, 0, cuDevice);
+    if (cuRes != CUDA_SUCCESS || !cuCtx) {
+      RTC_LOG(LS_WARNING) << "cuCtxCreate failed during NVENC probe.";
+      break;
+    }
+
+    NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS sessionParams = {
+        NV_ENC_OPEN_ENCODE_SESSION_EX_PARAMS_VER};
+    sessionParams.device = cuCtx;
+    sessionParams.deviceType = NV_ENC_DEVICE_TYPE_CUDA;
+    sessionParams.apiVersion = NVENCAPI_VERSION;
+
+    void* hEncoder = nullptr;
+    NVENCSTATUS nvStatus =
+        fnList.nvEncOpenEncodeSessionEx(&sessionParams, &hEncoder);
+
+    if (nvStatus == NV_ENC_SUCCESS && hEncoder) {
+      fnList.nvEncDestroyEncoder(hEncoder);
+      supported = true;
+    } else {
+      char deviceName[80] = {};
+      cuDeviceGetName(deviceName, sizeof(deviceName), cuDevice);
+      RTC_LOG(LS_WARNING) << "NVENC not available on GPU \"" << deviceName
+                          << "\" (status=" << nvStatus
+                          << "). This GPU likely lacks encode hardware.";
+    }
+
+    cuCtxDestroy(cuCtx);
+  } while (false);
+
+  dlclose(hModule);
+
+  if (supported) {
+    RTC_LOG(LS_INFO) << "NVIDIA NVENC hardware encoder is available.";
+  }
+  return supported;
 }
 
 std::unique_ptr<VideoEncoder> NvidiaVideoEncoderFactory::Create(
