@@ -103,7 +103,11 @@ bool NvidiaVideoEncoderFactory::IsSupported() {
     }
 
     CUcontext cuCtx = nullptr;
+#if CUDA_VERSION >= 13000
+    cuRes = cuCtxCreate(&cuCtx, nullptr, 0, cuDevice);
+#else
     cuRes = cuCtxCreate(&cuCtx, 0, cuDevice);
+#endif
     if (cuRes != CUDA_SUCCESS || !cuCtx) {
       RTC_LOG(LS_WARNING) << "cuCtxCreate failed during NVENC probe.";
       break;
