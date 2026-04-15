@@ -288,6 +288,7 @@ script = """
 tera  --env --file ${SUPPORT_DIR}/${LANG}/Package.swift.tera > ${SPM_NAME}/Package.swift
 tera  --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.0.swift.tera > ${SPM_NAME}/Package@swift-6.0.swift
 cp ${SUPPORT_DIR}/${LANG}/PrivacyInfo.xcprivacy ${SPM_NAME}/PrivacyInfo.xcprivacy
+cp ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/LICENSE ${SPM_NAME}/LICENSE
 """
 
 [tasks.swift-move-to-packages]
