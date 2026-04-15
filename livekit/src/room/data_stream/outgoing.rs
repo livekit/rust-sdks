@@ -243,7 +243,13 @@ impl Drop for RawStream {
         }
         let packet = Self::create_trailer_packet(&self.id, None);
         let packet_tx = self.packet_tx.clone();
-        tokio::spawn(async move { Self::send_packet(&packet_tx, packet).await });
+        // Use try_current() instead of assuming a Tokio runtime exists.
+        // The drop can run on a non-Tokio thread (e.g. a GC finalizer in
+        // Unity/.NET) or after the runtime has shut down, in which case
+        // we silently skip the trailer — the connection is going away anyway.
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move { Self::send_packet(&packet_tx, packet).await });
+        }
     }
 }
 
