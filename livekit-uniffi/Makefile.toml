@@ -286,7 +286,7 @@ install_crate = { crate_name = "tera-cli", binary = "tera", test_arg = "--versio
 script_runner = "@shell"
 script = """
 tera  --env --file ${SUPPORT_DIR}/${LANG}/Package.swift.tera > ${SPM_NAME}/Package.swift
-tera  --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.0.swift.tera > ${SPM_NAME}/Package@swift-6.0.swift
+tera  --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.2.swift.tera > ${SPM_NAME}/Package@swift-6.2.swift
 cp ${SUPPORT_DIR}/${LANG}/PrivacyInfo.xcprivacy ${SPM_NAME}/PrivacyInfo.xcprivacy
 cp ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/LICENSE ${SPM_NAME}/LICENSE
 """
