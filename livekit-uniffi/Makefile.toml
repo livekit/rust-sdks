@@ -19,7 +19,6 @@ LIB_NAME = "lib${CARGO_MAKE_CRATE_FS_NAME}"
 TARGET_DIR = "${CARGO_MAKE_CRATE_TARGET_DIRECTORY}"
 SWIFT_VERSION = "6.0"
 SPM_NAME = "LiveKitUniFFI"
-XCFRAMEWORK_NAME = "Rust${SPM_NAME}"
 NPM_NAME = "@livekit/uniffi"
 
 # Base URL for downloading release builds of the cdylib.
@@ -246,8 +245,8 @@ SWIFT_RELEASE_FLAG = { value = "--release", condition = { profiles = ["release"]
 
 [tasks.swift-xcframework]
 private = true
-install_crate = { crate_name = "cargo-swift", version = "0.10.0", binary = "cargo-swift", test_arg = "--help" }
-install_crate_args = ["--force"]
+install_crate = { crate_name = "cargo-swift", binary = "cargo-swift", test_arg = "--help" }
+install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--branch", "feature/framework-wrapping", "--force"]
 script_runner = "@shell"
 script = """
 export IPHONEOS_DEPLOYMENT_TARGET=13.0
@@ -260,13 +259,12 @@ export CFLAGS_aarch64_apple_ios_macabi="--target=aarch64-apple-ios14.0-macabi"
 CMD="cargo swift package \
 --accept-all \
 --name ${SPM_NAME} \
---xcframework-name ${XCFRAMEWORK_NAME} \
 --platforms macos \
 --platforms ios \
 --platforms maccatalyst \
 --platforms visionos \
 --platforms tvos \
---lib-type static \
+--lib-type dynamic \
 ${SWIFT_RELEASE_FLAG}"
 
 if command -v swiftly >/dev/null 2>&1; then
@@ -295,20 +293,6 @@ tera  --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.0.swift.tera > ${SPM_N
 private = true
 script_runner = "@shell"
 script = """
-# Patch the generated XCFramework and Swift sources to match the framework name
-# This ensures compatibility with Swift 6.2+ which requires the module name to match the framework name
-
-FFI_NAME="livekit_uniffiFFI"
-
-# 1. Rename header files inside the XCFramework
-find "${SPM_NAME}/${XCFRAMEWORK_NAME}.xcframework" -name "${FFI_NAME}.h" -exec bash -c 'mv "$1" "$(dirname "$1")/'"${XCFRAMEWORK_NAME}"'.h"' _ {} \\;
-
-# 2. Patch the modulemaps inside the XCFramework
-find "${SPM_NAME}/${XCFRAMEWORK_NAME}.xcframework" -name "module.modulemap" -exec sed -i '' "s/${FFI_NAME}/${XCFRAMEWORK_NAME}/g" {} +
-
-# 3. Patch the generated Swift sources
-find "${SPM_NAME}/Sources" -name "*.swift" -exec sed -i '' "s/${FFI_NAME}/${XCFRAMEWORK_NAME}/g" {} +
-
 out_dir="${PACKAGES_DIR}/${LANG}"
 rm -rf "${out_dir}"
 mkdir -p "${out_dir}"
