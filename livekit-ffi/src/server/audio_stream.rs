@@ -107,11 +107,11 @@ impl FfiAudioStream {
                 };
 
                 // When the audio filter supports separate rates (v2), create
-                // the WebRTC sink at 48000 (WebRTC's internal pipeline rate)
-                // to skip resampling — the filter handles rate conversion.
+                // the WebRTC sink at the codec's native rate to skip
+                // resampling — the filter handles rate conversion.
                 let input_sample_rate =
                     if audio_filter.as_ref().is_some_and(|f| f.supports_separate_rates()) {
-                        48000
+                        ffi_track.track.codec_clock_rate().unwrap_or(48000)
                     } else {
                         output_sample_rate
                     };
@@ -289,7 +289,7 @@ impl FfiAudioStream {
 
                 let input_sample_rate =
                     if filter.as_ref().is_some_and(|f| f.supports_separate_rates()) {
-                        48000
+                        track.codec_clock_rate().unwrap_or(48000) as i32
                     } else {
                         output_sample_rate
                     };
