@@ -563,7 +563,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     );
                     render_timecode_overlay(
                         y_data, u_data, v_data, stride_y, stride_u, stride_v, width, height,
-                        frames, args.fps,
                     );
                 }
 

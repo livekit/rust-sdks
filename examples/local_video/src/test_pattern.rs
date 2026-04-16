@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 // ---------------------------------------------------------------------------
 // Source mode
@@ -28,7 +29,7 @@ pub fn parse_video_source(s: &str) -> Result<VideoSourceMode> {
 }
 
 // ---------------------------------------------------------------------------
-// Bitmap font (5×7, digits + colon)
+// Bitmap font (5×7, digits + colon + letters)
 // ---------------------------------------------------------------------------
 
 const GLYPH_W: u32 = 5;
@@ -49,11 +50,23 @@ const DIGIT_GLYPHS: [[u8; 7]; 10] = [
 ];
 
 const COLON_GLYPH: [u8; 7] = [0x00, 0x04, 0x04, 0x00, 0x04, 0x04, 0x00];
+const SPACE_GLYPH: [u8; 7] = [0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+
+#[rustfmt::skip]
+const GLYPH_U: [u8; 7] = [0x11, 0x11, 0x11, 0x11, 0x11, 0x11, 0x0E]; // U
+#[rustfmt::skip]
+const GLYPH_T: [u8; 7] = [0x1F, 0x04, 0x04, 0x04, 0x04, 0x04, 0x04]; // T
+#[rustfmt::skip]
+const GLYPH_C: [u8; 7] = [0x0E, 0x11, 0x10, 0x10, 0x10, 0x11, 0x0E]; // C
 
 fn glyph_for(c: char) -> Option<&'static [u8; 7]> {
     match c {
         '0'..='9' => Some(&DIGIT_GLYPHS[(c as u8 - b'0') as usize]),
         ':' => Some(&COLON_GLYPH),
+        ' ' => Some(&SPACE_GLYPH),
+        'U' => Some(&GLYPH_U),
+        'T' => Some(&GLYPH_T),
+        'C' => Some(&GLYPH_C),
         _ => None,
     }
 }
@@ -152,7 +165,7 @@ fn draw_glyph(
     }
 }
 
-/// Draw HH:MM:SS:FF timecode and a vertical sweep line on the I420 planes.
+/// Draw HH:MM:SS:mmm wall-clock timecode and a vertical sweep line on the I420 planes.
 pub fn render_timecode_overlay(
     y_data: &mut [u8],
     u_data: &mut [u8],
@@ -162,16 +175,17 @@ pub fn render_timecode_overlay(
     stride_v: u32,
     width: u32,
     height: u32,
-    frame_count: u64,
-    fps: u32,
 ) {
-    let total_secs = frame_count / fps as u64;
-    let ff = frame_count % fps as u64;
+    let since_epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    let total_secs = since_epoch.as_secs();
+    let millis = since_epoch.subsec_millis();
     let ss = total_secs % 60;
     let mm = (total_secs / 60) % 60;
-    let hh = (total_secs / 3600) % 100;
+    let hh = (total_secs / 3600) % 24;
 
-    let tc = format!("{:02}:{:02}:{:02}:{:02}", hh, mm, ss, ff);
+    let tc = format!("{:02}:{:02}:{:02}:{:03} UTC", hh, mm, ss, millis);
 
     let scale = (height / 120).max(1).min(12);
     let char_w = GLYPH_W * scale;
@@ -207,7 +221,7 @@ pub fn render_timecode_overlay(
     }
 
     // Vertical sweep line moving left→right once per second
-    let frac = ff as f64 / fps as f64;
+    let frac = millis as f64 / 1000.0;
     let sweep_x = (frac * width as f64) as u32;
     let lw = scale.max(2);
     for row in 0..height {
