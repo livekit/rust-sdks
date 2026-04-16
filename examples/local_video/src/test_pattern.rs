@@ -220,21 +220,4 @@ pub fn render_timecode_overlay(
         cx += char_w + spacing;
     }
 
-    // Vertical sweep line moving left→right once per second
-    let frac = millis as f64 / 1000.0;
-    let sweep_x = (frac * width as f64) as u32;
-    let lw = scale.max(2);
-    for row in 0..height {
-        for dx in 0..lw {
-            let col = sweep_x + dx;
-            if col >= width {
-                break;
-            }
-            y_data[(row * stride_y + col) as usize] = 235;
-            if row % 2 == 0 && col % 2 == 0 {
-                u_data[((row / 2) * stride_u + col / 2) as usize] = 128;
-                v_data[((row / 2) * stride_v + col / 2) as usize] = 128;
-            }
-        }
-    }
 }
