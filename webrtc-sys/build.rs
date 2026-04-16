@@ -173,13 +173,16 @@ fn main() {
                 pkg_config::probe_library(lib_name).unwrap();
             }
 
-            add_lazy_load_so(
-                &mut builder,
-                "desktop_capturer",
-                ["drm", "gbm", "X11", "Xfixes", "Xdamage", "Xrandr", "Xcomposite", "Xext"]
-                    .map(String::from)
-                    .to_vec(),
-            );
+            // Lazy-load stubs only exist for x86_64 and aarch64, not armv7
+            if target_arch != "arm" {
+                add_lazy_load_so(
+                    &mut builder,
+                    "desktop_capturer",
+                    ["drm", "gbm", "X11", "Xfixes", "Xdamage", "Xrandr", "Xcomposite", "Xext"]
+                        .map(String::from)
+                        .to_vec(),
+                );
+            }
 
             let x86 = target_arch == "x86_64" || target_arch == "i686";
             let arm = target_arch == "aarch64" || target_arch.contains("arm");
@@ -245,7 +248,11 @@ fn main() {
             builder
                 .flag("-Wno-changes-meaning")
                 .flag("-Wno-deprecated-declarations")
-                .flag("-std=c++20");
+                .flag("-std=c++2a")
+                .flag("-fpermissive")
+                // -fPIC: required for linking into Rust PIE binaries (Yocto uses rust-lld).
+                // CFLAGS propagation can be unreliable in Yocto's cross build, so set explicitly.
+                .flag("-fPIC");
         }
         "macos" => {
             println!("cargo:rustc-link-lib=framework=Foundation");
@@ -406,6 +413,8 @@ fn add_lazy_load_so(builder: &mut cc::Build, name: &str, libraries: Vec<String>)
         let mut arch_dir = "x86_64-linux-gnu";
         if target_arch.contains("arm64") {
             arch_dir = "aarch64-linux-gnu";
+        } else if target_arch == "arm" {
+            arch_dir = "arm-linux-gnueabihf";
         }
         let implib_file_c_name = "src/lazy_load_deps_for/".to_owned()
             + name
@@ -431,7 +440,8 @@ fn add_gio_headers(builder: &mut cc::Build) {
     let target_arch_sysroot = match target_arch.as_str() {
         "arm64" => "arm64",
         "x64" => "amd64",
-        _ => panic!("unsupported arch"),
+        "arm" => "arm",
+        _ => panic!("unsupported arch: {}", target_arch),
     };
     let sysroot_path = format!("include/build/linux/debian_bullseye_{target_arch_sysroot}-sysroot");
     let sysroot = webrtc_dir.join(sysroot_path);
@@ -442,7 +452,8 @@ fn add_gio_headers(builder: &mut cc::Build) {
     let arch_specific_path = match target_arch.as_str() {
         "x64" => "x86_64-linux-gnu",
         "arm64" => "aarch64-linux-gnu",
-        _ => panic!("unsupported target"),
+        "arm" => "arm-linux-gnueabihf",
+        _ => panic!("unsupported target: {}", target_arch),
     };
 
     let glib_path_config = sysroot.join("usr/lib");
