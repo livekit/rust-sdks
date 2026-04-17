@@ -1080,6 +1080,10 @@ pub struct ClientInfo {
     /// client protocol version
     #[prost(int32, tag="12")]
     pub client_protocol: i32,
+    /// capabilities the client advertises. Populated automatically by each SDK;
+    /// not a user-configurable setting.
+    #[prost(enumeration="client_info::Capability", repeated, tag="13")]
+    pub capabilities: ::prost::alloc::vec::Vec<i32>,
 }
 /// Nested message and enum types in `ClientInfo`.
 pub mod client_info {
@@ -1144,6 +1148,36 @@ pub mod client_info {
                 "NODE" => Some(Self::Node),
                 "UNREAL" => Some(Self::Unreal),
                 "ESP32" => Some(Self::Esp32),
+                _ => None,
+            }
+        }
+    }
+    /// Optional capabilities advertised by the client at connect time. The SFU
+    /// uses these flags to decide whether to enable features that require
+    /// client-side support (e.g. passing RTP packet trailers through to the
+    /// subscriber instead of stripping them).
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+    #[repr(i32)]
+    pub enum Capability {
+        CapUnknown = 0,
+        CapPacketTrailer = 1,
+    }
+    impl Capability {
+        /// String value of the enum field names used in the ProtoBuf definition.
+        ///
+        /// The values are not transformed in any way and thus are considered stable
+        /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+        pub fn as_str_name(&self) -> &'static str {
+            match self {
+                Capability::CapUnknown => "CAP_UNKNOWN",
+                Capability::CapPacketTrailer => "CAP_PACKET_TRAILER",
+            }
+        }
+        /// Creates an enum from field names used in the ProtoBuf definition.
+        pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+            match value {
+                "CAP_UNKNOWN" => Some(Self::CapUnknown),
+                "CAP_PACKET_TRAILER" => Some(Self::CapPacketTrailer),
                 _ => None,
             }
         }
@@ -2058,6 +2092,7 @@ impl AudioTrackFeature {
 #[repr(i32)]
 pub enum PacketTrailerFeature {
     PtfUserTimestamp = 0,
+    PtfFrameId = 1,
 }
 impl PacketTrailerFeature {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -2067,12 +2102,14 @@ impl PacketTrailerFeature {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             PacketTrailerFeature::PtfUserTimestamp => "PTF_USER_TIMESTAMP",
+            PacketTrailerFeature::PtfFrameId => "PTF_FRAME_ID",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "PTF_USER_TIMESTAMP" => Some(Self::PtfUserTimestamp),
+            "PTF_FRAME_ID" => Some(Self::PtfFrameId),
             _ => None,
         }
     }

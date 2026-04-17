@@ -3067,6 +3067,9 @@ impl serde::Serialize for ClientInfo {
         if self.client_protocol != 0 {
             len += 1;
         }
+        if !self.capabilities.is_empty() {
+            len += 1;
+        }
         let mut struct_ser = serializer.serialize_struct("livekit.ClientInfo", len)?;
         if self.sdk != 0 {
             let v = client_info::Sdk::try_from(self.sdk)
@@ -3106,6 +3109,13 @@ impl serde::Serialize for ClientInfo {
         if self.client_protocol != 0 {
             struct_ser.serialize_field("clientProtocol", &self.client_protocol)?;
         }
+        if !self.capabilities.is_empty() {
+            let v = self.capabilities.iter().cloned().map(|v| {
+                client_info::Capability::try_from(v)
+                    .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", v)))
+                }).collect::<std::result::Result<Vec<_>, _>>()?;
+            struct_ser.serialize_field("capabilities", &v)?;
+        }
         struct_ser.end()
     }
 }
@@ -3133,6 +3143,7 @@ impl<'de> serde::Deserialize<'de> for ClientInfo {
             "otherSdks",
             "client_protocol",
             "clientProtocol",
+            "capabilities",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -3149,6 +3160,7 @@ impl<'de> serde::Deserialize<'de> for ClientInfo {
             Network,
             OtherSdks,
             ClientProtocol,
+            Capabilities,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -3183,6 +3195,7 @@ impl<'de> serde::Deserialize<'de> for ClientInfo {
                             "network" => Ok(GeneratedField::Network),
                             "otherSdks" | "other_sdks" => Ok(GeneratedField::OtherSdks),
                             "clientProtocol" | "client_protocol" => Ok(GeneratedField::ClientProtocol),
+                            "capabilities" => Ok(GeneratedField::Capabilities),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -3214,6 +3227,7 @@ impl<'de> serde::Deserialize<'de> for ClientInfo {
                 let mut network__ = None;
                 let mut other_sdks__ = None;
                 let mut client_protocol__ = None;
+                let mut capabilities__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Sdk => {
@@ -3292,6 +3306,12 @@ impl<'de> serde::Deserialize<'de> for ClientInfo {
                                 Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
                             ;
                         }
+                        GeneratedField::Capabilities => {
+                            if capabilities__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("capabilities"));
+                            }
+                            capabilities__ = Some(map_.next_value::<Vec<client_info::Capability>>()?.into_iter().map(|x| x as i32).collect());
+                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -3310,10 +3330,82 @@ impl<'de> serde::Deserialize<'de> for ClientInfo {
                     network: network__.unwrap_or_default(),
                     other_sdks: other_sdks__.unwrap_or_default(),
                     client_protocol: client_protocol__.unwrap_or_default(),
+                    capabilities: capabilities__.unwrap_or_default(),
                 })
             }
         }
         deserializer.deserialize_struct("livekit.ClientInfo", FIELDS, GeneratedVisitor)
+    }
+}
+impl serde::Serialize for client_info::Capability {
+    #[allow(deprecated)]
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let variant = match self {
+            Self::CapUnknown => "CAP_UNKNOWN",
+            Self::CapPacketTrailer => "CAP_PACKET_TRAILER",
+        };
+        serializer.serialize_str(variant)
+    }
+}
+impl<'de> serde::Deserialize<'de> for client_info::Capability {
+    #[allow(deprecated)]
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        const FIELDS: &[&str] = &[
+            "CAP_UNKNOWN",
+            "CAP_PACKET_TRAILER",
+        ];
+
+        struct GeneratedVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
+            type Value = client_info::Capability;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(formatter, "expected one of: {:?}", &FIELDS)
+            }
+
+            fn visit_i64<E>(self, v: i64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Signed(v), &self)
+                    })
+            }
+
+            fn visit_u64<E>(self, v: u64) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                i32::try_from(v)
+                    .ok()
+                    .and_then(|x| x.try_into().ok())
+                    .ok_or_else(|| {
+                        serde::de::Error::invalid_value(serde::de::Unexpected::Unsigned(v), &self)
+                    })
+            }
+
+            fn visit_str<E>(self, value: &str) -> std::result::Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                match value {
+                    "CAP_UNKNOWN" => Ok(client_info::Capability::CapUnknown),
+                    "CAP_PACKET_TRAILER" => Ok(client_info::Capability::CapPacketTrailer),
+                    _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
+                }
+            }
+        }
+        deserializer.deserialize_any(GeneratedVisitor)
     }
 }
 impl serde::Serialize for client_info::Sdk {
@@ -21596,6 +21688,7 @@ impl serde::Serialize for PacketTrailerFeature {
     {
         let variant = match self {
             Self::PtfUserTimestamp => "PTF_USER_TIMESTAMP",
+            Self::PtfFrameId => "PTF_FRAME_ID",
         };
         serializer.serialize_str(variant)
     }
@@ -21608,6 +21701,7 @@ impl<'de> serde::Deserialize<'de> for PacketTrailerFeature {
     {
         const FIELDS: &[&str] = &[
             "PTF_USER_TIMESTAMP",
+            "PTF_FRAME_ID",
         ];
 
         struct GeneratedVisitor;
@@ -21649,6 +21743,7 @@ impl<'de> serde::Deserialize<'de> for PacketTrailerFeature {
             {
                 match value {
                     "PTF_USER_TIMESTAMP" => Ok(PacketTrailerFeature::PtfUserTimestamp),
+                    "PTF_FRAME_ID" => Ok(PacketTrailerFeature::PtfFrameId),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }

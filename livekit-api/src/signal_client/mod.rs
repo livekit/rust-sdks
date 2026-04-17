@@ -54,6 +54,10 @@ const REGION_FETCH_TIMEOUT: Duration = Duration::from_secs(3);
 const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROTOCOL_VERSION: u32 = 16;
 
+/// Capabilities the Rust SDK advertises to the SFU at connect time.
+const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
+    &[proto::client_info::Capability::CapPacketTrailer];
+
 #[derive(Error, Debug)]
 pub enum SignalError {
     #[error("ws failure: {0}")]
@@ -571,6 +575,7 @@ fn create_join_request_param(
         os,
         os_version,
         device_model,
+        capabilities: CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect(),
         ..Default::default()
     };
 
@@ -672,6 +677,15 @@ fn get_livekit_url(
 
         if let Some(sdk_version) = &options.sdk_options.sdk_version {
             lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
+        }
+
+        if !CLIENT_CAPABILITIES.is_empty() {
+            let caps = CLIENT_CAPABILITIES
+                .iter()
+                .map(|c| c.as_str_name())
+                .collect::<Vec<_>>()
+                .join(",");
+            lk_url.query_pairs_mut().append_pair("capabilities", &caps);
         }
 
         // For reconnects in v0 path, add reconnect and sid as separate query parameters
