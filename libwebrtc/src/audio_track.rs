@@ -19,6 +19,9 @@ use crate::{
     media_stream_track::{media_stream_track, RtcTrackState},
 };
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::native::packet_trailer::PacketTrailerHandler;
+
 #[derive(Clone)]
 pub struct RtcAudioTrack {
     pub(crate) handle: imp_at::RtcAudioTrack,
@@ -26,6 +29,16 @@ pub struct RtcAudioTrack {
 
 impl RtcAudioTrack {
     media_stream_track!();
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        self.handle.set_packet_trailer_handler(handler);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
+        self.handle.packet_trailer_handler()
+    }
 }
 
 impl Debug for RtcAudioTrack {

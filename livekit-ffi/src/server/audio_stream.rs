@@ -27,6 +27,7 @@ use tokio::sync::{broadcast, mpsc, oneshot};
 use super::audio_plugin::AudioStreamKind;
 use super::room::FfiRoom;
 use super::{room::FfiTrack, FfiHandle};
+use crate::conversion::audio_frame::frame_metadata_to_proto;
 use crate::server::utils;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
@@ -408,7 +409,9 @@ impl FfiAudioStream {
                         }
                     }
 
-                    if let Some(target) = target_samples {
+                    if let Some(target) = target_samples.filter(|target| {
+                        frame.frame_metadata.is_none() && *target != frame.data.len()
+                    }) {
                         buf.extend_from_slice(&frame.data);
                         while buf.len() >= target {
                             let frame_data = buf.drain(..target).collect::<Vec<_>>();
@@ -417,6 +420,7 @@ impl FfiAudioStream {
                                 sample_rate,
                                 num_channels,
                                 samples_per_channel: target as u32 / num_channels,
+                                frame_metadata: None,
                             };
                             let handle_id = server.next_id();
                             let buffer_info = proto::AudioFrameBufferInfo::from(&new_frame);
@@ -430,6 +434,7 @@ impl FfiAudioStream {
                                                 handle: proto::FfiOwnedHandle { id: handle_id },
                                                 info: buffer_info,
                                             },
+                                            metadata: None,
                                         }
                                         .into()
                                     ),
@@ -442,6 +447,7 @@ impl FfiAudioStream {
                     } else {
                         let handle_id = server.next_id();
                         let buffer_info = proto::AudioFrameBufferInfo::from(&frame);
+                        let metadata = frame_metadata_to_proto(frame.frame_metadata);
                         server.store_handle(handle_id, frame);
                         if let Err(err) = server.send_event(
                             proto::AudioStreamEvent {
@@ -452,6 +458,7 @@ impl FfiAudioStream {
                                             handle: proto::FfiOwnedHandle { id: handle_id },
                                             info: buffer_info,
                                         },
+                                        metadata,
                                     }
                                     .into()
                                 ),

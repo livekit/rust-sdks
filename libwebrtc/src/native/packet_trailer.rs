@@ -72,6 +72,22 @@ impl PacketTrailerHandler {
         }
     }
 
+    /// Queue frame metadata for ordered send-side propagation.
+    pub fn enqueue_frame_metadata(&self, user_timestamp: u64, frame_id: u32) {
+        self.sys_handle.enqueue_frame_metadata(user_timestamp, frame_id);
+    }
+
+    /// Dequeue the next frame metadata in transform order.
+    pub fn dequeue_frame_metadata(&self) -> Option<(u64, u32)> {
+        let ts = self.sys_handle.dequeue_frame_metadata();
+        if ts != u64::MAX {
+            let frame_id = self.sys_handle.last_dequeue_frame_id();
+            Some((ts, frame_id))
+        } else {
+            None
+        }
+    }
+
     /// Store frame metadata for a given capture timestamp (sender side).
     ///
     /// The `capture_timestamp_us` must be the TimestampAligner-adjusted
@@ -95,6 +111,11 @@ impl PacketTrailerHandler {
 
     pub(crate) fn sys_handle(&self) -> SharedPtr<sys_pt::PacketTrailerHandler> {
         self.sys_handle.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn null_for_test() -> Self {
+        Self { sys_handle: SharedPtr::null() }
     }
 }
 

@@ -601,6 +601,7 @@ fn remix_and_resample(
         num_channels: remix.num_channels,
         samples_per_channel: data_len,
         sample_rate: remix.sample_rate,
+        frame_metadata: None,
     };
 
     let handle_id = server.next_id();

@@ -28,12 +28,16 @@ use parking_lot::Mutex;
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
 use webrtc_sys::audio_track as sys_at;
 
-use crate::{audio_frame::AudioFrame, audio_track::RtcAudioTrack};
+use crate::{
+    audio_frame::AudioFrame, audio_track::RtcAudioTrack,
+    native::packet_trailer::PacketTrailerHandler,
+};
 
 pub struct NativeAudioStream {
     native_sink: SharedPtr<sys_at::ffi::NativeAudioSink>,
     audio_track: RtcAudioTrack,
     frame_queue: Arc<AudioFrameQueue>,
+    packet_trailer_handler: Arc<Mutex<Option<PacketTrailerHandler>>>,
 }
 
 impl NativeAudioStream {
@@ -44,7 +48,11 @@ impl NativeAudioStream {
         queue_size_frames: Option<usize>,
     ) -> Self {
         let frame_queue = Arc::new(AudioFrameQueue::new(queue_size_frames));
-        let observer = Arc::new(AudioTrackObserver { frame_queue: frame_queue.clone() });
+        let packet_trailer_handler = Arc::new(Mutex::new(audio_track.packet_trailer_handler()));
+        let observer = Arc::new(AudioTrackObserver {
+            frame_queue: frame_queue.clone(),
+            packet_trailer_handler: packet_trailer_handler.clone(),
+        });
         let native_sink = sys_at::ffi::new_native_audio_sink(
             Box::new(sys_at::AudioSinkWrapper::new(observer.clone())),
             sample_rate,
@@ -54,11 +62,15 @@ impl NativeAudioStream {
         let audio = unsafe { sys_at::ffi::media_to_audio(audio_track.sys_handle()) };
         audio.add_sink(&native_sink);
 
-        Self { native_sink, audio_track, frame_queue }
+        Self { native_sink, audio_track, frame_queue, packet_trailer_handler }
     }
 
     pub fn track(&self) -> RtcAudioTrack {
         self.audio_track.clone()
+    }
+
+    pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        *self.packet_trailer_handler.lock() = Some(handler);
     }
 
     pub fn close(&mut self) {
@@ -85,15 +97,36 @@ impl Stream for NativeAudioStream {
 
 pub struct AudioTrackObserver {
     frame_queue: Arc<AudioFrameQueue>,
+    packet_trailer_handler: Arc<Mutex<Option<PacketTrailerHandler>>>,
 }
 
 impl sys_at::AudioSink for AudioTrackObserver {
     fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: usize, nb_frames: usize) {
+        let frame_metadata = self
+            .packet_trailer_handler
+            .lock()
+            .as_ref()
+            .and_then(|handler| handler.dequeue_frame_metadata())
+            .and_then(|(user_timestamp, frame_id)| {
+                if user_timestamp == 0 && frame_id == 0 {
+                    None
+                } else {
+                    Some(crate::video_frame::FrameMetadata {
+                        user_timestamp: if user_timestamp != 0 {
+                            Some(user_timestamp)
+                        } else {
+                            None
+                        },
+                        frame_id: if frame_id != 0 { Some(frame_id) } else { None },
+                    })
+                }
+            });
         self.frame_queue.push(AudioFrame {
             data: data.to_owned().into(),
             sample_rate: sample_rate as u32,
             num_channels: nb_channels as u32,
             samples_per_channel: nb_frames as u32,
+            frame_metadata,
         });
     }
 }
@@ -243,7 +276,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use super::AudioFrameQueue;
-    use crate::audio_frame::AudioFrame;
+    use crate::{audio_frame::AudioFrame, prelude::FrameMetadata};
 
     fn test_frame(marker: i16) -> AudioFrame<'static> {
         AudioFrame {
@@ -251,11 +284,40 @@ mod tests {
             sample_rate: 48_000,
             num_channels: 1,
             samples_per_channel: 1,
+            frame_metadata: None,
         }
     }
 
     fn pop_marker(queue: &AudioFrameQueue) -> Option<i16> {
         queue.try_pop().map(|frame| frame.data[0])
+    }
+
+    fn test_frame_with_metadata(
+        marker: i16,
+        user_timestamp: u64,
+        frame_id: u32,
+    ) -> AudioFrame<'static> {
+        AudioFrame {
+            data: vec![marker].into(),
+            sample_rate: 48_000,
+            num_channels: 1,
+            samples_per_channel: 1,
+            frame_metadata: Some(FrameMetadata {
+                user_timestamp: Some(user_timestamp),
+                frame_id: Some(frame_id),
+            }),
+        }
+    }
+
+    fn pop_metadata(queue: &AudioFrameQueue) -> Option<(u64, u32)> {
+        queue.try_pop().and_then(|frame| {
+            frame.frame_metadata.map(|metadata| {
+                (
+                    metadata.user_timestamp.expect("user timestamp"),
+                    metadata.frame_id.expect("frame id"),
+                )
+            })
+        })
     }
 
     #[test]
@@ -310,5 +372,28 @@ mod tests {
         queue.push(test_frame(2));
 
         assert_eq!(pop_marker(&queue), None);
+    }
+
+    #[test]
+    fn bounded_queue_preserves_metadata_for_kept_frames() {
+        let queue = AudioFrameQueue::new(Some(2));
+
+        queue.push(test_frame_with_metadata(1, 100, 10));
+        queue.push(test_frame_with_metadata(2, 200, 20));
+
+        assert_eq!(pop_metadata(&queue), Some((100, 10)));
+        assert_eq!(pop_metadata(&queue), Some((200, 20)));
+    }
+
+    #[test]
+    fn bounded_queue_drops_oldest_metadata_with_oldest_frame() {
+        let queue = AudioFrameQueue::new(Some(2));
+
+        queue.push(test_frame_with_metadata(1, 100, 10));
+        queue.push(test_frame_with_metadata(2, 200, 20));
+        queue.push(test_frame_with_metadata(3, 300, 30));
+
+        assert_eq!(pop_metadata(&queue), Some((200, 20)));
+        assert_eq!(pop_metadata(&queue), Some((300, 30)));
     }
 }

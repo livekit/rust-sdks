@@ -175,6 +175,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     num_channels: header.num_channels as u32,
                     sample_rate: header.sample_rate,
                     samples_per_channel: (frame_size / header.num_channels as usize) as u32,
+                    frame_metadata: None,
                 };
 
                 for i in 0..frame_size {

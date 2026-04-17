@@ -34,8 +34,9 @@ pub use crate::{
     rtp_transceiver::{RtpTransceiver, RtpTransceiverDirection, RtpTransceiverInit},
     session_description::{SdpType, SessionDescription},
     video_frame::{
-        BoxVideoBuffer, BoxVideoFrame, I010Buffer, I420ABuffer, I420Buffer, I422Buffer, I444Buffer,
-        NV12Buffer, VideoBuffer, VideoBufferType, VideoFormatType, VideoFrame, VideoRotation,
+        BoxVideoBuffer, BoxVideoFrame, FrameMetadata, I010Buffer, I420ABuffer, I420Buffer,
+        I422Buffer, I444Buffer, NV12Buffer, VideoBuffer, VideoBufferType, VideoFormatType,
+        VideoFrame, VideoRotation,
     },
     video_source::{RtcVideoSource, VideoResolution},
     video_track::RtcVideoTrack,

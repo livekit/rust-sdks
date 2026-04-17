@@ -277,6 +277,7 @@ async fn stream_audio_to_livekit(
                 sample_rate,
                 num_channels: 1, // Fixed to mono
                 samples_per_channel: samples_per_10ms as u32,
+                frame_metadata: None,
             };
 
             if let Err(e) = livekit_source.capture_frame(&audio_frame).await {
@@ -328,6 +329,7 @@ async fn stream_audio_to_livekit_with_shared_apm(
                 sample_rate,
                 num_channels: 1, // Fixed to mono
                 samples_per_channel: samples_per_10ms as u32,
+                frame_metadata: None,
             };
 
             if let Err(e) = livekit_source.capture_frame(&audio_frame).await {

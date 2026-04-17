@@ -111,27 +111,32 @@ impl E2eeManager {
                 || *f == PacketTrailerFeature::PtfFrameId as i32
         });
 
-        if let RemoteTrack::Video(video_track) = &track {
+        if has_packet_trailer {
             let handler = packet_trailer::create_receiver_handler(
                 LkRuntime::instance().pc_factory(),
                 &receiver,
             );
-            video_track.set_packet_trailer_handler(handler.clone());
+            match &track {
+                RemoteTrack::Video(video_track) => {
+                    video_track.set_packet_trailer_handler(handler.clone())
+                }
+                RemoteTrack::Audio(audio_track) => {
+                    audio_track.set_packet_trailer_handler(handler.clone())
+                }
+            }
             packet_trailer_handler = Some(handler);
 
-            if has_packet_trailer {
-                log::info!(
-                    "attached packet_trailer handler for subscribed track {} from {}",
-                    publication.sid(),
-                    identity,
-                );
-            } else {
-                log::info!(
-                    "attached packet_trailer handler for subscribed track {} from {} without advertised packet trailer support",
-                    publication.sid(),
-                    identity,
-                );
-            }
+            log::info!(
+                "attached packet_trailer handler for subscribed track {} from {}",
+                publication.sid(),
+                identity,
+            );
+        } else if matches!(track, RemoteTrack::Video(_) | RemoteTrack::Audio(_)) {
+            log::info!(
+                "subscribed track {} from {} without advertised packet trailer support",
+                publication.sid(),
+                identity,
+            );
         }
 
         if !self.initialized() || publication.encryption_type() == EncryptionType::None {
@@ -157,25 +162,23 @@ impl E2eeManager {
         let identity = participant.identity();
         let sender = track.transceiver().unwrap().sender();
 
-        let packet_trailer_handler = if let LocalTrack::Video(video_track) = &track {
-            let handler = video_track.packet_trailer_handler();
-            if handler.is_some() {
-                log::info!(
-                    "packet_trailer enabled for published track {} from {}",
-                    publication.sid(),
-                    identity,
-                );
-            } else {
-                log::info!(
-                    "packet_trailer not enabled for published track {} from {}",
-                    publication.sid(),
-                    identity,
-                );
-            }
-            handler
-        } else {
-            None
+        let packet_trailer_handler = match &track {
+            LocalTrack::Video(video_track) => video_track.packet_trailer_handler(),
+            LocalTrack::Audio(audio_track) => audio_track.packet_trailer_handler(),
         };
+        if packet_trailer_handler.is_some() {
+            log::info!(
+                "packet_trailer enabled for published track {} from {}",
+                publication.sid(),
+                identity,
+            );
+        } else {
+            log::info!(
+                "packet_trailer not enabled for published track {} from {}",
+                publication.sid(),
+                identity,
+            );
+        }
 
         if !self.initialized() || publication.encryption_type() == EncryptionType::None {
             return;

@@ -40,7 +40,7 @@ pub fn new_media_stream_track(
 ) -> MediaStreamTrack {
     if sys_handle.kind() == MEDIA_TYPE_AUDIO {
         MediaStreamTrack::Audio(audio_track::RtcAudioTrack {
-            handle: RtcAudioTrack { sys_handle: unsafe { media_to_audio(sys_handle) } },
+            handle: RtcAudioTrack::new(unsafe { media_to_audio(sys_handle) }),
         })
     } else if sys_handle.kind() == MEDIA_TYPE_VIDEO {
         MediaStreamTrack::Video(video_track::RtcVideoTrack {

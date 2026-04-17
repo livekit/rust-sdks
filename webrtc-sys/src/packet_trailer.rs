@@ -44,6 +44,17 @@ pub mod ffi {
         /// lookup_timestamp() call.
         fn last_lookup_frame_id(self: &PacketTrailerHandler) -> u32;
 
+        /// Queue frame metadata for ordered send-side propagation.
+        fn enqueue_frame_metadata(self: &PacketTrailerHandler, user_timestamp: u64, frame_id: u32);
+
+        /// Dequeue the next frame metadata in transform order.
+        /// Returns `u64::MAX` if no metadata is queued.
+        fn dequeue_frame_metadata(self: &PacketTrailerHandler) -> u64;
+
+        /// Returns the frame_id from the most recent successful
+        /// dequeue_frame_metadata() call.
+        fn last_dequeue_frame_id(self: &PacketTrailerHandler) -> u32;
+
         /// Store frame metadata for a given capture timestamp (sender side).
         fn store_frame_metadata(
             self: &PacketTrailerHandler,

@@ -14,8 +14,8 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use libwebrtc::{prelude::*, stats::RtcStats};
-use livekit_protocol::{self as proto, AudioTrackFeature};
+use libwebrtc::{native::packet_trailer::PacketTrailerHandler, prelude::*, stats::RtcStats};
+use livekit_protocol::{self as proto};
 
 use super::{remote_track, TrackInner};
 use crate::prelude::*;
@@ -92,6 +92,14 @@ impl RemoteAudioTrack {
 
     pub fn is_remote(&self) -> bool {
         true
+    }
+
+    pub fn packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
+        self.rtc_track().packet_trailer_handler()
+    }
+
+    pub(crate) fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        self.rtc_track().set_packet_trailer_handler(handler);
     }
 
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {

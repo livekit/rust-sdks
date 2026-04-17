@@ -45,7 +45,7 @@ pub mod native {
     use std::fmt::{Debug, Formatter};
 
     use super::*;
-    use crate::{audio_frame::AudioFrame, RtcError};
+    use crate::{audio_frame::AudioFrame, native::packet_trailer::PacketTrailerHandler, RtcError};
 
     #[derive(Clone)]
     pub struct NativeAudioSource {
@@ -81,6 +81,10 @@ pub mod native {
 
         pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {
             self.handle.capture_frame(frame).await
+        }
+
+        pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+            self.handle.set_packet_trailer_handler(handler)
         }
 
         pub fn set_audio_options(&self, options: AudioSourceOptions) {

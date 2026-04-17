@@ -317,6 +317,7 @@ impl Stream for AudioFilterAudioStream {
                     sample_rate: this.sample_rate,
                     num_channels: this.num_channels,
                     samples_per_channel: (this.frame_size / this.num_channels as usize) as u32,
+                    frame_metadata: None,
                 }));
             }
         }

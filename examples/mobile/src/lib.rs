@@ -285,6 +285,7 @@ pub fn push_audio_capture(samples: &[i16]) -> usize {
                 sample_rate: SAMPLE_RATE,
                 num_channels: NUM_CHANNELS,
                 samples_per_channel: SAMPLES_PER_10MS,
+                frame_metadata: None,
             };
 
             // Use blocking capture since we're called from a sync context

@@ -12,11 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::sync::Arc;
+
 use cxx::SharedPtr;
+use parking_lot::Mutex;
 use tokio::sync::oneshot;
 use webrtc_sys::audio_track as sys_at;
 
-use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
+use crate::{
+    audio_frame::AudioFrame, audio_source::AudioSourceOptions,
+    native::packet_trailer::PacketTrailerHandler, RtcError, RtcErrorType,
+};
 
 #[derive(Clone)]
 pub struct NativeAudioSource {
@@ -24,6 +30,7 @@ pub struct NativeAudioSource {
     sample_rate: u32,
     num_channels: u32,
     queue_size_samples: u32,
+    packet_trailer_handler: Arc<Mutex<Option<PacketTrailerHandler>>>,
 }
 
 impl NativeAudioSource {
@@ -62,7 +69,13 @@ impl NativeAudioSource {
         );
 
         let queue_size_samples = (queue_size_ms * sample_rate * num_channels) / 1000;
-        Self { sys_handle, sample_rate, num_channels, queue_size_samples }
+        Self {
+            sys_handle,
+            sample_rate,
+            num_channels,
+            queue_size_samples,
+            packet_trailer_handler: Arc::new(Mutex::new(None)),
+        }
     }
 
     pub fn sys_handle(&self) -> SharedPtr<sys_at::ffi::AudioTrackSource> {
@@ -89,6 +102,10 @@ impl NativeAudioSource {
         self.sys_handle.clear_buffer();
     }
 
+    pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        self.packet_trailer_handler.lock().replace(handler);
+    }
+
     pub async fn capture_frame(&self, frame: &AudioFrame<'_>) -> Result<(), RtcError> {
         if self.sample_rate != frame.sample_rate || self.num_channels != frame.num_channels {
             return Err(RtcError {
@@ -97,17 +114,28 @@ impl NativeAudioSource {
             });
         }
 
+        let expected_frames_per_ch = (self.sample_rate / 100) as usize;
+        if frame.data.len() % (self.num_channels as usize) != 0 {
+            return Err(RtcError {
+                error_type: RtcErrorType::InvalidState,
+                message: "frame.data length not divisible by channel count".to_owned(),
+            });
+        }
+        let nb_frames = frame.data.len() / (self.num_channels as usize);
+        let packet_trailer_handler = self.packet_trailer_handler.lock().clone();
+        if packet_trailer_handler.is_some() && nb_frames != expected_frames_per_ch {
+            return Err(RtcError {
+                error_type: RtcErrorType::InvalidState,
+                message: format!(
+                    "packet trailer audio capture requires exact 10ms frames: got {} frames, expected {}",
+                    nb_frames, expected_frames_per_ch
+                ),
+            });
+        }
+
         // Fast path: no buffering
         if self.queue_size_samples == 0 {
             // frame size must be 10ms for fast path
-            let expected_frames_per_ch = (self.sample_rate / 100) as usize;
-            if frame.data.len() % (self.num_channels as usize) != 0 {
-                return Err(RtcError {
-                    error_type: RtcErrorType::InvalidState,
-                    message: "frame.data length not divisible by channel count".to_owned(),
-                });
-            }
-            let nb_frames = frame.data.len() / (self.num_channels as usize);
             if nb_frames != expected_frames_per_ch {
                 return Err(RtcError {
                     error_type: RtcErrorType::InvalidState,
@@ -116,6 +144,14 @@ impl NativeAudioSource {
                         nb_frames, expected_frames_per_ch
                     ),
                 });
+            }
+
+            if let Some(handler) = packet_trailer_handler.as_ref() {
+                let (user_timestamp, frame_id) = match frame.frame_metadata {
+                    Some(meta) => (meta.user_timestamp.unwrap_or(0), meta.frame_id.unwrap_or(0)),
+                    None => (0, 0),
+                };
+                handler.enqueue_frame_metadata(user_timestamp, frame_id);
             }
 
             // Define a no-op callback for fast path (queue_size_ms=0)
@@ -148,6 +184,14 @@ impl NativeAudioSource {
         }
 
         // Buffered path.
+        if let Some(handler) = packet_trailer_handler.as_ref() {
+            let (user_timestamp, frame_id) = match frame.frame_metadata {
+                Some(meta) => (meta.user_timestamp.unwrap_or(0), meta.frame_id.unwrap_or(0)),
+                None => (0, 0),
+            };
+            handler.enqueue_frame_metadata(user_timestamp, frame_id);
+        }
+
         extern "C" fn lk_audio_source_complete(userdata: *const sys_at::SourceContext) {
             let tx = unsafe { Box::from_raw(userdata as *mut oneshot::Sender<()>) };
             let _ = tx.send(());
@@ -201,5 +245,32 @@ impl From<AudioSourceOptions> for sys_at::ffi::AudioSourceOptions {
             noise_suppression: options.noise_suppression,
             auto_gain_control: options.auto_gain_control,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        audio_source::AudioSourceOptions,
+        native::packet_trailer::PacketTrailerHandler,
+        prelude::{AudioFrame, FrameMetadata},
+    };
+
+    #[tokio::test]
+    async fn rejects_non_10ms_frame_when_packet_trailer_enabled() {
+        let source = super::NativeAudioSource::new(AudioSourceOptions::default(), 48_000, 1, 1000);
+        source.set_packet_trailer_handler(PacketTrailerHandler::null_for_test());
+
+        let frame = AudioFrame {
+            data: vec![0; 960].into(),
+            sample_rate: 48_000,
+            num_channels: 1,
+            samples_per_channel: 960,
+            frame_metadata: Some(FrameMetadata { user_timestamp: Some(123), frame_id: Some(456) }),
+        };
+
+        let err = source.capture_frame(&frame).await.unwrap_err();
+        assert_eq!(err.error_type, crate::RtcErrorType::InvalidState);
+        assert!(err.message.contains("exact 10ms"));
     }
 }

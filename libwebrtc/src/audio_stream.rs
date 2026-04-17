@@ -25,7 +25,10 @@ pub mod native {
     use livekit_runtime::Stream;
 
     use super::stream_imp;
-    use crate::{audio_frame::AudioFrame, audio_track::RtcAudioTrack};
+    use crate::{
+        audio_frame::AudioFrame, audio_track::RtcAudioTrack,
+        native::packet_trailer::PacketTrailerHandler,
+    };
 
     const DEFAULT_QUEUE_SIZE_FRAMES: usize = 10;
 
@@ -88,6 +91,10 @@ pub mod native {
 
         pub fn track(&self) -> RtcAudioTrack {
             self.handle.track()
+        }
+
+        pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+            self.handle.set_packet_trailer_handler(handler)
         }
 
         pub fn close(&mut self) {

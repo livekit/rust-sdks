@@ -35,7 +35,7 @@ impl MediaStream {
         self.sys_handle
             .get_audio_tracks()
             .into_iter()
-            .map(|t| audio_track::RtcAudioTrack { handle: RtcAudioTrack { sys_handle: t.ptr } })
+            .map(|t| audio_track::RtcAudioTrack { handle: RtcAudioTrack::new(t.ptr) })
             .collect()
     }
 

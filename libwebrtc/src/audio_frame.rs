@@ -14,12 +14,15 @@
 
 use std::borrow::Cow;
 
+use crate::video_frame::FrameMetadata;
+
 #[derive(Debug, Clone)]
 pub struct AudioFrame<'a> {
     pub data: Cow<'a, [i16]>,
     pub sample_rate: u32,
     pub num_channels: u32,
     pub samples_per_channel: u32,
+    pub frame_metadata: Option<FrameMetadata>,
 }
 
 impl AudioFrame<'_> {
@@ -30,6 +33,7 @@ impl AudioFrame<'_> {
             sample_rate,
             num_channels,
             samples_per_channel,
+            frame_metadata: None,
         }
     }
 }

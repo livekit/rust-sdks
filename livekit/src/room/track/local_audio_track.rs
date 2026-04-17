@@ -15,8 +15,9 @@
 use core::panic;
 use std::{fmt::Debug, sync::Arc};
 
-use libwebrtc::{prelude::*, stats::RtcStats};
+use libwebrtc::{native::packet_trailer::PacketTrailerHandler, prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
+use parking_lot::Mutex;
 
 use super::TrackInner;
 use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
@@ -25,6 +26,7 @@ use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 pub struct LocalAudioTrack {
     inner: Arc<TrackInner>,
     source: RtcAudioSource,
+    packet_trailer_handler: Arc<Mutex<Option<PacketTrailerHandler>>>,
 }
 
 impl Debug for LocalAudioTrack {
@@ -47,6 +49,7 @@ impl LocalAudioTrack {
                 MediaStreamTrack::Audio(rtc_track),
             )),
             source,
+            packet_trailer_handler: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -117,6 +120,15 @@ impl LocalAudioTrack {
 
     pub fn rtc_source(&self) -> RtcAudioSource {
         self.source.clone()
+    }
+
+    pub(crate) fn packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
+        self.packet_trailer_handler.lock().clone()
+    }
+
+    pub(crate) fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        *self.packet_trailer_handler.lock() = Some(handler.clone());
+        self.rtc_track().set_packet_trailer_handler(handler);
     }
 
     pub fn is_remote(&self) -> bool {

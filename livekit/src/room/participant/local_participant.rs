@@ -383,6 +383,21 @@ impl LocalParticipant {
                 if let RtcVideoSource::Native(ref native_source) = video_track.rtc_source() {
                     native_source.set_packet_trailer_handler(handler.clone());
                 }
+            } else if let LocalTrack::Audio(audio_track) = &track {
+                log::info!("packet_trailer enabled for local audio track {}", publication.sid(),);
+                let sender = track.transceiver().unwrap().sender();
+                let handler = packet_trailer::create_sender_handler(
+                    LkRuntime::instance().pc_factory(),
+                    &sender,
+                );
+                audio_track.set_packet_trailer_handler(handler.clone());
+
+                #[cfg(not(target_arch = "wasm32"))]
+                if let libwebrtc::prelude::RtcAudioSource::Native(ref native_source) =
+                    audio_track.rtc_source()
+                {
+                    native_source.set_packet_trailer_handler(handler.clone());
+                }
             }
         }
 

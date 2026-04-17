@@ -83,11 +83,9 @@ impl PeerConnectionFactory {
 
     pub fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack {
         RtcAudioTrack {
-            handle: imp_at::RtcAudioTrack {
-                sys_handle: self
-                    .sys_handle
-                    .create_audio_track(label.to_string(), source.handle.sys_handle()),
-            },
+            handle: imp_at::RtcAudioTrack::new(
+                self.sys_handle.create_audio_track(label.to_string(), source.handle.sys_handle()),
+            ),
         }
     }
 

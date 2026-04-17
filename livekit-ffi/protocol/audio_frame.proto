@@ -82,6 +82,7 @@ message CaptureAudioFrameRequest {
   required uint64 source_handle = 1;
   required AudioFrameBufferInfo buffer = 2;
   optional uint64 request_async_id = 3;
+  optional AudioFrameMetadata metadata = 4;
 }
 message CaptureAudioFrameResponse {
   required uint64 async_id = 1;
@@ -243,6 +244,11 @@ message OwnedAudioFrameBuffer {
   required AudioFrameBufferInfo info = 2;
 }
 
+message AudioFrameMetadata {
+  optional uint64 user_timestamp = 1;
+  optional uint32 frame_id = 2;
+}
+
 //
 // AudioStream
 //
@@ -271,6 +277,7 @@ message AudioStreamEvent {
 
 message AudioFrameReceived {
   required OwnedAudioFrameBuffer frame = 1;
+  optional AudioFrameMetadata metadata = 2;
 }
 
 message AudioStreamEOS {}

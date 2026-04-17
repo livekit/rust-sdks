@@ -17,6 +17,7 @@ use std::{borrow::Cow, slice};
 use livekit::webrtc::prelude::*;
 
 use super::FfiHandle;
+use crate::conversion::audio_frame::frame_metadata_from_proto;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
 
 pub struct FfiAudioSource {
@@ -94,6 +95,7 @@ impl FfiAudioSource {
                         sample_rate: buffer.sample_rate,
                         num_channels: buffer.num_channels,
                         samples_per_channel: buffer.samples_per_channel,
+                        frame_metadata: frame_metadata_from_proto(capture.metadata),
                     };
 
                     let res = source.capture_frame(&audio_frame).await;

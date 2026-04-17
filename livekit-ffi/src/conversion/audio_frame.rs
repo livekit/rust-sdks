@@ -40,6 +40,26 @@ impl From<&AudioFrame<'_>> for proto::AudioFrameBufferInfo {
     }
 }
 
+pub fn frame_metadata_from_proto(
+    metadata: Option<proto::AudioFrameMetadata>,
+) -> Option<FrameMetadata> {
+    let metadata = metadata?;
+    let frame_metadata =
+        FrameMetadata { user_timestamp: metadata.user_timestamp, frame_id: metadata.frame_id };
+
+    (frame_metadata.user_timestamp.is_some() || frame_metadata.frame_id.is_some())
+        .then_some(frame_metadata)
+}
+
+pub fn frame_metadata_to_proto(
+    metadata: Option<FrameMetadata>,
+) -> Option<proto::AudioFrameMetadata> {
+    metadata.map(|metadata| proto::AudioFrameMetadata {
+        user_timestamp: metadata.user_timestamp,
+        frame_id: metadata.frame_id,
+    })
+}
+
 impl From<&FfiAudioSource> for proto::AudioSourceInfo {
     fn from(source: &FfiAudioSource) -> Self {
         Self { r#type: source.source_type as i32 }
@@ -49,5 +69,41 @@ impl From<&FfiAudioSource> for proto::AudioSourceInfo {
 impl From<&FfiAudioStream> for proto::AudioStreamInfo {
     fn from(stream: &FfiAudioStream) -> Self {
         Self { r#type: stream.stream_type as i32 }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{frame_metadata_from_proto, frame_metadata_to_proto};
+    use crate::proto;
+    use livekit::webrtc::video_frame::FrameMetadata;
+
+    #[test]
+    fn empty_proto_frame_metadata_is_ignored() {
+        assert!(frame_metadata_from_proto(Some(proto::AudioFrameMetadata::default())).is_none());
+    }
+
+    #[test]
+    fn proto_frame_metadata_preserves_present_fields() {
+        let metadata = frame_metadata_from_proto(Some(proto::AudioFrameMetadata {
+            user_timestamp: Some(123),
+            frame_id: Some(456),
+        }))
+        .unwrap();
+
+        assert_eq!(metadata.user_timestamp, Some(123));
+        assert_eq!(metadata.frame_id, Some(456));
+    }
+
+    #[test]
+    fn frame_metadata_to_proto_preserves_present_fields() {
+        let metadata = frame_metadata_to_proto(Some(FrameMetadata {
+            user_timestamp: Some(123),
+            frame_id: None,
+        }))
+        .unwrap();
+
+        assert_eq!(metadata.user_timestamp, Some(123));
+        assert_eq!(metadata.frame_id, None);
     }
 }
