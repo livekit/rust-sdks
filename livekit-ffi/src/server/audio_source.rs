@@ -95,6 +95,7 @@ impl FfiAudioSource {
                         sample_rate: buffer.sample_rate,
                         num_channels: buffer.num_channels,
                         samples_per_channel: buffer.samples_per_channel,
+                        timestamp: None,
                         frame_metadata: frame_metadata_from_proto(capture.metadata),
                     };
 

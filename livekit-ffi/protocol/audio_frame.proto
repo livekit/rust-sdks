@@ -249,6 +249,10 @@ message AudioFrameMetadata {
   optional uint32 frame_id = 2;
 }
 
+message AudioFrameTimestamp {
+  required uint32 rtp_timestamp = 1;
+}
+
 //
 // AudioStream
 //
@@ -278,6 +282,7 @@ message AudioStreamEvent {
 message AudioFrameReceived {
   required OwnedAudioFrameBuffer frame = 1;
   optional AudioFrameMetadata metadata = 2;
+  optional AudioFrameTimestamp timestamp = 3;
 }
 
 message AudioStreamEOS {}

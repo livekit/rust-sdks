@@ -601,6 +601,7 @@ fn remix_and_resample(
         num_channels: remix.num_channels,
         samples_per_channel: data_len,
         sample_rate: remix.sample_rate,
+        timestamp: None,
         frame_metadata: None,
     };
 

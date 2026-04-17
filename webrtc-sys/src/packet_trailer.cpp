@@ -183,10 +183,6 @@ void PacketTrailerTransformer::TransformReceive(
         recv_map_order_.push_back(rtp_timestamp);
       }
       recv_map_[rtp_timestamp] = meta.value();
-      while (recv_queue_.size() >= kMaxRecvMapEntries) {
-        recv_queue_.pop_front();
-      }
-      recv_queue_.push_back(meta.value());
     }
 
     // Update frame with stripped data
@@ -418,17 +414,6 @@ void PacketTrailerTransformer::enqueue_frame_metadata(
   send_queue_.push_back(PacketTrailerMetadata{user_timestamp, frame_id, 0});
 }
 
-std::optional<PacketTrailerMetadata>
-PacketTrailerTransformer::dequeue_frame_metadata() {
-  webrtc::MutexLock lock(&recv_map_mutex_);
-  if (recv_queue_.empty()) {
-    return std::nullopt;
-  }
-  PacketTrailerMetadata meta = recv_queue_.front();
-  recv_queue_.pop_front();
-  return meta;
-}
-
 // PacketTrailerHandler implementation
 
 PacketTrailerHandler::PacketTrailerHandler(
@@ -473,19 +458,6 @@ uint32_t PacketTrailerHandler::last_lookup_frame_id() const {
 void PacketTrailerHandler::enqueue_frame_metadata(uint64_t user_timestamp,
                                                   uint32_t frame_id) const {
   transformer_->enqueue_frame_metadata(user_timestamp, frame_id);
-}
-
-uint64_t PacketTrailerHandler::dequeue_frame_metadata() const {
-  auto meta = transformer_->dequeue_frame_metadata();
-  if (meta.has_value()) {
-    last_dequeued_frame_id_ = meta->frame_id;
-    return meta->user_timestamp;
-  }
-  return UINT64_MAX;
-}
-
-uint32_t PacketTrailerHandler::last_dequeue_frame_id() const {
-  return last_dequeued_frame_id_;
 }
 
 void PacketTrailerHandler::store_frame_metadata(

@@ -122,9 +122,6 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   /// Queue frame metadata for ordered send-side propagation.
   void enqueue_frame_metadata(uint64_t user_timestamp, uint32_t frame_id);
 
-  /// Dequeue the next received frame metadata in transform order.
-  std::optional<PacketTrailerMetadata> dequeue_frame_metadata();
-
  private:
   void TransformSend(
       std::unique_ptr<webrtc::TransformableFrameInterface> frame);
@@ -164,7 +161,6 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   mutable webrtc::Mutex recv_map_mutex_;
   mutable std::unordered_map<uint32_t, PacketTrailerMetadata> recv_map_;
   mutable std::deque<uint32_t> recv_map_order_;
-  mutable std::deque<PacketTrailerMetadata> recv_queue_;
   static constexpr size_t kMaxRecvMapEntries = 300;
 
   // Simulcast tracking: detect layer switches and flush stale entries.
@@ -200,14 +196,6 @@ class PacketTrailerHandler {
   /// Queue frame metadata for ordered send-side propagation.
   void enqueue_frame_metadata(uint64_t user_timestamp, uint32_t frame_id) const;
 
-  /// Dequeue the next frame metadata in transform order.
-  /// Returns UINT64_MAX if the queue is empty.
-  uint64_t dequeue_frame_metadata() const;
-
-  /// Returns the frame_id from the most recent successful
-  /// dequeue_frame_metadata() call. Returns 0 if no dequeue succeeded.
-  uint32_t last_dequeue_frame_id() const;
-
   /// Store frame metadata for a given capture timestamp (sender side).
   void store_frame_metadata(int64_t capture_timestamp_us,
                             uint64_t user_timestamp,
@@ -222,7 +210,6 @@ class PacketTrailerHandler {
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
   mutable uint32_t last_frame_id_{0};
-  mutable uint32_t last_dequeued_frame_id_{0};
 };
 
 // Factory functions for Rust FFI

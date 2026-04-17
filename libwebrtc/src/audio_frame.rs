@@ -16,12 +16,18 @@ use std::borrow::Cow;
 
 use crate::video_frame::FrameMetadata;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AudioFrameTimestamp {
+    pub rtp_timestamp: u32,
+}
+
 #[derive(Debug, Clone)]
 pub struct AudioFrame<'a> {
     pub data: Cow<'a, [i16]>,
     pub sample_rate: u32,
     pub num_channels: u32,
     pub samples_per_channel: u32,
+    pub timestamp: Option<AudioFrameTimestamp>,
     pub frame_metadata: Option<FrameMetadata>,
 }
 
@@ -33,7 +39,21 @@ impl AudioFrame<'_> {
             sample_rate,
             num_channels,
             samples_per_channel,
+            timestamp: None,
             frame_metadata: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AudioFrame;
+
+    #[test]
+    fn new_audio_frame_has_no_timestamp_or_metadata() {
+        let frame = AudioFrame::new(48_000, 1, 480);
+
+        assert!(frame.timestamp.is_none());
+        assert!(frame.frame_metadata.is_none());
     }
 }

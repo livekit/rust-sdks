@@ -86,6 +86,8 @@ pub mod ffi {
             sample_rate: i32,
             nb_channels: usize,
             nb_frames: usize,
+            has_rtp_timestamp: bool,
+            rtp_timestamp: u32,
         );
     }
 }
@@ -106,7 +108,14 @@ unsafe impl ExternType for CompleteCallback {
 }
 
 pub trait AudioSink: Send {
-    fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: usize, nb_frames: usize);
+    fn on_data(
+        &self,
+        data: &[i16],
+        sample_rate: i32,
+        nb_channels: usize,
+        nb_frames: usize,
+        rtp_timestamp: Option<u32>,
+    );
 }
 
 pub struct AudioSinkWrapper {
@@ -118,7 +127,21 @@ impl AudioSinkWrapper {
         Self { observer }
     }
 
-    fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: usize, nb_frames: usize) {
-        self.observer.on_data(data, sample_rate, nb_channels, nb_frames);
+    fn on_data(
+        &self,
+        data: &[i16],
+        sample_rate: i32,
+        nb_channels: usize,
+        nb_frames: usize,
+        has_rtp_timestamp: bool,
+        rtp_timestamp: u32,
+    ) {
+        self.observer.on_data(
+            data,
+            sample_rate,
+            nb_channels,
+            nb_frames,
+            has_rtp_timestamp.then_some(rtp_timestamp),
+        );
     }
 }

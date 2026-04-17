@@ -13,7 +13,7 @@
 // limitations under the License.
 
 pub use crate::{
-    audio_frame::AudioFrame,
+    audio_frame::{AudioFrame, AudioFrameTimestamp},
     audio_source::{AudioSourceOptions, RtcAudioSource},
     audio_track::RtcAudioTrack,
     data_channel::{DataBuffer, DataChannel, DataChannelError, DataChannelInit, DataChannelState},

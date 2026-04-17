@@ -29,7 +29,8 @@ use rtrb::{Consumer, Producer, PushError, RingBuffer};
 use webrtc_sys::audio_track as sys_at;
 
 use crate::{
-    audio_frame::AudioFrame, audio_track::RtcAudioTrack,
+    audio_frame::{AudioFrame, AudioFrameTimestamp},
+    audio_track::RtcAudioTrack,
     native::packet_trailer::PacketTrailerHandler,
 };
 
@@ -101,12 +102,22 @@ pub struct AudioTrackObserver {
 }
 
 impl sys_at::AudioSink for AudioTrackObserver {
-    fn on_data(&self, data: &[i16], sample_rate: i32, nb_channels: usize, nb_frames: usize) {
-        let frame_metadata = self
-            .packet_trailer_handler
-            .lock()
-            .as_ref()
-            .and_then(|handler| handler.dequeue_frame_metadata())
+    fn on_data(
+        &self,
+        data: &[i16],
+        sample_rate: i32,
+        nb_channels: usize,
+        nb_frames: usize,
+        rtp_timestamp: Option<u32>,
+    ) {
+        let timestamp = rtp_timestamp.map(|rtp_timestamp| AudioFrameTimestamp { rtp_timestamp });
+        let frame_metadata = rtp_timestamp
+            .and_then(|rtp_timestamp| {
+                self.packet_trailer_handler
+                    .lock()
+                    .as_ref()
+                    .and_then(|handler| handler.lookup_frame_metadata(rtp_timestamp))
+            })
             .and_then(|(user_timestamp, frame_id)| {
                 if user_timestamp == 0 && frame_id == 0 {
                     None
@@ -126,6 +137,7 @@ impl sys_at::AudioSink for AudioTrackObserver {
             sample_rate: sample_rate as u32,
             num_channels: nb_channels as u32,
             samples_per_channel: nb_frames as u32,
+            timestamp,
             frame_metadata,
         });
     }
@@ -284,6 +296,7 @@ mod tests {
             sample_rate: 48_000,
             num_channels: 1,
             samples_per_channel: 1,
+            timestamp: None,
             frame_metadata: None,
         }
     }
@@ -302,6 +315,9 @@ mod tests {
             sample_rate: 48_000,
             num_channels: 1,
             samples_per_channel: 1,
+            timestamp: Some(crate::audio_frame::AudioFrameTimestamp {
+                rtp_timestamp: user_timestamp as u32,
+            }),
             frame_metadata: Some(FrameMetadata {
                 user_timestamp: Some(user_timestamp),
                 frame_id: Some(frame_id),
@@ -318,6 +334,10 @@ mod tests {
                 )
             })
         })
+    }
+
+    fn pop_timestamp(queue: &AudioFrameQueue) -> Option<u32> {
+        queue.try_pop().and_then(|frame| frame.timestamp.map(|timestamp| timestamp.rtp_timestamp))
     }
 
     #[test]
@@ -395,5 +415,16 @@ mod tests {
 
         assert_eq!(pop_metadata(&queue), Some((200, 20)));
         assert_eq!(pop_metadata(&queue), Some((300, 30)));
+    }
+
+    #[test]
+    fn bounded_queue_preserves_timestamps_for_kept_frames() {
+        let queue = AudioFrameQueue::new(Some(2));
+
+        queue.push(test_frame_with_metadata(1, 100, 10));
+        queue.push(test_frame_with_metadata(2, 200, 20));
+
+        assert_eq!(pop_timestamp(&queue), Some(100));
+        assert_eq!(pop_timestamp(&queue), Some(200));
     }
 }

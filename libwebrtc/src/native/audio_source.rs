@@ -266,6 +266,7 @@ mod tests {
             sample_rate: 48_000,
             num_channels: 1,
             samples_per_channel: 960,
+            timestamp: None,
             frame_metadata: Some(FrameMetadata { user_timestamp: Some(123), frame_id: Some(456) }),
         };
 

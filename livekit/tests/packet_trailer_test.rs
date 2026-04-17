@@ -378,8 +378,15 @@ async fn run_audio_packet_trailer_test(
             let mut validated = 0;
             let mut seen_timestamps: Vec<u64> = Vec::new();
             let mut seen_frame_ids: Vec<u32> = Vec::new();
+            let mut seen_rtp_timestamps: Vec<u32> = Vec::new();
 
             while let Some(frame) = stream.next().await {
+                let Some(timestamp) = frame.timestamp else {
+                    log::debug!("Audio frame without RTP timestamp, skipping");
+                    continue;
+                };
+                seen_rtp_timestamps.push(timestamp.rtp_timestamp);
+
                 let Some(meta) = frame.frame_metadata else {
                     log::debug!("Audio frame without metadata, skipping");
                     continue;
@@ -405,6 +412,12 @@ async fn run_audio_packet_trailer_test(
             }
 
             assert_eq!(validated, FRAMES_TO_VALIDATE);
+            assert!(
+                seen_rtp_timestamps.len() >= FRAMES_TO_VALIDATE,
+                "expected {} frames with RTP timestamps, only received {}",
+                FRAMES_TO_VALIDATE,
+                seen_rtp_timestamps.len()
+            );
 
             if attach_timestamp && seen_timestamps.len() >= 2 {
                 for window in seen_timestamps.windows(2) {
@@ -415,6 +428,17 @@ async fn run_audio_packet_trailer_test(
             if attach_frame_id && seen_frame_ids.len() >= 2 {
                 for window in seen_frame_ids.windows(2) {
                     assert!(window[1] > window[0], "frame ids should be strictly increasing");
+                }
+            }
+
+            if seen_rtp_timestamps.len() >= 2 {
+                for window in seen_rtp_timestamps.windows(2) {
+                    assert!(
+                        window[1] > window[0],
+                        "RTP timestamps should be strictly increasing: {} <= {}",
+                        window[1],
+                        window[0]
+                    );
                 }
             }
         };
@@ -532,6 +556,7 @@ async fn publish_audio_frames(
             sample_rate: AUDIO_SAMPLE_RATE,
             num_channels: AUDIO_CHANNELS,
             samples_per_channel,
+            timestamp: None,
             frame_metadata: Some(FrameMetadata { user_timestamp, frame_id }),
         };
 

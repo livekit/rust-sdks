@@ -96,9 +96,23 @@ void NativeAudioSink::OnData(const void* audio_data,
                              int sample_rate,
                              size_t number_of_channels,
                              size_t number_of_frames) {
+  OnData(audio_data, bits_per_sample, sample_rate, number_of_channels,
+         number_of_frames, std::nullopt);
+}
+
+void NativeAudioSink::OnData(const void* audio_data,
+                             int bits_per_sample,
+                             int sample_rate,
+                             size_t number_of_channels,
+                             size_t number_of_frames,
+                             std::optional<int64_t> absolute_capture_timestamp_ms) {
   RTC_CHECK_EQ(16, bits_per_sample);
 
   const int16_t* data = static_cast<const int16_t*>(audio_data);
+  const bool has_rtp_timestamp = absolute_capture_timestamp_ms.has_value();
+  const uint32_t rtp_timestamp =
+      has_rtp_timestamp ? static_cast<uint32_t>(*absolute_capture_timestamp_ms)
+                        : 0;
 
   if (sample_rate_ != sample_rate || num_channels_ != number_of_channels) {
     webrtc::InterleavedView<const int16_t> source(data,
@@ -111,14 +125,15 @@ void NativeAudioSink::OnData(const void* audio_data,
         frame_.data(), frame_.num_channels() * frame_.samples_per_channel());
 
     observer_->on_data(rust_slice, frame_.sample_rate_hz(),
-                       frame_.num_channels(), frame_.samples_per_channel());
+                       frame_.num_channels(), frame_.samples_per_channel(),
+                       has_rtp_timestamp, rtp_timestamp);
 
   } else {
     rust::Slice<const int16_t> rust_slice(
         data, number_of_channels * number_of_frames);
 
     observer_->on_data(rust_slice, sample_rate, number_of_channels,
-                       number_of_frames);
+                       number_of_frames, has_rtp_timestamp, rtp_timestamp);
   }
 }
 

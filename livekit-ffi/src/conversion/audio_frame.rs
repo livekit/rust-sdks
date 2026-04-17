@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit::webrtc::{audio_source::AudioSourceOptions, prelude::*};
+use livekit::webrtc::{
+    audio_frame::AudioFrameTimestamp, audio_source::AudioSourceOptions, prelude::*,
+};
 
 use crate::{
     proto,
@@ -60,6 +62,12 @@ pub fn frame_metadata_to_proto(
     })
 }
 
+pub fn frame_timestamp_to_proto(
+    timestamp: Option<AudioFrameTimestamp>,
+) -> Option<proto::AudioFrameTimestamp> {
+    timestamp.map(|timestamp| proto::AudioFrameTimestamp { rtp_timestamp: timestamp.rtp_timestamp })
+}
+
 impl From<&FfiAudioSource> for proto::AudioSourceInfo {
     fn from(source: &FfiAudioSource) -> Self {
         Self { r#type: source.source_type as i32 }
@@ -74,9 +82,9 @@ impl From<&FfiAudioStream> for proto::AudioStreamInfo {
 
 #[cfg(test)]
 mod tests {
-    use super::{frame_metadata_from_proto, frame_metadata_to_proto};
+    use super::{frame_metadata_from_proto, frame_metadata_to_proto, frame_timestamp_to_proto};
     use crate::proto;
-    use livekit::webrtc::video_frame::FrameMetadata;
+    use livekit::webrtc::{audio_frame::AudioFrameTimestamp, video_frame::FrameMetadata};
 
     #[test]
     fn empty_proto_frame_metadata_is_ignored() {
@@ -105,5 +113,14 @@ mod tests {
 
         assert_eq!(metadata.user_timestamp, Some(123));
         assert_eq!(metadata.frame_id, None);
+    }
+
+    #[test]
+    fn frame_timestamp_to_proto_preserves_rtp_timestamp() {
+        let timestamp =
+            frame_timestamp_to_proto(Some(AudioFrameTimestamp { rtp_timestamp: 0x1122_3344 }))
+                .unwrap();
+
+        assert_eq!(timestamp.rtp_timestamp, 0x1122_3344);
     }
 }
