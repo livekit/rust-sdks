@@ -1,6 +1,6 @@
 # Local Audio Capture Example
 
-This example demonstrates how to capture audio from a local microphone and stream it to a LiveKit room while simultaneously playing back audio from other participants. It provides a complete bidirectional audio experience with real-time level monitoring.
+This example demonstrates how to capture audio from a local microphone and stream it to a LiveKit room while simultaneously playing back audio from other participants. It also includes a dedicated subscriber binary that can subscribe to a single participant's audio track and report end-to-end latency from packet-trailer user timestamps, plus a single-process loopback benchmark that creates both a publisher and subscriber in one script.
 
 ## Features
 
@@ -10,6 +10,9 @@ This example demonstrates how to capture audio from a local microphone and strea
 - **Audio Processing**: Echo cancellation, noise suppression, and auto gain control (enabled by default)
 - **Volume Control**: Adjustable playback volume for remote participants
 - **Audio Mixing**: Combines audio from multiple remote participants
+- **Packet-Trailer Timestamps**: Optional `PTF_USER_TIMESTAMP` support for publish-side latency measurement
+- **Latency Subscriber**: Dedicated subscriber binary for measuring receive latency from a specific participant
+- **Single-Process Loopback Benchmark**: Launch publisher and subscriber identities together to measure end-to-end mic latency with timestamps and frame IDs
 - **Format Support**: Handles F32, I16, and U16 sample formats
 - **Cross-platform**: Works on Windows, macOS, and Linux
 
@@ -96,6 +99,13 @@ Stream audio with default settings (using environment variables):
 cargo run
 ```
 
+Measure latency from a specific publisher:
+
+```bash
+cargo run --bin subscriber -- \
+  --participant "rust-audio-streamer"
+```
+
 Using CLI arguments for connection details:
 
 ```bash
@@ -143,6 +153,44 @@ cargo run -- \
   --no-playback
 ```
 
+### Enable Packet-Trailer User Timestamps
+
+Publish microphone audio with `PTF_USER_TIMESTAMP` enabled so the subscriber binary can measure latency:
+
+```bash
+cargo run -- \
+  --url "wss://your-project.livekit.cloud" \
+  --api-key "your-api-key" \
+  --api-secret "your-api-secret" \
+  --attach-timestamp
+```
+
+Then run the subscriber against that participant identity:
+
+```bash
+cargo run --bin subscriber -- \
+  --url "wss://your-project.livekit.cloud" \
+  --api-key "your-api-key" \
+  --api-secret "your-api-secret" \
+  --room-name "audio-room" \
+  --participant "rust-audio-streamer"
+```
+
+### Run The Single-Process Loopback Benchmark
+
+Create both a publisher and subscriber in one process and measure microphone-to-subscriber latency:
+
+```bash
+cargo run --bin latency_loopback -- \
+  --url "wss://your-project.livekit.cloud" \
+  --api-key "your-api-key" \
+  --api-secret "your-api-secret" \
+  --input-device "USB Microphone" \
+  --room-name "audio-room"
+```
+
+This benchmark publishes 10 ms microphone frames with both `user_timestamp` and `frame_id` attached, then logs latency stats and frame ID gaps from the subscriber side.
+
 ## Command Line Options
 
 | Option | Description | Default |
@@ -159,6 +207,39 @@ cargo run -- \
 | `--volume <LEVEL>` | Playback volume (0.0 to 1.0) | 1.0 |
 | `--identity <NAME>` | LiveKit participant identity | "rust-audio-streamer" |
 | `--room-name <NAME>` | LiveKit room name | "audio-room" |
+| `--url <URL>` | LiveKit server URL | From LIVEKIT_URL env var |
+| `--api-key <KEY>` | LiveKit API key | From LIVEKIT_API_KEY env var |
+| `--api-secret <SECRET>` | LiveKit API secret | From LIVEKIT_API_SECRET env var |
+
+## Loopback Benchmark Binary
+
+Use the `latency_loopback` binary when you want to create both the publisher and subscriber in the same script.
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--list-devices` | List available audio input devices and exit | - |
+| `--input-device <NAME>` | Input device name | System default |
+| `--sample-rate <HZ>` | Capture and publish sample rate | 48000 |
+| `--channel <INDEX>` | Input channel index to capture | 0 |
+| `--room-name <NAME>` | LiveKit room name | "audio-room" |
+| `--publisher-identity <NAME>` | Publisher participant identity | "rust-audio-latency-publisher" |
+| `--subscriber-identity <NAME>` | Subscriber participant identity | "rust-audio-latency-subscriber" |
+| `--track-name <NAME>` | Published audio track name | "latency-microphone" |
+| `--url <URL>` | LiveKit server URL | From LIVEKIT_URL env var |
+| `--api-key <KEY>` | LiveKit API key | From LIVEKIT_API_KEY env var |
+| `--api-secret <SECRET>` | LiveKit API secret | From LIVEKIT_API_SECRET env var |
+
+## Subscriber Binary
+
+Use the `subscriber` binary to subscribe only to a specific participant's first audio track and log latency from the attached user timestamp.
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--identity <NAME>` | Subscriber participant identity | "rust-audio-latency-subscriber" |
+| `--participant <NAME>` | Target remote participant identity to subscribe to | Required |
+| `--room-name <NAME>` | LiveKit room name | "audio-room" |
+| `--sample-rate <HZ>` | Output sample rate for the decoded PCM stream | 48000 |
+| `--channels <COUNT>` | Output channel count for the decoded PCM stream | 1 |
 | `--url <URL>` | LiveKit server URL | From LIVEKIT_URL env var |
 | `--api-key <KEY>` | LiveKit API key | From LIVEKIT_API_KEY env var |
 | `--api-secret <SECRET>` | LiveKit API secret | From LIVEKIT_API_SECRET env var |

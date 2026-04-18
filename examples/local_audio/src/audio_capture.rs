@@ -6,7 +6,18 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
+
+#[derive(Debug, Clone)]
+pub struct CapturedAudioChunk {
+    pub samples: Vec<i16>,
+    pub captured_at_us: u64,
+}
+
+fn unix_time_us_now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_micros() as u64
+}
 
 pub struct AudioCapture {
     _stream: Stream,
@@ -18,7 +29,7 @@ impl AudioCapture {
         device: Device,
         config: StreamConfig,
         sample_format: SampleFormat,
-        audio_tx: mpsc::UnboundedSender<Vec<i16>>,
+        audio_tx: mpsc::UnboundedSender<CapturedAudioChunk>,
         db_tx: Option<mpsc::UnboundedSender<f32>>,
         channel_index: u32,      // New: Index of the channel to capture
         num_input_channels: u32, // New: Total number of channels in input
@@ -68,7 +79,7 @@ impl AudioCapture {
     fn create_input_stream<T>(
         device: Device,
         config: StreamConfig,
-        audio_tx: mpsc::UnboundedSender<Vec<i16>>,
+        audio_tx: mpsc::UnboundedSender<CapturedAudioChunk>,
         db_tx: Option<mpsc::UnboundedSender<f32>>,
         is_running: Arc<AtomicBool>,
         channel_index: u32,      // New: Index of the channel to capture
@@ -100,7 +111,10 @@ impl AudioCapture {
                     }
                 }
 
-                if let Err(e) = audio_tx.send(converted) {
+                let chunk =
+                    CapturedAudioChunk { samples: converted, captured_at_us: unix_time_us_now() };
+
+                if let Err(e) = audio_tx.send(chunk) {
                     warn!("Failed to send audio data: {}", e);
                 }
             },

@@ -40,9 +40,27 @@ pub mod ffi {
         /// Also caches the frame_id for retrieval via last_lookup_frame_id().
         fn lookup_timestamp(self: &PacketTrailerHandler, rtp_timestamp: u32) -> u64;
 
+        /// Lookup the nearest audio anchor for a decoded callback RTP timestamp.
+        /// Returns UINT64_MAX if not found. The underlying packet anchor is
+        /// retained so consecutive decoded 10ms callbacks can reuse it.
+        fn lookup_nearest_audio_timestamp(
+            self: &PacketTrailerHandler,
+            rtp_timestamp: u32,
+            max_behind: u32,
+            max_ahead: u32,
+        ) -> u64;
+
         /// Returns the frame_id from the most recent successful
         /// lookup_timestamp() call.
         fn last_lookup_frame_id(self: &PacketTrailerHandler) -> u32;
+
+        /// Returns the packet RTP timestamp from the most recent successful
+        /// lookup call.
+        fn last_lookup_rtp_timestamp(self: &PacketTrailerHandler) -> u32;
+
+        /// Pop the next received timestamp in decoder output order.
+        /// Returns UINT64_MAX if not found.
+        fn pop_next_received_timestamp(self: &PacketTrailerHandler) -> u64;
 
         /// Queue frame metadata for ordered send-side propagation.
         fn enqueue_frame_metadata(self: &PacketTrailerHandler, user_timestamp: u64, frame_id: u32);

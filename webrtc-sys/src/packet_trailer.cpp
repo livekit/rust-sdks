@@ -28,6 +28,14 @@
 
 namespace livekit_ffi {
 
+namespace {
+
+bool IsForwardDelta(uint32_t from, uint32_t to) {
+  return static_cast<uint32_t>(to - from) < (uint32_t{1} << 31);
+}
+
+}  // namespace
+
 // PacketTrailerTransformer implementation
 
 PacketTrailerTransformer::PacketTrailerTransformer(Direction direction)
@@ -73,7 +81,6 @@ void PacketTrailerTransformer::TransformSend(
     std::unique_ptr<webrtc::TransformableFrameInterface> frame) {
   uint32_t rtp_timestamp = frame->GetTimestamp();
   uint32_t ssrc = frame->GetSsrc();
-
   auto data = frame->GetData();
 
   // Look up the frame metadata by the frame's capture time.
@@ -81,7 +88,7 @@ void PacketTrailerTransformer::TransformSend(
   // capture_time_ms_ = timestamp_us / 1000.  So capture_time->us()
   // has millisecond precision (bottom 3 digits always zero).
   // store_frame_metadata() truncates its key the same way.
-  PacketTrailerMetadata meta_to_embed{0, 0, 0};
+  PacketTrailerMetadata meta_to_embed{0, 0, 0, 0};
   auto capture_time = frame->CaptureTime();
   if (capture_time.has_value()) {
     int64_t capture_us = capture_time->us();
@@ -179,10 +186,15 @@ void PacketTrailerTransformer::TransformReceive(
         recv_map_.erase(evicted_rtp);
         recv_map_order_.pop_front();
       }
+      while (recv_queue_.size() >= kMaxRecvMapEntries) {
+        recv_queue_.pop_front();
+      }
       if (!collision) {
         recv_map_order_.push_back(rtp_timestamp);
       }
+      meta->packet_rtp_timestamp = rtp_timestamp;
       recv_map_[rtp_timestamp] = meta.value();
+      recv_queue_.push_back(meta.value());
     }
 
     // Update frame with stripped data
@@ -315,11 +327,7 @@ std::optional<PacketTrailerMetadata> PacketTrailerTransformer::ExtractTrailer(
   }
 
   out_data.assign(data.begin(), data.end() - trailer_len);
-
-  if (!found_any) {
-    return std::nullopt;
-  }
-  return meta;
+  return found_any ? std::make_optional(meta) : std::nullopt;
 }
 
 void PacketTrailerTransformer::RegisterTransformedFrameCallback(
@@ -373,6 +381,67 @@ std::optional<PacketTrailerMetadata> PacketTrailerTransformer::lookup_frame_meta
   return meta;
 }
 
+std::optional<PacketTrailerMetadata>
+PacketTrailerTransformer::lookup_nearest_audio_metadata(uint32_t rtp_timestamp,
+                                                        uint32_t max_behind,
+                                                        uint32_t max_ahead) {
+  webrtc::MutexLock lock(&recv_map_mutex_);
+
+  auto exact = recv_map_.find(rtp_timestamp);
+  if (exact != recv_map_.end()) {
+    if (exact->second.user_timestamp == 0 && exact->second.frame_id == 0) {
+      exact = recv_map_.end();
+    }
+  }
+  if (exact != recv_map_.end()) {
+    return exact->second;
+  }
+
+  std::optional<PacketTrailerMetadata> best_prior;
+  uint32_t best_prior_delta = UINT32_MAX;
+  std::optional<PacketTrailerMetadata> best_ahead;
+  uint32_t best_ahead_delta = UINT32_MAX;
+
+  for (const auto& [packet_rtp_timestamp, meta] : recv_map_) {
+    if (meta.user_timestamp == 0 && meta.frame_id == 0) {
+      continue;
+    }
+    if (IsForwardDelta(packet_rtp_timestamp, rtp_timestamp)) {
+      uint32_t delta = static_cast<uint32_t>(rtp_timestamp - packet_rtp_timestamp);
+      if (delta <= max_behind && delta < best_prior_delta) {
+        best_prior = meta;
+        best_prior_delta = delta;
+      }
+    } else {
+      uint32_t delta = static_cast<uint32_t>(packet_rtp_timestamp - rtp_timestamp);
+      if (delta <= max_ahead && delta < best_ahead_delta) {
+        best_ahead = meta;
+        best_ahead_delta = delta;
+      }
+    }
+  }
+
+  if (best_prior.has_value()) {
+    return best_prior;
+  }
+
+  if (best_ahead.has_value()) {
+    return best_ahead;
+  }
+
+  return std::nullopt;
+}
+
+std::optional<PacketTrailerMetadata> PacketTrailerTransformer::pop_next_received_metadata() {
+  webrtc::MutexLock lock(&recv_map_mutex_);
+  if (recv_queue_.empty()) {
+    return std::nullopt;
+  }
+  PacketTrailerMetadata meta = recv_queue_.front();
+  recv_queue_.pop_front();
+  return meta;
+}
+
 void PacketTrailerTransformer::store_frame_metadata(
     int64_t capture_timestamp_us,
     uint64_t user_timestamp,
@@ -401,7 +470,7 @@ void PacketTrailerTransformer::store_frame_metadata(
   if (send_map_.find(key) == send_map_.end()) {
     send_map_order_.push_back(key);
   }
-  send_map_[key] = PacketTrailerMetadata{user_timestamp, frame_id, 0};
+  send_map_[key] = PacketTrailerMetadata{user_timestamp, frame_id, 0, 0};
 }
 
 void PacketTrailerTransformer::enqueue_frame_metadata(
@@ -411,7 +480,7 @@ void PacketTrailerTransformer::enqueue_frame_metadata(
   while (send_queue_.size() >= kMaxSendMapEntries) {
     send_queue_.pop_front();
   }
-  send_queue_.push_back(PacketTrailerMetadata{user_timestamp, frame_id, 0});
+  send_queue_.push_back(PacketTrailerMetadata{user_timestamp, frame_id, 0, 0});
 }
 
 // PacketTrailerHandler implementation
@@ -446,13 +515,44 @@ uint64_t PacketTrailerHandler::lookup_timestamp(uint32_t rtp_timestamp) const {
   auto meta = transformer_->lookup_frame_metadata(rtp_timestamp);
   if (meta.has_value()) {
     last_frame_id_ = meta->frame_id;
+    last_lookup_rtp_timestamp_ = rtp_timestamp;
     return meta->user_timestamp;
   }
+  last_lookup_rtp_timestamp_ = 0;
   return UINT64_MAX;
+}
+
+uint64_t PacketTrailerHandler::lookup_nearest_audio_timestamp(
+    uint32_t rtp_timestamp,
+    uint32_t max_behind,
+    uint32_t max_ahead) const {
+  auto meta = transformer_->lookup_nearest_audio_metadata(rtp_timestamp,
+                                                          max_behind,
+                                                          max_ahead);
+  if (meta.has_value()) {
+    last_frame_id_ = meta->frame_id;
+    last_lookup_rtp_timestamp_ = meta->packet_rtp_timestamp;
+    return meta->user_timestamp;
+  }
+  last_lookup_rtp_timestamp_ = 0;
+  return UINT64_MAX;
+}
+
+uint32_t PacketTrailerHandler::last_lookup_rtp_timestamp() const {
+  return last_lookup_rtp_timestamp_;
 }
 
 uint32_t PacketTrailerHandler::last_lookup_frame_id() const {
   return last_frame_id_;
+}
+
+uint64_t PacketTrailerHandler::pop_next_received_timestamp() const {
+  auto meta = transformer_->pop_next_received_metadata();
+  if (meta.has_value()) {
+    last_frame_id_ = meta->frame_id;
+    return meta->user_timestamp;
+  }
+  return UINT64_MAX;
 }
 
 void PacketTrailerHandler::enqueue_frame_metadata(uint64_t user_timestamp,

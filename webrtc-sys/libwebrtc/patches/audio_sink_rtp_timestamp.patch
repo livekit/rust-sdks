@@ -2,8 +2,9 @@ diff --git a/pc/remote_audio_source.cc b/pc/remote_audio_source.cc
 index 83f13bb8a3..cd25ec7edf 100644
 --- a/pc/remote_audio_source.cc
 +++ b/pc/remote_audio_source.cc
-@@ -99,9 +99,10 @@ void RemoteAudioSource::OnData(const AudioSinkInterface::Data& audio) {
+@@ -101,10 +101,11 @@ void RemoteAudioSource::OnData(const AudioSinkInterface::Data& audio) {
    // Called on the externally-owned audio callback thread, via/from webrtc.
+   TRACE_EVENT0("webrtc", "RemoteAudioSource::OnData");
    MutexLock lock(&sink_lock_);
    for (auto* sink : sinks_) {
 -    // When peerconnection acts as an audio source, it should not provide

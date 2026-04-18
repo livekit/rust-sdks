@@ -122,6 +122,13 @@ impl NativeAudioSource {
             });
         }
         let nb_frames = frame.data.len() / (self.num_channels as usize);
+        let capture_timestamp_us = frame
+            .frame_metadata
+            .and_then(|meta| meta.user_timestamp)
+            .filter(|ts| *ts != 0);
+        let has_capture_timestamp_ms = capture_timestamp_us.is_some();
+        let capture_timestamp_ms =
+            capture_timestamp_us.map(|ts| (ts / 1000) as i64).unwrap_or(0);
         let packet_trailer_handler = self.packet_trailer_handler.lock().clone();
         if packet_trailer_handler.is_some() && nb_frames != expected_frames_per_ch {
             return Err(RtcError {
@@ -147,11 +154,17 @@ impl NativeAudioSource {
             }
 
             if let Some(handler) = packet_trailer_handler.as_ref() {
-                let (user_timestamp, frame_id) = match frame.frame_metadata {
-                    Some(meta) => (meta.user_timestamp.unwrap_or(0), meta.frame_id.unwrap_or(0)),
-                    None => (0, 0),
-                };
-                handler.enqueue_frame_metadata(user_timestamp, frame_id);
+                if let Some(meta) = frame.frame_metadata {
+                    let user_timestamp = meta.user_timestamp.unwrap_or(0);
+                    let frame_id = meta.frame_id.unwrap_or(0);
+                    if user_timestamp != 0 || frame_id != 0 {
+                        handler.store_frame_metadata(
+                            capture_timestamp_us.unwrap_or(user_timestamp) as i64,
+                            user_timestamp,
+                            frame_id,
+                        );
+                    }
+                }
             }
 
             // Define a no-op callback for fast path (queue_size_ms=0)
@@ -170,6 +183,8 @@ impl NativeAudioSource {
                     self.sample_rate,
                     self.num_channels,
                     nb_frames,
+                    has_capture_timestamp_ms,
+                    capture_timestamp_ms,
                     std::ptr::null(), // Context is still null - callback won't use it
                     noop_callback,
                 );
@@ -185,11 +200,17 @@ impl NativeAudioSource {
 
         // Buffered path.
         if let Some(handler) = packet_trailer_handler.as_ref() {
-            let (user_timestamp, frame_id) = match frame.frame_metadata {
-                Some(meta) => (meta.user_timestamp.unwrap_or(0), meta.frame_id.unwrap_or(0)),
-                None => (0, 0),
-            };
-            handler.enqueue_frame_metadata(user_timestamp, frame_id);
+            if let Some(meta) = frame.frame_metadata {
+                let user_timestamp = meta.user_timestamp.unwrap_or(0);
+                let frame_id = meta.frame_id.unwrap_or(0);
+                if user_timestamp != 0 || frame_id != 0 {
+                    handler.store_frame_metadata(
+                        capture_timestamp_us.unwrap_or(user_timestamp) as i64,
+                        user_timestamp,
+                        frame_id,
+                    );
+                }
+            }
         }
 
         extern "C" fn lk_audio_source_complete(userdata: *const sys_at::SourceContext) {
@@ -211,6 +232,8 @@ impl NativeAudioSource {
                     self.sample_rate,
                     self.num_channels,
                     nb_frames,
+                    has_capture_timestamp_ms,
+                    capture_timestamp_ms,
                     ctx_ptr,
                     sys_at::CompleteCallback(lk_audio_source_complete),
                 ) {

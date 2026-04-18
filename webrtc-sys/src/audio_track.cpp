@@ -181,16 +181,23 @@ AudioTrackSource::InternalSource::InternalSource(
         constexpr int kBitsPerSample = sizeof(int16_t) * 8;
 
         if (buffer_.size() >= samples10ms) {
+          std::optional<int64_t> capture_timestamp_ms = std::nullopt;
+          if (!capture_timestamps_ms_.empty()) {
+            capture_timestamp_ms = capture_timestamps_ms_.front();
+            capture_timestamps_ms_.erase(capture_timestamps_ms_.begin());
+          }
           for (auto sink : sinks_)
             sink->OnData(buffer_.data(), kBitsPerSample, sample_rate_,
-                         num_channels_, samples10ms / num_channels_);
+                         num_channels_, samples10ms / num_channels_,
+                         capture_timestamp_ms);
 
           buffer_.erase(buffer_.begin(), buffer_.begin() + samples10ms);
         } else {
           // Always provide a 10ms frame to avoid playout underruns.
           for (auto sink : sinks_)
             sink->OnData(silence_buffer_.data(), kBitsPerSample, sample_rate_,
-                         num_channels_, samples10ms / num_channels_);
+                         num_channels_, samples10ms / num_channels_,
+                         std::nullopt);
         }
 
         if (on_complete_ && buffer_.size() <= notify_threshold_samples_) {
@@ -212,9 +219,14 @@ bool AudioTrackSource::InternalSource::capture_frame(
     uint32_t sample_rate,
     uint32_t number_of_channels,
     size_t number_of_frames,
+    bool has_capture_timestamp_ms,
+    int64_t capture_timestamp_ms,
     const SourceContext* ctx,
     void (*on_complete)(const SourceContext*)) {
   webrtc::MutexLock lock(&mutex_);
+  std::optional<int64_t> absolute_capture_timestamp_ms =
+      has_capture_timestamp_ms ? std::make_optional(capture_timestamp_ms)
+                               : std::nullopt;
 
   if (queue_size_samples_) {
     int available =
@@ -226,6 +238,9 @@ bool AudioTrackSource::InternalSource::capture_frame(
       return false;
 
     buffer_.insert(buffer_.end(), data.begin(), data.end());
+    if (number_of_frames == static_cast<size_t>(sample_rate_ / 100)) {
+      capture_timestamps_ms_.push_back(absolute_capture_timestamp_ms);
+    }
 
     if (buffer_.size() <= notify_threshold_samples_) {
       on_complete(ctx);  // complete directly
@@ -238,7 +253,8 @@ bool AudioTrackSource::InternalSource::capture_frame(
     // capture directly when the queue buffer is 0 (frame size must be 10ms)
     for (auto sink : sinks_)
       sink->OnData(data.data(), sizeof(int16_t) * 8, sample_rate,
-                   number_of_channels, number_of_frames);
+                   number_of_channels, number_of_frames,
+                   absolute_capture_timestamp_ms);
   }
 
   return true;
@@ -247,6 +263,7 @@ bool AudioTrackSource::InternalSource::capture_frame(
 void AudioTrackSource::InternalSource::clear_buffer() {
   webrtc::MutexLock lock(&mutex_);
   buffer_.clear();
+  capture_timestamps_ms_.clear();
 }
 
 webrtc::MediaSourceInterface::SourceState
@@ -307,10 +324,13 @@ bool AudioTrackSource::capture_frame(
     uint32_t sample_rate,
     uint32_t number_of_channels,
     size_t number_of_frames,
+    bool has_capture_timestamp_ms,
+    int64_t capture_timestamp_ms,
     const SourceContext* ctx,
     void (*on_complete)(const SourceContext*)) const {
   return source_->capture_frame(audio_data, sample_rate, number_of_channels,
-                                number_of_frames, ctx, on_complete);
+                                number_of_frames, has_capture_timestamp_ms,
+                                capture_timestamp_ms, ctx, on_complete);
 }
 
 void AudioTrackSource::clear_buffer() const {

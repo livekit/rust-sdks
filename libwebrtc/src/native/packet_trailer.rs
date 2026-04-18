@@ -72,6 +72,41 @@ impl PacketTrailerHandler {
         }
     }
 
+    /// Lookup the nearest packet-level audio anchor for a decoded callback RTP
+    /// timestamp. Unlike `lookup_frame_metadata()`, the matching anchor is
+    /// retained because one encoded packet may produce multiple 10ms decoded
+    /// audio callbacks.
+    pub fn lookup_nearest_audio_metadata(
+        &self,
+        rtp_timestamp: u32,
+        max_behind: u32,
+        max_ahead: u32,
+    ) -> Option<(u64, u32, u32)> {
+        let ts = self
+            .sys_handle
+            .lookup_nearest_audio_timestamp(rtp_timestamp, max_behind, max_ahead);
+        if ts != u64::MAX {
+            let frame_id = self.sys_handle.last_lookup_frame_id();
+            let packet_rtp_timestamp = self.sys_handle.last_lookup_rtp_timestamp();
+            Some((ts, frame_id, packet_rtp_timestamp))
+        } else {
+            None
+        }
+    }
+
+    /// Pop the next received frame metadata in decoder output order.
+    /// This is a fallback for paths where decoded frames do not expose
+    /// an RTP timestamp alongside the media callback.
+    pub fn pop_next_received_metadata(&self) -> Option<(u64, u32)> {
+        let ts = self.sys_handle.pop_next_received_timestamp();
+        if ts != u64::MAX {
+            let frame_id = self.sys_handle.last_lookup_frame_id();
+            Some((ts, frame_id))
+        } else {
+            None
+        }
+    }
+
     /// Queue frame metadata for ordered send-side propagation.
     pub fn enqueue_frame_metadata(&self, user_timestamp: u64, frame_id: u32) {
         self.sys_handle.enqueue_frame_metadata(user_timestamp, frame_id);

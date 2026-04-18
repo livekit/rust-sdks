@@ -3,6 +3,19 @@ name = "local_audio"
 version = "0.1.0"
 edition.workspace = true
 publish = false
+default-run = "local_audio"
+
+[[bin]]
+name = "local_audio"
+path = "src/main.rs"
+
+[[bin]]
+name = "subscriber"
+path = "src/subscriber.rs"
+
+[[bin]]
+name = "latency_loopback"
+path = "src/latency_loopback.rs"
 
 [dependencies]
 tokio = { workspace = true, features = ["full"] }

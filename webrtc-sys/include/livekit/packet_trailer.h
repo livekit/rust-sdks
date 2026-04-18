@@ -72,6 +72,7 @@ struct PacketTrailerMetadata {
   uint64_t user_timestamp;
   uint32_t frame_id;
   uint32_t ssrc;  // SSRC that produced this entry (for simulcast tracking)
+  uint32_t packet_rtp_timestamp;
 };
 
 /// Frame transformer that appends/extracts packet trailers.
@@ -110,6 +111,20 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   /// Returns the metadata if found, nullopt otherwise.
   /// The entry is removed from the map after lookup.
   std::optional<PacketTrailerMetadata> lookup_frame_metadata(uint32_t rtp_timestamp);
+
+  /// Find the closest received packet-trailer anchor for an audio callback RTP
+  /// timestamp. Unlike lookup_frame_metadata(), this does not remove the entry,
+  /// because multiple 10ms decoded PCM callbacks may derive timing from the same
+  /// encoded packet-level anchor.
+  std::optional<PacketTrailerMetadata> lookup_nearest_audio_metadata(
+      uint32_t rtp_timestamp,
+      uint32_t max_behind,
+      uint32_t max_ahead);
+
+  /// Pop the next received frame metadata in decoder output order.
+  /// Used as a fallback for media paths that do not expose RTP timestamps
+  /// on decoded callbacks.
+  std::optional<PacketTrailerMetadata> pop_next_received_metadata();
 
   /// Store frame metadata for a given capture timestamp (sender side).
   /// Called from VideoTrackSource::on_captured_frame with the
@@ -161,10 +176,12 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   mutable webrtc::Mutex recv_map_mutex_;
   mutable std::unordered_map<uint32_t, PacketTrailerMetadata> recv_map_;
   mutable std::deque<uint32_t> recv_map_order_;
+  mutable std::deque<PacketTrailerMetadata> recv_queue_;
   static constexpr size_t kMaxRecvMapEntries = 300;
 
   // Simulcast tracking: detect layer switches and flush stale entries.
   mutable uint32_t recv_active_ssrc_{0};
+
 };
 
 /// Wrapper class for Rust FFI that manages packet trailer transformers.
@@ -189,9 +206,25 @@ class PacketTrailerHandler {
   /// Also caches the frame_id for retrieval via last_lookup_frame_id().
   uint64_t lookup_timestamp(uint32_t rtp_timestamp) const;
 
+  /// Lookup the nearest audio anchor for a decoded callback RTP timestamp.
+  /// Returns UINT64_MAX if not found. The entry is retained for future audio
+  /// callbacks that belong to the same encoded packet.
+  uint64_t lookup_nearest_audio_timestamp(uint32_t rtp_timestamp,
+                                          uint32_t max_behind,
+                                          uint32_t max_ahead) const;
+
   /// Returns the frame_id from the most recent successful
   /// lookup_timestamp() call. Returns 0 if no lookup succeeded.
   uint32_t last_lookup_frame_id() const;
+
+  /// Returns the packet RTP timestamp from the most recent successful lookup.
+  /// Returns 0 if no lookup succeeded.
+  uint32_t last_lookup_rtp_timestamp() const;
+
+  /// Pop the next received user timestamp in decoder output order.
+  /// Returns UINT64_MAX if not found. Also caches the frame_id for retrieval
+  /// via last_lookup_frame_id().
+  uint64_t pop_next_received_timestamp() const;
 
   /// Queue frame metadata for ordered send-side propagation.
   void enqueue_frame_metadata(uint64_t user_timestamp, uint32_t frame_id) const;
@@ -210,6 +243,7 @@ class PacketTrailerHandler {
   webrtc::scoped_refptr<webrtc::RtpSenderInterface> sender_;
   webrtc::scoped_refptr<webrtc::RtpReceiverInterface> receiver_;
   mutable uint32_t last_frame_id_{0};
+  mutable uint32_t last_lookup_rtp_timestamp_{0};
 };
 
 // Factory functions for Rust FFI

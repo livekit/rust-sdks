@@ -56,6 +56,8 @@ pub mod ffi {
             sample_rate: u32,
             nb_channels: u32,
             nb_frames: usize,
+            has_capture_timestamp_ms: bool,
+            capture_timestamp_ms: i64,
             userdata: *const SourceContext,
             on_complete: CompleteCallback,
         ) -> bool;

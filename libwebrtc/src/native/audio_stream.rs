@@ -53,6 +53,7 @@ impl NativeAudioStream {
         let observer = Arc::new(AudioTrackObserver {
             frame_queue: frame_queue.clone(),
             packet_trailer_handler: packet_trailer_handler.clone(),
+            anchor: Mutex::new(None),
         });
         let native_sink = sys_at::ffi::new_native_audio_sink(
             Box::new(sys_at::AudioSinkWrapper::new(observer.clone())),
@@ -99,6 +100,55 @@ impl Stream for NativeAudioStream {
 pub struct AudioTrackObserver {
     frame_queue: Arc<AudioFrameQueue>,
     packet_trailer_handler: Arc<Mutex<Option<PacketTrailerHandler>>>,
+    anchor: Mutex<Option<AudioTimestampAnchor>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct AudioTimestampAnchor {
+    // Audio trailers are sparse reference points; decoded frame timing is
+    // derived from the latest anchor plus RTP progression at the audio clock rate.
+    rtp_timestamp: u32,
+    user_timestamp_us: u64,
+    frame_id: Option<u32>,
+    sample_rate: u32,
+}
+
+const AUDIO_ANCHOR_MAX_BEHIND_RTP_TICKS: u32 = 1_920;
+const AUDIO_ANCHOR_MAX_AHEAD_RTP_TICKS: u32 = 120;
+
+fn is_newer_or_same_rtp_timestamp(previous: u32, candidate: u32) -> bool {
+    let delta = candidate.wrapping_sub(previous);
+    delta == 0 || delta < (u32::MAX / 2) + 1
+}
+
+fn anchor_is_usable_for_rtp(
+    anchor: AudioTimestampAnchor,
+    rtp_timestamp: u32,
+    max_behind: u32,
+) -> bool {
+    rtp_delta_signed(anchor.rtp_timestamp, rtp_timestamp)
+        .is_some_and(|delta| delta >= 0 && delta as u32 <= max_behind)
+}
+
+fn rtp_delta_signed(base: u32, target: u32) -> Option<i64> {
+    let delta = target.wrapping_sub(base);
+    if delta < (u32::MAX / 2) + 1 {
+        Some(delta as i64)
+    } else {
+        let reverse = base.wrapping_sub(target);
+        if reverse < (u32::MAX / 2) + 1 {
+            Some(-(reverse as i64))
+        } else {
+            None
+        }
+    }
+}
+
+fn derive_user_timestamp_us(anchor: AudioTimestampAnchor, rtp_timestamp: u32) -> Option<u64> {
+    let rtp_delta = rtp_delta_signed(anchor.rtp_timestamp, rtp_timestamp)?;
+    let delta_us = ((rtp_delta as i128) * 1_000_000i128) / anchor.sample_rate as i128;
+    let derived = anchor.user_timestamp_us as i128 + delta_us;
+    u64::try_from(derived).ok()
 }
 
 impl sys_at::AudioSink for AudioTrackObserver {
@@ -110,31 +160,89 @@ impl sys_at::AudioSink for AudioTrackObserver {
         nb_frames: usize,
         rtp_timestamp: Option<u32>,
     ) {
-        let timestamp = rtp_timestamp.map(|rtp_timestamp| AudioFrameTimestamp { rtp_timestamp });
-        let frame_metadata = rtp_timestamp
-            .and_then(|rtp_timestamp| {
-                self.packet_trailer_handler
-                    .lock()
-                    .as_ref()
-                    .and_then(|handler| handler.lookup_frame_metadata(rtp_timestamp))
-            })
-            .and_then(|(user_timestamp, frame_id)| {
-                if user_timestamp == 0 && frame_id == 0 {
-                    None
-                } else {
-                    Some(crate::video_frame::FrameMetadata {
-                        user_timestamp: if user_timestamp != 0 {
-                            Some(user_timestamp)
+        let sample_rate = sample_rate as u32;
+        let valid_rtp_timestamp = rtp_timestamp.filter(|rtp_timestamp| *rtp_timestamp != 0);
+        let timestamp =
+            valid_rtp_timestamp.map(|rtp_timestamp| AudioFrameTimestamp { rtp_timestamp });
+        let frame_metadata = self
+            .packet_trailer_handler
+            .lock()
+            .as_ref()
+            .and_then(|handler| {
+                let metadata = match valid_rtp_timestamp {
+                    Some(rtp_timestamp) => {
+                        if let Some((user_timestamp, frame_id, packet_rtp_timestamp)) = handler.lookup_nearest_audio_metadata(
+                            rtp_timestamp,
+                            AUDIO_ANCHOR_MAX_BEHIND_RTP_TICKS,
+                            AUDIO_ANCHOR_MAX_AHEAD_RTP_TICKS,
+                        )
+                        {
+                            let anchor = AudioTimestampAnchor {
+                                rtp_timestamp: packet_rtp_timestamp,
+                                user_timestamp_us: user_timestamp,
+                                frame_id: (frame_id != 0).then_some(frame_id),
+                                sample_rate,
+                            };
+                            let mut current_anchor = self.anchor.lock();
+                            if current_anchor
+                                .map(|previous| {
+                                    is_newer_or_same_rtp_timestamp(
+                                        previous.rtp_timestamp,
+                                        anchor.rtp_timestamp,
+                                    )
+                                })
+                                .unwrap_or(true)
+                            {
+                                *current_anchor = Some(anchor);
+                            }
+                            derive_user_timestamp_us(anchor, rtp_timestamp).map(|derived_user_timestamp| {
+                                crate::video_frame::FrameMetadata {
+                                    user_timestamp: Some(derived_user_timestamp),
+                                    frame_id: anchor.frame_id,
+                                }
+                            })
+                        } else if let Some(anchor) = *self.anchor.lock() {
+                            if !anchor_is_usable_for_rtp(
+                                anchor,
+                                rtp_timestamp,
+                                AUDIO_ANCHOR_MAX_BEHIND_RTP_TICKS,
+                            ) {
+                                *self.anchor.lock() = None;
+                                None
+                            } else {
+                                derive_user_timestamp_us(anchor, rtp_timestamp).map(
+                                    |derived_user_timestamp| crate::video_frame::FrameMetadata {
+                                        user_timestamp: Some(derived_user_timestamp),
+                                        frame_id: None,
+                                    },
+                                )
+                            }
                         } else {
                             None
-                        },
-                        frame_id: if frame_id != 0 { Some(frame_id) } else { None },
-                    })
-                }
+                        }
+                    }
+                    None => {
+                        let fallback = handler.pop_next_received_metadata();
+                        fallback
+                            .and_then(|(user_timestamp, frame_id)| {
+                                if user_timestamp == 0 && frame_id == 0 {
+                                    None
+                                } else {
+                                    Some(crate::video_frame::FrameMetadata {
+                                        user_timestamp: (user_timestamp != 0)
+                                            .then_some(user_timestamp),
+                                        frame_id: (frame_id != 0).then_some(frame_id),
+                                    })
+                                }
+                            })
+                    }
+                };
+
+                metadata
             });
         self.frame_queue.push(AudioFrame {
             data: data.to_owned().into(),
-            sample_rate: sample_rate as u32,
+            sample_rate,
             num_channels: nb_channels as u32,
             samples_per_channel: nb_frames as u32,
             timestamp,
@@ -287,7 +395,10 @@ impl AudioFrameQueue {
 mod tests {
     use std::sync::atomic::Ordering;
 
-    use super::AudioFrameQueue;
+    use super::{
+        derive_user_timestamp_us, is_newer_or_same_rtp_timestamp, AudioFrameQueue,
+        AudioTimestampAnchor,
+    };
     use crate::{audio_frame::AudioFrame, prelude::FrameMetadata};
 
     fn test_frame(marker: i16) -> AudioFrame<'static> {
@@ -426,5 +537,63 @@ mod tests {
 
         assert_eq!(pop_timestamp(&queue), Some(100));
         assert_eq!(pop_timestamp(&queue), Some(200));
+    }
+
+    #[test]
+    fn first_anchor_is_used_as_interpolation_base() {
+        let anchor = AudioTimestampAnchor {
+            rtp_timestamp: 48_000,
+            user_timestamp_us: 2_000_000,
+            frame_id: Some(7),
+            sample_rate: 48_000,
+        };
+
+        assert_eq!(derive_user_timestamp_us(anchor, 48_480), 2_010_000);
+        assert_eq!(derive_user_timestamp_us(anchor, 48_960), 2_020_000);
+    }
+
+    #[test]
+    fn interpolation_remains_monotonic_for_sequential_frames() {
+        let anchor = AudioTimestampAnchor {
+            rtp_timestamp: 1_000,
+            user_timestamp_us: 5_000_000,
+            frame_id: None,
+            sample_rate: 48_000,
+        };
+
+        let first = derive_user_timestamp_us(anchor, 1_480);
+        let second = derive_user_timestamp_us(anchor, 1_960);
+        let third = derive_user_timestamp_us(anchor, 2_440);
+
+        assert_eq!(first, 5_010_000);
+        assert_eq!(second, 5_020_000);
+        assert_eq!(third, 5_030_000);
+        assert!(first < second && second < third);
+    }
+
+    #[test]
+    fn newer_anchor_replaces_prior_anchor_in_rtp_sequence_space() {
+        assert!(is_newer_or_same_rtp_timestamp(10_000, 10_480));
+        assert!(is_newer_or_same_rtp_timestamp(10_000, 10_000));
+        assert!(!is_newer_or_same_rtp_timestamp(10_480, 10_000));
+    }
+
+    #[test]
+    fn wraparound_rtp_delta_interpolates_forward() {
+        let anchor = AudioTimestampAnchor {
+            rtp_timestamp: u32::MAX - 239,
+            user_timestamp_us: 9_000_000,
+            frame_id: None,
+            sample_rate: 48_000,
+        };
+
+        assert_eq!(derive_user_timestamp_us(anchor, 240), 9_010_000);
+        assert!(is_newer_or_same_rtp_timestamp(u32::MAX - 239, 240));
+    }
+
+    #[test]
+    fn interpolation_requires_an_anchor() {
+        let anchor: Option<AudioTimestampAnchor> = None;
+        assert!(anchor.map(|anchor| derive_user_timestamp_us(anchor, 480)).is_none());
     }
 }

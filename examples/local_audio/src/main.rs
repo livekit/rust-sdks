@@ -4,23 +4,25 @@ mod audio_playback;
 mod db_meter;
 
 use anyhow::{anyhow, Result};
-use audio_capture::AudioCapture;
+use audio_capture::{AudioCapture, CapturedAudioChunk};
 use audio_mixer::AudioMixer;
 use audio_playback::AudioPlayback;
 use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait};
 use cpal::{Device, SampleRate, StreamConfig};
 use db_meter::display_dual_db_meters;
+use env_logger::Env;
 use futures_util::StreamExt;
 use libwebrtc::native::apm::AudioProcessingModule;
 use livekit::{
-    options::TrackPublishOptions,
+    options::{PacketTrailerFeatures, TrackPublishOptions},
     track::{LocalAudioTrack, LocalTrack, TrackSource},
     webrtc::{
         audio_frame::AudioFrame,
         audio_source::native::NativeAudioSource,
         audio_stream::native::NativeAudioStream,
         prelude::{AudioSourceOptions, RtcAudioSource},
+        video_frame::FrameMetadata,
     },
     Room, RoomEvent, RoomOptions,
 };
@@ -159,6 +161,10 @@ struct Args {
     /// LiveKit API secret (can also be set via LIVEKIT_API_SECRET environment variable)
     #[arg(long)]
     api_secret: Option<String>,
+
+    /// Attach a user timestamp packet trailer to each 10ms audio frame
+    #[arg(long, default_value_t = false)]
+    attach_timestamp: bool,
 }
 
 fn list_audio_devices() -> Result<()> {
@@ -243,64 +249,23 @@ fn find_output_device_by_name(name: &str) -> Result<Device> {
     Err(anyhow!("Output device '{}' not found", name))
 }
 
-async fn stream_audio_to_livekit(
-    mut audio_rx: mpsc::UnboundedReceiver<Vec<i16>>,
-    livekit_source: NativeAudioSource,
-    mut echo_processor: EchoCancellationProcessor,
-    sample_rate: u32,
-) -> Result<()> {
-    let mut buffer = Vec::new();
-    let samples_per_10ms = (sample_rate / 100) as usize; // For mono
-
-    info!(
-        "Starting LiveKit audio streaming with echo cancellation ({}Hz, 1 channel, {} samples per 10ms)",
-        sample_rate, samples_per_10ms
-    );
-
-    // Set initial delay estimate (can be adjusted based on your system)
-    let _ = echo_processor.set_stream_delay(50); // 50ms initial estimate
-
-    while let Some(audio_data) = audio_rx.recv().await {
-        buffer.extend_from_slice(&audio_data);
-
-        // Send 10ms chunks to LiveKit
-        while buffer.len() >= samples_per_10ms {
-            let mut chunk: Vec<i16> = buffer.drain(..samples_per_10ms).collect();
-
-            // Process through echo cancellation before sending to LiveKit
-            if let Err(e) = echo_processor.process_microphone_audio(&mut chunk) {
-                warn!("Echo cancellation processing failed: {}", e);
-            }
-
-            let audio_frame = AudioFrame {
-                data: chunk.into(),
-                sample_rate,
-                num_channels: 1, // Fixed to mono
-                samples_per_channel: samples_per_10ms as u32,
-                frame_metadata: None,
-            };
-
-            if let Err(e) = livekit_source.capture_frame(&audio_frame).await {
-                error!("Failed to send audio frame to LiveKit: {}", e);
-            }
-        }
-    }
-
-    Ok(())
-}
-
 async fn stream_audio_to_livekit_with_shared_apm(
-    mut audio_rx: mpsc::UnboundedReceiver<Vec<i16>>,
+    mut audio_rx: mpsc::UnboundedReceiver<CapturedAudioChunk>,
     livekit_source: NativeAudioSource,
     echo_processor: Arc<tokio::sync::Mutex<EchoCancellationProcessor>>,
     sample_rate: u32,
+    attach_timestamp: bool,
 ) -> Result<()> {
     let mut buffer = Vec::new();
     let samples_per_10ms = (sample_rate / 100) as usize; // For mono
+    let mut next_frame_id: u32 = 1;
+    let mut oldest_capture_us_in_buffer: Option<u64> = None;
 
     info!(
-        "Starting LiveKit audio streaming with SHARED APM echo cancellation ({}Hz, 1 channel, {} samples per 10ms)",
-        sample_rate, samples_per_10ms
+        "Starting LiveKit audio streaming with SHARED APM echo cancellation ({}Hz, 1 channel, {} samples per 10ms, packet trailer timestamp: {})",
+        sample_rate,
+        samples_per_10ms,
+        attach_timestamp
     );
 
     // Set initial delay estimate (can be adjusted based on your system)
@@ -309,8 +274,11 @@ async fn stream_audio_to_livekit_with_shared_apm(
         let _ = processor.set_stream_delay(50); // 50ms initial estimate
     }
 
-    while let Some(audio_data) = audio_rx.recv().await {
-        buffer.extend_from_slice(&audio_data);
+    while let Some(audio_chunk) = audio_rx.recv().await {
+        if oldest_capture_us_in_buffer.is_none() {
+            oldest_capture_us_in_buffer = Some(audio_chunk.captured_at_us);
+        }
+        buffer.extend_from_slice(&audio_chunk.samples);
 
         // Send 10ms chunks to LiveKit
         while buffer.len() >= samples_per_10ms {
@@ -324,13 +292,20 @@ async fn stream_audio_to_livekit_with_shared_apm(
                 }
             }
 
+            let frame_capture_us =
+                oldest_capture_us_in_buffer.take().unwrap_or_else(unix_time_us_now);
             let audio_frame = AudioFrame {
                 data: chunk.into(),
                 sample_rate,
                 num_channels: 1, // Fixed to mono
                 samples_per_channel: samples_per_10ms as u32,
-                frame_metadata: None,
+                timestamp: None,
+                frame_metadata: attach_timestamp.then(|| FrameMetadata {
+                    user_timestamp: Some(frame_capture_us),
+                    frame_id: Some(next_frame_id),
+                }),
             };
+            next_frame_id = next_frame_id.wrapping_add(1);
 
             if let Err(e) = livekit_source.capture_frame(&audio_frame).await {
                 error!("Failed to send audio frame to LiveKit: {}", e);
@@ -472,7 +447,7 @@ async fn handle_remote_audio_streams(
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let args = Args::parse();
 
     if args.list_devices {
@@ -600,11 +575,16 @@ async fn main() -> Result<()> {
         args.auto_gain_control
     );
 
+    let queue_size_ms = if args.attach_timestamp { 0 } else { 1000 };
+    if args.attach_timestamp {
+        info!("Using direct 10ms audio capture path for packet-trailer timestamps");
+    }
+
     let livekit_source = NativeAudioSource::new(
         audio_options,
         args.sample_rate,
-        1,    // Fixed to 1 channel
-        1000, // 1 second buffer
+        1, // Fixed to 1 channel
+        queue_size_ms,
     );
 
     // Handle room events
@@ -616,14 +596,28 @@ async fn main() -> Result<()> {
         RtcAudioSource::Native(livekit_source.clone()),
     );
 
+    let mut packet_trailer_features = PacketTrailerFeatures::default();
+    packet_trailer_features.user_timestamp = args.attach_timestamp;
+    packet_trailer_features.frame_id = args.attach_timestamp;
+
     room.local_participant()
         .publish_track(
             LocalTrack::Audio(track.clone()),
-            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
+            TrackPublishOptions {
+                source: TrackSource::Microphone,
+                packet_trailer_features,
+                red: !args.attach_timestamp,
+                ..Default::default()
+            },
         )
         .await?;
 
-    info!("Audio track published to LiveKit successfully");
+    info!(
+        "Audio track published to LiveKit successfully (packet trailers: {}, queue_size_ms: {}, red: {})",
+        if args.attach_timestamp { "enabled" } else { "disabled" },
+        queue_size_ms,
+        if args.attach_timestamp { "disabled" } else { "enabled" }
+    );
 
     // Create shared echo cancellation processor
     let echo_processor = Arc::new(tokio::sync::Mutex::new(EchoCancellationProcessor::new(
@@ -678,6 +672,7 @@ async fn main() -> Result<()> {
         livekit_source,
         echo_processor.clone(),
         args.sample_rate,
+        args.attach_timestamp,
     ));
 
     info!("✅ Started LiveKit streaming task (forward stream for AEC)");
@@ -738,17 +733,6 @@ async fn main() -> Result<()> {
         if args.input_device.is_some() { "Custom" } else { "Default" },
         if _audio_playback.is_some() { "Enabled" } else { "Disabled" }
     );
-
-    // Demonstrate muting/unmuting the microphone track
-    tokio::spawn(async move {
-        // Demonstrate muting/unmuting after some time
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-        track.mute();
-        info!("Microphone muted for 5 seconds...");
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-        track.unmute();
-        info!("Microphone unmuted.");
-    });
 
     // Wait for Ctrl+C
     tokio::signal::ctrl_c().await?;
