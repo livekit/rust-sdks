@@ -190,6 +190,7 @@ cargo run --bin latency_loopback -- \
 ```
 
 This benchmark publishes 10 ms microphone frames with both `user_timestamp` and `frame_id` attached, then logs latency stats and frame ID gaps from the subscriber side.
+The publish timestamp is derived from the captured input chunk time and advanced in 10 ms steps, so it is suitable for relative latency benchmarking rather than exact hardware capture timing.
 
 ## Command Line Options
 

@@ -62,9 +62,6 @@ pub mod ffi {
         /// Returns UINT64_MAX if not found.
         fn pop_next_received_timestamp(self: &PacketTrailerHandler) -> u64;
 
-        /// Queue frame metadata for ordered send-side propagation.
-        fn enqueue_frame_metadata(self: &PacketTrailerHandler, user_timestamp: u64, frame_id: u32);
-
         /// Store frame metadata for a given capture timestamp (sender side).
         fn store_frame_metadata(
             self: &PacketTrailerHandler,

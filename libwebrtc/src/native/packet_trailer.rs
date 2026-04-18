@@ -107,11 +107,6 @@ impl PacketTrailerHandler {
         }
     }
 
-    /// Queue frame metadata for ordered send-side propagation.
-    pub fn enqueue_frame_metadata(&self, user_timestamp: u64, frame_id: u32) {
-        self.sys_handle.enqueue_frame_metadata(user_timestamp, frame_id);
-    }
-
     /// Store frame metadata for a given capture timestamp (sender side).
     ///
     /// The `capture_timestamp_us` must be the TimestampAligner-adjusted

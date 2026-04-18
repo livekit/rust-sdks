@@ -222,6 +222,9 @@ async fn stream_audio_to_livekit(
 
         while buffer.len() >= samples_per_10ms {
             let chunk: Vec<i16> = buffer.drain(..samples_per_10ms).collect();
+            // Audio callbacks can deliver larger chunks than 10 ms, so the
+            // benchmark estimates each emitted frame's capture time by walking
+            // forward in 10 ms steps from the oldest chunk timestamp.
             let captured_at_us = oldest_capture_us_in_buffer.unwrap_or_else(unix_time_us_now);
             let attach_metadata = frames_since_metadata == 0;
             let frame_id = attach_metadata.then_some(next_frame_id);

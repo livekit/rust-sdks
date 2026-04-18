@@ -106,14 +106,6 @@ void PacketTrailerTransformer::TransformSend(
         << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
   }
 
-  if (meta_to_embed.user_timestamp == 0 && meta_to_embed.frame_id == 0) {
-    webrtc::MutexLock lock(&send_map_mutex_);
-    if (!send_queue_.empty()) {
-      meta_to_embed = send_queue_.front();
-      send_queue_.pop_front();
-    }
-  }
-
   // Always append trailer when enabled (even if timestamp is 0,
   // which indicates no metadata was set for this frame)
   std::vector<uint8_t> new_data;
@@ -473,16 +465,6 @@ void PacketTrailerTransformer::store_frame_metadata(
   send_map_[key] = PacketTrailerMetadata{user_timestamp, frame_id, 0, 0};
 }
 
-void PacketTrailerTransformer::enqueue_frame_metadata(
-    uint64_t user_timestamp,
-    uint32_t frame_id) {
-  webrtc::MutexLock lock(&send_map_mutex_);
-  while (send_queue_.size() >= kMaxSendMapEntries) {
-    send_queue_.pop_front();
-  }
-  send_queue_.push_back(PacketTrailerMetadata{user_timestamp, frame_id, 0, 0});
-}
-
 // PacketTrailerHandler implementation
 
 PacketTrailerHandler::PacketTrailerHandler(
@@ -553,11 +535,6 @@ uint64_t PacketTrailerHandler::pop_next_received_timestamp() const {
     return meta->user_timestamp;
   }
   return UINT64_MAX;
-}
-
-void PacketTrailerHandler::enqueue_frame_metadata(uint64_t user_timestamp,
-                                                  uint32_t frame_id) const {
-  transformer_->enqueue_frame_metadata(user_timestamp, frame_id);
 }
 
 void PacketTrailerHandler::store_frame_metadata(

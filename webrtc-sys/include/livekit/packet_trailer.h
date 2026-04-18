@@ -134,9 +134,6 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
                             uint64_t user_timestamp,
                             uint32_t frame_id);
 
-  /// Queue frame metadata for ordered send-side propagation.
-  void enqueue_frame_metadata(uint64_t user_timestamp, uint32_t frame_id);
-
  private:
   void TransformSend(
       std::unique_ptr<webrtc::TransformableFrameInterface> frame);
@@ -167,7 +164,6 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   mutable webrtc::Mutex send_map_mutex_;
   mutable std::unordered_map<int64_t, PacketTrailerMetadata> send_map_;
   mutable std::deque<int64_t> send_map_order_;
-  mutable std::deque<PacketTrailerMetadata> send_queue_;
   static constexpr size_t kMaxSendMapEntries = 300;
 
   // Receive-side map: RTP timestamp -> frame metadata.
@@ -225,9 +221,6 @@ class PacketTrailerHandler {
   /// Returns UINT64_MAX if not found. Also caches the frame_id for retrieval
   /// via last_lookup_frame_id().
   uint64_t pop_next_received_timestamp() const;
-
-  /// Queue frame metadata for ordered send-side propagation.
-  void enqueue_frame_metadata(uint64_t user_timestamp, uint32_t frame_id) const;
 
   /// Store frame metadata for a given capture timestamp (sender side).
   void store_frame_metadata(int64_t capture_timestamp_us,
