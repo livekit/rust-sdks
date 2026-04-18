@@ -316,6 +316,26 @@ impl LocalParticipant {
             req.audio_features.push(proto::AudioTrackFeature::TfPreconnectBuffer as i32);
         }
 
+        // Auto-flag stereo on audio tracks whose underlying source declares
+        // num_channels == 2. Without this, the server treats the track as
+        // mono and libwebrtc's Opus path downmixes asymmetric stereo to
+        // mono-duplicated-both-channels (identical content on L and R).
+        // This matches the JS client SDK's forceStereo+audioFeatures behaviour.
+        // RtcAudioSource's num_channels() accessor is private (generated via
+        // enum_dispatch!), so we match the variant directly.
+        if let LocalTrack::Audio(audio_track) = &track {
+            use libwebrtc::audio_source::RtcAudioSource;
+            let is_stereo = match audio_track.rtc_source() {
+                RtcAudioSource::Native(native) => native.num_channels() == 2,
+                #[allow(unreachable_patterns)]
+                _ => false,
+            };
+            if is_stereo {
+                req.audio_features.push(proto::AudioTrackFeature::TfStereo as i32);
+                req.stereo = true;
+            }
+        }
+
         let mut encodings = Vec::default();
         match &track {
             LocalTrack::Video(video_track) => {
