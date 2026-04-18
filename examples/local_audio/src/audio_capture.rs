@@ -1,22 +1,19 @@
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, StreamTrait};
-use cpal::{Device, SampleFormat, SizedSample, Stream, StreamConfig};
+use cpal::{Device, InputCallbackInfo, SampleFormat, SizedSample, Stream, StreamConfig};
 use log::{error, info, warn};
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
 
 #[derive(Debug, Clone)]
 pub struct CapturedAudioChunk {
     pub samples: Vec<i16>,
     pub captured_at_us: u64,
-}
-
-fn unix_time_us_now() -> u64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_micros() as u64
+    pub callback_at_us: u64,
 }
 
 pub struct AudioCapture {
@@ -36,6 +33,7 @@ impl AudioCapture {
     ) -> Result<Self> {
         let is_running = Arc::new(AtomicBool::new(true));
         let is_running_clone = is_running.clone();
+        let callback_delay_log_state = Arc::new(AtomicU64::new(u64::MAX));
 
         let stream = match sample_format {
             SampleFormat::F32 => Self::create_input_stream::<f32>(
@@ -44,6 +42,7 @@ impl AudioCapture {
                 audio_tx,
                 db_tx,
                 is_running_clone,
+                callback_delay_log_state.clone(),
                 channel_index,
                 num_input_channels,
             )?,
@@ -53,6 +52,7 @@ impl AudioCapture {
                 audio_tx,
                 db_tx,
                 is_running_clone,
+                callback_delay_log_state.clone(),
                 channel_index,
                 num_input_channels,
             )?,
@@ -62,6 +62,7 @@ impl AudioCapture {
                 audio_tx,
                 db_tx,
                 is_running_clone,
+                callback_delay_log_state,
                 channel_index,
                 num_input_channels,
             )?,
@@ -82,6 +83,7 @@ impl AudioCapture {
         audio_tx: mpsc::UnboundedSender<CapturedAudioChunk>,
         db_tx: Option<mpsc::UnboundedSender<f32>>,
         is_running: Arc<AtomicBool>,
+        callback_delay_log_state: Arc<AtomicU64>,
         channel_index: u32,      // New: Index of the channel to capture
         num_input_channels: u32, // New: Total number of channels in input
     ) -> Result<Stream>
@@ -90,9 +92,30 @@ impl AudioCapture {
     {
         let stream = device.build_input_stream(
             &config,
-            move |data: &[T], _: &cpal::InputCallbackInfo| {
+            move |data: &[T], info: &InputCallbackInfo| {
                 if !is_running.load(Ordering::Relaxed) {
                     return;
+                }
+
+                let callback_delay = info
+                    .timestamp()
+                    .callback
+                    .duration_since(&info.timestamp().capture)
+                    .unwrap_or(Duration::ZERO);
+                let callback_delay_us = callback_delay.as_micros() as u64;
+                if callback_delay_log_state
+                    .compare_exchange(
+                        u64::MAX,
+                        callback_delay_us,
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                    )
+                    .is_ok()
+                {
+                    info!(
+                        "Audio capture callback delay: {:.2} ms",
+                        callback_delay_us as f64 / 1000.0
+                    );
                 }
 
                 // Extract samples from the selected channel (assuming interleaved format)
@@ -111,8 +134,16 @@ impl AudioCapture {
                     }
                 }
 
-                let chunk =
-                    CapturedAudioChunk { samples: converted, captured_at_us: unix_time_us_now() };
+                let callback_at_us = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_micros() as u64;
+                let captured_at_us = callback_at_us.saturating_sub(callback_delay_us);
+                let chunk = CapturedAudioChunk {
+                    samples: converted,
+                    captured_at_us,
+                    callback_at_us,
+                };
 
                 if let Err(e) = audio_tx.send(chunk) {
                     warn!("Failed to send audio data: {}", e);

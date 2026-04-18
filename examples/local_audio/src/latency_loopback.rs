@@ -5,8 +5,11 @@ mod db_meter;
 use anyhow::{anyhow, Result};
 use audio_capture::{AudioCapture, CapturedAudioChunk};
 use clap::Parser;
-use cpal::traits::{DeviceTrait, HostTrait};
-use cpal::{Device, SampleRate, StreamConfig};
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::{
+    BufferSize, Device, FromSample, Sample, SampleFormat, SampleRate, SizedSample, Stream,
+    StreamConfig, SupportedBufferSize, SupportedStreamConfig,
+};
 use env_logger::Env;
 use futures_util::StreamExt;
 use livekit::{
@@ -25,8 +28,12 @@ use livekit::{
 use livekit_api::access_token;
 use log::{info, warn};
 use std::{
+    collections::VecDeque,
     env,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::sync::{mpsc, watch};
@@ -37,22 +44,38 @@ fn unix_time_us_now() -> u64 {
 }
 
 #[derive(Default)]
-struct LatencyStats {
+struct StageStats {
     count: u64,
     sum_us: u128,
     min_us: u64,
     max_us: u64,
-    last_frame_id: Option<u32>,
-    missing_frame_ids: u64,
 }
 
-impl LatencyStats {
-    fn record(&mut self, latency_us: u64, frame_id: Option<u32>) {
+impl StageStats {
+    fn record(&mut self, latency_us: u64) {
         self.count += 1;
         self.sum_us += latency_us as u128;
         self.min_us = if self.count == 1 { latency_us } else { self.min_us.min(latency_us) };
         self.max_us = self.max_us.max(latency_us);
+    }
 
+    fn avg_us(&self) -> u64 {
+        if self.count == 0 {
+            0
+        } else {
+            (self.sum_us / self.count as u128) as u64
+        }
+    }
+}
+
+#[derive(Default)]
+struct FrameTracking {
+    last_frame_id: Option<u32>,
+    missing_frame_ids: u64,
+}
+
+impl FrameTracking {
+    fn record(&mut self, frame_id: Option<u32>) {
         if let Some(frame_id) = frame_id {
             if let Some(previous) = self.last_frame_id {
                 let gap = frame_id.wrapping_sub(previous);
@@ -63,13 +86,216 @@ impl LatencyStats {
             self.last_frame_id = Some(frame_id);
         }
     }
+}
 
-    fn avg_us(&self) -> u64 {
-        if self.count == 0 {
-            0
-        } else {
-            (self.sum_us / self.count as u128) as u64
+#[derive(Default)]
+struct BenchmarkStats {
+    capture_to_callback: StageStats,
+    callback_to_publish: StageStats,
+    capture_to_publish: StageStats,
+    capture_to_decoded: StageStats,
+    decode_to_playout: StageStats,
+    capture_to_playout: StageStats,
+    published_frames: u64,
+    decoded_frames: u64,
+    untimed_decoded_frames: u64,
+    played_frames: u64,
+    untimed_played_frames: u64,
+    frame_tracking: FrameTracking,
+}
+
+fn format_stage(stats: &StageStats) -> String {
+    if stats.count == 0 {
+        "n/a".to_string()
+    } else {
+        format!(
+            "{:.2}/{:.2}/{:.2}ms",
+            stats.avg_us() as f64 / 1000.0,
+            stats.min_us as f64 / 1000.0,
+            stats.max_us as f64 / 1000.0
+        )
+    }
+}
+
+struct PlaybackChunk {
+    samples: Vec<i16>,
+    offset: usize,
+    capture_timestamp_us: Option<u64>,
+    decode_callback_us: u64,
+}
+
+#[derive(Clone)]
+struct PlaybackSender {
+    queue: Arc<Mutex<VecDeque<PlaybackChunk>>>,
+}
+
+impl PlaybackSender {
+    fn push(
+        &self,
+        samples: Vec<i16>,
+        capture_timestamp_us: Option<u64>,
+        decode_callback_us: u64,
+    ) {
+        if let Ok(mut queue) = self.queue.lock() {
+            queue.push_back(PlaybackChunk {
+                samples,
+                offset: 0,
+                capture_timestamp_us,
+                decode_callback_us,
+            });
         }
+    }
+}
+
+struct AudioPlayout {
+    _stream: Stream,
+    queue: Arc<Mutex<VecDeque<PlaybackChunk>>>,
+}
+
+impl AudioPlayout {
+    fn sender(&self) -> PlaybackSender {
+        PlaybackSender { queue: self.queue.clone() }
+    }
+
+    fn new(
+        device: Device,
+        config: StreamConfig,
+        sample_format: SampleFormat,
+        stats: Arc<Mutex<BenchmarkStats>>,
+    ) -> Result<Self> {
+        let queue = Arc::new(Mutex::new(VecDeque::new()));
+        let playout_delay_log_state = Arc::new(AtomicU64::new(u64::MAX));
+
+        let stream = match sample_format {
+            SampleFormat::F32 => Self::create_output_stream::<f32>(
+                device,
+                config,
+                queue.clone(),
+                stats,
+                playout_delay_log_state,
+            )?,
+            SampleFormat::I16 => Self::create_output_stream::<i16>(
+                device,
+                config,
+                queue.clone(),
+                stats,
+                playout_delay_log_state,
+            )?,
+            SampleFormat::U16 => Self::create_output_stream::<u16>(
+                device,
+                config,
+                queue.clone(),
+                stats,
+                playout_delay_log_state,
+            )?,
+            sample_format => {
+                return Err(anyhow!("Unsupported output sample format: {:?}", sample_format));
+            }
+        };
+
+        stream.play()?;
+
+        Ok(Self { _stream: stream, queue })
+    }
+
+    fn create_output_stream<T>(
+        device: Device,
+        config: StreamConfig,
+        queue: Arc<Mutex<VecDeque<PlaybackChunk>>>,
+        stats: Arc<Mutex<BenchmarkStats>>,
+        playout_delay_log_state: Arc<AtomicU64>,
+    ) -> Result<Stream>
+    where
+        T: SizedSample + Sample + Send + 'static + FromSample<f32>,
+    {
+        let sample_rate = config.sample_rate.0;
+        let channels = config.channels as usize;
+
+        let stream = device.build_output_stream(
+            &config,
+            move |data: &mut [T], info: &cpal::OutputCallbackInfo| {
+                let timestamp = info.timestamp();
+                let callback_lead = timestamp
+                    .playback
+                    .duration_since(&timestamp.callback)
+                    .unwrap_or(Duration::ZERO);
+                let callback_lead_us = callback_lead.as_micros() as u64;
+
+                if playout_delay_log_state
+                    .compare_exchange(
+                        u64::MAX,
+                        callback_lead_us,
+                        Ordering::Relaxed,
+                        Ordering::Relaxed,
+                    )
+                    .is_ok()
+                {
+                    info!("Audio playout callback lead: {:.2} ms", callback_lead_us as f64 / 1000.0);
+                }
+
+                let callback_wall_clock_us = unix_time_us_now();
+                let base_playout_us = callback_wall_clock_us.saturating_add(callback_lead_us);
+
+                let mut queue = match queue.lock() {
+                    Ok(queue) => queue,
+                    Err(_) => {
+                        for sample in data.iter_mut() {
+                            *sample = T::from_sample(0.0f32);
+                        }
+                        return;
+                    }
+                };
+
+                for frame_index in 0..(data.len() / channels) {
+                    let mut mono_sample = 0i16;
+
+                    while let Some(front) = queue.front() {
+                        if front.offset >= front.samples.len() {
+                            queue.pop_front();
+                        } else {
+                            break;
+                        }
+                    }
+
+                    if let Some(front) = queue.front_mut() {
+                        if front.offset == 0 {
+                            let playout_us = base_playout_us.saturating_add(
+                                (frame_index as u64 * 1_000_000) / sample_rate as u64,
+                            );
+                            if let Ok(mut stats) = stats.lock() {
+                                stats.played_frames += 1;
+                                stats
+                                    .decode_to_playout
+                                    .record(playout_us.saturating_sub(front.decode_callback_us));
+                                if let Some(capture_timestamp_us) = front.capture_timestamp_us {
+                                    stats
+                                        .capture_to_playout
+                                        .record(playout_us.saturating_sub(capture_timestamp_us));
+                                } else {
+                                    stats.untimed_played_frames += 1;
+                                }
+                            }
+                        }
+
+                        mono_sample = front.samples[front.offset];
+                        front.offset += 1;
+                    }
+
+                    let converted = T::from_sample(mono_sample as f32 / i16::MAX as f32);
+                    let frame_start = frame_index * channels;
+                    let frame_end = frame_start + channels;
+                    for sample in &mut data[frame_start..frame_end] {
+                        *sample = converted;
+                    }
+                }
+            },
+            move |err| {
+                warn!("Audio output stream error: {}", err);
+            },
+            None,
+        )?;
+
+        Ok(stream)
     }
 }
 
@@ -82,8 +308,14 @@ struct Args {
     #[arg(short = 'i', long)]
     input_device: Option<String>,
 
+    #[arg(short = 'o', long)]
+    output_device: Option<String>,
+
     #[arg(short, long, default_value_t = 48_000)]
     sample_rate: u32,
+
+    #[arg(long, default_value_t = 256)]
+    output_buffer_frames: u32,
 
     /// Attach packet-trailer metadata every N milliseconds while still sending exact 10 ms audio frames.
     /// 20 ms matches the default Opus packetization cadence and avoids trailer metadata backlog.
@@ -136,6 +368,25 @@ fn list_audio_devices() -> Result<()> {
         println!("Default input device: {}", name);
     }
 
+    println!("\nAvailable audio output devices:");
+    println!("─────────────────────────────");
+
+    for (index, device) in host.output_devices()?.enumerate() {
+        let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
+        println!("{}. {}", index + 1, name);
+        if let Ok(config) = device.default_output_config() {
+            println!("   └─ Sample rate: {} Hz", config.sample_rate().0);
+            println!("   └─ Channels: {}", config.channels());
+            println!("   └─ Sample format: {:?}", config.sample_format());
+        }
+        println!();
+    }
+
+    if let Some(device) = host.default_output_device() {
+        let name = device.name().unwrap_or_else(|_| "Unknown".to_string());
+        println!("Default output device: {}", name);
+    }
+
     Ok(())
 }
 
@@ -150,6 +401,29 @@ fn find_input_device_by_name(name: &str) -> Result<Device> {
     }
 
     Err(anyhow!("Input device '{}' not found", name))
+}
+
+fn find_output_device_by_name(name: &str) -> Result<Device> {
+    let host = cpal::default_host();
+    for device in host.output_devices()? {
+        if let Ok(device_name) = device.name() {
+            if device_name.contains(name) {
+                return Ok(device);
+            }
+        }
+    }
+
+    Err(anyhow!("Output device '{}' not found", name))
+}
+
+fn requested_output_buffer_size(
+    supported_config: &SupportedStreamConfig,
+    requested_frames: u32,
+) -> BufferSize {
+    match supported_config.buffer_size() {
+        SupportedBufferSize::Range { min, max } => BufferSize::Fixed(requested_frames.clamp(*min, *max)),
+        SupportedBufferSize::Unknown => BufferSize::Default,
+    }
 }
 
 fn build_token(api_key: &str, api_secret: &str, identity: &str, room_name: &str) -> Result<String> {
@@ -183,6 +457,7 @@ async fn stream_audio_to_livekit(
     livekit_source: NativeAudioSource,
     sample_rate: u32,
     metadata_interval_ms: u32,
+    stats: Arc<Mutex<BenchmarkStats>>,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
     let samples_per_10ms = (sample_rate / 100) as usize;
@@ -197,6 +472,7 @@ async fn stream_audio_to_livekit(
     let mut buffer = Vec::<i16>::new();
     let mut next_frame_id: u32 = 1;
     let mut oldest_capture_us_in_buffer: Option<u64> = None;
+    let mut oldest_callback_us_in_buffer: Option<u64> = None;
     let mut frames_since_metadata = 0u32;
 
     loop {
@@ -217,6 +493,7 @@ async fn stream_audio_to_livekit(
 
         if oldest_capture_us_in_buffer.is_none() {
             oldest_capture_us_in_buffer = Some(audio_chunk.captured_at_us);
+            oldest_callback_us_in_buffer = Some(audio_chunk.callback_at_us);
         }
         buffer.extend_from_slice(&audio_chunk.samples);
 
@@ -226,6 +503,7 @@ async fn stream_audio_to_livekit(
             // benchmark estimates each emitted frame's capture time by walking
             // forward in 10 ms steps from the oldest chunk timestamp.
             let captured_at_us = oldest_capture_us_in_buffer.unwrap_or_else(unix_time_us_now);
+            let callback_at_us = oldest_callback_us_in_buffer.unwrap_or(captured_at_us);
             let attach_metadata = frames_since_metadata == 0;
             let frame_id = attach_metadata.then_some(next_frame_id);
             if attach_metadata {
@@ -243,13 +521,67 @@ async fn stream_audio_to_livekit(
             };
 
             livekit_source.capture_frame(&audio_frame).await?;
+            let publish_completed_us = unix_time_us_now();
+            if let Ok(mut stats) = stats.lock() {
+                stats.published_frames += 1;
+                stats
+                    .capture_to_callback
+                    .record(callback_at_us.saturating_sub(captured_at_us));
+                stats
+                    .callback_to_publish
+                    .record(publish_completed_us.saturating_sub(callback_at_us));
+                stats
+                    .capture_to_publish
+                    .record(publish_completed_us.saturating_sub(captured_at_us));
+            }
             frames_since_metadata = (frames_since_metadata + 1) % metadata_interval_frames;
 
             oldest_capture_us_in_buffer = Some(captured_at_us.saturating_add(10_000));
+            oldest_callback_us_in_buffer = Some(callback_at_us.saturating_add(10_000));
         }
     }
 
     Ok(())
+}
+
+async fn run_summary_loop(
+    stats: Arc<Mutex<BenchmarkStats>>,
+    mut shutdown_rx: watch::Receiver<bool>,
+) {
+    let mut summary_interval = time::interval(Duration::from_secs(1));
+    summary_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+
+    loop {
+        tokio::select! {
+            changed = shutdown_rx.changed() => {
+                if changed.is_ok() && *shutdown_rx.borrow() {
+                    break;
+                }
+            }
+            _ = summary_interval.tick() => {
+                if let Ok(stats) = stats.lock() {
+                    info!(
+                        "Latency summary: capture->callback={} callback->publish={} capture->publish={} capture->decoded={} decode->playout={} capture->playout={} published_frames={} decoded_frames={} timed_decoded={} untimed_decoded={} played_frames={} timed_played={} untimed_played={} last_frame_id={:?} missing_frame_ids={}",
+                        format_stage(&stats.capture_to_callback),
+                        format_stage(&stats.callback_to_publish),
+                        format_stage(&stats.capture_to_publish),
+                        format_stage(&stats.capture_to_decoded),
+                        format_stage(&stats.decode_to_playout),
+                        format_stage(&stats.capture_to_playout),
+                        stats.published_frames,
+                        stats.decoded_frames,
+                        stats.capture_to_decoded.count,
+                        stats.untimed_decoded_frames,
+                        stats.played_frames,
+                        stats.capture_to_playout.count,
+                        stats.untimed_played_frames,
+                        stats.frame_tracking.last_frame_id,
+                        stats.frame_tracking.missing_frame_ids
+                    );
+                }
+            }
+        }
+    }
 }
 
 fn is_target_audio_publication(
@@ -312,14 +644,11 @@ async fn run_audio_stream(
     publication: RemoteTrackPublication,
     track: RemoteAudioTrack,
     sample_rate: u32,
+    stats: Arc<Mutex<BenchmarkStats>>,
+    playback_sender: PlaybackSender,
     mut shutdown_rx: watch::Receiver<bool>,
 ) {
     let mut audio_stream = NativeAudioStream::new(track.rtc_track(), sample_rate as i32, 1);
-    let mut stats = LatencyStats::default();
-    let mut decoded_frames = 0u64;
-    let mut untimed_frames = 0u64;
-    let mut summary_interval = time::interval(Duration::from_secs(1));
-    summary_interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
     info!(
         "Receiving audio from '{}' track '{}' (sid {}, trailer_features={:?})",
@@ -336,46 +665,43 @@ async fn run_audio_stream(
                     break;
                 }
             }
-            _ = summary_interval.tick() => {
-                info!(
-                    "Latency summary: avg={:.2}ms min={:.2}ms max={:.2}ms timed_samples={} decoded_frames={} untimed_frames={} last_frame_id={:?} missing_frame_ids={}",
-                    stats.avg_us() as f64 / 1000.0,
-                    stats.min_us as f64 / 1000.0,
-                    stats.max_us as f64 / 1000.0,
-                    stats.count,
-                    decoded_frames,
-                    untimed_frames,
-                    stats.last_frame_id,
-                    stats.missing_frame_ids
-                );
-            }
             frame = audio_stream.next() => {
                 let Some(frame) = frame else {
                     break;
                 };
 
-                decoded_frames += 1;
+                let decoded_callback_us = unix_time_us_now();
+                let metadata = frame.frame_metadata.clone();
 
-                if let Some(metadata) = frame.frame_metadata {
-                    if let Some(user_timestamp) = metadata.user_timestamp {
-                        let now_us = unix_time_us_now();
-                        if now_us < user_timestamp {
-                            warn!(
-                                "Skipping frame with future timestamp: now_us={} user_timestamp={}",
-                                now_us, user_timestamp
-                            );
-                            continue;
+                if let Ok(mut stats) = stats.lock() {
+                    stats.decoded_frames += 1;
+                    if let Some(metadata) = &metadata {
+                        if let Some(user_timestamp) = metadata.user_timestamp {
+                            if decoded_callback_us >= user_timestamp {
+                                stats
+                                    .capture_to_decoded
+                                    .record(decoded_callback_us.saturating_sub(user_timestamp));
+                                stats.frame_tracking.record(metadata.frame_id);
+                            } else {
+                                warn!(
+                                    "Skipping frame with future timestamp: now_us={} user_timestamp={}",
+                                    decoded_callback_us, user_timestamp
+                                );
+                                continue;
+                            }
+                        } else {
+                            stats.untimed_decoded_frames += 1;
                         }
-
-                        let latency_us = now_us - user_timestamp;
-                        stats.record(latency_us, metadata.frame_id);
-
                     } else {
-                        untimed_frames += 1;
+                        stats.untimed_decoded_frames += 1;
                     }
-                } else {
-                    untimed_frames += 1;
                 }
+
+                playback_sender.push(
+                    frame.data.into_owned(),
+                    metadata.and_then(|metadata| metadata.user_timestamp),
+                    decoded_callback_us,
+                );
             }
         }
     }
@@ -384,8 +710,8 @@ async fn run_audio_stream(
         "Audio stream ended for '{}' track '{}' after {} decoded frames and {} latency samples",
         participant.identity(),
         publication.name(),
-        decoded_frames,
-        stats.count
+        stats.lock().map(|stats| stats.decoded_frames).unwrap_or_default(),
+        stats.lock().map(|stats| stats.capture_to_decoded.count).unwrap_or_default()
     );
 }
 
@@ -393,6 +719,8 @@ async fn run_subscriber(
     room: Arc<Room>,
     target_identity: String,
     sample_rate: u32,
+    stats: Arc<Mutex<BenchmarkStats>>,
+    playback_sender: PlaybackSender,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
     let mut room_events = room.subscribe();
@@ -464,6 +792,8 @@ async fn run_subscriber(
                     publication,
                     audio_track,
                     sample_rate,
+                    stats.clone(),
+                    playback_sender.clone(),
                     shutdown_rx.clone(),
                 ));
             }
@@ -550,10 +880,36 @@ async fn main() -> Result<()> {
         args.metadata_interval_ms
     );
 
+    let output_device = if let Some(device_name) = &args.output_device {
+        find_output_device_by_name(device_name)?
+    } else {
+        host.default_output_device().ok_or_else(|| anyhow!("No default output device available"))?
+    };
+    let output_supported_config = output_device.default_output_config()?;
+    let output_buffer_size =
+        requested_output_buffer_size(&output_supported_config, args.output_buffer_frames);
+    let output_device_name = output_device.name().unwrap_or_else(|_| "Unknown".to_string());
+    let output_buffer_description = match output_buffer_size {
+        BufferSize::Fixed(frames) => format!("{} frames", frames),
+        BufferSize::Default => "default".to_string(),
+    };
+    info!(
+        "Using output device '{}' at {} Hz (playout channels={}, requested buffer={})",
+        output_device_name,
+        args.sample_rate,
+        output_supported_config.channels(),
+        output_buffer_description
+    );
+
     let input_config = StreamConfig {
         channels: input_supported_config.channels(),
         sample_rate: SampleRate(args.sample_rate),
         buffer_size: cpal::BufferSize::Default,
+    };
+    let output_config = StreamConfig {
+        channels: output_supported_config.channels(),
+        sample_rate: SampleRate(args.sample_rate),
+        buffer_size: output_buffer_size,
     };
 
     let publisher_token =
@@ -566,6 +922,14 @@ async fn main() -> Result<()> {
     let subscriber_room =
         Arc::new(connect_room(&url, &subscriber_token, &args.subscriber_identity, false).await?);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let stats = Arc::new(Mutex::new(BenchmarkStats::default()));
+    let audio_playout = AudioPlayout::new(
+        output_device,
+        output_config,
+        output_supported_config.sample_format(),
+        stats.clone(),
+    )?;
+    let playback_sender = audio_playout.sender();
 
     let livekit_source = NativeAudioSource::new(
         AudioSourceOptions {
@@ -609,8 +973,11 @@ async fn main() -> Result<()> {
         subscriber_room.clone(),
         args.publisher_identity.clone(),
         args.sample_rate,
+        stats.clone(),
+        playback_sender,
         shutdown_rx.clone(),
     ));
+    let mut summary_task = tokio::spawn(run_summary_loop(stats.clone(), shutdown_rx.clone()));
 
     let (audio_tx, audio_rx) = mpsc::unbounded_channel();
     let audio_capture = AudioCapture::new(
@@ -629,6 +996,7 @@ async fn main() -> Result<()> {
         livekit_source,
         args.sample_rate,
         args.metadata_interval_ms,
+        stats,
         shutdown_rx.clone(),
     ));
 
@@ -647,14 +1015,18 @@ async fn main() -> Result<()> {
         result = &mut publisher_task => {
             result??;
         }
+        _ = &mut summary_task => {}
     }
 
     let _ = shutdown_tx.send(true);
     audio_capture.stop();
     publisher_task.abort();
     subscriber_task.abort();
+    summary_task.abort();
     let _ = publisher_task.await;
     let _ = subscriber_task.await;
+    let _ = summary_task.await;
+    drop(audio_playout);
     publisher_room.close().await?;
     subscriber_room.close().await?;
     Ok(())
