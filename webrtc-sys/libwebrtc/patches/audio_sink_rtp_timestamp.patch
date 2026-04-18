@@ -1,0 +1,19 @@
+diff --git a/pc/remote_audio_source.cc b/pc/remote_audio_source.cc
+index 83f13bb8a3..cd25ec7edf 100644
+--- a/pc/remote_audio_source.cc
++++ b/pc/remote_audio_source.cc
+@@ -99,9 +99,10 @@ void RemoteAudioSource::OnData(const AudioSinkInterface::Data& audio) {
+   // Called on the externally-owned audio callback thread, via/from webrtc.
+   MutexLock lock(&sink_lock_);
+   for (auto* sink : sinks_) {
+-    // When peerconnection acts as an audio source, it should not provide
+-    // absolute capture timestamp.
++    // Preserve the decoded frame's RTP timestamp for downstream sinks.
++    // We use the optional timestamp slot here because peerconnection-backed
++    // audio tracks do not provide absolute capture timestamps in this path.
+     sink->OnData(audio.data, 16, audio.sample_rate, audio.channels,
+                  audio.samples_per_channel,
+-                 /*absolute_capture_timestamp_ms=*/std::nullopt);
++                 /*absolute_capture_timestamp_ms=*/audio.timestamp);
+   }
+ }
