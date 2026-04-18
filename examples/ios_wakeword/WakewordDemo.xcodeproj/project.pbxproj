@@ -1,0 +1,473 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		05719E94681D8D5B0FD8FA1D /* WakewordEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8206EA4B0BBC90A47E5F1C9 /* WakewordEngine.swift */; };
+		2A8BABE0C273FC023C428B8D /* hey_figure.onnx in Resources */ = {isa = PBXBuildFile; fileRef = 309551A56812179791CEA307 /* hey_figure.onnx */; };
+		2D2EB5EBD8427B3971F0EDB4 /* WakewordDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 531722556659D603FBDBF80C /* WakewordDemoApp.swift */; };
+		40E6411EB67CE5E47C2A16B1 /* hey_figure.onnx in Resources */ = {isa = PBXBuildFile; fileRef = 309551A56812179791CEA307 /* hey_figure.onnx */; };
+		5F662C664E3FA009C4050852 /* WakewordDemoApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 531722556659D603FBDBF80C /* WakewordDemoApp.swift */; };
+		64253D7B3BAD5CC68FFEB2D9 /* LiveKitUniFFI in Frameworks */ = {isa = PBXBuildFile; productRef = 8A8F17B5F00AD46224310CA9 /* LiveKitUniFFI */; };
+		8696DB4A2BC5CA4CB27AF405 /* hey_livekit.onnx in Resources */ = {isa = PBXBuildFile; fileRef = E21131482596097F6DCF52DD /* hey_livekit.onnx */; };
+		9CBF8B77A9DD9144D0264E3A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29F11384EFE2A90A31C81C71 /* ContentView.swift */; };
+		9D683EF826234BA2BFF1C4D0 /* LiveKitUniFFI in Frameworks */ = {isa = PBXBuildFile; productRef = C117C3B97F769C2AC15A04DD /* LiveKitUniFFI */; };
+		A9B4BB43E681AFBEF7B04849 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 29F11384EFE2A90A31C81C71 /* ContentView.swift */; };
+		E2B02B5C115E6A8C7CEE24AC /* hey_livekit.onnx in Resources */ = {isa = PBXBuildFile; fileRef = E21131482596097F6DCF52DD /* hey_livekit.onnx */; };
+		E744FEFF88D8F21580E29A4B /* WakewordEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8206EA4B0BBC90A47E5F1C9 /* WakewordEngine.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		29F11384EFE2A90A31C81C71 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		309551A56812179791CEA307 /* hey_figure.onnx */ = {isa = PBXFileReference; path = hey_figure.onnx; sourceTree = "<group>"; };
+		531722556659D603FBDBF80C /* WakewordDemoApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakewordDemoApp.swift; sourceTree = "<group>"; };
+		59E2C222CEB4579B8D929519 /* LiveKitUniFFI */ = {isa = PBXFileReference; lastKnownFileType = folder; name = LiveKitUniFFI; path = "../../livekit-uniffi/packages/swift/LiveKitUniFFI"; sourceTree = SOURCE_ROOT; };
+		6144737F06FDEECB4D48D018 /* WakewordDemo.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = WakewordDemo.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C8206EA4B0BBC90A47E5F1C9 /* WakewordEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakewordEngine.swift; sourceTree = "<group>"; };
+		DB0F77E741E377746B89C9C5 /* WakewordDemoMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WakewordDemoMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E21131482596097F6DCF52DD /* hey_livekit.onnx */ = {isa = PBXFileReference; path = hey_livekit.onnx; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		91D5C90738F96596CD38DF24 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9D683EF826234BA2BFF1C4D0 /* LiveKitUniFFI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		9E6D5AB6DC32A1E402D9014D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				64253D7B3BAD5CC68FFEB2D9 /* LiveKitUniFFI in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		432C23A1F68BF143066C7230 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				309551A56812179791CEA307 /* hey_figure.onnx */,
+				E21131482596097F6DCF52DD /* hey_livekit.onnx */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		4B02E3CAEB1918DBFD8C5CE9 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				6144737F06FDEECB4D48D018 /* WakewordDemo.app */,
+				DB0F77E741E377746B89C9C5 /* WakewordDemoMac.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		53D0CEE2FE4C8A0F583A10AE = {
+			isa = PBXGroup;
+			children = (
+				5C478B1280AB8E3291B9D621 /* Packages */,
+				E75ED11988F43213734A9861 /* WakewordDemo */,
+				4B02E3CAEB1918DBFD8C5CE9 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5C478B1280AB8E3291B9D621 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				59E2C222CEB4579B8D929519 /* LiveKitUniFFI */,
+			);
+			name = Packages;
+			sourceTree = "<group>";
+		};
+		E75ED11988F43213734A9861 /* WakewordDemo */ = {
+			isa = PBXGroup;
+			children = (
+				29F11384EFE2A90A31C81C71 /* ContentView.swift */,
+				531722556659D603FBDBF80C /* WakewordDemoApp.swift */,
+				C8206EA4B0BBC90A47E5F1C9 /* WakewordEngine.swift */,
+				432C23A1F68BF143066C7230 /* Resources */,
+			);
+			path = WakewordDemo;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		77CF2B68E2C00077CE44B8AB /* WakewordDemo */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6608EC3D138EA2DB9CCFB8E3 /* Build configuration list for PBXNativeTarget "WakewordDemo" */;
+			buildPhases = (
+				D5E2489BCD261391897D0B0D /* Sources */,
+				582908EC9FEEFD7FA230765F /* Resources */,
+				91D5C90738F96596CD38DF24 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WakewordDemo;
+			packageProductDependencies = (
+				C117C3B97F769C2AC15A04DD /* LiveKitUniFFI */,
+			);
+			productName = WakewordDemo;
+			productReference = 6144737F06FDEECB4D48D018 /* WakewordDemo.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C10A01358EC82FA6B1349DA6 /* WakewordDemoMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 40B8774F81A28391FF15BB00 /* Build configuration list for PBXNativeTarget "WakewordDemoMac" */;
+			buildPhases = (
+				D41F9E4C3FF1F2233899571E /* Sources */,
+				1B810AF7F209B6C3645603EA /* Resources */,
+				9E6D5AB6DC32A1E402D9014D /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = WakewordDemoMac;
+			packageProductDependencies = (
+				8A8F17B5F00AD46224310CA9 /* LiveKitUniFFI */,
+			);
+			productName = WakewordDemoMac;
+			productReference = DB0F77E741E377746B89C9C5 /* WakewordDemoMac.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		4C88BC9D487FE4F6C78EE87F /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = CA7211C0C8219D4B905B0BC3 /* Build configuration list for PBXProject "WakewordDemo" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 53D0CEE2FE4C8A0F583A10AE;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				9EDEBAB07F7E5BC04400F279 /* XCLocalSwiftPackageReference "../../livekit-uniffi/packages/swift/LiveKitUniFFI" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 4B02E3CAEB1918DBFD8C5CE9 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				77CF2B68E2C00077CE44B8AB /* WakewordDemo */,
+				C10A01358EC82FA6B1349DA6 /* WakewordDemoMac */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		1B810AF7F209B6C3645603EA /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				2A8BABE0C273FC023C428B8D /* hey_figure.onnx in Resources */,
+				E2B02B5C115E6A8C7CEE24AC /* hey_livekit.onnx in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		582908EC9FEEFD7FA230765F /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				40E6411EB67CE5E47C2A16B1 /* hey_figure.onnx in Resources */,
+				8696DB4A2BC5CA4CB27AF405 /* hey_livekit.onnx in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		D41F9E4C3FF1F2233899571E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A9B4BB43E681AFBEF7B04849 /* ContentView.swift in Sources */,
+				2D2EB5EBD8427B3971F0EDB4 /* WakewordDemoApp.swift in Sources */,
+				E744FEFF88D8F21580E29A4B /* WakewordEngine.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D5E2489BCD261391897D0B0D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9CBF8B77A9DD9144D0264E3A /* ContentView.swift in Sources */,
+				5F662C664E3FA009C4050852 /* WakewordDemoApp.swift in Sources */,
+				05719E94681D8D5B0FD8FA1D /* WakewordEngine.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		08D9972AFDF42BBC45463494 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = WakewordDemo/WakewordDemoMac.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "WakewordDemo/Info-Mac.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.livekit.example.WakewordDemoMac;
+				PRODUCT_NAME = WakewordDemo;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		3A8A2D6AE2FE889F0926487E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		910660275B77289DA84D6E73 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = WakewordDemo/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.livekit.example.WakewordDemo;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		C6717A40DE9F406CF26EB944 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = WakewordDemo/WakewordDemoMac.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "WakewordDemo/Info-Mac.plist";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.livekit.example.WakewordDemoMac;
+				PRODUCT_NAME = WakewordDemo;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		DD412684BA41061AA169EF69 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = WakewordDemo/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.livekit.example.WakewordDemo;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		E8DA8D2508592A7D41E47904 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				MACOSX_DEPLOYMENT_TARGET = 12.0;
+				MARKETING_VERSION = 0.1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		40B8774F81A28391FF15BB00 /* Build configuration list for PBXNativeTarget "WakewordDemoMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				08D9972AFDF42BBC45463494 /* Debug */,
+				C6717A40DE9F406CF26EB944 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		6608EC3D138EA2DB9CCFB8E3 /* Build configuration list for PBXNativeTarget "WakewordDemo" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				910660275B77289DA84D6E73 /* Debug */,
+				DD412684BA41061AA169EF69 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		CA7211C0C8219D4B905B0BC3 /* Build configuration list for PBXProject "WakewordDemo" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3A8A2D6AE2FE889F0926487E /* Debug */,
+				E8DA8D2508592A7D41E47904 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		9EDEBAB07F7E5BC04400F279 /* XCLocalSwiftPackageReference "../../livekit-uniffi/packages/swift/LiveKitUniFFI" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = "../../livekit-uniffi/packages/swift/LiveKitUniFFI";
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8A8F17B5F00AD46224310CA9 /* LiveKitUniFFI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LiveKitUniFFI;
+		};
+		C117C3B97F769C2AC15A04DD /* LiveKitUniFFI */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = LiveKitUniFFI;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 4C88BC9D487FE4F6C78EE87F /* Project object */;
+}

@@ -4140,8 +4140,11 @@ version = "0.1.0"
 dependencies = [
  "livekit-api",
  "livekit-protocol",
+ "livekit-wakeword",
  "log",
  "once_cell",
+ "parking_lot",
+ "thiserror 2.0.18",
  "tokio",
  "uniffi",
 ]

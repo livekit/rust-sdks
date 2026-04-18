@@ -1,0 +1,104 @@
+name: WakewordDemo
+options:
+  bundleIdPrefix: io.livekit.example
+  deploymentTarget:
+    iOS: "15.0"
+    macOS: "12.0"
+  createIntermediateGroups: true
+  xcodeVersion: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+packages:
+  LiveKitUniFFI:
+    path: ../../livekit-uniffi/packages/swift/LiveKitUniFFI
+
+targets:
+  WakewordDemo:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: WakewordDemo
+        excludes:
+          - "Info.plist"
+          - "Info-Mac.plist"
+          - "WakewordDemoMac.entitlements"
+    resources:
+      - path: WakewordDemo/Resources
+    info:
+      path: WakewordDemo/Info.plist
+      properties:
+        CFBundleDisplayName: Wakeword Demo
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSMicrophoneUsageDescription: Used to detect the "Hey LiveKit" wake word on-device.
+        UILaunchScreen:
+          UIColorName: ""
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIRequiredDeviceCapabilities:
+          - arm64
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.livekit.example.WakewordDemo
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: NO
+    dependencies:
+      - package: LiveKitUniFFI
+        product: LiveKitUniFFI
+
+  WakewordDemoMac:
+    type: application
+    platform: macOS
+    deploymentTarget: "12.0"
+    sources:
+      - path: WakewordDemo
+        excludes:
+          - "Info.plist"
+          - "Info-Mac.plist"
+          - "WakewordDemoMac.entitlements"
+    resources:
+      - path: WakewordDemo/Resources
+    info:
+      path: WakewordDemo/Info-Mac.plist
+      properties:
+        CFBundleDisplayName: Wakeword Demo
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSMicrophoneUsageDescription: Used to detect the "Hey LiveKit" wake word on-device.
+        NSHighResolutionCapable: true
+    entitlements:
+      path: WakewordDemo/WakewordDemoMac.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.device.audio-input: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.livekit.example.WakewordDemoMac
+        PRODUCT_NAME: WakewordDemo
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: WakewordDemo/WakewordDemoMac.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+    dependencies:
+      - package: LiveKitUniFFI
+        product: LiveKitUniFFI
+
+schemes:
+  WakewordDemo:
+    build:
+      targets:
+        WakewordDemo: all
+    run:
+      config: Debug
+  WakewordDemoMac:
+    build:
+      targets:
+        WakewordDemoMac: all
+    run:
+      config: Debug
