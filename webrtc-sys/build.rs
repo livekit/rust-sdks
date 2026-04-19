@@ -16,6 +16,10 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::{env, path, process::Command};
 
+fn lk_headless() -> bool {
+    env::var("LK_HEADLESS").map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false)
+}
+
 fn main() {
     if env::var("DOCS_RS").is_ok() {
         return;
@@ -23,10 +27,13 @@ fn main() {
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap();
     let target_arch = env::var("CARGO_CFG_TARGET_ARCH").unwrap();
-    let is_desktop = target_os == "linux" || target_os == "windows" || target_os == "macos";
+    let headless_linux = target_os == "linux" && lk_headless();
+    let is_desktop =
+        (target_os == "linux" || target_os == "windows" || target_os == "macos") && !headless_linux;
 
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
+    println!("cargo:rerun-if-env-changed=LK_HEADLESS");
 
     let mut rust_files = vec![
         "src/peer_connection.rs",
@@ -166,20 +173,22 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
 
-            // In order to avoid any ABI mismatches we use the sysroot's headers.
-            add_gio_headers(&mut builder);
+            if !headless_linux {
+                // In order to avoid any ABI mismatches we use the sysroot's headers.
+                add_gio_headers(&mut builder);
 
-            for lib_name in ["glib-2.0", "gobject-2.0", "gio-2.0"] {
-                pkg_config::probe_library(lib_name).unwrap();
+                for lib_name in ["glib-2.0", "gobject-2.0", "gio-2.0"] {
+                    pkg_config::probe_library(lib_name).unwrap();
+                }
+
+                add_lazy_load_so(
+                    &mut builder,
+                    "desktop_capturer",
+                    ["drm", "gbm", "X11", "Xfixes", "Xdamage", "Xrandr", "Xcomposite", "Xext"]
+                        .map(String::from)
+                        .to_vec(),
+                );
             }
-
-            add_lazy_load_so(
-                &mut builder,
-                "desktop_capturer",
-                ["drm", "gbm", "X11", "Xfixes", "Xdamage", "Xrandr", "Xcomposite", "Xext"]
-                    .map(String::from)
-                    .to_vec(),
-            );
 
             let x86 = target_arch == "x86_64" || target_arch == "i686";
             let arm = target_arch == "aarch64" || target_arch.contains("arm");

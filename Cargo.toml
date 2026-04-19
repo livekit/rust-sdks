@@ -45,7 +45,7 @@ license = "Apache-2.0"
 [workspace.dependencies]
 device-info = { version = "0.1.0", path = "device-info" }
 imgproc = { version = "0.3.19", path = "imgproc" }
-libwebrtc = { version = "0.3.29", path = "libwebrtc" }
+libwebrtc = { version = "0.3.29", path = "libwebrtc", default-features = false }
 livekit = { version = "0.7.36", path = "livekit" }
 livekit-api = { version = "0.4.18", path = "livekit-api" }
 livekit-ffi = { version = "0.12.52", path = "livekit-ffi" }
