@@ -9,7 +9,7 @@ tokio = { workspace = true, features = ["full"] }
 env_logger = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
-libwebrtc = { workspace = true }
+libwebrtc = { workspace = true, features = ["glib-main-loop"] }
 log = { workspace = true }
 cpal = "0.15"
 anyhow = { workspace = true }

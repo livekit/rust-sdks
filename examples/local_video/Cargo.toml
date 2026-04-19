@@ -26,7 +26,7 @@ required-features = ["desktop"]
 tokio = { workspace = true, features = ["full", "parking_lot"] }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 webrtc-sys = { workspace = true }
-libwebrtc = { workspace = true }
+libwebrtc = { workspace = true, features = ["glib-main-loop"] }
 livekit-api = { workspace = true }
 yuv-sys = { workspace = true, features = ["jpeg"] }
 futures = { workspace = true }
