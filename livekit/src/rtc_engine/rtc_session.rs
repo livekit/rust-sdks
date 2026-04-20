@@ -205,6 +205,9 @@ pub enum SessionEvent {
         sid: String,
         muted: bool,
     },
+    SubscribedQualityUpdate {
+        update: proto::SubscribedQualityUpdate,
+    },
     LocalDataTrackInput(dt::local::InputEvent),
     RemoteDataTrackInput(dt::remote::InputEvent),
 }
@@ -1208,6 +1211,14 @@ impl SessionInner {
                 if self.single_pc_mode {
                     self.handle_media_sections_requirement(req)?;
                 }
+            }
+            proto::signal_response::Message::SubscribedQualityUpdate(update) => {
+                log::debug!(
+                    "received subscribed quality update for track {}: {:?}",
+                    update.track_sid,
+                    update.subscribed_codecs
+                );
+                let _ = self.emitter.send(SessionEvent::SubscribedQualityUpdate { update });
             }
             _ => {}
         }

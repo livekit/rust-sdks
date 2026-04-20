@@ -192,6 +192,9 @@ pub enum EngineEvent {
         sid: String,
         muted: bool,
     },
+    SubscribedQualityUpdate {
+        update: proto::SubscribedQualityUpdate,
+    },
     LocalDataTrackInput(dt::local::InputEvent),
     RemoteDataTrackInput(dt::remote::InputEvent),
 }
@@ -637,6 +640,9 @@ impl EngineInner {
             }
             SessionEvent::TrackMuted { sid, muted } => {
                 let _ = self.engine_tx.send(EngineEvent::TrackMuted { sid, muted });
+            }
+            SessionEvent::SubscribedQualityUpdate { update } => {
+                let _ = self.engine_tx.send(EngineEvent::SubscribedQualityUpdate { update });
             }
             SessionEvent::LocalDataTrackInput(event) => {
                 let _ = self.engine_tx.send(EngineEvent::LocalDataTrackInput(event));

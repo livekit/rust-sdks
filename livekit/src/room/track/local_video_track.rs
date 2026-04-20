@@ -146,4 +146,88 @@ impl LocalVideoTrack {
     pub(crate) fn update_info(&self, info: proto::TrackInfo) {
         super::update_info(&self.inner, &Track::LocalVideo(self.clone()), info);
     }
+
+    /// Returns a snapshot of each simulcast layer's RID, quality label, and active state.
+    /// Useful for diagnostics / HUD display. Returns an empty vec if no transceiver is set.
+    pub fn publishing_layers(&self) -> Vec<(String, String, bool)> {
+        let Some(transceiver) = self.transceiver() else {
+            return Vec::new();
+        };
+        let params = transceiver.sender().parameters();
+        params
+            .encodings
+            .iter()
+            .map(|e| {
+                let quality = crate::options::video_quality_for_rid(&e.rid)
+                    .unwrap_or(proto::VideoQuality::High);
+                (e.rid.clone(), format!("{:?}", quality), e.active)
+            })
+            .collect()
+    }
+
+    /// Toggle simulcast encoding layers on/off based on subscriber demand.
+    /// Used by dynacast: the SFU tells us which quality levels are needed,
+    /// and we set `encoding.active` accordingly on the RTP sender.
+    pub(crate) fn set_publishing_layers(
+        &self,
+        qualities: &[proto::SubscribedQuality],
+    ) -> RoomResult<()> {
+        let transceiver = self.transceiver().ok_or_else(|| {
+            RoomError::Internal("cannot set publishing layers: no transceiver".into())
+        })?;
+
+        let sender = transceiver.sender();
+        let mut params = sender.parameters();
+
+        let mut any_enabled = false;
+        let mut changed = false;
+        for encoding in &mut params.encodings {
+            let quality = crate::options::video_quality_for_rid(&encoding.rid)
+                .unwrap_or(proto::VideoQuality::High);
+
+            let should_active = qualities
+                .iter()
+                .find(|q| q.quality == quality as i32)
+                .map(|q| q.enabled)
+                .unwrap_or(false);
+
+            if should_active {
+                any_enabled = true;
+            }
+
+            if encoding.active != should_active {
+                changed = true;
+                encoding.active = should_active;
+            }
+        }
+
+        if !any_enabled {
+            for encoding in &mut params.encodings {
+                encoding.active = false;
+            }
+        }
+
+        let layers: Vec<String> = params
+            .encodings
+            .iter()
+            .map(|e| {
+                let quality = crate::options::video_quality_for_rid(&e.rid)
+                    .unwrap_or(proto::VideoQuality::High);
+                let state = if e.active { "ON" } else { "off" };
+                format!("{}({:?})={}", e.rid, quality, state)
+            })
+            .collect();
+
+        if changed {
+            log::info!("dynacast: layers changed -> [{}]", layers.join(", "));
+        } else {
+            log::debug!("dynacast: layers unchanged [{}]", layers.join(", "));
+        }
+
+        sender
+            .set_parameters(params)
+            .map_err(|e| RoomError::Internal(format!("failed to set sender parameters: {}", e)))?;
+
+        Ok(())
+    }
 }
