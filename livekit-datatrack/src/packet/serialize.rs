@@ -77,8 +77,8 @@ impl Header {
     /// Lengths of individual elements in the serialized header.
     fn metrics(&self) -> HeaderMetrics {
         let ext_len = self.extensions.serialized_len();
-        let ext_words = ext_len.div_ceil(4);
-        let padding_len = (ext_words * 4) - ext_len;
+        let ext_words = (EXT_WORDS_INDICATOR_SIZE + ext_len).div_ceil(4);
+        let padding_len = (ext_words * 4) - EXT_WORDS_INDICATOR_SIZE - ext_len;
         HeaderMetrics { ext_len, ext_words, padding_len }
     }
 
@@ -198,21 +198,21 @@ mod tests {
         let metrics = packet().header.metrics();
         assert_eq!(metrics.ext_len, 25);
         assert_eq!(metrics.ext_words, 7);
-        assert_eq!(metrics.padding_len, 3);
+        assert_eq!(metrics.padding_len, 1);
     }
 
     #[test]
     fn test_serialized_length() {
         let packet = packet();
-        assert_eq!(packet.serialized_len(), 1066);
-        assert_eq!(packet.header.serialized_len(), 42);
+        assert_eq!(packet.serialized_len(), 1064);
+        assert_eq!(packet.header.serialized_len(), 40);
         assert_eq!(packet.header.extensions.serialized_len(), 25);
     }
 
     #[test]
     fn test_serialize() {
         let mut buf = packet().serialize().try_into_mut().unwrap();
-        assert_eq!(buf.len(), 1066);
+        assert_eq!(buf.len(), 1064);
 
         // Base header
         assert_eq!(buf.get_u8(), 0xC); // Version 0, final, extension
@@ -234,9 +234,48 @@ mod tests {
         assert_eq!(buf.get_u8(), 8); // Length
         assert_eq!(buf.get_u64(), 0x4411221111118811);
 
-        assert_eq!(buf.copy_to_bytes(3), vec![0; 3]); // Padding
+        assert_eq!(buf.copy_to_bytes(1), vec![0; 1]); // Padding
         assert_eq!(buf.copy_to_bytes(1024), vec![0xFA; 1024]); // Payload
 
         assert_eq!(buf.remaining(), 0);
+    }
+
+    /// Demonstrates the ext_words encoding for E2EE-only (no user timestamp).
+    /// The Go server decodes: data_budget = (wire_ext_words + 1) * 4 - 2
+    /// The E2EE extension TLV is 15 bytes (tag=1 + len=1 + key_index=1 + iv=12).
+    #[test]
+    fn test_e2ee_only_ext_words_matches_server() {
+        use crate::packet::consts::{EXT_MARKER_LEN, EXT_WORDS_INDICATOR_SIZE};
+
+        let e2ee_only = Packet {
+            header: Header {
+                marker: FrameMarker::Single,
+                track_handle: 1u32.try_into().unwrap(),
+                sequence: 0,
+                frame_number: 0,
+                timestamp: Timestamp::from_ticks(0),
+                extensions: Extensions {
+                    user_timestamp: None,
+                    e2ee: E2eeExt { key_index: 0, iv: [0; 12] }.into(),
+                },
+            },
+            payload: vec![0xAB; 64].into(),
+        };
+
+        let metrics = e2ee_only.header.metrics();
+
+        let serialized = e2ee_only.serialize();
+        let wire_ext_words = u16::from_be_bytes([serialized[12], serialized[13]]);
+
+        // Go server computes: data_budget = (wire_ext_words + 1) * 4 - EXT_WORDS_INDICATOR_SIZE
+        let go_data_budget = (wire_ext_words as usize + 1) * 4 - EXT_WORDS_INDICATOR_SIZE;
+
+        let e2ee_tlv_size = EXT_MARKER_LEN + E2eeExt::LEN;
+
+        assert!(
+            go_data_budget >= e2ee_tlv_size,
+            "Go server data_budget ({}) < E2EE TLV size ({}). Wire ext_words={}, ext_len={}",
+            go_data_budget, e2ee_tlv_size, wire_ext_words, metrics.ext_len
+        );
     }
 }

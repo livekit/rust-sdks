@@ -81,7 +81,7 @@ impl Header {
             }
             let ext_words = raw.get_u16();
 
-            let ext_len = 4 * (ext_words as usize + 1);
+            let ext_len = 4 * (ext_words as usize + 1) - EXT_WORDS_INDICATOR_SIZE;
             if ext_len > raw.remaining() {
                 Err(DeserializeError::HeaderOverrun)?
             }
@@ -158,6 +158,7 @@ impl E2eeExt {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::packet::consts::EXT_WORDS_INDICATOR_SIZE;
     use bytes::{BufMut, BytesMut};
     use test_case::test_matrix;
 
@@ -232,7 +233,8 @@ mod tests {
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
 
         raw.put_u16(ext_words as u16); // Extension words
-        raw.put_bytes(0, (ext_words + 1) * 4); // Padding
+        let data_len = (ext_words + 1) * 4 - EXT_WORDS_INDICATOR_SIZE;
+        raw.put_bytes(0, data_len); // Padding
 
         let packet = Packet::deserialize(raw.freeze()).unwrap();
         assert_eq!(packet.payload.len(), 0);
@@ -242,13 +244,13 @@ mod tests {
     fn test_ext_e2ee() {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
-        raw.put_u16(3); // Extension words
+        raw.put_u16(4); // Extension words (includes 2-byte indicator in word count)
 
         raw.put_u8(1); // ID 1
         raw.put_u8(13); // Length
         raw.put_u8(0xFA); // Key index
         raw.put_bytes(0x3C, 12); // IV
-        raw.put_bytes(0, 1); // Padding
+        raw.put_bytes(0, 3); // Padding
 
         let packet = Packet::deserialize(raw.freeze()).unwrap();
         let e2ee = packet.header.extensions.e2ee.unwrap();
@@ -265,7 +267,6 @@ mod tests {
         raw.put_u8(2);
         raw.put_u8(8); // Length
         raw.put_slice(&[0x44, 0x11, 0x22, 0x11, 0x11, 0x11, 0x88, 0x11]); // User timestamp
-        raw.put_bytes(0, 2); // Padding
 
         let packet = Packet::deserialize(raw.freeze()).unwrap();
         assert_eq!(
@@ -284,7 +285,6 @@ mod tests {
         raw.put_u8(12); // Longer than known length (8), extra bytes are skipped
         raw.put_slice(&[0x44, 0x11, 0x22, 0x11, 0x11, 0x11, 0x88, 0x11]); // Known 8 bytes
         raw.put_bytes(0xFF, 4); // 4 extra bytes from a future version
-        raw.put_bytes(0, 2); // Padding
 
         let packet = Packet::deserialize(raw.freeze()).unwrap();
         assert_eq!(
@@ -302,7 +302,6 @@ mod tests {
         raw.put_u8(2); // User timestamp tag
         raw.put_u8(4); // Shorter than known length (8), treated as unknown
         raw.put_bytes(0x3C, 4);
-        raw.put_bytes(0, 2); // Padding
 
         let packet = Packet::deserialize(raw.freeze()).unwrap();
         assert!(packet.header.extensions.user_timestamp.is_none());
@@ -312,10 +311,12 @@ mod tests {
     fn test_ext_unknown() {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
-        raw.put_u16(0); // Extension words
+        raw.put_u16(1); // Extension words
 
         raw.put_u8(8); // ID 8 (unknown)
-        raw.put_bytes(0, 7);
+        raw.put_u8(0); // Length 0
+        raw.put_bytes(0, 4); // Remaining padding
+
         Packet::deserialize(raw.freeze()).expect("Should skip unknown extension");
     }
 
@@ -323,8 +324,8 @@ mod tests {
     fn test_ext_required_word_alignment() {
         let mut raw = valid_packet();
         raw[0] |= 1 << EXT_FLAG_SHIFT; // Extension flag
-        raw.put_u16(0); // Extension words
-        raw.put_bytes(0, 3); // Padding, missing one byte
+        raw.put_u16(0); // Extension words (data_budget = 2)
+        raw.put_bytes(0, 1); // Only 1 byte, but 2 needed
 
         assert!(Packet::deserialize(raw.freeze()).is_err());
     }
