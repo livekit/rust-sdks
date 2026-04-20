@@ -192,13 +192,24 @@ fn main() {
         let jpeg_pkg = pkg_config::Config::new()
             .probe("libjpeg")
             .or_else(|_| pkg_config::Config::new().probe("libjpeg-turbo"))
-            .or_else(|_| pkg_config::Config::new().probe("jpeg"))
-            .ok();
+            .or_else(|_| pkg_config::Config::new().probe("jpeg"));
 
-        if let Some(pkg) = &jpeg_pkg {
-            common_build.define("HAVE_JPEG", None);
-            for p in &pkg.include_paths {
-                common_build.include(p);
+        match jpeg_pkg {
+            Ok(pkg) => {
+                common_build.define("HAVE_JPEG", None);
+                for p in &pkg.include_paths {
+                    common_build.include(p);
+                }
+                println!("cargo:warning=yuv-sys: JPEG support enabled via {}", pkg.libs.join(", "));
+            }
+            Err(e) => {
+                panic!(
+                    "yuv-sys: the 'jpeg' feature is enabled but pkg-config could not find \
+                     libjpeg, libjpeg-turbo, or jpeg. Install libjpeg-dev (e.g. \
+                     `sudo apt-get install libjpeg-dev`) or libjpeg62-turbo-dev. \
+                     pkg-config error: {}",
+                    e
+                );
             }
         }
     }

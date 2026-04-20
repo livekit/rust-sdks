@@ -6,7 +6,7 @@ use livekit::webrtc::video_frame::{I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
-use log::{debug, info};
+use log::{debug, info, warn};
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
     ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
@@ -86,6 +86,100 @@ fn list_cameras() -> Result<()> {
     Ok(())
 }
 
+/// Try to open a camera with the given format, returning the Camera and the format name on success.
+fn try_open_camera(
+    index: &CameraIndex,
+    width: u32,
+    height: u32,
+    fps: u32,
+    formats_to_try: &[FrameFormat],
+) -> Result<(Camera, String)> {
+    // First, create the camera with a permissive initial request
+    let requested =
+        RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
+    let mut camera = Camera::new(index.clone(), requested)?;
+
+    for fmt in formats_to_try {
+        let fmt_name = match fmt {
+            FrameFormat::YUYV => "YUYV",
+            FrameFormat::MJPEG => "MJPEG",
+            _ => "Unknown",
+        };
+        let wanted = CameraFormat::new(Resolution::new(width, height), *fmt, fps);
+        debug!("Trying camera format: {} {}x{} @ {} fps", fmt_name, width, height, fps);
+
+        if camera
+            .set_camera_requset(RequestedFormat::new::<RgbFormat>(
+                RequestedFormatType::Exact(wanted),
+            ))
+            .is_ok()
+        {
+            match camera.open_stream() {
+                Ok(()) => {
+                    // Verify we can actually grab a frame before committing
+                    match camera.frame() {
+                        Ok(_) => {
+                            let negotiated = camera.camera_format();
+                            info!(
+                                "Camera opened: {}x{} @ {} fps (format: {}, negotiated: {:?})",
+                                negotiated.width(),
+                                negotiated.height(),
+                                negotiated.frame_rate(),
+                                fmt_name,
+                                negotiated
+                            );
+                            return Ok((camera, fmt_name.to_string()));
+                        }
+                        Err(e) => {
+                            warn!(
+                                "Camera format {} opened stream but frame() failed: {} — trying next format",
+                                fmt_name, e
+                            );
+                            // Stop the stream before trying another format
+                            let _ = camera.stop_stream();
+                        }
+                    }
+                }
+                Err(e) => {
+                    warn!("Camera format {} open_stream failed: {} — trying next format", fmt_name, e);
+                }
+            }
+        } else {
+            debug!("Camera rejected format {}", fmt_name);
+        }
+    }
+
+    // Last resort: try with no specific format constraint
+    info!("All specific formats failed; trying unconstrained camera open...");
+    let requested =
+        RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
+    let mut camera = Camera::new(index.clone(), requested)?;
+    camera.open_stream()?;
+    // Verify frame capture works
+    camera.frame().map_err(|e| {
+        anyhow::anyhow!(
+            "Camera frame capture failed with all format attempts. \
+             Last error: {}. \
+             On Raspberry Pi, ensure you are using a compatible camera stack: \
+             - For USB cameras: the V4L2 driver should work directly \
+             - For CSI cameras: you may need the legacy camera stack (bcm2835-v4l2) \
+               or use libcamera tools. Add 'start_x=1' and 'gpu_mem=128' to /boot/config.txt \
+               and remove 'camera_auto_detect=1' if present.",
+            e
+        )
+    })?;
+    let negotiated = camera.camera_format();
+    let fmt_name = format!("{:?}", negotiated.format());
+    info!(
+        "Camera opened (unconstrained): {}x{} @ {} fps (format: {})",
+        negotiated.width(),
+        negotiated.height(),
+        negotiated.frame_rate(),
+        fmt_name
+    );
+    Ok((camera, fmt_name))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
@@ -153,34 +247,23 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         });
     }
 
-    // Setup camera
+    // Setup camera — try YUYV first (cheaper), then MJPEG, with frame-capture verification.
+    // On Raspberry Pi with libcamera, some formats may negotiate successfully but fail at
+    // frame capture time (EPROTO / "Protocol error"). The try_open_camera helper handles this
+    // by testing an actual frame grab before committing to a format.
     let index = CameraIndex::Index(args.camera_index as u32);
-    let requested =
-        RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
-    let mut camera = Camera::new(index, requested)?;
-    // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
-    let wanted =
-        CameraFormat::new(Resolution::new(args.width, args.height), FrameFormat::YUYV, args.fps);
-    let mut using_fmt = "YUYV";
-    if let Err(_) = camera
-        .set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(wanted)))
-    {
-        let alt = CameraFormat::new(
-            Resolution::new(args.width, args.height),
-            FrameFormat::MJPEG,
-            args.fps,
-        );
-        using_fmt = "MJPEG";
-        let _ = camera
-            .set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
-    }
-    camera.open_stream()?;
+    let (mut camera, _using_fmt) = try_open_camera(
+        &index,
+        args.width,
+        args.height,
+        args.fps,
+        &[FrameFormat::YUYV, FrameFormat::MJPEG],
+    )?;
     let fmt = camera.camera_format();
     let width = fmt.width();
     let height = fmt.height();
-    let fps = fmt.frame_rate();
-    info!("Camera opened: {}x{} @ {} fps (format: {})", width, height, fps, using_fmt);
-    debug!("Negotiated nokhwa CameraFormat: {:?}", fmt);
+    let _fps = fmt.frame_rate();
+    debug!("Final negotiated nokhwa CameraFormat: {:?}", fmt);
     // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
     let pace_fps = args.fps as f64;
 
@@ -259,6 +342,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut sum_sleep_ms = 0.0;
     let mut sum_iter_ms = 0.0;
     let mut logged_mjpeg_fallback = false;
+    let mut consecutive_frame_errors: u32 = 0;
+    const MAX_CONSECUTIVE_ERRORS: u32 = 30; // ~1 second at 30fps before giving up
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
             break;
@@ -270,7 +355,36 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
         // Get frame as RGB24 (decoded by nokhwa if needed)
         let t0 = Instant::now();
-        let frame_buf = camera.frame()?;
+        let frame_buf = match camera.frame() {
+            Ok(buf) => {
+                consecutive_frame_errors = 0;
+                buf
+            }
+            Err(e) => {
+                consecutive_frame_errors += 1;
+                if consecutive_frame_errors == 1 {
+                    warn!("Frame capture error: {} (will retry)", e);
+                } else if consecutive_frame_errors % 10 == 0 {
+                    warn!(
+                        "Frame capture error ({}x consecutive): {}",
+                        consecutive_frame_errors, e
+                    );
+                }
+                if consecutive_frame_errors >= MAX_CONSECUTIVE_ERRORS {
+                    return Err(anyhow::anyhow!(
+                        "Camera frame capture failed {} times consecutively: {}. \
+                         On Raspberry Pi, this often means the camera format is incompatible \
+                         with the V4L2/libcamera stack. Try: \
+                         1) A USB camera instead of CSI \
+                         2) Different resolution (e.g. --width 640 --height 480) \
+                         3) Enabling the legacy camera stack in /boot/config.txt",
+                        consecutive_frame_errors,
+                        e
+                    ));
+                }
+                continue;
+            }
+        };
         let t1 = Instant::now();
         let (stride_y, stride_u, stride_v) = frame.buffer.strides();
         let (data_y, data_u, data_v) = frame.buffer.data_mut();
