@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fmt::Debug, sync::Arc};
+use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use libwebrtc::{native::packet_trailer::PacketTrailerHandler, prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
@@ -110,6 +110,24 @@ impl RemoteVideoTrack {
 
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {
         super::remote_track::get_stats(&self.inner).await
+    }
+
+    /// Requests a lower bound for the remote video's receiver playout delay.
+    ///
+    /// This is the only receiver playout-latency control currently exposed by
+    /// the bound native WebRTC API. It is a best-effort hint, not a hard
+    /// maximum or target, and actual end-to-end latency should be validated
+    /// with inbound video stats.
+    ///
+    /// Passing `None` clears the override. Passing `Some(Duration::ZERO)`
+    /// requests the lowest allowed playout floor without adding extra delay.
+    pub fn set_minimum_playout_delay(&self, delay: Option<Duration>) -> RoomResult<()> {
+        let Some(transceiver) = self.transceiver() else {
+            return Err(RoomError::Internal("no transceiver found for track".into()));
+        };
+
+        transceiver.receiver().set_jitter_buffer_minimum_delay(delay);
+        Ok(())
     }
 
     pub(crate) fn on_muted(&self, f: impl Fn(Track) + Send + 'static) {

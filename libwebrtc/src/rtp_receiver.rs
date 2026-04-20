@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use std::fmt::Debug;
+use std::time::Duration;
 
 use crate::{
     imp::rtp_receiver as imp_rr, media_stream_track::MediaStreamTrack,
@@ -35,6 +36,20 @@ impl RtpReceiver {
 
     pub fn parameters(&self) -> RtpParameters {
         self.handle.parameters()
+    }
+
+    /// Sets an application-requested lower bound for the receiver jitter buffer.
+    ///
+    /// On the currently bound native WebRTC API this is the only playout-latency
+    /// control available on `RtpReceiver`. Internal WebRTC code has richer
+    /// video playout-delay concepts, but they are not surfaced through this
+    /// SDK's receiver bindings yet.
+    ///
+    /// Passing `None` clears the override and restores default receiver
+    /// behavior. Passing `Some(Duration::ZERO)` requests the lowest allowed
+    /// playout floor without forcing an additional delay.
+    pub fn set_jitter_buffer_minimum_delay(&self, delay: Option<Duration>) {
+        self.handle.set_jitter_buffer_minimum_delay(delay.map(|delay| delay.as_secs_f64()));
     }
 }
 
