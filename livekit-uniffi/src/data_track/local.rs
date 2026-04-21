@@ -76,6 +76,11 @@ impl LocalDataTrack {
         // since this isn't applicable in an FFI context, just provide the reason.
         self.0.try_push(frame).map_err(|err| err.reason())
     }
+
+    /// Unpublishes the track.
+    fn unpublish(&self) {
+        self.0.unpublish();
+    }
 }
 
 /// System for managing data track publications.
