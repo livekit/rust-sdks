@@ -44,7 +44,7 @@ use tokio::sync::{
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
     id::ParticipantIdentity,
-    rtc_engine::dc_sender::{DataChannelSender, DataChannelSenderOptions},
+    rtc_engine::dc_sender::{DataChannelSender, DataChannelSenderOptions, DataTrackSendQueue},
     utils::{
         ttl_map::TtlMap,
         tx_queue::{TxQueue, TxQueueItem},
@@ -73,6 +73,19 @@ pub const DATA_TRACK_DC_LABEL: &str = "_data_track";
 pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
+
+/// Buffered-amount low threshold for the data-track DC (`_data_track`).
+///
+/// Sized small (vs. the 2 MiB default used for the reliable/lossy DCs) because
+/// data tracks are latency-sensitive: callers prefer dropping packets over
+/// buffering them when the underlying transport cannot keep up.
+///
+/// Note: WebRTC's `bufferedAmount` only reflects bytes queued *before* SCTP
+/// accepts them. Once SCTP and the kernel UDP send buffer accept data, further
+/// queueing happens below our visibility and is bounded by OS/qdisc config.
+/// Kept intentionally small so that we only hand over a single in-flight SCTP
+/// message at a time, limiting how deeply SCTP can itself buffer.
+pub const DATA_TRACK_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 8 * 1024;
 
 #[derive(Debug)]
 enum NegotiationState {
@@ -377,8 +390,8 @@ struct SessionInner {
     sub_reliable_dc: Mutex<Option<DataChannel>>,
     sub_data_track_dc: Mutex<Option<DataChannel>>,
 
-    /// Channel for sending data track packets.
-    dt_packet_tx: mpsc::Sender<Bytes>,
+    /// Drop-oldest queue for handing data-track packets to the sender task.
+    dt_packet_tx: DataTrackSendQueue,
 
     closed: AtomicBool,
     emitter: SessionEmitter,
@@ -511,7 +524,7 @@ impl RtcSession {
         let (close_tx, close_rx) = watch::channel(false);
 
         let dt_sender_options = DataChannelSenderOptions {
-            low_buffer_threshold: INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+            low_buffer_threshold: DATA_TRACK_BUFFERED_AMOUNT_LOW_THRESHOLD,
             dc: data_track_dc.clone(),
             close_rx: close_rx.clone(),
         };
@@ -736,9 +749,15 @@ impl RtcSession {
     ///
     fn try_send_data_track_packets(&self, packets: Vec<Bytes>) {
         for packet in packets {
-            if self.inner.dt_packet_tx.try_send(packet).is_err() {
-                log::error!("Failed to enqueue data track packet");
-                break;
+            // Drop-oldest semantics: if the queue is already at capacity, the
+            // stalest payload is evicted in favour of this newer one. This
+            // keeps end-to-end latency low by always preferring fresh data
+            // over stale data when the DC cannot keep up.
+            if let Some(stale) = self.inner.dt_packet_tx.send(packet) {
+                log::trace!(
+                    "evicted oldest queued data-track payload ({} bytes) in favor of newer arrival",
+                    stale.len()
+                );
             }
         }
     }
