@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::data_track::DataTrackInfo;
+use crate::data_track::{DataTrackInfo, DataTrackSignalResponseError};
 use bytes::Bytes;
 use core::fmt;
 use futures_util::{Stream, StreamExt};
@@ -171,37 +171,36 @@ impl RemoteDataTrackManager {
     /// - `ParticipantUpdate`
     /// - `DataTrackSubscriberHandles`
     ///
-    /// Invoking for other response types not listed above will log an error.
-    ///
     /// Note: the local participant identity is required to exclude data tracks published by the
     /// local participant from being treated as remote tracks.
     ///
-    pub fn handle_signal_response(&self, res: &[u8], local_participant_identity: String) {
-        // TODO: consider returning a result
-        let Ok(Some(msg)) = proto::SignalResponse::decode(res).map(|res| res.message) else {
-            log::error!("Failed to decode signal response");
-            return;
-        };
+    pub fn handle_signal_response(
+        &self,
+        res: &[u8],
+        local_participant_identity: String,
+    ) -> Result<(), DataTrackSignalResponseError> {
+        let res = proto::SignalResponse::decode(res)
+            .map_err(|err| DataTrackSignalResponseError::Decode(err))?;
+
+        let msg = res.message.ok_or(DataTrackSignalResponseError::EmptyMessage)?;
+
         use proto::signal_response::Message;
         match msg {
             Message::Update(mut msg) => {
-                let Some(event) =
-                    event_from_participant_update(&mut msg, &local_participant_identity)
-                        .inspect_err(|err| log::error!("{err}"))
-                        .ok()
-                else {
-                    return;
-                };
+                let event = event_from_participant_update(&mut msg, &local_participant_identity)
+                    .map_err(|err| DataTrackSignalResponseError::Internal(err))?;
                 _ = self.input.send(event.into());
             }
             Message::DataTrackSubscriberHandles(msg) => {
-                let event: inner::SfuSubscriberHandles = msg.try_into().unwrap(); // TODO: handle error
+                let event: inner::SfuSubscriberHandles =
+                    msg.try_into().map_err(|err| DataTrackSignalResponseError::Internal(err))?;
                 _ = self.input.send(event.into())
             }
             _ => {
-                log::error!("Unsupported signal response type");
+                return Err(DataTrackSignalResponseError::UnsupportedType);
             }
         };
+        Ok(())
     }
 
     /// Handles a encoded packet received over the data channel.

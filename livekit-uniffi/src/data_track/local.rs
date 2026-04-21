@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::data_track::DataTrackSignalResponseError;
 use super::DataTrackInfo;
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
@@ -196,21 +197,19 @@ impl LocalDataTrackManager {
     /// - `RequestResponse`
     /// - `PublishDataTrackResponse`
     ///
-    /// Invoking for other response types not listed above will log an error.
-    ///
-    pub fn handle_signal_response(&self, res: &[u8]) {
-        // TODO: consider returning a result
-        let Ok(Some(msg)) = proto::SignalResponse::decode(res).map(|res| res.message) else {
-            log::error!("Failed to decode signal response");
-            return;
-        };
+    pub fn handle_signal_response(&self, res: &[u8]) -> Result<(), DataTrackSignalResponseError> {
+
+        let res = proto::SignalResponse::decode(res)
+            .map_err(|err| DataTrackSignalResponseError::Decode(err))?;
+
+        let msg = res.message.ok_or(DataTrackSignalResponseError::EmptyMessage)?;
 
         use proto::signal_response::Message;
         let publish_res = match msg {
             Message::RequestResponse(msg) => {
                 let Some(res) = publish_result_from_request_response(&msg) else {
                     // Not from data track publish request.
-                    return;
+                    return Ok(());
                 };
                 res
             }
@@ -219,14 +218,13 @@ impl LocalDataTrackManager {
                 let res: SfuPublishResponse = res.try_into().unwrap();
                 res
             }
-            _ => {
-                log::error!("Unsupported signal response type");
-                return;
-            }
+            _ => return Err(DataTrackSignalResponseError::UnsupportedType),
         };
 
         let event: InputEvent = publish_res.into();
         _ = self.input.send(event);
+
+        Ok(())
     }
 }
 

@@ -42,3 +42,17 @@ impl From<&livekit_datatrack::api::DataTrackInfo> for DataTrackInfo {
         Self { sid: info.sid(), name: info.name().to_string(), uses_e2ee: info.uses_e2ee() }
     }
 }
+
+/// Signal response could not be handled.
+#[derive(uniffi::Error, thiserror::Error, Debug)]
+#[uniffi(flat_error)]
+pub enum DataTrackSignalResponseError {
+    #[error("Response decoding failed: {0}")]
+    Decode(prost::DecodeError),
+    #[error("Response container has no message")]
+    EmptyMessage,
+    #[error("Unsupported response type in this context")]
+    UnsupportedType,
+    #[error(transparent)]
+    Internal(livekit_datatrack::api::InternalError)
+}
