@@ -27,29 +27,6 @@ use prost::Message;
 use std::sync::Arc;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-#[uniffi::remote(Record)]
-pub struct DataTrackOptions {
-    pub name: String,
-}
-
-#[uniffi::remote(Error)]
-pub enum PushFrameErrorReason {
-    TrackUnpublished,
-    QueueFull,
-}
-
-#[uniffi::remote(Error)]
-#[uniffi(flat_error)]
-pub enum PublishError {
-    NotAllowed,
-    DuplicateName,
-    InvalidName,
-    Timeout,
-    LimitReached,
-    Disconnected,
-    Internal,
-}
-
 /// Data track published by the local participant.
 #[derive(uniffi::Object)]
 pub struct LocalDataTrack(DataTrack<Local>);
@@ -79,6 +56,29 @@ impl LocalDataTrack {
     }
 }
 
+#[uniffi::remote(Error)]
+pub enum PushFrameErrorReason {
+    TrackUnpublished,
+    QueueFull,
+}
+
+#[uniffi::remote(Record)]
+pub struct DataTrackOptions {
+    pub name: String,
+}
+
+#[uniffi::remote(Error)]
+#[uniffi(flat_error)]
+pub enum PublishError {
+    NotAllowed,
+    DuplicateName,
+    InvalidName,
+    Timeout,
+    LimitReached,
+    Disconnected,
+    Internal,
+}
+
 /// System for managing data track publications.
 ///
 /// FFI clients construct an instance of this inside `Room`,
@@ -88,7 +88,7 @@ impl LocalDataTrack {
 #[derive(uniffi::Object)]
 struct LocalDataTrackManager {
     input: local::ManagerInput,
-    _drop_guard: DropGuard,
+    _guard: DropGuard,
 }
 
 /// Delegate for receiving output events from [`LocalDataTrackManager`].
@@ -119,7 +119,7 @@ impl LocalDataTrackManager {
         tokio::spawn(Self::delegate_forward_task(output, delegate, token.clone()));
         tokio::spawn(manager.run());
 
-        Self { input, _drop_guard: token.drop_guard() }.into()
+        Self { input, _guard: token.drop_guard() }.into()
     }
 
     /// Publishes a data track with given options.

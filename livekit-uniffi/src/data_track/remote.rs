@@ -28,15 +28,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-#[uniffi::remote(Error)]
-#[uniffi(flat_error)]
-pub enum DataTrackSubscribeError {
-    Unpublished,
-    Timeout,
-    Disconnected,
-    Internal,
-}
-
 /// Data track published by the local participant.
 #[derive(uniffi::Object)]
 pub struct RemoteDataTrack(DataTrack<Remote>);
@@ -64,6 +55,16 @@ impl RemoteDataTrack {
     }
 }
 
+#[uniffi::remote(Error)]
+#[uniffi(flat_error)]
+pub enum DataTrackSubscribeError {
+    Unpublished,
+    Timeout,
+    Disconnected,
+    Internal,
+}
+
+/// A stream of [`DataTrackFrame`]s received from a [`RemoteDataTrack`].
 #[derive(uniffi::Object)]
 struct DataTrackStream(Mutex<livekit_datatrack::api::DataTrackStream>);
 
@@ -79,7 +80,7 @@ impl DataTrackStream {
 #[derive(uniffi::Object)]
 struct RemoteDataTrackManager {
     input: remote::ManagerInput,
-    _drop_guard: DropGuard,
+    _guard: DropGuard,
 }
 
 /// Delegate for receiving output events from [`RemoteDataTrackManager`].
@@ -118,7 +119,7 @@ impl RemoteDataTrackManager {
         tokio::spawn(Self::delegate_forward_task(output, delegate, token.clone()));
         tokio::spawn(manager.run());
 
-        Self { input, _drop_guard: token.drop_guard() }.into()
+        Self { input, _guard: token.drop_guard() }.into()
     }
 
     /// Resend all subscription updates.
