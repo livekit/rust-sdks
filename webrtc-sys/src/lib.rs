@@ -22,6 +22,7 @@ pub mod candidate;
 pub mod data_channel;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 pub mod desktop_capturer;
+pub mod encoded_video_source;
 pub mod frame_cryptor;
 pub mod helper;
 pub mod jsep;
