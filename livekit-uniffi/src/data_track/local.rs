@@ -96,6 +96,16 @@ struct LocalDataTrackManager {
     _drop_guard: DropGuard,
 }
 
+/// Delegate for receiving output events from [`LocalDataTrackManager`].
+#[uniffi::export(with_foreign)]
+pub trait LocalDataTrackManagerDelegate: Send + Sync {
+    /// Encoded signal request to be forwarded to the SFU.
+    fn on_signal_request(&self, request: Vec<u8>);
+
+    /// Packets available to be sent over the data channel transport.
+    fn on_packets_available(&self, packets: Vec<Bytes>);
+}
+
 #[uniffi::export]
 impl LocalDataTrackManager {
     #[uniffi::constructor]
@@ -116,54 +126,7 @@ impl LocalDataTrackManager {
 
         Self { input, _drop_guard: token.drop_guard() }.into()
     }
-}
 
-impl LocalDataTrackManager {
-    async fn shutdown_forward_task(input: ManagerInput, token: CancellationToken) {
-        // TODO: consider having manager work with cancellation token out-of-the-box.
-        token.cancelled().await;
-        _ = input.send(InputEvent::Shutdown);
-    }
-
-    async fn delegate_forward_task(
-        output: impl Stream<Item = inner::OutputEvent>,
-        delegate: Arc<dyn LocalDataTrackManagerDelegate>,
-        token: CancellationToken,
-    ) {
-        tokio::pin!(output);
-        loop {
-            tokio::select! {
-                _ = token.cancelled() => break,
-                Some(event) = output.next() => Self::forward_event(event, &delegate)
-            }
-        }
-    }
-
-    fn forward_event(event: OutputEvent, delegate: &Arc<dyn LocalDataTrackManagerDelegate>) {
-        match event {
-            OutputEvent::PacketsAvailable(packets) => delegate.on_packets_available(packets),
-            OutputEvent::SfuPublishRequest(req) => {
-                let req = proto::signal_request::Message::PublishDataTrackRequest(req.into());
-                Self::forward_signal_request(req, delegate);
-            }
-            OutputEvent::SfuUnpublishRequest(req) => {
-                let req = proto::signal_request::Message::UnpublishDataTrackRequest(req.into());
-                Self::forward_signal_request(req, delegate);
-            }
-        }
-    }
-
-    fn forward_signal_request(
-        message: proto::signal_request::Message,
-        delegate: &Arc<dyn LocalDataTrackManagerDelegate>,
-    ) {
-        let req = proto::SignalRequest { message: Some(message) }.encode_to_vec();
-        delegate.on_signal_request(req);
-    }
-}
-
-#[uniffi::export]
-impl LocalDataTrackManager {
     /// Publishes a data track with given options.
     pub async fn publish_track(
         &self,
@@ -227,12 +190,46 @@ impl LocalDataTrackManager {
     }
 }
 
-/// Delegate for receiving output events from [`LocalDataTrackManager`].
-#[uniffi::export(with_foreign)]
-pub trait LocalDataTrackManagerDelegate: Send + Sync {
-    /// Encoded signal request to be forwarded to the SFU.
-    fn on_signal_request(&self, request: Vec<u8>);
+impl LocalDataTrackManager {
+    async fn shutdown_forward_task(input: ManagerInput, token: CancellationToken) {
+        // TODO: consider having manager work with cancellation token out-of-the-box.
+        token.cancelled().await;
+        _ = input.send(InputEvent::Shutdown);
+    }
 
-    /// Packets available to be sent over the data channel transport.
-    fn on_packets_available(&self, packets: Vec<Bytes>);
+    async fn delegate_forward_task(
+        output: impl Stream<Item = inner::OutputEvent>,
+        delegate: Arc<dyn LocalDataTrackManagerDelegate>,
+        token: CancellationToken,
+    ) {
+        tokio::pin!(output);
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => break,
+                Some(event) = output.next() => Self::forward_event(event, &delegate)
+            }
+        }
+    }
+
+    fn forward_event(event: OutputEvent, delegate: &Arc<dyn LocalDataTrackManagerDelegate>) {
+        match event {
+            OutputEvent::PacketsAvailable(packets) => delegate.on_packets_available(packets),
+            OutputEvent::SfuPublishRequest(req) => {
+                let req = proto::signal_request::Message::PublishDataTrackRequest(req.into());
+                Self::forward_signal_request(req, delegate);
+            }
+            OutputEvent::SfuUnpublishRequest(req) => {
+                let req = proto::signal_request::Message::UnpublishDataTrackRequest(req.into());
+                Self::forward_signal_request(req, delegate);
+            }
+        }
+    }
+
+    fn forward_signal_request(
+        message: proto::signal_request::Message,
+        delegate: &Arc<dyn LocalDataTrackManagerDelegate>,
+    ) {
+        let req = proto::SignalRequest { message: Some(message) }.encode_to_vec();
+        delegate.on_signal_request(req);
+    }
 }

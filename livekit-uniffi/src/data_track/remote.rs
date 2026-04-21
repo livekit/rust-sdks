@@ -85,6 +85,24 @@ struct RemoteDataTrackManager {
     _drop_guard: DropGuard,
 }
 
+/// Delegate for receiving output events from [`RemoteDataTrackManager`].
+#[uniffi::export(with_foreign)]
+pub trait RemoteDataTrackManagerDelegate: Send + Sync {
+    /// Encoded signal request to be forwarded to the SFU.
+    fn on_signal_request(&self, request: Vec<u8>);
+
+    /// A track has been published by a remote participant and is available to be
+    /// subscribed to.
+    ///
+    /// Emit a public event to deliver the track to the user, allowing them to subscribe
+    /// with [`RemoteDataTrack::subscribe`] if desired.
+    ///
+    fn on_track_published(&self, track: Arc<RemoteDataTrack>);
+
+    /// A track with the given SID has been unpublished by a remote participant.
+    fn on_track_unpublished(&self, sid: DataTrackSid);
+}
+
 #[uniffi::export]
 impl RemoteDataTrackManager {
     #[uniffi::constructor]
@@ -105,57 +123,7 @@ impl RemoteDataTrackManager {
 
         Self { input, _drop_guard: token.drop_guard() }.into()
     }
-}
 
-impl RemoteDataTrackManager {
-    async fn shutdown_forward_task(input: inner::ManagerInput, token: CancellationToken) {
-        // TODO: consider having manager work with cancellation token out-of-the-box.
-        token.cancelled().await;
-        _ = input.send(inner::InputEvent::Shutdown);
-    }
-
-    async fn delegate_forward_task(
-        output: impl Stream<Item = inner::OutputEvent>,
-        delegate: Arc<dyn RemoteDataTrackManagerDelegate>,
-        token: CancellationToken,
-    ) {
-        tokio::pin!(output);
-        loop {
-            tokio::select! {
-                _ = token.cancelled() => break,
-                Some(event) = output.next() => Self::forward_event(event, &delegate)
-            }
-        }
-    }
-
-    fn forward_event(
-        event: inner::OutputEvent,
-        delegate: &Arc<dyn RemoteDataTrackManagerDelegate>,
-    ) {
-        match event {
-            inner::OutputEvent::SfuUpdateSubscription(req) => {
-                let req = proto::signal_request::Message::UpdateDataSubscription(req.into());
-                Self::forward_signal_request(req, delegate);
-            }
-            inner::OutputEvent::TrackPublished(event) => {
-                let track = Arc::new(RemoteDataTrack(event.track));
-                delegate.on_track_published(track);
-            }
-            inner::OutputEvent::TrackUnpublished(event) => delegate.on_track_unpublished(event.sid),
-        }
-    }
-
-    fn forward_signal_request(
-        message: proto::signal_request::Message,
-        delegate: &Arc<dyn RemoteDataTrackManagerDelegate>,
-    ) {
-        let req = proto::SignalRequest { message: Some(message) }.encode_to_vec();
-        delegate.on_signal_request(req);
-    }
-}
-
-#[uniffi::export]
-impl RemoteDataTrackManager {
     /// Resend all subscription updates.
     ///
     /// This must be sent after a full reconnect to ensure the SFU knows which tracks
@@ -211,20 +179,49 @@ impl RemoteDataTrackManager {
     }
 }
 
-/// Delegate for receiving output events from [`RemoteDataTrackManager`].
-#[uniffi::export(with_foreign)]
-pub trait RemoteDataTrackManagerDelegate: Send + Sync {
-    /// Encoded signal request to be forwarded to the SFU.
-    fn on_signal_request(&self, request: Vec<u8>);
+impl RemoteDataTrackManager {
+    async fn shutdown_forward_task(input: inner::ManagerInput, token: CancellationToken) {
+        // TODO: consider having manager work with cancellation token out-of-the-box.
+        token.cancelled().await;
+        _ = input.send(inner::InputEvent::Shutdown);
+    }
 
-    /// A track has been published by a remote participant and is available to be
-    /// subscribed to.
-    ///
-    /// Emit a public event to deliver the track to the user, allowing them to subscribe
-    /// with [`RemoteDataTrack::subscribe`] if desired.
-    ///
-    fn on_track_published(&self, track: Arc<RemoteDataTrack>);
+    async fn delegate_forward_task(
+        output: impl Stream<Item = inner::OutputEvent>,
+        delegate: Arc<dyn RemoteDataTrackManagerDelegate>,
+        token: CancellationToken,
+    ) {
+        tokio::pin!(output);
+        loop {
+            tokio::select! {
+                _ = token.cancelled() => break,
+                Some(event) = output.next() => Self::forward_event(event, &delegate)
+            }
+        }
+    }
 
-    /// A track with the given SID has been unpublished by a remote participant.
-    fn on_track_unpublished(&self, sid: DataTrackSid);
+    fn forward_event(
+        event: inner::OutputEvent,
+        delegate: &Arc<dyn RemoteDataTrackManagerDelegate>,
+    ) {
+        match event {
+            inner::OutputEvent::SfuUpdateSubscription(req) => {
+                let req = proto::signal_request::Message::UpdateDataSubscription(req.into());
+                Self::forward_signal_request(req, delegate);
+            }
+            inner::OutputEvent::TrackPublished(event) => {
+                let track = Arc::new(RemoteDataTrack(event.track));
+                delegate.on_track_published(track);
+            }
+            inner::OutputEvent::TrackUnpublished(event) => delegate.on_track_unpublished(event.sid),
+        }
+    }
+
+    fn forward_signal_request(
+        message: proto::signal_request::Message,
+        delegate: &Arc<dyn RemoteDataTrackManagerDelegate>,
+    ) {
+        let req = proto::SignalRequest { message: Some(message) }.encode_to_vec();
+        delegate.on_signal_request(req);
+    }
 }
