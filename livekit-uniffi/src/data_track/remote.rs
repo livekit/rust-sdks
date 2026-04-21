@@ -115,8 +115,11 @@ impl RemoteDataTrackManager {
         let manager_options = remote::ManagerOptions { decryption_provider };
 
         let (manager, input, output) = remote::Manager::new(manager_options);
-        tokio::spawn(Self::shutdown_forward_task(input.clone(), token.clone()));
-        tokio::spawn(Self::delegate_forward_task(output, delegate, token.clone()));
+        tokio::spawn(shutdown_forward_task(input.clone(), token.clone()));
+
+        let delegate_forward = DelegateForwardTask { output, delegate, token: token.clone() };
+        tokio::spawn(delegate_forward.run());
+
         tokio::spawn(manager.run());
 
         Self { input, _guard: token.drop_guard() }.into()
@@ -178,50 +181,47 @@ impl RemoteDataTrackManager {
     }
 }
 
-impl RemoteDataTrackManager {
-    async fn shutdown_forward_task(input: remote::ManagerInput, token: CancellationToken) {
-        // TODO: consider having manager work with cancellation token out-of-the-box.
-        token.cancelled().await;
-        _ = input.send(remote::InputEvent::Shutdown);
-    }
+/// Task for forwarding manger output events to the foreign [`RemoteDataTrackManagerDelegate`].
+struct DelegateForwardTask {
+    output: remote::ManagerOutput,
+    delegate: Arc<dyn RemoteDataTrackManagerDelegate>,
+    token: CancellationToken,
+}
 
-    async fn delegate_forward_task(
-        mut output: remote::ManagerOutput,
-        delegate: Arc<dyn RemoteDataTrackManagerDelegate>,
-        token: CancellationToken,
-    ) {
+impl DelegateForwardTask {
+    async fn run(mut self) {
         loop {
             tokio::select! {
-                _ = token.cancelled() => break,
-                Some(event) = output.next() => Self::forward_event(event, &delegate)
+                _ = self.token.cancelled() => break,
+                Some(event) = self.output.next() => self.forward_event(event)
             }
         }
     }
 
-    fn forward_event(
-        event: remote::OutputEvent,
-        delegate: &Arc<dyn RemoteDataTrackManagerDelegate>,
-    ) {
+    fn forward_event(&self, event: remote::OutputEvent) {
         match event {
-            remote::OutputEvent::SfuUpdateSubscription(req) => {
-                let req = proto::signal_request::Message::UpdateDataSubscription(req.into());
-                Self::forward_signal_request(req, delegate);
-            }
             remote::OutputEvent::TrackPublished(event) => {
                 let track = Arc::new(RemoteDataTrack(event.track));
-                delegate.on_track_published(track);
+                self.delegate.on_track_published(track);
             }
             remote::OutputEvent::TrackUnpublished(event) => {
-                delegate.on_track_unpublished(event.sid)
+                self.delegate.on_track_unpublished(event.sid)
+            }
+            remote::OutputEvent::SfuUpdateSubscription(req) => {
+                let req = proto::signal_request::Message::UpdateDataSubscription(req.into());
+                self.forward_signal_request(req);
             }
         }
     }
 
-    fn forward_signal_request(
-        message: proto::signal_request::Message,
-        delegate: &Arc<dyn RemoteDataTrackManagerDelegate>,
-    ) {
+    fn forward_signal_request(&self, message: proto::signal_request::Message) {
         let req = proto::SignalRequest { message: Some(message) }.encode_to_vec();
-        delegate.on_signal_request(req);
+        self.delegate.on_signal_request(req);
     }
+}
+
+async fn shutdown_forward_task(input: remote::ManagerInput, token: CancellationToken) {
+    // TODO: consider having manager work with cancellation token out-of-the-box.
+    token.cancelled().await;
+    _ = input.send(remote::InputEvent::Shutdown);
 }
