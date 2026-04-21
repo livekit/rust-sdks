@@ -13,15 +13,18 @@
 // limitations under the License.
 
 use super::{
-    e2ee::{FfiEncryptionProvider, DataTrackEncryptionProvider},
+    e2ee::{DataTrackEncryptionProvider, FfiEncryptionProvider},
     DataTrackInfo, HandleSignalResponseError,
 };
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use inner::OutputEvent;
-use livekit_datatrack::{api::{DataTrack, DataTrackFrame, Local, PushFrameErrorReason}, backend::EncryptionProvider};
 use livekit_datatrack::backend::local::{
     publish_result_from_request_response, InputEvent, ManagerInput, SfuPublishResponse,
+};
+use livekit_datatrack::{
+    api::{DataTrack, DataTrackFrame, Local, PushFrameErrorReason},
+    backend::EncryptionProvider,
 };
 use livekit_datatrack::{
     api::{DataTrackOptions, PublishError},
@@ -176,8 +179,8 @@ impl LocalDataTrackManager {
                 res
             }
             Message::PublishDataTrackResponse(res) => {
-                // TODO: handle error
-                let res: SfuPublishResponse = res.try_into().unwrap();
+                let res: SfuPublishResponse =
+                    res.try_into().map_err(|err| HandleSignalResponseError::Internal(err))?;
                 res
             }
             _ => return Err(HandleSignalResponseError::UnsupportedType),
