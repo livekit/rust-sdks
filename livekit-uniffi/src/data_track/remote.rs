@@ -221,7 +221,8 @@ impl DelegateForwardTask {
 }
 
 async fn shutdown_forward_task(input: remote::ManagerInput, token: CancellationToken) {
-    // TODO: consider having manager work with cancellation token out-of-the-box.
+    // TODO: refactor manager to work with cancellation tokens directly, eliminating the need
+    // for this additional task.
     token.cancelled().await;
     _ = input.send(remote::InputEvent::Shutdown);
 }
