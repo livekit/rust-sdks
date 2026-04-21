@@ -24,6 +24,7 @@ pub mod log_forward;
 /// Information about the build such as version.
 pub mod build_info;
 
+/// Shared exports and utilities.
 pub mod common;
 
 uniffi::setup_scaffolding!();
