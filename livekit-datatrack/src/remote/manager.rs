@@ -27,7 +27,9 @@ use bytes::Bytes;
 use std::{
     collections::{HashMap, HashSet},
     mem,
+    pin::Pin,
     sync::Arc,
+    task::{Context as TaskContext, Poll},
 };
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
@@ -70,7 +72,7 @@ impl Manager {
     /// - Channel for sending [`InputEvent`]s to be processed by the manager.
     /// - Stream for receiving [`OutputEvent`]s produced by the manager.
     ///
-    pub fn new(options: ManagerOptions) -> (Self, ManagerInput, impl Stream<Item = OutputEvent>) {
+    pub fn new(options: ManagerOptions) -> (Self, ManagerInput, ManagerOutput) {
         let (event_in_tx, event_in_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
         let (event_out_tx, event_out_rx) = mpsc::channel(Self::EVENT_BUFFER_COUNT);
 
@@ -84,7 +86,7 @@ impl Manager {
             sub_handles: HashMap::default(),
         };
 
-        let event_out = ReceiverStream::new(event_out_rx);
+        let event_out = ManagerOutput(ReceiverStream::new(event_out_rx));
         (manager, event_in, event_out)
     }
 
@@ -441,6 +443,21 @@ impl TrackTask {
 pub struct ManagerInput {
     event_in_tx: mpsc::Sender<InputEvent>,
     _drop_guard: Arc<DropGuard>,
+}
+
+/// Stream of [`OutputEvent`]s produced by [`Manager`].
+#[derive(Debug)]
+pub struct ManagerOutput(ReceiverStream<OutputEvent>);
+
+impl Stream for ManagerOutput {
+    type Item = OutputEvent;
+
+    fn poll_next(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+    ) -> Poll<Option<Self::Item>> {
+        Pin::new(&mut self.0).poll_next(cx)
+    }
 }
 
 /// Guard that sends shutdown event when the last reference is dropped.

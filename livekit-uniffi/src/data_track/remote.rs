@@ -17,7 +17,7 @@ use super::{
     DataTrackInfo, HandleSignalResponseError,
 };
 use bytes::Bytes;
-use futures_util::{Stream, StreamExt};
+use futures_util::StreamExt;
 use livekit_datatrack::{
     api::{DataTrack, DataTrackFrame, DataTrackSid, DataTrackSubscribeError, Remote},
     backend::{remote, DecryptionProvider},
@@ -186,11 +186,10 @@ impl RemoteDataTrackManager {
     }
 
     async fn delegate_forward_task(
-        output: impl Stream<Item = remote::OutputEvent>,
+        mut output: remote::ManagerOutput,
         delegate: Arc<dyn RemoteDataTrackManagerDelegate>,
         token: CancellationToken,
     ) {
-        tokio::pin!(output);
         loop {
             tokio::select! {
                 _ = token.cancelled() => break,
