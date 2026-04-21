@@ -8,11 +8,12 @@ repository.workspace = true
 
 [features]
 # By default ws TLS is not enabled
-default = ["tokio"]
+default = ["tokio", "glib-main-loop"]
 
 async = ["livekit-api/signal-client-async"]
 tokio = ["livekit-api/signal-client-tokio"]
 dispatcher = ["livekit-api/signal-client-dispatcher"]
+glib-main-loop = ["libwebrtc/glib-main-loop"]
 
 
 # Note that the following features only change the behavior of tokio-tungstenite.
