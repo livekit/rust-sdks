@@ -179,7 +179,10 @@ message FfiRequest {
     // Room event ready signal
     ReadyForRoomEventRequest ready_for_room_event = 83;
 
-    // NEXT_ID: 85
+    // Encoded video
+    CaptureEncodedVideoFrameRequest capture_encoded_video_frame = 85;
+
+    // NEXT_ID: 86
   }
 }
 
@@ -304,7 +307,10 @@ message FfiResponse {
     // Room event ready signal
     ReadyForRoomEventResponse ready_for_room_event = 82;
 
-    // NEXT_ID: 85
+    // Encoded video
+    CaptureEncodedVideoFrameResponse capture_encoded_video_frame = 85;
+
+    // NEXT_ID: 86
   }
 }
 
@@ -368,8 +374,10 @@ message FfiEvent {
     DataTrackStreamEvent data_track_stream_event = 43;
 
     SimulateScenarioCallback simulate_scenario = 44;
+    // Encoded video
+    EncodedVideoSourceEvent encoded_video_source_event = 45;
 
-    // NEXT_ID: 45
+    // NEXT_ID: 46
   }
 }
 
