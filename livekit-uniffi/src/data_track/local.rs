@@ -14,7 +14,7 @@
 
 use super::{
     e2ee::{FfiEncryptionProvider, DataTrackEncryptionProvider},
-    DataTrackInfo, DataTrackSignalResponseError,
+    DataTrackInfo, HandleSignalResponseError,
 };
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
@@ -160,11 +160,11 @@ impl LocalDataTrackManager {
     /// - `RequestResponse`
     /// - `PublishDataTrackResponse`
     ///
-    pub fn handle_signal_response(&self, res: &[u8]) -> Result<(), DataTrackSignalResponseError> {
+    pub fn handle_signal_response(&self, res: &[u8]) -> Result<(), HandleSignalResponseError> {
         let res = proto::SignalResponse::decode(res)
-            .map_err(|err| DataTrackSignalResponseError::Decode(err))?;
+            .map_err(|err| HandleSignalResponseError::Decode(err))?;
 
-        let msg = res.message.ok_or(DataTrackSignalResponseError::EmptyMessage)?;
+        let msg = res.message.ok_or(HandleSignalResponseError::EmptyMessage)?;
 
         use proto::signal_response::Message;
         let publish_res = match msg {
@@ -180,7 +180,7 @@ impl LocalDataTrackManager {
                 let res: SfuPublishResponse = res.try_into().unwrap();
                 res
             }
-            _ => return Err(DataTrackSignalResponseError::UnsupportedType),
+            _ => return Err(HandleSignalResponseError::UnsupportedType),
         };
 
         let event: InputEvent = publish_res.into();

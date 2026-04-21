@@ -44,10 +44,10 @@ impl From<&livekit_datatrack::api::DataTrackInfo> for DataTrackInfo {
     }
 }
 
-/// Signal response could not be handled.
+/// Signal response crossing the FFI boundary could not be processed.
 #[derive(uniffi::Error, thiserror::Error, Debug)]
 #[uniffi(flat_error)]
-pub enum DataTrackSignalResponseError {
+pub enum HandleSignalResponseError {
     #[error("Response decoding failed: {0}")]
     Decode(prost::DecodeError),
     #[error("Response container has no message")]

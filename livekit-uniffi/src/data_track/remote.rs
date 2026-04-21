@@ -14,7 +14,7 @@
 
 use super::{
     e2ee::{FfiDecryptionProvider, DataTrackDecryptionProvider},
-    DataTrackInfo, DataTrackSignalResponseError,
+    DataTrackInfo, HandleSignalResponseError,
 };
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
@@ -148,26 +148,26 @@ impl RemoteDataTrackManager {
         &self,
         res: &[u8],
         local_participant_identity: String,
-    ) -> Result<(), DataTrackSignalResponseError> {
+    ) -> Result<(), HandleSignalResponseError> {
         let res = proto::SignalResponse::decode(res)
-            .map_err(|err| DataTrackSignalResponseError::Decode(err))?;
+            .map_err(|err| HandleSignalResponseError::Decode(err))?;
 
-        let msg = res.message.ok_or(DataTrackSignalResponseError::EmptyMessage)?;
+        let msg = res.message.ok_or(HandleSignalResponseError::EmptyMessage)?;
 
         use proto::signal_response::Message;
         match msg {
             Message::Update(mut msg) => {
                 let event = event_from_participant_update(&mut msg, &local_participant_identity)
-                    .map_err(|err| DataTrackSignalResponseError::Internal(err))?;
+                    .map_err(|err| HandleSignalResponseError::Internal(err))?;
                 _ = self.input.send(event.into());
             }
             Message::DataTrackSubscriberHandles(msg) => {
                 let event: inner::SfuSubscriberHandles =
-                    msg.try_into().map_err(|err| DataTrackSignalResponseError::Internal(err))?;
+                    msg.try_into().map_err(|err| HandleSignalResponseError::Internal(err))?;
                 _ = self.input.send(event.into())
             }
             _ => {
-                return Err(DataTrackSignalResponseError::UnsupportedType);
+                return Err(HandleSignalResponseError::UnsupportedType);
             }
         };
         Ok(())
