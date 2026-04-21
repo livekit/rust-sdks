@@ -16,6 +16,7 @@ use bytes::Bytes;
 use livekit_datatrack::api::{DataTrackFrame, DataTrackSid};
 
 pub mod local;
+pub mod remote;
 
 uniffi::custom_type!(DataTrackSid, String, {
     remote,
