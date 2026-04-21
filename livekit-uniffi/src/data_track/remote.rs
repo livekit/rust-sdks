@@ -13,17 +13,14 @@
 // limitations under the License.
 
 use super::{
-    e2ee::{FfiDecryptionProvider, DataTrackDecryptionProvider},
+    e2ee::{DataTrackDecryptionProvider, FfiDecryptionProvider},
     DataTrackInfo, HandleSignalResponseError,
 };
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use livekit_datatrack::{
     api::{DataTrack, DataTrackFrame, DataTrackSid, DataTrackSubscribeError, Remote},
-    backend::{
-        remote::{self as inner, event_from_participant_update},
-        DecryptionProvider,
-    },
+    backend::{remote, DecryptionProvider},
 };
 use livekit_protocol as proto;
 use prost::Message;
@@ -81,7 +78,7 @@ impl DataTrackStream {
 /// System for managing data track subscriptions.
 #[derive(uniffi::Object)]
 struct RemoteDataTrackManager {
-    input: inner::ManagerInput,
+    input: remote::ManagerInput,
     _drop_guard: DropGuard,
 }
 
@@ -114,9 +111,9 @@ impl RemoteDataTrackManager {
 
         let decryption_provider = decryption_provider
             .map(|p| Arc::new(FfiDecryptionProvider(p)) as Arc<dyn DecryptionProvider>);
-        let manager_options = inner::ManagerOptions { decryption_provider };
+        let manager_options = remote::ManagerOptions { decryption_provider };
 
-        let (manager, input, output) = inner::Manager::new(manager_options);
+        let (manager, input, output) = remote::Manager::new(manager_options);
         tokio::spawn(Self::shutdown_forward_task(input.clone(), token.clone()));
         tokio::spawn(Self::delegate_forward_task(output, delegate, token.clone()));
         tokio::spawn(manager.run());
@@ -130,7 +127,7 @@ impl RemoteDataTrackManager {
     /// are subscribed to locally.
     ///
     pub fn resend_subscription_updates(&self) {
-        _ = self.input.send(inner::InputEvent::ResendSubscriptionUpdates);
+        _ = self.input.send(remote::InputEvent::ResendSubscriptionUpdates);
     }
 
     /// Handles a serialized signal response from the SFU.
@@ -157,12 +154,13 @@ impl RemoteDataTrackManager {
         use proto::signal_response::Message;
         match msg {
             Message::Update(mut msg) => {
-                let event = event_from_participant_update(&mut msg, &local_participant_identity)
-                    .map_err(|err| HandleSignalResponseError::Internal(err))?;
+                let event =
+                    remote::event_from_participant_update(&mut msg, &local_participant_identity)
+                        .map_err(|err| HandleSignalResponseError::Internal(err))?;
                 _ = self.input.send(event.into());
             }
             Message::DataTrackSubscriberHandles(msg) => {
-                let event: inner::SfuSubscriberHandles =
+                let event: remote::SfuSubscriberHandles =
                     msg.try_into().map_err(|err| HandleSignalResponseError::Internal(err))?;
                 _ = self.input.send(event.into())
             }
@@ -175,19 +173,19 @@ impl RemoteDataTrackManager {
 
     /// Handles a encoded packet received over the data channel.
     pub fn handle_packet_received(&self, packet: Bytes) {
-        _ = self.input.send(inner::InputEvent::PacketReceived(packet))
+        _ = self.input.send(remote::InputEvent::PacketReceived(packet))
     }
 }
 
 impl RemoteDataTrackManager {
-    async fn shutdown_forward_task(input: inner::ManagerInput, token: CancellationToken) {
+    async fn shutdown_forward_task(input: remote::ManagerInput, token: CancellationToken) {
         // TODO: consider having manager work with cancellation token out-of-the-box.
         token.cancelled().await;
-        _ = input.send(inner::InputEvent::Shutdown);
+        _ = input.send(remote::InputEvent::Shutdown);
     }
 
     async fn delegate_forward_task(
-        output: impl Stream<Item = inner::OutputEvent>,
+        output: impl Stream<Item = remote::OutputEvent>,
         delegate: Arc<dyn RemoteDataTrackManagerDelegate>,
         token: CancellationToken,
     ) {
@@ -201,19 +199,21 @@ impl RemoteDataTrackManager {
     }
 
     fn forward_event(
-        event: inner::OutputEvent,
+        event: remote::OutputEvent,
         delegate: &Arc<dyn RemoteDataTrackManagerDelegate>,
     ) {
         match event {
-            inner::OutputEvent::SfuUpdateSubscription(req) => {
+            remote::OutputEvent::SfuUpdateSubscription(req) => {
                 let req = proto::signal_request::Message::UpdateDataSubscription(req.into());
                 Self::forward_signal_request(req, delegate);
             }
-            inner::OutputEvent::TrackPublished(event) => {
+            remote::OutputEvent::TrackPublished(event) => {
                 let track = Arc::new(RemoteDataTrack(event.track));
                 delegate.on_track_published(track);
             }
-            inner::OutputEvent::TrackUnpublished(event) => delegate.on_track_unpublished(event.sid),
+            remote::OutputEvent::TrackUnpublished(event) => {
+                delegate.on_track_unpublished(event.sid)
+            }
         }
     }
 

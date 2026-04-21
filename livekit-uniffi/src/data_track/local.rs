@@ -18,17 +18,9 @@ use super::{
 };
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
-use inner::OutputEvent;
-use livekit_datatrack::backend::local::{
-    publish_result_from_request_response, InputEvent, ManagerInput, SfuPublishResponse,
-};
 use livekit_datatrack::{
-    api::{DataTrack, DataTrackFrame, Local, PushFrameErrorReason},
-    backend::EncryptionProvider,
-};
-use livekit_datatrack::{
-    api::{DataTrackOptions, PublishError},
-    backend::local as inner,
+    api::{DataTrack, DataTrackFrame, DataTrackOptions, Local, PublishError, PushFrameErrorReason},
+    backend::{local, EncryptionProvider},
 };
 use livekit_protocol as proto;
 use prost::Message;
@@ -95,7 +87,7 @@ impl LocalDataTrack {
 ///
 #[derive(uniffi::Object)]
 struct LocalDataTrackManager {
-    input: inner::ManagerInput,
+    input: local::ManagerInput,
     _drop_guard: DropGuard,
 }
 
@@ -120,9 +112,9 @@ impl LocalDataTrackManager {
 
         let encryption_provider = encryption_provider
             .map(|p| Arc::new(FfiEncryptionProvider(p)) as Arc<dyn EncryptionProvider>);
-        let manager_options = inner::ManagerOptions { encryption_provider };
+        let manager_options = local::ManagerOptions { encryption_provider };
 
-        let (manager, input, output) = inner::Manager::new(manager_options);
+        let (manager, input, output) = local::Manager::new(manager_options);
         tokio::spawn(Self::shutdown_forward_task(input.clone(), token.clone()));
         tokio::spawn(Self::delegate_forward_task(output, delegate, token.clone()));
         tokio::spawn(manager.run());
@@ -152,7 +144,7 @@ impl LocalDataTrackManager {
     /// to be recognized by the SFU. Each republished track will be assigned a new SID.
     ///
     pub async fn republish_tracks(&self) {
-        _ = self.input.send(inner::InputEvent::RepublishTracks);
+        _ = self.input.send(local::InputEvent::RepublishTracks);
     }
 
     /// Handles a serialized signal response from the SFU.
@@ -172,21 +164,21 @@ impl LocalDataTrackManager {
         use proto::signal_response::Message;
         let publish_res = match msg {
             Message::RequestResponse(msg) => {
-                let Some(res) = publish_result_from_request_response(&msg) else {
+                let Some(res) = local::publish_result_from_request_response(&msg) else {
                     // Not from data track publish request.
                     return Ok(());
                 };
                 res
             }
             Message::PublishDataTrackResponse(res) => {
-                let res: SfuPublishResponse =
+                let res: local::SfuPublishResponse =
                     res.try_into().map_err(|err| HandleSignalResponseError::Internal(err))?;
                 res
             }
             _ => return Err(HandleSignalResponseError::UnsupportedType),
         };
 
-        let event: InputEvent = publish_res.into();
+        let event: local::InputEvent = publish_res.into();
         _ = self.input.send(event);
 
         Ok(())
@@ -194,14 +186,14 @@ impl LocalDataTrackManager {
 }
 
 impl LocalDataTrackManager {
-    async fn shutdown_forward_task(input: ManagerInput, token: CancellationToken) {
+    async fn shutdown_forward_task(input: local::ManagerInput, token: CancellationToken) {
         // TODO: consider having manager work with cancellation token out-of-the-box.
         token.cancelled().await;
-        _ = input.send(InputEvent::Shutdown);
+        _ = input.send(local::InputEvent::Shutdown);
     }
 
     async fn delegate_forward_task(
-        output: impl Stream<Item = inner::OutputEvent>,
+        output: impl Stream<Item = local::OutputEvent>,
         delegate: Arc<dyn LocalDataTrackManagerDelegate>,
         token: CancellationToken,
     ) {
@@ -214,14 +206,14 @@ impl LocalDataTrackManager {
         }
     }
 
-    fn forward_event(event: OutputEvent, delegate: &Arc<dyn LocalDataTrackManagerDelegate>) {
+    fn forward_event(event: local::OutputEvent, delegate: &Arc<dyn LocalDataTrackManagerDelegate>) {
         match event {
-            OutputEvent::PacketsAvailable(packets) => delegate.on_packets_available(packets),
-            OutputEvent::SfuPublishRequest(req) => {
+            local::OutputEvent::PacketsAvailable(packets) => delegate.on_packets_available(packets),
+            local::OutputEvent::SfuPublishRequest(req) => {
                 let req = proto::signal_request::Message::PublishDataTrackRequest(req.into());
                 Self::forward_signal_request(req, delegate);
             }
-            OutputEvent::SfuUnpublishRequest(req) => {
+            local::OutputEvent::SfuUnpublishRequest(req) => {
                 let req = proto::signal_request::Message::UnpublishDataTrackRequest(req.into());
                 Self::forward_signal_request(req, delegate);
             }
