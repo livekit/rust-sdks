@@ -26,7 +26,7 @@ use crate::{
     peer_connection::PeerConnection,
     peer_connection_factory::RtcConfiguration,
     rtp_parameters::RtpCapabilities,
-    video_source::native::NativeVideoSource,
+    video_source::native::{NativeEncodedVideoSource, NativeVideoSource},
     video_track::RtcVideoTrack,
     MediaType, RtcError,
 };
@@ -77,6 +77,21 @@ impl PeerConnectionFactory {
         RtcVideoTrack {
             handle: imp_vt::RtcVideoTrack::new(
                 self.sys_handle.create_video_track(label.to_string(), source.handle.sys_handle()),
+            ),
+        }
+    }
+
+    pub fn create_video_track_from_encoded_source(
+        &self,
+        label: &str,
+        source: NativeEncodedVideoSource,
+    ) -> RtcVideoTrack {
+        RtcVideoTrack {
+            handle: imp_vt::RtcVideoTrack::new(
+                self.sys_handle.create_video_track_from_encoded_source(
+                    label.to_string(),
+                    source.sys_handle(),
+                ),
             ),
         }
     }
