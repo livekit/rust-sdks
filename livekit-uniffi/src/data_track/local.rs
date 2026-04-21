@@ -138,11 +138,11 @@ impl LocalDataTrackManager {
             OutputEvent::PacketsAvailable(packets) => delegate.on_packets_available(packets),
             OutputEvent::SfuPublishRequest(req) => {
                 let req = proto::signal_request::Message::PublishDataTrackRequest(req.into());
-                Self::forward_signal_request(req, &delegate);
+                Self::forward_signal_request(req, delegate);
             }
             OutputEvent::SfuUnpublishRequest(req) => {
                 let req = proto::signal_request::Message::UnpublishDataTrackRequest(req.into());
-                Self::forward_signal_request(req, &delegate);
+                Self::forward_signal_request(req, delegate);
             }
         }
     }
@@ -163,7 +163,7 @@ impl LocalDataTrackManager {
         &self,
         options: DataTrackOptions,
     ) -> Result<LocalDataTrack, PublishError> {
-        self.input.publish_track(options).await.map(|track| LocalDataTrack(track))
+        self.input.publish_track(options).await.map(LocalDataTrack)
     }
 
     /// Get information about all currently published tracks.
