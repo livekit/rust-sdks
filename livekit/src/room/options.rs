@@ -38,6 +38,18 @@ impl VideoCodec {
     }
 }
 
+impl From<libwebrtc::video_source::VideoCodec> for VideoCodec {
+    fn from(codec: libwebrtc::video_source::VideoCodec) -> Self {
+        match codec {
+            libwebrtc::video_source::VideoCodec::H264 => VideoCodec::H264,
+            libwebrtc::video_source::VideoCodec::H265 => VideoCodec::H265,
+            libwebrtc::video_source::VideoCodec::Vp8 => VideoCodec::VP8,
+            libwebrtc::video_source::VideoCodec::Vp9 => VideoCodec::VP9,
+            libwebrtc::video_source::VideoCodec::Av1 => VideoCodec::AV1,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct VideoResolution {
     pub width: u32,

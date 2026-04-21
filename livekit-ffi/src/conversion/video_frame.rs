@@ -30,7 +30,10 @@ impl From<proto::VideoSourceResolution> for VideoSourceResolution {
 
 impl From<&FfiVideoSource> for proto::VideoSourceInfo {
     fn from(source: &FfiVideoSource) -> Self {
-        Self { r#type: source.source_type as i32 }
+        Self {
+            r#type: source.source_type as i32,
+            encoded_source_id: source.encoded_source_id().map(|id| id as u32),
+        }
     }
 }
 

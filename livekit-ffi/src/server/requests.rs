@@ -474,6 +474,15 @@ unsafe fn on_capture_video_frame(
     Ok(proto::CaptureVideoFrameResponse::default())
 }
 
+/// Push a pre-encoded frame to a VIDEO_SOURCE_ENCODED source.
+fn on_capture_encoded_video_frame(
+    server: &'static FfiServer,
+    push: proto::CaptureEncodedVideoFrameRequest,
+) -> FfiResult<proto::CaptureEncodedVideoFrameResponse> {
+    let source = server.retrieve_handle::<video_source::FfiVideoSource>(push.source_handle)?;
+    source.capture_encoded_frame(server, push)
+}
+
 /// Convert a video frame
 ///
 /// # Safety: The user must ensure that the pointers/len provided are valid
@@ -1294,6 +1303,7 @@ pub fn handle_request(
         }
         Request::NewVideoSource(req) => on_new_video_source(server, req)?.into(),
         Request::CaptureVideoFrame(req) => unsafe { on_capture_video_frame(server, req)?.into() },
+        Request::CaptureEncodedVideoFrame(req) => on_capture_encoded_video_frame(server, req)?.into(),
         Request::VideoConvert(req) => unsafe { on_video_convert(server, req)?.into() },
         Request::NewAudioStream(req) => on_new_audio_stream(server, req)?.into(),
         Request::NewAudioSource(req) => on_new_audio_source(server, req)?.into(),

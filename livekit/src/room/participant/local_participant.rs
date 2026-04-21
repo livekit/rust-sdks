@@ -302,6 +302,34 @@ impl LocalParticipant {
         track: LocalTrack,
         options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
+        // Encoded video sources deliver pre-encoded single-layer frames.
+        // Force-disable simulcast and pin the negotiated codec to the
+        // source's codec so WebRTC's encoder factory picks our passthrough
+        // encoder path.
+        let options = {
+            let mut options = options;
+            if let LocalTrack::Video(ref video_track) = track {
+                #[cfg(not(target_arch = "wasm32"))]
+                if let RtcVideoSource::Encoded(ref encoded_source) = video_track.rtc_source() {
+                    let source_codec: options::VideoCodec = encoded_source.codec().into();
+                    if options.video_codec != source_codec {
+                        log::warn!(
+                            "publish_track: overriding video_codec {:?} -> {:?} to match encoded source",
+                            options.video_codec,
+                            source_codec
+                        );
+                        options.video_codec = source_codec;
+                    }
+                    if options.simulcast {
+                        log::warn!(
+                            "publish_track: disabling simulcast for encoded video source (single-layer only)"
+                        );
+                        options.simulcast = false;
+                    }
+                }
+            }
+            options
+        };
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
 
         let mut req = proto::AddTrackRequest {
