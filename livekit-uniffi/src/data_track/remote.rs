@@ -12,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::data_track::{DataTrackInfo, DataTrackSignalResponseError};
+use super::{
+    e2ee::{FfiDecryptionProvider, DataTrackDecryptionProvider},
+    DataTrackInfo, DataTrackSignalResponseError,
+};
 use bytes::Bytes;
-use core::fmt;
 use futures_util::{Stream, StreamExt};
 use livekit_datatrack::{
     api::{DataTrack, DataTrackFrame, DataTrackSid, DataTrackSubscribeError, Remote},
     backend::{
         remote::{self as inner, event_from_participant_update},
-        DecryptionError, DecryptionProvider, EncryptedPayload,
+        DecryptionProvider,
     },
 };
 use livekit_protocol as proto;
@@ -88,7 +90,7 @@ impl RemoteDataTrackManager {
     #[uniffi::constructor]
     pub fn new(
         delegate: Arc<dyn RemoteDataTrackManagerDelegate>,
-        decryption_provider: Option<Arc<dyn RemoteDataTrackDecryptionProvider>>,
+        decryption_provider: Option<Arc<dyn DataTrackDecryptionProvider>>,
     ) -> Arc<Self> {
         let token = CancellationToken::new();
 
@@ -225,42 +227,4 @@ pub trait RemoteDataTrackManagerDelegate: Send + Sync {
 
     /// A track with the given SID has been unpublished by a remote participant.
     fn on_track_unpublished(&self, sid: DataTrackSid);
-}
-
-#[uniffi::remote(Error)]
-#[uniffi(flat_error)]
-pub enum DecryptionError {}
-
-/// Provider for decrypting payloads for E2EE.
-#[uniffi::export(with_foreign)]
-pub trait RemoteDataTrackDecryptionProvider: Send + Sync {
-    /// Decrypts the given payload received from a remote participant.
-    ///
-    /// Sender identity is required in order for the proper key to be used
-    /// for decryption.
-    ///
-    fn decrypt(
-        &self,
-        payload: EncryptedPayload,
-        sender_identity: String,
-    ) -> Result<Bytes, DecryptionError>;
-}
-
-/// Adapts [`RemoteDataTrackDecryptionProvider`] to implement [`DecryptionProvider`].
-struct FfiDecryptionProvider(Arc<dyn RemoteDataTrackDecryptionProvider>);
-
-impl DecryptionProvider for FfiDecryptionProvider {
-    fn decrypt(
-        &self,
-        payload: EncryptedPayload,
-        sender_identity: &str,
-    ) -> Result<Bytes, DecryptionError> {
-        self.0.decrypt(payload, sender_identity.to_string())
-    }
-}
-
-impl fmt::Debug for FfiDecryptionProvider {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FfiDecryptionProvider").finish_non_exhaustive()
-    }
 }

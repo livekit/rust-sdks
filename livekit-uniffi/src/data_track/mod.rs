@@ -17,6 +17,7 @@ use livekit_datatrack::api::{DataTrackFrame, DataTrackSid};
 
 pub mod local;
 pub mod remote;
+pub mod e2ee;
 
 uniffi::custom_type!(DataTrackSid, String, {
     remote,

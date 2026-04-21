@@ -12,23 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::data_track::DataTrackSignalResponseError;
-use super::DataTrackInfo;
+use super::{
+    e2ee::{FfiEncryptionProvider, DataTrackEncryptionProvider},
+    DataTrackInfo, DataTrackSignalResponseError,
+};
 use bytes::Bytes;
 use futures_util::{Stream, StreamExt};
 use inner::OutputEvent;
-use livekit_datatrack::api::{DataTrack, DataTrackFrame, Local, PushFrameErrorReason};
+use livekit_datatrack::{api::{DataTrack, DataTrackFrame, Local, PushFrameErrorReason}, backend::EncryptionProvider};
 use livekit_datatrack::backend::local::{
     publish_result_from_request_response, InputEvent, ManagerInput, SfuPublishResponse,
 };
-use livekit_datatrack::backend::EncryptionError;
 use livekit_datatrack::{
     api::{DataTrackOptions, PublishError},
-    backend::{local as inner, EncryptedPayload, EncryptionProvider, InitializationVector},
+    backend::local as inner,
 };
 use livekit_protocol as proto;
 use prost::Message;
-use std::fmt;
 use std::sync::Arc;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
@@ -101,7 +101,7 @@ impl LocalDataTrackManager {
     #[uniffi::constructor]
     pub fn new(
         delegate: Arc<dyn LocalDataTrackManagerDelegate>,
-        encryption_provider: Option<Arc<dyn LocalDataTrackEncryptionProvider>>,
+        encryption_provider: Option<Arc<dyn DataTrackEncryptionProvider>>,
     ) -> Arc<Self> {
         let token = CancellationToken::new();
 
@@ -198,7 +198,6 @@ impl LocalDataTrackManager {
     /// - `PublishDataTrackResponse`
     ///
     pub fn handle_signal_response(&self, res: &[u8]) -> Result<(), DataTrackSignalResponseError> {
-
         let res = proto::SignalResponse::decode(res)
             .map_err(|err| DataTrackSignalResponseError::Decode(err))?;
 
@@ -236,44 +235,4 @@ pub trait LocalDataTrackManagerDelegate: Send + Sync {
 
     /// Packets available to be sent over the data channel transport.
     fn on_packets_available(&self, packets: Vec<Bytes>);
-}
-
-uniffi::custom_type!(InitializationVector, Vec<u8>, {
-    remote,
-    lower: |iv| iv.to_vec(),
-    try_lift: |v| v.try_into()
-        .map_err(|_| uniffi::deps::anyhow::anyhow!("IV must be exactly 12 bytes"))
-});
-
-#[uniffi::remote(Record)]
-pub struct EncryptedPayload {
-    pub payload: Bytes,
-    pub iv: InitializationVector,
-    pub key_index: u8,
-}
-
-#[uniffi::remote(Error)]
-#[uniffi(flat_error)]
-pub enum EncryptionError {}
-
-/// Provider for encrypting payloads for E2EE.
-#[uniffi::export(with_foreign)]
-pub trait LocalDataTrackEncryptionProvider: Send + Sync {
-    /// Encrypts the given payload being sent by the local participant.
-    fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, EncryptionError>;
-}
-
-/// Adapts [`LocalDataTrackEncryptionProvider`] to implement [`EncryptionProvider`].
-struct FfiEncryptionProvider(Arc<dyn LocalDataTrackEncryptionProvider>);
-
-impl EncryptionProvider for FfiEncryptionProvider {
-    fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, EncryptionError> {
-        self.0.encrypt(payload)
-    }
-}
-
-impl fmt::Debug for FfiEncryptionProvider {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("FfiEncryptionProvider").finish_non_exhaustive()
-    }
 }
