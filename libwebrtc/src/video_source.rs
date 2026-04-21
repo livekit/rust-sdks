@@ -29,18 +29,57 @@ impl Default for VideoResolution {
     }
 }
 
+/// Codec used by a pre-encoded video feed.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum VideoCodec {
+    H264,
+    H265,
+    Vp8,
+    Vp9,
+    Av1,
+}
+
+/// Metadata describing a single pre-encoded video frame pushed to an
+/// [`native::NativeEncodedVideoSource`].
+#[derive(Debug, Copy, Clone)]
+pub struct EncodedFrameInfo {
+    /// True when this frame is an IDR / keyframe.
+    pub is_keyframe: bool,
+    /// True when the `data` buffer already has SPS/PPS (or equivalent)
+    /// prepended. H.264/H.265 only; ignored for other codecs.
+    pub has_sps_pps: bool,
+    pub width: u32,
+    pub height: u32,
+    /// Capture timestamp in microseconds. `0` lets the source stamp `now`.
+    pub capture_time_us: i64,
+}
+
+impl Default for EncodedFrameInfo {
+    fn default() -> Self {
+        Self {
+            is_keyframe: false,
+            has_sps_pps: false,
+            width: 0,
+            height: 0,
+            capture_time_us: 0,
+        }
+    }
+}
+
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum RtcVideoSource {
     // TODO(theomonnom): Web video sources (eq. to tracks on browsers?)
     #[cfg(not(target_arch = "wasm32"))]
     Native(native::NativeVideoSource),
+    #[cfg(not(target_arch = "wasm32"))]
+    Encoded(native::NativeEncodedVideoSource),
 }
 
 // TODO(theomonnom): Support enum dispatch with conditional compilation?
 impl RtcVideoSource {
     enum_dispatch!(
-        [Native];
+        [Native, Encoded];
         pub fn video_resolution(self: &Self) -> VideoResolution;
     );
 }
@@ -48,6 +87,10 @@ impl RtcVideoSource {
 #[cfg(not(target_arch = "wasm32"))]
 pub mod native {
     use std::fmt::{Debug, Formatter};
+
+    pub use crate::native::encoded_video_source::{
+        EncodedVideoSourceObserver, NativeEncodedVideoSource,
+    };
 
     use super::*;
     use crate::native::packet_trailer::PacketTrailerHandler;

@@ -69,7 +69,8 @@ pub mod native {
     pub use webrtc_sys::webrtc::ffi::create_random_uuid;
 
     pub use crate::imp::{
-        apm, audio_mixer, audio_resampler, frame_cryptor, packet_trailer, yuv_helper,
+        apm, audio_mixer, audio_resampler, encoded_video_source, frame_cryptor, packet_trailer,
+        yuv_helper,
     };
 }
 
