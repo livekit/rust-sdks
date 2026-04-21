@@ -39,6 +39,15 @@ impl RemoteDataTrack {
         self.0.is_published()
     }
 
+    /// Waits asynchronously until the track is unpublished.
+    ///
+    /// Use this to trigger follow-up work once the track is no longer published.
+    /// If the track is already unpublished, this method returns immediately.
+    ///
+    async fn wait_for_unpublish(&self) {
+        self.0.wait_for_unpublish().await
+    }
+
     /// Information about the data track.
     fn info(&self) -> DataTrackInfo {
         self.0.info().into()
