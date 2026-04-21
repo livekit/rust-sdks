@@ -26,7 +26,10 @@ pub mod native {
     };
 
     use super::stream_imp;
-    use crate::{video_frame::BoxVideoFrame, video_track::RtcVideoTrack};
+    use crate::{
+        native::packet_trailer::PacketTrailerHandler, video_frame::BoxVideoFrame,
+        video_track::RtcVideoTrack,
+    };
     use livekit_runtime::Stream;
 
     const DEFAULT_QUEUE_SIZE_FRAMES: usize = 1;
@@ -74,6 +77,20 @@ pub mod native {
                     normalize_queue_size_frames(options.queue_size_frames),
                 ),
             }
+        }
+
+        /// Set the packet trailer handler for this stream.
+        ///
+        /// When set, each frame produced by this stream will have its
+        /// `user_timestamp` field populated by looking up the user
+        /// timestamp for each frame's RTP timestamp.
+        ///
+        /// Note: If the handler was already set on the `RtcVideoTrack`
+        /// before creating this stream, it is automatically wired up.
+        /// This method is only needed to override or set the handler
+        /// after construction.
+        pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+            self.handle.set_packet_trailer_handler(handler);
         }
 
         pub fn track(&self) -> RtcVideoTrack {

@@ -430,6 +430,11 @@ export declare class CaptureVideoFrameRequest extends Message<CaptureVideoFrameR
    */
   rotation?: VideoRotation;
 
+  /**
+   * @generated from field: optional livekit.proto.FrameMetadata metadata = 5;
+   */
+  metadata?: FrameMetadata;
+
   constructor(data?: PartialMessage<CaptureVideoFrameRequest>);
 
   static readonly runtime: typeof proto2;
@@ -683,6 +688,35 @@ export declare class OwnedVideoBuffer extends Message<OwnedVideoBuffer> {
 }
 
 /**
+ * @generated from message livekit.proto.FrameMetadata
+ */
+export declare class FrameMetadata extends Message<FrameMetadata> {
+  /**
+   * @generated from field: optional uint64 user_timestamp = 1;
+   */
+  userTimestamp?: bigint;
+
+  /**
+   * @generated from field: optional uint32 frame_id = 2;
+   */
+  frameId?: number;
+
+  constructor(data?: PartialMessage<FrameMetadata>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.FrameMetadata";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): FrameMetadata;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): FrameMetadata;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): FrameMetadata;
+
+  static equals(a: FrameMetadata | PlainMessage<FrameMetadata> | undefined, b: FrameMetadata | PlainMessage<FrameMetadata> | undefined): boolean;
+}
+
+/**
  * @generated from message livekit.proto.VideoStreamInfo
  */
 export declare class VideoStreamInfo extends Message<VideoStreamInfo> {
@@ -796,6 +830,11 @@ export declare class VideoFrameReceived extends Message<VideoFrameReceived> {
    * @generated from field: required livekit.proto.VideoRotation rotation = 3;
    */
   rotation?: VideoRotation;
+
+  /**
+   * @generated from field: optional livekit.proto.FrameMetadata metadata = 4;
+   */
+  metadata?: FrameMetadata;
 
   constructor(data?: PartialMessage<VideoFrameReceived>);
 

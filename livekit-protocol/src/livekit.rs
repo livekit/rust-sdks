@@ -2058,6 +2058,7 @@ impl AudioTrackFeature {
 #[repr(i32)]
 pub enum PacketTrailerFeature {
     PtfUserTimestamp = 0,
+    PtfFrameId = 1,
 }
 impl PacketTrailerFeature {
     /// String value of the enum field names used in the ProtoBuf definition.
@@ -2067,12 +2068,14 @@ impl PacketTrailerFeature {
     pub fn as_str_name(&self) -> &'static str {
         match self {
             PacketTrailerFeature::PtfUserTimestamp => "PTF_USER_TIMESTAMP",
+            PacketTrailerFeature::PtfFrameId => "PTF_FRAME_ID",
         }
     }
     /// Creates an enum from field names used in the ProtoBuf definition.
     pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
         match value {
             "PTF_USER_TIMESTAMP" => Some(Self::PtfUserTimestamp),
+            "PTF_FRAME_ID" => Some(Self::PtfFrameId),
             _ => None,
         }
     }

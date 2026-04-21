@@ -39,6 +39,11 @@ impl From<&FfiPublication> for proto::TrackPublicationInfo {
                 .into_iter()
                 .map(|i| proto::AudioTrackFeature::from(i).into())
                 .collect(),
+            packet_trailer_features: publication
+                .packet_trailer_features()
+                .into_iter()
+                .map(|i| proto::PacketTrailerFeature::from(i).into())
+                .collect(),
         }
     }
 }
@@ -155,6 +160,19 @@ impl From<AudioTrackFeature> for proto::AudioTrackFeature {
                 proto::AudioTrackFeature::TfEnhancedNoiseCancellation
             }
             AudioTrackFeature::TfPreconnectBuffer => proto::AudioTrackFeature::TfPreconnectBuffer,
+        }
+    }
+}
+
+impl From<livekit_protocol::PacketTrailerFeature> for proto::PacketTrailerFeature {
+    fn from(value: livekit_protocol::PacketTrailerFeature) -> Self {
+        match value {
+            livekit_protocol::PacketTrailerFeature::PtfUserTimestamp => {
+                proto::PacketTrailerFeature::PtfUserTimestamp
+            }
+            livekit_protocol::PacketTrailerFeature::PtfFrameId => {
+                proto::PacketTrailerFeature::PtfFrameId
+            }
         }
     }
 }

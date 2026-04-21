@@ -14,7 +14,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use libwebrtc::{prelude::*, stats::RtcStats};
+use libwebrtc::{native::packet_trailer::PacketTrailerHandler, prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
 
 use super::{remote_track, TrackInner};
@@ -92,6 +92,20 @@ impl RemoteVideoTrack {
 
     pub fn is_remote(&self) -> bool {
         true
+    }
+
+    /// Returns a clone of the packet trailer handler, if one has been set.
+    pub fn packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
+        self.rtc_track().packet_trailer_handler()
+    }
+
+    /// Internal: set the handler that extracts packet trailers for this track.
+    ///
+    /// The handler is stored on the underlying `RtcVideoTrack`, so any
+    /// `NativeVideoStream` created from this track will automatically
+    /// pick it up — no manual wiring required.
+    pub(crate) fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        self.rtc_track().set_packet_trailer_handler(handler);
     }
 
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {

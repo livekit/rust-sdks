@@ -23,6 +23,7 @@ use parking_lot::Mutex;
 use webrtc_sys::{video_frame as vf_sys, video_frame::ffi::VideoRotation, video_track as vt_sys};
 
 use crate::{
+    native::packet_trailer::PacketTrailerHandler,
     video_frame::{I420Buffer, VideoBuffer, VideoFrame},
     video_source::VideoResolution,
 };
@@ -80,7 +81,14 @@ impl NativeVideoSource {
                     let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
                     builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
 
-                    source.sys_handle.on_captured_frame(&builder.pin_mut().build());
+                    source.sys_handle.on_captured_frame(
+                        &builder.pin_mut().build(),
+                        &vt_sys::ffi::FrameMetadata {
+                            has_packet_trailer: false,
+                            user_timestamp: 0,
+                            frame_id: 0,
+                        },
+                    );
                 }
             }
         });
@@ -93,22 +101,44 @@ impl NativeVideoSource {
     }
 
     pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {
-        let mut inner = self.inner.lock();
-        inner.captured_frames += 1;
-
         let mut builder = vf_sys::ffi::new_video_frame_builder();
         builder.pin_mut().set_rotation(frame.rotation.into());
         builder.pin_mut().set_video_frame_buffer(frame.buffer.as_ref().sys_handle());
 
-        if frame.timestamp_us == 0 {
-            // If the timestamp is set to 0, default to now
+        let capture_ts = if frame.timestamp_us == 0 {
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-            builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
+            now.as_micros() as i64
         } else {
-            builder.pin_mut().set_timestamp_us(frame.timestamp_us);
-        }
+            frame.timestamp_us
+        };
+        builder.pin_mut().set_timestamp_us(capture_ts);
 
-        self.sys_handle.on_captured_frame(&builder.pin_mut().build());
+        let (has_trailer, user_ts, fid) = match frame.frame_metadata {
+            Some(meta) => (true, meta.user_timestamp.unwrap_or(0), meta.frame_id.unwrap_or(0)),
+            None => (false, 0, 0),
+        };
+
+        self.inner.lock().captured_frames += 1;
+
+        self.sys_handle.on_captured_frame(
+            &builder.pin_mut().build(),
+            &vt_sys::ffi::FrameMetadata {
+                has_packet_trailer: has_trailer,
+                user_timestamp: user_ts,
+                frame_id: fid,
+            },
+        );
+    }
+
+    /// Set the packet trailer handler used by this source.
+    ///
+    /// When set, any frame captured with a `user_timestamp` value will
+    /// automatically have its timestamp stored in the handler so the
+    /// `PacketTrailerTransformer` can embed it into the encoded frame.
+    /// The handler is set on the C++ VideoTrackSource so it has access to
+    /// the TimestampAligner-adjusted capture timestamp for correct keying.
+    pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        self.sys_handle.set_packet_trailer_handler(handler.sys_handle());
     }
 
     pub fn video_resolution(&self) -> VideoResolution {

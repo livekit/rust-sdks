@@ -77,6 +77,7 @@ message CaptureVideoFrameRequest {
   required VideoBufferInfo buffer = 2;
   required int64 timestamp_us = 3; // In microseconds
   required VideoRotation rotation = 4;
+  optional FrameMetadata metadata = 5;
 }
 
 message CaptureVideoFrameResponse {}
@@ -153,6 +154,11 @@ message OwnedVideoBuffer {
   required VideoBufferInfo info = 2;
 }
 
+message FrameMetadata {
+  optional uint64 user_timestamp = 1;
+  optional uint32 frame_id = 2;
+}
+
 //
 // VideoStream
 //
@@ -184,6 +190,7 @@ message VideoFrameReceived {
   required OwnedVideoBuffer buffer = 1;
   required int64 timestamp_us = 2; // In microseconds
   required VideoRotation rotation = 3;
+  optional FrameMetadata metadata = 4;
 }
 
 message VideoStreamEOS {}

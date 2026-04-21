@@ -27,6 +27,7 @@ pub mod frame_cryptor;
 pub mod ice_candidate;
 pub mod media_stream;
 pub mod media_stream_track;
+pub mod packet_trailer;
 pub mod peer_connection;
 pub mod peer_connection_factory;
 pub mod rtp_parameters;
