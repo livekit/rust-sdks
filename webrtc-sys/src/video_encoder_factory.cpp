@@ -21,6 +21,7 @@
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
 #include "livekit/objc_video_factory.h"
+#include "livekit/passthrough_video_encoder.h"
 #include "media/base/media_constants.h"
 #include "media/engine/simulcast_encoder_adapter.h"
 #include "rtc_base/logging.h"
@@ -146,13 +147,23 @@ VideoEncoderFactory::CodecSupport VideoEncoderFactory::QueryCodecSupport(
 std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
     const webrtc::Environment& env,
     const webrtc::SdpVideoFormat& format) {
-  std::unique_ptr<webrtc::VideoEncoder> encoder;
-  if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
-    encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(
-        env, internal_factory_.get(), nullptr, format);
+  if (!format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
+    return nullptr;
   }
 
-  return encoder;
+  // Wrap the real encoder construction in a lazy shim so we can branch
+  // between passthrough and a real encoder based on the first VideoFrame's
+  // id. The builder is called at most once and only for non-passthrough
+  // tracks; passthrough tracks never instantiate the SimulcastEncoderAdapter.
+  auto real_encoder_builder = [env, format,
+                               internal_factory = internal_factory_.get()]()
+      -> std::unique_ptr<webrtc::VideoEncoder> {
+    return std::make_unique<webrtc::SimulcastEncoderAdapter>(
+        env, internal_factory, nullptr, format);
+  };
+
+  return std::make_unique<LazyVideoEncoder>(format,
+                                            std::move(real_encoder_builder));
 }
 
 }  // namespace livekit_ffi

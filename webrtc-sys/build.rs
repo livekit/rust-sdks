@@ -55,6 +55,7 @@ fn main() {
         "src/apm.rs",
         "src/audio_mixer.rs",
         "src/packet_trailer.rs",
+        "src/encoded_video_source.rs",
     ];
 
     if is_desktop {
@@ -91,6 +92,8 @@ fn main() {
         "src/apm.cpp",
         "src/audio_mixer.cpp",
         "src/packet_trailer.cpp",
+        "src/encoded_video_source.cpp",
+        "src/passthrough_video_encoder.cpp",
     ]);
 
     if is_desktop {
