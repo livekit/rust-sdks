@@ -39,7 +39,13 @@ namespace livekit_ffi {
 // re-encoding.
 class PassthroughVideoEncoder : public webrtc::VideoEncoder {
  public:
-  explicit PassthroughVideoEncoder(EncodedVideoCodecType codec);
+  // The encoder holds a strong ref to the source so that:
+  //   * Encode() can pop frames / notify keyframe requests without a registry
+  //     lookup (bound 1:1 at construction)
+  //   * SetRates() can forward congestion-controller target bitrate updates
+  //     to the Rust producer immediately.
+  explicit PassthroughVideoEncoder(
+      webrtc::scoped_refptr<EncodedVideoTrackSource::InternalSource> source);
   ~PassthroughVideoEncoder() override;
 
   // webrtc::VideoEncoder
@@ -55,6 +61,7 @@ class PassthroughVideoEncoder : public webrtc::VideoEncoder {
   EncoderInfo GetEncoderInfo() const override;
 
  private:
+  const webrtc::scoped_refptr<EncodedVideoTrackSource::InternalSource> source_;
   const EncodedVideoCodecType codec_;
   webrtc::EncodedImageCallback* callback_ = nullptr;
   webrtc::VideoCodec codec_settings_{};

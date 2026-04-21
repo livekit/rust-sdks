@@ -60,8 +60,12 @@ bool FrameTypesRequestKeyframe(
 
 // ---------- PassthroughVideoEncoder ----------
 
-PassthroughVideoEncoder::PassthroughVideoEncoder(EncodedVideoCodecType codec)
-    : codec_(codec) {}
+PassthroughVideoEncoder::PassthroughVideoEncoder(
+    webrtc::scoped_refptr<EncodedVideoTrackSource::InternalSource> source)
+    : source_(std::move(source)),
+      codec_(source_ ? source_->codec() : EncodedVideoCodecType::H264) {
+  RTC_DCHECK(source_);
+}
 
 PassthroughVideoEncoder::~PassthroughVideoEncoder() = default;
 
@@ -93,20 +97,8 @@ int32_t PassthroughVideoEncoder::Encode(
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
 
-  EncodedVideoTrackSource* src =
-      EncodedSourceRegistry::instance().lookup(frame.id());
-  if (!src) {
-    // Should never happen: LazyVideoEncoder only constructs us when the
-    // registry lookup succeeded. If it does (e.g. source dropped mid-stream)
-    // skip the frame rather than error out so the pipeline stays healthy.
-    RTC_LOG(LS_WARNING)
-        << "PassthroughVideoEncoder received frame for unknown source id="
-        << frame.id();
-    return WEBRTC_VIDEO_CODEC_OK;
-  }
-
   if (FrameTypesRequestKeyframe(frame_types)) {
-    src->get()->notify_keyframe_requested();
+    source_->notify_keyframe_requested();
   }
 
   EncodedVideoTrackSource::InternalSource::DequeuedFrame enc;
@@ -147,11 +139,9 @@ int32_t PassthroughVideoEncoder::Encode(
 }
 
 void PassthroughVideoEncoder::SetRates(const RateControlParameters& parameters) {
-  // The encoder instance doesn't know which source fed it (we only learn on
-  // Encode()). Propagate via the registry on the first Encode() if needed,
-  // but for now just log — rate control only matters to the producer for
-  // adaptive streams and we'll wire it in a follow-up.
-  (void)parameters;
+  const uint32_t target_bps = parameters.target_bitrate.get_sum_bps();
+  const double framerate = parameters.framerate_fps;
+  source_->notify_target_bitrate(target_bps, framerate);
 }
 
 webrtc::VideoEncoder::EncoderInfo PassthroughVideoEncoder::GetEncoderInfo()
@@ -219,7 +209,7 @@ bool LazyVideoEncoder::BuildInner(uint16_t frame_id) {
       EncodedSourceRegistry::instance().lookup(frame_id);
 
   if (src != nullptr) {
-    inner_ = std::make_unique<PassthroughVideoEncoder>(src->codec());
+    inner_ = std::make_unique<PassthroughVideoEncoder>(src->get());
     is_passthrough_ = true;
     RTC_LOG(LS_INFO)
         << "LazyVideoEncoder: using PassthroughVideoEncoder for source id="
