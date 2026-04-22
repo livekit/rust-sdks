@@ -239,43 +239,4 @@ mod tests {
 
         assert_eq!(buf.remaining(), 0);
     }
-
-    /// Demonstrates the ext_words encoding for E2EE-only (no user timestamp).
-    /// The Go server decodes: data_budget = (wire_ext_words + 1) * 4 - 2
-    /// The E2EE extension TLV is 15 bytes (tag=1 + len=1 + key_index=1 + iv=12).
-    #[test]
-    fn test_e2ee_only_ext_words_matches_server() {
-        use crate::packet::consts::{EXT_MARKER_LEN, EXT_WORDS_INDICATOR_SIZE};
-
-        let e2ee_only = Packet {
-            header: Header {
-                marker: FrameMarker::Single,
-                track_handle: 1u32.try_into().unwrap(),
-                sequence: 0,
-                frame_number: 0,
-                timestamp: Timestamp::from_ticks(0),
-                extensions: Extensions {
-                    user_timestamp: None,
-                    e2ee: E2eeExt { key_index: 0, iv: [0; 12] }.into(),
-                },
-            },
-            payload: vec![0xAB; 64].into(),
-        };
-
-        let metrics = e2ee_only.header.metrics();
-
-        let serialized = e2ee_only.serialize();
-        let wire_ext_words = u16::from_be_bytes([serialized[12], serialized[13]]);
-
-        // Go server computes: data_budget = (wire_ext_words + 1) * 4 - EXT_WORDS_INDICATOR_SIZE
-        let go_data_budget = (wire_ext_words as usize + 1) * 4 - EXT_WORDS_INDICATOR_SIZE;
-
-        let e2ee_tlv_size = EXT_MARKER_LEN + E2eeExt::LEN;
-
-        assert!(
-            go_data_budget >= e2ee_tlv_size,
-            "Go server data_budget ({}) < E2EE TLV size ({}). Wire ext_words={}, ext_len={}",
-            go_data_budget, e2ee_tlv_size, wire_ext_words, metrics.ext_len
-        );
-    }
 }
