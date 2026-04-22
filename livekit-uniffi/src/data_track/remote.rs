@@ -155,6 +155,8 @@ impl RemoteDataTrackManager {
     /// - `ParticipantUpdate`
     /// - `DataTrackSubscriberHandles`
     ///
+    /// If a signal response type not listed above is provided, the result is an error.
+    ///
     /// Note: the local participant identity is required to exclude data tracks published by the
     /// local participant from being treated as remote tracks.
     ///

@@ -165,6 +165,8 @@ impl LocalDataTrackManager {
     /// - `RequestResponse`
     /// - `PublishDataTrackResponse`
     ///
+    /// If a signal response type not listed above is provided, the result is an error.
+    ///
     pub fn handle_signal_response(&self, res: &[u8]) -> Result<(), HandleSignalResponseError> {
         let res = proto::SignalResponse::decode(res)
             .map_err(|err| HandleSignalResponseError::Decode(err))?;
