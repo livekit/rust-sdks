@@ -35,7 +35,7 @@ pub struct RemoteDataTrack(DataTrack<Remote>);
 #[uniffi::export]
 impl RemoteDataTrack {
     /// Whether or not the track is currently published.
-    fn is_published(&self) -> bool {
+    pub fn is_published(&self) -> bool {
         self.0.is_published()
     }
 
@@ -44,22 +44,22 @@ impl RemoteDataTrack {
     /// Use this to trigger follow-up work once the track is no longer published.
     /// If the track is already unpublished, this method returns immediately.
     ///
-    async fn wait_for_unpublish(&self) {
+    pub async fn wait_for_unpublish(&self) {
         self.0.wait_for_unpublish().await
     }
 
     /// Information about the data track.
-    fn info(&self) -> DataTrackInfo {
+    pub fn info(&self) -> DataTrackInfo {
         self.0.info().into()
     }
 
     /// Identity of the participant who published the track.
-    fn publisher_identity(&self) -> String {
+    pub fn publisher_identity(&self) -> String {
         self.0.publisher_identity().to_string()
     }
 
     /// Subscribes to the data track.
-    async fn subscribe(&self) -> Result<DataTrackStream, DataTrackSubscribeError> {
+    pub async fn subscribe(&self) -> Result<DataTrackStream, DataTrackSubscribeError> {
         self.0.subscribe().await.map(|stream| DataTrackStream(Mutex::new(stream)))
     }
 }
@@ -75,11 +75,11 @@ pub enum DataTrackSubscribeError {
 
 /// A stream of [`DataTrackFrame`]s received from a [`RemoteDataTrack`].
 #[derive(uniffi::Object)]
-struct DataTrackStream(Mutex<livekit_datatrack::api::DataTrackStream>);
+pub struct DataTrackStream(Mutex<livekit_datatrack::api::DataTrackStream>);
 
 #[uniffi::export]
 impl DataTrackStream {
-    async fn next(&self) -> Option<DataTrackFrame> {
+    pub async fn next(&self) -> Option<DataTrackFrame> {
         // TODO: avoid mutex?
         self.0.try_lock().unwrap().next().await
     }

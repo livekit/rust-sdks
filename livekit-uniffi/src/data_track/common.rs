@@ -23,8 +23,8 @@ uniffi::custom_type!(DataTrackSid, String, {
 
 #[uniffi::remote(Record)]
 pub struct DataTrackFrame {
-    payload: Bytes,
-    user_timestamp: Option<u64>,
+    pub payload: Bytes,
+    pub user_timestamp: Option<u64>,
 }
 
 /// Information about a published data track.

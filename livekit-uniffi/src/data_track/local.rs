@@ -34,7 +34,7 @@ pub struct LocalDataTrack(DataTrack<Local>);
 #[uniffi::export]
 impl LocalDataTrack {
     /// Whether or not the track is currently published.
-    fn is_published(&self) -> bool {
+    pub fn is_published(&self) -> bool {
         self.0.is_published()
     }
 
@@ -43,24 +43,24 @@ impl LocalDataTrack {
     /// Use this to trigger follow-up work once the track is no longer published.
     /// If the track is already unpublished, this method returns immediately.
     ///
-    async fn wait_for_unpublish(&self) {
+    pub async fn wait_for_unpublish(&self) {
         self.0.wait_for_unpublish().await
     }
 
     /// Information about the data track.
-    fn info(&self) -> DataTrackInfo {
+    pub fn info(&self) -> DataTrackInfo {
         self.0.info().into()
     }
 
     /// Try pushing a frame to subscribers of the track.
-    fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameErrorReason> {
+    pub fn try_push(&self, frame: DataTrackFrame) -> Result<(), PushFrameErrorReason> {
         // `PushFrameError` returns ownership of the unpublished frame to the caller;
         // since this isn't applicable in an FFI context, just provide the reason.
         self.0.try_push(frame).map_err(|err| err.reason())
     }
 
     /// Unpublishes the track.
-    fn unpublish(&self) {
+    pub fn unpublish(&self) {
         self.0.unpublish();
     }
 }
