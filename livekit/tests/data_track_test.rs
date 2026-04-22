@@ -190,6 +190,7 @@ async fn test_e2ee() -> Result<()> {
     use livekit::E2eeOptions;
 
     const SHARED_SECRET: &[u8] = b"password";
+    const PAYLOAD: &[u8] = &[0xFA; 196_608];
 
     let key_provider1 =
         KeyProvider::with_shared_key(KeyProviderOptions::default(), SHARED_SECRET.to_vec());
@@ -214,31 +215,34 @@ async fn test_e2ee() -> Result<()> {
     sub_room.e2ee_manager().set_enabled(true);
 
     let publish = async move {
-        let track = pub_room.local_participant().publish_data_track("my_track").await?;
+        let track = pub_room.local_participant().publish_data_track("my_track").await.unwrap();
         assert!(track.info().uses_e2ee());
-
-        for index in 0..5 {
-            track.try_push(vec![index as u8; 196_608].into())?;
-            time::sleep(Duration::from_millis(25)).await;
+        loop {
+            _ = track.try_push(PAYLOAD.into());
+            time::sleep(Duration::from_millis(125)).await;
         }
-        Ok(())
     };
 
     let subscribe = async move {
-        let track = wait_for_remote_track(&mut sub_room_event_rx).await?;
+        let track = wait_for_remote_track(&mut sub_room_event_rx).await.unwrap();
 
         assert!(track.info().uses_e2ee());
-        let mut subscription = track.subscribe().await?;
+        let mut subscription = track.subscribe().await.unwrap();
 
+        let mut got_frame = false;
         while let Some(frame) = subscription.next().await {
-            let payload = frame.payload();
-            if let Some(first_byte) = payload.first() {
-                assert!(payload.iter().all(|byte| byte == first_byte));
-            }
+            assert_eq!(frame.payload(), PAYLOAD);
+            got_frame = true;
+            break;
         }
-        Ok(())
+        assert!(got_frame);
     };
-    timeout(Duration::from_secs(5), async { try_join!(publish, subscribe) }).await??;
+
+    let _ = timeout(Duration::from_secs(5), async {
+        tokio::select! { _ = publish => (), _ = subscribe => () };
+    })
+    .await?;
+
     Ok(())
 }
 
