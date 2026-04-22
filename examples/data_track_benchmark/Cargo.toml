@@ -1,0 +1,16 @@
+[package]
+name = "data_track_benchmark"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-api = { workspace = true }
+futures-util = { workspace = true, default-features = false, features = ["sink"] }
+anyhow = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+clap = { workspace = true, features = ["derive", "env"] }
+rand = { workspace = true }
