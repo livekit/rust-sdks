@@ -25,18 +25,11 @@ pub struct DataChannelSenderOptions {
     pub close_rx: watch::Receiver<bool>,
 }
 
-/// Bounded, drop-oldest send queue handed to the [`DataChannelSender`] task.
+/// Bounded, drop-oldest send queue for the [`DataChannelSender`] task.
 ///
-/// When the queue is at capacity, [`DataTrackSendQueue::send`] evicts the
-/// *oldest* payload to make room for the newer arrival. This policy favours
-/// freshness over completeness, which is the desired behaviour for
-/// latency-sensitive data-track publishing: a stale sample queued behind a
-/// congested DC is always less useful than the freshest one, so we'd rather
-/// drop the stale one and get the latest datum on the wire as soon as
-/// possible.
-///
-/// The queue is cloneable: producers hold one clone, the sender task holds
-/// another.
+/// When full, the oldest payload is evicted in favour of the newer arrival —
+/// preferring freshness over completeness for latency-sensitive data-track
+/// publishing. Cloneable so producers and the sender task can share it.
 #[derive(Clone)]
 pub struct DataTrackSendQueue {
     inner: Arc<DataTrackSendQueueInner>,
@@ -60,9 +53,8 @@ impl DataTrackSendQueue {
         }
     }
 
-    /// Enqueue a payload. Always accepts the new payload; if the queue was
-    /// already at capacity, the oldest payload is evicted and returned so
-    /// callers can observe drops (e.g. for logging/metrics).
+    /// Enqueue a payload, returning the evicted oldest payload if the queue
+    /// was at capacity.
     pub fn send(&self, payload: Bytes) -> Option<Bytes> {
         let mut queue = self.inner.queue.lock().expect("send queue mutex poisoned");
         let dropped = if queue.len() >= self.inner.capacity { queue.pop_front() } else { None };
@@ -80,17 +72,14 @@ impl DataTrackSendQueue {
         std::mem::take(&mut *self.inner.queue.lock().expect("send queue mutex poisoned"))
     }
 
-    /// Awaits and returns the next queued payload.
-    ///
-    /// The future is cancel-safe: dropping it without completion leaves any
-    /// still-queued payload in place for the next call.
+    /// Awaits the next queued payload. Cancel-safe: dropping the future
+    /// leaves any queued payload in place.
     async fn recv(&self) -> Bytes {
         loop {
             if let Some(payload) = self.try_pop() {
                 return payload;
             }
-            // Register interest *before* rechecking the queue to avoid a
-            // missed wake if `send` runs between our pop and our await.
+            // Register for wake-up before rechecking to avoid a missed notify.
             let notified = self.inner.notify.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
@@ -102,34 +91,14 @@ impl DataTrackSendQueue {
     }
 }
 
-/// A task responsible for sending data-track payloads over a single RTC data
-/// channel.
+/// Sender task for the `_data_track` RTC data channel, with
+/// buffered-amount backpressure.
 ///
-/// This implements buffered-amount-based backpressure similar to
-/// `SessionInner::data_channel_task`, but is specialised for the data-track
-/// DC (`_data_track`):
-///
-/// - The producer-facing queue ([`DataTrackSendQueue`]) is bounded to
-///   [`Self::QUEUE_CAPACITY`] with drop-oldest semantics, so only the freshest
-///   pending payload is ever held. This is appropriate for latency-sensitive
-///   data tracks, where a stale sample queued behind a congested DC is worse
-///   than simply dropping it in favour of a newer one.
-/// - There is no encoding, sequencing, or retry layer; the sender forwards
-///   opaque `Bytes` payloads verbatim.
-///
-/// It is intentionally *not* used for reliable/lossy data-packet publishing
-/// (chat, transcription, DTMF, RPC, user packets, streams, etc.) — that path
-/// has different requirements (unbounded queueing, retries, per-kind
-/// sequencing) and continues to live in `SessionInner::data_channel_task`.
-///
-/// In a future refactor, it would be worth revisiting how the logic in
-/// `SessionInner::data_channel_task` can be decoupled from session likely by
-/// reusing a generalised version of this sender and moving encoding and retry
-/// concerns into a separate layer (see the `livekit-datatrack` crate for an
-/// example of this approach). Doing that would require making the queue
-/// capacity / eviction policy configurable rather than hardcoded to
-/// drop-oldest, capacity 1.
-///
+/// Forwards opaque `Bytes` verbatim (no encoding, sequencing, or retries)
+/// and holds only the freshest pending payload via [`DataTrackSendQueue`].
+/// Not used for reliable/lossy data packets, which go through
+/// `SessionInner::data_channel_task` since they need unbounded queueing,
+/// retries, and per-kind sequencing.
 pub struct DataChannelSender {
     /// Drop-oldest queue of payloads waiting for the DC to drain.
     queue: DataTrackSendQueue,
@@ -152,12 +121,8 @@ pub struct DataChannelSender {
 }
 
 impl DataChannelSender {
-    /// Maximum number of payloads held in [`DataTrackSendQueue`] waiting to be
-    /// handed to the DC.
-    ///
-    /// Kept at 1 so we only ever hold the single freshest pending payload.
-    /// When a newer payload arrives while the DC is still draining an older
-    /// queued one, the older one is evicted.
+    /// Queue capacity. Set to 1 so only the freshest pending payload is
+    /// held; any older queued payload is evicted on the next send.
     const QUEUE_CAPACITY: usize = 1;
 
     /// Creates a new sender.
@@ -165,7 +130,6 @@ impl DataChannelSender {
     /// Returns a tuple containing the following:
     /// - The sender itself to be spawned by the caller (see [`DataChannelSender::run`]).
     /// - A cloneable queue handle for producers to push payloads onto.
-    ///
     pub fn new(options: DataChannelSenderOptions) -> (Self, DataTrackSendQueue) {
         let queue = DataTrackSendQueue::new(Self::QUEUE_CAPACITY);
         let (dc_event_tx, dc_event_rx) = mpsc::unbounded_channel();

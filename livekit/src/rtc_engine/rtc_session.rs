@@ -74,17 +74,12 @@ pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
 
-/// Buffered-amount low threshold for the data-track DC (`_data_track`).
+/// Buffered-amount low threshold for the `_data_track` DC.
 ///
-/// Sized small (vs. the 2 MiB default used for the reliable/lossy DCs) because
-/// data tracks are latency-sensitive: callers prefer dropping packets over
-/// buffering them when the underlying transport cannot keep up.
-///
-/// Note: WebRTC's `bufferedAmount` only reflects bytes queued *before* SCTP
-/// accepts them. Once SCTP and the kernel UDP send buffer accept data, further
-/// queueing happens below our visibility and is bounded by OS/qdisc config.
-/// Kept intentionally small so that we only hand over a single in-flight SCTP
-/// message at a time, limiting how deeply SCTP can itself buffer.
+/// Kept small (vs. the 2 MiB default for reliable/lossy) so we hand at most
+/// one in-flight message to SCTP at a time; data tracks prefer dropping
+/// packets over queueing. Note that `bufferedAmount` only covers bytes
+/// before SCTP accepts them — queueing below that is bounded by OS/qdisc.
 pub const DATA_TRACK_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 8 * 1024;
 
 #[derive(Debug)]
@@ -749,10 +744,8 @@ impl RtcSession {
     ///
     fn try_send_data_track_packets(&self, packets: Vec<Bytes>) {
         for packet in packets {
-            // Drop-oldest semantics: if the queue is already at capacity, the
-            // stalest payload is evicted in favour of this newer one. This
-            // keeps end-to-end latency low by always preferring fresh data
-            // over stale data when the DC cannot keep up.
+            // Drop-oldest: if full, the stalest payload is evicted so we
+            // always send the freshest data.
             if let Some(stale) = self.inner.dt_packet_tx.send(packet) {
                 log::trace!(
                     "evicted oldest queued data-track payload ({} bytes) in favor of newer arrival",
