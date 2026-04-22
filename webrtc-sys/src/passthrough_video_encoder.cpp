@@ -102,7 +102,7 @@ int32_t PassthroughVideoEncoder::Encode(
   }
 
   EncodedVideoTrackSource::InternalSource::DequeuedFrame enc;
-  if (!src->get()->pop_encoded_frame(enc)) {
+  if (!source_->pop_encoded_frame(enc)) {
     // No bytes queued for this tick; treat as a dropped frame so WebRTC's
     // pacing accounting is correct.
     callback_->OnDroppedFrame(

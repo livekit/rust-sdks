@@ -17,6 +17,7 @@
 #include "livekit/encoded_video_source.h"
 
 #include <algorithm>
+#include <cstring>
 #include <utility>
 
 #include "api/video/i420_buffer.h"
@@ -27,6 +28,88 @@
 #include "rtc_base/time_utils.h"
 
 namespace livekit_ffi {
+
+namespace {
+
+// ---- Annex-B NAL unit parsing ----
+//
+// Produces a list of NAL units in the bytestream. Each NalUnit records the
+// offset to its leading start code (00 00 01 or 00 00 00 01) and the
+// payload offset/length (the bytes after the start code, up to the next
+// start code or end of buffer).
+
+struct NalUnit {
+  size_t start_code_offset;  // index of the first 0x00 of the start code
+  size_t start_code_length;  // 3 or 4
+  size_t payload_offset;     // index of the first byte after the start code
+  size_t payload_length;     // length of the NAL unit payload (no start code)
+  uint8_t first_byte;        // payload[0] — used for NAL type extraction
+};
+
+std::vector<NalUnit> ScanNalUnits(const uint8_t* data, size_t size) {
+  std::vector<NalUnit> units;
+  if (size < 3) return units;
+
+  // Locate start code candidates: positions where data[i..i+2] == 00 00 01.
+  // Track them in order; then materialize units with proper payload lengths.
+  std::vector<std::pair<size_t, size_t>> starts;  // (offset, length)
+  for (size_t i = 0; i + 2 < size;) {
+    if (data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1) {
+      size_t off = i;
+      size_t len = 3;
+      if (i > 0 && data[i - 1] == 0) {
+        off = i - 1;
+        len = 4;
+      }
+      starts.emplace_back(off, len);
+      i += 3;
+    } else {
+      ++i;
+    }
+  }
+
+  for (size_t j = 0; j < starts.size(); ++j) {
+    NalUnit u;
+    u.start_code_offset = starts[j].first;
+    u.start_code_length = starts[j].second;
+    u.payload_offset = u.start_code_offset + u.start_code_length;
+    size_t payload_end =
+        (j + 1 < starts.size()) ? starts[j + 1].first : size;
+    if (payload_end < u.payload_offset) continue;
+    u.payload_length = payload_end - u.payload_offset;
+    u.first_byte = u.payload_length > 0 ? data[u.payload_offset] : 0;
+    units.push_back(u);
+  }
+  return units;
+}
+
+// H.264 NAL unit types we care about.
+enum : uint8_t {
+  kH264NalSps = 7,
+  kH264NalPps = 8,
+};
+
+// H.265 NAL unit types we care about.
+enum : uint8_t {
+  kH265NalVps = 32,
+  kH265NalSps = 33,
+  kH265NalPps = 34,
+};
+
+uint8_t H264NalType(uint8_t byte) { return byte & 0x1Fu; }
+uint8_t H265NalType(uint8_t byte) { return (byte >> 1) & 0x3Fu; }
+
+// Copies [start_code_offset, payload_end) into `out`, including the start
+// code. `out` is overwritten.
+void CopyNalWithStartCode(const uint8_t* data,
+                          const NalUnit& u,
+                          std::vector<uint8_t>& out) {
+  const size_t total = u.start_code_length + u.payload_length;
+  out.assign(data + u.start_code_offset,
+             data + u.start_code_offset + total);
+}
+
+}  // namespace
 
 // ---------- EncodedSourceRegistry ----------
 
@@ -101,6 +184,85 @@ bool EncodedVideoTrackSource::InternalSource::push_encoded_frame(
     if (width != 0 && height != 0) {
       width_ = width;
       height_ = height;
+    }
+
+    // For H.264 / H.265, cache parameter sets we see in the bytestream and
+    // auto-prepend them to keyframes that arrive without inline params.
+    // Delta frames are passed through unchanged — receivers carry the last
+    // seen parameter sets across the stream.
+    const bool param_sets_applicable =
+        (codec_ == EncodedVideoCodecType::H264 ||
+         codec_ == EncodedVideoCodecType::H265);
+
+    if (param_sets_applicable) {
+      const auto units = ScanNalUnits(data.data(), data.size());
+      bool saw_sps = false;
+      bool saw_pps = false;
+      bool saw_vps = false;
+      for (const auto& u : units) {
+        if (codec_ == EncodedVideoCodecType::H264) {
+          const uint8_t t = H264NalType(u.first_byte);
+          if (t == kH264NalSps) {
+            CopyNalWithStartCode(data.data(), u, cached_sps_);
+            saw_sps = true;
+          } else if (t == kH264NalPps) {
+            CopyNalWithStartCode(data.data(), u, cached_pps_);
+            saw_pps = true;
+          }
+        } else {  // H.265
+          const uint8_t t = H265NalType(u.first_byte);
+          if (t == kH265NalVps) {
+            CopyNalWithStartCode(data.data(), u, cached_vps_);
+            saw_vps = true;
+          } else if (t == kH265NalSps) {
+            CopyNalWithStartCode(data.data(), u, cached_sps_);
+            saw_sps = true;
+          } else if (t == kH265NalPps) {
+            CopyNalWithStartCode(data.data(), u, cached_pps_);
+            saw_pps = true;
+          }
+        }
+      }
+
+      if (is_keyframe) {
+        // Required params for this codec.
+        const bool h265 = codec_ == EncodedVideoCodecType::H265;
+        const bool have_required =
+            !cached_sps_.empty() && !cached_pps_.empty() &&
+            (!h265 || !cached_vps_.empty());
+        const bool frame_missing =
+            !(saw_sps && saw_pps && (!h265 || saw_vps));
+
+        if (frame_missing && have_required) {
+          // Prepend cached params. (void)has_sps_pps — we trust the
+          // scanner over the flag so callers can't accidentally double-
+          // prepend or lie about the contents.
+          std::vector<uint8_t> prefixed;
+          prefixed.reserve(cached_vps_.size() + cached_sps_.size() +
+                           cached_pps_.size() + data.size());
+          if (h265) {
+            prefixed.insert(prefixed.end(), cached_vps_.begin(),
+                            cached_vps_.end());
+          }
+          prefixed.insert(prefixed.end(), cached_sps_.begin(),
+                          cached_sps_.end());
+          prefixed.insert(prefixed.end(), cached_pps_.begin(),
+                          cached_pps_.end());
+          prefixed.insert(prefixed.end(), data.begin(), data.end());
+          data = std::move(prefixed);
+          has_sps_pps = true;
+        } else if (frame_missing) {
+          RTC_LOG(LS_WARNING)
+              << "EncodedVideoTrackSource[" << source_id_
+              << "] keyframe is missing parameter sets and none are cached; "
+                 "receiver will fail to decode until the producer emits a "
+                 "keyframe with inline SPS/PPS"
+              << (h265 ? "/VPS" : "");
+        } else {
+          // Frame already carries required params (producer inlined them).
+          has_sps_pps = true;
+        }
+      }
     }
 
     // Bounded queue: drop-oldest, but never drop a keyframe.
