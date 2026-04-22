@@ -28,7 +28,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
-/// Data track published by the local participant.
+/// Data track published by the remote participant.
 #[derive(uniffi::Object)]
 pub struct RemoteDataTrack(DataTrack<Remote>);
 
@@ -194,7 +194,7 @@ impl RemoteDataTrackManager {
     }
 }
 
-/// Task for forwarding manger output events to the foreign [`RemoteDataTrackManagerDelegate`].
+/// Task for forwarding manager output events to the foreign [`RemoteDataTrackManagerDelegate`].
 struct DelegateForwardTask {
     output: remote::ManagerOutput,
     delegate: Arc<dyn RemoteDataTrackManagerDelegate>,

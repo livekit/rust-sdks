@@ -195,7 +195,7 @@ impl LocalDataTrackManager {
     }
 }
 
-/// Task for forwarding manger output events to the foreign [`LocalDataTrackManagerDelegate`].
+/// Task for forwarding manager output events to the foreign [`LocalDataTrackManagerDelegate`].
 struct DelegateForwardTask {
     output: local::ManagerOutput,
     delegate: Arc<dyn LocalDataTrackManagerDelegate>,
