@@ -158,7 +158,6 @@ impl E2eeExt {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::packet::consts::EXT_WORDS_INDICATOR_SIZE;
     use bytes::{BufMut, BytesMut};
     use test_case::test_matrix;
 
