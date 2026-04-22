@@ -3,4 +3,4 @@ livekit-datatrack: patch
 livekit: patch
 ---
 
-# Make data track frame fields public
+# Make some fields public for data track types
