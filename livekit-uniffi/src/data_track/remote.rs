@@ -126,14 +126,16 @@ impl RemoteDataTrackManager {
 
         let (manager, input, output) = remote::Manager::new(manager_options);
 
+        let rt = crate::runtime::runtime();
+
         // TODO: in a follow-up PR, refactor manager to work with cancellation tokens directly, eliminating the
         // need for this additional task.
-        tokio::spawn(shutdown_forward_task(input.clone(), token.clone()));
+        rt.spawn(shutdown_forward_task(input.clone(), token.clone()));
 
         let delegate_forward = DelegateForwardTask { output, delegate, token: token.clone() };
-        tokio::spawn(delegate_forward.run());
+        rt.spawn(delegate_forward.run());
 
-        tokio::spawn(manager.run());
+        rt.spawn(manager.run());
 
         Self { input, _guard: token.drop_guard() }.into()
     }
