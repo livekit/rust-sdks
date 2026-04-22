@@ -739,19 +739,22 @@ impl RtcSession {
 
     /// Try to send data track packets over the transport.
     ///
-    /// Packets will be sent until the first error, at which point the rest of
-    /// the batch will be dropped.
-    ///
+    /// All packets belong to one application frame and are enqueued atomically
+    /// so a partial frame is never queued or evicted; drop-oldest applies at
+    /// whole-frame granularity.
     fn try_send_data_track_packets(&self, packets: Vec<Bytes>) {
-        for packet in packets {
-            // Drop-oldest: if full, the stalest payload is evicted so we
-            // always send the freshest data.
-            if let Some(stale) = self.inner.dt_packet_tx.send(packet) {
-                log::trace!(
-                    "evicted oldest queued data-track payload ({} bytes) in favor of newer arrival",
-                    stale.len()
-                );
-            }
+        if packets.is_empty() {
+            return;
+        }
+        let packet_count = packets.len();
+        if let Some(stale) = self.inner.dt_packet_tx.send(packets) {
+            let stale_bytes: usize = stale.iter().map(|p| p.len()).sum();
+            log::trace!(
+                "evicted oldest queued data-track frame ({} packets / {} total bytes) in favor of newer {}-packet frame",
+                stale.len(),
+                stale_bytes,
+                packet_count,
+            );
         }
     }
 
