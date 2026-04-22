@@ -153,7 +153,7 @@ impl LocalDataTrackManager {
     /// This must be invoked after a full reconnect in order for existing publications
     /// to be recognized by the SFU. Each republished track will be assigned a new SID.
     ///
-    pub async fn republish_tracks(&self) {
+    pub fn republish_tracks(&self) {
         _ = self.input.send(local::InputEvent::RepublishTracks);
     }
 
