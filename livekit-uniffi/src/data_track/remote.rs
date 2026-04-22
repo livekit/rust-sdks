@@ -82,7 +82,7 @@ impl DataTrackStream {
     /// Returns the next received frame or `None` if the subscription has ended.
     pub async fn next(&self) -> Option<DataTrackFrame> {
         // TODO: avoid mutex?
-        self.0.try_lock().unwrap().next().await
+        self.0.lock().await.next().await
     }
 }
 
