@@ -41,6 +41,22 @@ struct Args {
     /// LiveKit API secret (overrides LIVEKIT_API_SECRET env var)
     #[arg(long, env = "LIVEKIT_API_SECRET")]
     api_secret: String,
+
+    /// Output raw CSV instead of a human-readable table
+    #[arg(long, default_value_t = false)]
+    csv: bool,
+}
+
+struct ResultRow {
+    size_kb: u64,
+    freq_hz: u64,
+    duration_s: u64,
+    sent: u64,
+    received: u64,
+    delivery_ratio: f64,
+    avg_latency_ms: f64,
+    min_latency_ms: f64,
+    max_latency_ms: f64,
 }
 
 struct BenchResult {
@@ -122,7 +138,11 @@ async fn main() -> Result<()> {
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<SubCommand>();
     let sub_handle = tokio::spawn(subscriber_task(subscription, cmd_rx));
 
-    println!("payload_size_kb,frequency_hz,duration_s,sent,received,delivery_ratio,avg_latency_ms,min_latency_ms,max_latency_ms");
+    if args.csv {
+        println!("payload_size_kb,frequency_hz,duration_s,sent,received,delivery_ratio,avg_latency_ms,min_latency_ms,max_latency_ms");
+    }
+
+    let mut rows: Vec<ResultRow> = Vec::new();
 
     for &size_kb in &sizes {
         for &freq_hz in &frequencies {
@@ -146,15 +166,33 @@ async fn main() -> Result<()> {
 
             let ratio = if sent == 0 { 0.0 } else { stats.received as f64 / sent as f64 };
 
-            println!(
-                "{size_kb},{freq_hz},{},{sent},{},{ratio:.2},{:.2},{:.2},{:.2}",
-                args.duration,
-                stats.received,
-                stats.avg_latency_ms,
-                stats.min_latency_ms,
-                stats.max_latency_ms,
-            );
+            if args.csv {
+                println!(
+                    "{size_kb},{freq_hz},{},{sent},{},{ratio:.2},{:.2},{:.2},{:.2}",
+                    args.duration,
+                    stats.received,
+                    stats.avg_latency_ms,
+                    stats.min_latency_ms,
+                    stats.max_latency_ms,
+                );
+            }
+
+            rows.push(ResultRow {
+                size_kb,
+                freq_hz,
+                duration_s: args.duration,
+                sent,
+                received: stats.received,
+                delivery_ratio: ratio,
+                avg_latency_ms: stats.avg_latency_ms,
+                min_latency_ms: stats.min_latency_ms,
+                max_latency_ms: stats.max_latency_ms,
+            });
         }
+    }
+
+    if !args.csv {
+        print_table(&rows);
     }
 
     drop(cmd_tx);
@@ -163,6 +201,68 @@ async fn main() -> Result<()> {
     sub_room.close().await?;
 
     Ok(())
+}
+
+fn print_table(rows: &[ResultRow]) {
+    let headers = [
+        "size (KiB)",
+        "freq (Hz)",
+        "dur (s)",
+        "sent",
+        "received",
+        "delivery",
+        "avg (ms)",
+        "min (ms)",
+        "max (ms)",
+    ];
+
+    let cells: Vec<[String; 9]> = rows
+        .iter()
+        .map(|r| {
+            [
+                r.size_kb.to_string(),
+                r.freq_hz.to_string(),
+                r.duration_s.to_string(),
+                r.sent.to_string(),
+                r.received.to_string(),
+                format!("{:.2}%", r.delivery_ratio * 100.0),
+                format!("{:.2}", r.avg_latency_ms),
+                format!("{:.2}", r.min_latency_ms),
+                format!("{:.2}", r.max_latency_ms),
+            ]
+        })
+        .collect();
+
+    let mut widths = headers.map(|h| h.len());
+    for row in &cells {
+        for (i, cell) in row.iter().enumerate() {
+            if cell.len() > widths[i] {
+                widths[i] = cell.len();
+            }
+        }
+    }
+
+    let separator: String = {
+        let parts: Vec<String> = widths.iter().map(|w| "-".repeat(w + 2)).collect();
+        format!("+{}+", parts.join("+"))
+    };
+
+    let format_row = |row: &[String; 9]| -> String {
+        let parts: Vec<String> =
+            row.iter().enumerate().map(|(i, cell)| format!(" {:>width$} ", cell, width = widths[i])).collect();
+        format!("|{}|", parts.join("|"))
+    };
+
+    let header_row: [String; 9] = headers.map(|h| h.to_string());
+
+    println!();
+    println!("{}", separator);
+    println!("{}", format_row(&header_row));
+    println!("{}", separator);
+    for row in &cells {
+        println!("{}", format_row(row));
+    }
+    println!("{}", separator);
 }
 
 async fn wait_for_subscription(
