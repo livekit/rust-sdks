@@ -96,6 +96,8 @@ fn main() {
         "src/passthrough_video_encoder.cpp",
     ]);
 
+    builder.define("LK_PRE_ENCODED_VIDEO", "1");
+
     if is_desktop {
         builder.file("src/desktop_capturer.cpp");
     }

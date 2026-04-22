@@ -36,7 +36,9 @@
 #include "livekit/peer_connection.h"
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_parameters.h"
+#ifdef LK_PRE_ENCODED_VIDEO
 #include "livekit/encoded_video_source.h"
+#endif
 #include "livekit/video_decoder_factory.h"
 #include "livekit/video_encoder_factory.h"
 #include "livekit/webrtc.h"
@@ -117,6 +119,7 @@ std::shared_ptr<VideoTrack> PeerConnectionFactory::create_video_track(
           peer_factory_->CreateVideoTrack(source->get(), label.c_str())));
 }
 
+#ifdef LK_PRE_ENCODED_VIDEO
 std::shared_ptr<VideoTrack>
 PeerConnectionFactory::create_video_track_from_encoded_source(
     rust::String label,
@@ -125,6 +128,7 @@ PeerConnectionFactory::create_video_track_from_encoded_source(
       rtc_runtime_->get_or_create_media_stream_track(
           peer_factory_->CreateVideoTrack(source->get(), label.c_str())));
 }
+#endif
 
 std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
     rust::String label,

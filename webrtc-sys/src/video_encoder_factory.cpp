@@ -21,7 +21,9 @@
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
 #include "livekit/objc_video_factory.h"
+#ifdef LK_PRE_ENCODED_VIDEO
 #include "livekit/passthrough_video_encoder.h"
+#endif
 #include "media/base/media_constants.h"
 #include "media/engine/simulcast_encoder_adapter.h"
 #include "rtc_base/logging.h"
@@ -151,6 +153,7 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
     return nullptr;
   }
 
+#ifdef LK_PRE_ENCODED_VIDEO
   // Wrap the real encoder construction in a lazy shim so we can branch
   // between passthrough and a real encoder based on the first VideoFrame's
   // id. The builder is called at most once and only for non-passthrough
@@ -164,6 +167,10 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
 
   return std::make_unique<LazyVideoEncoder>(format,
                                             std::move(real_encoder_builder));
+#else
+  return std::make_unique<webrtc::SimulcastEncoderAdapter>(
+      env, internal_factory_.get(), nullptr, format);
+#endif
 }
 
 }  // namespace livekit_ffi

@@ -52,10 +52,7 @@ pub mod ffi {
             capture_time_us: i64,
         ) -> bool;
 
-        fn set_observer(
-            self: &EncodedVideoTrackSource,
-            observer: Box<EncodedVideoSourceWrapper>,
-        );
+        fn set_observer(self: &EncodedVideoTrackSource, observer: Box<EncodedVideoSourceWrapper>);
     }
 
     extern "Rust" {

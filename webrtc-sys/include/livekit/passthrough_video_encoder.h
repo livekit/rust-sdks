@@ -31,7 +31,7 @@
 
 namespace livekit_ffi {
 
-// Encoder that takes pre-encoded bitstream bytes from a paired
+// Encoder that takes encoded bitstream bytes from a paired
 // EncodedVideoTrackSource and forwards them unmodified to the
 // EncodedImageCallback. Used for applications that already produce H.264 /
 // H.265 / VP8 / VP9 / AV1 bitstreams (e.g. from a hardware capturer or a
