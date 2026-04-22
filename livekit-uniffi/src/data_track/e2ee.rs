@@ -22,11 +22,15 @@ use std::sync::Arc;
 
 #[uniffi::remote(Error)]
 #[uniffi(flat_error)]
-pub enum EncryptionError {}
+pub enum EncryptionError {
+    Failed,
+}
 
 #[uniffi::remote(Error)]
 #[uniffi(flat_error)]
-pub enum DecryptionError {}
+pub enum DecryptionError {
+    Failed,
+}
 
 #[uniffi::remote(Record)]
 pub struct EncryptedPayload {

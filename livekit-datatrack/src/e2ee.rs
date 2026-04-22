@@ -31,13 +31,17 @@ pub struct EncryptedPayload {
 
 /// An error indicating a payload could not be encrypted.
 #[derive(Debug, Error)]
-#[error("Encryption failed")]
-pub enum EncryptionError {}
+pub enum EncryptionError {
+    #[error("Encryption failed")]
+    Failed,
+}
 
 /// An error indicating a payload could not be decrypted.
 #[derive(Debug, Error)]
-#[error("Decryption failed")]
-pub enum DecryptionError {}
+pub enum DecryptionError {
+    #[error("Decryption failed")]
+    Failed,
+}
 
 /// Provider for encrypting payloads for E2EE.
 pub trait EncryptionProvider: Send + Sync + Debug {
