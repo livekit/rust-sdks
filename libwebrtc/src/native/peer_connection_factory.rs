@@ -31,6 +31,10 @@ use crate::{
     MediaType, RtcError,
 };
 
+// Re-export ADM types from webrtc_sys
+// Note: Platform ADM is only available via FFI, not in the public Rust SDK
+pub use webrtc_sys::peer_connection_factory::AdmDelegateType;
+
 lazy_static! {
     static ref LOG_SINK: Mutex<Option<UniquePtr<sys_rtc::ffi::LogSink>>> = Default::default();
 }
@@ -94,12 +98,141 @@ impl PeerConnectionFactory {
         }
     }
 
+    /// Create an audio track that uses the Platform ADM for capture.
+    ///
+    /// This requires that `enable_platform_adm()` was called first.
+    /// The track will capture audio from the selected recording device.
+    pub fn create_device_audio_track(&self, label: &str) -> RtcAudioTrack {
+        RtcAudioTrack {
+            handle: imp_at::RtcAudioTrack {
+                sys_handle: self.sys_handle.create_device_audio_track(label.to_string()),
+            },
+        }
+    }
+
     pub fn get_rtp_sender_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.sys_handle.rtp_sender_capabilities(media_type.into()).into()
     }
 
     pub fn get_rtp_receiver_capabilities(&self, media_type: MediaType) -> RtpCapabilities {
         self.sys_handle.rtp_receiver_capabilities(media_type.into()).into()
+    }
+
+    // ===== ADM Management Methods =====
+
+    /// Enable platform ADM (WebRTC's built-in device management)
+    ///
+    /// This switches the factory to use the platform's native audio device module,
+    /// which handles device enumeration, selection, and audio capture/playout
+    /// automatically.
+    ///
+    /// After calling this, you can use the device enumeration and selection methods.
+    ///
+    /// Returns true if platform ADM was successfully created and enabled.
+    pub fn enable_platform_adm(&self) -> bool {
+        self.sys_handle.enable_platform_adm()
+    }
+
+    /// Clear ADM delegate, reverting to stub behavior
+    ///
+    /// This returns the factory to its default state where no ADM is active.
+    /// You should use NativeAudioSource to push audio data manually.
+    pub fn clear_adm_delegate(&self) {
+        self.sys_handle.clear_adm_delegate();
+    }
+
+    /// Get the current ADM delegate type
+    pub fn adm_delegate_type(&self) -> AdmDelegateType {
+        self.sys_handle.adm_delegate_type().into()
+    }
+
+    /// Check if an ADM delegate is currently active
+    pub fn has_adm_delegate(&self) -> bool {
+        self.sys_handle.has_adm_delegate()
+    }
+
+    /// Get the number of playout (output) devices
+    ///
+    /// Only works when platform or custom ADM is active.
+    pub fn playout_devices(&self) -> i16 {
+        self.sys_handle.playout_devices()
+    }
+
+    /// Get the number of recording (input) devices
+    ///
+    /// Only works when platform or custom ADM is active.
+    pub fn recording_devices(&self) -> i16 {
+        self.sys_handle.recording_devices()
+    }
+
+    /// Get the name of a playout device by index
+    ///
+    /// Only works when platform or custom ADM is active.
+    pub fn playout_device_name(&self, index: u16) -> String {
+        self.sys_handle.playout_device_name(index)
+    }
+
+    /// Get the name of a recording device by index
+    ///
+    /// Only works when platform or custom ADM is active.
+    pub fn recording_device_name(&self, index: u16) -> String {
+        self.sys_handle.recording_device_name(index)
+    }
+
+    /// Set the playout device by index
+    ///
+    /// Only works when platform or custom ADM is active.
+    /// Returns 0 on success, negative on error.
+    pub fn set_playout_device(&self, index: u16) -> i32 {
+        self.sys_handle.set_playout_device(index)
+    }
+
+    /// Set the recording device by index
+    ///
+    /// Only works when platform or custom ADM is active.
+    /// Returns 0 on success, negative on error.
+    pub fn set_recording_device(&self, index: u16) -> i32 {
+        self.sys_handle.set_recording_device(index)
+    }
+
+    /// Stop recording (clears initialized state, allowing device switch)
+    pub fn stop_recording(&self) -> i32 {
+        self.sys_handle.stop_recording()
+    }
+
+    /// Initialize recording
+    pub fn init_recording(&self) -> i32 {
+        self.sys_handle.init_recording()
+    }
+
+    /// Start recording
+    pub fn start_recording(&self) -> i32 {
+        self.sys_handle.start_recording()
+    }
+
+    /// Check if recording is initialized
+    pub fn recording_is_initialized(&self) -> bool {
+        self.sys_handle.recording_is_initialized()
+    }
+
+    /// Stop playout (clears initialized state, allowing device switch)
+    pub fn stop_playout(&self) -> i32 {
+        self.sys_handle.stop_playout()
+    }
+
+    /// Initialize playout
+    pub fn init_playout(&self) -> i32 {
+        self.sys_handle.init_playout()
+    }
+
+    /// Start playout
+    pub fn start_playout(&self) -> i32 {
+        self.sys_handle.start_playout()
+    }
+
+    /// Check if playout is initialized
+    pub fn playout_is_initialized(&self) -> bool {
+        self.sys_handle.playout_is_initialized()
     }
 }
 

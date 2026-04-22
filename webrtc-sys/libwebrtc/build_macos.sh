@@ -106,7 +106,8 @@ gn gen "$OUTPUT_DIR" --root="src" \
   use_clang_modules=false \
   clang_use_chrome_plugins=false \
   use_rtti=true \
-  use_lld=false"
+  use_lld=false \
+  rtc_include_internal_audio_device=true"
 
 # build static library
 ninja -C "$OUTPUT_DIR" :default \
@@ -117,7 +118,8 @@ ninja -C "$OUTPUT_DIR" :default \
   pc:peer_connection \
   sdk:videocapture_objc \
   sdk:mac_framework_objc \
-  desktop_capture_objc
+  desktop_capture_objc \
+  modules/audio_device:audio_device
 
 # make libwebrtc.a
 # don't include nasm

@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+pub use cxx::SharedPtr;
 
-use cxx::SharedPtr;
+use std::sync::Arc;
 
 use crate::{
     candidate::ffi::Candidate, data_channel::ffi::DataChannel, impl_thread_safety,
@@ -107,6 +107,12 @@ pub mod ffi {
             source: SharedPtr<AudioTrackSource>,
         ) -> SharedPtr<AudioTrack>;
 
+        // Create an audio track that uses the ADM for capture (Platform ADM mode)
+        fn create_device_audio_track(
+            self: &PeerConnectionFactory,
+            label: String,
+        ) -> SharedPtr<AudioTrack>;
+
         fn rtp_sender_capabilities(
             self: &PeerConnectionFactory,
             kind: MediaType,
@@ -116,6 +122,40 @@ pub mod ffi {
             self: &PeerConnectionFactory,
             kind: MediaType,
         ) -> RtpCapabilities;
+
+        // ADM Management - Runtime delegate swapping
+        // Enable platform ADM (WebRTC's built-in device management)
+        // Platform ADM is only available via FFI (not exposed in public Rust SDK)
+        fn enable_platform_adm(self: &PeerConnectionFactory) -> bool;
+
+        // Revert to Synthetic ADM mode (manual capture via NativeAudioSource)
+        fn clear_adm_delegate(self: &PeerConnectionFactory);
+
+        // Query current ADM state (0=Synthetic, 1=Platform, 2=Custom)
+        fn adm_delegate_type(self: &PeerConnectionFactory) -> i32;
+        fn has_adm_delegate(self: &PeerConnectionFactory) -> bool;
+
+        // Device enumeration (only works when platform/custom ADM is active)
+        fn playout_devices(self: &PeerConnectionFactory) -> i16;
+        fn recording_devices(self: &PeerConnectionFactory) -> i16;
+        fn playout_device_name(self: &PeerConnectionFactory, index: u16) -> String;
+        fn recording_device_name(self: &PeerConnectionFactory, index: u16) -> String;
+
+        // Device selection (only works when platform/custom ADM is active)
+        fn set_playout_device(self: &PeerConnectionFactory, index: u16) -> i32;
+        fn set_recording_device(self: &PeerConnectionFactory, index: u16) -> i32;
+
+        // Recording control (for device switching while active)
+        fn stop_recording(self: &PeerConnectionFactory) -> i32;
+        fn init_recording(self: &PeerConnectionFactory) -> i32;
+        fn start_recording(self: &PeerConnectionFactory) -> i32;
+        fn recording_is_initialized(self: &PeerConnectionFactory) -> bool;
+
+        // Playout control (for device switching while active)
+        fn stop_playout(self: &PeerConnectionFactory) -> i32;
+        fn init_playout(self: &PeerConnectionFactory) -> i32;
+        fn start_playout(self: &PeerConnectionFactory) -> i32;
+        fn playout_is_initialized(self: &PeerConnectionFactory) -> bool;
     }
 
     extern "Rust" {
@@ -304,5 +344,40 @@ impl PeerConnectionObserverWrapper {
 
     fn on_interesting_usage(&self, usage_pattern: i32) {
         self.observer.on_interesting_usage(usage_pattern);
+    }
+}
+
+/// ADM delegate type enumeration
+///
+/// Indicates which audio device handling mode is currently active.
+/// Note: Platform ADM is only available via FFI, not in the public Rust SDK.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(i32)]
+pub enum AdmDelegateType {
+    /// Synthetic ADM mode - manual capture via NativeAudioSource (default)
+    ///
+    /// In this mode:
+    /// - Audio capture is handled manually by pushing frames to NativeAudioSource
+    /// - Playout uses a synthetic pump that discards audio (no speaker output)
+    /// - AEC is not functional (no valid playout reference)
+    /// - Suitable for send-only scenarios or testing
+    Synthetic = 0,
+    /// Platform ADM - WebRTC's built-in platform-specific ADM
+    ///
+    /// WebRTC manages device enumeration, selection, capture, and playout
+    /// using platform-specific APIs (CoreAudio, WASAPI, PulseAudio, etc.)
+    ///
+    /// Note: This mode is only available via FFI for livekit-ffi users.
+    /// It is not exposed in the public Rust SDK.
+    Platform = 1,
+}
+
+impl From<i32> for AdmDelegateType {
+    fn from(value: i32) -> Self {
+        match value {
+            0 => AdmDelegateType::Synthetic,
+            1 => AdmDelegateType::Platform,
+            _ => AdmDelegateType::Synthetic,
+        }
     }
 }

@@ -83,6 +83,7 @@ fn main() {
         "src/video_encoder_factory.cpp",
         "src/video_decoder_factory.cpp",
         "src/audio_device.cpp",
+        "src/adm_proxy.cpp",
         "src/audio_resampler.cpp",
         "src/frame_cryptor.cpp",
         "src/global_task_queue.cpp",

@@ -1,0 +1,120 @@
+// Copyright 2025 LiveKit, Inc.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto2";
+
+package livekit.proto;
+option csharp_namespace = "LiveKit.Proto";
+
+// Audio device management for Platform ADM mode.
+// These APIs allow FFI clients to enumerate and select audio devices
+// (microphones and speakers) when using WebRTC's built-in audio device module.
+
+// Audio processing mode for the LiveKit client.
+enum AudioMode {
+  // Synthetic ADM mode (default).
+  // Use NativeAudioSource to manually push audio frames.
+  // No access to system audio devices.
+  AUDIO_MODE_SYNTHETIC = 0;
+
+  // Platform ADM mode.
+  // Uses WebRTC's built-in audio device module for automatic
+  // microphone capture and speaker playout.
+  // Provides access to system audio device enumeration and selection.
+  AUDIO_MODE_PLATFORM = 1;
+}
+
+// Information about an audio device.
+message AudioDeviceInfo {
+  // Device index (0-based).
+  required uint32 index = 1;
+  // Device name as reported by the operating system.
+  required string name = 2;
+}
+
+// Set the audio processing mode.
+// Must be called BEFORE connecting to a room.
+message SetAudioModeRequest {
+  required AudioMode mode = 1;
+}
+
+message SetAudioModeResponse {
+  // Error message if the operation failed, empty on success.
+  optional string error = 1;
+}
+
+// Get the current audio processing mode.
+message GetAudioModeRequest {}
+
+message GetAudioModeResponse {
+  required AudioMode mode = 1;
+}
+
+// Get available audio devices.
+// Only works in Platform ADM mode.
+message GetAudioDevicesRequest {}
+
+message GetAudioDevicesResponse {
+  // Available playout devices (speakers/headphones).
+  repeated AudioDeviceInfo playout_devices = 1;
+  // Available recording devices (microphones).
+  repeated AudioDeviceInfo recording_devices = 2;
+  // Error message if enumeration failed:
+  // - "Platform mode required" if in Synthetic mode
+  // - Other platform-specific errors
+  // Empty/absent on success.
+  optional string error = 3;
+}
+
+// Set the recording device (microphone).
+// Only works in Platform ADM mode.
+// Returns error if in Synthetic mode or if device index is invalid.
+message SetRecordingDeviceRequest {
+  // Device index from GetAudioDevicesResponse.recording_devices.
+  required uint32 index = 1;
+}
+
+message SetRecordingDeviceResponse {
+  // Error message if the operation failed:
+  // - "Platform mode required" if in Synthetic mode
+  // - "Invalid device index" if index >= recording device count
+  // - Other platform-specific errors
+  // Empty/absent on success.
+  optional string error = 1;
+}
+
+// Set the playout device (speaker/headphones).
+// Only works in Platform ADM mode.
+// Returns error if in Synthetic mode or if device index is invalid.
+message SetPlayoutDeviceRequest {
+  // Device index from GetAudioDevicesResponse.playout_devices.
+  required uint32 index = 1;
+}
+
+message SetPlayoutDeviceResponse {
+  // Error message if the operation failed:
+  // - "Platform mode required" if in Synthetic mode
+  // - "Invalid device index" if index >= playout device count
+  // - Other platform-specific errors
+  // Empty/absent on success.
+  optional string error = 1;
+}
+
+// Reset the audio manager state.
+// IMPORTANT: Call this after disconnecting from a room when using Platform ADM,
+// especially on iOS where VPIO (Voice Processing IO) must be released
+// for other audio frameworks to function properly.
+message ResetAudioRequest {}
+
+message ResetAudioResponse {}

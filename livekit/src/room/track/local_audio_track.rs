@@ -59,6 +59,16 @@ impl LocalAudioTrack {
                     .pc_factory()
                     .create_audio_track(&libwebrtc::native::create_random_uuid(), native_source)
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            RtcAudioSource::Device => {
+                // Create an audio track that uses the Platform ADM for capture.
+                // Requires AudioManager::set_mode(AudioMode::Platform) to be called first.
+                use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+                LkRuntime::instance()
+                    .pc_factory()
+                    .create_device_audio_track(&libwebrtc::native::create_random_uuid())
+            }
+            #[allow(unreachable_patterns)]
             _ => panic!("unsupported audio source"),
         };
         Self::new(name.to_string(), rtc_track, source)

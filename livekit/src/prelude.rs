@@ -33,3 +33,7 @@ pub use crate::{
     ConnectionState, DataPacket, DataPacketKind, Room, RoomError, RoomEvent, RoomOptions,
     RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,
 };
+
+// Audio device management (native platforms only)
+#[cfg(not(target_arch = "wasm32"))]
+pub use crate::audio::{AdmDelegateType, AudioError, AudioManager, AudioMode, AudioResult};

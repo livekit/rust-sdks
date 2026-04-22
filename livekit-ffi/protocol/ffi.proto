@@ -27,6 +27,7 @@ import "audio_frame.proto";
 import "rpc.proto";
 import "data_stream.proto";
 import "data_track.proto";
+import "audio_manager.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
@@ -164,7 +165,15 @@ message FfiRequest {
     RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
     DataTrackStreamReadRequest data_track_stream_read = 75;
 
-    // NEXT_ID: 76
+    // Audio Manager (Platform ADM)
+    SetAudioModeRequest set_audio_mode = 76;
+    GetAudioModeRequest get_audio_mode = 77;
+    GetAudioDevicesRequest get_audio_devices = 78;
+    SetRecordingDeviceRequest set_recording_device = 79;
+    SetPlayoutDeviceRequest set_playout_device = 80;
+    ResetAudioRequest reset_audio = 81;
+
+    // NEXT_ID: 82
   }
 }
 
@@ -274,7 +283,15 @@ message FfiResponse {
     RemoteDataTrackIsPublishedResponse remote_data_track_is_published = 73;
     DataTrackStreamReadResponse data_track_stream_read = 74;
 
-    // NEXT_ID: 75
+    // Audio Manager (Platform ADM)
+    SetAudioModeResponse set_audio_mode = 75;
+    GetAudioModeResponse get_audio_mode = 76;
+    GetAudioDevicesResponse get_audio_devices = 77;
+    SetRecordingDeviceResponse set_recording_device = 78;
+    SetPlayoutDeviceResponse set_playout_device = 79;
+    ResetAudioResponse reset_audio = 80;
+
+    // NEXT_ID: 81
   }
 }
 
