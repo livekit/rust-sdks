@@ -12,6 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Data tracks core functionality from the [`livekit-datatrack`] crate.
+//!
+//! At a high level, FFI clients integrate this by instantiating a [`local::LocalDataTrackManager`] and a
+//! [`remote::RemoteDataTrackManager`] inside their implementation of `Room`, forwarding input events and handling
+//! output events. Architecturally, the managers have no dependency on WebRTC or the signaling
+//! client, allowing them to be wired up to the FFI client's own implementations of these components.
+//!
+
 use bytes::Bytes;
 use livekit_datatrack::api::{DataTrackFrame, DataTrackSid};
 

@@ -89,11 +89,6 @@ pub enum PublishError {
 }
 
 /// System for managing data track publications.
-///
-/// FFI clients construct an instance of this inside `Room`,
-/// send it relevant signal responses via [`Self::handle_signal_response`],
-/// and handle outputs via [`LocalDataTrackManagerDelegate`].
-///
 #[derive(uniffi::Object)]
 struct LocalDataTrackManager {
     input: local::ManagerInput,
