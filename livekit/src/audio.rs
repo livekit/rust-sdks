@@ -243,6 +243,12 @@ pub enum AudioError {
 
     /// An audio operation failed.
     OperationFailed(String),
+
+    /// Cannot change audio mode while rooms are connected.
+    ///
+    /// You must disconnect all rooms before changing the audio mode.
+    /// This prevents audio disruption during active calls.
+    RoomConnected,
 }
 
 impl fmt::Display for AudioError {
@@ -253,6 +259,9 @@ impl fmt::Display for AudioError {
             }
             AudioError::InvalidDeviceIndex => write!(f, "Invalid device index"),
             AudioError::OperationFailed(msg) => write!(f, "Audio operation failed: {}", msg),
+            AudioError::RoomConnected => {
+                write!(f, "Cannot change audio mode while rooms are connected")
+            }
         }
     }
 }
@@ -346,6 +355,13 @@ impl AudioManager {
     /// audio.set_mode(AudioMode::Platform)?;
     /// ```
     pub fn set_mode(&self, mode: AudioMode) -> AudioResult<()> {
+        use crate::rtc_engine::lk_runtime::LkRuntime;
+
+        // Check if any rooms are connected - mode switching is not allowed while connected
+        if LkRuntime::has_active_rooms() {
+            return Err(AudioError::RoomConnected);
+        }
+
         match mode {
             AudioMode::Synthetic => {
                 self.runtime.clear_adm_delegate();

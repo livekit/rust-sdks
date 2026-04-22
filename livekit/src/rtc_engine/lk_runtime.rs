@@ -14,7 +14,10 @@
 
 use std::{
     fmt::{Debug, Formatter},
-    sync::{Arc, Weak},
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc, Weak,
+    },
 };
 
 use lazy_static::lazy_static;
@@ -29,6 +32,10 @@ use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 lazy_static! {
     static ref LK_RUNTIME: Mutex<Weak<LkRuntime>> = Mutex::new(Weak::new());
 }
+
+/// Tracks the number of active room connections.
+/// Used to prevent audio mode switching while rooms are connected.
+static ACTIVE_ROOM_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub struct LkRuntime {
     pc_factory: PeerConnectionFactory,
@@ -176,6 +183,32 @@ impl LkRuntime {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn playout_is_initialized(&self) -> bool {
         self.pc_factory.playout_is_initialized()
+    }
+
+    // ===== Room Connection Tracking =====
+
+    /// Increments the active room connection count.
+    /// Called when a room connects.
+    pub fn register_room_connection() {
+        let prev = ACTIVE_ROOM_COUNT.fetch_add(1, Ordering::SeqCst);
+        log::debug!("Room connected, active count: {} -> {}", prev, prev + 1);
+    }
+
+    /// Decrements the active room connection count.
+    /// Called when a room disconnects.
+    pub fn unregister_room_connection() {
+        let prev = ACTIVE_ROOM_COUNT.fetch_sub(1, Ordering::SeqCst);
+        log::debug!("Room disconnected, active count: {} -> {}", prev, prev - 1);
+    }
+
+    /// Returns the number of currently connected rooms.
+    pub fn active_room_count() -> usize {
+        ACTIVE_ROOM_COUNT.load(Ordering::SeqCst)
+    }
+
+    /// Returns true if any room is currently connected.
+    pub fn has_active_rooms() -> bool {
+        ACTIVE_ROOM_COUNT.load(Ordering::SeqCst) > 0
     }
 }
 

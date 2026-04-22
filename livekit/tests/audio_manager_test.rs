@@ -796,3 +796,50 @@ async fn test_platform_adm_device_switching() -> Result<()> {
 
     Ok(())
 }
+
+/// Integration test: Verify mode switching is blocked while a room is connected.
+/// This protects against audio disruption during active calls.
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+#[serial]
+async fn test_mode_switch_blocked_while_connected() -> Result<()> {
+    let audio = AudioManager::instance();
+
+    // Start in Platform mode
+    audio.set_mode(AudioMode::Platform)?;
+
+    // Connect to a room
+    let mut rooms = test_rooms(1).await?;
+    let (room, _events) = rooms.pop().unwrap();
+
+    log::info!("Connected to room, attempting mode switch...");
+
+    // Try to switch to Synthetic mode while connected - should fail
+    let result = audio.set_mode(AudioMode::Synthetic);
+    assert!(
+        matches!(result, Err(AudioError::RoomConnected)),
+        "Expected RoomConnected error, got {:?}",
+        result
+    );
+    log::info!("Mode switch correctly blocked: {:?}", result);
+
+    // Try to switch to Platform mode (same mode) - should also fail
+    let result = audio.set_mode(AudioMode::Platform);
+    assert!(
+        matches!(result, Err(AudioError::RoomConnected)),
+        "Expected RoomConnected error, got {:?}",
+        result
+    );
+    log::info!("Mode switch to same mode correctly blocked");
+
+    // Disconnect the room
+    room.close().await?;
+
+    // Now mode switching should work
+    let result = audio.set_mode(AudioMode::Synthetic);
+    assert!(result.is_ok(), "Mode switch should succeed after disconnect");
+    log::info!("Mode switch succeeded after disconnect");
+
+    audio.reset();
+    Ok(())
+}
