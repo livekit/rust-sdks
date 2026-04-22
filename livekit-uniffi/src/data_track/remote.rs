@@ -14,7 +14,7 @@
 
 use super::{
     e2ee::{DataTrackDecryptionProvider, FfiDecryptionProvider},
-    DataTrackInfo, HandleSignalResponseError,
+    common::{DataTrackInfo, HandleSignalResponseError}
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
