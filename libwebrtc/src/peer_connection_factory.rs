@@ -86,11 +86,10 @@ impl PeerConnectionFactory {
 
 pub mod native {
     use super::PeerConnectionFactory;
+    use crate::video_source::native::NativeEncodedVideoSource;
     use crate::{
-        audio_source::native::NativeAudioSource,
-        audio_track::RtcAudioTrack,
-        video_source::native::{NativeEncodedVideoSource, NativeVideoSource},
-        video_track::RtcVideoTrack,
+        audio_source::native::NativeAudioSource, audio_track::RtcAudioTrack,
+        video_source::native::NativeVideoSource, video_track::RtcVideoTrack,
     };
 
     pub trait PeerConnectionFactoryExt {

@@ -27,7 +27,7 @@ impl Default for VideoResolution {
     }
 }
 
-/// Codec used by a pre-encoded video feed.
+/// Codec used by an encoded video feed.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum VideoCodec {
     H264,
@@ -37,7 +37,7 @@ pub enum VideoCodec {
     Av1,
 }
 
-/// Metadata describing a single pre-encoded video frame pushed to an
+/// Metadata describing a single encoded video frame pushed to an
 /// [`native::NativeEncodedVideoSource`].
 #[derive(Debug, Copy, Clone)]
 pub struct EncodedFrameInfo {
@@ -54,13 +54,7 @@ pub struct EncodedFrameInfo {
 
 impl Default for EncodedFrameInfo {
     fn default() -> Self {
-        Self {
-            is_keyframe: false,
-            has_sps_pps: false,
-            width: 0,
-            height: 0,
-            capture_time_us: 0,
-        }
+        Self { is_keyframe: false, has_sps_pps: false, width: 0, height: 0, capture_time_us: 0 }
     }
 }
 
@@ -75,6 +69,7 @@ pub enum RtcVideoSource {
 }
 
 // TODO(theomonnom): Support enum dispatch with conditional compilation?
+#[cfg(not(target_arch = "wasm32"))]
 impl RtcVideoSource {
     enum_dispatch!(
         [Native, Encoded];

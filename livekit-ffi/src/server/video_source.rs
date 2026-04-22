@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 
 use livekit::webrtc::{
@@ -40,9 +41,7 @@ fn frame_metadata_from_proto(metadata: Option<proto::FrameMetadata>) -> Option<F
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn video_codec_from_proto(
-    codec: proto::VideoCodec,
-) -> livekit::webrtc::video_source::VideoCodec {
+fn video_codec_from_proto(codec: proto::VideoCodec) -> livekit::webrtc::video_source::VideoCodec {
     use livekit::webrtc::video_source::VideoCodec;
     match codec {
         proto::VideoCodec::H264 => VideoCodec::H264,
@@ -62,28 +61,32 @@ struct EncodedObserverBridge {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-impl livekit::webrtc::video_source::native::EncodedVideoSourceObserver
-    for EncodedObserverBridge
-{
+impl livekit::webrtc::video_source::native::EncodedVideoSourceObserver for EncodedObserverBridge {
     fn on_keyframe_requested(&self) {
-        let _ = self.server.send_event(proto::EncodedVideoSourceEvent {
-            source_handle: self.source_handle,
-            message: Some(proto::encoded_video_source_event::Message::KeyframeRequested(
-                proto::encoded_video_source_event::KeyframeRequested {},
-            )),
-        }.into());
+        let _ = self.server.send_event(
+            proto::EncodedVideoSourceEvent {
+                source_handle: self.source_handle,
+                message: Some(proto::encoded_video_source_event::Message::KeyframeRequested(
+                    proto::encoded_video_source_event::KeyframeRequested {},
+                )),
+            }
+            .into(),
+        );
     }
 
     fn on_target_bitrate(&self, bitrate_bps: u32, framerate_fps: f64) {
-        let _ = self.server.send_event(proto::EncodedVideoSourceEvent {
-            source_handle: self.source_handle,
-            message: Some(proto::encoded_video_source_event::Message::TargetBitrateChanged(
-                proto::encoded_video_source_event::TargetBitrateChanged {
-                    bitrate_bps,
-                    framerate_fps,
-                },
-            )),
-        }.into());
+        let _ = self.server.send_event(
+            proto::EncodedVideoSourceEvent {
+                source_handle: self.source_handle,
+                message: Some(proto::encoded_video_source_event::Message::TargetBitrateChanged(
+                    proto::encoded_video_source_event::TargetBitrateChanged {
+                        bitrate_bps,
+                        framerate_fps,
+                    },
+                )),
+            }
+            .into(),
+        );
     }
 }
 
@@ -130,6 +133,12 @@ impl FfiVideoSource {
                 }));
 
                 RtcVideoSource::Encoded(source)
+            }
+            #[cfg(target_arch = "wasm32")]
+            proto::VideoSourceType::VideoSourceEncoded => {
+                return Err(FfiError::InvalidRequest(
+                    "Encoded video source support is not enabled".into(),
+                ));
             }
             _ => return Err(FfiError::InvalidRequest("unsupported video source type".into())),
         };
@@ -190,6 +199,9 @@ impl FfiVideoSource {
         _server: &'static server::FfiServer,
         capture: proto::CaptureEncodedVideoFrameRequest,
     ) -> FfiResult<proto::CaptureEncodedVideoFrameResponse> {
+        #[cfg(target_arch = "wasm32")]
+        let _ = &capture;
+
         match self.source {
             #[cfg(not(target_arch = "wasm32"))]
             RtcVideoSource::Encoded(ref source) => {

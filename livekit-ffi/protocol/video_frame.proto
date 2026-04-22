@@ -85,7 +85,7 @@ message CaptureVideoFrameRequest {
 
 message CaptureVideoFrameResponse {}
 
-// Push a pre-encoded (compressed) frame to an encoded VideoSource.
+// Push an encoded (compressed) frame to an encoded VideoSource.
 // The source must have been created with type == VIDEO_SOURCE_ENCODED.
 message CaptureEncodedVideoFrameRequest {
   required uint64 source_handle = 1;
@@ -234,7 +234,7 @@ message VideoSourceResolution {
 
 enum VideoSourceType {
   VIDEO_SOURCE_NATIVE = 0;
-  // A source that accepts pre-encoded compressed frames. WebRTC's internal
+  // A source that accepts encoded (compressed) frames. WebRTC's internal
   // encoder is bypassed for tracks bound to this source.
   VIDEO_SOURCE_ENCODED = 1;
 }

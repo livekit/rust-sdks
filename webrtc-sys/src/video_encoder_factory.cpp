@@ -407,6 +407,7 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
     return nullptr;
   }
 
+#ifdef LK_PRE_ENCODED_VIDEO
   // Wrap the real encoder construction in a lazy shim so we can branch
   // between passthrough and a real encoder based on the first VideoFrame's
   // id. The builder is called at most once and only for non-passthrough
@@ -421,6 +422,10 @@ std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
 
   return std::make_unique<LazyVideoEncoder>(format,
                                             std::move(real_encoder_builder));
+#else
+  return std::make_unique<webrtc::SimulcastEncoderAdapter>(
+      env, internal_factory_.get(), nullptr, format);
+#endif
 }
 
 }  // namespace livekit_ffi

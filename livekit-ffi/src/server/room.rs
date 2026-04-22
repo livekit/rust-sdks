@@ -378,6 +378,10 @@ impl FfiRoom {
 }
 
 impl RoomInner {
+    pub(crate) fn mark_local_publish_callback_sent(&self, sid: TrackSid) {
+        self.pending_published_tracks.lock().insert(sid);
+    }
+
     pub fn publish_data(
         &self,
         server: &'static FfiServer,
@@ -543,7 +547,7 @@ impl RoomInner {
                         .into(),
                     );
 
-                    inner.pending_published_tracks.lock().insert(publication.sid());
+                    inner.mark_local_publish_callback_sent(publication.sid());
                 }
                 Err(err) => {
                     // Failed to publish the track

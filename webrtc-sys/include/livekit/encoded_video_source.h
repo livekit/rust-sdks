@@ -125,6 +125,15 @@ class EncodedVideoTrackSource {
     uint32_t height_;
     std::unique_ptr<rust::Box<EncodedVideoSourceWrapper>> observer_;
 
+    // Cached H.264/H.265 parameter sets, each with a leading 4-byte Annex-B
+    // start code. Populated by scanning incoming keyframes. Prepended to
+    // later keyframes that arrive without inline parameter sets.
+    //
+    // For H.264: vps is unused. For H.265: all three are typically present.
+    std::vector<uint8_t> cached_vps_;
+    std::vector<uint8_t> cached_sps_;
+    std::vector<uint8_t> cached_pps_;
+
     static constexpr size_t kMaxQueueSize = 8;
   };
 
