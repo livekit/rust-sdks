@@ -259,8 +259,11 @@ fn print_table(rows: &[ResultRow]) {
     };
 
     let format_row = |row: &[String; 10]| -> String {
-        let parts: Vec<String> =
-            row.iter().enumerate().map(|(i, cell)| format!(" {:>width$} ", cell, width = widths[i])).collect();
+        let parts: Vec<String> = row
+            .iter()
+            .enumerate()
+            .map(|(i, cell)| format!(" {:>width$} ", cell, width = widths[i]))
+            .collect();
         format!("|{}|", parts.join("|"))
     };
 
