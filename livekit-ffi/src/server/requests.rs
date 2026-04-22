@@ -1367,7 +1367,141 @@ pub fn handle_request(
             on_remote_data_track_is_published(server, req)?.into()
         }
         Request::DataTrackStreamRead(req) => on_data_track_stream_read(server, req)?.into(),
+        // Audio Manager
+        Request::SetAudioMode(req) => on_set_audio_mode(server, req)?.into(),
+        Request::GetAudioMode(req) => on_get_audio_mode(server, req)?.into(),
+        Request::GetAudioDevices(req) => on_get_audio_devices(server, req)?.into(),
+        Request::SetRecordingDevice(req) => on_set_recording_device(server, req)?.into(),
+        Request::SetPlayoutDevice(req) => on_set_playout_device(server, req)?.into(),
+        Request::ResetAudio(req) => on_reset_audio(server, req)?.into(),
     });
 
     Ok(res)
+}
+
+// ==================== Audio Manager ====================
+
+fn on_set_audio_mode(
+    _server: &'static FfiServer,
+    req: proto::SetAudioModeRequest,
+) -> FfiResult<proto::SetAudioModeResponse> {
+    let audio = AudioManager::instance();
+    let mode = match req.mode() {
+        proto::AudioMode::Synthetic => AudioMode::Synthetic,
+        proto::AudioMode::Platform => AudioMode::Platform,
+    };
+
+    match audio.set_mode(mode) {
+        Ok(()) => Ok(proto::SetAudioModeResponse { error: None }),
+        Err(e) => Ok(proto::SetAudioModeResponse {
+            error: Some(format!("{}", e)),
+        }),
+    }
+}
+
+fn on_get_audio_mode(
+    _server: &'static FfiServer,
+    _req: proto::GetAudioModeRequest,
+) -> FfiResult<proto::GetAudioModeResponse> {
+    let audio = AudioManager::instance();
+    let mode = match audio.current_mode() {
+        AdmDelegateType::Synthetic => proto::AudioMode::Synthetic,
+        AdmDelegateType::Platform => proto::AudioMode::Platform,
+    };
+
+    Ok(proto::GetAudioModeResponse { mode: mode.into() })
+}
+
+fn on_get_audio_devices(
+    _server: &'static FfiServer,
+    _req: proto::GetAudioDevicesRequest,
+) -> FfiResult<proto::GetAudioDevicesResponse> {
+    let audio = AudioManager::instance();
+
+    // Check if we're in Platform mode
+    if audio.current_mode() == AdmDelegateType::Synthetic {
+        return Ok(proto::GetAudioDevicesResponse {
+            playout_devices: vec![],
+            recording_devices: vec![],
+            error: Some("Platform mode required".to_string()),
+        });
+    }
+
+    let mut playout_devices = vec![];
+    let mut recording_devices = vec![];
+
+    // Enumerate playout devices
+    let playout_count = audio.playout_devices();
+    for i in 0..playout_count as u32 {
+        playout_devices.push(proto::AudioDeviceInfo {
+            index: i,
+            name: audio.playout_device_name(i as u16),
+        });
+    }
+
+    // Enumerate recording devices
+    let recording_count = audio.recording_devices();
+    for i in 0..recording_count as u32 {
+        recording_devices.push(proto::AudioDeviceInfo {
+            index: i,
+            name: audio.recording_device_name(i as u16),
+        });
+    }
+
+    Ok(proto::GetAudioDevicesResponse {
+        playout_devices,
+        recording_devices,
+        error: None,
+    })
+}
+
+fn on_set_recording_device(
+    _server: &'static FfiServer,
+    req: proto::SetRecordingDeviceRequest,
+) -> FfiResult<proto::SetRecordingDeviceResponse> {
+    let audio = AudioManager::instance();
+
+    // Check if we're in Platform mode
+    if audio.current_mode() == AdmDelegateType::Synthetic {
+        return Ok(proto::SetRecordingDeviceResponse {
+            error: Some("Platform mode required".to_string()),
+        });
+    }
+
+    match audio.set_recording_device(req.index as u16) {
+        Ok(()) => Ok(proto::SetRecordingDeviceResponse { error: None }),
+        Err(e) => Ok(proto::SetRecordingDeviceResponse {
+            error: Some(format!("{}", e)),
+        }),
+    }
+}
+
+fn on_set_playout_device(
+    _server: &'static FfiServer,
+    req: proto::SetPlayoutDeviceRequest,
+) -> FfiResult<proto::SetPlayoutDeviceResponse> {
+    let audio = AudioManager::instance();
+
+    // Check if we're in Platform mode
+    if audio.current_mode() == AdmDelegateType::Synthetic {
+        return Ok(proto::SetPlayoutDeviceResponse {
+            error: Some("Platform mode required".to_string()),
+        });
+    }
+
+    match audio.set_playout_device(req.index as u16) {
+        Ok(()) => Ok(proto::SetPlayoutDeviceResponse { error: None }),
+        Err(e) => Ok(proto::SetPlayoutDeviceResponse {
+            error: Some(format!("{}", e)),
+        }),
+    }
+}
+
+fn on_reset_audio(
+    _server: &'static FfiServer,
+    _req: proto::ResetAudioRequest,
+) -> FfiResult<proto::ResetAudioResponse> {
+    let audio = AudioManager::instance();
+    audio.reset();
+    Ok(proto::ResetAudioResponse {})
 }
