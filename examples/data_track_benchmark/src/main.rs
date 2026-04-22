@@ -78,6 +78,14 @@ fn parse_list(s: &str) -> Vec<u64> {
     s.split(',').map(|v| v.trim().parse::<u64>().expect("invalid number in list")).collect()
 }
 
+fn format_bandwidth(kibps: u64) -> String {
+    if kibps >= 1024 {
+        format!("{:.2} MiB/s", kibps as f64 / 1024.0)
+    } else {
+        format!("{kibps} KiB/s")
+    }
+}
+
 fn now_millis() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 }
@@ -139,7 +147,7 @@ async fn main() -> Result<()> {
     let sub_handle = tokio::spawn(subscriber_task(subscription, cmd_rx));
 
     if args.csv {
-        println!("payload_size_kb,frequency_hz,duration_s,sent,received,delivery_ratio,avg_latency_ms,min_latency_ms,max_latency_ms");
+        println!("payload_size_kb,frequency_hz,expected_bw_kibps,duration_s,sent,received,delivery_ratio,avg_latency_ms,min_latency_ms,max_latency_ms");
     }
 
     let mut rows: Vec<ResultRow> = Vec::new();
@@ -165,10 +173,11 @@ async fn main() -> Result<()> {
             let stats = rx.await?;
 
             let ratio = if sent == 0 { 0.0 } else { stats.received as f64 / sent as f64 };
+            let expected_bw_kibps = (size_kb * freq_hz) as f64;
 
             if args.csv {
                 println!(
-                    "{size_kb},{freq_hz},{},{sent},{},{ratio:.2},{:.2},{:.2},{:.2}",
+                    "{size_kb},{freq_hz},{expected_bw_kibps:.2},{},{sent},{},{ratio:.2},{:.2},{:.2},{:.2}",
                     args.duration,
                     stats.received,
                     stats.avg_latency_ms,
@@ -207,6 +216,7 @@ fn print_table(rows: &[ResultRow]) {
     let headers = [
         "size (KiB)",
         "freq (Hz)",
+        "exp. bw",
         "dur (s)",
         "sent",
         "received",
@@ -216,12 +226,13 @@ fn print_table(rows: &[ResultRow]) {
         "max (ms)",
     ];
 
-    let cells: Vec<[String; 9]> = rows
+    let cells: Vec<[String; 10]> = rows
         .iter()
         .map(|r| {
             [
                 r.size_kb.to_string(),
                 r.freq_hz.to_string(),
+                format_bandwidth(r.size_kb * r.freq_hz),
                 r.duration_s.to_string(),
                 r.sent.to_string(),
                 r.received.to_string(),
@@ -247,13 +258,13 @@ fn print_table(rows: &[ResultRow]) {
         format!("+{}+", parts.join("+"))
     };
 
-    let format_row = |row: &[String; 9]| -> String {
+    let format_row = |row: &[String; 10]| -> String {
         let parts: Vec<String> =
             row.iter().enumerate().map(|(i, cell)| format!(" {:>width$} ", cell, width = widths[i])).collect();
         format!("|{}|", parts.join("|"))
     };
 
-    let header_row: [String; 9] = headers.map(|h| h.to_string());
+    let header_row: [String; 10] = headers.map(|h| h.to_string());
 
     println!();
     println!("{}", separator);
