@@ -23,7 +23,7 @@ use tokio::sync::{mpsc, watch, Notify};
 /// One frame may serialize into multiple MTU-sized packets; the receiver needs
 /// all of them to reassemble the frame. We therefore keep the group together
 /// as an atomic unit all the way down to the DC send path so eviction never
-/// leaves a partially queued frame.
+/// leaves partially queued frame.
 pub type DataTrackFramePackets = Vec<Bytes>;
 
 /// Options for constructing a [`DataChannelSender`].
