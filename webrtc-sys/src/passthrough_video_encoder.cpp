@@ -49,7 +49,8 @@ webrtc::VideoCodecType ToWebrtcCodec(EncodedVideoCodecType codec) {
 
 bool FrameTypesRequestKeyframe(
     const std::vector<webrtc::VideoFrameType>* frame_types) {
-  if (!frame_types) return false;
+  if (!frame_types)
+    return false;
   return std::any_of(frame_types->begin(), frame_types->end(),
                      [](webrtc::VideoFrameType t) {
                        return t == webrtc::VideoFrameType::kVideoFrameKey;
@@ -69,8 +70,9 @@ PassthroughVideoEncoder::PassthroughVideoEncoder(
 
 PassthroughVideoEncoder::~PassthroughVideoEncoder() = default;
 
-int PassthroughVideoEncoder::InitEncode(const webrtc::VideoCodec* codec_settings,
-                                        const Settings& settings) {
+int PassthroughVideoEncoder::InitEncode(
+    const webrtc::VideoCodec* codec_settings,
+    const Settings& settings) {
   if (codec_settings) {
     codec_settings_ = *codec_settings;
   }
@@ -111,14 +113,14 @@ int32_t PassthroughVideoEncoder::Encode(
   }
 
   webrtc::EncodedImage image;
-  image.SetEncodedData(webrtc::EncodedImageBuffer::Create(
-      enc.data.data(), enc.data.size()));
-  image.SetFrameType(enc.is_keyframe ? webrtc::VideoFrameType::kVideoFrameKey
-                                     : webrtc::VideoFrameType::kVideoFrameDelta);
+  image.SetEncodedData(
+      webrtc::EncodedImageBuffer::Create(enc.data.data(), enc.data.size()));
+  image.SetFrameType(enc.is_keyframe
+                         ? webrtc::VideoFrameType::kVideoFrameKey
+                         : webrtc::VideoFrameType::kVideoFrameDelta);
   image.SetRtpTimestamp(frame.rtp_timestamp());
-  image.capture_time_ms_ = enc.capture_time_us != 0
-                               ? enc.capture_time_us / 1000
-                               : frame.render_time_ms();
+  image.capture_time_ms_ = enc.capture_time_us != 0 ? enc.capture_time_us / 1000
+                                                    : frame.render_time_ms();
   image._encodedWidth = enc.width;
   image._encodedHeight = enc.height;
   image.rotation_ = frame.rotation();
@@ -138,7 +140,8 @@ int32_t PassthroughVideoEncoder::Encode(
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
-void PassthroughVideoEncoder::SetRates(const RateControlParameters& parameters) {
+void PassthroughVideoEncoder::SetRates(
+    const RateControlParameters& parameters) {
   const uint32_t target_bps = parameters.target_bitrate.get_sum_bps();
   const double framerate = parameters.framerate_fps;
   source_->notify_target_bitrate(target_bps, framerate);

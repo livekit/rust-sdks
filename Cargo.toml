@@ -28,6 +28,7 @@ members = [
     "examples/local_video",
     "examples/mobile",
     "examples/play_from_disk",
+    "examples/pre_encoded_ingest",
     "examples/rpc",
     "examples/save_to_disk",
     "examples/screensharing",
