@@ -124,6 +124,9 @@ impl RemoteDataTrackManager {
         let manager_options = remote::ManagerOptions { decryption_provider };
 
         let (manager, input, output) = remote::Manager::new(manager_options);
+
+        // TODO: in a follow-up PR, refactor manager to work with cancellation tokens directly, eliminating the
+        // need for this additional task.
         tokio::spawn(shutdown_forward_task(input.clone(), token.clone()));
 
         let delegate_forward = DelegateForwardTask { output, delegate, token: token.clone() };
@@ -230,8 +233,6 @@ impl DelegateForwardTask {
 }
 
 async fn shutdown_forward_task(input: remote::ManagerInput, token: CancellationToken) {
-    // TODO: refactor manager to work with cancellation tokens directly, eliminating the need
-    // for this additional task.
     token.cancelled().await;
     _ = input.send(remote::InputEvent::Shutdown);
 }
