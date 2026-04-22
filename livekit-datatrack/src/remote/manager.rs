@@ -452,10 +452,7 @@ pub struct ManagerOutput(ReceiverStream<OutputEvent>);
 impl Stream for ManagerOutput {
     type Item = OutputEvent;
 
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut TaskContext<'_>,
-    ) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<Option<Self::Item>> {
         Pin::new(&mut self.0).poll_next(cx)
     }
 }

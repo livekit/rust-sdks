@@ -24,8 +24,9 @@ uniffi::custom_type!(DataTrackSid, String, {
 #[uniffi::remote(Record)]
 pub struct DataTrackFrame {
     payload: Bytes,
-    user_timestamp: Option<u64>
+    user_timestamp: Option<u64>,
 }
+
 /// Information about a published data track.
 #[derive(uniffi::Record)]
 pub struct DataTrackInfo {
@@ -51,5 +52,5 @@ pub enum HandleSignalResponseError {
     #[error("Unsupported response type in this context")]
     UnsupportedType,
     #[error(transparent)]
-    Internal(livekit_datatrack::api::InternalError)
+    Internal(livekit_datatrack::api::InternalError),
 }

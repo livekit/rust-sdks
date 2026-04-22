@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use super::{
+    common::{DataTrackInfo, HandleSignalResponseError},
     e2ee::{DataTrackDecryptionProvider, FfiDecryptionProvider},
-    common::{DataTrackInfo, HandleSignalResponseError}
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
