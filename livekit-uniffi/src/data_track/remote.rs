@@ -79,6 +79,7 @@ pub struct DataTrackStream(Mutex<livekit_datatrack::api::DataTrackStream>);
 
 #[uniffi::export]
 impl DataTrackStream {
+    /// Returns the next received frame or `None` if the subscription has ended.
     pub async fn next(&self) -> Option<DataTrackFrame> {
         // TODO: avoid mutex?
         self.0.try_lock().unwrap().next().await
