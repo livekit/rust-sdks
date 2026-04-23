@@ -3,6 +3,7 @@ use clap::Parser;
 use futures_util::StreamExt;
 use livekit::prelude::*;
 use livekit_api::access_token::{AccessToken, VideoGrants};
+use polars::prelude::*;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot};
 
@@ -66,18 +67,6 @@ struct Args {
     csv: bool,
 }
 
-struct ResultRow {
-    size_kb: u64,
-    freq_hz: u64,
-    duration_s: u64,
-    sent: u64,
-    received: u64,
-    delivery_ratio: f64,
-    avg_latency_ms: f64,
-    min_latency_ms: f64,
-    max_latency_ms: f64,
-}
-
 struct BenchResult {
     received: u64,
     avg_latency_ms: f64,
@@ -95,14 +84,6 @@ enum SubCommand {
 
 fn parse_list(s: &str) -> Vec<u64> {
     s.split(',').map(|v| v.trim().parse::<u64>().expect("invalid number in list")).collect()
-}
-
-fn format_throughput(kibps: f64) -> String {
-    if kibps >= 1024.0 {
-        format!("{:.2} MiB/s", kibps / 1024.0)
-    } else {
-        format!("{kibps:.2} KiB/s")
-    }
 }
 
 fn now_millis() -> u64 {
@@ -154,11 +135,17 @@ async fn main() -> Result<()> {
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<SubCommand>();
     let sub_handle = tokio::spawn(subscriber_task(subscription, cmd_rx));
 
-    if args.csv {
-        println!("payload_size_kb,frequency_hz,duration_s,sent,received,delivery_ratio,avg_latency_ms,min_latency_ms,max_latency_ms,expected_throughput_kibps,actual_throughput_kibps");
-    }
-
-    let mut rows: Vec<ResultRow> = Vec::new();
+    let mut col_size_kb: Vec<u64> = Vec::new();
+    let mut col_freq_hz: Vec<u64> = Vec::new();
+    let mut col_duration_s: Vec<u64> = Vec::new();
+    let mut col_sent: Vec<u64> = Vec::new();
+    let mut col_received: Vec<u64> = Vec::new();
+    let mut col_ratio: Vec<f64> = Vec::new();
+    let mut col_avg_ms: Vec<f64> = Vec::new();
+    let mut col_min_ms: Vec<f64> = Vec::new();
+    let mut col_max_ms: Vec<f64> = Vec::new();
+    let mut col_expected_mibps: Vec<f64> = Vec::new();
+    let mut col_actual_mibps: Vec<f64> = Vec::new();
 
     for &size_kb in &sizes {
         for &freq_hz in &frequencies {
@@ -181,36 +168,103 @@ async fn main() -> Result<()> {
             let stats = rx.await?;
 
             let ratio = if sent == 0 { 0.0 } else { stats.received as f64 / sent as f64 };
-            let expected_throughput_kibps = (size_kb * freq_hz) as f64;
-            let actual_throughput_kibps = expected_throughput_kibps * ratio;
+            let expected_throughput_mibps = (size_kb * freq_hz) as f64 / 1024.0;
+            let actual_throughput_mibps = expected_throughput_mibps * ratio;
 
-            if args.csv {
-                println!(
-                    "{size_kb},{freq_hz},{},{sent},{},{ratio:.2},{:.2},{:.2},{:.2},{expected_throughput_kibps:.2},{actual_throughput_kibps:.2}",
-                    args.duration,
-                    stats.received,
-                    stats.avg_latency_ms,
-                    stats.min_latency_ms,
-                    stats.max_latency_ms,
-                );
-            }
-
-            rows.push(ResultRow {
-                size_kb,
-                freq_hz,
-                duration_s: args.duration,
-                sent,
-                received: stats.received,
-                delivery_ratio: ratio,
-                avg_latency_ms: stats.avg_latency_ms,
-                min_latency_ms: stats.min_latency_ms,
-                max_latency_ms: stats.max_latency_ms,
-            });
+            col_size_kb.push(size_kb);
+            col_freq_hz.push(freq_hz);
+            col_duration_s.push(args.duration);
+            col_sent.push(sent);
+            col_received.push(stats.received);
+            col_ratio.push(ratio);
+            col_avg_ms.push(stats.avg_latency_ms);
+            col_min_ms.push(stats.min_latency_ms);
+            col_max_ms.push(stats.max_latency_ms);
+            col_expected_mibps.push(expected_throughput_mibps);
+            col_actual_mibps.push(actual_throughput_mibps);
         }
     }
 
-    if !args.csv {
-        print_table(&rows);
+    let mut df = df! [
+        "size_kb"              => col_size_kb,
+        "freq_hz"              => col_freq_hz,
+        "duration_s"           => col_duration_s,
+        "sent"                 => col_sent,
+        "received"             => col_received,
+        "delivery_ratio"       => col_ratio,
+        "avg_latency_ms"       => col_avg_ms,
+        "min_latency_ms"       => col_min_ms,
+        "max_latency_ms"       => col_max_ms,
+        "expected_mibps"       => col_expected_mibps,
+        "actual_mibps"         => col_actual_mibps,
+    ]?;
+
+    if args.csv {
+        CsvWriter::new(std::io::stdout()).include_header(true).finish(&mut df)?;
+    } else {
+        let n = df.height();
+        let mut size_str = Vec::with_capacity(n);
+        let mut freq_str = Vec::with_capacity(n);
+        let mut dur_str = Vec::with_capacity(n);
+        let mut sent_str = Vec::with_capacity(n);
+        let mut received_str = Vec::with_capacity(n);
+        let mut delivery_str = Vec::with_capacity(n);
+        let mut avg_str = Vec::with_capacity(n);
+        let mut min_str = Vec::with_capacity(n);
+        let mut max_str = Vec::with_capacity(n);
+        let mut exp_str = Vec::with_capacity(n);
+        let mut act_str = Vec::with_capacity(n);
+
+        for i in 0..n {
+            let size_kb = df.column("size_kb")?.u64()?.get(i).unwrap();
+            let freq_hz = df.column("freq_hz")?.u64()?.get(i).unwrap();
+            let dur = df.column("duration_s")?.u64()?.get(i).unwrap();
+            let sent = df.column("sent")?.u64()?.get(i).unwrap();
+            let received = df.column("received")?.u64()?.get(i).unwrap();
+            let ratio = df.column("delivery_ratio")?.f64()?.get(i).unwrap();
+            let avg = df.column("avg_latency_ms")?.f64()?.get(i).unwrap();
+            let min = df.column("min_latency_ms")?.f64()?.get(i).unwrap();
+            let max = df.column("max_latency_ms")?.f64()?.get(i).unwrap();
+            let exp_mibps = df.column("expected_mibps")?.f64()?.get(i).unwrap();
+            let act_mibps = df.column("actual_mibps")?.f64()?.get(i).unwrap();
+
+            size_str.push(size_kb.to_string());
+            freq_str.push(freq_hz.to_string());
+            dur_str.push(dur.to_string());
+            sent_str.push(sent.to_string());
+            received_str.push(received.to_string());
+            delivery_str.push(format!("{:.2}%", ratio * 100.0));
+            avg_str.push(format!("{avg:.2}"));
+            min_str.push(format!("{min:.2}"));
+            max_str.push(format!("{max:.2}"));
+            exp_str.push(format!("{exp_mibps:.2} MiB/s"));
+            act_str.push(format!("{act_mibps:.2} MiB/s"));
+        }
+
+        let display_df = df! [
+            "size (KiB)"        => size_str,
+            "freq (Hz)"         => freq_str,
+            "dur (s)"           => dur_str,
+            "sent"              => sent_str,
+            "received"          => received_str,
+            "delivery"          => delivery_str,
+            "avg (ms)"          => avg_str,
+            "min (ms)"          => min_str,
+            "max (ms)"          => max_str,
+            "exp throughput"    => exp_str,
+            "actual throughput" => act_str,
+        ]?;
+
+        std::env::set_var("POLARS_FMT_MAX_ROWS", "-1");
+        std::env::set_var("POLARS_FMT_MAX_COLS", "-1");
+        std::env::set_var("POLARS_FMT_STR_LEN", "50");
+        std::env::set_var("POLARS_TABLE_WIDTH", "500");
+        std::env::set_var("POLARS_FMT_TABLE_FORMATTING", "ASCII_FULL_CONDENSED");
+        std::env::set_var("POLARS_FMT_TABLE_CELL_ALIGNMENT", "RIGHT");
+        std::env::set_var("POLARS_FMT_TABLE_HIDE_COLUMN_DATA_TYPES", "1");
+        std::env::set_var("POLARS_FMT_TABLE_HIDE_DATAFRAME_SHAPE_INFORMATION", "1");
+
+        println!("{display_df}");
     }
 
     drop(cmd_tx);
@@ -219,77 +273,6 @@ async fn main() -> Result<()> {
     sub_room.close().await?;
 
     Ok(())
-}
-
-fn print_table(rows: &[ResultRow]) {
-    let headers = [
-        "size (KiB)",
-        "freq (Hz)",
-        "dur (s)",
-        "sent",
-        "received",
-        "delivery",
-        "avg (ms)",
-        "min (ms)",
-        "max (ms)",
-        "exp throughput",
-        "actual throughput",
-    ];
-
-    let cells: Vec<[String; 11]> = rows
-        .iter()
-        .map(|r| {
-            let expected_kibps = (r.size_kb * r.freq_hz) as f64;
-            let actual_kibps = expected_kibps * r.delivery_ratio;
-            [
-                r.size_kb.to_string(),
-                r.freq_hz.to_string(),
-                r.duration_s.to_string(),
-                r.sent.to_string(),
-                r.received.to_string(),
-                format!("{:.2}%", r.delivery_ratio * 100.0),
-                format!("{:.2}", r.avg_latency_ms),
-                format!("{:.2}", r.min_latency_ms),
-                format!("{:.2}", r.max_latency_ms),
-                format_throughput(expected_kibps),
-                format_throughput(actual_kibps),
-            ]
-        })
-        .collect();
-
-    let mut widths = headers.map(|h| h.len());
-    for row in &cells {
-        for (i, cell) in row.iter().enumerate() {
-            if cell.len() > widths[i] {
-                widths[i] = cell.len();
-            }
-        }
-    }
-
-    let separator: String = {
-        let parts: Vec<String> = widths.iter().map(|w| "-".repeat(w + 2)).collect();
-        format!("+{}+", parts.join("+"))
-    };
-
-    let format_row = |row: &[String; 11]| -> String {
-        let parts: Vec<String> = row
-            .iter()
-            .enumerate()
-            .map(|(i, cell)| format!(" {:>width$} ", cell, width = widths[i]))
-            .collect();
-        format!("|{}|", parts.join("|"))
-    };
-
-    let header_row: [String; 11] = headers.map(|h| h.to_string());
-
-    println!();
-    println!("{}", separator);
-    println!("{}", format_row(&header_row));
-    println!("{}", separator);
-    for row in &cells {
-        println!("{}", format_row(row));
-    }
-    println!("{}", separator);
 }
 
 async fn wait_for_subscription(
