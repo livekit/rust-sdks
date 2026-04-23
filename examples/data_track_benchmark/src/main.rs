@@ -6,8 +6,27 @@ use livekit_api::access_token::{AccessToken, VideoGrants};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tokio::sync::{mpsc, oneshot};
 
-const HEADER_SIZE: usize = 12; // 4 bytes seq + 8 bytes timestamp
 const ROOM_NAME: &str = "data-track-benchmark";
+
+struct TestHeader {
+    seq: u32,
+    timestamp_ms: u64,
+}
+
+impl TestHeader {
+    const SIZE: usize = 12; // 4 bytes seq + 8 bytes timestamp
+
+    fn encode(&self, buf: &mut [u8]) {
+        buf[0..4].copy_from_slice(&self.seq.to_be_bytes());
+        buf[4..12].copy_from_slice(&self.timestamp_ms.to_be_bytes());
+    }
+
+    fn decode(buf: &[u8]) -> Self {
+        let seq = u32::from_be_bytes(buf[0..4].try_into().unwrap());
+        let timestamp_ms = u64::from_be_bytes(buf[4..12].try_into().unwrap());
+        Self { seq, timestamp_ms }
+    }
+}
 
 #[derive(Parser)]
 #[command(
@@ -90,17 +109,6 @@ fn now_millis() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_millis() as u64
 }
 
-fn encode_header(buf: &mut [u8], seq: u32, timestamp_ms: u64) {
-    buf[0..4].copy_from_slice(&seq.to_be_bytes());
-    buf[4..12].copy_from_slice(&timestamp_ms.to_be_bytes());
-}
-
-fn decode_header(buf: &[u8]) -> (u32, u64) {
-    let seq = u32::from_be_bytes(buf[0..4].try_into().unwrap());
-    let ts = u64::from_be_bytes(buf[4..12].try_into().unwrap());
-    (seq, ts)
-}
-
 fn create_token(api_key: &str, api_secret: &str, room: &str, identity: &str) -> Result<String> {
     let token = AccessToken::with_api_key(api_key, api_secret)
         .with_identity(identity)
@@ -155,7 +163,7 @@ async fn main() -> Result<()> {
     for &size_kb in &sizes {
         for &freq_hz in &frequencies {
             let payload_size = (size_kb as usize) * 1024;
-            if payload_size < HEADER_SIZE {
+            if payload_size < TestHeader::SIZE {
                 log::warn!("Skipping {size_kb} KiB @ {freq_hz} Hz: payload too small for header");
                 continue;
             }
@@ -310,14 +318,14 @@ async fn publish_loop(
     let deadline = Instant::now() + Duration::from_secs(duration_s);
 
     let mut buf = vec![0u8; payload_size];
-    rand::fill(&mut buf[HEADER_SIZE..]);
+    rand::fill(&mut buf[TestHeader::SIZE..]);
 
     let mut seq: u32 = 0;
     let mut sent: u64 = 0;
     let mut push_failed: u64 = 0;
 
     while Instant::now() < deadline {
-        encode_header(&mut buf, seq, now_millis());
+        TestHeader { seq, timestamp_ms: now_millis() }.encode(&mut buf);
         let frame = DataTrackFrame::new(buf.clone());
 
         match track.try_push(frame) {
@@ -349,19 +357,19 @@ async fn subscriber_task(
             frame = stream.next() => {
                 let Some(frame) = frame else { break };
                 let payload = frame.payload();
-                if payload.len() < HEADER_SIZE {
+                if payload.len() < TestHeader::SIZE {
                     continue;
                 }
 
-                let (_seq, ts) = decode_header(&payload);
+                let header = TestHeader::decode(&payload);
 
                 // Discard frames from a previous run
-                if ts < run_start_ts {
+                if header.timestamp_ms < run_start_ts {
                     continue;
                 }
 
                 let now = now_millis();
-                let latency_ms = now.saturating_sub(ts) as f64;
+                let latency_ms = now.saturating_sub(header.timestamp_ms) as f64;
 
                 received += 1;
                 latencies.push(latency_ms);
