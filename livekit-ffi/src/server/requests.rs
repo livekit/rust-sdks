@@ -24,7 +24,7 @@ use livekit::{
 use parking_lot::Mutex;
 
 use super::{
-    audio_source, audio_stream, colorcvt, data_stream, data_track,
+    audio_source, audio_stream, colorcvt, data_stream, data_track, encoded_tcp_ingest,
     participant::FfiParticipant,
     resampler,
     room::{self, FfiPublication, FfiTrack},
@@ -1377,6 +1377,12 @@ pub fn handle_request(
             on_remote_data_track_is_published(server, req)?.into()
         }
         Request::DataTrackStreamRead(req) => on_data_track_stream_read(server, req)?.into(),
+
+        Request::NewEncodedTcpIngest(req) => encoded_tcp_ingest::create(server, req)?.into(),
+        Request::StopEncodedTcpIngest(req) => encoded_tcp_ingest::stop(server, req)?.into(),
+        Request::GetEncodedTcpIngestStats(req) => {
+            encoded_tcp_ingest::get_stats(server, req)?.into()
+        }
     });
 
     Ok(res)

@@ -16,6 +16,7 @@ mod plugin;
 pub mod proto;
 mod room;
 mod rtc_engine;
+pub mod video_ingest;
 
 pub mod webrtc {
     pub use libwebrtc::*;
