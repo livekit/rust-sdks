@@ -20,17 +20,10 @@ fn main() {
     if env::var("DOCS_RS").is_ok() {
         return;
     }
-    download_webrtc();
+    webrtc_sys_build::download_webrtc().expect("Failed to download WebRTC binaries");
     copy_webrtc_license();
     configure_linker();
     generate_protobuf();
-}
-
-fn download_webrtc() {
-    let webrtc_dir = webrtc_sys_build::webrtc_dir();
-    if !webrtc_dir.exists() {
-        webrtc_sys_build::download_webrtc().unwrap();
-    }
 }
 
 /// Copy the webrtc license to `CARGO_MANIFEST_DIR`, used by the FFI release action.
@@ -39,7 +32,7 @@ fn copy_webrtc_license() {
     let license = webrtc_dir.join("LICENSE.md");
     let target_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let out_file = Path::new(&target_dir).join("WEBRTC_LICENSE.md");
-    std::fs::copy(license, out_file).unwrap();
+    std::fs::copy(license, out_file).expect("Failed to copy license file");
 }
 
 fn configure_linker() {

@@ -196,6 +196,9 @@ pub fn configure_jni_symbols() -> Result<()> {
     Ok(())
 }
 
+/// Marker file written into `webrtc_dir` after a successful download + extraction.
+const DOWNLOAD_COMPLETE_MARKER: &str = ".download_complete";
+
 pub fn download_webrtc() -> Result<()> {
     let dir = scratch::path(SCRATH_PATH);
     // temporary fix to avoid github workflow issue
@@ -205,8 +208,15 @@ pub fn download_webrtc() -> Result<()> {
     flock.lock_exclusive().context("Failed to acquire exclusive lock for WebRTC download")?;
 
     let webrtc_dir = webrtc_dir();
-    if webrtc_dir.exists() {
+    if webrtc_dir.join(DOWNLOAD_COMPLETE_MARKER).exists() {
         return Ok(());
+    }
+
+    // A previous run was interrupted mid-extraction (or otherwise left a partial
+    // tree behind). Wipe it so we get a clean download.
+    if webrtc_dir.exists() {
+        fs::remove_dir_all(&webrtc_dir)
+            .with_context(|| format!("Failed to remove stale WebRTC dir {webrtc_dir:?}"))?;
     }
 
     let mut resp = reqwest::blocking::get(download_url())
@@ -221,6 +231,7 @@ pub fn download_webrtc() -> Result<()> {
         .write(true)
         .read(true)
         .create(true)
+        .truncate(true)
         .open(&tmp_path)
         .context("Failed to create temporary file for WebRTC download")?;
     resp.copy_to(&mut file).context("Failed to write WebRTC download to temporary file")?;
@@ -230,6 +241,13 @@ pub fn download_webrtc() -> Result<()> {
     drop(archive);
 
     fs::remove_file(&tmp_path).context("Failed to remove temporary WebRTC zip file")?;
+
+    // Only mark the directory complete once everything above succeeded so that an
+    // interrupted run cannot leave a half-extracted directory that future builds
+    // would mistake for a valid cache.
+    File::create(webrtc_dir.join(DOWNLOAD_COMPLETE_MARKER))
+        .with_context(|| format!("Failed to write WebRTC download marker in {webrtc_dir:?}"))?;
+
     Ok(())
 }
 
