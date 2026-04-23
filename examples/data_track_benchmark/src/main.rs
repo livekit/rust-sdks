@@ -78,11 +78,11 @@ fn parse_list(s: &str) -> Vec<u64> {
     s.split(',').map(|v| v.trim().parse::<u64>().expect("invalid number in list")).collect()
 }
 
-fn format_bandwidth(kibps: u64) -> String {
-    if kibps >= 1024 {
-        format!("{:.2} MiB/s", kibps as f64 / 1024.0)
+fn format_throughput(kibps: f64) -> String {
+    if kibps >= 1024.0 {
+        format!("{:.2} MiB/s", kibps / 1024.0)
     } else {
-        format!("{kibps} KiB/s")
+        format!("{kibps:.2} KiB/s")
     }
 }
 
@@ -147,7 +147,7 @@ async fn main() -> Result<()> {
     let sub_handle = tokio::spawn(subscriber_task(subscription, cmd_rx));
 
     if args.csv {
-        println!("payload_size_kb,frequency_hz,expected_bw_kibps,duration_s,sent,received,delivery_ratio,avg_latency_ms,min_latency_ms,max_latency_ms");
+        println!("payload_size_kb,frequency_hz,duration_s,sent,received,delivery_ratio,avg_latency_ms,min_latency_ms,max_latency_ms,expected_throughput_kibps,actual_throughput_kibps");
     }
 
     let mut rows: Vec<ResultRow> = Vec::new();
@@ -173,11 +173,12 @@ async fn main() -> Result<()> {
             let stats = rx.await?;
 
             let ratio = if sent == 0 { 0.0 } else { stats.received as f64 / sent as f64 };
-            let expected_bw_kibps = (size_kb * freq_hz) as f64;
+            let expected_throughput_kibps = (size_kb * freq_hz) as f64;
+            let actual_throughput_kibps = expected_throughput_kibps * ratio;
 
             if args.csv {
                 println!(
-                    "{size_kb},{freq_hz},{expected_bw_kibps:.2},{},{sent},{},{ratio:.2},{:.2},{:.2},{:.2}",
+                    "{size_kb},{freq_hz},{},{sent},{},{ratio:.2},{:.2},{:.2},{:.2},{expected_throughput_kibps:.2},{actual_throughput_kibps:.2}",
                     args.duration,
                     stats.received,
                     stats.avg_latency_ms,
@@ -216,7 +217,6 @@ fn print_table(rows: &[ResultRow]) {
     let headers = [
         "size (KiB)",
         "freq (Hz)",
-        "exp. bw",
         "dur (s)",
         "sent",
         "received",
@@ -224,15 +224,18 @@ fn print_table(rows: &[ResultRow]) {
         "avg (ms)",
         "min (ms)",
         "max (ms)",
+        "exp throughput",
+        "actual throughput",
     ];
 
-    let cells: Vec<[String; 10]> = rows
+    let cells: Vec<[String; 11]> = rows
         .iter()
         .map(|r| {
+            let expected_kibps = (r.size_kb * r.freq_hz) as f64;
+            let actual_kibps = expected_kibps * r.delivery_ratio;
             [
                 r.size_kb.to_string(),
                 r.freq_hz.to_string(),
-                format_bandwidth(r.size_kb * r.freq_hz),
                 r.duration_s.to_string(),
                 r.sent.to_string(),
                 r.received.to_string(),
@@ -240,6 +243,8 @@ fn print_table(rows: &[ResultRow]) {
                 format!("{:.2}", r.avg_latency_ms),
                 format!("{:.2}", r.min_latency_ms),
                 format!("{:.2}", r.max_latency_ms),
+                format_throughput(expected_kibps),
+                format_throughput(actual_kibps),
             ]
         })
         .collect();
@@ -258,7 +263,7 @@ fn print_table(rows: &[ResultRow]) {
         format!("+{}+", parts.join("+"))
     };
 
-    let format_row = |row: &[String; 10]| -> String {
+    let format_row = |row: &[String; 11]| -> String {
         let parts: Vec<String> = row
             .iter()
             .enumerate()
@@ -267,7 +272,7 @@ fn print_table(rows: &[ResultRow]) {
         format!("|{}|", parts.join("|"))
     };
 
-    let header_row: [String; 10] = headers.map(|h| h.to_string());
+    let header_row: [String; 11] = headers.map(|h| h.to_string());
 
     println!();
     println!("{}", separator);
