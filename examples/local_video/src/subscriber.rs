@@ -619,27 +619,21 @@ impl eframe::App for VideoApp {
                     if should_refresh {
                         self.last_latency_text = match (hud_publish_us, hud_gpu_done_us) {
                             (Some(pub_ts), Some(gpu_ts)) => {
-                                format!(
+                                format!("{:.1}ms", gpu_ts.saturating_sub(pub_ts) as f64 / 1000.0)
+                            }
+                            (Some(pub_ts), None) => match hud_receive_us {
+                                Some(recv_ts) => format!(
                                     "{:.1}ms",
-                                    gpu_ts.saturating_sub(pub_ts) as f64 / 1000.0
-                                )
-                            }
-                            (Some(pub_ts), None) => {
-                                match hud_receive_us {
-                                    Some(recv_ts) => format!(
-                                        "{:.1}ms",
-                                        recv_ts.saturating_sub(pub_ts) as f64 / 1000.0
-                                    ),
-                                    None => "N/A".to_string(),
-                                }
-                            }
+                                    recv_ts.saturating_sub(pub_ts) as f64 / 1000.0
+                                ),
+                                None => "N/A".to_string(),
+                            },
                             _ => "N/A".to_string(),
                         };
                         self.last_render_dur_text = match (hud_receive_us, hud_gpu_done_us) {
-                            (Some(recv_ts), Some(gpu_ts)) => format!(
-                                "{:.1}ms",
-                                gpu_ts.saturating_sub(recv_ts) as f64 / 1000.0
-                            ),
+                            (Some(recv_ts), Some(gpu_ts)) => {
+                                format!("{:.1}ms", gpu_ts.saturating_sub(recv_ts) as f64 / 1000.0)
+                            }
                             _ => "N/A".to_string(),
                         };
                         self.last_latency_refresh = Some(Instant::now());
