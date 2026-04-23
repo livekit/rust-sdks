@@ -316,13 +316,13 @@ impl SignalInner {
                                 if let SignalError::TokenFormat = err {
                                     return Err(err);
                                 }
-                                Self::validate(lk_url_v0).await?;
+                                Self::validate(lk_url_v0, token).await?;
                                 return Err(err);
                             }
                         }
                     } else {
                         // Connection failed, try to retrieve more information
-                        Self::validate(lk_url).await?;
+                        Self::validate(lk_url, token).await?;
                         return Err(err);
                     }
                 }
@@ -347,8 +347,9 @@ impl SignalInner {
     }
 
     /// Validate the connection by calling rtc/validate
-    async fn validate(ws_url: url::Url) -> SignalResult<()> {
-        let validate_url = get_validate_url(ws_url);
+    async fn validate(ws_url: url::Url, token: &str) -> SignalResult<()> {
+        let mut validate_url = get_validate_url(ws_url);
+        validate_url.query_pairs_mut().append_pair("access_token", token);
 
         let validate_fut = async {
             if let Ok(res) = http_client::get(validate_url.as_str()).await {
