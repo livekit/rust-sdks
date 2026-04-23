@@ -615,7 +615,7 @@ impl eframe::App for VideoApp {
                     let should_refresh = self.last_latency_text.is_empty()
                         || self
                             .last_latency_refresh
-                            .is_none_or(|last| last.elapsed() >= Duration::from_millis(500));
+                            .map_or(true, |last| last.elapsed() >= Duration::from_millis(500));
                     if should_refresh {
                         self.last_latency_text = match (hud_publish_us, hud_gpu_done_us) {
                             (Some(pub_ts), Some(gpu_ts)) => {
