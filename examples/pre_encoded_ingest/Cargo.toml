@@ -12,6 +12,10 @@ path = "src/sender.rs"
 name = "receiver"
 path = "src/receiver.rs"
 
+[[bin]]
+name = "simple_sender"
+path = "src/simple_sender.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }

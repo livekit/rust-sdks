@@ -28,6 +28,46 @@ frames. The sender supports two wire framings, picked by `--codec`:
   record is one Temporal Unit (TU) — a complete OBU sequence for
   one frame.
 
+## The two sender binaries
+
+This example ships **two** senders that publish the same stream; pick
+whichever one better matches your integration shape:
+
+- **`simple_sender`** — uses the built-in SDK helper
+  [`livekit::video_ingest::EncodedTcpIngest`]. The helper owns the TCP
+  socket, demux, keyframe probe, reconnect loop, and track
+  publish/unpublish. Applications only supply config — port, codec,
+  width, height — and an optional [`EncodedIngestObserver`] for
+  connection / keyframe / bitrate callbacks. Recommended starting
+  point.
+- **`sender`** — the hand-rolled version kept as a reference
+  implementation. It open-codes exactly what `EncodedTcpIngest` does
+  internally and is useful if you need to deviate from the helper
+  (custom transport, alternate demuxer, different track topology).
+
+The CLI flags are the same for both binaries; `--bin simple_sender`
+is the drop-in replacement used in all examples below.
+
+### Minimal usage
+
+```rust
+use libwebrtc::video_source::VideoCodec;
+use livekit::video_ingest::{EncodedTcpIngest, EncodedTcpIngestOptions};
+
+let options = EncodedTcpIngestOptions::new(
+    /* port   */ 5005,
+    /* codec  */ VideoCodec::H264,
+    /* width  */ 640,
+    /* height */ 480,
+);
+let ingest = EncodedTcpIngest::start(room.local_participant(), options).await?;
+// ... run ...
+ingest.stop().await;
+```
+
+See `src/simple_sender.rs` for a full driver (token minting, observer,
+stats polling, Ctrl-C shutdown).
+
 ## What this exercises
 
 - `libwebrtc::video_source::NativeEncodedVideoSource` — the
@@ -379,13 +419,19 @@ does not. The sender handles both.
 
 ### 2. Start the sender (Terminal 2)
 
+Use `simple_sender` (SDK helper, recommended):
+
 ```bash
-RUST_LOG=info cargo run -p pre_encoded_ingest --bin sender -- \
+RUST_LOG=info cargo run -p pre_encoded_ingest --bin simple_sender -- \
     --tcp-host 127.0.0.1 --tcp-port 5005 \
     --width 640 --height 480 \
     --codec h264 \
     --room pre-encoded-demo --identity encoded-sender
 ```
+
+Or the hand-rolled reference (`--bin sender`) with the same flags —
+see [The two sender binaries](#the-two-sender-binaries) for when to
+pick one over the other.
 
 For the H.265 pipeline use `--codec h265`; for VP8 use `--codec vp8`;
 for AV1 use `--codec av1`.
