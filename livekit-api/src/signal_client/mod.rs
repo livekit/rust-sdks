@@ -60,6 +60,10 @@ pub const CLIENT_PROTOCOL_DEFAULT: i32 = 0;
 /// `ClientInfo.client_protocol` value indicating support for RPC v2 over data streams.
 pub const CLIENT_PROTOCOL_DATA_STREAM_RPC: i32 = 1;
 
+/// The client protocol which is sent to other clients and indicates the set of apis that other
+/// clients should assume this client supports.
+const ADVERTISED_CLIENT_PROTOCOL: i32 = CLIENT_PROTOCOL_DATA_STREAM_RPC;
+
 #[derive(Error, Debug)]
 pub enum SignalError {
     #[error("ws failure: {0}")]
@@ -89,10 +93,6 @@ pub enum SignalError {
 pub struct SignalSdkOptions {
     pub sdk: String,
     pub sdk_version: Option<String>,
-    /// Override the client_protocol advertised during join. If `None`, falls back
-    /// to `CLIENT_PROTOCOL_DEFAULT` (0). The SDK's default constructor sets this
-    /// to `CLIENT_PROTOCOL_DATA_STREAM_RPC` (1) to advertise data-stream RPC support.
-    pub client_protocol: Option<i32>,
 }
 
 impl Default for SignalSdkOptions {
@@ -100,7 +100,6 @@ impl Default for SignalSdkOptions {
         Self {
             sdk: "rust".to_string(),
             sdk_version: None,
-            client_protocol: Some(CLIENT_PROTOCOL_DATA_STREAM_RPC),
         }
     }
 }
@@ -585,7 +584,7 @@ fn create_join_request_param(
         os,
         os_version,
         device_model,
-        client_protocol: options.sdk_options.client_protocol.unwrap_or(CLIENT_PROTOCOL_DEFAULT),
+        client_protocol: ADVERTISED_CLIENT_PROTOCOL,
         ..Default::default()
     };
 
@@ -675,8 +674,6 @@ fn get_livekit_url(
         lk_url.query_pairs_mut().append_pair("join_request", &join_request_param);
     } else {
         // For v0 path (dual PC mode): use URL query parameters
-        let client_protocol =
-            options.sdk_options.client_protocol.unwrap_or(CLIENT_PROTOCOL_DEFAULT);
         lk_url
             .query_pairs_mut()
             .append_pair("sdk", options.sdk_options.sdk.as_str())
@@ -684,7 +681,7 @@ fn get_livekit_url(
             .append_pair("os_version", os_info.version().to_string().as_str())
             .append_pair("device_model", device_model.to_string().as_str())
             .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
-            .append_pair("client_protocol", client_protocol.to_string().as_str())
+            .append_pair("client_protocol", ADVERTISED_CLIENT_PROTOCOL.to_string().as_str())
             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
             .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 

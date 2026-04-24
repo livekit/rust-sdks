@@ -338,10 +338,6 @@ pub struct ChatMessage {
 pub struct RoomSdkOptions {
     pub sdk: String,
     pub sdk_version: String,
-    /// Override the client_protocol advertised during join. If `None`, falls back
-    /// to `CLIENT_PROTOCOL_DEFAULT` (0). The default constructor sets this to
-    /// `CLIENT_PROTOCOL_DATA_STREAM_RPC` (1) to advertise data-stream RPC support.
-    pub client_protocol: Option<i32>,
 }
 
 impl Default for RoomSdkOptions {
@@ -349,7 +345,6 @@ impl Default for RoomSdkOptions {
         Self {
             sdk: "rust".to_string(),
             sdk_version: SDK_VERSION.to_string(),
-            client_protocol: Some(CLIENT_PROTOCOL_DATA_STREAM_RPC),
         }
     }
 }
@@ -359,7 +354,6 @@ impl From<RoomSdkOptions> for SignalSdkOptions {
         let mut sdk_options = SignalSdkOptions::default();
         sdk_options.sdk = options.sdk;
         sdk_options.sdk_version = Some(options.sdk_version);
-        sdk_options.client_protocol = options.client_protocol;
         sdk_options
     }
 }
