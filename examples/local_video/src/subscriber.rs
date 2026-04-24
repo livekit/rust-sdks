@@ -227,6 +227,12 @@ fn format_optional_timestamp_us(ts_us: Option<u64>) -> String {
     ts_us.map(format_timestamp_us).unwrap_or_else(|| "N/A".to_string())
 }
 
+/// Format the us delta as a millisecond string like `"12.3ms"`.
+fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
+    let delta_us = later_us.saturating_sub(earlier_us);
+    format!("{:.1}ms", delta_us as f64 / 1_000.0)
+}
+
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
     let sc = state.lock();
     sc.full_dims
@@ -618,22 +624,15 @@ impl eframe::App for VideoApp {
                             .map_or(true, |last| last.elapsed() >= Duration::from_millis(500));
                     if should_refresh {
                         self.last_latency_text = match (hud_publish_us, hud_gpu_done_us) {
-                            (Some(pub_ts), Some(gpu_ts)) => {
-                                format!("{:.1}ms", gpu_ts.saturating_sub(pub_ts) as f64 / 1000.0)
-                            }
+                            (Some(pub_ts), Some(gpu_ts)) => format_us_delta_ms(gpu_ts, pub_ts),
                             (Some(pub_ts), None) => match hud_receive_us {
-                                Some(recv_ts) => format!(
-                                    "{:.1}ms",
-                                    recv_ts.saturating_sub(pub_ts) as f64 / 1000.0
-                                ),
+                                Some(recv_ts) => format_us_delta_ms(recv_ts, pub_ts),
                                 None => "N/A".to_string(),
                             },
                             _ => "N/A".to_string(),
                         };
                         self.last_render_dur_text = match (hud_receive_us, hud_gpu_done_us) {
-                            (Some(recv_ts), Some(gpu_ts)) => {
-                                format!("{:.1}ms", gpu_ts.saturating_sub(recv_ts) as f64 / 1000.0)
-                            }
+                            (Some(recv_ts), Some(gpu_ts)) => format_us_delta_ms(gpu_ts, recv_ts),
                             _ => "N/A".to_string(),
                         };
                         self.last_latency_refresh = Some(Instant::now());
