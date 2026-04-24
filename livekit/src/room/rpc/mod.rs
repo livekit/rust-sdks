@@ -38,8 +38,7 @@ pub(crate) const RPC_RESPONSE_TOPIC: &str = "lk.rpc_response";
 // Stream attribute keys for RPC v2
 pub(crate) const ATTR_REQUEST_ID: &str = "lk.rpc_request_id";
 pub(crate) const ATTR_METHOD: &str = "lk.rpc_request_method";
-pub(crate) const ATTR_RESPONSE_TIMEOUT_MS: &str =
-    "lk.rpc_request_response_timeout_ms";
+pub(crate) const ATTR_RESPONSE_TIMEOUT_MS: &str = "lk.rpc_request_response_timeout_ms";
 pub(crate) const ATTR_VERSION: &str = "lk.rpc_request_version";
 
 /// Transport abstraction for RPC operations.
@@ -95,19 +94,13 @@ impl RpcTransport for SessionTransport {
     }
 
     fn server_version(&self) -> Option<String> {
-        self.0
-            .rtc_engine
-            .session()
-            .signal_client()
-            .join_response()
-            .server_info
-            .and_then(|info| {
-                if info.version.is_empty() {
-                    None
-                } else {
-                    Some(info.version)
-                }
-            })
+        self.0.rtc_engine.session().signal_client().join_response().server_info.and_then(|info| {
+            if info.version.is_empty() {
+                None
+            } else {
+                Some(info.version)
+            }
+        })
     }
 }
 
