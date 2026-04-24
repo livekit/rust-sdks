@@ -979,12 +979,14 @@ impl RoomSession {
                     session
                         .rpc_server
                         .handle_request(
-                            caller,
-                            request_id,
-                            method,
-                            payload,
-                            response_timeout,
-                            version,
+                            rpc::HandleRequestOptions {
+                                caller_identity: caller,
+                                request_id,
+                                method,
+                                payload,
+                                response_timeout,
+                                version,
+                            },
                             &transport,
                         )
                         .await;

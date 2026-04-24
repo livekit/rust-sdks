@@ -29,6 +29,16 @@ pub(crate) type RpcHandlerFn = Arc<
         + Sync,
 >;
 
+/// Parameters for [`RpcServerManager::handle_request`].
+pub struct HandleRequestOptions {
+    pub caller_identity: ParticipantIdentity,
+    pub request_id: String,
+    pub method: String,
+    pub payload: String,
+    pub response_timeout: Duration,
+    pub version: u32,
+}
+
 /// Manages incoming RPC requests (handler/server side).
 ///
 /// Stores registered method handlers and dispatches incoming requests
@@ -68,14 +78,18 @@ impl RpcServerManager {
     /// as a v1 RPC response packet.
     pub(crate) async fn handle_request(
         &self,
-        caller_identity: ParticipantIdentity,
-        request_id: String,
-        method: String,
-        payload: String,
-        response_timeout: Duration,
-        version: u32,
+        options: HandleRequestOptions,
         transport: &(impl RpcTransport + 'static),
     ) {
+        let HandleRequestOptions {
+            caller_identity,
+            request_id,
+            method,
+            payload,
+            response_timeout,
+            version,
+        } = options;
+
         // Send ACK immediately
         if let Err(e) = publish_rpc_ack(transport, &caller_identity.0, &request_id).await {
             log::error!("Failed to publish RPC ACK: {:?}", e);
