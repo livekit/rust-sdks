@@ -66,7 +66,7 @@ pub const CLIENT_PROTOCOL_DATA_STREAM_RPC: i32 = 1;
 
 /// The client protocol which is sent to other clients and indicates the set of apis that other
 /// clients should assume this client supports.
-const ADVERTISED_CLIENT_PROTOCOL: i32 = CLIENT_PROTOCOL_DATA_STREAM_RPC;
+const CLIENT_PROTOCOL_VERSION: i32 = CLIENT_PROTOCOL_DATA_STREAM_RPC;
 
 #[derive(Error, Debug)]
 pub enum SignalError {
@@ -705,7 +705,7 @@ fn create_join_request_param(
         os_version,
         device_model,
         capabilities: CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect(),
-        client_protocol: ADVERTISED_CLIENT_PROTOCOL,
+        client_protocol: CLIENT_PROTOCOL_VERSION,
         ..Default::default()
     };
 
@@ -802,7 +802,7 @@ fn get_livekit_url(
             .append_pair("os_version", os_info.version().to_string().as_str())
             .append_pair("device_model", device_model.to_string().as_str())
             .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
-            .append_pair("client_protocol", ADVERTISED_CLIENT_PROTOCOL.to_string().as_str())
+            .append_pair("client_protocol", CLIENT_PROTOCOL_VERSION.to_string().as_str())
             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
             .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
