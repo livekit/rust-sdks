@@ -14,16 +14,15 @@
 
 use super::*;
 use crate::data_stream::{
-    OperationType, StreamResult, StreamTextOptions, TextStreamInfo,
-    TextStreamReader,
+    OperationType, StreamResult, StreamTextOptions, TextStreamInfo, TextStreamReader,
 };
 use crate::e2ee::EncryptionType;
 use crate::room::id::ParticipantIdentity;
 use crate::room::RoomError;
 use bytes::Bytes;
 use chrono::Utc;
-use livekit_protocol as proto;
 use livekit_api::signal_client::{CLIENT_PROTOCOL_DATA_STREAM_RPC, CLIENT_PROTOCOL_DEFAULT};
+use livekit_protocol as proto;
 use parking_lot::Mutex as ParkingMutex;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -82,22 +81,15 @@ impl MockTransport {
     }
 
     /// Count packets matching a predicate on their `value`.
-    fn count_packets<F: Fn(&proto::data_packet::Value) -> bool>(
-        &self,
-        f: F,
-    ) -> usize {
-        self.packets()
-            .iter()
-            .filter(|p| p.value.as_ref().map_or(false, &f))
-            .count()
+    fn count_packets<F: Fn(&proto::data_packet::Value) -> bool>(&self, f: F) -> usize {
+        self.packets().iter().filter(|p| p.value.as_ref().map_or(false, &f)).count()
     }
 
     /// Extract the request ID from the first RPC request packet or text stream.
     fn extract_request_id(&self) -> String {
         // Try v1 packets first
         for p in self.packets() {
-            if let Some(proto::data_packet::Value::RpcRequest(req)) = &p.value
-            {
+            if let Some(proto::data_packet::Value::RpcRequest(req)) = &p.value {
                 return req.id.clone();
             }
         }
@@ -114,10 +106,7 @@ impl MockTransport {
 }
 
 impl RpcTransport for MockTransport {
-    async fn publish_data(
-        &self,
-        data: proto::DataPacket,
-    ) -> Result<(), RoomError> {
+    async fn publish_data(&self, data: proto::DataPacket) -> Result<(), RoomError> {
         self.sent_packets.lock().push(data);
         self.packet_sent.notify_waiters();
         Ok(())
@@ -128,9 +117,7 @@ impl RpcTransport for MockTransport {
         text: &str,
         options: StreamTextOptions,
     ) -> StreamResult<TextStreamInfo> {
-        self.sent_texts
-            .lock()
-            .push((text.to_string(), options.clone()));
+        self.sent_texts.lock().push((text.to_string(), options.clone()));
         self.text_sent.notify_waiters();
         Ok(TextStreamInfo {
             id: "mock-stream-id".to_string(),
@@ -149,10 +136,7 @@ impl RpcTransport for MockTransport {
     }
 
     fn remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32 {
-        self.remote_protocols
-            .get(&identity.0)
-            .copied()
-            .unwrap_or(CLIENT_PROTOCOL_DEFAULT)
+        self.remote_protocols.get(&identity.0).copied().unwrap_or(CLIENT_PROTOCOL_DEFAULT)
     }
 
     fn server_version(&self) -> Option<String> {
@@ -191,18 +175,11 @@ fn make_text_reader(
     )
 }
 
-fn v2_request_attrs(
-    request_id: &str,
-    method: &str,
-    timeout_ms: u64,
-) -> HashMap<String, String> {
+fn v2_request_attrs(request_id: &str, method: &str, timeout_ms: u64) -> HashMap<String, String> {
     let mut attrs = HashMap::new();
     attrs.insert(ATTR_REQUEST_ID.to_string(), request_id.to_string());
     attrs.insert(ATTR_METHOD.to_string(), method.to_string());
-    attrs.insert(
-        ATTR_RESPONSE_TIMEOUT_MS.to_string(),
-        timeout_ms.to_string(),
-    );
+    attrs.insert(ATTR_RESPONSE_TIMEOUT_MS.to_string(), timeout_ms.to_string());
     attrs.insert(ATTR_VERSION.to_string(), "2".to_string());
     attrs
 }
@@ -225,9 +202,7 @@ fn is_rpc_ack_packet(v: &proto::data_packet::Value) -> bool {
     matches!(v, proto::data_packet::Value::RpcAck(_))
 }
 
-fn extract_response_error(
-    transport: &MockTransport,
-) -> Option<proto::RpcError> {
+fn extract_response_error(transport: &MockTransport) -> Option<proto::RpcError> {
     for p in transport.packets() {
         if let Some(proto::data_packet::Value::RpcResponse(resp)) = &p.value {
             if let Some(proto::rpc_response::Value::Error(e)) = &resp.value {
@@ -258,8 +233,7 @@ async fn spawn_perform_rpc(
 async fn test_v2_v2_caller_happy_path_short() {
     let client = Arc::new(RpcClientManager::new());
     let transport = Arc::new(
-        MockTransport::new()
-            .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC),
+        MockTransport::new().with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC),
     );
 
     let handle = spawn_perform_rpc(
@@ -300,8 +274,7 @@ async fn test_v2_v2_caller_happy_path_short() {
 async fn test_v2_v2_caller_happy_path_large_payload() {
     let client = Arc::new(RpcClientManager::new());
     let transport = Arc::new(
-        MockTransport::new()
-            .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC),
+        MockTransport::new().with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC),
     );
 
     let large_payload = "x".repeat(20_000);
@@ -336,9 +309,7 @@ async fn test_v2_v2_handler_happy_path() {
     let server = RpcServerManager::new();
     let transport = MockTransport::new();
 
-    server.register_method("echo".to_string(), |data| {
-        Box::pin(async move { Ok(data.payload) })
-    });
+    server.register_method("echo".to_string(), |data| Box::pin(async move { Ok(data.payload) }));
 
     let reader = make_text_reader(
         "request-body",
@@ -346,13 +317,7 @@ async fn test_v2_v2_handler_happy_path() {
         RPC_REQUEST_TOPIC,
     );
 
-    server
-        .handle_request_stream(
-            reader,
-            ParticipantIdentity("caller".into()),
-            &transport,
-        )
-        .await;
+    server.handle_request_stream(reader, ParticipantIdentity("caller".into()), &transport).await;
 
     // ACK should be sent as v1 packet
     assert_eq!(transport.count_packets(is_rpc_ack_packet), 1);
@@ -378,19 +343,10 @@ async fn test_v2_v2_handler_unhandled_error() {
         })
     });
 
-    let reader = make_text_reader(
-        "payload",
-        v2_request_attrs("req-2", "crash", 5000),
-        RPC_REQUEST_TOPIC,
-    );
+    let reader =
+        make_text_reader("payload", v2_request_attrs("req-2", "crash", 5000), RPC_REQUEST_TOPIC);
 
-    server
-        .handle_request_stream(
-            reader,
-            ParticipantIdentity("caller".into()),
-            &transport,
-        )
-        .await;
+    server.handle_request_stream(reader, ParticipantIdentity("caller".into()), &transport).await;
 
     // Error responses always use v1 packets, even between v2 clients
     assert_eq!(transport.count_packets(is_rpc_response_packet), 1);
@@ -407,24 +363,13 @@ async fn test_v2_v2_handler_rpc_error_passthrough() {
     let transport = MockTransport::new();
 
     server.register_method("fail".to_string(), |_data| {
-        Box::pin(async move {
-            Err(RpcError::new(101, "custom".into(), Some("data".into())))
-        })
+        Box::pin(async move { Err(RpcError::new(101, "custom".into(), Some("data".into()))) })
     });
 
-    let reader = make_text_reader(
-        "payload",
-        v2_request_attrs("req-3", "fail", 5000),
-        RPC_REQUEST_TOPIC,
-    );
+    let reader =
+        make_text_reader("payload", v2_request_attrs("req-3", "fail", 5000), RPC_REQUEST_TOPIC);
 
-    server
-        .handle_request_stream(
-            reader,
-            ParticipantIdentity("caller".into()),
-            &transport,
-        )
-        .await;
+    server.handle_request_stream(reader, ParticipantIdentity("caller".into()), &transport).await;
 
     // Error sent as v1 packet
     let err = extract_response_error(&transport).unwrap();
@@ -436,8 +381,8 @@ async fn test_v2_v2_handler_rpc_error_passthrough() {
 #[tokio::test]
 async fn test_v2_v2_response_timeout() {
     let client = RpcClientManager::new();
-    let transport = MockTransport::new()
-        .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC);
+    let transport =
+        MockTransport::new().with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC);
 
     // Very short timeout — no ack or response will arrive.
     // The ack timeout (7s) is larger than response_timeout (50ms),
@@ -463,8 +408,7 @@ async fn test_v2_v2_response_timeout() {
 async fn test_v2_v2_error_response() {
     let client = Arc::new(RpcClientManager::new());
     let transport = Arc::new(
-        MockTransport::new()
-            .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC),
+        MockTransport::new().with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC),
     );
 
     let handle = spawn_perform_rpc(
@@ -487,11 +431,7 @@ async fn test_v2_v2_error_response() {
     client.handle_response(
         request_id,
         None,
-        Some(proto::RpcError {
-            code: 101,
-            message: "nope".into(),
-            data: "details".into(),
-        }),
+        Some(proto::RpcError { code: 101, message: "nope".into(), data: "details".into() }),
     );
 
     let result = handle.await.unwrap();
@@ -505,8 +445,7 @@ async fn test_v2_v2_error_response() {
 async fn test_v2_v2_participant_disconnection() {
     let client = Arc::new(RpcClientManager::new());
     let transport = Arc::new(
-        MockTransport::new()
-            .with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC),
+        MockTransport::new().with_remote_protocol("dest", CLIENT_PROTOCOL_DATA_STREAM_RPC),
     );
 
     let handle = spawn_perform_rpc(
@@ -543,10 +482,8 @@ async fn test_v2_v2_participant_disconnection() {
 async fn test_v2_v1_caller_request_fallback() {
     let client = Arc::new(RpcClientManager::new());
     // Remote has client_protocol = 0 (v1 only)
-    let transport = Arc::new(
-        MockTransport::new()
-            .with_remote_protocol("dest", CLIENT_PROTOCOL_DEFAULT),
-    );
+    let transport =
+        Arc::new(MockTransport::new().with_remote_protocol("dest", CLIENT_PROTOCOL_DEFAULT));
 
     let handle = spawn_perform_rpc(
         client.clone(),
@@ -564,14 +501,7 @@ async fn test_v2_v1_caller_request_fallback() {
 
     // Verify: sent as v1 packet, NOT a data stream
     assert_eq!(transport.count_packets(is_rpc_request_packet), 1);
-    assert_eq!(
-        transport
-            .texts()
-            .iter()
-            .filter(|(_, o)| o.topic == RPC_REQUEST_TOPIC)
-            .count(),
-        0
-    );
+    assert_eq!(transport.texts().iter().filter(|(_, o)| o.topic == RPC_REQUEST_TOPIC).count(), 0);
 
     let request_id = transport.extract_request_id();
     client.handle_ack(request_id.clone());
@@ -587,9 +517,7 @@ async fn test_v2_v1_handler_v1_request() {
     let server = RpcServerManager::new();
     let transport = MockTransport::new();
 
-    server.register_method("echo".to_string(), |data| {
-        Box::pin(async move { Ok(data.payload) })
-    });
+    server.register_method("echo".to_string(), |data| Box::pin(async move { Ok(data.payload) }));
 
     server
         .handle_request(
@@ -612,9 +540,7 @@ async fn test_v2_v1_handler_v1_request() {
     // Verify response payload
     for p in transport.packets() {
         if let Some(proto::data_packet::Value::RpcResponse(resp)) = &p.value {
-            if let Some(proto::rpc_response::Value::Payload(payload)) =
-                &resp.value
-            {
+            if let Some(proto::rpc_response::Value::Payload(payload)) = &resp.value {
                 assert_eq!(payload, "v1-body");
             }
         }
@@ -625,8 +551,7 @@ async fn test_v2_v1_handler_v1_request() {
 #[tokio::test]
 async fn test_v2_v1_payload_too_large() {
     let client = RpcClientManager::new();
-    let transport = MockTransport::new()
-        .with_remote_protocol("dest", CLIENT_PROTOCOL_DEFAULT);
+    let transport = MockTransport::new().with_remote_protocol("dest", CLIENT_PROTOCOL_DEFAULT);
 
     let large_payload = "x".repeat(MAX_PAYLOAD_BYTES + 1);
     let result = client
@@ -649,8 +574,7 @@ async fn test_v2_v1_payload_too_large() {
 #[tokio::test]
 async fn test_v2_v1_response_timeout() {
     let client = RpcClientManager::new();
-    let transport = MockTransport::new()
-        .with_remote_protocol("dest", CLIENT_PROTOCOL_DEFAULT);
+    let transport = MockTransport::new().with_remote_protocol("dest", CLIENT_PROTOCOL_DEFAULT);
 
     let result = client
         .perform_rpc(
@@ -672,10 +596,8 @@ async fn test_v2_v1_response_timeout() {
 #[tokio::test]
 async fn test_v2_v1_error_response() {
     let client = Arc::new(RpcClientManager::new());
-    let transport = Arc::new(
-        MockTransport::new()
-            .with_remote_protocol("dest", CLIENT_PROTOCOL_DEFAULT),
-    );
+    let transport =
+        Arc::new(MockTransport::new().with_remote_protocol("dest", CLIENT_PROTOCOL_DEFAULT));
 
     let handle = spawn_perform_rpc(
         client.clone(),
@@ -696,11 +618,7 @@ async fn test_v2_v1_error_response() {
     client.handle_response(
         request_id,
         None,
-        Some(proto::RpcError {
-            code: 101,
-            message: "v1-err".into(),
-            data: String::new(),
-        }),
+        Some(proto::RpcError { code: 101, message: "v1-err".into(), data: String::new() }),
     );
 
     let result = handle.await.unwrap();
@@ -713,10 +631,8 @@ async fn test_v2_v1_error_response() {
 #[tokio::test]
 async fn test_v2_v1_participant_disconnection() {
     let client = Arc::new(RpcClientManager::new());
-    let transport = Arc::new(
-        MockTransport::new()
-            .with_remote_protocol("dest", CLIENT_PROTOCOL_DEFAULT),
-    );
+    let transport =
+        Arc::new(MockTransport::new().with_remote_protocol("dest", CLIENT_PROTOCOL_DEFAULT));
 
     let handle = spawn_perform_rpc(
         client.clone(),
@@ -752,9 +668,7 @@ async fn test_v1_v2_handler_response_fallback() {
     let server = RpcServerManager::new();
     let transport = MockTransport::new();
 
-    server.register_method("echo".to_string(), |data| {
-        Box::pin(async move { Ok(data.payload) })
-    });
+    server.register_method("echo".to_string(), |data| Box::pin(async move { Ok(data.payload) }));
 
     // v1 caller sends a v1 packet request to our v2 handler
     server
@@ -811,13 +725,7 @@ async fn test_v1_v2_handler_rpc_error_passthrough() {
     let transport = MockTransport::new();
 
     server.register_method("fail".to_string(), |_data| {
-        Box::pin(async move {
-            Err(RpcError::new(
-                101,
-                "custom-err".into(),
-                Some("extra".into()),
-            ))
-        })
+        Box::pin(async move { Err(RpcError::new(101, "custom-err".into(), Some("extra".into()))) })
     });
 
     server
@@ -850,11 +758,8 @@ async fn test_v2_response_stream_resolves_caller() {
     let (tx, rx) = tokio::sync::oneshot::channel();
     client.insert_pending_response("req-stream".to_string(), tx);
 
-    let reader = make_text_reader(
-        "stream-result",
-        v2_response_attrs("req-stream"),
-        RPC_RESPONSE_TOPIC,
-    );
+    let reader =
+        make_text_reader("stream-result", v2_response_attrs("req-stream"), RPC_RESPONSE_TOPIC);
 
     client.handle_response_stream(reader).await;
 
@@ -874,13 +779,7 @@ async fn test_v2_handler_unsupported_method() {
         RPC_REQUEST_TOPIC,
     );
 
-    server
-        .handle_request_stream(
-            reader,
-            ParticipantIdentity("caller".into()),
-            &transport,
-        )
-        .await;
+    server.handle_request_stream(reader, ParticipantIdentity("caller".into()), &transport).await;
 
     let err = extract_response_error(&transport).unwrap();
     assert_eq!(err.code, RpcErrorCode::UnsupportedMethod as u32);

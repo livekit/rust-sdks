@@ -14,23 +14,17 @@
 
 use super::client::{publish_rpc_ack, publish_rpc_response};
 use super::{
-    RpcError, RpcErrorCode, RpcInvocationData, RpcTransport, ATTR_METHOD,
-    ATTR_REQUEST_ID, ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION,
-    MAX_PAYLOAD_BYTES, RPC_RESPONSE_TOPIC, RPC_VERSION_V1, RPC_VERSION_V2,
+    RpcError, RpcErrorCode, RpcInvocationData, RpcTransport, ATTR_METHOD, ATTR_REQUEST_ID,
+    ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, MAX_PAYLOAD_BYTES, RPC_RESPONSE_TOPIC, RPC_VERSION_V1,
+    RPC_VERSION_V2,
 };
 use crate::data_stream::{StreamReader, StreamTextOptions, TextStreamReader};
 use crate::room::id::ParticipantIdentity;
 use parking_lot::Mutex;
-use std::{
-    collections::HashMap, future::Future, pin::Pin, sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 pub(crate) type RpcHandlerFn = Arc<
-    dyn Fn(
-            RpcInvocationData,
-        )
-            -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+    dyn Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
         + Send
         + Sync,
 >;
@@ -52,11 +46,8 @@ impl RpcServerManager {
     pub fn register_method(
         &self,
         method: String,
-        handler: impl Fn(
-                RpcInvocationData,
-            ) -> Pin<
-                Box<dyn Future<Output = Result<String, RpcError>> + Send>,
-            > + Send
+        handler: impl Fn(RpcInvocationData) -> Pin<Box<dyn Future<Output = Result<String, RpcError>> + Send>>
+            + Send
             + Sync
             + 'static,
     ) {
@@ -86,55 +77,31 @@ impl RpcServerManager {
         transport: &(impl RpcTransport + 'static),
     ) {
         // Send ACK immediately
-        if let Err(e) =
-            publish_rpc_ack(transport, &caller_identity.0, &request_id).await
-        {
+        if let Err(e) = publish_rpc_ack(transport, &caller_identity.0, &request_id).await {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
 
         let response = if version != RPC_VERSION_V1 {
-            Err(RpcError::built_in(
-                RpcErrorCode::UnsupportedVersion,
-                None,
-            ))
+            Err(RpcError::built_in(RpcErrorCode::UnsupportedVersion, None))
         } else {
-            self.invoke_handler(
-                &caller_identity,
-                &request_id,
-                &method,
-                &payload,
-                response_timeout,
-            )
-            .await
+            self.invoke_handler(&caller_identity, &request_id, &method, &payload, response_timeout)
+                .await
         };
 
         let (resp_payload, error) = match response {
-            Ok(response_payload)
-                if response_payload.len() <= MAX_PAYLOAD_BYTES =>
-            {
+            Ok(response_payload) if response_payload.len() <= MAX_PAYLOAD_BYTES => {
                 (Some(response_payload), None)
             }
             Ok(_) => (
                 None,
-                Some(
-                    RpcError::built_in(
-                        RpcErrorCode::ResponsePayloadTooLarge,
-                        None,
-                    )
-                    .to_proto(),
-                ),
+                Some(RpcError::built_in(RpcErrorCode::ResponsePayloadTooLarge, None).to_proto()),
             ),
             Err(e) => (None, Some(e.to_proto())),
         };
 
-        if let Err(e) = publish_rpc_response(
-            transport,
-            &caller_identity.0,
-            &request_id,
-            resp_payload,
-            error,
-        )
-        .await
+        if let Err(e) =
+            publish_rpc_response(transport, &caller_identity.0, &request_id, resp_payload, error)
+                .await
         {
             log::error!("Failed to publish RPC response: {:?}", e);
         }
@@ -153,30 +120,21 @@ impl RpcServerManager {
     ) {
         let attrs = &reader.info().attributes;
 
-        let request_id =
-            attrs.get(ATTR_REQUEST_ID).cloned().unwrap_or_default();
+        let request_id = attrs.get(ATTR_REQUEST_ID).cloned().unwrap_or_default();
         let method = attrs.get(ATTR_METHOD).cloned().unwrap_or_default();
-        let response_timeout_ms: u64 = attrs
-            .get(ATTR_RESPONSE_TIMEOUT_MS)
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(15000);
-        let version: u32 = attrs
-            .get(ATTR_VERSION)
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(0);
+        let response_timeout_ms: u64 =
+            attrs.get(ATTR_RESPONSE_TIMEOUT_MS).and_then(|v| v.parse().ok()).unwrap_or(15000);
+        let version: u32 = attrs.get(ATTR_VERSION).and_then(|v| v.parse().ok()).unwrap_or(0);
 
         let response_timeout = Duration::from_millis(response_timeout_ms);
 
         // Send ACK immediately (always v1 packet)
-        if let Err(e) =
-            publish_rpc_ack(transport, &caller_identity.0, &request_id).await
-        {
+        if let Err(e) = publish_rpc_ack(transport, &caller_identity.0, &request_id).await {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
 
         if version != RPC_VERSION_V2 {
-            let error =
-                RpcError::built_in(RpcErrorCode::UnsupportedVersion, None);
+            let error = RpcError::built_in(RpcErrorCode::UnsupportedVersion, None);
             let _ = publish_rpc_response(
                 transport,
                 &caller_identity.0,
@@ -192,16 +150,10 @@ impl RpcServerManager {
         let payload = match reader.read_all().await {
             Ok(payload) => payload,
             Err(e) => {
-                log::error!(
-                    "Failed to read RPC v2 request stream: {:?}",
-                    e
-                );
+                log::error!("Failed to read RPC v2 request stream: {:?}", e);
                 let error = RpcError::built_in(
                     RpcErrorCode::ApplicationError,
-                    Some(format!(
-                        "Failed to read request stream: {}",
-                        e
-                    )),
+                    Some(format!("Failed to read request stream: {}", e)),
                 );
                 let _ = publish_rpc_response(
                     transport,
@@ -216,45 +168,26 @@ impl RpcServerManager {
         };
 
         let response = self
-            .invoke_handler(
-                &caller_identity,
-                &request_id,
-                &method,
-                &payload,
-                response_timeout,
-            )
+            .invoke_handler(&caller_identity, &request_id, &method, &payload, response_timeout)
             .await;
 
         match response {
             Ok(response_payload) => {
                 // Success: send response as v2 data stream
                 let mut attributes = HashMap::new();
-                attributes.insert(
-                    ATTR_REQUEST_ID.to_string(),
-                    request_id.clone(),
-                );
+                attributes.insert(ATTR_REQUEST_ID.to_string(), request_id.clone());
 
                 let options = StreamTextOptions {
                     topic: RPC_RESPONSE_TOPIC.to_string(),
                     attributes,
-                    destination_identities: vec![
-                        caller_identity.clone(),
-                    ],
+                    destination_identities: vec![caller_identity.clone()],
                     ..Default::default()
                 };
 
-                if let Err(e) =
-                    transport.send_text(&response_payload, options).await
-                {
-                    log::error!(
-                        "Failed to send RPC v2 response stream: {:?}",
-                        e
-                    );
+                if let Err(e) = transport.send_text(&response_payload, options).await {
+                    log::error!("Failed to send RPC v2 response stream: {:?}", e);
                     // Fall back to error via v1 packet
-                    let error = RpcError::built_in(
-                        RpcErrorCode::SendFailed,
-                        Some(e.to_string()),
-                    );
+                    let error = RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string()));
                     let _ = publish_rpc_response(
                         transport,
                         &caller_identity.0,
@@ -276,10 +209,7 @@ impl RpcServerManager {
                 )
                 .await
                 {
-                    log::error!(
-                        "Failed to publish RPC error response: {:?}",
-                        send_err
-                    );
+                    log::error!("Failed to publish RPC error response: {:?}", send_err);
                 }
             }
         }
@@ -314,21 +244,12 @@ impl RpcServerManager {
                 {
                     Ok(result) => result,
                     Err(e) => {
-                        log::error!(
-                            "RPC method handler returned an error: {:?}",
-                            e
-                        );
-                        Err(RpcError::built_in(
-                            RpcErrorCode::ApplicationError,
-                            None,
-                        ))
+                        log::error!("RPC method handler returned an error: {:?}", e);
+                        Err(RpcError::built_in(RpcErrorCode::ApplicationError, None))
                     }
                 }
             }
-            None => Err(RpcError::built_in(
-                RpcErrorCode::UnsupportedMethod,
-                None,
-            )),
+            None => Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None)),
         }
     }
 }

@@ -13,16 +13,15 @@
 // limitations under the License.
 
 use super::{
-    PerformRpcData, RpcError, RpcErrorCode, RpcTransport, ATTR_METHOD,
-    ATTR_REQUEST_ID, ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION,
-    MAX_PAYLOAD_BYTES, RPC_REQUEST_TOPIC,
-    RPC_VERSION_V1, RPC_VERSION_V2,
+    PerformRpcData, RpcError, RpcErrorCode, RpcTransport, ATTR_METHOD, ATTR_REQUEST_ID,
+    ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, MAX_PAYLOAD_BYTES, RPC_REQUEST_TOPIC, RPC_VERSION_V1,
+    RPC_VERSION_V2,
 };
 use crate::data_stream::{StreamReader, StreamTextOptions, TextStreamReader};
 use crate::room::id::ParticipantIdentity;
 use libwebrtc::native::create_random_uuid;
-use livekit_protocol as proto;
 use livekit_api::signal_client::CLIENT_PROTOCOL_DATA_STREAM_RPC;
+use livekit_protocol as proto;
 use parking_lot::Mutex;
 use semver::Version;
 use std::collections::HashMap;
@@ -35,8 +34,7 @@ use tokio::sync::oneshot;
 /// transport selection based on the remote participant's client protocol.
 pub struct RpcClientManager {
     pending_acks: Mutex<HashMap<String, oneshot::Sender<()>>>,
-    pending_responses:
-        Mutex<HashMap<String, oneshot::Sender<Result<String, RpcError>>>>,
+    pending_responses: Mutex<HashMap<String, oneshot::Sender<Result<String, RpcError>>>>,
 }
 
 impl RpcClientManager {
@@ -63,25 +61,18 @@ impl RpcClientManager {
             let server_version = Version::parse(&version_str).unwrap();
             let min_required_version = Version::parse("1.8.0").unwrap();
             if server_version < min_required_version {
-                return Err(RpcError::built_in(
-                    RpcErrorCode::UnsupportedServer,
-                    None,
-                ));
+                return Err(RpcError::built_in(RpcErrorCode::UnsupportedServer, None));
             }
         }
 
         // Determine transport version based on remote participant's client_protocol
-        let remote_protocol = transport.remote_client_protocol(
-            &ParticipantIdentity(data.destination_identity.clone()),
-        );
+        let remote_protocol = transport
+            .remote_client_protocol(&ParticipantIdentity(data.destination_identity.clone()));
         let use_v2 = remote_protocol >= CLIENT_PROTOCOL_DATA_STREAM_RPC;
 
         // Only enforce payload size limit for v1 transport
         if !use_v2 && data.payload.len() > MAX_PAYLOAD_BYTES {
-            return Err(RpcError::built_in(
-                RpcErrorCode::RequestPayloadTooLarge,
-                None,
-            ));
+            return Err(RpcError::built_in(RpcErrorCode::RequestPayloadTooLarge, None));
         }
 
         let id = create_random_uuid();
@@ -122,12 +113,7 @@ impl RpcClientManager {
                 RPC_VERSION_V1,
             )
             .await
-            .map_err(|e| {
-                RpcError::built_in(
-                    RpcErrorCode::SendFailed,
-                    Some(e.to_string()),
-                )
-            })
+            .map_err(|e| RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())))
         };
 
         if let Err(e) = send_result {
@@ -147,10 +133,7 @@ impl RpcClientManager {
                 let mut pending_responses = self.pending_responses.lock();
                 pending_acks.remove(&id);
                 pending_responses.remove(&id);
-                return Err(RpcError::built_in(
-                    RpcErrorCode::ConnectionTimeout,
-                    None,
-                ));
+                return Err(RpcError::built_in(RpcErrorCode::ConnectionTimeout, None));
             }
             Ok(_) => {
                 // Ack received, continue to wait for response
@@ -158,27 +141,18 @@ impl RpcClientManager {
         }
 
         // Wait for response timeout
-        let response =
-            match tokio::time::timeout(data.response_timeout, response_rx)
-                .await
-            {
-                Err(_) => {
-                    self.pending_responses.lock().remove(&id);
-                    return Err(RpcError::built_in(
-                        RpcErrorCode::ResponseTimeout,
-                        None,
-                    ));
-                }
-                Ok(result) => result,
-            };
+        let response = match tokio::time::timeout(data.response_timeout, response_rx).await {
+            Err(_) => {
+                self.pending_responses.lock().remove(&id);
+                return Err(RpcError::built_in(RpcErrorCode::ResponseTimeout, None));
+            }
+            Ok(result) => result,
+        };
 
         match response {
             Err(_) => {
                 // Channel closed — sender dropped (e.g. disconnect)
-                Err(RpcError::built_in(
-                    RpcErrorCode::RecipientDisconnected,
-                    None,
-                ))
+                Err(RpcError::built_in(RpcErrorCode::RecipientDisconnected, None))
             }
             Ok(Err(e)) => {
                 // RPC error from remote, forward it
@@ -202,23 +176,16 @@ impl RpcClientManager {
         response_timeout: Duration,
     ) -> Result<(), RpcError> {
         let mut attributes = HashMap::new();
+        attributes.insert(ATTR_REQUEST_ID.to_string(), id.to_string());
+        attributes.insert(ATTR_METHOD.to_string(), method.to_string());
         attributes
-            .insert(ATTR_REQUEST_ID.to_string(), id.to_string());
-        attributes
-            .insert(ATTR_METHOD.to_string(), method.to_string());
-        attributes.insert(
-            ATTR_RESPONSE_TIMEOUT_MS.to_string(),
-            response_timeout.as_millis().to_string(),
-        );
-        attributes
-            .insert(ATTR_VERSION.to_string(), RPC_VERSION_V2.to_string());
+            .insert(ATTR_RESPONSE_TIMEOUT_MS.to_string(), response_timeout.as_millis().to_string());
+        attributes.insert(ATTR_VERSION.to_string(), RPC_VERSION_V2.to_string());
 
         let options = StreamTextOptions {
             topic: RPC_REQUEST_TOPIC.to_string(),
             attributes,
-            destination_identities: vec![ParticipantIdentity(
-                destination_identity.to_string(),
-            )],
+            destination_identities: vec![ParticipantIdentity(destination_identity.to_string())],
             ..Default::default()
         };
 
@@ -226,12 +193,7 @@ impl RpcClientManager {
             .send_text(payload, options)
             .await
             .map(|_| ())
-            .map_err(|e| {
-                RpcError::built_in(
-                    RpcErrorCode::SendFailed,
-                    Some(e.to_string()),
-                )
-            })
+            .map_err(|e| RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())))
     }
 
     /// Drop the pending response sender for a request, simulating a disconnect.
@@ -255,10 +217,7 @@ impl RpcClientManager {
         if let Some(tx) = pending.remove(&request_id) {
             let _ = tx.send(());
         } else {
-            log::error!(
-                "Ack received for unexpected RPC request: {}",
-                request_id
-            );
+            log::error!("Ack received for unexpected RPC request: {}", request_id);
         }
     }
 
@@ -279,10 +238,7 @@ impl RpcClientManager {
                 None => Ok(payload.unwrap_or_default()),
             });
         } else {
-            log::error!(
-                "Response received for unexpected RPC request: {}",
-                request_id
-            );
+            log::error!("Response received for unexpected RPC request: {}", request_id);
         }
     }
 
@@ -291,40 +247,24 @@ impl RpcClientManager {
     /// Success responses between v2 clients arrive as text data streams
     /// on the `lk.rpc_response` topic. Error responses always arrive
     /// as v1 packets and are handled by `handle_response`.
-    pub(crate) async fn handle_response_stream(
-        &self,
-        reader: TextStreamReader,
-    ) {
-        let request_id = reader
-            .info()
-            .attributes
-            .get(ATTR_REQUEST_ID)
-            .cloned()
-            .unwrap_or_default();
+    pub(crate) async fn handle_response_stream(&self, reader: TextStreamReader) {
+        let request_id = reader.info().attributes.get(ATTR_REQUEST_ID).cloned().unwrap_or_default();
 
         if request_id.is_empty() {
-            log::error!(
-                "RPC v2 response stream missing request_id attribute"
-            );
+            log::error!("RPC v2 response stream missing request_id attribute");
             return;
         }
 
         let payload = match reader.read_all().await {
             Ok(payload) => payload,
             Err(e) => {
-                log::error!(
-                    "Failed to read RPC v2 response stream: {:?}",
-                    e
-                );
+                log::error!("Failed to read RPC v2 response stream: {:?}", e);
                 // Resolve with error so the caller doesn't hang
                 let mut pending = self.pending_responses.lock();
                 if let Some(tx) = pending.remove(&request_id) {
                     let _ = tx.send(Err(RpcError::built_in(
                         RpcErrorCode::ApplicationError,
-                        Some(format!(
-                            "Failed to read response stream: {}",
-                            e
-                        )),
+                        Some(format!("Failed to read response stream: {}", e)),
                     )));
                 }
                 return;
@@ -335,10 +275,7 @@ impl RpcClientManager {
         if let Some(tx) = pending.remove(&request_id) {
             let _ = tx.send(Ok(payload));
         } else {
-            log::error!(
-                "Response stream received for unexpected RPC request: {}",
-                request_id
-            );
+            log::error!("Response stream received for unexpected RPC request: {}", request_id);
         }
     }
 }
@@ -363,9 +300,7 @@ pub(crate) async fn publish_rpc_request(
     };
 
     let data = proto::DataPacket {
-        value: Some(proto::data_packet::Value::RpcRequest(
-            rpc_request_message,
-        )),
+        value: Some(proto::data_packet::Value::RpcRequest(rpc_request_message)),
         destination_identities: vec![destination_identity.to_string()],
         ..Default::default()
     };
@@ -391,9 +326,7 @@ pub(crate) async fn publish_rpc_response(
     };
 
     let data = proto::DataPacket {
-        value: Some(proto::data_packet::Value::RpcResponse(
-            rpc_response_message,
-        )),
+        value: Some(proto::data_packet::Value::RpcResponse(rpc_response_message)),
         destination_identities: vec![destination_identity.to_string()],
         ..Default::default()
     };
@@ -407,10 +340,8 @@ pub(crate) async fn publish_rpc_ack(
     destination_identity: &str,
     request_id: &str,
 ) -> Result<(), crate::room::RoomError> {
-    let rpc_ack_message = proto::RpcAck {
-        request_id: request_id.to_string(),
-        ..Default::default()
-    };
+    let rpc_ack_message =
+        proto::RpcAck { request_id: request_id.to_string(), ..Default::default() };
 
     let data = proto::DataPacket {
         value: Some(proto::data_packet::Value::RpcAck(rpc_ack_message)),

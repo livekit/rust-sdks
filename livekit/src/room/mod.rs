@@ -353,10 +353,7 @@ pub struct RoomSdkOptions {
 
 impl Default for RoomSdkOptions {
     fn default() -> Self {
-        Self {
-            sdk: "rust".to_string(),
-            sdk_version: SDK_VERSION.to_string(),
-        }
+        Self { sdk: "rust".to_string(), sdk_version: SDK_VERSION.to_string() }
     }
 }
 
@@ -2006,10 +2003,7 @@ impl RoomSession {
         self.remote_participants.read().get(identity).cloned()
     }
 
-    pub(crate) fn get_remote_client_protocol(
-        &self,
-        identity: &ParticipantIdentity,
-    ) -> i32 {
+    pub(crate) fn get_remote_client_protocol(&self, identity: &ParticipantIdentity) -> i32 {
         self.remote_participants
             .read()
             .get(identity)
