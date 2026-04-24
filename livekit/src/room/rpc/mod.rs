@@ -19,7 +19,7 @@ mod server;
 mod tests;
 
 pub use client::RpcClientManager;
-pub use server::RpcServerManager;
+pub use server::{HandleRequestOptions, RpcServerManager};
 
 use crate::data_stream::{StreamResult, StreamTextOptions, TextStreamInfo};
 use crate::room::id::ParticipantIdentity;

@@ -521,12 +521,14 @@ async fn test_v2_v1_handler_v1_request() {
 
     server
         .handle_request(
-            ParticipantIdentity("caller".into()),
-            "req-v1".into(),
-            "echo".into(),
-            "v1-body".into(),
-            Duration::from_secs(5),
-            RPC_VERSION_V1,
+            HandleRequestOptions {
+                caller_identity: ParticipantIdentity("caller".into()),
+                request_id: "req-v1".into(),
+                method: "echo".into(),
+                payload: "v1-body".into(),
+                response_timeout: Duration::from_secs(5),
+                version: RPC_VERSION_V1,
+            },
             &transport,
         )
         .await;
@@ -673,12 +675,14 @@ async fn test_v1_v2_handler_response_fallback() {
     // v1 caller sends a v1 packet request to our v2 handler
     server
         .handle_request(
-            ParticipantIdentity("v1-caller".into()),
-            "req-v1-to-v2".into(),
-            "echo".into(),
-            "hello-from-v1".into(),
-            Duration::from_secs(5),
-            RPC_VERSION_V1,
+            HandleRequestOptions {
+                caller_identity: ParticipantIdentity("v1-caller".into()),
+                request_id: "req-v1-to-v2".into(),
+                method: "echo".into(),
+                payload: "hello-from-v1".into(),
+                response_timeout: Duration::from_secs(5),
+                version: RPC_VERSION_V1,
+            },
             &transport,
         )
         .await;
@@ -704,12 +708,14 @@ async fn test_v1_v2_handler_unhandled_error() {
 
     server
         .handle_request(
-            ParticipantIdentity("v1-caller".into()),
-            "req-crash".into(),
-            "crash".into(),
-            "x".into(),
-            Duration::from_secs(5),
-            RPC_VERSION_V1,
+            HandleRequestOptions {
+                caller_identity: ParticipantIdentity("v1-caller".into()),
+                request_id: "req-crash".into(),
+                method: "crash".into(),
+                payload: "x".into(),
+                response_timeout: Duration::from_secs(5),
+                version: RPC_VERSION_V1,
+            },
             &transport,
         )
         .await;
@@ -730,12 +736,14 @@ async fn test_v1_v2_handler_rpc_error_passthrough() {
 
     server
         .handle_request(
-            ParticipantIdentity("v1-caller".into()),
-            "req-fail".into(),
-            "fail".into(),
-            "x".into(),
-            Duration::from_secs(5),
-            1,
+            HandleRequestOptions {
+                caller_identity: ParticipantIdentity("v1-caller".into()),
+                request_id: "req-fail".into(),
+                method: "fail".into(),
+                payload: "x".into(),
+                response_timeout: Duration::from_secs(5),
+                version: RPC_VERSION_V1,
+            },
             &transport,
         )
         .await;
