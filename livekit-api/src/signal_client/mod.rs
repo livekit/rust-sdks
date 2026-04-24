@@ -97,10 +97,7 @@ pub struct SignalSdkOptions {
 
 impl Default for SignalSdkOptions {
     fn default() -> Self {
-        Self {
-            sdk: "rust".to_string(),
-            sdk_version: None,
-        }
+        Self { sdk: "rust".to_string(), sdk_version: None }
     }
 }
 
