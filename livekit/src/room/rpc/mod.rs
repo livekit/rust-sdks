@@ -94,13 +94,13 @@ impl RpcTransport for SessionTransport {
     }
 
     fn server_version(&self) -> Option<String> {
-        self.0.rtc_engine.session().signal_client().join_response().server_info.and_then(|info| {
-            if info.version.is_empty() {
-                None
-            } else {
-                Some(info.version)
-            }
-        })
+        self.0
+            .rtc_engine
+            .session()
+            .signal_client()
+            .join_response()
+            .server_info
+            .and_then(|info| info.version.is_empty().then(|| info.version))
     }
 }
 
