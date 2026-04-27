@@ -44,7 +44,7 @@ use tokio::sync::{
 use super::{rtc_events, EngineError, EngineOptions, EngineResult, SimulateScenario};
 use crate::{
     id::ParticipantIdentity,
-    rtc_engine::dc_sender::{DataChannelSender, DataChannelSenderOptions},
+    rtc_engine::dc_sender::{DataChannelSender, DataChannelSenderOptions, DataTrackSendQueue},
     utils::{
         ttl_map::TtlMap,
         tx_queue::{TxQueue, TxQueueItem},
@@ -73,6 +73,14 @@ pub const DATA_TRACK_DC_LABEL: &str = "_data_track";
 pub const RELIABLE_RECEIVED_STATE_TTL: Duration = Duration::from_secs(30);
 pub const PUBLISHER_NEGOTIATION_FREQUENCY: Duration = Duration::from_millis(150);
 pub const INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 2 * 1024 * 1024;
+
+/// Buffered-amount low threshold for the `_data_track` DC.
+///
+/// Kept small (vs. the 2 MiB default for reliable/lossy) so we hand at most
+/// one in-flight message to SCTP at a time; data tracks prefer dropping
+/// packets over queueing. Note that `bufferedAmount` only covers bytes
+/// before SCTP accepts them — queueing below that is bounded by OS/qdisc.
+pub const DATA_TRACK_BUFFERED_AMOUNT_LOW_THRESHOLD: u64 = 8 * 1024;
 
 #[derive(Debug)]
 enum NegotiationState {
@@ -377,8 +385,8 @@ struct SessionInner {
     sub_reliable_dc: Mutex<Option<DataChannel>>,
     sub_data_track_dc: Mutex<Option<DataChannel>>,
 
-    /// Channel for sending data track packets.
-    dt_packet_tx: mpsc::Sender<Bytes>,
+    /// Drop-oldest queue for handing data-track packets to the sender task.
+    dt_packet_tx: DataTrackSendQueue,
 
     closed: AtomicBool,
     emitter: SessionEmitter,
@@ -511,7 +519,7 @@ impl RtcSession {
         let (close_tx, close_rx) = watch::channel(false);
 
         let dt_sender_options = DataChannelSenderOptions {
-            low_buffer_threshold: INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+            low_buffer_threshold: DATA_TRACK_BUFFERED_AMOUNT_LOW_THRESHOLD,
             dc: data_track_dc.clone(),
             close_rx: close_rx.clone(),
         };
@@ -731,15 +739,22 @@ impl RtcSession {
 
     /// Try to send data track packets over the transport.
     ///
-    /// Packets will be sent until the first error, at which point the rest of
-    /// the batch will be dropped.
-    ///
+    /// All packets belong to one application frame and are enqueued atomically
+    /// so a partial frame is never queued or evicted; drop-oldest applies at
+    /// whole-frame granularity.
     fn try_send_data_track_packets(&self, packets: Vec<Bytes>) {
-        for packet in packets {
-            if self.inner.dt_packet_tx.try_send(packet).is_err() {
-                log::error!("Failed to enqueue data track packet");
-                break;
-            }
+        if packets.is_empty() {
+            return;
+        }
+        let packet_count = packets.len();
+        if let Some(stale) = self.inner.dt_packet_tx.send(packets) {
+            let stale_bytes: usize = stale.iter().map(|p| p.len()).sum();
+            log::trace!(
+                "evicted oldest queued data-track frame ({} packets / {} total bytes) in favor of newer {}-packet frame",
+                stale.len(),
+                stale_bytes,
+                packet_count,
+            );
         }
     }
 

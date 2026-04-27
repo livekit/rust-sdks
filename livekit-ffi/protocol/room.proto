@@ -279,6 +279,7 @@ message TrackPublishOptions {
   optional TrackSource source = 7;
   optional string stream = 8;
   optional bool preconnect_buffer = 9;
+  repeated PacketTrailerFeature packet_trailer_features = 10;
 }
 
 enum IceTransportType {

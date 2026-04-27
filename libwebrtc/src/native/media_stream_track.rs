@@ -44,7 +44,7 @@ pub fn new_media_stream_track(
         })
     } else if sys_handle.kind() == MEDIA_TYPE_VIDEO {
         MediaStreamTrack::Video(video_track::RtcVideoTrack {
-            handle: RtcVideoTrack { sys_handle: unsafe { media_to_video(sys_handle) } },
+            handle: RtcVideoTrack::new(unsafe { media_to_video(sys_handle) }),
         })
     } else {
         panic!("unknown track kind")

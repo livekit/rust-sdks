@@ -27,6 +27,7 @@ pub mod helper;
 pub mod jsep;
 pub mod media_stream;
 pub mod media_stream_track;
+pub mod packet_trailer;
 pub mod peer_connection;
 pub mod peer_connection_factory;
 pub mod prohibit_libsrtp_initialization;

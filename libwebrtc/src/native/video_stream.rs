@@ -30,12 +30,14 @@ use webrtc_sys::video_track as sys_vt;
 
 use super::video_frame::new_video_frame_buffer;
 use crate::{
-    video_frame::{BoxVideoFrame, VideoFrame},
+    native::packet_trailer::PacketTrailerHandler,
+    video_frame::{BoxVideoFrame, FrameMetadata, VideoFrame},
     video_track::RtcVideoTrack,
 };
 
 pub struct NativeVideoStream {
     native_sink: SharedPtr<sys_vt::ffi::NativeVideoSink>,
+    observer: Arc<VideoTrackObserver>,
     video_track: RtcVideoTrack,
     frame_queue: Arc<VideoFrameQueue>,
 }
@@ -43,7 +45,12 @@ pub struct NativeVideoStream {
 impl NativeVideoStream {
     pub fn new(video_track: RtcVideoTrack, queue_size_frames: Option<usize>) -> Self {
         let frame_queue = Arc::new(VideoFrameQueue::new(queue_size_frames));
-        let observer = Arc::new(VideoTrackObserver { frame_queue: frame_queue.clone() });
+        // Auto-wire the packet trailer handler from the track if one is set.
+        let handler = video_track.handle.packet_trailer_handler();
+        let observer = Arc::new(VideoTrackObserver {
+            frame_queue: frame_queue.clone(),
+            packet_trailer_handler: parking_lot::Mutex::new(handler),
+        });
         let native_sink = sys_vt::ffi::new_native_video_sink(Box::new(
             sys_vt::VideoSinkWrapper::new(observer.clone()),
         ));
@@ -51,7 +58,21 @@ impl NativeVideoStream {
         let video = unsafe { sys_vt::ffi::media_to_video(video_track.sys_handle()) };
         video.add_sink(&native_sink);
 
-        Self { native_sink, video_track, frame_queue }
+        Self { native_sink, observer, video_track, frame_queue }
+    }
+
+    /// Set the packet trailer handler for this stream.
+    ///
+    /// When set, each frame produced by this stream will have its
+    /// `user_timestamp` field populated from the handler's receive
+    /// map (looked up by RTP timestamp).
+    ///
+    /// Note: If the handler was already set on the `RtcVideoTrack` before
+    /// creating this stream, it is automatically wired up. This method is
+    /// only needed if you want to override or set the handler after
+    /// construction.
+    pub fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        *self.observer.packet_trailer_handler.lock() = Some(handler);
     }
 
     pub fn track(&self) -> RtcVideoTrack {
@@ -81,13 +102,26 @@ impl Stream for NativeVideoStream {
 
 struct VideoTrackObserver {
     frame_queue: Arc<VideoFrameQueue>,
+    packet_trailer_handler: parking_lot::Mutex<Option<PacketTrailerHandler>>,
 }
 
 impl sys_vt::VideoSink for VideoTrackObserver {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
+        let rtp_timestamp = frame.timestamp();
+        let frame_metadata = self
+            .packet_trailer_handler
+            .lock()
+            .as_ref()
+            .and_then(|h| h.lookup_frame_metadata(rtp_timestamp))
+            .map(|(ts, fid)| FrameMetadata {
+                user_timestamp: Some(ts),
+                frame_id: if fid != 0 { Some(fid) } else { None },
+            });
+
         self.frame_queue.push(VideoFrame {
             rotation: frame.rotation().into(),
             timestamp_us: frame.timestamp_us(),
+            frame_metadata,
             buffer: new_video_frame_buffer(unsafe { frame.video_frame_buffer() }),
         });
     }
@@ -247,6 +281,7 @@ mod tests {
         VideoFrame {
             rotation: VideoRotation::VideoRotation0,
             timestamp_us,
+            frame_metadata: None,
             buffer: Box::new(I420Buffer::new(2, 2)),
         }
     }

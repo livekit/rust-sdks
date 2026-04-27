@@ -52,7 +52,7 @@ pub const JOIN_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 pub const SIGNAL_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 const REGION_FETCH_TIMEOUT: Duration = Duration::from_secs(3);
 const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
-pub const PROTOCOL_VERSION: u32 = 16;
+pub const PROTOCOL_VERSION: u32 = 17;
 
 /// Capabilities the Rust SDK advertises to the SFU at connect time.
 const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
