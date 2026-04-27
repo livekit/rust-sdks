@@ -83,7 +83,8 @@ fn is_keyframe_annex_b(codec: VideoCodec, data: &[u8]) -> bool {
         let is_three = data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1;
         if is_four || is_three {
             let payload_idx = if is_four { i + 4 } else { i + 3 };
-            if payload_idx < data.len() && is_keyframe_nal(codec, nal_type(codec, data[payload_idx]))
+            if payload_idx < data.len()
+                && is_keyframe_nal(codec, nal_type(codec, data[payload_idx]))
             {
                 return true;
             }
@@ -210,6 +211,13 @@ mod tests {
     }
 
     #[test]
+    fn h265_vps_is_not_keyframe() {
+        // H.265 VPS NAL type 32 announces stream metadata but is not an IRAP picture.
+        let data = [0x00, 0x00, 0x01, 0x40, 0x01];
+        assert!(!is_keyframe(VideoCodec::H265, &data));
+    }
+
+    #[test]
     fn vp8_keyframe_bit_zero() {
         let kf = [0x00_u8];
         let pf = [0x01_u8];
@@ -233,6 +241,20 @@ mod tests {
     }
 
     #[test]
+    fn vp9_profile3_uses_shifted_frame_type_bits() {
+        // frame_marker=10, profile=3, reserved=0, show_existing=0, frame_type=0
+        // => 0b1011_0000 = 0xB0.
+        let keyframe = [0xB0_u8];
+        // In profile 3, bit 1 is frame_type; bit 2 is show_existing_frame.
+        let interframe = [0xB2_u8];
+        let show_existing = [0xB4_u8];
+
+        assert!(is_keyframe(VideoCodec::Vp9, &keyframe));
+        assert!(!is_keyframe(VideoCodec::Vp9, &interframe));
+        assert!(!is_keyframe(VideoCodec::Vp9, &show_existing));
+    }
+
+    #[test]
     fn av1_sequence_header_obu_is_keyframe() {
         // obu_type=1 (SEQUENCE_HEADER) => byte 0 = (1 << 3) | 0b010 = 0x0A
         // (obu_has_size_field=1, no extension). obu_size leb128 = 0 (one byte).
@@ -244,6 +266,20 @@ mod tests {
     fn av1_tile_group_obu_not_keyframe() {
         // obu_type=4 (TILE_GROUP), has_size=1. size=0.
         let data = [0x22, 0x00];
+        assert!(!is_keyframe(VideoCodec::Av1, &data));
+    }
+
+    #[test]
+    fn av1_sequence_header_after_non_key_obu_is_keyframe() {
+        // TILE_GROUP OBU with two bytes of payload, followed by a SEQUENCE_HEADER OBU.
+        let data = [0x22, 0x02, 0xAA, 0xBB, 0x0A, 0x00];
+        assert!(is_keyframe(VideoCodec::Av1, &data));
+    }
+
+    #[test]
+    fn av1_truncated_sized_obu_is_not_keyframe() {
+        // TILE_GROUP with a continued leb128 size byte but no terminating byte.
+        let data = [0x22, 0x80];
         assert!(!is_keyframe(VideoCodec::Av1, &data));
     }
 

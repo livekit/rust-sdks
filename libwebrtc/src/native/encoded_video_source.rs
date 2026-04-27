@@ -95,10 +95,7 @@ impl NativeEncodedVideoSource {
             resolution.width,
             resolution.height,
         );
-        Self {
-            sys_handle,
-            inner: Arc::new(Inner { resolution: Mutex::new(resolution) }),
-        }
+        Self { sys_handle, inner: Arc::new(Inner { resolution: Mutex::new(resolution) }) }
     }
 
     /// Unique non-zero id assigned to this source. Exposed for debugging /
@@ -140,9 +137,9 @@ impl NativeEncodedVideoSource {
     /// Register an observer for encoder-side feedback. The previous observer
     /// (if any) is dropped.
     pub fn set_observer(&self, observer: Arc<dyn EncodedVideoSourceObserver>) {
-        let wrapper = Box::new(sys_evs::EncodedVideoSourceWrapper::new(Arc::new(
-            ObserverBridge { inner: observer },
-        )));
+        let wrapper = Box::new(sys_evs::EncodedVideoSourceWrapper::new(Arc::new(ObserverBridge {
+            inner: observer,
+        })));
         self.sys_handle.set_observer(wrapper);
     }
 
@@ -164,5 +161,53 @@ impl sys_evs::EncodedVideoSourceObserver for ObserverBridge {
 
     fn on_target_bitrate(&self, bitrate_bps: u32, framerate_fps: f64) {
         self.inner.on_target_bitrate(bitrate_bps, framerate_fps);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn encoded_source_reports_codec_and_updates_resolution_from_frames() {
+        let source = NativeEncodedVideoSource::new(
+            VideoCodec::Av1,
+            VideoResolution { width: 640, height: 360 },
+        );
+
+        assert_ne!(source.source_id(), 0);
+        assert_eq!(source.codec(), VideoCodec::Av1);
+        assert_eq!(source.video_resolution().width, 640);
+        assert_eq!(source.video_resolution().height, 360);
+
+        let info = EncodedFrameInfo {
+            is_keyframe: true,
+            width: 1280,
+            height: 720,
+            capture_time_us: 123_456,
+            ..Default::default()
+        };
+
+        assert!(source.capture_frame(&[0x0A, 0x00], &info));
+        assert_eq!(source.video_resolution().width, 1280);
+        assert_eq!(source.video_resolution().height, 720);
+    }
+
+    #[test]
+    fn encoded_source_prefers_buffered_keyframe_over_incoming_delta_when_full() {
+        let source = NativeEncodedVideoSource::new(
+            VideoCodec::H264,
+            VideoResolution { width: 640, height: 360 },
+        );
+        let keyframe =
+            EncodedFrameInfo { is_keyframe: true, width: 640, height: 360, ..Default::default() };
+        let delta = EncodedFrameInfo { width: 640, height: 360, ..Default::default() };
+
+        assert!(source.capture_frame(&[0, 0, 0, 1, 0x65], &keyframe));
+        for _ in 0..7 {
+            assert!(source.capture_frame(&[0, 0, 0, 1, 0x41], &delta));
+        }
+
+        assert!(!source.capture_frame(&[0, 0, 0, 1, 0x41], &delta));
     }
 }

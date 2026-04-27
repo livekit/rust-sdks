@@ -135,8 +135,8 @@ impl IvfReader {
             if self.buf.len() < 12 {
                 return;
             }
-            let size = u32::from_le_bytes([self.buf[0], self.buf[1], self.buf[2], self.buf[3]])
-                as usize;
+            let size =
+                u32::from_le_bytes([self.buf[0], self.buf[1], self.buf[2], self.buf[3]]) as usize;
             if size == 0 || size > MAX_FRAME_BYTES {
                 log::warn!(
                     "ivf: implausible frame_size={size} bytes — byte stream is misaligned. \
@@ -248,6 +248,15 @@ mod tests {
         rec
     }
 
+    fn make_dkif_header(fourcc: &[u8; 4]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"DKIF");
+        bytes.extend_from_slice(&[0; 4]);
+        bytes.extend_from_slice(fourcc);
+        bytes.extend_from_slice(&[0; 20]);
+        bytes
+    }
+
     #[test]
     fn ivf_without_dkif_emits_frames() {
         let mut r = IvfReader::new(VideoCodec::Vp8);
@@ -266,15 +275,27 @@ mod tests {
     fn ivf_with_dkif_skips_header() {
         let mut r = IvfReader::new(VideoCodec::Vp8);
         let mut bytes = Vec::new();
-        // 32-byte DKIF header
-        bytes.extend_from_slice(b"DKIF");
-        bytes.extend_from_slice(&[0; 4]);
-        bytes.extend_from_slice(b"VP80");
-        bytes.extend_from_slice(&[0; 20]);
+        bytes.extend_from_slice(&make_dkif_header(b"VP80"));
         bytes.extend_from_slice(&make_ivf_frame(3, &[7, 8, 9]));
         let mut out = Vec::new();
         r.feed(&bytes, &mut out);
         assert_eq!(out, vec![vec![7, 8, 9]]);
+    }
+
+    #[test]
+    fn ivf_header_and_frame_can_arrive_across_reads() {
+        let mut r = IvfReader::new(VideoCodec::Vp8);
+        let mut bytes = make_dkif_header(b"VP80");
+        bytes.extend_from_slice(&make_ivf_frame(4, &[1, 3, 5, 7]));
+        bytes.extend_from_slice(&make_ivf_frame(2, &[8, 13]));
+
+        let mut out = Vec::new();
+        for chunk in bytes.chunks(5) {
+            r.feed(chunk, &mut out);
+        }
+
+        assert_eq!(out, vec![vec![1, 3, 5, 7], vec![8, 13]]);
+        assert!(!r.desynced);
     }
 
     #[test]
@@ -288,6 +309,33 @@ mod tests {
         r.feed(&bytes, &mut out);
         assert!(out.is_empty());
         assert!(r.desynced);
+    }
+
+    #[test]
+    fn ivf_zero_size_triggers_desync_and_drops_buffered_bytes() {
+        let mut r = IvfReader::new(VideoCodec::Vp9);
+        let mut bytes = make_ivf_frame(0, &[]);
+        bytes.extend_from_slice(&make_ivf_frame(3, &[1, 2, 3]));
+
+        let mut out = Vec::new();
+        r.feed(&bytes, &mut out);
+
+        assert!(out.is_empty());
+        assert!(r.desynced);
+    }
+
+    #[test]
+    fn ivf_frame_header_can_arrive_across_reads_without_dkif() {
+        let mut r = IvfReader::new(VideoCodec::Av1);
+        let bytes = make_ivf_frame(5, &[0x0A, 0x00, 0x22, 0x00, 0x55]);
+
+        let mut out = Vec::new();
+        for chunk in bytes.chunks(2) {
+            r.feed(chunk, &mut out);
+        }
+
+        assert_eq!(out, vec![vec![0x0A, 0x00, 0x22, 0x00, 0x55]]);
+        assert!(!r.desynced);
     }
 
     #[test]
@@ -309,5 +357,41 @@ mod tests {
         // and end before the second AUD.
         assert_eq!(&out[0][..5], &[0, 0, 0, 1, 0x09]);
         assert!(out[0].windows(5).any(|w| w == [0, 0, 0, 1, 0x65]));
+    }
+
+    #[test]
+    fn au_splitter_discards_prefix_and_handles_split_start_codes() {
+        let mut s = AuSplitter::new(VideoCodec::H264);
+        let mut out = Vec::new();
+
+        s.feed(&[0xAA, 0xBB, 0x00, 0x00], &mut out);
+        s.feed(&[0x00], &mut out);
+        s.feed(&[0x01, 0x09, 0xF0, 0x00, 0x00, 0x01, 0x65, 0x88], &mut out);
+        assert!(out.is_empty());
+
+        s.feed(&[0x00, 0x00], &mut out);
+        s.feed(&[0x00, 0x01, 0x09, 0xF0, 0x00, 0x00, 0x01, 0x41, 0x9A], &mut out);
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(&out[0][..5], &[0, 0, 0, 1, 0x09]);
+        assert!(out[0].windows(5).any(|w| w == [0, 0, 1, 0x65, 0x88]));
+        assert!(!out[0].starts_with(&[0xAA, 0xBB]));
+    }
+
+    #[test]
+    fn au_splitter_handles_h265_aud_boundaries() {
+        let mut s = AuSplitter::new(VideoCodec::H265);
+        let mut out = Vec::new();
+
+        // H.265 AUD NAL type 35 => first header byte is (35 << 1) = 0x46.
+        // IDR_W_RADL NAL type 19 => first header byte is (19 << 1) = 0x26.
+        s.feed(&[0, 0, 1, 0x46, 0x01, 0x50, 0, 0, 1, 0x26, 0x01, 0x88], &mut out);
+        assert!(out.is_empty());
+
+        s.feed(&[0, 0, 0, 1, 0x46, 0x01, 0x50, 0, 0, 1, 0x02, 0x01], &mut out);
+
+        assert_eq!(out.len(), 1);
+        assert_eq!(&out[0][..5], &[0, 0, 1, 0x46, 0x01]);
+        assert!(out[0].windows(5).any(|w| w == [0, 0, 1, 0x26, 0x01]));
     }
 }

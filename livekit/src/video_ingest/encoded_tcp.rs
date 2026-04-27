@@ -37,11 +37,9 @@ use std::{
     time::Duration,
 };
 
-use libwebrtc::{
-    video_source::{
-        native::{EncodedVideoSourceObserver, NativeEncodedVideoSource},
-        EncodedFrameInfo, RtcVideoSource, VideoCodec, VideoResolution,
-    },
+use libwebrtc::video_source::{
+    native::{EncodedVideoSourceObserver, NativeEncodedVideoSource},
+    EncodedFrameInfo, RtcVideoSource, VideoCodec, VideoResolution,
 };
 use livekit_runtime::JoinHandle;
 use parking_lot::Mutex;
@@ -192,16 +190,7 @@ impl EncodedTcpIngest {
         participant: LocalParticipant,
         options: EncodedTcpIngestOptions,
     ) -> RoomResult<Self> {
-        if options.width == 0 || options.height == 0 {
-            return Err(RoomError::Internal(
-                "EncodedTcpIngest: width and height must be non-zero".to_string(),
-            ));
-        }
-        if options.port == 0 {
-            return Err(RoomError::Internal(
-                "EncodedTcpIngest: port must be non-zero".to_string(),
-            ));
-        }
+        validate_options(&options)?;
 
         let resolution = VideoResolution { width: options.width, height: options.height };
         let source = NativeEncodedVideoSource::new(options.codec, resolution);
@@ -222,23 +211,11 @@ impl EncodedTcpIngest {
             RtcVideoSource::Encoded(source.clone()),
         );
 
-        let mut publish_opts = TrackPublishOptions {
-            source: options.track_source,
-            simulcast: false,
-            ..Default::default()
-        };
-        if let Some(max_bitrate) = options.max_bitrate_bps {
-            publish_opts.video_encoding = Some(VideoEncoding {
-                max_bitrate,
-                max_framerate: options.max_framerate_fps,
-            });
-        }
+        let publish_opts = build_publish_options(&options);
         // video_codec is force-pinned to match the encoded source by
         // LocalParticipant::publish_track, so we leave the default.
 
-        participant
-            .publish_track(LocalTrack::Video(track.clone()), publish_opts)
-            .await?;
+        participant.publish_track(LocalTrack::Video(track.clone()), publish_opts).await?;
         log::info!("EncodedTcpIngest: published track '{}' ({:?})", track_name, options.codec);
 
         let inner = Arc::new(Inner {
@@ -321,6 +298,31 @@ impl Drop for EncodedTcpIngest {
         // published until the room is dropped or explicitly unpublished.
         self.inner.stop.store(true, Ordering::Release);
     }
+}
+
+fn validate_options(options: &EncodedTcpIngestOptions) -> RoomResult<()> {
+    if options.width == 0 || options.height == 0 {
+        return Err(RoomError::Internal(
+            "EncodedTcpIngest: width and height must be non-zero".to_string(),
+        ));
+    }
+    if options.port == 0 {
+        return Err(RoomError::Internal("EncodedTcpIngest: port must be non-zero".to_string()));
+    }
+    Ok(())
+}
+
+fn build_publish_options(options: &EncodedTcpIngestOptions) -> TrackPublishOptions {
+    let mut publish_opts = TrackPublishOptions {
+        source: options.track_source,
+        simulcast: false,
+        ..Default::default()
+    };
+    if let Some(max_bitrate) = options.max_bitrate_bps {
+        publish_opts.video_encoding =
+            Some(VideoEncoding { max_bitrate, max_framerate: options.max_framerate_fps });
+    }
+    publish_opts
 }
 
 fn default_track_name(codec: VideoCodec) -> &'static str {
@@ -480,4 +482,126 @@ async fn sleep_interruptible(stop: &AtomicBool, dur: Duration) -> bool {
         remaining = remaining.saturating_sub(step);
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::{
+            atomic::{AtomicBool, Ordering},
+            Arc,
+        },
+        time::{Duration, Instant},
+    };
+
+    use libwebrtc::video_source::VideoCodec;
+
+    use super::*;
+    use crate::{prelude::TrackSource, RoomError};
+
+    #[test]
+    fn options_new_sets_network_and_track_defaults() {
+        let options = EncodedTcpIngestOptions::new(5004, VideoCodec::H264, 1920, 1080);
+
+        assert_eq!(options.host, "127.0.0.1");
+        assert_eq!(options.port, 5004);
+        assert_eq!(options.codec, VideoCodec::H264);
+        assert_eq!(options.width, 1920);
+        assert_eq!(options.height, 1080);
+        assert_eq!(options.track_name, None);
+        assert_eq!(options.track_source, TrackSource::Camera);
+        assert_eq!(options.max_bitrate_bps, None);
+        assert_eq!(options.max_framerate_fps, 30.0);
+        assert_eq!(options.reconnect_backoff, Duration::from_secs(1));
+        assert!(options.unpublish_on_stop);
+    }
+
+    #[test]
+    fn validate_options_rejects_invalid_dimensions_before_publish() {
+        let mut options = EncodedTcpIngestOptions::new(5004, VideoCodec::Vp8, 0, 720);
+
+        let err = validate_options(&options).expect_err("zero width should be rejected");
+        assert!(
+            matches!(err, RoomError::Internal(message) if message.contains("width and height"))
+        );
+
+        options.width = 1280;
+        options.height = 0;
+        let err = validate_options(&options).expect_err("zero height should be rejected");
+        assert!(
+            matches!(err, RoomError::Internal(message) if message.contains("width and height"))
+        );
+    }
+
+    #[test]
+    fn validate_options_rejects_zero_port_before_publish() {
+        let options = EncodedTcpIngestOptions::new(0, VideoCodec::Av1, 1280, 720);
+
+        let err = validate_options(&options).expect_err("zero port should be rejected");
+        assert!(matches!(err, RoomError::Internal(message) if message.contains("port")));
+    }
+
+    #[test]
+    fn build_publish_options_disables_simulcast_and_preserves_source() {
+        let mut options = EncodedTcpIngestOptions::new(5004, VideoCodec::H265, 1280, 720);
+        options.track_source = TrackSource::Screenshare;
+
+        let publish_options = build_publish_options(&options);
+
+        assert_eq!(publish_options.source, TrackSource::Screenshare);
+        assert!(!publish_options.simulcast);
+        assert!(publish_options.video_encoding.is_none());
+    }
+
+    #[test]
+    fn build_publish_options_uses_explicit_bitrate_pair() {
+        let mut options = EncodedTcpIngestOptions::new(5004, VideoCodec::Vp9, 1280, 720);
+        options.max_bitrate_bps = Some(2_500_000);
+        options.max_framerate_fps = 24.0;
+
+        let publish_options = build_publish_options(&options);
+        let encoding = publish_options.video_encoding.expect("encoding should be set");
+
+        assert_eq!(encoding.max_bitrate, 2_500_000);
+        assert_eq!(encoding.max_framerate, 24.0);
+        assert!(!publish_options.simulcast);
+    }
+
+    #[test]
+    fn default_track_names_cover_all_ingest_codecs() {
+        assert_eq!(default_track_name(VideoCodec::H264), "encoded-h264");
+        assert_eq!(default_track_name(VideoCodec::H265), "encoded-h265");
+        assert_eq!(default_track_name(VideoCodec::Vp8), "encoded-vp8");
+        assert_eq!(default_track_name(VideoCodec::Vp9), "encoded-vp9");
+        assert_eq!(default_track_name(VideoCodec::Av1), "encoded-av1");
+    }
+
+    #[tokio::test]
+    async fn sleep_interruptible_returns_false_when_stop_already_set() {
+        let stop = AtomicBool::new(true);
+
+        assert!(!sleep_interruptible(&stop, Duration::from_secs(60)).await);
+    }
+
+    #[tokio::test]
+    async fn sleep_interruptible_wakes_soon_after_stop_is_set() {
+        let stop = Arc::new(AtomicBool::new(false));
+        let setter = {
+            let stop = stop.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                stop.store(true, Ordering::Release);
+            })
+        };
+
+        let start = Instant::now();
+        let slept = sleep_interruptible(&stop, Duration::from_secs(5)).await;
+        setter.await.expect("stop setter should complete");
+
+        assert!(!slept);
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "sleep should be interrupted instead of waiting for the full backoff"
+        );
+    }
 }
