@@ -18,15 +18,7 @@ use livekit_datatrack::backend as dt;
 use livekit_protocol as proto;
 use livekit_runtime::{interval, Interval, JoinHandle};
 use parking_lot::{RwLock, RwLockReadGuard};
-use std::{
-    borrow::Cow,
-    fmt::Debug,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Duration,
-};
+use std::{borrow::Cow, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{
     mpsc, oneshot, Mutex as AsyncMutex, Notify, RwLock as AsyncRwLock,
@@ -235,10 +227,6 @@ struct EngineInner {
     // (This also prevents new reconnection to happens if a read guard is still held)
     reconnecting_lock: AsyncRwLock<()>,
     reconnecting_interval: AsyncMutex<Interval>,
-
-    // Track whether we've registered this connection for audio mode switching protection
-    // This ensures we properly decrement the counter even if close() is not called
-    connection_registered: AtomicBool,
 }
 
 pub struct RtcEngine {
@@ -420,7 +408,6 @@ impl EngineInner {
                         options,
                         reconnecting_lock: AsyncRwLock::default(),
                         reconnecting_interval: AsyncMutex::new(interval(RECONNECT_INTERVAL)),
-                        connection_registered: AtomicBool::new(false),
                     });
 
                     // Start initial tasks
@@ -431,10 +418,6 @@ impl EngineInner {
                         close_rx,
                     ));
                     inner.running_handle.write().engine_task = Some((session_task, close_tx));
-
-                    // Track active room connection (for audio mode switching protection)
-                    LkRuntime::register_room_connection();
-                    inner.connection_registered.store(true, Ordering::SeqCst);
 
                     Ok((inner, join_response, engine_rx))
                 }
@@ -683,12 +666,6 @@ impl EngineInner {
             let _ = engine_task.await;
             let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
         }
-
-        // Untrack room connection (for audio mode switching protection)
-        // Use swap to atomically check and clear, preventing double-unregister
-        if self.connection_registered.swap(false, Ordering::SeqCst) {
-            LkRuntime::unregister_room_connection();
-        }
     }
 
     /// When waiting for reconnection, it ensures we're always using the latest session.
@@ -924,16 +901,5 @@ impl EngineInner {
 impl From<livekit_datatrack::api::InternalError> for EngineError {
     fn from(err: livekit_datatrack::api::InternalError) -> Self {
         Self::Internal(err.to_string().into())
-    }
-}
-
-impl Drop for EngineInner {
-    fn drop(&mut self) {
-        // Ensure we decrement the room connection count if it wasn't already done
-        // This handles the case where a room is dropped without calling close()
-        if self.connection_registered.swap(false, Ordering::SeqCst) {
-            log::debug!("EngineInner dropped without close(), unregistering room connection");
-            LkRuntime::unregister_room_connection();
-        }
     }
 }

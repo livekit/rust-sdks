@@ -69,10 +69,6 @@ pub mod native {
     pub use webrtc_sys::webrtc::ffi::create_random_uuid;
 
     pub use crate::imp::{apm, audio_mixer, audio_resampler, frame_cryptor, yuv_helper};
-
-    // ADM (Audio Device Module) types - only AdmDelegateType is exposed
-    // Platform ADM is only available via FFI, not in the public Rust SDK
-    pub use crate::imp::peer_connection_factory::AdmDelegateType;
 }
 
 #[cfg(target_os = "android")]

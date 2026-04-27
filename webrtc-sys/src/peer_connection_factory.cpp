@@ -32,7 +32,6 @@
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
 #include "api/audio/audio_device.h"
-#include "api/audio/create_audio_device_module.h"
 #include "api/audio_options.h"
 #include "livekit/adm_proxy.h"
 #include "livekit/audio_track.h"
@@ -54,8 +53,6 @@ PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
     : rtc_runtime_(rtc_runtime),
     env_(webrtc::EnvironmentFactory().Create()) {
-  RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::PeerConnectionFactory()";
-
   webrtc::PeerConnectionFactoryDependencies dependencies;
   dependencies.network_thread = rtc_runtime_->network_thread();
   dependencies.worker_thread = rtc_runtime_->worker_thread();
@@ -63,7 +60,7 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.socket_factory = rtc_runtime_->network_thread()->socketserver();
   dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
 
-  // Create AdmProxy instead of direct AudioDevice
+  // Create AdmProxy - it creates and initializes Platform ADM internally
   adm_proxy_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
     return webrtc::make_ref_counted<livekit_ffi::AdmProxy>(
         env_, rtc_runtime_->worker_thread());
@@ -129,18 +126,11 @@ std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
 
 std::shared_ptr<AudioTrack> PeerConnectionFactory::create_device_audio_track(
     rust::String label) const {
-  RTC_LOG(LS_INFO) << "PeerConnectionFactory::create_device_audio_track() label=" << label.c_str();
-
   // Create an audio source that uses the ADM for capture
-  // This will use the Platform ADM's recording device
   webrtc::AudioOptions audio_options;
   audio_options.echo_cancellation = true;
   audio_options.auto_gain_control = true;
   audio_options.noise_suppression = true;
-
-  RTC_LOG(LS_INFO) << "Creating audio source with EC=" << audio_options.echo_cancellation.value_or(false)
-                   << " AGC=" << audio_options.auto_gain_control.value_or(false)
-                   << " NS=" << audio_options.noise_suppression.value_or(false);
 
   webrtc::scoped_refptr<webrtc::AudioSourceInterface> audio_source =
       peer_factory_->CreateAudioSource(audio_options);
@@ -150,14 +140,9 @@ std::shared_ptr<AudioTrack> PeerConnectionFactory::create_device_audio_track(
     return nullptr;
   }
 
-  RTC_LOG(LS_INFO) << "Audio source created successfully, creating audio track";
-
-  auto track = std::static_pointer_cast<AudioTrack>(
+  return std::static_pointer_cast<AudioTrack>(
       rtc_runtime_->get_or_create_media_stream_track(
           peer_factory_->CreateAudioTrack(label.c_str(), audio_source.get())));
-
-  RTC_LOG(LS_INFO) << "Device audio track created: " << (track ? "success" : "failed");
-  return track;
 }
 
 RtpCapabilities PeerConnectionFactory::rtp_sender_capabilities(
@@ -172,56 +157,7 @@ RtpCapabilities PeerConnectionFactory::rtp_receiver_capabilities(
       static_cast<webrtc::MediaType>(type)));
 }
 
-// ADM Management Methods
-
-bool PeerConnectionFactory::enable_platform_adm() const {
-  RTC_LOG(LS_INFO) << "PeerConnectionFactory::enable_platform_adm()";
-
-  // Create platform ADM on worker thread
-  webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm =
-      rtc_runtime_->worker_thread()->BlockingCall([this]()
-          -> webrtc::scoped_refptr<webrtc::AudioDeviceModule> {
-        auto adm = webrtc::CreateAudioDeviceModule(
-            env_, webrtc::AudioDeviceModule::kPlatformDefaultAudio);
-        RTC_LOG(LS_INFO) << "CreateAudioDeviceModule returned: " << (adm ? "success" : "null");
-        return adm;
-      });
-
-  if (!platform_adm) {
-    RTC_LOG(LS_ERROR) << "Failed to create platform ADM";
-    return false;
-  }
-
-  // Initialize platform ADM
-  int32_t init_result = platform_adm->Init();
-  RTC_LOG(LS_INFO) << "Platform ADM Init() returned: " << init_result;
-  if (init_result != 0) {
-    RTC_LOG(LS_ERROR) << "Failed to initialize platform ADM";
-    return false;
-  }
-
-  // Log device counts
-  RTC_LOG(LS_INFO) << "Platform ADM recording devices: " << platform_adm->RecordingDevices();
-  RTC_LOG(LS_INFO) << "Platform ADM playout devices: " << platform_adm->PlayoutDevices();
-
-  // Set it on the proxy
-  adm_proxy_->SetPlatformAdm(platform_adm);
-  RTC_LOG(LS_INFO) << "Platform ADM set on proxy successfully";
-  return true;
-}
-
-void PeerConnectionFactory::clear_adm_delegate() const {
-  RTC_LOG(LS_INFO) << "PeerConnectionFactory::clear_adm_delegate()";
-  adm_proxy_->ClearDelegate();
-}
-
-int32_t PeerConnectionFactory::adm_delegate_type() const {
-  return static_cast<int32_t>(adm_proxy_->delegate_type());
-}
-
-bool PeerConnectionFactory::has_adm_delegate() const {
-  return adm_proxy_->has_delegate();
-}
+// Device enumeration and management
 
 int16_t PeerConnectionFactory::playout_devices() const {
   return adm_proxy_->PlayoutDevices();
@@ -283,6 +219,38 @@ int32_t PeerConnectionFactory::start_playout() const {
 
 bool PeerConnectionFactory::playout_is_initialized() const {
   return adm_proxy_->PlayoutIsInitialized();
+}
+
+bool PeerConnectionFactory::builtin_aec_is_available() const {
+  return adm_proxy_->BuiltInAECIsAvailable();
+}
+
+bool PeerConnectionFactory::builtin_agc_is_available() const {
+  return adm_proxy_->BuiltInAGCIsAvailable();
+}
+
+bool PeerConnectionFactory::builtin_ns_is_available() const {
+  return adm_proxy_->BuiltInNSIsAvailable();
+}
+
+int32_t PeerConnectionFactory::enable_builtin_aec(bool enable) const {
+  return adm_proxy_->EnableBuiltInAEC(enable);
+}
+
+int32_t PeerConnectionFactory::enable_builtin_agc(bool enable) const {
+  return adm_proxy_->EnableBuiltInAGC(enable);
+}
+
+int32_t PeerConnectionFactory::enable_builtin_ns(bool enable) const {
+  return adm_proxy_->EnableBuiltInNS(enable);
+}
+
+void PeerConnectionFactory::set_adm_recording_enabled(bool enabled) const {
+  adm_proxy_->set_recording_enabled(enabled);
+}
+
+bool PeerConnectionFactory::adm_recording_enabled() const {
+  return adm_proxy_->recording_enabled();
 }
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {

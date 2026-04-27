@@ -123,25 +123,13 @@ pub mod ffi {
             kind: MediaType,
         ) -> RtpCapabilities;
 
-        // ADM Management - Runtime delegate swapping
-        // Enable platform ADM (WebRTC's built-in device management)
-        // Platform ADM is only available via FFI (not exposed in public Rust SDK)
-        fn enable_platform_adm(self: &PeerConnectionFactory) -> bool;
-
-        // Revert to Synthetic ADM mode (manual capture via NativeAudioSource)
-        fn clear_adm_delegate(self: &PeerConnectionFactory);
-
-        // Query current ADM state (0=Synthetic, 1=Platform, 2=Custom)
-        fn adm_delegate_type(self: &PeerConnectionFactory) -> i32;
-        fn has_adm_delegate(self: &PeerConnectionFactory) -> bool;
-
-        // Device enumeration (only works when platform/custom ADM is active)
+        // Device enumeration
         fn playout_devices(self: &PeerConnectionFactory) -> i16;
         fn recording_devices(self: &PeerConnectionFactory) -> i16;
         fn playout_device_name(self: &PeerConnectionFactory, index: u16) -> String;
         fn recording_device_name(self: &PeerConnectionFactory, index: u16) -> String;
 
-        // Device selection (only works when platform/custom ADM is active)
+        // Device selection
         fn set_playout_device(self: &PeerConnectionFactory, index: u16) -> i32;
         fn set_recording_device(self: &PeerConnectionFactory, index: u16) -> i32;
 
@@ -156,6 +144,21 @@ pub mod ffi {
         fn init_playout(self: &PeerConnectionFactory) -> i32;
         fn start_playout(self: &PeerConnectionFactory) -> i32;
         fn playout_is_initialized(self: &PeerConnectionFactory) -> bool;
+
+        // Built-in audio processing (hardware AEC/AGC/NS)
+        // These are only available on iOS and some Android devices
+        fn builtin_aec_is_available(self: &PeerConnectionFactory) -> bool;
+        fn builtin_agc_is_available(self: &PeerConnectionFactory) -> bool;
+        fn builtin_ns_is_available(self: &PeerConnectionFactory) -> bool;
+        fn enable_builtin_aec(self: &PeerConnectionFactory, enable: bool) -> i32;
+        fn enable_builtin_agc(self: &PeerConnectionFactory, enable: bool) -> i32;
+        fn enable_builtin_ns(self: &PeerConnectionFactory, enable: bool) -> i32;
+
+        // Control whether ADM recording (microphone) is enabled.
+        // When disabled, InitRecording/StartRecording will be no-ops.
+        // Use this when only using NativeAudioSource (no microphone needed).
+        fn set_adm_recording_enabled(self: &PeerConnectionFactory, enabled: bool);
+        fn adm_recording_enabled(self: &PeerConnectionFactory) -> bool;
     }
 
     extern "Rust" {
@@ -344,40 +347,5 @@ impl PeerConnectionObserverWrapper {
 
     fn on_interesting_usage(&self, usage_pattern: i32) {
         self.observer.on_interesting_usage(usage_pattern);
-    }
-}
-
-/// ADM delegate type enumeration
-///
-/// Indicates which audio device handling mode is currently active.
-/// Note: Platform ADM is only available via FFI, not in the public Rust SDK.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(i32)]
-pub enum AdmDelegateType {
-    /// Synthetic ADM mode - manual capture via NativeAudioSource (default)
-    ///
-    /// In this mode:
-    /// - Audio capture is handled manually by pushing frames to NativeAudioSource
-    /// - Playout uses a synthetic pump that discards audio (no speaker output)
-    /// - AEC is not functional (no valid playout reference)
-    /// - Suitable for send-only scenarios or testing
-    Synthetic = 0,
-    /// Platform ADM - WebRTC's built-in platform-specific ADM
-    ///
-    /// WebRTC manages device enumeration, selection, capture, and playout
-    /// using platform-specific APIs (CoreAudio, WASAPI, PulseAudio, etc.)
-    ///
-    /// Note: This mode is only available via FFI for livekit-ffi users.
-    /// It is not exposed in the public Rust SDK.
-    Platform = 1,
-}
-
-impl From<i32> for AdmDelegateType {
-    fn from(value: i32) -> Self {
-        match value {
-            0 => AdmDelegateType::Synthetic,
-            1 => AdmDelegateType::Platform,
-            _ => AdmDelegateType::Synthetic,
-        }
     }
 }

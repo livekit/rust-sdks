@@ -89,7 +89,6 @@ pub mod native {
     use crate::{
         audio_source::native::NativeAudioSource,
         audio_track::RtcAudioTrack,
-        imp::peer_connection_factory::AdmDelegateType,
         video_source::native::NativeVideoSource,
         video_track::RtcVideoTrack,
     };
@@ -99,32 +98,16 @@ pub mod native {
         fn create_audio_track(&self, label: &str, source: NativeAudioSource) -> RtcAudioTrack;
 
         /// Create an audio track that uses the Platform ADM for capture.
-        ///
-        /// This requires that `enable_platform_adm()` was called first.
         /// The track will capture audio from the selected recording device.
         fn create_device_audio_track(&self, label: &str) -> RtcAudioTrack;
 
-        // ADM Management
-        /// Enable platform ADM (WebRTC's built-in device management)
-        /// Returns true if successful
-        fn enable_platform_adm(&self) -> bool;
-
-        /// Clear ADM delegate, reverting to stub behavior (NativeAudioSource mode)
-        fn clear_adm_delegate(&self);
-
-        /// Get the current ADM delegate type
-        fn adm_delegate_type(&self) -> AdmDelegateType;
-
-        /// Check if an ADM delegate is active
-        fn has_adm_delegate(&self) -> bool;
-
-        // Device enumeration (only works with platform/custom ADM)
+        // Device enumeration
         fn playout_devices(&self) -> i16;
         fn recording_devices(&self) -> i16;
         fn playout_device_name(&self, index: u16) -> String;
         fn recording_device_name(&self, index: u16) -> String;
 
-        // Device selection (only works with platform/custom ADM)
+        // Device selection
         fn set_playout_device(&self, index: u16) -> i32;
         fn set_recording_device(&self, index: u16) -> i32;
 
@@ -139,6 +122,20 @@ pub mod native {
         fn init_playout(&self) -> i32;
         fn start_playout(&self) -> i32;
         fn playout_is_initialized(&self) -> bool;
+
+        // Built-in audio processing (hardware AEC/AGC/NS)
+        // Only available on iOS and some Android devices
+        fn builtin_aec_is_available(&self) -> bool;
+        fn builtin_agc_is_available(&self) -> bool;
+        fn builtin_ns_is_available(&self) -> bool;
+        fn enable_builtin_aec(&self, enable: bool) -> i32;
+        fn enable_builtin_agc(&self, enable: bool) -> i32;
+        fn enable_builtin_ns(&self, enable: bool) -> i32;
+
+        // ADM recording control
+        // Use this to disable microphone when only using NativeAudioSource
+        fn set_adm_recording_enabled(&self, enabled: bool);
+        fn adm_recording_enabled(&self) -> bool;
     }
 
     impl PeerConnectionFactoryExt for PeerConnectionFactory {
@@ -152,22 +149,6 @@ pub mod native {
 
         fn create_device_audio_track(&self, label: &str) -> RtcAudioTrack {
             self.handle.create_device_audio_track(label)
-        }
-
-        fn enable_platform_adm(&self) -> bool {
-            self.handle.enable_platform_adm()
-        }
-
-        fn clear_adm_delegate(&self) {
-            self.handle.clear_adm_delegate();
-        }
-
-        fn adm_delegate_type(&self) -> AdmDelegateType {
-            self.handle.adm_delegate_type()
-        }
-
-        fn has_adm_delegate(&self) -> bool {
-            self.handle.has_adm_delegate()
         }
 
         fn playout_devices(&self) -> i16 {
@@ -224,6 +205,38 @@ pub mod native {
 
         fn playout_is_initialized(&self) -> bool {
             self.handle.playout_is_initialized()
+        }
+
+        fn builtin_aec_is_available(&self) -> bool {
+            self.handle.builtin_aec_is_available()
+        }
+
+        fn builtin_agc_is_available(&self) -> bool {
+            self.handle.builtin_agc_is_available()
+        }
+
+        fn builtin_ns_is_available(&self) -> bool {
+            self.handle.builtin_ns_is_available()
+        }
+
+        fn enable_builtin_aec(&self, enable: bool) -> i32 {
+            self.handle.enable_builtin_aec(enable)
+        }
+
+        fn enable_builtin_agc(&self, enable: bool) -> i32 {
+            self.handle.enable_builtin_agc(enable)
+        }
+
+        fn enable_builtin_ns(&self, enable: bool) -> i32 {
+            self.handle.enable_builtin_ns(enable)
+        }
+
+        fn set_adm_recording_enabled(&self, enabled: bool) {
+            self.handle.set_adm_recording_enabled(enabled)
+        }
+
+        fn adm_recording_enabled(&self) -> bool {
+            self.handle.adm_recording_enabled()
         }
     }
 }

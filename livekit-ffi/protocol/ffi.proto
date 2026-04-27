@@ -165,15 +165,13 @@ message FfiRequest {
     RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
     DataTrackStreamReadRequest data_track_stream_read = 75;
 
-    // Audio Manager (Platform ADM)
-    SetAudioModeRequest set_audio_mode = 76;
-    GetAudioModeRequest get_audio_mode = 77;
-    GetAudioDevicesRequest get_audio_devices = 78;
-    SetRecordingDeviceRequest set_recording_device = 79;
-    SetPlayoutDeviceRequest set_playout_device = 80;
-    ResetAudioRequest reset_audio = 81;
+    // Platform Audio (ADM)
+    NewPlatformAudioRequest new_platform_audio = 76;
+    GetAudioDevicesRequest get_audio_devices = 77;
+    SetRecordingDeviceRequest set_recording_device = 78;
+    SetPlayoutDeviceRequest set_playout_device = 79;
 
-    // NEXT_ID: 82
+    // NEXT_ID: 80
   }
 }
 
@@ -283,15 +281,13 @@ message FfiResponse {
     RemoteDataTrackIsPublishedResponse remote_data_track_is_published = 73;
     DataTrackStreamReadResponse data_track_stream_read = 74;
 
-    // Audio Manager (Platform ADM)
-    SetAudioModeResponse set_audio_mode = 75;
-    GetAudioModeResponse get_audio_mode = 76;
-    GetAudioDevicesResponse get_audio_devices = 77;
-    SetRecordingDeviceResponse set_recording_device = 78;
-    SetPlayoutDeviceResponse set_playout_device = 79;
-    ResetAudioResponse reset_audio = 80;
+    // Platform Audio (ADM)
+    NewPlatformAudioResponse new_platform_audio = 75;
+    GetAudioDevicesResponse get_audio_devices = 76;
+    SetRecordingDeviceResponse set_recording_device = 77;
+    SetPlayoutDeviceResponse set_playout_device = 78;
 
-    // NEXT_ID: 81
+    // NEXT_ID: 79
   }
 }
 

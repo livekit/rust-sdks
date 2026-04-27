@@ -34,6 +34,9 @@ pub use crate::{
     RoomResult, RoomSdkOptions, SipDTMF, Transcription, TranscriptionSegment,
 };
 
-// Audio device management (native platforms only)
+// Platform audio device management (native platforms only)
 #[cfg(not(target_arch = "wasm32"))]
-pub use crate::audio::{AdmDelegateType, AudioError, AudioManager, AudioMode, AudioResult};
+pub use crate::audio::{
+    AudioError, AudioProcessingOptions, AudioProcessingType, AudioResult, PlatformAudio,
+    RtcAudioSource,
+};

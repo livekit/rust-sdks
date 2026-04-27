@@ -1,0 +1,85 @@
+diff --git a/api/media_stream_interface.h b/api/media_stream_interface.h
+index 1234567..abcdefg 100644
+--- a/api/media_stream_interface.h
++++ b/api/media_stream_interface.h
+@@ -266,6 +266,11 @@ class RTC_EXPORT AudioSourceInterface : public MediaSourceInterface {
+   // (for some of the settings this approach is broken, e.g. setting
+   // audio network adaptation on the source is the wrong layer of abstraction).
+   virtual const AudioOptions options() const;
++
++  // Returns true if this source delivers audio externally (via AddSink),
++  // bypassing the ADM/AudioState audio distribution path.
++  // When true, AudioSendStream should not register with AudioState.
++  virtual bool is_external_source() const { return false; }
+ };
+
+ // Interface of the audio processor used by the audio track to collect
+diff --git a/call/audio_send_stream.h b/call/audio_send_stream.h
+index 1234567..abcdefg 100644
+--- a/call/audio_send_stream.h
++++ b/call/audio_send_stream.h
+@@ -178,6 +178,12 @@ class AudioSendStream : public AudioSender {
+     // An optional frame transformer used by insertable streams to transform
+     // encoded frames.
+     scoped_refptr<webrtc::FrameTransformerInterface> frame_transformer;
++
++    // When true, this stream uses an external audio source (not ADM).
++    // AudioState will NOT send device-captured audio to this stream.
++    // Audio is delivered directly via the source's AddSink mechanism.
++    // This prevents mixing of device audio with externally-sourced audio.
++    bool external_source = false;
+   };
+
+   virtual ~AudioSendStream() = default;
+diff --git a/audio/audio_send_stream.cc b/audio/audio_send_stream.cc
+index 1234567..abcdefg 100644
+--- a/audio/audio_send_stream.cc
++++ b/audio/audio_send_stream.cc
+@@ -374,8 +374,13 @@ void AudioSendStream::Start() {
+   }
+   channel_send_->StartSend();
+   sending_ = true;
+-  audio_state()->AddSendingStream(this, encoder_sample_rate_hz_,
+-                                  encoder_num_channels_);
++  // Only register with AudioState if not using external source.
++  // External sources (like NativeAudioSource) deliver audio directly via AddSink,
++  // so we don't want AudioState to also send device audio to this stream.
++  if (!config_.external_source) {
++    audio_state()->AddSendingStream(this, encoder_sample_rate_hz_,
++                                    encoder_num_channels_);
++  }
+ }
+
+ void AudioSendStream::Stop() {
+@@ -386,7 +391,10 @@ void AudioSendStream::Stop() {
+   RemoveBitrateObserver();
+   channel_send_->StopSend();
+   sending_ = false;
+-  audio_state()->RemoveSendingStream(this);
++  // Only unregister if we registered (when not using external source).
++  if (!config_.external_source) {
++    audio_state()->RemoveSendingStream(this);
++  }
+ }
+
+ void AudioSendStream::SendAudioData(std::unique_ptr<AudioFrame> audio_frame) {
+diff --git a/media/engine/webrtc_voice_engine.cc b/media/engine/webrtc_voice_engine.cc
+index 1234567..abcdefg 100644
+--- a/media/engine/webrtc_voice_engine.cc
++++ b/media/engine/webrtc_voice_engine.cc
+@@ -1013,6 +1013,14 @@ class WebRtcVoiceSendChannel::WebRtcAudioSendStream : public AudioSource::Sink {
+     if (source_) {
+       RTC_DCHECK(source_ == source);
+       return;
+     }
++
++    // Check if this is an external audio source (delivers audio via AddSink).
++    // If so, mark the config so AudioState doesn't send device audio to this
++    // stream. This must be done before UpdateSendState() calls Start().
++    if (source->is_external_source() && !config_.external_source) {
++      config_.external_source = true;
++      stream_->Reconfigure(config_, nullptr);
++    }
+     source->SetSink(this);
+     source_ = source;
+     UpdateSendState();

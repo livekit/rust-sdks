@@ -57,7 +57,7 @@ class PeerConnectionFactory {
       rust::String label,
       std::shared_ptr<AudioTrackSource> source) const;
 
-  // Create an audio track that uses the ADM for capture (Platform ADM mode)
+  // Create an audio track that uses the ADM for capture (microphone)
   // This creates a track that captures from the selected recording device
   std::shared_ptr<AudioTrack> create_device_audio_track(
       rust::String label) const;
@@ -68,26 +68,13 @@ class PeerConnectionFactory {
 
   std::shared_ptr<RtcRuntime> rtc_runtime() const { return rtc_runtime_; }
 
-  // ADM Management - Runtime delegate swapping
-  // Creates and returns the platform's default ADM
-  // Returns true if platform ADM was successfully created and set
-  // Note: Platform ADM is only available via FFI, not in the public Rust SDK
-  bool enable_platform_adm() const;
-
-  // Clear any delegate, reverting to stub behavior (Synthetic ADM with NativeAudioSource)
-  void clear_adm_delegate() const;
-
-  // Query current ADM state
-  int32_t adm_delegate_type() const;  // Returns AdmProxy::DelegateType as int
-  bool has_adm_delegate() const;
-
-  // Device enumeration (only works when platform ADM is active)
+  // Device enumeration
   int16_t playout_devices() const;
   int16_t recording_devices() const;
   rust::String playout_device_name(uint16_t index) const;
   rust::String recording_device_name(uint16_t index) const;
 
-  // Device selection (only works when platform ADM is active)
+  // Device selection
   int32_t set_playout_device(uint16_t index) const;
   int32_t set_recording_device(uint16_t index) const;
 
@@ -102,6 +89,21 @@ class PeerConnectionFactory {
   int32_t init_playout() const;
   int32_t start_playout() const;
   bool playout_is_initialized() const;
+
+  // Built-in audio processing (hardware AEC/AGC/NS)
+  // These are only available on iOS and some Android devices
+  bool builtin_aec_is_available() const;
+  bool builtin_agc_is_available() const;
+  bool builtin_ns_is_available() const;
+  int32_t enable_builtin_aec(bool enable) const;
+  int32_t enable_builtin_agc(bool enable) const;
+  int32_t enable_builtin_ns(bool enable) const;
+
+  // Control whether ADM recording (microphone) is enabled.
+  // When disabled, WebRTC's calls to InitRecording/StartRecording will be no-ops.
+  // Use this when only using NativeAudioSource (no microphone capture needed).
+  void set_adm_recording_enabled(bool enabled) const;
+  bool adm_recording_enabled() const;
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;

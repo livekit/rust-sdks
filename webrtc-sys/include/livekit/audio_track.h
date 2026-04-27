@@ -126,6 +126,10 @@ class AudioTrackSource {
 
     void clear_buffer();
 
+    // Override to indicate this is an external audio source.
+    // This prevents AudioState from sending device audio to streams using this source.
+    bool is_external_source() const override { return true; }
+
    private:
     mutable webrtc::Mutex mutex_;
     std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> audio_queue_;

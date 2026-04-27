@@ -62,7 +62,7 @@ impl LocalAudioTrack {
             #[cfg(not(target_arch = "wasm32"))]
             RtcAudioSource::Device => {
                 // Create an audio track that uses the Platform ADM for capture.
-                // Requires AudioManager::set_mode(AudioMode::Platform) to be called first.
+                // Use PlatformAudio::new() to enable platform audio before creating this track.
                 use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
                 LkRuntime::instance()
                     .pc_factory()

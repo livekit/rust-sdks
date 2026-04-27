@@ -17,23 +17,29 @@ syntax = "proto2";
 package livekit.proto;
 option csharp_namespace = "LiveKit.Proto";
 
-// Audio device management for Platform ADM mode.
-// These APIs allow FFI clients to enumerate and select audio devices
-// (microphones and speakers) when using WebRTC's built-in audio device module.
+import "handle.proto";
 
-// Audio processing mode for the LiveKit client.
-enum AudioMode {
-  // Synthetic ADM mode (default).
-  // Use NativeAudioSource to manually push audio frames.
-  // No access to system audio devices.
-  AUDIO_MODE_SYNTHETIC = 0;
-
-  // Platform ADM mode.
-  // Uses WebRTC's built-in audio device module for automatic
-  // microphone capture and speaker playout.
-  // Provides access to system audio device enumeration and selection.
-  AUDIO_MODE_PLATFORM = 1;
-}
+// Platform audio device management via PlatformAudio.
+//
+// PlatformAudio provides access to the platform's audio devices (microphones and
+// speakers) via WebRTC's Audio Device Module (ADM). Use it to:
+//
+// - Capture audio from the microphone for publishing
+// - Play received audio through the speakers
+// - Enumerate and select audio devices
+//
+// # Usage
+//
+// 1. Create a PlatformAudio handle with NewPlatformAudioRequest
+// 2. Enumerate devices with GetAudioDevicesRequest (optional)
+// 3. Select devices with SetRecordingDeviceRequest/SetPlayoutDeviceRequest (optional)
+// 4. Create an audio track using the PlatformAudio source type
+// 5. When done, drop the handle (the ADM is disabled when all handles are released)
+//
+// # Reference Counting
+//
+// Multiple PlatformAudio handles share the same underlying ADM. The ADM is
+// automatically disabled when all handles are released.
 
 // Information about an audio device.
 message AudioDeviceInfo {
@@ -43,51 +49,68 @@ message AudioDeviceInfo {
   required string name = 2;
 }
 
-// Set the audio processing mode.
-// Must be called BEFORE connecting to a room.
-message SetAudioModeRequest {
-  required AudioMode mode = 1;
+// Information about a PlatformAudio instance.
+message PlatformAudioInfo {
+  // Number of available recording (microphone) devices.
+  required int32 recording_device_count = 1;
+  // Number of available playout (speaker) devices.
+  required int32 playout_device_count = 2;
 }
 
-message SetAudioModeResponse {
-  // Error message if the operation failed, empty on success.
-  optional string error = 1;
+// Owned PlatformAudio handle with info.
+message OwnedPlatformAudio {
+  required FfiOwnedHandle handle = 1;
+  required PlatformAudioInfo info = 2;
 }
 
-// Get the current audio processing mode.
-message GetAudioModeRequest {}
+// Create a new PlatformAudio instance.
+//
+// This enables the platform ADM for microphone capture and speaker playout.
+// If another PlatformAudio instance exists, this reuses the same underlying ADM.
+//
+// The returned handle must be kept alive while platform audio is needed.
+// When all handles are released, the ADM is automatically disabled.
+message NewPlatformAudioRequest {}
 
-message GetAudioModeResponse {
-  required AudioMode mode = 1;
+message NewPlatformAudioResponse {
+  oneof message {
+    // The PlatformAudio handle on success.
+    OwnedPlatformAudio platform_audio = 1;
+    // Error message if creation failed.
+    string error = 2;
+  }
 }
 
 // Get available audio devices.
-// Only works in Platform ADM mode.
-message GetAudioDevicesRequest {}
+//
+// Returns lists of available recording (microphone) and playout (speaker) devices.
+message GetAudioDevicesRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+}
 
 message GetAudioDevicesResponse {
   // Available playout devices (speakers/headphones).
   repeated AudioDeviceInfo playout_devices = 1;
   // Available recording devices (microphones).
   repeated AudioDeviceInfo recording_devices = 2;
-  // Error message if enumeration failed:
-  // - "Platform mode required" if in Synthetic mode
-  // - Other platform-specific errors
-  // Empty/absent on success.
+  // Error message if enumeration failed, empty/absent on success.
   optional string error = 3;
 }
 
 // Set the recording device (microphone).
-// Only works in Platform ADM mode.
-// Returns error if in Synthetic mode or if device index is invalid.
+//
+// Call this before creating audio tracks to select which microphone to use.
+// Device indices are 0-based and must be less than the recording device count.
 message SetRecordingDeviceRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
   // Device index from GetAudioDevicesResponse.recording_devices.
-  required uint32 index = 1;
+  required uint32 index = 2;
 }
 
 message SetRecordingDeviceResponse {
   // Error message if the operation failed:
-  // - "Platform mode required" if in Synthetic mode
   // - "Invalid device index" if index >= recording device count
   // - Other platform-specific errors
   // Empty/absent on success.
@@ -95,26 +118,20 @@ message SetRecordingDeviceResponse {
 }
 
 // Set the playout device (speaker/headphones).
-// Only works in Platform ADM mode.
-// Returns error if in Synthetic mode or if device index is invalid.
+//
+// Call this before connecting to select which speaker to use for audio output.
+// Device indices are 0-based and must be less than the playout device count.
 message SetPlayoutDeviceRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
   // Device index from GetAudioDevicesResponse.playout_devices.
-  required uint32 index = 1;
+  required uint32 index = 2;
 }
 
 message SetPlayoutDeviceResponse {
   // Error message if the operation failed:
-  // - "Platform mode required" if in Synthetic mode
   // - "Invalid device index" if index >= playout device count
   // - Other platform-specific errors
   // Empty/absent on success.
   optional string error = 1;
 }
-
-// Reset the audio manager state.
-// IMPORTANT: Call this after disconnecting from a room when using Platform ADM,
-// especially on iOS where VPIO (Voice Processing IO) must be released
-// for other audio frameworks to function properly.
-message ResetAudioRequest {}
-
-message ResetAudioResponse {}

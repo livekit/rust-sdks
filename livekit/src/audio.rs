@@ -12,218 +12,109 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Audio device management for the LiveKit SDK.
+//! Platform audio device management for the LiveKit SDK.
 //!
-//! This module provides the [`AudioManager`] for controlling audio device modes
-//! and selecting audio devices.
+//! This module provides [`PlatformAudio`] for accessing platform audio devices
+//! (microphones and speakers) via WebRTC's Audio Device Module (ADM).
 //!
-//! # Audio Modes
+//! # Overview
 //!
-//! The SDK supports two audio modes:
+//! The SDK supports two ways to handle audio:
 //!
-//! - **Synthetic** (default): Manual audio capture via [`NativeAudioSource`].
-//!   Remote participant audio is discarded (not played to speakers).
-//!   Use for agents, TTS, file streaming, or testing.
+//! - **Manual audio** (default): Use [`NativeAudioSource`] to push audio frames manually.
+//!   Suitable for agents, TTS, file streaming, or testing.
 //!
-//! - **Platform**: WebRTC's built-in platform audio device management.
-//!   WebRTC handles device enumeration, audio capture, and playout automatically.
-//!   Use for standard VoIP applications with microphone/speaker support.
+//! - **Platform audio**: Use [`PlatformAudio`] to capture from microphone and play
+//!   to speakers automatically. Suitable for VoIP applications.
 //!
-//! # Lifecycle and Resource Management
-//!
-//! **Important for iOS**: Platform mode creates a VPIO (Voice Processing IO)
-//! AudioUnit that claims exclusive access to the microphone. Only one VPIO
-//! can exist per process. If not properly cleaned up, other audio frameworks
-//! will get silence when trying to access the microphone.
-//!
-//! ## Recommended Teardown Order
+//! # Using Platform Audio
 //!
 //! ```rust,ignore
-//! use livekit::{AudioManager, AudioMode, Room};
+//! use livekit::prelude::*;
 //!
-//! // Setup
-//! let audio = AudioManager::instance();
-//! audio.set_mode(AudioMode::Platform)?;
-//! let (room, events) = Room::connect(&url, &token, options).await?;
+//! // Create PlatformAudio instance (enables platform ADM)
+//! let audio = PlatformAudio::new()?;
 //!
-//! // ... use room ...
-//!
-//! // Teardown - IMPORTANT: follow this order
-//! // 1. Disconnect from room first
-//! room.disconnect().await;
-//!
-//! // 2. Reset audio to release hardware (VPIO, etc.)
-//! audio.reset();
-//!
-//! // 3. Now other audio frameworks can safely use the microphone
-//! ```
-//!
-//! ## AudioManager Lifetime
-//!
-//! `AudioManager` holds a reference to the LiveKit runtime. Audio configuration
-//! persists as long as the `AudioManager` instance is alive. If you want to
-//! release all resources, either:
-//! - Call `audio.reset()` to switch back to Synthetic mode, or
-//! - Drop the `AudioManager` instance (and ensure no rooms are connected)
-//!
-//! # Example
-//!
-//! ```rust,ignore
-//! use livekit::{AudioManager, AudioMode};
-//!
-//! // Get the audio manager instance
-//! let audio = AudioManager::instance();
-//!
-//! // Enable Platform ADM (before connecting to room)
-//! audio.set_mode(AudioMode::Platform)?;
-//!
-//! // Enumerate recording devices
+//! // Enumerate devices
 //! for i in 0..audio.recording_devices() as u16 {
-//!     println!("Device {}: {}", i, audio.recording_device_name(i));
+//!     println!("Mic {}: {}", i, audio.recording_device_name(i));
 //! }
 //!
-//! // Select a recording device
+//! // Select a device
 //! audio.set_recording_device(0)?;
+//!
+//! // Create and publish audio track
+//! let track = LocalAudioTrack::create_audio_track("mic", audio.rtc_source());
+//! room.local_participant().publish_track(LocalTrack::Audio(track), opts).await?;
+//!
+//! // When audio is dropped, platform ADM is automatically disabled
 //! ```
+//!
+//! # Combining with NativeAudioSource
+//!
+//! You can use both platform audio and manual audio simultaneously:
+//!
+//! ```rust,ignore
+//! use livekit::prelude::*;
+//! use livekit::webrtc::audio_source::native::NativeAudioSource;
+//!
+//! // Track A: Microphone via platform audio
+//! let mic = PlatformAudio::new()?;
+//! let mic_track = LocalAudioTrack::create_audio_track("mic", mic.rtc_source());
+//!
+//! // Track B: Screen capture via manual pushing
+//! let screen_source = NativeAudioSource::new(opts, 48000, 2, 100);
+//! let screen_track = LocalAudioTrack::create_audio_track(
+//!     "screen",
+//!     RtcAudioSource::Native(screen_source),
+//! );
+//!
+//! // Publish both
+//! room.local_participant().publish_track(LocalTrack::Audio(mic_track), opts).await?;
+//! room.local_participant().publish_track(LocalTrack::Audio(screen_track), opts).await?;
+//! ```
+//!
+//! # Reference Counting
+//!
+//! Multiple [`PlatformAudio`] instances share the same underlying ADM:
+//!
+//! ```rust,ignore
+//! let audio1 = PlatformAudio::new()?;  // Enables ADM
+//! let audio2 = PlatformAudio::new()?;  // Reuses same ADM
+//! let audio3 = audio1.clone();         // Shares same ADM
+//!
+//! drop(audio1);
+//! drop(audio2);
+//! // ADM still active (audio3 holds reference)
+//!
+//! drop(audio3);
+//! // ADM now disabled
+//! ```
+//!
+//! # Platform-Specific Notes
+//!
+//! - **iOS**: Creates a VPIO (Voice Processing IO) AudioUnit. Only one VPIO
+//!   can exist per process. Drop all `PlatformAudio` instances to release it.
+//! - **macOS**: Uses CoreAudio.
+//! - **Windows**: Uses WASAPI.
+//! - **Linux**: Uses PulseAudio or ALSA.
 //!
 //! [`NativeAudioSource`]: crate::webrtc::audio_source::native::NativeAudioSource
 
 use std::fmt;
+use std::sync::{Arc, Weak};
+
+use lazy_static::lazy_static;
+use parking_lot::Mutex;
 
 use crate::rtc_engine::lk_runtime::LkRuntime;
 
-// Re-export AdmDelegateType from libwebrtc
-pub use libwebrtc::native::AdmDelegateType;
+// Re-export RtcAudioSource for convenience
+pub use libwebrtc::audio_source::RtcAudioSource;
 
-/// Audio device mode selection.
-///
-/// Determines how audio capture and playout are handled by the SDK.
-///
-/// # Choosing a Mode
-///
-/// | Mode | Audio Capture | Audio Playout | AEC | Use Case |
-/// |------|---------------|---------------|-----|----------|
-/// | Synthetic | Manual (`NativeAudioSource`) | Discarded | No | Agents, TTS, testing |
-/// | Platform | Automatic (microphone) | Automatic (speaker) | Yes | VoIP apps |
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum AudioMode {
-    /// Synthetic ADM - manual audio capture via `NativeAudioSource`.
-    ///
-    /// This is the **default mode**. Audio is captured by manually pushing
-    /// frames to a `NativeAudioSource`.
-    ///
-    /// # Behavior
-    ///
-    /// - **Audio capture**: Manual - push frames via `NativeAudioSource::capture_frame()`
-    /// - **Audio playout**: Discarded - remote participant audio is NOT played to speakers
-    /// - **Echo cancellation (AEC)**: NOT functional (no playout reference)
-    /// - **Track creation**: Use `RtcAudioSource::Native(source)`
-    ///
-    /// # Use Cases
-    ///
-    /// - Server-side agents that process audio programmatically
-    /// - Text-to-speech (TTS) audio streaming
-    /// - Audio from files or network streams
-    /// - Testing without audio hardware
-    /// - Applications that don't need to hear remote participants
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use livekit::prelude::*;
-    /// use livekit::webrtc::audio_source::native::NativeAudioSource;
-    /// use livekit::webrtc::audio_source::{AudioSourceOptions, RtcAudioSource};
-    ///
-    /// // Create audio source for manual frame pushing
-    /// let source = NativeAudioSource::new(
-    ///     AudioSourceOptions::default(),
-    ///     48000, 2, 100,
-    /// );
-    ///
-    /// // Push frames manually
-    /// source.capture_frame(&audio_frame).await?;
-    ///
-    /// // Create track with Native source
-    /// let track = LocalAudioTrack::create_audio_track(
-    ///     "audio",
-    ///     RtcAudioSource::Native(source),
-    /// );
-    /// ```
-    #[default]
-    Synthetic,
-
-    /// Platform ADM - WebRTC's built-in platform audio device management.
-    ///
-    /// In this mode, WebRTC handles all audio I/O using the platform's native
-    /// audio APIs (CoreAudio on macOS/iOS, WASAPI on Windows, etc.).
-    ///
-    /// # Behavior
-    ///
-    /// - **Audio capture**: Automatic - WebRTC captures from selected microphone
-    /// - **Audio playout**: Automatic - remote audio plays to selected speaker
-    /// - **Echo cancellation (AEC)**: Functional
-    /// - **Track creation**: Use `RtcAudioSource::Device`
-    ///
-    /// # Requirements
-    ///
-    /// 1. Call `AudioManager::set_mode(AudioMode::Platform)` **before** connecting
-    /// 2. Use `RtcAudioSource::Device` when creating audio tracks (NOT `NativeAudioSource`)
-    /// 3. Call `AudioManager::reset()` after disconnecting to release hardware
-    ///
-    /// # Platform-Specific Notes
-    ///
-    /// - **iOS**: Creates a VPIO (Voice Processing IO) AudioUnit. Only one VPIO
-    ///   can exist per process. Other audio frameworks will get silence if VPIO
-    ///   is not released via `reset()`.
-    /// - **macOS**: Uses CoreAudio for device management.
-    /// - **Windows**: Uses WASAPI for device management.
-    /// - **Linux**: Uses PulseAudio or ALSA.
-    ///
-    /// # Use Cases
-    ///
-    /// - Standard VoIP/video calling applications
-    /// - Desktop apps with microphone/speaker device selection
-    /// - Applications that need echo cancellation
-    /// - Applications where users need to hear remote participants
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use livekit::prelude::*;
-    /// use livekit::webrtc::audio_source::RtcAudioSource;
-    ///
-    /// let audio = AudioManager::instance();
-    ///
-    /// // 1. Enable Platform mode BEFORE connecting
-    /// audio.set_mode(AudioMode::Platform)?;
-    ///
-    /// // 2. Optionally select devices
-    /// audio.set_recording_device(0)?;
-    ///
-    /// // 3. Connect to room
-    /// let (room, _) = Room::connect(&url, &token, options).await?;
-    ///
-    /// // 4. Create track with Device source (NOT NativeAudioSource!)
-    /// let track = LocalAudioTrack::create_audio_track(
-    ///     "microphone",
-    ///     RtcAudioSource::Device,  // Platform ADM handles capture
-    /// );
-    ///
-    /// // 5. After disconnect, reset to release hardware
-    /// room.disconnect().await;
-    /// audio.reset();  // IMPORTANT: Release VPIO on iOS
-    /// ```
-    Platform,
-}
-
-impl fmt::Display for AudioMode {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AudioMode::Synthetic => write!(f, "Synthetic"),
-            AudioMode::Platform => write!(f, "Platform"),
-        }
-    }
-}
+// =============================================================================
+// Error Types
+// =============================================================================
 
 /// Errors that can occur during audio operations.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -234,7 +125,7 @@ pub enum AudioError {
     /// - No audio devices are available
     /// - Audio permissions are not granted
     /// - Platform audio subsystem is unavailable
-    PlatformAdmInitFailed,
+    PlatformInitFailed,
 
     /// The specified device index is invalid.
     ///
@@ -243,25 +134,16 @@ pub enum AudioError {
 
     /// An audio operation failed.
     OperationFailed(String),
-
-    /// Cannot change audio mode while rooms are connected.
-    ///
-    /// You must disconnect all rooms before changing the audio mode.
-    /// This prevents audio disruption during active calls.
-    RoomConnected,
 }
 
 impl fmt::Display for AudioError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            AudioError::PlatformAdmInitFailed => {
-                write!(f, "Failed to initialize platform audio device module")
+            AudioError::PlatformInitFailed => {
+                write!(f, "Failed to initialize platform audio")
             }
             AudioError::InvalidDeviceIndex => write!(f, "Invalid device index"),
             AudioError::OperationFailed(msg) => write!(f, "Audio operation failed: {}", msg),
-            AudioError::RoomConnected => {
-                write!(f, "Cannot change audio mode while rooms are connected")
-            }
         }
     }
 }
@@ -271,224 +153,409 @@ impl std::error::Error for AudioError {}
 /// Result type for audio operations.
 pub type AudioResult<T> = Result<T, AudioError>;
 
-/// Manages audio device modes and device selection.
-///
-/// `AudioManager` provides a high-level interface for:
-/// - Switching between Synthetic and Platform audio modes
-/// - Enumerating available audio devices
-/// - Selecting recording (microphone) and playout (speaker) devices
-///
-/// # Process-Global Configuration
-///
-/// Audio configuration is **process-global** and affects all rooms.
-/// The same `AudioManager` instance is shared across the entire process.
-///
-/// # Usage Pattern
-///
-/// Configure audio **before** connecting to a room for best results:
-///
-/// ```rust,ignore
-/// use livekit::{AudioManager, AudioMode, Room, RoomOptions};
-///
-/// // 1. Configure audio BEFORE connecting
-/// let audio = AudioManager::instance();
-/// audio.set_mode(AudioMode::Platform)?;
-/// audio.set_recording_device(0)?;
-///
-/// // 2. Connect to room
-/// let (room, events) = Room::connect(&url, &token, RoomOptions::default()).await?;
-///
-/// // 3. Create and publish audio track using RtcAudioSource::Device
-/// ```
-///
-/// # Thread Safety
-///
-/// `AudioManager` is safe to use from multiple threads. All operations
-/// are internally synchronized.
-#[derive(Clone)]
-pub struct AudioManager {
-    // Hold a strong reference to LkRuntime to prevent it from being dropped
-    // while AudioManager is in use
-    runtime: std::sync::Arc<LkRuntime>,
+// =============================================================================
+// Audio Processing Configuration
+// =============================================================================
+
+/// The type of audio processing being used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioProcessingType {
+    /// Hardware audio processing (iOS VPIO, Android hardware effects).
+    Hardware,
+    /// Software audio processing (WebRTC's built-in APM).
+    Software,
+    /// Audio processing is not available or disabled.
+    None,
 }
 
-impl AudioManager {
-    /// Get the `AudioManager` instance.
+impl Default for AudioProcessingType {
+    fn default() -> Self {
+        Self::Software
+    }
+}
+
+/// Configuration options for audio processing (AEC, AGC, NS).
+///
+/// # Platform Behavior
+///
+/// - **iOS**: Hardware processing via VPIO is always used. `prefer_hardware_processing`
+///   is ignored since iOS provides excellent hardware AEC/AGC/NS.
+///
+/// - **Android**: When `prefer_hardware_processing` is `true`, hardware effects are
+///   used if available. However, hardware AEC is unreliable on many Android devices,
+///   so the default is `false` (software processing).
+///
+/// - **Desktop** (macOS, Windows, Linux): Hardware processing is not available.
+///   WebRTC's software Audio Processing Module (APM) is always used.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use livekit::AudioProcessingOptions;
+///
+/// // Use defaults (software processing, all effects enabled)
+/// let opts = AudioProcessingOptions::default();
+///
+/// // Disable echo cancellation
+/// let opts = AudioProcessingOptions {
+///     echo_cancellation: false,
+///     ..Default::default()
+/// };
+///
+/// // Try hardware processing on Android (use with caution)
+/// let opts = AudioProcessingOptions {
+///     prefer_hardware_processing: true,
+///     ..Default::default()
+/// };
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AudioProcessingOptions {
+    /// Enable echo cancellation.
     ///
-    /// This returns a handle to the process-global audio manager.
-    /// Multiple calls return handles to the same underlying instance.
+    /// Echo cancellation removes acoustic echo from the microphone signal,
+    /// which occurs when the speaker output is picked up by the microphone.
     ///
-    /// # Note
+    /// Default: `true`
+    pub echo_cancellation: bool,
+
+    /// Enable noise suppression.
     ///
-    /// The first call to this method will initialize the LiveKit runtime
-    /// if it hasn't been initialized already.
-    pub fn instance() -> Self {
+    /// Noise suppression reduces background noise in the microphone signal.
+    ///
+    /// Default: `true`
+    pub noise_suppression: bool,
+
+    /// Enable automatic gain control.
+    ///
+    /// AGC automatically adjusts the microphone volume to maintain
+    /// consistent audio levels.
+    ///
+    /// Default: `true`
+    pub auto_gain_control: bool,
+
+    /// Prefer hardware audio processing when available.
+    ///
+    /// - **iOS**: Ignored (always uses VPIO hardware)
+    /// - **Android**: When `true`, uses hardware effects if available.
+    ///   Default is `false` because hardware AEC is unreliable on many devices.
+    /// - **Desktop**: Ignored (hardware not available)
+    ///
+    /// Default: `false` (use reliable software processing)
+    pub prefer_hardware_processing: bool,
+}
+
+impl Default for AudioProcessingOptions {
+    fn default() -> Self {
         Self {
-            runtime: LkRuntime::instance(),
+            echo_cancellation: true,
+            noise_suppression: true,
+            auto_gain_control: true,
+            prefer_hardware_processing: false,
         }
     }
+}
 
-    // === Mode Selection ===
+// =============================================================================
+// PlatformAudio - Reference-counted platform audio device management
+// =============================================================================
 
-    /// Sets the audio device mode.
+lazy_static! {
+    /// Weak reference to the shared Platform ADM handle.
+    /// When all strong references are dropped, the ADM is automatically disabled.
+    static ref PLATFORM_ADM_HANDLE: Mutex<Weak<PlatformAdmHandle>> = Mutex::new(Weak::new());
+}
+
+/// Internal handle for platform audio.
+///
+/// This is a marker type that tracks PlatformAudio usage. The Platform ADM
+/// is always enabled and does not need to be disabled when dropped.
+struct PlatformAdmHandle {
+    runtime: Arc<LkRuntime>,
+}
+
+impl Drop for PlatformAdmHandle {
+    fn drop(&mut self) {
+        log::debug!("PlatformAdmHandle dropped");
+        // Platform ADM is always enabled, no cleanup needed
+    }
+}
+
+/// Platform audio device management for microphone capture and speaker playout.
+///
+/// `PlatformAudio` provides access to the platform's audio devices via WebRTC's
+/// Audio Device Module (ADM). Use it to:
+///
+/// - Enumerate available microphones and speakers
+/// - Select which devices to use
+/// - Create audio tracks that capture from the microphone
+///
+/// # Creating a PlatformAudio Instance
+///
+/// ```rust,ignore
+/// use livekit::PlatformAudio;
+///
+/// let audio = PlatformAudio::new()?;
+/// ```
+///
+/// This enables the platform ADM. If an instance already exists, the new
+/// instance shares the same underlying ADM.
+///
+/// # Device Enumeration
+///
+/// ```rust,ignore
+/// // List microphones
+/// for i in 0..audio.recording_devices() as u16 {
+///     println!("Mic {}: {}", i, audio.recording_device_name(i));
+/// }
+///
+/// // List speakers
+/// for i in 0..audio.playout_devices() as u16 {
+///     println!("Speaker {}: {}", i, audio.playout_device_name(i));
+/// }
+/// ```
+///
+/// # Device Selection
+///
+/// ```rust,ignore
+/// // Select microphone by index
+/// audio.set_recording_device(0)?;
+///
+/// // Select speaker by index
+/// audio.set_playout_device(0)?;
+///
+/// // Hot-swap devices during active session
+/// audio.switch_recording_device(1)?;
+/// audio.switch_playout_device(1)?;
+/// ```
+///
+/// # Creating Audio Tracks
+///
+/// ```rust,ignore
+/// use livekit::prelude::*;
+///
+/// let audio = PlatformAudio::new()?;
+/// let track = LocalAudioTrack::create_audio_track("microphone", audio.rtc_source());
+///
+/// room.local_participant()
+///     .publish_track(LocalTrack::Audio(track), opts)
+///     .await?;
+/// ```
+///
+/// # Lifecycle Management
+///
+/// `PlatformAudio` uses reference counting. Multiple instances share the same
+/// underlying ADM, and the ADM is automatically disabled when all instances
+/// are dropped.
+///
+/// ```rust,ignore
+/// let audio1 = PlatformAudio::new()?;  // Enables ADM
+/// let audio2 = PlatformAudio::new()?;  // Shares ADM (ref_count = 2)
+/// let audio3 = audio1.clone();         // Shares ADM (ref_count = 3)
+///
+/// drop(audio1);  // ref_count = 2, ADM still active
+/// drop(audio2);  // ref_count = 1, ADM still active
+/// drop(audio3);  // ref_count = 0, ADM disabled
+/// ```
+///
+/// You can also explicitly release:
+///
+/// ```rust,ignore
+/// audio.release();  // Equivalent to drop(audio)
+/// ```
+///
+/// # Platform-Specific Notes
+///
+/// - **iOS**: Creates a VPIO AudioUnit (exclusive microphone access).
+///   Drop all instances to allow other audio frameworks to use the mic.
+/// - **macOS**: Uses CoreAudio for device management.
+/// - **Windows**: Uses WASAPI for device management.
+/// - **Linux**: Uses PulseAudio or ALSA.
+#[derive(Clone)]
+pub struct PlatformAudio {
+    /// Shared ownership of the Platform ADM handle.
+    /// When the last clone is dropped, the ADM is disabled.
+    handle: Arc<PlatformAdmHandle>,
+}
+
+impl PlatformAudio {
+    /// Creates a new `PlatformAudio` instance.
     ///
-    /// Call this **before** connecting to a room for best results.
-    /// Mode switching while connected is supported but may briefly interrupt audio.
-    ///
-    /// # Arguments
-    ///
-    /// * `mode` - The audio mode to enable
+    /// Platform ADM is always available and initialized at startup.
+    /// If another `PlatformAudio` instance exists, this reuses the same handle.
     ///
     /// # Errors
     ///
-    /// Returns `AudioError::PlatformAdmInitFailed` if Platform mode cannot be
-    /// initialized (e.g., no audio devices available, permissions denied).
+    /// Returns [`AudioError::PlatformInitFailed`] if no audio devices are available.
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// use livekit::{AudioManager, AudioMode};
+    /// use livekit::PlatformAudio;
     ///
-    /// let audio = AudioManager::instance();
-    ///
-    /// // Enable Platform ADM for real microphone/speaker support
-    /// audio.set_mode(AudioMode::Platform)?;
+    /// let audio = PlatformAudio::new()?;
+    /// println!("Found {} microphones", audio.recording_devices());
     /// ```
-    pub fn set_mode(&self, mode: AudioMode) -> AudioResult<()> {
-        use crate::rtc_engine::lk_runtime::LkRuntime;
+    pub fn new() -> AudioResult<Self> {
+        let mut handle_ref = PLATFORM_ADM_HANDLE.lock();
 
-        // Check if any rooms are connected - mode switching is not allowed while connected
-        if LkRuntime::has_active_rooms() {
-            return Err(AudioError::RoomConnected);
+        // Try to reuse existing handle
+        if let Some(handle) = handle_ref.upgrade() {
+            log::debug!("PlatformAudio: reusing existing handle");
+            return Ok(Self { handle });
         }
 
-        match mode {
-            AudioMode::Synthetic => {
-                self.runtime.clear_adm_delegate();
-                Ok(())
-            }
-            AudioMode::Platform => {
-                if self.runtime.enable_platform_adm() {
-                    Ok(())
-                } else {
-                    Err(AudioError::PlatformAdmInitFailed)
-                }
-            }
-        }
+        // Create new handle (Platform ADM is always enabled at startup)
+        log::debug!("PlatformAudio: creating new handle");
+        let runtime = LkRuntime::instance();
+
+        // Enable ADM recording since PlatformAudio needs microphone access
+        // Recording is disabled by default to prevent interference with NativeAudioSource
+        runtime.set_adm_recording_enabled(true);
+        log::info!("PlatformAudio: enabled ADM recording for microphone capture");
+
+        // Verify Platform ADM is working by checking device count
+        let recording_count = runtime.recording_devices();
+        let playout_count = runtime.playout_devices();
+        log::info!(
+            "PlatformAudio: {} recording devices, {} playout devices",
+            recording_count,
+            playout_count
+        );
+
+        let handle = Arc::new(PlatformAdmHandle { runtime });
+        *handle_ref = Arc::downgrade(&handle);
+
+        Ok(Self { handle })
     }
 
-    /// Returns the current audio mode.
+    // =========================================================================
+    // Audio Source
+    // =========================================================================
+
+    /// Returns the [`RtcAudioSource`] to use when creating audio tracks.
+    ///
+    /// This returns `RtcAudioSource::Device`, which tells the track to capture
+    /// audio from the platform's selected recording device (microphone).
     ///
     /// # Example
     ///
-    /// ```rust,no_run
-    /// use livekit::{AudioManager, AdmDelegateType};
+    /// ```rust,ignore
+    /// use livekit::prelude::*;
     ///
-    /// let audio = AudioManager::instance();
-    /// match audio.current_mode() {
-    ///     AdmDelegateType::Synthetic => println!("Using synthetic ADM"),
-    ///     AdmDelegateType::Platform => println!("Using platform ADM"),
-    /// }
+    /// let audio = PlatformAudio::new()?;
+    /// let track = LocalAudioTrack::create_audio_track("mic", audio.rtc_source());
     /// ```
-    pub fn current_mode(&self) -> AdmDelegateType {
-        self.runtime.adm_delegate_type()
+    pub fn rtc_source(&self) -> RtcAudioSource {
+        RtcAudioSource::Device
     }
 
-    /// Returns `true` if Platform ADM is currently active.
-    ///
-    /// When this returns `true`, device enumeration and selection methods
-    /// will return meaningful results.
-    pub fn has_active_adm(&self) -> bool {
-        self.runtime.has_adm_delegate()
-    }
-
-    // === Device Enumeration ===
-
-    /// Returns the number of available playout (speaker) devices.
-    ///
-    /// Returns 0 in Synthetic mode or if no devices are available.
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// use livekit::AudioManager;
-    ///
-    /// let audio = AudioManager::instance();
-    /// println!("Found {} speaker devices", audio.playout_devices());
-    /// ```
-    pub fn playout_devices(&self) -> i16 {
-        self.runtime.playout_devices()
-    }
+    // =========================================================================
+    // Device Enumeration
+    // =========================================================================
 
     /// Returns the number of available recording (microphone) devices.
     ///
-    /// Returns 0 in Synthetic mode or if no devices are available.
-    ///
     /// # Example
     ///
-    /// ```rust,no_run
-    /// use livekit::AudioManager;
-    ///
-    /// let audio = AudioManager::instance();
-    /// println!("Found {} microphone devices", audio.recording_devices());
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// println!("Found {} microphones", audio.recording_devices());
     /// ```
     pub fn recording_devices(&self) -> i16 {
-        self.runtime.recording_devices()
+        self.handle.runtime.recording_devices()
     }
 
-    /// Returns the name of a playout device by index.
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - Device index (0-based)
-    ///
-    /// # Warning
-    ///
-    /// Device indices may change when devices are connected/disconnected.
-    /// For persistent device selection, match devices by name rather than index.
+    /// Returns the number of available playout (speaker) devices.
     ///
     /// # Example
     ///
-    /// ```rust,no_run
-    /// use livekit::AudioManager;
-    ///
-    /// let audio = AudioManager::instance();
-    /// for i in 0..audio.playout_devices() as u16 {
-    ///     println!("Speaker {}: {}", i, audio.playout_device_name(i));
-    /// }
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// println!("Found {} speakers", audio.playout_devices());
     /// ```
-    pub fn playout_device_name(&self, index: u16) -> String {
-        self.runtime.playout_device_name(index)
+    pub fn playout_devices(&self) -> i16 {
+        self.handle.runtime.playout_devices()
     }
 
     /// Returns the name of a recording device by index.
     ///
     /// # Arguments
     ///
-    /// * `index` - Device index (0-based)
-    ///
-    /// # Warning
-    ///
-    /// Device indices may change when devices are connected/disconnected.
-    /// For persistent device selection, match devices by name rather than index.
+    /// * `index` - Device index (0-based, must be < `recording_devices()`)
     ///
     /// # Example
     ///
-    /// ```rust,no_run
-    /// use livekit::AudioManager;
-    ///
-    /// let audio = AudioManager::instance();
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
     /// for i in 0..audio.recording_devices() as u16 {
-    ///     println!("Microphone {}: {}", i, audio.recording_device_name(i));
+    ///     println!("Mic {}: {}", i, audio.recording_device_name(i));
     /// }
     /// ```
     pub fn recording_device_name(&self, index: u16) -> String {
-        self.runtime.recording_device_name(index)
+        self.handle.runtime.recording_device_name(index)
     }
 
-    // === Device Selection ===
+    /// Returns the name of a playout device by index.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Device index (0-based, must be < `playout_devices()`)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// for i in 0..audio.playout_devices() as u16 {
+    ///     println!("Speaker {}: {}", i, audio.playout_device_name(i));
+    /// }
+    /// ```
+    pub fn playout_device_name(&self, index: u16) -> String {
+        self.handle.runtime.playout_device_name(index)
+    }
+
+    // =========================================================================
+    // Device Selection
+    // =========================================================================
+
+    /// Selects a recording (microphone) device by index.
+    ///
+    /// Call this before creating audio tracks to select which microphone to use.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Device index (0-based, must be < `recording_devices()`)
+    ///
+    /// # Errors
+    ///
+    /// - [`AudioError::InvalidDeviceIndex`] if index is out of range
+    /// - [`AudioError::OperationFailed`] if device selection fails
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// audio.set_recording_device(0)?;  // Select first microphone
+    /// ```
+    pub fn set_recording_device(&self, index: u16) -> AudioResult<()> {
+        let count = self.recording_devices();
+        if index >= count as u16 {
+            return Err(AudioError::InvalidDeviceIndex);
+        }
+
+        let result = self.handle.runtime.set_recording_device(index);
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(AudioError::OperationFailed(format!(
+                "set_recording_device returned {}",
+                result
+            )))
+        }
+    }
 
     /// Selects a playout (speaker) device by index.
+    ///
+    /// Call this before connecting to select which speaker to use for audio output.
     ///
     /// # Arguments
     ///
@@ -496,21 +563,14 @@ impl AudioManager {
     ///
     /// # Errors
     ///
-    /// Returns `AudioError::InvalidDeviceIndex` if the index is out of range.
-    /// Returns `AudioError::OperationFailed` if the device cannot be selected.
-    ///
-    /// # Warning
-    ///
-    /// Device indices may change when devices are connected/disconnected.
+    /// - [`AudioError::InvalidDeviceIndex`] if index is out of range
+    /// - [`AudioError::OperationFailed`] if device selection fails
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// use livekit::AudioManager;
-    ///
-    /// let audio = AudioManager::instance();
-    /// // Select the first speaker
-    /// audio.set_playout_device(0)?;
+    /// let audio = PlatformAudio::new()?;
+    /// audio.set_playout_device(0)?;  // Select first speaker
     /// ```
     pub fn set_playout_device(&self, index: u16) -> AudioResult<()> {
         let count = self.playout_devices();
@@ -518,7 +578,7 @@ impl AudioManager {
             return Err(AudioError::InvalidDeviceIndex);
         }
 
-        let result = self.runtime.set_playout_device(index);
+        let result = self.handle.runtime.set_playout_device(index);
         if result == 0 {
             Ok(())
         } else {
@@ -529,7 +589,10 @@ impl AudioManager {
         }
     }
 
-    /// Selects a recording (microphone) device by index.
+    /// Switches the recording device while audio is active (hot-swap).
+    ///
+    /// Unlike [`set_recording_device`], this method handles the stop/change/restart
+    /// sequence required when recording is already active.
     ///
     /// # Arguments
     ///
@@ -537,77 +600,28 @@ impl AudioManager {
     ///
     /// # Errors
     ///
-    /// Returns `AudioError::InvalidDeviceIndex` if the index is out of range.
-    /// Returns `AudioError::OperationFailed` if the device cannot be selected.
-    ///
-    /// # Warning
-    ///
-    /// Device indices may change when devices are connected/disconnected.
+    /// - [`AudioError::InvalidDeviceIndex`] if index is out of range
+    /// - [`AudioError::OperationFailed`] if any step fails
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// use livekit::AudioManager;
-    ///
-    /// let audio = AudioManager::instance();
-    /// // Select the first microphone
-    /// audio.set_recording_device(0)?;
-    /// ```
-    pub fn set_recording_device(&self, index: u16) -> AudioResult<()> {
-        let count = self.recording_devices();
-        if index >= count as u16 {
-            return Err(AudioError::InvalidDeviceIndex);
-        }
-
-        let result = self.runtime.set_recording_device(index);
-        if result == 0 {
-            Ok(())
-        } else {
-            Err(AudioError::OperationFailed(format!(
-                "set_recording_device returned {}",
-                result
-            )))
-        }
-    }
-
-    // === Device Switching (Hot-swap) ===
-
-    /// Switches the recording (microphone) device while audio is active.
-    ///
-    /// Unlike `set_recording_device()`, this method properly handles the case
-    /// where recording is already initialized. It stops recording, changes the
-    /// device, and restarts recording.
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - Device index (0-based, must be < `recording_devices()`)
-    ///
-    /// # Errors
-    ///
-    /// Returns `AudioError::InvalidDeviceIndex` if the index is out of range.
-    /// Returns `AudioError::OperationFailed` if any step fails.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// use livekit::AudioManager;
-    ///
-    /// let audio = AudioManager::instance();
-    /// // Switch to a different microphone while in a call
+    /// // During an active call, switch to a different microphone
     /// audio.switch_recording_device(1)?;
     /// ```
+    ///
+    /// [`set_recording_device`]: Self::set_recording_device
     pub fn switch_recording_device(&self, index: u16) -> AudioResult<()> {
         let count = self.recording_devices();
         if index >= count as u16 {
             return Err(AudioError::InvalidDeviceIndex);
         }
 
-        // Check if recording is currently initialized
-        let was_initialized = self.runtime.recording_is_initialized();
+        let runtime = &self.handle.runtime;
+        let was_initialized = runtime.recording_is_initialized();
 
         if was_initialized {
-            // Stop recording to clear the initialized state
-            let result = self.runtime.stop_recording();
+            let result = runtime.stop_recording();
             if result != 0 {
                 return Err(AudioError::OperationFailed(format!(
                     "stop_recording returned {}",
@@ -616,8 +630,7 @@ impl AudioManager {
             }
         }
 
-        // Now set the device (should succeed since recording is stopped)
-        let result = self.runtime.set_recording_device(index);
+        let result = runtime.set_recording_device(index);
         if result != 0 {
             return Err(AudioError::OperationFailed(format!(
                 "set_recording_device returned {}",
@@ -625,9 +638,8 @@ impl AudioManager {
             )));
         }
 
-        // Re-initialize and start if it was previously initialized
         if was_initialized {
-            let result = self.runtime.init_recording();
+            let result = runtime.init_recording();
             if result != 0 {
                 return Err(AudioError::OperationFailed(format!(
                     "init_recording returned {}",
@@ -635,7 +647,7 @@ impl AudioManager {
                 )));
             }
 
-            let result = self.runtime.start_recording();
+            let result = runtime.start_recording();
             if result != 0 {
                 return Err(AudioError::OperationFailed(format!(
                     "start_recording returned {}",
@@ -647,11 +659,10 @@ impl AudioManager {
         Ok(())
     }
 
-    /// Switches the playout (speaker) device while audio is active.
+    /// Switches the playout device while audio is active (hot-swap).
     ///
-    /// Unlike `set_playout_device()`, this method properly handles the case
-    /// where playout is already initialized. It stops playout, changes the
-    /// device, and restarts playout.
+    /// Unlike [`set_playout_device`], this method handles the stop/change/restart
+    /// sequence required when playout is already active.
     ///
     /// # Arguments
     ///
@@ -659,30 +670,28 @@ impl AudioManager {
     ///
     /// # Errors
     ///
-    /// Returns `AudioError::InvalidDeviceIndex` if the index is out of range.
-    /// Returns `AudioError::OperationFailed` if any step fails.
+    /// - [`AudioError::InvalidDeviceIndex`] if index is out of range
+    /// - [`AudioError::OperationFailed`] if any step fails
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// use livekit::AudioManager;
-    ///
-    /// let audio = AudioManager::instance();
-    /// // Switch to a different speaker while in a call
+    /// // During an active call, switch to a different speaker
     /// audio.switch_playout_device(1)?;
     /// ```
+    ///
+    /// [`set_playout_device`]: Self::set_playout_device
     pub fn switch_playout_device(&self, index: u16) -> AudioResult<()> {
         let count = self.playout_devices();
         if index >= count as u16 {
             return Err(AudioError::InvalidDeviceIndex);
         }
 
-        // Check if playout is currently initialized
-        let was_initialized = self.runtime.playout_is_initialized();
+        let runtime = &self.handle.runtime;
+        let was_initialized = runtime.playout_is_initialized();
 
         if was_initialized {
-            // Stop playout to clear the initialized state
-            let result = self.runtime.stop_playout();
+            let result = runtime.stop_playout();
             if result != 0 {
                 return Err(AudioError::OperationFailed(format!(
                     "stop_playout returned {}",
@@ -691,8 +700,7 @@ impl AudioManager {
             }
         }
 
-        // Now set the device (should succeed since playout is stopped)
-        let result = self.runtime.set_playout_device(index);
+        let result = runtime.set_playout_device(index);
         if result != 0 {
             return Err(AudioError::OperationFailed(format!(
                 "set_playout_device returned {}",
@@ -700,9 +708,8 @@ impl AudioManager {
             )));
         }
 
-        // Re-initialize and start if it was previously initialized
         if was_initialized {
-            let result = self.runtime.init_playout();
+            let result = runtime.init_playout();
             if result != 0 {
                 return Err(AudioError::OperationFailed(format!(
                     "init_playout returned {}",
@@ -710,7 +717,7 @@ impl AudioManager {
                 )));
             }
 
-            let result = self.runtime.start_playout();
+            let result = runtime.start_playout();
             if result != 0 {
                 return Err(AudioError::OperationFailed(format!(
                     "start_playout returned {}",
@@ -722,89 +729,302 @@ impl AudioManager {
         Ok(())
     }
 
-    // === Cleanup ===
+    // =========================================================================
+    // Lifecycle Management
+    // =========================================================================
 
-    /// Resets audio to default state (Synthetic mode), releasing hardware resources.
+    /// Returns the number of active references to the platform ADM.
     ///
-    /// **Important**: You MUST call this after disconnecting from a room when using
-    /// Platform ADM mode, especially on iOS. Failure to call `reset()` will leave
-    /// hardware resources (like VPIO AudioUnit) allocated, preventing other audio
-    /// frameworks from accessing the microphone.
-    ///
-    /// # What This Does
-    ///
-    /// - Stops audio recording and playout
-    /// - Releases platform audio hardware (VPIO on iOS, CoreAudio on macOS, etc.)
-    /// - Switches back to Synthetic mode
-    /// - Allows other audio frameworks to use the microphone
-    ///
-    /// # When to Call
-    ///
-    /// | Scenario | Call `reset()`? |
-    /// |----------|-----------------|
-    /// | Using Platform ADM and disconnecting | **Yes, required** |
-    /// | Using Synthetic mode | No (optional) |
-    /// | Reconnecting to another room immediately | No (keep Platform mode) |
-    /// | App going to background (iOS) | Yes, recommended |
-    /// | Other audio framework needs microphone | **Yes, required** |
-    ///
-    /// # iOS-Specific Warning
-    ///
-    /// On iOS, Platform ADM creates a VPIO (Voice Processing IO) AudioUnit that
-    /// claims exclusive access to the microphone at the Core Audio level. Only
-    /// ONE VPIO can exist per process. If you don't call `reset()`:
-    ///
-    /// - Other audio frameworks (e.g., speech recognition, other recording libs)
-    ///   will receive **silence** when trying to access the microphone
-    /// - The VPIO remains allocated until the process terminates
-    ///
-    /// # Recommended Teardown Order
-    ///
-    /// ```rust,ignore
-    /// use livekit::{AudioManager, AudioMode};
-    ///
-    /// // 1. Disconnect from room FIRST
-    /// room.disconnect().await;
-    ///
-    /// // 2. Reset audio to release hardware resources
-    /// let audio = AudioManager::instance();
-    /// audio.reset();
-    ///
-    /// // 3. Now other audio frameworks can safely use the microphone
-    /// // e.g., speech recognition, other recording libraries, etc.
-    /// ```
+    /// This includes all `PlatformAudio` instances sharing the same ADM.
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// use livekit::{AudioManager, AudioMode};
+    /// let audio1 = PlatformAudio::new()?;
+    /// assert_eq!(audio1.ref_count(), 1);
     ///
-    /// let audio = AudioManager::instance();
-    ///
-    /// // Setup
-    /// audio.set_mode(AudioMode::Platform)?;
-    /// let (room, _) = Room::connect(&url, &token, options).await?;
-    ///
-    /// // ... use room ...
-    ///
-    /// // Cleanup - IMPORTANT!
-    /// room.disconnect().await;
-    /// audio.reset();  // Releases VPIO, CoreAudio, WASAPI, etc.
+    /// let audio2 = audio1.clone();
+    /// assert_eq!(audio1.ref_count(), 2);
     /// ```
-    pub fn reset(&self) {
-        self.runtime.clear_adm_delegate();
+    pub fn ref_count(&self) -> usize {
+        Arc::strong_count(&self.handle)
+    }
+
+    /// Explicitly releases this instance's reference to the platform ADM.
+    ///
+    /// This is equivalent to `drop(self)`. If this is the last reference,
+    /// the platform ADM is disabled and hardware resources are released.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// // ... use audio ...
+    /// audio.release();  // ADM disabled if this was the last reference
+    /// ```
+    pub fn release(self) {
+        drop(self);
+    }
+
+    // =========================================================================
+    // Audio Processing (AEC, AGC, NS)
+    // =========================================================================
+
+    /// Checks if hardware echo cancellation is available on this device.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **iOS**: Returns `true` (VPIO provides hardware AEC)
+    /// - **Android**: Returns `true` on devices with hardware AEC support
+    /// - **Desktop**: Returns `false` (hardware AEC not available)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// if audio.is_hardware_aec_available() {
+    ///     println!("Hardware AEC is available");
+    /// }
+    /// ```
+    pub fn is_hardware_aec_available(&self) -> bool {
+        self.handle.runtime.builtin_aec_is_available()
+    }
+
+    /// Checks if hardware automatic gain control is available on this device.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **iOS**: Returns `true` (VPIO provides hardware AGC)
+    /// - **Android**: Returns `true` on devices with hardware AGC support
+    /// - **Desktop**: Returns `false` (hardware AGC not available)
+    pub fn is_hardware_agc_available(&self) -> bool {
+        self.handle.runtime.builtin_agc_is_available()
+    }
+
+    /// Checks if hardware noise suppression is available on this device.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **iOS**: Returns `true` (VPIO provides hardware NS)
+    /// - **Android**: Returns `true` on devices with hardware NS support
+    /// - **Desktop**: Returns `false` (hardware NS not available)
+    pub fn is_hardware_ns_available(&self) -> bool {
+        self.handle.runtime.builtin_ns_is_available()
+    }
+
+    /// Gets the type of echo cancellation currently active.
+    ///
+    /// # Returns
+    ///
+    /// - [`AudioProcessingType::Hardware`] if hardware AEC is available and enabled
+    /// - [`AudioProcessingType::Software`] if using WebRTC's software AEC
+    /// - [`AudioProcessingType::None`] if AEC is disabled
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// match audio.active_aec_type() {
+    ///     AudioProcessingType::Hardware => println!("Using hardware AEC"),
+    ///     AudioProcessingType::Software => println!("Using software AEC"),
+    ///     AudioProcessingType::None => println!("AEC disabled"),
+    /// }
+    /// ```
+    pub fn active_aec_type(&self) -> AudioProcessingType {
+        if self.is_hardware_aec_available() {
+            AudioProcessingType::Hardware
+        } else {
+            AudioProcessingType::Software
+        }
+    }
+
+    /// Gets the type of automatic gain control currently active.
+    pub fn active_agc_type(&self) -> AudioProcessingType {
+        if self.is_hardware_agc_available() {
+            AudioProcessingType::Hardware
+        } else {
+            AudioProcessingType::Software
+        }
+    }
+
+    /// Gets the type of noise suppression currently active.
+    pub fn active_ns_type(&self) -> AudioProcessingType {
+        if self.is_hardware_ns_available() {
+            AudioProcessingType::Hardware
+        } else {
+            AudioProcessingType::Software
+        }
+    }
+
+    /// Configures audio processing with the given options.
+    ///
+    /// This method configures echo cancellation, noise suppression, and
+    /// automatic gain control based on the provided options.
+    ///
+    /// # Platform Behavior
+    ///
+    /// - **iOS**: `prefer_hardware_processing` is ignored (always uses VPIO)
+    /// - **Android**: When `prefer_hardware_processing` is `false`, hardware
+    ///   effects are disabled and WebRTC's software APM is used instead
+    /// - **Desktop**: `prefer_hardware_processing` is ignored (hardware not available)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use livekit::{PlatformAudio, AudioProcessingOptions};
+    ///
+    /// let audio = PlatformAudio::new()?;
+    ///
+    /// // Use defaults (software processing recommended)
+    /// audio.configure_audio_processing(AudioProcessingOptions::default())?;
+    ///
+    /// // Disable echo cancellation
+    /// audio.configure_audio_processing(AudioProcessingOptions {
+    ///     echo_cancellation: false,
+    ///     ..Default::default()
+    /// })?;
+    /// ```
+    pub fn configure_audio_processing(&self, options: AudioProcessingOptions) -> AudioResult<()> {
+        let runtime = &self.handle.runtime;
+
+        // Configure hardware vs software processing preference
+        // When prefer_hardware_processing is false, we disable hardware effects
+        // to force WebRTC to use its software APM instead
+        let use_hardware = options.prefer_hardware_processing;
+
+        // Enable/disable hardware AEC
+        // Note: When hardware is disabled, WebRTC automatically falls back to software
+        if runtime.builtin_aec_is_available() {
+            let enable_hw = use_hardware && options.echo_cancellation;
+            let result = runtime.enable_builtin_aec(enable_hw);
+            if result != 0 {
+                log::warn!("enable_builtin_aec({}) returned {}", enable_hw, result);
+            }
+        }
+
+        // Enable/disable hardware AGC
+        if runtime.builtin_agc_is_available() {
+            let enable_hw = use_hardware && options.auto_gain_control;
+            let result = runtime.enable_builtin_agc(enable_hw);
+            if result != 0 {
+                log::warn!("enable_builtin_agc({}) returned {}", enable_hw, result);
+            }
+        }
+
+        // Enable/disable hardware NS
+        if runtime.builtin_ns_is_available() {
+            let enable_hw = use_hardware && options.noise_suppression;
+            let result = runtime.enable_builtin_ns(enable_hw);
+            if result != 0 {
+                log::warn!("enable_builtin_ns({}) returned {}", enable_hw, result);
+            }
+        }
+
+        log::info!(
+            "Audio processing configured: AEC={}, AGC={}, NS={}, prefer_hw={}",
+            options.echo_cancellation,
+            options.auto_gain_control,
+            options.noise_suppression,
+            options.prefer_hardware_processing
+        );
+
+        Ok(())
+    }
+
+    /// Enables or disables echo cancellation.
+    ///
+    /// This is a convenience method equivalent to calling `configure_audio_processing`
+    /// with only the `echo_cancellation` field changed.
+    ///
+    /// # Arguments
+    ///
+    /// * `enable` - `true` to enable AEC, `false` to disable
+    /// * `prefer_hardware` - `true` to prefer hardware AEC on supported devices
+    pub fn set_echo_cancellation(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
+        if self.is_hardware_aec_available() {
+            let enable_hw = enable && prefer_hardware;
+            let result = self.handle.runtime.enable_builtin_aec(enable_hw);
+            if result != 0 {
+                return Err(AudioError::OperationFailed(format!(
+                    "enable_builtin_aec returned {}",
+                    result
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Enables or disables automatic gain control.
+    ///
+    /// # Arguments
+    ///
+    /// * `enable` - `true` to enable AGC, `false` to disable
+    /// * `prefer_hardware` - `true` to prefer hardware AGC on supported devices
+    pub fn set_auto_gain_control(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
+        if self.is_hardware_agc_available() {
+            let enable_hw = enable && prefer_hardware;
+            let result = self.handle.runtime.enable_builtin_agc(enable_hw);
+            if result != 0 {
+                return Err(AudioError::OperationFailed(format!(
+                    "enable_builtin_agc returned {}",
+                    result
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Enables or disables noise suppression.
+    ///
+    /// # Arguments
+    ///
+    /// * `enable` - `true` to enable NS, `false` to disable
+    /// * `prefer_hardware` - `true` to prefer hardware NS on supported devices
+    pub fn set_noise_suppression(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
+        if self.is_hardware_ns_available() {
+            let enable_hw = enable && prefer_hardware;
+            let result = self.handle.runtime.enable_builtin_ns(enable_hw);
+            if result != 0 {
+                return Err(AudioError::OperationFailed(format!(
+                    "enable_builtin_ns returned {}",
+                    result
+                )));
+            }
+        }
+        Ok(())
     }
 }
 
-impl fmt::Debug for AudioManager {
+impl fmt::Debug for PlatformAudio {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("AudioManager")
-            .field("mode", &self.current_mode())
-            .field("has_active_adm", &self.has_active_adm())
+        f.debug_struct("PlatformAudio")
+            .field("ref_count", &self.ref_count())
             .field("recording_devices", &self.recording_devices())
             .field("playout_devices", &self.playout_devices())
             .finish()
     }
+}
+
+/// Resets the platform audio handle references.
+///
+/// This drops all references to the platform audio handle, allowing
+/// a fresh `PlatformAudio` instance to be created. The Platform ADM
+/// itself remains active.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use livekit::{PlatformAudio, reset_platform_audio};
+///
+/// let audio = PlatformAudio::new()?;
+/// // ... use audio ...
+///
+/// // Reset handle references
+/// reset_platform_audio();
+/// ```
+pub fn reset_platform_audio() {
+    let mut handle_ref = PLATFORM_ADM_HANDLE.lock();
+    *handle_ref = Weak::new();
 }
 
 #[cfg(test)]
@@ -812,50 +1032,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn audio_mode_default_is_synthetic() {
-        let mode: AudioMode = Default::default();
-        assert_eq!(mode, AudioMode::Synthetic);
-    }
-
-    #[test]
-    fn audio_mode_display() {
-        assert_eq!(format!("{}", AudioMode::Synthetic), "Synthetic");
-        assert_eq!(format!("{}", AudioMode::Platform), "Platform");
-    }
-
-    #[test]
-    fn audio_mode_equality() {
-        assert_eq!(AudioMode::Synthetic, AudioMode::Synthetic);
-        assert_eq!(AudioMode::Platform, AudioMode::Platform);
-        assert_ne!(AudioMode::Synthetic, AudioMode::Platform);
-    }
-
-    #[test]
-    fn audio_mode_clone_and_copy() {
-        let mode = AudioMode::Platform;
-        let cloned = mode.clone();
-        let copied = mode; // Copy
-
-        assert_eq!(mode, cloned);
-        assert_eq!(mode, copied);
-    }
-
-    #[test]
-    fn audio_mode_debug() {
-        let mode = AudioMode::Synthetic;
-        let debug_str = format!("{:?}", mode);
-        assert!(debug_str.contains("Synthetic"));
-
-        let mode = AudioMode::Platform;
-        let debug_str = format!("{:?}", mode);
-        assert!(debug_str.contains("Platform"));
-    }
-
-    #[test]
     fn audio_error_display() {
-        let err = AudioError::PlatformAdmInitFailed;
+        let err = AudioError::PlatformInitFailed;
         let msg = format!("{}", err);
-        assert!(msg.contains("platform audio device module"));
+        assert!(msg.contains("platform audio"));
 
         let err = AudioError::InvalidDeviceIndex;
         let msg = format!("{}", err);
@@ -868,23 +1048,18 @@ mod tests {
 
     #[test]
     fn audio_error_debug() {
-        let err = AudioError::PlatformAdmInitFailed;
+        let err = AudioError::PlatformInitFailed;
         let debug_str = format!("{:?}", err);
-        assert!(debug_str.contains("PlatformAdmInitFailed"));
+        assert!(debug_str.contains("PlatformInitFailed"));
 
         let err = AudioError::InvalidDeviceIndex;
         let debug_str = format!("{:?}", err);
         assert!(debug_str.contains("InvalidDeviceIndex"));
-
-        let err = AudioError::OperationFailed("test".to_string());
-        let debug_str = format!("{:?}", err);
-        assert!(debug_str.contains("OperationFailed"));
-        assert!(debug_str.contains("test"));
     }
 
     #[test]
     fn audio_error_equality() {
-        assert_eq!(AudioError::PlatformAdmInitFailed, AudioError::PlatformAdmInitFailed);
+        assert_eq!(AudioError::PlatformInitFailed, AudioError::PlatformInitFailed);
         assert_eq!(AudioError::InvalidDeviceIndex, AudioError::InvalidDeviceIndex);
         assert_eq!(
             AudioError::OperationFailed("a".to_string()),
@@ -894,7 +1069,6 @@ mod tests {
             AudioError::OperationFailed("a".to_string()),
             AudioError::OperationFailed("b".to_string())
         );
-        assert_ne!(AudioError::PlatformAdmInitFailed, AudioError::InvalidDeviceIndex);
     }
 
     #[test]
@@ -922,5 +1096,11 @@ mod tests {
         let result: AudioResult<i32> = Err(AudioError::InvalidDeviceIndex);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err(), AudioError::InvalidDeviceIndex);
+    }
+
+    #[test]
+    fn rtc_audio_source_device_variant() {
+        let source = RtcAudioSource::Device;
+        assert!(matches!(source, RtcAudioSource::Device));
     }
 }

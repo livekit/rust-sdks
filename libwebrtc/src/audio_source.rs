@@ -23,12 +23,19 @@ pub struct AudioSourceOptions {
 
 /// Audio source type for creating audio tracks.
 ///
-/// Choose the appropriate source based on your audio mode:
+/// Choose the appropriate source based on your use case:
 ///
-/// | Audio Mode | Source to Use | Description |
-/// |------------|---------------|-------------|
-/// | Synthetic (default) | `RtcAudioSource::Native(source)` | Manual frame pushing |
-/// | Platform | `RtcAudioSource::Device` | Automatic microphone capture |
+/// | Use Case | Source | Description |
+/// |----------|--------|-------------|
+/// | Manual audio (TTS, files) | `RtcAudioSource::Native(source)` | Push frames manually |
+/// | Microphone capture | `RtcAudioSource::Device` | Automatic via Platform ADM |
+/// | Both (mic + screen) | Use both types | Multiple tracks supported |
+///
+/// # Combining Sources
+///
+/// You can have multiple audio tracks with different source types:
+/// - Track A: `RtcAudioSource::Device` for microphone (via `PlatformAudioSource`)
+/// - Track B: `RtcAudioSource::Native` for screen capture or TTS
 #[non_exhaustive]
 #[derive(Debug, Clone)]
 pub enum RtcAudioSource {
@@ -91,11 +98,16 @@ pub enum RtcAudioSource {
     ///    audio.reset();  // Releases VPIO AudioUnit
     ///    ```
     ///
-    /// # Warning
+    /// # Combining with NativeAudioSource
     ///
-    /// - Do NOT use `NativeAudioSource` when Platform ADM is active
-    /// - Do NOT forget to call `AudioManager::reset()` after disconnecting,
-    ///   especially on iOS where VPIO must be released for other audio frameworks
+    /// You CAN use `NativeAudioSource` alongside Platform ADM to have multiple
+    /// audio tracks with different sources (e.g., microphone + screen capture).
+    /// See `PlatformAudioSource` for the recommended approach.
+    ///
+    /// # Important
+    ///
+    /// Do NOT forget to call `AudioManager::reset()` after disconnecting,
+    /// especially on iOS where VPIO must be released for other audio frameworks.
     ///
     /// # Platform Support
     ///

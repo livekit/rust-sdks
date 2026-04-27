@@ -16,16 +16,10 @@
 
 #pragma once
 
-#include <atomic>
-#include <memory>
-#include <vector>
-
 #include "api/environment/environment.h"
 #include "api/scoped_refptr.h"
-#include "api/task_queue/task_queue_base.h"
 #include "modules/audio_device/include/audio_device.h"
-#include "rtc_base/synchronization/mutex.h"
-#include "rtc_base/task_utils/repeating_task.h"
+#include "modules/audio_device/include/audio_device_defines.h"
 
 namespace webrtc {
 class Thread;
@@ -33,44 +27,25 @@ class Thread;
 
 namespace livekit_ffi {
 
-// Forward declarations
-class AdmProxy;
-
-// ADM Proxy that can delegate to different implementations at runtime.
+// ADM Proxy that wraps WebRTC's platform-specific AudioDeviceModule.
 //
-// Supports two modes:
-// - Synthetic: Manual audio capture via NativeAudioSource, synthetic playout (default)
-// - Platform: WebRTC's built-in platform-specific ADM (FFI only)
-//
-// Note: Custom ADM support has been removed. Platform ADM is only available
-// via the FFI interface, not in the public Rust SDK.
-//
-// IMPORTANT: Delegate swapping is supported but has limitations:
-// - Active capture/playout may be briefly interrupted during swap
-// - AEC state may be affected when switching modes
-// - Some transitions may require audio restart for full effect
-// - Swap is "best effort" - not all state can be perfectly preserved
+// This proxy provides control over microphone recording - when recording is
+// disabled, InitRecording/StartRecording return success but do nothing.
+// This is useful when only using NativeAudioSource (no microphone capture needed).
 class AdmProxy : public webrtc::AudioDeviceModule {
  public:
-  enum class DelegateType {
-    kSynthetic,  // Synthetic ADM with manual capture (NativeAudioSource)
-    kPlatform    // WebRTC's platform-specific ADM (FFI only)
-  };
-
   explicit AdmProxy(const webrtc::Environment& env,
                     webrtc::Thread* worker_thread);
   ~AdmProxy() override;
 
-  // Runtime delegate management - THREAD SAFE
-  // These can be called from any thread at any time
-  void SetPlatformAdm(webrtc::scoped_refptr<webrtc::AudioDeviceModule> adm);
-  void ClearDelegate();  // Revert to stub behavior
+  // Check if platform ADM was successfully initialized
+  bool is_initialized() const;
 
-  DelegateType delegate_type() const;
-  bool has_delegate() const;
-
-  // Access the underlying platform ADM (if set) for device enumeration
-  webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm() const;
+  // Control whether recording (microphone) is enabled.
+  // When disabled, InitRecording/StartRecording will return success but do nothing.
+  // This is useful when only using NativeAudioSource (no microphone capture needed).
+  void set_recording_enabled(bool enabled);
+  bool recording_enabled() const;
 
   // AudioDeviceModule interface implementation
   int32_t ActiveAudioLayer(AudioLayer* audioLayer) const override;
@@ -158,34 +133,17 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   int32_t SetObserver(webrtc::AudioDeviceObserver* observer) override;
 
  private:
-  // Stub implementation for when no delegate is set
-  void StartStubPlayoutTask();
-  void StopStubPlayoutTask();
-
-  // Helper to safely get delegate under lock
-  webrtc::scoped_refptr<webrtc::AudioDeviceModule> GetPlatformAdmLocked() const;
-
-  mutable webrtc::Mutex mutex_;
-
-  // Delegate references (protected by mutex_)
-  webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_
-      RTC_GUARDED_BY(mutex_);
-  DelegateType delegate_type_ RTC_GUARDED_BY(mutex_) = DelegateType::kSynthetic;
-
-  // State tracking for delegate swaps (protected by mutex_)
-  webrtc::AudioTransport* audio_transport_ RTC_GUARDED_BY(mutex_) = nullptr;
-  bool initialized_ RTC_GUARDED_BY(mutex_) = false;
-  bool playing_ RTC_GUARDED_BY(mutex_) = false;
-  bool recording_ RTC_GUARDED_BY(mutex_) = false;
-  bool playout_initialized_ RTC_GUARDED_BY(mutex_) = false;
-  bool recording_initialized_ RTC_GUARDED_BY(mutex_) = false;
-
-  // Stub playout task (for when no delegate is set)
   const webrtc::Environment& env_;
   webrtc::Thread* worker_thread_;
-  std::vector<int16_t> stub_data_;
-  std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> stub_audio_queue_;
-  webrtc::RepeatingTaskHandle stub_audio_task_;
+
+  // The underlying platform ADM
+  webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_;
+  bool adm_initialized_ = false;
+
+  // When false, recording (microphone) operations are no-ops.
+  // Defaults to FALSE - microphone is opt-in, not opt-out.
+  // Call set_recording_enabled(true) when using PlatformAudio for microphone capture.
+  bool recording_enabled_ = false;
 };
 
 }  // namespace livekit_ffi

@@ -14,10 +14,7 @@
 
 use std::{
     fmt::{Debug, Formatter},
-    sync::{
-        atomic::{AtomicUsize, Ordering},
-        Arc, Weak,
-    },
+    sync::{Arc, Weak},
 };
 
 use lazy_static::lazy_static;
@@ -25,17 +22,11 @@ use libwebrtc::prelude::*;
 use parking_lot::Mutex;
 
 #[cfg(not(target_arch = "wasm32"))]
-use libwebrtc::native::AdmDelegateType;
-#[cfg(not(target_arch = "wasm32"))]
 use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
 
 lazy_static! {
     static ref LK_RUNTIME: Mutex<Weak<LkRuntime>> = Mutex::new(Weak::new());
 }
-
-/// Tracks the number of active room connections.
-/// Used to prevent audio mode switching while rooms are connected.
-static ACTIVE_ROOM_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 pub struct LkRuntime {
     pc_factory: PeerConnectionFactory,
@@ -64,42 +55,7 @@ impl LkRuntime {
         &self.pc_factory
     }
 
-    // ===== ADM Management Methods =====
-    // These methods allow runtime control of the Audio Device Module
-
-    /// Enable platform ADM (WebRTC's built-in audio device management)
-    ///
-    /// When enabled, WebRTC handles audio device enumeration, selection,
-    /// and audio capture/playout automatically.
-    ///
-    /// Note: This is an internal method used by FFI. Platform ADM is not
-    /// exposed in the public Rust SDK.
-    ///
-    /// Returns true if platform ADM was successfully enabled.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn enable_platform_adm(&self) -> bool {
-        self.pc_factory.enable_platform_adm()
-    }
-
-    /// Clear ADM delegate, reverting to default behavior
-    ///
-    /// After calling this, you should use NativeAudioSource to push audio manually.
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn clear_adm_delegate(&self) {
-        self.pc_factory.clear_adm_delegate();
-    }
-
-    /// Get the current ADM delegate type
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn adm_delegate_type(&self) -> AdmDelegateType {
-        self.pc_factory.adm_delegate_type()
-    }
-
-    /// Check if an ADM delegate is active
-    #[cfg(not(target_arch = "wasm32"))]
-    pub fn has_adm_delegate(&self) -> bool {
-        self.pc_factory.has_adm_delegate()
-    }
+    // ===== Device Management Methods =====
 
     /// Get the number of playout (output) devices
     #[cfg(not(target_arch = "wasm32"))]
@@ -185,30 +141,58 @@ impl LkRuntime {
         self.pc_factory.playout_is_initialized()
     }
 
-    // ===== Room Connection Tracking =====
+    // ===== Built-in Audio Processing Methods =====
 
-    /// Increments the active room connection count.
-    /// Called when a room connects.
-    pub fn register_room_connection() {
-        let prev = ACTIVE_ROOM_COUNT.fetch_add(1, Ordering::SeqCst);
-        log::debug!("Room connected, active count: {} -> {}", prev, prev + 1);
+    /// Check if built-in (hardware) AEC is available
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn builtin_aec_is_available(&self) -> bool {
+        self.pc_factory.builtin_aec_is_available()
     }
 
-    /// Decrements the active room connection count.
-    /// Called when a room disconnects.
-    pub fn unregister_room_connection() {
-        let prev = ACTIVE_ROOM_COUNT.fetch_sub(1, Ordering::SeqCst);
-        log::debug!("Room disconnected, active count: {} -> {}", prev, prev - 1);
+    /// Check if built-in (hardware) AGC is available
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn builtin_agc_is_available(&self) -> bool {
+        self.pc_factory.builtin_agc_is_available()
     }
 
-    /// Returns the number of currently connected rooms.
-    pub fn active_room_count() -> usize {
-        ACTIVE_ROOM_COUNT.load(Ordering::SeqCst)
+    /// Check if built-in (hardware) NS is available
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn builtin_ns_is_available(&self) -> bool {
+        self.pc_factory.builtin_ns_is_available()
     }
 
-    /// Returns true if any room is currently connected.
-    pub fn has_active_rooms() -> bool {
-        ACTIVE_ROOM_COUNT.load(Ordering::SeqCst) > 0
+    /// Enable or disable built-in (hardware) AEC
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn enable_builtin_aec(&self, enable: bool) -> i32 {
+        self.pc_factory.enable_builtin_aec(enable)
+    }
+
+    /// Enable or disable built-in (hardware) AGC
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn enable_builtin_agc(&self, enable: bool) -> i32 {
+        self.pc_factory.enable_builtin_agc(enable)
+    }
+
+    /// Enable or disable built-in (hardware) NS
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn enable_builtin_ns(&self, enable: bool) -> i32 {
+        self.pc_factory.enable_builtin_ns(enable)
+    }
+
+    /// Control whether ADM recording (microphone) is enabled.
+    ///
+    /// When disabled, WebRTC's calls to InitRecording/StartRecording will be no-ops.
+    /// Use this when only using NativeAudioSource (no microphone capture needed).
+    /// This prevents the microphone from interfering with the audio pipeline.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_adm_recording_enabled(&self, enabled: bool) {
+        self.pc_factory.set_adm_recording_enabled(enabled)
+    }
+
+    /// Check if ADM recording (microphone) is enabled.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn adm_recording_enabled(&self) -> bool {
+        self.pc_factory.adm_recording_enabled()
     }
 }
 
