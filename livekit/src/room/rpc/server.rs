@@ -113,9 +113,15 @@ impl RpcServerManager {
             Err(e) => (None, Some(e.to_proto())),
         };
 
-        if let Err(e) =
-            self.publish_rpc_response_packet(transport, &caller_identity.0, &request_id, resp_payload, error)
-                .await
+        if let Err(e) = self
+            .publish_rpc_response_packet(
+                transport,
+                &caller_identity.0,
+                &request_id,
+                resp_payload,
+                error,
+            )
+            .await
         {
             log::error!("Failed to publish RPC response: {:?}", e);
         }
@@ -149,14 +155,15 @@ impl RpcServerManager {
 
         if version != RPC_VERSION_V2 {
             let error = RpcError::built_in(RpcErrorCode::UnsupportedVersion, None);
-            let _ = self.publish_rpc_response_packet(
-                transport,
-                &caller_identity.0,
-                &request_id,
-                None,
-                Some(error.to_proto()),
-            )
-            .await;
+            let _ = self
+                .publish_rpc_response_packet(
+                    transport,
+                    &caller_identity.0,
+                    &request_id,
+                    None,
+                    Some(error.to_proto()),
+                )
+                .await;
             return;
         }
 
@@ -169,14 +176,15 @@ impl RpcServerManager {
                     RpcErrorCode::ApplicationError,
                     Some(format!("Failed to read request stream: {}", e)),
                 );
-                let _ = self.publish_rpc_response_packet(
-                    transport,
-                    &caller_identity.0,
-                    &request_id,
-                    None,
-                    Some(error.to_proto()),
-                )
-                .await;
+                let _ = self
+                    .publish_rpc_response_packet(
+                        transport,
+                        &caller_identity.0,
+                        &request_id,
+                        None,
+                        Some(error.to_proto()),
+                    )
+                    .await;
                 return;
             }
         };
@@ -202,26 +210,28 @@ impl RpcServerManager {
                     log::error!("Failed to send RPC v2 response stream: {:?}", e);
                     // Fall back to error via v1 packet
                     let error = RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string()));
-                    let _ = self.publish_rpc_response_packet(
-                        transport,
-                        &caller_identity.0,
-                        &request_id,
-                        None,
-                        Some(error.to_proto()),
-                    )
-                    .await;
+                    let _ = self
+                        .publish_rpc_response_packet(
+                            transport,
+                            &caller_identity.0,
+                            &request_id,
+                            None,
+                            Some(error.to_proto()),
+                        )
+                        .await;
                 }
             }
             Err(e) => {
                 // Error: always send as v1 packet
-                if let Err(send_err) = self.publish_rpc_response_packet(
-                    transport,
-                    &caller_identity.0,
-                    &request_id,
-                    None,
-                    Some(e.to_proto()),
-                )
-                .await
+                if let Err(send_err) = self
+                    .publish_rpc_response_packet(
+                        transport,
+                        &caller_identity.0,
+                        &request_id,
+                        None,
+                        Some(e.to_proto()),
+                    )
+                    .await
                 {
                     log::error!("Failed to publish RPC error response: {:?}", send_err);
                 }
