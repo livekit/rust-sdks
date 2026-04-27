@@ -807,6 +807,24 @@ mod tests {
         assert_eq!(validate_url.scheme(), "https");
     }
 
+    #[test]
+    fn livekit_url_includes_client_capabilities() {
+        let io = SignalOptions::default();
+        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap();
+
+        let capabilities = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "capabilities").then(|| value.into_owned()))
+            .unwrap();
+        let expected = CLIENT_CAPABILITIES
+            .iter()
+            .map(|capability| capability.as_str_name())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        assert_eq!(capabilities, expected);
+    }
+
     #[cfg(feature = "signal-client-tokio")]
     #[tokio::test]
     async fn signal_stream_connect_timeout() {
