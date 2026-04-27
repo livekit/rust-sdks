@@ -26,12 +26,9 @@ mod common;
 use std::time::Duration;
 
 use anyhow::{anyhow, Result};
-use livekit::{
-    AudioError, AudioResult, PlatformAudio, RtcAudioSource,
-    prelude::*,
-};
 #[cfg(feature = "__lk-e2e-test")]
 use livekit::options::TrackPublishOptions;
+use livekit::{prelude::*, AudioError, AudioResult, PlatformAudio, RtcAudioSource};
 use serial_test::serial;
 use tokio::time::timeout;
 
@@ -194,11 +191,7 @@ async fn test_platform_audio_standalone_creation() -> Result<()> {
     // Enumerate devices
     let recording_count = audio.recording_devices();
     let playout_count = audio.playout_devices();
-    log::info!(
-        "Found {} recording devices, {} playout devices",
-        recording_count,
-        playout_count
-    );
+    log::info!("Found {} recording devices, {} playout devices", recording_count, playout_count);
 
     // List recording devices
     for i in 0..recording_count as u16 {
@@ -324,19 +317,13 @@ async fn test_platform_audio_standalone_processing_config() -> Result<()> {
     let hw_aec = audio.is_hardware_aec_available();
     let hw_agc = audio.is_hardware_agc_available();
     let hw_ns = audio.is_hardware_ns_available();
-    log::info!(
-        "Hardware availability: AEC={}, AGC={}, NS={}",
-        hw_aec, hw_agc, hw_ns
-    );
+    log::info!("Hardware availability: AEC={}, AGC={}, NS={}", hw_aec, hw_agc, hw_ns);
 
     // Query active processing types
     let aec_type = audio.active_aec_type();
     let agc_type = audio.active_agc_type();
     let ns_type = audio.active_ns_type();
-    log::info!(
-        "Active processing: AEC={:?}, AGC={:?}, NS={:?}",
-        aec_type, agc_type, ns_type
-    );
+    log::info!("Active processing: AEC={:?}, AGC={:?}, NS={:?}", aec_type, agc_type, ns_type);
 
     // Verify consistency
     if hw_aec {
@@ -406,8 +393,11 @@ async fn test_platform_audio_standalone_reset() -> Result<()> {
     assert_eq!(audio2.ref_count(), 2); // Shares with audio3
     assert_eq!(audio3.ref_count(), 2);
     assert_eq!(audio1.ref_count(), 1); // Still separate
-    log::info!("Created audio3, audio2/3 ref_count: {}, audio1 ref_count: {}",
-        audio2.ref_count(), audio1.ref_count());
+    log::info!(
+        "Created audio3, audio2/3 ref_count: {}, audio1 ref_count: {}",
+        audio2.ref_count(),
+        audio1.ref_count()
+    );
 
     drop(audio1);
     drop(audio2);
@@ -679,10 +669,7 @@ async fn test_platform_audio_room_connection() -> Result<()> {
         room.local_participant()
             .publish_track(
                 LocalTrack::Audio(track),
-                TrackPublishOptions {
-                    source: TrackSource::Microphone,
-                    ..Default::default()
-                },
+                TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
             )
             .await?;
 
@@ -739,10 +726,7 @@ async fn test_platform_audio_two_participants() -> Result<()> {
         .local_participant()
         .publish_track(
             LocalTrack::Audio(track),
-            TrackPublishOptions {
-                source: TrackSource::Microphone,
-                ..Default::default()
-            },
+            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
         )
         .await?;
 
@@ -813,10 +797,7 @@ async fn test_platform_audio_device_switching() -> Result<()> {
         room.local_participant()
             .publish_track(
                 LocalTrack::Audio(track),
-                TrackPublishOptions {
-                    source: TrackSource::Microphone,
-                    ..Default::default()
-                },
+                TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
             )
             .await?;
     }
@@ -893,7 +874,9 @@ async fn test_platform_audio_hardware_availability() -> Result<()> {
 
     log::info!(
         "Hardware audio processing availability: AEC={}, AGC={}, NS={}",
-        hw_aec, hw_agc, hw_ns
+        hw_aec,
+        hw_agc,
+        hw_ns
     );
 
     // On desktop (macOS, Windows, Linux), hardware is typically not available
@@ -905,10 +888,7 @@ async fn test_platform_audio_hardware_availability() -> Result<()> {
     let agc_type = audio.active_agc_type();
     let ns_type = audio.active_ns_type();
 
-    log::info!(
-        "Active audio processing: AEC={:?}, AGC={:?}, NS={:?}",
-        aec_type, agc_type, ns_type
-    );
+    log::info!("Active audio processing: AEC={:?}, AGC={:?}, NS={:?}", aec_type, agc_type, ns_type);
 
     // Verify consistency: if hardware is available, active type should be Hardware
     if hw_aec {
@@ -1050,10 +1030,7 @@ async fn test_platform_audio_processing_with_room() -> Result<()> {
     room.local_participant()
         .publish_track(
             LocalTrack::Audio(track),
-            TrackPublishOptions {
-                source: TrackSource::Microphone,
-                ..Default::default()
-            },
+            TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
         )
         .await?;
 

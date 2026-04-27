@@ -546,10 +546,7 @@ impl PlatformAudio {
         if result == 0 {
             Ok(())
         } else {
-            Err(AudioError::OperationFailed(format!(
-                "set_recording_device returned {}",
-                result
-            )))
+            Err(AudioError::OperationFailed(format!("set_recording_device returned {}", result)))
         }
     }
 
@@ -582,10 +579,7 @@ impl PlatformAudio {
         if result == 0 {
             Ok(())
         } else {
-            Err(AudioError::OperationFailed(format!(
-                "set_playout_device returned {}",
-                result
-            )))
+            Err(AudioError::OperationFailed(format!("set_playout_device returned {}", result)))
         }
     }
 

@@ -31,7 +31,6 @@ use crate::{
     MediaType, RtcError,
 };
 
-
 lazy_static! {
     static ref LOG_SINK: Mutex<Option<UniquePtr<sys_rtc::ffi::LogSink>>> = Default::default();
 }

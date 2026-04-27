@@ -1410,9 +1410,7 @@ fn on_new_platform_audio(
             })
         }
         Err(e) => Ok(proto::NewPlatformAudioResponse {
-            message: Some(proto::new_platform_audio_response::Message::Error(
-                e.to_string(),
-            )),
+            message: Some(proto::new_platform_audio_response::Message::Error(e.to_string())),
         }),
     }
 }
@@ -1430,26 +1428,18 @@ fn on_get_audio_devices(
     // Enumerate playout devices
     let playout_count = audio.playout_devices();
     for i in 0..playout_count as u32 {
-        playout_devices.push(proto::AudioDeviceInfo {
-            index: i,
-            name: audio.playout_device_name(i as u16),
-        });
+        playout_devices
+            .push(proto::AudioDeviceInfo { index: i, name: audio.playout_device_name(i as u16) });
     }
 
     // Enumerate recording devices
     let recording_count = audio.recording_devices();
     for i in 0..recording_count as u32 {
-        recording_devices.push(proto::AudioDeviceInfo {
-            index: i,
-            name: audio.recording_device_name(i as u16),
-        });
+        recording_devices
+            .push(proto::AudioDeviceInfo { index: i, name: audio.recording_device_name(i as u16) });
     }
 
-    Ok(proto::GetAudioDevicesResponse {
-        playout_devices,
-        recording_devices,
-        error: None,
-    })
+    Ok(proto::GetAudioDevicesResponse { playout_devices, recording_devices, error: None })
 }
 
 fn on_set_recording_device(
@@ -1460,9 +1450,7 @@ fn on_set_recording_device(
 
     match ffi_audio.audio.set_recording_device(req.index as u16) {
         Ok(()) => Ok(proto::SetRecordingDeviceResponse { error: None }),
-        Err(e) => Ok(proto::SetRecordingDeviceResponse {
-            error: Some(e.to_string()),
-        }),
+        Err(e) => Ok(proto::SetRecordingDeviceResponse { error: Some(e.to_string()) }),
     }
 }
 
@@ -1474,8 +1462,6 @@ fn on_set_playout_device(
 
     match ffi_audio.audio.set_playout_device(req.index as u16) {
         Ok(()) => Ok(proto::SetPlayoutDeviceResponse { error: None }),
-        Err(e) => Ok(proto::SetPlayoutDeviceResponse {
-            error: Some(e.to_string()),
-        }),
+        Err(e) => Ok(proto::SetPlayoutDeviceResponse { error: Some(e.to_string()) }),
     }
 }

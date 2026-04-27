@@ -73,18 +73,9 @@ async fn main() {
         }
 
         println!("\nAudio processing:");
-        println!(
-            "  Hardware AEC available: {}",
-            audio.is_hardware_aec_available()
-        );
-        println!(
-            "  Hardware AGC available: {}",
-            audio.is_hardware_agc_available()
-        );
-        println!(
-            "  Hardware NS available:  {}",
-            audio.is_hardware_ns_available()
-        );
+        println!("  Hardware AEC available: {}", audio.is_hardware_aec_available());
+        println!("  Hardware AGC available: {}", audio.is_hardware_agc_available());
+        println!("  Hardware NS available:  {}", audio.is_hardware_ns_available());
 
         return;
     }
@@ -115,14 +106,10 @@ async fn main() {
         }
 
         if recording_count > 0 {
-            audio
-                .set_recording_device(0)
-                .expect("Failed to set recording device");
+            audio.set_recording_device(0).expect("Failed to set recording device");
         }
         if playout_count > 0 {
-            audio
-                .set_playout_device(0)
-                .expect("Failed to set playout device");
+            audio.set_playout_device(0).expect("Failed to set playout device");
         }
 
         audio
@@ -152,7 +139,11 @@ async fn main() {
     // Use queue_size_ms > 0 for buffered path - internal AudioTask delivers frames every 10ms
     // This should provide more consistent timing when ADM recording is also active
     let file_source = if let Some(ref wav) = wav_data {
-        log::info!("Creating NativeAudioSource: sample_rate={}, channels={}", wav.sample_rate, wav.channels);
+        log::info!(
+            "Creating NativeAudioSource: sample_rate={}, channels={}",
+            wav.sample_rate,
+            wav.channels
+        );
         Some(NativeAudioSource::new(
             AudioSourceOptions::default(),
             wav.sample_rate,
@@ -174,9 +165,7 @@ async fn main() {
         .to_jwt()
         .unwrap();
 
-    let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default())
-        .await
-        .unwrap();
+    let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default()).await.unwrap();
     log::info!("Connected to room: {}", room.name());
 
     // DIAGNOSTIC: Publish file audio track FIRST (before microphone)
@@ -200,10 +189,7 @@ async fn main() {
             .local_participant()
             .publish_track(
                 LocalTrack::Audio(track.clone()),
-                TrackPublishOptions {
-                    source: TrackSource::Unknown,
-                    ..Default::default()
-                },
+                TrackPublishOptions { source: TrackSource::Unknown, ..Default::default() },
             )
             .await
             .expect("Failed to publish file audio track");
@@ -261,10 +247,7 @@ async fn main() {
             room.local_participant()
                 .publish_track(
                     LocalTrack::Audio(track),
-                    TrackPublishOptions {
-                        source: TrackSource::Microphone,
-                        ..Default::default()
-                    },
+                    TrackPublishOptions { source: TrackSource::Microphone, ..Default::default() },
                 )
                 .await
                 .expect("Failed to publish microphone track");
@@ -273,7 +256,9 @@ async fn main() {
 
             if file_task.is_some() {
                 log::info!("Both tracks published: file (48kHz) FIRST, then microphone");
-                log::warn!("WARNING: Publishing both simultaneously may cause sample rate conflicts!");
+                log::warn!(
+                    "WARNING: Publishing both simultaneously may cause sample rate conflicts!"
+                );
             }
         }
     }
@@ -373,11 +358,7 @@ fn load_wav_file<P: AsRef<Path>>(path: P) -> Result<WavData, Box<dyn std::error:
 
     log::info!("Loaded {} samples from WAV file", samples.len());
 
-    Ok(WavData {
-        sample_rate: spec.sample_rate,
-        channels: spec.channels as u32,
-        samples,
-    })
+    Ok(WavData { sample_rate: spec.sample_rate, channels: spec.channels as u32, samples })
 }
 
 async fn play_wav_file(source: NativeAudioSource, wav: WavData, running: Arc<AtomicBool>) {
@@ -385,7 +366,8 @@ async fn play_wav_file(source: NativeAudioSource, wav: WavData, running: Arc<Ato
 
     let samples_per_channel_per_frame = (wav.sample_rate / 100) as usize; // 10ms frames
     let samples_per_frame = samples_per_channel_per_frame * wav.channels as usize;
-    let total_duration_secs = wav.samples.len() as f64 / (wav.sample_rate as f64 * wav.channels as f64);
+    let total_duration_secs =
+        wav.samples.len() as f64 / (wav.sample_rate as f64 * wav.channels as f64);
 
     log::info!(
         "WAV playback config: sample_rate={}, channels={}, samples_per_channel_per_frame={}, samples_per_frame={}, total_samples={}, duration={:.2}s",
@@ -432,7 +414,8 @@ async fn play_wav_file(source: NativeAudioSource, wav: WavData, running: Arc<Ato
         // Check if audio data is not silent (first few frames)
         if frame_count < 5 {
             let max_sample = padded.iter().map(|s| s.abs()).max().unwrap_or(0);
-            let avg_sample: i32 = padded.iter().map(|s| (*s as i32).abs()).sum::<i32>() / padded.len() as i32;
+            let avg_sample: i32 =
+                padded.iter().map(|s| (*s as i32).abs()).sum::<i32>() / padded.len() as i32;
             log::info!(
                 "Frame {} audio data: max={}, avg={}, first_samples={:?}",
                 frame_count,
@@ -484,9 +467,17 @@ async fn play_wav_file(source: NativeAudioSource, wav: WavData, running: Arc<Ato
 
         if position >= wav.samples.len() {
             position = 0; // Loop
-            log::info!("WAV playback looping after {} frames ({:.1}s)", frame_count, frame_count as f64 * 0.01);
+            log::info!(
+                "WAV playback looping after {} frames ({:.1}s)",
+                frame_count,
+                frame_count as f64 * 0.01
+            );
         }
     }
 
-    log::info!("=== WAV PLAYBACK TASK STOPPED after {} frames ({:.1}s) ===", frame_count, frame_count as f64 * 0.01);
+    log::info!(
+        "=== WAV PLAYBACK TASK STOPPED after {} frames ({:.1}s) ===",
+        frame_count,
+        frame_count as f64 * 0.01
+    );
 }
