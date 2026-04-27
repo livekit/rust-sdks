@@ -1465,3 +1465,205 @@ fn on_set_playout_device(
         Err(e) => Ok(proto::SetPlayoutDeviceResponse { error: Some(e.to_string()) }),
     }
 }
+
+// =============================================================================
+// Tests
+// =============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::FFI_SERVER;
+
+    /// Helper to get a static reference to FFI_SERVER for tests
+    fn server() -> &'static FfiServer {
+        &FFI_SERVER
+    }
+
+    #[test]
+    fn test_new_platform_audio() {
+        let req = proto::NewPlatformAudioRequest {};
+        let res = on_new_platform_audio(server(), req).unwrap();
+
+        match res.message {
+            Some(proto::new_platform_audio_response::Message::PlatformAudio(audio)) => {
+                // Verify we got a valid handle
+                assert!(audio.handle.id > 0);
+
+                // Verify device counts are reasonable (>= 0)
+                assert!(audio.info.recording_device_count >= 0);
+                assert!(audio.info.playout_device_count >= 0);
+
+                println!(
+                    "PlatformAudio created: handle={}, recording_devices={}, playout_devices={}",
+                    audio.handle.id,
+                    audio.info.recording_device_count,
+                    audio.info.playout_device_count
+                );
+
+                // Clean up - drop the handle
+                server().drop_handle(audio.handle.id);
+            }
+            Some(proto::new_platform_audio_response::Message::Error(e)) => {
+                panic!("Failed to create PlatformAudio: {}", e);
+            }
+            None => {
+                panic!("Empty response");
+            }
+        }
+    }
+
+    #[test]
+    fn test_get_audio_devices() {
+        // First create a PlatformAudio handle
+        let create_req = proto::NewPlatformAudioRequest {};
+        let create_res = on_new_platform_audio(server(), create_req).unwrap();
+
+        let handle_id = match create_res.message {
+            Some(proto::new_platform_audio_response::Message::PlatformAudio(audio)) => {
+                audio.handle.id
+            }
+            _ => panic!("Failed to create PlatformAudio"),
+        };
+
+        // Get audio devices
+        let req = proto::GetAudioDevicesRequest { platform_audio_handle: handle_id };
+        let res = on_get_audio_devices(server(), req).unwrap();
+
+        assert!(res.error.is_none(), "Error: {:?}", res.error);
+
+        println!("Recording devices:");
+        for device in &res.recording_devices {
+            println!("  [{}] {}", device.index, device.name);
+        }
+
+        println!("Playout devices:");
+        for device in &res.playout_devices {
+            println!("  [{}] {}", device.index, device.name);
+        }
+
+        // Clean up
+        server().drop_handle(handle_id);
+    }
+
+    #[test]
+    fn test_set_recording_device() {
+        // Create PlatformAudio handle
+        let create_req = proto::NewPlatformAudioRequest {};
+        let create_res = on_new_platform_audio(server(), create_req).unwrap();
+
+        let (handle_id, recording_count) = match create_res.message {
+            Some(proto::new_platform_audio_response::Message::PlatformAudio(audio)) => {
+                (audio.handle.id, audio.info.recording_device_count)
+            }
+            _ => panic!("Failed to create PlatformAudio"),
+        };
+
+        // Set recording device if available
+        if recording_count > 0 {
+            let req =
+                proto::SetRecordingDeviceRequest { platform_audio_handle: handle_id, index: 0 };
+            let res = on_set_recording_device(server(), req).unwrap();
+            assert!(res.error.is_none(), "Error: {:?}", res.error);
+            println!("Set recording device to index 0");
+        }
+
+        // Test invalid device index
+        let req =
+            proto::SetRecordingDeviceRequest { platform_audio_handle: handle_id, index: 9999 };
+        let res = on_set_recording_device(server(), req).unwrap();
+        assert!(res.error.is_some(), "Should fail with invalid index");
+        println!("Invalid index correctly rejected: {:?}", res.error);
+
+        // Clean up
+        server().drop_handle(handle_id);
+    }
+
+    #[test]
+    fn test_set_playout_device() {
+        // Create PlatformAudio handle
+        let create_req = proto::NewPlatformAudioRequest {};
+        let create_res = on_new_platform_audio(server(), create_req).unwrap();
+
+        let (handle_id, playout_count) = match create_res.message {
+            Some(proto::new_platform_audio_response::Message::PlatformAudio(audio)) => {
+                (audio.handle.id, audio.info.playout_device_count)
+            }
+            _ => panic!("Failed to create PlatformAudio"),
+        };
+
+        // Set playout device if available
+        if playout_count > 0 {
+            let req = proto::SetPlayoutDeviceRequest { platform_audio_handle: handle_id, index: 0 };
+            let res = on_set_playout_device(server(), req).unwrap();
+            assert!(res.error.is_none(), "Error: {:?}", res.error);
+            println!("Set playout device to index 0");
+        }
+
+        // Test invalid device index
+        let req = proto::SetPlayoutDeviceRequest { platform_audio_handle: handle_id, index: 9999 };
+        let res = on_set_playout_device(server(), req).unwrap();
+        assert!(res.error.is_some(), "Should fail with invalid index");
+        println!("Invalid index correctly rejected: {:?}", res.error);
+
+        // Clean up
+        server().drop_handle(handle_id);
+    }
+
+    #[test]
+    fn test_platform_audio_handle_lifecycle() {
+        // Create first handle
+        let req1 = proto::NewPlatformAudioRequest {};
+        let res1 = on_new_platform_audio(server(), req1).unwrap();
+        let handle1 = match res1.message {
+            Some(proto::new_platform_audio_response::Message::PlatformAudio(audio)) => {
+                audio.handle.id
+            }
+            _ => panic!("Failed to create first PlatformAudio"),
+        };
+        println!("Created handle 1: {}", handle1);
+
+        // Create second handle (should share ADM)
+        let req2 = proto::NewPlatformAudioRequest {};
+        let res2 = on_new_platform_audio(server(), req2).unwrap();
+        let handle2 = match res2.message {
+            Some(proto::new_platform_audio_response::Message::PlatformAudio(audio)) => {
+                audio.handle.id
+            }
+            _ => panic!("Failed to create second PlatformAudio"),
+        };
+        println!("Created handle 2: {}", handle2);
+
+        // Both handles should be different
+        assert_ne!(handle1, handle2);
+
+        // Drop first handle
+        assert!(server().drop_handle(handle1));
+        println!("Dropped handle 1");
+
+        // Second handle should still work
+        let req = proto::GetAudioDevicesRequest { platform_audio_handle: handle2 };
+        let res = on_get_audio_devices(server(), req).unwrap();
+        assert!(res.error.is_none());
+        println!("Handle 2 still works after handle 1 dropped");
+
+        // Drop second handle
+        assert!(server().drop_handle(handle2));
+        println!("Dropped handle 2");
+
+        // Trying to use dropped handle should fail
+        let req = proto::GetAudioDevicesRequest { platform_audio_handle: handle2 };
+        let res = on_get_audio_devices(server(), req);
+        assert!(res.is_err());
+        println!("Dropped handle correctly rejected");
+    }
+
+    #[test]
+    fn test_invalid_handle() {
+        // Try to get devices with invalid handle
+        let req = proto::GetAudioDevicesRequest { platform_audio_handle: 99999 };
+        let res = on_get_audio_devices(server(), req);
+        assert!(res.is_err());
+        println!("Invalid handle correctly rejected");
+    }
+}
