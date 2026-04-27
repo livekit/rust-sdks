@@ -28,6 +28,7 @@ import type { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, Registe
 import type { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } from "./track_publication_pb.js";
 import type { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } from "./data_stream_pb.js";
 import type { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } from "./data_track_pb.js";
+import type { GetAudioDevicesRequest, GetAudioDevicesResponse, NewPlatformAudioRequest, NewPlatformAudioResponse, SetPlayoutDeviceRequest, SetPlayoutDeviceResponse, SetRecordingDeviceRequest, SetRecordingDeviceResponse } from "./audio_manager_pb.js";
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -537,6 +538,32 @@ export declare class FfiRequest extends Message<FfiRequest> {
      */
     value: DataTrackStreamReadRequest;
     case: "dataTrackStreamRead";
+  } | {
+    /**
+     * Platform Audio (ADM)
+     *
+     * @generated from field: livekit.proto.NewPlatformAudioRequest new_platform_audio = 76;
+     */
+    value: NewPlatformAudioRequest;
+    case: "newPlatformAudio";
+  } | {
+    /**
+     * @generated from field: livekit.proto.GetAudioDevicesRequest get_audio_devices = 77;
+     */
+    value: GetAudioDevicesRequest;
+    case: "getAudioDevices";
+  } | {
+    /**
+     * @generated from field: livekit.proto.SetRecordingDeviceRequest set_recording_device = 78;
+     */
+    value: SetRecordingDeviceRequest;
+    case: "setRecordingDevice";
+  } | {
+    /**
+     * @generated from field: livekit.proto.SetPlayoutDeviceRequest set_playout_device = 79;
+     */
+    value: SetPlayoutDeviceRequest;
+    case: "setPlayoutDevice";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiRequest>);
@@ -1025,6 +1052,32 @@ export declare class FfiResponse extends Message<FfiResponse> {
      */
     value: DataTrackStreamReadResponse;
     case: "dataTrackStreamRead";
+  } | {
+    /**
+     * Platform Audio (ADM)
+     *
+     * @generated from field: livekit.proto.NewPlatformAudioResponse new_platform_audio = 75;
+     */
+    value: NewPlatformAudioResponse;
+    case: "newPlatformAudio";
+  } | {
+    /**
+     * @generated from field: livekit.proto.GetAudioDevicesResponse get_audio_devices = 76;
+     */
+    value: GetAudioDevicesResponse;
+    case: "getAudioDevices";
+  } | {
+    /**
+     * @generated from field: livekit.proto.SetRecordingDeviceResponse set_recording_device = 77;
+     */
+    value: SetRecordingDeviceResponse;
+    case: "setRecordingDevice";
+  } | {
+    /**
+     * @generated from field: livekit.proto.SetPlayoutDeviceResponse set_playout_device = 78;
+     */
+    value: SetPlayoutDeviceResponse;
+    case: "setPlayoutDevice";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiResponse>);

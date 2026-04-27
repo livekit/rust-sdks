@@ -30,6 +30,7 @@ const { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, RegisterRpcMe
 const { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } = require("./track_publication_pb.js");
 const { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } = require("./data_stream_pb.js");
 const { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } = require("./data_track_pb.js");
+const { GetAudioDevicesRequest, GetAudioDevicesResponse, NewPlatformAudioRequest, NewPlatformAudioResponse, SetPlayoutDeviceRequest, SetPlayoutDeviceResponse, SetRecordingDeviceRequest, SetRecordingDeviceResponse } = require("./audio_manager_pb.js");
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -128,6 +129,10 @@ const FfiRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 73, name: "subscribe_data_track", kind: "message", T: SubscribeDataTrackRequest, oneof: "message" },
     { no: 74, name: "remote_data_track_is_published", kind: "message", T: RemoteDataTrackIsPublishedRequest, oneof: "message" },
     { no: 75, name: "data_track_stream_read", kind: "message", T: DataTrackStreamReadRequest, oneof: "message" },
+    { no: 76, name: "new_platform_audio", kind: "message", T: NewPlatformAudioRequest, oneof: "message" },
+    { no: 77, name: "get_audio_devices", kind: "message", T: GetAudioDevicesRequest, oneof: "message" },
+    { no: 78, name: "set_recording_device", kind: "message", T: SetRecordingDeviceRequest, oneof: "message" },
+    { no: 79, name: "set_playout_device", kind: "message", T: SetPlayoutDeviceRequest, oneof: "message" },
   ],
 );
 
@@ -212,6 +217,10 @@ const FfiResponse = /*@__PURE__*/ proto2.makeMessageType(
     { no: 72, name: "subscribe_data_track", kind: "message", T: SubscribeDataTrackResponse, oneof: "message" },
     { no: 73, name: "remote_data_track_is_published", kind: "message", T: RemoteDataTrackIsPublishedResponse, oneof: "message" },
     { no: 74, name: "data_track_stream_read", kind: "message", T: DataTrackStreamReadResponse, oneof: "message" },
+    { no: 75, name: "new_platform_audio", kind: "message", T: NewPlatformAudioResponse, oneof: "message" },
+    { no: 76, name: "get_audio_devices", kind: "message", T: GetAudioDevicesResponse, oneof: "message" },
+    { no: 77, name: "set_recording_device", kind: "message", T: SetRecordingDeviceResponse, oneof: "message" },
+    { no: 78, name: "set_playout_device", kind: "message", T: SetPlayoutDeviceResponse, oneof: "message" },
   ],
 );
 
