@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::client::{publish_rpc_ack, publish_rpc_response};
 use super::{
     RpcError, RpcErrorCode, RpcInvocationData, RpcTransport, ATTR_METHOD, ATTR_REQUEST_ID,
     ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, MAX_PAYLOAD_BYTES, RPC_RESPONSE_TOPIC, RPC_VERSION_V1,
@@ -20,6 +19,7 @@ use super::{
 };
 use crate::data_stream::{StreamReader, StreamTextOptions, TextStreamReader};
 use crate::room::id::ParticipantIdentity;
+use livekit_protocol as proto;
 use parking_lot::Mutex;
 use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
 
@@ -91,7 +91,7 @@ impl RpcServerManager {
         } = options;
 
         // Send ACK immediately
-        if let Err(e) = publish_rpc_ack(transport, &caller_identity.0, &request_id).await {
+        if let Err(e) = self.publish_rpc_ack(transport, &caller_identity.0, &request_id).await {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
 
@@ -114,7 +114,7 @@ impl RpcServerManager {
         };
 
         if let Err(e) =
-            publish_rpc_response(transport, &caller_identity.0, &request_id, resp_payload, error)
+            self.publish_rpc_response_packet(transport, &caller_identity.0, &request_id, resp_payload, error)
                 .await
         {
             log::error!("Failed to publish RPC response: {:?}", e);
@@ -143,13 +143,13 @@ impl RpcServerManager {
         let response_timeout = Duration::from_millis(response_timeout_ms);
 
         // Send ACK immediately (always v1 packet)
-        if let Err(e) = publish_rpc_ack(transport, &caller_identity.0, &request_id).await {
+        if let Err(e) = self.publish_rpc_ack(transport, &caller_identity.0, &request_id).await {
             log::error!("Failed to publish RPC ACK: {:?}", e);
         }
 
         if version != RPC_VERSION_V2 {
             let error = RpcError::built_in(RpcErrorCode::UnsupportedVersion, None);
-            let _ = publish_rpc_response(
+            let _ = self.publish_rpc_response_packet(
                 transport,
                 &caller_identity.0,
                 &request_id,
@@ -169,7 +169,7 @@ impl RpcServerManager {
                     RpcErrorCode::ApplicationError,
                     Some(format!("Failed to read request stream: {}", e)),
                 );
-                let _ = publish_rpc_response(
+                let _ = self.publish_rpc_response_packet(
                     transport,
                     &caller_identity.0,
                     &request_id,
@@ -202,7 +202,7 @@ impl RpcServerManager {
                     log::error!("Failed to send RPC v2 response stream: {:?}", e);
                     // Fall back to error via v1 packet
                     let error = RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string()));
-                    let _ = publish_rpc_response(
+                    let _ = self.publish_rpc_response_packet(
                         transport,
                         &caller_identity.0,
                         &request_id,
@@ -214,7 +214,7 @@ impl RpcServerManager {
             }
             Err(e) => {
                 // Error: always send as v1 packet
-                if let Err(send_err) = publish_rpc_response(
+                if let Err(send_err) = self.publish_rpc_response_packet(
                     transport,
                     &caller_identity.0,
                     &request_id,
@@ -265,5 +265,51 @@ impl RpcServerManager {
             }
             None => Err(RpcError::built_in(RpcErrorCode::UnsupportedMethod, None)),
         }
+    }
+
+    /// Publish a v1 RPC response data packet.
+    async fn publish_rpc_response_packet(
+        &self,
+        transport: &impl RpcTransport,
+        destination_identity: &str,
+        request_id: &str,
+        payload: Option<String>,
+        error: Option<proto::RpcError>,
+    ) -> Result<(), crate::room::RoomError> {
+        let rpc_response_message = proto::RpcResponse {
+            request_id: request_id.to_string(),
+            value: Some(match error {
+                Some(error) => proto::rpc_response::Value::Error(error),
+                None => proto::rpc_response::Value::Payload(payload.unwrap()),
+            }),
+            ..Default::default()
+        };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::RpcResponse(rpc_response_message)),
+            destination_identities: vec![destination_identity.to_string()],
+            ..Default::default()
+        };
+
+        transport.publish_data(data).await
+    }
+
+    /// Publish a v1 RPC ack data packet.
+    async fn publish_rpc_ack(
+        &self,
+        transport: &impl RpcTransport,
+        destination_identity: &str,
+        request_id: &str,
+    ) -> Result<(), crate::room::RoomError> {
+        let rpc_ack_message =
+            proto::RpcAck { request_id: request_id.to_string(), ..Default::default() };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::RpcAck(rpc_ack_message)),
+            destination_identities: vec![destination_identity.to_string()],
+            ..Default::default()
+        };
+
+        transport.publish_data(data).await
     }
 }
