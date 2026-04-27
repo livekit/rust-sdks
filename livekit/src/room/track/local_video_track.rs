@@ -14,8 +14,9 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use libwebrtc::{prelude::*, stats::RtcStats};
+use libwebrtc::{native::packet_trailer::PacketTrailerHandler, prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
+use parking_lot::Mutex;
 
 use super::TrackInner;
 use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
@@ -24,6 +25,7 @@ use crate::{prelude::*, rtc_engine::lk_runtime::LkRuntime};
 pub struct LocalVideoTrack {
     inner: Arc<TrackInner>,
     source: RtcVideoSource,
+    packet_trailer_handler: Arc<Mutex<Option<PacketTrailerHandler>>>,
 }
 
 impl Debug for LocalVideoTrack {
@@ -46,6 +48,7 @@ impl LocalVideoTrack {
                 MediaStreamTrack::Video(rtc_track),
             )),
             source,
+            packet_trailer_handler: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -121,6 +124,18 @@ impl LocalVideoTrack {
 
     pub fn rtc_source(&self) -> RtcVideoSource {
         self.source.clone()
+    }
+
+    /// Returns the packet trailer handler associated with this track, if any.
+    /// When present on the sender side, callers can store per-frame user
+    /// timestamps which will be embedded into encoded frames.
+    pub(crate) fn packet_trailer_handler(&self) -> Option<PacketTrailerHandler> {
+        self.packet_trailer_handler.lock().clone()
+    }
+
+    /// Internal: set the packet trailer handler used for this track.
+    pub(crate) fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
+        *self.packet_trailer_handler.lock() = Some(handler);
     }
 
     pub async fn get_stats(&self) -> RoomResult<Vec<RtcStats>> {

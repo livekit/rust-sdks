@@ -21596,6 +21596,7 @@ impl serde::Serialize for PacketTrailerFeature {
     {
         let variant = match self {
             Self::PtfUserTimestamp => "PTF_USER_TIMESTAMP",
+            Self::PtfFrameId => "PTF_FRAME_ID",
         };
         serializer.serialize_str(variant)
     }
@@ -21608,6 +21609,7 @@ impl<'de> serde::Deserialize<'de> for PacketTrailerFeature {
     {
         const FIELDS: &[&str] = &[
             "PTF_USER_TIMESTAMP",
+            "PTF_FRAME_ID",
         ];
 
         struct GeneratedVisitor;
@@ -21649,6 +21651,7 @@ impl<'de> serde::Deserialize<'de> for PacketTrailerFeature {
             {
                 match value {
                     "PTF_USER_TIMESTAMP" => Ok(PacketTrailerFeature::PtfUserTimestamp),
+                    "PTF_FRAME_ID" => Ok(PacketTrailerFeature::PtfFrameId),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
             }

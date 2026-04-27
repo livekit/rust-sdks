@@ -1847,6 +1847,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "abd57806937c9cc163efc8ea3910e00a62e2aeb0b8119f1793a978088f8f6b04"
 
 [[package]]
+name = "device-info"
+version = "0.1.1"
+dependencies = [
+ "core-foundation 0.10.1",
+ "jni 0.21.1",
+ "libc",
+ "thiserror 2.0.18",
+ "wasm-bindgen",
+ "web-sys",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
 name = "digest"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3861,7 +3874,7 @@ dependencies = [
 
 [[package]]
 name = "libwebrtc"
-version = "0.3.29"
+version = "0.3.30"
 dependencies = [
  "cxx",
  "env_logger 0.11.10",
@@ -3985,7 +3998,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 
 [[package]]
 name = "livekit"
-version = "0.7.36"
+version = "0.7.37"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4014,10 +4027,11 @@ dependencies = [
 
 [[package]]
 name = "livekit-api"
-version = "0.4.18"
+version = "0.4.19"
 dependencies = [
  "async-tungstenite",
  "base64 0.21.7",
+ "device-info",
  "flate2",
  "futures-util",
  "http 1.4.0",
@@ -4046,7 +4060,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-datatrack"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "bytes",
@@ -4066,11 +4080,12 @@ dependencies = [
 
 [[package]]
 name = "livekit-ffi"
-version = "0.12.52"
+version = "0.12.53"
 dependencies = [
  "bytes",
  "console-subscriber",
  "dashmap",
+ "device-info",
  "downcast-rs",
  "env_logger 0.11.10",
  "from_variants",
@@ -4095,7 +4110,7 @@ dependencies = [
 
 [[package]]
 name = "livekit-protocol"
-version = "0.7.4"
+version = "0.7.5"
 dependencies = [
  "futures-util",
  "livekit-runtime",
@@ -4162,10 +4177,11 @@ dependencies = [
 
 [[package]]
 name = "local_video"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "chrono",
  "clap",
  "eframe",
  "egui",
@@ -8712,7 +8728,7 @@ dependencies = [
 
 [[package]]
 name = "webrtc-sys"
-version = "0.3.27"
+version = "0.3.28"
 dependencies = [
  "cc",
  "cxx",
