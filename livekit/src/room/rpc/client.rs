@@ -103,14 +103,13 @@ impl RpcClientManager {
             )
             .await
         } else {
-            publish_rpc_request(
+            self.send_v1_request(
                 transport,
                 &data.destination_identity,
                 &id,
                 &data.method,
                 &data.payload,
                 effective_timeout,
-                RPC_VERSION_V1,
             )
             .await
             .map_err(|e| RpcError::built_in(RpcErrorCode::SendFailed, Some(e.to_string())))
@@ -163,6 +162,34 @@ impl RpcClientManager {
                 Ok(payload)
             }
         }
+    }
+
+    /// Publish a v1 RPC request data packet.
+    pub(crate) async fn send_v1_request(
+        &self,
+        transport: &impl RpcTransport,
+        destination_identity: &str,
+        id: &str,
+        method: &str,
+        payload: &str,
+        response_timeout: Duration,
+    ) -> Result<(), crate::room::RoomError> {
+        let rpc_request_message = proto::RpcRequest {
+            id: id.to_string(),
+            method: method.to_string(),
+            payload: payload.to_string(),
+            response_timeout_ms: response_timeout.as_millis() as u32,
+            version: RPC_VERSION_V1,
+            ..Default::default()
+        };
+
+        let data = proto::DataPacket {
+            value: Some(proto::data_packet::Value::RpcRequest(rpc_request_message)),
+            destination_identities: vec![destination_identity.to_string()],
+            ..Default::default()
+        };
+
+        transport.publish_data(data).await
     }
 
     /// Send an RPC request as a v2 text data stream.
@@ -278,34 +305,6 @@ impl RpcClientManager {
             log::error!("Response stream received for unexpected RPC request: {}", request_id);
         }
     }
-}
-
-/// Publish a v1 RPC request data packet.
-pub(crate) async fn publish_rpc_request(
-    transport: &impl RpcTransport,
-    destination_identity: &str,
-    id: &str,
-    method: &str,
-    payload: &str,
-    response_timeout: Duration,
-    version: u32,
-) -> Result<(), crate::room::RoomError> {
-    let rpc_request_message = proto::RpcRequest {
-        id: id.to_string(),
-        method: method.to_string(),
-        payload: payload.to_string(),
-        response_timeout_ms: response_timeout.as_millis() as u32,
-        version,
-        ..Default::default()
-    };
-
-    let data = proto::DataPacket {
-        value: Some(proto::data_packet::Value::RpcRequest(rpc_request_message)),
-        destination_identities: vec![destination_identity.to_string()],
-        ..Default::default()
-    };
-
-    transport.publish_data(data).await
 }
 
 /// Publish a v1 RPC response data packet.
