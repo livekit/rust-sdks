@@ -23,13 +23,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const { proto2 } = require("@bufbuild/protobuf");
 const { ConnectCallback, ConnectRequest, ConnectResponse, DisconnectCallback, DisconnectRequest, DisconnectResponse, EditChatMessageRequest, GetSessionStatsCallback, GetSessionStatsRequest, GetSessionStatsResponse, PublishDataCallback, PublishDataRequest, PublishDataResponse, PublishSipDtmfCallback, PublishSipDtmfRequest, PublishSipDtmfResponse, PublishTrackCallback, PublishTrackRequest, PublishTrackResponse, PublishTranscriptionCallback, PublishTranscriptionRequest, PublishTranscriptionResponse, RoomEvent, SendChatMessageCallback, SendChatMessageRequest, SendChatMessageResponse, SendStreamChunkCallback, SendStreamChunkRequest, SendStreamChunkResponse, SendStreamHeaderCallback, SendStreamHeaderRequest, SendStreamHeaderResponse, SendStreamTrailerCallback, SendStreamTrailerRequest, SendStreamTrailerResponse, SetDataChannelBufferedAmountLowThresholdRequest, SetDataChannelBufferedAmountLowThresholdResponse, SetLocalAttributesCallback, SetLocalAttributesRequest, SetLocalAttributesResponse, SetLocalMetadataCallback, SetLocalMetadataRequest, SetLocalMetadataResponse, SetLocalNameCallback, SetLocalNameRequest, SetLocalNameResponse, SetSubscribedRequest, SetSubscribedResponse, UnpublishTrackCallback, UnpublishTrackRequest, UnpublishTrackResponse } = require("./room_pb.js");
 const { CreateAudioTrackRequest, CreateAudioTrackResponse, CreateVideoTrackRequest, CreateVideoTrackResponse, EnableRemoteTrackRequest, EnableRemoteTrackResponse, GetStatsCallback, GetStatsRequest, GetStatsResponse, LocalTrackMuteRequest, LocalTrackMuteResponse, SetTrackSubscriptionPermissionsRequest, SetTrackSubscriptionPermissionsResponse, TrackEvent } = require("./track_pb.js");
-const { CaptureVideoFrameRequest, CaptureVideoFrameResponse, NewVideoSourceRequest, NewVideoSourceResponse, NewVideoStreamRequest, NewVideoStreamResponse, VideoConvertRequest, VideoConvertResponse, VideoStreamEvent, VideoStreamFromParticipantRequest, VideoStreamFromParticipantResponse } = require("./video_frame_pb.js");
+const { CaptureEncodedVideoFrameRequest, CaptureEncodedVideoFrameResponse, CaptureVideoFrameRequest, CaptureVideoFrameResponse, EncodedVideoSourceEvent, NewVideoSourceRequest, NewVideoSourceResponse, NewVideoStreamRequest, NewVideoStreamResponse, VideoConvertRequest, VideoConvertResponse, VideoStreamEvent, VideoStreamFromParticipantRequest, VideoStreamFromParticipantResponse } = require("./video_frame_pb.js");
 const { ApmProcessReverseStreamRequest, ApmProcessReverseStreamResponse, ApmProcessStreamRequest, ApmProcessStreamResponse, ApmSetStreamDelayRequest, ApmSetStreamDelayResponse, AudioStreamEvent, AudioStreamFromParticipantRequest, AudioStreamFromParticipantResponse, CaptureAudioFrameCallback, CaptureAudioFrameRequest, CaptureAudioFrameResponse, ClearAudioBufferRequest, ClearAudioBufferResponse, FlushSoxResamplerRequest, FlushSoxResamplerResponse, LoadAudioFilterPluginRequest, LoadAudioFilterPluginResponse, NewApmRequest, NewApmResponse, NewAudioResamplerRequest, NewAudioResamplerResponse, NewAudioSourceRequest, NewAudioSourceResponse, NewAudioStreamRequest, NewAudioStreamResponse, NewSoxResamplerRequest, NewSoxResamplerResponse, PushSoxResamplerRequest, PushSoxResamplerResponse, RemixAndResampleRequest, RemixAndResampleResponse } = require("./audio_frame_pb.js");
 const { E2eeRequest, E2eeResponse } = require("./e2ee_pb.js");
 const { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, RegisterRpcMethodRequest, RegisterRpcMethodResponse, RpcMethodInvocationEvent, RpcMethodInvocationResponseRequest, RpcMethodInvocationResponseResponse, UnregisterRpcMethodRequest, UnregisterRpcMethodResponse } = require("./rpc_pb.js");
 const { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } = require("./track_publication_pb.js");
 const { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } = require("./data_stream_pb.js");
 const { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } = require("./data_track_pb.js");
+const { EncodedTcpIngestEvent, GetEncodedTcpIngestStatsRequest, GetEncodedTcpIngestStatsResponse, NewEncodedTcpIngestCallback, NewEncodedTcpIngestRequest, NewEncodedTcpIngestResponse, StopEncodedTcpIngestCallback, StopEncodedTcpIngestRequest, StopEncodedTcpIngestResponse } = require("./encoded_tcp_ingest_pb.js");
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -128,6 +129,10 @@ const FfiRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 73, name: "subscribe_data_track", kind: "message", T: SubscribeDataTrackRequest, oneof: "message" },
     { no: 74, name: "remote_data_track_is_published", kind: "message", T: RemoteDataTrackIsPublishedRequest, oneof: "message" },
     { no: 75, name: "data_track_stream_read", kind: "message", T: DataTrackStreamReadRequest, oneof: "message" },
+    { no: 76, name: "capture_encoded_video_frame", kind: "message", T: CaptureEncodedVideoFrameRequest, oneof: "message" },
+    { no: 77, name: "new_encoded_tcp_ingest", kind: "message", T: NewEncodedTcpIngestRequest, oneof: "message" },
+    { no: 78, name: "stop_encoded_tcp_ingest", kind: "message", T: StopEncodedTcpIngestRequest, oneof: "message" },
+    { no: 79, name: "get_encoded_tcp_ingest_stats", kind: "message", T: GetEncodedTcpIngestStatsRequest, oneof: "message" },
   ],
 );
 
@@ -212,6 +217,10 @@ const FfiResponse = /*@__PURE__*/ proto2.makeMessageType(
     { no: 72, name: "subscribe_data_track", kind: "message", T: SubscribeDataTrackResponse, oneof: "message" },
     { no: 73, name: "remote_data_track_is_published", kind: "message", T: RemoteDataTrackIsPublishedResponse, oneof: "message" },
     { no: 74, name: "data_track_stream_read", kind: "message", T: DataTrackStreamReadResponse, oneof: "message" },
+    { no: 75, name: "capture_encoded_video_frame", kind: "message", T: CaptureEncodedVideoFrameResponse, oneof: "message" },
+    { no: 76, name: "new_encoded_tcp_ingest", kind: "message", T: NewEncodedTcpIngestResponse, oneof: "message" },
+    { no: 77, name: "stop_encoded_tcp_ingest", kind: "message", T: StopEncodedTcpIngestResponse, oneof: "message" },
+    { no: 78, name: "get_encoded_tcp_ingest_stats", kind: "message", T: GetEncodedTcpIngestStatsResponse, oneof: "message" },
   ],
 );
 
@@ -267,6 +276,10 @@ const FfiEvent = /*@__PURE__*/ proto2.makeMessageType(
     { no: 41, name: "send_bytes", kind: "message", T: StreamSendBytesCallback, oneof: "message" },
     { no: 42, name: "publish_data_track", kind: "message", T: PublishDataTrackCallback, oneof: "message" },
     { no: 43, name: "data_track_stream_event", kind: "message", T: DataTrackStreamEvent, oneof: "message" },
+    { no: 44, name: "encoded_video_source_event", kind: "message", T: EncodedVideoSourceEvent, oneof: "message" },
+    { no: 45, name: "encoded_tcp_ingest_event", kind: "message", T: EncodedTcpIngestEvent, oneof: "message" },
+    { no: 46, name: "new_encoded_tcp_ingest", kind: "message", T: NewEncodedTcpIngestCallback, oneof: "message" },
+    { no: 47, name: "stop_encoded_tcp_ingest", kind: "message", T: StopEncodedTcpIngestCallback, oneof: "message" },
   ],
 );
 

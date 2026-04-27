@@ -168,6 +168,14 @@ export declare enum VideoSourceType {
    * @generated from enum value: VIDEO_SOURCE_NATIVE = 0;
    */
   VIDEO_SOURCE_NATIVE = 0,
+
+  /**
+   * A source that accepts pre-encoded compressed frames. WebRTC's internal
+   * encoder is bypassed for tracks bound to this source.
+   *
+   * @generated from enum value: VIDEO_SOURCE_ENCODED = 1;
+   */
+  VIDEO_SOURCE_ENCODED = 1,
 }
 
 /**
@@ -363,6 +371,14 @@ export declare class NewVideoSourceRequest extends Message<NewVideoSourceRequest
    */
   isScreencast?: boolean;
 
+  /**
+   * When type == VIDEO_SOURCE_ENCODED this field MUST be set. It configures
+   * the passthrough encoder for the source (codec + initial resolution).
+   *
+   * @generated from field: optional livekit.proto.EncodedVideoSourceOptions encoded_options = 4;
+   */
+  encodedOptions?: EncodedVideoSourceOptions;
+
   constructor(data?: PartialMessage<NewVideoSourceRequest>);
 
   static readonly runtime: typeof proto2;
@@ -467,6 +483,101 @@ export declare class CaptureVideoFrameResponse extends Message<CaptureVideoFrame
   static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CaptureVideoFrameResponse;
 
   static equals(a: CaptureVideoFrameResponse | PlainMessage<CaptureVideoFrameResponse> | undefined, b: CaptureVideoFrameResponse | PlainMessage<CaptureVideoFrameResponse> | undefined): boolean;
+}
+
+/**
+ * Push a pre-encoded (compressed) frame to an encoded VideoSource.
+ * The source must have been created with type == VIDEO_SOURCE_ENCODED.
+ *
+ * @generated from message livekit.proto.CaptureEncodedVideoFrameRequest
+ */
+export declare class CaptureEncodedVideoFrameRequest extends Message<CaptureEncodedVideoFrameRequest> {
+  /**
+   * @generated from field: required uint64 source_handle = 1;
+   */
+  sourceHandle?: bigint;
+
+  /**
+   * Raw encoded bitstream (e.g. NAL units for H.264/H.265, VP8/VP9/AV1
+   * OBU payload). Must be a complete access unit / picture.
+   *
+   * @generated from field: required bytes data = 2;
+   */
+  data?: Uint8Array;
+
+  /**
+   * @generated from field: required bool is_keyframe = 3;
+   */
+  isKeyframe?: boolean;
+
+  /**
+   * H.264/H.265 only: set when SPS/PPS (or VPS/SPS/PPS) is already
+   * prepended to `data`. Ignored for other codecs.
+   *
+   * @generated from field: optional bool has_sps_pps = 4;
+   */
+  hasSpsPps?: boolean;
+
+  /**
+   * Frame resolution. 0/0 means "use the resolution from
+   * EncodedVideoSourceOptions".
+   *
+   * @generated from field: optional uint32 width = 5;
+   */
+  width?: number;
+
+  /**
+   * @generated from field: optional uint32 height = 6;
+   */
+  height?: number;
+
+  /**
+   * Capture timestamp in microseconds. 0 lets the source stamp `now`.
+   *
+   * @generated from field: optional int64 capture_time_us = 7;
+   */
+  captureTimeUs?: bigint;
+
+  constructor(data?: PartialMessage<CaptureEncodedVideoFrameRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.CaptureEncodedVideoFrameRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CaptureEncodedVideoFrameRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CaptureEncodedVideoFrameRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CaptureEncodedVideoFrameRequest;
+
+  static equals(a: CaptureEncodedVideoFrameRequest | PlainMessage<CaptureEncodedVideoFrameRequest> | undefined, b: CaptureEncodedVideoFrameRequest | PlainMessage<CaptureEncodedVideoFrameRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.CaptureEncodedVideoFrameResponse
+ */
+export declare class CaptureEncodedVideoFrameResponse extends Message<CaptureEncodedVideoFrameResponse> {
+  /**
+   * True if the frame was queued; false if it was dropped because the
+   * internal queue was full.
+   *
+   * @generated from field: required bool accepted = 1;
+   */
+  accepted?: boolean;
+
+  constructor(data?: PartialMessage<CaptureEncodedVideoFrameResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.CaptureEncodedVideoFrameResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): CaptureEncodedVideoFrameResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): CaptureEncodedVideoFrameResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): CaptureEncodedVideoFrameResponse;
+
+  static equals(a: CaptureEncodedVideoFrameResponse | PlainMessage<CaptureEncodedVideoFrameResponse> | undefined, b: CaptureEncodedVideoFrameResponse | PlainMessage<CaptureEncodedVideoFrameResponse> | undefined): boolean;
 }
 
 /**
@@ -908,6 +1019,13 @@ export declare class VideoSourceInfo extends Message<VideoSourceInfo> {
    */
   type?: VideoSourceType;
 
+  /**
+   * Only populated for encoded sources. Exposed for debugging / tracing.
+   *
+   * @generated from field: optional uint32 encoded_source_id = 2;
+   */
+  encodedSourceId?: number;
+
   constructor(data?: PartialMessage<VideoSourceInfo>);
 
   static readonly runtime: typeof proto2;
@@ -950,5 +1068,126 @@ export declare class OwnedVideoSource extends Message<OwnedVideoSource> {
   static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): OwnedVideoSource;
 
   static equals(a: OwnedVideoSource | PlainMessage<OwnedVideoSource> | undefined, b: OwnedVideoSource | PlainMessage<OwnedVideoSource> | undefined): boolean;
+}
+
+/**
+ * Options for an encoded video source. One source carries a single encoded
+ * stream (one resolution, one codec). To simulcast, create multiple sources
+ * and publish them on separate tracks.
+ *
+ * @generated from message livekit.proto.EncodedVideoSourceOptions
+ */
+export declare class EncodedVideoSourceOptions extends Message<EncodedVideoSourceOptions> {
+  /**
+   * @generated from field: required livekit.proto.VideoCodec codec = 1;
+   */
+  codec?: VideoCodec;
+
+  constructor(data?: PartialMessage<EncodedVideoSourceOptions>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.EncodedVideoSourceOptions";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): EncodedVideoSourceOptions;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): EncodedVideoSourceOptions;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): EncodedVideoSourceOptions;
+
+  static equals(a: EncodedVideoSourceOptions | PlainMessage<EncodedVideoSourceOptions> | undefined, b: EncodedVideoSourceOptions | PlainMessage<EncodedVideoSourceOptions> | undefined): boolean;
+}
+
+/**
+ * Encoder-side feedback for an encoded video source. Emitted as FfiEvents
+ * so client SDKs can react (request a fresh keyframe from their encoder,
+ * adjust target bitrate, etc.).
+ *
+ * @generated from message livekit.proto.EncodedVideoSourceEvent
+ */
+export declare class EncodedVideoSourceEvent extends Message<EncodedVideoSourceEvent> {
+  /**
+   * @generated from field: required uint64 source_handle = 1;
+   */
+  sourceHandle?: bigint;
+
+  /**
+   * @generated from oneof livekit.proto.EncodedVideoSourceEvent.message
+   */
+  message: {
+    /**
+     * @generated from field: livekit.proto.EncodedVideoSourceEvent.KeyframeRequested keyframe_requested = 2;
+     */
+    value: EncodedVideoSourceEvent_KeyframeRequested;
+    case: "keyframeRequested";
+  } | {
+    /**
+     * @generated from field: livekit.proto.EncodedVideoSourceEvent.TargetBitrateChanged target_bitrate_changed = 3;
+     */
+    value: EncodedVideoSourceEvent_TargetBitrateChanged;
+    case: "targetBitrateChanged";
+  } | { case: undefined; value?: undefined };
+
+  constructor(data?: PartialMessage<EncodedVideoSourceEvent>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.EncodedVideoSourceEvent";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): EncodedVideoSourceEvent;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): EncodedVideoSourceEvent;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): EncodedVideoSourceEvent;
+
+  static equals(a: EncodedVideoSourceEvent | PlainMessage<EncodedVideoSourceEvent> | undefined, b: EncodedVideoSourceEvent | PlainMessage<EncodedVideoSourceEvent> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.EncodedVideoSourceEvent.KeyframeRequested
+ */
+export declare class EncodedVideoSourceEvent_KeyframeRequested extends Message<EncodedVideoSourceEvent_KeyframeRequested> {
+  constructor(data?: PartialMessage<EncodedVideoSourceEvent_KeyframeRequested>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.EncodedVideoSourceEvent.KeyframeRequested";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): EncodedVideoSourceEvent_KeyframeRequested;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): EncodedVideoSourceEvent_KeyframeRequested;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): EncodedVideoSourceEvent_KeyframeRequested;
+
+  static equals(a: EncodedVideoSourceEvent_KeyframeRequested | PlainMessage<EncodedVideoSourceEvent_KeyframeRequested> | undefined, b: EncodedVideoSourceEvent_KeyframeRequested | PlainMessage<EncodedVideoSourceEvent_KeyframeRequested> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.EncodedVideoSourceEvent.TargetBitrateChanged
+ */
+export declare class EncodedVideoSourceEvent_TargetBitrateChanged extends Message<EncodedVideoSourceEvent_TargetBitrateChanged> {
+  /**
+   * @generated from field: required uint32 bitrate_bps = 1;
+   */
+  bitrateBps?: number;
+
+  /**
+   * @generated from field: required double framerate_fps = 2;
+   */
+  framerateFps?: number;
+
+  constructor(data?: PartialMessage<EncodedVideoSourceEvent_TargetBitrateChanged>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.EncodedVideoSourceEvent.TargetBitrateChanged";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): EncodedVideoSourceEvent_TargetBitrateChanged;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): EncodedVideoSourceEvent_TargetBitrateChanged;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): EncodedVideoSourceEvent_TargetBitrateChanged;
+
+  static equals(a: EncodedVideoSourceEvent_TargetBitrateChanged | PlainMessage<EncodedVideoSourceEvent_TargetBitrateChanged> | undefined, b: EncodedVideoSourceEvent_TargetBitrateChanged | PlainMessage<EncodedVideoSourceEvent_TargetBitrateChanged> | undefined): boolean;
 }
 

@@ -93,6 +93,7 @@ const VideoSourceType = /*@__PURE__*/ proto2.makeEnum(
   "livekit.proto.VideoSourceType",
   [
     {no: 0, name: "VIDEO_SOURCE_NATIVE"},
+    {no: 1, name: "VIDEO_SOURCE_ENCODED"},
   ],
 );
 
@@ -162,6 +163,7 @@ const NewVideoSourceRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 1, name: "type", kind: "enum", T: proto2.getEnumType(VideoSourceType), req: true },
     { no: 2, name: "resolution", kind: "message", T: VideoSourceResolution, req: true },
     { no: 3, name: "is_screencast", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 4, name: "encoded_options", kind: "message", T: EncodedVideoSourceOptions, opt: true },
   ],
 );
 
@@ -197,6 +199,35 @@ const CaptureVideoFrameRequest = /*@__PURE__*/ proto2.makeMessageType(
 const CaptureVideoFrameResponse = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.CaptureVideoFrameResponse",
   [],
+);
+
+/**
+ * Push a pre-encoded (compressed) frame to an encoded VideoSource.
+ * The source must have been created with type == VIDEO_SOURCE_ENCODED.
+ *
+ * @generated from message livekit.proto.CaptureEncodedVideoFrameRequest
+ */
+const CaptureEncodedVideoFrameRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.CaptureEncodedVideoFrameRequest",
+  () => [
+    { no: 1, name: "source_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "data", kind: "scalar", T: 12 /* ScalarType.BYTES */, req: true },
+    { no: 3, name: "is_keyframe", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 4, name: "has_sps_pps", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
+    { no: 5, name: "width", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
+    { no: 6, name: "height", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
+    { no: 7, name: "capture_time_us", kind: "scalar", T: 3 /* ScalarType.INT64 */, opt: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.CaptureEncodedVideoFrameResponse
+ */
+const CaptureEncodedVideoFrameResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.CaptureEncodedVideoFrameResponse",
+  () => [
+    { no: 1, name: "accepted", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+  ],
 );
 
 /**
@@ -356,6 +387,7 @@ const VideoSourceInfo = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.VideoSourceInfo",
   () => [
     { no: 1, name: "type", kind: "enum", T: proto2.getEnumType(VideoSourceType), req: true },
+    { no: 2, name: "encoded_source_id", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
   ],
 );
 
@@ -368,6 +400,57 @@ const OwnedVideoSource = /*@__PURE__*/ proto2.makeMessageType(
     { no: 1, name: "handle", kind: "message", T: FfiOwnedHandle, req: true },
     { no: 2, name: "info", kind: "message", T: VideoSourceInfo, req: true },
   ],
+);
+
+/**
+ * Options for an encoded video source. One source carries a single encoded
+ * stream (one resolution, one codec). To simulcast, create multiple sources
+ * and publish them on separate tracks.
+ *
+ * @generated from message livekit.proto.EncodedVideoSourceOptions
+ */
+const EncodedVideoSourceOptions = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.EncodedVideoSourceOptions",
+  () => [
+    { no: 1, name: "codec", kind: "enum", T: proto2.getEnumType(VideoCodec), req: true },
+  ],
+);
+
+/**
+ * Encoder-side feedback for an encoded video source. Emitted as FfiEvents
+ * so client SDKs can react (request a fresh keyframe from their encoder,
+ * adjust target bitrate, etc.).
+ *
+ * @generated from message livekit.proto.EncodedVideoSourceEvent
+ */
+const EncodedVideoSourceEvent = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.EncodedVideoSourceEvent",
+  () => [
+    { no: 1, name: "source_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "keyframe_requested", kind: "message", T: EncodedVideoSourceEvent_KeyframeRequested, oneof: "message" },
+    { no: 3, name: "target_bitrate_changed", kind: "message", T: EncodedVideoSourceEvent_TargetBitrateChanged, oneof: "message" },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.EncodedVideoSourceEvent.KeyframeRequested
+ */
+const EncodedVideoSourceEvent_KeyframeRequested = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.EncodedVideoSourceEvent.KeyframeRequested",
+  [],
+  {localName: "EncodedVideoSourceEvent_KeyframeRequested"},
+);
+
+/**
+ * @generated from message livekit.proto.EncodedVideoSourceEvent.TargetBitrateChanged
+ */
+const EncodedVideoSourceEvent_TargetBitrateChanged = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.EncodedVideoSourceEvent.TargetBitrateChanged",
+  () => [
+    { no: 1, name: "bitrate_bps", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 2, name: "framerate_fps", kind: "scalar", T: 1 /* ScalarType.DOUBLE */, req: true },
+  ],
+  {localName: "EncodedVideoSourceEvent_TargetBitrateChanged"},
 );
 
 
@@ -384,6 +467,8 @@ exports.NewVideoSourceRequest = NewVideoSourceRequest;
 exports.NewVideoSourceResponse = NewVideoSourceResponse;
 exports.CaptureVideoFrameRequest = CaptureVideoFrameRequest;
 exports.CaptureVideoFrameResponse = CaptureVideoFrameResponse;
+exports.CaptureEncodedVideoFrameRequest = CaptureEncodedVideoFrameRequest;
+exports.CaptureEncodedVideoFrameResponse = CaptureEncodedVideoFrameResponse;
 exports.VideoConvertRequest = VideoConvertRequest;
 exports.VideoConvertResponse = VideoConvertResponse;
 exports.VideoResolution = VideoResolution;
@@ -399,3 +484,7 @@ exports.VideoStreamEOS = VideoStreamEOS;
 exports.VideoSourceResolution = VideoSourceResolution;
 exports.VideoSourceInfo = VideoSourceInfo;
 exports.OwnedVideoSource = OwnedVideoSource;
+exports.EncodedVideoSourceOptions = EncodedVideoSourceOptions;
+exports.EncodedVideoSourceEvent = EncodedVideoSourceEvent;
+exports.EncodedVideoSourceEvent_KeyframeRequested = EncodedVideoSourceEvent_KeyframeRequested;
+exports.EncodedVideoSourceEvent_TargetBitrateChanged = EncodedVideoSourceEvent_TargetBitrateChanged;
