@@ -87,6 +87,9 @@ impl PeerTransport {
     }
 
     pub fn close(&self) {
+        if let Ok(mut inner) = self.inner.try_lock() {
+            inner.pending_initial_offer = None;
+        }
         self.peer_connection.close();
     }
 
