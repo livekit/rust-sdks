@@ -17,7 +17,8 @@ signal-client-tokio = [
     "dep:reqwest",
     "dep:livekit-runtime",
     "livekit-runtime/tokio",
-    "dep:base64"
+    "dep:base64",
+    "dep:rustls-pki-types",
 ]
 
 signal-client-async = [
@@ -36,7 +37,8 @@ __signal-client-async-compatible = [
     "dep:futures-util",
     "dep:isahc",
     "dep:livekit-runtime",
-    "dep:base64"
+    "dep:base64",
+    "dep:rustls-pki-types",
 ]
 
 
@@ -58,14 +60,14 @@ native-tls-vendored = [
 ]
 rustls-tls-native-roots = [
     "tokio-tungstenite?/rustls-tls-native-roots",
-    "reqwest?/rustls-tls-native-roots",
+    "reqwest?/rustls",
     "tokio-tungstenite?/__rustls-tls",
     "dep:tokio-rustls",
     "dep:rustls-native-certs"
 ]
 rustls-tls-webpki-roots = [
     "tokio-tungstenite?/rustls-tls-webpki-roots",
-    "reqwest?/rustls-tls-webpki-roots",
+    "reqwest?/rustls",
 ]
 __rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
 
@@ -79,6 +81,7 @@ log = { workspace = true }
 parking_lot = { workspace = true }
 prost = "0.12"
 pbjson-types = "0.6"
+bytes = "1.11"
 
 # webhooks
 serde_json = { workspace = true, optional = true }
@@ -89,16 +92,18 @@ jsonwebtoken = { version = "10", default-features = false, features = ["rust_cry
 
 # signal_client
 livekit-runtime = { workspace = true, optional = true}
-tokio-tungstenite = { version = "0.20", optional = true }
-async-tungstenite = { version = "0.25.0", features = [ "async-std-runtime", "async-native-tls"], optional = true }
+tokio-tungstenite = { version = "0.29", features = ["url"], optional = true }
+async-tungstenite = { version = "0.34.0", features = [ "async-std-runtime", "async-native-tls"], optional = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
-tokio-rustls = { version = "0.24", optional = true }
-rustls-native-certs = { version = "0.6", optional = true }
+tokio-rustls = { version = "0.26", optional = true }
+rustls-pki-types = { version = "1", features = ["std"], optional = true }
+
+rustls-native-certs = { version = "0.8", optional = true }
 futures-util = { workspace = true, default-features = false, features = [ "sink" ], optional = true }
 
 # This dependency must be kept in sync with reqwest's version
 http = "1.1"
-reqwest = { version = "0.12", default-features = false, features = [ "json" ], optional = true }
+reqwest = { version = "0.13", default-features = false, features = [ "json" ], optional = true }
 isahc = { version = "1.7.2", default-features = false, features = [ "json", "text-decoding" ], optional = true }
 
 scopeguard = "1.2.0"
