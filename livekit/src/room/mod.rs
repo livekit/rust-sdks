@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::e2ee::EncryptionType;
 use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::{Stream, StreamExt};
+use libwebrtc::prelude::RtpEncodingParameters;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
     prelude::{
@@ -31,6 +33,7 @@ use livekit_datatrack::{
 use livekit_protocol::observer::Dispatcher;
 use livekit_protocol::{self as proto, encryption};
 use livekit_runtime::JoinHandle;
+use options::TrackPublishOptions;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
 use proto::{promise::Promise, SignalTarget};
@@ -41,6 +44,7 @@ use tokio::sync::{
     mpsc::{self, UnboundedReceiver},
     oneshot, Mutex as AsyncMutex,
 };
+use track::LocalTrack;
 pub use utils::take_cell::TakeCell;
 
 pub use self::{
@@ -55,8 +59,8 @@ use crate::{
     prelude::*,
     registered_audio_filter_plugins,
     rtc_engine::{
-        EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, RtcEngine,
-        SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
+        EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, PrePublishTrack,
+        RtcEngine, SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
     },
 };
 
@@ -394,6 +398,8 @@ pub struct RoomOptions {
     pub single_peer_connection: bool,
     /// Timeout for each individual signal connection attempt
     pub connect_timeout: Duration,
+    /// Tracks to publish immediately upon joining. Only effective when `single_peer_connection` is true.
+    pub publish_tracks: Vec<(LocalTrack, TrackPublishOptions)>,
 }
 
 impl Default for RoomOptions {
@@ -416,6 +422,7 @@ impl Default for RoomOptions {
             sdk_options: RoomSdkOptions::default(),
             single_peer_connection: false,
             connect_timeout: SIGNAL_CONNECT_TIMEOUT,
+            publish_tracks: Vec::new(),
         }
     }
 }
@@ -519,7 +526,22 @@ impl Room {
         signal_options.adaptive_stream = options.adaptive_stream;
         signal_options.single_peer_connection = options.single_peer_connection;
         signal_options.connect_timeout = options.connect_timeout;
-        let (rtc_engine, join_response, engine_events) = RtcEngine::connect(
+
+        if !options.publish_tracks.is_empty() && !options.single_peer_connection {
+            return Err(RoomError::Internal(
+                "publish_tracks requires single_peer_connection to be enabled".into(),
+            ));
+        }
+        let encryption_type = e2ee_manager.encryption_type();
+        let pre_publish_tracks: Vec<PrePublishTrack> = options
+            .publish_tracks
+            .iter()
+            .map(|(track, opts)| {
+                Self::build_pre_publish_track(track.clone(), opts.clone(), encryption_type)
+            })
+            .collect();
+
+        let (rtc_engine, join_response, engine_events, pre_publish_receivers) = RtcEngine::connect(
             url,
             token,
             EngineOptions {
@@ -527,6 +549,7 @@ impl Room {
                 signal_options,
                 join_retries: options.join_retries,
                 single_peer_connection: options.single_peer_connection,
+                publish_tracks: pre_publish_tracks.clone(),
             },
             Some(e2ee_manager.clone()),
         )
@@ -788,7 +811,92 @@ impl Room {
         };
         inner.handle.lock().await.replace(handle);
 
+        let mut receiver_map: HashMap<String, oneshot::Receiver<proto::TrackInfo>> =
+            pre_publish_receivers.into_iter().collect();
+        for pt in pre_publish_tracks {
+            let Some(rx) = receiver_map.remove(&pt.request.cid) else {
+                log::warn!("no receiver for pre-published track {}", pt.track.name());
+                continue;
+            };
+            match rtc_engine.wait_track_published_by_cid(pt.request.cid.clone(), rx).await {
+                Ok(track_info) => {
+                    let publication =
+                        LocalTrackPublication::new(track_info.clone(), pt.track.clone());
+                    pt.track.update_info(track_info);
+                    publication.set_track(Some(pt.track.clone().into()));
+                    publication.update_publish_options(pt.options);
+                    inner.local_participant.add_publication(TrackPublication::Local(publication));
+                    pt.track.enable();
+                    log::debug!("pre-published track completed: {}", pt.track.name());
+                }
+                Err(err) => {
+                    log::warn!(
+                        "failed to complete pre-published track {}: {:?}",
+                        pt.track.name(),
+                        err
+                    );
+                }
+            }
+        }
+
         Ok((Self { inner }, events))
+    }
+
+    fn build_pre_publish_track(
+        track: LocalTrack,
+        opts: TrackPublishOptions,
+        encryption_type: EncryptionType,
+    ) -> PrePublishTrack {
+        let disable_red = encryption_type != EncryptionType::None || !opts.red;
+
+        let mut req = proto::AddTrackRequest {
+            cid: track.rtc_track().id(),
+            name: track.name(),
+            r#type: proto::TrackType::from(track.kind()) as i32,
+            muted: track.is_muted(),
+            source: proto::TrackSource::from(opts.source) as i32,
+            disable_dtx: !opts.dtx,
+            disable_red,
+            encryption: proto::encryption::Type::from(encryption_type) as i32,
+            stream: opts.stream.clone(),
+            ..Default::default()
+        };
+
+        if opts.preconnect_buffer {
+            req.audio_features.push(proto::AudioTrackFeature::TfPreconnectBuffer as i32);
+        }
+
+        let encodings = match &track {
+            LocalTrack::Video(video_track) => {
+                let resolution = video_track.rtc_source().video_resolution();
+                req.width = resolution.width;
+                req.height = resolution.height;
+
+                let encodings = options::compute_video_encodings(req.width, req.height, &opts);
+                req.layers =
+                    options::video_layers_from_encodings(req.width, req.height, &encodings);
+
+                if opts.simulcast && encodings.len() > 1 {
+                    req.simulcast_codecs = vec![proto::SimulcastCodec {
+                        codec: opts.video_codec.as_str().to_string(),
+                        cid: track.rtc_track().id(),
+                        layers: req.layers.clone(),
+                        ..Default::default()
+                    }];
+                }
+                encodings
+            }
+            LocalTrack::Audio(_) => {
+                let audio_encoding =
+                    opts.audio_encoding.as_ref().unwrap_or(&options::audio::MUSIC.encoding);
+                vec![RtpEncodingParameters {
+                    max_bitrate: Some(audio_encoding.max_bitrate),
+                    ..Default::default()
+                }]
+            }
+        };
+
+        PrePublishTrack { track, options: opts, encodings, request: req }
     }
 
     pub async fn close(&self) -> RoomResult<()> {

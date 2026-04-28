@@ -76,6 +76,15 @@ pub enum EngineError {
     Internal(Cow<'static, str>), // Unexpected error, generally we can't recover
 }
 
+/// A track to be published at join time, bundled with its options and encodings.
+#[derive(Debug, Clone)]
+pub struct PrePublishTrack {
+    pub track: LocalTrack,
+    pub options: TrackPublishOptions,
+    pub encodings: Vec<RtpEncodingParameters>,
+    pub request: proto::AddTrackRequest,
+}
+
 #[derive(Default, Debug, Clone)]
 pub struct EngineOptions {
     pub rtc_config: RtcConfiguration,
@@ -83,6 +92,8 @@ pub struct EngineOptions {
     pub join_retries: u32,
     /// Enable single peer connection mode
     pub single_peer_connection: bool,
+    /// Tracks to publish at join time (pre-publish optimization)
+    pub publish_tracks: Vec<PrePublishTrack>,
 }
 
 #[derive(Debug)]
@@ -245,10 +256,15 @@ impl RtcEngine {
         token: &str,
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
-    ) -> EngineResult<(Self, proto::JoinResponse, EngineEvents)> {
-        let (inner, join_response, engine_events) =
+    ) -> EngineResult<(
+        Self,
+        proto::JoinResponse,
+        EngineEvents,
+        Vec<(String, oneshot::Receiver<proto::TrackInfo>)>,
+    )> {
+        let (inner, join_response, engine_events, pre_publish_receivers) =
             EngineInner::connect(url, token, options, e2ee_manager).await?;
-        Ok((Self { inner }, join_response, engine_events))
+        Ok((Self { inner }, join_response, engine_events, pre_publish_receivers))
     }
 
     pub async fn close(&self, reason: DisconnectReason) {
@@ -306,6 +322,18 @@ impl RtcEngine {
             (handle.session.clone(), _r_lock)
         };
         session.add_track(req).await
+    }
+
+    pub async fn wait_track_published_by_cid(
+        &self,
+        cid: String,
+        rx: oneshot::Receiver<proto::TrackInfo>,
+    ) -> EngineResult<proto::TrackInfo> {
+        let (session, _r_lock) = {
+            let (handle, _r_lock) = self.inner.wait_reconnection().await?;
+            (handle.session.clone(), _r_lock)
+        };
+        session.wait_track_published_by_cid(cid, rx).await
     }
 
     pub fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
@@ -378,7 +406,12 @@ impl EngineInner {
         token: &str,
         options: EngineOptions,
         e2ee_manager: Option<E2eeManager>,
-    ) -> EngineResult<(Arc<Self>, proto::JoinResponse, EngineEvents)> {
+    ) -> EngineResult<(
+        Arc<Self>,
+        proto::JoinResponse,
+        EngineEvents,
+        Vec<(String, oneshot::Receiver<proto::TrackInfo>)>,
+    )> {
         let lk_runtime = LkRuntime::instance();
         let max_retries = options.join_retries;
 
@@ -388,7 +421,7 @@ impl EngineInner {
                 let lk_runtime = lk_runtime.clone();
                 let e2ee_manager = e2ee_manager.clone();
                 async move {
-                    let (session, join_response, session_events) =
+                    let (session, join_response, session_events, pre_publish_receivers) =
                         RtcSession::connect(url, token, options.clone(), e2ee_manager).await?;
                     session.wait_pc_connection().await?;
 
@@ -419,7 +452,7 @@ impl EngineInner {
                     ));
                     inner.running_handle.write().engine_task = Some((session_task, close_tx));
 
-                    Ok((inner, join_response, engine_rx))
+                    Ok((inner, join_response, engine_rx, pre_publish_receivers))
                 }
             }
         };
@@ -855,7 +888,7 @@ impl EngineInner {
             let _ = engine_task.await;
         }
 
-        let (new_session, join_response, session_events) =
+        let (new_session, join_response, session_events, _) =
             RtcSession::connect(url, token, options, e2ee_manager).await?;
 
         // On SignalRestarted, the room will try to unpublish the local tracks
