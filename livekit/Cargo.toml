@@ -50,4 +50,5 @@ base64 = "0.22"
 [dev-dependencies]
 anyhow = "1.0.99"
 test-log = "0.2.18"
+rlimit = "0.10"
 test-case = "3.3"

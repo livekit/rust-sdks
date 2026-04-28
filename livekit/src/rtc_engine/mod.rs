@@ -310,10 +310,22 @@ impl RtcEngine {
 
     pub fn remove_track(&self, sender: RtpSender) -> EngineResult<()> {
         // We don't need to wait for the reconnection
-        let session = self.inner.running_handle.read().session.clone();
-        session.remove_track(sender) // TODO(theomonnom): Ignore errors where this
-                                     // RtpSender is bound to the old session. (Can
-                                     // happen on bad timing and it is safe to ignore)
+        let handle = self.inner.running_handle.read();
+        let session = handle.session.clone();
+        let is_reconnecting = handle.reconnecting;
+        drop(handle); // Release the lock before calling remove_track
+
+        match session.remove_track(sender) {
+            Ok(()) => Ok(()),
+            Err(e) if is_reconnecting => {
+                // During reconnection, the RtpSender may be bound to the old session.
+                // This is safe to ignore as the track will be properly cleaned up
+                // when the session is replaced.
+                log::debug!("ignoring remove_track error during reconnection: {:?}", e);
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub async fn mute_track(&self, req: proto::MuteTrackRequest) -> EngineResult<()> {
