@@ -81,11 +81,31 @@ struct SharedYuv {
     has_user_timestamp: bool,
     /// Frames replaced in the app handoff before the renderer consumed them.
     replaced_frames: u64,
+    /// Latest frame whose GPU submit has completed; lags CPU receive by ~1 display frame.
+    gpu_done: Option<GpuDoneSample>,
 }
 
 struct PendingFrame {
     frame: BoxVideoFrame,
     received_at_us: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct GpuDoneSample {
+    frame_id: Option<u32>,
+    publish_us: Option<u64>,
+    cpu_received_us: u64,
+    uploaded_at_us: u64,
+    gpu_done_us: u64,
+}
+
+/// Carried from upload into the wgpu submit callback to stamp `gpu_done_us`.
+#[derive(Clone, Copy, Debug)]
+struct PendingGpuSample {
+    frame_id: Option<u32>,
+    publish_us: Option<u64>,
+    cpu_received_us: u64,
+    uploaded_at_us: u64,
 }
 
 #[derive(Clone)]
@@ -212,6 +232,12 @@ fn format_timestamp_us(ts_us: u64) -> String {
 
 fn format_optional_timestamp_us(ts_us: Option<u64>) -> String {
     ts_us.map(format_timestamp_us).unwrap_or_else(|| "N/A".to_string())
+}
+
+/// Format the us delta as a millisecond string like `"12.3ms"`.
+fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
+    let delta_us = later_us.saturating_sub(earlier_us);
+    format!("{:.1}ms", delta_us as f64 / 1_000.0)
 }
 
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
@@ -436,6 +462,7 @@ fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex
         s.has_user_timestamp = false;
         s.pending_frame = None;
         s.replaced_frames = 0;
+        s.gpu_done = None;
     }
     let mut sc = simulcast.lock();
     *sc = SimulcastState::default();
@@ -482,6 +509,7 @@ struct VideoApp {
     /// Cached latency text, refreshed at 2 Hz for readability.
     last_latency_text: String,
     last_upload_latency_text: String,
+    last_render_dur_text: String,
     last_latency_refresh: Option<Instant>,
 }
 
@@ -577,62 +605,66 @@ impl eframe::App for VideoApp {
             let receive_us = s.received_at_us;
             let upload_us = s.uploaded_at_us;
             let has_user_timestamp = s.has_user_timestamp;
+            let gpu_done = s.gpu_done;
             drop(s);
 
             let publish_us = meta.and_then(|m| m.user_timestamp);
             let frame_id = meta.and_then(|m| m.frame_id);
 
-            if publish_us.is_some() || frame_id.is_some() {
-                let frame_id_line = match frame_id {
-                    Some(fid) => format!("Frame ID:   {}", fid),
-                    None => "Frame ID:   N/A".to_string(),
+            // Prefer the GPU-done sample so latency reflects "pixels drawn", not just CPU receive.
+            let gpu_frame_id = gpu_done.and_then(|g| g.frame_id);
+            let hud_frame_id = gpu_frame_id.or(frame_id);
+            let hud_publish_us = gpu_done.and_then(|g| g.publish_us).or(publish_us);
+            let hud_receive_us = gpu_done.map(|g| g.cpu_received_us).or(receive_us);
+            let hud_upload_us = gpu_done.map(|g| g.uploaded_at_us).or(upload_us);
+            let hud_gpu_done_us = gpu_done.map(|g| g.gpu_done_us);
+
+            if hud_publish_us.is_some() || hud_frame_id.is_some() {
+                let frame_id_line = match hud_frame_id {
+                    Some(fid) => format!("Frame ID:    {}", fid),
+                    None => "Frame ID:    N/A".to_string(),
                 };
                 if has_user_timestamp {
-                    let (receive_latency, upload_latency) =
-                        match (publish_us, receive_us, upload_us) {
-                            (Some(pub_ts), Some(recv_ts), uploaded) => {
-                                let should_refresh = self.last_latency_text.is_empty()
-                                    || self.last_latency_refresh.is_none_or(|last| {
-                                        last.elapsed() >= Duration::from_millis(500)
-                                    });
-                                if should_refresh {
-                                    self.last_latency_text = format!(
-                                        "{:.1}ms",
-                                        recv_ts.saturating_sub(pub_ts) as f64 / 1000.0
-                                    );
-                                    self.last_upload_latency_text = uploaded
-                                        .map(|upload_ts| {
-                                            format!(
-                                                "{:.1}ms",
-                                                upload_ts.saturating_sub(pub_ts) as f64 / 1000.0
-                                            )
-                                        })
-                                        .unwrap_or_else(|| "N/A".to_string());
-                                    self.last_latency_refresh = Some(Instant::now());
-                                }
-                                (
-                                    self.last_latency_text.clone(),
-                                    self.last_upload_latency_text.clone(),
-                                )
-                            }
-                            _ => {
-                                self.last_latency_text = "N/A".to_string();
-                                self.last_upload_latency_text = "N/A".to_string();
-                                self.last_latency_refresh = None;
-                                (
-                                    self.last_latency_text.clone(),
-                                    self.last_upload_latency_text.clone(),
-                                )
-                            }
+                    let should_refresh = self.last_latency_text.is_empty()
+                        || self
+                            .last_latency_refresh
+                            .map_or(true, |last| last.elapsed() >= Duration::from_millis(500));
+                    if should_refresh {
+                        self.last_latency_text = match (hud_publish_us, hud_receive_us) {
+                            (Some(pub_ts), Some(recv_ts)) => format_us_delta_ms(recv_ts, pub_ts),
+                            _ => "N/A".to_string(),
                         };
+                        self.last_upload_latency_text = match (hud_publish_us, hud_upload_us) {
+                            (Some(pub_ts), Some(upload_ts)) => {
+                                format_us_delta_ms(upload_ts, pub_ts)
+                            }
+                            _ => "N/A".to_string(),
+                        };
+                        self.last_render_dur_text = match (hud_receive_us, hud_gpu_done_us) {
+                            (Some(recv_ts), Some(gpu_ts)) => format_us_delta_ms(gpu_ts, recv_ts),
+                            _ => "N/A".to_string(),
+                        };
+                        self.last_latency_refresh = Some(Instant::now());
+                    }
+                    let e2e_latency = match (hud_publish_us, hud_gpu_done_us.or(hud_upload_us)) {
+                        (Some(pub_ts), Some(done_ts)) => format_us_delta_ms(done_ts, pub_ts),
+                        _ => "N/A".to_string(),
+                    };
+                    let gpu_done_line = match hud_gpu_done_us {
+                        Some(ts) => format!("Render:      {}", format_timestamp_us(ts)),
+                        None => "Render:      N/A".to_string(),
+                    };
                     self.last_timestamp_text = format!(
-                        "{}\nPublish:    {}\nReceive:    {}\nUpload:     {}\nRecv Lat:   {}\nUpload Lat: {}",
+                        "{}\nPublish:     {}\nReceive:     {}\nUpload:      {}\n{}\nRecv Lat:    {}\nUpload Lat:  {}\nRender dur:  {}\nE2E Latency: {}",
                         frame_id_line,
-                        format_optional_timestamp_us(publish_us),
-                        format_optional_timestamp_us(receive_us),
-                        format_optional_timestamp_us(upload_us),
-                        receive_latency,
-                        upload_latency,
+                        format_optional_timestamp_us(hud_publish_us),
+                        format_optional_timestamp_us(hud_receive_us),
+                        format_optional_timestamp_us(hud_upload_us),
+                        gpu_done_line,
+                        self.last_latency_text,
+                        self.last_upload_latency_text,
+                        self.last_render_dur_text,
+                        e2e_latency,
                     );
                 } else {
                     self.last_timestamp_text = frame_id_line;
@@ -781,6 +813,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         frame_metadata: None,
         has_user_timestamp: false,
         replaced_frames: 0,
+        gpu_done: None,
     }));
 
     // Subscribe to room events: on first video track, start sink task
@@ -834,6 +867,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         last_timestamp_text: String::new(),
         last_latency_text: String::new(),
         last_upload_latency_text: String::new(),
+        last_render_dur_text: String::new(),
         last_latency_refresh: None,
     };
     let native_options = eframe::NativeOptions {
@@ -1030,7 +1064,8 @@ impl CallbackTrait for YuvPaintCallback {
         let Some(pending) = pending else {
             return Vec::new();
         };
-        let frame = pending.frame;
+        let PendingFrame { frame, received_at_us } = pending;
+        let frame_metadata = frame.frame_metadata;
         let dims = (frame.buffer.width(), frame.buffer.height());
         let format = frame_gpu_format(&frame);
         let uv_w = (dims.0 + 1) / 2;
@@ -1361,12 +1396,39 @@ impl CallbackTrait for YuvPaintCallback {
         let uploaded_at_us = current_timestamp_us();
         {
             let mut shared = self.shared.lock();
-            if shared.received_at_us == Some(pending.received_at_us) {
+            if shared.received_at_us == Some(received_at_us) {
                 shared.uploaded_at_us = Some(uploaded_at_us);
             }
         }
+        let gpu_sample_in_flight = Some(PendingGpuSample {
+            frame_id: frame_metadata.and_then(|m| m.frame_id),
+            publish_us: frame_metadata.and_then(|m| m.user_timestamp),
+            cpu_received_us: received_at_us,
+            uploaded_at_us,
+        });
 
-        Vec::new()
+        // Ride an empty command buffer with egui's submit so we can stamp GPU-done.
+        if let Some(sample) = gpu_sample_in_flight {
+            let shared_for_cb = self.shared.clone();
+            let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("yuv_gpu_done_probe"),
+            });
+            let cb = encoder.finish();
+            cb.on_submitted_work_done(move || {
+                let gpu_done_us = current_timestamp_us();
+                let mut s = shared_for_cb.lock();
+                s.gpu_done = Some(GpuDoneSample {
+                    frame_id: sample.frame_id,
+                    publish_us: sample.publish_us,
+                    cpu_received_us: sample.cpu_received_us,
+                    uploaded_at_us: sample.uploaded_at_us,
+                    gpu_done_us,
+                });
+            });
+            vec![cb]
+        } else {
+            Vec::new()
+        }
     }
 
     fn paint(

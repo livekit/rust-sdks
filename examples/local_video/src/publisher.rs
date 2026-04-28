@@ -478,6 +478,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // Timing accumulators (ms) for rolling stats
     let mut timings = PublisherTimingSummary::default();
     let mut logged_mjpeg_fallback = false;
+    let mut logged_sensor_ts_source = false;
+    let mut logged_sensor_ts_missing = false;
     let mut frame_counter: u32 = 1;
     let mut timestamp_overlay = (args.attach_timestamp && args.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
@@ -492,18 +494,51 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
         // Capture the frame as early as possible so the attached timestamp is
         // close to the camera acquisition point.
-        let capture_wall_time_us = unix_time_us_now();
+        let fallback_wall_time_us = unix_time_us_now();
         let camera_capture_started_at = Instant::now();
-        let (camera_frame_acquired_at, decode_finished_at, convert_finished_at, used_decode_path) =
-            if args.test_pattern {
-                draw_test_pattern(&mut frame.buffer, width, height);
-                let test_pattern_ready_at = Instant::now();
-                (test_pattern_ready_at, test_pattern_ready_at, test_pattern_ready_at, false)
-            } else if is_yuyv {
-                let frame_buf = camera.as_mut().expect("camera exists").frame()?;
-                let camera_frame_acquired_at = Instant::now();
-                let (stride_y, stride_u, stride_v) = frame.buffer.strides();
-                let (data_y, data_u, data_v) = frame.buffer.data_mut();
+        let (
+            capture_wall_time_us,
+            camera_frame_acquired_at,
+            decode_finished_at,
+            convert_finished_at,
+            used_decode_path,
+        ) = if args.test_pattern {
+            draw_test_pattern(&mut frame.buffer, width, height);
+            let test_pattern_ready_at = Instant::now();
+            (
+                fallback_wall_time_us,
+                test_pattern_ready_at,
+                test_pattern_ready_at,
+                test_pattern_ready_at,
+                false,
+            )
+        } else {
+            let frame_buf = camera.as_mut().expect("camera exists").frame()?;
+            let camera_frame_acquired_at = Instant::now();
+
+            // Prefer the backend-provided sensor/PTS wallclock when available for
+            // a more accurate capture-to-subscriber latency measurement.
+            let capture_wall_time_us = match frame_buf.capture_timestamp() {
+                Some(d) => {
+                    if !logged_sensor_ts_source {
+                        info!("Using sensor capture_timestamp for user_timestamp");
+                        logged_sensor_ts_source = true;
+                    }
+                    d.as_micros() as u64
+                }
+                None => {
+                    if !logged_sensor_ts_missing {
+                        log::warn!(
+                            "Buffer::capture_timestamp() not available; falling back to system wall clock"
+                        );
+                        logged_sensor_ts_missing = true;
+                    }
+                    fallback_wall_time_us
+                }
+            };
+            let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+            let (data_y, data_u, data_v) = frame.buffer.data_mut();
+            if is_yuyv {
                 // Fast path for YUYV: convert directly to I420 via libyuv
                 let src = frame_buf.buffer();
                 let src_bytes = src.as_ref();
@@ -523,12 +558,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         height as i32,
                     );
                 }
-                (camera_frame_acquired_at, camera_frame_acquired_at, Instant::now(), false)
+                (
+                    capture_wall_time_us,
+                    camera_frame_acquired_at,
+                    camera_frame_acquired_at,
+                    Instant::now(),
+                    false,
+                )
             } else {
-                let frame_buf = camera.as_mut().expect("camera exists").frame()?;
-                let camera_frame_acquired_at = Instant::now();
-                let (stride_y, stride_u, stride_v) = frame.buffer.strides();
-                let (data_y, data_u, data_v) = frame.buffer.data_mut();
                 // Auto path (either RGB24 already or compressed MJPEG)
                 let src = frame_buf.buffer();
                 if src.len() == (width as usize * height as usize * 3) {
@@ -547,7 +584,13 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                             height as i32,
                         );
                     }
-                    (camera_frame_acquired_at, camera_frame_acquired_at, Instant::now(), false)
+                    (
+                        capture_wall_time_us,
+                        camera_frame_acquired_at,
+                        camera_frame_acquired_at,
+                        Instant::now(),
+                        false,
+                    )
                 } else {
                     // Try fast MJPEG->I420 via libyuv if available; fallback to image crate
                     let mut used_fast_mjpeg = false;
@@ -576,6 +619,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     };
                     if used_fast_mjpeg {
                         (
+                            capture_wall_time_us,
                             camera_frame_acquired_at,
                             fast_mjpeg_buffer_ready_at,
                             fast_mjpeg_buffer_ready_at,
@@ -610,7 +654,13 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                                         height as i32,
                                     );
                                 }
-                                (camera_frame_acquired_at, decode_finished_at, Instant::now(), true)
+                                (
+                                    capture_wall_time_us,
+                                    camera_frame_acquired_at,
+                                    decode_finished_at,
+                                    Instant::now(),
+                                    true,
+                                )
                             }
                             Err(e2) => {
                                 if !logged_mjpeg_fallback {
@@ -625,7 +675,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         }
                     }
                 }
-            };
+            }
+        };
 
         let mut buffer_ready_at = convert_finished_at;
         let mut frame_draw_ms = None;
