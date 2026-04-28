@@ -170,7 +170,7 @@ export declare enum VideoSourceType {
   VIDEO_SOURCE_NATIVE = 0,
 
   /**
-   * A source that accepts pre-encoded compressed frames. WebRTC's internal
+   * A source that accepts encoded (compressed) frames. WebRTC's internal
    * encoder is bypassed for tracks bound to this source.
    *
    * @generated from enum value: VIDEO_SOURCE_ENCODED = 1;
@@ -486,7 +486,7 @@ export declare class CaptureVideoFrameResponse extends Message<CaptureVideoFrame
 }
 
 /**
- * Push a pre-encoded (compressed) frame to an encoded VideoSource.
+ * Push an encoded (compressed) frame to an encoded VideoSource.
  * The source must have been created with type == VIDEO_SOURCE_ENCODED.
  *
  * @generated from message livekit.proto.CaptureEncodedVideoFrameRequest

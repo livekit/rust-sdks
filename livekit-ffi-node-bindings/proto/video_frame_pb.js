@@ -202,7 +202,7 @@ const CaptureVideoFrameResponse = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 /**
- * Push a pre-encoded (compressed) frame to an encoded VideoSource.
+ * Push an encoded (compressed) frame to an encoded VideoSource.
  * The source must have been created with type == VIDEO_SOURCE_ENCODED.
  *
  * @generated from message livekit.proto.CaptureEncodedVideoFrameRequest

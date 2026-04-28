@@ -21,8 +21,9 @@ anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
 env_logger = { workspace = true }
 futures = { workspace = true }
-libwebrtc = { workspace = true }
-livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+libwebrtc = { workspace = true, features = ["encoded-video"] }
+livekit = { workspace = true, features = ["encoded-video", "rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
+livekit-encoded-video-ingest = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

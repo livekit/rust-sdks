@@ -38,6 +38,7 @@ impl VideoCodec {
     }
 }
 
+#[cfg(feature = "encoded-video")]
 impl From<libwebrtc::video_source::VideoCodec> for VideoCodec {
     fn from(codec: libwebrtc::video_source::VideoCodec) -> Self {
         match codec {

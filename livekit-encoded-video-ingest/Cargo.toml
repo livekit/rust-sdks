@@ -1,0 +1,16 @@
+[package]
+name = "livekit-encoded-video-ingest"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "Encoded video ingest helpers for LiveKit"
+repository.workspace = true
+publish = false
+
+[dependencies]
+libwebrtc = { workspace = true, features = ["encoded-video"] }
+livekit = { workspace = true, features = ["encoded-video"] }
+livekit-runtime = { workspace = true }
+log = { workspace = true }
+parking_lot = { workspace = true }
+tokio = { workspace = true, features = ["io-util", "net", "time"] }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Pre-encoded H.264 ingest receiver.
+//! Encoded (compressed) H.264 ingest receiver.
 //!
 //! Subscribes to a LiveKit room and forwards the first incoming video track
 //! as tightly-packed I420 frames over a TCP connection. A gstreamer
@@ -64,7 +64,7 @@ struct Args {
     api_secret: Option<String>,
 
     /// Room name to join
-    #[arg(long, default_value = "pre-encoded-demo")]
+    #[arg(long, default_value = "encoded-video-demo")]
     room: String,
 
     /// Participant identity

@@ -21,9 +21,9 @@ import "handle.proto";
 import "track.proto";
 import "video_frame.proto";
 
-// High-level helper that ingests a pre-encoded video bytestream over TCP
+// High-level helper that ingests an encoded (compressed) video bytestream over TCP
 // and publishes it to a LiveKit room. Wraps the Rust
-// `livekit::video_ingest::EncodedTcpIngest` type.
+// `livekit_encoded_video_ingest::EncodedTcpIngest` type.
 
 message EncodedTcpIngestInfo {
   // Sid of the published track. Always set once the creation callback

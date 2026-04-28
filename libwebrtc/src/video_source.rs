@@ -29,7 +29,8 @@ impl Default for VideoResolution {
     }
 }
 
-/// Codec used by a pre-encoded video feed.
+/// Codec used by an encoded video feed.
+#[cfg(feature = "encoded-video")]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum VideoCodec {
     H264,
@@ -39,8 +40,9 @@ pub enum VideoCodec {
     Av1,
 }
 
-/// Metadata describing a single pre-encoded video frame pushed to an
+/// Metadata describing a single encoded video frame pushed to an
 /// [`native::NativeEncodedVideoSource`].
+#[cfg(feature = "encoded-video")]
 #[derive(Debug, Copy, Clone)]
 pub struct EncodedFrameInfo {
     /// True when this frame is an IDR / keyframe.
@@ -54,15 +56,10 @@ pub struct EncodedFrameInfo {
     pub capture_time_us: i64,
 }
 
+#[cfg(feature = "encoded-video")]
 impl Default for EncodedFrameInfo {
     fn default() -> Self {
-        Self {
-            is_keyframe: false,
-            has_sps_pps: false,
-            width: 0,
-            height: 0,
-            capture_time_us: 0,
-        }
+        Self { is_keyframe: false, has_sps_pps: false, width: 0, height: 0, capture_time_us: 0 }
     }
 }
 
@@ -72,14 +69,23 @@ pub enum RtcVideoSource {
     // TODO(theomonnom): Web video sources (eq. to tracks on browsers?)
     #[cfg(not(target_arch = "wasm32"))]
     Native(native::NativeVideoSource),
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "encoded-video"))]
     Encoded(native::NativeEncodedVideoSource),
 }
 
 // TODO(theomonnom): Support enum dispatch with conditional compilation?
+#[cfg(all(not(target_arch = "wasm32"), feature = "encoded-video"))]
 impl RtcVideoSource {
     enum_dispatch!(
         [Native, Encoded];
+        pub fn video_resolution(self: &Self) -> VideoResolution;
+    );
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(feature = "encoded-video")))]
+impl RtcVideoSource {
+    enum_dispatch!(
+        [Native];
         pub fn video_resolution(self: &Self) -> VideoResolution;
     );
 }
@@ -88,6 +94,7 @@ impl RtcVideoSource {
 pub mod native {
     use std::fmt::{Debug, Formatter};
 
+    #[cfg(feature = "encoded-video")]
     pub use crate::native::encoded_video_source::{
         EncodedVideoSourceObserver, NativeEncodedVideoSource,
     };

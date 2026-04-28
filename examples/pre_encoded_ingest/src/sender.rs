@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Pre-encoded H.264 / H.265 / VP8 / VP9 / AV1 ingest sender.
+//! Encoded H.264 / H.265 / VP8 / VP9 / AV1 ingest sender.
 //!
 //! Connects to a gstreamer pipeline as a TCP client and pushes each
 //! decoded access unit / frame straight through
@@ -73,7 +73,7 @@ struct Args {
     api_secret: Option<String>,
 
     /// Room name to join
-    #[arg(long, default_value = "pre-encoded-demo")]
+    #[arg(long, default_value = "encoded-video-demo")]
     room: String,
 
     /// Participant identity
@@ -96,7 +96,7 @@ struct Args {
     #[arg(long, default_value_t = 480)]
     height: u32,
 
-    /// Pre-encoded codec on the wire. Must match the gstreamer pipeline.
+    /// Encoded codec on the wire. Must match the gstreamer pipeline.
     #[arg(long, value_enum, default_value_t = CodecArg::H264)]
     codec: CodecArg,
 }
@@ -350,8 +350,8 @@ impl IvfReader {
             if self.buf.len() < 12 {
                 return;
             }
-            let size = u32::from_le_bytes([self.buf[0], self.buf[1], self.buf[2], self.buf[3]])
-                as usize;
+            let size =
+                u32::from_le_bytes([self.buf[0], self.buf[1], self.buf[2], self.buf[3]]) as usize;
             if size == 0 || size > MAX_FRAME_BYTES {
                 warn!(
                     "IVF: implausible frame_size={size} bytes — byte stream is misaligned. \
@@ -579,8 +579,7 @@ fn is_keyframe_annex_b(codec: CodecArg, data: &[u8]) -> bool {
         let is_three = data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1;
         if is_four || is_three {
             let payload_idx = if is_four { i + 4 } else { i + 3 };
-            if payload_idx < data.len()
-                && codec.is_keyframe_nal(codec.nal_type(data[payload_idx]))
+            if payload_idx < data.len() && codec.is_keyframe_nal(codec.nal_type(data[payload_idx]))
             {
                 return true;
             }

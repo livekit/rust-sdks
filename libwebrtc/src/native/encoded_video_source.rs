@@ -66,7 +66,7 @@ struct Inner {
     resolution: Mutex<VideoResolution>,
 }
 
-/// A video source that accepts pre-encoded compressed frames (H.264, H.265,
+/// A video source that accepts encoded compressed frames (H.264, H.265,
 /// VP8, VP9, AV1) instead of raw pixels. WebRTC's encoder is bypassed for
 /// tracks bound to this source — frames flow straight from `capture_frame`
 /// into RTP packetization and congestion control.
@@ -112,7 +112,7 @@ impl NativeEncodedVideoSource {
         self.inner.resolution.lock().clone()
     }
 
-    /// Push a pre-encoded frame to the track. Returns `true` if the frame was
+    /// Push an encoded (compressed) frame to the track. Returns `true` if the frame was
     /// accepted, `false` if the internal queue was full and the frame had to
     /// be dropped.
     pub fn capture_frame(&self, data: &[u8], info: &EncodedFrameInfo) -> bool {

@@ -13,6 +13,7 @@ default = ["tokio"]
 async = ["livekit-api/signal-client-async"]
 tokio = ["livekit-api/signal-client-tokio"]
 dispatcher = ["livekit-api/signal-client-dispatcher"]
+encoded-video = ["libwebrtc/encoded-video"]
 
 
 # Note that the following features only change the behavior of tokio-tungstenite.

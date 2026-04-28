@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Minimal keyframe detection for the five pre-encoded codecs supported by
+//! Minimal keyframe detection for the five encoded (compressed) codecs supported by
 //! [`EncodedTcpIngest`](super::encoded_tcp::EncodedTcpIngest).
 //!
 //! These probes are intentionally conservative — they never scan deeper into

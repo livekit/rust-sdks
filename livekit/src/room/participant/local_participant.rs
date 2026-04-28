@@ -302,34 +302,36 @@ impl LocalParticipant {
         track: LocalTrack,
         options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
-        // Encoded video sources deliver pre-encoded single-layer frames.
+        // Encoded video sources deliver encoded single-layer frames.
         // Force-disable simulcast and pin the negotiated codec to the
         // source's codec so WebRTC's encoder factory picks our passthrough
         // encoder path.
+        #[cfg(all(not(target_arch = "wasm32"), feature = "encoded-video"))]
         let options = {
-            let mut options = options;
+            let mut publish_options = options;
             if let LocalTrack::Video(ref video_track) = track {
-                #[cfg(not(target_arch = "wasm32"))]
                 if let RtcVideoSource::Encoded(ref encoded_source) = video_track.rtc_source() {
                     let source_codec: options::VideoCodec = encoded_source.codec().into();
-                    if options.video_codec != source_codec {
+                    if publish_options.video_codec != source_codec {
                         log::warn!(
                             "publish_track: overriding video_codec {:?} -> {:?} to match encoded source",
-                            options.video_codec,
+                            publish_options.video_codec,
                             source_codec
                         );
-                        options.video_codec = source_codec;
+                        publish_options.video_codec = source_codec;
                     }
-                    if options.simulcast {
+                    if publish_options.simulcast {
                         log::warn!(
                             "publish_track: disabling simulcast for encoded video source (single-layer only)"
                         );
-                        options.simulcast = false;
+                        publish_options.simulcast = false;
                     }
                 }
             }
-            options
+            publish_options
         };
+        #[cfg(any(target_arch = "wasm32", not(feature = "encoded-video")))]
+        let options = options;
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
 
         let mut req = proto::AddTrackRequest {

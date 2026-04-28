@@ -1,7 +1,7 @@
 # pre_encoded_ingest
 
-End-to-end demo of the **pre-encoded video ingest** feature of the Rust
-SDK. Pre-encoded H.264, H.265, VP8, or AV1 frames flow from a gstreamer
+End-to-end demo of the **encoded video ingest** feature of the Rust
+SDK. Eencoded H.264, H.265, VP8, or AV1 frames flow from a gstreamer
 camera pipeline directly into `NativeEncodedVideoSource::capture_frame`,
 get packetized by WebRTC (no software re-encode), and arrive at a
 remote peer which writes decoded frames to a TCP port for a second
@@ -10,7 +10,7 @@ gstreamer pipeline to render.
 ```text
 ┌────────────┐ encoded (TCP) ┌─────────────┐   RTP (WebRTC)    ┌────────────┐   I420 (TCP)   ┌─────────────┐
 │ gstreamer  │  ───────────►  │  sender.rs  │ ────────────────► │ receiver.rs│ ─────────────► │ gstreamer   │
-│  (camera)  │   :5005       │ (pre-encoded│                   │  (decoded  │     :5006      │  (display)  │
+│  (camera)  │   :5005       │ (encoded│                   │  (decoded  │     :5006      │  (display)  │
 │ tcpserver  │               │  publish,   │                   │   output)  │                │             │
 │            │               │  tcp client)│                   │            │                │             │
 └────────────┘               └─────────────┘                   └────────────┘                └─────────────┘
@@ -33,8 +33,8 @@ frames. The sender supports two wire framings, picked by `--codec`:
 This example ships **two** senders that publish the same stream; pick
 whichever one better matches your integration shape:
 
-- **`simple_sender`** — uses the built-in SDK helper
-  [`livekit::video_ingest::EncodedTcpIngest`]. The helper owns the TCP
+- **`simple_sender`** — uses the encoded video ingest helper
+  [`livekit_encoded_video_ingest::EncodedTcpIngest`]. The helper owns the TCP
   socket, demux, keyframe probe, reconnect loop, and track
   publish/unpublish. Applications only supply config — port, codec,
   width, height — and an optional [`EncodedIngestObserver`] for
@@ -52,7 +52,7 @@ is the drop-in replacement used in all examples below.
 
 ```rust
 use libwebrtc::video_source::VideoCodec;
-use livekit::video_ingest::{EncodedTcpIngest, EncodedTcpIngestOptions};
+use livekit_encoded_video_ingest::{EncodedTcpIngest, EncodedTcpIngestOptions};
 
 let options = EncodedTcpIngestOptions::new(
     /* port   */ 5005,
@@ -71,7 +71,7 @@ stats polling, Ctrl-C shutdown).
 ## What this exercises
 
 - `libwebrtc::video_source::NativeEncodedVideoSource` — the
-  pre-encoded video track source, for `VideoCodec::H264`,
+  Encoded video track source, for `VideoCodec::H264`,
   `VideoCodec::H265`, `VideoCodec::Vp8`, and `VideoCodec::Av1`.
 - Annex-B bytestream ingest (H.264/H.265), with automatic
   parameter-set caching and keyframe prepending done by the source
@@ -426,7 +426,7 @@ RUST_LOG=info cargo run -p pre_encoded_ingest --bin simple_sender -- \
     --tcp-host 127.0.0.1 --tcp-port 5005 \
     --width 640 --height 480 \
     --codec h264 \
-    --room pre-encoded-demo --identity encoded-sender
+    --room encoded-video-demo --identity encoded-sender
 ```
 
 Or the hand-rolled reference (`--bin sender`) with the same flags —
@@ -458,7 +458,7 @@ restarted, the sender reconnects automatically.
 ```bash
 RUST_LOG=info cargo run -p pre_encoded_ingest --bin receiver -- \
     --tcp-port 5006 \
-    --room pre-encoded-demo --identity encoded-receiver \
+    --room encoded-video-demo --identity encoded-receiver \
     --from encoded-sender
 ```
 
@@ -598,7 +598,7 @@ macOS-to-macOS should decode cleanly.
 `CodecArg::Vp9` still exists in `sender.rs` (and
 `NativeEncodedVideoSource` accepts `VideoCodec::Vp9`), but VP9 ingest
 is not exercised by this demo and has rough edges that make it a poor
-fit for a "pre-encoded bytes straight to RTP" path:
+fit for a "Eencoded bytes straight to RTP" path:
 
 - libvpx-vp9 emits **superframes** in IVF (a per-frame record can
   bundle several coded frames — e.g. a show_existing_frame reshow

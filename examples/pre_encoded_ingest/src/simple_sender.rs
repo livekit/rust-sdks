@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! Minimal pre-encoded ingest driver using [`livekit::video_ingest::EncodedTcpIngest`].
+//! Minimal encoded (compressed) ingest driver using
+//! [`livekit_encoded_video_ingest::EncodedTcpIngest`].
 //!
 //! Everything that was hand-rolled in `sender.rs` (demuxing, keyframe
 //! detection, reconnect loop, observer plumbing) now lives inside the
@@ -24,11 +25,11 @@ use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 use anyhow::{Context, Result};
 use clap::Parser;
 use libwebrtc::video_source::VideoCodec;
-use livekit::{
-    prelude::*,
-    video_ingest::{EncodedIngestObserver, EncodedTcpIngest, EncodedTcpIngestOptions},
-};
+use livekit::prelude::*;
 use livekit_api::access_token;
+use livekit_encoded_video_ingest::{
+    EncodedIngestObserver, EncodedTcpIngest, EncodedTcpIngestOptions,
+};
 use log::{info, warn};
 use tokio::time::sleep;
 
@@ -48,7 +49,7 @@ struct Args {
     api_secret: Option<String>,
 
     /// Room name to join
-    #[arg(long, default_value = "pre-encoded-demo")]
+    #[arg(long, default_value = "encoded-video-demo")]
     room: String,
 
     /// Participant identity
@@ -71,7 +72,7 @@ struct Args {
     #[arg(long, default_value_t = 480)]
     height: u32,
 
-    /// Pre-encoded codec on the wire. Must match the gstreamer pipeline.
+    /// Encoded (compressed) codec on the wire. Must match the gstreamer pipeline.
     #[arg(long, value_enum, default_value_t = CodecArg::H264)]
     codec: CodecArg,
 

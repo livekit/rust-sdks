@@ -19,6 +19,8 @@ use lazy_static::lazy_static;
 use parking_lot::Mutex;
 use webrtc_sys::{peer_connection_factory as sys_pcf, rtc_error as sys_err, webrtc as sys_rtc};
 
+#[cfg(feature = "encoded-video")]
+use crate::video_source::native::NativeEncodedVideoSource;
 use crate::{
     audio_source::native::NativeAudioSource,
     audio_track::RtcAudioTrack,
@@ -26,7 +28,7 @@ use crate::{
     peer_connection::PeerConnection,
     peer_connection_factory::RtcConfiguration,
     rtp_parameters::RtpCapabilities,
-    video_source::native::{NativeEncodedVideoSource, NativeVideoSource},
+    video_source::native::NativeVideoSource,
     video_track::RtcVideoTrack,
     MediaType, RtcError,
 };
@@ -81,6 +83,7 @@ impl PeerConnectionFactory {
         }
     }
 
+    #[cfg(feature = "encoded-video")]
     pub fn create_video_track_from_encoded_source(
         &self,
         label: &str,
@@ -88,10 +91,8 @@ impl PeerConnectionFactory {
     ) -> RtcVideoTrack {
         RtcVideoTrack {
             handle: imp_vt::RtcVideoTrack::new(
-                self.sys_handle.create_video_track_from_encoded_source(
-                    label.to_string(),
-                    source.sys_handle(),
-                ),
+                self.sys_handle
+                    .create_video_track_from_encoded_source(label.to_string(), source.sys_handle()),
             ),
         }
     }

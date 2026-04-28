@@ -4078,6 +4078,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "livekit-encoded-video-ingest"
+version = "0.1.0"
+dependencies = [
+ "libwebrtc",
+ "livekit",
+ "livekit-runtime",
+ "log",
+ "parking_lot",
+ "tokio",
+]
+
+[[package]]
 name = "livekit-ffi"
 version = "0.12.53"
 dependencies = [
@@ -4095,6 +4107,7 @@ dependencies = [
  "link-cplusplus",
  "livekit",
  "livekit-api",
+ "livekit-encoded-video-ingest",
  "livekit-protocol",
  "log",
  "parking_lot",
@@ -5847,6 +5860,7 @@ dependencies = [
  "libwebrtc",
  "livekit",
  "livekit-api",
+ "livekit-encoded-video-ingest",
  "log",
  "tokio",
 ]

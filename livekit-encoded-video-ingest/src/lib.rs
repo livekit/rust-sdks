@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! High-level helpers for ingesting pre-encoded video into a LiveKit room.
+//! High-level helpers for ingesting encoded (compressed) video into a LiveKit room.
 //!
-//! This module hides the moving parts of pulling a pre-encoded bytestream
+//! This module hides the moving parts of pulling an encoded (compressed) bytestream
 //! from a source (currently: TCP) and turning it into a published
 //! LiveKit track. Callers configure a small options struct and hand off a
 //! `Room`; the helper does the rest.

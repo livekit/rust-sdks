@@ -29,7 +29,9 @@
 namespace livekit_ffi {
 class PeerConnectionFactory;
 class PeerConnectionObserverWrapper;
+#ifdef LK_PRE_ENCODED_VIDEO
 class EncodedVideoTrackSource;
+#endif
 }  // namespace livekit_ffi
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
 
@@ -54,9 +56,11 @@ class PeerConnectionFactory {
       rust::String label,
       std::shared_ptr<VideoTrackSource> source) const;
 
+#ifdef LK_PRE_ENCODED_VIDEO
   std::shared_ptr<VideoTrack> create_video_track_from_encoded_source(
       rust::String label,
       std::shared_ptr<EncodedVideoTrackSource> source) const;
+#endif
 
   std::shared_ptr<AudioTrack> create_audio_track(
       rust::String label,

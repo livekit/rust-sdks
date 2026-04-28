@@ -23,28 +23,37 @@
 //!    through an [`IngestObserverBridge`] so C++ / Python / Swift clients
 //!    see them as [`proto::EncodedTcpIngestEvent`].
 
+#[cfg(feature = "encoded-video")]
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
-use livekit::{
-    prelude::*,
-    video_ingest::{EncodedIngestObserver, EncodedTcpIngest, EncodedTcpIngestOptions},
+#[cfg(feature = "encoded-video")]
+use livekit::prelude::*;
+#[cfg(feature = "encoded-video")]
+use livekit_encoded_video_ingest::{
+    EncodedIngestObserver, EncodedTcpIngest, EncodedTcpIngestOptions,
 };
 
+#[cfg(feature = "encoded-video")]
 use super::{room::FfiRoom, FfiHandle};
-use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
+#[cfg(feature = "encoded-video")]
+use crate::FfiHandleId;
+use crate::{proto, server, FfiError, FfiResult};
 
 /// Server-side owner of an [`EncodedTcpIngest`]. Stored behind an
 /// [`FfiHandleId`] in the FFI handle table.
+#[cfg(feature = "encoded-video")]
 pub struct FfiEncodedTcpIngest {
     pub handle_id: FfiHandleId,
     pub ingest: Arc<tokio::sync::Mutex<Option<EncodedTcpIngest>>>,
 }
 
+#[cfg(feature = "encoded-video")]
 impl FfiHandle for FfiEncodedTcpIngest {}
 
 /// Kicks off an async `EncodedTcpIngest::start` and returns the async id
 /// immediately. The result (or error) is dispatched as
 /// [`proto::NewEncodedTcpIngestCallback`].
+#[cfg(feature = "encoded-video")]
 pub fn create(
     server: &'static server::FfiServer,
     req: proto::NewEncodedTcpIngestRequest,
@@ -80,10 +89,8 @@ pub fn create(
                     ingest_handle: handle_id,
                 }));
 
-                let info = proto::EncodedTcpIngestInfo {
-                    track_sid: track_sid.to_string(),
-                    track_name,
-                };
+                let info =
+                    proto::EncodedTcpIngestInfo { track_sid: track_sid.to_string(), track_name };
 
                 let ffi_ingest = FfiEncodedTcpIngest {
                     handle_id,
@@ -94,14 +101,12 @@ pub fn create(
                 let _ = server.send_event(
                     proto::NewEncodedTcpIngestCallback {
                         async_id,
-                        message: Some(
-                            proto::new_encoded_tcp_ingest_callback::Message::Ingest(
-                                proto::OwnedEncodedTcpIngest {
-                                    handle: proto::FfiOwnedHandle { id: handle_id },
-                                    info,
-                                },
-                            ),
-                        ),
+                        message: Some(proto::new_encoded_tcp_ingest_callback::Message::Ingest(
+                            proto::OwnedEncodedTcpIngest {
+                                handle: proto::FfiOwnedHandle { id: handle_id },
+                                info,
+                            },
+                        )),
                     }
                     .into(),
                 );
@@ -124,8 +129,17 @@ pub fn create(
     Ok(proto::NewEncodedTcpIngestResponse { async_id })
 }
 
+#[cfg(not(feature = "encoded-video"))]
+pub fn create(
+    _server: &'static server::FfiServer,
+    _req: proto::NewEncodedTcpIngestRequest,
+) -> FfiResult<proto::NewEncodedTcpIngestResponse> {
+    feature_disabled_error()
+}
+
 /// Stops a running ingest. Async because `EncodedTcpIngest::stop` awaits
 /// the background task and optionally unpublishes the track.
+#[cfg(feature = "encoded-video")]
 pub fn stop(
     server: &'static server::FfiServer,
     req: proto::StopEncodedTcpIngestRequest,
@@ -147,16 +161,23 @@ pub fn stop(
             }
             None => Some("EncodedTcpIngest: already stopped".to_string()),
         };
-        let _ = server.send_event(
-            proto::StopEncodedTcpIngestCallback { async_id, error }.into(),
-        );
+        let _ = server.send_event(proto::StopEncodedTcpIngestCallback { async_id, error }.into());
     });
     server.watch_panic(handle);
 
     Ok(proto::StopEncodedTcpIngestResponse { async_id })
 }
 
+#[cfg(not(feature = "encoded-video"))]
+pub fn stop(
+    _server: &'static server::FfiServer,
+    _req: proto::StopEncodedTcpIngestRequest,
+) -> FfiResult<proto::StopEncodedTcpIngestResponse> {
+    feature_disabled_error()
+}
+
 /// Pulls a stats snapshot synchronously.
+#[cfg(feature = "encoded-video")]
 pub fn get_stats(
     server: &'static server::FfiServer,
     req: proto::GetEncodedTcpIngestStatsRequest,
@@ -179,7 +200,23 @@ pub fn get_stats(
     })
 }
 
-fn options_from_proto(req: &proto::NewEncodedTcpIngestRequest) -> FfiResult<EncodedTcpIngestOptions> {
+#[cfg(not(feature = "encoded-video"))]
+pub fn get_stats(
+    _server: &'static server::FfiServer,
+    _req: proto::GetEncodedTcpIngestStatsRequest,
+) -> FfiResult<proto::GetEncodedTcpIngestStatsResponse> {
+    feature_disabled_error()
+}
+
+#[cfg(not(feature = "encoded-video"))]
+fn feature_disabled_error<T>() -> FfiResult<T> {
+    Err(FfiError::InvalidRequest("Encoded video ingest support is not enabled".into()))
+}
+
+#[cfg(feature = "encoded-video")]
+fn options_from_proto(
+    req: &proto::NewEncodedTcpIngestRequest,
+) -> FfiResult<EncodedTcpIngestOptions> {
     let port = u16::try_from(req.port)
         .map_err(|_| FfiError::InvalidRequest("port must fit in u16".into()))?;
     let codec = video_codec_from_proto(req.codec());
@@ -206,6 +243,7 @@ fn options_from_proto(req: &proto::NewEncodedTcpIngestRequest) -> FfiResult<Enco
     Ok(opts)
 }
 
+#[cfg(feature = "encoded-video")]
 fn video_codec_from_proto(codec: proto::VideoCodec) -> livekit::webrtc::video_source::VideoCodec {
     use livekit::webrtc::video_source::VideoCodec;
     match codec {
@@ -219,11 +257,13 @@ fn video_codec_from_proto(codec: proto::VideoCodec) -> livekit::webrtc::video_so
 
 /// Forwards ingest-level callbacks out to the FFI client as
 /// [`proto::EncodedTcpIngestEvent`]s.
+#[cfg(feature = "encoded-video")]
 struct IngestObserverBridge {
     server: &'static server::FfiServer,
     ingest_handle: FfiHandleId,
 }
 
+#[cfg(feature = "encoded-video")]
 impl IngestObserverBridge {
     fn emit(&self, message: proto::encoded_tcp_ingest_event::Message) {
         let _ = self.server.send_event(
@@ -236,6 +276,7 @@ impl IngestObserverBridge {
     }
 }
 
+#[cfg(feature = "encoded-video")]
 impl EncodedIngestObserver for IngestObserverBridge {
     fn on_connected(&self, peer: SocketAddr) {
         self.emit(proto::encoded_tcp_ingest_event::Message::Connected(
@@ -257,10 +298,7 @@ impl EncodedIngestObserver for IngestObserverBridge {
 
     fn on_target_bitrate(&self, bitrate_bps: u32, framerate_fps: f64) {
         self.emit(proto::encoded_tcp_ingest_event::Message::TargetBitrateChanged(
-            proto::encoded_tcp_ingest_event::TargetBitrateChanged {
-                bitrate_bps,
-                framerate_fps,
-            },
+            proto::encoded_tcp_ingest_event::TargetBitrateChanged { bitrate_bps, framerate_fps },
         ));
     }
 }

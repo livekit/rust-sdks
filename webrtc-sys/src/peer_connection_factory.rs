@@ -58,6 +58,7 @@ pub mod ffi {
         type IceGatheringState = crate::peer_connection::ffi::IceGatheringState;
         type AudioTrackSource = crate::audio_track::ffi::AudioTrackSource;
         type VideoTrackSource = crate::video_track::ffi::VideoTrackSource;
+        #[cfg(feature = "encoded-video")]
         type EncodedVideoTrackSource = crate::encoded_video_source::ffi::EncodedVideoTrackSource;
         type RtpCapabilities = crate::rtp_parameters::ffi::RtpCapabilities;
         type AudioTrack = crate::audio_track::ffi::AudioTrack;
@@ -102,6 +103,7 @@ pub mod ffi {
             source: SharedPtr<VideoTrackSource>,
         ) -> SharedPtr<VideoTrack>;
 
+        #[cfg(feature = "encoded-video")]
         fn create_video_track_from_encoded_source(
             self: &PeerConnectionFactory,
             label: String,

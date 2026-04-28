@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[cfg(all(not(target_arch = "wasm32"), feature = "encoded-video"))]
 use std::sync::Arc;
 
 use livekit::webrtc::{
@@ -39,10 +40,8 @@ fn frame_metadata_from_proto(metadata: Option<proto::FrameMetadata>) -> Option<F
         .then_some(frame_metadata)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn video_codec_from_proto(
-    codec: proto::VideoCodec,
-) -> livekit::webrtc::video_source::VideoCodec {
+#[cfg(all(not(target_arch = "wasm32"), feature = "encoded-video"))]
+fn video_codec_from_proto(codec: proto::VideoCodec) -> livekit::webrtc::video_source::VideoCodec {
     use livekit::webrtc::video_source::VideoCodec;
     match codec {
         proto::VideoCodec::H264 => VideoCodec::H264,
@@ -55,35 +54,39 @@ fn video_codec_from_proto(
 
 /// Forwards encoder-side feedback from the native source out to the FFI
 /// client as `EncodedVideoSourceEvent`s.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(not(target_arch = "wasm32"), feature = "encoded-video"))]
 struct EncodedObserverBridge {
     server: &'static server::FfiServer,
     source_handle: u64,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-impl livekit::webrtc::video_source::native::EncodedVideoSourceObserver
-    for EncodedObserverBridge
-{
+#[cfg(all(not(target_arch = "wasm32"), feature = "encoded-video"))]
+impl livekit::webrtc::video_source::native::EncodedVideoSourceObserver for EncodedObserverBridge {
     fn on_keyframe_requested(&self) {
-        let _ = self.server.send_event(proto::EncodedVideoSourceEvent {
-            source_handle: self.source_handle,
-            message: Some(proto::encoded_video_source_event::Message::KeyframeRequested(
-                proto::encoded_video_source_event::KeyframeRequested {},
-            )),
-        }.into());
+        let _ = self.server.send_event(
+            proto::EncodedVideoSourceEvent {
+                source_handle: self.source_handle,
+                message: Some(proto::encoded_video_source_event::Message::KeyframeRequested(
+                    proto::encoded_video_source_event::KeyframeRequested {},
+                )),
+            }
+            .into(),
+        );
     }
 
     fn on_target_bitrate(&self, bitrate_bps: u32, framerate_fps: f64) {
-        let _ = self.server.send_event(proto::EncodedVideoSourceEvent {
-            source_handle: self.source_handle,
-            message: Some(proto::encoded_video_source_event::Message::TargetBitrateChanged(
-                proto::encoded_video_source_event::TargetBitrateChanged {
-                    bitrate_bps,
-                    framerate_fps,
-                },
-            )),
-        }.into());
+        let _ = self.server.send_event(
+            proto::EncodedVideoSourceEvent {
+                source_handle: self.source_handle,
+                message: Some(proto::encoded_video_source_event::Message::TargetBitrateChanged(
+                    proto::encoded_video_source_event::TargetBitrateChanged {
+                        bitrate_bps,
+                        framerate_fps,
+                    },
+                )),
+            }
+            .into(),
+        );
     }
 }
 
@@ -105,7 +108,7 @@ impl FfiVideoSource {
                     NativeVideoSource::new(new_source.resolution.into(), is_screencast);
                 RtcVideoSource::Native(video_source)
             }
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), feature = "encoded-video"))]
             proto::VideoSourceType::VideoSourceEncoded => {
                 use livekit::webrtc::video_source::{
                     native::NativeEncodedVideoSource, VideoResolution,
@@ -131,6 +134,12 @@ impl FfiVideoSource {
 
                 RtcVideoSource::Encoded(source)
             }
+            #[cfg(any(target_arch = "wasm32", not(feature = "encoded-video")))]
+            proto::VideoSourceType::VideoSourceEncoded => {
+                return Err(FfiError::InvalidRequest(
+                    "Encoded video source support is not enabled".into(),
+                ));
+            }
             _ => return Err(FfiError::InvalidRequest("unsupported video source type".into())),
         };
 
@@ -147,7 +156,7 @@ impl FfiVideoSource {
     /// Returns the unique 16-bit id assigned to an encoded source by the
     /// WebRTC layer. `None` for non-encoded sources.
     pub fn encoded_source_id(&self) -> Option<u16> {
-        #[cfg(not(target_arch = "wasm32"))]
+        #[cfg(all(not(target_arch = "wasm32"), feature = "encoded-video"))]
         if let RtcVideoSource::Encoded(ref source) = self.source {
             return Some(source.source_id());
         }
@@ -172,7 +181,7 @@ impl FfiVideoSource {
 
                 source.capture_frame(&frame);
             }
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), feature = "encoded-video"))]
             RtcVideoSource::Encoded(_) => {
                 return Err(FfiError::InvalidRequest(
                     "capture_video_frame is not supported for encoded sources; \
@@ -190,8 +199,11 @@ impl FfiVideoSource {
         _server: &'static server::FfiServer,
         capture: proto::CaptureEncodedVideoFrameRequest,
     ) -> FfiResult<proto::CaptureEncodedVideoFrameResponse> {
+        #[cfg(any(target_arch = "wasm32", not(feature = "encoded-video")))]
+        let _ = &capture;
+
         match self.source {
-            #[cfg(not(target_arch = "wasm32"))]
+            #[cfg(all(not(target_arch = "wasm32"), feature = "encoded-video"))]
             RtcVideoSource::Encoded(ref source) => {
                 use livekit::webrtc::video_source::EncodedFrameInfo;
 
