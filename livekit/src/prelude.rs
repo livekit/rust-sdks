@@ -21,6 +21,7 @@ pub use crate::{
         PushFrameError, PushFrameErrorReason, RemoteDataTrack,
     },
     id::*,
+    options::TrackPublishOptions,
     participant::{
         ConnectionQuality, DisconnectReason, LocalParticipant, Participant, PerformRpcData,
         RemoteParticipant, RpcError, RpcErrorCode, RpcInvocationData,
