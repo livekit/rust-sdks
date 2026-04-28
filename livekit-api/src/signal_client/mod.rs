@@ -678,7 +678,8 @@ fn get_livekit_url(
         if let Some(sdk_version) = &options.sdk_options.sdk_version {
             lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
         }
-
+        
+        // parse client capabilities
         if !CLIENT_CAPABILITIES.is_empty() {
             let caps = CLIENT_CAPABILITIES
                 .iter()
