@@ -42,7 +42,7 @@ impl<L> DataTrack<L> {
         &self.info
     }
 
-    /// Whether or not the track is still published.
+    /// Whether or not the track is currently published.
     pub fn is_published(&self) -> bool {
         match self.inner.as_ref() {
             DataTrackInner::Local(inner) => inner.is_published(),
