@@ -32,6 +32,7 @@ use super::video_frame::new_video_frame_buffer;
 use crate::{
     native::packet_trailer::PacketTrailerHandler,
     video_frame::{BoxVideoFrame, FrameMetadata, VideoFrame},
+    video_stream::native::NativeVideoStreamQueuePolicy,
     video_track::RtcVideoTrack,
 };
 
@@ -43,8 +44,8 @@ pub struct NativeVideoStream {
 }
 
 impl NativeVideoStream {
-    pub fn new(video_track: RtcVideoTrack, queue_size_frames: Option<usize>) -> Self {
-        let frame_queue = Arc::new(VideoFrameQueue::new(queue_size_frames));
+    pub fn new(video_track: RtcVideoTrack, queue_policy: NativeVideoStreamQueuePolicy) -> Self {
+        let frame_queue = Arc::new(VideoFrameQueue::new(queue_policy));
         // Auto-wire the packet trailer handler from the track if one is set.
         let handler = video_track.handle.packet_trailer_handler();
         let observer = Arc::new(VideoTrackObserver {
@@ -83,6 +84,10 @@ impl NativeVideoStream {
         let video = unsafe { sys_vt::ffi::media_to_video(self.video_track.sys_handle()) };
         video.remove_sink(&self.native_sink);
         self.frame_queue.close();
+    }
+
+    pub fn dropped_frames(&self) -> u64 {
+        self.frame_queue.dropped_frames()
     }
 }
 
@@ -140,6 +145,7 @@ struct VideoFrameQueue {
 
 enum VideoFrameQueueKind {
     Bounded(BoundedVideoFrameQueue),
+    LatestOnly(LatestOnlyVideoFrameQueue),
     Unbounded(UnboundedVideoFrameQueue),
 }
 
@@ -152,19 +158,36 @@ struct UnboundedVideoFrameQueue {
     frames: Mutex<VecDeque<BoxVideoFrame>>,
 }
 
+struct LatestOnlyVideoFrameQueue {
+    frame: Mutex<Option<BoxVideoFrame>>,
+}
+
 impl VideoFrameQueue {
-    fn new(capacity: Option<usize>) -> Self {
-        let kind = match capacity.filter(|capacity| *capacity > 0) {
-            Some(capacity) => {
-                let (producer, consumer) = RingBuffer::new(capacity);
-                VideoFrameQueueKind::Bounded(BoundedVideoFrameQueue {
-                    producer: Mutex::new(producer),
-                    consumer: Mutex::new(consumer),
+    fn new(policy: NativeVideoStreamQueuePolicy) -> Self {
+        let kind = match policy {
+            NativeVideoStreamQueuePolicy::Fifo { capacity } => {
+                if capacity == 0 {
+                    VideoFrameQueueKind::Unbounded(UnboundedVideoFrameQueue {
+                        frames: Mutex::new(VecDeque::new()),
+                    })
+                } else {
+                    let (producer, consumer) = RingBuffer::new(capacity);
+                    VideoFrameQueueKind::Bounded(BoundedVideoFrameQueue {
+                        producer: Mutex::new(producer),
+                        consumer: Mutex::new(consumer),
+                    })
+                }
+            }
+            NativeVideoStreamQueuePolicy::Unbounded => {
+                VideoFrameQueueKind::Unbounded(UnboundedVideoFrameQueue {
+                    frames: Mutex::new(VecDeque::new()),
                 })
             }
-            None => VideoFrameQueueKind::Unbounded(UnboundedVideoFrameQueue {
-                frames: Mutex::new(VecDeque::new()),
-            }),
+            NativeVideoStreamQueuePolicy::LatestOnly => {
+                VideoFrameQueueKind::LatestOnly(LatestOnlyVideoFrameQueue {
+                    frame: Mutex::new(None),
+                })
+            }
         };
 
         Self {
@@ -182,6 +205,12 @@ impl VideoFrameQueue {
 
         match &self.kind {
             VideoFrameQueueKind::Bounded(queue) => self.push_bounded(queue, frame),
+            VideoFrameQueueKind::LatestOnly(queue) => {
+                let mut latest = queue.frame.lock();
+                if latest.replace(frame).is_some() {
+                    self.record_drop();
+                }
+            }
             VideoFrameQueueKind::Unbounded(queue) => {
                 queue.frames.lock().push_back(frame);
             }
@@ -218,6 +247,9 @@ impl VideoFrameQueue {
                 let mut consumer = queue.consumer.lock();
                 while consumer.pop().is_ok() {}
             }
+            VideoFrameQueueKind::LatestOnly(queue) => {
+                queue.frame.lock().take();
+            }
             VideoFrameQueueKind::Unbounded(queue) => {
                 queue.frames.lock().clear();
             }
@@ -248,6 +280,7 @@ impl VideoFrameQueue {
     fn try_pop(&self) -> Option<BoxVideoFrame> {
         match &self.kind {
             VideoFrameQueueKind::Bounded(queue) => queue.consumer.lock().pop().ok(),
+            VideoFrameQueueKind::LatestOnly(queue) => queue.frame.lock().take(),
             VideoFrameQueueKind::Unbounded(queue) => queue.frames.lock().pop_front(),
         }
     }
@@ -268,14 +301,25 @@ impl VideoFrameQueue {
             );
         }
     }
+
+    fn dropped_frames(&self) -> u64 {
+        self.dropped_frames.load(Ordering::Relaxed)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::Ordering;
+    use std::{
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+        task::{Context, RawWaker, RawWakerVTable, Waker},
+    };
 
     use super::VideoFrameQueue;
     use crate::video_frame::{BoxVideoFrame, I420Buffer, VideoFrame, VideoRotation};
+    use crate::video_stream::native::NativeVideoStreamQueuePolicy;
 
     fn test_frame(timestamp_us: i64) -> BoxVideoFrame {
         VideoFrame {
@@ -292,7 +336,7 @@ mod tests {
 
     #[test]
     fn bounded_queue_preserves_fifo_order_under_capacity() {
-        let queue = VideoFrameQueue::new(Some(3));
+        let queue = VideoFrameQueue::new(NativeVideoStreamQueuePolicy::Fifo { capacity: 3 });
 
         queue.push(test_frame(1));
         queue.push(test_frame(2));
@@ -306,7 +350,7 @@ mod tests {
 
     #[test]
     fn bounded_queue_drops_oldest_when_full() {
-        let queue = VideoFrameQueue::new(Some(2));
+        let queue = VideoFrameQueue::new(NativeVideoStreamQueuePolicy::Fifo { capacity: 2 });
 
         queue.push(test_frame(1));
         queue.push(test_frame(2));
@@ -320,7 +364,7 @@ mod tests {
 
     #[test]
     fn unbounded_queue_retains_all_frames() {
-        let queue = VideoFrameQueue::new(None);
+        let queue = VideoFrameQueue::new(NativeVideoStreamQueuePolicy::Unbounded);
 
         for timestamp_us in 1..=4 {
             queue.push(test_frame(timestamp_us));
@@ -335,12 +379,78 @@ mod tests {
 
     #[test]
     fn close_clears_buffer_and_rejects_future_pushes() {
-        let queue = VideoFrameQueue::new(Some(2));
+        let queue = VideoFrameQueue::new(NativeVideoStreamQueuePolicy::Fifo { capacity: 2 });
 
         queue.push(test_frame(1));
         queue.close();
         queue.push(test_frame(2));
 
         assert_eq!(pop_timestamp(&queue), None);
+    }
+
+    #[test]
+    fn latest_only_replaces_unconsumed_frame() {
+        let queue = VideoFrameQueue::new(NativeVideoStreamQueuePolicy::LatestOnly);
+
+        queue.push(test_frame(1));
+        queue.push(test_frame(2));
+        queue.push(test_frame(3));
+
+        assert_eq!(queue.dropped_frames.load(Ordering::Relaxed), 2);
+        assert_eq!(pop_timestamp(&queue), Some(3));
+        assert_eq!(pop_timestamp(&queue), None);
+    }
+
+    #[test]
+    fn latest_only_close_clears_buffer_and_rejects_future_pushes() {
+        let queue = VideoFrameQueue::new(NativeVideoStreamQueuePolicy::LatestOnly);
+
+        queue.push(test_frame(1));
+        queue.close();
+        queue.push(test_frame(2));
+
+        assert_eq!(pop_timestamp(&queue), None);
+    }
+
+    #[test]
+    fn latest_only_push_wakes_pending_consumer() {
+        let queue = VideoFrameQueue::new(NativeVideoStreamQueuePolicy::LatestOnly);
+        let wake_count = Arc::new(AtomicUsize::new(0));
+        let waker = counting_waker(wake_count.clone());
+        let mut cx = Context::from_waker(&waker);
+
+        assert!(queue.poll_recv(&mut cx).is_pending());
+        queue.push(test_frame(42));
+
+        assert_eq!(wake_count.load(Ordering::Relaxed), 1);
+        assert_eq!(pop_timestamp(&queue), Some(42));
+    }
+
+    fn counting_waker(wake_count: Arc<AtomicUsize>) -> Waker {
+        unsafe fn clone(data: *const ()) -> RawWaker {
+            let arc = Arc::<AtomicUsize>::from_raw(data.cast());
+            let cloned = arc.clone();
+            std::mem::forget(arc);
+            RawWaker::new(Arc::into_raw(cloned).cast(), &VTABLE)
+        }
+
+        unsafe fn wake(data: *const ()) {
+            let arc = Arc::<AtomicUsize>::from_raw(data.cast());
+            arc.fetch_add(1, Ordering::Relaxed);
+        }
+
+        unsafe fn wake_by_ref(data: *const ()) {
+            let arc = Arc::<AtomicUsize>::from_raw(data.cast());
+            arc.fetch_add(1, Ordering::Relaxed);
+            std::mem::forget(arc);
+        }
+
+        unsafe fn drop(data: *const ()) {
+            std::mem::drop(Arc::<AtomicUsize>::from_raw(data.cast()));
+        }
+
+        static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake_by_ref, drop);
+
+        unsafe { Waker::from_raw(RawWaker::new(Arc::into_raw(wake_count).cast(), &VTABLE)) }
     }
 }

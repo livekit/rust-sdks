@@ -45,4 +45,20 @@ CVPixelBufferRef native_buffer_to_platform_image_buffer(
     }
 }
 
+CVPixelBufferRef retained_native_buffer_to_platform_image_buffer(
+    const std::unique_ptr<VideoFrameBuffer> &buffer
+) {
+    CVPixelBufferRef pixel_buffer = native_buffer_to_platform_image_buffer(buffer);
+    if (pixel_buffer) {
+        CVPixelBufferRetain(pixel_buffer);
+    }
+    return pixel_buffer;
+}
+
+void release_platform_image_buffer(CVPixelBufferRef pixel_buffer) {
+    if (pixel_buffer) {
+        CVPixelBufferRelease(pixel_buffer);
+    }
+}
+
 }  // namespace livekit_ffi

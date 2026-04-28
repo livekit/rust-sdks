@@ -17,7 +17,9 @@ use livekit::{
     prelude::Track,
     webrtc::{
         prelude::*,
-        video_stream::native::{NativeVideoStream, NativeVideoStreamOptions},
+        video_stream::native::{
+            NativeVideoStream, NativeVideoStreamOptions, NativeVideoStreamQueuePolicy,
+        },
     },
 };
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -42,6 +44,24 @@ fn frame_metadata_to_proto(metadata: Option<FrameMetadata>) -> Option<proto::Fra
         user_timestamp: metadata.user_timestamp,
         frame_id: metadata.frame_id,
     })
+}
+
+fn native_queue_policy(
+    queue_policy: Option<i32>,
+    queue_size_frames: Option<u32>,
+) -> Option<NativeVideoStreamQueuePolicy> {
+    match queue_policy.and_then(|policy| proto::VideoStreamQueuePolicy::try_from(policy).ok()) {
+        Some(proto::VideoStreamQueuePolicy::Fifo) => Some(NativeVideoStreamQueuePolicy::Fifo {
+            capacity: queue_size_frames.unwrap_or(1) as usize,
+        }),
+        Some(proto::VideoStreamQueuePolicy::LatestOnly) => {
+            Some(NativeVideoStreamQueuePolicy::LatestOnly)
+        }
+        Some(proto::VideoStreamQueuePolicy::Unbounded) => {
+            Some(NativeVideoStreamQueuePolicy::Unbounded)
+        }
+        _ => None,
+    }
 }
 
 impl FfiVideoStream {
@@ -75,6 +95,10 @@ impl FfiVideoStream {
                     queue_size_frames: new_stream
                         .queue_size_frames
                         .map(|capacity| capacity as usize),
+                    queue_policy: native_queue_policy(
+                        new_stream.queue_policy,
+                        new_stream.queue_size_frames,
+                    ),
                 };
                 let handle = server.async_runtime.spawn(Self::native_video_stream_task(
                     server,
@@ -224,6 +248,7 @@ impl FfiVideoStream {
         let track_source = request.track_source();
         let normalize_stride = request.normalize_stride.unwrap_or(true);
         let queue_size_frames = request.queue_size_frames.map(|capacity| capacity as usize);
+        let queue_policy = native_queue_policy(request.queue_policy, request.queue_size_frames);
         let (track_tx, mut track_rx) = mpsc::channel::<Track>(1);
         let (track_finished_tx, track_finished_rx) = broadcast::channel::<Track>(1);
         server.async_runtime.spawn(utils::track_changed_trigger(
@@ -244,7 +269,7 @@ impl FfiVideoStream {
                 let (c_tx, c_rx) = oneshot::channel::<()>();
                 let (handle_dropped_tx, handle_dropped_rx) = oneshot::channel::<()>();
                 let (done_tx, mut done_rx) = oneshot::channel::<()>();
-                let options = NativeVideoStreamOptions { queue_size_frames };
+                let options = NativeVideoStreamOptions { queue_size_frames, queue_policy };
 
                 let mut track_finished_rx = track_finished_tx.subscribe();
                 server.async_runtime.spawn(async move {

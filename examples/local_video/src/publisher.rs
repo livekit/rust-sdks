@@ -40,6 +40,10 @@ struct Args {
     #[arg(long, default_value_t = 0)]
     camera_index: usize,
 
+    /// Generate a standard test pattern instead of using a real camera
+    #[arg(long, default_value_t = false)]
+    test_pattern: bool,
+
     /// Desired width
     #[arg(long, default_value_t = 1280)]
     width: u32,
@@ -191,6 +195,60 @@ fn list_cameras() -> Result<()> {
     Ok(())
 }
 
+fn draw_test_pattern(buffer: &mut I420Buffer, width: u32, height: u32) {
+    // SMPTE-style color bars in I420, followed by a neutral grayscale ramp.
+    const BARS: [(u8, u8, u8); 8] = [
+        (235, 128, 128), // white
+        (210, 16, 146),  // yellow
+        (170, 166, 16),  // cyan
+        (145, 54, 34),   // green
+        (107, 202, 222), // magenta
+        (82, 90, 240),   // red
+        (41, 240, 110),  // blue
+        (16, 128, 128),  // black
+    ];
+
+    let (stride_y, stride_u, stride_v) = buffer.strides();
+    let (data_y, data_u, data_v) = buffer.data_mut();
+    let stride_y = stride_y as usize;
+    let stride_u = stride_u as usize;
+    let stride_v = stride_v as usize;
+    let width = width as usize;
+    let height = height as usize;
+    let top_height = height * 2 / 3;
+    let chroma_width = (width + 1) / 2;
+    let chroma_height = (height + 1) / 2;
+
+    for y in 0..height {
+        let row = &mut data_y[y * stride_y..y * stride_y + width];
+        if y < top_height {
+            for (x, pixel) in row.iter_mut().enumerate() {
+                let bar = (x * BARS.len()) / width.max(1);
+                *pixel = BARS[bar].0;
+            }
+        } else {
+            for (x, pixel) in row.iter_mut().enumerate() {
+                *pixel = (16 + (x * 219) / width.max(1)) as u8;
+            }
+        }
+    }
+
+    for y in 0..chroma_height {
+        let row_u = &mut data_u[y * stride_u..y * stride_u + chroma_width];
+        let row_v = &mut data_v[y * stride_v..y * stride_v + chroma_width];
+        if y * 2 < top_height {
+            for x in 0..chroma_width {
+                let bar = ((x * 2) * BARS.len()) / width.max(1);
+                row_u[x] = BARS[bar].1;
+                row_v[x] = BARS[bar].2;
+            }
+        } else {
+            row_u.fill(128);
+            row_v.fill(128);
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
@@ -277,34 +335,45 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         });
     }
 
-    // Setup camera
-    let index = CameraIndex::Index(args.camera_index as u32);
-    let requested =
-        RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
-    let mut camera = Camera::new(index, requested)?;
-    // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
-    let wanted =
-        CameraFormat::new(Resolution::new(args.width, args.height), FrameFormat::YUYV, args.fps);
-    let mut using_fmt = "YUYV";
-    if let Err(_) = camera
-        .set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(wanted)))
-    {
-        let alt = CameraFormat::new(
+    let (mut camera, width, height, is_yuyv) = if args.test_pattern {
+        info!("Using generated test pattern: {}x{} @ {} fps", args.width, args.height, args.fps);
+        (None, args.width, args.height, false)
+    } else {
+        // Setup camera
+        let index = CameraIndex::Index(args.camera_index as u32);
+        let requested =
+            RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
+        let mut camera = Camera::new(index, requested)?;
+        // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
+        let wanted = CameraFormat::new(
             Resolution::new(args.width, args.height),
-            FrameFormat::MJPEG,
+            FrameFormat::YUYV,
             args.fps,
         );
-        using_fmt = "MJPEG";
-        let _ = camera
-            .set_camera_requset(RequestedFormat::new::<RgbFormat>(RequestedFormatType::Exact(alt)));
-    }
-    camera.open_stream()?;
-    let fmt = camera.camera_format();
-    let width = fmt.width();
-    let height = fmt.height();
-    let fps = fmt.frame_rate();
-    info!("Camera opened: {}x{} @ {} fps (format: {})", width, height, fps, using_fmt);
-    debug!("Negotiated nokhwa CameraFormat: {:?}", fmt);
+        let mut using_fmt = "YUYV";
+        if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
+            RequestedFormatType::Exact(wanted),
+        )) {
+            let alt = CameraFormat::new(
+                Resolution::new(args.width, args.height),
+                FrameFormat::MJPEG,
+                args.fps,
+            );
+            using_fmt = "MJPEG";
+            let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
+                RequestedFormatType::Exact(alt),
+            ));
+        }
+        camera.open_stream()?;
+        let fmt = camera.camera_format();
+        let width = fmt.width();
+        let height = fmt.height();
+        let fps = fmt.frame_rate();
+        let is_yuyv = fmt.format() == FrameFormat::YUYV;
+        info!("Camera opened: {}x{} @ {} fps (format: {})", width, height, fps, using_fmt);
+        debug!("Negotiated nokhwa CameraFormat: {:?}", fmt);
+        (Some(camera), width, height, is_yuyv)
+    };
     // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
     let pace_fps = args.fps as f64;
 
@@ -384,11 +453,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         frame_metadata: None,
         buffer: I420Buffer::new(width, height),
     };
-    let is_yuyv = fmt.format() == FrameFormat::YUYV;
-    info!(
-        "Selected conversion path: {}",
-        if is_yuyv { "YUYV->I420 (libyuv)" } else { "Auto (RGB24 or MJPEG)" }
-    );
+    if args.test_pattern {
+        info!("Selected conversion path: generated I420 test pattern");
+    } else {
+        info!(
+            "Selected conversion path: {}",
+            if is_yuyv { "YUYV->I420 (libyuv)" } else { "Auto (RGB24 or MJPEG)" }
+        );
+    }
 
     // Accurate pacing using absolute schedule (no drift)
     let mut ticker = tokio::time::interval(Duration::from_secs_f64(1.0 / pace_fps));
@@ -422,41 +494,25 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         // close to the camera acquisition point.
         let capture_wall_time_us = unix_time_us_now();
         let camera_capture_started_at = Instant::now();
-        let frame_buf = camera.frame()?;
-        let camera_frame_acquired_at = Instant::now();
-        let (stride_y, stride_u, stride_v) = frame.buffer.strides();
-        let (data_y, data_u, data_v) = frame.buffer.data_mut();
-        let stride_y_usize = stride_y as usize;
-        let (decode_finished_at, convert_finished_at, used_decode_path) = if is_yuyv {
-            // Fast path for YUYV: convert directly to I420 via libyuv
-            let src = frame_buf.buffer();
-            let src_bytes = src.as_ref();
-            let src_stride = (width * 2) as i32; // YUYV packed 4:2:2
-            unsafe {
-                // returns 0 on success
-                let _ = yuv_sys::rs_YUY2ToI420(
-                    src_bytes.as_ptr(),
-                    src_stride,
-                    data_y.as_mut_ptr(),
-                    stride_y as i32,
-                    data_u.as_mut_ptr(),
-                    stride_u as i32,
-                    data_v.as_mut_ptr(),
-                    stride_v as i32,
-                    width as i32,
-                    height as i32,
-                );
-            }
-            (camera_frame_acquired_at, Instant::now(), false)
-        } else {
-            // Auto path (either RGB24 already or compressed MJPEG)
-            let src = frame_buf.buffer();
-            if src.len() == (width as usize * height as usize * 3) {
-                // Already RGB24 from backend; convert directly
+        let (camera_frame_acquired_at, decode_finished_at, convert_finished_at, used_decode_path) =
+            if args.test_pattern {
+                draw_test_pattern(&mut frame.buffer, width, height);
+                let test_pattern_ready_at = Instant::now();
+                (test_pattern_ready_at, test_pattern_ready_at, test_pattern_ready_at, false)
+            } else if is_yuyv {
+                let frame_buf = camera.as_mut().expect("camera exists").frame()?;
+                let camera_frame_acquired_at = Instant::now();
+                let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+                let (data_y, data_u, data_v) = frame.buffer.data_mut();
+                // Fast path for YUYV: convert directly to I420 via libyuv
+                let src = frame_buf.buffer();
+                let src_bytes = src.as_ref();
+                let src_stride = (width * 2) as i32; // YUYV packed 4:2:2
                 unsafe {
-                    let _ = yuv_sys::rs_RGB24ToI420(
-                        src.as_ref().as_ptr(),
-                        (width * 3) as i32,
+                    // returns 0 on success
+                    let _ = yuv_sys::rs_YUY2ToI420(
+                        src_bytes.as_ptr(),
+                        src_stride,
                         data_y.as_mut_ptr(),
                         stride_y as i32,
                         data_u.as_mut_ptr(),
@@ -467,85 +523,117 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         height as i32,
                     );
                 }
-                (camera_frame_acquired_at, Instant::now(), false)
+                (camera_frame_acquired_at, camera_frame_acquired_at, Instant::now(), false)
             } else {
-                // Try fast MJPEG->I420 via libyuv if available; fallback to image crate
-                let mut used_fast_mjpeg = false;
-                let fast_mjpeg_buffer_ready_at = unsafe {
-                    // rs_MJPGToI420 returns 0 on success
-                    let ret = yuv_sys::rs_MJPGToI420(
-                        src.as_ref().as_ptr(),
-                        src.len(),
-                        data_y.as_mut_ptr(),
-                        stride_y as i32,
-                        data_u.as_mut_ptr(),
-                        stride_u as i32,
-                        data_v.as_mut_ptr(),
-                        stride_v as i32,
-                        width as i32,
-                        height as i32,
-                        width as i32,
-                        height as i32,
-                    );
-                    if ret == 0 {
-                        used_fast_mjpeg = true;
-                        Instant::now()
-                    } else {
-                        camera_frame_acquired_at
+                let frame_buf = camera.as_mut().expect("camera exists").frame()?;
+                let camera_frame_acquired_at = Instant::now();
+                let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+                let (data_y, data_u, data_v) = frame.buffer.data_mut();
+                // Auto path (either RGB24 already or compressed MJPEG)
+                let src = frame_buf.buffer();
+                if src.len() == (width as usize * height as usize * 3) {
+                    // Already RGB24 from backend; convert directly
+                    unsafe {
+                        let _ = yuv_sys::rs_RGB24ToI420(
+                            src.as_ref().as_ptr(),
+                            (width * 3) as i32,
+                            data_y.as_mut_ptr(),
+                            stride_y as i32,
+                            data_u.as_mut_ptr(),
+                            stride_u as i32,
+                            data_v.as_mut_ptr(),
+                            stride_v as i32,
+                            width as i32,
+                            height as i32,
+                        );
                     }
-                };
-                if used_fast_mjpeg {
-                    (fast_mjpeg_buffer_ready_at, fast_mjpeg_buffer_ready_at, true)
+                    (camera_frame_acquired_at, camera_frame_acquired_at, Instant::now(), false)
                 } else {
-                    // Fallback: decode MJPEG using image crate then RGB24->I420
-                    match image::load_from_memory(src.as_ref()) {
-                        Ok(img_dyn) => {
-                            let rgb8 = img_dyn.to_rgb8();
-                            let decode_finished_at = Instant::now();
-                            let dec_w = rgb8.width() as u32;
-                            let dec_h = rgb8.height() as u32;
-                            if dec_w != width || dec_h != height {
-                                log::warn!(
-                                    "Decoded MJPEG size {}x{} differs from requested {}x{}; dropping frame",
-                                    dec_w, dec_h, width, height
-                                );
+                    // Try fast MJPEG->I420 via libyuv if available; fallback to image crate
+                    let mut used_fast_mjpeg = false;
+                    let fast_mjpeg_buffer_ready_at = unsafe {
+                        // rs_MJPGToI420 returns 0 on success
+                        let ret = yuv_sys::rs_MJPGToI420(
+                            src.as_ref().as_ptr(),
+                            src.len(),
+                            data_y.as_mut_ptr(),
+                            stride_y as i32,
+                            data_u.as_mut_ptr(),
+                            stride_u as i32,
+                            data_v.as_mut_ptr(),
+                            stride_v as i32,
+                            width as i32,
+                            height as i32,
+                            width as i32,
+                            height as i32,
+                        );
+                        if ret == 0 {
+                            used_fast_mjpeg = true;
+                            Instant::now()
+                        } else {
+                            camera_frame_acquired_at
+                        }
+                    };
+                    if used_fast_mjpeg {
+                        (
+                            camera_frame_acquired_at,
+                            fast_mjpeg_buffer_ready_at,
+                            fast_mjpeg_buffer_ready_at,
+                            true,
+                        )
+                    } else {
+                        // Fallback: decode MJPEG using image crate then RGB24->I420
+                        match image::load_from_memory(src.as_ref()) {
+                            Ok(img_dyn) => {
+                                let rgb8 = img_dyn.to_rgb8();
+                                let decode_finished_at = Instant::now();
+                                let dec_w = rgb8.width() as u32;
+                                let dec_h = rgb8.height() as u32;
+                                if dec_w != width || dec_h != height {
+                                    log::warn!(
+                                        "Decoded MJPEG size {}x{} differs from requested {}x{}; dropping frame",
+                                        dec_w, dec_h, width, height
+                                    );
+                                    continue;
+                                }
+                                unsafe {
+                                    let _ = yuv_sys::rs_RGB24ToI420(
+                                        rgb8.as_raw().as_ptr(),
+                                        (dec_w * 3) as i32,
+                                        data_y.as_mut_ptr(),
+                                        stride_y as i32,
+                                        data_u.as_mut_ptr(),
+                                        stride_u as i32,
+                                        data_v.as_mut_ptr(),
+                                        stride_v as i32,
+                                        width as i32,
+                                        height as i32,
+                                    );
+                                }
+                                (camera_frame_acquired_at, decode_finished_at, Instant::now(), true)
+                            }
+                            Err(e2) => {
+                                if !logged_mjpeg_fallback {
+                                    log::error!(
+                                        "MJPEG decode failed; buffer not RGB24 and image decode failed: {}",
+                                        e2
+                                    );
+                                    logged_mjpeg_fallback = true;
+                                }
                                 continue;
                             }
-                            unsafe {
-                                let _ = yuv_sys::rs_RGB24ToI420(
-                                    rgb8.as_raw().as_ptr(),
-                                    (dec_w * 3) as i32,
-                                    data_y.as_mut_ptr(),
-                                    stride_y as i32,
-                                    data_u.as_mut_ptr(),
-                                    stride_u as i32,
-                                    data_v.as_mut_ptr(),
-                                    stride_v as i32,
-                                    width as i32,
-                                    height as i32,
-                                );
-                            }
-                            (decode_finished_at, Instant::now(), true)
-                        }
-                        Err(e2) => {
-                            if !logged_mjpeg_fallback {
-                                log::error!(
-                                    "MJPEG decode failed; buffer not RGB24 and image decode failed: {}",
-                                    e2
-                                );
-                                logged_mjpeg_fallback = true;
-                            }
-                            continue;
                         }
                     }
                 }
-            }
-        };
+            };
 
         let mut buffer_ready_at = convert_finished_at;
         let mut frame_draw_ms = None;
         if let Some(overlay) = timestamp_overlay.as_mut() {
             let overlay_started_at = Instant::now();
+            let (stride_y, _, _) = frame.buffer.strides();
+            let (data_y, _, _) = frame.buffer.data_mut();
+            let stride_y_usize = stride_y as usize;
             overlay.draw(data_y, stride_y_usize, capture_wall_time_us);
             let overlay_finished_at = Instant::now();
             frame_draw_ms = Some((overlay_finished_at - overlay_started_at).as_secs_f64() * 1000.0);

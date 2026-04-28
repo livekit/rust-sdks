@@ -8,7 +8,7 @@ use egui_wgpu_backend::CallbackTrait;
 use futures::StreamExt;
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::prelude::*;
-use livekit::webrtc::video_stream::native::NativeVideoStream;
+use livekit::webrtc::{video_frame::BoxVideoFrame, video_stream::native::NativeVideoStream};
 use livekit_api::access_token;
 use log::{debug, info};
 use parking_lot::Mutex;
@@ -67,20 +67,25 @@ struct Args {
 struct SharedYuv {
     width: u32,
     height: u32,
-    y_bytes_per_row: u32,
-    uv_bytes_per_row: u32,
-    y: Vec<u8>,
-    u: Vec<u8>,
-    v: Vec<u8>,
     codec: String,
     fps: f32,
-    dirty: bool,
+    repaint_ctx: Option<egui::Context>,
+    pending_frame: Option<PendingFrame>,
     /// Time when the latest frame became available to the subscriber code.
     received_at_us: Option<u64>,
+    /// Time when the latest frame was uploaded by the render callback.
+    uploaded_at_us: Option<u64>,
     /// Packet-trailer metadata from the most recent frame, if any.
     frame_metadata: Option<livekit::webrtc::video_frame::FrameMetadata>,
     /// Whether the publisher advertised PTF_USER_TIMESTAMP in its track info.
     has_user_timestamp: bool,
+    /// Frames replaced in the app handoff before the renderer consumed them.
+    replaced_frames: u64,
+}
+
+struct PendingFrame {
+    frame: BoxVideoFrame,
+    received_at_us: u64,
 }
 
 #[derive(Clone)]
@@ -294,17 +299,13 @@ async fn handle_track_subscribed(
         sc.publication = Some(publication.clone());
     }
     tokio::spawn(async move {
-        let mut sink = NativeVideoStream::new(rtc_track);
+        let mut sink = NativeVideoStream::latest(rtc_track);
         let mut frames: u64 = 0;
         let mut last_log = Instant::now();
         let mut logged_first = false;
         let mut fps_window_frames: u64 = 0;
         let mut fps_window_start = Instant::now();
         let mut fps_smoothed: f32 = 0.0;
-        // YUV buffers reused to avoid per-frame allocations
-        let mut y_buf: Vec<u8> = Vec::new();
-        let mut u_buf: Vec<u8> = Vec::new();
-        let mut v_buf: Vec<u8> = Vec::new();
         loop {
             if ctrl_c_sink.load(Ordering::Acquire) {
                 break;
@@ -317,70 +318,66 @@ async fn handle_track_subscribed(
             let received_at_us = current_timestamp_us();
             let w = frame.buffer.width();
             let h = frame.buffer.height();
+            let frame_metadata = frame.frame_metadata;
 
             if !logged_first {
                 debug!("First frame: {}x{}, type {:?}", w, h, frame.buffer.buffer_type());
                 logged_first = true;
             }
 
-            let i420 = frame.buffer.to_i420();
-            let (sy, su, sv) = i420.strides();
-            let (dy, du, dv) = i420.data();
+            let repaint_ctx = {
+                let mut s = shared2.lock();
+                s.width = w;
+                s.height = h;
+                if s.pending_frame.replace(PendingFrame { frame, received_at_us }).is_some() {
+                    s.replaced_frames += 1;
+                }
+                s.received_at_us = Some(received_at_us);
+                s.frame_metadata = frame_metadata;
 
-            let width = w as u32;
-            let height = h as u32;
-            let uv_w = (width + 1) / 2;
-            let uv_h = (height + 1) / 2;
-            let y_bytes_per_row = align_up(width, 256);
-            let uv_bytes_per_row = align_up(uv_w, 256);
+                if !s.has_user_timestamp && frame_metadata.and_then(|m| m.user_timestamp).is_some()
+                {
+                    s.has_user_timestamp = true;
+                }
 
-            pack_plane(dy, sy as u32, width, height, y_bytes_per_row, &mut y_buf);
-            pack_plane(du, su as u32, uv_w, uv_h, uv_bytes_per_row, &mut u_buf);
-            pack_plane(dv, sv as u32, uv_w, uv_h, uv_bytes_per_row, &mut v_buf);
+                // Update smoothed FPS (~500ms window)
+                fps_window_frames += 1;
+                let win_elapsed = fps_window_start.elapsed();
+                if win_elapsed >= Duration::from_millis(500) {
+                    let inst_fps =
+                        (fps_window_frames as f32) / (win_elapsed.as_secs_f32().max(0.001));
+                    fps_smoothed = if fps_smoothed <= 0.0 {
+                        inst_fps
+                    } else {
+                        // light EMA smoothing to reduce jitter
+                        (fps_smoothed * 0.7) + (inst_fps * 0.3)
+                    };
+                    s.fps = fps_smoothed;
+                    fps_window_frames = 0;
+                    fps_window_start = Instant::now();
+                }
 
-            // Swap buffers into shared state
-            let mut s = shared2.lock();
-            s.width = width;
-            s.height = height;
-            s.y_bytes_per_row = y_bytes_per_row;
-            s.uv_bytes_per_row = uv_bytes_per_row;
-            std::mem::swap(&mut s.y, &mut y_buf);
-            std::mem::swap(&mut s.u, &mut u_buf);
-            std::mem::swap(&mut s.v, &mut v_buf);
-            s.dirty = true;
-            s.received_at_us = Some(received_at_us);
+                frames += 1;
+                let elapsed = last_log.elapsed();
+                if elapsed >= Duration::from_secs(2) {
+                    let fps = frames as f64 / elapsed.as_secs_f64();
+                    info!(
+                        "Receiving video: {}x{}, ~{:.1} fps, sdk_dropped={}, app_replaced={}",
+                        w,
+                        h,
+                        fps,
+                        sink.dropped_frames(),
+                        s.replaced_frames
+                    );
+                    frames = 0;
+                    last_log = Instant::now();
+                }
 
-            s.frame_metadata = frame.frame_metadata;
+                s.repaint_ctx.clone()
+            };
 
-            if !s.has_user_timestamp
-                && frame.frame_metadata.and_then(|m| m.user_timestamp).is_some()
-            {
-                s.has_user_timestamp = true;
-            }
-
-            // Update smoothed FPS (~500ms window)
-            fps_window_frames += 1;
-            let win_elapsed = fps_window_start.elapsed();
-            if win_elapsed >= Duration::from_millis(500) {
-                let inst_fps = (fps_window_frames as f32) / (win_elapsed.as_secs_f32().max(0.001));
-                fps_smoothed = if fps_smoothed <= 0.0 {
-                    inst_fps
-                } else {
-                    // light EMA smoothing to reduce jitter
-                    (fps_smoothed * 0.7) + (inst_fps * 0.3)
-                };
-                s.fps = fps_smoothed;
-                fps_window_frames = 0;
-                fps_window_start = Instant::now();
-            }
-
-            frames += 1;
-            let elapsed = last_log.elapsed();
-            if elapsed >= Duration::from_secs(2) {
-                let fps = frames as f64 / elapsed.as_secs_f64();
-                info!("Receiving video: {}x{}, ~{:.1} fps", w, h, fps);
-                frames = 0;
-                last_log = Instant::now();
+            if let Some(ctx) = repaint_ctx {
+                ctx.request_repaint();
             }
         }
         info!("Video stream ended for {}", my_sid);
@@ -434,8 +431,11 @@ fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex
         s.codec.clear();
         s.fps = 0.0;
         s.received_at_us = None;
+        s.uploaded_at_us = None;
         s.frame_metadata = None;
         s.has_user_timestamp = false;
+        s.pending_frame = None;
+        s.replaced_frames = 0;
     }
     let mut sc = simulcast.lock();
     *sc = SimulcastState::default();
@@ -481,6 +481,7 @@ struct VideoApp {
     last_timestamp_text: String,
     /// Cached latency text, refreshed at 2 Hz for readability.
     last_latency_text: String,
+    last_upload_latency_text: String,
     last_latency_refresh: Option<Instant>,
 }
 
@@ -490,6 +491,8 @@ impl eframe::App for VideoApp {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
+
+        self.shared.lock().repaint_ctx = Some(ctx.clone());
 
         // Lock aspect ratio based on the first received video frame.
         if self.locked_aspect.is_none() {
@@ -572,6 +575,7 @@ impl eframe::App for VideoApp {
             let s = self.shared.lock();
             let meta = s.frame_metadata;
             let receive_us = s.received_at_us;
+            let upload_us = s.uploaded_at_us;
             let has_user_timestamp = s.has_user_timestamp;
             drop(s);
 
@@ -584,33 +588,51 @@ impl eframe::App for VideoApp {
                     None => "Frame ID:   N/A".to_string(),
                 };
                 if has_user_timestamp {
-                    let latency = match (publish_us, receive_us) {
-                        (Some(pub_ts), Some(recv_ts)) => {
-                            let should_refresh = self.last_latency_text.is_empty()
-                                || self.last_latency_refresh.is_none_or(|last| {
-                                    last.elapsed() >= Duration::from_millis(500)
-                                });
-                            if should_refresh {
-                                self.last_latency_text = format!(
-                                    "{:.1}ms",
-                                    recv_ts.saturating_sub(pub_ts) as f64 / 1000.0
-                                );
-                                self.last_latency_refresh = Some(Instant::now());
+                    let (receive_latency, upload_latency) =
+                        match (publish_us, receive_us, upload_us) {
+                            (Some(pub_ts), Some(recv_ts), uploaded) => {
+                                let should_refresh = self.last_latency_text.is_empty()
+                                    || self.last_latency_refresh.is_none_or(|last| {
+                                        last.elapsed() >= Duration::from_millis(500)
+                                    });
+                                if should_refresh {
+                                    self.last_latency_text = format!(
+                                        "{:.1}ms",
+                                        recv_ts.saturating_sub(pub_ts) as f64 / 1000.0
+                                    );
+                                    self.last_upload_latency_text = uploaded
+                                        .map(|upload_ts| {
+                                            format!(
+                                                "{:.1}ms",
+                                                upload_ts.saturating_sub(pub_ts) as f64 / 1000.0
+                                            )
+                                        })
+                                        .unwrap_or_else(|| "N/A".to_string());
+                                    self.last_latency_refresh = Some(Instant::now());
+                                }
+                                (
+                                    self.last_latency_text.clone(),
+                                    self.last_upload_latency_text.clone(),
+                                )
                             }
-                            self.last_latency_text.clone()
-                        }
-                        _ => {
-                            self.last_latency_text = "N/A".to_string();
-                            self.last_latency_refresh = None;
-                            self.last_latency_text.clone()
-                        }
-                    };
+                            _ => {
+                                self.last_latency_text = "N/A".to_string();
+                                self.last_upload_latency_text = "N/A".to_string();
+                                self.last_latency_refresh = None;
+                                (
+                                    self.last_latency_text.clone(),
+                                    self.last_upload_latency_text.clone(),
+                                )
+                            }
+                        };
                     self.last_timestamp_text = format!(
-                        "{}\nPublish:    {}\nReceive:    {}\nLatency:    {}",
+                        "{}\nPublish:    {}\nReceive:    {}\nUpload:     {}\nRecv Lat:   {}\nUpload Lat: {}",
                         frame_id_line,
                         format_optional_timestamp_us(publish_us),
                         format_optional_timestamp_us(receive_us),
-                        latency,
+                        format_optional_timestamp_us(upload_us),
+                        receive_latency,
+                        upload_latency,
                     );
                 } else {
                     self.last_timestamp_text = frame_id_line;
@@ -669,7 +691,7 @@ impl eframe::App for VideoApp {
                 });
             });
 
-        ctx.request_repaint_after(Duration::from_millis(16));
+        ctx.request_repaint();
     }
 }
 
@@ -719,8 +741,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = true;
-    room_options.dynacast = true;
-    room_options.adaptive_stream = true;
+    room_options.dynacast = false;
+    room_options.adaptive_stream = false;
+    info!(
+        "Low-latency subscriber mode: latest-frame stream, stable subscription, wgpu renderer, vsync off"
+    );
 
     // Configure E2EE if an encryption key is provided
     if let Some(ref e2ee_key) = args.e2ee_key {
@@ -747,17 +772,15 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let shared = Arc::new(Mutex::new(SharedYuv {
         width: 0,
         height: 0,
-        y_bytes_per_row: 0,
-        uv_bytes_per_row: 0,
-        y: Vec::new(),
-        u: Vec::new(),
-        v: Vec::new(),
         codec: String::new(),
         fps: 0.0,
-        dirty: false,
+        repaint_ctx: None,
+        pending_frame: None,
         received_at_us: None,
+        uploaded_at_us: None,
         frame_metadata: None,
         has_user_timestamp: false,
+        replaced_frames: 0,
     }));
 
     // Subscribe to room events: on first video track, start sink task
@@ -810,9 +833,15 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         display_timestamp: args.display_timestamp,
         last_timestamp_text: String::new(),
         last_latency_text: String::new(),
+        last_upload_latency_text: String::new(),
         last_latency_refresh: None,
     };
-    let native_options = eframe::NativeOptions { vsync: false, ..Default::default() };
+    let native_options = eframe::NativeOptions {
+        vsync: false,
+        renderer: eframe::Renderer::Wgpu,
+        hardware_acceleration: eframe::HardwareAcceleration::Required,
+        ..Default::default()
+    };
     eframe::run_native(
         "LiveKit Video Subscriber",
         native_options,
@@ -825,10 +854,16 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
-// ===== WGPU I420 renderer =====
+// ===== WGPU YUV renderer =====
 
 struct YuvPaintCallback {
     shared: Arc<Mutex<SharedYuv>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum GpuFrameFormat {
+    I420,
+    Nv12,
 }
 
 struct YuvGpuState {
@@ -846,6 +881,7 @@ struct YuvGpuState {
     y_pad_w: u32,
     uv_pad_w: u32,
     dims: (u32, u32),
+    format: GpuFrameFormat,
     upload_y: Vec<u8>,
     upload_u: Vec<u8>,
     upload_v: Vec<u8>,
@@ -854,10 +890,10 @@ struct YuvGpuState {
 impl YuvGpuState {
     fn create_textures(
         device: &wgpu::Device,
-        _width: u32,
         height: u32,
         y_pad_w: u32,
         uv_pad_w: u32,
+        format: GpuFrameFormat,
     ) -> (
         wgpu::Texture,
         wgpu::Texture,
@@ -870,23 +906,35 @@ impl YuvGpuState {
         let uv_size =
             wgpu::Extent3d { width: uv_pad_w, height: (height + 1) / 2, depth_or_array_layers: 1 };
         let usage = wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING;
-        let desc = |size: wgpu::Extent3d| wgpu::TextureDescriptor {
+        let desc = |size: wgpu::Extent3d, format: wgpu::TextureFormat| wgpu::TextureDescriptor {
             label: Some("yuv_plane"),
             size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
+            format,
             usage,
             view_formats: &[],
         };
-        let y_tex = device.create_texture(&desc(y_size));
-        let u_tex = device.create_texture(&desc(uv_size));
-        let v_tex = device.create_texture(&desc(uv_size));
+        let y_tex = device.create_texture(&desc(y_size, wgpu::TextureFormat::R8Unorm));
+        let uv_format = match format {
+            GpuFrameFormat::I420 => wgpu::TextureFormat::R8Unorm,
+            GpuFrameFormat::Nv12 => wgpu::TextureFormat::Rg8Unorm,
+        };
+        let u_tex = device.create_texture(&desc(uv_size, uv_format));
+        let v_tex = device.create_texture(&desc(uv_size, wgpu::TextureFormat::R8Unorm));
         let y_view = y_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let u_view = u_tex.create_view(&wgpu::TextureViewDescriptor::default());
         let v_view = v_tex.create_view(&wgpu::TextureViewDescriptor::default());
         (y_tex, u_tex, v_tex, y_view, u_view, v_view)
+    }
+}
+
+fn frame_gpu_format(frame: &BoxVideoFrame) -> GpuFrameFormat {
+    if frame.buffer.as_nv12().is_some() {
+        GpuFrameFormat::Nv12
+    } else {
+        GpuFrameFormat::I420
     }
 }
 
@@ -920,6 +968,41 @@ fn pack_plane(
     }
 }
 
+fn write_plane(
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    src: &[u8],
+    src_stride: u32,
+    row_bytes: u32,
+    extent_width: u32,
+    rows: u32,
+    dst_stride: u32,
+    scratch: &mut Vec<u8>,
+) {
+    let data = if src_stride == dst_stride {
+        src
+    } else {
+        pack_plane(src, src_stride, row_bytes, rows, dst_stride, scratch);
+        scratch
+    };
+
+    queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(dst_stride),
+            rows_per_image: Some(rows),
+        },
+        wgpu::Extent3d { width: extent_width, height: rows, depth_or_array_layers: 1 },
+    );
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct ParamsUniform {
@@ -927,6 +1010,7 @@ struct ParamsUniform {
     src_h: u32,
     y_tex_w: u32,
     uv_tex_w: u32,
+    format: u32,
 }
 
 impl CallbackTrait for YuvPaintCallback {
@@ -938,13 +1022,29 @@ impl CallbackTrait for YuvPaintCallback {
         _encoder: &mut wgpu::CommandEncoder,
         resources: &mut egui_wgpu_backend::CallbackResources,
     ) -> Vec<wgpu::CommandBuffer> {
-        // Initialize or update GPU state lazily based on current frame
-        let mut shared = self.shared.lock();
+        let pending = {
+            let mut shared = self.shared.lock();
+            shared.pending_frame.take()
+        };
 
-        // Nothing to draw yet
-        if shared.width == 0 || shared.height == 0 {
+        let Some(pending) = pending else {
             return Vec::new();
-        }
+        };
+        let frame = pending.frame;
+        let dims = (frame.buffer.width(), frame.buffer.height());
+        let format = frame_gpu_format(&frame);
+        let uv_w = (dims.0 + 1) / 2;
+        let uv_h = (dims.1 + 1) / 2;
+        let y_pad_w = align_up(dims.0, 256);
+        let uv_pad_w = match format {
+            GpuFrameFormat::I420 => align_up(uv_w, 256),
+            GpuFrameFormat::Nv12 => align_up(uv_w * 2, 256) / 2,
+        };
+        let y_bytes_per_row = y_pad_w;
+        let uv_bytes_per_row = match format {
+            GpuFrameFormat::I420 => uv_pad_w,
+            GpuFrameFormat::Nv12 => uv_pad_w * 2,
+        };
 
         // Fetch or create our GPU state
         if resources.get::<YuvGpuState>().is_none() {
@@ -1074,13 +1174,14 @@ impl CallbackTrait for YuvPaintCallback {
                     src_h: 1,
                     y_tex_w: 1,
                     uv_tex_w: 1,
+                    format: 0,
                 }),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
             // Initial tiny textures
             let (y_tex, u_tex, v_tex, y_view, u_view, v_view) =
-                YuvGpuState::create_textures(device, 1, 1, 256, 256);
+                YuvGpuState::create_textures(device, 1, 256, 256, GpuFrameFormat::I420);
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("yuv_bind_group"),
                 layout: &bind_layout,
@@ -1120,6 +1221,7 @@ impl CallbackTrait for YuvPaintCallback {
                 y_pad_w: 256,
                 uv_pad_w: 256,
                 dims: (0, 0),
+                format: GpuFrameFormat::I420,
                 upload_y: Vec::new(),
                 upload_u: Vec::new(),
                 upload_v: Vec::new(),
@@ -1128,26 +1230,10 @@ impl CallbackTrait for YuvPaintCallback {
         }
         let state = resources.get_mut::<YuvGpuState>().unwrap();
 
-        let dims = (shared.width, shared.height);
-        let upload_row_bytes = (shared.y_bytes_per_row, shared.uv_bytes_per_row);
-        let has_dirty_frame = if shared.dirty {
-            std::mem::swap(&mut state.upload_y, &mut shared.y);
-            std::mem::swap(&mut state.upload_u, &mut shared.u);
-            std::mem::swap(&mut state.upload_v, &mut shared.v);
-            shared.dirty = false;
-            true
-        } else {
-            false
-        };
-        drop(shared);
-
         // Recreate textures/bind group on size change.
-        if state.dims != dims {
-            let y_pad_w = align_up(dims.0, 256);
-            let uv_w = (dims.0 + 1) / 2;
-            let uv_pad_w = align_up(uv_w, 256);
+        if state.dims != dims || state.format != format {
             let (y_tex, u_tex, v_tex, y_view, u_view, v_view) =
-                YuvGpuState::create_textures(device, dims.0, dims.1, y_pad_w, uv_pad_w);
+                YuvGpuState::create_textures(device, dims.1, y_pad_w, uv_pad_w, format);
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("yuv_bind_group"),
                 layout: &state.bind_layout,
@@ -1184,73 +1270,100 @@ impl CallbackTrait for YuvPaintCallback {
             state.y_pad_w = y_pad_w;
             state.uv_pad_w = uv_pad_w;
             state.dims = dims;
+            state.format = format;
         }
 
-        if has_dirty_frame {
-            let uv_w = (dims.0 + 1) / 2;
-            let uv_h = (dims.1 + 1) / 2;
-
-            if upload_row_bytes.0 >= dims.0 {
-                queue.write_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &state.y_tex,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    &state.upload_y,
-                    wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(upload_row_bytes.0),
-                        rows_per_image: Some(dims.1),
-                    },
-                    wgpu::Extent3d { width: dims.0, height: dims.1, depth_or_array_layers: 1 },
-                );
-            }
-
-            if upload_row_bytes.1 >= uv_w {
-                queue.write_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &state.u_tex,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    &state.upload_u,
-                    wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(upload_row_bytes.1),
-                        rows_per_image: Some(uv_h),
-                    },
-                    wgpu::Extent3d { width: uv_w, height: uv_h, depth_or_array_layers: 1 },
-                );
-                queue.write_texture(
-                    wgpu::TexelCopyTextureInfo {
-                        texture: &state.v_tex,
-                        mip_level: 0,
-                        origin: wgpu::Origin3d::ZERO,
-                        aspect: wgpu::TextureAspect::All,
-                    },
-                    &state.upload_v,
-                    wgpu::TexelCopyBufferLayout {
-                        offset: 0,
-                        bytes_per_row: Some(upload_row_bytes.1),
-                        rows_per_image: Some(uv_h),
-                    },
-                    wgpu::Extent3d { width: uv_w, height: uv_h, depth_or_array_layers: 1 },
-                );
-            }
-
-            queue.write_buffer(
-                &state.params_buf,
-                0,
-                bytemuck::bytes_of(&ParamsUniform {
-                    src_w: dims.0,
-                    src_h: dims.1,
-                    y_tex_w: state.y_pad_w,
-                    uv_tex_w: state.uv_pad_w,
-                }),
+        if let Some(nv12) = frame.buffer.as_nv12() {
+            let (stride_y, stride_uv) = nv12.strides();
+            let (data_y, data_uv) = nv12.data();
+            write_plane(
+                queue,
+                &state.y_tex,
+                data_y,
+                stride_y,
+                dims.0,
+                dims.0,
+                dims.1,
+                y_bytes_per_row,
+                &mut state.upload_y,
             );
+            write_plane(
+                queue,
+                &state.u_tex,
+                data_uv,
+                stride_uv,
+                uv_w * 2,
+                uv_w,
+                uv_h,
+                uv_bytes_per_row,
+                &mut state.upload_u,
+            );
+        } else {
+            let converted;
+            let i420 = if let Some(i420) = frame.buffer.as_i420() {
+                i420
+            } else {
+                converted = frame.buffer.to_i420();
+                &converted
+            };
+            let (stride_y, stride_u, stride_v) = i420.strides();
+            let (data_y, data_u, data_v) = i420.data();
+            write_plane(
+                queue,
+                &state.y_tex,
+                data_y,
+                stride_y,
+                dims.0,
+                dims.0,
+                dims.1,
+                y_bytes_per_row,
+                &mut state.upload_y,
+            );
+            write_plane(
+                queue,
+                &state.u_tex,
+                data_u,
+                stride_u,
+                uv_w,
+                uv_w,
+                uv_h,
+                uv_bytes_per_row,
+                &mut state.upload_u,
+            );
+            write_plane(
+                queue,
+                &state.v_tex,
+                data_v,
+                stride_v,
+                uv_w,
+                uv_w,
+                uv_h,
+                uv_bytes_per_row,
+                &mut state.upload_v,
+            );
+        }
+
+        queue.write_buffer(
+            &state.params_buf,
+            0,
+            bytemuck::bytes_of(&ParamsUniform {
+                src_w: dims.0,
+                src_h: dims.1,
+                y_tex_w: state.y_pad_w,
+                uv_tex_w: state.uv_pad_w,
+                format: match format {
+                    GpuFrameFormat::I420 => 0,
+                    GpuFrameFormat::Nv12 => 1,
+                },
+            }),
+        );
+
+        let uploaded_at_us = current_timestamp_us();
+        {
+            let mut shared = self.shared.lock();
+            if shared.received_at_us == Some(pending.received_at_us) {
+                shared.uploaded_at_us = Some(uploaded_at_us);
+            }
         }
 
         Vec::new()

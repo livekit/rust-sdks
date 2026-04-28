@@ -27,6 +27,7 @@ struct Params {
   src_h: u32,
   y_tex_w: u32,
   uv_tex_w: u32,
+  format: u32,
 };
 @group(0) @binding(4) var<uniform> params: Params;
 
@@ -50,14 +51,21 @@ fn fs_main(in_: VSOut) -> @location(0) vec4<f32> {
   // Flip vertically and scale X to avoid sampling padded columns
   let flipped = vec2<f32>(in_.uv.x, 1.0 - in_.uv.y);
   let uv_y = vec2<f32>(flipped.x * (src_w / y_tex_w), flipped.y);
-  let uv_uv = vec2<f32>(flipped.x * ((src_w * 0.5) / uv_tex_w), flipped.y);
+  let uv_src_w = ceil(src_w * 0.5);
+  let uv_uv = vec2<f32>(flipped.x * (uv_src_w / uv_tex_w), flipped.y);
 
   let y = textureSample(y_tex, samp, uv_y).r;
-  let u = textureSample(u_tex, samp, uv_uv).r;
-  let v = textureSample(v_tex, samp, uv_uv).r;
+  var u: f32;
+  var v: f32;
+  if params.format == 1u {
+    let uv = textureSample(u_tex, samp, uv_uv).rg;
+    u = uv.x;
+    v = uv.y;
+  } else {
+    u = textureSample(u_tex, samp, uv_uv).r;
+    v = textureSample(v_tex, samp, uv_uv).r;
+  }
 
   let rgb = yuv_to_rgb(y, u, v);
   return vec4<f32>(rgb, 1.0);
 }
-
-

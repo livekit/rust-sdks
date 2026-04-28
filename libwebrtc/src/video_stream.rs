@@ -34,6 +34,16 @@ pub mod native {
 
     const DEFAULT_QUEUE_SIZE_FRAMES: usize = 1;
 
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum NativeVideoStreamQueuePolicy {
+        /// FIFO queue that drops the oldest queued frame when full.
+        Fifo { capacity: usize },
+        /// Keep only the newest decoded frame. Any unconsumed older frame is replaced.
+        LatestOnly,
+        /// Keep all decoded frames. This can add unbounded latency if the consumer falls behind.
+        Unbounded,
+    }
+
     #[derive(Clone, Debug, Default)]
     pub struct NativeVideoStreamOptions {
         /// Maximum number of queued WebRTC sink frames after the video callback.
@@ -48,6 +58,12 @@ pub mod native {
         /// queue, or unbounded buffering, for only one of them can increase
         /// end-to-end latency for that stream and cause audio/video drift.
         pub queue_size_frames: Option<usize>,
+
+        /// Explicit receive queue policy.
+        ///
+        /// When set, this takes precedence over `queue_size_frames`. Leaving it
+        /// as `None` preserves the existing `queue_size_frames` behavior.
+        pub queue_policy: Option<NativeVideoStreamQueuePolicy>,
     }
 
     pub struct NativeVideoStream {
@@ -65,7 +81,16 @@ pub mod native {
             Self {
                 handle: stream_imp::NativeVideoStream::new(
                     video_track,
-                    Some(DEFAULT_QUEUE_SIZE_FRAMES),
+                    NativeVideoStreamQueuePolicy::Fifo { capacity: DEFAULT_QUEUE_SIZE_FRAMES },
+                ),
+            }
+        }
+
+        pub fn latest(video_track: RtcVideoTrack) -> Self {
+            Self {
+                handle: stream_imp::NativeVideoStream::new(
+                    video_track,
+                    NativeVideoStreamQueuePolicy::LatestOnly,
                 ),
             }
         }
@@ -74,7 +99,7 @@ pub mod native {
             Self {
                 handle: stream_imp::NativeVideoStream::new(
                     video_track,
-                    normalize_queue_size_frames(options.queue_size_frames),
+                    normalize_queue_policy(options),
                 ),
             }
         }
@@ -100,6 +125,10 @@ pub mod native {
         pub fn close(&mut self) {
             self.handle.close();
         }
+
+        pub fn dropped_frames(&self) -> u64 {
+            self.handle.dropped_frames()
+        }
     }
 
     impl Stream for NativeVideoStream {
@@ -110,11 +139,15 @@ pub mod native {
         }
     }
 
-    fn normalize_queue_size_frames(queue_size_frames: Option<usize>) -> Option<usize> {
-        match queue_size_frames {
-            None => Some(DEFAULT_QUEUE_SIZE_FRAMES),
-            Some(0) => None,
-            Some(value) => Some(value),
+    fn normalize_queue_policy(options: NativeVideoStreamOptions) -> NativeVideoStreamQueuePolicy {
+        if let Some(policy) = options.queue_policy {
+            return policy;
+        }
+
+        match options.queue_size_frames {
+            None => NativeVideoStreamQueuePolicy::Fifo { capacity: DEFAULT_QUEUE_SIZE_FRAMES },
+            Some(0) => NativeVideoStreamQueuePolicy::Unbounded,
+            Some(value) => NativeVideoStreamQueuePolicy::Fifo { capacity: value },
         }
     }
 }

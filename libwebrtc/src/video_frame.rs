@@ -512,6 +512,34 @@ pub mod native {
         pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
             self.handle.get_cv_pixel_buffer()
         }
+
+        /// Returns a retained `CVPixelBufferRef`, if this native buffer is backed
+        /// by one.
+        ///
+        /// The returned wrapper releases the pixel buffer on drop, so renderers
+        /// can safely keep it alive across an asynchronous GPU upload.
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        pub fn retained_cv_pixel_buffer(&self) -> Option<RetainedCvPixelBuffer> {
+            self.handle.retained_cv_pixel_buffer().map(|handle| RetainedCvPixelBuffer { handle })
+        }
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    pub struct RetainedCvPixelBuffer {
+        handle: vf_imp::RetainedCvPixelBuffer,
+    }
+
+    // SAFETY: This public wrapper only owns the retained CoreVideo object held by
+    // the native handle. Moving ownership to a render thread is safe; callers are
+    // responsible for synchronizing GPU command-buffer lifetime around it.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    unsafe impl Send for RetainedCvPixelBuffer {}
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    impl RetainedCvPixelBuffer {
+        pub fn as_ptr(&self) -> *mut std::ffi::c_void {
+            self.handle.as_ptr()
+        }
     }
 
     pub trait VideoFrameBufferExt: VideoBuffer {

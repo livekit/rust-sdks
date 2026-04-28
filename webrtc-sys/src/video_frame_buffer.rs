@@ -149,6 +149,10 @@ pub mod ffi {
         unsafe fn native_buffer_to_platform_image_buffer(
             buffer: &UniquePtr<VideoFrameBuffer>,
         ) -> *mut PlatformImageBuffer;
+        unsafe fn retained_native_buffer_to_platform_image_buffer(
+            buffer: &UniquePtr<VideoFrameBuffer>,
+        ) -> *mut PlatformImageBuffer;
+        unsafe fn release_platform_image_buffer(buffer: *mut PlatformImageBuffer);
 
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;

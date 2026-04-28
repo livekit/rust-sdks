@@ -20,6 +20,13 @@ option csharp_namespace = "LiveKit.Proto";
 import "handle.proto";
 import "track.proto";
 
+enum VideoStreamQueuePolicy {
+  VIDEO_STREAM_QUEUE_POLICY_DEFAULT = 0;
+  VIDEO_STREAM_QUEUE_POLICY_FIFO = 1;
+  VIDEO_STREAM_QUEUE_POLICY_LATEST_ONLY = 2;
+  VIDEO_STREAM_QUEUE_POLICY_UNBOUNDED = 3;
+}
+
 // Create a new VideoStream
 // VideoStream is used to receive video frames from a track
 message NewVideoStreamRequest {
@@ -37,6 +44,8 @@ message NewVideoStreamRequest {
   // unbounded buffering, for only one of them can increase end-to-end latency
   // for that stream and cause audio/video drift.
   optional uint32 queue_size_frames = 5;
+  // Optional explicit queue policy. DEFAULT preserves queue_size_frames behavior.
+  optional VideoStreamQueuePolicy queue_policy = 6;
 }
 message NewVideoStreamResponse { required OwnedVideoStream stream = 1; }
 
@@ -56,6 +65,8 @@ message VideoStreamFromParticipantRequest {
   // unbounded buffering, for only one of them can increase end-to-end latency
   // for that stream and cause audio/video drift.
   optional uint32 queue_size_frames = 6;
+  // Optional explicit queue policy. DEFAULT preserves queue_size_frames behavior.
+  optional VideoStreamQueuePolicy queue_policy = 7;
 }
 
 message VideoStreamFromParticipantResponse { required OwnedVideoStream stream = 1;}

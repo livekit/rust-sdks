@@ -18,6 +18,11 @@ path = "src/subscriber.rs"
 required-features = ["desktop"]
 
 [[bin]]
+name = "subscriber_metal"
+path = "src/subscriber_metal.rs"
+required-features = ["desktop"]
+
+[[bin]]
 name = "list_devices"
 path = "src/list_devices.rs"
 required-features = ["desktop"]
@@ -49,6 +54,12 @@ nokhwa = { version = "0.10", default-features = false, features = ["output-threa
 [target.'cfg(target_os = "macos")'.dependencies]
 nokhwa = { version = "0.10", default-features = false, features = ["input-avfoundation"] }
 objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
+block = "0.1.6"
+core-foundation = "0.10"
+core-graphics-types = "0.2"
+core-video = "0.3.4"
+metal = "0.33"
+objc = "0.2.4"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nokhwa = { version = "0.10", default-features = false, features = ["input-v4l"] }

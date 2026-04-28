@@ -166,6 +166,15 @@ impl NativeBuffer {
         unsafe { vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _ }
     }
 
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    pub fn retained_cv_pixel_buffer(&self) -> Option<RetainedCvPixelBuffer> {
+        let ptr = unsafe {
+            vfb_sys::ffi::retained_native_buffer_to_platform_image_buffer(&self.sys_handle)
+                as *mut std::ffi::c_void
+        };
+        (!ptr.is_null()).then_some(RetainedCvPixelBuffer { ptr })
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         &self.sys_handle
     }
@@ -191,6 +200,36 @@ impl NativeBuffer {
         dst_height: i32,
     ) {
         self.to_i420().to_argb(format, dst, dst_stride, dst_width, dst_height)
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub struct RetainedCvPixelBuffer {
+    ptr: *mut std::ffi::c_void,
+}
+
+// SAFETY: This wrapper owns a retained CVPixelBuffer reference. It does not expose
+// mutable Rust access to the underlying pixels, and CoreVideo objects are intended
+// to be retained/released across threads. Renderers must still synchronize actual
+// GPU use with the frame lifetime they create from this handle.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+unsafe impl Send for RetainedCvPixelBuffer {}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+impl RetainedCvPixelBuffer {
+    pub fn as_ptr(&self) -> *mut std::ffi::c_void {
+        self.ptr
+    }
+}
+
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+impl Drop for RetainedCvPixelBuffer {
+    fn drop(&mut self) {
+        unsafe {
+            vfb_sys::ffi::release_platform_image_buffer(
+                self.ptr as *mut vfb_sys::ffi::PlatformImageBuffer,
+            );
+        }
     }
 }
 

@@ -357,6 +357,14 @@ PlatformImageBuffer* native_buffer_to_platform_image_buffer(
   return nullptr;
 }
 
+PlatformImageBuffer* retained_native_buffer_to_platform_image_buffer(
+    const std::unique_ptr<VideoFrameBuffer> &buffer
+) {
+  return nullptr;
+}
+
+void release_platform_image_buffer(PlatformImageBuffer *buffer) {}
+
 #endif
 
 }  // namespace livekit_ffi
