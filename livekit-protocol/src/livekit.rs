@@ -1163,7 +1163,7 @@ pub mod client_info {
     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
     #[repr(i32)]
     pub enum Capability {
-        CapUnknown = 0,
+        CapUnused = 0,
         CapPacketTrailer = 1,
     }
     impl Capability {
@@ -1173,14 +1173,14 @@ pub mod client_info {
         /// (if the ProtoBuf definition does not change) and safe for programmatic use.
         pub fn as_str_name(&self) -> &'static str {
             match self {
-                Capability::CapUnknown => "CAP_UNKNOWN",
+                Capability::CapUnused => "CAP_UNUSED",
                 Capability::CapPacketTrailer => "CAP_PACKET_TRAILER",
             }
         }
         /// Creates an enum from field names used in the ProtoBuf definition.
         pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
             match value {
-                "CAP_UNKNOWN" => Some(Self::CapUnknown),
+                "CAP_UNUSED" => Some(Self::CapUnused),
                 "CAP_PACKET_TRAILER" => Some(Self::CapPacketTrailer),
                 _ => None,
             }
@@ -5008,6 +5008,9 @@ pub struct CreateRoomRequest {
     /// metadata of room
     #[prost(string, tag="5")]
     pub metadata: ::prost::alloc::string::String,
+    /// search tags
+    #[prost(map="string, string", tag="15")]
+    pub tags: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
     /// auto-egress configurations
     #[prost(message, optional, tag="6")]
     pub egress: ::core::option::Option<RoomEgress>,

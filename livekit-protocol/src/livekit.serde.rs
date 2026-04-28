@@ -3680,7 +3680,7 @@ impl serde::Serialize for client_info::Capability {
         S: serde::Serializer,
     {
         let variant = match self {
-            Self::CapUnknown => "CAP_UNKNOWN",
+            Self::CapUnused => "CAP_UNUSED",
             Self::CapPacketTrailer => "CAP_PACKET_TRAILER",
         };
         serializer.serialize_str(variant)
@@ -3693,7 +3693,7 @@ impl<'de> serde::Deserialize<'de> for client_info::Capability {
         D: serde::Deserializer<'de>,
     {
         const FIELDS: &[&str] = &[
-            "CAP_UNKNOWN",
+            "CAP_UNUSED",
             "CAP_PACKET_TRAILER",
         ];
 
@@ -3735,7 +3735,7 @@ impl<'de> serde::Deserialize<'de> for client_info::Capability {
                 E: serde::de::Error,
             {
                 match value {
-                    "CAP_UNKNOWN" => Ok(client_info::Capability::CapUnknown),
+                    "CAP_UNUSED" => Ok(client_info::Capability::CapUnused),
                     "CAP_PACKET_TRAILER" => Ok(client_info::Capability::CapPacketTrailer),
                     _ => Err(serde::de::Error::unknown_variant(value, FIELDS)),
                 }
@@ -5562,6 +5562,9 @@ impl serde::Serialize for CreateRoomRequest {
         if !self.metadata.is_empty() {
             len += 1;
         }
+        if !self.tags.is_empty() {
+            len += 1;
+        }
         if self.egress.is_some() {
             len += 1;
         }
@@ -5601,6 +5604,9 @@ impl serde::Serialize for CreateRoomRequest {
         }
         if !self.metadata.is_empty() {
             struct_ser.serialize_field("metadata", &self.metadata)?;
+        }
+        if !self.tags.is_empty() {
+            struct_ser.serialize_field("tags", &self.tags)?;
         }
         if let Some(v) = self.egress.as_ref() {
             struct_ser.serialize_field("egress", v)?;
@@ -5642,6 +5648,7 @@ impl<'de> serde::Deserialize<'de> for CreateRoomRequest {
             "node_id",
             "nodeId",
             "metadata",
+            "tags",
             "egress",
             "min_playout_delay",
             "minPlayoutDelay",
@@ -5663,6 +5670,7 @@ impl<'de> serde::Deserialize<'de> for CreateRoomRequest {
             MaxParticipants,
             NodeId,
             Metadata,
+            Tags,
             Egress,
             MinPlayoutDelay,
             MaxPlayoutDelay,
@@ -5698,6 +5706,7 @@ impl<'de> serde::Deserialize<'de> for CreateRoomRequest {
                             "maxParticipants" | "max_participants" => Ok(GeneratedField::MaxParticipants),
                             "nodeId" | "node_id" => Ok(GeneratedField::NodeId),
                             "metadata" => Ok(GeneratedField::Metadata),
+                            "tags" => Ok(GeneratedField::Tags),
                             "egress" => Ok(GeneratedField::Egress),
                             "minPlayoutDelay" | "min_playout_delay" => Ok(GeneratedField::MinPlayoutDelay),
                             "maxPlayoutDelay" | "max_playout_delay" => Ok(GeneratedField::MaxPlayoutDelay),
@@ -5730,6 +5739,7 @@ impl<'de> serde::Deserialize<'de> for CreateRoomRequest {
                 let mut max_participants__ = None;
                 let mut node_id__ = None;
                 let mut metadata__ = None;
+                let mut tags__ = None;
                 let mut egress__ = None;
                 let mut min_playout_delay__ = None;
                 let mut max_playout_delay__ = None;
@@ -5786,6 +5796,14 @@ impl<'de> serde::Deserialize<'de> for CreateRoomRequest {
                             }
                             metadata__ = Some(map_.next_value()?);
                         }
+                        GeneratedField::Tags => {
+                            if tags__.is_some() {
+                                return Err(serde::de::Error::duplicate_field("tags"));
+                            }
+                            tags__ = Some(
+                                map_.next_value::<std::collections::HashMap<_, _>>()?
+                            );
+                        }
                         GeneratedField::Egress => {
                             if egress__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("egress"));
@@ -5839,6 +5857,7 @@ impl<'de> serde::Deserialize<'de> for CreateRoomRequest {
                     max_participants: max_participants__.unwrap_or_default(),
                     node_id: node_id__.unwrap_or_default(),
                     metadata: metadata__.unwrap_or_default(),
+                    tags: tags__.unwrap_or_default(),
                     egress: egress__,
                     min_playout_delay: min_playout_delay__.unwrap_or_default(),
                     max_playout_delay: max_playout_delay__.unwrap_or_default(),
