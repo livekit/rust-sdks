@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//! High-level helper that ingests an encoded (compressed) video bytestream over TCP
+//! High-level helper that ingests a pre-encoded video bytestream over TCP
 //! and publishes it to a LiveKit room as an encoded video track.
 //!
 //! The caller supplies the TCP endpoint, codec, and declared resolution.
@@ -65,7 +65,7 @@ pub struct EncodedTcpIngestOptions {
     /// Port of the gstreamer `tcpserversink`.
     pub port: u16,
 
-    /// Encoded (compressed) codec on the wire. Must match the upstream encoder.
+    /// Pre-encoded codec on the wire. Must match the upstream encoder.
     pub codec: VideoCodec,
 
     /// Declared stream width (px).
@@ -152,7 +152,7 @@ pub struct EncodedIngestStats {
     pub tcp_reconnects: u64,
 }
 
-/// Ingests an encoded (compressed) video feed from a TCP socket and publishes it as
+/// Ingests a pre-encoded video feed from a TCP socket and publishes it as
 /// an encoded LiveKit track.
 ///
 /// Create one with [`EncodedTcpIngest::start`], inspect it via
@@ -495,9 +495,9 @@ mod tests {
     };
 
     use libwebrtc::video_source::VideoCodec;
-    use livekit::{prelude::TrackSource, RoomError};
 
     use super::*;
+    use livekit::{prelude::TrackSource, RoomError};
 
     #[test]
     fn options_new_sets_network_and_track_defaults() {

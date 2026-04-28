@@ -2152,6 +2152,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "encoded_video_ingest"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "eframe",
+ "egui",
+ "egui-wgpu",
+ "env_logger 0.11.10",
+ "futures",
+ "libwebrtc",
+ "livekit",
+ "livekit-api",
+ "livekit-encoded-video-ingest",
+ "log",
+ "parking_lot",
+ "tokio",
+]
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5847,22 +5867,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "85eae3c4ed2f50dcfe72643da4befc30deadb458a9b590d720cde2f2b1e97da9"
 dependencies = [
  "zerocopy",
-]
-
-[[package]]
-name = "pre_encoded_ingest"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "clap",
- "env_logger 0.11.10",
- "futures",
- "libwebrtc",
- "livekit",
- "livekit-api",
- "livekit-encoded-video-ingest",
- "log",
- "tokio",
 ]
 
 [[package]]

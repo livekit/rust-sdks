@@ -1,19 +1,18 @@
-# pre_encoded_ingest
+# encoded_video_ingest
 
 End-to-end demo of the **encoded video ingest** feature of the Rust
-SDK. Eencoded H.264, H.265, VP8, or AV1 frames flow from a gstreamer
+SDK. Encoded H.264, H.265, VP8, or AV1 frames flow from a gstreamer
 camera pipeline directly into `NativeEncodedVideoSource::capture_frame`,
 get packetized by WebRTC (no software re-encode), and arrive at a
-remote peer which writes decoded frames to a TCP port for a second
-gstreamer pipeline to render.
+remote peer which decodes and renders them directly in a WGPU window.
 
 ```text
-┌────────────┐ encoded (TCP) ┌─────────────┐   RTP (WebRTC)    ┌────────────┐   I420 (TCP)   ┌─────────────┐
-│ gstreamer  │  ───────────►  │  sender.rs  │ ────────────────► │ receiver.rs│ ─────────────► │ gstreamer   │
-│  (camera)  │   :5005       │ (encoded│                   │  (decoded  │     :5006      │  (display)  │
-│ tcpserver  │               │  publish,   │                   │   output)  │                │             │
-│            │               │  tcp client)│                   │            │                │             │
-└────────────┘               └─────────────┘                   └────────────┘                └─────────────┘
+┌────────────┐ encoded (TCP) ┌─────────────┐   RTP (WebRTC)    ┌─────────────┐
+│ gstreamer  │  ───────────►  │  sender.rs  │ ────────────────► │ receiver.rs │
+│  (camera)  │   :5005       │ (encoded    │                   │  (decoded   │
+│ tcpserver  │               │  publish,   │                   │   WGPU      │
+│            │               │  tcp client)│                   │   display)  │
+└────────────┘               └─────────────┘                   └─────────────┘
 ```
 
 Gstreamer produces the encoded bytestream as a TCP server on :5005; the
@@ -109,10 +108,9 @@ binds `port=5005` for a quick local check.
 
 That is only for this camera-validation hop. In the [full LiveKit
 demo](#running-the-livekit-demo) below, **port 5005** is reserved for
-**TCP** from the camera pipeline into `sender` (Annex-B bytestream),
-and **port 5006** is where `receiver` serves **decoded I420** to a
-separate GStreamer visualizer — different protocol, different payload,
-and no overlap with this UDP/RTP smoke test.
+**TCP** from the camera pipeline into `sender` (Annex-B bytestream).
+The `receiver` renders the subscribed LiveKit track directly and does
+not need a second GStreamer pipeline.
 
 ### Send — camera → RTP/UDP 5005
 
@@ -422,7 +420,7 @@ does not. The sender handles both.
 Use `simple_sender` (SDK helper, recommended):
 
 ```bash
-RUST_LOG=info cargo run -p pre_encoded_ingest --bin simple_sender -- \
+RUST_LOG=info cargo run -p encoded_video_ingest --bin simple_sender -- \
     --tcp-host 127.0.0.1 --tcp-port 5005 \
     --width 640 --height 480 \
     --codec h264 \
@@ -456,39 +454,15 @@ restarted, the sender reconnects automatically.
 ### 3. Start the receiver (Terminal 3)
 
 ```bash
-RUST_LOG=info cargo run -p pre_encoded_ingest --bin receiver -- \
-    --tcp-port 5006 \
+RUST_LOG=info cargo run -p encoded_video_ingest --bin receiver -- \
     --room encoded-video-demo --identity encoded-receiver \
     --from encoded-sender
 ```
 
-The receiver subscribes to the room and waits for a TCP client on the
-given port. Each decoded I420 frame is written tightly packed
-(Y ‖ U ‖ V, no row padding, no framing header) on the socket.
-
-### 4. Visualize (Terminal 4)
-
-```bash
-gst-launch-1.0 -v \
-    tcpclientsrc host=127.0.0.1 port=5006 ! \
-    rawvideoparse width=640 height=480 format=i420 framerate=30/1 ! \
-    videoconvert ! autovideosink sync=false
-```
-
-`rawvideoparse` needs the exact width/height the receiver is producing.
-If the publisher is at 640x480, use `width=640 height=480` here.
-Framerate just drives gstreamer's display pacing — the Rust side
-writes frames as fast as WebRTC delivers them.
-
-> The receiver's TCP output is **raw I420**, not H.264. Do **not**
-> pipe it through `h264parse` — you will see
-> `h264parse: No valid frames found before end of stream` /
-> `Broken bit stream` because the bytes are Y/U/V planes, not NAL
-> units. Use `rawvideoparse` as shown above.
-
-If the publisher resolution changes mid-run, the receiver closes the
-TCP connection; reconnect your gstreamer visualizer to pick up the
-new caps.
+The receiver subscribes to the room and renders the first matching
+remote video track directly in a native WGPU window. The receive side
+uses `NativeVideoStream`, so the window displays decoded frames from
+WebRTC's internal decoder rather than encoded packets.
 
 ## Troubleshooting
 
@@ -530,12 +504,11 @@ AirPlay Receiver. Check with:
 lsof -nP -iTCP:5000 -sTCP:LISTEN
 ```
 
-**Visualizer shows `h264parse: No valid frames found` / `Broken bit
-stream` / `No caps set`.**
-The visualizer in step 4 is consuming the receiver's output
-(port 5006), which is raw I420 — not H.264. Use `rawvideoparse` as
-shown, not `h264parse`. `h264parse` belongs in step 1, on the
-*sender* side.
+**Receiver window opens but never shows video.**
+Confirm `--from` matches the publisher identity exactly, or omit it to
+render the first subscribed video track. The receiver logs
+`Subscribed to ...` once it accepts a track, then `recv: ... fps` as
+decoded frames arrive.
 
 **Nothing logs at all from the Rust binaries.**
 `sender`/`receiver` use `env_logger`; set `RUST_LOG=info` (as in the
@@ -598,7 +571,7 @@ macOS-to-macOS should decode cleanly.
 `CodecArg::Vp9` still exists in `sender.rs` (and
 `NativeEncodedVideoSource` accepts `VideoCodec::Vp9`), but VP9 ingest
 is not exercised by this demo and has rough edges that make it a poor
-fit for a "Eencoded bytes straight to RTP" path:
+fit for a "Encoded bytes straight to RTP" path:
 
 - libvpx-vp9 emits **superframes** in IVF (a per-frame record can
   bundle several coded frames — e.g. a show_existing_frame reshow
@@ -624,8 +597,8 @@ The feature added in this branch covers the **send** side: the producer
 hands encoded bytes in, WebRTC packetizes them out. On the **receive**
 side the SDK currently only exposes decoded frames via
 `NativeVideoStream`. That's why the receiver round-trips through
-WebRTC's internal decoder and serves raw I420 to gstreamer, rather
-than forwarding encoded H.264.
+WebRTC's internal decoder and renders decoded frames, rather than
+forwarding encoded H.264.
 
 Exposing encoded frames on receive would require a
 `RemoteEncodedVideoStream` analogue (likely backed by a WebRTC

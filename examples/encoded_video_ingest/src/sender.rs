@@ -37,7 +37,6 @@
 //! README.md.
 
 use std::{
-    env,
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
@@ -61,16 +60,16 @@ use tokio::{io::AsyncReadExt, net::TcpStream, time::sleep};
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// LiveKit server URL (or set LIVEKIT_URL env var)
-    #[arg(long)]
-    url: Option<String>,
+    #[arg(long, env = "LIVEKIT_URL")]
+    url: String,
 
     /// LiveKit API key (or set LIVEKIT_API_KEY env var)
-    #[arg(long)]
-    api_key: Option<String>,
+    #[arg(long, env = "LIVEKIT_API_KEY")]
+    api_key: String,
 
     /// LiveKit API secret (or set LIVEKIT_API_SECRET env var)
-    #[arg(long)]
-    api_secret: Option<String>,
+    #[arg(long, env = "LIVEKIT_API_SECRET")]
+    api_secret: String,
 
     /// Room name to join
     #[arg(long, default_value = "encoded-video-demo")]
@@ -606,20 +605,7 @@ async fn main() -> Result<()> {
         }
     });
 
-    let url = args
-        .url
-        .or_else(|| env::var("LIVEKIT_URL").ok())
-        .context("--url or LIVEKIT_URL required")?;
-    let api_key = args
-        .api_key
-        .or_else(|| env::var("LIVEKIT_API_KEY").ok())
-        .context("--api-key or LIVEKIT_API_KEY required")?;
-    let api_secret = args
-        .api_secret
-        .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
-        .context("--api-secret or LIVEKIT_API_SECRET required")?;
-
-    let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
+    let token = access_token::AccessToken::with_api_key(&args.api_key, &args.api_secret)
         .with_identity(&args.identity)
         .with_name(&args.identity)
         .with_grants(access_token::VideoGrants {
@@ -634,7 +620,7 @@ async fn main() -> Result<()> {
     let mut room_options = RoomOptions::default();
     room_options.auto_subscribe = false;
     room_options.dynacast = false;
-    let (room, _events) = Room::connect(&url, &token, room_options).await?;
+    let (room, _events) = Room::connect(&args.url, &token, room_options).await?;
     let room = Arc::new(room);
     info!("Connected: {} (sid {})", room.name(), room.sid().await);
 

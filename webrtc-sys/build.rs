@@ -28,6 +28,15 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=LK_DEBUG_WEBRTC");
     println!("cargo:rerun-if-env-changed=LK_CUSTOM_WEBRTC");
+    println!("cargo:rustc-check-cfg=cfg(encoded_video)");
+
+    if encoded_video {
+        // cxx_build evaluates cfgs from the build-script environment. Cargo
+        // exposes `encoded-video` as CARGO_FEATURE_ENCODED_VIDEO, which does
+        // not match `feature = "encoded-video"` in cxx's cfg evaluator.
+        println!("cargo:rustc-cfg=encoded_video");
+        env::set_var("CARGO_CFG_ENCODED_VIDEO", "1");
+    }
 
     let mut rust_files = vec![
         "src/peer_connection.rs",
