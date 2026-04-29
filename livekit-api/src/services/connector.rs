@@ -13,12 +13,17 @@
 // limitations under the License.
 
 use livekit_protocol as proto;
-use std::collections::HashMap;
+use pbjson_types::Duration as ProtoDuration;
+use std::{collections::HashMap, time::Duration};
 
 use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
 
 const SVC: &str = "Connector";
+
+fn duration_to_proto(d: Option<Duration>) -> Option<ProtoDuration> {
+    d.map(|d| ProtoDuration { seconds: d.as_secs() as i64, nanos: d.subsec_nanos() as i32 })
+}
 
 /// Options for dialing a WhatsApp call
 #[derive(Default, Clone, Debug)]
@@ -39,6 +44,8 @@ pub struct DialWhatsAppCallOptions {
     pub participant_attributes: Option<HashMap<String, String>>,
     /// Optional - Country where the call terminates as ISO 3166-1 alpha-2
     pub destination_country: Option<String>,
+    /// Optional - Max time for the callee to answer the call
+    pub ringing_timeout: Option<Duration>,
 }
 
 /// Options for accepting a WhatsApp call
@@ -60,6 +67,10 @@ pub struct AcceptWhatsAppCallOptions {
     pub participant_attributes: Option<HashMap<String, String>>,
     /// Optional - Country where the call terminates as ISO 3166-1 alpha-2
     pub destination_country: Option<String>,
+    /// Optional - Max time for the callee to answer the call
+    pub ringing_timeout: Option<Duration>,
+    /// Optional - Wait for the answer for the call before returning
+    pub wait_until_answered: bool,
 }
 
 /// Options for connecting a Twilio call
@@ -136,7 +147,7 @@ impl ConnectorClient {
                     participant_metadata: options.participant_metadata.unwrap_or_default(),
                     participant_attributes: options.participant_attributes.unwrap_or_default(),
                     destination_country: options.destination_country.unwrap_or_default(),
-                    ringing_timeout: Default::default(),
+                    ringing_timeout: duration_to_proto(options.ringing_timeout),
                 },
                 self.base
                     .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
@@ -149,7 +160,9 @@ impl ConnectorClient {
     ///
     /// # Arguments
     /// * `call_id` - Call ID sent by Meta
-    /// * `api_key` - The API key of the business disconnecting the call
+    /// * `api_key` - The API key of the business disconnecting the call. Required when
+    ///   `disconnect_reason` is `BusinessInitiated`; pass an empty string for `UserInitiated`.
+    /// * `disconnect_reason` - The reason for disconnecting the call
     ///
     /// # Returns
     /// Empty response on success
@@ -157,6 +170,7 @@ impl ConnectorClient {
         &self,
         call_id: impl Into<String>,
         api_key: impl Into<String>,
+        disconnect_reason: proto::disconnect_whats_app_call_request::DisconnectReason,
     ) -> ServiceResult<proto::DisconnectWhatsAppCallResponse> {
         self.client
             .request(
@@ -165,7 +179,7 @@ impl ConnectorClient {
                 proto::DisconnectWhatsAppCallRequest {
                     whatsapp_call_id: call_id.into(),
                     whatsapp_api_key: api_key.into(),
-                    ..Default::default()
+                    disconnect_reason: disconnect_reason as i32,
                 },
                 self.base
                     .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
@@ -243,8 +257,8 @@ impl ConnectorClient {
                     participant_metadata: options.participant_metadata.unwrap_or_default(),
                     participant_attributes: options.participant_attributes.unwrap_or_default(),
                     destination_country: options.destination_country.unwrap_or_default(),
-                    ringing_timeout: Default::default(),
-                    wait_until_answered: Default::default(),
+                    ringing_timeout: duration_to_proto(options.ringing_timeout),
+                    wait_until_answered: options.wait_until_answered,
                 },
                 self.base
                     .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
