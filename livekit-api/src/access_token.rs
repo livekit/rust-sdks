@@ -336,6 +336,7 @@ mod tests {
             agents: vec![livekit_protocol::RoomAgentDispatch {
                 agent_name: "test-agent".to_string(),
                 metadata: "test-metadata".to_string(),
+                restart_policy: livekit_protocol::JobRestartPolicy::JrpOnFailure as i32,
             }],
             ..Default::default()
         };
@@ -378,6 +379,7 @@ mod tests {
                     agents: vec![livekit_protocol::RoomAgentDispatch {
                         agent_name: "test-agent".to_string(),
                         metadata: "test-metadata".to_string(),
+                        restart_policy: livekit_protocol::JobRestartPolicy::JrpOnFailure as i32,
                     }],
                     ..Default::default()
                 }),
@@ -400,6 +402,7 @@ mod tests {
                 agents: vec![livekit_protocol::RoomAgentDispatch {
                     agent_name: "test-agent".to_string(),
                     metadata: "test-metadata".to_string(),
+                    restart_policy: livekit_protocol::JobRestartPolicy::JrpOnFailure as i32,
                 }],
                 ..Default::default()
             })
