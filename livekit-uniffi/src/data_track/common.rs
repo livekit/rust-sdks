@@ -14,6 +14,8 @@
 
 use bytes::Bytes;
 use livekit_datatrack::api::{DataTrackFrame, DataTrackSid};
+use livekit_protocol as proto;
+use prost::Message;
 
 uniffi::custom_type!(DataTrackSid, String, {
     remote,
@@ -53,4 +55,13 @@ pub enum HandleSignalResponseError {
     UnsupportedType,
     #[error(transparent)]
     Internal(livekit_datatrack::api::InternalError),
+}
+
+/// Deserializes a signal response crossing the FFI boundary, returning the message variant.
+pub(crate) fn deserialize_signal_response(
+    res: &[u8],
+) -> Result<proto::signal_response::Message, HandleSignalResponseError> {
+    let res =
+        proto::SignalResponse::decode(res).map_err(|err| HandleSignalResponseError::Decode(err))?;
+    res.message.ok_or(HandleSignalResponseError::EmptyMessage)
 }

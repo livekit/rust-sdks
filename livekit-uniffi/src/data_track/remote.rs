@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::{
-    common::{DataTrackInfo, HandleSignalResponseError},
+    common::{deserialize_signal_response, DataTrackInfo, HandleSignalResponseError},
     e2ee::{DataTrackDecryptionProvider, FfiDecryptionProvider},
 };
 use bytes::Bytes;
@@ -149,46 +149,40 @@ impl RemoteDataTrackManager {
         _ = self.input.send(remote::InputEvent::ResendSubscriptionUpdates);
     }
 
-    /// Handles a serialized signal response from the SFU.
-    ///
-    /// This must be invoked for the following response types in order for the
-    /// manager to function properly:
-    ///
-    /// - `ParticipantUpdate`
-    /// - `DataTrackSubscriberHandles`
-    ///
-    /// If a signal response type not listed above is provided, the result is an error.
+    /// Handles a serialized `ParticipantUpdate` signal response from the SFU.
     ///
     /// Note: the local participant identity is required to exclude data tracks published by the
     /// local participant from being treated as remote tracks.
     ///
-    pub fn handle_signal_response(
+    pub fn handle_sfu_participant_update(
         &self,
         res: &[u8],
         local_participant_identity: String,
     ) -> Result<(), HandleSignalResponseError> {
-        let res = proto::SignalResponse::decode(res)
-            .map_err(|err| HandleSignalResponseError::Decode(err))?;
-
-        let msg = res.message.ok_or(HandleSignalResponseError::EmptyMessage)?;
-
-        use proto::signal_response::Message;
-        match msg {
-            Message::Update(mut msg) => {
-                let event =
-                    remote::event_from_participant_update(&mut msg, &local_participant_identity)
-                        .map_err(|err| HandleSignalResponseError::Internal(err))?;
-                _ = self.input.send(event.into());
-            }
-            Message::DataTrackSubscriberHandles(msg) => {
-                let event: remote::SfuSubscriberHandles =
-                    msg.try_into().map_err(|err| HandleSignalResponseError::Internal(err))?;
-                _ = self.input.send(event.into())
-            }
-            _ => {
-                return Err(HandleSignalResponseError::UnsupportedType);
-            }
+        let proto::signal_response::Message::Update(mut msg) = deserialize_signal_response(res)?
+        else {
+            return Err(HandleSignalResponseError::UnsupportedType);
         };
+
+        let event = remote::event_from_participant_update(&mut msg, &local_participant_identity)
+            .map_err(|err| HandleSignalResponseError::Internal(err))?;
+        _ = self.input.send(event.into());
+
+        Ok(())
+    }
+
+    /// Handles a serialized `DataTrackSubscriberHandles` signal response from the SFU.
+    pub fn handle_subscriber_handles(&self, res: &[u8]) -> Result<(), HandleSignalResponseError> {
+        let proto::signal_response::Message::DataTrackSubscriberHandles(msg) =
+            deserialize_signal_response(res)?
+        else {
+            return Err(HandleSignalResponseError::UnsupportedType);
+        };
+
+        let event: remote::SfuSubscriberHandles =
+            msg.try_into().map_err(|err| HandleSignalResponseError::Internal(err))?;
+        _ = self.input.send(event.into());
+
         Ok(())
     }
 

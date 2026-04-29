@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::{
-    common::{DataTrackInfo, HandleSignalResponseError},
+    common::{deserialize_signal_response, DataTrackInfo, HandleSignalResponseError},
     e2ee::{DataTrackEncryptionProvider, FfiEncryptionProvider},
 };
 use bytes::Bytes;
@@ -159,41 +159,35 @@ impl LocalDataTrackManager {
         _ = self.input.send(local::InputEvent::RepublishTracks);
     }
 
-    /// Handles a serialized signal response from the SFU.
-    ///
-    /// This must be invoked for the following response types in order for the
-    /// manager to function properly:
-    ///
-    /// - `RequestResponse`
-    /// - `PublishDataTrackResponse`
-    ///
-    /// If a signal response type not listed above is provided, the result is an error.
-    ///
-    pub fn handle_signal_response(&self, res: &[u8]) -> Result<(), HandleSignalResponseError> {
-        let res = proto::SignalResponse::decode(res)
-            .map_err(|err| HandleSignalResponseError::Decode(err))?;
-
-        let msg = res.message.ok_or(HandleSignalResponseError::EmptyMessage)?;
-
-        use proto::signal_response::Message;
-        let publish_res = match msg {
-            Message::RequestResponse(msg) => {
-                let Some(res) = local::publish_result_from_request_response(&msg) else {
-                    // Not from data track publish request.
-                    return Ok(());
-                };
-                res
-            }
-            Message::PublishDataTrackResponse(res) => {
-                let res: local::SfuPublishResponse =
-                    res.try_into().map_err(|err| HandleSignalResponseError::Internal(err))?;
-                res
-            }
-            _ => return Err(HandleSignalResponseError::UnsupportedType),
+    /// Handles a serialized `RequestResponse` signal response from the SFU.
+    pub fn handle_sfu_request_response(&self, res: &[u8]) -> Result<(), HandleSignalResponseError> {
+        let proto::signal_response::Message::RequestResponse(msg) =
+            deserialize_signal_response(res)?
+        else {
+            return Err(HandleSignalResponseError::UnsupportedType);
         };
 
+        let Some(publish_res) = local::publish_result_from_request_response(&msg) else {
+            // Not from data track publish request.
+            return Ok(());
+        };
         let event: local::InputEvent = publish_res.into();
         _ = self.input.send(event);
+
+        Ok(())
+    }
+
+    /// Handles a serialized `PublishDataTrackResponse` signal response from the SFU.
+    pub fn handle_sfu_publish_response(&self, res: &[u8]) -> Result<(), HandleSignalResponseError> {
+        let proto::signal_response::Message::PublishDataTrackResponse(msg) =
+            deserialize_signal_response(res)?
+        else {
+            return Err(HandleSignalResponseError::UnsupportedType);
+        };
+
+        let event: local::SfuPublishResponse =
+            msg.try_into().map_err(|err| HandleSignalResponseError::Internal(err))?;
+        _ = self.input.send(event.into());
 
         Ok(())
     }
