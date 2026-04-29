@@ -110,6 +110,8 @@ pub fn create(
                     }
                     .into(),
                 );
+
+                ffi_room.inner.mark_local_publish_callback_sent(track_sid);
             }
             Err(err) => {
                 let _ = server.send_event(
