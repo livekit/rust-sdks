@@ -82,6 +82,7 @@ const AudioSourceType = /*@__PURE__*/ proto2.makeEnum(
   "livekit.proto.AudioSourceType",
   [
     {no: 0, name: "AUDIO_SOURCE_NATIVE"},
+    {no: 1, name: "AUDIO_SOURCE_PLATFORM"},
   ],
 );
 
