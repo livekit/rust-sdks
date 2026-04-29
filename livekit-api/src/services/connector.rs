@@ -13,17 +13,12 @@
 // limitations under the License.
 
 use livekit_protocol as proto;
-use pbjson_types::Duration as ProtoDuration;
 use std::{collections::HashMap, time::Duration};
 
-use super::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
+use super::{duration_to_proto, ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 use crate::{access_token::VideoGrants, get_env_keys, services::twirp_client::TwirpClient};
 
 const SVC: &str = "Connector";
-
-fn duration_to_proto(d: Option<Duration>) -> Option<ProtoDuration> {
-    d.map(|d| ProtoDuration { seconds: d.as_secs() as i64, nanos: d.subsec_nanos() as i32 })
-}
 
 /// Options for dialing a WhatsApp call
 #[derive(Default, Clone, Debug)]

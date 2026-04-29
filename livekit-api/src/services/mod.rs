@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Debug;
+use std::{fmt::Debug, time::Duration};
 
 use http::header::{HeaderMap, HeaderValue, AUTHORIZATION};
+use pbjson_types::Duration as ProtoDuration;
 use thiserror::Error;
 
 use crate::access_token::{AccessToken, AccessTokenError, SIPGrants, VideoGrants};
@@ -31,6 +32,10 @@ pub mod sip;
 mod twirp_client;
 
 pub const LIVEKIT_PACKAGE: &str = "livekit";
+
+pub(crate) fn duration_to_proto(d: Option<Duration>) -> Option<ProtoDuration> {
+    d.map(|d| ProtoDuration { seconds: d.as_secs() as i64, nanos: d.subsec_nanos() as i32 })
+}
 
 #[derive(Debug, Error)]
 pub enum ServiceError {
