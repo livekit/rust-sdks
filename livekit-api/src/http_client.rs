@@ -14,11 +14,19 @@
 
 #[cfg(any(feature = "services-tokio", feature = "signal-client-tokio"))]
 mod tokio {
-    #[cfg(feature = "signal-client-tokio")]
-    pub use reqwest::get;
-
     #[cfg(feature = "services-tokio")]
     pub use reqwest::Client;
+
+    /// GET with an `Authorization: Bearer <token>` header attached.
+    ///
+    /// `reqwest::get(url)` (the free function) constructs a fresh default
+    /// `Client` and attaches no auth, which is why `SignalInner::validate` —
+    /// the sole caller — uses this helper: the access token must reach the
+    /// server or the server returns 401 regardless of the underlying error.
+    #[cfg(feature = "signal-client-tokio")]
+    pub async fn get_with_token(url: &str, token: &str) -> reqwest::Result<reqwest::Response> {
+        reqwest::Client::new().get(url).bearer_auth(token).send().await
+    }
 }
 
 #[cfg(any(feature = "services-tokio", feature = "signal-client-tokio"))]
@@ -56,8 +64,18 @@ mod async_std {
             }
         }
 
-        pub async fn get(url: &str) -> io::Result<Response> {
-            let response = isahc::get_async(url).await?;
+        /// GET with an `Authorization: Bearer <token>` header attached.
+        ///
+        /// `isahc::get_async(url)` attaches no auth, which is why
+        /// `SignalInner::validate` — the sole caller — uses this helper: the
+        /// access token must reach the server or the server returns 401
+        /// regardless of the underlying error. Mirrors the tokio variant.
+        pub async fn get_with_token(url: &str, token: &str) -> io::Result<Response> {
+            let request = isahc::Request::get(url)
+                .header("Authorization", format!("Bearer {}", token))
+                .body(())
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+            let response = isahc::send_async(request).await?;
             Ok(Response(response))
         }
     }
