@@ -69,6 +69,8 @@ pub struct SIPGrants {
 pub struct RoomAgentDispatch {
     pub agent_name: String,
     pub metadata: String,
+    /// cloud only - matches `JobRestartPolicy` (0 = on failure, 1 = never)
+    pub restart_policy: i32,
 }
 
 /// Room configuration
@@ -86,6 +88,7 @@ pub struct RoomConfiguration {
     pub max_playout_delay: u32,
     pub sync_streams: bool,
     pub agents: Vec<RoomAgentDispatch>,
+    pub tags: HashMap<String, String>,
 }
 
 impl From<proto::RoomConfiguration> for RoomConfiguration {
@@ -100,6 +103,7 @@ impl From<proto::RoomConfiguration> for RoomConfiguration {
             max_playout_delay: config.max_playout_delay,
             sync_streams: config.sync_streams,
             agents: config.agents,
+            tags: config.tags,
         }
     }
 }
@@ -222,6 +226,7 @@ pub fn token_generate(
             max_playout_delay: room_configuration.max_playout_delay,
             sync_streams: room_configuration.sync_streams,
             agents: room_configuration.agents,
+            tags: room_configuration.tags,
             egress: None,
         };
         token = token.with_room_config(room_config);
