@@ -47,6 +47,12 @@ impl FfiAudioSource {
                 );
                 RtcAudioSource::Native(audio_source)
             }
+            #[cfg(not(target_arch = "wasm32"))]
+            proto::AudioSourceType::AudioSourcePlatform => {
+                // Platform ADM-based source - captures from microphone automatically
+                // PlatformAudio must be created first to enable ADM recording
+                RtcAudioSource::Device
+            }
             _ => return Err(FfiError::InvalidRequest("unsupported audio source type".into())),
         };
 

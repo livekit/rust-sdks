@@ -101,6 +101,15 @@
 //!
 //! [`NativeAudioSource`]: crate::webrtc::audio_source::native::NativeAudioSource
 
+mod error;
+mod processing;
+
+pub use error::{AudioError, AudioResult};
+pub use processing::{AudioProcessingOptions, AudioProcessingType};
+
+// Re-export RtcAudioSource for convenience
+pub use libwebrtc::audio_source::RtcAudioSource;
+
 use std::fmt;
 use std::sync::{Arc, Weak};
 
@@ -108,152 +117,6 @@ use lazy_static::lazy_static;
 use parking_lot::Mutex;
 
 use crate::rtc_engine::lk_runtime::LkRuntime;
-
-// Re-export RtcAudioSource for convenience
-pub use libwebrtc::audio_source::RtcAudioSource;
-
-// =============================================================================
-// Error Types
-// =============================================================================
-
-/// Errors that can occur during audio operations.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AudioError {
-    /// Platform ADM could not be initialized.
-    ///
-    /// This can happen if:
-    /// - No audio devices are available
-    /// - Audio permissions are not granted
-    /// - Platform audio subsystem is unavailable
-    PlatformInitFailed,
-
-    /// The specified device index is invalid.
-    ///
-    /// Device indices are 0-based and must be less than the device count.
-    InvalidDeviceIndex,
-
-    /// An audio operation failed.
-    OperationFailed(String),
-}
-
-impl fmt::Display for AudioError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AudioError::PlatformInitFailed => {
-                write!(f, "Failed to initialize platform audio")
-            }
-            AudioError::InvalidDeviceIndex => write!(f, "Invalid device index"),
-            AudioError::OperationFailed(msg) => write!(f, "Audio operation failed: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for AudioError {}
-
-/// Result type for audio operations.
-pub type AudioResult<T> = Result<T, AudioError>;
-
-// =============================================================================
-// Audio Processing Configuration
-// =============================================================================
-
-/// The type of audio processing being used.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AudioProcessingType {
-    /// Hardware audio processing (iOS VPIO, Android hardware effects).
-    Hardware,
-    /// Software audio processing (WebRTC's built-in APM).
-    Software,
-    /// Audio processing is not available or disabled.
-    None,
-}
-
-impl Default for AudioProcessingType {
-    fn default() -> Self {
-        Self::Software
-    }
-}
-
-/// Configuration options for audio processing (AEC, AGC, NS).
-///
-/// # Platform Behavior
-///
-/// - **iOS**: Hardware processing via VPIO is always used. `prefer_hardware_processing`
-///   is ignored since iOS provides excellent hardware AEC/AGC/NS.
-///
-/// - **Android**: When `prefer_hardware_processing` is `true`, hardware effects are
-///   used if available. However, hardware AEC is unreliable on many Android devices,
-///   so the default is `false` (software processing).
-///
-/// - **Desktop** (macOS, Windows, Linux): Hardware processing is not available.
-///   WebRTC's software Audio Processing Module (APM) is always used.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use livekit::AudioProcessingOptions;
-///
-/// // Use defaults (software processing, all effects enabled)
-/// let opts = AudioProcessingOptions::default();
-///
-/// // Disable echo cancellation
-/// let opts = AudioProcessingOptions {
-///     echo_cancellation: false,
-///     ..Default::default()
-/// };
-///
-/// // Try hardware processing on Android (use with caution)
-/// let opts = AudioProcessingOptions {
-///     prefer_hardware_processing: true,
-///     ..Default::default()
-/// };
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct AudioProcessingOptions {
-    /// Enable echo cancellation.
-    ///
-    /// Echo cancellation removes acoustic echo from the microphone signal,
-    /// which occurs when the speaker output is picked up by the microphone.
-    ///
-    /// Default: `true`
-    pub echo_cancellation: bool,
-
-    /// Enable noise suppression.
-    ///
-    /// Noise suppression reduces background noise in the microphone signal.
-    ///
-    /// Default: `true`
-    pub noise_suppression: bool,
-
-    /// Enable automatic gain control.
-    ///
-    /// AGC automatically adjusts the microphone volume to maintain
-    /// consistent audio levels.
-    ///
-    /// Default: `true`
-    pub auto_gain_control: bool,
-
-    /// Prefer hardware audio processing when available.
-    ///
-    /// - **iOS**: Ignored (always uses VPIO hardware)
-    /// - **Android**: When `true`, uses hardware effects if available.
-    ///   Default is `false` because hardware AEC is unreliable on many devices.
-    /// - **Desktop**: Ignored (hardware not available)
-    ///
-    /// Default: `false` (use reliable software processing)
-    pub prefer_hardware_processing: bool,
-}
-
-impl Default for AudioProcessingOptions {
-    fn default() -> Self {
-        Self {
-            echo_cancellation: true,
-            noise_suppression: true,
-            auto_gain_control: true,
-            prefer_hardware_processing: false,
-        }
-    }
-}
 
 // =============================================================================
 // PlatformAudio - Reference-counted platform audio device management
@@ -1024,73 +887,6 @@ pub fn reset_platform_audio() {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn audio_error_display() {
-        let err = AudioError::PlatformInitFailed;
-        let msg = format!("{}", err);
-        assert!(msg.contains("platform audio"));
-
-        let err = AudioError::InvalidDeviceIndex;
-        let msg = format!("{}", err);
-        assert!(msg.contains("Invalid device index"));
-
-        let err = AudioError::OperationFailed("test message".to_string());
-        let msg = format!("{}", err);
-        assert!(msg.contains("test message"));
-    }
-
-    #[test]
-    fn audio_error_debug() {
-        let err = AudioError::PlatformInitFailed;
-        let debug_str = format!("{:?}", err);
-        assert!(debug_str.contains("PlatformInitFailed"));
-
-        let err = AudioError::InvalidDeviceIndex;
-        let debug_str = format!("{:?}", err);
-        assert!(debug_str.contains("InvalidDeviceIndex"));
-    }
-
-    #[test]
-    fn audio_error_equality() {
-        assert_eq!(AudioError::PlatformInitFailed, AudioError::PlatformInitFailed);
-        assert_eq!(AudioError::InvalidDeviceIndex, AudioError::InvalidDeviceIndex);
-        assert_eq!(
-            AudioError::OperationFailed("a".to_string()),
-            AudioError::OperationFailed("a".to_string())
-        );
-        assert_ne!(
-            AudioError::OperationFailed("a".to_string()),
-            AudioError::OperationFailed("b".to_string())
-        );
-    }
-
-    #[test]
-    fn audio_error_clone() {
-        let err = AudioError::OperationFailed("test".to_string());
-        let cloned = err.clone();
-        assert_eq!(err, cloned);
-    }
-
-    #[test]
-    fn audio_error_is_std_error() {
-        let err: Box<dyn std::error::Error> = Box::new(AudioError::InvalidDeviceIndex);
-        assert!(err.to_string().contains("Invalid device index"));
-    }
-
-    #[test]
-    fn audio_result_ok() {
-        let result: AudioResult<i32> = Ok(42);
-        assert!(result.is_ok());
-        assert_eq!(result.unwrap(), 42);
-    }
-
-    #[test]
-    fn audio_result_err() {
-        let result: AudioResult<i32> = Err(AudioError::InvalidDeviceIndex);
-        assert!(result.is_err());
-        assert_eq!(result.unwrap_err(), AudioError::InvalidDeviceIndex);
-    }
 
     #[test]
     fn rtc_audio_source_device_variant() {

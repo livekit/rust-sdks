@@ -26,11 +26,11 @@ pub use room::*;
 /// `use livekit::prelude::*;` to import livekit types
 pub mod prelude;
 
-// Audio Device Module (ADM) management
+// Platform Audio Device Module (ADM) management
 #[cfg(not(target_arch = "wasm32"))]
-mod audio;
+mod platform_audio;
 #[cfg(not(target_arch = "wasm32"))]
-pub use audio::*;
+pub use platform_audio::*;
 
 #[cfg(feature = "dispatcher")]
 pub mod dispatcher {
