@@ -12,10 +12,6 @@ path = "src/sender.rs"
 name = "receiver"
 path = "src/receiver.rs"
 
-[[bin]]
-name = "simple_sender"
-path = "src/simple_sender.rs"
-
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }
@@ -27,7 +23,6 @@ futures = { workspace = true }
 libwebrtc = { workspace = true, features = ["encoded-video"] }
 livekit = { workspace = true, features = ["encoded-video", "rustls-tls-native-roots"] }
 livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
-livekit-encoded-video-ingest = { workspace = true }
 log = { workspace = true }
 parking_lot = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

@@ -2,7 +2,6 @@
 resolver = "2"
 members = [
     "livekit",
-    "livekit-encoded-video-ingest",
     "livekit-api",
     "livekit-protocol",
     "livekit-ffi",
@@ -50,7 +49,6 @@ imgproc = { version = "0.3.19", path = "imgproc" }
 libwebrtc = { version = "0.3.30", path = "libwebrtc" }
 livekit = { version = "0.7.37", path = "livekit" }
 livekit-api = { version = "0.4.19", path = "livekit-api" }
-livekit-encoded-video-ingest = { version = "0.1.0", path = "livekit-encoded-video-ingest" }
 livekit-ffi = { version = "0.12.53", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.4", path = "livekit-datatrack" }
 livekit-protocol = { version = "0.7.5", path = "livekit-protocol" }

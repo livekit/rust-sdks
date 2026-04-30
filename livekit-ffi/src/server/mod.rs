@@ -39,7 +39,6 @@ pub mod audio_stream;
 pub mod colorcvt;
 pub mod data_stream;
 pub mod data_track;
-pub mod encoded_tcp_ingest;
 pub mod logger;
 pub mod participant;
 pub mod requests;

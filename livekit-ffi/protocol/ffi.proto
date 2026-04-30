@@ -27,7 +27,6 @@ import "audio_frame.proto";
 import "rpc.proto";
 import "data_stream.proto";
 import "data_track.proto";
-import "encoded_tcp_ingest.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
@@ -168,12 +167,7 @@ message FfiRequest {
     // Encoded video
     CaptureEncodedVideoFrameRequest capture_encoded_video_frame = 76;
 
-    // Encoded TCP ingest (high-level helper)
-    NewEncodedTcpIngestRequest new_encoded_tcp_ingest = 77;
-    StopEncodedTcpIngestRequest stop_encoded_tcp_ingest = 78;
-    GetEncodedTcpIngestStatsRequest get_encoded_tcp_ingest_stats = 79;
-
-    // NEXT_ID: 80
+    // NEXT_ID: 77
   }
 }
 
@@ -286,12 +280,7 @@ message FfiResponse {
     // Encoded video
     CaptureEncodedVideoFrameResponse capture_encoded_video_frame = 75;
 
-    // Encoded TCP ingest (high-level helper)
-    NewEncodedTcpIngestResponse new_encoded_tcp_ingest = 76;
-    StopEncodedTcpIngestResponse stop_encoded_tcp_ingest = 77;
-    GetEncodedTcpIngestStatsResponse get_encoded_tcp_ingest_stats = 78;
-
-    // NEXT_ID: 79
+    // NEXT_ID: 76
   }
 }
 
@@ -357,12 +346,7 @@ message FfiEvent {
     // Encoded video
     EncodedVideoSourceEvent encoded_video_source_event = 44;
 
-    // Encoded TCP ingest (high-level helper)
-    EncodedTcpIngestEvent encoded_tcp_ingest_event = 45;
-    NewEncodedTcpIngestCallback new_encoded_tcp_ingest = 46;
-    StopEncodedTcpIngestCallback stop_encoded_tcp_ingest = 47;
-
-    // NEXT_ID: 48
+    // NEXT_ID: 45
   }
 }
 

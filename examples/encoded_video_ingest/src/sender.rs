@@ -48,7 +48,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use libwebrtc::video_source::{EncodedFrameInfo, RtcVideoSource, VideoCodec, VideoResolution};
 use livekit::{
-    options::{TrackPublishOptions, VideoCodec as LkVideoCodec},
+    options::{TrackPublishOptions, VideoCodec as LkVideoCodec, VideoEncoding},
     prelude::*,
     webrtc::video_source::native::{EncodedVideoSourceObserver, NativeEncodedVideoSource},
 };
@@ -94,6 +94,14 @@ struct Args {
     /// Declared stream height (px)
     #[arg(long, default_value_t = 480)]
     height: u32,
+
+    /// RTP sender max bitrate advertised to WebRTC, in kbps
+    #[arg(long, default_value_t = 2_500)]
+    max_bitrate_kbps: u64,
+
+    /// RTP sender max framerate advertised to WebRTC
+    #[arg(long, default_value_t = 30.0)]
+    max_framerate: f64,
 
     /// Encoded codec on the wire. Must match the gstreamer pipeline.
     #[arg(long, value_enum, default_value_t = CodecArg::H264)]
@@ -192,11 +200,12 @@ impl CodecArg {
 /// `on_target_bitrate`.
 struct LoggingObserver {
     last_bitrate_log: Mutex<Option<Instant>>,
+    target_bitrate_bps: Arc<AtomicU64>,
 }
 
 impl LoggingObserver {
-    fn new() -> Self {
-        Self { last_bitrate_log: Mutex::new(None) }
+    fn new(target_bitrate_bps: Arc<AtomicU64>) -> Self {
+        Self { last_bitrate_log: Mutex::new(None), target_bitrate_bps }
     }
 }
 
@@ -210,6 +219,8 @@ impl EncodedVideoSourceObserver for LoggingObserver {
     }
 
     fn on_target_bitrate(&self, bitrate_bps: u32, framerate_fps: f64) {
+        self.target_bitrate_bps.store(bitrate_bps as u64, Ordering::Relaxed);
+
         // Rate-limit logging to 1 Hz.
         let mut last = self.last_bitrate_log.lock().unwrap();
         let now = Instant::now();
@@ -626,7 +637,8 @@ async fn main() -> Result<()> {
 
     let resolution = VideoResolution { width: args.width, height: args.height };
     let source = NativeEncodedVideoSource::new(args.codec.webrtc_codec(), resolution);
-    source.set_observer(Arc::new(LoggingObserver::new()));
+    let target_bitrate_bps = Arc::new(AtomicU64::new(0));
+    source.set_observer(Arc::new(LoggingObserver::new(target_bitrate_bps.clone())));
     info!(
         "Created encoded {} source: {}x{} (source_id={})",
         args.codec.name(),
@@ -649,22 +661,34 @@ async fn main() -> Result<()> {
         source: TrackSource::Camera,
         simulcast: false,
         video_codec: args.codec.livekit_codec(),
+        video_encoding: Some(VideoEncoding {
+            max_bitrate: args.max_bitrate_kbps.saturating_mul(1000),
+            max_framerate: args.max_framerate,
+        }),
         ..Default::default()
     };
     room.local_participant()
         .publish_track(LocalTrack::Video(track), publish_opts)
         .await
         .context("publish_track failed")?;
-    info!("Published encoded {} track", args.codec.name());
+    info!(
+        "Published encoded {} track (max {} kbps @ {:.1} fps)",
+        args.codec.name(),
+        args.max_bitrate_kbps,
+        args.max_framerate
+    );
 
     let frames_accepted = Arc::new(AtomicU64::new(0));
     let frames_dropped = Arc::new(AtomicU64::new(0));
     let keyframes = Arc::new(AtomicU64::new(0));
+    let encoded_bytes = Arc::new(AtomicU64::new(0));
 
     {
         let frames_accepted = frames_accepted.clone();
         let frames_dropped = frames_dropped.clone();
         let keyframes = keyframes.clone();
+        let encoded_bytes = encoded_bytes.clone();
+        let target_bitrate_bps = target_bitrate_bps.clone();
         tokio::spawn(async move {
             let mut last = Instant::now();
             loop {
@@ -674,11 +698,17 @@ async fn main() -> Result<()> {
                 let ok = frames_accepted.swap(0, Ordering::Relaxed);
                 let dropped = frames_dropped.swap(0, Ordering::Relaxed);
                 let kf = keyframes.swap(0, Ordering::Relaxed);
+                let bytes = encoded_bytes.swap(0, Ordering::Relaxed);
                 if ok + dropped > 0 {
+                    let encoded_kbps = bytes as f64 * 8.0 / elapsed / 1000.0;
+                    let target_kbps = target_bitrate_bps.load(Ordering::Relaxed) / 1000;
                     info!(
-                        "ingest: {:.1} fps accepted, {:.1} fps dropped, {} keyframes",
+                        "ingest: {:.1} fps accepted, {:.1} fps dropped, {:.0} kbps encoded \
+                         (target {} kbps), {} keyframes",
                         ok as f64 / elapsed,
                         dropped as f64 / elapsed,
+                        encoded_kbps,
+                        target_kbps,
                         kf
                     );
                 }
@@ -735,6 +765,7 @@ async fn main() -> Result<()> {
                 break;
             }
             for au in out.drain(..) {
+                encoded_bytes.fetch_add(au.len() as u64, Ordering::Relaxed);
                 let is_keyframe = is_keyframe(args.codec, &au);
                 if is_keyframe {
                     keyframes.fetch_add(1, Ordering::Relaxed);

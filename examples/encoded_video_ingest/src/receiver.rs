@@ -23,7 +23,6 @@
 //! a future enhancement — see README.md.
 
 use std::{
-    ops::DerefMut,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -37,7 +36,7 @@ use livekit::{
     webrtc::{
         native::yuv_helper,
         prelude::{RtcVideoTrack, VideoBuffer},
-        video_stream::native::NativeVideoStream,
+        video_stream::native::{NativeVideoStream, NativeVideoStreamOptions},
     },
 };
 use livekit_api::access_token;
@@ -71,15 +70,34 @@ struct Args {
     /// Only subscribe to the track from this participant identity
     #[arg(long)]
     from: Option<String>,
+
+    /// Enable vsync for smoother display at the cost of extra render latency
+    #[arg(long, default_value_t = false)]
+    vsync: bool,
 }
 
 fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
+    let present_mode = if args.vsync {
+        eframe::wgpu::PresentMode::AutoVsync
+    } else {
+        eframe::wgpu::PresentMode::AutoNoVsync
+    };
 
     eframe::run_native(
         "LiveKit Encoded Video Receiver",
-        eframe::NativeOptions { centered: true, renderer: Renderer::Wgpu, ..Default::default() },
+        eframe::NativeOptions {
+            centered: true,
+            renderer: Renderer::Wgpu,
+            vsync: args.vsync,
+            wgpu_options: egui_wgpu::WgpuConfiguration {
+                present_mode,
+                desired_maximum_frame_latency: Some(1),
+                ..Default::default()
+            },
+            ..Default::default()
+        },
         Box::new(|cc| Ok(Box::new(ReceiverApp::new(cc, args)))),
     )
     .map_err(|err| anyhow!("receiver UI failed: {err}"))?;
@@ -370,7 +388,10 @@ impl VideoRenderer {
             egui_texture: None,
         }));
 
-        let mut video_sink = NativeVideoStream::new(rtc_track.clone());
+        let mut video_sink = NativeVideoStream::with_options(
+            rtc_track.clone(),
+            NativeVideoStreamOptions { queue_size_frames: Some(1) },
+        );
         std::thread::spawn({
             let async_handle = async_handle.clone();
             let internal = internal.clone();
@@ -379,29 +400,12 @@ impl VideoRenderer {
                 let mut last_log = Instant::now();
                 while let Some(frame) = async_handle.block_on(video_sink.next()) {
                     let mut internal = internal.lock();
-                    let buffer = frame.buffer.to_i420();
+                    let buffer = frame.buffer.as_ref();
                     let width = buffer.width();
                     let height = buffer.height();
 
                     internal.ensure_texture_size(width, height);
-
-                    let rgba_ptr = internal.rgba_data.deref_mut();
-                    let rgba_stride = buffer.width() * 4;
-                    let (stride_y, stride_u, stride_v) = buffer.strides();
-                    let (data_y, data_u, data_v) = buffer.data();
-
-                    yuv_helper::i420_to_abgr(
-                        data_y,
-                        stride_y,
-                        data_u,
-                        stride_u,
-                        data_v,
-                        stride_v,
-                        rgba_ptr,
-                        rgba_stride,
-                        buffer.width() as i32,
-                        buffer.height() as i32,
-                    );
+                    convert_to_abgr(buffer, &mut internal.rgba_data);
 
                     internal.render_state.queue.write_texture(
                         eframe::wgpu::TexelCopyTextureInfo {
@@ -445,6 +449,116 @@ impl VideoRenderer {
     fn texture_id(&self) -> Option<egui::TextureId> {
         self.internal.lock().egui_texture
     }
+}
+
+fn convert_to_abgr(buffer: &dyn VideoBuffer, dst: &mut [u8]) {
+    let width = buffer.width();
+    let height = buffer.height();
+    let stride = width * 4;
+
+    if let Some(buffer) = buffer.as_i420() {
+        let (stride_y, stride_u, stride_v) = buffer.strides();
+        let (data_y, data_u, data_v) = buffer.data();
+        yuv_helper::i420_to_abgr(
+            data_y,
+            stride_y,
+            data_u,
+            stride_u,
+            data_v,
+            stride_v,
+            dst,
+            stride,
+            width as i32,
+            height as i32,
+        );
+        return;
+    }
+
+    if let Some(buffer) = buffer.as_nv12() {
+        let (stride_y, stride_uv) = buffer.strides();
+        let (data_y, data_uv) = buffer.data();
+        yuv_helper::nv12_to_abgr(
+            data_y,
+            stride_y,
+            data_uv,
+            stride_uv,
+            dst,
+            stride,
+            width as i32,
+            height as i32,
+        );
+        return;
+    }
+
+    if let Some(buffer) = buffer.as_i422() {
+        let (stride_y, stride_u, stride_v) = buffer.strides();
+        let (data_y, data_u, data_v) = buffer.data();
+        yuv_helper::i422_to_abgr(
+            data_y,
+            stride_y,
+            data_u,
+            stride_u,
+            data_v,
+            stride_v,
+            dst,
+            stride,
+            width as i32,
+            height as i32,
+        );
+        return;
+    }
+
+    if let Some(buffer) = buffer.as_i444() {
+        let (stride_y, stride_u, stride_v) = buffer.strides();
+        let (data_y, data_u, data_v) = buffer.data();
+        yuv_helper::i444_to_abgr(
+            data_y,
+            stride_y,
+            data_u,
+            stride_u,
+            data_v,
+            stride_v,
+            dst,
+            stride,
+            width as i32,
+            height as i32,
+        );
+        return;
+    }
+
+    if let Some(buffer) = buffer.as_i010() {
+        let (stride_y, stride_u, stride_v) = buffer.strides();
+        let (data_y, data_u, data_v) = buffer.data();
+        yuv_helper::i010_to_abgr(
+            data_y,
+            stride_y,
+            data_u,
+            stride_u,
+            data_v,
+            stride_v,
+            dst,
+            stride,
+            width as i32,
+            height as i32,
+        );
+        return;
+    }
+
+    let buffer = buffer.to_i420();
+    let (stride_y, stride_u, stride_v) = buffer.strides();
+    let (data_y, data_u, data_v) = buffer.data();
+    yuv_helper::i420_to_abgr(
+        data_y,
+        stride_y,
+        data_u,
+        stride_u,
+        data_v,
+        stride_v,
+        dst,
+        stride,
+        width as i32,
+        height as i32,
+    );
 }
 
 impl RendererInternal {

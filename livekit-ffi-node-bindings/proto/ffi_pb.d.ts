@@ -28,7 +28,6 @@ import type { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, Registe
 import type { EnableRemoteTrackPublicationRequest, EnableRemoteTrackPublicationResponse, SetRemoteTrackPublicationQualityRequest, SetRemoteTrackPublicationQualityResponse, UpdateRemoteTrackPublicationDimensionRequest, UpdateRemoteTrackPublicationDimensionResponse } from "./track_publication_pb.js";
 import type { ByteStreamOpenCallback, ByteStreamOpenRequest, ByteStreamOpenResponse, ByteStreamReaderEvent, ByteStreamReaderReadAllCallback, ByteStreamReaderReadAllRequest, ByteStreamReaderReadAllResponse, ByteStreamReaderReadIncrementalRequest, ByteStreamReaderReadIncrementalResponse, ByteStreamReaderWriteToFileCallback, ByteStreamReaderWriteToFileRequest, ByteStreamReaderWriteToFileResponse, ByteStreamWriterCloseCallback, ByteStreamWriterCloseRequest, ByteStreamWriterCloseResponse, ByteStreamWriterWriteCallback, ByteStreamWriterWriteRequest, ByteStreamWriterWriteResponse, StreamSendBytesCallback, StreamSendBytesRequest, StreamSendBytesResponse, StreamSendFileCallback, StreamSendFileRequest, StreamSendFileResponse, StreamSendTextCallback, StreamSendTextRequest, StreamSendTextResponse, TextStreamOpenCallback, TextStreamOpenRequest, TextStreamOpenResponse, TextStreamReaderEvent, TextStreamReaderReadAllCallback, TextStreamReaderReadAllRequest, TextStreamReaderReadAllResponse, TextStreamReaderReadIncrementalRequest, TextStreamReaderReadIncrementalResponse, TextStreamWriterCloseCallback, TextStreamWriterCloseRequest, TextStreamWriterCloseResponse, TextStreamWriterWriteCallback, TextStreamWriterWriteRequest, TextStreamWriterWriteResponse } from "./data_stream_pb.js";
 import type { DataTrackStreamEvent, DataTrackStreamReadRequest, DataTrackStreamReadResponse, LocalDataTrackIsPublishedRequest, LocalDataTrackIsPublishedResponse, LocalDataTrackTryPushRequest, LocalDataTrackTryPushResponse, LocalDataTrackUnpublishRequest, LocalDataTrackUnpublishResponse, PublishDataTrackCallback, PublishDataTrackRequest, PublishDataTrackResponse, RemoteDataTrackIsPublishedRequest, RemoteDataTrackIsPublishedResponse, SubscribeDataTrackRequest, SubscribeDataTrackResponse } from "./data_track_pb.js";
-import type { EncodedTcpIngestEvent, GetEncodedTcpIngestStatsRequest, GetEncodedTcpIngestStatsResponse, NewEncodedTcpIngestCallback, NewEncodedTcpIngestRequest, NewEncodedTcpIngestResponse, StopEncodedTcpIngestCallback, StopEncodedTcpIngestRequest, StopEncodedTcpIngestResponse } from "./encoded_tcp_ingest_pb.js";
 
 /**
  * @generated from enum livekit.proto.LogLevel
@@ -546,26 +545,6 @@ export declare class FfiRequest extends Message<FfiRequest> {
      */
     value: CaptureEncodedVideoFrameRequest;
     case: "captureEncodedVideoFrame";
-  } | {
-    /**
-     * Encoded TCP ingest (high-level helper)
-     *
-     * @generated from field: livekit.proto.NewEncodedTcpIngestRequest new_encoded_tcp_ingest = 77;
-     */
-    value: NewEncodedTcpIngestRequest;
-    case: "newEncodedTcpIngest";
-  } | {
-    /**
-     * @generated from field: livekit.proto.StopEncodedTcpIngestRequest stop_encoded_tcp_ingest = 78;
-     */
-    value: StopEncodedTcpIngestRequest;
-    case: "stopEncodedTcpIngest";
-  } | {
-    /**
-     * @generated from field: livekit.proto.GetEncodedTcpIngestStatsRequest get_encoded_tcp_ingest_stats = 79;
-     */
-    value: GetEncodedTcpIngestStatsRequest;
-    case: "getEncodedTcpIngestStats";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiRequest>);
@@ -1062,26 +1041,6 @@ export declare class FfiResponse extends Message<FfiResponse> {
      */
     value: CaptureEncodedVideoFrameResponse;
     case: "captureEncodedVideoFrame";
-  } | {
-    /**
-     * Encoded TCP ingest (high-level helper)
-     *
-     * @generated from field: livekit.proto.NewEncodedTcpIngestResponse new_encoded_tcp_ingest = 76;
-     */
-    value: NewEncodedTcpIngestResponse;
-    case: "newEncodedTcpIngest";
-  } | {
-    /**
-     * @generated from field: livekit.proto.StopEncodedTcpIngestResponse stop_encoded_tcp_ingest = 77;
-     */
-    value: StopEncodedTcpIngestResponse;
-    case: "stopEncodedTcpIngest";
-  } | {
-    /**
-     * @generated from field: livekit.proto.GetEncodedTcpIngestStatsResponse get_encoded_tcp_ingest_stats = 78;
-     */
-    value: GetEncodedTcpIngestStatsResponse;
-    case: "getEncodedTcpIngestStats";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiResponse>);
@@ -1378,26 +1337,6 @@ export declare class FfiEvent extends Message<FfiEvent> {
      */
     value: EncodedVideoSourceEvent;
     case: "encodedVideoSourceEvent";
-  } | {
-    /**
-     * Encoded TCP ingest (high-level helper)
-     *
-     * @generated from field: livekit.proto.EncodedTcpIngestEvent encoded_tcp_ingest_event = 45;
-     */
-    value: EncodedTcpIngestEvent;
-    case: "encodedTcpIngestEvent";
-  } | {
-    /**
-     * @generated from field: livekit.proto.NewEncodedTcpIngestCallback new_encoded_tcp_ingest = 46;
-     */
-    value: NewEncodedTcpIngestCallback;
-    case: "newEncodedTcpIngest";
-  } | {
-    /**
-     * @generated from field: livekit.proto.StopEncodedTcpIngestCallback stop_encoded_tcp_ingest = 47;
-     */
-    value: StopEncodedTcpIngestCallback;
-    case: "stopEncodedTcpIngest";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiEvent>);
