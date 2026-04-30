@@ -361,6 +361,120 @@ This works because:
 
 ---
 
+## Remote Audio Playback
+
+Understanding how remote audio reaches speakers is important for choosing the right audio mode.
+
+### Without PlatformAudio (Manual Playback)
+
+When using only `NativeAudioSource` (the default mode), remote audio does **not** automatically play to speakers. You must explicitly create an `AudioStream` to receive audio frames from remote tracks:
+
+```rust
+use livekit::prelude::*;
+use libwebrtc::audio_stream::native::NativeAudioStream;
+use futures_util::StreamExt;
+
+// When a remote track is received
+let RoomEvent::TrackSubscribed { track, .. } = event else { continue };
+let RemoteTrack::Audio(remote_audio) = track.into() else { continue };
+
+// Create an AudioStream to pull audio from the remote track
+let mut stream = NativeAudioStream::new(
+    remote_audio.rtc_track(),
+    48000,  // desired sample rate
+    2,      // desired channels
+);
+
+// Poll the stream to receive audio frames
+while let Some(frame) = stream.next().await {
+    // frame.data: Vec<i16> - PCM audio samples
+    // frame.sample_rate: u32
+    // frame.num_channels: u32
+    // frame.samples_per_channel: u32
+
+    // Application must route this audio to speakers manually
+    // (e.g., via cpal, rodio, or platform audio APIs)
+}
+```
+
+**How it works internally:**
+
+1. `NativeAudioStream::new()` creates a `NativeAudioSink` and registers it with the remote track via `audio.add_sink(&sink)`
+2. WebRTC calls the sink's `on_data()` callback when decoded audio frames arrive
+3. Frames are queued (bounded queue with configurable size, default 10 frames / ~100ms)
+4. Application polls the stream to receive frames
+5. Application is responsible for routing audio to the actual speaker device
+
+**Use case:** Server-side agents, headless applications, or apps that need custom audio routing.
+
+### With PlatformAudio (Automatic Playback)
+
+When `PlatformAudio` is active, remote audio automatically plays through the system speakers via WebRTC's audio mixer and the ADM's playout path:
+
+```rust
+use livekit::prelude::*;
+
+// Create PlatformAudio (enables both recording AND playout via ADM)
+let audio = PlatformAudio::new()?;
+
+// Optionally select speaker device
+audio.set_playout_device(0)?;
+
+// Connect to room - remote audio will automatically play through speakers
+let (room, mut events) = Room::connect(&url, &token, RoomOptions::default()).await?;
+
+// Remote tracks automatically play - no AudioStream needed for speaker output
+while let Some(event) = events.recv().await {
+    match event {
+        RoomEvent::TrackSubscribed { track, .. } => {
+            // Audio track automatically plays to speakers
+            // No additional code needed for playback
+        }
+        _ => {}
+    }
+}
+```
+
+**How it works internally:**
+
+1. WebRTC's `AudioReceiveStream` decodes incoming audio
+2. Audio is mixed by WebRTC's internal audio mixer
+3. ADM's `NeedMorePlayData()` is called by the audio device thread
+4. Mixed audio is delivered to the platform speaker device
+
+**Track mute/unmute:** Remote track mute state is handled by WebRTC internally. Muted tracks don't contribute to the mix.
+
+### Comparison
+
+| Aspect | Without PlatformAudio | With PlatformAudio |
+|--------|----------------------|-------------------|
+| Remote audio to speakers | Manual via `NativeAudioStream` | Automatic via ADM |
+| Application code needed | Create stream + route to speaker | None |
+| Latency | Depends on app implementation | Optimized by WebRTC |
+| Audio mixing | Application handles | WebRTC handles |
+| Device selection | Application handles | `set_playout_device()` |
+| AEC reference | Not available | Available |
+
+### Hybrid Approach
+
+You can combine both approaches - use `PlatformAudio` for automatic speaker playback while also creating `NativeAudioStream` for audio processing/analysis:
+
+```rust
+let audio = PlatformAudio::new()?;  // Enables automatic playback
+
+// Remote audio plays automatically to speakers
+// Additionally, create a stream for audio analysis
+let stream = NativeAudioStream::new(remote_track.rtc_track(), 48000, 1);
+tokio::spawn(async move {
+    while let Some(frame) = stream.next().await {
+        // Analyze audio (e.g., VAD, transcription)
+        // Audio still plays to speakers via ADM
+    }
+});
+```
+
+---
+
 ## Public API
 
 ### PlatformAudio

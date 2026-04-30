@@ -288,7 +288,21 @@ impl PlatformAudio {
         let handle = Arc::new(PlatformAdmHandle { runtime });
         *handle_ref = Arc::downgrade(&handle);
 
-        Ok(Self { handle })
+        let audio = Self { handle };
+
+        // Configure audio processing with hardware preferred and all options enabled by default
+        // This provides the best audio quality with echo cancellation, noise suppression, and AGC
+        let options = AudioProcessingOptions {
+            echo_cancellation: true,
+            noise_suppression: true,
+            auto_gain_control: true,
+            prefer_hardware_processing: true,
+        };
+        if let Err(e) = audio.configure_audio_processing(options) {
+            log::warn!("PlatformAudio: failed to configure audio processing: {}", e);
+        }
+
+        Ok(audio)
     }
 
     // =========================================================================
@@ -438,12 +452,34 @@ impl PlatformAudio {
             return Err(AudioError::InvalidDeviceIndex);
         }
 
-        let result = self.handle.runtime.set_playout_device(index);
-        if result == 0 {
-            Ok(())
-        } else {
-            Err(AudioError::OperationFailed(format!("set_playout_device returned {}", result)))
+        let runtime = &self.handle.runtime;
+        let result = runtime.set_playout_device(index);
+        if result != 0 {
+            return Err(AudioError::OperationFailed(format!(
+                "set_playout_device returned {}",
+                result
+            )));
         }
+
+        // On iOS, we need to explicitly initialize and start playout.
+        // On desktop platforms, WebRTC auto-starts playout when remote audio arrives,
+        // but on iOS with VPIO this doesn't happen automatically.
+        #[cfg(target_os = "ios")]
+        {
+            let init_result = runtime.init_playout();
+            if init_result != 0 {
+                log::warn!("set_playout_device: init_playout returned {}", init_result);
+            } else {
+                let start_result = runtime.start_playout();
+                if start_result != 0 {
+                    log::warn!("set_playout_device: start_playout returned {}", start_result);
+                } else {
+                    log::info!("set_playout_device: playout initialized and started for device {}", index);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Switches the recording device while audio is active (hot-swap).
