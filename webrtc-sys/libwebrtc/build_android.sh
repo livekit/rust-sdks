@@ -106,7 +106,6 @@ args="is_debug=$debug \
   enable_iterator_debugging=false \
   android_package_prefix=\"livekit\" \
   use_custom_libcxx=false \
-  use_clang_modules=false \
   use_rtti=true"
 
 if [ "$debug" = "true" ]; then
@@ -126,13 +125,15 @@ autoninja -C "$OUTPUT_DIR" :default \
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
-python3 "./src/tools_webrtc/libs/generate_licenses.py" \
-  --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
+# License generation is optional - may fail with some Python versions
+# Use vpython3 from depot_tools for consistent Python version
+vpython3 "./src/tools_webrtc/libs/generate_licenses.py" \
+  --target :default "$OUTPUT_DIR" "$OUTPUT_DIR" || echo "Warning: License generation failed (non-critical)"
 
 cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/libjingle_peerconnection_so.so" "$ARTIFACTS_DIR/lib"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
-cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR" 2>/dev/null || echo "Warning: LICENSE.md not found (non-critical)"
 
 mkdir -p "$COMMAND_DIR/prefixed-jni/libs"
 cp "$OUTPUT_DIR/lib.java/sdk/android/libwebrtc.jar" "$COMMAND_DIR/prefixed-jni/libs/classes.jar"

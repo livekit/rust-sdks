@@ -116,7 +116,6 @@ gn gen "$OUTPUT_DIR" --root="src" \
   rtc_use_h264=true \
   rtc_use_h265=true \
   use_custom_libcxx=false \
-  use_clang_modules=false \
   clang_use_chrome_plugins=false \
   use_rtti=true \
   use_lld=false \
@@ -139,7 +138,8 @@ ninja -C "$OUTPUT_DIR" :default \
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
 # License generation is optional - may fail with some Python versions
-python3 "./src/tools_webrtc/libs/generate_licenses.py" \
+# Use vpython3 from depot_tools for consistent Python version
+vpython3 "./src/tools_webrtc/libs/generate_licenses.py" \
   --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR" || echo "Warning: License generation failed (non-critical)"
 
 cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"

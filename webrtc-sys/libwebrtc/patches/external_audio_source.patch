@@ -1,8 +1,8 @@
 diff --git a/api/media_stream_interface.h b/api/media_stream_interface.h
-index 1234567..abcdefg 100644
+index fb1cc4e58e..85062ba60e 100644
 --- a/api/media_stream_interface.h
 +++ b/api/media_stream_interface.h
-@@ -266,6 +266,11 @@ class RTC_EXPORT AudioSourceInterface : public MediaSourceInterface {
+@@ -267,6 +267,11 @@ class RTC_EXPORT AudioSourceInterface : public MediaSourceInterface {
    // (for some of the settings this approach is broken, e.g. setting
    // audio network adaptation on the source is the wrong layer of abstraction).
    virtual const AudioOptions options() const;
@@ -14,8 +14,23 @@ index 1234567..abcdefg 100644
  };
 
  // Interface of the audio processor used by the audio track to collect
+diff --git a/media/base/audio_source.h b/media/base/audio_source.h
+index 04a7d19dfa..9f513f3c75 100644
+--- a/media/base/audio_source.h
++++ b/media/base/audio_source.h
+@@ -49,6 +49,10 @@ class AudioSource {
+   // to the source at a time.
+   virtual void SetSink(Sink* sink) = 0;
+
++  // Returns true if this source delivers audio externally (bypassing ADM).
++  // When true, AudioSendStream should not register with AudioState.
++  virtual bool is_external_source() const { return false; }
++
+  protected:
+   virtual ~AudioSource() {}
+ };
 diff --git a/call/audio_send_stream.h b/call/audio_send_stream.h
-index 1234567..abcdefg 100644
+index 84341b5cb1..9359777bc9 100644
 --- a/call/audio_send_stream.h
 +++ b/call/audio_send_stream.h
 @@ -178,6 +178,12 @@ class AudioSendStream : public AudioSender {
@@ -32,10 +47,10 @@ index 1234567..abcdefg 100644
 
    virtual ~AudioSendStream() = default;
 diff --git a/audio/audio_send_stream.cc b/audio/audio_send_stream.cc
-index 1234567..abcdefg 100644
+index 76156ce830..10b59d3ff6 100644
 --- a/audio/audio_send_stream.cc
 +++ b/audio/audio_send_stream.cc
-@@ -374,8 +374,13 @@ void AudioSendStream::Start() {
+@@ -373,8 +373,13 @@ void AudioSendStream::Start() {
    }
    channel_send_->StartSend();
    sending_ = true;
@@ -64,11 +79,10 @@ index 1234567..abcdefg 100644
 
  void AudioSendStream::SendAudioData(std::unique_ptr<AudioFrame> audio_frame) {
 diff --git a/media/engine/webrtc_voice_engine.cc b/media/engine/webrtc_voice_engine.cc
-index 1234567..abcdefg 100644
+index 762f9d584c..4ce07ddc9d 100644
 --- a/media/engine/webrtc_voice_engine.cc
 +++ b/media/engine/webrtc_voice_engine.cc
-@@ -1013,6 +1013,14 @@ class WebRtcVoiceSendChannel::WebRtcAudioSendStream : public AudioSource::Sink {
-     if (source_) {
+@@ -1017,6 +1017,14 @@ class WebRtcVoiceSendChannel::WebRtcAudioSendStream : public AudioSource::Sink {
        RTC_DCHECK(source_ == source);
        return;
      }
