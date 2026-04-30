@@ -299,6 +299,8 @@ mod macos {
         width: u32,
         height: u32,
         received_at_us: u64,
+        frame_id: Option<u32>,
+        publish_us: Option<u64>,
     }
 
     enum PendingStorage {
@@ -377,12 +379,18 @@ mod macos {
             let receive_to_render_ms =
                 render_start_us.saturating_sub(frame.received_at_us) as f64 / 1000.0;
             let overlay = if self.display_timestamp {
-                let shared = self.shared.lock();
-                Some(OverlaySnapshot {
-                    frame_id: shared.last_frame_id,
-                    publish_us: shared.last_publish_at_us,
+                let snapshot = OverlaySnapshot {
+                    frame_id: frame.frame_id,
+                    publish_us: frame.publish_us,
                     latency_us: current_timestamp_us(),
-                })
+                };
+                if snapshot.frame_id.is_none() && snapshot.publish_us.is_none() {
+                    debug!(
+                        "timestamp overlay unavailable for frame received_at_us={}: missing packet trailer metadata",
+                        frame.received_at_us
+                    );
+                }
+                Some(snapshot)
             } else {
                 None
             };
@@ -1507,7 +1515,14 @@ mod macos {
                     let mut state = shared.lock();
                     if state
                         .pending
-                        .replace(PendingFrame { storage, width, height, received_at_us })
+                        .replace(PendingFrame {
+                            storage,
+                            width,
+                            height,
+                            received_at_us,
+                            frame_id,
+                            publish_us,
+                        })
                         .is_some()
                     {
                         state.app_replaced += 1;
