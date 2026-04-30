@@ -136,9 +136,19 @@ export declare enum AudioStreamType {
  */
 export declare enum AudioSourceType {
   /**
+   * Push-based audio source - manually capture frames via CaptureAudioFrameRequest
+   *
    * @generated from enum value: AUDIO_SOURCE_NATIVE = 0;
    */
   AUDIO_SOURCE_NATIVE = 0,
+
+  /**
+   * Platform ADM-based audio source - captures from microphone automatically
+   * Requires PlatformAudio to be created first to enable ADM recording
+   *
+   * @generated from enum value: AUDIO_SOURCE_PLATFORM = 1;
+   */
+  AUDIO_SOURCE_PLATFORM = 1,
 }
 
 /**
