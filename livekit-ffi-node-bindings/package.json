@@ -40,7 +40,7 @@
     "@napi-rs/cli": "^3.5.1",
     "@types/node": "^22.13.10",
     "prettier": "^3.0.3",
-    "typescript": "5.8.2"
+    "typescript": "5.9.3"
   },
   "optionalDependencies": {
     "@livekit/rtc-ffi-bindings-darwin-arm64": "workspace:*",
