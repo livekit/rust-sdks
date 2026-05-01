@@ -6,6 +6,7 @@ use livekit::options::{
     VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
+use livekit::webrtc::stats::RtcStats;
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
@@ -135,6 +136,21 @@ struct PublisherTimingSummary {
     frame_draw_ms: RollingMs,
     submit_to_webrtc_ms: RollingMs,
     capture_to_webrtc_total_ms: RollingMs,
+}
+
+fn find_video_encoder_stats(stats: &[RtcStats]) -> Option<(&str, bool)> {
+    stats.iter().find_map(|stat| match stat {
+        RtcStats::OutboundRtp(outbound)
+            if outbound.stream.kind == "video"
+                && !outbound.outbound.encoder_implementation.is_empty() =>
+        {
+            Some((
+                outbound.outbound.encoder_implementation.as_str(),
+                outbound.outbound.power_efficient_encoder,
+            ))
+        }
+        _ => None,
+    })
 }
 
 impl PublisherTimingSummary {
@@ -376,6 +392,29 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     } else {
         info!("Published camera track");
     }
+
+    let stats_track = track.clone();
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        let mut last_encoder = String::new();
+        loop {
+            interval.tick().await;
+            match stats_track.get_stats().await {
+                Ok(stats) => {
+                    if let Some((encoder, power_efficient)) = find_video_encoder_stats(&stats) {
+                        if encoder != last_encoder {
+                            info!(
+                                "Video encoder implementation: {} (power efficient: {})",
+                                encoder, power_efficient
+                            );
+                            last_encoder = encoder.to_owned();
+                        }
+                    }
+                }
+                Err(e) => debug!("Failed to get publisher video stats: {:?}", e),
+            }
+        }
+    });
 
     // Reusable I420 buffer and frame
     let mut frame = VideoFrame {

@@ -25,9 +25,12 @@ class VaapiDisplayDrm {
   // Get the VAAPI display handle
   VADisplay display() const { return va_display_; }
 
+  bool SupportsH264Encode() const;
+  bool SupportsH265Encode() const;
+
  private:
-  VADisplay va_display_;
-  int drm_fd_;
+  VADisplay va_display_ = nullptr;
+  int drm_fd_ = -1;
 };
 
 }  // namespace livekit_ffi
