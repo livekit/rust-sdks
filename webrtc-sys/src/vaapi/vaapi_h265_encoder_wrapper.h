@@ -55,6 +55,11 @@ typedef struct {
   int selected_entrypoint;
 
   uint32_t num_short_term;
+  uint32_t ctu_size;
+  uint32_t min_cb_size;
+  uint32_t hevc_features;
+  uint32_t hevc_block_sizes;
+  uint32_t packed_headers;
   int frame_width_aligned;
   int frame_height_aligned;
   uint64_t current_frame_encoding;

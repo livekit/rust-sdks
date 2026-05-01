@@ -19,6 +19,28 @@ static const int kH265FrameP = 0;
 static const int kH265FrameI = 2;
 static const int kH265FrameIdr = 7;
 
+static uint32_t align_up(uint32_t value, uint32_t alignment) {
+  return (value + alignment - 1) & ~(alignment - 1);
+}
+
+static bool va_feature_enabled(uint32_t feature) {
+  return feature != 0;
+}
+
+static void destroy_buffers(VADisplay va_dpy,
+                            const std::vector<VABufferID>& buffers) {
+  for (VABufferID buffer : buffers) {
+    if (buffer == VA_INVALID_ID) {
+      continue;
+    }
+    VAStatus va_status = vaDestroyBuffer(va_dpy, buffer);
+    if (va_status != VA_STATUS_SUCCESS) {
+      RTC_LOG(LS_WARNING) << "vaDestroyBuffer failed va_status = "
+                          << va_status;
+    }
+  }
+}
+
 static bool has_start_code(const uint8_t* data, size_t size) {
   return (size >= 3 && data[0] == 0x00 && data[1] == 0x00 &&
           data[2] == 0x01) ||
@@ -333,14 +355,81 @@ static VAStatus init_va(VA265Context* context, VADisplay va_dpy) {
   if (context->attrib[VAConfigAttribRateControl].value !=
       VA_ATTRIB_NOT_SUPPORTED) {
     int supported_rc = context->attrib[VAConfigAttribRateControl].value;
-    int selected_rc =
-        (supported_rc & context->config.rc_mode) ? context->config.rc_mode
-                                                 : VA_RC_NONE;
+    int selected_rc = VA_RC_NONE;
+    if (supported_rc & context->config.rc_mode) {
+      selected_rc = context->config.rc_mode;
+    } else if (supported_rc & VA_RC_CBR) {
+      selected_rc = VA_RC_CBR;
+    } else if (supported_rc & VA_RC_VBR) {
+      selected_rc = VA_RC_VBR;
+    } else if (supported_rc & VA_RC_CQP) {
+      selected_rc = VA_RC_CQP;
+    }
+    RTC_LOG(LS_INFO) << "HEVC VAAPI rate-control support mask=0x" << std::hex
+                     << supported_rc << " selected=0x" << selected_rc
+                     << std::dec;
     context->config_attrib[context->config_attrib_num].type =
         VAConfigAttribRateControl;
     context->config_attrib[context->config_attrib_num].value = selected_rc;
     context->config.rc_mode = selected_rc;
     context->config_attrib_num++;
+  }
+
+#if VA_CHECK_VERSION(1, 13, 0)
+  if (context->attrib[VAConfigAttribEncHEVCFeatures].value !=
+      VA_ATTRIB_NOT_SUPPORTED) {
+    context->hevc_features =
+        context->attrib[VAConfigAttribEncHEVCFeatures].value;
+    RTC_LOG(LS_INFO) << "HEVC VAAPI feature mask=0x" << std::hex
+                     << context->hevc_features << std::dec;
+  } else {
+    RTC_LOG(LS_WARNING)
+        << "HEVC VAAPI feature caps not advertised; using conservative "
+           "defaults";
+  }
+
+  if (context->attrib[VAConfigAttribEncHEVCBlockSizes].value !=
+      VA_ATTRIB_NOT_SUPPORTED) {
+    context->hevc_block_sizes =
+        context->attrib[VAConfigAttribEncHEVCBlockSizes].value;
+    VAConfigAttribValEncHEVCBlockSizes block_sizes = {};
+    block_sizes.value = context->hevc_block_sizes;
+    context->ctu_size =
+        1u << (block_sizes.bits.log2_max_coding_tree_block_size_minus3 + 3);
+    context->min_cb_size =
+        1u << (block_sizes.bits.log2_min_luma_coding_block_size_minus3 + 3);
+    RTC_LOG(LS_INFO) << "HEVC VAAPI block-size mask=0x" << std::hex
+                     << context->hevc_block_sizes << std::dec
+                     << " ctu_size=" << context->ctu_size
+                     << " min_cb_size=" << context->min_cb_size;
+  } else {
+    RTC_LOG(LS_WARNING)
+        << "HEVC VAAPI block-size caps not advertised; using guessed "
+           "defaults";
+  }
+#endif
+
+  if (context->attrib[VAConfigAttribEncPackedHeaders].value !=
+      VA_ATTRIB_NOT_SUPPORTED) {
+    const uint32_t desired_packed_headers =
+        VA_ENC_PACKED_HEADER_SEQUENCE | VA_ENC_PACKED_HEADER_SLICE |
+        VA_ENC_PACKED_HEADER_MISC;
+    context->packed_headers =
+        context->attrib[VAConfigAttribEncPackedHeaders].value &
+        desired_packed_headers;
+    RTC_LOG(LS_INFO) << "HEVC VAAPI packed-header support mask=0x" << std::hex
+                     << context->attrib[VAConfigAttribEncPackedHeaders].value
+                     << " usable=0x" << context->packed_headers << std::dec;
+    if ((context->packed_headers & VA_ENC_PACKED_HEADER_SEQUENCE) == 0 ||
+        (context->packed_headers & VA_ENC_PACKED_HEADER_SLICE) == 0) {
+      RTC_LOG(LS_WARNING)
+          << "HEVC VAAPI driver cannot accept all FFmpeg-style packed "
+             "sequence/slice headers; driver-generated headers will be used";
+    }
+  } else {
+    RTC_LOG(LS_WARNING)
+        << "HEVC VAAPI packed headers are not advertised; "
+           "driver-generated headers will be used";
   }
 
   return VA_STATUS_SUCCESS;
@@ -392,7 +481,8 @@ static int setup_encode(VA265Context* context) {
   }
 
   int codedbuf_size =
-      context->frame_width_aligned * context->frame_height_aligned * 3;
+      context->frame_width_aligned * context->frame_height_aligned * 3 +
+      (1 << 16);
   for (int i = 0; i < H265_SURFACE_NUM; i++) {
     va_status = vaCreateBuffer(context->va_dpy, context->context_id,
                                VAEncCodedBufferType, codedbuf_size, 1, NULL,
@@ -406,7 +496,8 @@ static int setup_encode(VA265Context* context) {
   return 0;
 }
 
-static int render_sequence(VA265Context* context) {
+static int add_sequence_buffers(VA265Context* context,
+                                std::vector<VABufferID>* buffers) {
   memset(&context->seq_param, 0, sizeof(context->seq_param));
   context->seq_param.general_profile_idc = 1;
   context->seq_param.general_level_idc = 120;
@@ -419,20 +510,72 @@ static int render_sequence(VA265Context* context) {
       context->frame_width_aligned;
   context->seq_param.pic_height_in_luma_samples =
       context->frame_height_aligned;
+
+#if VA_CHECK_VERSION(1, 13, 0)
+  VAConfigAttribValEncHEVCFeatures features = {};
+  features.value = context->hevc_features;
+  VAConfigAttribValEncHEVCBlockSizes block_sizes = {};
+  block_sizes.value = context->hevc_block_sizes;
+#endif
+
   context->seq_param.seq_fields.bits.chroma_format_idc = 1;
+  context->seq_param.seq_fields.bits.bit_depth_luma_minus8 = 0;
+  context->seq_param.seq_fields.bits.bit_depth_chroma_minus8 = 0;
   context->seq_param.seq_fields.bits.low_delay_seq = 1;
-  context->seq_param.seq_fields.bits.strong_intra_smoothing_enabled_flag = 1;
-  context->seq_param.seq_fields.bits.sps_temporal_mvp_enabled_flag = 0;
+  context->seq_param.seq_fields.bits.strong_intra_smoothing_enabled_flag =
+#if VA_CHECK_VERSION(1, 13, 0)
+      context->hevc_features
+          ? va_feature_enabled(features.bits.strong_intra_smoothing)
+          :
+#endif
+          1;
+  context->seq_param.seq_fields.bits.amp_enabled_flag =
+#if VA_CHECK_VERSION(1, 13, 0)
+      context->hevc_features ? va_feature_enabled(features.bits.amp) :
+#endif
+                             1;
+  context->seq_param.seq_fields.bits.sample_adaptive_offset_enabled_flag =
+#if VA_CHECK_VERSION(1, 13, 0)
+      context->hevc_features ? va_feature_enabled(features.bits.sao) :
+#endif
+                             0;
+  context->seq_param.seq_fields.bits.sps_temporal_mvp_enabled_flag =
+#if VA_CHECK_VERSION(1, 13, 0)
+      context->hevc_features ? va_feature_enabled(features.bits.temporal_mvp) :
+#endif
+                             0;
+  context->seq_param.seq_fields.bits.pcm_enabled_flag =
+#if VA_CHECK_VERSION(1, 13, 0)
+      context->hevc_features ? va_feature_enabled(features.bits.pcm) :
+#endif
+                             0;
   context->seq_param.log2_min_luma_coding_block_size_minus3 = 0;
   context->seq_param.log2_diff_max_min_luma_coding_block_size = 2;
   context->seq_param.log2_min_transform_block_size_minus2 = 0;
   context->seq_param.log2_diff_max_min_transform_block_size = 3;
-  context->seq_param.max_transform_hierarchy_depth_inter = 2;
-  context->seq_param.max_transform_hierarchy_depth_intra = 2;
-  context->seq_param.vui_parameters_present_flag = 1;
-  context->seq_param.vui_fields.bits.vui_timing_info_present_flag = 1;
-  context->seq_param.vui_num_units_in_tick = 1;
-  context->seq_param.vui_time_scale = context->config.frame_rate;
+#if VA_CHECK_VERSION(1, 13, 0)
+  if (context->hevc_block_sizes) {
+    context->seq_param.log2_min_luma_coding_block_size_minus3 =
+        block_sizes.bits.log2_min_luma_coding_block_size_minus3;
+    context->seq_param.log2_diff_max_min_luma_coding_block_size =
+        block_sizes.bits.log2_max_coding_tree_block_size_minus3 -
+        block_sizes.bits.log2_min_luma_coding_block_size_minus3;
+    context->seq_param.log2_min_transform_block_size_minus2 =
+        block_sizes.bits.log2_min_luma_transform_block_size_minus2;
+    context->seq_param.log2_diff_max_min_transform_block_size =
+        block_sizes.bits.log2_max_luma_transform_block_size_minus2 -
+        block_sizes.bits.log2_min_luma_transform_block_size_minus2;
+    context->seq_param.max_transform_hierarchy_depth_inter =
+        block_sizes.bits.max_max_transform_hierarchy_depth_inter;
+    context->seq_param.max_transform_hierarchy_depth_intra =
+        block_sizes.bits.max_max_transform_hierarchy_depth_intra;
+  } else
+#endif
+  {
+    context->seq_param.max_transform_hierarchy_depth_inter = 3;
+    context->seq_param.max_transform_hierarchy_depth_intra = 3;
+  }
+  context->seq_param.vui_parameters_present_flag = 0;
 
   VABufferID seq_param_buf;
   VAStatus va_status = vaCreateBuffer(
@@ -442,6 +585,7 @@ static int render_sequence(VA265Context* context) {
     RTC_LOG(LS_ERROR) << "vaCreateBuffer failed va_status = " << va_status;
     return -1;
   }
+  buffers->push_back(seq_param_buf);
 
   VABufferID rc_param_buf;
   va_status = vaCreateBuffer(
@@ -466,18 +610,12 @@ static int render_sequence(VA265Context* context) {
   misc_rate_ctrl->min_qp = context->config.minimal_qp;
   misc_rate_ctrl->rc_flags.bits.disable_frame_skip = true;
   vaUnmapBuffer(context->va_dpy, rc_param_buf);
-
-  VABufferID render_id[2] = {seq_param_buf, rc_param_buf};
-  va_status =
-      vaRenderPicture(context->va_dpy, context->context_id, render_id, 2);
-  if (va_status != VA_STATUS_SUCCESS) {
-    RTC_LOG(LS_ERROR) << "vaRenderPicture failed va_status = " << va_status;
-    return -1;
-  }
+  buffers->push_back(rc_param_buf);
   return 0;
 }
 
-static int render_picture(VA265Context* context) {
+static int add_picture_buffer(VA265Context* context,
+                              std::vector<VABufferID>* buffers) {
   memset(&context->pic_param, 0, sizeof(context->pic_param));
   context->pic_param.decoded_curr_pic.picture_id =
       context->ref_surface[context->current_frame_display % H265_SURFACE_NUM];
@@ -501,6 +639,8 @@ static int render_picture(VA265Context* context) {
   context->pic_param.collocated_ref_pic_index = 0xff;
   context->pic_param.last_picture = 0;
   context->pic_param.pic_init_qp = context->config.initial_qp;
+  context->pic_param.diff_cu_qp_delta_depth =
+      context->seq_param.log2_diff_max_min_luma_coding_block_size;
   context->pic_param.log2_parallel_merge_level_minus2 = 0;
   context->pic_param.ctu_max_bitsize_allowed = 0;
   context->pic_param.num_ref_idx_l0_default_active_minus1 = 0;
@@ -513,7 +653,17 @@ static int render_picture(VA265Context* context) {
   context->pic_param.pic_fields.bits.coding_type =
       (context->current_frame_type == kH265FrameP) ? 2 : 1;
   context->pic_param.pic_fields.bits.reference_pic_flag = 1;
-  context->pic_param.pic_fields.bits.cu_qp_delta_enabled_flag = 0;
+#if VA_CHECK_VERSION(1, 13, 0)
+  if (context->hevc_features) {
+    VAConfigAttribValEncHEVCFeatures features = {};
+    features.value = context->hevc_features;
+    context->pic_param.pic_fields.bits.cu_qp_delta_enabled_flag =
+        context->config.rc_mode != VA_RC_CQP &&
+        va_feature_enabled(features.bits.cu_qp_delta);
+    context->pic_param.pic_fields.bits.transform_skip_enabled_flag =
+        va_feature_enabled(features.bits.transform_skip);
+  }
+#endif
   context->pic_param.pic_fields.bits.pps_loop_filter_across_slices_enabled_flag =
       1;
 
@@ -526,28 +676,34 @@ static int render_picture(VA265Context* context) {
     return -1;
   }
 
-  va_status =
-      vaRenderPicture(context->va_dpy, context->context_id, &pic_param_buf, 1);
-  if (va_status != VA_STATUS_SUCCESS) {
-    RTC_LOG(LS_ERROR) << "vaRenderPicture failed va_status = " << va_status;
-    return -1;
-  }
+  buffers->push_back(pic_param_buf);
   return 0;
 }
 
-static int render_slice(VA265Context* context) {
+static int add_slice_buffer(VA265Context* context,
+                            std::vector<VABufferID>* buffers) {
   memset(&context->slice_param, 0, sizeof(context->slice_param));
   context->slice_param.slice_segment_address = 0;
   context->slice_param.num_ctu_in_slice =
-      (context->frame_width_aligned / kCtuSize) *
-      (context->frame_height_aligned / kCtuSize);
+      ((context->frame_width_aligned + context->ctu_size - 1) /
+       context->ctu_size) *
+      ((context->frame_height_aligned + context->ctu_size - 1) /
+       context->ctu_size);
   context->slice_param.slice_type =
       (context->current_frame_type == kH265FrameP) ? 1 : 2;
   context->slice_param.slice_pic_parameter_set_id = 0;
   context->slice_param.num_ref_idx_l0_active_minus1 = 0;
   context->slice_param.num_ref_idx_l1_active_minus1 = 0;
   context->slice_param.max_num_merge_cand = 5;
+  context->slice_param.slice_qp_delta = 0;
   context->slice_param.slice_fields.bits.last_slice_of_pic_flag = 1;
+  context->slice_param.slice_fields.bits.collocated_from_l0_flag = 1;
+  context->slice_param.slice_fields.bits.slice_temporal_mvp_enabled_flag =
+      context->seq_param.seq_fields.bits.sps_temporal_mvp_enabled_flag;
+  context->slice_param.slice_fields.bits.slice_sao_luma_flag =
+      context->seq_param.seq_fields.bits.sample_adaptive_offset_enabled_flag;
+  context->slice_param.slice_fields.bits.slice_sao_chroma_flag =
+      context->seq_param.seq_fields.bits.sample_adaptive_offset_enabled_flag;
   context->slice_param.slice_fields.bits.slice_loop_filter_across_slices_enabled_flag =
       1;
 
@@ -570,12 +726,7 @@ static int render_slice(VA265Context* context) {
     return -1;
   }
 
-  va_status = vaRenderPicture(context->va_dpy, context->context_id,
-                              &slice_param_buf, 1);
-  if (va_status != VA_STATUS_SUCCESS) {
-    RTC_LOG(LS_ERROR) << "vaRenderPicture failed va_status = " << va_status;
-    return -1;
-  }
+  buffers->push_back(slice_param_buf);
   return 0;
 }
 
@@ -657,6 +808,11 @@ bool VaapiH265EncoderWrapper::Initialize(int width,
   context_->requested_entrypoint = context_->selected_entrypoint = -1;
   context_->context_id = VA_INVALID_ID;
   context_->config_id = VA_INVALID_ID;
+  context_->ctu_size = kCtuSize;
+  context_->min_cb_size = 16;
+  context_->hevc_features = 0;
+  context_->hevc_block_sizes = 0;
+  context_->packed_headers = 0;
   for (int i = 0; i < H265_SURFACE_NUM; i++) {
     context_->coded_buf[i] = VA_INVALID_ID;
   }
@@ -666,11 +822,6 @@ bool VaapiH265EncoderWrapper::Initialize(int width,
                                context_->config.frame_height * 12 *
                                context_->config.frame_rate / 50;
   }
-
-  context_->frame_width_aligned =
-      (context_->config.frame_width + kCtuSize - 1) & ~(kCtuSize - 1);
-  context_->frame_height_aligned =
-      (context_->config.frame_height + kCtuSize - 1) & ~(kCtuSize - 1);
 
   if (!va_display_->isOpen() && !va_display_->Open()) {
     return false;
@@ -683,6 +834,21 @@ bool VaapiH265EncoderWrapper::Initialize(int width,
     }
     return false;
   }
+
+  const uint32_t alignment =
+      std::max<uint32_t>(context_->ctu_size, context_->min_cb_size);
+  context_->frame_width_aligned =
+      align_up(context_->config.frame_width, alignment);
+  context_->frame_height_aligned =
+      align_up(context_->config.frame_height, alignment);
+  RTC_LOG(LS_INFO) << "HEVC VAAPI frame size: visible="
+                   << context_->config.frame_width << "x"
+                   << context_->config.frame_height << " coded="
+                   << context_->frame_width_aligned << "x"
+                   << context_->frame_height_aligned
+                   << " alignment=" << alignment
+                   << " ctu_size=" << context_->ctu_size
+                   << " min_cb_size=" << context_->min_cb_size;
 
   if (setup_encode(context_.get()) != 0) {
     if (context_->va_dpy) {
@@ -737,28 +903,47 @@ bool VaapiH265EncoderWrapper::Encode(int fourcc,
     }
   }
 
+  std::vector<VABufferID> render_buffers;
+  render_buffers.reserve(context_->current_frame_type == kH265FrameIdr ? 4 : 2);
+  if (context_->current_frame_type == kH265FrameIdr) {
+    if (add_sequence_buffers(context_.get(), &render_buffers) != 0) {
+      destroy_buffers(context_->va_dpy, render_buffers);
+      return false;
+    }
+  }
+  if (add_picture_buffer(context_.get(), &render_buffers) != 0 ||
+      add_slice_buffer(context_.get(), &render_buffers) != 0) {
+    destroy_buffers(context_->va_dpy, render_buffers);
+    return false;
+  }
+
   VAStatus va_status = vaBeginPicture(
       context_->va_dpy, context_->context_id,
       context_->src_surface[context_->current_frame_display % H265_SURFACE_NUM]);
   if (va_status != VA_STATUS_SUCCESS) {
     RTC_LOG(LS_ERROR) << "vaBeginPicture failed va_status = " << va_status;
+    destroy_buffers(context_->va_dpy, render_buffers);
     return false;
   }
 
-  if (context_->current_frame_type == kH265FrameIdr) {
-    if (render_sequence(context_.get()) != 0) {
-      return false;
-    }
-  }
-  if (render_picture(context_.get()) != 0 || render_slice(context_.get()) != 0) {
+  va_status =
+      vaRenderPicture(context_->va_dpy, context_->context_id,
+                      render_buffers.data(),
+                      static_cast<int>(render_buffers.size()));
+  if (va_status != VA_STATUS_SUCCESS) {
+    RTC_LOG(LS_ERROR) << "vaRenderPicture failed va_status = " << va_status;
+    vaEndPicture(context_->va_dpy, context_->context_id);
+    destroy_buffers(context_->va_dpy, render_buffers);
     return false;
   }
 
   va_status = vaEndPicture(context_->va_dpy, context_->context_id);
   if (va_status != VA_STATUS_SUCCESS) {
     RTC_LOG(LS_ERROR) << "vaEndPicture failed va_status = " << va_status;
+    destroy_buffers(context_->va_dpy, render_buffers);
     return false;
   }
+  destroy_buffers(context_->va_dpy, render_buffers);
 
   va_status = vaSyncSurface(
       context_->va_dpy,

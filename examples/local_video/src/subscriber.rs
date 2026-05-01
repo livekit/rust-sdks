@@ -10,7 +10,7 @@ use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::prelude::*;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
-use log::{debug, info};
+use log::{debug, info, warn};
 use parking_lot::Mutex;
 use std::{
     collections::HashMap,
@@ -183,6 +183,157 @@ fn log_video_inbound_stats(stats: &[livekit::webrtc::stats::RtcStats]) {
             inbound.inbound.decoder_implementation,
             inbound.inbound.power_efficient_decoder
         );
+        info!(
+            "Inbound RTP totals: packets={}, bytes={}, header_bytes={}, lost={}, jitter={:.3}s, frames recv/decoded/rendered/dropped={}/{}/{}/{}, keyframes={}, discarded_packets={}, nack/pli/fir={}/{}/{}",
+            inbound.received.packets_received,
+            inbound.inbound.bytes_received,
+            inbound.inbound.header_bytes_received,
+            inbound.received.packets_lost,
+            inbound.received.jitter,
+            inbound.inbound.frames_received,
+            inbound.inbound.frames_decoded,
+            inbound.inbound.frames_rendered,
+            inbound.inbound.frames_dropped,
+            inbound.inbound.key_frames_decoded,
+            inbound.inbound.packets_discarded,
+            inbound.inbound.nack_count,
+            inbound.inbound.pli_count,
+            inbound.inbound.fir_count,
+        );
+    }
+}
+
+#[derive(Debug, Clone)]
+struct VideoInboundStatsSample {
+    packets_received: u64,
+    packets_lost: i64,
+    bytes_received: u64,
+    header_bytes_received: u64,
+    frames_received: u64,
+    frames_decoded: u32,
+    key_frames_decoded: u32,
+    frames_rendered: u32,
+    frames_dropped: u32,
+    packets_discarded: u64,
+    nack_count: u32,
+    pli_count: u32,
+    fir_count: u32,
+    total_decode_time: f64,
+    total_processing_delay: f64,
+    jitter_buffer_emitted_count: u64,
+    frames_assembled_from_multiple_packets: u64,
+}
+
+impl From<&livekit::webrtc::stats::InboundRtpStats> for VideoInboundStatsSample {
+    fn from(inbound: &livekit::webrtc::stats::InboundRtpStats) -> Self {
+        Self {
+            packets_received: inbound.received.packets_received,
+            packets_lost: inbound.received.packets_lost,
+            bytes_received: inbound.inbound.bytes_received,
+            header_bytes_received: inbound.inbound.header_bytes_received,
+            frames_received: inbound.inbound.frames_received,
+            frames_decoded: inbound.inbound.frames_decoded,
+            key_frames_decoded: inbound.inbound.key_frames_decoded,
+            frames_rendered: inbound.inbound.frames_rendered,
+            frames_dropped: inbound.inbound.frames_dropped,
+            packets_discarded: inbound.inbound.packets_discarded,
+            nack_count: inbound.inbound.nack_count,
+            pli_count: inbound.inbound.pli_count,
+            fir_count: inbound.inbound.fir_count,
+            total_decode_time: inbound.inbound.total_decode_time,
+            total_processing_delay: inbound.inbound.total_processing_delay,
+            jitter_buffer_emitted_count: inbound.inbound.jitter_buffer_emitted_count,
+            frames_assembled_from_multiple_packets: inbound
+                .inbound
+                .frames_assembled_from_multiple_packets,
+        }
+    }
+}
+
+fn log_video_inbound_stats_delta(
+    inbound: &livekit::webrtc::stats::InboundRtpStats,
+    current: &VideoInboundStatsSample,
+    previous: Option<&VideoInboundStatsSample>,
+    elapsed: Duration,
+) {
+    let Some(previous) = previous else {
+        info!(
+            "Inbound RTP sample: packets={}, bytes={}, frames recv/decoded/rendered={}/{}/{}",
+            current.packets_received,
+            current.bytes_received,
+            current.frames_received,
+            current.frames_decoded,
+            current.frames_rendered,
+        );
+        return;
+    };
+
+    let packets_delta = current.packets_received.saturating_sub(previous.packets_received);
+    let bytes_delta = current.bytes_received.saturating_sub(previous.bytes_received);
+    let header_bytes_delta =
+        current.header_bytes_received.saturating_sub(previous.header_bytes_received);
+    let frames_received_delta = current.frames_received.saturating_sub(previous.frames_received);
+    let frames_decoded_delta = current.frames_decoded.saturating_sub(previous.frames_decoded);
+    let frames_rendered_delta = current.frames_rendered.saturating_sub(previous.frames_rendered);
+    let frames_dropped_delta = current.frames_dropped.saturating_sub(previous.frames_dropped);
+    let keyframes_delta = current.key_frames_decoded.saturating_sub(previous.key_frames_decoded);
+    let discarded_delta = current.packets_discarded.saturating_sub(previous.packets_discarded);
+    let nack_delta = current.nack_count.saturating_sub(previous.nack_count);
+    let pli_delta = current.pli_count.saturating_sub(previous.pli_count);
+    let fir_delta = current.fir_count.saturating_sub(previous.fir_count);
+    let jitter_emitted_delta =
+        current.jitter_buffer_emitted_count.saturating_sub(previous.jitter_buffer_emitted_count);
+    let multi_packet_frames_delta = current
+        .frames_assembled_from_multiple_packets
+        .saturating_sub(previous.frames_assembled_from_multiple_packets);
+    let decode_time_delta = (current.total_decode_time - previous.total_decode_time).max(0.0);
+    let processing_delay_delta =
+        (current.total_processing_delay - previous.total_processing_delay).max(0.0);
+    let decode_ms_per_frame = if frames_decoded_delta > 0 {
+        decode_time_delta * 1_000.0 / f64::from(frames_decoded_delta)
+    } else {
+        0.0
+    };
+    let processing_ms_per_frame = if frames_received_delta > 0 {
+        processing_delay_delta * 1_000.0 / frames_received_delta as f64
+    } else {
+        0.0
+    };
+
+    info!(
+        "Inbound RTP +{:.1}s: +{} pkts (+{} media bytes, +{} header), lost {}->{}, jitter {:.3}s, frames recv/dec/render/drop +{}/{}/{}/{}, key +{}, discarded +{}, nack/pli/fir +{}/{}/{}, decode {:.2}ms/frame, processing {:.2}ms/frame, jitterbuf_emit +{}, multi_pkt_frames +{}, layer {}x{} {:.1}fps",
+        elapsed.as_secs_f64(),
+        packets_delta,
+        bytes_delta,
+        header_bytes_delta,
+        previous.packets_lost,
+        current.packets_lost,
+        inbound.received.jitter,
+        frames_received_delta,
+        frames_decoded_delta,
+        frames_rendered_delta,
+        frames_dropped_delta,
+        keyframes_delta,
+        discarded_delta,
+        nack_delta,
+        pli_delta,
+        fir_delta,
+        decode_ms_per_frame,
+        processing_ms_per_frame,
+        jitter_emitted_delta,
+        multi_packet_frames_delta,
+        inbound.inbound.frame_width,
+        inbound.inbound.frame_height,
+        inbound.inbound.frames_per_second,
+    );
+
+    if bytes_delta > 0 && frames_decoded_delta == 0 {
+        warn!(
+            "Inbound RTP bytes are increasing but frames_decoded did not increase in the last {:.1}s (frames_received +{}, keyframes_decoded total {})",
+            elapsed.as_secs_f64(),
+            frames_received_delta,
+            current.key_frames_decoded,
+        );
     }
 }
 
@@ -341,9 +492,16 @@ async fn handle_track_subscribed(
             let received_at_us = current_timestamp_us();
             let w = frame.buffer.width();
             let h = frame.buffer.height();
+            let buffer_type = frame.buffer.buffer_type();
+            let rotation = frame.rotation;
+            let timestamp_us = frame.timestamp_us;
+            let frame_metadata = frame.frame_metadata;
 
             if !logged_first {
-                debug!("First frame: {}x{}, type {:?}", w, h, frame.buffer.buffer_type());
+                info!(
+                    "First decoded subscriber frame: {}x{}, buffer={:?}, rotation={:?}, timestamp_us={}, metadata={:?}",
+                    w, h, buffer_type, rotation, timestamp_us, frame_metadata
+                );
                 logged_first = true;
             }
 
@@ -374,11 +532,9 @@ async fn handle_track_subscribed(
             s.dirty = true;
             s.received_at_us = Some(received_at_us);
 
-            s.frame_metadata = frame.frame_metadata;
+            s.frame_metadata = frame_metadata;
 
-            if !s.has_user_timestamp
-                && frame.frame_metadata.and_then(|m| m.user_timestamp).is_some()
-            {
+            if !s.has_user_timestamp && frame_metadata.and_then(|m| m.user_timestamp).is_some() {
                 s.has_user_timestamp = true;
             }
 
@@ -402,7 +558,10 @@ async fn handle_track_subscribed(
             let elapsed = last_log.elapsed();
             if elapsed >= Duration::from_secs(2) {
                 let fps = frames as f64 / elapsed.as_secs_f64();
-                info!("Receiving video: {}x{}, ~{:.1} fps", w, h, fps);
+                info!(
+                    "Decoded subscriber frames: {}x{}, ~{:.1} fps, buffer={:?}, timestamp_us={}, metadata={:?}",
+                    w, h, fps, buffer_type, timestamp_us, frame_metadata
+                );
                 frames = 0;
                 last_log = Instant::now();
             }
@@ -421,6 +580,8 @@ async fn handle_track_subscribed(
     let simulcast_stats = simulcast.clone();
     tokio::spawn(async move {
         let mut logged_initial = false;
+        let mut last_sample: Option<VideoInboundStatsSample> = None;
+        let mut last_stats_log = Instant::now();
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -439,6 +600,20 @@ async fn handle_track_subscribed(
                         logged_initial = true;
                     }
                     update_simulcast_quality_from_stats(&stats, &simulcast_stats);
+                    if let Some(inbound) = find_video_inbound_stats(&stats) {
+                        let current = VideoInboundStatsSample::from(&inbound);
+                        let elapsed = last_stats_log.elapsed();
+                        if last_sample.is_none() || elapsed >= Duration::from_secs(2) {
+                            log_video_inbound_stats_delta(
+                                &inbound,
+                                &current,
+                                last_sample.as_ref(),
+                                elapsed,
+                            );
+                            last_sample = Some(current);
+                            last_stats_log = Instant::now();
+                        }
+                    }
                 }
                 Err(e) if !logged_initial => {
                     debug!("Failed to get stats for video track: {:?}", e);
