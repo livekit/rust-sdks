@@ -25,14 +25,14 @@
 namespace livekit_ffi {
 
 std::unique_ptr<webrtc::VideoEncoderFactory> CreateObjCVideoEncoderFactory() {
-  RTCDefaultVideoEncoderFactory* encoderFactory = [[RTCDefaultVideoEncoderFactory alloc] init];
-  RTCVideoEncoderFactorySimulcast* simulcastFactory =
-      [[RTCVideoEncoderFactorySimulcast alloc] initWithPrimary:encoderFactory fallback:encoderFactory];
+  RTC_OBJC_TYPE(RTCDefaultVideoEncoderFactory)* encoderFactory = [[RTC_OBJC_TYPE(RTCDefaultVideoEncoderFactory) alloc] init];
+  RTC_OBJC_TYPE(RTCVideoEncoderFactorySimulcast)* simulcastFactory =
+      [[RTC_OBJC_TYPE(RTCVideoEncoderFactorySimulcast) alloc] initWithPrimary:encoderFactory fallback:encoderFactory];
   return webrtc::ObjCToNativeVideoEncoderFactory(simulcastFactory);
 }
 
 std::unique_ptr<webrtc::VideoDecoderFactory> CreateObjCVideoDecoderFactory() {
-  return webrtc::ObjCToNativeVideoDecoderFactory([[RTCDefaultVideoDecoderFactory alloc] init]);
+  return webrtc::ObjCToNativeVideoDecoderFactory([[RTC_OBJC_TYPE(RTCDefaultVideoDecoderFactory) alloc] init]);
 }
 
 }  // namespace livekit_ffi
