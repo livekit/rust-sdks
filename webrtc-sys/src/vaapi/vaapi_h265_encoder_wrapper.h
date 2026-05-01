@@ -62,7 +62,6 @@ typedef struct {
   uint64_t current_idr_display;
   int current_frame_type;
 
-  uint8_t* encoded_buffer;
   VA265Config config;
 } VA265Context;
 

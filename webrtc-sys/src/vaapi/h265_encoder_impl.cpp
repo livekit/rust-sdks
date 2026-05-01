@@ -1,8 +1,10 @@
 #include "h265_encoder_impl.h"
 
 #include <string>
+#include <vector>
 
 #include "api/video/video_codec_constants.h"
+#include "common_video/h265/h265_common.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
@@ -14,6 +16,64 @@
 #define VA_FOURCC_I420 0x30323449
 
 namespace webrtc {
+namespace {
+
+struct H265NalSummary {
+  bool has_vps = false;
+  bool has_sps = false;
+  bool has_pps = false;
+  bool has_irap = false;
+  size_t nalu_count = 0;
+  std::vector<uint8_t> parameter_sets;
+};
+
+H265NalSummary SummarizeH265Bitstream(const std::vector<uint8_t>& bitstream) {
+  H265NalSummary summary;
+  for (const H265::NaluIndex& nalu : H265::FindNaluIndices(bitstream)) {
+    if (nalu.payload_size < H265::kNaluHeaderSize) {
+      continue;
+    }
+    summary.nalu_count++;
+    const H265::NaluType type =
+        H265::ParseNaluType(bitstream[nalu.payload_start_offset]);
+    switch (type) {
+      case H265::NaluType::kVps:
+        summary.has_vps = true;
+        summary.parameter_sets.insert(
+            summary.parameter_sets.end(),
+            bitstream.begin() + nalu.start_offset,
+            bitstream.begin() + nalu.payload_start_offset + nalu.payload_size);
+        break;
+      case H265::NaluType::kSps:
+        summary.has_sps = true;
+        summary.parameter_sets.insert(
+            summary.parameter_sets.end(),
+            bitstream.begin() + nalu.start_offset,
+            bitstream.begin() + nalu.payload_start_offset + nalu.payload_size);
+        break;
+      case H265::NaluType::kPps:
+        summary.has_pps = true;
+        summary.parameter_sets.insert(
+            summary.parameter_sets.end(),
+            bitstream.begin() + nalu.start_offset,
+            bitstream.begin() + nalu.payload_start_offset + nalu.payload_size);
+        break;
+      case H265::NaluType::kBlaWLp:
+      case H265::NaluType::kBlaWRadl:
+      case H265::NaluType::kBlaNLp:
+      case H265::NaluType::kIdrWRadl:
+      case H265::NaluType::kIdrNLp:
+      case H265::NaluType::kCra:
+        summary.has_irap = true;
+        break;
+      default:
+        break;
+    }
+  }
+  return summary;
+}
+
+}  // namespace
 
 enum H265EncoderImplEvent {
   kH265EncoderEventInit = 0,
@@ -71,6 +131,7 @@ int32_t VAAPIH265EncoderWrapper::InitEncode(
   }
 
   codec_ = *inst;
+  cached_h265_parameter_sets_.clear();
 
   if (codec_.numberOfSimulcastStreams == 0) {
     codec_.simulcastStream[0].width = codec_.width;
@@ -128,6 +189,7 @@ int32_t VAAPIH265EncoderWrapper::Release() {
   if (encoder_->IsInitialized()) {
     encoder_->Destroy();
   }
+  cached_h265_parameter_sets_.clear();
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -183,14 +245,39 @@ int32_t VAAPIH265EncoderWrapper::Encode(
   }
 
   std::vector<uint8_t> output;
-  encoder_->Encode(VA_FOURCC_I420, frame_buffer->DataY(),
-                   frame_buffer->StrideY(), frame_buffer->DataU(),
-                   frame_buffer->StrideU(), frame_buffer->DataV(),
-                   frame_buffer->StrideV(), send_key_frame, output);
+  const bool encode_ok = encoder_->Encode(
+      VA_FOURCC_I420, frame_buffer->DataY(), frame_buffer->StrideY(),
+      frame_buffer->DataU(), frame_buffer->StrideU(), frame_buffer->DataV(),
+      frame_buffer->StrideV(), send_key_frame, output);
 
-  if (output.empty()) {
+  if (!encode_ok || output.empty()) {
     RTC_LOG(LS_ERROR) << "Failed to encode H265 frame.";
     return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  H265NalSummary nal_summary = SummarizeH265Bitstream(output);
+  if (nal_summary.nalu_count == 0) {
+    RTC_LOG(LS_ERROR) << "Encoded H265 frame has no Annex-B NAL units.";
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+  if (send_key_frame && !nal_summary.has_irap) {
+    RTC_LOG(LS_ERROR)
+        << "VAAPI H265 encoder did not produce an IRAP NAL for a requested "
+           "keyframe.";
+    return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+  if (nal_summary.has_vps && nal_summary.has_sps && nal_summary.has_pps) {
+    cached_h265_parameter_sets_ = nal_summary.parameter_sets;
+  } else if (nal_summary.has_irap) {
+    if (!cached_h265_parameter_sets_.empty()) {
+      output.insert(output.begin(), cached_h265_parameter_sets_.begin(),
+                    cached_h265_parameter_sets_.end());
+      nal_summary = SummarizeH265Bitstream(output);
+    } else {
+      RTC_LOG(LS_WARNING)
+          << "VAAPI H265 keyframe is missing VPS/SPS/PPS NALs; remote "
+             "decoders may not be able to start rendering.";
+    }
   }
 
   encoded_image_.SetEncodedData(
@@ -207,8 +294,9 @@ int32_t VAAPIH265EncoderWrapper::Encode(
   encoded_image_.content_type_ = VideoContentType::UNSPECIFIED;
   encoded_image_.timing_.flags = VideoSendTiming::kInvalid;
   encoded_image_.SetColorSpace(input_frame.color_space());
-  encoded_image_._frameType = send_key_frame ? VideoFrameType::kVideoFrameKey
-                                             : VideoFrameType::kVideoFrameDelta;
+  encoded_image_._frameType = nal_summary.has_irap
+                                  ? VideoFrameType::kVideoFrameKey
+                                  : VideoFrameType::kVideoFrameDelta;
 
   CodecSpecificInfo codec_specific;
   codec_specific.codecType = kVideoCodecH265;

@@ -31,7 +31,6 @@ VAAPIVideoEncoderFactory::VAAPIVideoEncoderFactory() {
 
   if (IsH265Supported()) {
     supported_formats_.push_back(SdpVideoFormat("H265"));
-    supported_formats_.push_back(SdpVideoFormat("HEVC"));
   }
   /*
   std::map<std::string, std::string> highParameters = {

@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <vector>
 
 #include "rtc_base/logging.h"
 
@@ -17,6 +18,97 @@ static const uint32_t kCtuSize = 32;
 static const int kH265FrameP = 0;
 static const int kH265FrameI = 2;
 static const int kH265FrameIdr = 7;
+
+static bool has_start_code(const uint8_t* data, size_t size) {
+  return (size >= 3 && data[0] == 0x00 && data[1] == 0x00 &&
+          data[2] == 0x01) ||
+         (size >= 4 && data[0] == 0x00 && data[1] == 0x00 &&
+          data[2] == 0x00 && data[3] == 0x01);
+}
+
+static bool contains_start_code(const std::vector<uint8_t>& data) {
+  for (size_t i = 0; i < data.size(); i++) {
+    if (has_start_code(data.data() + i, data.size() - i)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+static bool is_h265_nal_header(const uint8_t* data, size_t size) {
+  if (size < 2) {
+    return false;
+  }
+
+  const uint8_t forbidden_zero_bit = data[0] & 0x80;
+  const uint8_t nal_unit_type = (data[0] & 0x7e) >> 1;
+  const uint8_t nuh_temporal_id_plus1 = data[1] & 0x07;
+  return forbidden_zero_bit == 0 && nal_unit_type <= 40 &&
+         nuh_temporal_id_plus1 != 0;
+}
+
+static uint32_t read_be_length(const uint8_t* data, size_t length_size) {
+  uint32_t length = 0;
+  for (size_t i = 0; i < length_size; i++) {
+    length = (length << 8) | data[i];
+  }
+  return length;
+}
+
+static bool append_length_prefixed_segments(const uint8_t* data,
+                                            size_t size,
+                                            size_t length_size,
+                                            std::vector<uint8_t>* encoded) {
+  static const uint8_t kStartCode[] = {0x00, 0x00, 0x00, 0x01};
+  size_t offset = 0;
+  std::vector<uint8_t> converted;
+
+  while (offset < size) {
+    if (size - offset < length_size) {
+      return false;
+    }
+
+    uint32_t nalu_size = read_be_length(data + offset, length_size);
+    offset += length_size;
+    if (nalu_size == 0 || nalu_size > size - offset ||
+        !is_h265_nal_header(data + offset, nalu_size)) {
+      return false;
+    }
+
+    converted.insert(converted.end(), kStartCode,
+                     kStartCode + sizeof(kStartCode));
+    converted.insert(converted.end(), data + offset, data + offset + nalu_size);
+    offset += nalu_size;
+  }
+
+  encoded->insert(encoded->end(), converted.begin(), converted.end());
+  return true;
+}
+
+static void append_annex_b_segment(const uint8_t* data,
+                                   size_t size,
+                                   std::vector<uint8_t>* encoded) {
+  static const uint8_t kStartCode[] = {0x00, 0x00, 0x00, 0x01};
+  if (size == 0) {
+    return;
+  }
+
+  if (has_start_code(data, size)) {
+    encoded->insert(encoded->end(), data, data + size);
+    return;
+  }
+
+  if ((append_length_prefixed_segments(data, size, 4, encoded)) ||
+      (append_length_prefixed_segments(data, size, 2, encoded))) {
+    return;
+  }
+
+  if (is_h265_nal_header(data, size)) {
+    encoded->insert(encoded->end(), kStartCode,
+                    kStartCode + sizeof(kStartCode));
+  }
+  encoded->insert(encoded->end(), data, data + size);
+}
 
 static int upload_surface_yuv(VADisplay va_dpy,
                               VASurfaceID surface_id,
@@ -421,7 +513,7 @@ static int render_picture(VA265Context* context) {
   context->pic_param.pic_fields.bits.coding_type =
       (context->current_frame_type == kH265FrameP) ? 2 : 1;
   context->pic_param.pic_fields.bits.reference_pic_flag = 1;
-  context->pic_param.pic_fields.bits.cu_qp_delta_enabled_flag = 1;
+  context->pic_param.pic_fields.bits.cu_qp_delta_enabled_flag = 0;
   context->pic_param.pic_fields.bits.pps_loop_filter_across_slices_enabled_flag =
       1;
 
@@ -530,11 +622,6 @@ void VaapiH265EncoderWrapper::Destroy() {
     }
   }
 
-  if (context_->encoded_buffer) {
-    free(context_->encoded_buffer);
-    context_->encoded_buffer = nullptr;
-  }
-
   if (va_display_->isOpen()) {
     vaTerminate(va_display_->display());
     va_display_->Close();
@@ -585,22 +672,11 @@ bool VaapiH265EncoderWrapper::Initialize(int width,
   context_->frame_height_aligned =
       (context_->config.frame_height + kCtuSize - 1) & ~(kCtuSize - 1);
 
-  context_->encoded_buffer = reinterpret_cast<uint8_t*>(
-      malloc(context_->frame_width_aligned * context_->frame_height_aligned *
-             3));
-  if (!context_->encoded_buffer) {
-    return false;
-  }
-
   if (!va_display_->isOpen() && !va_display_->Open()) {
-    free(context_->encoded_buffer);
-    context_->encoded_buffer = nullptr;
     return false;
   }
 
   if (init_va(context_.get(), va_display_->display()) != VA_STATUS_SUCCESS) {
-    free(context_->encoded_buffer);
-    context_->encoded_buffer = nullptr;
     if (va_display_->isOpen()) {
       vaTerminate(va_display_->display());
       va_display_->Close();
@@ -609,8 +685,6 @@ bool VaapiH265EncoderWrapper::Initialize(int width,
   }
 
   if (setup_encode(context_.get()) != 0) {
-    free(context_->encoded_buffer);
-    context_->encoded_buffer = nullptr;
     if (context_->va_dpy) {
       vaTerminate(context_->va_dpy);
       context_->va_dpy = nullptr;
@@ -695,8 +769,7 @@ bool VaapiH265EncoderWrapper::Encode(int fourcc,
   }
 
   VACodedBufferSegment* buf_list = NULL;
-  uint32_t coded_size = 0;
-  uint8_t* output = context_->encoded_buffer;
+  encoded.clear();
   va_status = vaMapBuffer(
       context_->va_dpy,
       context_->coded_buf[context_->current_frame_display % H265_SURFACE_NUM],
@@ -706,18 +779,24 @@ bool VaapiH265EncoderWrapper::Encode(int fourcc,
     return false;
   }
   while (buf_list != NULL) {
-    memcpy(&output[coded_size], buf_list->buf, buf_list->size);
-    coded_size += buf_list->size;
+    append_annex_b_segment(reinterpret_cast<const uint8_t*>(buf_list->buf),
+                           buf_list->size, &encoded);
     buf_list = reinterpret_cast<VACodedBufferSegment*>(buf_list->next);
   }
   vaUnmapBuffer(
       context_->va_dpy,
       context_->coded_buf[context_->current_frame_display % H265_SURFACE_NUM]);
 
+  if (!encoded.empty() && !contains_start_code(encoded)) {
+    RTC_LOG(LS_ERROR)
+        << "VAAPI H265 encoder produced a bitstream without Annex-B NAL "
+           "start codes";
+    return false;
+  }
+
   update_reference_frames(context_.get());
   context_->current_frame_encoding++;
 
-  encoded = std::vector<uint8_t>(output, output + coded_size);
   return true;
 }
 

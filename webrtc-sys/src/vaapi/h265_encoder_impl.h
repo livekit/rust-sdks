@@ -59,6 +59,7 @@ class VAAPIH265EncoderWrapper : public VideoEncoder {
   LayerConfig configuration_;
   EncodedImage encoded_image_;
   VideoCodec codec_;
+  std::vector<uint8_t> cached_h265_parameter_sets_;
   void ReportInit();
   void ReportError();
   bool has_reported_init_ = false;
