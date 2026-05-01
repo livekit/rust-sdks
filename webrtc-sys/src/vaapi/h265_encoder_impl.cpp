@@ -183,8 +183,10 @@ int32_t VAAPIH265EncoderWrapper::Encode(
   }
 
   std::vector<uint8_t> output;
-  encoder_->Encode(VA_FOURCC_I420, frame_buffer->DataY(), frame_buffer->DataU(),
-                   frame_buffer->DataV(), send_key_frame, output);
+  encoder_->Encode(VA_FOURCC_I420, frame_buffer->DataY(),
+                   frame_buffer->StrideY(), frame_buffer->DataU(),
+                   frame_buffer->StrideU(), frame_buffer->DataV(),
+                   frame_buffer->StrideV(), send_key_frame, output);
 
   if (output.empty()) {
     RTC_LOG(LS_ERROR) << "Failed to encode H265 frame.";

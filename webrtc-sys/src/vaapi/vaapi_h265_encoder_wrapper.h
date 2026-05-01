@@ -85,8 +85,11 @@ class VaapiH265EncoderWrapper {
 
   bool Encode(int fourcc,
               const uint8_t* y,
+              int stride_y,
               const uint8_t* u,
+              int stride_u,
               const uint8_t* v,
+              int stride_v,
               bool forceIDR,
               std::vector<uint8_t>& output);
 

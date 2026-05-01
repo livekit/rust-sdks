@@ -24,8 +24,11 @@ static int upload_surface_yuv(VADisplay va_dpy,
                               int src_width,
                               int src_height,
                               const uint8_t* src_Y,
+                              int src_stride_Y,
                               const uint8_t* src_U,
-                              const uint8_t* src_V) {
+                              int src_stride_U,
+                              const uint8_t* src_V,
+                              int src_stride_V) {
   VAImageFormat kImageFormatI420 = {
       .fourcc = VA_FOURCC_I420,
       .byte_order = VA_LSB_FIRST,
@@ -33,12 +36,15 @@ static int upload_surface_yuv(VADisplay va_dpy,
   };
 
   VAImage surface_image;
-  uint8_t *surface_p = NULL, *Y_start = NULL, *U_start = NULL;
-  int Y_pitch = 0, U_pitch = 0, row;
+  uint8_t *surface_p = NULL, *Y_start = NULL, *U_start = NULL,
+          *V_start = NULL;
+  int Y_pitch = 0, U_pitch = 0, V_pitch = 0, row;
   VAStatus va_status;
+  bool derived_image = true;
 
   va_status = vaDeriveImage(va_dpy, surface_id, &surface_image);
   if (va_status != VA_STATUS_SUCCESS) {
+    derived_image = false;
     va_status = vaCreateImage(va_dpy, &kImageFormatI420, src_width, src_height,
                               &surface_image);
     if (va_status != VA_STATUS_SUCCESS) {
@@ -57,45 +63,87 @@ static int upload_surface_yuv(VADisplay va_dpy,
   Y_start = surface_p;
   Y_pitch = surface_image.pitches[0];
   switch (surface_image.format.fourcc) {
-    case VA_FOURCC_NV12:
+    case VA_FOURCC_NV12: {
+      U_start = surface_p + surface_image.offsets[1];
+      U_pitch = surface_image.pitches[1];
+      break;
+    }
     case VA_FOURCC_I420:
       U_start = surface_p + surface_image.offsets[1];
       U_pitch = surface_image.pitches[1];
+      V_start = surface_p + surface_image.offsets[2];
+      V_pitch = surface_image.pitches[2];
       break;
     case VA_FOURCC_YV12:
       U_start = surface_p + surface_image.offsets[2];
       U_pitch = surface_image.pitches[2];
+      V_start = surface_p + surface_image.offsets[1];
+      V_pitch = surface_image.pitches[1];
       break;
     default:
-      RTC_LOG(LS_ERROR) << "Unsupported VA surface image format";
+      RTC_LOG(LS_ERROR) << "Unsupported VA surface image format: "
+                        << surface_image.format.fourcc;
       vaUnmapBuffer(va_dpy, surface_image.buf);
       vaDestroyImage(va_dpy, surface_image.image_id);
       return -1;
   }
 
   for (row = 0; row < src_height; row++) {
-    memcpy(Y_start + row * Y_pitch, src_Y + row * src_width, src_width);
+    memcpy(Y_start + row * Y_pitch, src_Y + row * src_stride_Y, src_width);
   }
 
-  for (row = 0; row < src_height / 2; row++) {
-    uint8_t* U_row = U_start + row * U_pitch;
-    if (src_fourcc == VA_FOURCC_NV12) {
-      memcpy(U_row, src_U + row * src_width, src_width);
-      continue;
-    }
+  if (surface_image.format.fourcc == VA_FOURCC_NV12) {
+    for (row = 0; row < src_height / 2; row++) {
+      uint8_t* UV_row = U_start + row * U_pitch;
+      if (src_fourcc == VA_FOURCC_NV12) {
+        memcpy(UV_row, src_U + row * src_stride_U, src_width);
+        continue;
+      }
 
-    const uint8_t* u_ptr = src_U + row * (src_width / 2);
-    const uint8_t* v_ptr = src_V + row * (src_width / 2);
-    if (src_fourcc == VA_FOURCC_YV12) {
-      std::swap(u_ptr, v_ptr);
+      const uint8_t* u_ptr = src_U + row * src_stride_U;
+      const uint8_t* v_ptr = src_V + row * src_stride_V;
+      if (src_fourcc == VA_FOURCC_YV12) {
+        std::swap(u_ptr, v_ptr);
+      }
+      for (int col = 0; col < src_width / 2; col++) {
+        UV_row[2 * col] = u_ptr[col];
+        UV_row[2 * col + 1] = v_ptr[col];
+      }
     }
-    for (int col = 0; col < src_width / 2; col++) {
-      U_row[2 * col] = u_ptr[col];
-      U_row[2 * col + 1] = v_ptr[col];
+  } else {
+    for (row = 0; row < src_height / 2; row++) {
+      if (src_fourcc == VA_FOURCC_NV12) {
+        const uint8_t* uv_ptr = src_U + row * src_stride_U;
+        uint8_t* U_row = U_start + row * U_pitch;
+        uint8_t* V_row = V_start + row * V_pitch;
+        for (int col = 0; col < src_width / 2; col++) {
+          U_row[col] = uv_ptr[2 * col];
+          V_row[col] = uv_ptr[2 * col + 1];
+        }
+        continue;
+      }
+
+      const uint8_t* u_ptr = src_U + row * src_stride_U;
+      const uint8_t* v_ptr = src_V + row * src_stride_V;
+      if (src_fourcc == VA_FOURCC_YV12) {
+        std::swap(u_ptr, v_ptr);
+      }
+      memcpy(U_start + row * U_pitch, u_ptr, src_width / 2);
+      memcpy(V_start + row * V_pitch, v_ptr, src_width / 2);
     }
   }
 
   vaUnmapBuffer(va_dpy, surface_image.buf);
+  if (!derived_image) {
+    va_status =
+        vaPutImage(va_dpy, surface_id, surface_image.image_id, 0, 0, src_width,
+                   src_height, 0, 0, src_width, src_height);
+    if (va_status != VA_STATUS_SUCCESS) {
+      RTC_LOG(LS_ERROR) << "vaPutImage failed with status " << va_status;
+      vaDestroyImage(va_dpy, surface_image.image_id);
+      return -1;
+    }
+  }
   vaDestroyImage(va_dpy, surface_image.image_id);
   return 0;
 }
@@ -579,8 +627,11 @@ bool VaapiH265EncoderWrapper::Initialize(int width,
 
 bool VaapiH265EncoderWrapper::Encode(int fourcc,
                                      const uint8_t* y,
+                                     int stride_y,
                                      const uint8_t* u,
+                                     int stride_u,
                                      const uint8_t* v,
+                                     int stride_v,
                                      bool forceIDR,
                                      std::vector<uint8_t>& encoded) {
   if (forceIDR) {
@@ -593,7 +644,7 @@ bool VaapiH265EncoderWrapper::Encode(int fourcc,
       context_->src_surface[context_->current_frame_encoding % H265_SURFACE_NUM];
   int retv = upload_surface_yuv(
       context_->va_dpy, surface, fourcc, context_->config.frame_width,
-      context_->config.frame_height, y, u, v);
+      context_->config.frame_height, y, stride_y, u, stride_u, v, stride_v);
   if (retv != 0) {
     RTC_LOG(LS_ERROR) << "Failed to upload surface";
     return false;
