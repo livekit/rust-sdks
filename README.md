@@ -40,6 +40,11 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
   - [x] iOS
   - [x] Android
 
+On Linux systems with multiple hardware encoders, set `LK_PREFERRED_HW_ENCODER`
+to `vaapi` or `nvidia` to choose the first hardware encoder to try. If the
+preferred encoder is unavailable, the SDK falls back to the other hardware
+encoder and then to software codecs.
+
 ## Crates
 
 - `livekit-api`: Server APIs and auth token generation
