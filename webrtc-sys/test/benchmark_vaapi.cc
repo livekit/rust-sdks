@@ -47,3 +47,27 @@ VideoEncoder* VaapiBenchmark::GetNewEncoder(webrtc::Environment &env) {
 
   return _encoder.get();
 }
+
+VaapiH265Benchmark::VaapiH265Benchmark()
+    : VaapiBenchmark("VaapiH265Benchmark",
+                     "VAAPI H265 benchmark over a range of test cases",
+                     webrtc::test::OutputPath() + "VaapiH265Benchmark.txt") {
+  _codecType = webrtc::kVideoCodecH265;
+  _outname = "vaapi_bitstream_output.h265";
+}
+
+VideoEncoder* VaapiH265Benchmark::GetNewEncoder(webrtc::Environment &env) {
+  if (!VAAPIVideoEncoderFactory::IsH265Supported()) {
+    fprintf(stderr, "VAAPI H265 is not supported on this system.\n");
+    return nullptr;
+  }
+  if (!_factory) {
+    _factory = std::make_unique<VAAPIVideoEncoderFactory>();
+  }
+  _encoder = _factory->Create(env, SdpVideoFormat("H265"));
+  if (!_encoder) {
+    fprintf(stderr, "Failed to create H265 encoder.\n");
+    return nullptr;
+  }
+  return _encoder.get();
+}

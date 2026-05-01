@@ -16,6 +16,11 @@
 
 #include "livekit/video_encoder_factory.h"
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <string>
+#include <vector>
 #include "api/environment/environment_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
@@ -57,6 +62,40 @@ using Factory = webrtc::VideoEncoderFactoryTemplate<
 #endif
     webrtc::LibvpxVp9EncoderTemplateAdapter>;
 
+namespace {
+
+enum class HardwareEncoderProvider {
+  kNvidia,
+  kVaapi,
+};
+
+std::string ToLower(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
+  return value;
+}
+
+std::vector<HardwareEncoderProvider> HardwareEncoderOrder() {
+  const char* preferred = std::getenv("LK_PREFERRED_HW_ENCODER");
+  std::string value = preferred ? ToLower(preferred) : "auto";
+  if (value.empty() || value == "auto") {
+    return {HardwareEncoderProvider::kNvidia, HardwareEncoderProvider::kVaapi};
+  }
+  if (value == "nvidia") {
+    return {HardwareEncoderProvider::kNvidia, HardwareEncoderProvider::kVaapi};
+  }
+  if (value == "vaapi") {
+    return {HardwareEncoderProvider::kVaapi, HardwareEncoderProvider::kNvidia};
+  }
+
+  RTC_LOG(LS_WARNING) << "Invalid LK_PREFERRED_HW_ENCODER=\"" << value
+                      << "\"; expected \"nvidia\", \"vaapi\", or \"auto\".";
+  return {HardwareEncoderProvider::kNvidia, HardwareEncoderProvider::kVaapi};
+}
+
+}  // namespace
+
 VideoEncoderFactory::InternalFactory::InternalFactory() {
 #ifdef __APPLE__
   factories_.push_back(livekit_ffi::CreateObjCVideoEncoderFactory());
@@ -66,21 +105,27 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
   factories_.push_back(CreateAndroidVideoEncoderFactory());
 #endif
 
+  for (HardwareEncoderProvider provider : HardwareEncoderOrder()) {
+    switch (provider) {
+      case HardwareEncoderProvider::kNvidia:
 #if defined(USE_NVIDIA_VIDEO_CODEC)
-  if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
-    factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
-  } else {
+        if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
+          factories_.push_back(
+              std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
+        }
 #endif
+        break;
 
+      case HardwareEncoderProvider::kVaapi:
 #if defined(USE_VAAPI_VIDEO_CODEC)
-    if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
-      factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
+        if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
+          factories_.push_back(
+              std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
+        }
+#endif
+        break;
     }
-#endif
-
-#if defined(USE_NVIDIA_VIDEO_CODEC)
   }
-#endif
 }
 
 std::vector<webrtc::SdpVideoFormat>
@@ -99,11 +144,21 @@ VideoEncoderFactory::CodecSupport
 VideoEncoderFactory::InternalFactory::QueryCodecSupport(
     const webrtc::SdpVideoFormat& format,
     std::optional<std::string> scalability_mode) const {
+  for (const auto& factory : factories_) {
+    for (const auto& supported_format : factory->GetSupportedFormats()) {
+      if (supported_format.IsSameCodec(format)) {
+        return webrtc::VideoEncoderFactory::CodecSupport{
+            /*is_supported=*/true, /*is_power_efficient=*/true};
+      }
+    }
+  }
+
   auto original_format =
       webrtc::FuzzyMatchSdpVideoFormat(Factory().GetSupportedFormats(), format);
   return original_format
              ? Factory().QueryCodecSupport(*original_format, scalability_mode)
-             : webrtc::VideoEncoderFactory::CodecSupport{.is_supported = false};
+             : webrtc::VideoEncoderFactory::CodecSupport{
+                   /*is_supported=*/false, /*is_power_efficient=*/false};
 }
 
 std::unique_ptr<webrtc::VideoEncoder>
@@ -112,8 +167,14 @@ VideoEncoderFactory::InternalFactory::Create(
     const webrtc::SdpVideoFormat& format) {
   for (const auto& factory : factories_) {
     for (const auto& supported_format : factory->GetSupportedFormats()) {
-      if (supported_format.IsSameCodec(format))
-        return factory->Create(env, format);
+      if (supported_format.IsSameCodec(format)) {
+        auto encoder = factory->Create(env, format);
+        if (encoder) {
+          return encoder;
+        }
+        RTC_LOG(LS_WARNING) << "Hardware VideoEncoder factory failed for "
+                            << format.name << "; trying next encoder.";
+      }
     }
   }
 
