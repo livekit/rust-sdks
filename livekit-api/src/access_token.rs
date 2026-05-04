@@ -336,6 +336,7 @@ mod tests {
             agents: vec![livekit_protocol::RoomAgentDispatch {
                 agent_name: "test-agent".to_string(),
                 metadata: "test-metadata".to_string(),
+                ..Default::default()
             }],
             ..Default::default()
         };
@@ -378,6 +379,7 @@ mod tests {
                     agents: vec![livekit_protocol::RoomAgentDispatch {
                         agent_name: "test-agent".to_string(),
                         metadata: "test-metadata".to_string(),
+                        ..Default::default()
                     }],
                     ..Default::default()
                 }),
@@ -400,6 +402,7 @@ mod tests {
                 agents: vec![livekit_protocol::RoomAgentDispatch {
                     agent_name: "test-agent".to_string(),
                     metadata: "test-metadata".to_string(),
+                    ..Default::default()
                 }],
                 ..Default::default()
             })
