@@ -19,8 +19,7 @@ use std::time::Duration;
 use crate::access_token::SIPGrants;
 use crate::get_env_keys;
 use crate::services::twirp_client::TwirpClient;
-use crate::services::{ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
-use pbjson_types::Duration as ProtoDuration;
+use crate::services::{duration_to_proto, ServiceBase, ServiceResult, LIVEKIT_PACKAGE};
 
 const SVC: &str = "SIP";
 
@@ -167,10 +166,6 @@ impl SIPClient {
         Ok(Self::with_api_key(host, &api_key, &api_secret))
     }
 
-    fn duration_to_proto(d: Option<Duration>) -> Option<ProtoDuration> {
-        d.map(|d| ProtoDuration { seconds: d.as_secs() as i64, nanos: d.subsec_nanos() as i32 })
-    }
-
     pub async fn create_sip_inbound_trunk(
         &self,
         name: String,
@@ -195,8 +190,8 @@ impl SIPClient {
                         headers_to_attributes: options.headers_to_attributes.unwrap_or_default(),
                         attributes_to_headers: options.attributes_to_headers.unwrap_or_default(),
                         krisp_enabled: options.krisp_enabled.unwrap_or(false),
-                        max_call_duration: Self::duration_to_proto(options.max_call_duration),
-                        ringing_timeout: Self::duration_to_proto(options.ringing_timeout),
+                        max_call_duration: duration_to_proto(options.max_call_duration),
+                        ringing_timeout: duration_to_proto(options.ringing_timeout),
 
                         // TODO: support these attributes
                         include_headers: Default::default(),
@@ -455,8 +450,8 @@ impl SIPClient {
                     play_ringtone: options.play_dialtone.unwrap_or(false),
                     play_dialtone: options.play_dialtone.unwrap_or(false),
                     hide_phone_number: options.hide_phone_number.unwrap_or(false),
-                    max_call_duration: Self::duration_to_proto(options.max_call_duration),
-                    ringing_timeout: Self::duration_to_proto(options.ringing_timeout),
+                    max_call_duration: duration_to_proto(options.max_call_duration),
+                    ringing_timeout: duration_to_proto(options.ringing_timeout),
 
                     // TODO: rename local proto as well
                     krisp_enabled: options.enable_krisp.unwrap_or(false),
