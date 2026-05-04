@@ -46,16 +46,16 @@ license = "Apache-2.0"
 [workspace.dependencies]
 device-info = { version = "0.1.1", path = "device-info" }
 imgproc = { version = "0.3.19", path = "imgproc" }
-libwebrtc = { version = "0.3.30", path = "libwebrtc" }
-livekit = { version = "0.7.37", path = "livekit" }
-livekit-api = { version = "0.4.19", path = "livekit-api" }
-livekit-ffi = { version = "0.12.53", path = "livekit-ffi" }
+libwebrtc = { version = "0.3.31", path = "libwebrtc" }
+livekit = { version = "0.7.38", path = "livekit" }
+livekit-api = { version = "0.4.20", path = "livekit-api" }
+livekit-ffi = { version = "0.12.54", path = "livekit-ffi" }
 livekit-datatrack = { version = "0.1.4", path = "livekit-datatrack" }
 livekit-protocol = { version = "0.7.5", path = "livekit-protocol" }
 livekit-runtime = { version = "0.4.0", path = "livekit-runtime" }
 soxr-sys = { version = "0.1.3", path = "soxr-sys" }
-webrtc-sys = { version = "0.3.28", path = "webrtc-sys" }
-webrtc-sys-build = { version = "0.3.15", path = "webrtc-sys/build" }
+webrtc-sys = { version = "0.3.29", path = "webrtc-sys" }
+webrtc-sys-build = { version = "0.3.16", path = "webrtc-sys/build" }
 yuv-sys = { version = "0.3.14", path = "yuv-sys" }
 
 anyhow = "1.0"
