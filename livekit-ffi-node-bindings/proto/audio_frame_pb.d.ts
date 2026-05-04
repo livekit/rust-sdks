@@ -2016,3 +2016,121 @@ export declare class SetPlayoutDeviceResponse extends Message<SetPlayoutDeviceRe
   static equals(a: SetPlayoutDeviceResponse | PlainMessage<SetPlayoutDeviceResponse> | undefined, b: SetPlayoutDeviceResponse | PlainMessage<SetPlayoutDeviceResponse> | undefined): boolean;
 }
 
+/**
+ * Start recording from the microphone.
+ *
+ * Recording is started automatically when PlatformAudio is created.
+ * Use this to resume recording after calling StopRecording.
+ * This also turns on the system's recording privacy indicator.
+ *
+ * @generated from message livekit.proto.StartRecordingRequest
+ */
+export declare class StartRecordingRequest extends Message<StartRecordingRequest> {
+  /**
+   * The PlatformAudio handle.
+   *
+   * @generated from field: required uint64 platform_audio_handle = 1;
+   */
+  platformAudioHandle?: bigint;
+
+  constructor(data?: PartialMessage<StartRecordingRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.StartRecordingRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StartRecordingRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): StartRecordingRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StartRecordingRequest;
+
+  static equals(a: StartRecordingRequest | PlainMessage<StartRecordingRequest> | undefined, b: StartRecordingRequest | PlainMessage<StartRecordingRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.StartRecordingResponse
+ */
+export declare class StartRecordingResponse extends Message<StartRecordingResponse> {
+  /**
+   * Error message if the operation failed.
+   * Empty/absent on success.
+   *
+   * @generated from field: optional string error = 1;
+   */
+  error?: string;
+
+  constructor(data?: PartialMessage<StartRecordingResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.StartRecordingResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StartRecordingResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): StartRecordingResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StartRecordingResponse;
+
+  static equals(a: StartRecordingResponse | PlainMessage<StartRecordingResponse> | undefined, b: StartRecordingResponse | PlainMessage<StartRecordingResponse> | undefined): boolean;
+}
+
+/**
+ * Stop recording from the microphone.
+ *
+ * Use this to temporarily stop recording without disposing PlatformAudio.
+ * This will turn off the system's recording privacy indicator (e.g., on macOS/iOS).
+ * Call StartRecording to resume recording.
+ *
+ * @generated from message livekit.proto.StopRecordingRequest
+ */
+export declare class StopRecordingRequest extends Message<StopRecordingRequest> {
+  /**
+   * The PlatformAudio handle.
+   *
+   * @generated from field: required uint64 platform_audio_handle = 1;
+   */
+  platformAudioHandle?: bigint;
+
+  constructor(data?: PartialMessage<StopRecordingRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.StopRecordingRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StopRecordingRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): StopRecordingRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StopRecordingRequest;
+
+  static equals(a: StopRecordingRequest | PlainMessage<StopRecordingRequest> | undefined, b: StopRecordingRequest | PlainMessage<StopRecordingRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.StopRecordingResponse
+ */
+export declare class StopRecordingResponse extends Message<StopRecordingResponse> {
+  /**
+   * Error message if the operation failed.
+   * Empty/absent on success.
+   *
+   * @generated from field: optional string error = 1;
+   */
+  error?: string;
+
+  constructor(data?: PartialMessage<StopRecordingResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.StopRecordingResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StopRecordingResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): StopRecordingResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StopRecordingResponse;
+
+  static equals(a: StopRecordingResponse | PlainMessage<StopRecordingResponse> | undefined, b: StopRecordingResponse | PlainMessage<StopRecordingResponse> | undefined): boolean;
+}
+
