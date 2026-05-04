@@ -73,32 +73,32 @@ __rustls-tls = ["tokio-tungstenite?/__rustls-tls", "reqwest?/__rustls"]
 livekit-protocol = { workspace = true }
 thiserror = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
-sha2 = "0.10"
+sha2 = "0.11"
 url = "2.3"
 log = { workspace = true }
 parking_lot = { workspace = true }
-prost = "0.12"
-pbjson-types = "0.6"
+prost = "0.14"
+pbjson-types = "0.9"
 
 # webhooks
 serde_json = { workspace = true, optional = true }
-base64 = { version = "0.21", optional = true, features = ["std"] }
+base64 = { version = "0.22", optional = true, features = ["std"] }
 
 # access_token & services
 jsonwebtoken = { version = "10", default-features = false, features = ["rust_crypto"], optional = true }
 
 # signal_client
 livekit-runtime = { workspace = true, optional = true}
-tokio-tungstenite = { version = "0.20", optional = true }
-async-tungstenite = { version = "0.25.0", features = [ "async-std-runtime", "async-native-tls"], optional = true }
+tokio-tungstenite = { version = "0.29", optional = true }
+async-tungstenite = { version = "0.34.0", features = [ "async-std-runtime", "async-native-tls"], optional = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
-tokio-rustls = { version = "0.24", optional = true }
-rustls-native-certs = { version = "0.6", optional = true }
+tokio-rustls = { version = "0.26", optional = true }
+rustls-native-certs = { version = "0.8", optional = true }
 futures-util = { workspace = true, default-features = false, features = [ "sink" ], optional = true }
 
 # This dependency must be kept in sync with reqwest's version
 http = "1.1"
-reqwest = { version = "0.12", default-features = false, features = [ "json" ], optional = true }
+reqwest = { version = "0.13", default-features = false, features = [ "json" ], optional = true }
 isahc = { version = "1.7.2", default-features = false, features = [ "json", "text-decoding" ], optional = true }
 
 scopeguard = "1.2.0"
