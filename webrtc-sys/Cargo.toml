@@ -9,6 +9,7 @@ repository.workspace = true
 
 [features]
 default = []
+encoded-video = []
 
 [dependencies]
 cxx = "1.0"

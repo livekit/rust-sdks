@@ -164,7 +164,10 @@ message FfiRequest {
     RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
     DataTrackStreamReadRequest data_track_stream_read = 75;
 
-    // NEXT_ID: 76
+    // Encoded video
+    CaptureEncodedVideoFrameRequest capture_encoded_video_frame = 76;
+
+    // NEXT_ID: 77
   }
 }
 
@@ -274,7 +277,10 @@ message FfiResponse {
     RemoteDataTrackIsPublishedResponse remote_data_track_is_published = 73;
     DataTrackStreamReadResponse data_track_stream_read = 74;
 
-    // NEXT_ID: 75
+    // Encoded video
+    CaptureEncodedVideoFrameResponse capture_encoded_video_frame = 75;
+
+    // NEXT_ID: 76
   }
 }
 
@@ -337,7 +343,10 @@ message FfiEvent {
     // Data Track (remote)
     DataTrackStreamEvent data_track_stream_event = 43;
 
-    // NEXT_ID: 44
+    // Encoded video
+    EncodedVideoSourceEvent encoded_video_source_event = 44;
+
+    // NEXT_ID: 45
   }
 }
 

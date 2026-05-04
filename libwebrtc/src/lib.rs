@@ -68,6 +68,8 @@ pub mod video_track;
 pub mod native {
     pub use webrtc_sys::webrtc::ffi::create_random_uuid;
 
+    #[cfg(feature = "encoded-video")]
+    pub use crate::imp::encoded_video_source;
     pub use crate::imp::{
         apm, audio_mixer, audio_resampler, frame_cryptor, packet_trailer, yuv_helper,
     };

@@ -21,7 +21,7 @@ import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialM
 import { Message, proto2 } from "@bufbuild/protobuf";
 import type { ConnectCallback, ConnectRequest, ConnectResponse, DisconnectCallback, DisconnectRequest, DisconnectResponse, EditChatMessageRequest, GetSessionStatsCallback, GetSessionStatsRequest, GetSessionStatsResponse, PublishDataCallback, PublishDataRequest, PublishDataResponse, PublishSipDtmfCallback, PublishSipDtmfRequest, PublishSipDtmfResponse, PublishTrackCallback, PublishTrackRequest, PublishTrackResponse, PublishTranscriptionCallback, PublishTranscriptionRequest, PublishTranscriptionResponse, RoomEvent, SendChatMessageCallback, SendChatMessageRequest, SendChatMessageResponse, SendStreamChunkCallback, SendStreamChunkRequest, SendStreamChunkResponse, SendStreamHeaderCallback, SendStreamHeaderRequest, SendStreamHeaderResponse, SendStreamTrailerCallback, SendStreamTrailerRequest, SendStreamTrailerResponse, SetDataChannelBufferedAmountLowThresholdRequest, SetDataChannelBufferedAmountLowThresholdResponse, SetLocalAttributesCallback, SetLocalAttributesRequest, SetLocalAttributesResponse, SetLocalMetadataCallback, SetLocalMetadataRequest, SetLocalMetadataResponse, SetLocalNameCallback, SetLocalNameRequest, SetLocalNameResponse, SetSubscribedRequest, SetSubscribedResponse, UnpublishTrackCallback, UnpublishTrackRequest, UnpublishTrackResponse } from "./room_pb.js";
 import type { CreateAudioTrackRequest, CreateAudioTrackResponse, CreateVideoTrackRequest, CreateVideoTrackResponse, EnableRemoteTrackRequest, EnableRemoteTrackResponse, GetStatsCallback, GetStatsRequest, GetStatsResponse, LocalTrackMuteRequest, LocalTrackMuteResponse, SetTrackSubscriptionPermissionsRequest, SetTrackSubscriptionPermissionsResponse, TrackEvent } from "./track_pb.js";
-import type { CaptureVideoFrameRequest, CaptureVideoFrameResponse, NewVideoSourceRequest, NewVideoSourceResponse, NewVideoStreamRequest, NewVideoStreamResponse, VideoConvertRequest, VideoConvertResponse, VideoStreamEvent, VideoStreamFromParticipantRequest, VideoStreamFromParticipantResponse } from "./video_frame_pb.js";
+import type { CaptureEncodedVideoFrameRequest, CaptureEncodedVideoFrameResponse, CaptureVideoFrameRequest, CaptureVideoFrameResponse, EncodedVideoSourceEvent, NewVideoSourceRequest, NewVideoSourceResponse, NewVideoStreamRequest, NewVideoStreamResponse, VideoConvertRequest, VideoConvertResponse, VideoStreamEvent, VideoStreamFromParticipantRequest, VideoStreamFromParticipantResponse } from "./video_frame_pb.js";
 import type { ApmProcessReverseStreamRequest, ApmProcessReverseStreamResponse, ApmProcessStreamRequest, ApmProcessStreamResponse, ApmSetStreamDelayRequest, ApmSetStreamDelayResponse, AudioStreamEvent, AudioStreamFromParticipantRequest, AudioStreamFromParticipantResponse, CaptureAudioFrameCallback, CaptureAudioFrameRequest, CaptureAudioFrameResponse, ClearAudioBufferRequest, ClearAudioBufferResponse, FlushSoxResamplerRequest, FlushSoxResamplerResponse, LoadAudioFilterPluginRequest, LoadAudioFilterPluginResponse, NewApmRequest, NewApmResponse, NewAudioResamplerRequest, NewAudioResamplerResponse, NewAudioSourceRequest, NewAudioSourceResponse, NewAudioStreamRequest, NewAudioStreamResponse, NewSoxResamplerRequest, NewSoxResamplerResponse, PushSoxResamplerRequest, PushSoxResamplerResponse, RemixAndResampleRequest, RemixAndResampleResponse } from "./audio_frame_pb.js";
 import type { E2eeRequest, E2eeResponse } from "./e2ee_pb.js";
 import type { PerformRpcCallback, PerformRpcRequest, PerformRpcResponse, RegisterRpcMethodRequest, RegisterRpcMethodResponse, RpcMethodInvocationEvent, RpcMethodInvocationResponseRequest, RpcMethodInvocationResponseResponse, UnregisterRpcMethodRequest, UnregisterRpcMethodResponse } from "./rpc_pb.js";
@@ -537,6 +537,14 @@ export declare class FfiRequest extends Message<FfiRequest> {
      */
     value: DataTrackStreamReadRequest;
     case: "dataTrackStreamRead";
+  } | {
+    /**
+     * Encoded video
+     *
+     * @generated from field: livekit.proto.CaptureEncodedVideoFrameRequest capture_encoded_video_frame = 76;
+     */
+    value: CaptureEncodedVideoFrameRequest;
+    case: "captureEncodedVideoFrame";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiRequest>);
@@ -1025,6 +1033,14 @@ export declare class FfiResponse extends Message<FfiResponse> {
      */
     value: DataTrackStreamReadResponse;
     case: "dataTrackStreamRead";
+  } | {
+    /**
+     * Encoded video
+     *
+     * @generated from field: livekit.proto.CaptureEncodedVideoFrameResponse capture_encoded_video_frame = 75;
+     */
+    value: CaptureEncodedVideoFrameResponse;
+    case: "captureEncodedVideoFrame";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiResponse>);
@@ -1313,6 +1329,14 @@ export declare class FfiEvent extends Message<FfiEvent> {
      */
     value: DataTrackStreamEvent;
     case: "dataTrackStreamEvent";
+  } | {
+    /**
+     * Encoded video
+     *
+     * @generated from field: livekit.proto.EncodedVideoSourceEvent encoded_video_source_event = 44;
+     */
+    value: EncodedVideoSourceEvent;
+    case: "encodedVideoSourceEvent";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<FfiEvent>);

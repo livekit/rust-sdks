@@ -68,6 +68,9 @@ message NewVideoSourceRequest {
   // Most of the time it corresponds to the source resolution
   required VideoSourceResolution resolution = 2;
   optional bool is_screencast = 3;
+  // When type == VIDEO_SOURCE_ENCODED this field MUST be set. It configures
+  // the passthrough encoder for the source (codec + initial resolution).
+  optional EncodedVideoSourceOptions encoded_options = 4;
 }
 message NewVideoSourceResponse { required OwnedVideoSource source = 1; }
 
@@ -81,6 +84,31 @@ message CaptureVideoFrameRequest {
 }
 
 message CaptureVideoFrameResponse {}
+
+// Push an encoded (compressed) frame to an encoded VideoSource.
+// The source must have been created with type == VIDEO_SOURCE_ENCODED.
+message CaptureEncodedVideoFrameRequest {
+  required uint64 source_handle = 1;
+  // Raw encoded bitstream (e.g. NAL units for H.264/H.265, VP8/VP9/AV1
+  // OBU payload). Must be a complete access unit / picture.
+  required bytes data = 2;
+  required bool is_keyframe = 3;
+  // H.264/H.265 only: set when SPS/PPS (or VPS/SPS/PPS) is already
+  // prepended to `data`. Ignored for other codecs.
+  optional bool has_sps_pps = 4;
+  // Frame resolution. 0/0 means "use the resolution from
+  // EncodedVideoSourceOptions".
+  optional uint32 width = 5;
+  optional uint32 height = 6;
+  // Capture timestamp in microseconds. 0 lets the source stamp `now`.
+  optional int64 capture_time_us = 7;
+}
+
+message CaptureEncodedVideoFrameResponse {
+  // True if the frame was queued; false if it was dropped because the
+  // internal queue was full.
+  required bool accepted = 1;
+}
 
 message VideoConvertRequest {
   optional bool flip_y = 1;
@@ -206,13 +234,43 @@ message VideoSourceResolution {
 
 enum VideoSourceType {
   VIDEO_SOURCE_NATIVE = 0;
+  // A source that accepts encoded (compressed) frames. WebRTC's internal
+  // encoder is bypassed for tracks bound to this source.
+  VIDEO_SOURCE_ENCODED = 1;
 }
 
 message VideoSourceInfo {
   required VideoSourceType type = 1;
+  // Only populated for encoded sources. Exposed for debugging / tracing.
+  optional uint32 encoded_source_id = 2;
 }
 
 message OwnedVideoSource {
   required FfiOwnedHandle handle = 1;
   required VideoSourceInfo info = 2;
+}
+
+// Options for an encoded video source. One source carries a single encoded
+// stream (one resolution, one codec). To simulcast, create multiple sources
+// and publish them on separate tracks.
+message EncodedVideoSourceOptions {
+  required VideoCodec codec = 1;
+}
+
+// Encoder-side feedback for an encoded video source. Emitted as FfiEvents
+// so client SDKs can react (request a fresh keyframe from their encoder,
+// adjust target bitrate, etc.).
+message EncodedVideoSourceEvent {
+  required uint64 source_handle = 1;
+  oneof message {
+    KeyframeRequested keyframe_requested = 2;
+    TargetBitrateChanged target_bitrate_changed = 3;
+  }
+
+  message KeyframeRequested {}
+
+  message TargetBitrateChanged {
+    required uint32 bitrate_bps = 1;
+    required double framerate_fps = 2;
+  }
 }
