@@ -257,6 +257,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.38 (2026-05-04)
+
+### Fixes
+
+- fix: derive `simulcasted` from non-deprecated TrackInfo fields - #1052 (@cloudwebrtc)
+- fix race in download_webrtc to reduce flaky build - #1047 (@hechen-eng)
+- TEL-464: reduce redundant resampling in audio filter - #1019 (@hechen-eng)
+
 ## 0.7.37 (2026-04-23)
 
 ### Features

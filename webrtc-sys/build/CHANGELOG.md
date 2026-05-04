@@ -57,6 +57,12 @@
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.16 (2026-05-04)
+
+### Fixes
+
+- fix race in download_webrtc to reduce flaky build - #1047 (@hechen-eng)
+
 ## 0.3.15 (2026-04-02)
 
 ### Fixes
