@@ -54,6 +54,16 @@ const REGION_FETCH_TIMEOUT: Duration = Duration::from_secs(3);
 const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROTOCOL_VERSION: u32 = 17;
 
+/// Default value for `ClientInfo.client_protocol` when a participant has not
+/// advertised one (treat as v1-only / no data-stream RPC support).
+pub const CLIENT_PROTOCOL_DEFAULT: i32 = 0;
+/// `ClientInfo.client_protocol` value indicating support for RPC v2 over data streams.
+pub const CLIENT_PROTOCOL_DATA_STREAM_RPC: i32 = 1;
+
+/// The client protocol which is sent to other clients and indicates the set of apis that other
+/// clients should assume this client supports.
+const CLIENT_PROTOCOL_VERSION: i32 = CLIENT_PROTOCOL_DATA_STREAM_RPC;
+
 #[derive(Error, Debug)]
 pub enum SignalError {
     #[error("ws failure: {0}")]
@@ -580,6 +590,7 @@ fn create_join_request_param(
         os,
         os_version,
         device_model,
+        client_protocol: CLIENT_PROTOCOL_VERSION,
         ..Default::default()
     };
 
@@ -676,6 +687,7 @@ fn get_livekit_url(
             .append_pair("os_version", os_info.version().to_string().as_str())
             .append_pair("device_model", device_model.to_string().as_str())
             .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
+            .append_pair("client_protocol", CLIENT_PROTOCOL_VERSION.to_string().as_str())
             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
             .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
