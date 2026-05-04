@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+pub use cxx::SharedPtr;
 
-use cxx::SharedPtr;
+use std::sync::Arc;
 
 use crate::{
     candidate::ffi::Candidate, data_channel::ffi::DataChannel, impl_thread_safety,
@@ -107,6 +107,12 @@ pub mod ffi {
             source: SharedPtr<AudioTrackSource>,
         ) -> SharedPtr<AudioTrack>;
 
+        // Create an audio track that uses the ADM for capture (Platform ADM mode)
+        fn create_device_audio_track(
+            self: &PeerConnectionFactory,
+            label: String,
+        ) -> SharedPtr<AudioTrack>;
+
         fn rtp_sender_capabilities(
             self: &PeerConnectionFactory,
             kind: MediaType,
@@ -116,6 +122,43 @@ pub mod ffi {
             self: &PeerConnectionFactory,
             kind: MediaType,
         ) -> RtpCapabilities;
+
+        // Device enumeration
+        fn playout_devices(self: &PeerConnectionFactory) -> i16;
+        fn recording_devices(self: &PeerConnectionFactory) -> i16;
+        fn playout_device_name(self: &PeerConnectionFactory, index: u16) -> String;
+        fn recording_device_name(self: &PeerConnectionFactory, index: u16) -> String;
+
+        // Device selection
+        fn set_playout_device(self: &PeerConnectionFactory, index: u16) -> i32;
+        fn set_recording_device(self: &PeerConnectionFactory, index: u16) -> i32;
+
+        // Recording control (for device switching while active)
+        fn stop_recording(self: &PeerConnectionFactory) -> i32;
+        fn init_recording(self: &PeerConnectionFactory) -> i32;
+        fn start_recording(self: &PeerConnectionFactory) -> i32;
+        fn recording_is_initialized(self: &PeerConnectionFactory) -> bool;
+
+        // Playout control (for device switching while active)
+        fn stop_playout(self: &PeerConnectionFactory) -> i32;
+        fn init_playout(self: &PeerConnectionFactory) -> i32;
+        fn start_playout(self: &PeerConnectionFactory) -> i32;
+        fn playout_is_initialized(self: &PeerConnectionFactory) -> bool;
+
+        // Built-in audio processing (hardware AEC/AGC/NS)
+        // These are only available on iOS and some Android devices
+        fn builtin_aec_is_available(self: &PeerConnectionFactory) -> bool;
+        fn builtin_agc_is_available(self: &PeerConnectionFactory) -> bool;
+        fn builtin_ns_is_available(self: &PeerConnectionFactory) -> bool;
+        fn enable_builtin_aec(self: &PeerConnectionFactory, enable: bool) -> i32;
+        fn enable_builtin_agc(self: &PeerConnectionFactory, enable: bool) -> i32;
+        fn enable_builtin_ns(self: &PeerConnectionFactory, enable: bool) -> i32;
+
+        // Control whether ADM recording (microphone) is enabled.
+        // When disabled, InitRecording/StartRecording will be no-ops.
+        // Use this when only using NativeAudioSource (no microphone needed).
+        fn set_adm_recording_enabled(self: &PeerConnectionFactory, enabled: bool);
+        fn adm_recording_enabled(self: &PeerConnectionFactory) -> bool;
     }
 
     extern "Rust" {

@@ -32,7 +32,6 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/synchronization/mutex.h"
-#include "rtc_base/time_utils.h"
 #include "rust/cxx.h"
 #include "webrtc-sys/src/audio_track.rs.h"
 
@@ -220,7 +219,7 @@ bool AudioTrackSource::InternalSource::capture_frame(
     }
 
   } else {
-    // capture directly when the queue buffer is 0 (frame size must be 10ms)
+    // Fast path: capture directly when the queue buffer is 0 (frame size must be 10ms)
     for (auto sink : sinks_)
       sink->OnData(data.data(), sizeof(int16_t) * 8, sample_rate,
                    number_of_channels, number_of_frames);

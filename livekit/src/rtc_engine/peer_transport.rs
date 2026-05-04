@@ -353,6 +353,13 @@ impl PeerTransport {
         let mut offer = self.peer_connection.create_offer(options).await?;
         let mut sdp = offer.to_string();
 
+        // Log audio m-lines to debug sample rate issues
+        for line in sdp.lines() {
+            if line.starts_with("m=audio") || line.contains("opus") || line.contains("a=rtpmap") {
+                log::info!("SDP audio: {}", line);
+            }
+        }
+
         if inner.single_pc_mode {
             // Fix inactive media m-lines to recvonly for single PC mode.
             // WebRTC can generate a=inactive even when transceivers are recvonly.

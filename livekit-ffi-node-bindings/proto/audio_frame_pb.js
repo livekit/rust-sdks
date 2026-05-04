@@ -82,6 +82,7 @@ const AudioSourceType = /*@__PURE__*/ proto2.makeEnum(
   "livekit.proto.AudioSourceType",
   [
     {no: 0, name: "AUDIO_SOURCE_NATIVE"},
+    {no: 1, name: "AUDIO_SOURCE_PLATFORM"},
   ],
 );
 
@@ -156,6 +157,7 @@ const NewAudioSourceRequest = /*@__PURE__*/ proto2.makeMessageType(
     { no: 3, name: "sample_rate", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
     { no: 4, name: "num_channels", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
     { no: 5, name: "queue_size_ms", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
+    { no: 6, name: "platform_audio_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ],
 );
 
@@ -517,6 +519,7 @@ const AudioSourceOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 1, name: "echo_cancellation", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
     { no: 2, name: "noise_suppression", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
     { no: 3, name: "auto_gain_control", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
+    { no: 4, name: "prefer_hardware", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
   ],
 );
 
@@ -613,6 +616,202 @@ const LoadAudioFilterPluginResponse = /*@__PURE__*/ proto2.makeMessageType(
   ],
 );
 
+/**
+ * Information about an audio device.
+ *
+ * @generated from message livekit.proto.AudioDeviceInfo
+ */
+const AudioDeviceInfo = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.AudioDeviceInfo",
+  () => [
+    { no: 1, name: "index", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+  ],
+);
+
+/**
+ * Information about a PlatformAudio instance.
+ *
+ * @generated from message livekit.proto.PlatformAudioInfo
+ */
+const PlatformAudioInfo = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.PlatformAudioInfo",
+  () => [
+    { no: 1, name: "recording_device_count", kind: "scalar", T: 5 /* ScalarType.INT32 */, req: true },
+    { no: 2, name: "playout_device_count", kind: "scalar", T: 5 /* ScalarType.INT32 */, req: true },
+  ],
+);
+
+/**
+ * Owned PlatformAudio handle with info.
+ *
+ * @generated from message livekit.proto.OwnedPlatformAudio
+ */
+const OwnedPlatformAudio = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.OwnedPlatformAudio",
+  () => [
+    { no: 1, name: "handle", kind: "message", T: FfiOwnedHandle, req: true },
+    { no: 2, name: "info", kind: "message", T: PlatformAudioInfo, req: true },
+  ],
+);
+
+/**
+ * Create a new PlatformAudio instance.
+ *
+ * This enables the platform ADM for microphone capture and speaker playout.
+ * If another PlatformAudio instance exists, this reuses the same underlying ADM.
+ *
+ * The returned handle must be kept alive while platform audio is needed.
+ * When all handles are released, the ADM is automatically disabled.
+ *
+ * @generated from message livekit.proto.NewPlatformAudioRequest
+ */
+const NewPlatformAudioRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.NewPlatformAudioRequest",
+  [],
+);
+
+/**
+ * @generated from message livekit.proto.NewPlatformAudioResponse
+ */
+const NewPlatformAudioResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.NewPlatformAudioResponse",
+  () => [
+    { no: 1, name: "platform_audio", kind: "message", T: OwnedPlatformAudio, oneof: "message" },
+    { no: 2, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, oneof: "message" },
+  ],
+);
+
+/**
+ * Get available audio devices.
+ *
+ * Returns lists of available recording (microphone) and playout (speaker) devices.
+ *
+ * @generated from message livekit.proto.GetAudioDevicesRequest
+ */
+const GetAudioDevicesRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.GetAudioDevicesRequest",
+  () => [
+    { no: 1, name: "platform_audio_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.GetAudioDevicesResponse
+ */
+const GetAudioDevicesResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.GetAudioDevicesResponse",
+  () => [
+    { no: 1, name: "playout_devices", kind: "message", T: AudioDeviceInfo, repeated: true },
+    { no: 2, name: "recording_devices", kind: "message", T: AudioDeviceInfo, repeated: true },
+    { no: 3, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ],
+);
+
+/**
+ * Set the recording device (microphone).
+ *
+ * Call this before creating audio tracks to select which microphone to use.
+ * Device indices are 0-based and must be less than the recording device count.
+ *
+ * @generated from message livekit.proto.SetRecordingDeviceRequest
+ */
+const SetRecordingDeviceRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.SetRecordingDeviceRequest",
+  () => [
+    { no: 1, name: "platform_audio_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "index", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.SetRecordingDeviceResponse
+ */
+const SetRecordingDeviceResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.SetRecordingDeviceResponse",
+  () => [
+    { no: 1, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ],
+);
+
+/**
+ * Set the playout device (speaker/headphones).
+ *
+ * Call this before connecting to select which speaker to use for audio output.
+ * Device indices are 0-based and must be less than the playout device count.
+ *
+ * @generated from message livekit.proto.SetPlayoutDeviceRequest
+ */
+const SetPlayoutDeviceRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.SetPlayoutDeviceRequest",
+  () => [
+    { no: 1, name: "platform_audio_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "index", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.SetPlayoutDeviceResponse
+ */
+const SetPlayoutDeviceResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.SetPlayoutDeviceResponse",
+  () => [
+    { no: 1, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ],
+);
+
+/**
+ * Start recording from the microphone.
+ *
+ * Recording is started automatically when PlatformAudio is created.
+ * Use this to resume recording after calling StopRecording.
+ * This also turns on the system's recording privacy indicator.
+ *
+ * @generated from message livekit.proto.StartRecordingRequest
+ */
+const StartRecordingRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.StartRecordingRequest",
+  () => [
+    { no: 1, name: "platform_audio_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.StartRecordingResponse
+ */
+const StartRecordingResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.StartRecordingResponse",
+  () => [
+    { no: 1, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ],
+);
+
+/**
+ * Stop recording from the microphone.
+ *
+ * Use this to temporarily stop recording without disposing PlatformAudio.
+ * This will turn off the system's recording privacy indicator (e.g., on macOS/iOS).
+ * Call StartRecording to resume recording.
+ *
+ * @generated from message livekit.proto.StopRecordingRequest
+ */
+const StopRecordingRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.StopRecordingRequest",
+  () => [
+    { no: 1, name: "platform_audio_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.StopRecordingResponse
+ */
+const StopRecordingResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.StopRecordingResponse",
+  () => [
+    { no: 1, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ],
+);
+
 
 exports.SoxResamplerDataType = SoxResamplerDataType;
 exports.SoxQualityRecipe = SoxQualityRecipe;
@@ -665,3 +864,18 @@ exports.SoxResamplerInfo = SoxResamplerInfo;
 exports.OwnedSoxResampler = OwnedSoxResampler;
 exports.LoadAudioFilterPluginRequest = LoadAudioFilterPluginRequest;
 exports.LoadAudioFilterPluginResponse = LoadAudioFilterPluginResponse;
+exports.AudioDeviceInfo = AudioDeviceInfo;
+exports.PlatformAudioInfo = PlatformAudioInfo;
+exports.OwnedPlatformAudio = OwnedPlatformAudio;
+exports.NewPlatformAudioRequest = NewPlatformAudioRequest;
+exports.NewPlatformAudioResponse = NewPlatformAudioResponse;
+exports.GetAudioDevicesRequest = GetAudioDevicesRequest;
+exports.GetAudioDevicesResponse = GetAudioDevicesResponse;
+exports.SetRecordingDeviceRequest = SetRecordingDeviceRequest;
+exports.SetRecordingDeviceResponse = SetRecordingDeviceResponse;
+exports.SetPlayoutDeviceRequest = SetPlayoutDeviceRequest;
+exports.SetPlayoutDeviceResponse = SetPlayoutDeviceResponse;
+exports.StartRecordingRequest = StartRecordingRequest;
+exports.StartRecordingResponse = StartRecordingResponse;
+exports.StopRecordingRequest = StopRecordingRequest;
+exports.StopRecordingResponse = StopRecordingResponse;

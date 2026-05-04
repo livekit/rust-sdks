@@ -164,7 +164,15 @@ message FfiRequest {
     RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
     DataTrackStreamReadRequest data_track_stream_read = 75;
 
-    // NEXT_ID: 76
+    // Platform Audio (ADM)
+    NewPlatformAudioRequest new_platform_audio = 76;
+    GetAudioDevicesRequest get_audio_devices = 77;
+    SetRecordingDeviceRequest set_recording_device = 78;
+    SetPlayoutDeviceRequest set_playout_device = 79;
+    StartRecordingRequest start_recording = 80;
+    StopRecordingRequest stop_recording = 81;
+
+    // NEXT_ID: 82
   }
 }
 
@@ -274,7 +282,15 @@ message FfiResponse {
     RemoteDataTrackIsPublishedResponse remote_data_track_is_published = 73;
     DataTrackStreamReadResponse data_track_stream_read = 74;
 
-    // NEXT_ID: 75
+    // Platform Audio (ADM)
+    NewPlatformAudioResponse new_platform_audio = 75;
+    GetAudioDevicesResponse get_audio_devices = 76;
+    SetRecordingDeviceResponse set_recording_device = 77;
+    SetPlayoutDeviceResponse set_playout_device = 78;
+    StartRecordingResponse start_recording = 79;
+    StopRecordingResponse stop_recording = 80;
+
+    // NEXT_ID: 81
   }
 }
 

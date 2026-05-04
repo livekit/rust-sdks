@@ -136,9 +136,19 @@ export declare enum AudioStreamType {
  */
 export declare enum AudioSourceType {
   /**
+   * Push-based audio source - manually capture frames via CaptureAudioFrameRequest
+   *
    * @generated from enum value: AUDIO_SOURCE_NATIVE = 0;
    */
   AUDIO_SOURCE_NATIVE = 0,
+
+  /**
+   * Platform ADM-based audio source - captures from microphone automatically
+   * Requires PlatformAudio to be created first to enable ADM recording
+   *
+   * @generated from enum value: AUDIO_SOURCE_PLATFORM = 1;
+   */
+  AUDIO_SOURCE_PLATFORM = 1,
 }
 
 /**
@@ -367,6 +377,14 @@ export declare class NewAudioSourceRequest extends Message<NewAudioSourceRequest
    * @generated from field: optional uint32 queue_size_ms = 5;
    */
   queueSizeMs?: number;
+
+  /**
+   * For AudioSourcePlatform: the PlatformAudio handle to configure audio processing on.
+   * If provided with options, audio processing will be configured on the PlatformAudio.
+   *
+   * @generated from field: optional uint64 platform_audio_handle = 6;
+   */
+  platformAudioHandle?: bigint;
 
   constructor(data?: PartialMessage<NewAudioSourceRequest>);
 
@@ -1364,6 +1382,14 @@ export declare class AudioSourceOptions extends Message<AudioSourceOptions> {
    */
   autoGainControl?: boolean;
 
+  /**
+   * Prefer hardware audio processing (e.g., iOS VPIO). Lower latency.
+   * Only applies to AudioSourcePlatform. Default: true.
+   *
+   * @generated from field: optional bool prefer_hardware = 4;
+   */
+  preferHardware?: boolean;
+
   constructor(data?: PartialMessage<AudioSourceOptions>);
 
   static readonly runtime: typeof proto2;
@@ -1616,5 +1642,495 @@ export declare class LoadAudioFilterPluginResponse extends Message<LoadAudioFilt
   static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): LoadAudioFilterPluginResponse;
 
   static equals(a: LoadAudioFilterPluginResponse | PlainMessage<LoadAudioFilterPluginResponse> | undefined, b: LoadAudioFilterPluginResponse | PlainMessage<LoadAudioFilterPluginResponse> | undefined): boolean;
+}
+
+/**
+ * Information about an audio device.
+ *
+ * @generated from message livekit.proto.AudioDeviceInfo
+ */
+export declare class AudioDeviceInfo extends Message<AudioDeviceInfo> {
+  /**
+   * Device index (0-based).
+   *
+   * @generated from field: required uint32 index = 1;
+   */
+  index?: number;
+
+  /**
+   * Device name as reported by the operating system.
+   *
+   * @generated from field: required string name = 2;
+   */
+  name?: string;
+
+  constructor(data?: PartialMessage<AudioDeviceInfo>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.AudioDeviceInfo";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): AudioDeviceInfo;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): AudioDeviceInfo;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): AudioDeviceInfo;
+
+  static equals(a: AudioDeviceInfo | PlainMessage<AudioDeviceInfo> | undefined, b: AudioDeviceInfo | PlainMessage<AudioDeviceInfo> | undefined): boolean;
+}
+
+/**
+ * Information about a PlatformAudio instance.
+ *
+ * @generated from message livekit.proto.PlatformAudioInfo
+ */
+export declare class PlatformAudioInfo extends Message<PlatformAudioInfo> {
+  /**
+   * Number of available recording (microphone) devices.
+   *
+   * @generated from field: required int32 recording_device_count = 1;
+   */
+  recordingDeviceCount?: number;
+
+  /**
+   * Number of available playout (speaker) devices.
+   *
+   * @generated from field: required int32 playout_device_count = 2;
+   */
+  playoutDeviceCount?: number;
+
+  constructor(data?: PartialMessage<PlatformAudioInfo>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.PlatformAudioInfo";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): PlatformAudioInfo;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): PlatformAudioInfo;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): PlatformAudioInfo;
+
+  static equals(a: PlatformAudioInfo | PlainMessage<PlatformAudioInfo> | undefined, b: PlatformAudioInfo | PlainMessage<PlatformAudioInfo> | undefined): boolean;
+}
+
+/**
+ * Owned PlatformAudio handle with info.
+ *
+ * @generated from message livekit.proto.OwnedPlatformAudio
+ */
+export declare class OwnedPlatformAudio extends Message<OwnedPlatformAudio> {
+  /**
+   * @generated from field: required livekit.proto.FfiOwnedHandle handle = 1;
+   */
+  handle?: FfiOwnedHandle;
+
+  /**
+   * @generated from field: required livekit.proto.PlatformAudioInfo info = 2;
+   */
+  info?: PlatformAudioInfo;
+
+  constructor(data?: PartialMessage<OwnedPlatformAudio>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.OwnedPlatformAudio";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): OwnedPlatformAudio;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): OwnedPlatformAudio;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): OwnedPlatformAudio;
+
+  static equals(a: OwnedPlatformAudio | PlainMessage<OwnedPlatformAudio> | undefined, b: OwnedPlatformAudio | PlainMessage<OwnedPlatformAudio> | undefined): boolean;
+}
+
+/**
+ * Create a new PlatformAudio instance.
+ *
+ * This enables the platform ADM for microphone capture and speaker playout.
+ * If another PlatformAudio instance exists, this reuses the same underlying ADM.
+ *
+ * The returned handle must be kept alive while platform audio is needed.
+ * When all handles are released, the ADM is automatically disabled.
+ *
+ * @generated from message livekit.proto.NewPlatformAudioRequest
+ */
+export declare class NewPlatformAudioRequest extends Message<NewPlatformAudioRequest> {
+  constructor(data?: PartialMessage<NewPlatformAudioRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.NewPlatformAudioRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): NewPlatformAudioRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): NewPlatformAudioRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): NewPlatformAudioRequest;
+
+  static equals(a: NewPlatformAudioRequest | PlainMessage<NewPlatformAudioRequest> | undefined, b: NewPlatformAudioRequest | PlainMessage<NewPlatformAudioRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.NewPlatformAudioResponse
+ */
+export declare class NewPlatformAudioResponse extends Message<NewPlatformAudioResponse> {
+  /**
+   * @generated from oneof livekit.proto.NewPlatformAudioResponse.message
+   */
+  message: {
+    /**
+     * The PlatformAudio handle on success.
+     *
+     * @generated from field: livekit.proto.OwnedPlatformAudio platform_audio = 1;
+     */
+    value: OwnedPlatformAudio;
+    case: "platformAudio";
+  } | {
+    /**
+     * Error message if creation failed.
+     *
+     * @generated from field: string error = 2;
+     */
+    value: string;
+    case: "error";
+  } | { case: undefined; value?: undefined };
+
+  constructor(data?: PartialMessage<NewPlatformAudioResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.NewPlatformAudioResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): NewPlatformAudioResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): NewPlatformAudioResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): NewPlatformAudioResponse;
+
+  static equals(a: NewPlatformAudioResponse | PlainMessage<NewPlatformAudioResponse> | undefined, b: NewPlatformAudioResponse | PlainMessage<NewPlatformAudioResponse> | undefined): boolean;
+}
+
+/**
+ * Get available audio devices.
+ *
+ * Returns lists of available recording (microphone) and playout (speaker) devices.
+ *
+ * @generated from message livekit.proto.GetAudioDevicesRequest
+ */
+export declare class GetAudioDevicesRequest extends Message<GetAudioDevicesRequest> {
+  /**
+   * The PlatformAudio handle.
+   *
+   * @generated from field: required uint64 platform_audio_handle = 1;
+   */
+  platformAudioHandle?: bigint;
+
+  constructor(data?: PartialMessage<GetAudioDevicesRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.GetAudioDevicesRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetAudioDevicesRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetAudioDevicesRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetAudioDevicesRequest;
+
+  static equals(a: GetAudioDevicesRequest | PlainMessage<GetAudioDevicesRequest> | undefined, b: GetAudioDevicesRequest | PlainMessage<GetAudioDevicesRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.GetAudioDevicesResponse
+ */
+export declare class GetAudioDevicesResponse extends Message<GetAudioDevicesResponse> {
+  /**
+   * Available playout devices (speakers/headphones).
+   *
+   * @generated from field: repeated livekit.proto.AudioDeviceInfo playout_devices = 1;
+   */
+  playoutDevices: AudioDeviceInfo[];
+
+  /**
+   * Available recording devices (microphones).
+   *
+   * @generated from field: repeated livekit.proto.AudioDeviceInfo recording_devices = 2;
+   */
+  recordingDevices: AudioDeviceInfo[];
+
+  /**
+   * Error message if enumeration failed, empty/absent on success.
+   *
+   * @generated from field: optional string error = 3;
+   */
+  error?: string;
+
+  constructor(data?: PartialMessage<GetAudioDevicesResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.GetAudioDevicesResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): GetAudioDevicesResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): GetAudioDevicesResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): GetAudioDevicesResponse;
+
+  static equals(a: GetAudioDevicesResponse | PlainMessage<GetAudioDevicesResponse> | undefined, b: GetAudioDevicesResponse | PlainMessage<GetAudioDevicesResponse> | undefined): boolean;
+}
+
+/**
+ * Set the recording device (microphone).
+ *
+ * Call this before creating audio tracks to select which microphone to use.
+ * Device indices are 0-based and must be less than the recording device count.
+ *
+ * @generated from message livekit.proto.SetRecordingDeviceRequest
+ */
+export declare class SetRecordingDeviceRequest extends Message<SetRecordingDeviceRequest> {
+  /**
+   * The PlatformAudio handle.
+   *
+   * @generated from field: required uint64 platform_audio_handle = 1;
+   */
+  platformAudioHandle?: bigint;
+
+  /**
+   * Device index from GetAudioDevicesResponse.recording_devices.
+   *
+   * @generated from field: required uint32 index = 2;
+   */
+  index?: number;
+
+  constructor(data?: PartialMessage<SetRecordingDeviceRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.SetRecordingDeviceRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetRecordingDeviceRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetRecordingDeviceRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetRecordingDeviceRequest;
+
+  static equals(a: SetRecordingDeviceRequest | PlainMessage<SetRecordingDeviceRequest> | undefined, b: SetRecordingDeviceRequest | PlainMessage<SetRecordingDeviceRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.SetRecordingDeviceResponse
+ */
+export declare class SetRecordingDeviceResponse extends Message<SetRecordingDeviceResponse> {
+  /**
+   * Error message if the operation failed:
+   * - "Invalid device index" if index >= recording device count
+   * - Other platform-specific errors
+   * Empty/absent on success.
+   *
+   * @generated from field: optional string error = 1;
+   */
+  error?: string;
+
+  constructor(data?: PartialMessage<SetRecordingDeviceResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.SetRecordingDeviceResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetRecordingDeviceResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetRecordingDeviceResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetRecordingDeviceResponse;
+
+  static equals(a: SetRecordingDeviceResponse | PlainMessage<SetRecordingDeviceResponse> | undefined, b: SetRecordingDeviceResponse | PlainMessage<SetRecordingDeviceResponse> | undefined): boolean;
+}
+
+/**
+ * Set the playout device (speaker/headphones).
+ *
+ * Call this before connecting to select which speaker to use for audio output.
+ * Device indices are 0-based and must be less than the playout device count.
+ *
+ * @generated from message livekit.proto.SetPlayoutDeviceRequest
+ */
+export declare class SetPlayoutDeviceRequest extends Message<SetPlayoutDeviceRequest> {
+  /**
+   * The PlatformAudio handle.
+   *
+   * @generated from field: required uint64 platform_audio_handle = 1;
+   */
+  platformAudioHandle?: bigint;
+
+  /**
+   * Device index from GetAudioDevicesResponse.playout_devices.
+   *
+   * @generated from field: required uint32 index = 2;
+   */
+  index?: number;
+
+  constructor(data?: PartialMessage<SetPlayoutDeviceRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.SetPlayoutDeviceRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetPlayoutDeviceRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetPlayoutDeviceRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetPlayoutDeviceRequest;
+
+  static equals(a: SetPlayoutDeviceRequest | PlainMessage<SetPlayoutDeviceRequest> | undefined, b: SetPlayoutDeviceRequest | PlainMessage<SetPlayoutDeviceRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.SetPlayoutDeviceResponse
+ */
+export declare class SetPlayoutDeviceResponse extends Message<SetPlayoutDeviceResponse> {
+  /**
+   * Error message if the operation failed:
+   * - "Invalid device index" if index >= playout device count
+   * - Other platform-specific errors
+   * Empty/absent on success.
+   *
+   * @generated from field: optional string error = 1;
+   */
+  error?: string;
+
+  constructor(data?: PartialMessage<SetPlayoutDeviceResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.SetPlayoutDeviceResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SetPlayoutDeviceResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SetPlayoutDeviceResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SetPlayoutDeviceResponse;
+
+  static equals(a: SetPlayoutDeviceResponse | PlainMessage<SetPlayoutDeviceResponse> | undefined, b: SetPlayoutDeviceResponse | PlainMessage<SetPlayoutDeviceResponse> | undefined): boolean;
+}
+
+/**
+ * Start recording from the microphone.
+ *
+ * Recording is started automatically when PlatformAudio is created.
+ * Use this to resume recording after calling StopRecording.
+ * This also turns on the system's recording privacy indicator.
+ *
+ * @generated from message livekit.proto.StartRecordingRequest
+ */
+export declare class StartRecordingRequest extends Message<StartRecordingRequest> {
+  /**
+   * The PlatformAudio handle.
+   *
+   * @generated from field: required uint64 platform_audio_handle = 1;
+   */
+  platformAudioHandle?: bigint;
+
+  constructor(data?: PartialMessage<StartRecordingRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.StartRecordingRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StartRecordingRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): StartRecordingRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StartRecordingRequest;
+
+  static equals(a: StartRecordingRequest | PlainMessage<StartRecordingRequest> | undefined, b: StartRecordingRequest | PlainMessage<StartRecordingRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.StartRecordingResponse
+ */
+export declare class StartRecordingResponse extends Message<StartRecordingResponse> {
+  /**
+   * Error message if the operation failed.
+   * Empty/absent on success.
+   *
+   * @generated from field: optional string error = 1;
+   */
+  error?: string;
+
+  constructor(data?: PartialMessage<StartRecordingResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.StartRecordingResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StartRecordingResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): StartRecordingResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StartRecordingResponse;
+
+  static equals(a: StartRecordingResponse | PlainMessage<StartRecordingResponse> | undefined, b: StartRecordingResponse | PlainMessage<StartRecordingResponse> | undefined): boolean;
+}
+
+/**
+ * Stop recording from the microphone.
+ *
+ * Use this to temporarily stop recording without disposing PlatformAudio.
+ * This will turn off the system's recording privacy indicator (e.g., on macOS/iOS).
+ * Call StartRecording to resume recording.
+ *
+ * @generated from message livekit.proto.StopRecordingRequest
+ */
+export declare class StopRecordingRequest extends Message<StopRecordingRequest> {
+  /**
+   * The PlatformAudio handle.
+   *
+   * @generated from field: required uint64 platform_audio_handle = 1;
+   */
+  platformAudioHandle?: bigint;
+
+  constructor(data?: PartialMessage<StopRecordingRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.StopRecordingRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StopRecordingRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): StopRecordingRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StopRecordingRequest;
+
+  static equals(a: StopRecordingRequest | PlainMessage<StopRecordingRequest> | undefined, b: StopRecordingRequest | PlainMessage<StopRecordingRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.StopRecordingResponse
+ */
+export declare class StopRecordingResponse extends Message<StopRecordingResponse> {
+  /**
+   * Error message if the operation failed.
+   * Empty/absent on success.
+   *
+   * @generated from field: optional string error = 1;
+   */
+  error?: string;
+
+  constructor(data?: PartialMessage<StopRecordingResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.StopRecordingResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): StopRecordingResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): StopRecordingResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): StopRecordingResponse;
+
+  static equals(a: StopRecordingResponse | PlainMessage<StopRecordingResponse> | undefined, b: StopRecordingResponse | PlainMessage<StopRecordingResponse> | undefined): boolean;
 }
 

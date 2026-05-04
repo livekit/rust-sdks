@@ -31,7 +31,9 @@
 #include "api/task_queue/default_task_queue_factory.h"
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
-#include "livekit/audio_device.h"
+#include "api/audio/audio_device.h"
+#include "api/audio_options.h"
+#include "livekit/adm_proxy.h"
 #include "livekit/audio_track.h"
 #include "livekit/peer_connection.h"
 #include "livekit/rtc_error.h"
@@ -51,22 +53,20 @@ PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
     : rtc_runtime_(rtc_runtime),
     env_(webrtc::EnvironmentFactory().Create()) {
-  RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::PeerConnectionFactory()";
-
   webrtc::PeerConnectionFactoryDependencies dependencies;
   dependencies.network_thread = rtc_runtime_->network_thread();
   dependencies.worker_thread = rtc_runtime_->worker_thread();
   dependencies.signaling_thread = rtc_runtime_->signaling_thread();
   dependencies.socket_factory = rtc_runtime_->network_thread()->socketserver();
   dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
-  // TODO:
-  // dependencies.trials = std::make_unique<webrtc::FieldTrialBasedConfig>();
 
-  audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
-    return webrtc::make_ref_counted<livekit_ffi::AudioDevice>(env_);
+  // Create AdmProxy - it creates and initializes Platform ADM internally
+  adm_proxy_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
+    return webrtc::make_ref_counted<livekit_ffi::AdmProxy>(
+        env_, rtc_runtime_->worker_thread());
   });
 
-  dependencies.adm = audio_device_;
+  dependencies.adm = adm_proxy_;
 
   dependencies.video_encoder_factory =
       std::move(std::make_unique<livekit_ffi::VideoEncoderFactory>());
@@ -91,7 +91,7 @@ PeerConnectionFactory::~PeerConnectionFactory() {
 
   peer_factory_ = nullptr;
   rtc_runtime_->worker_thread()->BlockingCall(
-      [this] { audio_device_ = nullptr; });
+      [this] { adm_proxy_ = nullptr; });
 }
 
 std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
@@ -124,6 +124,27 @@ std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
           peer_factory_->CreateAudioTrack(label.c_str(), source->get().get())));
 }
 
+std::shared_ptr<AudioTrack> PeerConnectionFactory::create_device_audio_track(
+    rust::String label) const {
+  // Create an audio source that uses the ADM for capture
+  webrtc::AudioOptions audio_options;
+  audio_options.echo_cancellation = true;
+  audio_options.auto_gain_control = true;
+  audio_options.noise_suppression = true;
+
+  webrtc::scoped_refptr<webrtc::AudioSourceInterface> audio_source =
+      peer_factory_->CreateAudioSource(audio_options);
+
+  if (!audio_source) {
+    RTC_LOG(LS_ERROR) << "Failed to create device audio source";
+    return nullptr;
+  }
+
+  return std::static_pointer_cast<AudioTrack>(
+      rtc_runtime_->get_or_create_media_stream_track(
+          peer_factory_->CreateAudioTrack(label.c_str(), audio_source.get())));
+}
+
 RtpCapabilities PeerConnectionFactory::rtp_sender_capabilities(
     MediaType type) const {
   return to_rust_rtp_capabilities(peer_factory_->GetRtpSenderCapabilities(
@@ -134,6 +155,102 @@ RtpCapabilities PeerConnectionFactory::rtp_receiver_capabilities(
     MediaType type) const {
   return to_rust_rtp_capabilities(peer_factory_->GetRtpReceiverCapabilities(
       static_cast<webrtc::MediaType>(type)));
+}
+
+// Device enumeration and management
+
+int16_t PeerConnectionFactory::playout_devices() const {
+  return adm_proxy_->PlayoutDevices();
+}
+
+int16_t PeerConnectionFactory::recording_devices() const {
+  return adm_proxy_->RecordingDevices();
+}
+
+rust::String PeerConnectionFactory::playout_device_name(uint16_t index) const {
+  char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+  char guid[webrtc::kAdmMaxGuidSize] = {0};
+  adm_proxy_->PlayoutDeviceName(index, name, guid);
+  return rust::String(name);
+}
+
+rust::String PeerConnectionFactory::recording_device_name(uint16_t index) const {
+  char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+  char guid[webrtc::kAdmMaxGuidSize] = {0};
+  adm_proxy_->RecordingDeviceName(index, name, guid);
+  return rust::String(name);
+}
+
+int32_t PeerConnectionFactory::set_playout_device(uint16_t index) const {
+  return adm_proxy_->SetPlayoutDevice(index);
+}
+
+int32_t PeerConnectionFactory::set_recording_device(uint16_t index) const {
+  return adm_proxy_->SetRecordingDevice(index);
+}
+
+int32_t PeerConnectionFactory::stop_recording() const {
+  return adm_proxy_->StopRecording();
+}
+
+int32_t PeerConnectionFactory::init_recording() const {
+  return adm_proxy_->InitRecording();
+}
+
+int32_t PeerConnectionFactory::start_recording() const {
+  return adm_proxy_->StartRecording();
+}
+
+bool PeerConnectionFactory::recording_is_initialized() const {
+  return adm_proxy_->RecordingIsInitialized();
+}
+
+int32_t PeerConnectionFactory::stop_playout() const {
+  return adm_proxy_->StopPlayout();
+}
+
+int32_t PeerConnectionFactory::init_playout() const {
+  return adm_proxy_->InitPlayout();
+}
+
+int32_t PeerConnectionFactory::start_playout() const {
+  return adm_proxy_->StartPlayout();
+}
+
+bool PeerConnectionFactory::playout_is_initialized() const {
+  return adm_proxy_->PlayoutIsInitialized();
+}
+
+bool PeerConnectionFactory::builtin_aec_is_available() const {
+  return adm_proxy_->BuiltInAECIsAvailable();
+}
+
+bool PeerConnectionFactory::builtin_agc_is_available() const {
+  return adm_proxy_->BuiltInAGCIsAvailable();
+}
+
+bool PeerConnectionFactory::builtin_ns_is_available() const {
+  return adm_proxy_->BuiltInNSIsAvailable();
+}
+
+int32_t PeerConnectionFactory::enable_builtin_aec(bool enable) const {
+  return adm_proxy_->EnableBuiltInAEC(enable);
+}
+
+int32_t PeerConnectionFactory::enable_builtin_agc(bool enable) const {
+  return adm_proxy_->EnableBuiltInAGC(enable);
+}
+
+int32_t PeerConnectionFactory::enable_builtin_ns(bool enable) const {
+  return adm_proxy_->EnableBuiltInNS(enable);
+}
+
+void PeerConnectionFactory::set_adm_recording_enabled(bool enabled) const {
+  adm_proxy_->set_recording_enabled(enabled);
+}
+
+bool PeerConnectionFactory::adm_recording_enabled() const {
+  return adm_proxy_->recording_enabled();
 }
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {

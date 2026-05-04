@@ -21,6 +21,9 @@ use lazy_static::lazy_static;
 use libwebrtc::prelude::*;
 use parking_lot::Mutex;
 
+#[cfg(not(target_arch = "wasm32"))]
+use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+
 lazy_static! {
     static ref LK_RUNTIME: Mutex<Weak<LkRuntime>> = Mutex::new(Weak::new());
 }
@@ -50,6 +53,146 @@ impl LkRuntime {
 
     pub fn pc_factory(&self) -> &PeerConnectionFactory {
         &self.pc_factory
+    }
+
+    // ===== Device Management Methods =====
+
+    /// Get the number of playout (output) devices
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn playout_devices(&self) -> i16 {
+        self.pc_factory.playout_devices()
+    }
+
+    /// Get the number of recording (input) devices
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn recording_devices(&self) -> i16 {
+        self.pc_factory.recording_devices()
+    }
+
+    /// Get the name of a playout device by index
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn playout_device_name(&self, index: u16) -> String {
+        self.pc_factory.playout_device_name(index)
+    }
+
+    /// Get the name of a recording device by index
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn recording_device_name(&self, index: u16) -> String {
+        self.pc_factory.recording_device_name(index)
+    }
+
+    /// Set the playout device by index
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_playout_device(&self, index: u16) -> i32 {
+        self.pc_factory.set_playout_device(index)
+    }
+
+    /// Set the recording device by index
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_recording_device(&self, index: u16) -> i32 {
+        self.pc_factory.set_recording_device(index)
+    }
+
+    /// Stop recording (clears initialized state, allowing device switch)
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn stop_recording(&self) -> i32 {
+        self.pc_factory.stop_recording()
+    }
+
+    /// Initialize recording
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn init_recording(&self) -> i32 {
+        self.pc_factory.init_recording()
+    }
+
+    /// Start recording
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn start_recording(&self) -> i32 {
+        self.pc_factory.start_recording()
+    }
+
+    /// Check if recording is initialized
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn recording_is_initialized(&self) -> bool {
+        self.pc_factory.recording_is_initialized()
+    }
+
+    /// Stop playout (clears initialized state, allowing device switch)
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn stop_playout(&self) -> i32 {
+        self.pc_factory.stop_playout()
+    }
+
+    /// Initialize playout
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn init_playout(&self) -> i32 {
+        self.pc_factory.init_playout()
+    }
+
+    /// Start playout
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn start_playout(&self) -> i32 {
+        self.pc_factory.start_playout()
+    }
+
+    /// Check if playout is initialized
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn playout_is_initialized(&self) -> bool {
+        self.pc_factory.playout_is_initialized()
+    }
+
+    // ===== Built-in Audio Processing Methods =====
+
+    /// Check if built-in (hardware) AEC is available
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn builtin_aec_is_available(&self) -> bool {
+        self.pc_factory.builtin_aec_is_available()
+    }
+
+    /// Check if built-in (hardware) AGC is available
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn builtin_agc_is_available(&self) -> bool {
+        self.pc_factory.builtin_agc_is_available()
+    }
+
+    /// Check if built-in (hardware) NS is available
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn builtin_ns_is_available(&self) -> bool {
+        self.pc_factory.builtin_ns_is_available()
+    }
+
+    /// Enable or disable built-in (hardware) AEC
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn enable_builtin_aec(&self, enable: bool) -> i32 {
+        self.pc_factory.enable_builtin_aec(enable)
+    }
+
+    /// Enable or disable built-in (hardware) AGC
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn enable_builtin_agc(&self, enable: bool) -> i32 {
+        self.pc_factory.enable_builtin_agc(enable)
+    }
+
+    /// Enable or disable built-in (hardware) NS
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn enable_builtin_ns(&self, enable: bool) -> i32 {
+        self.pc_factory.enable_builtin_ns(enable)
+    }
+
+    /// Control whether ADM recording (microphone) is enabled.
+    ///
+    /// When disabled, WebRTC's calls to InitRecording/StartRecording will be no-ops.
+    /// Use this when only using NativeAudioSource (no microphone capture needed).
+    /// This prevents the microphone from interfering with the audio pipeline.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn set_adm_recording_enabled(&self, enabled: bool) {
+        self.pc_factory.set_adm_recording_enabled(enabled)
+    }
+
+    /// Check if ADM recording (microphone) is enabled.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn adm_recording_enabled(&self) -> bool {
+        self.pc_factory.adm_recording_enabled()
     }
 }
 
