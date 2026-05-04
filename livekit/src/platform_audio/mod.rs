@@ -623,6 +623,113 @@ impl PlatformAudio {
     }
 
     // =========================================================================
+    // Recording Control
+    // =========================================================================
+
+    /// Starts recording from the microphone.
+    ///
+    /// Recording is automatically started when a track using `RtcAudioSource::Device`
+    /// is published. Use this method to resume recording after calling [`stop_recording`].
+    ///
+    /// This method turns on the system's recording privacy indicator (e.g., the orange
+    /// dot on iOS, or the microphone icon on macOS).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::OperationFailed`] if recording could not be started.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// audio.start_recording()?;  // Resume recording after stop
+    /// ```
+    ///
+    /// [`stop_recording`]: Self::stop_recording
+    pub fn start_recording(&self) -> AudioResult<()> {
+        let runtime = &self.handle.runtime;
+
+        // Initialize recording if not already initialized
+        if !runtime.recording_is_initialized() {
+            let init_result = runtime.init_recording();
+            if init_result != 0 {
+                return Err(AudioError::OperationFailed(format!(
+                    "init_recording returned {}",
+                    init_result
+                )));
+            }
+        }
+
+        let result = runtime.start_recording();
+        if result == 0 {
+            log::info!("PlatformAudio: started recording");
+            Ok(())
+        } else {
+            Err(AudioError::OperationFailed(format!(
+                "start_recording returned {}",
+                result
+            )))
+        }
+    }
+
+    /// Stops recording from the microphone.
+    ///
+    /// Use this method to temporarily stop recording without disposing `PlatformAudio`.
+    /// This turns off the system's recording privacy indicator (e.g., the orange
+    /// dot on iOS, or the microphone icon on macOS).
+    ///
+    /// Call [`start_recording`] to resume recording.
+    ///
+    /// # Note
+    ///
+    /// When recording is stopped, any published audio tracks using `RtcAudioSource::Device`
+    /// will send silence. You should typically unpublish the track before stopping recording.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AudioError::OperationFailed`] if recording could not be stopped.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// // ... publish microphone track ...
+    ///
+    /// // Mute: stop recording to turn off privacy indicator
+    /// room.local_participant().unpublish_track(track, false).await?;
+    /// audio.stop_recording()?;
+    ///
+    /// // Unmute: start recording and republish
+    /// audio.start_recording()?;
+    /// room.local_participant().publish_track(new_track, opts).await?;
+    /// ```
+    ///
+    /// [`start_recording`]: Self::start_recording
+    pub fn stop_recording(&self) -> AudioResult<()> {
+        let runtime = &self.handle.runtime;
+        let result = runtime.stop_recording();
+        if result == 0 {
+            log::info!("PlatformAudio: stopped recording");
+            Ok(())
+        } else {
+            Err(AudioError::OperationFailed(format!(
+                "stop_recording returned {}",
+                result
+            )))
+        }
+    }
+
+    /// Returns whether recording is currently initialized.
+    ///
+    /// Recording is initialized when [`start_recording`] is called or when
+    /// a track using `RtcAudioSource::Device` is published.
+    ///
+    /// [`start_recording`]: Self::start_recording
+    pub fn is_recording_initialized(&self) -> bool {
+        self.handle.runtime.recording_is_initialized()
+    }
+
+    // =========================================================================
     // Lifecycle Management
     // =========================================================================
 

@@ -15,6 +15,7 @@ use tokio::signal;
 //   cargo run -p basic_room -- --platform-audio                       # Publish microphone using PlatformAudio
 //   cargo run -p basic_room -- --platform-audio-and-file <path.wav>   # Publish both mic + WAV file
 //   cargo run -p basic_room -- --file <path.wav>                      # Publish just WAV file (no mic)
+//   cargo run -p basic_room -- --room <room-name>                     # Specify room name (default: my-room)
 //   cargo run -p basic_room                                           # Connect without audio publishing
 
 #[tokio::main]
@@ -38,6 +39,14 @@ async fn main() {
         .position(|arg| arg == "--file")
         .and_then(|i| args.get(i + 1))
         .map(|s| s.clone());
+
+    // Check for --room <name> (default: my-room)
+    let room_name = args
+        .iter()
+        .position(|arg| arg == "--room")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.clone())
+        .unwrap_or_else(|| "my-room".to_string());
 
     let use_platform_audio_and_file = platform_audio_and_file_path.is_some();
     let file_path = platform_audio_and_file_path.or(file_only_path.clone());
@@ -159,11 +168,13 @@ async fn main() {
         .with_name("Rust Bot")
         .with_grants(access_token::VideoGrants {
             room_join: true,
-            room: "my-room".to_string(),
+            room: room_name.clone(),
             ..Default::default()
         })
         .to_jwt()
         .unwrap();
+
+    log::info!("Joining room: {}", room_name);
 
     let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default()).await.unwrap();
     log::info!("Connected to room: {}", room.name());

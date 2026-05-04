@@ -1372,6 +1372,8 @@ pub fn handle_request(
         Request::GetAudioDevices(req) => on_get_audio_devices(server, req)?.into(),
         Request::SetRecordingDevice(req) => on_set_recording_device(server, req)?.into(),
         Request::SetPlayoutDevice(req) => on_set_playout_device(server, req)?.into(),
+        Request::StartRecording(req) => on_start_recording(server, req)?.into(),
+        Request::StopRecording(req) => on_stop_recording(server, req)?.into(),
     });
 
     Ok(res)
@@ -1463,6 +1465,30 @@ fn on_set_playout_device(
     match ffi_audio.audio.set_playout_device(req.index as u16) {
         Ok(()) => Ok(proto::SetPlayoutDeviceResponse { error: None }),
         Err(e) => Ok(proto::SetPlayoutDeviceResponse { error: Some(e.to_string()) }),
+    }
+}
+
+fn on_start_recording(
+    server: &'static FfiServer,
+    req: proto::StartRecordingRequest,
+) -> FfiResult<proto::StartRecordingResponse> {
+    let ffi_audio = server.retrieve_handle::<FfiPlatformAudio>(req.platform_audio_handle)?;
+
+    match ffi_audio.audio.start_recording() {
+        Ok(()) => Ok(proto::StartRecordingResponse { error: None }),
+        Err(e) => Ok(proto::StartRecordingResponse { error: Some(e.to_string()) }),
+    }
+}
+
+fn on_stop_recording(
+    server: &'static FfiServer,
+    req: proto::StopRecordingRequest,
+) -> FfiResult<proto::StopRecordingResponse> {
+    let ffi_audio = server.retrieve_handle::<FfiPlatformAudio>(req.platform_audio_handle)?;
+
+    match ffi_audio.audio.stop_recording() {
+        Ok(()) => Ok(proto::StopRecordingResponse { error: None }),
+        Err(e) => Ok(proto::StopRecordingResponse { error: Some(e.to_string()) }),
     }
 }
 

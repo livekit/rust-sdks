@@ -464,3 +464,35 @@ message SetPlayoutDeviceResponse {
   // Empty/absent on success.
   optional string error = 1;
 }
+
+// Start recording from the microphone.
+//
+// Recording is started automatically when PlatformAudio is created.
+// Use this to resume recording after calling StopRecording.
+// This also turns on the system's recording privacy indicator.
+message StartRecordingRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+}
+
+message StartRecordingResponse {
+  // Error message if the operation failed.
+  // Empty/absent on success.
+  optional string error = 1;
+}
+
+// Stop recording from the microphone.
+//
+// Use this to temporarily stop recording without disposing PlatformAudio.
+// This will turn off the system's recording privacy indicator (e.g., on macOS/iOS).
+// Call StartRecording to resume recording.
+message StopRecordingRequest {
+  // The PlatformAudio handle.
+  required uint64 platform_audio_handle = 1;
+}
+
+message StopRecordingResponse {
+  // Error message if the operation failed.
+  // Empty/absent on success.
+  optional string error = 1;
+}
