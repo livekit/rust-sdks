@@ -85,7 +85,7 @@ eframe = { version = "0.33.3", default-features = false }
 egui = "0.33.3"
 egui-wgpu = "0.33.3"
 image = "0.25"
-wgpu = "28.0"
+wgpu = "29.0"
 winit = "0.30.12"
 
 [profile.release]
