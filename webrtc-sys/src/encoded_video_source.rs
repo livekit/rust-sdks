@@ -37,6 +37,7 @@ pub mod ffi {
             codec: EncodedVideoCodecType,
             width: u32,
             height: u32,
+            is_screencast: bool,
         ) -> SharedPtr<EncodedVideoTrackSource>;
 
         fn source_id(self: &EncodedVideoTrackSource) -> u16;

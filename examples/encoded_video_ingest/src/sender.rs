@@ -44,7 +44,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use libwebrtc::video_source::{EncodedFrameInfo, RtcVideoSource, VideoCodec, VideoResolution};
 use livekit::{
@@ -635,8 +635,11 @@ async fn main() -> Result<()> {
     let room = Arc::new(room);
     info!("Connected: {} (sid {})", room.name(), room.sid().await);
 
+    if args.width == 0 || args.height == 0 {
+        bail!("encoded video width and height must be non-zero");
+    }
     let resolution = VideoResolution { width: args.width, height: args.height };
-    let source = NativeEncodedVideoSource::new(args.codec.webrtc_codec(), resolution);
+    let source = NativeEncodedVideoSource::new(args.codec.webrtc_codec(), resolution, false);
     let target_bitrate_bps = Arc::new(AtomicU64::new(0));
     source.set_observer(Arc::new(LoggingObserver::new(target_bitrate_bps.clone())));
     info!(
@@ -773,8 +776,7 @@ async fn main() -> Result<()> {
                 let info = EncodedFrameInfo {
                     is_keyframe,
                     has_sps_pps: false, // the source scans+prepends SPS/PPS as needed
-                    width: args.width,
-                    height: args.height,
+                    resolution,
                     capture_time_us: 0,
                 };
                 if source.capture_frame(&au, &info) {

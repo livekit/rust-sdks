@@ -162,10 +162,12 @@ EncodedVideoTrackSource::InternalSource::InternalSource(
     uint16_t source_id,
     EncodedVideoCodecType codec,
     uint32_t width,
-    uint32_t height)
+    uint32_t height,
+    bool is_screencast)
     : webrtc::AdaptedVideoTrackSource(/*required_alignment=*/1),
       source_id_(source_id),
       codec_(codec),
+      is_screencast_(is_screencast),
       width_(width),
       height_(height) {}
 
@@ -345,9 +347,11 @@ void EncodedVideoTrackSource::InternalSource::set_observer(
 
 EncodedVideoTrackSource::EncodedVideoTrackSource(EncodedVideoCodecType codec,
                                                  uint32_t width,
-                                                 uint32_t height) {
+                                                 uint32_t height,
+                                                 bool is_screencast) {
   uint16_t id = EncodedSourceRegistry::instance().allocate_id();
-  source_ = webrtc::make_ref_counted<InternalSource>(id, codec, width, height);
+  source_ = webrtc::make_ref_counted<InternalSource>(id, codec, width, height,
+                                                     is_screencast);
   EncodedSourceRegistry::instance().register_source(id, this);
   RTC_LOG(LS_INFO) << "EncodedVideoTrackSource created id=" << id
                    << " codec=" << static_cast<int>(codec) << " " << width
@@ -379,8 +383,10 @@ void EncodedVideoTrackSource::set_observer(
 std::shared_ptr<EncodedVideoTrackSource> new_encoded_video_track_source(
     EncodedVideoCodecType codec,
     uint32_t width,
-    uint32_t height) {
-  return std::make_shared<EncodedVideoTrackSource>(codec, width, height);
+    uint32_t height,
+    bool is_screencast) {
+  return std::make_shared<EncodedVideoTrackSource>(codec, width, height,
+                                                  is_screencast);
 }
 
 }  // namespace livekit_ffi
