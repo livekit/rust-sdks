@@ -77,10 +77,11 @@ class EncodedVideoTrackSource {
     InternalSource(uint16_t source_id,
                    EncodedVideoCodecType codec,
                    uint32_t width,
-                   uint32_t height);
+                   uint32_t height,
+                   bool is_screencast);
     ~InternalSource() override;
 
-    bool is_screencast() const override { return false; }
+    bool is_screencast() const override { return is_screencast_; }
     std::optional<bool> needs_denoising() const override { return std::nullopt; }
     SourceState state() const override { return kLive; }
     bool remote() const override { return false; }
@@ -118,6 +119,7 @@ class EncodedVideoTrackSource {
    private:
     const uint16_t source_id_;
     const EncodedVideoCodecType codec_;
+    const bool is_screencast_;
 
     mutable webrtc::Mutex mutex_;
     std::deque<DequeuedFrame> queue_;
@@ -139,7 +141,8 @@ class EncodedVideoTrackSource {
 
   EncodedVideoTrackSource(EncodedVideoCodecType codec,
                           uint32_t width,
-                          uint32_t height);
+                          uint32_t height,
+                          bool is_screencast);
   ~EncodedVideoTrackSource();
 
   uint16_t source_id() const { return source_->source_id(); }
@@ -163,6 +166,7 @@ class EncodedVideoTrackSource {
 std::shared_ptr<EncodedVideoTrackSource> new_encoded_video_track_source(
     EncodedVideoCodecType codec,
     uint32_t width,
-    uint32_t height);
+    uint32_t height,
+    bool is_screencast);
 
 }  // namespace livekit_ffi

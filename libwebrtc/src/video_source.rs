@@ -14,7 +14,7 @@
 
 use crate::{enum_dispatch, imp::video_source as vs_imp};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct VideoResolution {
     pub width: u32,
     pub height: u32,
@@ -46,15 +46,20 @@ pub struct EncodedFrameInfo {
     /// True when the `data` buffer already has SPS/PPS (or equivalent)
     /// prepended. H.264/H.265 only; ignored for other codecs.
     pub has_sps_pps: bool,
-    pub width: u32,
-    pub height: u32,
+    /// Resolution carried by this frame. `0x0` keeps the source's current resolution.
+    pub resolution: VideoResolution,
     /// Capture timestamp in microseconds. `0` lets the source stamp `now`.
     pub capture_time_us: i64,
 }
 
 impl Default for EncodedFrameInfo {
     fn default() -> Self {
-        Self { is_keyframe: false, has_sps_pps: false, width: 0, height: 0, capture_time_us: 0 }
+        Self {
+            is_keyframe: false,
+            has_sps_pps: false,
+            resolution: VideoResolution { width: 0, height: 0 },
+            capture_time_us: 0,
+        }
     }
 }
 

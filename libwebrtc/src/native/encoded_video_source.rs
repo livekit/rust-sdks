@@ -89,11 +89,12 @@ impl Debug for NativeEncodedVideoSource {
 }
 
 impl NativeEncodedVideoSource {
-    pub fn new(codec: VideoCodec, resolution: VideoResolution) -> Self {
+    pub fn new(codec: VideoCodec, resolution: VideoResolution, is_screencast: bool) -> Self {
         let sys_handle = sys_evs::ffi::new_encoded_video_track_source(
             codec.into(),
             resolution.width,
             resolution.height,
+            is_screencast,
         );
         Self { sys_handle, inner: Arc::new(Inner { resolution: Mutex::new(resolution) }) }
     }
@@ -118,9 +119,8 @@ impl NativeEncodedVideoSource {
     pub fn capture_frame(&self, data: &[u8], info: &EncodedFrameInfo) -> bool {
         {
             let mut res = self.inner.resolution.lock();
-            if info.width != 0 && info.height != 0 {
-                res.width = info.width;
-                res.height = info.height;
+            if info.resolution.width != 0 && info.resolution.height != 0 {
+                *res = info.resolution;
             }
         }
 
@@ -128,8 +128,8 @@ impl NativeEncodedVideoSource {
             data,
             info.is_keyframe,
             info.has_sps_pps,
-            info.width,
-            info.height,
+            info.resolution.width,
+            info.resolution.height,
             info.capture_time_us,
         )
     }
@@ -173,6 +173,7 @@ mod tests {
         let source = NativeEncodedVideoSource::new(
             VideoCodec::Av1,
             VideoResolution { width: 640, height: 360 },
+            false,
         );
 
         assert_ne!(source.source_id(), 0);
@@ -182,8 +183,7 @@ mod tests {
 
         let info = EncodedFrameInfo {
             is_keyframe: true,
-            width: 1280,
-            height: 720,
+            resolution: VideoResolution { width: 1280, height: 720 },
             capture_time_us: 123_456,
             ..Default::default()
         };
@@ -198,10 +198,11 @@ mod tests {
         let source = NativeEncodedVideoSource::new(
             VideoCodec::H264,
             VideoResolution { width: 640, height: 360 },
+            false,
         );
-        let keyframe =
-            EncodedFrameInfo { is_keyframe: true, width: 640, height: 360, ..Default::default() };
-        let delta = EncodedFrameInfo { width: 640, height: 360, ..Default::default() };
+        let resolution = VideoResolution { width: 640, height: 360 };
+        let keyframe = EncodedFrameInfo { is_keyframe: true, resolution, ..Default::default() };
+        let delta = EncodedFrameInfo { resolution, ..Default::default() };
 
         assert!(source.capture_frame(&[0, 0, 0, 1, 0x65], &keyframe));
         for _ in 0..7 {

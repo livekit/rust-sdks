@@ -125,7 +125,8 @@ impl FfiVideoSource {
                     width: new_source.resolution.width,
                     height: new_source.resolution.height,
                 };
-                let source = NativeEncodedVideoSource::new(codec, resolution);
+                let is_screencast = new_source.is_screencast.unwrap_or(false);
+                let source = NativeEncodedVideoSource::new(codec, resolution, is_screencast);
 
                 source.set_observer(Arc::new(EncodedObserverBridge {
                     server,
@@ -205,13 +206,15 @@ impl FfiVideoSource {
         match self.source {
             #[cfg(not(target_arch = "wasm32"))]
             RtcVideoSource::Encoded(ref source) => {
-                use livekit::webrtc::video_source::EncodedFrameInfo;
+                use livekit::webrtc::video_source::{EncodedFrameInfo, VideoResolution};
 
                 let info = EncodedFrameInfo {
                     is_keyframe: capture.is_keyframe,
                     has_sps_pps: capture.has_sps_pps.unwrap_or(false),
-                    width: capture.width.unwrap_or(0),
-                    height: capture.height.unwrap_or(0),
+                    resolution: VideoResolution {
+                        width: capture.width.unwrap_or(0),
+                        height: capture.height.unwrap_or(0),
+                    },
                     capture_time_us: capture.capture_time_us.unwrap_or(0),
                 };
                 let accepted = source.capture_frame(&capture.data, &info);
