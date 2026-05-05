@@ -16,7 +16,8 @@ use super::{FfiHandle, FfiServer};
 use crate::{proto, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
 use livekit::data_track::{
-    DataTrackFrame, DataTrackStream, DataTrackSubscribeOptions, LocalDataTrack, RemoteDataTrack,
+    DataTrackFrame, DataTrackStream, DataTrackSubscribeError, DataTrackSubscribeOptions,
+    LocalDataTrack, RemoteDataTrack,
 };
 use std::sync::Arc;
 use tokio::sync::{oneshot, Notify};
@@ -176,7 +177,7 @@ impl SubscriptionTask {
             result = track.subscribe_with_options(options) => match result {
                 Ok(stream) => Some(stream),
                 Err(err) => {
-                    self.send_eos(Some(err.to_string()));
+                    self.send_eos(Some(err));
                     None
                 }
             },
@@ -198,7 +199,8 @@ impl SubscriptionTask {
         let _ = self.server.send_event(event.into());
     }
 
-    fn send_eos(&self, error: Option<String>) {
+    fn send_eos(&self, error: Option<DataTrackSubscribeError>) {
+        let error: Option<proto::SubscribeDataTrackError> = error.map(|err| err.into());
         let event = proto::DataTrackStreamEvent {
             stream_handle: self.handle_id,
             detail: Some(proto::DataTrackStreamEos { error }.into()),
