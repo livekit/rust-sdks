@@ -54,6 +54,10 @@ const REGION_FETCH_TIMEOUT: Duration = Duration::from_secs(3);
 const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROTOCOL_VERSION: u32 = 17;
 
+/// Capabilities the Rust SDK advertises to the SFU at connect time.
+const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
+    &[proto::client_info::Capability::CapPacketTrailer];
+
 #[derive(Error, Debug)]
 pub enum SignalError {
     #[error("ws failure: {0}")]
@@ -580,6 +584,7 @@ fn create_join_request_param(
         os,
         os_version,
         device_model,
+        capabilities: CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect(),
         ..Default::default()
     };
 
@@ -681,6 +686,13 @@ fn get_livekit_url(
 
         if let Some(sdk_version) = &options.sdk_options.sdk_version {
             lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
+        }
+
+        // parse client capabilities
+        if !CLIENT_CAPABILITIES.is_empty() {
+            let caps =
+                CLIENT_CAPABILITIES.iter().map(|c| c.as_str_name()).collect::<Vec<_>>().join(",");
+            lk_url.query_pairs_mut().append_pair("capabilities", &caps);
         }
 
         // For reconnects in v0 path, add reconnect and sid as separate query parameters
@@ -800,6 +812,24 @@ mod tests {
         // Should be /rtc/validate, not /rtc/rtc/validate
         assert_eq!(validate_url.path(), "/rtc/validate");
         assert_eq!(validate_url.scheme(), "https");
+    }
+
+    #[test]
+    fn livekit_url_includes_client_capabilities() {
+        let io = SignalOptions::default();
+        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap();
+
+        let capabilities = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "capabilities").then(|| value.into_owned()))
+            .unwrap();
+        let expected = CLIENT_CAPABILITIES
+            .iter()
+            .map(|capability| capability.as_str_name())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        assert_eq!(capabilities, expected);
     }
 
     /// Regression test for https://github.com/livekit/rust-sdks/issues/1042.
