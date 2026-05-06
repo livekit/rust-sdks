@@ -42,16 +42,48 @@ struct LkArgusSession {
     int dmabuf_write_idx;  // next buffer to blit into
     int width;
     int height;
+    bool metadata_enabled;
 };
 
 static const uint64_t kAcquireTimeoutNs = 1000000000ULL; // 1 second
 
-static bool read_sensor_timestamp_ns(LkArgusSession* s, uint64_t* sensor_timestamp_ns) {
-    if (!s || !sensor_timestamp_ns) return false;
+enum class SensorTimestampStatus {
+    Available,
+    InvalidArgs,
+    NoOutputStream,
+    MetadataCreateFailed,
+    NoCaptureMetadata,
+    ZeroTimestamp,
+};
+
+static const char* sensor_timestamp_status_name(SensorTimestampStatus status) {
+    switch (status) {
+        case SensorTimestampStatus::Available:
+            return "available";
+        case SensorTimestampStatus::InvalidArgs:
+            return "invalid args";
+        case SensorTimestampStatus::NoOutputStream:
+            return "no EGL output stream";
+        case SensorTimestampStatus::MetadataCreateFailed:
+            return "metadata container create failed";
+        case SensorTimestampStatus::NoCaptureMetadata:
+            return "no capture metadata interface";
+        case SensorTimestampStatus::ZeroTimestamp:
+            return "zero sensor timestamp";
+    }
+    return "unknown";
+}
+
+static SensorTimestampStatus read_sensor_timestamp_ns(
+        LkArgusSession* s,
+        uint64_t* sensor_timestamp_ns,
+        Argus::Status* metadata_status) {
+    if (metadata_status) *metadata_status = Argus::STATUS_OK;
+    if (!s || !sensor_timestamp_ns) return SensorTimestampStatus::InvalidArgs;
     *sensor_timestamp_ns = 0;
 
     auto* i_stream = Argus::interface_cast<Argus::IEGLOutputStream>(s->stream);
-    if (!i_stream) return false;
+    if (!i_stream) return SensorTimestampStatus::NoOutputStream;
 
     Argus::Status status;
     EGLStream::MetadataContainer* metadata = EGLStream::MetadataContainer::create(
@@ -59,19 +91,23 @@ static bool read_sensor_timestamp_ns(LkArgusSession* s, uint64_t* sensor_timesta
         i_stream->getEGLStream(),
         EGLStream::MetadataContainer::CONSUMER,
         &status);
+    if (metadata_status) *metadata_status = status;
     if (status != Argus::STATUS_OK || !metadata) {
-        return false;
+        return SensorTimestampStatus::MetadataCreateFailed;
     }
 
     auto* i_metadata = Argus::interface_cast<Argus::ICaptureMetadata>(metadata);
     if (!i_metadata) {
         metadata->destroy();
-        return false;
+        return SensorTimestampStatus::NoCaptureMetadata;
     }
 
     *sensor_timestamp_ns = i_metadata->getSensorTimestamp();
     metadata->destroy();
-    return true;
+    if (*sensor_timestamp_ns == 0) {
+        return SensorTimestampStatus::ZeroTimestamp;
+    }
+    return SensorTimestampStatus::Available;
 }
 
 extern "C" {
@@ -85,6 +121,7 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
     s->dmabuf_write_idx = 0;
     s->width = width;
     s->height = height;
+    s->metadata_enabled = false;
 
     // Create CameraProvider
     s->provider = Argus::UniqueObj<Argus::CameraProvider>(
@@ -130,7 +167,14 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
     }
     i_stream_settings->setPixelFormat(Argus::PIXEL_FMT_YCbCr_420_888);
     i_stream_settings->setResolution(Argus::Size2D<uint32_t>(width, height));
-    i_stream_settings->setMetadataEnable(true);
+    status = i_stream_settings->setMetadataEnable(true);
+    if (status != Argus::STATUS_OK) {
+        fprintf(stderr, "[lk_argus] WARNING: failed to enable EGLStream metadata: %d\n",
+                static_cast<int>(status));
+    }
+    s->metadata_enabled = i_stream_settings->getMetadataEnable();
+    fprintf(stderr, "[lk_argus] EGLStream metadata enabled: %s\n",
+            s->metadata_enabled ? "yes" : "no");
 
     s->stream = Argus::UniqueObj<Argus::OutputStream>(
         i_session->createOutputStream(s->stream_settings.get(), &status));
@@ -317,7 +361,27 @@ int lk_argus_acquire_frame_with_metadata(void* handle, uint64_t* sensor_timestam
         Argus::interface_cast<EGLStream::IFrame>(s->current_frame);
     if (!i_frame) return -1;
 
-    bool has_sensor_timestamp = read_sensor_timestamp_ns(s, sensor_timestamp_ns);
+    Argus::Status metadata_status = Argus::STATUS_OK;
+    SensorTimestampStatus sensor_timestamp_status =
+        read_sensor_timestamp_ns(s, sensor_timestamp_ns, &metadata_status);
+    bool has_sensor_timestamp =
+        sensor_timestamp_status == SensorTimestampStatus::Available;
+    static SensorTimestampStatus last_logged_sensor_timestamp_status =
+        SensorTimestampStatus::Available;
+    if (!has_sensor_timestamp &&
+        sensor_timestamp_status != last_logged_sensor_timestamp_status) {
+        fprintf(stderr,
+                "[lk_argus] Sensor timestamp unavailable: %s "
+                "(metadata enabled=%s, metadata status=%d)\n",
+                sensor_timestamp_status_name(sensor_timestamp_status),
+                s->metadata_enabled ? "yes" : "no",
+                static_cast<int>(metadata_status));
+        last_logged_sensor_timestamp_status = sensor_timestamp_status;
+    } else if (has_sensor_timestamp &&
+               last_logged_sensor_timestamp_status != SensorTimestampStatus::Available) {
+        fprintf(stderr, "[lk_argus] Sensor timestamp available\n");
+        last_logged_sensor_timestamp_status = SensorTimestampStatus::Available;
+    }
 
     auto* image = i_frame->getImage();
     if (!image) return -1;
