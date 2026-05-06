@@ -12,6 +12,10 @@
 #include <cstring>
 
 #include <Argus/Argus.h>
+#include <Argus/CaptureMetadata.h>
+#include <Argus/Event.h>
+#include <Argus/EventProvider.h>
+#include <Argus/EventQueue.h>
 #include <EGLStream/EGLStream.h>
 #include <EGLStream/MetadataContainer.h>
 #include <EGLStream/NV/ImageNativeBuffer.h>
@@ -29,6 +33,7 @@ struct LkArgusSession {
     Argus::UniqueObj<Argus::OutputStreamSettings> stream_settings;
     Argus::UniqueObj<Argus::OutputStream>    stream;
     Argus::UniqueObj<Argus::Request>         request;
+    Argus::UniqueObj<Argus::EventQueue>      event_queue;
     Argus::UniqueObj<EGLStream::FrameConsumer> consumer;
 
     // Most recently acquired frame (kept alive until release/next acquire).
@@ -43,6 +48,7 @@ struct LkArgusSession {
     int width;
     int height;
     bool metadata_enabled;
+    bool event_metadata_enabled;
 };
 
 static const uint64_t kAcquireTimeoutNs = 1000000000ULL; // 1 second
@@ -50,6 +56,11 @@ static const uint64_t kAcquireTimeoutNs = 1000000000ULL; // 1 second
 enum class SensorTimestampStatus {
     Available,
     InvalidArgs,
+    NoEventQueue,
+    EventWaitFailed,
+    NoCaptureCompleteEvent,
+    CaptureCompleteFailed,
+    NoEventMetadata,
     NoOutputStream,
     MetadataCreateFailed,
     NoCaptureMetadata,
@@ -62,6 +73,16 @@ static const char* sensor_timestamp_status_name(SensorTimestampStatus status) {
             return "available";
         case SensorTimestampStatus::InvalidArgs:
             return "invalid args";
+        case SensorTimestampStatus::NoEventQueue:
+            return "no capture-complete event queue";
+        case SensorTimestampStatus::EventWaitFailed:
+            return "capture-complete event wait failed";
+        case SensorTimestampStatus::NoCaptureCompleteEvent:
+            return "no capture-complete event";
+        case SensorTimestampStatus::CaptureCompleteFailed:
+            return "capture-complete event failed";
+        case SensorTimestampStatus::NoEventMetadata:
+            return "no capture-complete metadata";
         case SensorTimestampStatus::NoOutputStream:
             return "no EGL output stream";
         case SensorTimestampStatus::MetadataCreateFailed:
@@ -74,7 +95,67 @@ static const char* sensor_timestamp_status_name(SensorTimestampStatus status) {
     return "unknown";
 }
 
-static SensorTimestampStatus read_sensor_timestamp_ns(
+static SensorTimestampStatus read_sensor_timestamp_ns_from_event(
+        LkArgusSession* s,
+        uint64_t* sensor_timestamp_ns,
+        Argus::Status* metadata_status) {
+    if (metadata_status) *metadata_status = Argus::STATUS_OK;
+    if (!s || !sensor_timestamp_ns) return SensorTimestampStatus::InvalidArgs;
+    *sensor_timestamp_ns = 0;
+
+    auto* i_event_provider = Argus::interface_cast<Argus::IEventProvider>(s->session);
+    auto* i_event_queue = Argus::interface_cast<Argus::IEventQueue>(s->event_queue);
+    if (!i_event_provider || !i_event_queue) {
+        return SensorTimestampStatus::NoEventQueue;
+    }
+
+    Argus::Status status = i_event_provider->waitForEvents(s->event_queue.get(), 1000000);
+    if (metadata_status) *metadata_status = status;
+    if (status != Argus::STATUS_OK) {
+        return SensorTimestampStatus::EventWaitFailed;
+    }
+
+    const Argus::Event* newest_capture_complete = nullptr;
+    for (uint32_t i = 0; i < i_event_queue->getSize(); i++) {
+        const Argus::Event* event = i_event_queue->getEvent(i);
+        auto* i_event = Argus::interface_cast<const Argus::IEvent>(event);
+        if (i_event && i_event->getEventType() == Argus::EVENT_TYPE_CAPTURE_COMPLETE) {
+            newest_capture_complete = event;
+        }
+    }
+    if (!newest_capture_complete) {
+        return SensorTimestampStatus::NoCaptureCompleteEvent;
+    }
+
+    auto* i_capture_complete =
+        Argus::interface_cast<const Argus::IEventCaptureComplete>(newest_capture_complete);
+    if (!i_capture_complete) {
+        return SensorTimestampStatus::NoCaptureCompleteEvent;
+    }
+    status = i_capture_complete->getStatus();
+    if (metadata_status) *metadata_status = status;
+    if (status != Argus::STATUS_OK) {
+        return SensorTimestampStatus::CaptureCompleteFailed;
+    }
+
+    const Argus::CaptureMetadata* metadata = i_capture_complete->getMetadata();
+    if (!metadata) {
+        return SensorTimestampStatus::NoEventMetadata;
+    }
+
+    auto* i_metadata = Argus::interface_cast<const Argus::ICaptureMetadata>(metadata);
+    if (!i_metadata) {
+        return SensorTimestampStatus::NoCaptureMetadata;
+    }
+
+    *sensor_timestamp_ns = i_metadata->getSensorTimestamp();
+    if (*sensor_timestamp_ns == 0) {
+        return SensorTimestampStatus::ZeroTimestamp;
+    }
+    return SensorTimestampStatus::Available;
+}
+
+static SensorTimestampStatus read_sensor_timestamp_ns_from_egl_metadata(
         LkArgusSession* s,
         uint64_t* sensor_timestamp_ns,
         Argus::Status* metadata_status) {
@@ -110,6 +191,22 @@ static SensorTimestampStatus read_sensor_timestamp_ns(
     return SensorTimestampStatus::Available;
 }
 
+static SensorTimestampStatus read_sensor_timestamp_ns(
+        LkArgusSession* s,
+        uint64_t* sensor_timestamp_ns,
+        Argus::Status* metadata_status) {
+    SensorTimestampStatus status =
+        read_sensor_timestamp_ns_from_event(s, sensor_timestamp_ns, metadata_status);
+    if (status == SensorTimestampStatus::Available) {
+        return status;
+    }
+    if (status != SensorTimestampStatus::NoEventQueue) {
+        return status;
+    }
+
+    return read_sensor_timestamp_ns_from_egl_metadata(s, sensor_timestamp_ns, metadata_status);
+}
+
 extern "C" {
 
 void* lk_argus_create_session(int sensor_index, int width, int height, int fps) {
@@ -122,6 +219,7 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
     s->width = width;
     s->height = height;
     s->metadata_enabled = false;
+    s->event_metadata_enabled = false;
 
     // Create CameraProvider
     s->provider = Argus::UniqueObj<Argus::CameraProvider>(
@@ -154,6 +252,23 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
         return nullptr;
     }
     auto* i_session = Argus::interface_cast<Argus::ICaptureSession>(s->session);
+    auto* i_event_provider = Argus::interface_cast<Argus::IEventProvider>(s->session);
+    if (i_event_provider) {
+        std::vector<Argus::EventType> event_types;
+        event_types.push_back(Argus::EVENT_TYPE_CAPTURE_COMPLETE);
+        s->event_queue = Argus::UniqueObj<Argus::EventQueue>(
+            i_event_provider->createEventQueue(event_types, &status));
+        if (status != Argus::STATUS_OK || !s->event_queue) {
+            fprintf(stderr,
+                    "[lk_argus] WARNING: failed to create capture-complete event queue: %d\n",
+                    static_cast<int>(status));
+        } else {
+            s->event_metadata_enabled = true;
+            fprintf(stderr, "[lk_argus] Capture-complete metadata events enabled: yes\n");
+        }
+    } else {
+        fprintf(stderr, "[lk_argus] WARNING: capture session has no event provider interface\n");
+    }
 
     // Create OutputStream (EGLStream-backed)
     s->stream_settings = Argus::UniqueObj<Argus::OutputStreamSettings>(
@@ -372,8 +487,9 @@ int lk_argus_acquire_frame_with_metadata(void* handle, uint64_t* sensor_timestam
         sensor_timestamp_status != last_logged_sensor_timestamp_status) {
         fprintf(stderr,
                 "[lk_argus] Sensor timestamp unavailable: %s "
-                "(metadata enabled=%s, metadata status=%d)\n",
+                "(event metadata enabled=%s, EGL metadata enabled=%s, status=%d)\n",
                 sensor_timestamp_status_name(sensor_timestamp_status),
+                s->event_metadata_enabled ? "yes" : "no",
                 s->metadata_enabled ? "yes" : "no",
                 static_cast<int>(metadata_status));
         last_logged_sensor_timestamp_status = sensor_timestamp_status;
