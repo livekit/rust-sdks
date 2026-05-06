@@ -6,7 +6,6 @@
   - Be explicit when you plan to make breaking API changes
 - When introducing new API surface, always default to private or `pub(crate)` unless there is a specific reason to expose publicly
 - Introduce new public APIs sparingly
-- New public types that will be extensively used should be added to the prelude
 
 ## Dependencies
 
