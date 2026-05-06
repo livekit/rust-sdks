@@ -288,6 +288,8 @@ mod app {
                 let mut frames: u64 = 0;
                 let mut last_fps_log = Instant::now();
                 let mut sum_acquire_ms = 0.0;
+                let mut sum_argus_wait_ms = 0.0;
+                let mut sum_argus_blit_ms = 0.0;
                 let mut sum_capture_ms = 0.0;
                 let mut sum_iter_ms = 0.0;
                 let mut consecutive_failures: u32 = 0;
@@ -298,6 +300,7 @@ mod app {
                 let mut sensor_timestamp_frames: u64 = 0;
                 let mut backup_timestamp_frames: u64 = 0;
                 let mut sum_sensor_to_acquire_ms = 0.0;
+                let mut sum_sensor_to_argus_acquire_ms = 0.0;
 
                 loop {
                     if ctrl_c_capture.load(Ordering::Acquire) {
@@ -371,10 +374,14 @@ mod app {
                     if args.attach_timestamp {
                         if timestamp_from_sensor {
                             sensor_timestamp_frames += 1;
-                            sum_sensor_to_acquire_ms += fallback_wall_time_us
+                            let sensor_to_acquire_ms = fallback_wall_time_us
                                 .saturating_sub(capture_wall_time_us)
                                 as f64
                                 / 1_000.0;
+                            let blit_ms = argus_frame.blit_ns as f64 / 1_000_000.0;
+                            sum_sensor_to_acquire_ms += sensor_to_acquire_ms;
+                            sum_sensor_to_argus_acquire_ms +=
+                                (sensor_to_acquire_ms - blit_ms).max(0.0);
                         } else {
                             backup_timestamp_frames += 1;
                         }
@@ -406,6 +413,8 @@ mod app {
 
                     frames += 1;
                     sum_acquire_ms += (t1 - t0).as_secs_f64() * 1000.0;
+                    sum_argus_wait_ms += argus_frame.acquire_wait_ns as f64 / 1_000_000.0;
+                    sum_argus_blit_ms += argus_frame.blit_ns as f64 / 1_000_000.0;
                     sum_capture_ms += (t2 - t1).as_secs_f64() * 1000.0;
                     sum_iter_ms += (Instant::now() - iter_start).as_secs_f64() * 1000.0;
 
@@ -419,13 +428,21 @@ mod app {
                             } else {
                                 0.0
                             };
+                            let sensor_to_argus_acquire_ms = if sensor_timestamp_frames > 0 {
+                                sum_sensor_to_argus_acquire_ms / sensor_timestamp_frames as f64
+                            } else {
+                                0.0
+                            };
                             info!(
-                                "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp source: sensor {} frames, backup system {} frames | avg ms: sensor_to_acquire {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
+                                "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp source: sensor {} frames, backup system {} frames | avg ms: sensor_to_argus_acquire {:.2}, argus_wait {:.2}, argus_blit {:.2}, sensor_to_acquire {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
                                 width,
                                 height,
                                 fps_est,
                                 sensor_timestamp_frames,
                                 backup_timestamp_frames,
+                                sensor_to_argus_acquire_ms,
+                                sum_argus_wait_ms / n,
+                                sum_argus_blit_ms / n,
                                 sensor_age_ms,
                                 sum_acquire_ms / n,
                                 sum_capture_ms / n,
@@ -433,10 +450,12 @@ mod app {
                             );
                         } else {
                             info!(
-                                "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp: disabled | avg ms: acquire {:.2}, capture {:.2}, iter {:.2}",
+                                "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp: disabled | avg ms: argus_wait {:.2}, argus_blit {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
                                 width,
                                 height,
                                 fps_est,
+                                sum_argus_wait_ms / n,
+                                sum_argus_blit_ms / n,
                                 sum_acquire_ms / n,
                                 sum_capture_ms / n,
                                 sum_iter_ms / n,
@@ -446,9 +465,12 @@ mod app {
                         sensor_timestamp_frames = 0;
                         backup_timestamp_frames = 0;
                         sum_acquire_ms = 0.0;
+                        sum_argus_wait_ms = 0.0;
+                        sum_argus_blit_ms = 0.0;
                         sum_capture_ms = 0.0;
                         sum_iter_ms = 0.0;
                         sum_sensor_to_acquire_ms = 0.0;
+                        sum_sensor_to_argus_acquire_ms = 0.0;
                         last_fps_log = Instant::now();
                     }
                 }

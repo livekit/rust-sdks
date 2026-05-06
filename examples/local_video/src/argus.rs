@@ -1,8 +1,9 @@
 //! Thin FFI wrapper around NVIDIA Argus/libargus for MIPI CSI camera capture.
 //!
-//! This module provides zero-copy frame acquisition from MIPI cameras on Jetson
-//! platforms. Frames are returned as NvBufSurface DMA file descriptors that can
-//! be passed directly to the hardware encoder without any CPU-side pixel copies.
+//! This module provides DMA-buffer frame acquisition from MIPI cameras on Jetson
+//! platforms. Frames are blitted from Argus' EGLStream frame into NvBufSurface
+//! DMA file descriptors that can be passed to the hardware encoder without
+//! CPU-side pixel copies.
 //!
 //! The Argus API is C++, so we use a small C shim (linked via build.rs on
 //! Jetson) to expose the capture session lifecycle.
@@ -23,6 +24,10 @@ pub struct ArgusFrame {
     pub dmabuf_fd: i32,
     /// Argus sensor start timestamp in nanoseconds, when available.
     pub sensor_timestamp_ns: Option<u64>,
+    /// Time spent waiting for `FrameConsumer::acquireFrame` to return.
+    pub acquire_wait_ns: u64,
+    /// Time spent copying the acquired EGLStream frame into the DMA buffer.
+    pub blit_ns: u64,
 }
 
 // The C++ session is single-threaded but we move it across the tokio runtime.
@@ -44,6 +49,8 @@ extern "C" {
     fn lk_argus_acquire_frame_with_metadata(
         session: *mut std::ffi::c_void,
         sensor_timestamp_ns: *mut u64,
+        acquire_wait_ns: *mut u64,
+        blit_ns: *mut u64,
     ) -> c_int;
 
     /// Release the most recently acquired frame back to the Argus buffer pool.
@@ -80,14 +87,24 @@ impl ArgusCaptureSession {
     /// next `acquire_frame` implicitly releases the previous one.
     pub fn acquire_frame(&mut self) -> io::Result<ArgusFrame> {
         let mut sensor_timestamp_ns = 0;
-        let fd =
-            unsafe { lk_argus_acquire_frame_with_metadata(self.handle, &mut sensor_timestamp_ns) };
+        let mut acquire_wait_ns = 0;
+        let mut blit_ns = 0;
+        let fd = unsafe {
+            lk_argus_acquire_frame_with_metadata(
+                self.handle,
+                &mut sensor_timestamp_ns,
+                &mut acquire_wait_ns,
+                &mut blit_ns,
+            )
+        };
         if fd < 0 {
             return Err(io::Error::new(io::ErrorKind::Other, "Argus frame acquisition failed"));
         }
         Ok(ArgusFrame {
             dmabuf_fd: fd,
             sensor_timestamp_ns: (sensor_timestamp_ns > 0).then_some(sensor_timestamp_ns),
+            acquire_wait_ns,
+            blit_ns,
         })
     }
 

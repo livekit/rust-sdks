@@ -1466,7 +1466,7 @@ bool JetsonMmapiEncoder::DequeueOutputBuffer() {
   v4l2_buffer v4l2_buf = {};
   v4l2_plane planes[VIDEO_MAX_PLANES] = {};
   v4l2_buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-  v4l2_buf.memory = V4L2_MEMORY_MMAP;
+  v4l2_buf.memory = use_dmabuf_input_ ? V4L2_MEMORY_DMABUF : V4L2_MEMORY_MMAP;
   v4l2_buf.m.planes = planes;
   v4l2_buf.length = encoder_->output_plane.getNumPlanes();
   if (encoder_->output_plane.dqBuffer(v4l2_buf, nullptr, nullptr, 0) < 0) {

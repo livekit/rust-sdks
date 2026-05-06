@@ -466,7 +466,11 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
     return s;
 }
 
-int lk_argus_acquire_frame_with_metadata(void* handle, uint64_t* sensor_timestamp_ns) {
+int lk_argus_acquire_frame_with_metadata(
+        void* handle,
+        uint64_t* sensor_timestamp_ns,
+        uint64_t* acquire_wait_ns,
+        uint64_t* blit_ns) {
     using Clock = std::chrono::steady_clock;
     static const bool debug = std::getenv("LK_ENCODER_DEBUG") != nullptr;
     static uint64_t frame_num = 0;
@@ -476,6 +480,9 @@ int lk_argus_acquire_frame_with_metadata(void* handle, uint64_t* sensor_timestam
 
     auto* s = static_cast<LkArgusSession*>(handle);
     if (!s) return -1;
+    if (sensor_timestamp_ns) *sensor_timestamp_ns = 0;
+    if (acquire_wait_ns) *acquire_wait_ns = 0;
+    if (blit_ns) *blit_ns = 0;
 
     auto* i_consumer =
         Argus::interface_cast<EGLStream::IFrameConsumer>(s->consumer);
@@ -543,6 +550,12 @@ int lk_argus_acquire_frame_with_metadata(void* handle, uint64_t* sensor_timestam
     status = i_native->copyToNvBuffer(fd);
 
     auto t2 = Clock::now();
+    auto acquire_duration_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count();
+    auto blit_duration_ns =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(t2 - t1).count();
+    if (acquire_wait_ns) *acquire_wait_ns = static_cast<uint64_t>(acquire_duration_ns);
+    if (blit_ns) *blit_ns = static_cast<uint64_t>(blit_duration_ns);
 
     // Release the Argus frame immediately – the pixel data has been blitted
     // into our persistent NvBufSurface so we no longer need the EGLStream frame.
@@ -580,7 +593,7 @@ int lk_argus_acquire_frame_with_metadata(void* handle, uint64_t* sensor_timestam
 }
 
 int lk_argus_acquire_frame(void* handle) {
-    return lk_argus_acquire_frame_with_metadata(handle, nullptr);
+    return lk_argus_acquire_frame_with_metadata(handle, nullptr, nullptr, nullptr);
 }
 
 void lk_argus_release_frame(void* handle) {
