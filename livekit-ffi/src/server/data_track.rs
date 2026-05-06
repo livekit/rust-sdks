@@ -18,7 +18,8 @@ use futures_util::StreamExt;
 use livekit::data_track::{
     DataTrackFrame, DataTrackStream, DataTrackSubscribeOptions, LocalDataTrack, RemoteDataTrack,
 };
-use std::sync::Arc;
+use metrics_logger::metrics::histogram;
+use std::{sync::Arc, time::Instant};
 use tokio::sync::{oneshot, Notify};
 
 /// FFI wrapper around [`LocalDataTrack`].
@@ -76,8 +77,14 @@ impl FfiLocalDataTrack {
         _server: &'static FfiServer,
         request: proto::LocalDataTrackTryPushRequest,
     ) -> FfiResult<proto::LocalDataTrackTryPushResponse> {
+        let t0 = Instant::now();
+
         let frame: DataTrackFrame = request.frame.into();
         let error = self.inner.try_push(frame).err().map(Into::into);
+
+        let delta = t0.elapsed();
+        histogram!("try_push").record(delta.as_millis() as f64);
+
         Ok(proto::LocalDataTrackTryPushResponse { error })
     }
 }
@@ -191,11 +198,16 @@ impl SubscriptionTask {
     }
 
     fn send_frame(&self, frame: DataTrackFrame) {
+        let t0 = Instant::now();
+
         let event = proto::DataTrackStreamEvent {
             stream_handle: self.handle_id,
             detail: Some(proto::DataTrackStreamFrameReceived { frame: frame.into() }.into()),
         };
         let _ = self.server.send_event(event.into());
+
+        let delta = t0.elapsed();
+        histogram!("send_frame").record(delta.as_millis() as f64);
     }
 
     fn send_eos(&self, error: Option<String>) {

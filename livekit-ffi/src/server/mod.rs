@@ -22,6 +22,7 @@ use std::{
     time::Duration,
 };
 
+use metrics_logger::{LogMode, MetricsLogger, metrics::{self, histogram}};
 use dashmap::{mapref::one::MappedRef, DashMap};
 use downcast_rs::{impl_downcast, Downcast};
 use livekit::prelude::DisconnectReason;
@@ -113,6 +114,13 @@ impl Default for FfiServer {
 
         #[cfg(feature = "tracing")]
         console_subscriber::init();
+
+        let recorder = MetricsLogger::new(
+            LogMode::Periodic(10),
+            |logs| log::info!(target: "metrics", "{}", logs),
+            |err| log::error!(target: "metrics", "{}", err),
+        );
+        metrics::set_global_recorder(recorder).unwrap();
 
         // Create a background thread which checks for deadlocks every 10s
         thread::spawn(move || loop {
