@@ -43,7 +43,7 @@ mod app {
     struct Args {
         /// MIPI CSI sensor index.
         #[arg(long, default_value_t = 0)]
-        sensor_index: u32,
+        camera_index: u32,
 
         /// Desired width.
         #[arg(long, default_value_t = 1280)]
@@ -237,13 +237,13 @@ mod app {
             info!("Published Jetson MIPI camera track");
         }
 
-        let session = argus::ArgusCaptureSession::new(args.sensor_index, width, height, fps)?;
+        let session = argus::ArgusCaptureSession::new(args.camera_index, width, height, fps)?;
         info!(
-            "Argus MIPI capture session opened: {}x{} @ {} fps (sensor {})",
+            "Argus MIPI capture session opened: {}x{} @ {} fps (camera {})",
             session.width(),
             session.height(),
             fps,
-            args.sensor_index
+            args.camera_index
         );
 
         let ctrl_c_capture = ctrl_c_received.clone();

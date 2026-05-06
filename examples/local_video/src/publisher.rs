@@ -408,6 +408,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut logged_mjpeg_fallback = false;
     let mut logged_sensor_ts_source = false;
     let mut logged_sensor_ts_missing = false;
+    let mut sensor_timestamp_frames: u64 = 0;
+    let mut backup_timestamp_frames: u64 = 0;
     let mut frame_counter: u32 = 1;
     let mut timestamp_overlay = (args.attach_timestamp && args.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
@@ -429,24 +431,35 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
         // Prefer the backend-provided sensor/PTS wallclock when available for
         // a more accurate capture-to-subscriber latency measurement.
-        let capture_wall_time_us = match frame_buf.capture_timestamp() {
-            Some(d) => {
-                if !logged_sensor_ts_source {
-                    info!("Using sensor capture_timestamp for user_timestamp");
-                    logged_sensor_ts_source = true;
+        let (capture_wall_time_us, timestamp_from_sensor) = if args.attach_timestamp {
+            match frame_buf.capture_timestamp() {
+                Some(d) => {
+                    if !logged_sensor_ts_source {
+                        info!("Using sensor capture_timestamp for packet trailer user_timestamp");
+                        logged_sensor_ts_source = true;
+                    }
+                    (d.as_micros() as u64, true)
                 }
-                d.as_micros() as u64
-            }
-            None => {
-                if !logged_sensor_ts_missing {
-                    log::warn!(
-                        "Buffer::capture_timestamp() not available; falling back to system wall clock"
-                    );
-                    logged_sensor_ts_missing = true;
+                None => {
+                    if !logged_sensor_ts_missing {
+                        log::warn!(
+                            "Buffer::capture_timestamp() not available; using backup system wall clock for packet trailer user_timestamp"
+                        );
+                        logged_sensor_ts_missing = true;
+                    }
+                    (fallback_wall_time_us, false)
                 }
-                fallback_wall_time_us
             }
+        } else {
+            (0, false)
         };
+        if args.attach_timestamp {
+            if timestamp_from_sensor {
+                sensor_timestamp_frames += 1;
+            } else {
+                backup_timestamp_frames += 1;
+            }
+        }
         let (stride_y, stride_u, stride_v) = frame.buffer.strides();
         let (data_y, data_u, data_v) = frame.buffer.data_mut();
         let stride_y_usize = stride_y as usize;
@@ -624,15 +637,29 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         if last_fps_log.elapsed() >= std::time::Duration::from_secs(2) {
             let secs = last_fps_log.elapsed().as_secs_f64();
             let fps_est = frames as f64 / secs;
-            info!(
-                "Video status: {}x{} | ~{:.1} fps | target {:.2} ms",
-                width,
-                height,
-                fps_est,
-                target.as_secs_f64() * 1000.0,
-            );
+            if args.attach_timestamp {
+                info!(
+                    "Video status: {}x{} | ~{:.1} fps | target {:.2} ms | packet trailer timestamp source: sensor {} frames, backup system {} frames",
+                    width,
+                    height,
+                    fps_est,
+                    target.as_secs_f64() * 1000.0,
+                    sensor_timestamp_frames,
+                    backup_timestamp_frames,
+                );
+            } else {
+                info!(
+                    "Video status: {}x{} | ~{:.1} fps | target {:.2} ms | packet trailer timestamp: disabled",
+                    width,
+                    height,
+                    fps_est,
+                    target.as_secs_f64() * 1000.0,
+                );
+            }
             info!("{}", format_timing_line(&timings));
             frames = 0;
+            sensor_timestamp_frames = 0;
+            backup_timestamp_frames = 0;
             timings.reset();
             last_fps_log = Instant::now();
         }
