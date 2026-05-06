@@ -111,7 +111,7 @@ Jetson publisher flags:
 - `--h265`: Use H.265/HEVC encoding if supported (falls back to H.264 on failure).
 - `--simulcast`: Publish simulcast video.
 - `--max-bitrate <bps>`: Max video bitrate for the main layer.
-- `--attach-timestamp`: Enable packet-trailer timestamp negotiation where supported.
+- `--attach-timestamp`: Attach Argus sensor capture time where available, aligned to wall-clock microseconds since UNIX epoch; falls back to wall-clock capture time if sensor metadata is unavailable.
 - `--attach-frame-id`: Enable packet-trailer frame ID negotiation where supported.
 - `--e2ee-key <key>`: Enable end-to-end encryption with the given shared key.
 

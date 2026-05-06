@@ -17,6 +17,14 @@ pub struct ArgusCaptureSession {
     height: u32,
 }
 
+/// A captured Argus frame backed by a DMA buffer.
+pub struct ArgusFrame {
+    /// DMA buffer file descriptor containing an NV12 frame.
+    pub dmabuf_fd: i32,
+    /// Argus sensor start timestamp in nanoseconds, when available.
+    pub sensor_timestamp_ns: Option<u64>,
+}
+
 // The C++ session is single-threaded but we move it across the tokio runtime.
 unsafe impl Send for ArgusCaptureSession {}
 
@@ -30,11 +38,13 @@ extern "C" {
 
     fn lk_argus_destroy_session(session: *mut std::ffi::c_void);
 
-    /// Acquire the next frame from the capture session.
+    /// Acquire the next frame and optionally return the Argus sensor timestamp.
     /// Returns the NvBufSurface DMA fd, or -1 on error.
-    /// The fd is valid until the next call to `lk_argus_acquire_frame` or
-    /// `lk_argus_release_frame`.
-    fn lk_argus_acquire_frame(session: *mut std::ffi::c_void) -> c_int;
+    /// The fd is valid until the next acquire call or `lk_argus_release_frame`.
+    fn lk_argus_acquire_frame_with_metadata(
+        session: *mut std::ffi::c_void,
+        sensor_timestamp_ns: *mut u64,
+    ) -> c_int;
 
     /// Release the most recently acquired frame back to the Argus buffer pool.
     fn lk_argus_release_frame(session: *mut std::ffi::c_void);
@@ -63,17 +73,22 @@ impl ArgusCaptureSession {
         Ok(Self { handle, width, height })
     }
 
-    /// Acquire the next captured frame as a DMA buffer fd.
+    /// Acquire the next captured frame as a DMA buffer.
     ///
     /// The returned fd refers to an NvBufSurface in NV12 format. It remains
     /// valid until [`release_frame`](Self::release_frame) is called or the
     /// next `acquire_frame` implicitly releases the previous one.
-    pub fn acquire_frame(&mut self) -> io::Result<i32> {
-        let fd = unsafe { lk_argus_acquire_frame(self.handle) };
+    pub fn acquire_frame(&mut self) -> io::Result<ArgusFrame> {
+        let mut sensor_timestamp_ns = 0;
+        let fd =
+            unsafe { lk_argus_acquire_frame_with_metadata(self.handle, &mut sensor_timestamp_ns) };
         if fd < 0 {
             return Err(io::Error::new(io::ErrorKind::Other, "Argus frame acquisition failed"));
         }
-        Ok(fd)
+        Ok(ArgusFrame {
+            dmabuf_fd: fd,
+            sensor_timestamp_ns: (sensor_timestamp_ns > 0).then_some(sensor_timestamp_ns),
+        })
     }
 
     /// Release the most recently acquired frame back to the buffer pool.

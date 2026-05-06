@@ -17,6 +17,7 @@ mod app {
         VideoEncoding, VideoPreset,
     };
     use livekit::prelude::*;
+    use livekit::webrtc::video_frame::FrameMetadata;
     use livekit::webrtc::video_source::native::NativeVideoSource;
     use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
     use livekit_api::access_token;
@@ -26,9 +27,16 @@ mod app {
         atomic::{AtomicBool, Ordering},
         Arc,
     };
-    use std::time::{Duration, Instant};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     use crate::argus;
+
+    fn unix_time_us_now() -> u64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("System clock is before UNIX epoch")
+            .as_micros() as u64
+    }
 
     #[derive(Parser, Debug)]
     #[command(author, version, about, long_about = None)]
@@ -250,6 +258,10 @@ mod app {
                 let mut sum_capture_ms = 0.0;
                 let mut sum_iter_ms = 0.0;
                 let mut consecutive_failures: u32 = 0;
+                let mut frame_counter: u32 = 1;
+                let mut sensor_timestamp_alignment: Option<(u64, u64)> = None;
+                let mut logged_sensor_ts_source = false;
+                let mut logged_sensor_ts_missing = false;
 
                 loop {
                     if ctrl_c_capture.load(Ordering::Acquire) {
@@ -258,10 +270,12 @@ mod app {
 
                     let iter_start = Instant::now();
                     let t0 = Instant::now();
-                    let dmabuf_fd = match session.acquire_frame() {
-                        Ok(fd) => {
+                    let fallback_wall_time_us =
+                        if args.attach_timestamp { unix_time_us_now() } else { 0 };
+                    let argus_frame = match session.acquire_frame() {
+                        Ok(frame) => {
                             consecutive_failures = 0;
-                            fd
+                            frame
                         }
                         Err(e) => {
                             consecutive_failures += 1;
@@ -280,12 +294,58 @@ mod app {
                     };
                     let t1 = Instant::now();
 
-                    rtc_source.capture_dmabuf_frame(
-                        dmabuf_fd,
+                    let capture_wall_time_us = if args.attach_timestamp {
+                        match argus_frame.sensor_timestamp_ns {
+                            Some(sensor_timestamp_ns) => {
+                                let (base_sensor_ns, base_wall_time_us) =
+                                    *sensor_timestamp_alignment.get_or_insert_with(|| {
+                                        if !logged_sensor_ts_source {
+                                            info!(
+                                                "Using Argus sensor timestamp for user_timestamp"
+                                            );
+                                            logged_sensor_ts_source = true;
+                                        }
+                                        (sensor_timestamp_ns, fallback_wall_time_us)
+                                    });
+                                let delta_us =
+                                    sensor_timestamp_ns.saturating_sub(base_sensor_ns) / 1000;
+                                base_wall_time_us.saturating_add(delta_us)
+                            }
+                            None => {
+                                if !logged_sensor_ts_missing {
+                                    log::warn!(
+                                        "Argus sensor timestamp not available; falling back to system wall clock"
+                                    );
+                                    logged_sensor_ts_missing = true;
+                                }
+                                fallback_wall_time_us
+                            }
+                        }
+                    } else {
+                        0
+                    };
+                    let user_ts =
+                        if args.attach_timestamp { Some(capture_wall_time_us) } else { None };
+                    let fid = if args.attach_frame_id {
+                        let id = frame_counter;
+                        frame_counter = frame_counter.wrapping_add(1);
+                        Some(id)
+                    } else {
+                        None
+                    };
+                    let frame_metadata = if user_ts.is_some() || fid.is_some() {
+                        Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
+                    } else {
+                        None
+                    };
+
+                    rtc_source.capture_dmabuf_frame_with_metadata(
+                        argus_frame.dmabuf_fd,
                         width,
                         height,
                         0,
                         start_ts.elapsed().as_micros() as i64,
+                        frame_metadata,
                     );
                     let t2 = Instant::now();
 

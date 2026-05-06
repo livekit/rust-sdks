@@ -13,6 +13,7 @@
 
 #include <Argus/Argus.h>
 #include <EGLStream/EGLStream.h>
+#include <EGLStream/MetadataContainer.h>
 #include <EGLStream/NV/ImageNativeBuffer.h>
 #include "NvBufSurface.h"
 
@@ -44,6 +45,34 @@ struct LkArgusSession {
 };
 
 static const uint64_t kAcquireTimeoutNs = 1000000000ULL; // 1 second
+
+static bool read_sensor_timestamp_ns(LkArgusSession* s, uint64_t* sensor_timestamp_ns) {
+    if (!s || !sensor_timestamp_ns) return false;
+    *sensor_timestamp_ns = 0;
+
+    auto* i_stream = Argus::interface_cast<Argus::IEGLOutputStream>(s->stream);
+    if (!i_stream) return false;
+
+    Argus::Status status;
+    EGLStream::MetadataContainer* metadata = EGLStream::MetadataContainer::create(
+        i_stream->getEGLDisplay(),
+        i_stream->getEGLStream(),
+        EGLStream::MetadataContainer::CONSUMER,
+        &status);
+    if (status != Argus::STATUS_OK || !metadata) {
+        return false;
+    }
+
+    auto* i_metadata = Argus::interface_cast<Argus::ICaptureMetadata>(metadata);
+    if (!i_metadata) {
+        metadata->destroy();
+        return false;
+    }
+
+    *sensor_timestamp_ns = i_metadata->getSensorTimestamp();
+    metadata->destroy();
+    return true;
+}
 
 extern "C" {
 
@@ -101,7 +130,7 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
     }
     i_stream_settings->setPixelFormat(Argus::PIXEL_FMT_YCbCr_420_888);
     i_stream_settings->setResolution(Argus::Size2D<uint32_t>(width, height));
-    i_stream_settings->setMetadataEnable(false);
+    i_stream_settings->setMetadataEnable(true);
 
     s->stream = Argus::UniqueObj<Argus::OutputStream>(
         i_session->createOutputStream(s->stream_settings.get(), &status));
@@ -255,7 +284,7 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
     return s;
 }
 
-int lk_argus_acquire_frame(void* handle) {
+int lk_argus_acquire_frame_with_metadata(void* handle, uint64_t* sensor_timestamp_ns) {
     using Clock = std::chrono::steady_clock;
     static const bool debug = std::getenv("LK_ENCODER_DEBUG") != nullptr;
     static uint64_t frame_num = 0;
@@ -287,6 +316,8 @@ int lk_argus_acquire_frame(void* handle) {
     auto* i_frame =
         Argus::interface_cast<EGLStream::IFrame>(s->current_frame);
     if (!i_frame) return -1;
+
+    bool has_sensor_timestamp = read_sensor_timestamp_ns(s, sensor_timestamp_ns);
 
     auto* image = i_frame->getImage();
     if (!image) return -1;
@@ -333,15 +364,20 @@ int lk_argus_acquire_frame(void* handle) {
             double dn = static_cast<double>(frame_num);
             fprintf(stderr,
                     "[lk_argus] acquire_frame stats (%lu frames): "
-                    "avg ms: wait=%.2f blit=%.2f total=%.2f\n",
+                    "avg ms: wait=%.2f blit=%.2f total=%.2f metadata=%s\n",
                     frame_num, sum_acquire_us / dn / 1000.0,
                     sum_blit_us / dn / 1000.0,
-                    sum_total_us / dn / 1000.0);
+                    sum_total_us / dn / 1000.0,
+                    has_sensor_timestamp ? "yes" : "no");
             fflush(stderr);
         }
     }
 
     return fd;
+}
+
+int lk_argus_acquire_frame(void* handle) {
+    return lk_argus_acquire_frame_with_metadata(handle, nullptr);
 }
 
 void lk_argus_release_frame(void* handle) {

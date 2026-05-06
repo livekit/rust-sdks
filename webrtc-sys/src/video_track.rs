@@ -91,6 +91,7 @@ pub mod ffi {
             height: i32,
             pixel_format: i32,
             timestamp_us: i64,
+            frame_metadata: &FrameMetadata,
         ) -> bool;
         fn set_packet_trailer_handler(
             self: &VideoTrackSource,

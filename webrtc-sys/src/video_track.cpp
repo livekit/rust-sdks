@@ -214,7 +214,8 @@ bool VideoTrackSource::capture_dmabuf_frame(int dmabuf_fd,
                                             int width,
                                             int height,
                                             int pixel_format,
-                                            int64_t timestamp_us) const {
+                                            int64_t timestamp_us,
+                                            const FrameMetadata& frame_metadata) const {
   auto dmabuf_pixel_format =
       static_cast<livekit::DmaBufPixelFormat>(pixel_format);
   auto buffer = webrtc::make_ref_counted<livekit::DmaBufVideoFrameBuffer>(
@@ -232,11 +233,7 @@ bool VideoTrackSource::capture_dmabuf_frame(int dmabuf_fd,
                    .set_timestamp_us(ts)
                    .build();
 
-  return source_->on_captured_frame(frame, FrameMetadata{
-                                               .has_packet_trailer = false,
-                                               .user_timestamp = 0,
-                                               .frame_id = 0,
-                                           });
+  return source_->on_captured_frame(frame, frame_metadata);
 }
 
 void VideoTrackSource::set_packet_trailer_handler(
