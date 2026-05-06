@@ -83,7 +83,7 @@ impl FfiLocalDataTrack {
         let error = self.inner.try_push(frame).err().map(Into::into);
 
         let delta = t0.elapsed();
-        histogram!("try_push").record(delta.as_millis() as f64);
+        histogram!("try_push").record(delta.as_micros() as f64);
 
         Ok(proto::LocalDataTrackTryPushResponse { error })
     }
@@ -207,7 +207,7 @@ impl SubscriptionTask {
         let _ = self.server.send_event(event.into());
 
         let delta = t0.elapsed();
-        histogram!("send_frame").record(delta.as_millis() as f64);
+        histogram!("send_frame").record(delta.as_micros() as f64);
     }
 
     fn send_eos(&self, error: Option<String>) {
