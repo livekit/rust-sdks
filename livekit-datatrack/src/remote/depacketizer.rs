@@ -413,5 +413,4 @@ mod tests {
         assert!(frame.payload.starts_with(&[0xCD; 3]));
         // Should retain the second packet with duplicate sequence number
     }
-
 }
