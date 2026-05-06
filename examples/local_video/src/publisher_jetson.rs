@@ -38,6 +38,39 @@ mod app {
             .as_micros() as u64
     }
 
+    #[repr(C)]
+    struct Timespec {
+        tv_sec: i64,
+        tv_nsec: i64,
+    }
+
+    extern "C" {
+        fn clock_gettime(clk_id: i32, tp: *mut Timespec) -> i32;
+    }
+
+    fn monotonic_time_ns_now() -> Option<u64> {
+        const CLOCK_MONOTONIC: i32 = 1;
+        let mut ts = Timespec { tv_sec: 0, tv_nsec: 0 };
+        let ret = unsafe {
+            // SAFETY: `ts` is a valid, writable timespec pointer for the duration of the call.
+            clock_gettime(CLOCK_MONOTONIC, &mut ts)
+        };
+        if ret != 0 || ts.tv_sec < 0 || ts.tv_nsec < 0 {
+            return None;
+        }
+        Some(ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64)
+    }
+
+    fn sensor_monotonic_ns_to_unix_us(sensor_timestamp_ns: u64, wall_time_us: u64) -> Option<u64> {
+        let monotonic_now_ns = monotonic_time_ns_now()?;
+        let monotonic_delta_us = monotonic_now_ns.abs_diff(sensor_timestamp_ns) / 1_000;
+        if sensor_timestamp_ns <= monotonic_now_ns {
+            Some(wall_time_us.saturating_sub(monotonic_delta_us))
+        } else {
+            Some(wall_time_us.saturating_add(monotonic_delta_us))
+        }
+    }
+
     #[derive(Parser, Debug)]
     #[command(author, version, about, long_about = None)]
     struct Args {
@@ -259,11 +292,12 @@ mod app {
                 let mut sum_iter_ms = 0.0;
                 let mut consecutive_failures: u32 = 0;
                 let mut frame_counter: u32 = 1;
-                let mut sensor_timestamp_alignment: Option<(u64, u64)> = None;
                 let mut logged_sensor_ts_source = false;
                 let mut logged_sensor_ts_missing = false;
+                let mut logged_sensor_ts_conversion_failed = false;
                 let mut sensor_timestamp_frames: u64 = 0;
                 let mut backup_timestamp_frames: u64 = 0;
+                let mut sum_sensor_to_acquire_ms = 0.0;
 
                 loop {
                     if ctrl_c_capture.load(Ordering::Acquire) {
@@ -298,21 +332,29 @@ mod app {
 
                     let (capture_wall_time_us, timestamp_from_sensor) = if args.attach_timestamp {
                         match argus_frame.sensor_timestamp_ns {
-                            Some(sensor_timestamp_ns) => {
-                                let (base_sensor_ns, base_wall_time_us) =
-                                    *sensor_timestamp_alignment.get_or_insert_with(|| {
-                                        if !logged_sensor_ts_source {
-                                            info!(
-                                                "Using Argus sensor timestamp for packet trailer user_timestamp"
-                                            );
-                                            logged_sensor_ts_source = true;
-                                        }
-                                        (sensor_timestamp_ns, fallback_wall_time_us)
-                                    });
-                                let delta_us =
-                                    sensor_timestamp_ns.saturating_sub(base_sensor_ns) / 1000;
-                                (base_wall_time_us.saturating_add(delta_us), true)
-                            }
+                            Some(sensor_timestamp_ns) => match sensor_monotonic_ns_to_unix_us(
+                                sensor_timestamp_ns,
+                                fallback_wall_time_us,
+                            ) {
+                                Some(sensor_wall_time_us) => {
+                                    if !logged_sensor_ts_source {
+                                        info!(
+                                            "Using Argus sensor timestamp for packet trailer user_timestamp"
+                                        );
+                                        logged_sensor_ts_source = true;
+                                    }
+                                    (sensor_wall_time_us, true)
+                                }
+                                None => {
+                                    if !logged_sensor_ts_conversion_failed {
+                                        log::warn!(
+                                            "Failed to convert Argus sensor timestamp to wall time; using backup system wall clock for packet trailer user_timestamp"
+                                        );
+                                        logged_sensor_ts_conversion_failed = true;
+                                    }
+                                    (fallback_wall_time_us, false)
+                                }
+                            },
                             None => {
                                 if !logged_sensor_ts_missing {
                                     log::warn!(
@@ -329,6 +371,10 @@ mod app {
                     if args.attach_timestamp {
                         if timestamp_from_sensor {
                             sensor_timestamp_frames += 1;
+                            sum_sensor_to_acquire_ms += fallback_wall_time_us
+                                .saturating_sub(capture_wall_time_us)
+                                as f64
+                                / 1_000.0;
                         } else {
                             backup_timestamp_frames += 1;
                         }
@@ -368,13 +414,19 @@ mod app {
                         let fps_est = frames as f64 / secs;
                         let n = frames.max(1) as f64;
                         if args.attach_timestamp {
+                            let sensor_age_ms = if sensor_timestamp_frames > 0 {
+                                sum_sensor_to_acquire_ms / sensor_timestamp_frames as f64
+                            } else {
+                                0.0
+                            };
                             info!(
-                                "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp source: sensor {} frames, backup system {} frames | avg ms: acquire {:.2}, capture {:.2}, iter {:.2}",
+                                "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp source: sensor {} frames, backup system {} frames | avg ms: sensor_to_acquire {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
                                 width,
                                 height,
                                 fps_est,
                                 sensor_timestamp_frames,
                                 backup_timestamp_frames,
+                                sensor_age_ms,
                                 sum_acquire_ms / n,
                                 sum_capture_ms / n,
                                 sum_iter_ms / n,
@@ -396,6 +448,7 @@ mod app {
                         sum_acquire_ms = 0.0;
                         sum_capture_ms = 0.0;
                         sum_iter_ms = 0.0;
+                        sum_sensor_to_acquire_ms = 0.0;
                         last_fps_log = Instant::now();
                     }
                 }
