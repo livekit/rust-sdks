@@ -262,6 +262,8 @@ mod app {
                 let mut sensor_timestamp_alignment: Option<(u64, u64)> = None;
                 let mut logged_sensor_ts_source = false;
                 let mut logged_sensor_ts_missing = false;
+                let mut sensor_timestamp_frames: u64 = 0;
+                let mut backup_timestamp_frames: u64 = 0;
 
                 loop {
                     if ctrl_c_capture.load(Ordering::Acquire) {
@@ -294,14 +296,14 @@ mod app {
                     let fallback_wall_time_us =
                         if args.attach_timestamp { unix_time_us_now() } else { 0 };
 
-                    let capture_wall_time_us = if args.attach_timestamp {
+                    let (capture_wall_time_us, timestamp_from_sensor) = if args.attach_timestamp {
                         match argus_frame.sensor_timestamp_ns {
                             Some(sensor_timestamp_ns) => {
                                 let (base_sensor_ns, base_wall_time_us) =
                                     *sensor_timestamp_alignment.get_or_insert_with(|| {
                                         if !logged_sensor_ts_source {
                                             info!(
-                                                "Using Argus sensor timestamp for user_timestamp"
+                                                "Using Argus sensor timestamp for packet trailer user_timestamp"
                                             );
                                             logged_sensor_ts_source = true;
                                         }
@@ -309,21 +311,28 @@ mod app {
                                     });
                                 let delta_us =
                                     sensor_timestamp_ns.saturating_sub(base_sensor_ns) / 1000;
-                                base_wall_time_us.saturating_add(delta_us)
+                                (base_wall_time_us.saturating_add(delta_us), true)
                             }
                             None => {
                                 if !logged_sensor_ts_missing {
                                     log::warn!(
-                                        "Argus sensor timestamp not available; falling back to system wall clock"
+                                        "Argus sensor timestamp not available; using backup system wall clock for packet trailer user_timestamp"
                                     );
                                     logged_sensor_ts_missing = true;
                                 }
-                                fallback_wall_time_us
+                                (fallback_wall_time_us, false)
                             }
                         }
                     } else {
-                        0
+                        (0, false)
                     };
+                    if args.attach_timestamp {
+                        if timestamp_from_sensor {
+                            sensor_timestamp_frames += 1;
+                        } else {
+                            backup_timestamp_frames += 1;
+                        }
+                    }
                     let user_ts =
                         if args.attach_timestamp { Some(capture_wall_time_us) } else { None };
                     let fid = if args.attach_frame_id {
@@ -358,16 +367,32 @@ mod app {
                         let secs = last_fps_log.elapsed().as_secs_f64();
                         let fps_est = frames as f64 / secs;
                         let n = frames.max(1) as f64;
-                        info!(
-                            "MIPI publishing: {}x{}, ~{:.1} fps | avg ms: acquire {:.2}, capture {:.2}, iter {:.2}",
-                            width,
-                            height,
-                            fps_est,
-                            sum_acquire_ms / n,
-                            sum_capture_ms / n,
-                            sum_iter_ms / n,
-                        );
+                        if args.attach_timestamp {
+                            info!(
+                                "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp source: sensor {} frames, backup system {} frames | avg ms: acquire {:.2}, capture {:.2}, iter {:.2}",
+                                width,
+                                height,
+                                fps_est,
+                                sensor_timestamp_frames,
+                                backup_timestamp_frames,
+                                sum_acquire_ms / n,
+                                sum_capture_ms / n,
+                                sum_iter_ms / n,
+                            );
+                        } else {
+                            info!(
+                                "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp: disabled | avg ms: acquire {:.2}, capture {:.2}, iter {:.2}",
+                                width,
+                                height,
+                                fps_est,
+                                sum_acquire_ms / n,
+                                sum_capture_ms / n,
+                                sum_iter_ms / n,
+                            );
+                        }
                         frames = 0;
+                        sensor_timestamp_frames = 0;
+                        backup_timestamp_frames = 0;
                         sum_acquire_ms = 0.0;
                         sum_capture_ms = 0.0;
                         sum_iter_ms = 0.0;
