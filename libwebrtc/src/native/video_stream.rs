@@ -20,6 +20,7 @@ use std::{
         Arc,
     },
     task::{Context, Poll, Waker},
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use cxx::{SharedPtr, UniquePtr};
@@ -112,6 +113,7 @@ struct VideoTrackObserver {
 
 impl sys_vt::VideoSink for VideoTrackObserver {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
+        let sink_received_at_us = current_timestamp_us();
         let rtp_timestamp = frame.timestamp();
         let frame_metadata = self
             .packet_trailer_handler
@@ -122,6 +124,19 @@ impl sys_vt::VideoSink for VideoTrackObserver {
                 user_timestamp: Some(ts),
                 frame_id: if fid != 0 { Some(fid) } else { None },
             });
+
+        if log::log_enabled!(target: "livekit_latency", log::Level::Debug)
+            && should_log_probe(frame_metadata.and_then(|m| m.frame_id))
+        {
+            let publish_us = frame_metadata.and_then(|m| m.user_timestamp);
+            log::debug!(
+                target: "livekit_latency",
+                "native video sink frame frame_id={:?} rtp_timestamp={} publish_to_native={}",
+                frame_metadata.and_then(|m| m.frame_id),
+                rtp_timestamp,
+                format_optional_delta_ms(publish_us, Some(sink_received_at_us)),
+            );
+        }
 
         self.frame_queue.push(VideoFrame {
             rotation: frame.rotation().into(),
@@ -305,6 +320,23 @@ impl VideoFrameQueue {
     fn dropped_frames(&self) -> u64 {
         self.dropped_frames.load(Ordering::Relaxed)
     }
+}
+
+fn current_timestamp_us() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_micros() as u64
+}
+
+fn format_optional_delta_ms(start_us: Option<u64>, end_us: Option<u64>) -> String {
+    match (start_us, end_us) {
+        (Some(start_us), Some(end_us)) => {
+            format!("{:.1}ms", end_us.saturating_sub(start_us) as f64 / 1000.0)
+        }
+        _ => "N/A".to_string(),
+    }
+}
+
+fn should_log_probe(frame_id: Option<u32>) -> bool {
+    frame_id.is_some_and(|frame_id| frame_id % 30 == 0)
 }
 
 #[cfg(test)]

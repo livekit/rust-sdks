@@ -257,7 +257,9 @@ mod macos {
     struct OverlaySnapshot {
         frame_id: Option<u32>,
         publish_us: Option<u64>,
-        latency_us: u64,
+        received_at_us: u64,
+        render_start_us: u64,
+        last_present_ms: Option<f64>,
     }
 
     struct SharedState {
@@ -271,6 +273,12 @@ mod macos {
         last_received_at_us: Option<u64>,
         last_render_start_us: Option<u64>,
         last_commit_us: Option<u64>,
+        last_gpu_done_us: Option<u64>,
+        last_presented_us: Option<u64>,
+        last_receive_to_render_ms: Option<f64>,
+        last_receive_to_commit_ms: Option<f64>,
+        last_receive_to_gpu_done_ms: Option<f64>,
+        last_receive_to_present_ms: Option<f64>,
         last_width: u32,
         last_height: u32,
     }
@@ -288,6 +296,12 @@ mod macos {
                 last_received_at_us: None,
                 last_render_start_us: None,
                 last_commit_us: None,
+                last_gpu_done_us: None,
+                last_presented_us: None,
+                last_receive_to_render_ms: None,
+                last_receive_to_commit_ms: None,
+                last_receive_to_gpu_done_ms: None,
+                last_receive_to_present_ms: None,
                 last_width: 0,
                 last_height: 0,
             }
@@ -301,6 +315,14 @@ mod macos {
         received_at_us: u64,
         frame_id: Option<u32>,
         publish_us: Option<u64>,
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct RenderTimingSample {
+        frame_id: Option<u32>,
+        publish_us: Option<u64>,
+        received_at_us: u64,
+        render_start_us: u64,
     }
 
     enum PendingStorage {
@@ -378,11 +400,20 @@ mod macos {
             let render_start_us = current_timestamp_us();
             let receive_to_render_ms =
                 render_start_us.saturating_sub(frame.received_at_us) as f64 / 1000.0;
+            let timing_sample = RenderTimingSample {
+                frame_id: frame.frame_id,
+                publish_us: frame.publish_us,
+                received_at_us: frame.received_at_us,
+                render_start_us,
+            };
             let overlay = if self.display_timestamp {
+                let last_present_ms = self.shared.lock().last_receive_to_present_ms;
                 let snapshot = OverlaySnapshot {
                     frame_id: frame.frame_id,
                     publish_us: frame.publish_us,
-                    latency_us: current_timestamp_us(),
+                    received_at_us: frame.received_at_us,
+                    render_start_us,
+                    last_present_ms,
                 };
                 if snapshot.frame_id.is_none() && snapshot.publish_us.is_none() {
                     debug!(
@@ -395,19 +426,24 @@ mod macos {
                 None
             };
 
-            match renderer.render(frame, overlay) {
+            match renderer.render(frame, overlay, self.shared.clone(), timing_sample) {
                 Ok(result) => {
                     let commit_us = current_timestamp_us();
+                    let receive_to_commit_ms =
+                        commit_us.saturating_sub(timing_sample.received_at_us) as f64 / 1000.0;
                     let mut shared = self.shared.lock();
                     shared.last_render_path = result.path;
                     shared.last_render_start_us = Some(render_start_us);
                     shared.last_commit_us = Some(commit_us);
+                    shared.last_receive_to_render_ms = Some(receive_to_render_ms);
+                    shared.last_receive_to_commit_ms = Some(receive_to_commit_ms);
                     shared.last_width = result.width;
                     shared.last_height = result.height;
                     drop(shared);
                     debug!(
-                        "rendered frame path={} receive_to_render={receive_to_render_ms:.2}ms",
-                        result.path.as_str()
+                        "rendered frame frame_id={:?} path={} receive_to_render={receive_to_render_ms:.2}ms receive_to_commit={receive_to_commit_ms:.2}ms",
+                        timing_sample.frame_id,
+                        result.path.as_str(),
                     );
                     self.update_title();
                 }
@@ -433,8 +469,12 @@ mod macos {
                 .last_receive_latency_ms
                 .map(|lat| format!("{lat:.1}ms"))
                 .unwrap_or_else(|| "N/A".to_string());
+            let present = shared
+                .last_receive_to_present_ms
+                .map(|lat| format!("{lat:.1}ms"))
+                .unwrap_or_else(|| "N/A".to_string());
             let timing = if self.display_timestamp {
-                format!(" frame={frame_id} recv={recv}")
+                format!(" frame={frame_id} recv={recv} present={present}")
             } else {
                 String::new()
             };
@@ -654,14 +694,18 @@ mod macos {
             &mut self,
             frame: PendingFrame,
             overlay: Option<OverlaySnapshot>,
+            shared: Arc<Mutex<SharedState>>,
+            timing_sample: RenderTimingSample,
         ) -> Result<RenderResult> {
-            autoreleasepool(|| self.render_inner(frame, overlay))
+            autoreleasepool(|| self.render_inner(frame, overlay, shared, timing_sample))
         }
 
         fn render_inner(
             &mut self,
             frame: PendingFrame,
             overlay: Option<OverlaySnapshot>,
+            shared: Arc<Mutex<SharedState>>,
+            timing_sample: RenderTimingSample,
         ) -> Result<RenderResult> {
             let frame_width = frame.width;
             let frame_height = frame.height;
@@ -732,9 +776,36 @@ mod macos {
 
             encoder.end_encoding();
 
+            let present_shared = shared.clone();
+            let present_sample = timing_sample;
+            let present_block = ConcreteBlock::new(move |_drawable: &DrawableRef| {
+                let presented_us = current_timestamp_us();
+                let receive_to_present_ms =
+                    presented_us.saturating_sub(present_sample.received_at_us) as f64 / 1000.0;
+                let mut state = present_shared.lock();
+                state.last_presented_us = Some(presented_us);
+                state.last_receive_to_present_ms = Some(receive_to_present_ms);
+                debug!(
+                    "presented frame frame_id={:?} publish_to_present={} receive_to_present={receive_to_present_ms:.2}ms",
+                    present_sample.frame_id,
+                    format_optional_delta_ms(present_sample.publish_us, Some(presented_us)),
+                );
+            })
+            .copy();
+            drawable.add_presented_handler(&present_block);
+
+            let completed_shared = shared;
+            let completed_sample = timing_sample;
             if let Some(guard) = completion_guard {
                 let block = ConcreteBlock::new(move |_cmd: &CommandBufferRef| {
+                    record_gpu_done(&completed_shared, completed_sample);
                     let _ = &guard;
+                })
+                .copy();
+                command_buffer.add_completed_handler(&block);
+            } else {
+                let block = ConcreteBlock::new(move |_cmd: &CommandBufferRef| {
+                    record_gpu_done(&completed_shared, completed_sample);
                 })
                 .copy();
                 command_buffer.add_completed_handler(&block);
@@ -922,16 +993,27 @@ mod macos {
         fn overlay_text(&mut self, snapshot: OverlaySnapshot, _path: RenderPath) -> String {
             let frame_id =
                 snapshot.frame_id.map(|id| id.to_string()).unwrap_or_else(|| "N/A".to_string());
+            let receive_to_render =
+                format_us_delta_ms(snapshot.render_start_us, snapshot.received_at_us);
+            let present = snapshot
+                .last_present_ms
+                .map(|lat| format!("{lat:.1}ms"))
+                .unwrap_or_else(|| "N/A".to_string());
 
             if let Some(publish_us) = snapshot.publish_us {
-                let latency = self.latency_text(publish_us, snapshot.latency_us);
+                let latency = self.latency_text(publish_us, snapshot.render_start_us);
                 format!(
-                    "Frame ID:   {frame_id}\nPublish:    {}\nRender:     {}\nLatency:    {latency}",
+                    "Frame ID:   {frame_id}\nPublish:    {}\nReceive:    {}\nRender:     {}\nPub->Render:{latency}\nRecv->Render:{receive_to_render}\nRecv->Present:{present}",
                     format_optional_timestamp_us(Some(publish_us)),
-                    format_optional_timestamp_us(Some(snapshot.latency_us)),
+                    format_optional_timestamp_us(Some(snapshot.received_at_us)),
+                    format_optional_timestamp_us(Some(snapshot.render_start_us)),
                 )
             } else {
-                format!("Frame ID:   {frame_id}")
+                format!(
+                    "Frame ID:   {frame_id}\nReceive:    {}\nRender:     {}\nRecv->Render:{receive_to_render}\nRecv->Present:{present}",
+                    format_optional_timestamp_us(Some(snapshot.received_at_us)),
+                    format_optional_timestamp_us(Some(snapshot.render_start_us)),
+                )
             }
         }
 
@@ -1246,6 +1328,36 @@ mod macos {
         SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_micros() as u64
     }
 
+    fn record_gpu_done(shared: &Arc<Mutex<SharedState>>, sample: RenderTimingSample) {
+        let gpu_done_us = current_timestamp_us();
+        let receive_to_gpu_done_ms =
+            gpu_done_us.saturating_sub(sample.received_at_us) as f64 / 1000.0;
+        let mut state = shared.lock();
+        state.last_gpu_done_us = Some(gpu_done_us);
+        state.last_receive_to_gpu_done_ms = Some(receive_to_gpu_done_ms);
+        debug!(
+            "gpu completed frame frame_id={:?} publish_to_gpu={} receive_to_gpu={receive_to_gpu_done_ms:.2}ms render_to_gpu={}",
+            sample.frame_id,
+            format_optional_delta_ms(sample.publish_us, Some(gpu_done_us)),
+            format_us_delta_ms(gpu_done_us, sample.render_start_us),
+        );
+    }
+
+    fn format_us_delta_ms(end_us: u64, start_us: u64) -> String {
+        format!("{:.1}ms", end_us.saturating_sub(start_us) as f64 / 1000.0)
+    }
+
+    fn format_optional_delta_ms(start_us: Option<u64>, end_us: Option<u64>) -> String {
+        match (start_us, end_us) {
+            (Some(start_us), Some(end_us)) => format_us_delta_ms(end_us, start_us),
+            _ => "N/A".to_string(),
+        }
+    }
+
+    fn should_log_probe(frame_id: Option<u32>) -> bool {
+        frame_id.is_some_and(|frame_id| frame_id % 30 == 0)
+    }
+
     fn format_timestamp_us(ts_us: u64) -> String {
         DateTime::<Utc>::from_timestamp_micros(ts_us as i64)
             .map(|dt| {
@@ -1490,6 +1602,15 @@ mod macos {
                 let receive_latency_ms = metadata
                     .and_then(|m| m.user_timestamp)
                     .map(|published| received_at_us.saturating_sub(published) as f64 / 1000.0);
+                if should_log_probe(frame_id) {
+                    debug!(
+                        target: "livekit_latency",
+                        "subscriber stream frame frame_id={:?} publish_to_stream={} sdk_dropped={}",
+                        frame_id,
+                        format_optional_delta_ms(publish_us, Some(received_at_us)),
+                        sink.dropped_frames(),
+                    );
+                }
 
                 if !logged_first {
                     debug!(
@@ -1548,14 +1669,34 @@ mod macos {
                         .last_receive_latency_ms
                         .map(|lat| format!("{lat:.1}ms"))
                         .unwrap_or_else(|| "N/A".to_string());
+                    let receive_to_render = state
+                        .last_receive_to_render_ms
+                        .map(|lat| format!("{lat:.1}ms"))
+                        .unwrap_or_else(|| "N/A".to_string());
+                    let receive_to_commit = state
+                        .last_receive_to_commit_ms
+                        .map(|lat| format!("{lat:.1}ms"))
+                        .unwrap_or_else(|| "N/A".to_string());
+                    let receive_to_gpu = state
+                        .last_receive_to_gpu_done_ms
+                        .map(|lat| format!("{lat:.1}ms"))
+                        .unwrap_or_else(|| "N/A".to_string());
+                    let receive_to_present = state
+                        .last_receive_to_present_ms
+                        .map(|lat| format!("{lat:.1}ms"))
+                        .unwrap_or_else(|| "N/A".to_string());
                     info!(
-                        "metal subscriber: {}x{}, ~{:.1} fps, path={}, frame_id={:?}, recv={}, sdk_dropped={}, app_replaced={}",
+                        "metal subscriber: {}x{}, ~{:.1} fps, path={}, frame_id={:?}, publish_to_receive={}, receive_to_render={}, receive_to_commit={}, receive_to_gpu={}, receive_to_present={}, sdk_dropped={}, app_replaced={}",
                         state.last_width.max(width),
                         state.last_height.max(height),
                         fps,
                         state.last_render_path.as_str(),
                         state.last_frame_id,
                         recv,
+                        receive_to_render,
+                        receive_to_commit,
+                        receive_to_gpu,
+                        receive_to_present,
                         state.sdk_dropped,
                         state.app_replaced
                     );
@@ -1577,6 +1718,13 @@ mod macos {
                 .contains(&PacketTrailerFeature::PtfUserTimestamp)
         {
             warn!("publisher did not advertise PTF_USER_TIMESTAMP; receive latency title/log fields will be N/A");
+        }
+        if display_timestamp
+            && !publication.packet_trailer_features().contains(&PacketTrailerFeature::PtfFrameId)
+        {
+            warn!(
+                "publisher did not advertise PTF_FRAME_ID; frame ID title/log fields will be N/A"
+            );
         }
     }
 
