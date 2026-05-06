@@ -29,6 +29,10 @@ pub struct CreateRoomOptions {
     pub node_id: String,
     pub metadata: String,
     pub egress: Option<proto::RoomEgress>, // TODO(theomonnom): Better API?
+    /// Minimum subscriber playout delay in milliseconds.
+    pub min_playout_delay: u32,
+    /// Maximum subscriber playout delay in milliseconds.
+    pub max_playout_delay: u32,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -84,6 +88,8 @@ impl RoomClient {
                     node_id: options.node_id,
                     metadata: options.metadata,
                     egress: options.egress,
+                    min_playout_delay: options.min_playout_delay,
+                    max_playout_delay: options.max_playout_delay,
                     ..Default::default()
                 },
                 self.base

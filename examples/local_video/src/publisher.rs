@@ -9,7 +9,13 @@ use livekit::prelude::*;
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
-use livekit_api::access_token;
+use livekit_api::{
+    access_token,
+    services::{
+        room::{CreateRoomOptions, RoomClient},
+        ServiceError, TwirpError, TwirpErrorCode,
+    },
+};
 use log::{debug, info};
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
@@ -68,6 +74,14 @@ struct Args {
     #[arg(long, default_value = "video-room")]
     room_name: String,
 
+    /// Minimum subscriber playout delay for the created room, in milliseconds
+    #[arg(long, default_value_t = 0)]
+    min_playout_delay: u32,
+
+    /// Maximum subscriber playout delay for the created room, in milliseconds
+    #[arg(long, default_value_t = 0)]
+    max_playout_delay: u32,
+
     /// LiveKit server URL
     #[arg(long)]
     url: Option<String>,
@@ -103,6 +117,51 @@ struct Args {
 
 fn unix_time_us_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u64
+}
+
+fn normalize_api_host(url: &str) -> String {
+    if let Some(rest) = url.strip_prefix("wss://") {
+        return format!("https://{}", rest.trim_end_matches("/rtc"));
+    }
+    if let Some(rest) = url.strip_prefix("ws://") {
+        return format!("http://{}", rest.trim_end_matches("/rtc"));
+    }
+    url.trim_end_matches("/rtc").to_string()
+}
+
+async fn recreate_room(
+    room_name: &str,
+    min_playout_delay: u32,
+    max_playout_delay: u32,
+    url: &str,
+    api_key: &str,
+    api_secret: &str,
+) -> Result<()> {
+    if min_playout_delay > max_playout_delay {
+        anyhow::bail!("--min-playout-delay cannot be greater than --max-playout-delay");
+    }
+
+    let client = RoomClient::with_api_key(&normalize_api_host(url), api_key, api_secret);
+    info!("Deleting LiveKit room '{}' before recreating it...", room_name);
+    match client.delete_room(room_name).await {
+        Ok(()) => {}
+        Err(ServiceError::Twirp(TwirpError::Twirp(err)))
+            if err.code == TwirpErrorCode::NOT_FOUND => {}
+        Err(err) => return Err(err.into()),
+    }
+
+    client
+        .create_room(
+            room_name,
+            CreateRoomOptions { min_playout_delay, max_playout_delay, ..Default::default() },
+        )
+        .await?;
+    info!(
+        "Created LiveKit room '{}' with min/max playout delay {}/{} ms",
+        room_name, min_playout_delay, max_playout_delay
+    );
+
+    Ok(())
 }
 
 #[derive(Default)]
@@ -227,6 +286,16 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         .api_secret
         .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
         .expect("LIVEKIT_API_SECRET must be provided via --api-secret or env");
+
+    recreate_room(
+        &args.room_name,
+        args.min_playout_delay,
+        args.max_playout_delay,
+        &url,
+        &api_key,
+        &api_secret,
+    )
+    .await?;
 
     let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
         .with_identity(&args.identity)
