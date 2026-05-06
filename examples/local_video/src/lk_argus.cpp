@@ -196,15 +196,26 @@ static SensorTimestampStatus read_sensor_timestamp_ns(
         uint64_t* sensor_timestamp_ns,
         Argus::Status* metadata_status) {
     SensorTimestampStatus status =
-        read_sensor_timestamp_ns_from_event(s, sensor_timestamp_ns, metadata_status);
+        read_sensor_timestamp_ns_from_egl_metadata(s, sensor_timestamp_ns, metadata_status);
     if (status == SensorTimestampStatus::Available) {
         return status;
     }
-    if (status != SensorTimestampStatus::NoEventQueue) {
-        return status;
+
+    // Fall back to capture-complete events only when embedded EGLStream metadata
+    // is unavailable. Event queues are session-scoped, so they can lag or lead
+    // the exact frame returned by FrameConsumer::acquireFrame().
+    SensorTimestampStatus egl_status = status;
+    Argus::Status egl_metadata_status =
+        metadata_status ? *metadata_status : Argus::STATUS_OK;
+
+    SensorTimestampStatus event_status =
+        read_sensor_timestamp_ns_from_event(s, sensor_timestamp_ns, metadata_status);
+    if (event_status == SensorTimestampStatus::Available) {
+        return event_status;
     }
 
-    return read_sensor_timestamp_ns_from_egl_metadata(s, sensor_timestamp_ns, metadata_status);
+    if (metadata_status) *metadata_status = egl_metadata_status;
+    return egl_status;
 }
 
 extern "C" {
@@ -282,6 +293,18 @@ void* lk_argus_create_session(int sensor_index, int width, int height, int fps) 
     }
     i_stream_settings->setPixelFormat(Argus::PIXEL_FMT_YCbCr_420_888);
     i_stream_settings->setResolution(Argus::Size2D<uint32_t>(width, height));
+    status = i_stream_settings->setMode(Argus::EGL_STREAM_MODE_MAILBOX);
+    if (status != Argus::STATUS_OK) {
+        fprintf(stderr, "[lk_argus] WARNING: failed to set EGLStream mailbox mode: %d\n",
+                static_cast<int>(status));
+    }
+    status = i_stream_settings->setFifoLength(1);
+    if (status != Argus::STATUS_OK) {
+        fprintf(stderr, "[lk_argus] WARNING: failed to set EGLStream FIFO length: %d\n",
+                static_cast<int>(status));
+    }
+    fprintf(stderr, "[lk_argus] EGLStream mode: mailbox, fifo length: %u\n",
+            i_stream_settings->getFifoLength());
     status = i_stream_settings->setMetadataEnable(true);
     if (status != Argus::STATUS_OK) {
         fprintf(stderr, "[lk_argus] WARNING: failed to enable EGLStream metadata: %d\n",
