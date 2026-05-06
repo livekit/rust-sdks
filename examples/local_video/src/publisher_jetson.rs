@@ -270,8 +270,6 @@ mod app {
 
                     let iter_start = Instant::now();
                     let t0 = Instant::now();
-                    let fallback_wall_time_us =
-                        if args.attach_timestamp { unix_time_us_now() } else { 0 };
                     let argus_frame = match session.acquire_frame() {
                         Ok(frame) => {
                             consecutive_failures = 0;
@@ -293,6 +291,8 @@ mod app {
                         }
                     };
                     let t1 = Instant::now();
+                    let fallback_wall_time_us =
+                        if args.attach_timestamp { unix_time_us_now() } else { 0 };
 
                     let capture_wall_time_us = if args.attach_timestamp {
                         match argus_frame.sensor_timestamp_ns {
