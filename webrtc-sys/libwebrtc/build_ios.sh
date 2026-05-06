@@ -78,9 +78,22 @@ then
 fi
 
 cd src
+
+# Apply patches only if not already applied (check with --reverse --check)
+apply_patch_if_needed() {
+  local patch="$1"
+  if git apply --reverse --check "$patch" 2>/dev/null; then
+    echo "Patch already applied: $(basename "$patch")"
+  else
+    echo "Applying patch: $(basename "$patch")"
+    git apply "$patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn || true
+  fi
+}
+
 # git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
-git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+apply_patch_if_needed "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch"
+apply_patch_if_needed "$COMMAND_DIR/patches/add_deps.patch"
+apply_patch_if_needed "$COMMAND_DIR/patches/external_audio_source.patch"
 
 cd ..
 
@@ -111,7 +124,6 @@ gn gen "$OUTPUT_DIR" --root="src" \
   rtc_enable_objc_symbol_export=false \
   rtc_use_h264=false \
   use_custom_libcxx=false \
-  use_clang_modules=false \
   clang_use_chrome_plugins=false \
   use_rtti=true \
   use_lld=false"
@@ -130,13 +142,14 @@ ninja -C "$OUTPUT_DIR" :default \
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
-python3 "./src/tools_webrtc/libs/generate_licenses.py" \
-  --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR"
+# License generation is optional - may fail with some Python versions
+# Use vpython3 from depot_tools for consistent Python version
+vpython3 "./src/tools_webrtc/libs/generate_licenses.py" \
+  --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR" || echo "Warning: License generation failed (non-critical)"
 
 cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
-cp "$OUTPUT_DIR/obj/modules/desktop_capture/desktop_capture.ninja" "$ARTIFACTS_DIR"
+cp "$OUTPUT_DIR/obj/modules/desktop_capture/desktop_capture.ninja" "$ARTIFACTS_DIR" 2>/dev/null || true
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
-cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 
 cd src
 find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
