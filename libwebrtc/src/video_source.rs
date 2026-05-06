@@ -51,7 +51,7 @@ pub mod native {
 
     use super::*;
     use crate::native::packet_trailer::PacketTrailerHandler;
-    use crate::video_frame::{VideoBuffer, VideoFrame};
+    use crate::video_frame::{FrameMetadata, VideoBuffer, VideoFrame};
 
     #[derive(Clone)]
     pub struct NativeVideoSource {
@@ -91,6 +91,28 @@ pub mod native {
             timestamp_us: i64,
         ) -> bool {
             self.handle.capture_dmabuf_frame(dmabuf_fd, width, height, pixel_format, timestamp_us)
+        }
+
+        /// Captures a Jetson DMA-buffer backed video frame with packet trailer metadata.
+        ///
+        /// `pixel_format` is `0` for NV12 and `1` for YUV420M.
+        pub fn capture_dmabuf_frame_with_metadata(
+            &self,
+            dmabuf_fd: i32,
+            width: u32,
+            height: u32,
+            pixel_format: i32,
+            timestamp_us: i64,
+            frame_metadata: Option<FrameMetadata>,
+        ) -> bool {
+            self.handle.capture_dmabuf_frame_with_metadata(
+                dmabuf_fd,
+                width,
+                height,
+                pixel_format,
+                timestamp_us,
+                frame_metadata,
+            )
         }
 
         /// Set the packet trailer handler used by this source.
