@@ -1,12 +1,13 @@
 # local_video
 
-Three examples demonstrating capturing frames from a local camera video and publishing to LiveKit, listing camera capabilities, and subscribing to render video in a window.
+Examples demonstrating capturing frames from a local camera video and publishing to LiveKit, listing camera capabilities, subscribing to render video in a window, and publishing MIPI CSI camera video from NVIDIA Jetson.
 
 **Note:** These examples are intended for **desktop platforms only** (macOS, Linux, Windows).
 You must enable the `desktop` feature when building or running them.
 
 - list_devices: enumerate available cameras and their capabilities
 - publisher: capture from a selected camera and publish a video track
+- publisher_jetson: capture from a Jetson MIPI CSI camera with Argus and encode with the Jetson hardware encoder
 - subscriber: connect to a room, subscribe to video tracks, and display in a window
 
 LiveKit connection can be provided via flags or environment variables:
@@ -81,6 +82,38 @@ Publisher flags (in addition to the common connection flags above):
 - `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set.
 - `--attach-frame-id`: Attach a monotonically increasing frame ID to each published frame via the packet trailer. The subscriber displays this in the timestamp overlay when `--display-timestamp` is used.
 - `--e2ee-key <key>`: Enable end-to-end encryption with the given shared key. The subscriber must use the same key to decrypt.
+
+Jetson publisher usage:
+```
+ cargo run -p local_video -F desktop --bin publisher_jetson -- \
+   --sensor-index 0 \
+   --width 1280 \
+   --height 720 \
+   --fps 30 \
+   --room-name demo \
+   --identity jetson-cam-1
+
+ # request HEVC/H.265, falling back to H.264 if negotiation fails
+ cargo run -p local_video -F desktop --bin publisher_jetson -- \
+   --sensor-index 0 \
+   --h265 \
+   --room-name demo \
+   --identity jetson-cam-1
+```
+
+The Jetson publisher requires Linux aarch64 on NVIDIA Jetson with the Jetson Multimedia API installed under `/usr/src/jetson_multimedia_api`, the Argus daemon (`nvargus-daemon`), and the Jetson encoder/NvBufSurface libraries available. It captures NV12 frames through libargus into NvBufSurface DMA buffers and passes those fds directly to WebRTC for Jetson MMAPI encoding.
+
+Jetson publisher flags:
+- `--sensor-index <n>`: MIPI CSI sensor index to use (default: `0`).
+- `--width <px>`: Desired capture width (default: `1280`).
+- `--height <px>`: Desired capture height (default: `720`).
+- `--fps <n>`: Desired capture framerate (default: `30`).
+- `--h265`: Use H.265/HEVC encoding if supported (falls back to H.264 on failure).
+- `--simulcast`: Publish simulcast video.
+- `--max-bitrate <bps>`: Max video bitrate for the main layer.
+- `--attach-timestamp`: Enable packet-trailer timestamp negotiation where supported.
+- `--attach-frame-id`: Enable packet-trailer frame ID negotiation where supported.
+- `--e2ee-key <key>`: Enable end-to-end encryption with the given shared key.
 
 Subscriber usage:
 ```

@@ -13,6 +13,11 @@ path = "src/publisher.rs"
 required-features = ["desktop"]
 
 [[bin]]
+name = "publisher_jetson"
+path = "src/publisher_jetson.rs"
+required-features = ["desktop"]
+
+[[bin]]
 name = "subscriber"
 path = "src/subscriber.rs"
 required-features = ["desktop"]
@@ -55,3 +60,6 @@ nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9d
 
 [target.'cfg(target_os = "windows")'.dependencies]
 nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-msmf"] }
+
+[build-dependencies]
+cc = "1"

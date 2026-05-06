@@ -79,6 +79,20 @@ pub mod native {
             self.handle.capture_frame(frame)
         }
 
+        /// Captures a Jetson DMA-buffer backed video frame.
+        ///
+        /// `pixel_format` is `0` for NV12 and `1` for YUV420M.
+        pub fn capture_dmabuf_frame(
+            &self,
+            dmabuf_fd: i32,
+            width: u32,
+            height: u32,
+            pixel_format: i32,
+            timestamp_us: i64,
+        ) -> bool {
+            self.handle.capture_dmabuf_frame(dmabuf_fd, width, height, pixel_format, timestamp_us)
+        }
+
         /// Set the packet trailer handler used by this source.
         ///
         /// When set, any frame captured with a `user_timestamp` value will
