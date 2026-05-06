@@ -564,6 +564,35 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     std::fflush(stderr);
   }
 
+  // These controls must be applied after both plane formats are set and before
+  // either plane requests buffers. Keep them best-effort so older JetPack/MMAPI
+  // versions can still encode if one low-latency knob is unavailable.
+  ret = encoder_->setMaxPerfMode(1);
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] setMaxPerfMode(1): ret=%d\n", ret);
+    std::fflush(stderr);
+  }
+
+  ret = encoder_->setHWPresetType(V4L2_ENC_HW_PRESET_ULTRAFAST);
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] setHWPresetType(ULTRAFAST): ret=%d\n", ret);
+    std::fflush(stderr);
+  }
+
+  ret = encoder_->setNumBFrames(0);
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] setNumBFrames(0): ret=%d\n", ret);
+    std::fflush(stderr);
+  }
+
+  if (codec_ == JetsonCodec::kH264) {
+    ret = encoder_->setPocType(2);
+    if (verbose) {
+      std::fprintf(stderr, "[MMAPI] setPocType(2): ret=%d\n", ret);
+      std::fflush(stderr);
+    }
+  }
+
   // Set encoder parameters and log results
   ret = encoder_->setBitrate(bitrate_bps_);
   if (verbose) {
