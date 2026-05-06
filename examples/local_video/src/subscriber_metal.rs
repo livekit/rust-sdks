@@ -1377,6 +1377,106 @@ mod macos {
         last.to_ascii_uppercase()
     }
 
+    fn find_video_inbound_stats(
+        stats: &[livekit::webrtc::stats::RtcStats],
+    ) -> Option<livekit::webrtc::stats::InboundRtpStats> {
+        stats.iter().find_map(|stat| match stat {
+            livekit::webrtc::stats::RtcStats::InboundRtp(inbound)
+                if inbound.stream.kind == "video" =>
+            {
+                Some(inbound.clone())
+            }
+            _ => None,
+        })
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    struct JitterBufferSnapshot {
+        delay_s: f64,
+        target_delay_s: f64,
+        emitted_count: u64,
+        minimum_delay_s: f64,
+        frames_decoded: u32,
+        frames_dropped: u32,
+        packets_lost: i64,
+        packets_discarded: u64,
+    }
+
+    impl JitterBufferSnapshot {
+        fn from_stats(stats: &[livekit::webrtc::stats::RtcStats]) -> Option<Self> {
+            let inbound = find_video_inbound_stats(stats)?;
+            Some(Self {
+                delay_s: inbound.inbound.jitter_buffer_delay,
+                target_delay_s: inbound.inbound.jitter_buffer_target_delay,
+                emitted_count: inbound.inbound.jitter_buffer_emitted_count,
+                minimum_delay_s: inbound.inbound.jitter_buffer_minimum_delay,
+                frames_decoded: inbound.inbound.frames_decoded,
+                frames_dropped: inbound.inbound.frames_dropped,
+                packets_lost: inbound.received.packets_lost,
+                packets_discarded: inbound.inbound.packets_discarded,
+            })
+        }
+
+        fn avg_delay_ms(self) -> Option<f64> {
+            avg_ms(self.delay_s, self.emitted_count)
+        }
+
+        fn avg_target_delay_ms(self) -> Option<f64> {
+            avg_ms(self.target_delay_s, self.emitted_count)
+        }
+
+        fn avg_minimum_delay_ms(self) -> Option<f64> {
+            avg_ms(self.minimum_delay_s, self.emitted_count)
+        }
+
+        fn interval_avg_delay_ms(self, previous: Self) -> Option<f64> {
+            interval_avg_ms(
+                self.delay_s,
+                previous.delay_s,
+                self.emitted_count,
+                previous.emitted_count,
+            )
+        }
+
+        fn interval_avg_target_delay_ms(self, previous: Self) -> Option<f64> {
+            interval_avg_ms(
+                self.target_delay_s,
+                previous.target_delay_s,
+                self.emitted_count,
+                previous.emitted_count,
+            )
+        }
+    }
+
+    trait SaturatingSubF64 {
+        fn saturating_sub(self, rhs: Self) -> Self;
+    }
+
+    impl SaturatingSubF64 for f64 {
+        fn saturating_sub(self, rhs: Self) -> Self {
+            (self - rhs).max(0.0)
+        }
+    }
+
+    fn avg_ms(total_s: f64, count: u64) -> Option<f64> {
+        (count > 0).then_some(total_s * 1000.0 / count as f64)
+    }
+
+    fn interval_avg_ms(
+        total_s: f64,
+        previous_total_s: f64,
+        count: u64,
+        previous_count: u64,
+    ) -> Option<f64> {
+        let count_delta = count.saturating_sub(previous_count);
+        (count_delta > 0)
+            .then_some(total_s.saturating_sub(previous_total_s) * 1000.0 / count_delta as f64)
+    }
+
+    fn format_optional_ms(value: Option<f64>) -> String {
+        value.map(|value| format!("{value:.1}ms")).unwrap_or_else(|| "N/A".to_string())
+    }
+
     async fn wait_for_shutdown(flag: Arc<AtomicBool>) {
         while !flag.load(Ordering::Acquire) {
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1574,6 +1674,59 @@ mod macos {
             publication.dimension().0,
             publication.dimension().1,
         );
+
+        {
+            let stats_track = video_track.clone();
+            let stats_sid = sid.clone();
+            let stats_active_sid = active_sid.clone();
+            let stats_shutdown = shutdown.clone();
+            tokio::spawn(async move {
+                let mut interval = tokio::time::interval(Duration::from_secs(2));
+                interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                let mut previous: Option<JitterBufferSnapshot> = None;
+
+                loop {
+                    interval.tick().await;
+                    if stats_shutdown.load(Ordering::Acquire) {
+                        break;
+                    }
+                    if stats_active_sid.lock().as_ref() != Some(&stats_sid) {
+                        break;
+                    }
+
+                    let stats = match stats_track.get_stats().await {
+                        Ok(stats) => stats,
+                        Err(err) => {
+                            debug!("failed to get video receiver stats: {err:?}");
+                            continue;
+                        }
+                    };
+                    let Some(snapshot) = JitterBufferSnapshot::from_stats(&stats) else {
+                        debug!("video inbound RTP stats unavailable");
+                        continue;
+                    };
+
+                    let interval_avg =
+                        previous.and_then(|previous| snapshot.interval_avg_delay_ms(previous));
+                    let interval_target_avg = previous
+                        .and_then(|previous| snapshot.interval_avg_target_delay_ms(previous));
+                    previous = Some(snapshot);
+                    info!(
+                        "webrtc jitter buffer: avg={}, interval_avg={}, target_avg={}, target_interval_avg={}, minimum_avg={}, emitted={}, frames_decoded={}, frames_dropped={}, packets_lost={}, packets_discarded={}",
+                        format_optional_ms(snapshot.avg_delay_ms()),
+                        format_optional_ms(interval_avg),
+                        format_optional_ms(snapshot.avg_target_delay_ms()),
+                        format_optional_ms(interval_target_avg),
+                        format_optional_ms(snapshot.avg_minimum_delay_ms()),
+                        snapshot.emitted_count,
+                        snapshot.frames_decoded,
+                        snapshot.frames_dropped,
+                        snapshot.packets_lost,
+                        snapshot.packets_discarded,
+                    );
+                }
+            });
+        }
 
         let rtc_track = video_track.rtc_track();
         let shared = shared.clone();
