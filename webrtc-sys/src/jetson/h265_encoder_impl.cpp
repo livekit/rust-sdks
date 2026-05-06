@@ -222,10 +222,11 @@ int32_t JetsonH265EncoderImpl::Encode(
   if (send_timing) {
     std::fprintf(stderr,
                  "[SEND_TIMING][H265] rtp_ts=%u capture_us=%lld "
-                 "encode_ms=%.2f callback_ms=%.2f encoded_bytes=%zu "
-                 "keyframe=%d result=%d\n",
+                 "capture_to_encode_start_ms=%.2f encode_ms=%.2f "
+                 "callback_ms=%.2f encoded_bytes=%zu keyframe=%d result=%d\n",
                  input_frame.rtp_timestamp(),
                  static_cast<long long>(input_frame.timestamp_us()),
+                 (encode_start_us - input_frame.timestamp_us()) / 1000.0,
                  (encode_done_us - encode_start_us) / 1000.0,
                  (callback_done_us - encode_done_us) / 1000.0, packet.size(),
                  is_keyframe ? 1 : 0, process_result);

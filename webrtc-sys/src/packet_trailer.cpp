@@ -16,6 +16,7 @@
 
 #include "livekit/packet_trailer.h"
 
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -30,6 +31,15 @@
 #include "webrtc-sys/src/packet_trailer.rs.h"
 
 namespace livekit_ffi {
+
+namespace {
+
+int64_t UnixTimeMicrosNow() {
+  const auto now = std::chrono::system_clock::now().time_since_epoch();
+  return std::chrono::duration_cast<std::chrono::microseconds>(now).count();
+}
+
+}  // namespace
 
 // PacketTrailerTransformer implementation
 
@@ -111,7 +121,8 @@ void PacketTrailerTransformer::TransformSend(
                              meta_to_embed.frame_id);
     frame->SetData(webrtc::ArrayView<const uint8_t>(new_data));
   }
-  const int64_t transform_us = webrtc::TimeMicros();
+  const int64_t transform_mono_us = webrtc::TimeMicros();
+  const int64_t transform_wall_us = UnixTimeMicrosNow();
   const size_t payload_bytes = enabled_.load() ? new_data.size() : data.size();
   const int64_t capture_us =
       capture_time.has_value() ? capture_time->us() : 0;
@@ -142,10 +153,10 @@ void PacketTrailerTransformer::TransformSend(
                    static_cast<unsigned long long>(meta_to_embed.user_timestamp),
                    meta_to_embed.user_timestamp == 0
                        ? 0.0
-                       : (transform_us -
+                       : (transform_wall_us -
                           static_cast<int64_t>(meta_to_embed.user_timestamp)) /
                              1000.0,
-                   (callback_done_us - transform_us) / 1000.0, payload_bytes);
+                   (callback_done_us - transform_mono_us) / 1000.0, payload_bytes);
       std::fflush(stderr);
     }
   } else {
