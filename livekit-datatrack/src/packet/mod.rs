@@ -32,7 +32,7 @@ pub struct Packet {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(any(test, feature = "__fuzz"), derive(fake::Dummy))]
 pub struct Header {
     pub marker: FrameMarker,
     pub track_handle: Handle,
@@ -44,7 +44,7 @@ pub struct Header {
 
 /// Marker indicating a packet's position in relation to a frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(test, derive(fake::Dummy))]
+#[cfg_attr(any(test, feature = "__fuzz"), derive(fake::Dummy))]
 pub enum FrameMarker {
     /// Packet is the first in a frame.
     Start,
@@ -62,6 +62,24 @@ impl fmt::Debug for Packet {
             .field("header", &self.header)
             .field("payload_len", &self.payload.len())
             .finish()
+    }
+}
+
+#[cfg(any(test, feature = "__fuzz"))]
+impl fake::Dummy<usize> for Packet {
+    fn dummy_with_rng<R: rand::Rng + ?Sized>(max_payload_len: &usize, rng: &mut R) -> Self {
+        use fake::Fake;
+        let payload_len = rng.random_range(0..=*max_payload_len);
+        let payload = (0..payload_len).map(|_| rng.random()).collect::<Bytes>();
+        Self { header: fake::Faker.fake_with_rng(rng), payload }
+    }
+}
+
+#[cfg(any(test, feature = "__fuzz"))]
+impl fake::Dummy<fake::Faker> for Packet {
+    fn dummy_with_rng<R: rand::Rng + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
+        use fake::Fake;
+        1500usize.fake_with_rng(rng)
     }
 }
 

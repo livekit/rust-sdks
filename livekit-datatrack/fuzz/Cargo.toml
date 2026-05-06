@@ -1,0 +1,27 @@
+[package]
+name = "livekit-datatrack-fuzz"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+# Detached from the parent workspace
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+bytes = "1.10"
+fake = { version = "4.4", features = ["derive"] }
+
+[dependencies.livekit-datatrack]
+path = ".."
+features = ["__fuzz"]
+
+[[bin]]
+name = "packet_deserialize"
+path = "fuzz_targets/packet_deserialize.rs"
+test = false
+doc = false
+bench = false
