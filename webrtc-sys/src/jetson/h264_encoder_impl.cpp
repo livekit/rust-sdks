@@ -237,7 +237,9 @@ int32_t JetsonH264EncoderImpl::Encode(
   static std::atomic<uint64_t> empty_packet_count(0);
   static std::atomic<bool> logged_first_encode(false);
   const bool debug = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+  const bool send_timing = std::getenv("LK_SEND_TIMING") != nullptr;
   const uint64_t frame_num = encode_call_count.fetch_add(1);
+  const int64_t encode_start_us = TimeMicros();
 
   if (!encoder_.IsInitialized()) {
     if (debug || frame_num < 5) {
@@ -391,7 +393,22 @@ int32_t JetsonH264EncoderImpl::Encode(
     std::fflush(stderr);
   }
 
-  return ProcessEncodedFrame(packet, input_frame, is_keyframe);
+  const int64_t encode_done_us = TimeMicros();
+  const int32_t process_result = ProcessEncodedFrame(packet, input_frame, is_keyframe);
+  const int64_t callback_done_us = TimeMicros();
+  if (send_timing) {
+    std::fprintf(stderr,
+                 "[SEND_TIMING][H264] frame=%lu rtp_ts=%u capture_us=%lld "
+                 "encode_ms=%.2f callback_ms=%.2f encoded_bytes=%zu "
+                 "keyframe=%d result=%d\n",
+                 frame_num, input_frame.rtp_timestamp(),
+                 static_cast<long long>(input_frame.timestamp_us()),
+                 (encode_done_us - encode_start_us) / 1000.0,
+                 (callback_done_us - encode_done_us) / 1000.0, packet.size(),
+                 is_keyframe ? 1 : 0, process_result);
+    std::fflush(stderr);
+  }
+  return process_result;
 }
 
 int32_t JetsonH264EncoderImpl::ProcessEncodedFrame(

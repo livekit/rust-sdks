@@ -16,6 +16,8 @@
 
 #include "livekit/packet_trailer.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <optional>
 
@@ -24,6 +26,7 @@
 #include "livekit/rtp_receiver.h"
 #include "livekit/rtp_sender.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/time_utils.h"
 #include "webrtc-sys/src/packet_trailer.rs.h"
 
 namespace livekit_ffi {
@@ -71,6 +74,7 @@ void PacketTrailerTransformer::Transform(
 
 void PacketTrailerTransformer::TransformSend(
     std::unique_ptr<webrtc::TransformableFrameInterface> frame) {
+  static const bool send_timing = std::getenv("LK_SEND_TIMING") != nullptr;
   uint32_t rtp_timestamp = frame->GetTimestamp();
   uint32_t ssrc = frame->GetSsrc();
 
@@ -107,6 +111,10 @@ void PacketTrailerTransformer::TransformSend(
                              meta_to_embed.frame_id);
     frame->SetData(webrtc::ArrayView<const uint8_t>(new_data));
   }
+  const int64_t transform_us = webrtc::TimeMicros();
+  const size_t payload_bytes = enabled_.load() ? new_data.size() : data.size();
+  const int64_t capture_us =
+      capture_time.has_value() ? capture_time->us() : 0;
 
   // Forward to the appropriate callback (either global or per-SSRC sink).
   webrtc::scoped_refptr<webrtc::TransformedFrameCallback> cb;
@@ -122,6 +130,24 @@ void PacketTrailerTransformer::TransformSend(
 
   if (cb) {
     cb->OnTransformedFrame(std::move(frame));
+    if (send_timing && meta_to_embed.frame_id != 0) {
+      const int64_t callback_done_us = webrtc::TimeMicros();
+      std::fprintf(stderr,
+                   "[SEND_TIMING][TransformSend] frame_id=%u ssrc=%u "
+                   "rtp_ts=%u capture_us=%lld user_ts=%llu "
+                   "sensor_to_transform_ms=%.2f transform_callback_ms=%.2f "
+                   "payload_bytes=%zu\n",
+                   meta_to_embed.frame_id, ssrc, rtp_timestamp,
+                   static_cast<long long>(capture_us),
+                   static_cast<unsigned long long>(meta_to_embed.user_timestamp),
+                   meta_to_embed.user_timestamp == 0
+                       ? 0.0
+                       : (transform_us -
+                          static_cast<int64_t>(meta_to_embed.user_timestamp)) /
+                             1000.0,
+                   (callback_done_us - transform_us) / 1000.0, payload_bytes);
+      std::fflush(stderr);
+    }
   } else {
     RTC_LOG(LS_WARNING)
         << "PacketTrailerTransformer::TransformSend has no callback"

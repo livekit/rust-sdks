@@ -30,6 +30,7 @@ mod app {
     use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
     use crate::argus;
+    use livekit::webrtc::stats::RtcStats;
 
     fn unix_time_us_now() -> u64 {
         SystemTime::now()
@@ -68,6 +69,106 @@ mod app {
             Some(wall_time_us.saturating_sub(monotonic_delta_us))
         } else {
             Some(wall_time_us.saturating_add(monotonic_delta_us))
+        }
+    }
+
+    #[derive(Clone, Copy, Default)]
+    struct OutboundVideoCounters {
+        packets_sent: u64,
+        bytes_sent: u64,
+        frames_encoded: u32,
+        frames_sent: u32,
+        total_encode_time_s: f64,
+        total_packet_send_delay_s: f64,
+    }
+
+    fn outbound_video_counters(stats: &[RtcStats]) -> Option<OutboundVideoCounters> {
+        let mut counters = OutboundVideoCounters::default();
+        let mut found = false;
+        for stat in stats {
+            let RtcStats::OutboundRtp(outbound) = stat else {
+                continue;
+            };
+            if outbound.stream.kind != "video" {
+                continue;
+            }
+            found = true;
+            counters.packets_sent += outbound.sent.packets_sent;
+            counters.bytes_sent += outbound.sent.bytes_sent;
+            counters.frames_encoded += outbound.outbound.frames_encoded;
+            counters.frames_sent += outbound.outbound.frames_sent;
+            counters.total_encode_time_s += outbound.outbound.total_encode_time;
+            counters.total_packet_send_delay_s += outbound.outbound.total_packet_send_delay;
+        }
+        found.then_some(counters)
+    }
+
+    fn delta_u64(newer: u64, older: u64) -> u64 {
+        newer.saturating_sub(older)
+    }
+
+    fn delta_u32(newer: u32, older: u32) -> u32 {
+        newer.saturating_sub(older)
+    }
+
+    async fn log_outbound_video_stats(track: LocalVideoTrack, ctrl_c_received: Arc<AtomicBool>) {
+        let mut interval = tokio::time::interval(Duration::from_secs(2));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut last: Option<OutboundVideoCounters> = None;
+
+        loop {
+            interval.tick().await;
+            if ctrl_c_received.load(Ordering::Acquire) {
+                break;
+            }
+
+            let stats = match track.get_stats().await {
+                Ok(stats) => stats,
+                Err(e) => {
+                    debug!("Failed to read outbound video stats: {}", e);
+                    continue;
+                }
+            };
+            let Some(current) = outbound_video_counters(&stats) else {
+                debug!("No outbound video RTP stats available yet");
+                continue;
+            };
+            let Some(previous) = last.replace(current) else {
+                continue;
+            };
+
+            let delta_packets = delta_u64(current.packets_sent, previous.packets_sent);
+            let delta_bytes = delta_u64(current.bytes_sent, previous.bytes_sent);
+            let delta_frames_encoded = delta_u32(current.frames_encoded, previous.frames_encoded);
+            let delta_frames_sent = delta_u32(current.frames_sent, previous.frames_sent);
+            let delta_encode_s =
+                (current.total_encode_time_s - previous.total_encode_time_s).max(0.0);
+            let delta_packet_delay_s =
+                (current.total_packet_send_delay_s - previous.total_packet_send_delay_s).max(0.0);
+            let avg_encode_ms = if delta_frames_encoded > 0 {
+                delta_encode_s * 1000.0 / delta_frames_encoded as f64
+            } else {
+                0.0
+            };
+            let avg_packet_send_delay_ms = if delta_packets > 0 {
+                delta_packet_delay_s * 1000.0 / delta_packets as f64
+            } else {
+                0.0
+            };
+
+            info!(
+                "Outbound RTP stats: +{} frames encoded, +{} frames sent, +{} packets, +{} bytes | avg encode {:.2} ms/frame | avg packet_send_delay {:.3} ms/packet | totals frames_encoded {}, frames_sent {}, packets {}, bytes {}",
+                delta_frames_encoded,
+                delta_frames_sent,
+                delta_packets,
+                delta_bytes,
+                avg_encode_ms,
+                avg_packet_send_delay_ms,
+                current.frames_encoded,
+                current.frames_sent,
+                current.packets_sent,
+                current.bytes_sent,
+            );
         }
     }
 
@@ -269,6 +370,8 @@ mod app {
         } else {
             info!("Published Jetson MIPI camera track");
         }
+
+        tokio::spawn(log_outbound_video_stats(track.clone(), ctrl_c_received.clone()));
 
         let session = argus::ArgusCaptureSession::new(args.camera_index, width, height, fps)?;
         info!(
