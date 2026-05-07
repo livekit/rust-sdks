@@ -126,9 +126,11 @@ class AudioTrackSource {
 
     void clear_buffer();
 
-    // Override to indicate this is an external audio source.
+    // Indicate this is an external audio source (when external_audio_source.patch is applied).
     // This prevents AudioState from sending device audio to streams using this source.
-    bool is_external_source() const override { return true; }
+    // Note: Omit 'override' to allow builds without the patch applied.
+    // When the patch is applied, this will correctly override the base class virtual method.
+    bool is_external_source() const { return true; }
 
    private:
     mutable webrtc::Mutex mutex_;

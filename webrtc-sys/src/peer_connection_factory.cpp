@@ -181,12 +181,56 @@ rust::String PeerConnectionFactory::recording_device_name(uint16_t index) const 
   return rust::String(name);
 }
 
+rust::String PeerConnectionFactory::playout_device_guid(uint16_t index) const {
+  char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+  char guid[webrtc::kAdmMaxGuidSize] = {0};
+  adm_proxy_->PlayoutDeviceName(index, name, guid);
+  return rust::String(guid);
+}
+
+rust::String PeerConnectionFactory::recording_device_guid(uint16_t index) const {
+  char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+  char guid[webrtc::kAdmMaxGuidSize] = {0};
+  adm_proxy_->RecordingDeviceName(index, name, guid);
+  return rust::String(guid);
+}
+
 int32_t PeerConnectionFactory::set_playout_device(uint16_t index) const {
   return adm_proxy_->SetPlayoutDevice(index);
 }
 
 int32_t PeerConnectionFactory::set_recording_device(uint16_t index) const {
   return adm_proxy_->SetRecordingDevice(index);
+}
+
+int32_t PeerConnectionFactory::set_playout_device_by_guid(rust::String guid) const {
+  // Find device by GUID and set it
+  int16_t count = adm_proxy_->PlayoutDevices();
+  for (int16_t i = 0; i < count; i++) {
+    char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+    char device_guid[webrtc::kAdmMaxGuidSize] = {0};
+    if (adm_proxy_->PlayoutDeviceName(i, name, device_guid) == 0) {
+      if (std::string(guid.c_str()) == std::string(device_guid)) {
+        return adm_proxy_->SetPlayoutDevice(i);
+      }
+    }
+  }
+  return -1;  // Device not found
+}
+
+int32_t PeerConnectionFactory::set_recording_device_by_guid(rust::String guid) const {
+  // Find device by GUID and set it
+  int16_t count = adm_proxy_->RecordingDevices();
+  for (int16_t i = 0; i < count; i++) {
+    char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+    char device_guid[webrtc::kAdmMaxGuidSize] = {0};
+    if (adm_proxy_->RecordingDeviceName(i, name, device_guid) == 0) {
+      if (std::string(guid.c_str()) == std::string(device_guid)) {
+        return adm_proxy_->SetRecordingDevice(i);
+      }
+    }
+  }
+  return -1;  // Device not found
 }
 
 int32_t PeerConnectionFactory::stop_recording() const {
@@ -251,6 +295,30 @@ void PeerConnectionFactory::set_adm_recording_enabled(bool enabled) const {
 
 bool PeerConnectionFactory::adm_recording_enabled() const {
   return adm_proxy_->recording_enabled();
+}
+
+void PeerConnectionFactory::set_adm_playout_enabled(bool enabled) const {
+  adm_proxy_->set_playout_enabled(enabled);
+}
+
+bool PeerConnectionFactory::adm_playout_enabled() const {
+  return adm_proxy_->playout_enabled();
+}
+
+bool PeerConnectionFactory::acquire_platform_adm() const {
+  return adm_proxy_->AcquirePlatformAdm();
+}
+
+void PeerConnectionFactory::release_platform_adm() const {
+  adm_proxy_->ReleasePlatformAdm();
+}
+
+int PeerConnectionFactory::platform_adm_ref_count() const {
+  return adm_proxy_->platform_adm_ref_count();
+}
+
+bool PeerConnectionFactory::is_platform_adm_active() const {
+  return adm_proxy_->is_platform_adm_active();
 }
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {

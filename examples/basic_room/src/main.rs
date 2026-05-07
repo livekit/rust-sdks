@@ -11,12 +11,18 @@ use std::time::Duration;
 use tokio::signal;
 
 // Usage:
-//   cargo run -p basic_room -- --list-devices                         # List audio devices and exit
+//   cargo run -p basic_room -- --list-devices                         # List audio devices (with GUIDs) and exit
 //   cargo run -p basic_room -- --platform-audio                       # Publish microphone using PlatformAudio
 //   cargo run -p basic_room -- --platform-audio-and-file <path.wav>   # Publish both mic + WAV file
 //   cargo run -p basic_room -- --file <path.wav>                      # Publish just WAV file (no mic)
 //   cargo run -p basic_room -- --room <room-name>                     # Specify room name (default: my-room)
+//   cargo run -p basic_room -- --mic-guid <guid>                      # Select microphone by GUID
+//   cargo run -p basic_room -- --speaker-guid <guid>                  # Select speaker by GUID
 //   cargo run -p basic_room                                           # Connect without audio publishing
+//
+// Example with GUID-based device selection:
+//   cargo run -p basic_room -- --list-devices                         # Find the GUID you want
+//   cargo run -p basic_room -- --platform-audio --mic-guid "your-guid-here"
 
 #[tokio::main]
 async fn main() {
@@ -48,6 +54,20 @@ async fn main() {
         .map(|s| s.clone())
         .unwrap_or_else(|| "my-room".to_string());
 
+    // Check for --mic-guid <guid> (select microphone by GUID)
+    let mic_guid = args
+        .iter()
+        .position(|arg| arg == "--mic-guid")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.clone());
+
+    // Check for --speaker-guid <guid> (select speaker by GUID)
+    let speaker_guid = args
+        .iter()
+        .position(|arg| arg == "--speaker-guid")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.clone());
+
     let use_platform_audio_and_file = platform_audio_and_file_path.is_some();
     let file_path = platform_audio_and_file_path.or(file_only_path.clone());
 
@@ -67,7 +87,9 @@ async fn main() {
             println!("  (none)");
         } else {
             for i in 0..recording_count as u16 {
-                println!("  [{}] {}", i, audio.recording_device_name(i));
+                let name = audio.recording_device_name(i);
+                let guid = audio.recording_device_guid(i);
+                println!("  [{}] {} (GUID: {})", i, name, guid);
             }
         }
 
@@ -77,7 +99,9 @@ async fn main() {
             println!("  (none)");
         } else {
             for i in 0..playout_count as u16 {
-                println!("  [{}] {}", i, audio.playout_device_name(i));
+                let name = audio.playout_device_name(i);
+                let guid = audio.playout_device_guid(i);
+                println!("  [{}] {} (GUID: {})", i, name, guid);
             }
         }
 
@@ -106,18 +130,47 @@ async fn main() {
 
         log::info!("Recording devices: {}", recording_count);
         for i in 0..recording_count as u16 {
-            log::info!("  [{}] {}", i, audio.recording_device_name(i));
+            let name = audio.recording_device_name(i);
+            let guid = audio.recording_device_guid(i);
+            log::info!("  [{}] {} (GUID: {})", i, name, guid);
         }
 
         log::info!("Playout devices: {}", playout_count);
         for i in 0..playout_count as u16 {
-            log::info!("  [{}] {}", i, audio.playout_device_name(i));
+            let name = audio.playout_device_name(i);
+            let guid = audio.playout_device_guid(i);
+            log::info!("  [{}] {} (GUID: {})", i, name, guid);
         }
 
-        if recording_count > 0 {
+        // Select recording device (prefer GUID if provided, otherwise use index 0)
+        if let Some(ref guid) = mic_guid {
+            log::info!("Selecting microphone by GUID: {}", guid);
+            match audio.set_recording_device_by_guid(guid) {
+                Ok(()) => log::info!("Successfully selected microphone by GUID"),
+                Err(e) => {
+                    log::error!("Failed to select microphone by GUID: {}. Falling back to default.", e);
+                    if recording_count > 0 {
+                        audio.set_recording_device(0).expect("Failed to set recording device");
+                    }
+                }
+            }
+        } else if recording_count > 0 {
             audio.set_recording_device(0).expect("Failed to set recording device");
         }
-        if playout_count > 0 {
+
+        // Select playout device (prefer GUID if provided, otherwise use index 0)
+        if let Some(ref guid) = speaker_guid {
+            log::info!("Selecting speaker by GUID: {}", guid);
+            match audio.set_playout_device_by_guid(guid) {
+                Ok(()) => log::info!("Successfully selected speaker by GUID"),
+                Err(e) => {
+                    log::error!("Failed to select speaker by GUID: {}. Falling back to default.", e);
+                    if playout_count > 0 {
+                        audio.set_playout_device(0).expect("Failed to set playout device");
+                    }
+                }
+            }
+        } else if playout_count > 0 {
             audio.set_playout_device(0).expect("Failed to set playout device");
         }
 

@@ -130,16 +130,23 @@ lazy_static! {
 
 /// Internal handle for platform audio.
 ///
-/// This is a marker type that tracks PlatformAudio usage. The Platform ADM
-/// is always enabled and does not need to be disabled when dropped.
+/// This handle manages the Platform ADM lifecycle via reference counting.
+/// When the first PlatformAudio is created, the Platform ADM is acquired.
+/// When the last PlatformAudio is dropped, the Platform ADM is released.
 struct PlatformAdmHandle {
     runtime: Arc<LkRuntime>,
 }
 
 impl Drop for PlatformAdmHandle {
     fn drop(&mut self) {
-        log::debug!("PlatformAdmHandle dropped");
-        // Platform ADM is always enabled, no cleanup needed
+        log::debug!("PlatformAdmHandle dropped - releasing Platform ADM");
+        // Release Platform ADM reference
+        // When ref_count reaches 0, the Platform ADM is terminated
+        self.runtime.release_platform_adm();
+        log::info!(
+            "PlatformAdmHandle: released Platform ADM (ref_count now: {})",
+            self.runtime.platform_adm_ref_count()
+        );
     }
 }
 
@@ -263,18 +270,40 @@ impl PlatformAudio {
 
         // Try to reuse existing handle
         if let Some(handle) = handle_ref.upgrade() {
-            log::debug!("PlatformAudio: reusing existing handle");
+            log::debug!("PlatformAudio: reusing existing handle (ref_count: {})",
+                handle.runtime.platform_adm_ref_count());
+            // Still need to acquire Platform ADM since each PlatformAudio instance
+            // needs its own reference
+            if !handle.runtime.acquire_platform_adm() {
+                return Err(AudioError::PlatformInitFailed);
+            }
             return Ok(Self { handle });
         }
 
-        // Create new handle (Platform ADM is always enabled at startup)
+        // Create new handle and acquire Platform ADM
         log::debug!("PlatformAudio: creating new handle");
         let runtime = LkRuntime::instance();
+
+        // Acquire Platform ADM - this creates the platform-specific audio device module
+        // on first call and increments the reference count on subsequent calls.
+        // When this fails, it means no audio hardware is available.
+        if !runtime.acquire_platform_adm() {
+            log::error!("PlatformAudio: failed to acquire Platform ADM");
+            return Err(AudioError::PlatformInitFailed);
+        }
+        log::info!(
+            "PlatformAudio: acquired Platform ADM (ref_count: {})",
+            runtime.platform_adm_ref_count()
+        );
 
         // Enable ADM recording since PlatformAudio needs microphone access
         // Recording is disabled by default to prevent interference with NativeAudioSource
         runtime.set_adm_recording_enabled(true);
         log::info!("PlatformAudio: enabled ADM recording for microphone capture");
+
+        // Enable ADM playout for platform speakers with AEC
+        runtime.set_adm_playout_enabled(true);
+        log::info!("PlatformAudio: enabled ADM playout for platform speakers");
 
         // Verify Platform ADM is working by checking device count
         let recording_count = runtime.recording_devices();
@@ -390,6 +419,54 @@ impl PlatformAudio {
         self.handle.runtime.playout_device_name(index)
     }
 
+    /// Returns the GUID of a recording device by index.
+    ///
+    /// The GUID is a platform-specific unique identifier that is stable across
+    /// device hot-plug events. Use this for persistent device selection instead
+    /// of indices, which can change when devices are added or removed.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Device index (0-based, must be < `recording_devices()`)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// for i in 0..audio.recording_devices() as u16 {
+    ///     let name = audio.recording_device_name(i);
+    ///     let guid = audio.recording_device_guid(i);
+    ///     println!("Mic {}: {} (GUID: {})", i, name, guid);
+    /// }
+    /// ```
+    pub fn recording_device_guid(&self, index: u16) -> String {
+        self.handle.runtime.recording_device_guid(index)
+    }
+
+    /// Returns the GUID of a playout device by index.
+    ///
+    /// The GUID is a platform-specific unique identifier that is stable across
+    /// device hot-plug events. Use this for persistent device selection instead
+    /// of indices, which can change when devices are added or removed.
+    ///
+    /// # Arguments
+    ///
+    /// * `index` - Device index (0-based, must be < `playout_devices()`)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// for i in 0..audio.playout_devices() as u16 {
+    ///     let name = audio.playout_device_name(i);
+    ///     let guid = audio.playout_device_guid(i);
+    ///     println!("Speaker {}: {} (GUID: {})", i, name, guid);
+    /// }
+    /// ```
+    pub fn playout_device_guid(&self, index: u16) -> String {
+        self.handle.runtime.playout_device_guid(index)
+    }
+
     // =========================================================================
     // Device Selection
     // =========================================================================
@@ -475,6 +552,102 @@ impl PlatformAudio {
                     log::warn!("set_playout_device: start_playout returned {}", start_result);
                 } else {
                     log::info!("set_playout_device: playout initialized and started for device {}", index);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Selects a recording (microphone) device by GUID.
+    ///
+    /// This is the preferred method for device selection as GUIDs are stable
+    /// across device hot-plug events, unlike indices which can change.
+    ///
+    /// # Arguments
+    ///
+    /// * `guid` - Platform-specific device identifier from [`recording_device_guid`]
+    ///
+    /// # Errors
+    ///
+    /// - [`AudioError::DeviceNotFound`] if no device matches the GUID
+    /// - [`AudioError::OperationFailed`] if device selection fails
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// // Save the GUID of the preferred microphone
+    /// let preferred_guid = audio.recording_device_guid(0);
+    /// // Later, select it by GUID (works even if indices changed)
+    /// audio.set_recording_device_by_guid(&preferred_guid)?;
+    /// ```
+    ///
+    /// [`recording_device_guid`]: Self::recording_device_guid
+    pub fn set_recording_device_by_guid(&self, guid: &str) -> AudioResult<()> {
+        let result = self.handle.runtime.set_recording_device_by_guid(guid);
+        if result == 0 {
+            Ok(())
+        } else if result == -1 {
+            Err(AudioError::DeviceNotFound)
+        } else {
+            Err(AudioError::OperationFailed(format!(
+                "set_recording_device_by_guid returned {}",
+                result
+            )))
+        }
+    }
+
+    /// Selects a playout (speaker) device by GUID.
+    ///
+    /// This is the preferred method for device selection as GUIDs are stable
+    /// across device hot-plug events, unlike indices which can change.
+    ///
+    /// # Arguments
+    ///
+    /// * `guid` - Platform-specific device identifier from [`playout_device_guid`]
+    ///
+    /// # Errors
+    ///
+    /// - [`AudioError::DeviceNotFound`] if no device matches the GUID
+    /// - [`AudioError::OperationFailed`] if device selection fails
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// // Save the GUID of the preferred speakers
+    /// let preferred_guid = audio.playout_device_guid(0);
+    /// // Later, select it by GUID (works even if indices changed)
+    /// audio.set_playout_device_by_guid(&preferred_guid)?;
+    /// ```
+    ///
+    /// [`playout_device_guid`]: Self::playout_device_guid
+    pub fn set_playout_device_by_guid(&self, guid: &str) -> AudioResult<()> {
+        let runtime = &self.handle.runtime;
+        let result = runtime.set_playout_device_by_guid(guid);
+        if result == -1 {
+            return Err(AudioError::DeviceNotFound);
+        }
+        if result != 0 {
+            return Err(AudioError::OperationFailed(format!(
+                "set_playout_device_by_guid returned {}",
+                result
+            )));
+        }
+
+        // On iOS, we need to explicitly initialize and start playout.
+        #[cfg(target_os = "ios")]
+        {
+            let init_result = runtime.init_playout();
+            if init_result != 0 {
+                log::warn!("set_playout_device_by_guid: init_playout returned {}", init_result);
+            } else {
+                let start_result = runtime.start_playout();
+                if start_result != 0 {
+                    log::warn!("set_playout_device_by_guid: start_playout returned {}", start_result);
+                } else {
+                    log::info!("set_playout_device_by_guid: playout initialized and started");
                 }
             }
         }

@@ -372,10 +372,17 @@ message LoadAudioFilterPluginResponse {
 
 // Information about an audio device.
 message AudioDeviceInfo {
-  // Device index (0-based).
+  // Device index (0-based). Note: indices can change when devices are added/removed.
   required uint32 index = 1;
   // Device name as reported by the operating system.
   required string name = 2;
+  // Platform-specific unique device identifier (GUID).
+  // This is stable across device additions/removals and should be preferred
+  // over index for device selection. Format varies by platform:
+  // - Windows: Device interface path
+  // - macOS: AudioObjectID as string
+  // - Linux: ALSA/PulseAudio device identifier
+  optional string guid = 3;
 }
 
 // Information about a PlatformAudio instance.
@@ -430,17 +437,23 @@ message GetAudioDevicesResponse {
 // Set the recording device (microphone).
 //
 // Call this before creating audio tracks to select which microphone to use.
-// Device indices are 0-based and must be less than the recording device count.
+// Prefer using GUID over index for robust device selection across hot-plug events.
 message SetRecordingDeviceRequest {
   // The PlatformAudio handle.
   required uint64 platform_audio_handle = 1;
-  // Device index from GetAudioDevicesResponse.recording_devices.
-  required uint32 index = 2;
+  // Device selection - use one of:
+  oneof device {
+    // Device index (0-based). Note: indices can change when devices are added/removed.
+    uint32 index = 2;
+    // Device GUID from AudioDeviceInfo.guid (preferred - stable across device changes).
+    string guid = 3;
+  }
 }
 
 message SetRecordingDeviceResponse {
   // Error message if the operation failed:
   // - "Invalid device index" if index >= recording device count
+  // - "Device not found" if GUID doesn't match any device
   // - Other platform-specific errors
   // Empty/absent on success.
   optional string error = 1;
@@ -449,17 +462,23 @@ message SetRecordingDeviceResponse {
 // Set the playout device (speaker/headphones).
 //
 // Call this before connecting to select which speaker to use for audio output.
-// Device indices are 0-based and must be less than the playout device count.
+// Prefer using GUID over index for robust device selection across hot-plug events.
 message SetPlayoutDeviceRequest {
   // The PlatformAudio handle.
   required uint64 platform_audio_handle = 1;
-  // Device index from GetAudioDevicesResponse.playout_devices.
-  required uint32 index = 2;
+  // Device selection - use one of:
+  oneof device {
+    // Device index (0-based). Note: indices can change when devices are added/removed.
+    uint32 index = 2;
+    // Device GUID from AudioDeviceInfo.guid (preferred - stable across device changes).
+    string guid = 3;
+  }
 }
 
 message SetPlayoutDeviceResponse {
   // Error message if the operation failed:
   // - "Invalid device index" if index >= playout device count
+  // - "Device not found" if GUID doesn't match any device
   // - Other platform-specific errors
   // Empty/absent on success.
   optional string error = 1;

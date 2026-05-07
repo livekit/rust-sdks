@@ -136,6 +136,18 @@ impl PeerConnectionFactory {
         self.sys_handle.recording_device_name(index)
     }
 
+    /// Get the GUID of a playout device by index
+    /// The GUID is a platform-specific unique identifier that is stable across device hot-plug events.
+    pub fn playout_device_guid(&self, index: u16) -> String {
+        self.sys_handle.playout_device_guid(index)
+    }
+
+    /// Get the GUID of a recording device by index
+    /// The GUID is a platform-specific unique identifier that is stable across device hot-plug events.
+    pub fn recording_device_guid(&self, index: u16) -> String {
+        self.sys_handle.recording_device_guid(index)
+    }
+
     /// Set the playout device by index
     /// Returns 0 on success, negative on error.
     pub fn set_playout_device(&self, index: u16) -> i32 {
@@ -146,6 +158,20 @@ impl PeerConnectionFactory {
     /// Returns 0 on success, negative on error.
     pub fn set_recording_device(&self, index: u16) -> i32 {
         self.sys_handle.set_recording_device(index)
+    }
+
+    /// Set the playout device by GUID
+    /// This is preferred over index as GUIDs are stable across device hot-plug events.
+    /// Returns 0 on success, -1 if device not found.
+    pub fn set_playout_device_by_guid(&self, guid: &str) -> i32 {
+        self.sys_handle.set_playout_device_by_guid(guid.to_string())
+    }
+
+    /// Set the recording device by GUID
+    /// This is preferred over index as GUIDs are stable across device hot-plug events.
+    /// Returns 0 on success, -1 if device not found.
+    pub fn set_recording_device_by_guid(&self, guid: &str) -> i32 {
+        self.sys_handle.set_recording_device_by_guid(guid.to_string())
     }
 
     /// Stop recording (clears initialized state, allowing device switch)
@@ -257,6 +283,50 @@ impl PeerConnectionFactory {
     /// Check if ADM recording (microphone) is enabled.
     pub fn adm_recording_enabled(&self) -> bool {
         self.sys_handle.adm_recording_enabled()
+    }
+
+    /// Control whether ADM playout (speakers) is enabled.
+    ///
+    /// When disabled (default), playout uses synthetic mode - remote audio is
+    /// delivered via FFI callbacks to the application (e.g., Unity AudioSource).
+    /// When enabled, remote audio plays through the platform speakers with AEC.
+    pub fn set_adm_playout_enabled(&self, enabled: bool) {
+        self.sys_handle.set_adm_playout_enabled(enabled)
+    }
+
+    /// Check if ADM playout (speakers) is enabled.
+    pub fn adm_playout_enabled(&self) -> bool {
+        self.sys_handle.adm_playout_enabled()
+    }
+
+    // ===== Platform ADM Lifecycle Management =====
+
+    /// Acquires a reference to the Platform ADM.
+    ///
+    /// On first call, creates and initializes the Platform ADM. On subsequent
+    /// calls, just increments the reference count.
+    ///
+    /// Returns true if Platform ADM is ready for use, false if initialization failed.
+    pub fn acquire_platform_adm(&self) -> bool {
+        self.sys_handle.acquire_platform_adm()
+    }
+
+    /// Releases a reference to the Platform ADM.
+    ///
+    /// When the reference count reaches zero, the Platform ADM is terminated
+    /// and the proxy returns to synthetic mode.
+    pub fn release_platform_adm(&self) {
+        self.sys_handle.release_platform_adm()
+    }
+
+    /// Returns the current reference count for the Platform ADM.
+    pub fn platform_adm_ref_count(&self) -> i32 {
+        self.sys_handle.platform_adm_ref_count()
+    }
+
+    /// Returns true if Platform ADM is currently active (ref_count > 0).
+    pub fn is_platform_adm_active(&self) -> bool {
+        self.sys_handle.is_platform_adm_active()
     }
 }
 

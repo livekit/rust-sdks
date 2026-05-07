@@ -128,10 +128,17 @@ pub mod ffi {
         fn recording_devices(self: &PeerConnectionFactory) -> i16;
         fn playout_device_name(self: &PeerConnectionFactory, index: u16) -> String;
         fn recording_device_name(self: &PeerConnectionFactory, index: u16) -> String;
+        // Get device GUID (platform-specific unique identifier, stable across hot-plug)
+        fn playout_device_guid(self: &PeerConnectionFactory, index: u16) -> String;
+        fn recording_device_guid(self: &PeerConnectionFactory, index: u16) -> String;
 
-        // Device selection
+        // Device selection by index
         fn set_playout_device(self: &PeerConnectionFactory, index: u16) -> i32;
         fn set_recording_device(self: &PeerConnectionFactory, index: u16) -> i32;
+        // Device selection by GUID (preferred - stable across device changes)
+        // Returns 0 on success, -1 if device not found
+        fn set_playout_device_by_guid(self: &PeerConnectionFactory, guid: String) -> i32;
+        fn set_recording_device_by_guid(self: &PeerConnectionFactory, guid: String) -> i32;
 
         // Recording control (for device switching while active)
         fn stop_recording(self: &PeerConnectionFactory) -> i32;
@@ -159,6 +166,24 @@ pub mod ffi {
         // Use this when only using NativeAudioSource (no microphone needed).
         fn set_adm_recording_enabled(self: &PeerConnectionFactory, enabled: bool);
         fn adm_recording_enabled(self: &PeerConnectionFactory) -> bool;
+
+        // Control whether ADM playout (speakers) is enabled.
+        // When disabled (default), playout uses synthetic mode - remote audio is
+        // delivered via FFI callbacks to the application (e.g., Unity AudioSource).
+        // When enabled, remote audio plays through the platform speakers with AEC.
+        fn set_adm_playout_enabled(self: &PeerConnectionFactory, enabled: bool);
+        fn adm_playout_enabled(self: &PeerConnectionFactory) -> bool;
+
+        // Platform ADM lifecycle management.
+        // Call acquire_platform_adm when creating PlatformAudio.
+        // Call release_platform_adm when disposing PlatformAudio.
+        // The Platform ADM is only created when first acquired, and terminated
+        // when the last reference is released. This allows synthetic mode to work
+        // without Platform ADM interference.
+        fn acquire_platform_adm(self: &PeerConnectionFactory) -> bool;
+        fn release_platform_adm(self: &PeerConnectionFactory);
+        fn platform_adm_ref_count(self: &PeerConnectionFactory) -> i32;
+        fn is_platform_adm_active(self: &PeerConnectionFactory) -> bool;
     }
 
     extern "Rust" {

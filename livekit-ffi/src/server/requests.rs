@@ -1427,18 +1427,24 @@ fn on_get_audio_devices(
     let mut playout_devices = vec![];
     let mut recording_devices = vec![];
 
-    // Enumerate playout devices
+    // Enumerate playout devices with GUID
     let playout_count = audio.playout_devices();
     for i in 0..playout_count as u32 {
-        playout_devices
-            .push(proto::AudioDeviceInfo { index: i, name: audio.playout_device_name(i as u16) });
+        playout_devices.push(proto::AudioDeviceInfo {
+            index: i,
+            name: audio.playout_device_name(i as u16),
+            guid: Some(audio.playout_device_guid(i as u16)),
+        });
     }
 
-    // Enumerate recording devices
+    // Enumerate recording devices with GUID
     let recording_count = audio.recording_devices();
     for i in 0..recording_count as u32 {
-        recording_devices
-            .push(proto::AudioDeviceInfo { index: i, name: audio.recording_device_name(i as u16) });
+        recording_devices.push(proto::AudioDeviceInfo {
+            index: i,
+            name: audio.recording_device_name(i as u16),
+            guid: Some(audio.recording_device_guid(i as u16)),
+        });
     }
 
     Ok(proto::GetAudioDevicesResponse { playout_devices, recording_devices, error: None })
@@ -1450,7 +1456,23 @@ fn on_set_recording_device(
 ) -> FfiResult<proto::SetRecordingDeviceResponse> {
     let ffi_audio = server.retrieve_handle::<FfiPlatformAudio>(req.platform_audio_handle)?;
 
-    match ffi_audio.audio.set_recording_device(req.index as u16) {
+    // Support both index and GUID-based selection
+    let result = match req.device {
+        Some(proto::set_recording_device_request::Device::Index(index)) => {
+            ffi_audio.audio.set_recording_device(index as u16)
+        }
+        Some(proto::set_recording_device_request::Device::Guid(guid)) => {
+            ffi_audio.audio.set_recording_device_by_guid(&guid)
+        }
+        None => {
+            // Fallback for backwards compatibility - shouldn't happen with new clients
+            return Ok(proto::SetRecordingDeviceResponse {
+                error: Some("No device specified".to_string()),
+            });
+        }
+    };
+
+    match result {
         Ok(()) => Ok(proto::SetRecordingDeviceResponse { error: None }),
         Err(e) => Ok(proto::SetRecordingDeviceResponse { error: Some(e.to_string()) }),
     }
@@ -1462,7 +1484,23 @@ fn on_set_playout_device(
 ) -> FfiResult<proto::SetPlayoutDeviceResponse> {
     let ffi_audio = server.retrieve_handle::<FfiPlatformAudio>(req.platform_audio_handle)?;
 
-    match ffi_audio.audio.set_playout_device(req.index as u16) {
+    // Support both index and GUID-based selection
+    let result = match req.device {
+        Some(proto::set_playout_device_request::Device::Index(index)) => {
+            ffi_audio.audio.set_playout_device(index as u16)
+        }
+        Some(proto::set_playout_device_request::Device::Guid(guid)) => {
+            ffi_audio.audio.set_playout_device_by_guid(&guid)
+        }
+        None => {
+            // Fallback for backwards compatibility - shouldn't happen with new clients
+            return Ok(proto::SetPlayoutDeviceResponse {
+                error: Some("No device specified".to_string()),
+            });
+        }
+    };
+
+    match result {
         Ok(()) => Ok(proto::SetPlayoutDeviceResponse { error: None }),
         Err(e) => Ok(proto::SetPlayoutDeviceResponse { error: Some(e.to_string()) }),
     }

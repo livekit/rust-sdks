@@ -104,10 +104,17 @@ pub mod native {
         fn recording_devices(&self) -> i16;
         fn playout_device_name(&self, index: u16) -> String;
         fn recording_device_name(&self, index: u16) -> String;
+        /// Get device GUID (platform-specific unique identifier, stable across hot-plug)
+        fn playout_device_guid(&self, index: u16) -> String;
+        fn recording_device_guid(&self, index: u16) -> String;
 
-        // Device selection
+        // Device selection by index
         fn set_playout_device(&self, index: u16) -> i32;
         fn set_recording_device(&self, index: u16) -> i32;
+        /// Device selection by GUID (preferred - stable across device changes)
+        /// Returns 0 on success, -1 if device not found
+        fn set_playout_device_by_guid(&self, guid: &str) -> i32;
+        fn set_recording_device_by_guid(&self, guid: &str) -> i32;
 
         // Recording control (for device switching while active)
         fn stop_recording(&self) -> i32;
@@ -134,6 +141,22 @@ pub mod native {
         // Use this to disable microphone when only using NativeAudioSource
         fn set_adm_recording_enabled(&self, enabled: bool);
         fn adm_recording_enabled(&self) -> bool;
+
+        // ADM playout control
+        // When disabled (default), playout uses synthetic mode - remote audio is
+        // delivered via FFI callbacks. When enabled, plays through platform speakers.
+        fn set_adm_playout_enabled(&self, enabled: bool);
+        fn adm_playout_enabled(&self) -> bool;
+
+        // Platform ADM lifecycle management
+        // Call acquire_platform_adm when creating PlatformAudio.
+        // Call release_platform_adm when disposing PlatformAudio.
+        // The Platform ADM is only created when first acquired, and terminated
+        // when the last reference is released.
+        fn acquire_platform_adm(&self) -> bool;
+        fn release_platform_adm(&self);
+        fn platform_adm_ref_count(&self) -> i32;
+        fn is_platform_adm_active(&self) -> bool;
     }
 
     impl PeerConnectionFactoryExt for PeerConnectionFactory {
@@ -165,12 +188,28 @@ pub mod native {
             self.handle.recording_device_name(index)
         }
 
+        fn playout_device_guid(&self, index: u16) -> String {
+            self.handle.playout_device_guid(index)
+        }
+
+        fn recording_device_guid(&self, index: u16) -> String {
+            self.handle.recording_device_guid(index)
+        }
+
         fn set_playout_device(&self, index: u16) -> i32 {
             self.handle.set_playout_device(index)
         }
 
         fn set_recording_device(&self, index: u16) -> i32 {
             self.handle.set_recording_device(index)
+        }
+
+        fn set_playout_device_by_guid(&self, guid: &str) -> i32 {
+            self.handle.set_playout_device_by_guid(guid)
+        }
+
+        fn set_recording_device_by_guid(&self, guid: &str) -> i32 {
+            self.handle.set_recording_device_by_guid(guid)
         }
 
         fn stop_recording(&self) -> i32 {
@@ -235,6 +274,30 @@ pub mod native {
 
         fn adm_recording_enabled(&self) -> bool {
             self.handle.adm_recording_enabled()
+        }
+
+        fn set_adm_playout_enabled(&self, enabled: bool) {
+            self.handle.set_adm_playout_enabled(enabled)
+        }
+
+        fn adm_playout_enabled(&self) -> bool {
+            self.handle.adm_playout_enabled()
+        }
+
+        fn acquire_platform_adm(&self) -> bool {
+            self.handle.acquire_platform_adm()
+        }
+
+        fn release_platform_adm(&self) {
+            self.handle.release_platform_adm()
+        }
+
+        fn platform_adm_ref_count(&self) -> i32 {
+            self.handle.platform_adm_ref_count()
+        }
+
+        fn is_platform_adm_active(&self) -> bool {
+            self.handle.is_platform_adm_active()
         }
     }
 }

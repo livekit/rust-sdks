@@ -73,10 +73,17 @@ class PeerConnectionFactory {
   int16_t recording_devices() const;
   rust::String playout_device_name(uint16_t index) const;
   rust::String recording_device_name(uint16_t index) const;
+  // Get device GUID (platform-specific unique identifier, stable across hot-plug)
+  rust::String playout_device_guid(uint16_t index) const;
+  rust::String recording_device_guid(uint16_t index) const;
 
-  // Device selection
+  // Device selection by index
   int32_t set_playout_device(uint16_t index) const;
   int32_t set_recording_device(uint16_t index) const;
+  // Device selection by GUID (preferred - stable across device changes)
+  // Returns 0 on success, -1 if device not found
+  int32_t set_playout_device_by_guid(rust::String guid) const;
+  int32_t set_recording_device_by_guid(rust::String guid) const;
 
   // Recording control (for device switching while active)
   int32_t stop_recording() const;
@@ -104,6 +111,24 @@ class PeerConnectionFactory {
   // Use this when only using NativeAudioSource (no microphone capture needed).
   void set_adm_recording_enabled(bool enabled) const;
   bool adm_recording_enabled() const;
+
+  // Control whether ADM playout (speakers) is enabled.
+  // When disabled (default), playout uses synthetic mode - remote audio is
+  // delivered via FFI callbacks to the application (e.g., Unity AudioSource).
+  // When enabled, remote audio plays through the platform speakers with AEC.
+  void set_adm_playout_enabled(bool enabled) const;
+  bool adm_playout_enabled() const;
+
+  // Platform ADM lifecycle management.
+  // Call AcquirePlatformAdm when creating PlatformAudio.
+  // Call ReleasePlatformAdm when disposing PlatformAudio.
+  // The Platform ADM is only created when first acquired, and terminated
+  // when the last reference is released. This allows synthetic mode to work
+  // without Platform ADM interference.
+  bool acquire_platform_adm() const;
+  void release_platform_adm() const;
+  int platform_adm_ref_count() const;
+  bool is_platform_adm_active() const;
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;

@@ -32,6 +32,11 @@ pub enum AudioError {
     /// Device indices are 0-based and must be less than the device count.
     InvalidDeviceIndex,
 
+    /// The specified device GUID was not found.
+    ///
+    /// The device may have been disconnected or the GUID may be invalid.
+    DeviceNotFound,
+
     /// An audio operation failed.
     OperationFailed(String),
 }
@@ -43,6 +48,7 @@ impl fmt::Display for AudioError {
                 write!(f, "Failed to initialize platform audio")
             }
             AudioError::InvalidDeviceIndex => write!(f, "Invalid device index"),
+            AudioError::DeviceNotFound => write!(f, "Device not found"),
             AudioError::OperationFailed(msg) => write!(f, "Audio operation failed: {}", msg),
         }
     }

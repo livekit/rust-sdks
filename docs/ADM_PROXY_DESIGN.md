@@ -38,34 +38,139 @@ These two methods must coexist without interference.
 
 ## Architecture
 
-### High-Level Design
-
-The SDK uses a **recording gate** pattern rather than mode switching:
+### High-Level Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Audio Architecture                                 │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │ PeerConnectionFactory (created once at startup)                      │   │
-│  │  └─ AdmProxy (wraps Platform ADM)                                    │   │
-│  │      ├─ Platform ADM: Always created and initialized                 │   │
-│  │      └─ recording_enabled_: Gate for microphone access (default OFF) │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                           │                                                 │
-│         ┌─────────────────┼─────────────────────┐                          │
-│         ▼                 ▼                     ▼                          │
-│   ┌──────────────┐  ┌──────────────┐    ┌──────────────┐                   │
-│   │ Device Track │  │ Native Track │    │ Native Track │                   │
-│   │ (Microphone) │  │   (TTS)      │    │ (Screen Cap) │                   │
-│   └──────────────┘  └──────────────┘    └──────────────┘                   │
-│         │                 │                     │                          │
-│         │                 │                     │                          │
-│  Uses AudioState    Uses AddSink          Uses AddSink                     │
-│  (is_external=false) (is_external=true)   (is_external=true)               │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+                         LiveKit Audio Architecture
+
+  ┌─────────────────┐                           ┌─────────────────┐
+  │   Application   │                           │   Application   │
+  │  (Unity/Rust)   │                           │  (Unity/Rust)   │
+  └────────┬────────┘                           └────────┬────────┘
+           │                                             │
+           │ capture_frame()                             │ AudioStream.next()
+           ▼                                             ▲
+  ┌─────────────────┐                           ┌─────────────────┐
+  │NativeAudioSource│                           │NativeAudioStream│
+  │(is_external=true│                           │  (FFI Callback) │
+  └────────┬────────┘                           └────────┲────────┘
+           │                                             ┃
+           │ AddSink                                     ┃ OnData
+           ▼                                             ┃
+  ┌────────────────────────────────────────────────────────────────────┐
+  │                         PeerConnection                              │
+  │  ┌──────────────────┐                    ┌──────────────────┐      │
+  │  │  AudioSendStream │                    │ AudioReceiveStream│      │
+  │  │ (external=true)  │                    │                  │      │
+  │  └────────┬─────────┘                    └────────┬─────────┘      │
+  │           │                                       │                 │
+  │           │ NOT registered                        │ decoded audio  │
+  │           │ with AudioState                       │                 │
+  │           ▼                                       ▼                 │
+  │  ┌──────────────────────────────────────────────────────────┐      │
+  │  │                      AudioState                           │      │
+  │  │  (WebRTC internal - mixes/routes audio)                   │      │
+  │  │                                                           │      │
+  │  │  ┌───────────────────┐    ┌───────────────────────────┐  │      │
+  │  │  │ SendingStreams[]  │    │ AudioMixer (for playout)  │  │      │
+  │  │  │ (external=false)  │    │                           │  │      │
+  │  │  └─────────┲─────────┘    └─────────────┬─────────────┘  │      │
+  │  │            ┃ Device audio               │                │      │
+  │  │            ┃ only                       │ mixed audio    │      │
+  │  └────────────╋────────────────────────────┼────────────────┘      │
+  │               ┃                            │                        │
+  └───────────────╋────────────────────────────┼────────────────────────┘
+                  ┃                            │
+                  ┃                            ▼
+  ┌───────────────╋─────────────────────────────────────────────────────┐
+  │               ┃              AdmProxy                                │
+  │               ┃    ┌────────────────────────────────────────────┐   │
+  │               ┃    │                    State                    │   │
+  │               ┃    │  • platform_adm_: NULL or Platform ADM      │   │
+  │               ┃    │  • platform_adm_ref_count_: 0, 1, 2, ...    │   │
+  │               ┃    │  • recording_enabled_: false (default)      │   │
+  │               ┃    │  • playout_enabled_: false (default)        │   │
+  │               ┃    └────────────────────────────────────────────┘   │
+  │               ┃                                                      │
+  │               ┃    ┌─────────────────────┐  ┌─────────────────────┐ │
+  │               ┗━━━▶│ RecordedDataIsAvail │  │  NeedMorePlayData   │ │
+  │                    │ (when enabled)      │  │  (synthetic/platform│ │
+  │                    └─────────┬───────────┘  └──────────┬──────────┘ │
+  └──────────────────────────────┼─────────────────────────┼────────────┘
+                                 │                         │
+                                 ▼                         ▼
+                  ┌────────────────────────────────────────────┐
+                  │        Platform ADM (Lazy Init)            │
+                  │  Created when: AcquirePlatformAdm()        │
+                  │  Destroyed when: ref_count → 0             │
+                  └──────────────────┬─────────────────────────┘
+                                     │
+                          ┌──────────┴──────────┐
+                          ▼                     ▼
+                   ┌────────────┐        ┌────────────┐
+                   │ Microphone │        │  Speakers  │
+                   │  (Input)   │        │  (Output)  │
+                   └────────────┘        └────────────┘
+                               HARDWARE
+```
+
+### Component Relationships
+
+```
+                      Component Relationship Diagram
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                         Rust Layer                               │
+  │                                                                  │
+  │  ┌─────────────┐      ┌─────────────────┐    ┌────────────────┐ │
+  │  │PlatformAudio│─────▶│ LkRuntime       │───▶│PeerConnFactory │ │
+  │  │             │      │                 │    │                │ │
+  │  │ • rtc_source│      │• acquire_adm()  │    │• adm_proxy()   │ │
+  │  │ • devices() │      │• release_adm()  │    │                │ │
+  │  └─────────────┘      │• set_recording_ │    └───────┬────────┘ │
+  │                       │  enabled()      │            │          │
+  │  ┌─────────────┐      └─────────────────┘            │ FFI      │
+  │  │NativeAudio  │                                     │          │
+  │  │Source       │─────────────────────────┐           │          │
+  │  │             │                         │           │          │
+  │  │• capture_   │                         │           │          │
+  │  │  frame()    │                         │           │          │
+  │  └─────────────┘                         │           │          │
+  └──────────────────────────────────────────┼───────────┼──────────┘
+                                             │           │
+  ┌──────────────────────────────────────────┼───────────┼──────────┐
+  │                    C++ Layer (webrtc-sys)│           │          │
+  │                                          │           ▼          │
+  │  ┌────────────────────┐                  │   ┌───────────────┐  │
+  │  │ AudioTrackSource   │◀─────────────────┘   │   AdmProxy    │  │
+  │  │ (InternalSource)   │                      │               │  │
+  │  │                    │                      │ ┌───────────┐ │  │
+  │  │ is_external_source │                      │ │ref_count  │ │  │
+  │  │   () = true        │                      │ │rec_enabled│ │  │
+  │  └─────────┬──────────┘                      │ │play_enable│ │  │
+  │            │                                 │ └───────────┘ │  │
+  │            │ AddSink                         │       │       │  │
+  │            ▼                                 │       │ lazy  │  │
+  │  ┌──────────────────────────────────────┐   │       │ init  │  │
+  │  │       WebRTC AudioSendStream         │   │       ▼       │  │
+  │  │                                      │   │┌─────────────┐│  │
+  │  │ Config.external_source = is_external │   ││ Platform    ││  │
+  │  │                                      │   ││ ADM         ││  │
+  │  │ if external:                         │   ││             ││  │
+  │  │   → NOT added to AudioState          │   ││ CoreAudio/  ││  │
+  │  │   → Audio via AddSink callbacks      │   ││ WASAPI/     ││  │
+  │  │                                      │   ││ PulseAudio  ││  │
+  │  │ if NOT external:                     │   │└─────────────┘│  │
+  │  │   → Added to AudioState              │   │               │  │
+  │  │   → Audio from ADM recording         │   │               │  │
+  │  └──────────────────────────────────────┘   └───────────────┘  │
+  └─────────────────────────────────────────────────────────────────┘
+
+  Key Insight: The external_audio_source.patch enables clean separation:
+  • NativeAudioSource sets is_external_source() = true
+  • AudioSendStream checks this and sets Config.external_source = true
+  • AudioState SKIPS streams with external_source = true
+  • Result: No mixing conflict between device audio and manual push
 ```
 
 ### Key Components
@@ -75,32 +180,493 @@ The SDK uses a **recording gate** pattern rather than mode switching:
 3. **NativeAudioSource**: Existing API for manual audio frame pushing
 4. **external_audio_source.patch**: WebRTC patch to prevent audio mixing conflicts
 
-### Recording Gate Pattern
+### Lazy Initialization + Reference Counting Pattern
 
-Instead of swapping ADM implementations, the SDK uses a simple boolean gate:
+The Platform ADM is **not** created at startup. Instead, it's created lazily when first needed:
 
 ```cpp
 // adm_proxy.h
 class AdmProxy : public webrtc::AudioDeviceModule {
-  // Platform ADM is ALWAYS created at startup
+  // Platform ADM is created lazily, NOT at startup
   webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_;
+
+  // Reference count for Platform ADM lifecycle
+  int platform_adm_ref_count_ = 0;
 
   // Gate controls whether microphone recording is active
   // Default: FALSE - NativeAudioSource works without interference
   bool recording_enabled_ = false;
+
+  // Gate controls whether playout goes through platform speakers
+  // Default: FALSE - synthetic mode (FFI callbacks to application)
+  bool playout_enabled_ = false;
 };
 ```
 
-When `recording_enabled_ = false`:
+**Lifecycle Management:**
+
+| Method | Effect |
+|--------|--------|
+| `AcquirePlatformAdm()` | Increments ref_count. Creates Platform ADM on first call. |
+| `ReleasePlatformAdm()` | Decrements ref_count. Terminates Platform ADM when count reaches 0. |
+
+**Why Lazy Initialization?**
+
+On iOS, creating Platform ADM configures the AVAudioSession for VoIP mode. This interferes with Unity's AudioSource playback even when PlatformAudio isn't being used. By deferring Platform ADM creation until actually needed, synthetic mode works correctly.
+
+### Recording/Playout Gates
+
+When Platform ADM is active, additional gates control behavior:
+
+**When `recording_enabled_ = false` (default):**
 - `InitRecording()` returns success but does nothing
 - `StartRecording()` returns success but does nothing
 - Microphone is not accessed
 - `NativeAudioSource` works normally
 
-When `recording_enabled_ = true` (via `PlatformAudio::new()`):
+**When `recording_enabled_ = true` (via `PlatformAudio::new()`):**
 - `InitRecording()` initializes the microphone
 - `StartRecording()` starts microphone capture
 - Device audio flows to tracks using `RtcAudioSource::Device`
+
+**When `playout_enabled_ = false` (default - synthetic mode):**
+- WebRTC's audio pipeline still runs
+- `NeedMorePlayData()` is called to keep pipeline alive
+- Remote audio is delivered via FFI callbacks (e.g., Unity AudioSource)
+
+**When `playout_enabled_ = true` (via `PlatformAudio::new()`):**
+- Remote audio plays through platform speakers
+- AEC uses playout as reference signal
+
+### Synthetic Playout Mode
+
+When Platform ADM is not active (or `playout_enabled_ = false`), the SDK uses synthetic playout to keep WebRTC's audio pipeline functioning:
+
+```cpp
+// AdmProxy runs a periodic task that pulls audio from WebRTC
+void AdmProxy::StartSyntheticPlayoutTask() {
+  // 10ms task interval (100 calls/second)
+  stub_audio_queue_->PostDelayedTask(
+    [this] {
+      if (playing_ && audio_transport_) {
+        // Pull audio from WebRTC to keep pipeline alive
+        audio_transport_->NeedMorePlayData(
+            kSamplesPer10Ms, kBytesPerSample, kChannels,
+            kSampleRate, stub_data_.data(), samples_out,
+            &elapsed_time_ms, &ntp_time_ms);
+      }
+      // Reschedule
+      StartSyntheticPlayoutTask();
+    },
+    TimeDelta::Millis(10));
+}
+```
+
+**Why Synthetic Playout is Needed:**
+
+1. **Keep WebRTC Pipeline Alive**: Without playout, WebRTC's audio mixer and decoder may stop working
+2. **Enable FFI Callbacks**: Remote audio is delivered to `NativeAudioStream` sinks for Unity/application handling
+3. **No Platform Interference**: AVAudioSession (iOS) is not configured for VoIP mode
+
+**Audio Modes Summary:**
+
+| Mode | Recording | Playout | Platform ADM | Use Case |
+|------|-----------|---------|--------------|----------|
+| Synthetic | NativeAudioSource | FFI callbacks | Not created | Unity audio, agents |
+| Platform | ADM microphone | ADM speakers | Active | VoIP with AEC |
+| Hybrid | Both supported | Both supported | Active | Mixed scenarios |
+
+---
+
+## User Flow Diagrams
+
+### Flow 1: Synthetic Mode (Default - NativeAudioSource + FFI Callbacks)
+
+This is the default mode used by Unity, agents, and applications that manage their own audio I/O.
+
+```
+                  SYNTHETIC MODE - Audio Flow Diagram
+
+  ══════════════════════════ OUTBOUND AUDIO ══════════════════════════
+
+  ┌─────────────────┐
+  │ Unity/App Code  │
+  │ (TTS, file, etc)│
+  └────────┬────────┘
+           │ PCM audio frames
+           ▼
+  ┌─────────────────┐       ┌──────────────────┐       ┌─────────────────┐
+  │NativeAudioSource│──────▶│ AudioTrackSource │──────▶│ AudioSendStream │
+  │                 │       │  InternalSource  │       │  external=true  │
+  │ capture_frame() │       │ is_external=true │       │                 │
+  └─────────────────┘       └──────────────────┘       └────────┬────────┘
+                                                                │
+     Note: AudioState does NOT receive this audio because       │
+     external=true. Audio flows directly via AddSink callbacks. │
+                                                                │
+                                                                ▼
+                                                     ┌───────────────────┐
+                                                     │    RTP Encoder    │
+                                                     │    → Network      │
+                                                     └───────────────────┘
+
+
+  ══════════════════════════ INBOUND AUDIO ═══════════════════════════
+
+  ┌───────────────────┐       ┌──────────────────┐
+  │    Network        │──────▶│ AudioReceiveStream│
+  │    RTP Decoder    │       │ (decoded audio)  │
+  └───────────────────┘       └────────┬─────────┘
+                                       │
+                                       ▼
+                              ┌──────────────────┐
+                              │    AudioMixer    │
+                              │  (in AudioState) │
+                              └────────┬─────────┘
+                                       │
+                                       ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                           AdmProxy                               │
+  │                                                                  │
+  │   platform_adm_ = NULL  ◀─── Platform ADM NOT created            │
+  │   playout_enabled_ = false                                       │
+  │                                                                  │
+  │   ┌───────────────────────────────────────────────────────────┐ │
+  │   │           Synthetic Playout Task (10ms interval)          │ │
+  │   │                                                           │ │
+  │   │  NeedMorePlayData() ─────▶ Pulls audio from mixer         │ │
+  │   │                           (audio NOT sent to speakers)    │ │
+  │   │                           (keeps WebRTC pipeline alive)   │ │
+  │   └───────────────────────────────────────────────────────────┘ │
+  └─────────────────────────────────────────────────────────────────┘
+
+  Meanwhile, application receives audio via FFI:
+
+  ┌──────────────────┐       ┌──────────────────┐       ┌─────────────────┐
+  │ RemoteAudioTrack │──────▶│NativeAudioStream │──────▶│ Unity/App Code  │
+  │                  │       │  (FFI callback)  │       │ (AudioSource)   │
+  │ rtc_track.       │       │                  │       │                 │
+  │  add_sink()      │       │  OnData() ───────┼──────▶│ Play via Unity  │
+  └──────────────────┘       └──────────────────┘       └─────────────────┘
+
+
+  KEY POINTS:
+  • Platform ADM is NEVER created in synthetic mode
+  • No interference with Unity AudioSource or application audio routing
+  • iOS: AVAudioSession NOT configured for VoIP → Unity audio works
+  • Synthetic playout task keeps WebRTC pipeline alive
+```
+
+### Flow 2: Platform Audio Mode (PlatformAudio with ADM)
+
+This mode is used for VoIP applications that need AEC and direct microphone/speaker access.
+
+```
+                   PLATFORM MODE - Audio Flow Diagram
+
+  ═══════════════════════════ INITIALIZATION ═════════════════════════
+
+  ┌─────────────────┐
+  │ PlatformAudio:: │
+  │   new()         │
+  └────────┬────────┘
+           │
+           ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ 1. runtime.acquire_platform_adm()                                │
+  │    └─▶ AdmProxy::AcquirePlatformAdm()                            │
+  │        └─▶ ref_count++ (1)                                       │
+  │        └─▶ CreatePlatformAdm() [first time only]                 │
+  │            └─▶ webrtc::AudioDeviceModule::Create()               │
+  │            └─▶ platform_adm_->Init()                             │
+  │                                                                  │
+  │ 2. runtime.set_adm_recording_enabled(true)                       │
+  │    └─▶ AdmProxy::set_recording_enabled(true)                     │
+  │                                                                  │
+  │ 3. runtime.set_adm_playout_enabled(true)                         │
+  │    └─▶ AdmProxy::set_playout_enabled(true)                       │
+  └─────────────────────────────────────────────────────────────────┘
+
+
+  ══════════════════════════ OUTBOUND AUDIO ══════════════════════════
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                           AdmProxy                               │
+  │                                                                  │
+  │   platform_adm_ = [Active Platform ADM]                          │
+  │   recording_enabled_ = true                                      │
+  │   playout_enabled_ = true                                        │
+  │                                                                  │
+  │            ┌──────────────────┐                                  │
+  │            │   Platform ADM   │                                  │
+  │            │  (CoreAudio/     │                                  │
+  │            │   WASAPI/etc)    │                                  │
+  │            └────────┬─────────┘                                  │
+  │                     │ RecordedDataIsAvailable                    │
+  │                     ▼                                            │
+  └─────────────────────────────────────────────────────────────────┘
+                        │
+                        │ Microphone PCM
+                        ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                        AudioState                                │
+  │                                                                  │
+  │   SendingStreams[] ─────▶ Only streams with external=false       │
+  │                          receive this ADM audio                  │
+  └──────────────────────────────────┬──────────────────────────────┘
+                                     │
+                                     ▼
+                           ┌──────────────────┐
+                           │ AudioSendStream  │
+                           │ external=false   │
+                           │ (Device source)  │
+                           └────────┬─────────┘
+                                    │
+                                    ▼
+                           ┌───────────────────┐
+                           │    RTP Encoder    │
+                           │    → Network      │
+                           └───────────────────┘
+
+
+  ══════════════════════════ INBOUND AUDIO ═══════════════════════════
+
+  ┌───────────────────┐       ┌──────────────────┐
+  │    Network        │──────▶│ AudioReceiveStream│
+  │    RTP Decoder    │       │ (decoded audio)  │
+  └───────────────────┘       └────────┬─────────┘
+                                       │
+                                       ▼
+                              ┌──────────────────┐
+                              │    AudioMixer    │
+                              │  (in AudioState) │
+                              └────────┬─────────┘
+                                       │
+                                       ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                           AdmProxy                               │
+  │                                                                  │
+  │   playout_enabled_ = true                                        │
+  │                                                                  │
+  │   NeedMorePlayData() ─────▶ Delegates to platform_adm_           │
+  │                             ─────▶ Audio plays to speakers       │
+  │                             ─────▶ AEC uses this as reference    │
+  └─────────────────────────────────────────────────────────────────┘
+                                       │
+                                       ▼
+                              ┌──────────────────┐
+                              │    Speakers      │
+                              │    (Hardware)    │
+                              └──────────────────┘
+
+
+  KEY POINTS:
+  • Platform ADM is CREATED when PlatformAudio::new() is called
+  • Microphone audio captured by ADM → routed via AudioState → sent over network
+  • Remote audio played directly to speakers via ADM
+  • AEC works because playout goes through ADM (reference signal available)
+  • iOS: AVAudioSession configured for VoIP mode
+```
+
+---
+
+## Platform ADM Lifecycle
+
+### Lifecycle State Diagram
+
+```
+                    Platform ADM Lifecycle States
+
+
+               ┌─────────────────────────────────────┐
+               │                                     │
+               │        SYNTHETIC MODE               │
+               │        (Default State)              │
+               │                                     │
+               │  • platform_adm_ = NULL             │
+               │  • platform_adm_ref_count_ = 0      │
+               │  • recording_enabled_ = false       │
+               │  • playout_enabled_ = false         │
+               │                                     │
+               │  AdmProxy handles all ADM calls:    │
+               │  - Recording ops → no-op (success)  │
+               │  - Playout ops → synthetic task     │
+               │                                     │
+               └──────────────────┬──────────────────┘
+                                  │
+                PlatformAudio::new()
+                └─▶ acquire_platform_adm()
+                └─▶ ref_count = 1
+                └─▶ CreatePlatformAdm()
+                                  │
+                                  ▼
+               ┌─────────────────────────────────────┐
+               │                                     │
+               │        PLATFORM MODE                │
+               │        (ADM Active)                 │
+               │                                     │
+               │  • platform_adm_ = [Platform ADM]   │
+               │  • platform_adm_ref_count_ >= 1     │
+               │  • recording_enabled_ = true        │
+               │  • playout_enabled_ = true          │
+               │                                     │
+               │  AdmProxy delegates to platform_adm_│
+               │  - Recording → real microphone      │
+               │  - Playout → real speakers          │
+               │                                     │
+               └──────────────────┬──────────────────┘
+                                  │
+                drop(PlatformAudio)
+                └─▶ release_platform_adm()
+                └─▶ ref_count = 0
+                └─▶ TerminatePlatformAdm()
+                                  │
+                                  ▼
+               ┌─────────────────────────────────────┐
+               │                                     │
+               │        SYNTHETIC MODE               │
+               │        (Back to Default)            │
+               │                                     │
+               │  • platform_adm_ = NULL             │
+               │  • platform_adm_ref_count_ = 0      │
+               │  • recording_enabled_ = false       │
+               │  • playout_enabled_ = false         │
+               │                                     │
+               └─────────────────────────────────────┘
+```
+
+### Reference Counting Scenarios
+
+```
+                       Reference Counting Examples
+
+  SCENARIO 1: Single User
+  ════════════════════════
+
+    Time ──────────────────────────────────────────────────────────▶
+
+    ┌──────────────────────┐                    ┌──────────────────────┐
+    │ PlatformAudio::new() │                    │ drop(audio)          │
+    │ ref_count: 0 → 1     │                    │ ref_count: 1 → 0     │
+    │ CREATE Platform ADM  │                    │ TERMINATE Platform   │
+    └──────────┬───────────┘                    └──────────┬───────────┘
+               │                                           │
+               ▼                                           ▼
+    ═══════════╪═══════════════════════════════════════════╪═══════════
+    Synthetic  │         Platform Mode Active              │  Synthetic
+               │                                           │
+
+  ─────────────────────────────────────────────────────────────────────
+
+  SCENARIO 2: Multiple Users (Shared ADM)
+  ═══════════════════════════════════════
+
+    Time ──────────────────────────────────────────────────────────▶
+
+    ┌───────────┐     ┌───────────┐     ┌───────────┐     ┌───────────┐
+    │ audio1 =  │     │ audio2 =  │     │drop(audio1│     │drop(audio2│
+    │ new()     │     │ new()     │     │           │     │           │
+    │ ref: 0→1  │     │ ref: 1→2  │     │ ref: 2→1  │     │ ref: 1→0  │
+    │ CREATE    │     │ (reuse)   │     │ (still    │     │ TERMINATE │
+    │ ADM       │     │           │     │  active)  │     │ ADM       │
+    └─────┬─────┘     └─────┬─────┘     └─────┬─────┘     └─────┬─────┘
+          │                 │                 │                 │
+          ▼                 ▼                 ▼                 ▼
+    ══════╪═════════════════╪═════════════════╪═════════════════╪══════
+    Synth │    Platform Mode Active           │                 │ Synth
+          │                                   │ audio2 still    │
+          │                                   │ works!          │
+
+  ─────────────────────────────────────────────────────────────────────
+
+  SCENARIO 3: FFI Clients (Unity/Python)
+  ═════════════════════════════════════
+
+    ┌─────────────────┐       ┌─────────────────┐       ┌─────────────────┐
+    │ Unity Client A  │       │ Unity Client B  │       │ Python Agent    │
+    │                 │       │                 │       │                 │
+    │ NewPlatformAudio│       │ NewPlatformAudio│       │                 │
+    │ Request         │       │ Request         │       │                 │
+    │ handle_1        │       │ handle_2        │       │                 │
+    └────────┬────────┘       └────────┬────────┘       │ Uses Native     │
+             │                         │                │ AudioSource     │
+             │                         │                │ (no PlatformAdm)│
+             ▼                         ▼                └─────────────────┘
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                        AdmProxy                                  │
+    │                                                                  │
+    │   platform_adm_ref_count_ = 2  (from Unity clients)              │
+    │                                                                  │
+    │   Both Unity clients share the same Platform ADM.                │
+    │   Python agent uses synthetic mode (NativeAudioSource).          │
+    │                                                                  │
+    │   When both Unity clients call DisposeRequest:                   │
+    │     handle_1 dispose → ref_count = 1                             │
+    │     handle_2 dispose → ref_count = 0 → TERMINATE                 │
+    └─────────────────────────────────────────────────────────────────┘
+```
+
+### Why Lazy Initialization Matters
+
+```
+                iOS Audio Session Problem & Solution
+
+  ═══════════════════ WITHOUT LAZY INIT (Problem) ═══════════════════
+
+  App Startup
+  ────────────
+       │
+       ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ PeerConnectionFactory created                                    │
+  │ └─▶ AdmProxy created                                             │
+  │     └─▶ Platform ADM created immediately                         │
+  │         └─▶ iOS: AVAudioSession configured for VoIP mode         │
+  │             └─▶ Audio session category = PlayAndRecord           │
+  │                 └─▶ Other audio (Unity AudioSource) INTERRUPTED  │
+  └─────────────────────────────────────────────────────────────────┘
+       │
+       ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ Unity app tries to play audio via AudioSource                    │
+  │ ❌ FAILS - AVAudioSession is in VoIP mode!                       │
+  └─────────────────────────────────────────────────────────────────┘
+
+
+  ════════════════════ WITH LAZY INIT (Solution) ════════════════════
+
+  App Startup
+  ────────────
+       │
+       ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ PeerConnectionFactory created                                    │
+  │ └─▶ AdmProxy created                                             │
+  │     └─▶ platform_adm_ = NULL (NOT created!)                      │
+  │         └─▶ iOS: AVAudioSession NOT configured                   │
+  │             └─▶ Other audio works normally!                      │
+  └─────────────────────────────────────────────────────────────────┘
+       │
+       ▼
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ Unity app plays audio via AudioSource                            │
+  │ ✅ WORKS - using synthetic mode, no ADM interference             │
+  └─────────────────────────────────────────────────────────────────┘
+       │
+       ▼ (Later, if needed)
+  ┌─────────────────────────────────────────────────────────────────┐
+  │ PlatformAudio::new() called for VoIP                             │
+  │ └─▶ acquire_platform_adm()                                       │
+  │     └─▶ CreatePlatformAdm() - NOW creates Platform ADM           │
+  │         └─▶ iOS: AVAudioSession configured for VoIP              │
+  │                                                                  │
+  │ drop(PlatformAudio)                                              │
+  │ └─▶ release_platform_adm()                                       │
+  │     └─▶ TerminatePlatformAdm() - destroys Platform ADM           │
+  │         └─▶ iOS: AVAudioSession released                         │
+  │             └─▶ Unity audio can work again!                      │
+  └─────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -741,64 +1307,114 @@ class AdmProxy : public webrtc::AudioDeviceModule {
                     webrtc::Thread* worker_thread);
   ~AdmProxy() override;
 
-  // Check if platform ADM was successfully initialized
-  bool is_initialized() const;
+  // Platform ADM Lifecycle Management
+  bool AcquirePlatformAdm();   // Increment ref, create ADM on first call
+  void ReleasePlatformAdm();   // Decrement ref, terminate ADM when 0
+  int platform_adm_ref_count() const;
+  bool is_platform_adm_active() const;
 
-  // Control whether recording (microphone) is enabled.
-  // When disabled, InitRecording/StartRecording are no-ops.
+  // Recording/Playout Control
   void set_recording_enabled(bool enabled);
   bool recording_enabled() const;
+  void set_playout_enabled(bool enabled);
+  bool playout_enabled() const;
 
-  // All AudioDeviceModule methods delegate to platform_adm_
-  // Recording methods check recording_enabled_ first
+  // All AudioDeviceModule methods with gated behavior
 
  private:
-  const webrtc::Environment& env_;
+  bool CreatePlatformAdm();      // Called by AcquirePlatformAdm
+  void TerminatePlatformAdm();   // Called by ReleasePlatformAdm
+
+  void StartSyntheticPlayoutTask();  // Keep WebRTC alive in synthetic mode
+  void StopSyntheticPlayoutTask();
+
+  const webrtc::Environment env_;
   webrtc::Thread* worker_thread_;
 
-  // The underlying platform ADM (always created at startup)
-  webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_;
-  bool adm_initialized_ = false;
+  mutable webrtc::Mutex mutex_;
 
-  // Recording gate - defaults to FALSE
-  bool recording_enabled_ = false;
+  // Platform ADM (created lazily, NOT at startup)
+  webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_;
+  int platform_adm_ref_count_ = 0;
+
+  // Control flags
+  bool recording_enabled_ = false;  // Default: NativeAudioSource mode
+  bool playout_enabled_ = false;    // Default: synthetic mode (FFI callbacks)
+
+  // Synthetic playout task
+  std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> stub_audio_queue_;
+  webrtc::RepeatingTaskHandle stub_audio_task_;
+  std::vector<int16_t> stub_data_;
 };
 ```
 
-### Recording Gate Implementation
+### Lazy Initialization Implementation
 
 ```cpp
 // webrtc-sys/src/adm_proxy.cpp
 
+AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread)
+    : env_(env), worker_thread_(worker_thread), stub_data_(kSamplesPer10Ms * kChannels) {
+  // Platform ADM is NOT created here - lazy initialization
+  RTC_LOG(LS_INFO) << "AdmProxy: Lazy initialization mode (no Platform ADM yet)";
+}
+
+bool AdmProxy::AcquirePlatformAdm() {
+  webrtc::MutexLock lock(&mutex_);
+  platform_adm_ref_count_++;
+
+  if (platform_adm_ref_count_ == 1) {
+    // First acquisition - create Platform ADM
+    if (!CreatePlatformAdm()) {
+      platform_adm_ref_count_--;
+      return false;
+    }
+    RTC_LOG(LS_INFO) << "AdmProxy: Platform ADM created and initialized";
+  }
+  return platform_adm_ != nullptr;
+}
+
+void AdmProxy::ReleasePlatformAdm() {
+  webrtc::MutexLock lock(&mutex_);
+  if (platform_adm_ref_count_ <= 0) return;
+
+  platform_adm_ref_count_--;
+  if (platform_adm_ref_count_ == 0) {
+    // Last release - terminate Platform ADM
+    TerminatePlatformAdm();
+    RTC_LOG(LS_INFO) << "AdmProxy: Platform ADM terminated, returning to synthetic mode";
+  }
+}
+```
+
+### Recording/Playout Gate Implementation
+
+```cpp
 int32_t AdmProxy::InitRecording() {
-  if (!platform_adm_) return -1;
-  if (!recording_enabled_) {
-    // Return success but don't actually initialize
-    return 0;
+  webrtc::MutexLock lock(&mutex_);
+  if (!recording_enabled_ || !platform_adm_) {
+    recording_initialized_ = true;  // Track state even in synthetic mode
+    return 0;  // Success but no-op
   }
   return platform_adm_->InitRecording();
 }
 
-int32_t AdmProxy::StartRecording() {
-  if (!platform_adm_) return -1;
-  if (!recording_enabled_) {
-    // Return success but don't actually start
+int32_t AdmProxy::StartPlayout() {
+  webrtc::MutexLock lock(&mutex_);
+  if (!playout_enabled_ || !platform_adm_) {
+    // Synthetic mode - start stub task to keep WebRTC pipeline alive
+    playing_ = true;
+    StartSyntheticPlayoutTask();
     return 0;
   }
-  return platform_adm_->StartRecording();
-}
-
-bool AdmProxy::Recording() const {
-  if (!platform_adm_) return false;
-  if (!recording_enabled_) return false;
-  return platform_adm_->Recording();
+  return platform_adm_->StartPlayout();
 }
 ```
 
 ### PlatformAudio Reference Counting
 
 ```rust
-// livekit/src/audio.rs
+// livekit/src/platform_audio/mod.rs
 
 lazy_static! {
     static ref PLATFORM_ADM_HANDLE: Mutex<Weak<PlatformAdmHandle>> = Mutex::new(Weak::new());
@@ -808,18 +1424,36 @@ struct PlatformAdmHandle {
     runtime: Arc<LkRuntime>,
 }
 
+impl Drop for PlatformAdmHandle {
+    fn drop(&mut self) {
+        // Release Platform ADM reference when last PlatformAudio is dropped
+        self.runtime.release_platform_adm();
+        log::info!("PlatformAdmHandle: released Platform ADM");
+    }
+}
+
 impl PlatformAudio {
     pub fn new() -> AudioResult<Self> {
         let mut handle_ref = PLATFORM_ADM_HANDLE.lock();
 
         // Reuse existing handle if available
         if let Some(handle) = handle_ref.upgrade() {
+            // Still acquire Platform ADM for this instance
+            handle.runtime.acquire_platform_adm();
             return Ok(Self { handle });
         }
 
-        // Create new handle and enable recording
+        // Create new handle and acquire Platform ADM
         let runtime = LkRuntime::instance();
+
+        // Acquire Platform ADM - creates it on first call
+        if !runtime.acquire_platform_adm() {
+            return Err(AudioError::PlatformInitFailed);
+        }
+
+        // Enable recording and playout for platform audio mode
         runtime.set_adm_recording_enabled(true);
+        runtime.set_adm_playout_enabled(true);
 
         let handle = Arc::new(PlatformAdmHandle { runtime });
         *handle_ref = Arc::downgrade(&handle);
@@ -827,6 +1461,30 @@ impl PlatformAudio {
         Ok(Self { handle })
     }
 }
+```
+
+### Lifecycle Scenarios
+
+**Scenario 1: Single PlatformAudio**
+```
+PlatformAudio::new()  → acquire_platform_adm() → ref_count=1, ADM created
+drop(audio)           → release_platform_adm() → ref_count=0, ADM terminated
+```
+
+**Scenario 2: Multiple PlatformAudio Instances**
+```
+audio1 = PlatformAudio::new()  → ref_count=1, ADM created
+audio2 = PlatformAudio::new()  → ref_count=2, reuse ADM
+drop(audio1)                   → ref_count=1, ADM still active
+drop(audio2)                   → ref_count=0, ADM terminated
+```
+
+**Scenario 3: Device Enumeration Then Release**
+```
+audio = PlatformAudio::new()   → ref_count=1, ADM created
+devices = audio.recording_devices()
+drop(audio)                    → ref_count=0, ADM terminated
+// Synthetic mode now works correctly - ADM not interfering
 ```
 
 ---
