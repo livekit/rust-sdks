@@ -75,12 +75,10 @@ static bool check_h264_encoding_support(VADisplay va_display) {
         << "Can't find VAEntrypointEncSlice or VAEntrypointEncSliceLP for "
            "H264 profiles";
     delete[] entrypoints;
-    vaTerminate(va_display);
     return false;
   }
 
   delete[] entrypoints;
-  vaTerminate(va_display);
   return true;
 }
 
@@ -125,10 +123,8 @@ bool VaapiDisplayDrm::isOpen() const {
 
 void VaapiDisplayDrm::Close() {
   if (va_display_) {
-    if (drm_fd_ < 0) {
-      va_display_ = nullptr;
+    if (drm_fd_ < 0)
       return;
-    }
 
     close(drm_fd_);
     drm_fd_ = -1;

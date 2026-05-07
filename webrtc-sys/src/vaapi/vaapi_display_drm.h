@@ -26,8 +26,8 @@ class VaapiDisplayDrm {
   VADisplay display() const { return va_display_; }
 
  private:
-  VADisplay va_display_ = nullptr;
-  int drm_fd_ = -1;
+  VADisplay va_display_;
+  int drm_fd_;
 };
 
 }  // namespace livekit_ffi
