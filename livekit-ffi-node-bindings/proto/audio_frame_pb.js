@@ -760,6 +760,58 @@ const SetPlayoutDeviceResponse = /*@__PURE__*/ proto2.makeMessageType(
   ],
 );
 
+/**
+ * Start recording from the microphone.
+ *
+ * Recording is started automatically when PlatformAudio is created.
+ * Use this to resume recording after calling StopRecording.
+ * This also turns on the system's recording privacy indicator.
+ *
+ * @generated from message livekit.proto.StartRecordingRequest
+ */
+const StartRecordingRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.StartRecordingRequest",
+  () => [
+    { no: 1, name: "platform_audio_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.StartRecordingResponse
+ */
+const StartRecordingResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.StartRecordingResponse",
+  () => [
+    { no: 1, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ],
+);
+
+/**
+ * Stop recording from the microphone.
+ *
+ * Use this to temporarily stop recording without disposing PlatformAudio.
+ * This will turn off the system's recording privacy indicator (e.g., on macOS/iOS).
+ * Call StartRecording to resume recording.
+ *
+ * @generated from message livekit.proto.StopRecordingRequest
+ */
+const StopRecordingRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.StopRecordingRequest",
+  () => [
+    { no: 1, name: "platform_audio_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.StopRecordingResponse
+ */
+const StopRecordingResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.StopRecordingResponse",
+  () => [
+    { no: 1, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+  ],
+);
+
 
 exports.SoxResamplerDataType = SoxResamplerDataType;
 exports.SoxQualityRecipe = SoxQualityRecipe;
@@ -823,3 +875,7 @@ exports.SetRecordingDeviceRequest = SetRecordingDeviceRequest;
 exports.SetRecordingDeviceResponse = SetRecordingDeviceResponse;
 exports.SetPlayoutDeviceRequest = SetPlayoutDeviceRequest;
 exports.SetPlayoutDeviceResponse = SetPlayoutDeviceResponse;
+exports.StartRecordingRequest = StartRecordingRequest;
+exports.StartRecordingResponse = StartRecordingResponse;
+exports.StopRecordingRequest = StopRecordingRequest;
+exports.StopRecordingResponse = StopRecordingResponse;
