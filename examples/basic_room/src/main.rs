@@ -148,7 +148,10 @@ async fn main() {
             match audio.set_recording_device_by_guid(guid) {
                 Ok(()) => log::info!("Successfully selected microphone by GUID"),
                 Err(e) => {
-                    log::error!("Failed to select microphone by GUID: {}. Falling back to default.", e);
+                    log::error!(
+                        "Failed to select microphone by GUID: {}. Falling back to default.",
+                        e
+                    );
                     if recording_count > 0 {
                         audio.set_recording_device(0).expect("Failed to set recording device");
                     }
@@ -164,7 +167,10 @@ async fn main() {
             match audio.set_playout_device_by_guid(guid) {
                 Ok(()) => log::info!("Successfully selected speaker by GUID"),
                 Err(e) => {
-                    log::error!("Failed to select speaker by GUID: {}. Falling back to default.", e);
+                    log::error!(
+                        "Failed to select speaker by GUID: {}. Falling back to default.",
+                        e
+                    );
                     if playout_count > 0 {
                         audio.set_playout_device(0).expect("Failed to set playout device");
                     }

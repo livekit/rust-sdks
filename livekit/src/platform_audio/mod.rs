@@ -270,8 +270,10 @@ impl PlatformAudio {
 
         // Try to reuse existing handle
         if let Some(handle) = handle_ref.upgrade() {
-            log::debug!("PlatformAudio: reusing existing handle (ref_count: {})",
-                handle.runtime.platform_adm_ref_count());
+            log::debug!(
+                "PlatformAudio: reusing existing handle (ref_count: {})",
+                handle.runtime.platform_adm_ref_count()
+            );
             // Still need to acquire Platform ADM since each PlatformAudio instance
             // needs its own reference
             if !handle.runtime.acquire_platform_adm() {
@@ -551,7 +553,10 @@ impl PlatformAudio {
                 if start_result != 0 {
                     log::warn!("set_playout_device: start_playout returned {}", start_result);
                 } else {
-                    log::info!("set_playout_device: playout initialized and started for device {}", index);
+                    log::info!(
+                        "set_playout_device: playout initialized and started for device {}",
+                        index
+                    );
                 }
             }
         }
@@ -645,7 +650,10 @@ impl PlatformAudio {
             } else {
                 let start_result = runtime.start_playout();
                 if start_result != 0 {
-                    log::warn!("set_playout_device_by_guid: start_playout returned {}", start_result);
+                    log::warn!(
+                        "set_playout_device_by_guid: start_playout returned {}",
+                        start_result
+                    );
                 } else {
                     log::info!("set_playout_device_by_guid: playout initialized and started");
                 }
@@ -838,10 +846,7 @@ impl PlatformAudio {
             log::info!("PlatformAudio: started recording");
             Ok(())
         } else {
-            Err(AudioError::OperationFailed(format!(
-                "start_recording returned {}",
-                result
-            )))
+            Err(AudioError::OperationFailed(format!("start_recording returned {}", result)))
         }
     }
 
@@ -885,10 +890,7 @@ impl PlatformAudio {
             log::info!("PlatformAudio: stopped recording");
             Ok(())
         } else {
-            Err(AudioError::OperationFailed(format!(
-                "stop_recording returned {}",
-                result
-            )))
+            Err(AudioError::OperationFailed(format!("stop_recording returned {}", result)))
         }
     }
 
