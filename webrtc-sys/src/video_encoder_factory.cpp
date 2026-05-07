@@ -66,19 +66,20 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
   factories_.push_back(CreateAndroidVideoEncoderFactory());
 #endif
 
-#if defined(USE_NVIDIA_VIDEO_CODEC)
-  if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
-    factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
-  } else {
-#endif
-
 #if defined(USE_VAAPI_VIDEO_CODEC)
-    if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
-      factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
-    }
+  const bool vaapi_supported = webrtc::VAAPIVideoEncoderFactory::IsSupported();
+  if (vaapi_supported) {
+    factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
+  }
 #endif
 
 #if defined(USE_NVIDIA_VIDEO_CODEC)
+#if defined(USE_VAAPI_VIDEO_CODEC)
+  if (!vaapi_supported && webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
+#else
+  if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
+#endif
+    factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
   }
 #endif
 }
