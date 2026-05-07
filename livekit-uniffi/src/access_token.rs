@@ -18,49 +18,6 @@ use livekit_api::access_token::{
 use livekit_protocol::{self as proto, RoomAgentDispatch};
 use std::{collections::HashMap, time::Duration};
 
-/// An error that can occur during token generation or verification.
-#[uniffi::remote(Error)]
-#[uniffi(flat_error)]
-pub enum AccessTokenError {
-    InvalidKeys,
-    InvalidEnv,
-    InvalidClaims,
-    Encoding,
-}
-
-/// Room permissions
-///
-/// Maps to the JWT's `video` field.
-//
-#[uniffi::remote(Record)]
-pub struct VideoGrants {
-    pub room_create: bool,
-    pub room_list: bool,
-    pub room_record: bool,
-    pub room_admin: bool,
-    pub room_join: bool,
-    pub room: String,
-    pub destination_room: String,
-    pub can_publish: bool,
-    pub can_subscribe: bool,
-    pub can_publish_data: bool,
-    pub can_publish_sources: Vec<String>,
-    pub can_update_own_metadata: bool,
-    pub ingress_admin: bool,
-    pub hidden: bool,
-    pub recorder: bool,
-}
-
-/// SIP grants
-///
-/// Maps to the JWT's `sip` field.
-///
-#[uniffi::remote(Record)]
-pub struct SIPGrants {
-    pub admin: bool,
-    pub call: bool,
-}
-
 /// Agent dispatch configuration
 ///
 /// Defines which agents should be dispatched to a room.

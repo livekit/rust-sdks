@@ -29,6 +29,8 @@ use crate::get_env_keys;
 pub const DEFAULT_TTL: Duration = Duration::from_secs(3600 * 6); // 6 hours
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
+#[cfg_attr(feature = "uniffi", uniffi(flat_error))]
 pub enum AccessTokenError {
     #[error("Invalid API Key or Secret Key")]
     InvalidKeys,
@@ -42,6 +44,7 @@ pub enum AccessTokenError {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct VideoGrants {
     // actions on rooms
     #[serde(default)]
@@ -120,6 +123,7 @@ impl Default for VideoGrants {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct SIPGrants {
     // manage sip resources
     pub admin: bool,

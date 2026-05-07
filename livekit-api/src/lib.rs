@@ -37,6 +37,9 @@ mod http_client;
 #[cfg(feature = "webhooks")]
 pub mod webhooks;
 
+#[cfg(feature = "uniffi")]
+uniffi::setup_scaffolding!();
+
 #[allow(dead_code)]
 pub(crate) fn get_env_keys() -> Result<(String, String), std::env::VarError> {
     let api_key = std::env::var("LIVEKIT_API_KEY")?;
