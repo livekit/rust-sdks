@@ -94,7 +94,7 @@ livekit-runtime = { workspace = true, optional = true}
 tokio-tungstenite = { version = "0.29", features = ["url"], optional = true }
 async-tungstenite = { version = "0.29", features = [ "async-std-runtime", "async-native-tls", "url"], optional = true }
 tokio = { workspace = true, default-features = false, features = ["sync", "macros", "signal", "io-util", "net"], optional = true }
-tokio-rustls = { version = "0.26", optional = true }
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "tls12", "ring"], optional = true }
 rustls-native-certs = { version = "0.8", optional = true }
 futures-util = { workspace = true, default-features = false, features = [ "sink" ], optional = true }
 bytes = { workspace = true, optional = true }
