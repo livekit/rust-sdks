@@ -141,6 +141,16 @@ fn is_twirp_not_found(err: &ServiceError) -> bool {
     )
 }
 
+fn normalize_twirp_host(url: &str) -> String {
+    if let Some(rest) = url.strip_prefix("wss://") {
+        return format!("https://{}", rest.trim_end_matches("/rtc"));
+    }
+    if let Some(rest) = url.strip_prefix("ws://") {
+        return format!("http://{}", rest.trim_end_matches("/rtc"));
+    }
+    url.trim_end_matches("/rtc").to_string()
+}
+
 /// Format the us delta as a millisecond string like `"12.3ms"`.
 fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
     let delta_us = later_us.saturating_sub(earlier_us);
@@ -300,7 +310,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         .expect("LIVEKIT_API_SECRET must be provided via --api-secret or env");
 
     if args.min_playout_delay.is_some() || args.max_playout_delay.is_some() {
-        let room_client = RoomClient::with_api_key(&url, &api_key, &api_secret);
+        let twirp_host = normalize_twirp_host(&url);
+        let room_client = RoomClient::with_api_key(&twirp_host, &api_key, &api_secret);
         info!(
             "Recreating room '{}' with playout delay min={:?} max={:?} ms",
             args.room_name, args.min_playout_delay, args.max_playout_delay
