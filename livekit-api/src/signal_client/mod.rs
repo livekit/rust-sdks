@@ -54,6 +54,10 @@ const REGION_FETCH_TIMEOUT: Duration = Duration::from_secs(3);
 const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROTOCOL_VERSION: u32 = 17;
 
+/// Capabilities the Rust SDK advertises to the SFU at connect time.
+const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
+    &[proto::client_info::Capability::CapPacketTrailer];
+
 #[derive(Error, Debug)]
 pub enum SignalError {
     #[error("ws failure: {0}")]
@@ -316,13 +320,13 @@ impl SignalInner {
                                 if let SignalError::TokenFormat = err {
                                     return Err(err);
                                 }
-                                Self::validate(lk_url_v0).await?;
+                                Self::validate(lk_url_v0, token).await?;
                                 return Err(err);
                             }
                         }
                     } else {
                         // Connection failed, try to retrieve more information
-                        Self::validate(lk_url).await?;
+                        Self::validate(lk_url, token).await?;
                         return Err(err);
                     }
                 }
@@ -346,12 +350,21 @@ impl SignalInner {
         Ok((inner, join_response, events))
     }
 
-    /// Validate the connection by calling rtc/validate
-    async fn validate(ws_url: url::Url) -> SignalResult<()> {
+    /// Validate the connection by calling rtc/validate.
+    ///
+    /// This is called from `connect()` when the primary WebSocket upgrade fails
+    /// with a non-404 status, to surface a clearer HTTP-level error than the WS
+    /// upgrade error. The access token is sent as `Authorization: Bearer <token>`
+    /// so the server can actually authenticate the request; without it, the
+    /// server returns 401 "no permissions to access the room" regardless of
+    /// what the original error was, masking the real cause (e.g. a 503 from a
+    /// saturated node becomes a fabricated 401 to the caller). See
+    /// https://github.com/livekit/rust-sdks/issues/1042.
+    async fn validate(ws_url: url::Url, token: &str) -> SignalResult<()> {
         let validate_url = get_validate_url(ws_url);
 
         let validate_fut = async {
-            if let Ok(res) = http_client::get(validate_url.as_str()).await {
+            if let Ok(res) = http_client::get_with_token(validate_url.as_str(), token).await {
                 let status = res.status();
                 let body = res.text().await.ok().unwrap_or_default();
 
@@ -571,6 +584,7 @@ fn create_join_request_param(
         os,
         os_version,
         device_model,
+        capabilities: CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect(),
         ..Default::default()
     };
 
@@ -672,6 +686,13 @@ fn get_livekit_url(
 
         if let Some(sdk_version) = &options.sdk_options.sdk_version {
             lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
+        }
+
+        // parse client capabilities
+        if !CLIENT_CAPABILITIES.is_empty() {
+            let caps =
+                CLIENT_CAPABILITIES.iter().map(|c| c.as_str_name()).collect::<Vec<_>>().join(",");
+            lk_url.query_pairs_mut().append_pair("capabilities", &caps);
         }
 
         // For reconnects in v0 path, add reconnect and sid as separate query parameters
@@ -791,6 +812,76 @@ mod tests {
         // Should be /rtc/validate, not /rtc/rtc/validate
         assert_eq!(validate_url.path(), "/rtc/validate");
         assert_eq!(validate_url.scheme(), "https");
+    }
+
+    #[test]
+    fn livekit_url_includes_client_capabilities() {
+        let io = SignalOptions::default();
+        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap();
+
+        let capabilities = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "capabilities").then(|| value.into_owned()))
+            .unwrap();
+        let expected = CLIENT_CAPABILITIES
+            .iter()
+            .map(|capability| capability.as_str_name())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        assert_eq!(capabilities, expected);
+    }
+
+    /// Regression test for https://github.com/livekit/rust-sdks/issues/1042.
+    ///
+    /// Prior to the fix, `SignalInner::validate` issued an auth-less GET to
+    /// `/rtc/validate`, so a server performing the standard auth check (claims
+    /// parsing) would return 401 regardless of the real reason the WebSocket
+    /// upgrade had failed. That 401 then masked the original error (e.g. a
+    /// 503 from a saturated node) at the caller.
+    ///
+    /// This test binds a TCP listener, calls `validate()`, captures the first
+    /// request sent to that listener, and asserts the request carries an
+    /// `Authorization: Bearer <token>` header.
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn validate_sends_bearer_token() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<Vec<u8>>();
+
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let n = socket.read(&mut buf).await.unwrap();
+            buf.truncate(n);
+            let _ = tx.send(buf);
+
+            // Respond 200 OK so `validate()` returns Ok() rather than
+            // surfacing a synthetic client/server error. The purpose of this
+            // test is the request side, not the response side.
+            let response = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            let _ = socket.write_all(response).await;
+        });
+
+        let ws_url = url::Url::parse(&format!("ws://127.0.0.1:{}/rtc", addr.port())).unwrap();
+        let result = SignalInner::validate(ws_url, "test-bearer-token").await;
+        assert!(result.is_ok(), "expected Ok from validate, got: {:?}", result);
+
+        let request = rx.await.expect("server task never received a request");
+        let request = String::from_utf8_lossy(&request);
+
+        // Header names are case-insensitive per RFC 9110; reqwest emits the
+        // canonical `Authorization` but we normalise both for robustness.
+        assert!(
+            request.to_lowercase().contains("authorization: bearer test-bearer-token"),
+            "validate() must attach the access token as a Bearer header; request was:\n{}",
+            request
+        );
     }
 
     #[cfg(feature = "signal-client-tokio")]
