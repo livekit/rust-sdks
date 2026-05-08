@@ -540,26 +540,12 @@ impl PlatformAudio {
             )));
         }
 
-        // On iOS, we need to explicitly initialize and start playout.
-        // On desktop platforms, WebRTC auto-starts playout when remote audio arrives,
-        // but on iOS with VPIO this doesn't happen automatically.
-        #[cfg(target_os = "ios")]
-        {
-            let init_result = runtime.init_playout();
-            if init_result != 0 {
-                log::warn!("set_playout_device: init_playout returned {}", init_result);
-            } else {
-                let start_result = runtime.start_playout();
-                if start_result != 0 {
-                    log::warn!("set_playout_device: start_playout returned {}", start_result);
-                } else {
-                    log::info!(
-                        "set_playout_device: playout initialized and started for device {}",
-                        index
-                    );
-                }
-            }
-        }
+        // Note: We intentionally do NOT call init_playout()/start_playout() here.
+        // On iOS, calling these too early causes a race condition crash in
+        // AudioDeviceIOS::OnChangedOutputVolume() because the KVO observers
+        // fire before the audio device is fully initialized.
+        // WebRTC will automatically initialize and start playout when needed
+        // (e.g., when remote audio arrives or when a track is subscribed).
 
         Ok(())
     }
@@ -641,24 +627,11 @@ impl PlatformAudio {
             )));
         }
 
-        // On iOS, we need to explicitly initialize and start playout.
-        #[cfg(target_os = "ios")]
-        {
-            let init_result = runtime.init_playout();
-            if init_result != 0 {
-                log::warn!("set_playout_device_by_guid: init_playout returned {}", init_result);
-            } else {
-                let start_result = runtime.start_playout();
-                if start_result != 0 {
-                    log::warn!(
-                        "set_playout_device_by_guid: start_playout returned {}",
-                        start_result
-                    );
-                } else {
-                    log::info!("set_playout_device_by_guid: playout initialized and started");
-                }
-            }
-        }
+        // Note: We intentionally do NOT call init_playout()/start_playout() here.
+        // On iOS, calling these too early causes a race condition crash in
+        // AudioDeviceIOS::OnChangedOutputVolume() because the KVO observers
+        // fire before the audio device is fully initialized.
+        // WebRTC will automatically initialize and start playout when needed.
 
         Ok(())
     }

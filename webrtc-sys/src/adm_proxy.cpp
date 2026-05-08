@@ -35,7 +35,28 @@ AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread
     : env_(env),
       worker_thread_(worker_thread),
       stub_data_(kSamplesPer10Ms * kChannels) {
-  RTC_LOG(LS_INFO) << "AdmProxy::AdmProxy() - Lazy initialization mode (no Platform ADM yet)";
+  RTC_LOG(LS_INFO) << "AdmProxy::AdmProxy() - Creating Platform ADM immediately";
+
+  // Create the Platform ADM immediately (not lazily) for iOS compatibility.
+  // iOS audio session requires early setup to avoid KVO race conditions.
+  platform_adm_ = webrtc::CreateAudioDeviceModule(
+      env_, webrtc::AudioDeviceModule::kPlatformDefaultAudio);
+
+  if (!platform_adm_) {
+    RTC_LOG(LS_ERROR) << "AdmProxy: Failed to create Platform ADM";
+    return;
+  }
+
+  int32_t init_result = platform_adm_->Init();
+  if (init_result != 0) {
+    RTC_LOG(LS_ERROR) << "AdmProxy: Failed to initialize Platform ADM, error=" << init_result;
+    platform_adm_ = nullptr;
+    return;
+  }
+
+  RTC_LOG(LS_INFO) << "AdmProxy: Platform ADM initialized, "
+                   << platform_adm_->RecordingDevices() << " recording devices, "
+                   << platform_adm_->PlayoutDevices() << " playout devices";
 }
 
 AdmProxy::~AdmProxy() {
@@ -54,18 +75,15 @@ AdmProxy::~AdmProxy() {
 bool AdmProxy::AcquirePlatformAdm() {
   webrtc::MutexLock lock(&mutex_);
 
+  if (!platform_adm_) {
+    RTC_LOG(LS_ERROR) << "AdmProxy::AcquirePlatformAdm() - Platform ADM not available";
+    return false;
+  }
+
   platform_adm_ref_count_++;
   RTC_LOG(LS_INFO) << "AdmProxy::AcquirePlatformAdm() ref_count=" << platform_adm_ref_count_;
 
-  if (platform_adm_ref_count_ == 1) {
-    // First user - create and initialize Platform ADM
-    if (!CreatePlatformAdm()) {
-      platform_adm_ref_count_--;
-      return false;
-    }
-  }
-
-  return platform_adm_ != nullptr;
+  return true;
 }
 
 void AdmProxy::ReleasePlatformAdm() {
@@ -80,10 +98,11 @@ void AdmProxy::ReleasePlatformAdm() {
   platform_adm_ref_count_--;
   RTC_LOG(LS_INFO) << "AdmProxy::ReleasePlatformAdm() ref_count=" << platform_adm_ref_count_;
 
-  if (platform_adm_ref_count_ == 0) {
-    // Last user - terminate Platform ADM and return to synthetic mode
-    TerminatePlatformAdm();
-  }
+  // Note: We do NOT terminate the Platform ADM when ref_count reaches 0.
+  // On iOS, terminating and re-creating the ADM causes KVO race conditions.
+  // The ADM stays alive until AdmProxy is destroyed.
+  // The recording_enabled_ and playout_enabled_ flags control whether
+  // actual audio I/O happens.
 }
 
 int AdmProxy::platform_adm_ref_count() const {
@@ -93,7 +112,9 @@ int AdmProxy::platform_adm_ref_count() const {
 
 bool AdmProxy::is_platform_adm_active() const {
   webrtc::MutexLock lock(&mutex_);
-  return platform_adm_ref_count_ > 0 && platform_adm_ != nullptr;
+  // Platform ADM is created in constructor, so it's always available if initialized.
+  // The ref_count tracks how many users (PlatformAudio instances) want it active.
+  return platform_adm_ != nullptr && platform_adm_ref_count_ > 0;
 }
 
 bool AdmProxy::CreatePlatformAdm() {
