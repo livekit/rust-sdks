@@ -55,14 +55,17 @@ pub(crate) fn pack_plane(
     dst: &mut Vec<u8>,
 ) {
     resize_reused_buffer(dst, (dst_stride * rows) as usize);
+    if src_stride == row_width && dst_stride == row_width {
+        let len = (row_width * rows) as usize;
+        dst[..len].copy_from_slice(&src[..len]);
+        return;
+    }
+
     for row in 0..rows {
         let src_off = (row * src_stride) as usize;
         let dst_off = (row * dst_stride) as usize;
         let row_end = dst_off + row_width as usize;
         dst[dst_off..row_end].copy_from_slice(&src[src_off..src_off + row_width as usize]);
-        if dst_stride > row_width {
-            dst[row_end..dst_off + dst_stride as usize].fill(0);
-        }
     }
 }
 

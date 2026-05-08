@@ -2,4 +2,4 @@
 local_video: patch
 ---
 
-Burn publisher latency metrics into the local rendered video frame, show the subscriber's previous capture timestamp, compute subscriber latency from capture to render, throttle latency displays to 2 Hz, and make the metrics overlays larger.
+Add optional publisher latency metrics for the local rendered video frame, show the subscriber's previous capture timestamp, compute subscriber latency from capture to render, throttle latency displays to 2 Hz, make the metrics overlays larger, and reduce local preview copy overhead.

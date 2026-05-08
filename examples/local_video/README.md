@@ -4,6 +4,7 @@ Three examples demonstrating capturing frames from a local camera video and publ
 
 **Note:** These examples are intended for **desktop platforms only** (macOS, Linux, Windows).
 You must enable the `desktop` feature when building or running them.
+For smoother local rendering, especially above 720p, run the publisher/subscriber with `cargo run --release`.
 
 - list_devices: enumerate available cameras and their capabilities
 - publisher: capture from a selected camera and publish a video track
@@ -95,6 +96,7 @@ Publisher flags (in addition to the common connection flags above):
 - `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set.
 - `--attach-frame-id`: Attach a monotonically increasing frame ID to each published frame via the packet trailer. The subscriber displays this in the timestamp overlay when `--display-timestamp` is used.
 - `--display-video`: Open a window that displays the video frames being published.
+- `--display-timing`: Burn publisher timing metrics into the local preview window. Requires `--display-video`.
 - `--e2ee-key <key>`: Enable end-to-end encryption with the given shared key. The subscriber must use the same key to decrypt.
 
 Subscriber usage:

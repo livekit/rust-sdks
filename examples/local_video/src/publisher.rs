@@ -110,6 +110,10 @@ struct Args {
     #[arg(long, default_value_t = false)]
     display_video: bool,
 
+    /// Burn publisher timing metrics into the local preview window
+    #[arg(long, default_value_t = false, requires = "display_video")]
+    display_timing: bool,
+
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set)
     #[arg(long)]
     e2ee_key: Option<String>,
@@ -222,6 +226,7 @@ struct CaptureConfig {
     attach_timestamp: bool,
     burn_timestamp: bool,
     attach_frame_id: bool,
+    display_timing: bool,
 }
 
 #[tokio::main]
@@ -432,6 +437,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         attach_timestamp: args.attach_timestamp,
         burn_timestamp: args.burn_timestamp,
         attach_frame_id: args.attach_frame_id,
+        display_timing: args.display_timing,
     };
 
     if args.display_video {
@@ -752,16 +758,21 @@ async fn run_capture_loop(
         if let Some(shared) = display_shared.as_ref() {
             let (stride_y, stride_u, stride_v) = frame.buffer.strides();
             let (data_y, data_u, data_v) = frame.buffer.data();
-            let timing_sample = Some(PublisherTimingSample {
-                frame_id: fid,
-                capture_timestamp_us: capture_wall_time_us,
-                read_timestamp_us: read_wall_time_us,
-                sent_timestamp_us,
-            });
-            let publish_latency_display = latency_display.value(
-                Instant::now(),
-                Some(format_us_delta_ms(sent_timestamp_us, capture_wall_time_us)),
-            );
+            let (timing_sample, publish_latency_display) = if config.display_timing {
+                let timing_sample = PublisherTimingSample {
+                    frame_id: fid,
+                    capture_timestamp_us: capture_wall_time_us,
+                    read_timestamp_us: read_wall_time_us,
+                    sent_timestamp_us,
+                };
+                let publish_latency_display = latency_display.value(
+                    Instant::now(),
+                    Some(format_us_delta_ms(sent_timestamp_us, capture_wall_time_us)),
+                );
+                (Some(timing_sample), Some(publish_latency_display))
+            } else {
+                (None, None)
+            };
             video_display::pack_i420_into_shared(
                 shared,
                 width,
@@ -773,7 +784,7 @@ async fn run_capture_loop(
                 data_v,
                 stride_v as u32,
                 timing_sample,
-                Some(publish_latency_display),
+                publish_latency_display,
             );
         }
 
