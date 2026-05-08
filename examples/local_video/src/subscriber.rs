@@ -500,6 +500,64 @@ fn find_video_inbound_stats(
     })
 }
 
+#[derive(Clone, Copy)]
+struct JitterBufferSnapshot {
+    delay_secs: f64,
+    emitted_count: u64,
+}
+
+fn seconds_to_ms(seconds: f64) -> f64 {
+    seconds * 1_000.0
+}
+
+fn log_video_jitter_buffer_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+    previous: &mut Option<JitterBufferSnapshot>,
+) {
+    let Some(inbound) = find_video_inbound_stats(stats) else {
+        return;
+    };
+
+    let current = JitterBufferSnapshot {
+        delay_secs: inbound.inbound.jitter_buffer_delay,
+        emitted_count: inbound.inbound.jitter_buffer_emitted_count,
+    };
+    let window_delay_ms = previous.and_then(|prev| {
+        let emitted_delta = current.emitted_count.saturating_sub(prev.emitted_count);
+        let delay_delta = current.delay_secs - prev.delay_secs;
+        (emitted_delta > 0 && delay_delta >= 0.0)
+            .then(|| seconds_to_ms(delay_delta / emitted_delta as f64))
+    });
+    let cumulative_delay_ms = (current.emitted_count > 0)
+        .then(|| seconds_to_ms(current.delay_secs / current.emitted_count as f64));
+
+    match (window_delay_ms, cumulative_delay_ms) {
+        (Some(window), Some(cumulative)) => info!(
+            "WebRTC jitter buffer: window_avg={:.1}ms, cumulative_avg={:.1}ms, target={:.1}ms, minimum={:.1}ms, emitted={}",
+            window,
+            cumulative,
+            inbound.inbound.jitter_buffer_target_delay,
+            inbound.inbound.jitter_buffer_minimum_delay,
+            current.emitted_count
+        ),
+        (None, Some(cumulative)) => info!(
+            "WebRTC jitter buffer: cumulative_avg={:.1}ms, target={:.1}ms, minimum={:.1}ms, emitted={}",
+            cumulative,
+            inbound.inbound.jitter_buffer_target_delay,
+            inbound.inbound.jitter_buffer_minimum_delay,
+            current.emitted_count
+        ),
+        _ => info!(
+            "WebRTC jitter buffer: target={:.1}ms, minimum={:.1}ms, emitted={}",
+            inbound.inbound.jitter_buffer_target_delay,
+            inbound.inbound.jitter_buffer_minimum_delay,
+            current.emitted_count
+        ),
+    }
+
+    *previous = Some(current);
+}
+
 fn log_video_inbound_stats(stats: &[livekit::webrtc::stats::RtcStats]) {
     let mut codec_by_id: HashMap<String, (String, String)> = HashMap::new();
     for stat in stats {
@@ -785,6 +843,9 @@ async fn handle_track_subscribed(
     let simulcast_stats = simulcast.clone();
     tokio::spawn(async move {
         let mut logged_initial = false;
+        let mut jitter_buffer_snapshot = None;
+        let mut last_jitter_buffer_log =
+            Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -801,6 +862,10 @@ async fn handle_track_subscribed(
                     if !logged_initial {
                         log_video_inbound_stats(&stats);
                         logged_initial = true;
+                    }
+                    if last_jitter_buffer_log.elapsed() >= Duration::from_secs(5) {
+                        log_video_jitter_buffer_stats(&stats, &mut jitter_buffer_snapshot);
+                        last_jitter_buffer_log = Instant::now();
                     }
                     update_simulcast_quality_from_stats(&stats, &simulcast_stats);
                 }
