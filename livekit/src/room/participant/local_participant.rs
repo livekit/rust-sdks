@@ -112,6 +112,42 @@ impl Debug for LocalParticipant {
     }
 }
 
+fn publish_options_for_track(
+    track: &LocalTrack,
+    options: TrackPublishOptions,
+) -> TrackPublishOptions {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut publish_options = options;
+        if let LocalTrack::Video(video_track) = track {
+            if let RtcVideoSource::Encoded(encoded_source) = video_track.rtc_source() {
+                let source_codec: options::VideoCodec = encoded_source.codec().into();
+                if publish_options.video_codec != source_codec {
+                    log::warn!(
+                        "publish_track: overriding video_codec {:?} -> {:?} to match encoded source",
+                        publish_options.video_codec,
+                        source_codec
+                    );
+                    publish_options.video_codec = source_codec;
+                }
+                if publish_options.simulcast {
+                    log::warn!(
+                        "publish_track: disabling simulcast for encoded video source (single-layer only)"
+                    );
+                    publish_options.simulcast = false;
+                }
+            }
+        }
+        publish_options
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = track;
+        options
+    }
+}
+
 impl LocalParticipant {
     pub(crate) fn new(
         rtc_engine: Arc<RtcEngine>,
@@ -302,6 +338,7 @@ impl LocalParticipant {
         track: LocalTrack,
         options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
+        let options = publish_options_for_track(&track, options);
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
 
         let mut req = proto::AddTrackRequest {

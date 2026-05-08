@@ -55,6 +55,7 @@ fn main() {
         "src/apm.rs",
         "src/audio_mixer.rs",
         "src/packet_trailer.rs",
+        "src/encoded_video_source.rs",
     ];
 
     if is_desktop {
@@ -91,7 +92,11 @@ fn main() {
         "src/apm.cpp",
         "src/audio_mixer.cpp",
         "src/packet_trailer.cpp",
+        "src/encoded_video_source.cpp",
+        "src/passthrough_video_encoder.cpp",
     ]);
+
+    builder.define("LK_PRE_ENCODED_VIDEO", "1");
 
     if is_desktop {
         builder.file("src/desktop_capturer.cpp");
