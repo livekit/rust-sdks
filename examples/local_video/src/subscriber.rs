@@ -22,8 +22,10 @@ use std::{
 };
 
 mod timestamp_burn;
+mod viewport_aspect;
 
 use timestamp_burn::{format_timestamp_us, TextBurner};
+use viewport_aspect::AspectConstrainedViewport;
 
 async fn wait_for_shutdown(flag: Arc<AtomicBool>) {
     while !flag.load(Ordering::Acquire) {
@@ -270,6 +272,15 @@ fn build_burned_stats_lines(
     }
 
     lines
+}
+
+fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
+    let s = shared.lock();
+    if s.width > 0 && s.height > 0 {
+        Some((s.width, s.height))
+    } else {
+        None
+    }
 }
 
 async fn handle_track_subscribed(
@@ -559,7 +570,7 @@ struct VideoApp {
     simulcast: Arc<Mutex<SimulcastState>>,
     repaint_ctx: Arc<Mutex<Option<egui::Context>>>,
     ctrl_c_received: Arc<AtomicBool>,
-    locked_aspect: Option<f32>,
+    viewport: AspectConstrainedViewport,
 }
 
 impl eframe::App for VideoApp {
@@ -570,22 +581,20 @@ impl eframe::App for VideoApp {
             return;
         }
 
-        // Lock aspect ratio based on the first received video frame.
-        if self.locked_aspect.is_none() {
-            let s = self.shared.lock();
-            if s.width > 0 && s.height > 0 {
-                self.locked_aspect = Some(s.width as f32 / s.height as f32);
-            }
+        let mut aspect_just_changed = false;
+        if let Some((width, height)) = video_size(&self.shared) {
+            aspect_just_changed = self.viewport.set_video_size(ctx, width, height);
         }
+        self.viewport.constrain(ctx, aspect_just_changed);
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             // Ensure we keep repainting for smooth playback.
             ui.ctx().request_repaint();
 
             // Render into a centered rect that matches the source aspect ratio. This keeps resize
             // smooth (no feedback loop) and avoids stretching/distortion while dragging.
             let available = ui.available_size();
-            let size = if let Some(aspect) = self.locked_aspect {
+            let size = if let Some(aspect) = self.viewport.aspect() {
                 let mut w = available.x.max(1.0);
                 let mut h = (w / aspect).max(1.0);
                 if h > available.y.max(1.0) {
@@ -815,9 +824,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         simulcast,
         repaint_ctx,
         ctrl_c_received: ctrl_c_received.clone(),
-        locked_aspect: None,
+        viewport: AspectConstrainedViewport::new(None),
     };
-    let native_options = eframe::NativeOptions { vsync: false, ..Default::default() };
+    let native_options = viewport_aspect::native_options(None);
     eframe::run_native(
         "LiveKit Video Subscriber",
         native_options,

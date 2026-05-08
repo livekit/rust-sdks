@@ -11,6 +11,8 @@ use std::sync::{
 };
 use std::time::Duration;
 
+use crate::viewport_aspect::{self, AspectConstrainedViewport};
+
 #[derive(Default)]
 pub(crate) struct SharedYuv {
     pub(crate) width: u32,
@@ -131,10 +133,19 @@ fn format_publisher_timing_sample(sample: PublisherTimingSample) -> String {
     )
 }
 
+fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
+    let s = shared.lock();
+    if s.width > 0 && s.height > 0 {
+        Some((s.width, s.height))
+    } else {
+        None
+    }
+}
+
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     ctrl_c_received: Arc<AtomicBool>,
-    locked_aspect: Option<f32>,
+    viewport: AspectConstrainedViewport,
 }
 
 impl eframe::App for VideoApp {
@@ -144,18 +155,17 @@ impl eframe::App for VideoApp {
             return;
         }
 
-        if self.locked_aspect.is_none() {
-            let s = self.shared.lock();
-            if s.width > 0 && s.height > 0 {
-                self.locked_aspect = Some(s.width as f32 / s.height as f32);
-            }
+        let mut aspect_just_changed = false;
+        if let Some((width, height)) = video_size(&self.shared) {
+            aspect_just_changed = self.viewport.set_video_size(ctx, width, height);
         }
+        self.viewport.constrain(ctx, aspect_just_changed);
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             ui.ctx().request_repaint();
 
             let available = ui.available_size();
-            let size = if let Some(aspect) = self.locked_aspect {
+            let size = if let Some(aspect) = self.viewport.aspect() {
                 let mut w = available.x.max(1.0);
                 let mut h = (w / aspect).max(1.0);
                 if h > available.y.max(1.0) {
@@ -238,9 +248,9 @@ pub(crate) fn run_display(
     let app = VideoApp {
         shared,
         ctrl_c_received: ctrl_c_received.clone(),
-        locked_aspect: initial_aspect,
+        viewport: AspectConstrainedViewport::new(initial_aspect),
     };
-    let native_options = eframe::NativeOptions { vsync: false, ..Default::default() };
+    let native_options = viewport_aspect::native_options(initial_aspect);
     let result = eframe::run_native(title, native_options, Box::new(|_| Ok(Box::new(app))));
 
     ctrl_c_received.store(true, Ordering::Release);

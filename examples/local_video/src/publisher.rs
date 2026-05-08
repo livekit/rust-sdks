@@ -29,6 +29,7 @@ use yuv_sys;
 mod test_pattern;
 mod timestamp_burn;
 mod video_display;
+mod viewport_aspect;
 
 use test_pattern::TestPattern;
 use timestamp_burn::TimestampOverlay;
