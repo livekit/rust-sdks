@@ -605,12 +605,15 @@ impl eframe::App for VideoApp {
             let publish_us = meta.and_then(|m| m.user_timestamp);
             let frame_id = meta.and_then(|m| m.frame_id);
 
-            // Prefer the GPU-done sample so latency reflects "pixels drawn", not just CPU receive.
-            let gpu_frame_id = gpu_done.and_then(|g| g.frame_id);
-            let hud_frame_id = gpu_frame_id.or(frame_id);
-            let hud_publish_us = gpu_done.and_then(|g| g.publish_us).or(publish_us);
-            let hud_receive_us = gpu_done.map(|g| g.cpu_received_us).or(receive_us);
-            let hud_gpu_done_us = gpu_done.map(|g| g.gpu_done_us);
+            let matching_gpu_done = gpu_done.filter(|sample| match (sample.frame_id, frame_id) {
+                (Some(sample_id), Some(current_id)) => sample_id == current_id,
+                (None, None) => sample.publish_us == publish_us,
+                _ => false,
+            });
+            let hud_frame_id = frame_id;
+            let hud_publish_us = publish_us;
+            let hud_receive_us = matching_gpu_done.map(|g| g.cpu_received_us).or(receive_us);
+            let hud_gpu_done_us = matching_gpu_done.map(|g| g.gpu_done_us);
 
             if hud_publish_us.is_some() || hud_frame_id.is_some() {
                 let frame_id_line = match hud_frame_id {

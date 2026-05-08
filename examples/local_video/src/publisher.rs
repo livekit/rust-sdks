@@ -17,6 +17,7 @@ use nokhwa::utils::{
     Resolution,
 };
 use nokhwa::Camera;
+use parking_lot::Mutex;
 use std::env;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -27,9 +28,11 @@ use yuv_sys;
 
 mod test_pattern;
 mod timestamp_burn;
+mod video_display;
 
 use test_pattern::TestPattern;
 use timestamp_burn::TimestampOverlay;
+use video_display::{PublisherTimingSample, SharedYuv};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -101,6 +104,10 @@ struct Args {
     /// Attach a monotonically increasing frame ID to each published frame via the packet trailer
     #[arg(long, default_value_t = false)]
     attach_frame_id: bool,
+
+    /// Open a window that displays the video frames being published
+    #[arg(long, default_value_t = false)]
+    display_video: bool,
 
     /// Shared encryption key for E2EE (enables AES-GCM end-to-end encryption when set)
     #[arg(long)]
@@ -202,6 +209,14 @@ enum VideoInput {
     Camera { camera: Camera, is_yuyv: bool },
 }
 
+#[derive(Clone, Copy)]
+struct CaptureConfig {
+    fps: u32,
+    attach_timestamp: bool,
+    burn_timestamp: bool,
+    attach_frame_id: bool,
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
@@ -288,7 +303,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         });
     }
 
-    let (width, height, mut video_input) = if args.test_pattern {
+    let (width, height, video_input) = if args.test_pattern {
         let width = args.width;
         let height = args.height;
         let fps = args.fps;
@@ -334,9 +349,6 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         );
         (width, height, VideoInput::Camera { camera, is_yuyv })
     };
-    // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
-    let pace_fps = args.fps as f64;
-
     // Create LiveKit video source and track
     let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
     let track =
@@ -392,28 +404,81 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         .publish_track(LocalTrack::Video(track.clone()), publish_opts(requested_codec))
         .await;
 
-    if let Err(e) = publish_result {
+    let actual_codec = if let Err(e) = publish_result {
         if matches!(requested_codec, VideoCodec::H265) {
             log::warn!("H.265 publish failed ({}). Falling back to H.264...", e);
             room.local_participant()
                 .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
                 .await?;
             info!("Published camera track with H.264 fallback");
+            VideoCodec::H264
         } else {
             return Err(e.into());
         }
     } else {
         info!("Published camera track");
-    }
-
-    // Reusable I420 buffer and frame
-    let mut frame = VideoFrame {
-        rotation: VideoRotation::VideoRotation0,
-        timestamp_us: 0,
-        frame_metadata: None,
-        buffer: I420Buffer::new(width, height),
+        requested_codec
     };
 
+    let capture_config = CaptureConfig {
+        fps: args.fps,
+        attach_timestamp: args.attach_timestamp,
+        burn_timestamp: args.burn_timestamp,
+        attach_frame_id: args.attach_frame_id,
+    };
+
+    if args.display_video {
+        let shared = Arc::new(Mutex::new(SharedYuv {
+            codec: actual_codec.as_str().to_ascii_uppercase(),
+            ..Default::default()
+        }));
+        let capture_task = tokio::spawn(run_capture_loop(
+            capture_config,
+            ctrl_c_received.clone(),
+            rtc_source,
+            video_input,
+            width,
+            height,
+            Some(shared.clone()),
+        ));
+
+        let display_result = video_display::run_display(
+            "LiveKit Video Publisher",
+            shared,
+            ctrl_c_received.clone(),
+            Some(width as f32 / height as f32),
+        );
+
+        let capture_result = capture_task.await?;
+        display_result?;
+        capture_result?;
+    } else {
+        run_capture_loop(
+            capture_config,
+            ctrl_c_received,
+            rtc_source,
+            video_input,
+            width,
+            height,
+            None,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn run_capture_loop(
+    config: CaptureConfig,
+    ctrl_c_received: Arc<AtomicBool>,
+    rtc_source: NativeVideoSource,
+    mut video_input: VideoInput,
+    width: u32,
+    height: u32,
+    display_shared: Option<Arc<Mutex<SharedYuv>>>,
+) -> Result<()> {
+    // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
+    let pace_fps = config.fps as f64;
     // Accurate pacing using absolute schedule (no drift)
     let mut ticker = tokio::time::interval(Duration::from_secs_f64(1.0 / pace_fps));
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -424,6 +489,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     // Capture loop
     let mut frames: u64 = 0;
     let mut last_fps_log = Instant::now();
+    let mut fps_window_frames: u64 = 0;
+    let mut fps_window_start = Instant::now();
+    let mut fps_smoothed: f32 = 0.0;
     let target = Duration::from_secs_f64(1.0 / pace_fps);
     info!("Target frame interval: {:.2} ms", target.as_secs_f64() * 1000.0);
 
@@ -433,7 +501,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut logged_sensor_ts_source = false;
     let mut logged_sensor_ts_missing = false;
     let mut frame_counter: u32 = 1;
-    let mut timestamp_overlay = (args.attach_timestamp && args.burn_timestamp)
+    let mut timestamp_overlay = (config.attach_timestamp && config.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
@@ -445,11 +513,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         let paced_wait_finished_at = Instant::now();
 
         let source_frame_started_at = Instant::now();
-        let (stride_y, stride_u, stride_v) = frame.buffer.strides();
-        let (data_y, data_u, data_v) = frame.buffer.data_mut();
+        let frame_wall_time_us = unix_time_us_now();
+        let mut buffer = I420Buffer::new(width, height);
+        let (stride_y, stride_u, stride_v) = buffer.strides();
+        let (data_y, data_u, data_v) = buffer.data_mut();
         let stride_y_usize = stride_y as usize;
         let (
             capture_wall_time_us,
+            read_wall_time_us,
             source_frame_acquired_at,
             decode_finished_at,
             convert_finished_at,
@@ -467,6 +538,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 );
                 let frame_acquired_at = Instant::now();
                 (
+                    frame_wall_time_us,
                     unix_time_us_now(),
                     frame_acquired_at,
                     frame_acquired_at,
@@ -478,8 +550,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             VideoInput::Camera { camera, is_yuyv } => {
                 // Capture the frame as early as possible so the attached timestamp is
                 // close to the camera acquisition point.
-                let fallback_wall_time_us = unix_time_us_now();
                 let frame_buf = camera.frame()?;
+                let read_wall_time_us = unix_time_us_now();
                 let camera_frame_acquired_at = Instant::now();
 
                 // Prefer the backend-provided sensor/PTS wallclock when available for
@@ -499,7 +571,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                             );
                             logged_sensor_ts_missing = true;
                         }
-                        fallback_wall_time_us
+                        frame_wall_time_us
                     }
                 };
 
@@ -620,6 +692,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
                 (
                     capture_wall_time_us,
+                    read_wall_time_us,
                     camera_frame_acquired_at,
                     decode_finished_at,
                     convert_finished_at,
@@ -629,36 +702,84 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             }
         };
 
-        let mut buffer_ready_at = convert_finished_at;
-        let mut frame_draw_ms = None;
-        if let Some(overlay) = timestamp_overlay.as_mut() {
-            let overlay_started_at = Instant::now();
-            overlay.draw(data_y, stride_y_usize, capture_wall_time_us);
-            let overlay_finished_at = Instant::now();
-            frame_draw_ms = Some((overlay_finished_at - overlay_started_at).as_secs_f64() * 1000.0);
-            buffer_ready_at = overlay_finished_at;
-        }
-
-        // Update RTP timestamp (monotonic, microseconds since start)
-        frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
-        // Build frame metadata from enabled packet trailer features
-        let user_ts = if args.attach_timestamp { Some(capture_wall_time_us) } else { None };
-        let fid = if args.attach_frame_id {
+        let fid = if config.attach_frame_id {
             let id = frame_counter;
             frame_counter = frame_counter.wrapping_add(1);
             Some(id)
         } else {
             None
         };
-        frame.frame_metadata = if user_ts.is_some() || fid.is_some() {
+        let mut buffer_ready_at = convert_finished_at;
+        let mut frame_draw_ms = None;
+        let mut burned_timestamp_us = None;
+        if let Some(overlay) = timestamp_overlay.as_mut() {
+            let overlay_started_at = Instant::now();
+            overlay.draw(data_y, stride_y_usize, capture_wall_time_us, fid);
+            burned_timestamp_us = Some(capture_wall_time_us);
+            let overlay_finished_at = Instant::now();
+            frame_draw_ms = Some((overlay_finished_at - overlay_started_at).as_secs_f64() * 1000.0);
+            buffer_ready_at = overlay_finished_at;
+        }
+
+        // Build frame metadata from enabled packet trailer features
+        let user_ts = if config.attach_timestamp { Some(capture_wall_time_us) } else { None };
+        if burned_timestamp_us.is_some() {
+            debug_assert_eq!(burned_timestamp_us, user_ts);
+        }
+        let frame_metadata = if user_ts.is_some() || fid.is_some() {
             Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
         } else {
             None
         };
+        let frame = VideoFrame {
+            rotation: VideoRotation::VideoRotation0,
+            // Monotonic, microseconds since start.
+            timestamp_us: start_ts.elapsed().as_micros() as i64,
+            frame_metadata,
+            buffer,
+        };
         rtc_source.capture_frame(&frame);
+        let sent_timestamp_us = unix_time_us_now();
         let webrtc_capture_finished_at = Instant::now();
+        if let Some(shared) = display_shared.as_ref() {
+            let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+            let (data_y, data_u, data_v) = frame.buffer.data();
+            let timing_sample = Some(PublisherTimingSample {
+                frame_id: fid,
+                capture_timestamp_us: capture_wall_time_us,
+                read_timestamp_us: read_wall_time_us,
+                sent_timestamp_us,
+            });
+            video_display::pack_i420_into_shared(
+                shared,
+                width,
+                height,
+                data_y,
+                stride_y as u32,
+                data_u,
+                stride_u as u32,
+                data_v,
+                stride_v as u32,
+                timing_sample,
+            );
+        }
 
         frames += 1;
+        fps_window_frames += 1;
+        let win_elapsed = fps_window_start.elapsed();
+        if win_elapsed >= Duration::from_millis(500) {
+            let inst_fps = fps_window_frames as f32 / win_elapsed.as_secs_f32().max(0.001);
+            fps_smoothed = if fps_smoothed <= 0.0 {
+                inst_fps
+            } else {
+                (fps_smoothed * 0.7) + (inst_fps * 0.3)
+            };
+            if let Some(shared) = display_shared.as_ref() {
+                shared.lock().fps = fps_smoothed;
+            }
+            fps_window_frames = 0;
+            fps_window_start = Instant::now();
+        }
 
         // Per-iteration timing bookkeeping
         timings

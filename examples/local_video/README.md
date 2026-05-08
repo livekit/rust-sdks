@@ -68,6 +68,13 @@ Publisher usage:
    --room-name demo \
    --identity cam-1 \
    --e2ee-key my-secret-key
+
+ # publish and display the outgoing video locally
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --room-name demo \
+   --identity cam-1 \
+   --display-video
 ```
 
 List devices usage:
@@ -87,6 +94,7 @@ Publisher flags (in addition to the common connection flags above):
 - `--attach-timestamp`: Attach the current wall-clock time (microseconds since UNIX epoch) as the user timestamp on each published frame. The subscriber can display this to measure end-to-end latency.
 - `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set.
 - `--attach-frame-id`: Attach a monotonically increasing frame ID to each published frame via the packet trailer. The subscriber displays this in the timestamp overlay when `--display-timestamp` is used.
+- `--display-video`: Open a window that displays the video frames being published.
 - `--e2ee-key <key>`: Enable end-to-end encryption with the given shared key. The subscriber must use the same key to decrypt.
 
 Subscriber usage:
