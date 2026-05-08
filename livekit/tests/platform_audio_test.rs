@@ -1059,3 +1059,547 @@ async fn test_platform_audio_processing_with_room() -> Result<()> {
     log::info!("Audio processing with room test completed");
     Ok(())
 }
+
+// =============================================================================
+// ADM Lifecycle and Mode Switching Tests
+// =============================================================================
+// These tests verify the ADM proxy behavior:
+// - Both Dummy ADM and Platform ADM are created at startup
+// - Platform ADM ref counting works correctly
+// - Mode switching between synthetic and platform modes
+// - ADM state consistency
+
+/// Test Platform ADM reference counting through low-level API.
+///
+/// Verifies that acquire_platform_adm/release_platform_adm properly
+/// manage the reference count and is_platform_adm_active state.
+#[test_log::test(tokio::test)]
+#[serial]
+async fn test_adm_proxy_platform_ref_counting() -> Result<()> {
+    use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+    use livekit::rtc_engine::lk_runtime::LkRuntime;
+
+    // Get the shared runtime (contains the PeerConnectionFactory with ADM)
+    let runtime = LkRuntime::instance();
+    let pcf = runtime.pc_factory();
+
+    // Initial state: Platform ADM should not be active (ref_count = 0)
+    let initial_ref_count = pcf.platform_adm_ref_count();
+    log::info!("Initial platform_adm_ref_count: {}", initial_ref_count);
+
+    // Note: If other tests left state, ref count might be > 0
+    // We test relative changes rather than absolute values
+    let is_active_before = pcf.is_platform_adm_active();
+    log::info!("is_platform_adm_active before acquire: {}", is_active_before);
+
+    // Acquire Platform ADM
+    let acquired = pcf.acquire_platform_adm();
+    assert!(acquired, "acquire_platform_adm should succeed");
+
+    let ref_count_after_acquire = pcf.platform_adm_ref_count();
+    assert_eq!(
+        ref_count_after_acquire,
+        initial_ref_count + 1,
+        "ref_count should increment by 1"
+    );
+    assert!(
+        pcf.is_platform_adm_active(),
+        "Platform ADM should be active after acquire"
+    );
+    log::info!("After acquire: ref_count={}, is_active={}", ref_count_after_acquire, pcf.is_platform_adm_active());
+
+    // Acquire again (should just increment ref count)
+    let acquired2 = pcf.acquire_platform_adm();
+    assert!(acquired2, "second acquire_platform_adm should succeed");
+
+    let ref_count_after_second_acquire = pcf.platform_adm_ref_count();
+    assert_eq!(
+        ref_count_after_second_acquire,
+        initial_ref_count + 2,
+        "ref_count should be initial + 2"
+    );
+    log::info!("After second acquire: ref_count={}", ref_count_after_second_acquire);
+
+    // Release once
+    pcf.release_platform_adm();
+    let ref_count_after_release = pcf.platform_adm_ref_count();
+    assert_eq!(
+        ref_count_after_release,
+        initial_ref_count + 1,
+        "ref_count should be initial + 1 after one release"
+    );
+    assert!(
+        pcf.is_platform_adm_active(),
+        "Platform ADM should still be active (ref_count > 0)"
+    );
+    log::info!("After first release: ref_count={}", ref_count_after_release);
+
+    // Release again (should return to initial state)
+    pcf.release_platform_adm();
+    let final_ref_count = pcf.platform_adm_ref_count();
+    assert_eq!(
+        final_ref_count,
+        initial_ref_count,
+        "ref_count should return to initial value"
+    );
+    log::info!("After second release: ref_count={}, is_active={}", final_ref_count, pcf.is_platform_adm_active());
+
+    // Verify is_platform_adm_active consistency
+    if initial_ref_count == 0 {
+        assert!(
+            !pcf.is_platform_adm_active(),
+            "Platform ADM should not be active when ref_count = 0"
+        );
+    }
+
+    log::info!("ADM proxy platform ref counting test passed");
+    Ok(())
+}
+
+/// Test ADM recording enabled flag.
+///
+/// Verifies that set_adm_recording_enabled/adm_recording_enabled
+/// properly control the recording mode.
+#[test_log::test(tokio::test)]
+#[serial]
+async fn test_adm_proxy_recording_enabled_flag() -> Result<()> {
+    use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+    use livekit::rtc_engine::lk_runtime::LkRuntime;
+
+    let runtime = LkRuntime::instance();
+    let pcf = runtime.pc_factory();
+
+    // Save initial state
+    let initial_enabled = pcf.adm_recording_enabled();
+    log::info!("Initial adm_recording_enabled: {}", initial_enabled);
+
+    // Disable recording
+    pcf.set_adm_recording_enabled(false);
+    assert!(!pcf.adm_recording_enabled(), "Recording should be disabled");
+    log::info!("After set_adm_recording_enabled(false): {}", pcf.adm_recording_enabled());
+
+    // Enable recording
+    pcf.set_adm_recording_enabled(true);
+    assert!(pcf.adm_recording_enabled(), "Recording should be enabled");
+    log::info!("After set_adm_recording_enabled(true): {}", pcf.adm_recording_enabled());
+
+    // Toggle multiple times
+    pcf.set_adm_recording_enabled(false);
+    pcf.set_adm_recording_enabled(true);
+    pcf.set_adm_recording_enabled(false);
+    assert!(!pcf.adm_recording_enabled(), "Recording should be disabled after toggles");
+
+    // Restore initial state
+    pcf.set_adm_recording_enabled(initial_enabled);
+    assert_eq!(
+        pcf.adm_recording_enabled(),
+        initial_enabled,
+        "Recording should be restored to initial state"
+    );
+
+    log::info!("ADM recording enabled flag test passed");
+    Ok(())
+}
+
+/// Test ADM playout enabled flag.
+///
+/// Verifies that set_adm_playout_enabled/adm_playout_enabled
+/// properly control the playout mode (synthetic vs platform).
+#[test_log::test(tokio::test)]
+#[serial]
+async fn test_adm_proxy_playout_enabled_flag() -> Result<()> {
+    use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+    use livekit::rtc_engine::lk_runtime::LkRuntime;
+
+    let runtime = LkRuntime::instance();
+    let pcf = runtime.pc_factory();
+
+    // Save initial state
+    let initial_enabled = pcf.adm_playout_enabled();
+    log::info!("Initial adm_playout_enabled: {}", initial_enabled);
+
+    // Disable playout (use synthetic mode / Dummy ADM)
+    pcf.set_adm_playout_enabled(false);
+    assert!(!pcf.adm_playout_enabled(), "Playout should be disabled (synthetic mode)");
+    log::info!("After set_adm_playout_enabled(false): {}", pcf.adm_playout_enabled());
+
+    // Enable playout (use Platform ADM speakers)
+    pcf.set_adm_playout_enabled(true);
+    assert!(pcf.adm_playout_enabled(), "Playout should be enabled (platform mode)");
+    log::info!("After set_adm_playout_enabled(true): {}", pcf.adm_playout_enabled());
+
+    // Toggle multiple times
+    pcf.set_adm_playout_enabled(false);
+    pcf.set_adm_playout_enabled(true);
+    pcf.set_adm_playout_enabled(false);
+    assert!(!pcf.adm_playout_enabled(), "Playout should be disabled after toggles");
+
+    // Restore initial state
+    pcf.set_adm_playout_enabled(initial_enabled);
+    assert_eq!(
+        pcf.adm_playout_enabled(),
+        initial_enabled,
+        "Playout should be restored to initial state"
+    );
+
+    log::info!("ADM playout enabled flag test passed");
+    Ok(())
+}
+
+/// Test ADM mode switching while playout is active.
+///
+/// This tests the SwitchPlayoutAdmIfNeeded() logic by:
+/// 1. Starting playout in synthetic mode (Dummy ADM)
+/// 2. Enabling platform playout (switches to Platform ADM)
+/// 3. Disabling platform playout (switches back to Dummy ADM)
+///
+/// Note: On some environments without audio hardware, init_playout may fail.
+/// The test still verifies that mode switching doesn't crash.
+#[test_log::test(tokio::test)]
+#[serial]
+async fn test_adm_proxy_playout_mode_switching() -> Result<()> {
+    use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+    use livekit::rtc_engine::lk_runtime::LkRuntime;
+
+    let runtime = LkRuntime::instance();
+    let pcf = runtime.pc_factory();
+
+    // Save initial states
+    let initial_playout_enabled = pcf.adm_playout_enabled();
+    let initial_ref_count = pcf.platform_adm_ref_count();
+
+    log::info!("=== Phase 1: Setup - Acquire Platform ADM first ===");
+    // Acquire Platform ADM first (required for playout to work)
+    pcf.acquire_platform_adm();
+    assert!(pcf.is_platform_adm_active());
+    log::info!("Platform ADM acquired");
+
+    // Start in platform playout mode (more likely to succeed with real hardware)
+    pcf.set_adm_playout_enabled(true);
+    assert!(pcf.adm_playout_enabled());
+
+    // Try to initialize playout
+    let init_result = pcf.init_playout();
+    log::info!("init_playout() result: {}", init_result);
+
+    let playout_available = init_result;
+    if playout_available {
+        let start_result = pcf.start_playout();
+        log::info!("start_playout() result: {}", start_result);
+        log::info!("playout_is_initialized: {}", pcf.playout_is_initialized());
+    } else {
+        log::info!("Playout not available on this environment, testing mode switches without active playout");
+    }
+
+    log::info!("=== Phase 2: Switch to synthetic mode ===");
+    // Disable platform playout - this should trigger SwitchPlayoutAdmIfNeeded()
+    pcf.set_adm_playout_enabled(false);
+    assert!(!pcf.adm_playout_enabled());
+    log::info!("Switched to synthetic playout mode (Dummy ADM)");
+
+    // Give some time for the switch to complete
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    log::info!("playout_is_initialized after switch to synthetic: {}", pcf.playout_is_initialized());
+
+    log::info!("=== Phase 3: Switch back to platform mode ===");
+    // Enable platform playout - this should trigger SwitchPlayoutAdmIfNeeded()
+    pcf.set_adm_playout_enabled(true);
+    assert!(pcf.adm_playout_enabled());
+    log::info!("Switched back to platform playout mode");
+
+    // Give some time for the switch to complete
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    log::info!("playout_is_initialized after switch to platform: {}", pcf.playout_is_initialized());
+
+    log::info!("=== Phase 4: Cleanup ===");
+    // Stop playout
+    pcf.stop_playout();
+    log::info!("Stopped playout");
+
+    // Release Platform ADM
+    pcf.release_platform_adm();
+
+    // Restore initial states
+    pcf.set_adm_playout_enabled(initial_playout_enabled);
+    // Release any extra refs we might have acquired
+    while pcf.platform_adm_ref_count() > initial_ref_count {
+        pcf.release_platform_adm();
+    }
+
+    log::info!("ADM playout mode switching test passed - no crashes during mode switches");
+    Ok(())
+}
+
+/// Test ADM mode switching while recording is active.
+///
+/// This tests the SwitchRecordingAdmIfNeeded() logic by:
+/// 1. Starting in synthetic mode (recording not available without Platform ADM)
+/// 2. Acquiring Platform ADM and enabling recording
+/// 3. Disabling recording (recording stops)
+#[test_log::test(tokio::test)]
+#[serial]
+async fn test_adm_proxy_recording_mode_switching() -> Result<()> {
+    use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+    use livekit::rtc_engine::lk_runtime::LkRuntime;
+
+    let runtime = LkRuntime::instance();
+    let pcf = runtime.pc_factory();
+
+    // Save initial states
+    let initial_recording_enabled = pcf.adm_recording_enabled();
+    let initial_ref_count = pcf.platform_adm_ref_count();
+
+    log::info!("=== Phase 1: Setup - no Platform ADM ===");
+    // Ensure recording is disabled initially
+    pcf.set_adm_recording_enabled(false);
+
+    // In synthetic mode without Platform ADM, recording is not available
+    // (Dummy ADM has no microphone)
+    log::info!("recording_is_initialized (no platform ADM): {}", pcf.recording_is_initialized());
+
+    log::info!("=== Phase 2: Acquire Platform ADM and enable recording ===");
+    // Acquire Platform ADM
+    let acquired = pcf.acquire_platform_adm();
+    assert!(acquired, "Should be able to acquire Platform ADM");
+    assert!(pcf.is_platform_adm_active());
+
+    // Enable recording
+    pcf.set_adm_recording_enabled(true);
+    assert!(pcf.adm_recording_enabled());
+
+    // Now we should be able to init and start recording
+    let init_result = pcf.init_recording();
+    log::info!("init_recording() result: {}", init_result);
+
+    // Only start if init succeeded and we have recording devices
+    if init_result && pcf.recording_devices() > 0 {
+        let start_result = pcf.start_recording();
+        log::info!("start_recording() result: {}", start_result);
+
+        assert!(pcf.recording_is_initialized(), "Recording should be initialized");
+        log::info!("Recording is active on Platform ADM");
+
+        log::info!("=== Phase 3: Disable recording - triggers mode switch ===");
+        // Disable recording - this should trigger SwitchRecordingAdmIfNeeded()
+        pcf.set_adm_recording_enabled(false);
+        assert!(!pcf.adm_recording_enabled());
+
+        // Give some time for the switch
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        log::info!("recording_is_initialized after disable: {}", pcf.recording_is_initialized());
+
+        // Stop recording
+        pcf.stop_recording();
+    } else {
+        log::info!("Skipping recording test - no recording devices or init failed");
+    }
+
+    log::info!("=== Phase 4: Cleanup ===");
+    // Release Platform ADM
+    pcf.release_platform_adm();
+
+    // Restore initial states
+    pcf.set_adm_recording_enabled(initial_recording_enabled);
+    while pcf.platform_adm_ref_count() > initial_ref_count {
+        pcf.release_platform_adm();
+    }
+
+    log::info!("ADM recording mode switching test passed");
+    Ok(())
+}
+
+/// Test that PlatformAudio properly manages ADM lifecycle.
+///
+/// PlatformAudio instances share a single underlying handle via Arc.
+/// The Platform ADM is acquired when the first instance is created and
+/// released when all instances are dropped.
+///
+/// This test verifies:
+/// 1. Platform ADM becomes active when first PlatformAudio is created
+/// 2. Platform ADM remains active while any PlatformAudio exists
+/// 3. Platform ADM is released when all PlatformAudio instances are dropped
+/// 4. Multiple PlatformAudio instances share the same handle (ref_count)
+///
+/// Note: This test requires audio hardware. On CI environments without audio
+/// devices, the test will be skipped gracefully.
+#[test_log::test(tokio::test)]
+#[serial]
+async fn test_platform_audio_adm_lifecycle() -> Result<()> {
+    use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+    use livekit::reset_platform_audio;
+    use livekit::rtc_engine::lk_runtime::LkRuntime;
+
+    reset_platform_audio();
+
+    let runtime = LkRuntime::instance();
+    let pcf = runtime.pc_factory();
+
+    log::info!("=== Initial state (no PlatformAudio) ===");
+    let initial_cpp_ref_count = pcf.platform_adm_ref_count();
+    let initial_is_active = pcf.is_platform_adm_active();
+    log::info!("Initial C++ ref_count={}, is_active={}", initial_cpp_ref_count, initial_is_active);
+
+    // After reset_platform_audio(), ref_count should be 0
+    if initial_cpp_ref_count == 0 {
+        assert!(!initial_is_active, "Platform ADM should not be active when ref_count is 0");
+    }
+
+    log::info!("=== Create first PlatformAudio ===");
+    let audio1 = match PlatformAudio::new() {
+        Ok(audio) => audio,
+        Err(e) => {
+            log::info!(
+                "Skipping test - PlatformAudio::new() failed (no audio devices?): {}",
+                e
+            );
+            return Ok(());
+        }
+    };
+    let rust_ref_count_1 = audio1.ref_count();
+
+    let cpp_ref_count_after_first = pcf.platform_adm_ref_count();
+    let is_active_after_first = pcf.is_platform_adm_active();
+    log::info!(
+        "After first create: C++ ref_count={}, is_active={}, Rust ref_count={}",
+        cpp_ref_count_after_first, is_active_after_first, rust_ref_count_1
+    );
+
+    // PlatformAudio should have acquired the Platform ADM
+    assert!(
+        cpp_ref_count_after_first > initial_cpp_ref_count,
+        "PlatformAudio should increment C++ platform ADM ref count"
+    );
+    assert!(
+        is_active_after_first,
+        "Platform ADM should be active after PlatformAudio creation"
+    );
+    assert_eq!(rust_ref_count_1, 1, "First PlatformAudio Rust ref_count should be 1");
+
+    log::info!("=== Create second PlatformAudio (shares handle with first) ===");
+    let audio2 = PlatformAudio::new().expect("Second PlatformAudio should succeed if first did");
+    let rust_ref_count_2 = audio2.ref_count();
+
+    // Multiple PlatformAudio instances share the same underlying handle
+    // So the C++ ref count may or may not increase (depends on implementation)
+    // But the Rust ref count definitely increases
+    log::info!(
+        "After second create: C++ ref_count={}, Rust ref_count={}",
+        pcf.platform_adm_ref_count(), rust_ref_count_2
+    );
+    assert_eq!(rust_ref_count_2, 2, "Second PlatformAudio should share handle (Rust ref_count=2)");
+    assert_eq!(audio1.ref_count(), 2, "First audio should also see Rust ref_count=2");
+
+    log::info!("=== Drop first PlatformAudio (second still holds reference) ===");
+    drop(audio1);
+
+    // Platform ADM should still be active because audio2 still exists
+    assert!(
+        pcf.is_platform_adm_active(),
+        "Platform ADM should still be active (audio2 still exists)"
+    );
+    assert_eq!(audio2.ref_count(), 1, "After dropping audio1, Rust ref_count should be 1");
+    log::info!(
+        "After drop first: C++ ref_count={}, Rust ref_count={}",
+        pcf.platform_adm_ref_count(), audio2.ref_count()
+    );
+
+    log::info!("=== Drop second PlatformAudio (should release Platform ADM) ===");
+    drop(audio2);
+
+    let final_cpp_ref_count = pcf.platform_adm_ref_count();
+    let final_is_active = pcf.is_platform_adm_active();
+    log::info!(
+        "After drop second: C++ ref_count={}, is_active={}",
+        final_cpp_ref_count, final_is_active
+    );
+
+    // After all PlatformAudio instances are dropped, C++ ref count should return to initial
+    assert_eq!(
+        final_cpp_ref_count, initial_cpp_ref_count,
+        "C++ ref count should return to initial value after all PlatformAudio dropped"
+    );
+    if initial_cpp_ref_count == 0 {
+        assert!(
+            !final_is_active,
+            "Platform ADM should not be active when all PlatformAudio instances are dropped"
+        );
+    }
+
+    log::info!("PlatformAudio ADM lifecycle test passed");
+    Ok(())
+}
+
+/// Test ADM state consistency under rapid mode changes.
+///
+/// This stress tests the mode switching logic by rapidly toggling
+/// playout and recording modes to catch any race conditions or state
+/// inconsistencies.
+#[test_log::test(tokio::test)]
+#[serial]
+async fn test_adm_proxy_rapid_mode_changes() -> Result<()> {
+    use libwebrtc::peer_connection_factory::native::PeerConnectionFactoryExt;
+    use livekit::rtc_engine::lk_runtime::LkRuntime;
+
+    let runtime = LkRuntime::instance();
+    let pcf = runtime.pc_factory();
+
+    // Save initial states
+    let initial_playout_enabled = pcf.adm_playout_enabled();
+    let initial_recording_enabled = pcf.adm_recording_enabled();
+    let initial_ref_count = pcf.platform_adm_ref_count();
+
+    log::info!("=== Setup: Acquire Platform ADM ===");
+    pcf.acquire_platform_adm();
+
+    // Initialize playout so mode switches actually do something
+    pcf.init_playout();
+    pcf.start_playout();
+
+    log::info!("=== Rapid playout mode changes ===");
+    for i in 0..10 {
+        pcf.set_adm_playout_enabled(i % 2 == 0);
+        // No sleep - test rapid changes
+    }
+    log::info!("Completed 10 rapid playout mode changes");
+
+    log::info!("=== Rapid recording mode changes ===");
+    for i in 0..10 {
+        pcf.set_adm_recording_enabled(i % 2 == 0);
+        // No sleep - test rapid changes
+    }
+    log::info!("Completed 10 rapid recording mode changes");
+
+    log::info!("=== Rapid acquire/release cycles ===");
+    for _ in 0..5 {
+        pcf.acquire_platform_adm();
+        pcf.release_platform_adm();
+    }
+    log::info!("Completed 5 rapid acquire/release cycles");
+
+    // Verify state consistency
+    let current_ref_count = pcf.platform_adm_ref_count();
+    let is_active = pcf.is_platform_adm_active();
+
+    // We acquired once at the start and did balanced acquire/release cycles
+    assert_eq!(
+        current_ref_count,
+        initial_ref_count + 1,
+        "Ref count should be initial + 1"
+    );
+    assert!(is_active, "Platform ADM should be active");
+
+    log::info!("=== Cleanup ===");
+    pcf.stop_playout();
+    pcf.release_platform_adm();
+
+    // Restore initial states
+    pcf.set_adm_playout_enabled(initial_playout_enabled);
+    pcf.set_adm_recording_enabled(initial_recording_enabled);
+    while pcf.platform_adm_ref_count() > initial_ref_count {
+        pcf.release_platform_adm();
+    }
+
+    log::info!("ADM rapid mode changes test passed - no crashes or state corruption");
+    Ok(())
+}

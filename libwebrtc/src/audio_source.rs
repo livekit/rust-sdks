@@ -34,7 +34,7 @@ pub struct AudioSourceOptions {
 /// # Combining Sources
 ///
 /// You can have multiple audio tracks with different source types:
-/// - Track A: `RtcAudioSource::Device` for microphone (via `PlatformAudioSource`)
+/// - Track A: `RtcAudioSource::Device` for microphone (via `PlatformAudio`)
 /// - Track B: `RtcAudioSource::Native` for screen capture or TTS
 #[non_exhaustive]
 #[derive(Debug, Clone)]
@@ -66,48 +66,31 @@ pub enum RtcAudioSource {
 
     /// Device audio source - uses Platform ADM for automatic microphone capture.
     ///
-    /// Use this with Platform ADM mode. WebRTC automatically captures audio from
-    /// the selected recording device (microphone). You do NOT push frames manually.
+    /// WebRTC automatically captures audio from the selected recording device
+    /// (microphone). You do NOT push frames manually.
     ///
-    /// # Requirements
+    /// # Usage
     ///
-    /// 1. **Enable Platform ADM first:**
-    ///    ```rust,no_run
-    ///    use livekit::{AudioManager, AudioMode};
-    ///    let audio = AudioManager::instance();
-    ///    audio.set_mode(AudioMode::Platform)?;
-    ///    ```
+    /// Use `PlatformAudio` from the `livekit` crate, which manages the Platform ADM
+    /// lifecycle and provides `RtcAudioSource::Device` via `rtc_source()`:
     ///
-    /// 2. **Optionally select a device:**
-    ///    ```rust,no_run
-    ///    audio.set_recording_device(0)?;
-    ///    ```
+    /// ```rust,ignore
+    /// use livekit::prelude::*;
     ///
-    /// 3. **Create track with `Device` source:**
-    ///    ```rust,no_run
-    ///    use livekit::webrtc::audio_source::RtcAudioSource;
-    ///    let track = LocalAudioTrack::create_audio_track(
-    ///        "microphone",
-    ///        RtcAudioSource::Device,
-    ///    );
-    ///    ```
+    /// // Create PlatformAudio (enables Platform ADM)
+    /// let audio = PlatformAudio::new()?;
     ///
-    /// 4. **Reset after disconnect (IMPORTANT for iOS):**
-    ///    ```rust,no_run
-    ///    room.disconnect().await;
-    ///    audio.reset();  // Releases VPIO AudioUnit
-    ///    ```
+    /// // Optionally select a specific device
+    /// audio.set_recording_device(0)?;
+    ///
+    /// // Create track using the device source
+    /// let track = LocalAudioTrack::create_audio_track("mic", audio.rtc_source());
+    /// ```
     ///
     /// # Combining with NativeAudioSource
     ///
     /// You CAN use `NativeAudioSource` alongside Platform ADM to have multiple
     /// audio tracks with different sources (e.g., microphone + screen capture).
-    /// See `PlatformAudioSource` for the recommended approach.
-    ///
-    /// # Important
-    ///
-    /// Do NOT forget to call `AudioManager::reset()` after disconnecting,
-    /// especially on iOS where VPIO must be released for other audio frameworks.
     ///
     /// # Platform Support
     ///

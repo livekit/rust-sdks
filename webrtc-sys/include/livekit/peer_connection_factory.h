@@ -78,23 +78,22 @@ class PeerConnectionFactory {
   rust::String recording_device_guid(uint16_t index) const;
 
   // Device selection by index
-  int32_t set_playout_device(uint16_t index) const;
-  int32_t set_recording_device(uint16_t index) const;
+  bool set_playout_device(uint16_t index) const;
+  bool set_recording_device(uint16_t index) const;
   // Device selection by GUID (preferred - stable across device changes)
-  // Returns 0 on success, -1 if device not found
-  int32_t set_playout_device_by_guid(rust::String guid) const;
-  int32_t set_recording_device_by_guid(rust::String guid) const;
+  bool set_playout_device_by_guid(rust::String guid) const;
+  bool set_recording_device_by_guid(rust::String guid) const;
 
   // Recording control (for device switching while active)
-  int32_t stop_recording() const;
-  int32_t init_recording() const;
-  int32_t start_recording() const;
+  bool stop_recording() const;
+  bool init_recording() const;
+  bool start_recording() const;
   bool recording_is_initialized() const;
 
   // Playout control (for device switching while active)
-  int32_t stop_playout() const;
-  int32_t init_playout() const;
-  int32_t start_playout() const;
+  bool stop_playout() const;
+  bool init_playout() const;
+  bool start_playout() const;
   bool playout_is_initialized() const;
 
   // Built-in audio processing (hardware AEC/AGC/NS)
@@ -102,9 +101,9 @@ class PeerConnectionFactory {
   bool builtin_aec_is_available() const;
   bool builtin_agc_is_available() const;
   bool builtin_ns_is_available() const;
-  int32_t enable_builtin_aec(bool enable) const;
-  int32_t enable_builtin_agc(bool enable) const;
-  int32_t enable_builtin_ns(bool enable) const;
+  bool enable_builtin_aec(bool enable) const;
+  bool enable_builtin_agc(bool enable) const;
+  bool enable_builtin_ns(bool enable) const;
 
   // Control whether ADM recording (microphone) is enabled.
   // When disabled, WebRTC's calls to InitRecording/StartRecording will be no-ops.

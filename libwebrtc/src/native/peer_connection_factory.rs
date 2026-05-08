@@ -146,43 +146,39 @@ impl PeerConnectionFactory {
     }
 
     /// Set the playout device by index
-    /// Returns 0 on success, negative on error.
-    pub fn set_playout_device(&self, index: u16) -> i32 {
+    pub fn set_playout_device(&self, index: u16) -> bool {
         self.sys_handle.set_playout_device(index)
     }
 
     /// Set the recording device by index
-    /// Returns 0 on success, negative on error.
-    pub fn set_recording_device(&self, index: u16) -> i32 {
+    pub fn set_recording_device(&self, index: u16) -> bool {
         self.sys_handle.set_recording_device(index)
     }
 
     /// Set the playout device by GUID
     /// This is preferred over index as GUIDs are stable across device hot-plug events.
-    /// Returns 0 on success, -1 if device not found.
-    pub fn set_playout_device_by_guid(&self, guid: &str) -> i32 {
+    pub fn set_playout_device_by_guid(&self, guid: &str) -> bool {
         self.sys_handle.set_playout_device_by_guid(guid.to_string())
     }
 
     /// Set the recording device by GUID
     /// This is preferred over index as GUIDs are stable across device hot-plug events.
-    /// Returns 0 on success, -1 if device not found.
-    pub fn set_recording_device_by_guid(&self, guid: &str) -> i32 {
+    pub fn set_recording_device_by_guid(&self, guid: &str) -> bool {
         self.sys_handle.set_recording_device_by_guid(guid.to_string())
     }
 
     /// Stop recording (clears initialized state, allowing device switch)
-    pub fn stop_recording(&self) -> i32 {
+    pub fn stop_recording(&self) -> bool {
         self.sys_handle.stop_recording()
     }
 
     /// Initialize recording
-    pub fn init_recording(&self) -> i32 {
+    pub fn init_recording(&self) -> bool {
         self.sys_handle.init_recording()
     }
 
     /// Start recording
-    pub fn start_recording(&self) -> i32 {
+    pub fn start_recording(&self) -> bool {
         self.sys_handle.start_recording()
     }
 
@@ -192,17 +188,17 @@ impl PeerConnectionFactory {
     }
 
     /// Stop playout (clears initialized state, allowing device switch)
-    pub fn stop_playout(&self) -> i32 {
+    pub fn stop_playout(&self) -> bool {
         self.sys_handle.stop_playout()
     }
 
     /// Initialize playout
-    pub fn init_playout(&self) -> i32 {
+    pub fn init_playout(&self) -> bool {
         self.sys_handle.init_playout()
     }
 
     /// Start playout
-    pub fn start_playout(&self) -> i32 {
+    pub fn start_playout(&self) -> bool {
         self.sys_handle.start_playout()
     }
 
@@ -242,9 +238,7 @@ impl PeerConnectionFactory {
     ///
     /// When disabled on platforms that support it, WebRTC's software AEC
     /// will be used instead.
-    ///
-    /// Returns 0 on success, negative on error.
-    pub fn enable_builtin_aec(&self, enable: bool) -> i32 {
+    pub fn enable_builtin_aec(&self, enable: bool) -> bool {
         self.sys_handle.enable_builtin_aec(enable)
     }
 
@@ -252,9 +246,7 @@ impl PeerConnectionFactory {
     ///
     /// When disabled on platforms that support it, WebRTC's software AGC
     /// will be used instead.
-    ///
-    /// Returns 0 on success, negative on error.
-    pub fn enable_builtin_agc(&self, enable: bool) -> i32 {
+    pub fn enable_builtin_agc(&self, enable: bool) -> bool {
         self.sys_handle.enable_builtin_agc(enable)
     }
 
@@ -262,9 +254,7 @@ impl PeerConnectionFactory {
     ///
     /// When disabled on platforms that support it, WebRTC's software NS
     /// will be used instead.
-    ///
-    /// Returns 0 on success, negative on error.
-    pub fn enable_builtin_ns(&self, enable: bool) -> i32 {
+    pub fn enable_builtin_ns(&self, enable: bool) -> bool {
         self.sys_handle.enable_builtin_ns(enable)
     }
 

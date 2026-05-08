@@ -133,23 +133,22 @@ pub mod ffi {
         fn recording_device_guid(self: &PeerConnectionFactory, index: u16) -> String;
 
         // Device selection by index
-        fn set_playout_device(self: &PeerConnectionFactory, index: u16) -> i32;
-        fn set_recording_device(self: &PeerConnectionFactory, index: u16) -> i32;
+        fn set_playout_device(self: &PeerConnectionFactory, index: u16) -> bool;
+        fn set_recording_device(self: &PeerConnectionFactory, index: u16) -> bool;
         // Device selection by GUID (preferred - stable across device changes)
-        // Returns 0 on success, -1 if device not found
-        fn set_playout_device_by_guid(self: &PeerConnectionFactory, guid: String) -> i32;
-        fn set_recording_device_by_guid(self: &PeerConnectionFactory, guid: String) -> i32;
+        fn set_playout_device_by_guid(self: &PeerConnectionFactory, guid: String) -> bool;
+        fn set_recording_device_by_guid(self: &PeerConnectionFactory, guid: String) -> bool;
 
         // Recording control (for device switching while active)
-        fn stop_recording(self: &PeerConnectionFactory) -> i32;
-        fn init_recording(self: &PeerConnectionFactory) -> i32;
-        fn start_recording(self: &PeerConnectionFactory) -> i32;
+        fn stop_recording(self: &PeerConnectionFactory) -> bool;
+        fn init_recording(self: &PeerConnectionFactory) -> bool;
+        fn start_recording(self: &PeerConnectionFactory) -> bool;
         fn recording_is_initialized(self: &PeerConnectionFactory) -> bool;
 
         // Playout control (for device switching while active)
-        fn stop_playout(self: &PeerConnectionFactory) -> i32;
-        fn init_playout(self: &PeerConnectionFactory) -> i32;
-        fn start_playout(self: &PeerConnectionFactory) -> i32;
+        fn stop_playout(self: &PeerConnectionFactory) -> bool;
+        fn init_playout(self: &PeerConnectionFactory) -> bool;
+        fn start_playout(self: &PeerConnectionFactory) -> bool;
         fn playout_is_initialized(self: &PeerConnectionFactory) -> bool;
 
         // Built-in audio processing (hardware AEC/AGC/NS)
@@ -157,9 +156,9 @@ pub mod ffi {
         fn builtin_aec_is_available(self: &PeerConnectionFactory) -> bool;
         fn builtin_agc_is_available(self: &PeerConnectionFactory) -> bool;
         fn builtin_ns_is_available(self: &PeerConnectionFactory) -> bool;
-        fn enable_builtin_aec(self: &PeerConnectionFactory, enable: bool) -> i32;
-        fn enable_builtin_agc(self: &PeerConnectionFactory, enable: bool) -> i32;
-        fn enable_builtin_ns(self: &PeerConnectionFactory, enable: bool) -> i32;
+        fn enable_builtin_aec(self: &PeerConnectionFactory, enable: bool) -> bool;
+        fn enable_builtin_agc(self: &PeerConnectionFactory, enable: bool) -> bool;
+        fn enable_builtin_ns(self: &PeerConnectionFactory, enable: bool) -> bool;
 
         // Control whether ADM recording (microphone) is enabled.
         // When disabled, InitRecording/StartRecording will be no-ops.

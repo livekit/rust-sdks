@@ -16,18 +16,13 @@
 
 #pragma once
 
-#include <memory>
 #include <string>
-#include <vector>
 
 #include "api/environment/environment.h"
 #include "api/scoped_refptr.h"
-#include "api/task_queue/task_queue_base.h"
-#include "api/task_queue/task_queue_factory.h"
 #include "modules/audio_device/include/audio_device.h"
 #include "modules/audio_device/include/audio_device_defines.h"
 #include "rtc_base/synchronization/mutex.h"
-#include "rtc_base/task_utils/repeating_task.h"
 
 namespace webrtc {
 class Thread;
@@ -35,31 +30,37 @@ class Thread;
 
 namespace livekit_ffi {
 
-/// ADM Proxy with Lazy Initialization and Reference Counting.
+/// ADM Proxy that switches between Dummy and Platform ADMs.
 ///
-/// This proxy provides a clean separation between:
-/// 1. **Synthetic mode** (default): Platform ADM is not initialized. Recording/playout
-///    operations are no-ops or use synthetic audio. Unity/external audio works normally.
-/// 2. **Platform mode**: Platform ADM is fully initialized and handles real audio I/O.
+/// This proxy manages two underlying ADMs:
+/// 1. **Dummy ADM**: Pumps the WebRTC audio pipeline without platform audio.
+///    Used in synthetic mode where FFI callbacks deliver audio to external
+///    audio systems (e.g., Unity AudioSource).
+/// 2. **Platform ADM**: Real audio I/O with microphone capture and speaker
+///    playout. Used when PlatformAudio is active for VoIP with AEC.
+///
+/// ## Mode Selection
+///
+/// The active ADM is determined by:
+/// - **Playout**: Uses Platform ADM when `ref_count > 0 && playout_enabled`,
+///   otherwise uses Dummy ADM.
+/// - **Recording**: Uses Platform ADM when `ref_count > 0 && recording_enabled`,
+///   otherwise recording is unavailable (Dummy ADM has no microphone).
 ///
 /// ## Lifecycle Management
 ///
-/// The Platform ADM is created lazily and reference-counted:
-/// - `AcquirePlatformAdm()`: Increments ref count, initializes ADM on first call
-/// - `ReleasePlatformAdm()`: Decrements ref count, terminates ADM when count reaches 0
-///
-/// ## Device Enumeration
-///
-/// Device enumeration works differently per platform:
-/// - **iOS**: Uses native AVAudioSession APIs (no ADM initialization needed)
-/// - **Desktop**: Initializes ADM lazily for enumeration (safe, doesn't affect audio routing)
+/// Both ADMs are created at construction (Platform ADM created eagerly for iOS
+/// compatibility). Reference counting controls which ADM is active:
+/// - `AcquirePlatformAdm()`: Increments ref count
+/// - `ReleasePlatformAdm()`: Decrements ref count
+/// - When ref_count is 0, playout falls back to Dummy ADM
 ///
 /// ## Audio Modes
 ///
 /// | Mode | Recording | Playout | Use Case |
 /// |------|-----------|---------|----------|
-/// | Synthetic | NativeAudioSource | FFI callbacks | Unity audio, agents |
-/// | Platform | ADM microphone | ADM speakers | VoIP with AEC |
+/// | Synthetic | NativeAudioSource | Dummy ADM + FFI | Unity audio, agents |
+/// | Platform | Platform ADM mic | Platform ADM speakers | VoIP with AEC |
 ///
 class AdmProxy : public webrtc::AudioDeviceModule {
  public:
@@ -204,15 +205,27 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   int32_t SetObserver(webrtc::AudioDeviceObserver* observer) override;
 
  private:
-  // Creates the Platform ADM (called by AcquirePlatformAdm on first use)
-  bool CreatePlatformAdm();
+  // Returns the ADM to use for playout operations based on current mode
+  // - Platform ADM when platform mode is active (ref_count > 0 && playout_enabled)
+  // - Dummy ADM otherwise (synthetic mode - keeps pipeline alive without platform audio)
+  webrtc::AudioDeviceModule* playout_adm() const;
 
-  // Terminates the Platform ADM (called by ReleasePlatformAdm when ref_count reaches 0)
-  void TerminatePlatformAdm();
+  // Returns the ADM to use for recording operations
+  // - Platform ADM when recording is enabled (ref_count > 0 && recording_enabled)
+  // - nullptr otherwise (recording not available in synthetic mode)
+  webrtc::AudioDeviceModule* recording_adm() const;
 
-  // Synthetic playout task management
-  void StartSyntheticPlayoutTask();
-  void StopSyntheticPlayoutTask();
+  // Switches playout to the correct ADM based on current mode.
+  // Called when ref_count or playout_enabled changes.
+  // If playout is active, stops the old ADM and starts the new one.
+  // Must be called with mutex_ held.
+  void SwitchPlayoutAdmIfNeeded();
+
+  // Switches recording to the correct ADM based on current mode.
+  // Called when ref_count or recording_enabled changes.
+  // If recording is active, stops the old ADM and starts the new one.
+  // Must be called with mutex_ held.
+  void SwitchRecordingAdmIfNeeded();
 
   const webrtc::Environment env_;
   webrtc::Thread* worker_thread_;
@@ -220,10 +233,14 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // Mutex for thread-safe access to mutable state
   mutable webrtc::Mutex mutex_;
 
-  // The underlying platform ADM (created lazily)
+  // Dummy ADM for synthetic mode - pumps audio pipeline without platform audio
+  // This keeps WebRTC's audio decoder running so FFI callbacks receive audio.
+  webrtc::scoped_refptr<webrtc::AudioDeviceModule> dummy_adm_;
+
+  // Platform ADM for real audio I/O (microphone capture, speaker playout with AEC)
   webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_;
 
-  // Reference count for Platform ADM users
+  // Reference count for Platform ADM users (PlatformAudio instances)
   int platform_adm_ref_count_ = 0;
 
   // Audio transport callback (registered by WebRTC)
@@ -238,13 +255,8 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // Control flags
   // When false (default), recording operations are no-ops (NativeAudioSource mode)
   bool recording_enabled_ = false;
-  // When false (default), playout uses synthetic mode (FFI callbacks)
+  // When false (default), playout uses dummy ADM (FFI callbacks deliver audio)
   bool playout_enabled_ = false;
-
-  // Synthetic playout task (keeps WebRTC pipeline alive without platform speakers)
-  std::unique_ptr<webrtc::TaskQueueBase, webrtc::TaskQueueDeleter> stub_audio_queue_;
-  webrtc::RepeatingTaskHandle stub_audio_task_;
-  std::vector<int16_t> stub_data_;
 
   // Selected device information (for re-initialization after ADM restart)
   // We store both index and GUID. GUID is preferred for restoration as it's

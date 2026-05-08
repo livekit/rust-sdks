@@ -35,22 +35,24 @@ impl Default for AudioProcessingType {
 ///
 /// # Platform Behavior
 ///
-/// - **iOS**: Hardware processing via VPIO is always used. `prefer_hardware_processing`
-///   is ignored since iOS provides excellent hardware AEC/AGC/NS.
+/// - **iOS**: Hardware processing via VPIO is always used and provides excellent
+///   AEC/AGC/NS. The `prefer_hardware_processing` default is `true` on iOS.
 ///
-/// - **Android**: When `prefer_hardware_processing` is `true`, hardware effects are
-///   used if available. However, hardware AEC is unreliable on many Android devices,
-///   so the default is `false` (software processing).
+/// - **Android**: Hardware AEC quality varies significantly across manufacturers
+///   and device models. Many devices have broken or poorly-tuned hardware AEC.
+///   The default is `false` to use WebRTC's reliable software processing.
+///   See: <https://github.com/react-native-webrtc/react-native-webrtc/issues/713>
 ///
 /// - **Desktop** (macOS, Windows, Linux): Hardware processing is not available.
 ///   WebRTC's software Audio Processing Module (APM) is always used.
+///   The `prefer_hardware_processing` setting is ignored.
 ///
 /// # Example
 ///
 /// ```rust,ignore
 /// use livekit::AudioProcessingOptions;
 ///
-/// // Use defaults (software processing, all effects enabled)
+/// // Use platform-appropriate defaults
 /// let opts = AudioProcessingOptions::default();
 ///
 /// // Disable echo cancellation
@@ -59,9 +61,9 @@ impl Default for AudioProcessingType {
 ///     ..Default::default()
 /// };
 ///
-/// // Try hardware processing on Android (use with caution)
+/// // Force software processing on iOS (not recommended)
 /// let opts = AudioProcessingOptions {
-///     prefer_hardware_processing: true,
+///     prefer_hardware_processing: false,
 ///     ..Default::default()
 /// };
 /// ```
@@ -92,12 +94,21 @@ pub struct AudioProcessingOptions {
 
     /// Prefer hardware audio processing when available.
     ///
-    /// - **iOS**: Ignored (always uses VPIO hardware)
-    /// - **Android**: When `true`, uses hardware effects if available.
-    ///   Default is `false` because hardware AEC is unreliable on many devices.
-    /// - **Desktop**: Ignored (hardware not available)
+    /// # Platform Defaults
     ///
-    /// Default: `false` (use reliable software processing)
+    /// - **iOS**: `true` - VPIO hardware processing is excellent and always used.
+    ///   Apple's Voice Processing IO unit provides reliable, low-latency AEC/AGC/NS
+    ///   that is tightly integrated with the audio hardware.
+    ///
+    /// - **Android**: `false` - Hardware AEC is unreliable on many devices.
+    ///   Quality varies significantly across manufacturers (Samsung, Xiaomi, etc.)
+    ///   and even across models from the same manufacturer. WebRTC's software AEC
+    ///   provides consistent behavior across all Android devices.
+    ///   Reference: Meta found hardware AEC "broken on many combinations of HW + OS"
+    ///   when supporting billions of users across thousands of device models.
+    ///
+    /// - **Desktop**: `false` - Hardware processing is not available.
+    ///   This setting is ignored; WebRTC software APM is always used.
     pub prefer_hardware_processing: bool,
 }
 
@@ -107,6 +118,12 @@ impl Default for AudioProcessingOptions {
             echo_cancellation: true,
             noise_suppression: true,
             auto_gain_control: true,
+            // iOS: VPIO hardware processing is excellent and tightly integrated.
+            // Android: Hardware AEC is unreliable across the fragmented device ecosystem.
+            // Desktop: Hardware processing not available, setting is ignored.
+            #[cfg(target_os = "ios")]
+            prefer_hardware_processing: true,
+            #[cfg(not(target_os = "ios"))]
             prefer_hardware_processing: false,
         }
     }

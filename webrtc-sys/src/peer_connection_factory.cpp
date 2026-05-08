@@ -195,15 +195,15 @@ rust::String PeerConnectionFactory::recording_device_guid(uint16_t index) const 
   return rust::String(guid);
 }
 
-int32_t PeerConnectionFactory::set_playout_device(uint16_t index) const {
-  return adm_proxy_->SetPlayoutDevice(index);
+bool PeerConnectionFactory::set_playout_device(uint16_t index) const {
+  return adm_proxy_->SetPlayoutDevice(index) == 0;
 }
 
-int32_t PeerConnectionFactory::set_recording_device(uint16_t index) const {
-  return adm_proxy_->SetRecordingDevice(index);
+bool PeerConnectionFactory::set_recording_device(uint16_t index) const {
+  return adm_proxy_->SetRecordingDevice(index) == 0;
 }
 
-int32_t PeerConnectionFactory::set_playout_device_by_guid(rust::String guid) const {
+bool PeerConnectionFactory::set_playout_device_by_guid(rust::String guid) const {
   // Find device by GUID and set it
   int16_t count = adm_proxy_->PlayoutDevices();
   for (int16_t i = 0; i < count; i++) {
@@ -211,14 +211,14 @@ int32_t PeerConnectionFactory::set_playout_device_by_guid(rust::String guid) con
     char device_guid[webrtc::kAdmMaxGuidSize] = {0};
     if (adm_proxy_->PlayoutDeviceName(i, name, device_guid) == 0) {
       if (std::string(guid.c_str()) == std::string(device_guid)) {
-        return adm_proxy_->SetPlayoutDevice(i);
+        return adm_proxy_->SetPlayoutDevice(i) == 0;
       }
     }
   }
-  return -1;  // Device not found
+  return false;  // Device not found
 }
 
-int32_t PeerConnectionFactory::set_recording_device_by_guid(rust::String guid) const {
+bool PeerConnectionFactory::set_recording_device_by_guid(rust::String guid) const {
   // Find device by GUID and set it
   int16_t count = adm_proxy_->RecordingDevices();
   for (int16_t i = 0; i < count; i++) {
@@ -226,39 +226,39 @@ int32_t PeerConnectionFactory::set_recording_device_by_guid(rust::String guid) c
     char device_guid[webrtc::kAdmMaxGuidSize] = {0};
     if (adm_proxy_->RecordingDeviceName(i, name, device_guid) == 0) {
       if (std::string(guid.c_str()) == std::string(device_guid)) {
-        return adm_proxy_->SetRecordingDevice(i);
+        return adm_proxy_->SetRecordingDevice(i) == 0;
       }
     }
   }
-  return -1;  // Device not found
+  return false;  // Device not found
 }
 
-int32_t PeerConnectionFactory::stop_recording() const {
-  return adm_proxy_->StopRecording();
+bool PeerConnectionFactory::stop_recording() const {
+  return adm_proxy_->StopRecording() == 0;
 }
 
-int32_t PeerConnectionFactory::init_recording() const {
-  return adm_proxy_->InitRecording();
+bool PeerConnectionFactory::init_recording() const {
+  return adm_proxy_->InitRecording() == 0;
 }
 
-int32_t PeerConnectionFactory::start_recording() const {
-  return adm_proxy_->StartRecording();
+bool PeerConnectionFactory::start_recording() const {
+  return adm_proxy_->StartRecording() == 0;
 }
 
 bool PeerConnectionFactory::recording_is_initialized() const {
   return adm_proxy_->RecordingIsInitialized();
 }
 
-int32_t PeerConnectionFactory::stop_playout() const {
-  return adm_proxy_->StopPlayout();
+bool PeerConnectionFactory::stop_playout() const {
+  return adm_proxy_->StopPlayout() == 0;
 }
 
-int32_t PeerConnectionFactory::init_playout() const {
-  return adm_proxy_->InitPlayout();
+bool PeerConnectionFactory::init_playout() const {
+  return adm_proxy_->InitPlayout() == 0;
 }
 
-int32_t PeerConnectionFactory::start_playout() const {
-  return adm_proxy_->StartPlayout();
+bool PeerConnectionFactory::start_playout() const {
+  return adm_proxy_->StartPlayout() == 0;
 }
 
 bool PeerConnectionFactory::playout_is_initialized() const {
@@ -277,16 +277,16 @@ bool PeerConnectionFactory::builtin_ns_is_available() const {
   return adm_proxy_->BuiltInNSIsAvailable();
 }
 
-int32_t PeerConnectionFactory::enable_builtin_aec(bool enable) const {
-  return adm_proxy_->EnableBuiltInAEC(enable);
+bool PeerConnectionFactory::enable_builtin_aec(bool enable) const {
+  return adm_proxy_->EnableBuiltInAEC(enable) == 0;
 }
 
-int32_t PeerConnectionFactory::enable_builtin_agc(bool enable) const {
-  return adm_proxy_->EnableBuiltInAGC(enable);
+bool PeerConnectionFactory::enable_builtin_agc(bool enable) const {
+  return adm_proxy_->EnableBuiltInAGC(enable) == 0;
 }
 
-int32_t PeerConnectionFactory::enable_builtin_ns(bool enable) const {
-  return adm_proxy_->EnableBuiltInNS(enable);
+bool PeerConnectionFactory::enable_builtin_ns(bool enable) const {
+  return adm_proxy_->EnableBuiltInNS(enable) == 0;
 }
 
 void PeerConnectionFactory::set_adm_recording_enabled(bool enabled) const {

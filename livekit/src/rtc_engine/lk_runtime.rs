@@ -97,47 +97,45 @@ impl LkRuntime {
 
     /// Set the playout device by index
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn set_playout_device(&self, index: u16) -> i32 {
+    pub fn set_playout_device(&self, index: u16) -> bool {
         self.pc_factory.set_playout_device(index)
     }
 
     /// Set the recording device by index
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn set_recording_device(&self, index: u16) -> i32 {
+    pub fn set_recording_device(&self, index: u16) -> bool {
         self.pc_factory.set_recording_device(index)
     }
 
     /// Set the playout device by GUID.
     /// This is preferred over index as GUIDs are stable across device hot-plug events.
-    /// Returns 0 on success, -1 if device not found.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn set_playout_device_by_guid(&self, guid: &str) -> i32 {
+    pub fn set_playout_device_by_guid(&self, guid: &str) -> bool {
         self.pc_factory.set_playout_device_by_guid(guid)
     }
 
     /// Set the recording device by GUID.
     /// This is preferred over index as GUIDs are stable across device hot-plug events.
-    /// Returns 0 on success, -1 if device not found.
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn set_recording_device_by_guid(&self, guid: &str) -> i32 {
+    pub fn set_recording_device_by_guid(&self, guid: &str) -> bool {
         self.pc_factory.set_recording_device_by_guid(guid)
     }
 
     /// Stop recording (clears initialized state, allowing device switch)
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn stop_recording(&self) -> i32 {
+    pub fn stop_recording(&self) -> bool {
         self.pc_factory.stop_recording()
     }
 
     /// Initialize recording
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn init_recording(&self) -> i32 {
+    pub fn init_recording(&self) -> bool {
         self.pc_factory.init_recording()
     }
 
     /// Start recording
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn start_recording(&self) -> i32 {
+    pub fn start_recording(&self) -> bool {
         self.pc_factory.start_recording()
     }
 
@@ -149,19 +147,19 @@ impl LkRuntime {
 
     /// Stop playout (clears initialized state, allowing device switch)
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn stop_playout(&self) -> i32 {
+    pub fn stop_playout(&self) -> bool {
         self.pc_factory.stop_playout()
     }
 
     /// Initialize playout
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn init_playout(&self) -> i32 {
+    pub fn init_playout(&self) -> bool {
         self.pc_factory.init_playout()
     }
 
     /// Start playout
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn start_playout(&self) -> i32 {
+    pub fn start_playout(&self) -> bool {
         self.pc_factory.start_playout()
     }
 
@@ -193,19 +191,19 @@ impl LkRuntime {
 
     /// Enable or disable built-in (hardware) AEC
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn enable_builtin_aec(&self, enable: bool) -> i32 {
+    pub fn enable_builtin_aec(&self, enable: bool) -> bool {
         self.pc_factory.enable_builtin_aec(enable)
     }
 
     /// Enable or disable built-in (hardware) AGC
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn enable_builtin_agc(&self, enable: bool) -> i32 {
+    pub fn enable_builtin_agc(&self, enable: bool) -> bool {
         self.pc_factory.enable_builtin_agc(enable)
     }
 
     /// Enable or disable built-in (hardware) NS
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn enable_builtin_ns(&self, enable: bool) -> i32 {
+    pub fn enable_builtin_ns(&self, enable: bool) -> bool {
         self.pc_factory.enable_builtin_ns(enable)
     }
 

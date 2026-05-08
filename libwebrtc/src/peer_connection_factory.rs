@@ -109,23 +109,22 @@ pub mod native {
         fn recording_device_guid(&self, index: u16) -> String;
 
         // Device selection by index
-        fn set_playout_device(&self, index: u16) -> i32;
-        fn set_recording_device(&self, index: u16) -> i32;
+        fn set_playout_device(&self, index: u16) -> bool;
+        fn set_recording_device(&self, index: u16) -> bool;
         /// Device selection by GUID (preferred - stable across device changes)
-        /// Returns 0 on success, -1 if device not found
-        fn set_playout_device_by_guid(&self, guid: &str) -> i32;
-        fn set_recording_device_by_guid(&self, guid: &str) -> i32;
+        fn set_playout_device_by_guid(&self, guid: &str) -> bool;
+        fn set_recording_device_by_guid(&self, guid: &str) -> bool;
 
         // Recording control (for device switching while active)
-        fn stop_recording(&self) -> i32;
-        fn init_recording(&self) -> i32;
-        fn start_recording(&self) -> i32;
+        fn stop_recording(&self) -> bool;
+        fn init_recording(&self) -> bool;
+        fn start_recording(&self) -> bool;
         fn recording_is_initialized(&self) -> bool;
 
         // Playout control (for device switching while active)
-        fn stop_playout(&self) -> i32;
-        fn init_playout(&self) -> i32;
-        fn start_playout(&self) -> i32;
+        fn stop_playout(&self) -> bool;
+        fn init_playout(&self) -> bool;
+        fn start_playout(&self) -> bool;
         fn playout_is_initialized(&self) -> bool;
 
         // Built-in audio processing (hardware AEC/AGC/NS)
@@ -133,9 +132,9 @@ pub mod native {
         fn builtin_aec_is_available(&self) -> bool;
         fn builtin_agc_is_available(&self) -> bool;
         fn builtin_ns_is_available(&self) -> bool;
-        fn enable_builtin_aec(&self, enable: bool) -> i32;
-        fn enable_builtin_agc(&self, enable: bool) -> i32;
-        fn enable_builtin_ns(&self, enable: bool) -> i32;
+        fn enable_builtin_aec(&self, enable: bool) -> bool;
+        fn enable_builtin_agc(&self, enable: bool) -> bool;
+        fn enable_builtin_ns(&self, enable: bool) -> bool;
 
         // ADM recording control
         // Use this to disable microphone when only using NativeAudioSource
@@ -196,31 +195,31 @@ pub mod native {
             self.handle.recording_device_guid(index)
         }
 
-        fn set_playout_device(&self, index: u16) -> i32 {
+        fn set_playout_device(&self, index: u16) -> bool {
             self.handle.set_playout_device(index)
         }
 
-        fn set_recording_device(&self, index: u16) -> i32 {
+        fn set_recording_device(&self, index: u16) -> bool {
             self.handle.set_recording_device(index)
         }
 
-        fn set_playout_device_by_guid(&self, guid: &str) -> i32 {
+        fn set_playout_device_by_guid(&self, guid: &str) -> bool {
             self.handle.set_playout_device_by_guid(guid)
         }
 
-        fn set_recording_device_by_guid(&self, guid: &str) -> i32 {
+        fn set_recording_device_by_guid(&self, guid: &str) -> bool {
             self.handle.set_recording_device_by_guid(guid)
         }
 
-        fn stop_recording(&self) -> i32 {
+        fn stop_recording(&self) -> bool {
             self.handle.stop_recording()
         }
 
-        fn init_recording(&self) -> i32 {
+        fn init_recording(&self) -> bool {
             self.handle.init_recording()
         }
 
-        fn start_recording(&self) -> i32 {
+        fn start_recording(&self) -> bool {
             self.handle.start_recording()
         }
 
@@ -228,15 +227,15 @@ pub mod native {
             self.handle.recording_is_initialized()
         }
 
-        fn stop_playout(&self) -> i32 {
+        fn stop_playout(&self) -> bool {
             self.handle.stop_playout()
         }
 
-        fn init_playout(&self) -> i32 {
+        fn init_playout(&self) -> bool {
             self.handle.init_playout()
         }
 
-        fn start_playout(&self) -> i32 {
+        fn start_playout(&self) -> bool {
             self.handle.start_playout()
         }
 
@@ -256,15 +255,15 @@ pub mod native {
             self.handle.builtin_ns_is_available()
         }
 
-        fn enable_builtin_aec(&self, enable: bool) -> i32 {
+        fn enable_builtin_aec(&self, enable: bool) -> bool {
             self.handle.enable_builtin_aec(enable)
         }
 
-        fn enable_builtin_agc(&self, enable: bool) -> i32 {
+        fn enable_builtin_agc(&self, enable: bool) -> bool {
             self.handle.enable_builtin_agc(enable)
         }
 
-        fn enable_builtin_ns(&self, enable: bool) -> i32 {
+        fn enable_builtin_ns(&self, enable: bool) -> bool {
             self.handle.enable_builtin_ns(enable)
         }
 

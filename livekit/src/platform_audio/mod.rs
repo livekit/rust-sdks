@@ -274,11 +274,9 @@ impl PlatformAudio {
                 "PlatformAudio: reusing existing handle (ref_count: {})",
                 handle.runtime.platform_adm_ref_count()
             );
-            // Still need to acquire Platform ADM since each PlatformAudio instance
-            // needs its own reference
-            if !handle.runtime.acquire_platform_adm() {
-                return Err(AudioError::PlatformInitFailed);
-            }
+            // The Platform ADM was already acquired when the handle was created.
+            // The Arc reference counting ensures the ADM stays active until all
+            // PlatformAudio instances are dropped.
             return Ok(Self { handle });
         }
 
@@ -321,15 +319,11 @@ impl PlatformAudio {
 
         let audio = Self { handle };
 
-        // Configure audio processing with hardware preferred and all options enabled by default
-        // This provides the best audio quality with echo cancellation, noise suppression, and AGC
-        let options = AudioProcessingOptions {
-            echo_cancellation: true,
-            noise_suppression: true,
-            auto_gain_control: true,
-            prefer_hardware_processing: true,
-        };
-        if let Err(e) = audio.configure_audio_processing(options) {
+        // Configure audio processing with platform-appropriate defaults:
+        // - iOS: prefer_hardware_processing=true (VPIO is excellent)
+        // - Android: prefer_hardware_processing=false (hardware AEC unreliable across devices)
+        // - Desktop: prefer_hardware_processing=false (hardware not available anyway)
+        if let Err(e) = audio.configure_audio_processing(AudioProcessingOptions::default()) {
             log::warn!("PlatformAudio: failed to configure audio processing: {}", e);
         }
 
@@ -498,11 +492,10 @@ impl PlatformAudio {
             return Err(AudioError::InvalidDeviceIndex);
         }
 
-        let result = self.handle.runtime.set_recording_device(index);
-        if result == 0 {
+        if self.handle.runtime.set_recording_device(index) {
             Ok(())
         } else {
-            Err(AudioError::OperationFailed(format!("set_recording_device returned {}", result)))
+            Err(AudioError::OperationFailed("set_recording_device failed".to_string()))
         }
     }
 
@@ -532,12 +525,10 @@ impl PlatformAudio {
         }
 
         let runtime = &self.handle.runtime;
-        let result = runtime.set_playout_device(index);
-        if result != 0 {
-            return Err(AudioError::OperationFailed(format!(
-                "set_playout_device returned {}",
-                result
-            )));
+        if !runtime.set_playout_device(index) {
+            return Err(AudioError::OperationFailed(
+                "set_playout_device failed".to_string()
+            ));
         }
 
         // Note: We intentionally do NOT call init_playout()/start_playout() here.
@@ -576,16 +567,10 @@ impl PlatformAudio {
     ///
     /// [`recording_device_guid`]: Self::recording_device_guid
     pub fn set_recording_device_by_guid(&self, guid: &str) -> AudioResult<()> {
-        let result = self.handle.runtime.set_recording_device_by_guid(guid);
-        if result == 0 {
+        if self.handle.runtime.set_recording_device_by_guid(guid) {
             Ok(())
-        } else if result == -1 {
-            Err(AudioError::DeviceNotFound)
         } else {
-            Err(AudioError::OperationFailed(format!(
-                "set_recording_device_by_guid returned {}",
-                result
-            )))
+            Err(AudioError::DeviceNotFound)
         }
     }
 
@@ -616,15 +601,8 @@ impl PlatformAudio {
     /// [`playout_device_guid`]: Self::playout_device_guid
     pub fn set_playout_device_by_guid(&self, guid: &str) -> AudioResult<()> {
         let runtime = &self.handle.runtime;
-        let result = runtime.set_playout_device_by_guid(guid);
-        if result == -1 {
+        if !runtime.set_playout_device_by_guid(guid) {
             return Err(AudioError::DeviceNotFound);
-        }
-        if result != 0 {
-            return Err(AudioError::OperationFailed(format!(
-                "set_playout_device_by_guid returned {}",
-                result
-            )));
         }
 
         // Note: We intentionally do NOT call init_playout()/start_playout() here.
@@ -668,38 +646,30 @@ impl PlatformAudio {
         let was_initialized = runtime.recording_is_initialized();
 
         if was_initialized {
-            let result = runtime.stop_recording();
-            if result != 0 {
-                return Err(AudioError::OperationFailed(format!(
-                    "stop_recording returned {}",
-                    result
-                )));
+            if !runtime.stop_recording() {
+                return Err(AudioError::OperationFailed(
+                    "stop_recording failed".to_string()
+                ));
             }
         }
 
-        let result = runtime.set_recording_device(index);
-        if result != 0 {
-            return Err(AudioError::OperationFailed(format!(
-                "set_recording_device returned {}",
-                result
-            )));
+        if !runtime.set_recording_device(index) {
+            return Err(AudioError::OperationFailed(
+                "set_recording_device failed".to_string()
+            ));
         }
 
         if was_initialized {
-            let result = runtime.init_recording();
-            if result != 0 {
-                return Err(AudioError::OperationFailed(format!(
-                    "init_recording returned {}",
-                    result
-                )));
+            if !runtime.init_recording() {
+                return Err(AudioError::OperationFailed(
+                    "init_recording failed".to_string()
+                ));
             }
 
-            let result = runtime.start_recording();
-            if result != 0 {
-                return Err(AudioError::OperationFailed(format!(
-                    "start_recording returned {}",
-                    result
-                )));
+            if !runtime.start_recording() {
+                return Err(AudioError::OperationFailed(
+                    "start_recording failed".to_string()
+                ));
             }
         }
 
@@ -738,38 +708,30 @@ impl PlatformAudio {
         let was_initialized = runtime.playout_is_initialized();
 
         if was_initialized {
-            let result = runtime.stop_playout();
-            if result != 0 {
-                return Err(AudioError::OperationFailed(format!(
-                    "stop_playout returned {}",
-                    result
-                )));
+            if !runtime.stop_playout() {
+                return Err(AudioError::OperationFailed(
+                    "stop_playout failed".to_string()
+                ));
             }
         }
 
-        let result = runtime.set_playout_device(index);
-        if result != 0 {
-            return Err(AudioError::OperationFailed(format!(
-                "set_playout_device returned {}",
-                result
-            )));
+        if !runtime.set_playout_device(index) {
+            return Err(AudioError::OperationFailed(
+                "set_playout_device failed".to_string()
+            ));
         }
 
         if was_initialized {
-            let result = runtime.init_playout();
-            if result != 0 {
-                return Err(AudioError::OperationFailed(format!(
-                    "init_playout returned {}",
-                    result
-                )));
+            if !runtime.init_playout() {
+                return Err(AudioError::OperationFailed(
+                    "init_playout failed".to_string()
+                ));
             }
 
-            let result = runtime.start_playout();
-            if result != 0 {
-                return Err(AudioError::OperationFailed(format!(
-                    "start_playout returned {}",
-                    result
-                )));
+            if !runtime.start_playout() {
+                return Err(AudioError::OperationFailed(
+                    "start_playout failed".to_string()
+                ));
             }
         }
 
@@ -805,21 +767,18 @@ impl PlatformAudio {
 
         // Initialize recording if not already initialized
         if !runtime.recording_is_initialized() {
-            let init_result = runtime.init_recording();
-            if init_result != 0 {
-                return Err(AudioError::OperationFailed(format!(
-                    "init_recording returned {}",
-                    init_result
-                )));
+            if !runtime.init_recording() {
+                return Err(AudioError::OperationFailed(
+                    "init_recording failed".to_string()
+                ));
             }
         }
 
-        let result = runtime.start_recording();
-        if result == 0 {
+        if runtime.start_recording() {
             log::info!("PlatformAudio: started recording");
             Ok(())
         } else {
-            Err(AudioError::OperationFailed(format!("start_recording returned {}", result)))
+            Err(AudioError::OperationFailed("start_recording failed".to_string()))
         }
     }
 
@@ -858,12 +817,11 @@ impl PlatformAudio {
     /// [`start_recording`]: Self::start_recording
     pub fn stop_recording(&self) -> AudioResult<()> {
         let runtime = &self.handle.runtime;
-        let result = runtime.stop_recording();
-        if result == 0 {
+        if runtime.stop_recording() {
             log::info!("PlatformAudio: stopped recording");
             Ok(())
         } else {
-            Err(AudioError::OperationFailed(format!("stop_recording returned {}", result)))
+            Err(AudioError::OperationFailed("stop_recording failed".to_string()))
         }
     }
 
@@ -1044,27 +1002,24 @@ impl PlatformAudio {
         // Note: When hardware is disabled, WebRTC automatically falls back to software
         if runtime.builtin_aec_is_available() {
             let enable_hw = use_hardware && options.echo_cancellation;
-            let result = runtime.enable_builtin_aec(enable_hw);
-            if result != 0 {
-                log::warn!("enable_builtin_aec({}) returned {}", enable_hw, result);
+            if !runtime.enable_builtin_aec(enable_hw) {
+                log::warn!("enable_builtin_aec({}) failed", enable_hw);
             }
         }
 
         // Enable/disable hardware AGC
         if runtime.builtin_agc_is_available() {
             let enable_hw = use_hardware && options.auto_gain_control;
-            let result = runtime.enable_builtin_agc(enable_hw);
-            if result != 0 {
-                log::warn!("enable_builtin_agc({}) returned {}", enable_hw, result);
+            if !runtime.enable_builtin_agc(enable_hw) {
+                log::warn!("enable_builtin_agc({}) failed", enable_hw);
             }
         }
 
         // Enable/disable hardware NS
         if runtime.builtin_ns_is_available() {
             let enable_hw = use_hardware && options.noise_suppression;
-            let result = runtime.enable_builtin_ns(enable_hw);
-            if result != 0 {
-                log::warn!("enable_builtin_ns({}) returned {}", enable_hw, result);
+            if !runtime.enable_builtin_ns(enable_hw) {
+                log::warn!("enable_builtin_ns({}) failed", enable_hw);
             }
         }
 
@@ -1091,12 +1046,10 @@ impl PlatformAudio {
     pub fn set_echo_cancellation(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
         if self.is_hardware_aec_available() {
             let enable_hw = enable && prefer_hardware;
-            let result = self.handle.runtime.enable_builtin_aec(enable_hw);
-            if result != 0 {
-                return Err(AudioError::OperationFailed(format!(
-                    "enable_builtin_aec returned {}",
-                    result
-                )));
+            if !self.handle.runtime.enable_builtin_aec(enable_hw) {
+                return Err(AudioError::OperationFailed(
+                    "enable_builtin_aec failed".to_string()
+                ));
             }
         }
         Ok(())
@@ -1111,12 +1064,10 @@ impl PlatformAudio {
     pub fn set_auto_gain_control(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
         if self.is_hardware_agc_available() {
             let enable_hw = enable && prefer_hardware;
-            let result = self.handle.runtime.enable_builtin_agc(enable_hw);
-            if result != 0 {
-                return Err(AudioError::OperationFailed(format!(
-                    "enable_builtin_agc returned {}",
-                    result
-                )));
+            if !self.handle.runtime.enable_builtin_agc(enable_hw) {
+                return Err(AudioError::OperationFailed(
+                    "enable_builtin_agc failed".to_string()
+                ));
             }
         }
         Ok(())
@@ -1131,12 +1082,10 @@ impl PlatformAudio {
     pub fn set_noise_suppression(&self, enable: bool, prefer_hardware: bool) -> AudioResult<()> {
         if self.is_hardware_ns_available() {
             let enable_hw = enable && prefer_hardware;
-            let result = self.handle.runtime.enable_builtin_ns(enable_hw);
-            if result != 0 {
-                return Err(AudioError::OperationFailed(format!(
-                    "enable_builtin_ns returned {}",
-                    result
-                )));
+            if !self.handle.runtime.enable_builtin_ns(enable_hw) {
+                return Err(AudioError::OperationFailed(
+                    "enable_builtin_ns failed".to_string()
+                ));
             }
         }
         Ok(())
