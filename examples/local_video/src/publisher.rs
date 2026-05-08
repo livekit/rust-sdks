@@ -33,7 +33,7 @@ mod viewport_aspect;
 
 use test_pattern::TestPattern;
 use timestamp_burn::{LatencyDisplay, TimestampOverlay};
-use video_display::{PublisherTimingSample, SharedYuv};
+use video_display::{align_up, PublisherTimingSample, SharedYuv};
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -227,6 +227,21 @@ struct CaptureConfig {
     burn_timestamp: bool,
     attach_frame_id: bool,
     display_timing: bool,
+}
+
+fn create_i420_buffer(width: u32, height: u32, align_for_display: bool) -> I420Buffer {
+    if align_for_display {
+        let uv_width = (width + 1) / 2;
+        I420Buffer::with_strides(
+            width,
+            height,
+            align_up(width, 256),
+            align_up(uv_width, 256),
+            align_up(uv_width, 256),
+        )
+    } else {
+        I420Buffer::new(width, height)
+    }
 }
 
 #[tokio::main]
@@ -517,6 +532,7 @@ async fn run_capture_loop(
     let mut timestamp_overlay = (config.attach_timestamp && config.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
     let mut latency_display = LatencyDisplay::default();
+    let align_buffers_for_display = display_shared.is_some();
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
             break;
@@ -528,7 +544,7 @@ async fn run_capture_loop(
 
         let source_frame_started_at = Instant::now();
         let frame_wall_time_us = unix_time_us_now();
-        let mut buffer = I420Buffer::new(width, height);
+        let mut buffer = create_i420_buffer(width, height, align_buffers_for_display);
         let (stride_y, stride_u, stride_v) = buffer.strides();
         let (data_y, data_u, data_v) = buffer.data_mut();
         let stride_y_usize = stride_y as usize;

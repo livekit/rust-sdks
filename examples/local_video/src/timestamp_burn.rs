@@ -13,6 +13,7 @@ const FG_LUMA: u8 = 235;
 const LATENCY_DISPLAY_UPDATE_INTERVAL: Duration = Duration::from_millis(500);
 
 /// Text scale used for burned-in timing metrics overlays.
+#[allow(dead_code)]
 pub(crate) const METRICS_OVERLAY_SCALE: usize = 3;
 
 /// Holds a latency string that refreshes at a readable 2 Hz cadence.
@@ -87,6 +88,7 @@ enum TextAnchor {
 }
 
 impl TextBurner {
+    #[allow(dead_code)]
     pub fn new_top_left(frame_width: u32, frame_height: u32, scale: usize) -> Self {
         Self::new(frame_width, frame_height, scale, TextAnchor::TopLeft)
     }

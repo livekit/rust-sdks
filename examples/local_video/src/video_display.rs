@@ -10,7 +10,7 @@ use std::sync::{
 };
 use std::time::Duration;
 
-use crate::timestamp_burn::{format_timestamp_us, TextBurner, METRICS_OVERLAY_SCALE};
+use crate::timestamp_burn::format_timestamp_us;
 use crate::viewport_aspect::{self, AspectConstrainedViewport};
 
 #[derive(Default)]
@@ -26,6 +26,7 @@ pub(crate) struct SharedYuv {
     pub(crate) fps: f32,
     pub(crate) dirty: bool,
     pub(crate) timing_sample: Option<PublisherTimingSample>,
+    pub(crate) publish_latency_display: String,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -55,6 +56,13 @@ pub(crate) fn pack_plane(
     dst: &mut Vec<u8>,
 ) {
     resize_reused_buffer(dst, (dst_stride * rows) as usize);
+    if src_stride == dst_stride {
+        let len = (dst_stride * rows) as usize;
+        if src.len() >= len {
+            dst[..len].copy_from_slice(&src[..len]);
+            return;
+        }
+    }
     if src_stride == row_width && dst_stride == row_width {
         let len = (row_width * rows) as usize;
         dst[..len].copy_from_slice(&src[..len]);
@@ -81,52 +89,37 @@ pub(crate) fn pack_i420_into_shared(
     v_stride: u32,
     timing_sample: Option<PublisherTimingSample>,
     publish_latency_display: Option<&str>,
-) {
+) -> bool {
     let uv_w = (width + 1) / 2;
     let uv_h = (height + 1) / 2;
     let y_bytes_per_row = align_up(width, 256);
     let uv_bytes_per_row = align_up(uv_w, 256);
 
     let mut s = shared.lock();
-    let mut y_buf = Vec::new();
-    let mut u_buf = Vec::new();
-    let mut v_buf = Vec::new();
-    std::mem::swap(&mut y_buf, &mut s.y);
-    std::mem::swap(&mut u_buf, &mut s.u);
-    std::mem::swap(&mut v_buf, &mut s.v);
-
-    pack_plane(y, y_stride, width, height, y_bytes_per_row, &mut y_buf);
-    pack_plane(u, u_stride, uv_w, uv_h, uv_bytes_per_row, &mut u_buf);
-    pack_plane(v, v_stride, uv_w, uv_h, uv_bytes_per_row, &mut v_buf);
-
-    if let Some(sample) = timing_sample {
-        let fallback_latency_display;
-        let latency_display = if let Some(latency_display) = publish_latency_display {
-            latency_display
-        } else {
-            fallback_latency_display =
-                format_us_delta_ms(sample.sent_timestamp_us, sample.capture_timestamp_us);
-            fallback_latency_display.as_str()
-        };
-        burn_publisher_timing_sample(
-            sample,
-            latency_display,
-            width,
-            height,
-            y_bytes_per_row,
-            &mut y_buf,
-        );
+    if s.dirty {
+        return false;
     }
+
+    pack_plane(y, y_stride, width, height, y_bytes_per_row, &mut s.y);
+    pack_plane(u, u_stride, uv_w, uv_h, uv_bytes_per_row, &mut s.u);
+    pack_plane(v, v_stride, uv_w, uv_h, uv_bytes_per_row, &mut s.v);
+
+    let publish_latency_display = timing_sample
+        .map(|sample| {
+            publish_latency_display.map(str::to_string).unwrap_or_else(|| {
+                format_us_delta_ms(sample.sent_timestamp_us, sample.capture_timestamp_us)
+            })
+        })
+        .unwrap_or_default();
 
     s.width = width;
     s.height = height;
     s.y_bytes_per_row = y_bytes_per_row;
     s.uv_bytes_per_row = uv_bytes_per_row;
-    std::mem::swap(&mut s.y, &mut y_buf);
-    std::mem::swap(&mut s.u, &mut u_buf);
-    std::mem::swap(&mut s.v, &mut v_buf);
     s.timing_sample = timing_sample;
+    s.publish_latency_display = publish_latency_display;
     s.dirty = true;
+    true
 }
 
 fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
@@ -155,20 +148,6 @@ fn build_publisher_timing_lines(
     ]
 }
 
-fn burn_publisher_timing_sample(
-    sample: PublisherTimingSample,
-    publish_latency_display: &str,
-    width: u32,
-    height: u32,
-    y_bytes_per_row: u32,
-    y_buf: &mut [u8],
-) {
-    let burner = TextBurner::new_top_left(width, height, METRICS_OVERLAY_SCALE);
-    let lines = build_publisher_timing_lines(sample, publish_latency_display);
-    let line_refs = lines.iter().map(String::as_str).collect::<Vec<_>>();
-    burner.draw_lines(y_buf, y_bytes_per_row as usize, &line_refs);
-}
-
 fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
     let s = shared.lock();
     if s.width > 0 && s.height > 0 {
@@ -176,6 +155,17 @@ fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
     } else {
         None
     }
+}
+
+fn publisher_timing_text(shared: &Arc<Mutex<SharedYuv>>) -> Option<String> {
+    let s = shared.lock();
+    let sample = s.timing_sample?;
+    let latency_display = if s.publish_latency_display.is_empty() {
+        format_us_delta_ms(sample.sent_timestamp_us, sample.capture_timestamp_us)
+    } else {
+        s.publish_latency_display.clone()
+    };
+    Some(build_publisher_timing_lines(sample, &latency_display).join("\n"))
 }
 
 struct VideoApp {
@@ -243,6 +233,27 @@ impl eframe::App for VideoApp {
                         ui.add(
                             egui::Label::new(egui::RichText::new(text).color(egui::Color32::WHITE))
                                 .extend(),
+                        );
+                    });
+            });
+
+        egui::Area::new("publisher_timing".into())
+            .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
+            .interactable(false)
+            .show(ctx, |ui| {
+                let Some(text) = publisher_timing_text(&self.shared) else {
+                    return;
+                };
+                egui::Frame::NONE
+                    .fill(egui::Color32::from_black_alpha(160))
+                    .corner_radius(egui::CornerRadius::same(4))
+                    .inner_margin(egui::Margin::same(6))
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(
+                                egui::RichText::new(text).monospace().color(egui::Color32::WHITE),
+                            )
+                            .extend(),
                         );
                     });
             });
@@ -342,6 +353,10 @@ struct ParamsUniform {
     src_h: u32,
     y_tex_w: u32,
     uv_tex_w: u32,
+    yuv_layout: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 impl CallbackTrait for YuvPaintCallback {
@@ -485,6 +500,10 @@ impl CallbackTrait for YuvPaintCallback {
                     src_h: 1,
                     y_tex_w: 1,
                     uv_tex_w: 1,
+                    yuv_layout: 0,
+                    _pad0: 0,
+                    _pad1: 0,
+                    _pad2: 0,
                 }),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
@@ -657,6 +676,10 @@ impl CallbackTrait for YuvPaintCallback {
                     src_h: dims.1,
                     y_tex_w: state.y_pad_w,
                     uv_tex_w: state.uv_pad_w,
+                    yuv_layout: 0,
+                    _pad0: 0,
+                    _pad1: 0,
+                    _pad2: 0,
                 }),
             );
         }

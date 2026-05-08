@@ -107,6 +107,12 @@ fn copy_plane(dst: &mut [u8], dst_stride: usize, src: &[u8], width: usize, heigh
         return;
     }
 
+    if dst_stride == width {
+        let len = width * height;
+        dst[..len].copy_from_slice(&src[..len]);
+        return;
+    }
+
     for row in 0..height {
         let dst_start = row * dst_stride;
         let src_start = row * width;
