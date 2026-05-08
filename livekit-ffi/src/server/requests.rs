@@ -70,10 +70,13 @@ fn on_disconnect(
         .and_then(|r| proto::DisconnectReason::try_from(r).ok())
         .map(DisconnectReason::from)
         .unwrap_or(DisconnectReason::ClientInitiated);
+    // Resolve the handle synchronously, before returning. The spawned task
+    // owns its Arc clone, so the close completes correctly even if the foreign
+    // side drops the room handle the moment this request returns. A missing
+    // handle now surfaces as a proper FfiResult error instead of an unwrap
+    // panic that would abort the process.
+    let ffi_room = server.retrieve_handle::<room::FfiRoom>(disconnect.room_handle)?.clone();
     let handle = server.async_runtime.spawn(async move {
-        let ffi_room =
-            server.retrieve_handle::<room::FfiRoom>(disconnect.room_handle).unwrap().clone();
-
         ffi_room.close(server, reason).await;
 
         let _ = server.send_event(proto::DisconnectCallback { async_id }.into());
