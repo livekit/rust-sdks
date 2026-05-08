@@ -503,11 +503,27 @@ fn find_video_inbound_stats(
 #[derive(Clone, Copy)]
 struct JitterBufferSnapshot {
     delay_secs: f64,
+    target_delay_secs: f64,
+    minimum_delay_secs: f64,
     emitted_count: u64,
 }
 
 fn seconds_to_ms(seconds: f64) -> f64 {
     seconds * 1_000.0
+}
+
+fn average_delay_ms(total_delay_secs: f64, emitted_count: u64) -> Option<f64> {
+    (emitted_count > 0).then(|| seconds_to_ms(total_delay_secs / emitted_count as f64))
+}
+
+fn window_average_delay_ms(
+    current_total_delay_secs: f64,
+    previous_total_delay_secs: f64,
+    emitted_delta: u64,
+) -> Option<f64> {
+    let delay_delta = current_total_delay_secs - previous_total_delay_secs;
+    (emitted_delta > 0 && delay_delta >= 0.0)
+        .then(|| seconds_to_ms(delay_delta / emitted_delta as f64))
 }
 
 fn log_video_jitter_buffer_stats(
@@ -520,38 +536,37 @@ fn log_video_jitter_buffer_stats(
 
     let current = JitterBufferSnapshot {
         delay_secs: inbound.inbound.jitter_buffer_delay,
+        target_delay_secs: inbound.inbound.jitter_buffer_target_delay,
+        minimum_delay_secs: inbound.inbound.jitter_buffer_minimum_delay,
         emitted_count: inbound.inbound.jitter_buffer_emitted_count,
     };
     let window_delay_ms = previous.and_then(|prev| {
         let emitted_delta = current.emitted_count.saturating_sub(prev.emitted_count);
-        let delay_delta = current.delay_secs - prev.delay_secs;
-        (emitted_delta > 0 && delay_delta >= 0.0)
-            .then(|| seconds_to_ms(delay_delta / emitted_delta as f64))
+        window_average_delay_ms(current.delay_secs, prev.delay_secs, emitted_delta)
     });
-    let cumulative_delay_ms = (current.emitted_count > 0)
-        .then(|| seconds_to_ms(current.delay_secs / current.emitted_count as f64));
+    let cumulative_delay_ms = average_delay_ms(current.delay_secs, current.emitted_count);
+    let target_delay_ms = average_delay_ms(current.target_delay_secs, current.emitted_count);
+    let minimum_delay_ms = average_delay_ms(current.minimum_delay_secs, current.emitted_count);
 
-    match (window_delay_ms, cumulative_delay_ms) {
-        (Some(window), Some(cumulative)) => info!(
-            "WebRTC jitter buffer: window_avg={:.1}ms, cumulative_avg={:.1}ms, target={:.1}ms, minimum={:.1}ms, emitted={}",
+    match (window_delay_ms, cumulative_delay_ms, target_delay_ms, minimum_delay_ms) {
+        (Some(window), Some(cumulative), Some(target), Some(minimum)) => info!(
+            "WebRTC jitter buffer: delay_window_avg={:.1}ms, delay_avg={:.1}ms, target_avg={:.1}ms, minimum_avg={:.1}ms, emitted={}",
             window,
             cumulative,
-            inbound.inbound.jitter_buffer_target_delay,
-            inbound.inbound.jitter_buffer_minimum_delay,
+            target,
+            minimum,
             current.emitted_count
         ),
-        (None, Some(cumulative)) => info!(
-            "WebRTC jitter buffer: cumulative_avg={:.1}ms, target={:.1}ms, minimum={:.1}ms, emitted={}",
+        (None, Some(cumulative), Some(target), Some(minimum)) => info!(
+            "WebRTC jitter buffer: delay_avg={:.1}ms, target_avg={:.1}ms, minimum_avg={:.1}ms, emitted={}",
             cumulative,
-            inbound.inbound.jitter_buffer_target_delay,
-            inbound.inbound.jitter_buffer_minimum_delay,
+            target,
+            minimum,
             current.emitted_count
         ),
         _ => info!(
-            "WebRTC jitter buffer: target={:.1}ms, minimum={:.1}ms, emitted={}",
-            inbound.inbound.jitter_buffer_target_delay,
-            inbound.inbound.jitter_buffer_minimum_delay,
-            current.emitted_count
+            "WebRTC jitter buffer: waiting for emitted frames, emitted={}",
+            current.emitted_count,
         ),
     }
 
