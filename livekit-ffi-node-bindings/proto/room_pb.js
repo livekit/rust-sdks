@@ -278,6 +278,24 @@ const PublishTrackCallback = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 /**
+ * @generated from message livekit.proto.FlushEventsRequest
+ */
+const FlushEventsRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.FlushEventsRequest",
+  () => [
+    { no: 1, name: "room_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.FlushEventsResponse
+ */
+const FlushEventsResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.FlushEventsResponse",
+  [],
+);
+
+/**
  * Unpublish a track from the room
  *
  * @generated from message livekit.proto.UnpublishTrackRequest
@@ -1618,6 +1636,8 @@ exports.SimulateScenarioCallback = SimulateScenarioCallback;
 exports.PublishTrackRequest = PublishTrackRequest;
 exports.PublishTrackResponse = PublishTrackResponse;
 exports.PublishTrackCallback = PublishTrackCallback;
+exports.FlushEventsRequest = FlushEventsRequest;
+exports.FlushEventsResponse = FlushEventsResponse;
 exports.UnpublishTrackRequest = UnpublishTrackRequest;
 exports.UnpublishTrackResponse = UnpublishTrackResponse;
 exports.UnpublishTrackCallback = UnpublishTrackCallback;

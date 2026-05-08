@@ -20,7 +20,7 @@ use livekit::{prelude::*, registered_audio_filter_plugins};
 use livekit::{ChatMessage, StreamReader};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
-use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex, Notify};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
@@ -54,6 +54,12 @@ impl FfiHandle for FfiRoom {}
 pub struct FfiRoom {
     pub inner: Arc<RoomInner>,
     handle: Arc<AsyncMutex<Option<Handle>>>,
+    /// Signaled by the FFI client (via [`proto::FlushEventsRequest`]) once it
+    /// has finished installing its event listener. The connect task parks on
+    /// this notify after sending [`proto::ConnectCallback`] and only spawns the
+    /// event-forwarding tasks once it fires, ensuring no room events are
+    /// emitted before the client is ready to receive them.
+    flush_notify: Arc<Notify>,
 }
 
 pub struct RoomInner {
@@ -195,7 +201,11 @@ impl FfiRoom {
                         build_initial_states(server, &inner, participants_with_tracks);
 
                     // Send callback
-                    let ffi_room = Self { inner: inner.clone(), handle: Default::default() };
+                    let ffi_room = Self {
+                        inner: inner.clone(),
+                        handle: Default::default(),
+                        flush_notify: Arc::new(Notify::new()),
+                    };
                     server.store_handle(ffi_room.inner.handle_id, ffi_room.clone());
 
                     // Keep the lock until the handle is "Some" (So it is OK for the client to
@@ -225,7 +235,16 @@ impl FfiRoom {
                         .into(),
                     );
 
-                    // Update Room SID on promise resolve
+                    // Wait for the FFI client to install its event listener and
+                    // send a FlushEventsRequest before forwarding any room
+                    // events. This avoids a race where events emitted between
+                    // the ConnectCallback and the listener registration are
+                    // dropped.
+                    ffi_room.flush_notify.notified().await;
+
+                    // Update Room SID on promise resolve. Spawned after the
+                    // flush handshake so the RoomSidChanged event is never
+                    // delivered before the client is ready to receive it.
                     let room_handle = inner.handle_id.clone();
                     server.async_runtime.spawn(async move {
                         let _ = server.send_event(
@@ -307,6 +326,13 @@ impl FfiRoom {
 
         server.watch_panic(server.async_runtime.spawn(connect));
         proto::ConnectResponse { async_id }
+    }
+
+    /// Release the connect task's wait point so room event forwarding can
+    /// begin. Called in response to a [`proto::FlushEventsRequest`] from the
+    /// FFI client once it has installed its event listener.
+    pub fn flush_events(&self) {
+        self.flush_notify.notify_one();
     }
 
     /// Close the room and stop the tasks
