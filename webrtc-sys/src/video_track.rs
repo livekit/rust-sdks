@@ -42,6 +42,13 @@ pub mod ffi {
         pub height: u32,
     }
 
+    #[derive(Debug)]
+    pub struct FrameMetadata {
+        pub has_packet_trailer: bool,
+        pub user_timestamp: u64,
+        pub frame_id: u32,
+    }
+
     extern "C++" {
         include!("livekit/video_frame.h");
         include!("livekit/media_stream_track.h");
@@ -50,8 +57,14 @@ pub mod ffi {
         type MediaStreamTrack = crate::media_stream_track::ffi::MediaStreamTrack;
     }
 
-    unsafe extern "C++" {
+    extern "C++" {
+        include!("livekit/packet_trailer.h");
         include!("livekit/video_track.h");
+
+        type PacketTrailerHandler = crate::packet_trailer::ffi::PacketTrailerHandler;
+    }
+
+    unsafe extern "C++" {
 
         type VideoTrack;
         type NativeVideoSink;
@@ -66,7 +79,15 @@ pub mod ffi {
         fn new_native_video_sink(observer: Box<VideoSinkWrapper>) -> SharedPtr<NativeVideoSink>;
 
         fn video_resolution(self: &VideoTrackSource) -> VideoResolution;
-        fn on_captured_frame(self: &VideoTrackSource, frame: &UniquePtr<VideoFrame>) -> bool;
+        fn on_captured_frame(
+            self: &VideoTrackSource,
+            frame: &UniquePtr<VideoFrame>,
+            frame_metadata: &FrameMetadata,
+        ) -> bool;
+        fn set_packet_trailer_handler(
+            self: &VideoTrackSource,
+            handler: SharedPtr<PacketTrailerHandler>,
+        );
         fn new_video_track_source(
             resolution: &VideoResolution,
             is_screencast: bool,

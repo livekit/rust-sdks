@@ -224,7 +224,7 @@ message DataTrackStreamFrameReceived {
 
 // Stream has ended.
 message DataTrackStreamEOS {
-  // If the track could not be subscribed to, a message describing the error.
-  // Absent if the stream ended normally.
-  optional string error = 1;
+  // Present if stream ended before any frames were emitted due to subscription establishment failing.
+  // Absent if the stream ended normally (i.e., due to the track being unpublished).
+  optional SubscribeDataTrackError error = 1;
 }

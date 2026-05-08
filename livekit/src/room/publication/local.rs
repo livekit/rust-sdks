@@ -14,7 +14,7 @@
 
 use std::{fmt::Debug, sync::Arc};
 
-use livekit_protocol::{self as proto, AudioTrackFeature};
+use livekit_protocol::{self as proto, AudioTrackFeature, PacketTrailerFeature};
 use parking_lot::Mutex;
 
 use super::TrackPublicationInner;
@@ -148,5 +148,9 @@ impl LocalTrackPublication {
 
     pub fn audio_features(&self) -> Vec<AudioTrackFeature> {
         self.inner.info.read().audio_features.clone()
+    }
+
+    pub fn packet_trailer_features(&self) -> Vec<PacketTrailerFeature> {
+        self.inner.info.read().packet_trailer_features.clone()
     }
 }

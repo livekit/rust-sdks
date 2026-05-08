@@ -243,7 +243,13 @@ impl Drop for RawStream {
         }
         let packet = Self::create_trailer_packet(&self.id, None);
         let packet_tx = self.packet_tx.clone();
-        tokio::spawn(async move { Self::send_packet(&packet_tx, packet).await });
+        // Use try_current() instead of assuming a Tokio runtime exists.
+        // The drop can run on a non-Tokio thread (e.g. a GC finalizer in
+        // Unity/.NET) or after the runtime has shut down, in which case
+        // we silently skip the trailer — the connection is going away anyway.
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(async move { Self::send_packet(&packet_tx, packet).await });
+        }
     }
 }
 
@@ -487,3 +493,50 @@ static BYTE_MIME_TYPE: &str = "application/octet-stream";
 
 /// Default MIME type to use for text streams.
 static TEXT_MIME_TYPE: &str = "text/plain";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Regression test for CLT-2773: dropping a `RawStream` on a thread that has
+    // no Tokio runtime in TLS (e.g. the .NET GC finalizer thread in the Unity
+    // SDK) used to panic because `Drop` called `tokio::spawn` unconditionally.
+    #[test]
+    fn drop_raw_stream_on_non_tokio_thread_does_not_panic() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+
+        let raw_stream = rt.block_on(async {
+            let (packet_tx, mut packet_rx) =
+                bmrng::unbounded_channel::<proto::DataPacket, Result<(), EngineError>>();
+
+            tokio::spawn(async move {
+                while let Ok((_packet, responder)) = packet_rx.recv().await {
+                    let _ = responder.respond(Ok(()));
+                }
+            });
+
+            let header = proto::data_stream::Header {
+                stream_id: "gc-test-stream".to_string(),
+                timestamp: 0,
+                topic: "gc-test-topic".to_string(),
+                mime_type: TEXT_MIME_TYPE.to_owned(),
+                total_length: None,
+                encryption_type: proto::encryption::Type::None.into(),
+                attributes: HashMap::new(),
+                content_header: None,
+            };
+
+            RawStream::open(RawStreamOpenOptions {
+                header,
+                destination_identities: vec![],
+                packet_tx,
+            })
+            .await
+            .expect("RawStream should open")
+        });
+
+        let drop_thread = std::thread::spawn(move || drop(raw_stream));
+
+        drop_thread.join().expect("Dropping RawStream on a non-Tokio thread must not panic");
+    }
+}
