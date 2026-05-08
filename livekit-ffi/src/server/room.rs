@@ -1067,12 +1067,9 @@ async fn forward_event(
                 }
             }
 
-            let ffi_publication = FfiPublication {
-                handle: server.next_id(),
-                publication: TrackPublication::Local(publication),
-            };
-            server.store_handle(ffi_publication.handle, ffi_publication);
-
+            // The PublishTrackCallback already gave the foreign side a wrapped publication
+            // handle. Allocating a second FfiPublication here would store an entry in the
+            // handle table whose id is never communicated to the client — pure leak.
             let _ = send_event(proto::LocalTrackPublished { track_sid: sid.to_string() }.into());
         }
         RoomEvent::LocalTrackUnpublished { publication, participant: _ } => {
