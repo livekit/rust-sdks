@@ -1,5 +1,4 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 use eframe::egui;
 use eframe::wgpu::{self, util::DeviceExt};
 use egui_wgpu as egui_wgpu_backend;
@@ -11,6 +10,7 @@ use std::sync::{
 };
 use std::time::Duration;
 
+use crate::timestamp_burn::{format_timestamp_us, TextBurner, METRICS_OVERLAY_SCALE};
 use crate::viewport_aspect::{self, AspectConstrainedViewport};
 
 #[derive(Default)]
@@ -77,6 +77,7 @@ pub(crate) fn pack_i420_into_shared(
     v: &[u8],
     v_stride: u32,
     timing_sample: Option<PublisherTimingSample>,
+    publish_latency_display: Option<&str>,
 ) {
     let uv_w = (width + 1) / 2;
     let uv_h = (height + 1) / 2;
@@ -95,6 +96,25 @@ pub(crate) fn pack_i420_into_shared(
     pack_plane(u, u_stride, uv_w, uv_h, uv_bytes_per_row, &mut u_buf);
     pack_plane(v, v_stride, uv_w, uv_h, uv_bytes_per_row, &mut v_buf);
 
+    if let Some(sample) = timing_sample {
+        let fallback_latency_display;
+        let latency_display = if let Some(latency_display) = publish_latency_display {
+            latency_display
+        } else {
+            fallback_latency_display =
+                format_us_delta_ms(sample.sent_timestamp_us, sample.capture_timestamp_us);
+            fallback_latency_display.as_str()
+        };
+        burn_publisher_timing_sample(
+            sample,
+            latency_display,
+            width,
+            height,
+            y_bytes_per_row,
+            &mut y_buf,
+        );
+    }
+
     s.width = width;
     s.height = height;
     s.y_bytes_per_row = y_bytes_per_row;
@@ -106,31 +126,44 @@ pub(crate) fn pack_i420_into_shared(
     s.dirty = true;
 }
 
-fn format_timestamp_us(ts_us: u64) -> String {
-    DateTime::<Utc>::from_timestamp_micros(ts_us as i64)
-        .map(|dt| {
-            dt.format("%Y-%m-%d %H:%M:%S:").to_string()
-                + &format!("{:03}", dt.timestamp_subsec_millis())
-        })
-        .unwrap_or_else(|| format!("<invalid timestamp {ts_us}>"))
-}
-
 fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
     let delta_us = later_us.saturating_sub(earlier_us);
     format!("{:.1}ms", delta_us as f64 / 1_000.0)
 }
 
-fn format_publisher_timing_sample(sample: PublisherTimingSample) -> String {
-    let frame_id = sample.frame_id.map(|id| id.to_string()).unwrap_or_else(|| "N/A".to_string());
+fn frame_id_label(frame_id: Option<u32>) -> String {
+    frame_id.map(|id| id.to_string()).unwrap_or_else(|| "NA".to_string())
+}
 
-    format!(
-        "Frame ID:           {}\nCapture Timestamp:  {}\nRead Timestamp:     {}\nSent Timestamp:     {}\nPublish Latency:    {}",
-        frame_id,
-        format_timestamp_us(sample.capture_timestamp_us),
-        format_timestamp_us(sample.read_timestamp_us),
-        format_timestamp_us(sample.sent_timestamp_us),
-        format_us_delta_ms(sample.sent_timestamp_us, sample.capture_timestamp_us),
-    )
+fn burned_stats_line(label: &str, value: impl std::fmt::Display) -> String {
+    format!("{label:<17}{value}")
+}
+
+fn build_publisher_timing_lines(
+    sample: PublisherTimingSample,
+    publish_latency_display: &str,
+) -> Vec<String> {
+    vec![
+        burned_stats_line("FRAME ID:", frame_id_label(sample.frame_id)),
+        burned_stats_line("CAPT TIMESTAMP:", format_timestamp_us(sample.capture_timestamp_us)),
+        burned_stats_line("READ TIMESTAMP:", format_timestamp_us(sample.read_timestamp_us)),
+        burned_stats_line("SENT TIMESTAMP:", format_timestamp_us(sample.sent_timestamp_us)),
+        burned_stats_line("PUBLISH LATENCY:", publish_latency_display),
+    ]
+}
+
+fn burn_publisher_timing_sample(
+    sample: PublisherTimingSample,
+    publish_latency_display: &str,
+    width: u32,
+    height: u32,
+    y_bytes_per_row: u32,
+    y_buf: &mut [u8],
+) {
+    let burner = TextBurner::new_top_left(width, height, METRICS_OVERLAY_SCALE);
+    let lines = build_publisher_timing_lines(sample, publish_latency_display);
+    let line_refs = lines.iter().map(String::as_str).collect::<Vec<_>>();
+    burner.draw_lines(y_buf, y_bytes_per_row as usize, &line_refs);
 }
 
 fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
@@ -210,30 +243,6 @@ impl eframe::App for VideoApp {
                         );
                     });
             });
-
-        let timing_sample = self.shared.lock().timing_sample;
-        if let Some(sample) = timing_sample {
-            let text = format_publisher_timing_sample(sample);
-            egui::Area::new("publisher_timing_hud".into())
-                .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
-                .interactable(false)
-                .show(ctx, |ui| {
-                    egui::Frame::NONE
-                        .fill(egui::Color32::from_black_alpha(140))
-                        .corner_radius(egui::CornerRadius::same(4))
-                        .inner_margin(egui::Margin::same(6))
-                        .show(ui, |ui| {
-                            ui.add(
-                                egui::Label::new(
-                                    egui::RichText::new(text)
-                                        .color(egui::Color32::WHITE)
-                                        .monospace(),
-                                )
-                                .extend(),
-                            );
-                        });
-                });
-        }
 
         ctx.request_repaint_after(Duration::from_millis(16));
     }

@@ -32,7 +32,7 @@ mod video_display;
 mod viewport_aspect;
 
 use test_pattern::TestPattern;
-use timestamp_burn::TimestampOverlay;
+use timestamp_burn::{LatencyDisplay, TimestampOverlay};
 use video_display::{PublisherTimingSample, SharedYuv};
 
 #[derive(Parser, Debug)]
@@ -117,6 +117,12 @@ struct Args {
 
 fn unix_time_us_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u64
+}
+
+/// Format the us delta as a millisecond string like `"12.3ms"`.
+fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
+    let delta_us = later_us.saturating_sub(earlier_us);
+    format!("{:.1}ms", delta_us as f64 / 1_000.0)
 }
 
 #[derive(Default)]
@@ -504,6 +510,7 @@ async fn run_capture_loop(
     let mut frame_counter: u32 = 1;
     let mut timestamp_overlay = (config.attach_timestamp && config.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
+    let mut latency_display = LatencyDisplay::default();
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
             break;
@@ -751,6 +758,10 @@ async fn run_capture_loop(
                 read_timestamp_us: read_wall_time_us,
                 sent_timestamp_us,
             });
+            let publish_latency_display = latency_display.value(
+                Instant::now(),
+                Some(format_us_delta_ms(sent_timestamp_us, capture_wall_time_us)),
+            );
             video_display::pack_i420_into_shared(
                 shared,
                 width,
@@ -762,6 +773,7 @@ async fn run_capture_loop(
                 data_v,
                 stride_v as u32,
                 timing_sample,
+                Some(publish_latency_display),
             );
         }
 

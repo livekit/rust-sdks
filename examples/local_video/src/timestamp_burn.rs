@@ -1,4 +1,5 @@
 use chrono::{DateTime, Datelike, Timelike, Utc};
+use std::time::{Duration, Instant};
 
 const GLYPH_WIDTH: usize = 5;
 const GLYPH_HEIGHT: usize = 7;
@@ -9,6 +10,38 @@ const PADDING_Y: usize = 4;
 const MARGIN: usize = 8;
 const BG_LUMA: u8 = 16;
 const FG_LUMA: u8 = 235;
+const LATENCY_DISPLAY_UPDATE_INTERVAL: Duration = Duration::from_millis(500);
+
+/// Text scale used for burned-in timing metrics overlays.
+pub(crate) const METRICS_OVERLAY_SCALE: usize = 3;
+
+/// Holds a latency string that refreshes at a readable 2 Hz cadence.
+#[derive(Default)]
+pub(crate) struct LatencyDisplay {
+    value: String,
+    last_update: Option<Instant>,
+}
+
+impl LatencyDisplay {
+    /// Return the latency string to display, refreshing it when the 2 Hz interval has elapsed.
+    pub(crate) fn value(&mut self, now: Instant, latest_value: Option<String>) -> &str {
+        let should_update = match self.last_update {
+            Some(last_update) => now.duration_since(last_update) >= LATENCY_DISPLAY_UPDATE_INTERVAL,
+            None => true,
+        };
+
+        if should_update {
+            self.value = latest_value.unwrap_or_else(|| "NA".to_string());
+            self.last_update = Some(now);
+        }
+
+        if self.value.is_empty() {
+            "NA"
+        } else {
+            self.value.as_str()
+        }
+    }
+}
 
 #[allow(dead_code)]
 pub struct TimestampOverlay {

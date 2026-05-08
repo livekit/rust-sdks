@@ -24,7 +24,7 @@ use std::{
 mod timestamp_burn;
 mod viewport_aspect;
 
-use timestamp_burn::{format_timestamp_us, TextBurner};
+use timestamp_burn::{format_timestamp_us, LatencyDisplay, TextBurner, METRICS_OVERLAY_SCALE};
 use viewport_aspect::AspectConstrainedViewport;
 
 async fn wait_for_shutdown(flag: Arc<AtomicBool>) {
@@ -91,6 +91,7 @@ struct SharedYuv {
 #[derive(Clone, Copy, Debug)]
 struct GpuDoneSample {
     frame_id: Option<u32>,
+    capture_timestamp_us: Option<u64>,
     cpu_received_us: u64,
     gpu_done_us: u64,
 }
@@ -99,6 +100,7 @@ struct GpuDoneSample {
 #[derive(Clone, Copy, Debug)]
 struct PendingGpuSample {
     frame_id: Option<u32>,
+    capture_timestamp_us: Option<u64>,
     cpu_received_us: u64,
 }
 
@@ -249,6 +251,7 @@ fn build_burned_stats_lines(
     publish_us: Option<u64>,
     receive_us: u64,
     prev_render: Option<GpuDoneSample>,
+    prev_latency_display: &str,
 ) -> Vec<String> {
     let mut lines = vec![
         burned_stats_line("FRAME ID:", frame_id_label(frame_id)),
@@ -258,17 +261,19 @@ fn build_burned_stats_lines(
 
     if let Some(sample) = prev_render {
         lines.push(burned_stats_line("PREV FRAME ID:", frame_id_label(sample.frame_id)));
+        lines.push(burned_stats_line(
+            "PREV CAPT:",
+            format_optional_timestamp_us(sample.capture_timestamp_us),
+        ));
         lines.push(burned_stats_line("PREV RECV:", format_timestamp_us(sample.cpu_received_us)));
         lines.push(burned_stats_line("PREV RENDER:", format_timestamp_us(sample.gpu_done_us)));
-        lines.push(burned_stats_line(
-            "PREV LATENCY:",
-            format_us_delta_ms(sample.gpu_done_us, sample.cpu_received_us),
-        ));
+        lines.push(burned_stats_line("PREV LATENCY:", prev_latency_display));
     } else {
         lines.push(burned_stats_line("PREV FRAME ID:", "NA"));
+        lines.push(burned_stats_line("PREV CAPT:", "NA"));
         lines.push(burned_stats_line("PREV RECV:", "NA"));
         lines.push(burned_stats_line("PREV RENDER:", "NA"));
-        lines.push(burned_stats_line("PREV LATENCY:", "NA"));
+        lines.push(burned_stats_line("PREV LATENCY:", prev_latency_display));
     }
 
     lines
@@ -377,6 +382,7 @@ async fn handle_track_subscribed(
         let mut v_buf: Vec<u8> = Vec::new();
         let mut stats_burner: Option<TextBurner> = None;
         let mut stats_burner_dims = (0, 0);
+        let mut latency_display = LatencyDisplay::default();
         loop {
             if ctrl_c_sink.load(Ordering::Acquire) {
                 break;
@@ -433,17 +439,27 @@ async fn handle_track_subscribed(
 
             if display_timestamp {
                 if stats_burner_dims != (width, height) {
-                    stats_burner = Some(TextBurner::new_top_left(width, height, 2));
+                    stats_burner =
+                        Some(TextBurner::new_top_left(width, height, METRICS_OVERLAY_SCALE));
                     stats_burner_dims = (width, height);
                 }
                 if let Some(burner) = stats_burner.as_ref() {
                     let frame_id = frame.frame_metadata.and_then(|m| m.frame_id);
                     let publish_us = frame.frame_metadata.and_then(|m| m.user_timestamp);
+                    let prev_latency_display = latency_display.value(
+                        Instant::now(),
+                        previous_gpu_done.and_then(|sample| {
+                            sample.capture_timestamp_us.map(|capture_us| {
+                                format_us_delta_ms(sample.gpu_done_us, capture_us)
+                            })
+                        }),
+                    );
                     let lines = build_burned_stats_lines(
                         frame_id,
                         publish_us,
                         received_at_us,
                         previous_gpu_done,
+                        prev_latency_display,
                     );
                     let line_refs = lines.iter().map(String::as_str).collect::<Vec<_>>();
                     burner.draw_lines(&mut y_buf, y_bytes_per_row as usize, &line_refs);
@@ -1152,7 +1168,9 @@ impl CallbackTrait for YuvPaintCallback {
             shared.dirty = false;
             if let Some(cpu_received_us) = shared.received_at_us {
                 let frame_id = shared.frame_metadata.and_then(|m| m.frame_id);
-                gpu_sample_in_flight = Some(PendingGpuSample { frame_id, cpu_received_us });
+                let capture_timestamp_us = shared.frame_metadata.and_then(|m| m.user_timestamp);
+                gpu_sample_in_flight =
+                    Some(PendingGpuSample { frame_id, capture_timestamp_us, cpu_received_us });
             }
             true
         } else {
@@ -1284,6 +1302,7 @@ impl CallbackTrait for YuvPaintCallback {
                 let mut s = shared_for_cb.lock();
                 s.gpu_done = Some(GpuDoneSample {
                     frame_id: sample.frame_id,
+                    capture_timestamp_us: sample.capture_timestamp_us,
                     cpu_received_us: sample.cpu_received_us,
                     gpu_done_us,
                 });
