@@ -72,20 +72,51 @@ impl RoomClient {
         name: &str,
         options: CreateRoomOptions,
     ) -> ServiceResult<proto::Room> {
+        self.create_room_request(proto::CreateRoomRequest {
+            name: name.to_owned(),
+            empty_timeout: options.empty_timeout,
+            departure_timeout: options.departure_timeout,
+            max_participants: options.max_participants,
+            node_id: options.node_id,
+            metadata: options.metadata,
+            egress: options.egress,
+            ..Default::default()
+        })
+        .await
+    }
+
+    /// Create a room with an explicit subscriber playout delay.
+    pub async fn create_room_with_playout_delay(
+        &self,
+        name: &str,
+        options: CreateRoomOptions,
+        min_playout_delay: u32,
+        max_playout_delay: u32,
+    ) -> ServiceResult<proto::Room> {
+        self.create_room_request(proto::CreateRoomRequest {
+            name: name.to_owned(),
+            empty_timeout: options.empty_timeout,
+            departure_timeout: options.departure_timeout,
+            max_participants: options.max_participants,
+            node_id: options.node_id,
+            metadata: options.metadata,
+            egress: options.egress,
+            min_playout_delay,
+            max_playout_delay,
+            ..Default::default()
+        })
+        .await
+    }
+
+    async fn create_room_request(
+        &self,
+        request: proto::CreateRoomRequest,
+    ) -> ServiceResult<proto::Room> {
         self.client
             .request(
                 SVC,
                 "CreateRoom",
-                proto::CreateRoomRequest {
-                    name: name.to_owned(),
-                    empty_timeout: options.empty_timeout,
-                    departure_timeout: options.departure_timeout,
-                    max_participants: options.max_participants,
-                    node_id: options.node_id,
-                    metadata: options.metadata,
-                    egress: options.egress,
-                    ..Default::default()
-                },
+                request,
                 self.base
                     .auth_header(VideoGrants { room_create: true, ..Default::default() }, None)?,
             )

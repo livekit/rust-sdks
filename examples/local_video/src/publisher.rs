@@ -10,6 +10,8 @@ use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoR
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
+use livekit_api::services::room::{CreateRoomOptions, RoomClient};
+use livekit_api::services::{ServiceError, TwirpError, TwirpErrorCode};
 use log::{debug, info};
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
@@ -78,6 +80,14 @@ struct Args {
     #[arg(long, default_value = "video-room")]
     room_name: String,
 
+    /// Minimum subscriber playout delay in milliseconds; recreates the room when set
+    #[arg(long)]
+    min_playout_delay: Option<u32>,
+
+    /// Maximum subscriber playout delay in milliseconds; recreates the room when set
+    #[arg(long)]
+    max_playout_delay: Option<u32>,
+
     /// LiveKit server URL
     #[arg(long)]
     url: Option<String>,
@@ -121,6 +131,14 @@ struct Args {
 
 fn unix_time_us_now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_micros() as u64
+}
+
+fn is_twirp_not_found(err: &ServiceError) -> bool {
+    matches!(
+        err,
+        ServiceError::Twirp(TwirpError::Twirp(code))
+            if code.code == TwirpErrorCode::NOT_FOUND
+    )
 }
 
 /// Format the us delta as a millisecond string like `"12.3ms"`.
@@ -280,6 +298,29 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         .api_secret
         .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
         .expect("LIVEKIT_API_SECRET must be provided via --api-secret or env");
+
+    if args.min_playout_delay.is_some() || args.max_playout_delay.is_some() {
+        let room_client = RoomClient::with_api_key(&url, &api_key, &api_secret);
+        info!(
+            "Recreating room '{}' with playout delay min={:?} max={:?} ms",
+            args.room_name, args.min_playout_delay, args.max_playout_delay
+        );
+        match room_client.delete_room(&args.room_name).await {
+            Ok(()) => info!("Deleted existing room '{}'", args.room_name),
+            Err(err) if is_twirp_not_found(&err) => {
+                debug!("Room '{}' did not exist before recreation", args.room_name);
+            }
+            Err(err) => return Err(err.into()),
+        }
+        room_client
+            .create_room_with_playout_delay(
+                &args.room_name,
+                CreateRoomOptions::default(),
+                args.min_playout_delay.unwrap_or_default(),
+                args.max_playout_delay.unwrap_or_default(),
+            )
+            .await?;
+    }
 
     let token = access_token::AccessToken::with_api_key(&api_key, &api_secret)
         .with_identity(&args.identity)
