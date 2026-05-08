@@ -626,6 +626,7 @@ const AudioDeviceInfo = /*@__PURE__*/ proto2.makeMessageType(
   () => [
     { no: 1, name: "index", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
     { no: 2, name: "name", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 3, name: "guid", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
   ],
 );
 
@@ -712,7 +713,7 @@ const GetAudioDevicesResponse = /*@__PURE__*/ proto2.makeMessageType(
  * Set the recording device (microphone).
  *
  * Call this before creating audio tracks to select which microphone to use.
- * Device indices are 0-based and must be less than the recording device count.
+ * Prefer using GUID over index for robust device selection across hot-plug events.
  *
  * @generated from message livekit.proto.SetRecordingDeviceRequest
  */
@@ -720,7 +721,8 @@ const SetRecordingDeviceRequest = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.SetRecordingDeviceRequest",
   () => [
     { no: 1, name: "platform_audio_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
-    { no: 2, name: "index", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 2, name: "index", kind: "scalar", T: 13 /* ScalarType.UINT32 */, oneof: "device" },
+    { no: 3, name: "guid", kind: "scalar", T: 9 /* ScalarType.STRING */, oneof: "device" },
   ],
 );
 
@@ -738,7 +740,7 @@ const SetRecordingDeviceResponse = /*@__PURE__*/ proto2.makeMessageType(
  * Set the playout device (speaker/headphones).
  *
  * Call this before connecting to select which speaker to use for audio output.
- * Device indices are 0-based and must be less than the playout device count.
+ * Prefer using GUID over index for robust device selection across hot-plug events.
  *
  * @generated from message livekit.proto.SetPlayoutDeviceRequest
  */
@@ -746,7 +748,8 @@ const SetPlayoutDeviceRequest = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.SetPlayoutDeviceRequest",
   () => [
     { no: 1, name: "platform_audio_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
-    { no: 2, name: "index", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 2, name: "index", kind: "scalar", T: 13 /* ScalarType.UINT32 */, oneof: "device" },
+    { no: 3, name: "guid", kind: "scalar", T: 9 /* ScalarType.STRING */, oneof: "device" },
   ],
 );
 

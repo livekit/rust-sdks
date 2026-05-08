@@ -1651,7 +1651,7 @@ export declare class LoadAudioFilterPluginResponse extends Message<LoadAudioFilt
  */
 export declare class AudioDeviceInfo extends Message<AudioDeviceInfo> {
   /**
-   * Device index (0-based).
+   * Device index (0-based). Note: indices can change when devices are added/removed.
    *
    * @generated from field: required uint32 index = 1;
    */
@@ -1663,6 +1663,18 @@ export declare class AudioDeviceInfo extends Message<AudioDeviceInfo> {
    * @generated from field: required string name = 2;
    */
   name?: string;
+
+  /**
+   * Platform-specific unique device identifier (GUID).
+   * This is stable across device additions/removals and should be preferred
+   * over index for device selection. Format varies by platform:
+   * - Windows: Device interface path
+   * - macOS: AudioObjectID as string
+   * - Linux: ALSA/PulseAudio device identifier
+   *
+   * @generated from field: optional string guid = 3;
+   */
+  guid?: string;
 
   constructor(data?: PartialMessage<AudioDeviceInfo>);
 
@@ -1886,7 +1898,7 @@ export declare class GetAudioDevicesResponse extends Message<GetAudioDevicesResp
  * Set the recording device (microphone).
  *
  * Call this before creating audio tracks to select which microphone to use.
- * Device indices are 0-based and must be less than the recording device count.
+ * Prefer using GUID over index for robust device selection across hot-plug events.
  *
  * @generated from message livekit.proto.SetRecordingDeviceRequest
  */
@@ -1899,11 +1911,27 @@ export declare class SetRecordingDeviceRequest extends Message<SetRecordingDevic
   platformAudioHandle?: bigint;
 
   /**
-   * Device index from GetAudioDevicesResponse.recording_devices.
+   * Device selection - use one of:
    *
-   * @generated from field: required uint32 index = 2;
+   * @generated from oneof livekit.proto.SetRecordingDeviceRequest.device
    */
-  index?: number;
+  device: {
+    /**
+     * Device index (0-based). Note: indices can change when devices are added/removed.
+     *
+     * @generated from field: uint32 index = 2;
+     */
+    value: number;
+    case: "index";
+  } | {
+    /**
+     * Device GUID from AudioDeviceInfo.guid (preferred - stable across device changes).
+     *
+     * @generated from field: string guid = 3;
+     */
+    value: string;
+    case: "guid";
+  } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<SetRecordingDeviceRequest>);
 
@@ -1927,6 +1955,7 @@ export declare class SetRecordingDeviceResponse extends Message<SetRecordingDevi
   /**
    * Error message if the operation failed:
    * - "Invalid device index" if index >= recording device count
+   * - "Device not found" if GUID doesn't match any device
    * - Other platform-specific errors
    * Empty/absent on success.
    *
@@ -1953,7 +1982,7 @@ export declare class SetRecordingDeviceResponse extends Message<SetRecordingDevi
  * Set the playout device (speaker/headphones).
  *
  * Call this before connecting to select which speaker to use for audio output.
- * Device indices are 0-based and must be less than the playout device count.
+ * Prefer using GUID over index for robust device selection across hot-plug events.
  *
  * @generated from message livekit.proto.SetPlayoutDeviceRequest
  */
@@ -1966,11 +1995,27 @@ export declare class SetPlayoutDeviceRequest extends Message<SetPlayoutDeviceReq
   platformAudioHandle?: bigint;
 
   /**
-   * Device index from GetAudioDevicesResponse.playout_devices.
+   * Device selection - use one of:
    *
-   * @generated from field: required uint32 index = 2;
+   * @generated from oneof livekit.proto.SetPlayoutDeviceRequest.device
    */
-  index?: number;
+  device: {
+    /**
+     * Device index (0-based). Note: indices can change when devices are added/removed.
+     *
+     * @generated from field: uint32 index = 2;
+     */
+    value: number;
+    case: "index";
+  } | {
+    /**
+     * Device GUID from AudioDeviceInfo.guid (preferred - stable across device changes).
+     *
+     * @generated from field: string guid = 3;
+     */
+    value: string;
+    case: "guid";
+  } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<SetPlayoutDeviceRequest>);
 
@@ -1994,6 +2039,7 @@ export declare class SetPlayoutDeviceResponse extends Message<SetPlayoutDeviceRe
   /**
    * Error message if the operation failed:
    * - "Invalid device index" if index >= playout device count
+   * - "Device not found" if GUID doesn't match any device
    * - Other platform-specific errors
    * Empty/absent on success.
    *
