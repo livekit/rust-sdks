@@ -11,6 +11,7 @@ const MARGIN: usize = 8;
 const BG_LUMA: u8 = 16;
 const FG_LUMA: u8 = 235;
 const LATENCY_DISPLAY_UPDATE_INTERVAL: Duration = Duration::from_millis(500);
+const LATENCY_DISPLAY_STALE_AFTER: Duration = Duration::from_secs(2);
 
 /// Text scale used for burned-in timing metrics overlays.
 #[allow(dead_code)]
@@ -31,9 +32,16 @@ impl LatencyDisplay {
             None => true,
         };
 
-        if should_update {
-            self.value = latest_value.unwrap_or_else(|| "NA".to_string());
-            self.last_update = Some(now);
+        if let Some(latest_value) = latest_value {
+            if should_update {
+                self.value = latest_value;
+                self.last_update = Some(now);
+            }
+        } else if self.last_update.is_some_and(|last_update| {
+            now.duration_since(last_update) >= LATENCY_DISPLAY_STALE_AFTER
+        }) {
+            self.value.clear();
+            self.last_update = None;
         }
 
         if self.value.is_empty() {
@@ -41,6 +49,43 @@ impl LatencyDisplay {
         } else {
             self.value.as_str()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn latency_display_starts_as_na_without_sample() {
+        let mut display = LatencyDisplay::default();
+
+        assert_eq!("NA", display.value(Instant::now(), None));
+    }
+
+    #[test]
+    fn latency_display_keeps_last_value_through_transient_missing_sample() {
+        let mut display = LatencyDisplay::default();
+        let now = Instant::now();
+
+        assert_eq!("12.3MS", display.value(now, Some("12.3MS".to_string())));
+        assert_eq!("12.3MS", display.value(now + LATENCY_DISPLAY_UPDATE_INTERVAL, None));
+        assert_eq!(
+            "13.4MS",
+            display.value(
+                now + LATENCY_DISPLAY_UPDATE_INTERVAL + Duration::from_millis(1),
+                Some("13.4MS".to_string())
+            )
+        );
+    }
+
+    #[test]
+    fn latency_display_returns_to_na_after_stale_missing_samples() {
+        let mut display = LatencyDisplay::default();
+        let now = Instant::now();
+
+        assert_eq!("12.3MS", display.value(now, Some("12.3MS".to_string())));
+        assert_eq!("NA", display.value(now + LATENCY_DISPLAY_STALE_AFTER, None));
     }
 }
 
