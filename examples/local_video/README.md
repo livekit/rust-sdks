@@ -30,6 +30,38 @@ Publisher usage:
    --url https://your.livekit.server \
    --api-key YOUR_KEY \
    --api-secret YOUR_SECRET
+
+ # publish with a user timestamp attached to every frame
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --room-name demo \
+   --identity cam-1 \
+   --attach-timestamp
+
+ # publish with timestamp burned into the video and a frame ID in the packet trailer
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --room-name demo \
+   --identity cam-1 \
+   --attach-timestamp \
+   --burn-timestamp \
+   --attach-frame-id
+
+ # publish at a custom resolution and framerate
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --width 1920 \
+   --height 1080 \
+   --fps 60 \
+   --room-name demo \
+   --identity cam-1
+
+ # publish with end-to-end encryption
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --room-name demo \
+   --identity cam-1 \
+   --e2ee-key my-secret-key
 ```
 
 List devices usage:
@@ -38,9 +70,17 @@ List devices usage:
 ```
 
 Publisher flags (in addition to the common connection flags above):
+- `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
+- `--width <px>`: Desired capture width (default: `1280`).
+- `--height <px>`: Desired capture height (default: `720`).
+- `--fps <n>`: Desired capture framerate (default: `30`).
 - `--h265`: Use H.265/HEVC encoding if supported (falls back to H.264 on failure).
 - `--simulcast`: Publish simulcast video (multiple layers when the resolution is large enough).
 - `--max-bitrate <bps>`: Max video bitrate for the main (highest) layer in bits per second (e.g. `1500000`).
+- `--attach-timestamp`: Attach the current wall-clock time (microseconds since UNIX epoch) as the user timestamp on each published frame. The subscriber can display this to measure end-to-end latency.
+- `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set.
+- `--attach-frame-id`: Attach a monotonically increasing frame ID to each published frame via the packet trailer. The subscriber displays this in the timestamp overlay when `--display-timestamp` is used.
+- `--e2ee-key <key>`: Enable end-to-end encryption with the given shared key. The subscriber must use the same key to decrypt.
 
 Subscriber usage:
 ```
@@ -55,13 +95,31 @@ Subscriber usage:
    --api-key YOUR_KEY \
    --api-secret YOUR_SECRET
 
-  # subscribe to a specific participant's video only
-  cargo run -p local_video -F desktop --bin subscriber -- \
-    --room-name demo \
-    --identity viewer-1 \
-    --participant alice
+ # subscribe to a specific participant's video only
+ cargo run -p local_video -F desktop --bin subscriber -- \
+   --room-name demo \
+   --identity viewer-1 \
+   --participant alice
+
+ # display timestamp overlay (requires publisher to use --attach-timestamp)
+ cargo run -p local_video -F desktop --bin subscriber -- \
+   --room-name demo \
+   --identity viewer-1 \
+   --display-timestamp
+
+ # subscribe with end-to-end encryption (must match publisher's key)
+ cargo run -p local_video -F desktop --bin subscriber -- \
+   --room-name demo \
+   --identity viewer-1 \
+   --e2ee-key my-secret-key
 ```
 
+Subscriber flags (in addition to the common connection flags above):
+- `--participant <identity>`: Only subscribe to video tracks from the specified participant.
+- `--display-timestamp`: Show a top-left overlay with frame ID, the publisher's timestamp, the subscriber's current time, and the computed end-to-end latency. Timestamp fields require the publisher to use `--attach-timestamp`; frame ID requires `--attach-frame-id`.
+- `--e2ee-key <key>`: Enable end-to-end decryption with the given shared key. Must match the key used by the publisher.
+
 Notes:
-- `--participant` limits subscription to video tracks from the specified participant identity.
 - If the active video track is unsubscribed or unpublished, the app clears its state and will automatically attach to the next matching video track when it appears.
+- For E2EE to work, both publisher and subscriber must specify the same `--e2ee-key` value. If the keys don't match, the subscriber will not be able to decode the video.
+- The timestamp overlay updates at ~2 Hz so the latency value is readable rather than flickering every frame.

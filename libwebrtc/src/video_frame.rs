@@ -52,6 +52,18 @@ pub enum VideoBufferType {
     NV12,
 }
 
+/// Metadata carried alongside a video frame via the packet trailer mechanism.
+///
+/// Each field corresponds to an independently negotiable packet trailer feature
+/// (`PTF_USER_TIMESTAMP`, `PTF_FRAME_ID`), so individual fields are `Option`.
+#[derive(Debug, Clone, Copy)]
+pub struct FrameMetadata {
+    /// Wall-clock capture time in microseconds, when `PTF_USER_TIMESTAMP` is enabled.
+    pub user_timestamp: Option<u64>,
+    /// Monotonically increasing frame identifier, when `PTF_FRAME_ID` is enabled.
+    pub frame_id: Option<u32>,
+}
+
 #[derive(Debug)]
 pub struct VideoFrame<T>
 where
@@ -59,7 +71,15 @@ where
 {
     pub rotation: VideoRotation,
     pub timestamp_us: i64, // When the frame was captured in microseconds
+    /// Packet-trailer metadata, if any trailer features are active.
+    pub frame_metadata: Option<FrameMetadata>,
     pub buffer: T,
+}
+
+impl<T: AsRef<dyn VideoBuffer>> VideoFrame<T> {
+    pub fn new(rotation: VideoRotation, buffer: T) -> Self {
+        Self { rotation, timestamp_us: 0, frame_metadata: None, buffer }
+    }
 }
 
 pub type BoxVideoBuffer = Box<dyn VideoBuffer>;

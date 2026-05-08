@@ -80,6 +80,17 @@ const AudioTrackFeature = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
+ * @generated from enum livekit.proto.PacketTrailerFeature
+ */
+const PacketTrailerFeature = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.PacketTrailerFeature",
+  [
+    {no: 0, name: "PTF_USER_TIMESTAMP"},
+    {no: 1, name: "PTF_FRAME_ID"},
+  ],
+);
+
+/**
  * Create a new VideoTrack from a VideoSource
  *
  * @generated from message livekit.proto.CreateVideoTrackRequest
@@ -184,6 +195,7 @@ const TrackPublicationInfo = /*@__PURE__*/ proto2.makeMessageType(
     { no: 10, name: "remote", kind: "scalar", T: 8 /* ScalarType.BOOL */, req: true },
     { no: 11, name: "encryption_type", kind: "enum", T: proto2.getEnumType(EncryptionType), req: true },
     { no: 12, name: "audio_features", kind: "enum", T: proto2.getEnumType(AudioTrackFeature), repeated: true },
+    { no: 13, name: "packet_trailer_features", kind: "enum", T: proto2.getEnumType(PacketTrailerFeature), repeated: true },
   ],
 );
 
@@ -307,6 +319,7 @@ exports.TrackKind = TrackKind;
 exports.TrackSource = TrackSource;
 exports.StreamState = StreamState;
 exports.AudioTrackFeature = AudioTrackFeature;
+exports.PacketTrailerFeature = PacketTrailerFeature;
 exports.CreateVideoTrackRequest = CreateVideoTrackRequest;
 exports.CreateVideoTrackResponse = CreateVideoTrackResponse;
 exports.CreateAudioTrackRequest = CreateAudioTrackRequest;

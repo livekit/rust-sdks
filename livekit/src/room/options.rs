@@ -69,6 +69,33 @@ pub struct AudioPreset {
     pub encoding: AudioEncoding,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PacketTrailerFeatures {
+    pub user_timestamp: bool,
+    pub frame_id: bool,
+}
+
+impl PacketTrailerFeatures {
+    pub(crate) fn is_empty(&self) -> bool {
+        !self.user_timestamp && !self.frame_id
+    }
+
+    pub(crate) fn to_proto(&self) -> Vec<proto::PacketTrailerFeature> {
+        let mut features = Vec::new();
+
+        if self.user_timestamp {
+            features.push(proto::PacketTrailerFeature::PtfUserTimestamp);
+        }
+
+        if self.frame_id {
+            features.push(proto::PacketTrailerFeature::PtfFrameId);
+        }
+
+        features
+    }
+}
+
 impl AudioPreset {
     pub const fn new(max_bitrate: u64) -> Self {
         Self { encoding: AudioEncoding { max_bitrate } }
@@ -84,10 +111,14 @@ pub struct TrackPublishOptions {
     pub dtx: bool,
     pub red: bool,
     pub simulcast: bool,
+    /// Custom simulcast layer presets (low, mid). When set, these override the
+    /// SDK's built-in defaults which reduce fps on lower layers.
+    pub simulcast_layers: Option<Vec<VideoPreset>>,
     // pub name: String,
     pub source: TrackSource,
     pub stream: String,
     pub preconnect_buffer: bool,
+    pub packet_trailer_features: PacketTrailerFeatures,
 }
 
 impl Default for TrackPublishOptions {
@@ -99,9 +130,11 @@ impl Default for TrackPublishOptions {
             dtx: true,
             red: true,
             simulcast: true,
+            simulcast_layers: None,
             source: TrackSource::Unknown,
             stream: "".to_string(),
             preconnect_buffer: false,
+            packet_trailer_features: PacketTrailerFeatures::default(),
         }
     }
 }
@@ -147,7 +180,10 @@ pub fn compute_video_encodings(
         return into_rtp_encodings(width, height, &[initial_preset]);
     }
 
-    let mut simulcast_presets = compute_default_simulcast_presets(screenshare, &initial_preset);
+    let mut simulcast_presets = match options.simulcast_layers {
+        Some(ref custom) => custom.clone(),
+        None => compute_default_simulcast_presets(screenshare, &initial_preset),
+    };
 
     let mid_preset = simulcast_presets.pop();
     let low_preset = simulcast_presets.pop();

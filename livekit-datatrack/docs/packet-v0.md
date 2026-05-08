@@ -49,7 +49,7 @@ packet
 | Final Flag (F) | 1 | If set, this is the final packet in a frame. |
 | Extension Flag (X) | 1 | If set, extensions follow the base header. See format details below. |
 | Reserved | 10 | Reserved for future use. |
-| Track Handle | 16 |  Unique identifier of the track the frame belongs to, assigned during signaling. Zero is not a valid track identifier. |
+| Track Handle | 16 | Unique identifier of the track the frame belongs to, assigned during signaling. Zero is not a valid track identifier. |
 | Sequence Number | 16 | Incremented by the publisher for each packet sent, used to detect missing/out-of-order packets. |
 | Frame Number | 16 | The frame this packet belongs to. |
 | Timestamp | 32 | Equivalent to RTP media timestamp, uses a clock rate of 90K ticks per second. |
@@ -63,7 +63,7 @@ packet
 
 If the extension flag in the base header is set, one or more extensions will follow. The format is a variant of [RFC 5285 §4.3](https://datatracker.ietf.org/doc/html/rfc5285#section-4.3) with two notable differences:
 
-1. There is no fixed-bit pattern following the base header. Instead, it is immediately followed by 16-bit integer indicating total length of all header extensions and padding expressed in number of 32-bit words (i.e., 1 word = 4 bytes) minus one.
+1. There is no fixed-bit pattern following the base header. Instead, it is immediately followed by a 16-bit length field $L$. This field, the extensions, and any padding together occupy $(L + 1) \times 4$ bytes.
 
 2. Available extensions and their format are defined by this specification rather than out-of-band. The following extensions are currently defined:
 
@@ -100,26 +100,26 @@ packet
 +16: "Extension Words (7)"
 
 %% E2EE extension
-+8: "ID (2)"
++8: "ID (1)"
 +8: "Length (13)"
 +8: "Key Index"
 +96: "IV"
 
 %% User timestamp extension
-+8: "ID (1)"
++8: "ID (2)"
 +8: "Length (8)"
 +64: "User Timestamp"
 
-+24: "Padding (0)"
++8: "Padding (0)"
 
 %% Payload
 + 32: "Payload"
 ```
 
-- 46 bytes total
-  - Header: 42 bytes
+- 44 bytes total
+  - Header: 40 bytes
   - Payload: 4 bytes
-- Note the padding between the two extensions. This is required per [RFC 5285](https://datatracker.ietf.org/doc/html/rfc5285#section-4.3) to ensure the extension block is word aligned. This example shows it placed between the two extensions, but it is allowed before or after any extension.
+- Note the trailing padding byte. This is required per [RFC 5285](https://datatracker.ietf.org/doc/html/rfc5285#section-4.3) to ensure the extension block (including the 2-byte length field) is word aligned. The example places it after the last extension, but it is allowed before or after any extension.
 
 ## Length calculations
 

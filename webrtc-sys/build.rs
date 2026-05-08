@@ -61,6 +61,7 @@ fn main() {
         "src/prohibit_libsrtp_initialization.rs",
         "src/apm.rs",
         "src/audio_mixer.rs",
+        "src/packet_trailer.rs",
     ];
 
     if is_desktop {
@@ -96,6 +97,7 @@ fn main() {
         "src/prohibit_libsrtp_initialization.cpp",
         "src/apm.cpp",
         "src/audio_mixer.cpp",
+        "src/packet_trailer.cpp",
     ]);
 
     if is_desktop {

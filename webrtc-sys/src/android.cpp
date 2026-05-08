@@ -18,6 +18,7 @@
 
 #include <jni.h>
 #include <stdio.h>
+#include <unistd.h>
 #include <memory>
 
 #include "api/video_codecs/video_decoder_factory.h"
@@ -27,14 +28,16 @@
 #include "sdk/android/native_api/jni/scoped_java_ref.h"
 #include "sdk/android/src/jni/jni_helpers.h"
 
-// When we compiling the examples app on Android results in errors
-// indicating that the `stderr` and `stdout` symbols cannot be found; 
-// so we need to force hardcoding them to point to the system symbols.
+// When compiling the examples app on Android, the linker complains that
+// `stdout` and `stderr` symbols cannot be found. The previous workaround
+// referenced `__sF`, but that symbol was removed in NDK 28+.
+// Use POSIX `fdopen()` with the standard file descriptors instead — works
+// across all NDK versions.
 #undef stdout
-FILE *stdout = &__sF[1];
+FILE *stdout = fdopen(STDOUT_FILENO, "w");
 
 #undef stderr
-FILE *stderr = &__sF[2];
+FILE *stderr = fdopen(STDERR_FILENO, "w");
 
 namespace livekit_ffi {
 

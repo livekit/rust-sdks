@@ -43,7 +43,7 @@ impl MediaStream {
         self.sys_handle
             .get_video_tracks()
             .into_iter()
-            .map(|t| video_track::RtcVideoTrack { handle: RtcVideoTrack { sys_handle: t.ptr } })
+            .map(|t| video_track::RtcVideoTrack { handle: RtcVideoTrack::new(t.ptr) })
             .collect()
     }
 }
