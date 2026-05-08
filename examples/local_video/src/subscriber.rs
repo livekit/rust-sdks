@@ -1,5 +1,4 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 use clap::Parser;
 use eframe::egui;
 use eframe::wgpu::{self, util::DeviceExt};
@@ -21,6 +20,10 @@ use std::{
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+mod timestamp_burn;
+
+use timestamp_burn::{format_timestamp_us, TextBurner};
 
 async fn wait_for_shutdown(flag: Arc<AtomicBool>) {
     while !flag.load(Ordering::Acquire) {
@@ -55,7 +58,7 @@ struct Args {
     #[arg(long)]
     participant: Option<String>,
 
-    /// Display user timestamp, current timestamp, and latency overlay
+    /// Burn frame timing and stats into each rendered video frame
     #[arg(long)]
     display_timestamp: bool,
 
@@ -79,8 +82,6 @@ struct SharedYuv {
     received_at_us: Option<u64>,
     /// Packet-trailer metadata from the most recent frame, if any.
     frame_metadata: Option<livekit::webrtc::video_frame::FrameMetadata>,
-    /// Whether the publisher advertised PTF_USER_TIMESTAMP in its track info.
-    has_user_timestamp: bool,
     /// Latest frame whose GPU submit has completed; lags CPU receive by ~1 display frame.
     gpu_done: Option<GpuDoneSample>,
 }
@@ -88,7 +89,6 @@ struct SharedYuv {
 #[derive(Clone, Copy, Debug)]
 struct GpuDoneSample {
     frame_id: Option<u32>,
-    publish_us: Option<u64>,
     cpu_received_us: u64,
     gpu_done_us: u64,
 }
@@ -97,7 +97,6 @@ struct GpuDoneSample {
 #[derive(Clone, Copy, Debug)]
 struct PendingGpuSample {
     frame_id: Option<u32>,
-    publish_us: Option<u64>,
     cpu_received_us: u64,
 }
 
@@ -212,30 +211,65 @@ fn current_timestamp_us() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_micros() as u64
 }
 
-/// Format a user timestamp (microseconds since Unix epoch) as
-/// `yyyy-mm-dd hh:mm:ss:xxx` where xxx is milliseconds.
-fn format_timestamp_us(ts_us: u64) -> String {
-    DateTime::<Utc>::from_timestamp_micros(ts_us as i64)
-        .map(|dt| {
-            dt.format("%Y-%m-%d %H:%M:%S:").to_string()
-                + &format!("{:03}", dt.timestamp_subsec_millis())
-        })
-        .unwrap_or_else(|| format!("<invalid timestamp {ts_us}>"))
-}
-
 fn format_optional_timestamp_us(ts_us: Option<u64>) -> String {
-    ts_us.map(format_timestamp_us).unwrap_or_else(|| "N/A".to_string())
+    ts_us.map(format_timestamp_us).unwrap_or_else(|| "NA".to_string())
 }
 
 /// Format the us delta as a millisecond string like `"12.3ms"`.
 fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
     let delta_us = later_us.saturating_sub(earlier_us);
-    format!("{:.1}ms", delta_us as f64 / 1_000.0)
+    format!("{:.1}MS", delta_us as f64 / 1_000.0)
 }
 
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
     let sc = state.lock();
     sc.full_dims
+}
+
+fn video_quality_label(q: livekit::track::VideoQuality) -> &'static str {
+    match q {
+        livekit::track::VideoQuality::Low => "LOW",
+        livekit::track::VideoQuality::Medium => "MED",
+        livekit::track::VideoQuality::High => "HIGH",
+    }
+}
+
+fn frame_id_label(frame_id: Option<u32>) -> String {
+    frame_id.map(|id| id.to_string()).unwrap_or_else(|| "NA".to_string())
+}
+
+fn burned_stats_line(label: &str, value: impl std::fmt::Display) -> String {
+    format!("{label:<17}{value}")
+}
+
+fn build_burned_stats_lines(
+    frame_id: Option<u32>,
+    publish_us: Option<u64>,
+    receive_us: u64,
+    prev_render: Option<GpuDoneSample>,
+) -> Vec<String> {
+    let mut lines = vec![
+        burned_stats_line("FRAME ID:", frame_id_label(frame_id)),
+        burned_stats_line("CAPT TIMESTAMP:", format_optional_timestamp_us(publish_us)),
+        burned_stats_line("RECV TIMESTAMP:", format_timestamp_us(receive_us)),
+    ];
+
+    if let Some(sample) = prev_render {
+        lines.push(burned_stats_line("PREV FRAME ID:", frame_id_label(sample.frame_id)));
+        lines.push(burned_stats_line("PREV RECV:", format_timestamp_us(sample.cpu_received_us)));
+        lines.push(burned_stats_line("PREV RENDER:", format_timestamp_us(sample.gpu_done_us)));
+        lines.push(burned_stats_line(
+            "PREV LATENCY:",
+            format_us_delta_ms(sample.gpu_done_us, sample.cpu_received_us),
+        ));
+    } else {
+        lines.push(burned_stats_line("PREV FRAME ID:", "NA"));
+        lines.push(burned_stats_line("PREV RECV:", "NA"));
+        lines.push(burned_stats_line("PREV RENDER:", "NA"));
+        lines.push(burned_stats_line("PREV LATENCY:", "NA"));
+    }
+
+    lines
 }
 
 async fn handle_track_subscribed(
@@ -247,6 +281,8 @@ async fn handle_track_subscribed(
     active_sid: &Arc<Mutex<Option<TrackSid>>>,
     ctrl_c_received: &Arc<AtomicBool>,
     simulcast: &Arc<Mutex<SimulcastState>>,
+    repaint_ctx: &Arc<Mutex<Option<egui::Context>>>,
+    display_timestamp: bool,
 ) {
     // If a participant filter is set, skip others
     if let Some(ref allow) = allowed_identity {
@@ -284,8 +320,6 @@ async fn handle_track_subscribed(
     {
         let mut s = shared.lock();
         s.codec = codec;
-        s.has_user_timestamp =
-            publication.packet_trailer_features().contains(&PacketTrailerFeature::PtfUserTimestamp);
     }
 
     info!(
@@ -307,6 +341,7 @@ async fn handle_track_subscribed(
     let active_sid2 = active_sid.clone();
     let my_sid = sid.clone();
     let ctrl_c_sink = ctrl_c_received.clone();
+    let repaint_ctx_sink = repaint_ctx.clone();
     // Initialize simulcast state for this publication
     {
         let mut sc = simulcast.lock();
@@ -329,6 +364,8 @@ async fn handle_track_subscribed(
         let mut y_buf: Vec<u8> = Vec::new();
         let mut u_buf: Vec<u8> = Vec::new();
         let mut v_buf: Vec<u8> = Vec::new();
+        let mut stats_burner: Option<TextBurner> = None;
+        let mut stats_burner_dims = (0, 0);
         loop {
             if ctrl_c_sink.load(Ordering::Acquire) {
                 break;
@@ -364,23 +401,7 @@ async fn handle_track_subscribed(
 
             // Swap buffers into shared state
             let mut s = shared2.lock();
-            s.width = width;
-            s.height = height;
-            s.y_bytes_per_row = y_bytes_per_row;
-            s.uv_bytes_per_row = uv_bytes_per_row;
-            std::mem::swap(&mut s.y, &mut y_buf);
-            std::mem::swap(&mut s.u, &mut u_buf);
-            std::mem::swap(&mut s.v, &mut v_buf);
-            s.dirty = true;
-            s.received_at_us = Some(received_at_us);
-
-            s.frame_metadata = frame.frame_metadata;
-
-            if !s.has_user_timestamp
-                && frame.frame_metadata.and_then(|m| m.user_timestamp).is_some()
-            {
-                s.has_user_timestamp = true;
-            }
+            let previous_gpu_done = s.gpu_done;
 
             // Update smoothed FPS (~500ms window)
             fps_window_frames += 1;
@@ -396,6 +417,44 @@ async fn handle_track_subscribed(
                 s.fps = fps_smoothed;
                 fps_window_frames = 0;
                 fps_window_start = Instant::now();
+            }
+            drop(s);
+
+            if display_timestamp {
+                if stats_burner_dims != (width, height) {
+                    stats_burner = Some(TextBurner::new_top_left(width, height, 2));
+                    stats_burner_dims = (width, height);
+                }
+                if let Some(burner) = stats_burner.as_ref() {
+                    let frame_id = frame.frame_metadata.and_then(|m| m.frame_id);
+                    let publish_us = frame.frame_metadata.and_then(|m| m.user_timestamp);
+                    let lines = build_burned_stats_lines(
+                        frame_id,
+                        publish_us,
+                        received_at_us,
+                        previous_gpu_done,
+                    );
+                    let line_refs = lines.iter().map(String::as_str).collect::<Vec<_>>();
+                    burner.draw_lines(&mut y_buf, y_bytes_per_row as usize, &line_refs);
+                }
+            }
+
+            let mut s = shared2.lock();
+            s.width = width;
+            s.height = height;
+            s.y_bytes_per_row = y_bytes_per_row;
+            s.uv_bytes_per_row = uv_bytes_per_row;
+            std::mem::swap(&mut s.y, &mut y_buf);
+            std::mem::swap(&mut s.u, &mut u_buf);
+            std::mem::swap(&mut s.v, &mut v_buf);
+            s.dirty = true;
+            s.received_at_us = Some(received_at_us);
+
+            s.frame_metadata = frame.frame_metadata;
+            drop(s);
+
+            if let Some(ctx) = repaint_ctx_sink.lock().as_ref() {
+                ctx.request_repaint();
             }
 
             frames += 1;
@@ -459,7 +518,6 @@ fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex
         s.fps = 0.0;
         s.received_at_us = None;
         s.frame_metadata = None;
-        s.has_user_timestamp = false;
         s.gpu_done = None;
     }
     let mut sc = simulcast.lock();
@@ -499,19 +557,14 @@ fn handle_track_unpublished(
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     simulcast: Arc<Mutex<SimulcastState>>,
+    repaint_ctx: Arc<Mutex<Option<egui::Context>>>,
     ctrl_c_received: Arc<AtomicBool>,
     locked_aspect: Option<f32>,
-    display_timestamp: bool,
-    /// Cached timestamp overlay text to avoid layout churn on every repaint.
-    last_timestamp_text: String,
-    /// Cached latency text, refreshed at 2 Hz for readability.
-    last_latency_text: String,
-    last_render_dur_text: String,
-    last_latency_refresh: Option<Instant>,
 }
 
 impl eframe::App for VideoApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        *self.repaint_ctx.lock() = Some(ctx.clone());
         if self.ctrl_c_received.load(Ordering::Acquire) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
@@ -557,7 +610,7 @@ impl eframe::App for VideoApp {
             );
         });
 
-        // Resolution/FPS overlay: top-right
+        // Non-timing video stats stay in egui so they don't become part of the frame timing record.
         egui::Area::new("video_hud".into())
             .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
             .interactable(false)
@@ -567,21 +620,17 @@ impl eframe::App for VideoApp {
                     return;
                 }
                 let mut text = format!("{} {}x{} {:.1}fps", s.codec, s.width, s.height, s.fps);
+                drop(s);
+
                 let sc = self.simulcast.lock();
                 if sc.available {
-                    let layer = sc
-                        .active_quality
-                        .map(|q| match q {
-                            livekit::track::VideoQuality::Low => "Low",
-                            livekit::track::VideoQuality::Medium => "Medium",
-                            livekit::track::VideoQuality::High => "High",
-                        })
-                        .unwrap_or("?");
+                    let layer = sc.active_quality.map(video_quality_label).unwrap_or("NA");
                     text.push_str(&format!("\nSimulcast: {}", layer));
                 } else {
                     text.push_str("\nSimulcast: off");
                 }
                 drop(sc);
+
                 egui::Frame::NONE
                     .fill(egui::Color32::from_black_alpha(140))
                     .corner_radius(egui::CornerRadius::same(4))
@@ -593,93 +642,6 @@ impl eframe::App for VideoApp {
                         );
                     });
             });
-
-        if self.display_timestamp {
-            let s = self.shared.lock();
-            let meta = s.frame_metadata;
-            let receive_us = s.received_at_us;
-            let has_user_timestamp = s.has_user_timestamp;
-            let gpu_done = s.gpu_done;
-            drop(s);
-
-            let publish_us = meta.and_then(|m| m.user_timestamp);
-            let frame_id = meta.and_then(|m| m.frame_id);
-
-            let matching_gpu_done = gpu_done.filter(|sample| match (sample.frame_id, frame_id) {
-                (Some(sample_id), Some(current_id)) => sample_id == current_id,
-                (None, None) => sample.publish_us == publish_us,
-                _ => false,
-            });
-            let hud_frame_id = frame_id;
-            let hud_publish_us = publish_us;
-            let hud_receive_us = matching_gpu_done.map(|g| g.cpu_received_us).or(receive_us);
-            let hud_gpu_done_us = matching_gpu_done.map(|g| g.gpu_done_us);
-
-            if hud_publish_us.is_some() || hud_frame_id.is_some() {
-                let frame_id_line = match hud_frame_id {
-                    Some(fid) => format!("Frame ID:    {}", fid),
-                    None => "Frame ID:    N/A".to_string(),
-                };
-                if has_user_timestamp {
-                    let should_refresh = self.last_latency_text.is_empty()
-                        || self
-                            .last_latency_refresh
-                            .map_or(true, |last| last.elapsed() >= Duration::from_millis(500));
-                    if should_refresh {
-                        self.last_latency_text = match (hud_publish_us, hud_gpu_done_us) {
-                            (Some(pub_ts), Some(gpu_ts)) => format_us_delta_ms(gpu_ts, pub_ts),
-                            (Some(pub_ts), None) => match hud_receive_us {
-                                Some(recv_ts) => format_us_delta_ms(recv_ts, pub_ts),
-                                None => "N/A".to_string(),
-                            },
-                            _ => "N/A".to_string(),
-                        };
-                        self.last_render_dur_text = match (hud_receive_us, hud_gpu_done_us) {
-                            (Some(recv_ts), Some(gpu_ts)) => format_us_delta_ms(gpu_ts, recv_ts),
-                            _ => "N/A".to_string(),
-                        };
-                        self.last_latency_refresh = Some(Instant::now());
-                    }
-                    let gpu_done_line = match hud_gpu_done_us {
-                        Some(ts) => format!("Render:      {}", format_timestamp_us(ts)),
-                        None => "Render:      N/A".to_string(),
-                    };
-                    self.last_timestamp_text = format!(
-                        "{}\nSensor:      {}\nReceive:     {}\n{}\nRender dur:  {}\nE2E Latency: {}",
-                        frame_id_line,
-                        format_optional_timestamp_us(hud_publish_us),
-                        format_optional_timestamp_us(hud_receive_us),
-                        gpu_done_line,
-                        self.last_render_dur_text,
-                        self.last_latency_text,
-                    );
-                } else {
-                    self.last_timestamp_text = frame_id_line;
-                }
-            }
-
-            if !self.last_timestamp_text.is_empty() {
-                egui::Area::new("timestamp_hud".into())
-                    .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
-                    .interactable(false)
-                    .show(ctx, |ui| {
-                        egui::Frame::NONE
-                            .fill(egui::Color32::from_black_alpha(140))
-                            .corner_radius(egui::CornerRadius::same(4))
-                            .inner_margin(egui::Margin::same(6))
-                            .show(ui, |ui| {
-                                ui.add(
-                                    egui::Label::new(
-                                        egui::RichText::new(&self.last_timestamp_text)
-                                            .color(egui::Color32::WHITE)
-                                            .monospace(),
-                                    )
-                                    .extend(),
-                                );
-                            });
-                    });
-            }
-        }
 
         // Simulcast layer controls: bottom-left overlay
         egui::Area::new("simulcast_controls".into())
@@ -798,18 +760,20 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         dirty: false,
         received_at_us: None,
         frame_metadata: None,
-        has_user_timestamp: false,
         gpu_done: None,
     }));
 
     // Subscribe to room events: on first video track, start sink task
     let allowed_identity = args.participant.clone();
+    let display_timestamp = args.display_timestamp;
     let shared_clone = shared.clone();
     // Track currently active video track SID to handle unpublish/unsubscribe
     let active_sid = Arc::new(Mutex::new(None::<TrackSid>));
     // Shared simulcast UI/control state
     let simulcast = Arc::new(Mutex::new(SimulcastState::default()));
+    let repaint_ctx = Arc::new(Mutex::new(None::<egui::Context>));
     let simulcast_events = simulcast.clone();
+    let repaint_ctx_events = repaint_ctx.clone();
     let ctrl_c_events = ctrl_c_received.clone();
     tokio::spawn(async move {
         let active_sid = active_sid.clone();
@@ -829,6 +793,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         &active_sid,
                         &ctrl_c_events,
                         &simulcast,
+                        &repaint_ctx_events,
+                        display_timestamp,
                     )
                     .await;
                 }
@@ -847,13 +813,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let app = VideoApp {
         shared,
         simulcast,
+        repaint_ctx,
         ctrl_c_received: ctrl_c_received.clone(),
         locked_aspect: None,
-        display_timestamp: args.display_timestamp,
-        last_timestamp_text: String::new(),
-        last_latency_text: String::new(),
-        last_render_dur_text: String::new(),
-        last_latency_refresh: None,
     };
     let native_options = eframe::NativeOptions { vsync: false, ..Default::default() };
     eframe::run_native(
@@ -1181,9 +1143,7 @@ impl CallbackTrait for YuvPaintCallback {
             shared.dirty = false;
             if let Some(cpu_received_us) = shared.received_at_us {
                 let frame_id = shared.frame_metadata.and_then(|m| m.frame_id);
-                let publish_us = shared.frame_metadata.and_then(|m| m.user_timestamp);
-                gpu_sample_in_flight =
-                    Some(PendingGpuSample { frame_id, publish_us, cpu_received_us });
+                gpu_sample_in_flight = Some(PendingGpuSample { frame_id, cpu_received_us });
             }
             true
         } else {
@@ -1315,7 +1275,6 @@ impl CallbackTrait for YuvPaintCallback {
                 let mut s = shared_for_cb.lock();
                 s.gpu_done = Some(GpuDoneSample {
                     frame_id: sample.frame_id,
-                    publish_us: sample.publish_us,
                     cpu_received_us: sample.cpu_received_us,
                     gpu_done_us,
                 });

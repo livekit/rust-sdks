@@ -1,72 +1,24 @@
 use chrono::{DateTime, Datelike, Timelike, Utc};
 
-const TIMESTAMP_TEXT_LEN: usize = 23; // YYYY-MM-DD HH:MM:SS:SSS
-const TIMESTAMP_WITH_FRAME_ID_TEXT_LEN: usize = TIMESTAMP_TEXT_LEN + 1 + 10; // timestamp + space + u32
-const TIMESTAMP_GLYPH_COUNT: usize = 13; // 0-9, :, -, space
-const TIMESTAMP_GLYPH_WIDTH: usize = 5;
-const TIMESTAMP_GLYPH_HEIGHT: usize = 7;
-const TIMESTAMP_GLYPH_SCALE: usize = 4;
-const TIMESTAMP_GLYPH_SPACING: usize = 2;
-const TIMESTAMP_PADDING_X: usize = 4;
-const TIMESTAMP_PADDING_Y: usize = 4;
-const TIMESTAMP_MARGIN: usize = 8;
-const TIMESTAMP_BG_LUMA: u8 = 16;
-const TIMESTAMP_FG_LUMA: u8 = 235;
-const TIMESTAMP_RASTER_WIDTH: usize = TIMESTAMP_GLYPH_WIDTH * TIMESTAMP_GLYPH_SCALE;
-const TIMESTAMP_RASTER_HEIGHT: usize = TIMESTAMP_GLYPH_HEIGHT * TIMESTAMP_GLYPH_SCALE;
-const TIMESTAMP_GLYPH_COLON: u8 = 10;
-const TIMESTAMP_GLYPH_DASH: u8 = 11;
-const TIMESTAMP_GLYPH_SPACE: u8 = 12;
+const GLYPH_WIDTH: usize = 5;
+const GLYPH_HEIGHT: usize = 7;
+const GLYPH_SPACING: usize = 2;
+const LINE_SPACING: usize = 4;
+const PADDING_X: usize = 4;
+const PADDING_Y: usize = 4;
+const MARGIN: usize = 8;
+const BG_LUMA: u8 = 16;
+const FG_LUMA: u8 = 235;
 
-type TimestampGlyph = [[u8; TIMESTAMP_RASTER_WIDTH]; TIMESTAMP_RASTER_HEIGHT];
-
-const TIMESTAMP_GLYPH_PATTERNS: [[u8; TIMESTAMP_GLYPH_HEIGHT]; TIMESTAMP_GLYPH_COUNT] = [
-    [0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110], // 0
-    [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110], // 1
-    [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111], // 2
-    [0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110], // 3
-    [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010], // 4
-    [0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110], // 5
-    [0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110], // 6
-    [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000], // 7
-    [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110], // 8
-    [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110], // 9
-    [0b00000, 0b00000, 0b00100, 0b00000, 0b00100, 0b00000, 0b00000], // :
-    [0b00000, 0b00000, 0b00000, 0b01110, 0b00000, 0b00000, 0b00000], // -
-    [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b00000], // space
-];
-
+#[allow(dead_code)]
 pub struct TimestampOverlay {
-    glyphs: [TimestampGlyph; TIMESTAMP_GLYPH_COUNT],
-    glyph_ids: [u8; TIMESTAMP_WITH_FRAME_ID_TEXT_LEN],
-    frame_width: usize,
-    frame_height: usize,
-    box_x: usize,
-    box_y: usize,
-    box_height: usize,
-    text_x: usize,
-    text_y: usize,
+    text: TextBurner,
 }
 
+#[allow(dead_code)]
 impl TimestampOverlay {
     pub fn new(frame_width: u32, frame_height: u32) -> Self {
-        let box_height = TIMESTAMP_RASTER_HEIGHT + TIMESTAMP_PADDING_Y * 2;
-        let frame_width = frame_width as usize;
-        let frame_height = frame_height as usize;
-        let box_x = TIMESTAMP_MARGIN;
-        let box_y = frame_height.saturating_sub(TIMESTAMP_MARGIN + box_height);
-
-        Self {
-            glyphs: rasterize_timestamp_glyphs(),
-            glyph_ids: [0; TIMESTAMP_WITH_FRAME_ID_TEXT_LEN],
-            frame_width,
-            frame_height,
-            box_x,
-            box_y,
-            box_height,
-            text_x: box_x + TIMESTAMP_PADDING_X,
-            text_y: box_y + TIMESTAMP_PADDING_Y,
-        }
+        Self { text: TextBurner::new_bottom_left(frame_width, frame_height, 4) }
     }
 
     pub fn draw(
@@ -76,124 +28,193 @@ impl TimestampOverlay {
         timestamp_us: u64,
         frame_id: Option<u32>,
     ) {
-        let text_len = format_overlay_glyphs(timestamp_us, frame_id, &mut self.glyph_ids);
-        let text_width = text_len * TIMESTAMP_RASTER_WIDTH
-            + (text_len.saturating_sub(1)) * TIMESTAMP_GLYPH_SPACING;
-        let box_width = text_width + TIMESTAMP_PADDING_X * 2;
-
-        if self.frame_width < box_width + TIMESTAMP_MARGIN
-            || self.frame_height < self.box_height + TIMESTAMP_MARGIN
-        {
-            return;
+        let mut text = format_timestamp_us(timestamp_us);
+        if let Some(frame_id) = frame_id {
+            text.push(' ');
+            text.push_str(&frame_id.to_string());
         }
-
-        for row in 0..self.box_height {
-            let row_start = (self.box_y + row) * stride_y + self.box_x;
-            let row_end = row_start + box_width;
-            data_y[row_start..row_end].fill(TIMESTAMP_BG_LUMA);
-        }
-
-        for (glyph_pos, glyph_id) in self.glyph_ids[..text_len].iter().copied().enumerate() {
-            let glyph = &self.glyphs[glyph_id as usize];
-            let glyph_x =
-                self.text_x + glyph_pos * (TIMESTAMP_RASTER_WIDTH + TIMESTAMP_GLYPH_SPACING);
-            for (row, glyph_row) in glyph.iter().enumerate() {
-                let row_start = (self.text_y + row) * stride_y + glyph_x;
-                let row_end = row_start + TIMESTAMP_RASTER_WIDTH;
-                data_y[row_start..row_end].copy_from_slice(glyph_row);
-            }
-        }
+        self.text.draw_lines(data_y, stride_y, &[text.as_str()]);
     }
 }
 
-fn rasterize_timestamp_glyphs() -> [TimestampGlyph; TIMESTAMP_GLYPH_COUNT] {
-    let mut glyphs = [[[TIMESTAMP_BG_LUMA; TIMESTAMP_RASTER_WIDTH]; TIMESTAMP_RASTER_HEIGHT];
-        TIMESTAMP_GLYPH_COUNT];
+pub struct TextBurner {
+    frame_width: usize,
+    frame_height: usize,
+    x: usize,
+    y: usize,
+    scale: usize,
+    anchor: TextAnchor,
+}
 
-    for (glyph_idx, pattern) in TIMESTAMP_GLYPH_PATTERNS.iter().enumerate() {
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+enum TextAnchor {
+    TopLeft,
+    BottomLeft,
+}
+
+impl TextBurner {
+    pub fn new_top_left(frame_width: u32, frame_height: u32, scale: usize) -> Self {
+        Self::new(frame_width, frame_height, scale, TextAnchor::TopLeft)
+    }
+
+    fn new_bottom_left(frame_width: u32, frame_height: u32, scale: usize) -> Self {
+        Self::new(frame_width, frame_height, scale, TextAnchor::BottomLeft)
+    }
+
+    fn new(frame_width: u32, frame_height: u32, scale: usize, anchor: TextAnchor) -> Self {
+        Self {
+            frame_width: frame_width as usize,
+            frame_height: frame_height as usize,
+            x: MARGIN,
+            y: MARGIN,
+            scale: scale.max(1),
+            anchor,
+        }
+    }
+
+    pub fn draw_lines(&self, data_y: &mut [u8], stride_y: usize, lines: &[&str]) {
+        let Some((box_width, box_height)) = self.box_size(lines) else {
+            return;
+        };
+        if self.frame_width < self.x + box_width || self.frame_height < self.y + box_height {
+            return;
+        }
+
+        let box_x = self.x;
+        let box_y = match self.anchor {
+            TextAnchor::TopLeft => self.y,
+            TextAnchor::BottomLeft => self.frame_height.saturating_sub(self.y + box_height),
+        };
+
+        for row in 0..box_height {
+            let row_start = (box_y + row) * stride_y + box_x;
+            let row_end = row_start + box_width;
+            if row_end <= data_y.len() {
+                data_y[row_start..row_end].fill(BG_LUMA);
+            }
+        }
+
+        let text_x = box_x + PADDING_X;
+        let text_y = box_y + PADDING_Y;
+        let line_step = self.raster_height() + LINE_SPACING;
+        for (line_idx, line) in lines.iter().enumerate() {
+            self.draw_text(data_y, stride_y, text_x, text_y + line_idx * line_step, line);
+        }
+    }
+
+    fn box_size(&self, lines: &[&str]) -> Option<(usize, usize)> {
+        if lines.is_empty() {
+            return None;
+        }
+        let widest_line = lines.iter().map(|line| line.chars().count()).max().unwrap_or(0);
+        if widest_line == 0 {
+            return None;
+        }
+        let text_width = self.text_width(widest_line);
+        let text_height =
+            lines.len() * self.raster_height() + lines.len().saturating_sub(1) * LINE_SPACING;
+        Some((text_width + PADDING_X * 2, text_height + PADDING_Y * 2))
+    }
+
+    fn text_width(&self, chars: usize) -> usize {
+        chars * self.raster_width() + chars.saturating_sub(1) * GLYPH_SPACING
+    }
+
+    fn raster_width(&self) -> usize {
+        GLYPH_WIDTH * self.scale
+    }
+
+    fn raster_height(&self) -> usize {
+        GLYPH_HEIGHT * self.scale
+    }
+
+    fn draw_text(&self, data_y: &mut [u8], stride_y: usize, x: usize, y: usize, text: &str) {
+        for (glyph_idx, ch) in text.chars().enumerate() {
+            let glyph_x = x + glyph_idx * (self.raster_width() + GLYPH_SPACING);
+            self.draw_glyph(data_y, stride_y, glyph_x, y, ch);
+        }
+    }
+
+    fn draw_glyph(&self, data_y: &mut [u8], stride_y: usize, x: usize, y: usize, ch: char) {
+        let pattern = glyph_pattern(ch.to_ascii_uppercase());
         for (src_y, row_bits) in pattern.iter().copied().enumerate() {
-            for scale_y in 0..TIMESTAMP_GLYPH_SCALE {
-                let dst_row = &mut glyphs[glyph_idx][src_y * TIMESTAMP_GLYPH_SCALE + scale_y];
-                for src_x in 0..TIMESTAMP_GLYPH_WIDTH {
-                    let bit = 1 << (TIMESTAMP_GLYPH_WIDTH - 1 - src_x);
-                    if row_bits & bit != 0 {
-                        let dst_x = src_x * TIMESTAMP_GLYPH_SCALE;
-                        dst_row[dst_x..dst_x + TIMESTAMP_GLYPH_SCALE].fill(TIMESTAMP_FG_LUMA);
+            for scale_y in 0..self.scale {
+                let row_start = (y + src_y * self.scale + scale_y) * stride_y + x;
+                for src_x in 0..GLYPH_WIDTH {
+                    let bit = 1 << (GLYPH_WIDTH - 1 - src_x);
+                    let luma = if row_bits & bit != 0 { FG_LUMA } else { BG_LUMA };
+                    let dst_x = row_start + src_x * self.scale;
+                    let dst_end = dst_x + self.scale;
+                    if dst_end <= data_y.len() {
+                        data_y[dst_x..dst_end].fill(luma);
                     }
                 }
             }
         }
     }
-
-    glyphs
 }
 
-fn format_overlay_glyphs(
-    timestamp_us: u64,
-    frame_id: Option<u32>,
-    out: &mut [u8; TIMESTAMP_WITH_FRAME_ID_TEXT_LEN],
-) -> usize {
-    format_timestamp_glyphs(timestamp_us, &mut out[..TIMESTAMP_TEXT_LEN]);
-
-    let Some(frame_id) = frame_id else {
-        return TIMESTAMP_TEXT_LEN;
-    };
-
-    out[TIMESTAMP_TEXT_LEN] = TIMESTAMP_GLYPH_SPACE;
-    TIMESTAMP_TEXT_LEN + 1 + write_u32_decimal(&mut out[TIMESTAMP_TEXT_LEN + 1..], frame_id)
+pub fn format_timestamp_us(timestamp_us: u64) -> String {
+    DateTime::<Utc>::from_timestamp_micros(timestamp_us as i64)
+        .map(|dt| {
+            format!(
+                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}:{:03}",
+                dt.year_ce().1,
+                dt.month(),
+                dt.day(),
+                dt.hour(),
+                dt.minute(),
+                dt.second(),
+                dt.timestamp_subsec_millis()
+            )
+        })
+        .unwrap_or_else(|| format!("INVALID TIMESTAMP {timestamp_us}"))
 }
 
-fn format_timestamp_glyphs(timestamp_us: u64, out: &mut [u8]) {
-    let Some(dt) = DateTime::<Utc>::from_timestamp_micros(timestamp_us as i64) else {
-        out.fill(0);
-        return;
-    };
-
-    write_four_digits(&mut out[0..4], dt.year_ce().1);
-    out[4] = TIMESTAMP_GLYPH_DASH;
-    write_two_digits(&mut out[5..7], dt.month());
-    out[7] = TIMESTAMP_GLYPH_DASH;
-    write_two_digits(&mut out[8..10], dt.day());
-    out[10] = TIMESTAMP_GLYPH_SPACE;
-    write_two_digits(&mut out[11..13], dt.hour());
-    out[13] = TIMESTAMP_GLYPH_COLON;
-    write_two_digits(&mut out[14..16], dt.minute());
-    out[16] = TIMESTAMP_GLYPH_COLON;
-    write_two_digits(&mut out[17..19], dt.second());
-    out[19] = TIMESTAMP_GLYPH_COLON;
-    write_three_digits(&mut out[20..23], dt.timestamp_subsec_millis());
-}
-
-fn write_two_digits(dst: &mut [u8], value: u32) {
-    dst[0] = (value / 10) as u8;
-    dst[1] = (value % 10) as u8;
-}
-
-fn write_three_digits(dst: &mut [u8], value: u32) {
-    dst[0] = (value / 100) as u8;
-    dst[1] = ((value / 10) % 10) as u8;
-    dst[2] = (value % 10) as u8;
-}
-
-fn write_four_digits(dst: &mut [u8], value: u32) {
-    dst[0] = ((value / 1_000) % 10) as u8;
-    dst[1] = ((value / 100) % 10) as u8;
-    dst[2] = ((value / 10) % 10) as u8;
-    dst[3] = (value % 10) as u8;
-}
-
-fn write_u32_decimal(dst: &mut [u8], value: u32) -> usize {
-    let mut divisor = 1_000_000_000;
-    while divisor > 1 && value < divisor {
-        divisor /= 10;
+fn glyph_pattern(ch: char) -> [u8; GLYPH_HEIGHT] {
+    match ch {
+        '0' => [0b01110, 0b10001, 0b10011, 0b10101, 0b11001, 0b10001, 0b01110],
+        '1' => [0b00100, 0b01100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
+        '2' => [0b01110, 0b10001, 0b00001, 0b00010, 0b00100, 0b01000, 0b11111],
+        '3' => [0b11110, 0b00001, 0b00001, 0b01110, 0b00001, 0b00001, 0b11110],
+        '4' => [0b00010, 0b00110, 0b01010, 0b10010, 0b11111, 0b00010, 0b00010],
+        '5' => [0b11111, 0b10000, 0b10000, 0b11110, 0b00001, 0b00001, 0b11110],
+        '6' => [0b01110, 0b10000, 0b10000, 0b11110, 0b10001, 0b10001, 0b01110],
+        '7' => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b01000, 0b01000],
+        '8' => [0b01110, 0b10001, 0b10001, 0b01110, 0b10001, 0b10001, 0b01110],
+        '9' => [0b01110, 0b10001, 0b10001, 0b01111, 0b00001, 0b00001, 0b01110],
+        'A' => [0b01110, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+        'B' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10001, 0b10001, 0b11110],
+        'C' => [0b01110, 0b10001, 0b10000, 0b10000, 0b10000, 0b10001, 0b01110],
+        'D' => [0b11110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b11110],
+        'E' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b11111],
+        'F' => [0b11111, 0b10000, 0b10000, 0b11110, 0b10000, 0b10000, 0b10000],
+        'G' => [0b01110, 0b10001, 0b10000, 0b10111, 0b10001, 0b10001, 0b01110],
+        'H' => [0b10001, 0b10001, 0b10001, 0b11111, 0b10001, 0b10001, 0b10001],
+        'I' => [0b01110, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b01110],
+        'J' => [0b00111, 0b00010, 0b00010, 0b00010, 0b10010, 0b10010, 0b01100],
+        'K' => [0b10001, 0b10010, 0b10100, 0b11000, 0b10100, 0b10010, 0b10001],
+        'L' => [0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b10000, 0b11111],
+        'M' => [0b10001, 0b11011, 0b10101, 0b10101, 0b10001, 0b10001, 0b10001],
+        'N' => [0b10001, 0b11001, 0b10101, 0b10011, 0b10001, 0b10001, 0b10001],
+        'O' => [0b01110, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        'P' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10000, 0b10000, 0b10000],
+        'Q' => [0b01110, 0b10001, 0b10001, 0b10001, 0b10101, 0b10010, 0b01101],
+        'R' => [0b11110, 0b10001, 0b10001, 0b11110, 0b10100, 0b10010, 0b10001],
+        'S' => [0b01111, 0b10000, 0b10000, 0b01110, 0b00001, 0b00001, 0b11110],
+        'T' => [0b11111, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100, 0b00100],
+        'U' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01110],
+        'V' => [0b10001, 0b10001, 0b10001, 0b10001, 0b10001, 0b01010, 0b00100],
+        'W' => [0b10001, 0b10001, 0b10001, 0b10101, 0b10101, 0b10101, 0b01010],
+        'X' => [0b10001, 0b10001, 0b01010, 0b00100, 0b01010, 0b10001, 0b10001],
+        'Y' => [0b10001, 0b10001, 0b01010, 0b00100, 0b00100, 0b00100, 0b00100],
+        'Z' => [0b11111, 0b00001, 0b00010, 0b00100, 0b01000, 0b10000, 0b11111],
+        ':' => [0b00000, 0b00000, 0b00100, 0b00000, 0b00100, 0b00000, 0b00000],
+        '-' => [0b00000, 0b00000, 0b00000, 0b01110, 0b00000, 0b00000, 0b00000],
+        '.' => [0b00000, 0b00000, 0b00000, 0b00000, 0b00000, 0b01100, 0b01100],
+        '/' => [0b00001, 0b00010, 0b00010, 0b00100, 0b01000, 0b01000, 0b10000],
+        ' ' => [0b00000; GLYPH_HEIGHT],
+        _ => [0b00000; GLYPH_HEIGHT],
     }
-
-    let mut len = 0;
-    while divisor > 0 {
-        dst[len] = ((value / divisor) % 10) as u8;
-        len += 1;
-        divisor /= 10;
-    }
-
-    len
 }
