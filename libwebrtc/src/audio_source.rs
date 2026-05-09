@@ -14,6 +14,12 @@
 
 use crate::imp::audio_source as imp_as;
 
+/// Default sample rate used by WebRTC audio pipelines (48kHz).
+pub const DEFAULT_SAMPLE_RATE: u32 = 48000;
+
+/// Default number of audio channels (mono).
+pub const DEFAULT_NUM_CHANNELS: u32 = 1;
+
 #[derive(Default, Debug)]
 pub struct AudioSourceOptions {
     pub echo_cancellation: bool,
@@ -130,24 +136,24 @@ impl RtcAudioSource {
     }
 
     /// Get the sample rate.
-    /// Note: For `Device` source, returns 48000 (default WebRTC sample rate).
+    /// Note: For `Device` source, returns [`DEFAULT_SAMPLE_RATE`] (48kHz).
     pub fn sample_rate(&self) -> u32 {
         match self {
             #[cfg(not(target_arch = "wasm32"))]
             RtcAudioSource::Native(source) => source.sample_rate(),
             #[cfg(not(target_arch = "wasm32"))]
-            RtcAudioSource::Device => 48000, // Default WebRTC sample rate
+            RtcAudioSource::Device => DEFAULT_SAMPLE_RATE,
         }
     }
 
     /// Get the number of channels.
-    /// Note: For `Device` source, returns 1 (mono).
+    /// Note: For `Device` source, returns [`DEFAULT_NUM_CHANNELS`] (mono).
     pub fn num_channels(&self) -> u32 {
         match self {
             #[cfg(not(target_arch = "wasm32"))]
             RtcAudioSource::Native(source) => source.num_channels(),
             #[cfg(not(target_arch = "wasm32"))]
-            RtcAudioSource::Device => 1, // Default to mono
+            RtcAudioSource::Device => DEFAULT_NUM_CHANNELS,
         }
     }
 }
