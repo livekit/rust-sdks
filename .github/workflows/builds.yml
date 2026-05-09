@@ -79,8 +79,7 @@ jobs:
 
       - name: Install linux dependencies
         if: ${{ matrix.os == 'ubuntu-latest' || matrix.os == 'ubuntu-24.04-arm'}}
-        # TODO: pin to a verified SHA once dependabot picks it up.
-        uses: awalsh128/cache-apt-pkgs-action@v1.5.3
+        uses: awalsh128/cache-apt-pkgs-action@2c09a5e66da6c8016428a2172bd76e5e4f14bb17 # v1.5.3
         with:
           # libasound2-dev is needed for local_audio example
           # libdrm, libgbm, libxfixes, libxdamage, libxrandr, libxcomposite and libglib are needed for DesktopCapturer
@@ -103,8 +102,7 @@ jobs:
 
       - name: Install VA-API/NVIDIA drivers for linux x64 build
         if: ${{ matrix.os == 'ubuntu-latest'}}
-        # TODO: pin to a verified SHA once dependabot picks it up.
-        uses: awalsh128/cache-apt-pkgs-action@v1.5.3
+        uses: awalsh128/cache-apt-pkgs-action@2c09a5e66da6c8016428a2172bd76e5e4f14bb17 # v1.5.3
         with:
           packages: >-
             libva-dev
@@ -119,8 +117,7 @@ jobs:
           rustup target add ${{ matrix.target }}
 
       - name: Setup sccache
-        # TODO: pin to a verified SHA once dependabot picks it up.
-        uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@054db53350805f83040bf3e6e9b8cf5a139aa7c9 # v0.0.7
 
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:

@@ -67,8 +67,7 @@ jobs:
       # at the workflow level (RUSTC_WRAPPER / SCCACHE_GHA_ENABLED) plus the
       # CC/CXX overrides below route compilation through the cache.
       - name: Setup sccache
-        # TODO: pin to a verified SHA once dependabot picks it up.
-        uses: mozilla-actions/sccache-action@v0.0.7
+        uses: mozilla-actions/sccache-action@054db53350805f83040bf3e6e9b8cf5a139aa7c9 # v0.0.7
 
       # All three matrix targets in tests.yml are host targets (no
       # cross-compile), so wrapping CC/CXX is safe. Skip on Windows: MSVC `cl`
@@ -97,8 +96,7 @@ jobs:
 
       - name: Install linux dependencies
         if: ${{ matrix.os == 'ubuntu-latest' }}
-        # TODO: pin to a verified SHA once dependabot picks it up.
-        uses: awalsh128/cache-apt-pkgs-action@v1.5.3
+        uses: awalsh128/cache-apt-pkgs-action@2c09a5e66da6c8016428a2172bd76e5e4f14bb17 # v1.5.3
         with:
           # libasound2-dev is needed for local_audio example
           # libdrm, libgbm, libxfixes, libxdamage, libxrandr, libxcomposite and libglib are needed for DesktopCapturer
