@@ -20,6 +20,7 @@
 
 #include "api/environment/environment.h"
 #include "api/scoped_refptr.h"
+#include "livekit/audio_device.h"
 #include "modules/audio_device/include/audio_device.h"
 #include "modules/audio_device/include/audio_device_defines.h"
 #include "rtc_base/synchronization/mutex.h"
@@ -30,36 +31,36 @@ class Thread;
 
 namespace livekit_ffi {
 
-/// ADM Proxy that switches between Dummy and Platform ADMs.
+/// ADM Proxy that manages synthetic and platform audio modes.
 ///
-/// This proxy manages two underlying ADMs:
-/// 1. **Dummy ADM**: Pumps the WebRTC audio pipeline without platform audio.
-///    Used in synthetic mode where FFI callbacks deliver audio to external
-///    audio systems (e.g., Unity AudioSource).
-/// 2. **Platform ADM**: Real audio I/O with microphone capture and speaker
-///    playout. Used when PlatformAudio is active for VoIP with AEC.
+/// This proxy implements the AudioDeviceModule interface and switches between:
+/// 1. **Synthetic mode**: Uses AudioDevice class which pumps the WebRTC audio
+///    pipeline without platform audio. Remote audio is delivered via FFI
+///    callbacks to external audio systems (e.g., Unity AudioSource).
+/// 2. **Platform mode**: Real audio I/O through the Platform ADM with microphone
+///    capture and speaker playout. Used when PlatformAudio is active for VoIP
+///    with AEC.
 ///
 /// ## Mode Selection
 ///
-/// The active ADM is determined by:
 /// - **Playout**: Uses Platform ADM when `ref_count > 0 && playout_enabled`,
-///   otherwise uses Dummy ADM.
+///   otherwise uses synthetic mode (internal audio pumping task).
 /// - **Recording**: Uses Platform ADM when `ref_count > 0 && recording_enabled`,
-///   otherwise recording is unavailable (Dummy ADM has no microphone).
+///   otherwise recording is unavailable (synthetic mode has no microphone).
 ///
 /// ## Lifecycle Management
 ///
-/// Both ADMs are created at construction (Platform ADM created eagerly for iOS
-/// compatibility). Reference counting controls which ADM is active:
+/// Platform ADM is created eagerly at construction (for iOS compatibility).
+/// Reference counting controls which mode is active:
 /// - `AcquirePlatformAdm()`: Increments ref count
 /// - `ReleasePlatformAdm()`: Decrements ref count
-/// - When ref_count is 0, playout falls back to Dummy ADM
+/// - When ref_count is 0, playout uses synthetic mode
 ///
 /// ## Audio Modes
 ///
 /// | Mode | Recording | Playout | Use Case |
 /// |------|-----------|---------|----------|
-/// | Synthetic | NativeAudioSource | Dummy ADM + FFI | Unity audio, agents |
+/// | Synthetic | NativeAudioSource | Internal task + FFI | Unity audio, agents |
 /// | Platform | Platform ADM mic | Platform ADM speakers | VoIP with AEC |
 ///
 class AdmProxy : public webrtc::AudioDeviceModule {
@@ -205,21 +206,20 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   int32_t SetObserver(webrtc::AudioDeviceObserver* observer) override;
 
  private:
-  // Returns the ADM to use for playout operations based on current mode
-  // - Platform ADM when platform mode is active (ref_count > 0 && playout_enabled)
-  // - Dummy ADM otherwise (synthetic mode - keeps pipeline alive without platform audio)
-  webrtc::AudioDeviceModule* playout_adm() const;
+  // Returns true if platform mode is active for playout
+  // (ref_count > 0 && playout_enabled)
+  bool is_platform_playout_active() const;
 
   // Returns the ADM to use for recording operations
   // - Platform ADM when recording is enabled (ref_count > 0 && recording_enabled)
   // - nullptr otherwise (recording not available in synthetic mode)
   webrtc::AudioDeviceModule* recording_adm() const;
 
-  // Switches playout to the correct ADM based on current mode.
+  // Switches playout mode based on current state.
   // Called when ref_count or playout_enabled changes.
-  // If playout is active, stops the old ADM and starts the new one.
+  // If playout is active, stops the old mode and starts the new one.
   // Must be called with mutex_ held.
-  void SwitchPlayoutAdmIfNeeded();
+  void SwitchPlayoutModeIfNeeded();
 
   // Switches recording to the correct ADM based on current mode.
   // Called when ref_count or recording_enabled changes.
@@ -233,9 +233,9 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // Mutex for thread-safe access to mutable state
   mutable webrtc::Mutex mutex_;
 
-  // Dummy ADM for synthetic mode - pumps audio pipeline without platform audio
-  // This keeps WebRTC's audio decoder running so FFI callbacks receive audio.
-  webrtc::scoped_refptr<webrtc::AudioDeviceModule> dummy_adm_;
+  // Synthetic ADM for synthetic mode - pumps audio pipeline without platform audio
+  // Uses the AudioDevice class which has its own audio pumping task.
+  webrtc::scoped_refptr<AudioDevice> synthetic_adm_;
 
   // Platform ADM for real audio I/O (microphone capture, speaker playout with AEC)
   webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_;
@@ -255,7 +255,7 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // Control flags
   // When false (default), recording operations are no-ops (NativeAudioSource mode)
   bool recording_enabled_ = false;
-  // When false (default), playout uses dummy ADM (FFI callbacks deliver audio)
+  // When false (default), playout uses synthetic mode (internal task pumps audio)
   bool playout_enabled_ = false;
 
   // Selected device information (for re-initialization after ADM restart)
