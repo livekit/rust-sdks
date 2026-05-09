@@ -23,6 +23,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_LOG: debug
+  # sccache stores its cache in GitHub Actions' cache backend; both rustc and
+  # C/C++ invocations route through it. See the "Setup sccache" step below.
+  SCCACHE_GHA_ENABLED: "true"
+  RUSTC_WRAPPER: sccache
 
 jobs:
   build:
@@ -58,49 +62,64 @@ jobs:
           version: "25.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Cargo registry
-        uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3.5.0
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-registry-
+      # sccache wraps both rustc and the C/C++ compilers used by `cxx_build`
+      # in `webrtc-sys`. The Mozilla action installs the binary; env vars
+      # at the workflow level (RUSTC_WRAPPER / SCCACHE_GHA_ENABLED) plus the
+      # CC/CXX overrides below route compilation through the cache.
+      - name: Setup sccache
+        # TODO: pin to a verified SHA once dependabot picks it up.
+        uses: mozilla-actions/sccache-action@v0.0.7
 
-      - name: Cache Cargo build
-        uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3.5.0
+      # All three matrix targets in tests.yml are host targets (no
+      # cross-compile), so wrapping CC/CXX is safe. Skip on Windows: MSVC `cl`
+      # is sccache-supported but the env-var dance is fragile here and the
+      # default `cc` crate flow needs more setup. Rust caching alone covers
+      # most of the win on Windows.
+      - name: Wrap C/C++ with sccache (Unix hosts)
+        if: ${{ runner.os != 'Windows' }}
+        shell: bash
+        run: |
+          echo "CC=sccache cc"  >> "$GITHUB_ENV"
+          echo "CXX=sccache c++" >> "$GITHUB_ENV"
+
+      # Use Swatinem/rust-cache for parity with builds.yml. It caches the cargo
+      # registry/git plus the meaningful subset of `target/`, with cache keys
+      # that avoid stale-cache problems. The libwebrtc binary itself is cached
+      # separately by setup-libwebrtc below so it survives Cargo.lock churn.
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: target/
-          key: ${{ runner.os }}-cargo-build-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-build-${{ matrix.target }}-
-            ${{ runner.os }}-cargo-build-
+          key: ${{ matrix.target }}
+
+      - name: Setup libwebrtc (cached, keyed by WEBRTC_TAG)
+        uses: ./.github/actions/setup-libwebrtc
+        with:
+          rust-target: ${{ matrix.target }}
 
       - name: Install linux dependencies
         if: ${{ matrix.os == 'ubuntu-latest' }}
-        run: |
-          sudo apt update -y
+        # TODO: pin to a verified SHA once dependabot picks it up.
+        uses: awalsh128/cache-apt-pkgs-action@v1.5.3
+        with:
           # libasound2-dev is needed for local_audio example
           # libdrm, libgbm, libxfixes, libxdamage, libxrandr, libxcomposite and libglib are needed for DesktopCapturer
-          sudo apt install -y \
-            libasound2-dev \
-            libssl-dev \
-            libx11-dev \
-            libgl1-mesa-dev \
-            libxext-dev \
-            libva-dev \
-            libdrm-dev \
-            libnvidia-decode-570 \
-            libnvidia-compute-570 \
-            nvidia-cuda-dev \
-            libgbm-dev \
-            libxfixes-dev \
-            libxdamage-dev \
-            libxrandr-dev \
-            libxcomposite-dev \
+          packages: >-
+            libasound2-dev
+            libssl-dev
+            libx11-dev
+            libgl1-mesa-dev
+            libxext-dev
+            libva-dev
+            libdrm-dev
+            libnvidia-decode-570
+            libnvidia-compute-570
+            nvidia-cuda-dev
+            libgbm-dev
+            libxfixes-dev
+            libxdamage-dev
+            libxrandr-dev
+            libxcomposite-dev
             libglib2.0-dev
+          version: 1
 
       - name: Install LiveKit server
         if: ${{ matrix.e2e-testing }}
@@ -118,14 +137,19 @@ jobs:
           LIVEKIT_CONFIG: "enable_data_tracks: true"
         run: livekit-server --dev &
 
+      # Tests run in dev profile to keep CI compile time reasonable. The e2e
+      # path is timing-sensitive (ICE handshake, reconnect windows) but the
+      # timeouts in those tests are real-clock seconds and have plenty of
+      # headroom — dev's slower runtime doesn't push past them in practice.
+      # Bump to --release here only if dev-profile e2e tests prove flaky.
       - name: Test (no E2E)
         if: ${{ !matrix.e2e-testing }}
         env:
           RUST_LOG: info
-        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} -- --nocapture
+        run: cargo +nightly test --verbose --target ${{ matrix.target }} -- --nocapture
 
       - name: Test (with E2E)
         if: ${{ matrix.e2e-testing }}
         env:
           RUST_LOG: info
-        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} --features __lk-e2e-test -- --nocapture --test-threads=1
+        run: cargo +nightly test --verbose --target ${{ matrix.target }} --features __lk-e2e-test -- --nocapture --test-threads=1
