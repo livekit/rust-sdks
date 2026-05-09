@@ -1908,10 +1908,7 @@ impl SessionInner {
     }
 
     /// Like [`Self::wait_pc_connection`] but sleeps `settle_delay` before polling.
-    async fn wait_pc_connection_with_delay(
-        &self,
-        settle_delay: Duration,
-    ) -> EngineResult<()> {
+    async fn wait_pc_connection_with_delay(&self, settle_delay: Duration) -> EngineResult<()> {
         let wait_connected = async move {
             if !settle_delay.is_zero() {
                 livekit_runtime::sleep(settle_delay).await;

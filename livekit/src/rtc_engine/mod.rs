@@ -941,9 +941,7 @@ impl EngineInner {
         // would just push them into the void; better to bail and let the engine
         // try a fresh resume (or escalate).
         if !session.signal_client().is_connected().await {
-            return Err(EngineError::Connection(
-                "signal connection severed during resume".into(),
-            ));
+            return Err(EngineError::Connection("signal connection severed during resume".into()));
         }
 
         // Flush queued mutations and clear the `reconnecting` flag — at this point

@@ -884,9 +884,10 @@ mod tests {
 
         // Queueable: AddTrack, Mute, UpdateSubscription
         inner
-            .send(proto::signal_request::Message::AddTrack(
-                proto::AddTrackRequest { cid: "track1".into(), ..Default::default() },
-            ))
+            .send(proto::signal_request::Message::AddTrack(proto::AddTrackRequest {
+                cid: "track1".into(),
+                ..Default::default()
+            }))
             .await;
         inner
             .send(proto::signal_request::Message::Mute(proto::MuteTrackRequest {
@@ -914,18 +915,14 @@ mod tests {
         // Pass-through: Trickle, Offer, Answer, SyncState, Simulate, Leave.
         // These all attempt to write to the (None) stream and get logged as
         // "no stream available" — but critically they do NOT land in the queue.
-        inner
-            .send(proto::signal_request::Message::Trickle(proto::TrickleRequest::default()))
-            .await;
+        inner.send(proto::signal_request::Message::Trickle(proto::TrickleRequest::default())).await;
         inner
             .send(proto::signal_request::Message::Offer(proto::SessionDescription::default()))
             .await;
         inner
             .send(proto::signal_request::Message::Answer(proto::SessionDescription::default()))
             .await;
-        inner
-            .send(proto::signal_request::Message::SyncState(proto::SyncState::default()))
-            .await;
+        inner.send(proto::signal_request::Message::SyncState(proto::SyncState::default())).await;
         inner
             .send(proto::signal_request::Message::Simulate(proto::SimulateScenario::default()))
             .await;
