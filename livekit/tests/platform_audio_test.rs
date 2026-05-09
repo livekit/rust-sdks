@@ -1097,16 +1097,13 @@ async fn test_adm_proxy_platform_ref_counting() -> Result<()> {
     assert!(acquired, "acquire_platform_adm should succeed");
 
     let ref_count_after_acquire = pcf.platform_adm_ref_count();
-    assert_eq!(
+    assert_eq!(ref_count_after_acquire, initial_ref_count + 1, "ref_count should increment by 1");
+    assert!(pcf.is_platform_adm_active(), "Platform ADM should be active after acquire");
+    log::info!(
+        "After acquire: ref_count={}, is_active={}",
         ref_count_after_acquire,
-        initial_ref_count + 1,
-        "ref_count should increment by 1"
+        pcf.is_platform_adm_active()
     );
-    assert!(
-        pcf.is_platform_adm_active(),
-        "Platform ADM should be active after acquire"
-    );
-    log::info!("After acquire: ref_count={}, is_active={}", ref_count_after_acquire, pcf.is_platform_adm_active());
 
     // Acquire again (should just increment ref count)
     let acquired2 = pcf.acquire_platform_adm();
@@ -1128,21 +1125,18 @@ async fn test_adm_proxy_platform_ref_counting() -> Result<()> {
         initial_ref_count + 1,
         "ref_count should be initial + 1 after one release"
     );
-    assert!(
-        pcf.is_platform_adm_active(),
-        "Platform ADM should still be active (ref_count > 0)"
-    );
+    assert!(pcf.is_platform_adm_active(), "Platform ADM should still be active (ref_count > 0)");
     log::info!("After first release: ref_count={}", ref_count_after_release);
 
     // Release again (should return to initial state)
     pcf.release_platform_adm();
     let final_ref_count = pcf.platform_adm_ref_count();
-    assert_eq!(
+    assert_eq!(final_ref_count, initial_ref_count, "ref_count should return to initial value");
+    log::info!(
+        "After second release: ref_count={}, is_active={}",
         final_ref_count,
-        initial_ref_count,
-        "ref_count should return to initial value"
+        pcf.is_platform_adm_active()
     );
-    log::info!("After second release: ref_count={}, is_active={}", final_ref_count, pcf.is_platform_adm_active());
 
     // Verify is_platform_adm_active consistency
     if initial_ref_count == 0 {
@@ -1299,7 +1293,10 @@ async fn test_adm_proxy_playout_mode_switching() -> Result<()> {
 
     // Give some time for the switch to complete
     tokio::time::sleep(Duration::from_millis(50)).await;
-    log::info!("playout_is_initialized after switch to synthetic: {}", pcf.playout_is_initialized());
+    log::info!(
+        "playout_is_initialized after switch to synthetic: {}",
+        pcf.playout_is_initialized()
+    );
 
     log::info!("=== Phase 3: Switch back to platform mode ===");
     // Enable platform playout - this should trigger SwitchPlayoutAdmIfNeeded()
@@ -1449,10 +1446,7 @@ async fn test_platform_audio_adm_lifecycle() -> Result<()> {
     let audio1 = match PlatformAudio::new() {
         Ok(audio) => audio,
         Err(e) => {
-            log::info!(
-                "Skipping test - PlatformAudio::new() failed (no audio devices?): {}",
-                e
-            );
+            log::info!("Skipping test - PlatformAudio::new() failed (no audio devices?): {}", e);
             return Ok(());
         }
     };
@@ -1462,7 +1456,9 @@ async fn test_platform_audio_adm_lifecycle() -> Result<()> {
     let is_active_after_first = pcf.is_platform_adm_active();
     log::info!(
         "After first create: C++ ref_count={}, is_active={}, Rust ref_count={}",
-        cpp_ref_count_after_first, is_active_after_first, rust_ref_count_1
+        cpp_ref_count_after_first,
+        is_active_after_first,
+        rust_ref_count_1
     );
 
     // PlatformAudio should have acquired the Platform ADM
@@ -1470,10 +1466,7 @@ async fn test_platform_audio_adm_lifecycle() -> Result<()> {
         cpp_ref_count_after_first > initial_cpp_ref_count,
         "PlatformAudio should increment C++ platform ADM ref count"
     );
-    assert!(
-        is_active_after_first,
-        "Platform ADM should be active after PlatformAudio creation"
-    );
+    assert!(is_active_after_first, "Platform ADM should be active after PlatformAudio creation");
     assert_eq!(rust_ref_count_1, 1, "First PlatformAudio Rust ref_count should be 1");
 
     log::info!("=== Create second PlatformAudio (shares handle with first) ===");
@@ -1485,7 +1478,8 @@ async fn test_platform_audio_adm_lifecycle() -> Result<()> {
     // But the Rust ref count definitely increases
     log::info!(
         "After second create: C++ ref_count={}, Rust ref_count={}",
-        pcf.platform_adm_ref_count(), rust_ref_count_2
+        pcf.platform_adm_ref_count(),
+        rust_ref_count_2
     );
     assert_eq!(rust_ref_count_2, 2, "Second PlatformAudio should share handle (Rust ref_count=2)");
     assert_eq!(audio1.ref_count(), 2, "First audio should also see Rust ref_count=2");
@@ -1501,7 +1495,8 @@ async fn test_platform_audio_adm_lifecycle() -> Result<()> {
     assert_eq!(audio2.ref_count(), 1, "After dropping audio1, Rust ref_count should be 1");
     log::info!(
         "After drop first: C++ ref_count={}, Rust ref_count={}",
-        pcf.platform_adm_ref_count(), audio2.ref_count()
+        pcf.platform_adm_ref_count(),
+        audio2.ref_count()
     );
 
     log::info!("=== Drop second PlatformAudio (should release Platform ADM) ===");
@@ -1511,7 +1506,8 @@ async fn test_platform_audio_adm_lifecycle() -> Result<()> {
     let final_is_active = pcf.is_platform_adm_active();
     log::info!(
         "After drop second: C++ ref_count={}, is_active={}",
-        final_cpp_ref_count, final_is_active
+        final_cpp_ref_count,
+        final_is_active
     );
 
     // After all PlatformAudio instances are dropped, C++ ref count should return to initial
@@ -1582,11 +1578,7 @@ async fn test_adm_proxy_rapid_mode_changes() -> Result<()> {
     let is_active = pcf.is_platform_adm_active();
 
     // We acquired once at the start and did balanced acquire/release cycles
-    assert_eq!(
-        current_ref_count,
-        initial_ref_count + 1,
-        "Ref count should be initial + 1"
-    );
+    assert_eq!(current_ref_count, initial_ref_count + 1, "Ref count should be initial + 1");
     assert!(is_active, "Platform ADM should be active");
 
     log::info!("=== Cleanup ===");
