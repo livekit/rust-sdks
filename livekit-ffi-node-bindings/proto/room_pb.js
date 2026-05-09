@@ -31,6 +31,28 @@ const { OwnedByteStreamReader, OwnedTextStreamReader } = require("./data_stream_
 const { OwnedRemoteDataTrack } = require("./data_track_pb.js");
 
 /**
+ * Simulate a reconnection scenario for testing. Mirrors the variants of
+ * `livekit::SimulateScenario`. The Resume / FullReconnect variants are
+ * the relevant ones for verifying that resume preserves publications and
+ * full reconnect republishes them exactly once.
+ *
+ * @generated from enum livekit.proto.SimulateScenarioKind
+ */
+const SimulateScenarioKind = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.SimulateScenarioKind",
+  [
+    {no: 0, name: "SIMULATE_SIGNAL_RECONNECT"},
+    {no: 1, name: "SIMULATE_SPEAKER"},
+    {no: 2, name: "SIMULATE_NODE_FAILURE"},
+    {no: 3, name: "SIMULATE_SERVER_LEAVE"},
+    {no: 4, name: "SIMULATE_MIGRATION"},
+    {no: 5, name: "SIMULATE_FORCE_TCP"},
+    {no: 6, name: "SIMULATE_FORCE_TLS"},
+    {no: 7, name: "SIMULATE_FULL_RECONNECT"},
+  ],
+);
+
+/**
  * @generated from enum livekit.proto.IceTransportType
  */
 const IceTransportType = /*@__PURE__*/ proto2.makeEnum(
@@ -182,6 +204,39 @@ const DisconnectCallback = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.DisconnectCallback",
   () => [
     { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.SimulateScenarioRequest
+ */
+const SimulateScenarioRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.SimulateScenarioRequest",
+  () => [
+    { no: 1, name: "room_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "scenario", kind: "enum", T: proto2.getEnumType(SimulateScenarioKind), req: true },
+    { no: 3, name: "request_async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.SimulateScenarioResponse
+ */
+const SimulateScenarioResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.SimulateScenarioResponse",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.SimulateScenarioCallback
+ */
+const SimulateScenarioCallback = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.SimulateScenarioCallback",
+  () => [
+    { no: 1, name: "async_id", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
   ],
 );
 
@@ -1521,6 +1576,7 @@ const DataTrackUnpublished = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 
+exports.SimulateScenarioKind = SimulateScenarioKind;
 exports.IceTransportType = IceTransportType;
 exports.ContinualGatheringPolicy = ContinualGatheringPolicy;
 exports.ConnectionQuality = ConnectionQuality;
@@ -1534,6 +1590,9 @@ exports.ConnectCallback_Result = ConnectCallback_Result;
 exports.DisconnectRequest = DisconnectRequest;
 exports.DisconnectResponse = DisconnectResponse;
 exports.DisconnectCallback = DisconnectCallback;
+exports.SimulateScenarioRequest = SimulateScenarioRequest;
+exports.SimulateScenarioResponse = SimulateScenarioResponse;
+exports.SimulateScenarioCallback = SimulateScenarioCallback;
 exports.PublishTrackRequest = PublishTrackRequest;
 exports.PublishTrackResponse = PublishTrackResponse;
 exports.PublishTrackCallback = PublishTrackCallback;
