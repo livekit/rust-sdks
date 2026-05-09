@@ -144,11 +144,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-target-${{ matrix.target }}-
 
-      - name: Setup libwebrtc (cached, keyed by WEBRTC_TAG)
-        uses: ./.github/actions/setup-libwebrtc
-        with:
-          rust-target: ${{ matrix.target }}
-
       - name: Build (Cargo)
         if: ${{ !contains(matrix.target, 'android') }}
         run: |

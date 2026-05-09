@@ -611,6 +611,10 @@ async fn signal_task(
                 inner.send(ping).await;
             }
             _ = &mut ping_timeout => {
+                // No pong within the configured window — the WS is dead even
+                // if the OS hasn't told us yet. Tear down the stream and emit
+                // Close; the engine layer reads that as a trigger to drive
+                // a resume reconnect (see SignalEvent::Close docs).
                 let _ = emitter.send(SignalEvent::Close("ping timeout".into()));
                 break;
             }
