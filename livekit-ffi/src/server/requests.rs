@@ -70,12 +70,11 @@ fn on_disconnect(
         .and_then(|r| proto::DisconnectReason::try_from(r).ok())
         .map(DisconnectReason::from)
         .unwrap_or(DisconnectReason::ClientInitiated);
+
+    let ffi_room = server.retrieve_handle::<room::FfiRoom>(disconnect.room_handle)?.clone();
+
     let handle = server.async_runtime.spawn(async move {
-        let ffi_room =
-            server.retrieve_handle::<room::FfiRoom>(disconnect.room_handle).unwrap().clone();
-
         ffi_room.close(server, reason).await;
-
         let _ = server.send_event(proto::DisconnectCallback { async_id }.into());
     });
     server.watch_panic(handle);
@@ -102,9 +101,9 @@ fn on_simulate_scenario(
         proto::SimulateScenarioKind::SimulateFullReconnect => SimulateScenario::FullReconnect,
     };
 
+    let ffi_room = server.retrieve_handle::<room::FfiRoom>(request.room_handle)?.clone();
+
     let handle = server.async_runtime.spawn(async move {
-        let ffi_room =
-            server.retrieve_handle::<room::FfiRoom>(request.room_handle).unwrap().clone();
         let error = match ffi_room.inner.room.simulate_scenario(scenario).await {
             Ok(()) => None,
             Err(err) => Some(err.to_string()),
