@@ -63,6 +63,12 @@ Publisher usage:
    --room-name demo \
    --identity test-1
 
+ # publish a selected screen instead of a camera
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --screen-index 0 \
+   --room-name demo \
+   --identity screen-1
+
  # publish with end-to-end encryption
  cargo run -p local_video -F desktop --bin publisher -- \
    --camera-index 0 \
@@ -84,8 +90,9 @@ List devices usage:
 ```
 
 Publisher flags (in addition to the common connection flags above):
-- `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
-- `--test-pattern`: Generate a standard SMPTE 75% color-bar test pattern instead of capturing from a camera. `--camera-index` is ignored when this is set; `--width`, `--height`, and `--fps` still control the output resolution and frame rate.
+- `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices. Conflicts with `--screen-index` and `--test-pattern`.
+- `--screen-index <n>`: Screen index to capture instead of a camera, using the zero-based order returned by the desktop capturer. Conflicts with `--camera-index` and `--test-pattern`. Screen capture uses the selected screen's actual resolution, so `--width` and `--height` are ignored.
+- `--test-pattern`: Generate a standard SMPTE 75% color-bar test pattern instead of capturing from a camera. Conflicts with `--camera-index` and `--screen-index`; `--width`, `--height`, and `--fps` still control the output resolution and frame rate.
 - `--width <px>`: Desired capture width (default: `1280`).
 - `--height <px>`: Desired capture height (default: `720`).
 - `--fps <n>`: Desired capture framerate (default: `30`).

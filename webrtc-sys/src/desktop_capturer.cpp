@@ -71,7 +71,7 @@ std::unique_ptr<DesktopCapturer> new_desktop_capturer(
   if (!capturer) {
     return nullptr;
   }
-  return std::make_unique<DesktopCapturer>(std::move(capturer));
+  return std::make_unique<DesktopCapturer>(std::move(capturer), options.source_type);
 }
 
 void DesktopCapturer::start(
@@ -113,6 +113,24 @@ rust::Vec<Source> DesktopCapturer::get_source_list() const {
                                    source.title, source.display_id});
     }
   }
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+  if (source_list.empty() && source_type == SourceType::Screen) {
+    uint32_t display_count = 0;
+    if (CGGetActiveDisplayList(0, nullptr, &display_count) == kCGErrorSuccess &&
+        display_count > 0) {
+      std::vector<CGDirectDisplayID> displays(display_count);
+      if (CGGetActiveDisplayList(display_count, displays.data(), &display_count) ==
+          kCGErrorSuccess) {
+        for (uint32_t i = 0; i < display_count; ++i) {
+          auto display_id = displays[i];
+          source_list.push_back(Source{static_cast<uint64_t>(display_id),
+                                       "Display " + std::to_string(display_id),
+                                       static_cast<int64_t>(display_id)});
+        }
+      }
+    }
+  }
+#endif /* defined(WEBRTC_MAC) && !defined(WEBRTC_IOS) */
   return source_list;
 }
 }  // namespace livekit_ffi

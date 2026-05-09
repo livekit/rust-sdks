@@ -17,6 +17,10 @@
 #pragma once
 #include <memory>
 
+#if defined(WEBRTC_MAC) && !defined(WEBRTC_IOS)
+#include <CoreGraphics/CoreGraphics.h>
+#endif /* defined(WEBRTC_MAC) && !defined(WEBRTC_IOS) */
+
 #include "modules/desktop_capture/desktop_capturer.h"
 #include "rust/cxx.h"
 
@@ -33,8 +37,11 @@ namespace livekit_ffi {
 
 class DesktopCapturer : public webrtc::DesktopCapturer::Callback {
  public:
-  explicit DesktopCapturer(std::unique_ptr<webrtc::DesktopCapturer> capturer)
-      : capturer(std::move(capturer)), callback(std::nullopt) {}
+  DesktopCapturer(std::unique_ptr<webrtc::DesktopCapturer> capturer,
+                  SourceType source_type)
+      : capturer(std::move(capturer)),
+        callback(std::nullopt),
+        source_type(source_type) {}
 
   void OnCaptureResult(webrtc::DesktopCapturer::Result result,
                        std::unique_ptr<webrtc::DesktopFrame> frame) final;
@@ -47,6 +54,7 @@ class DesktopCapturer : public webrtc::DesktopCapturer::Callback {
  private:
   std::unique_ptr<webrtc::DesktopCapturer> capturer;
   std::optional<rust::Box<DesktopCapturerCallbackWrapper>> callback;
+  SourceType source_type;
 };
 
 class DesktopFrame {

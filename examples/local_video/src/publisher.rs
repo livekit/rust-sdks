@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, bail, Context, Result};
 use clap::Parser;
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{
@@ -6,6 +6,11 @@ use livekit::options::{
     VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
+use livekit::webrtc::desktop_capturer::{
+    CaptureError, CaptureSource, DesktopCaptureSourceType, DesktopCapturer, DesktopCapturerOptions,
+    DesktopFrame,
+};
+use livekit::webrtc::native::yuv_helper;
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
@@ -23,7 +28,7 @@ use parking_lot::Mutex;
 use std::env;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    mpsc, Arc,
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use yuv_sys;
@@ -45,8 +50,12 @@ struct Args {
     list_cameras: bool,
 
     /// Camera index to use (numeric)
-    #[arg(long, default_value_t = 0)]
-    camera_index: usize,
+    #[arg(long, conflicts_with_all = ["screen_index", "test_pattern"])]
+    camera_index: Option<usize>,
+
+    /// Screen index to capture instead of a camera (zero-based)
+    #[arg(long, conflicts_with_all = ["camera_index", "test_pattern"])]
+    screen_index: Option<usize>,
 
     /// Generate a standard SMPTE color-bar test pattern instead of using a camera
     #[arg(long, default_value_t = false, conflicts_with = "list_cameras")]
@@ -246,6 +255,124 @@ fn list_cameras() -> Result<()> {
 enum VideoInput {
     TestPattern(TestPattern),
     Camera { camera: Camera, is_yuyv: bool },
+    Screen(ScreenInput),
+}
+
+struct ScreenFrame {
+    width: u32,
+    height: u32,
+    stride_y: u32,
+    stride_u: u32,
+    stride_v: u32,
+    data_y: Vec<u8>,
+    data_u: Vec<u8>,
+    data_v: Vec<u8>,
+}
+
+struct ScreenInput {
+    capturer: DesktopCapturer,
+    frame_rx: mpsc::Receiver<ScreenFrame>,
+    pending_frame: Option<ScreenFrame>,
+    warned_resolution_change: bool,
+}
+
+impl ScreenInput {
+    fn new(screen_index: usize) -> Result<(u32, u32, Self)> {
+        let mut options = DesktopCapturerOptions::new(DesktopCaptureSourceType::Screen);
+        options.set_include_cursor(false);
+        #[cfg(target_os = "macos")]
+        options.set_sck_system_picker(false);
+
+        let mut capturer = DesktopCapturer::new(options)
+            .ok_or_else(|| anyhow!("Failed to create desktop capturer"))?;
+        let sources = capturer.get_source_list();
+        let selected_source = sources.get(screen_index).cloned().ok_or_else(|| {
+            anyhow!(
+                "Invalid screen index {}. Available screens:\n{}",
+                screen_index,
+                format_capture_sources(&sources)
+            )
+        })?;
+
+        info!("Selected screen {}: {}", screen_index, selected_source);
+
+        let (frame_tx, frame_rx) = mpsc::channel();
+        capturer.start_capture(Some(selected_source), move |result| match result {
+            Ok(frame) => {
+                if let Some(frame) = convert_desktop_frame(frame) {
+                    if let Err(err) = frame_tx.send(frame) {
+                        log::debug!("Screen frame receiver dropped: {}", err);
+                    }
+                }
+            }
+            Err(CaptureError::Temporary) => {
+                log::debug!("Temporary screen capture error");
+            }
+            Err(CaptureError::Permanent) => {
+                log::error!("Permanent screen capture error");
+            }
+        });
+
+        let mut input =
+            Self { capturer, frame_rx, pending_frame: None, warned_resolution_change: false };
+        let first_frame = input.wait_for_initial_frame()?;
+        let width = first_frame.width;
+        let height = first_frame.height;
+        input.pending_frame = Some(first_frame);
+        info!("Screen capture opened: {}x{}", width, height);
+        Ok((width, height, input))
+    }
+
+    fn wait_for_initial_frame(&mut self) -> Result<ScreenFrame> {
+        let started_at = Instant::now();
+        while started_at.elapsed() < Duration::from_secs(2) {
+            if let Some(frame) = self.capture_next_frame(Duration::from_millis(100))? {
+                return Ok(frame);
+            }
+        }
+
+        bail!("Timed out waiting for first screen capture frame");
+    }
+
+    fn read_frame(&mut self) -> Result<Option<ScreenFrame>> {
+        if let Some(frame) = self.pending_frame.take() {
+            return Ok(Some(frame));
+        }
+
+        self.capture_next_frame(Duration::from_millis(500))
+    }
+
+    fn capture_next_frame(&mut self, timeout: Duration) -> Result<Option<ScreenFrame>> {
+        self.capturer.capture_frame();
+        match self.frame_rx.recv_timeout(timeout) {
+            Ok(frame) => Ok(Some(frame)),
+            Err(mpsc::RecvTimeoutError::Timeout) => Ok(None),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                bail!("Screen capture frame channel disconnected")
+            }
+        }
+    }
+
+    fn warn_resolution_change(
+        &mut self,
+        frame_width: u32,
+        frame_height: u32,
+        width: u32,
+        height: u32,
+    ) {
+        if self.warned_resolution_change {
+            return;
+        }
+
+        log::warn!(
+            "Screen capture size changed from {}x{} to {}x{}; dropping resized frames",
+            width,
+            height,
+            frame_width,
+            frame_height
+        );
+        self.warned_resolution_change = true;
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -270,6 +397,87 @@ fn create_i420_buffer(width: u32, height: u32, align_for_display: bool) -> I420B
     } else {
         I420Buffer::new(width, height)
     }
+}
+
+fn format_capture_sources(sources: &[CaptureSource]) -> String {
+    if sources.is_empty() {
+        return "  (none)".to_string();
+    }
+
+    sources
+        .iter()
+        .enumerate()
+        .map(|(i, source)| format!("  {}. {}", i, source))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn convert_desktop_frame(frame: DesktopFrame) -> Option<ScreenFrame> {
+    let width = u32::try_from(frame.width()).ok()?;
+    let height = u32::try_from(frame.height()).ok()?;
+    if width == 0 || height == 0 {
+        log::warn!("Dropping empty screen capture frame: {}x{}", width, height);
+        return None;
+    }
+
+    let stride_y = width;
+    let stride_u = (width + 1) / 2;
+    let stride_v = stride_u;
+    let chroma_height = (height + 1) / 2;
+    let mut data_y = vec![0; (stride_y * height) as usize];
+    let mut data_u = vec![0; (stride_u * chroma_height) as usize];
+    let mut data_v = vec![0; (stride_v * chroma_height) as usize];
+
+    yuv_helper::argb_to_i420(
+        frame.data(),
+        frame.stride(),
+        &mut data_y,
+        stride_y,
+        &mut data_u,
+        stride_u,
+        &mut data_v,
+        stride_v,
+        width as i32,
+        height as i32,
+    );
+
+    Some(ScreenFrame { width, height, stride_y, stride_u, stride_v, data_y, data_u, data_v })
+}
+
+fn copy_plane(
+    src: &[u8],
+    src_stride: u32,
+    dst: &mut [u8],
+    dst_stride: u32,
+    row_bytes: u32,
+    rows: u32,
+) {
+    let src_stride = src_stride as usize;
+    let dst_stride = dst_stride as usize;
+    let row_bytes = row_bytes as usize;
+
+    for row in 0..rows as usize {
+        let src_start = row * src_stride;
+        let dst_start = row * dst_stride;
+        dst[dst_start..dst_start + row_bytes]
+            .copy_from_slice(&src[src_start..src_start + row_bytes]);
+    }
+}
+
+fn copy_i420_frame(
+    src: &ScreenFrame,
+    dst_y: &mut [u8],
+    dst_stride_y: u32,
+    dst_u: &mut [u8],
+    dst_stride_u: u32,
+    dst_v: &mut [u8],
+    dst_stride_v: u32,
+) {
+    let chroma_width = (src.width + 1) / 2;
+    let chroma_height = (src.height + 1) / 2;
+    copy_plane(&src.data_y, src.stride_y, dst_y, dst_stride_y, src.width, src.height);
+    copy_plane(&src.data_u, src.stride_u, dst_u, dst_stride_u, chroma_width, chroma_height);
+    copy_plane(&src.data_v, src.stride_v, dst_v, dst_stride_v, chroma_width, chroma_height);
 }
 
 #[tokio::main]
@@ -382,15 +590,26 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         });
     }
 
-    let (width, height, video_input) = if args.test_pattern {
+    let (width, height, video_input, track_name, track_source) = if args.test_pattern {
         let width = args.width;
         let height = args.height;
         let fps = args.fps;
         info!("Test pattern enabled: SMPTE 75% color bars at {}x{} @ {} fps", width, height, fps);
-        (width, height, VideoInput::TestPattern(TestPattern::new(width, height)))
+        (
+            width,
+            height,
+            VideoInput::TestPattern(TestPattern::new(width, height)),
+            "camera",
+            TrackSource::Camera,
+        )
+    } else if let Some(screen_index) = args.screen_index {
+        let (width, height, screen_input) = ScreenInput::new(screen_index)
+            .with_context(|| format!("Failed to open screen {}", screen_index))?;
+        (width, height, VideoInput::Screen(screen_input), "screen_share", TrackSource::Screenshare)
     } else {
         // Setup camera
-        let index = CameraIndex::Index(args.camera_index as u32);
+        let camera_index = args.camera_index.unwrap_or(0);
+        let index = CameraIndex::Index(camera_index as u32);
         let requested =
             RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
         let mut camera = Camera::new(index, requested)?;
@@ -426,12 +645,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             "Selected conversion path: {}",
             if is_yuyv { "YUYV->I420 (libyuv)" } else { "Auto (RGB24 or MJPEG)" }
         );
-        (width, height, VideoInput::Camera { camera, is_yuyv })
+        (width, height, VideoInput::Camera { camera, is_yuyv }, "camera", TrackSource::Camera)
     };
     // Create LiveKit video source and track
     let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
     let track =
-        LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(rtc_source.clone()));
+        LocalVideoTrack::create_video_track(track_name, RtcVideoSource::Native(rtc_source.clone()));
 
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
     let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
@@ -469,7 +688,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     packet_trailer_features.frame_id = args.attach_frame_id;
 
     let publish_opts = |codec: VideoCodec| TrackPublishOptions {
-        source: TrackSource::Camera,
+        source: track_source,
         simulcast: args.simulcast,
         video_codec: codec,
         packet_trailer_features,
@@ -489,13 +708,13 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             room.local_participant()
                 .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
                 .await?;
-            info!("Published camera track with H.264 fallback");
+            info!("Published {} track with H.264 fallback", track_name);
             VideoCodec::H264
         } else {
             return Err(e.into());
         }
     } else {
-        info!("Published camera track");
+        info!("Published {} track", track_name);
         requested_codec
     };
 
@@ -779,6 +998,43 @@ async fn run_capture_loop(
                     decode_finished_at,
                     convert_finished_at,
                     used_decode_path,
+                    true,
+                )
+            }
+            VideoInput::Screen(screen) => {
+                let Some(screen_frame) = screen.read_frame()? else {
+                    log::debug!("No screen frame available before timeout; dropping tick");
+                    continue;
+                };
+                let read_wall_time_us = unix_time_us_now();
+                let screen_frame_acquired_at = Instant::now();
+                if screen_frame.width != width || screen_frame.height != height {
+                    screen.warn_resolution_change(
+                        screen_frame.width,
+                        screen_frame.height,
+                        width,
+                        height,
+                    );
+                    continue;
+                }
+
+                copy_i420_frame(
+                    &screen_frame,
+                    data_y,
+                    stride_y,
+                    data_u,
+                    stride_u,
+                    data_v,
+                    stride_v,
+                );
+                let convert_finished_at = Instant::now();
+                (
+                    frame_wall_time_us,
+                    read_wall_time_us,
+                    screen_frame_acquired_at,
+                    screen_frame_acquired_at,
+                    convert_finished_at,
+                    false,
                     true,
                 )
             }
