@@ -990,10 +990,9 @@ mod tests {
             "Disconnect action should propagate the server reason"
         );
 
-        for action in [
-            proto::leave_request::Action::Reconnect,
-            proto::leave_request::Action::Resume,
-        ] {
+        for action in
+            [proto::leave_request::Action::Reconnect, proto::leave_request::Action::Resume]
+        {
             let err = EngineError::Signal(SignalError::LeaveRequest {
                 reason: DisconnectReason::ServerShutdown,
                 action,
