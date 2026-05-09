@@ -24,9 +24,12 @@ env:
   CARGO_TERM_COLOR: always
   RUST_LOG: debug
   # sccache stores its cache in GitHub Actions' cache backend; both rustc and
-  # C/C++ invocations route through it. See the "Setup sccache" step below.
+  # C/C++ invocations route through it. RUSTC_WRAPPER is intentionally NOT set
+  # at workflow scope — the "Enable sccache" step only exports it after the
+  # backend probe succeeds, so transient outages of the GHA cache service
+  # (which return HTTP 400 and abort sccache server startup) make CI continue
+  # without sccache instead of failing the whole build.
   SCCACHE_GHA_ENABLED: "true"
-  RUSTC_WRAPPER: sccache
 
 jobs:
   build:
@@ -63,23 +66,33 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       # sccache wraps both rustc and the C/C++ compilers used by `cxx_build`
-      # in `webrtc-sys`. The Mozilla action installs the binary; env vars
-      # at the workflow level (RUSTC_WRAPPER / SCCACHE_GHA_ENABLED) plus the
-      # CC/CXX overrides below route compilation through the cache.
+      # in `webrtc-sys`. The Mozilla action installs the binary; the probe
+      # step below only enables wrapping if the GHA cache backend is reachable
+      # (it occasionally returns transient HTTP 400s that crash sccache
+      # startup — we want builds to continue, not fail, in that case).
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@054db53350805f83040bf3e6e9b8cf5a139aa7c9 # v0.0.7
 
-      # All three matrix targets in tests.yml are host targets (no
-      # cross-compile), so wrapping CC/CXX is safe. Skip on Windows: MSVC `cl`
-      # is sccache-supported but the env-var dance is fragile here and the
-      # default `cc` crate flow needs more setup. Rust caching alone covers
-      # most of the win on Windows.
-      - name: Wrap C/C++ with sccache (Unix hosts)
-        if: ${{ runner.os != 'Windows' }}
+      - name: Enable sccache wrapping (probe first)
         shell: bash
         run: |
-          echo "CC=sccache cc"  >> "$GITHUB_ENV"
-          echo "CXX=sccache c++" >> "$GITHUB_ENV"
+          # `sccache --start-server` actually exercises the configured backend
+          # (here: GHA cache). If it fails — e.g. azure-side outage — log a
+          # warning and skip exporting RUSTC_WRAPPER / CC / CXX so the build
+          # falls back to vanilla rustc. Slower, but green.
+          if sccache --start-server >/dev/null 2>&1; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+            # All three matrix targets in tests.yml are host targets (no
+            # cross-compile), so wrapping CC/CXX is safe. Skip on Windows:
+            # MSVC `cl` setup needs more care.
+            if [ "${{ runner.os }}" != "Windows" ]; then
+              echo "CC=sccache cc"  >> "$GITHUB_ENV"
+              echo "CXX=sccache c++" >> "$GITHUB_ENV"
+            fi
+            echo "::notice::sccache enabled (RUSTC_WRAPPER=sccache)"
+          else
+            echo "::warning::sccache backend unreachable; building without compile cache this run"
+          fi
 
       # Cache cargo's downloaded crate sources + per-target build outputs.
       - name: Cache cargo registry
