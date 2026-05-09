@@ -108,28 +108,27 @@ jobs:
 
       - name: Install linux dependencies
         if: ${{ matrix.os == 'ubuntu-latest' }}
-        uses: awalsh128/cache-apt-pkgs-action@2c09a5e66da6c8016428a2172bd76e5e4f14bb17 # v1.5.3
-        with:
+        run: |
+          sudo apt update -y
           # libasound2-dev is needed for local_audio example
           # libdrm, libgbm, libxfixes, libxdamage, libxrandr, libxcomposite and libglib are needed for DesktopCapturer
-          packages: >-
-            libasound2-dev
-            libssl-dev
-            libx11-dev
-            libgl1-mesa-dev
-            libxext-dev
-            libva-dev
-            libdrm-dev
-            libnvidia-decode-570
-            libnvidia-compute-570
-            nvidia-cuda-dev
-            libgbm-dev
-            libxfixes-dev
-            libxdamage-dev
-            libxrandr-dev
-            libxcomposite-dev
+          sudo apt install -y \
+            libasound2-dev \
+            libssl-dev \
+            libx11-dev \
+            libgl1-mesa-dev \
+            libxext-dev \
+            libva-dev \
+            libdrm-dev \
+            libnvidia-decode-570 \
+            libnvidia-compute-570 \
+            nvidia-cuda-dev \
+            libgbm-dev \
+            libxfixes-dev \
+            libxdamage-dev \
+            libxrandr-dev \
+            libxcomposite-dev \
             libglib2.0-dev
-          version: 1
 
       - name: Install LiveKit server
         if: ${{ matrix.e2e-testing }}
