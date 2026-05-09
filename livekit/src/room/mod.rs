@@ -1498,10 +1498,8 @@ impl RoomSession {
     }
 
     fn handle_resumed(self: &Arc<Self>, tx: oneshot::Sender<()>) {
-        // Resume preserves the PeerConnection and existing local publications,
-        // so we intentionally do NOT dispatch RoomEvent::Reconnected here.
-        // Applications observe the recovery via ConnectionStateChanged.
         self.update_connection_state(ConnectionState::Connected);
+        self.dispatcher.dispatch(&RoomEvent::Reconnected);
 
         let _ = tx.send(());
 
