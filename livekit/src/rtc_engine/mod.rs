@@ -55,6 +55,7 @@ pub const RECONNECT_INTERVAL: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum SimulateScenario {
+    /// Closes the signal channel locally; the engine attempts a Resume.
     SignalReconnect,
     Speaker,
     NodeFailure,
@@ -62,6 +63,9 @@ pub enum SimulateScenario {
     Migration,
     ForceTcp,
     ForceTls,
+    /// Tells the server to issue a `LeaveRequest{Reconnect}`, forcing a
+    /// full reconnect (new RtcSession, republish required).
+    FullReconnect,
 }
 
 #[derive(Error, Debug)]

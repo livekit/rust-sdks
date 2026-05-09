@@ -1755,6 +1755,15 @@ impl SessionInner {
                 }))
                 .await?
             }
+            SimulateScenario::FullReconnect => {
+                self.signal_client
+                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(
+                            proto::simulate_scenario::Scenario::LeaveRequestFullReconnect(true),
+                        ),
+                    }))
+                    .await;
+            }
         }
         Ok(())
     }
