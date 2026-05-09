@@ -11,7 +11,11 @@ use livekit::webrtc::desktop_capturer::{
     DesktopFrame,
 };
 use livekit::webrtc::native::yuv_helper;
-use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
+#[cfg(target_os = "macos")]
+use livekit::webrtc::video_frame::native::{NativeBuffer, VideoFrameBufferExt};
+use livekit::webrtc::video_frame::{
+    FrameMetadata, I420Buffer, VideoBuffer, VideoFrame, VideoRotation,
+};
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
@@ -25,12 +29,12 @@ use nokhwa::utils::{
 };
 use nokhwa::Camera;
 use parking_lot::Mutex;
-use std::env;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc, Arc,
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::{collections::HashMap, env};
 use yuv_sys;
 
 mod test_pattern;
@@ -243,6 +247,171 @@ fn format_timing_line(timings: &PublisherTimingSummary) -> String {
     format!("Timing ms: {}\nTiming ms: {}", line_one.join(" | "), line_two.join(" | "))
 }
 
+#[derive(Clone, Copy, Debug)]
+struct OutboundVideoSnapshot {
+    frames_encoded: u32,
+    frames_sent: u32,
+    packets_sent: u64,
+    bytes_sent: u64,
+    key_frames_encoded: u32,
+    total_encode_time: f64,
+    total_packet_send_delay: f64,
+    sampled_at: Instant,
+}
+
+impl OutboundVideoSnapshot {
+    fn from_stats(outbound: &livekit::webrtc::stats::OutboundRtpStats) -> Self {
+        Self {
+            frames_encoded: outbound.outbound.frames_encoded,
+            frames_sent: outbound.outbound.frames_sent,
+            packets_sent: outbound.sent.packets_sent,
+            bytes_sent: outbound.sent.bytes_sent,
+            key_frames_encoded: outbound.outbound.key_frames_encoded,
+            total_encode_time: outbound.outbound.total_encode_time,
+            total_packet_send_delay: outbound.outbound.total_packet_send_delay,
+            sampled_at: Instant::now(),
+        }
+    }
+}
+
+fn outbound_video_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+) -> Vec<livekit::webrtc::stats::OutboundRtpStats> {
+    stats
+        .iter()
+        .filter_map(|stat| match stat {
+            livekit::webrtc::stats::RtcStats::OutboundRtp(outbound)
+                if outbound.stream.kind == "video" =>
+            {
+                Some(outbound.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn outbound_label(outbound: &livekit::webrtc::stats::OutboundRtpStats) -> String {
+    if outbound.outbound.rid.is_empty() {
+        outbound.rtc.id.clone()
+    } else {
+        outbound.outbound.rid.clone()
+    }
+}
+
+fn log_publisher_outbound_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+    previous: &mut HashMap<String, OutboundVideoSnapshot>,
+) {
+    let outbounds = outbound_video_stats(stats);
+    if outbounds.is_empty() {
+        debug!("Publisher outbound stats: no video outbound RTP stats yet");
+        return;
+    }
+
+    for outbound in outbounds {
+        let label = outbound_label(&outbound);
+        let current = OutboundVideoSnapshot::from_stats(&outbound);
+        let elapsed = previous
+            .get(&label)
+            .map(|prev| current.sampled_at.saturating_duration_since(prev.sampled_at))
+            .unwrap_or_default()
+            .as_secs_f64()
+            .max(0.001);
+
+        let (
+            encoded_delta,
+            sent_delta,
+            packets_delta,
+            bytes_delta,
+            keyframe_delta,
+            encode_time_delta,
+            packet_send_delay_delta,
+        ) = previous.get(&label).map_or((0, 0, 0, 0, 0, 0.0, 0.0), |prev| {
+            (
+                current.frames_encoded.saturating_sub(prev.frames_encoded),
+                current.frames_sent.saturating_sub(prev.frames_sent),
+                current.packets_sent.saturating_sub(prev.packets_sent),
+                current.bytes_sent.saturating_sub(prev.bytes_sent),
+                current.key_frames_encoded.saturating_sub(prev.key_frames_encoded),
+                (current.total_encode_time - prev.total_encode_time).max(0.0),
+                (current.total_packet_send_delay - prev.total_packet_send_delay).max(0.0),
+            )
+        });
+
+        let bitrate_kbps = bytes_delta as f64 * 8.0 / elapsed / 1000.0;
+        let encode_ms_per_frame =
+            if encoded_delta > 0 { encode_time_delta * 1000.0 / encoded_delta as f64 } else { 0.0 };
+        let send_delay_ms_per_packet = if packets_delta > 0 {
+            packet_send_delay_delta * 1000.0 / packets_delta as f64
+        } else {
+            0.0
+        };
+
+        if previous.contains_key(&label) && outbound.outbound.active && sent_delta == 0 {
+            log::warn!(
+                "Publisher outbound stalled: layer={} active={} encoded+{} sent+{} packets+{} bytes+{} target={:.0}bps quality={:?}",
+                label,
+                outbound.outbound.active,
+                encoded_delta,
+                sent_delta,
+                packets_delta,
+                bytes_delta,
+                outbound.outbound.target_bitrate,
+                outbound.outbound.quality_limitation_reason,
+            );
+        } else {
+            info!(
+                "Publisher outbound: layer={} active={} {}x{} fps={:.1} encoded+{} sent+{} keyframes+{} bitrate={:.0}kbps target={:.0}bps encode={:.2}ms/frame send_delay={:.2}ms/packet quality={:?} encoder={}",
+                label,
+                outbound.outbound.active,
+                outbound.outbound.frame_width,
+                outbound.outbound.frame_height,
+                outbound.outbound.frames_per_second,
+                encoded_delta,
+                sent_delta,
+                keyframe_delta,
+                bitrate_kbps,
+                outbound.outbound.target_bitrate,
+                encode_ms_per_frame,
+                send_delay_ms_per_packet,
+                outbound.outbound.quality_limitation_reason,
+                outbound.outbound.encoder_implementation,
+            );
+        }
+
+        previous.insert(label, current);
+    }
+}
+
+fn spawn_publisher_outbound_stats_logger(track: LocalVideoTrack, ctrl_c_received: Arc<AtomicBool>) {
+    tokio::spawn(async move {
+        let mut previous = HashMap::new();
+        let mut logged_error = false;
+        let mut interval = tokio::time::interval(Duration::from_secs(1));
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            if ctrl_c_received.load(Ordering::Acquire) {
+                break;
+            }
+
+            match track.get_stats().await {
+                Ok(stats) => {
+                    logged_error = false;
+                    log_publisher_outbound_stats(&stats, &mut previous);
+                }
+                Err(err) if !logged_error => {
+                    debug!("Failed to get publisher outbound stats: {:?}", err);
+                    logged_error = true;
+                }
+                Err(_) => {}
+            }
+
+            interval.tick().await;
+        }
+    });
+}
+
 fn list_cameras() -> Result<()> {
     let cams = nokhwa::query(ApiBackend::Auto)?;
     println!("Available cameras:");
@@ -254,19 +423,68 @@ fn list_cameras() -> Result<()> {
 
 enum VideoInput {
     TestPattern(TestPattern),
-    Camera { camera: Camera, is_yuyv: bool },
+    Camera {
+        camera: Camera,
+        is_yuyv: bool,
+    },
     Screen(ScreenInput),
+    #[cfg(target_os = "macos")]
+    MacScreen(MacScreenInput),
+}
+
+enum PublishBuffer {
+    I420(I420Buffer),
+    #[cfg(target_os = "macos")]
+    Native(NativeBuffer),
+}
+
+impl PublishBuffer {
+    fn i420_mut(&mut self) -> Option<&mut I420Buffer> {
+        match self {
+            Self::I420(buffer) => Some(buffer),
+            #[cfg(target_os = "macos")]
+            Self::Native(_) => None,
+        }
+    }
+
+    fn i420_for_display(&self) -> Option<I420DisplayBuffer<'_>> {
+        match self {
+            Self::I420(buffer) => Some(I420DisplayBuffer::Borrowed(buffer)),
+            #[cfg(target_os = "macos")]
+            Self::Native(buffer) => Some(I420DisplayBuffer::Owned(buffer.to_i420())),
+        }
+    }
+}
+
+impl AsRef<dyn VideoBuffer> for PublishBuffer {
+    fn as_ref(&self) -> &(dyn VideoBuffer + 'static) {
+        match self {
+            Self::I420(buffer) => buffer.as_ref(),
+            #[cfg(target_os = "macos")]
+            Self::Native(buffer) => buffer.as_ref(),
+        }
+    }
+}
+
+enum I420DisplayBuffer<'a> {
+    Borrowed(&'a I420Buffer),
+    Owned(I420Buffer),
+}
+
+impl I420DisplayBuffer<'_> {
+    fn buffer(&self) -> &I420Buffer {
+        match self {
+            Self::Borrowed(buffer) => buffer,
+            Self::Owned(buffer) => buffer,
+        }
+    }
 }
 
 struct ScreenFrame {
     width: u32,
     height: u32,
-    stride_y: u32,
-    stride_u: u32,
-    stride_v: u32,
-    data_y: Vec<u8>,
-    data_u: Vec<u8>,
-    data_v: Vec<u8>,
+    capture_wall_time_us: u64,
+    buffer: I420Buffer,
 }
 
 struct ScreenInput {
@@ -276,8 +494,189 @@ struct ScreenInput {
     warned_resolution_change: bool,
 }
 
+#[cfg(target_os = "macos")]
+struct MacScreenFrame {
+    width: u32,
+    height: u32,
+    capture_wall_time_us: u64,
+    buffer: NativeBuffer,
+}
+
+#[cfg(target_os = "macos")]
+struct MacScreenInput {
+    _capturer: cxx::UniquePtr<webrtc_sys::macos_screen_capturer::ffi::MacosScreenCapturer>,
+    frame_rx: mpsc::Receiver<MacScreenFrame>,
+    pending_frame: Option<MacScreenFrame>,
+    warned_resolution_change: bool,
+}
+
+#[cfg(target_os = "macos")]
+struct MacScreenCallback {
+    frame_tx: mpsc::Sender<MacScreenFrame>,
+}
+
+#[cfg(target_os = "macos")]
+impl webrtc_sys::macos_screen_capturer::MacosScreenCapturerCallback for MacScreenCallback {
+    fn on_capture_result(
+        &mut self,
+        result: Result<
+            cxx::UniquePtr<webrtc_sys::macos_screen_capturer::ffi::MacosScreenFrame>,
+            webrtc_sys::macos_screen_capturer::MacosScreenCaptureError,
+        >,
+    ) {
+        match result {
+            Ok(frame) => {
+                let width = match u32::try_from(frame.width()) {
+                    Ok(width) if width > 0 => width,
+                    _ => {
+                        log::warn!("Dropping empty macOS screen capture frame");
+                        return;
+                    }
+                };
+                let height = match u32::try_from(frame.height()) {
+                    Ok(height) if height > 0 => height,
+                    _ => {
+                        log::warn!("Dropping empty macOS screen capture frame");
+                        return;
+                    }
+                };
+                let pixel_buffer = frame.pixel_buffer() as *mut std::ffi::c_void;
+                if pixel_buffer.is_null() {
+                    log::warn!("Dropping macOS screen capture frame without CVPixelBuffer");
+                    return;
+                }
+
+                let capture_wall_time_us = unix_time_us_now();
+                let buffer = unsafe {
+                    // SAFETY: `MacosScreenFrame::pixel_buffer` returns a retained CVPixelBufferRef.
+                    // `NativeBuffer::from_cv_pixel_buffer` transfers that retain into WebRTC.
+                    NativeBuffer::from_cv_pixel_buffer(pixel_buffer)
+                };
+                let frame = MacScreenFrame { width, height, capture_wall_time_us, buffer };
+                if let Err(err) = self.frame_tx.send(frame) {
+                    log::debug!("macOS screen frame receiver dropped: {}", err);
+                }
+            }
+            Err(webrtc_sys::macos_screen_capturer::MacosScreenCaptureError::Temporary) => {
+                log::debug!("Temporary macOS screen capture error");
+            }
+            Err(webrtc_sys::macos_screen_capturer::MacosScreenCaptureError::Permanent) => {
+                log::error!("Permanent macOS screen capture error");
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl MacScreenInput {
+    fn new(screen_index: usize, fps: u32) -> Result<(u32, u32, Self)> {
+        let mut capturer = webrtc_sys::macos_screen_capturer::ffi::new_macos_screen_capturer();
+        if capturer.is_null() {
+            bail!("Failed to create macOS screen capturer");
+        }
+
+        let screens = capturer.get_screen_list();
+        let selected_screen = screens.get(screen_index).cloned().ok_or_else(|| {
+            anyhow!(
+                "Invalid screen index {}. Available macOS screens:\n{}",
+                screen_index,
+                format_macos_screens(&screens)
+            )
+        })?;
+        info!(
+            "Selected macOS native screen {}: {} ({}x{})",
+            screen_index, selected_screen.title, selected_screen.width, selected_screen.height
+        );
+        info!(
+            "Screen capture mode: zero-copy macOS native candidate \
+             (ScreenCaptureKit CVPixelBuffer -> WebRTC NativeBuffer; no publisher CPU I420 copy)"
+        );
+        info!("macOS native screen capture requested frame rate: {} fps", fps);
+
+        let (frame_tx, frame_rx) = mpsc::channel();
+        let callback = webrtc_sys::macos_screen_capturer::MacosScreenCapturerCallbackWrapper::new(
+            Box::new(MacScreenCallback { frame_tx }),
+        );
+        if !capturer.pin_mut().start(selected_screen.id, fps, Box::new(callback)) {
+            bail!("Failed to start macOS native screen capture");
+        }
+
+        let mut input = Self {
+            _capturer: capturer,
+            frame_rx,
+            pending_frame: None,
+            warned_resolution_change: false,
+        };
+        let first_frame = input.wait_for_initial_frame()?;
+        let width = first_frame.width;
+        let height = first_frame.height;
+        input.pending_frame = Some(first_frame);
+        info!(
+            "macOS native screen capture opened: {}x{} using CVPixelBuffer frames",
+            width, height
+        );
+        Ok((width, height, input))
+    }
+
+    fn wait_for_initial_frame(&mut self) -> Result<MacScreenFrame> {
+        let started_at = Instant::now();
+        while started_at.elapsed() < Duration::from_secs(2) {
+            if let Some(frame) = self.read_frame_with_timeout(Duration::from_millis(100))? {
+                return Ok(frame);
+            }
+        }
+
+        bail!("Timed out waiting for first macOS screen capture frame");
+    }
+
+    fn read_frame(&mut self) -> Result<Option<MacScreenFrame>> {
+        if let Some(frame) = self.pending_frame.take() {
+            return Ok(Some(frame));
+        }
+
+        self.read_frame_with_timeout(Duration::from_millis(500))
+    }
+
+    fn read_frame_with_timeout(&mut self, timeout: Duration) -> Result<Option<MacScreenFrame>> {
+        let mut frame = match self.frame_rx.recv_timeout(timeout) {
+            Ok(frame) => frame,
+            Err(mpsc::RecvTimeoutError::Timeout) => return Ok(None),
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                bail!("macOS screen capture frame channel disconnected")
+            }
+        };
+
+        while let Ok(newer_frame) = self.frame_rx.try_recv() {
+            frame = newer_frame;
+        }
+
+        Ok(Some(frame))
+    }
+
+    fn warn_resolution_change(
+        &mut self,
+        frame_width: u32,
+        frame_height: u32,
+        width: u32,
+        height: u32,
+    ) {
+        if self.warned_resolution_change {
+            return;
+        }
+
+        log::warn!(
+            "macOS screen capture size changed from {}x{} to {}x{}; dropping resized frames",
+            width,
+            height,
+            frame_width,
+            frame_height
+        );
+        self.warned_resolution_change = true;
+    }
+}
+
 impl ScreenInput {
-    fn new(screen_index: usize) -> Result<(u32, u32, Self)> {
+    fn new(screen_index: usize, align_buffers_for_display: bool) -> Result<(u32, u32, Self)> {
         let mut options = DesktopCapturerOptions::new(DesktopCaptureSourceType::Screen);
         options.set_include_cursor(false);
         #[cfg(target_os = "macos")]
@@ -295,11 +694,21 @@ impl ScreenInput {
         })?;
 
         info!("Selected screen {}: {}", screen_index, selected_source);
+        info!(
+            "Screen capture mode: CPU desktop capture fallback \
+             (DesktopFrame ARGB -> I420; publisher uses CPU-accessible pixels)"
+        );
+        if align_buffers_for_display {
+            info!("Publisher preview enabled: CPU capture buffers are stride-aligned for display");
+        }
 
         let (frame_tx, frame_rx) = mpsc::channel();
         capturer.start_capture(Some(selected_source), move |result| match result {
             Ok(frame) => {
-                if let Some(frame) = convert_desktop_frame(frame) {
+                let capture_wall_time_us = unix_time_us_now();
+                if let Some(frame) =
+                    convert_desktop_frame(frame, capture_wall_time_us, align_buffers_for_display)
+                {
                     if let Err(err) = frame_tx.send(frame) {
                         log::debug!("Screen frame receiver dropped: {}", err);
                     }
@@ -319,7 +728,7 @@ impl ScreenInput {
         let width = first_frame.width;
         let height = first_frame.height;
         input.pending_frame = Some(first_frame);
-        info!("Screen capture opened: {}x{}", width, height);
+        info!("CPU desktop screen capture opened: {}x{}", width, height);
         Ok((width, height, input))
     }
 
@@ -412,7 +821,30 @@ fn format_capture_sources(sources: &[CaptureSource]) -> String {
         .join("\n")
 }
 
-fn convert_desktop_frame(frame: DesktopFrame) -> Option<ScreenFrame> {
+#[cfg(target_os = "macos")]
+fn format_macos_screens(screens: &[webrtc_sys::macos_screen_capturer::ffi::MacosScreen]) -> String {
+    if screens.is_empty() {
+        return "  (none)".to_string();
+    }
+
+    screens
+        .iter()
+        .enumerate()
+        .map(|(i, screen)| {
+            format!(
+                "  {}. {} (id {}, {}x{})",
+                i, screen.title, screen.id, screen.width, screen.height
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn convert_desktop_frame(
+    frame: DesktopFrame,
+    capture_wall_time_us: u64,
+    align_for_display: bool,
+) -> Option<ScreenFrame> {
     let width = u32::try_from(frame.width()).ok()?;
     let height = u32::try_from(frame.height()).ok()?;
     if width == 0 || height == 0 {
@@ -420,64 +852,24 @@ fn convert_desktop_frame(frame: DesktopFrame) -> Option<ScreenFrame> {
         return None;
     }
 
-    let stride_y = width;
-    let stride_u = (width + 1) / 2;
-    let stride_v = stride_u;
-    let chroma_height = (height + 1) / 2;
-    let mut data_y = vec![0; (stride_y * height) as usize];
-    let mut data_u = vec![0; (stride_u * chroma_height) as usize];
-    let mut data_v = vec![0; (stride_v * chroma_height) as usize];
+    let mut buffer = create_i420_buffer(width, height, align_for_display);
+    let (stride_y, stride_u, stride_v) = buffer.strides();
+    let (data_y, data_u, data_v) = buffer.data_mut();
 
     yuv_helper::argb_to_i420(
         frame.data(),
         frame.stride(),
-        &mut data_y,
+        data_y,
         stride_y,
-        &mut data_u,
+        data_u,
         stride_u,
-        &mut data_v,
+        data_v,
         stride_v,
         width as i32,
         height as i32,
     );
 
-    Some(ScreenFrame { width, height, stride_y, stride_u, stride_v, data_y, data_u, data_v })
-}
-
-fn copy_plane(
-    src: &[u8],
-    src_stride: u32,
-    dst: &mut [u8],
-    dst_stride: u32,
-    row_bytes: u32,
-    rows: u32,
-) {
-    let src_stride = src_stride as usize;
-    let dst_stride = dst_stride as usize;
-    let row_bytes = row_bytes as usize;
-
-    for row in 0..rows as usize {
-        let src_start = row * src_stride;
-        let dst_start = row * dst_stride;
-        dst[dst_start..dst_start + row_bytes]
-            .copy_from_slice(&src[src_start..src_start + row_bytes]);
-    }
-}
-
-fn copy_i420_frame(
-    src: &ScreenFrame,
-    dst_y: &mut [u8],
-    dst_stride_y: u32,
-    dst_u: &mut [u8],
-    dst_stride_u: u32,
-    dst_v: &mut [u8],
-    dst_stride_v: u32,
-) {
-    let chroma_width = (src.width + 1) / 2;
-    let chroma_height = (src.height + 1) / 2;
-    copy_plane(&src.data_y, src.stride_y, dst_y, dst_stride_y, src.width, src.height);
-    copy_plane(&src.data_u, src.stride_u, dst_u, dst_stride_u, chroma_width, chroma_height);
-    copy_plane(&src.data_v, src.stride_v, dst_v, dst_stride_v, chroma_width, chroma_height);
+    Some(ScreenFrame { width, height, capture_wall_time_us, buffer })
 }
 
 #[tokio::main]
@@ -496,6 +888,56 @@ async fn main() -> Result<()> {
     });
 
     run(args, ctrl_c_received).await
+}
+
+fn open_screen_input(
+    screen_index: usize,
+    fps: u32,
+    display_video: bool,
+    burn_timestamp: bool,
+) -> Result<(u32, u32, VideoInput, &'static str, TrackSource)> {
+    #[cfg(target_os = "macos")]
+    {
+        if !burn_timestamp {
+            info!(
+                "Trying screen capture mode: zero-copy macOS native candidate \
+                 (ScreenCaptureKit CVPixelBuffer -> WebRTC NativeBuffer)"
+            );
+            if display_video {
+                info!(
+                    "Publisher preview is enabled: publishing can stay native, \
+                     but preview rendering will create an I420 display copy"
+                );
+            }
+            match MacScreenInput::new(screen_index, fps) {
+                Ok((width, height, screen_input)) => {
+                    info!("Selected screen capture mode: macOS native CVPixelBuffer");
+                    return Ok((
+                        width,
+                        height,
+                        VideoInput::MacScreen(screen_input),
+                        "screen_share",
+                        TrackSource::Screenshare,
+                    ));
+                }
+                Err(err) => {
+                    log::warn!(
+                        "macOS native screen capture unavailable ({}); selecting CPU desktop capture fallback",
+                        err
+                    );
+                }
+            }
+        } else {
+            log::warn!(
+                "--burn-timestamp requires CPU-mutable I420 frames; selecting CPU desktop capture fallback"
+            );
+        }
+    }
+
+    info!("Selected screen capture mode: CPU desktop capture");
+    let (width, height, screen_input) = ScreenInput::new(screen_index, display_video)
+        .with_context(|| format!("Failed to open screen {}", screen_index))?;
+    Ok((width, height, VideoInput::Screen(screen_input), "screen_share", TrackSource::Screenshare))
 }
 
 async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
@@ -603,9 +1045,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             TrackSource::Camera,
         )
     } else if let Some(screen_index) = args.screen_index {
-        let (width, height, screen_input) = ScreenInput::new(screen_index)
-            .with_context(|| format!("Failed to open screen {}", screen_index))?;
-        (width, height, VideoInput::Screen(screen_input), "screen_share", TrackSource::Screenshare)
+        open_screen_input(screen_index, args.fps, args.display_video, args.burn_timestamp)?
     } else {
         // Setup camera
         let camera_index = args.camera_index.unwrap_or(0);
@@ -717,6 +1157,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         info!("Published {} track", track_name);
         requested_codec
     };
+    spawn_publisher_outbound_stats_logger(track.clone(), ctrl_c_received.clone());
 
     let capture_config = CaptureConfig {
         fps: args.fps,
@@ -804,6 +1245,9 @@ async fn run_capture_loop(
         .then(|| TimestampOverlay::new(width, height));
     let mut latency_display = LatencyDisplay::default();
     let align_buffers_for_display = display_shared.is_some();
+    let stall_warn_after = Duration::from_secs_f64((target.as_secs_f64() * 3.0).max(0.25));
+    let mut last_submitted_at: Option<Instant> = None;
+    let mut screen_miss_streak: u32 = 0;
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
             break;
@@ -815,10 +1259,6 @@ async fn run_capture_loop(
 
         let source_frame_started_at = Instant::now();
         let frame_wall_time_us = unix_time_us_now();
-        let mut buffer = create_i420_buffer(width, height, align_buffers_for_display);
-        let (stride_y, stride_u, stride_v) = buffer.strides();
-        let (data_y, data_u, data_v) = buffer.data_mut();
-        let stride_y_usize = stride_y as usize;
         let (
             capture_wall_time_us,
             read_wall_time_us,
@@ -827,8 +1267,12 @@ async fn run_capture_loop(
             convert_finished_at,
             used_decode_path,
             record_convert_timing,
+            mut buffer,
         ) = match &mut video_input {
             VideoInput::TestPattern(pattern) => {
+                let mut buffer = create_i420_buffer(width, height, align_buffers_for_display);
+                let (stride_y, stride_u, stride_v) = buffer.strides();
+                let (data_y, data_u, data_v) = buffer.data_mut();
                 pattern.render(
                     data_y,
                     stride_y as i32,
@@ -846,6 +1290,7 @@ async fn run_capture_loop(
                     frame_acquired_at,
                     false,
                     false,
+                    PublishBuffer::I420(buffer),
                 )
             }
             VideoInput::Camera { camera, is_yuyv } => {
@@ -875,6 +1320,10 @@ async fn run_capture_loop(
                         frame_wall_time_us
                     }
                 };
+
+                let mut buffer = create_i420_buffer(width, height, align_buffers_for_display);
+                let (stride_y, stride_u, stride_v) = buffer.strides();
+                let (data_y, data_u, data_v) = buffer.data_mut();
 
                 let (decode_finished_at, convert_finished_at, used_decode_path) = if *is_yuyv {
                     // Fast path for YUYV: convert directly to I420 via libyuv
@@ -999,13 +1448,31 @@ async fn run_capture_loop(
                     convert_finished_at,
                     used_decode_path,
                     true,
+                    PublishBuffer::I420(buffer),
                 )
             }
             VideoInput::Screen(screen) => {
                 let Some(screen_frame) = screen.read_frame()? else {
-                    log::debug!("No screen frame available before timeout; dropping tick");
+                    screen_miss_streak = screen_miss_streak.saturating_add(1);
+                    let since_last_submit = last_submitted_at
+                        .map(|submitted_at| submitted_at.elapsed())
+                        .unwrap_or_else(|| source_frame_started_at.elapsed());
+                    if since_last_submit >= stall_warn_after {
+                        log::warn!(
+                            "Screen capture stall: no frame available for {:.1}ms (miss streak {}, waited {:.1}ms this tick)",
+                            since_last_submit.as_secs_f64() * 1000.0,
+                            screen_miss_streak,
+                            source_frame_started_at.elapsed().as_secs_f64() * 1000.0,
+                        );
+                    } else {
+                        log::debug!("No screen frame available before timeout; dropping tick");
+                    }
                     continue;
                 };
+                if screen_miss_streak > 0 {
+                    debug!("Screen capture recovered after {} missed ticks", screen_miss_streak);
+                    screen_miss_streak = 0;
+                }
                 let read_wall_time_us = unix_time_us_now();
                 let screen_frame_acquired_at = Instant::now();
                 if screen_frame.width != width || screen_frame.height != height {
@@ -1018,24 +1485,70 @@ async fn run_capture_loop(
                     continue;
                 }
 
-                copy_i420_frame(
-                    &screen_frame,
-                    data_y,
-                    stride_y,
-                    data_u,
-                    stride_u,
-                    data_v,
-                    stride_v,
-                );
                 let convert_finished_at = Instant::now();
+                let capture_wall_time_us = screen_frame.capture_wall_time_us;
+                let buffer = screen_frame.buffer;
                 (
-                    frame_wall_time_us,
+                    capture_wall_time_us,
                     read_wall_time_us,
                     screen_frame_acquired_at,
                     screen_frame_acquired_at,
                     convert_finished_at,
                     false,
                     true,
+                    PublishBuffer::I420(buffer),
+                )
+            }
+            #[cfg(target_os = "macos")]
+            VideoInput::MacScreen(screen) => {
+                let Some(screen_frame) = screen.read_frame()? else {
+                    screen_miss_streak = screen_miss_streak.saturating_add(1);
+                    let since_last_submit = last_submitted_at
+                        .map(|submitted_at| submitted_at.elapsed())
+                        .unwrap_or_else(|| source_frame_started_at.elapsed());
+                    if since_last_submit >= stall_warn_after {
+                        log::warn!(
+                            "macOS screen capture stall: no frame available for {:.1}ms (miss streak {}, waited {:.1}ms this tick)",
+                            since_last_submit.as_secs_f64() * 1000.0,
+                            screen_miss_streak,
+                            source_frame_started_at.elapsed().as_secs_f64() * 1000.0,
+                        );
+                    } else {
+                        log::debug!(
+                            "No macOS screen frame available before timeout; dropping tick"
+                        );
+                    }
+                    continue;
+                };
+                if screen_miss_streak > 0 {
+                    debug!(
+                        "macOS screen capture recovered after {} missed ticks",
+                        screen_miss_streak
+                    );
+                    screen_miss_streak = 0;
+                }
+                let read_wall_time_us = unix_time_us_now();
+                let screen_frame_acquired_at = Instant::now();
+                if screen_frame.width != width || screen_frame.height != height {
+                    screen.warn_resolution_change(
+                        screen_frame.width,
+                        screen_frame.height,
+                        width,
+                        height,
+                    );
+                    continue;
+                }
+
+                let capture_wall_time_us = screen_frame.capture_wall_time_us;
+                (
+                    capture_wall_time_us,
+                    read_wall_time_us,
+                    screen_frame_acquired_at,
+                    screen_frame_acquired_at,
+                    screen_frame_acquired_at,
+                    false,
+                    false,
+                    PublishBuffer::Native(screen_frame.buffer),
                 )
             }
         };
@@ -1052,11 +1565,17 @@ async fn run_capture_loop(
         let mut burned_timestamp_us = None;
         if let Some(overlay) = timestamp_overlay.as_mut() {
             let overlay_started_at = Instant::now();
-            overlay.draw(data_y, stride_y_usize, capture_wall_time_us, fid);
-            burned_timestamp_us = Some(capture_wall_time_us);
-            let overlay_finished_at = Instant::now();
-            frame_draw_ms = Some((overlay_finished_at - overlay_started_at).as_secs_f64() * 1000.0);
-            buffer_ready_at = overlay_finished_at;
+            if let Some(buffer) = buffer.i420_mut() {
+                let (stride_y, _, _) = buffer.strides();
+                let stride_y_usize = stride_y as usize;
+                let (data_y, _, _) = buffer.data_mut();
+                overlay.draw(data_y, stride_y_usize, capture_wall_time_us, fid);
+                burned_timestamp_us = Some(capture_wall_time_us);
+                let overlay_finished_at = Instant::now();
+                frame_draw_ms =
+                    Some((overlay_finished_at - overlay_started_at).as_secs_f64() * 1000.0);
+                buffer_ready_at = overlay_finished_at;
+            }
         }
 
         // Build frame metadata from enabled packet trailer features
@@ -1079,37 +1598,51 @@ async fn run_capture_loop(
         rtc_source.capture_frame(&frame);
         let sent_timestamp_us = unix_time_us_now();
         let webrtc_capture_finished_at = Instant::now();
-        if let Some(shared) = display_shared.as_ref() {
-            let (stride_y, stride_u, stride_v) = frame.buffer.strides();
-            let (data_y, data_u, data_v) = frame.buffer.data();
-            let (timing_sample, publish_latency_display) = if config.display_timing {
-                let timing_sample = PublisherTimingSample {
-                    frame_id: fid,
-                    capture_timestamp_us: capture_wall_time_us,
-                    read_timestamp_us: read_wall_time_us,
-                    sent_timestamp_us,
-                };
-                let publish_latency_display = latency_display.value(
-                    Instant::now(),
-                    Some(format_us_delta_ms(sent_timestamp_us, capture_wall_time_us)),
+        if let Some(previous_submit) = last_submitted_at.replace(webrtc_capture_finished_at) {
+            let submit_gap = webrtc_capture_finished_at.saturating_duration_since(previous_submit);
+            if submit_gap >= stall_warn_after {
+                log::warn!(
+                    "Publisher submit gap: {:.1}ms between frames (frame_id {:?}, source->submit {:.1}ms)",
+                    submit_gap.as_secs_f64() * 1000.0,
+                    fid,
+                    (webrtc_capture_finished_at - source_frame_started_at).as_secs_f64() * 1000.0,
                 );
-                (Some(timing_sample), Some(publish_latency_display))
-            } else {
-                (None, None)
-            };
-            video_display::pack_i420_into_shared(
-                shared,
-                width,
-                height,
-                data_y,
-                stride_y as u32,
-                data_u,
-                stride_u as u32,
-                data_v,
-                stride_v as u32,
-                timing_sample,
-                publish_latency_display,
-            );
+            }
+        }
+        if let Some(shared) = display_shared.as_ref() {
+            if let Some(display_buffer) = frame.buffer.i420_for_display() {
+                let display_buffer = display_buffer.buffer();
+                let (stride_y, stride_u, stride_v) = display_buffer.strides();
+                let (data_y, data_u, data_v) = display_buffer.data();
+                let (timing_sample, publish_latency_display) = if config.display_timing {
+                    let timing_sample = PublisherTimingSample {
+                        frame_id: fid,
+                        capture_timestamp_us: capture_wall_time_us,
+                        read_timestamp_us: read_wall_time_us,
+                        sent_timestamp_us,
+                    };
+                    let publish_latency_display = latency_display.value(
+                        Instant::now(),
+                        Some(format_us_delta_ms(sent_timestamp_us, capture_wall_time_us)),
+                    );
+                    (Some(timing_sample), Some(publish_latency_display))
+                } else {
+                    (None, None)
+                };
+                video_display::pack_i420_into_shared(
+                    shared,
+                    width,
+                    height,
+                    data_y,
+                    stride_y,
+                    data_u,
+                    stride_u,
+                    data_v,
+                    stride_v,
+                    timing_sample,
+                    publish_latency_display,
+                );
+            }
         }
 
         frames += 1;

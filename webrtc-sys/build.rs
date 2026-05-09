@@ -60,6 +60,9 @@ fn main() {
     if is_desktop {
         rust_files.push("src/desktop_capturer.rs");
     }
+    if target_os == "macos" {
+        rust_files.push("src/macos_screen_capturer.rs");
+    }
 
     let mut builder = cxx_build::bridges(rust_files);
 
@@ -272,8 +275,10 @@ fn main() {
             builder
                 .file("src/objc_video_factory.mm")
                 .file("src/objc_video_frame_buffer.mm")
+                .file("src/macos_screen_capturer.mm")
                 .flag("-stdlib=libc++")
                 .flag("-std=c++20")
+                .flag("-fblocks")
                 .flag("-Wno-nullability-completeness");
         }
         "ios" => {

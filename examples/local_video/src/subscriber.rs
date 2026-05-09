@@ -508,6 +508,9 @@ struct JitterBufferSnapshot {
     emitted_count: u64,
 }
 
+const POLL_VIDEO_STATS: bool = false;
+const LOG_VIDEO_JITTER_BUFFER_STATS: bool = false;
+
 fn seconds_to_ms(seconds: f64) -> f64 {
     seconds * 1_000.0
 }
@@ -852,48 +855,52 @@ async fn handle_track_subscribed(
         }
     });
 
-    let ctrl_c_stats = ctrl_c_received.clone();
-    let active_sid_stats = active_sid.clone();
-    let my_sid_stats = sid.clone();
-    let simulcast_stats = simulcast.clone();
-    tokio::spawn(async move {
-        let mut logged_initial = false;
-        let mut jitter_buffer_snapshot = None;
-        let mut last_jitter_buffer_log =
-            Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
-        let mut interval = tokio::time::interval(Duration::from_secs(1));
-        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    if POLL_VIDEO_STATS {
+        let ctrl_c_stats = ctrl_c_received.clone();
+        let active_sid_stats = active_sid.clone();
+        let my_sid_stats = sid.clone();
+        let simulcast_stats = simulcast.clone();
+        tokio::spawn(async move {
+            let mut logged_initial = false;
+            let mut jitter_buffer_snapshot = None;
+            let mut last_jitter_buffer_log =
+                Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
+            let mut interval = tokio::time::interval(Duration::from_secs(1));
+            interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-        loop {
-            if ctrl_c_stats.load(Ordering::Acquire) {
-                break;
-            }
-            if active_sid_stats.lock().as_ref() != Some(&my_sid_stats) {
-                break;
-            }
+            loop {
+                if ctrl_c_stats.load(Ordering::Acquire) {
+                    break;
+                }
+                if active_sid_stats.lock().as_ref() != Some(&my_sid_stats) {
+                    break;
+                }
 
-            match video_track.get_stats().await {
-                Ok(stats) => {
-                    if !logged_initial {
-                        log_video_inbound_stats(&stats);
+                match video_track.get_stats().await {
+                    Ok(stats) => {
+                        if !logged_initial {
+                            log_video_inbound_stats(&stats);
+                            logged_initial = true;
+                        }
+                        if LOG_VIDEO_JITTER_BUFFER_STATS
+                            && last_jitter_buffer_log.elapsed() >= Duration::from_secs(5)
+                        {
+                            log_video_jitter_buffer_stats(&stats, &mut jitter_buffer_snapshot);
+                            last_jitter_buffer_log = Instant::now();
+                        }
+                        update_simulcast_quality_from_stats(&stats, &simulcast_stats);
+                    }
+                    Err(e) if !logged_initial => {
+                        debug!("Failed to get stats for video track: {:?}", e);
                         logged_initial = true;
                     }
-                    if last_jitter_buffer_log.elapsed() >= Duration::from_secs(5) {
-                        log_video_jitter_buffer_stats(&stats, &mut jitter_buffer_snapshot);
-                        last_jitter_buffer_log = Instant::now();
-                    }
-                    update_simulcast_quality_from_stats(&stats, &simulcast_stats);
+                    Err(_) => {}
                 }
-                Err(e) if !logged_initial => {
-                    debug!("Failed to get stats for video track: {:?}", e);
-                    logged_initial = true;
-                }
-                Err(_) => {}
-            }
 
-            interval.tick().await;
-        }
-    });
+                interval.tick().await;
+            }
+        });
+    }
 }
 
 fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex<SimulcastState>>) {

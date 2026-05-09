@@ -4476,6 +4476,7 @@ dependencies = [
  "bytemuck",
  "chrono",
  "clap",
+ "cxx",
  "eframe",
  "egui",
  "egui-wgpu",

@@ -25,6 +25,8 @@ pub mod desktop_capturer;
 pub mod frame_cryptor;
 pub mod helper;
 pub mod jsep;
+#[cfg(target_os = "macos")]
+pub mod macos_screen_capturer;
 pub mod media_stream;
 pub mod media_stream_track;
 pub mod packet_trailer;
