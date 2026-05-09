@@ -973,3 +973,53 @@ fn leave_disconnect_reason(err: &EngineError) -> Option<DisconnectReason> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leave_disconnect_reason_returns_some_only_for_disconnect_action() {
+        let disconnect_err = EngineError::Signal(SignalError::LeaveRequest {
+            reason: DisconnectReason::ServerShutdown,
+            action: proto::leave_request::Action::Disconnect,
+        });
+        assert_eq!(
+            leave_disconnect_reason(&disconnect_err),
+            Some(DisconnectReason::ServerShutdown),
+            "Disconnect action should propagate the server reason"
+        );
+
+        for action in [
+            proto::leave_request::Action::Reconnect,
+            proto::leave_request::Action::Resume,
+        ] {
+            let err = EngineError::Signal(SignalError::LeaveRequest {
+                reason: DisconnectReason::ServerShutdown,
+                action,
+            });
+            assert!(
+                leave_disconnect_reason(&err).is_none(),
+                "{:?} action must NOT short-circuit the reconnect loop",
+                action
+            );
+        }
+    }
+
+    #[test]
+    fn leave_disconnect_reason_ignores_non_leave_errors() {
+        let other_errors = [
+            EngineError::Connection("network".into()),
+            EngineError::Internal("bug".into()),
+            EngineError::Signal(SignalError::SendError),
+            EngineError::Signal(SignalError::Timeout("waiting".into())),
+        ];
+        for err in &other_errors {
+            assert!(
+                leave_disconnect_reason(err).is_none(),
+                "{:?} must not be treated as a disconnect Leave",
+                err
+            );
+        }
+    }
+}
