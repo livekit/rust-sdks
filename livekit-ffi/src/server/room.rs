@@ -71,6 +71,13 @@ pub struct RoomInner {
 
     track_handle_lookup: Arc<Mutex<HashMap<TrackSid, FfiHandleId>>>,
 
+    // Maps a local publication's current sid -> its FfiPublication handle.
+    // Used to preserve the FfiPublication handle across the SDK's
+    // auto-republish during a full reconnect — the language binding can
+    // continue to use the same publication handle while the inner
+    // publication is swapped to the new (re-issued) one.
+    local_publication_lookup: Arc<Mutex<HashMap<TrackSid, FfiHandleId>>>,
+
     // Used to forward RPC method invocation to the FfiClient and collect their results
     rpc_method_invocation_waiters: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
 
@@ -179,6 +186,7 @@ impl FfiRoom {
                         pending_published_tracks: Default::default(),
                         pending_unpublished_tracks: Default::default(),
                         track_handle_lookup: Default::default(),
+                        local_publication_lookup: Default::default(),
                         rpc_method_invocation_waiters: Default::default(),
                         url: connect.url,
                     });
@@ -1051,36 +1059,100 @@ async fn forward_event(
         }
         RoomEvent::LocalTrackPublished { publication, track: _, participant: _ } => {
             let sid = publication.sid();
-            // If we're currently reconnecting, users can't publish tracks, if we receive this
-            // event it means the RoomEngine is republishing tracks to finish the reconnection
-            // process. (So we're not waiting for any PublishCallback)
-            if !present_state.lock().reconnecting {
-                // Make sure to send the event *after* the async callback of the PublishTrackRequest
-                // Wait for the PublishTrack callback to be sent (waiting time is really short, so
-                // it is fine to not spawn a new task)
-                loop {
-                    if inner.pending_published_tracks.lock().remove(&sid) {
-                        break;
-                    }
-                    log::debug!("waiting for the PublishTrack callback to be sent");
-                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            let reconnecting = present_state.lock().reconnecting;
+            if reconnecting {
+                // The engine is auto-republishing tracks during a full
+                // reconnect. We defer the FfiPublication swap (and the
+                // proto event) to the LocalTrackRepublished handler
+                return;
+            }
+
+            // Make sure to send the event *after* the async callback of the PublishTrackRequest
+            // Wait for the PublishTrack callback to be sent (waiting time is really short, so
+            // it is fine to not spawn a new task)
+            loop {
+                if inner.pending_published_tracks.lock().remove(&sid) {
+                    break;
                 }
+                log::debug!("waiting for the PublishTrack callback to be sent");
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
             }
 
             let ffi_publication = FfiPublication {
                 handle: server.next_id(),
                 publication: TrackPublication::Local(publication),
             };
-            server.store_handle(ffi_publication.handle, ffi_publication);
+            let handle_id = ffi_publication.handle;
+            server.store_handle(handle_id, ffi_publication);
+            inner.local_publication_lookup.lock().insert(sid.clone(), handle_id);
 
             let _ = send_event(proto::LocalTrackPublished { track_sid: sid.to_string() }.into());
         }
         RoomEvent::LocalTrackUnpublished { publication, participant: _ } => {
-            let _ = send_event(
-                proto::LocalTrackUnpublished { publication_sid: publication.sid().into() }.into(),
-            );
+            let sid = publication.sid();
+            // During a reconnect, the unpublish is the SDK's internal
+            // bookkeeping for the auto-republish flow. we will ignore it here and handle it in
+            // the LocalTrackRepublished handler
+            if present_state.lock().reconnecting {
+                return;
+            }
 
-            inner.pending_unpublished_tracks.lock().insert(publication.sid());
+            inner.local_publication_lookup.lock().remove(&sid);
+            inner.pending_unpublished_tracks.lock().insert(sid.clone());
+            let _ = send_event(proto::LocalTrackUnpublished { publication_sid: sid.into() }.into());
+        }
+        RoomEvent::LocalTrackRepublished {
+            previous_sid,
+            publication,
+            track: _,
+            participant: _,
+        } => {
+            let new_sid = publication.sid();
+            let mut lookup = inner.local_publication_lookup.lock();
+            let Some(handle_id) = lookup.remove(&previous_sid) else {
+                // We never tracked an FfiPublication for this SID —
+                // shouldn't happen on the auto-republish path, but fall
+                // back to creating a fresh one so the binding still gets
+                // a usable handle.
+                let ffi_publication = FfiPublication {
+                    handle: server.next_id(),
+                    publication: TrackPublication::Local(publication),
+                };
+                let new_handle_id = ffi_publication.handle;
+                let info = proto::TrackPublicationInfo::from(&ffi_publication);
+                server.store_handle(new_handle_id, ffi_publication);
+                lookup.insert(new_sid, new_handle_id);
+                drop(lookup);
+                let _ = send_event(
+                    proto::LocalTrackRepublished {
+                        publication_handle: new_handle_id,
+                        previous_sid: previous_sid.into(),
+                        info,
+                    }
+                    .into(),
+                );
+                return;
+            };
+
+            // Swap the inner publication on the existing FfiPublication
+            // (handle id preserved); rekey the lookup under the new sid.
+            let ffi_publication = FfiPublication {
+                handle: handle_id,
+                publication: TrackPublication::Local(publication),
+            };
+            let info = proto::TrackPublicationInfo::from(&ffi_publication);
+            server.store_handle(handle_id, ffi_publication);
+            lookup.insert(new_sid, handle_id);
+            drop(lookup);
+
+            let _ = send_event(
+                proto::LocalTrackRepublished {
+                    publication_handle: handle_id,
+                    previous_sid: previous_sid.into(),
+                    info,
+                }
+                .into(),
+            );
         }
         RoomEvent::LocalTrackSubscribed { track } => {
             let _ = send_event(

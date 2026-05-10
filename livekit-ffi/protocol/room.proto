@@ -438,6 +438,7 @@ message RoomEvent {
     ParticipantActive participant_active = 42;
     DataTrackPublished data_track_published = 43;
     DataTrackUnpublished data_track_unpublished = 44;
+    LocalTrackRepublished local_track_republished = 45;
   }
 }
 
@@ -484,6 +485,19 @@ message LocalTrackPublished {
 
 message LocalTrackUnpublished {
   required string publication_sid = 1;
+}
+
+// Fired when the SDK auto-republishes a local track during a full
+// reconnect. The FfiPublication handle is preserved across the cycle —
+// language bindings should look up the existing publication object by
+// `previous_sid` (its old SID), update its TrackPublicationInfo in place
+// with `info`, and rekey it under the new SID. Apps holding a cached
+// reference to the publication continue to see a valid object whose
+// reads/writes hit current state.
+message LocalTrackRepublished {
+  required uint64 publication_handle = 1;
+  required string previous_sid = 2;
+  required TrackPublicationInfo info = 3;
 }
 
 message LocalTrackSubscribed {
