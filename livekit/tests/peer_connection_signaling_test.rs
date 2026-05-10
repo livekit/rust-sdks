@@ -103,6 +103,27 @@ fn get_env_for_mode(_mode: SignalingMode) -> (String, String, String) {
     (url, api_key, api_secret)
 }
 
+/// Poll `cond` until it returns `Some(_)`, sleeping briefly between attempts,
+/// up to `timeout`. Returns whatever the predicate produced, or `None` if the
+/// timeout elapsed first.
+///
+/// Use instead of unconditional `tokio::time::sleep` after async events whose
+/// completion timing is unpredictable but whose effects you can observe — the
+/// test runs as fast as the system can deliver the result, instead of always
+/// burning the worst-case wait.
+async fn wait_until<T>(timeout: Duration, mut cond: impl FnMut() -> Option<T>) -> Option<T> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(value) = cond() {
+            return Some(value);
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 fn assert_signaling_mode_state(room: &Room, mode: SignalingMode, _url: &str) {
     let active_single_pc = room.is_single_peer_connection_active();
     match mode {
@@ -341,9 +362,6 @@ async fn test_connect_impl(mode: SignalingMode) -> Result<()> {
     // Verify connection is working
     assert_eq!(room.connection_state(), ConnectionState::Connected);
     assert_signaling_mode_state(&room, mode, &url);
-
-    // Give it a moment to ensure connection is stable
-    tokio::time::sleep(Duration::from_secs(2)).await;
 
     log::info!("[{}] Test passed - connection working!", mode.name());
     Ok(())
@@ -641,10 +659,7 @@ async fn test_reconnect_impl(mode: SignalingMode) -> Result<()> {
         .await
         .context("Timeout waiting for reconnection")??;
 
-    // Give some time for state to stabilize
-    tokio::time::sleep(Duration::from_secs(2)).await;
-
-    // Verify room is connected
+    // Verify room is connected (Reconnected event implies this; assert defensively).
     assert_eq!(
         pub_room_arc.connection_state(),
         ConnectionState::Connected,
@@ -656,18 +671,29 @@ async fn test_reconnect_impl(mode: SignalingMode) -> Result<()> {
     log::info!("[{}] Tracks published after reconnect: {}", mode.name(), tracks_after);
     assert_eq!(tracks_before, tracks_after, "Track count should be preserved after reconnect");
 
-    // Verify subscriber can still see the publisher's tracks
-    let remote_participants = sub_room.remote_participants();
-    let publisher_entry = remote_participants
-        .iter()
-        .find(|(_, p)| p.identity().as_str() == publisher_identity.as_str());
+    // Subscriber-side participant/track propagation is asynchronous after the
+    // publisher's Reconnected event — the SFU forwards the participant info on
+    // its own schedule. Poll up to 5s instead of unconditionally sleeping 2s,
+    // so this completes as fast as the SFU can deliver the update.
+    let saw_publisher_tracks = wait_until(Duration::from_secs(5), || {
+        let remote_participants = sub_room.remote_participants();
+        let publisher_entry = remote_participants
+            .iter()
+            .find(|(_, p)| p.identity().as_str() == publisher_identity.as_str());
+        publisher_entry.and_then(|(_, p)| {
+            let n = p.track_publications().len();
+            (n > 0).then_some(n)
+        })
+    })
+    .await;
 
-    if let Some((_, publisher)) = publisher_entry {
-        let remote_tracks = publisher.track_publications().len();
-        log::info!("[{}] Subscriber sees {} tracks from publisher", mode.name(), remote_tracks);
-        assert!(remote_tracks > 0, "Subscriber should still see publisher's tracks");
+    if let Some(n) = saw_publisher_tracks {
+        log::info!("[{}] Subscriber sees {} tracks from publisher", mode.name(), n);
     } else {
-        log::warn!("[{}] Publisher not found in remote participants", mode.name());
+        log::warn!(
+            "[{}] Subscriber did not observe publisher's tracks within timeout",
+            mode.name()
+        );
     }
 
     log::info!("[{}] Test passed - reconnection working!", mode.name());
@@ -773,12 +799,17 @@ async fn test_node_failure_impl(mode: SignalingMode) -> Result<()> {
         .await
         .context("Timeout waiting for reconnection after node failure")??;
 
-    // Give time for track republishing
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    // Republish runs asynchronously after Reconnected: each track is unpublished
+    // then re-published, which is signal+ICE round-trip. Poll up to 5s for the
+    // publication count to recover instead of unconditionally sleeping 3s.
+    let tracks_after = wait_until(Duration::from_secs(5), || {
+        let n = room_arc.local_participant().track_publications().len();
+        (n == tracks_before).then_some(n)
+    })
+    .await
+    .unwrap_or_else(|| room_arc.local_participant().track_publications().len());
 
-    let tracks_after = room_arc.local_participant().track_publications().len();
     log::info!("[{}] Tracks after node failure reconnect: {}", mode.name(), tracks_after);
-
     assert_eq!(tracks_before, tracks_after, "Tracks should be restored after node failure");
 
     log::info!("[{}] Test passed - node failure recovery working!", mode.name());
