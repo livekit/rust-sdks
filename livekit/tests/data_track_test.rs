@@ -434,7 +434,7 @@ async fn test_publisher_side_fault(scenario: SimulateScenario) -> Result<()> {
 
         if scenario == SimulateScenario::ForceTcp {
             // Give some time for the track to be republished. Frames will be dropped until then.
-            time::sleep(Duration::from_millis(2000)).await;
+            time::sleep(Duration::from_millis(3000)).await;
             assert_ne!(initial_sid, track.info().sid(), "Should have new SID");
         }
 

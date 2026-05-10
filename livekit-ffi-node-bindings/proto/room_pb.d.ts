@@ -29,6 +29,61 @@ import type { OwnedByteStreamReader, OwnedTextStreamReader } from "./data_stream
 import type { OwnedRemoteDataTrack } from "./data_track_pb.js";
 
 /**
+ * Simulate a reconnection scenario for testing. Mirrors the variants of
+ * `livekit::SimulateScenario`. The Resume / FullReconnect variants are
+ * the relevant ones for verifying that resume preserves publications and
+ * full reconnect republishes them exactly once.
+ *
+ * @generated from enum livekit.proto.SimulateScenarioKind
+ */
+export declare enum SimulateScenarioKind {
+  /**
+   * Closes the signal channel locally; engine attempts a Resume.
+   *
+   * @generated from enum value: SIMULATE_SIGNAL_RECONNECT = 0;
+   */
+  SIMULATE_SIGNAL_RECONNECT = 0,
+
+  /**
+   * @generated from enum value: SIMULATE_SPEAKER = 1;
+   */
+  SIMULATE_SPEAKER = 1,
+
+  /**
+   * @generated from enum value: SIMULATE_NODE_FAILURE = 2;
+   */
+  SIMULATE_NODE_FAILURE = 2,
+
+  /**
+   * @generated from enum value: SIMULATE_SERVER_LEAVE = 3;
+   */
+  SIMULATE_SERVER_LEAVE = 3,
+
+  /**
+   * @generated from enum value: SIMULATE_MIGRATION = 4;
+   */
+  SIMULATE_MIGRATION = 4,
+
+  /**
+   * @generated from enum value: SIMULATE_FORCE_TCP = 5;
+   */
+  SIMULATE_FORCE_TCP = 5,
+
+  /**
+   * @generated from enum value: SIMULATE_FORCE_TLS = 6;
+   */
+  SIMULATE_FORCE_TLS = 6,
+
+  /**
+   * Asks the server to send `LeaveRequest{Reconnect}`, forcing a full
+   * reconnect (new RtcSession; SDK republishes existing local tracks).
+   *
+   * @generated from enum value: SIMULATE_FULL_RECONNECT = 7;
+   */
+  SIMULATE_FULL_RECONNECT = 7,
+}
+
+/**
  * @generated from enum livekit.proto.IceTransportType
  */
 export declare enum IceTransportType {
@@ -377,6 +432,93 @@ export declare class DisconnectCallback extends Message<DisconnectCallback> {
   static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): DisconnectCallback;
 
   static equals(a: DisconnectCallback | PlainMessage<DisconnectCallback> | undefined, b: DisconnectCallback | PlainMessage<DisconnectCallback> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.SimulateScenarioRequest
+ */
+export declare class SimulateScenarioRequest extends Message<SimulateScenarioRequest> {
+  /**
+   * @generated from field: required uint64 room_handle = 1;
+   */
+  roomHandle?: bigint;
+
+  /**
+   * @generated from field: required livekit.proto.SimulateScenarioKind scenario = 2;
+   */
+  scenario?: SimulateScenarioKind;
+
+  /**
+   * @generated from field: optional uint64 request_async_id = 3;
+   */
+  requestAsyncId?: bigint;
+
+  constructor(data?: PartialMessage<SimulateScenarioRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.SimulateScenarioRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SimulateScenarioRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SimulateScenarioRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SimulateScenarioRequest;
+
+  static equals(a: SimulateScenarioRequest | PlainMessage<SimulateScenarioRequest> | undefined, b: SimulateScenarioRequest | PlainMessage<SimulateScenarioRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.SimulateScenarioResponse
+ */
+export declare class SimulateScenarioResponse extends Message<SimulateScenarioResponse> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  constructor(data?: PartialMessage<SimulateScenarioResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.SimulateScenarioResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SimulateScenarioResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SimulateScenarioResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SimulateScenarioResponse;
+
+  static equals(a: SimulateScenarioResponse | PlainMessage<SimulateScenarioResponse> | undefined, b: SimulateScenarioResponse | PlainMessage<SimulateScenarioResponse> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.SimulateScenarioCallback
+ */
+export declare class SimulateScenarioCallback extends Message<SimulateScenarioCallback> {
+  /**
+   * @generated from field: required uint64 async_id = 1;
+   */
+  asyncId?: bigint;
+
+  /**
+   * @generated from field: optional string error = 2;
+   */
+  error?: string;
+
+  constructor(data?: PartialMessage<SimulateScenarioCallback>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.SimulateScenarioCallback";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): SimulateScenarioCallback;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): SimulateScenarioCallback;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): SimulateScenarioCallback;
+
+  static equals(a: SimulateScenarioCallback | PlainMessage<SimulateScenarioCallback> | undefined, b: SimulateScenarioCallback | PlainMessage<SimulateScenarioCallback> | undefined): boolean;
 }
 
 /**
