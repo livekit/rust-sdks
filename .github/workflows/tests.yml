@@ -158,7 +158,6 @@ jobs:
       # path is timing-sensitive (ICE handshake, reconnect windows) but the
       # timeouts in those tests are real-clock seconds and have plenty of
       # headroom — dev's slower runtime doesn't push past them in practice.
-      # Bump to --release here only if dev-profile e2e tests prove flaky.
       - name: Test (no E2E)
         if: ${{ !matrix.e2e-testing }}
         env:
