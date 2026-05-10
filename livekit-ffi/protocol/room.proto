@@ -68,6 +68,34 @@ message DisconnectRequest {
 message DisconnectResponse { required uint64 async_id = 1; }
 message DisconnectCallback { required uint64 async_id = 1; }
 
+// Simulate a reconnection scenario for testing. Mirrors the variants of
+// `livekit::SimulateScenario`. The Resume / FullReconnect variants are
+// the relevant ones for verifying that resume preserves publications and
+// full reconnect republishes them exactly once.
+enum SimulateScenarioKind {
+  // Closes the signal channel locally; engine attempts a Resume.
+  SIMULATE_SIGNAL_RECONNECT = 0;
+  SIMULATE_SPEAKER = 1;
+  SIMULATE_NODE_FAILURE = 2;
+  SIMULATE_SERVER_LEAVE = 3;
+  SIMULATE_MIGRATION = 4;
+  SIMULATE_FORCE_TCP = 5;
+  SIMULATE_FORCE_TLS = 6;
+  // Asks the server to send `LeaveRequest{Reconnect}`, forcing a full
+  // reconnect (new RtcSession; SDK republishes existing local tracks).
+  SIMULATE_FULL_RECONNECT = 7;
+}
+message SimulateScenarioRequest {
+  required uint64 room_handle = 1;
+  required SimulateScenarioKind scenario = 2;
+  optional uint64 request_async_id = 3;
+}
+message SimulateScenarioResponse { required uint64 async_id = 1; }
+message SimulateScenarioCallback {
+  required uint64 async_id = 1;
+  optional string error = 2;
+}
+
 // Publish a track to the room
 message PublishTrackRequest {
   required uint64 local_participant_handle = 1;

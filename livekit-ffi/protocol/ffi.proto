@@ -164,7 +164,10 @@ message FfiRequest {
     RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
     DataTrackStreamReadRequest data_track_stream_read = 75;
 
-    // NEXT_ID: 76
+    // Reconnection / chaos testing
+    SimulateScenarioRequest simulate_scenario = 76;
+
+    // NEXT_ID: 77
   }
 }
 
@@ -274,7 +277,10 @@ message FfiResponse {
     RemoteDataTrackIsPublishedResponse remote_data_track_is_published = 73;
     DataTrackStreamReadResponse data_track_stream_read = 74;
 
-    // NEXT_ID: 75
+    // Reconnection / chaos testing
+    SimulateScenarioResponse simulate_scenario = 75;
+
+    // NEXT_ID: 76
   }
 }
 
@@ -337,7 +343,9 @@ message FfiEvent {
     // Data Track (remote)
     DataTrackStreamEvent data_track_stream_event = 43;
 
-    // NEXT_ID: 44
+    SimulateScenarioCallback simulate_scenario = 44;
+
+    // NEXT_ID: 45
   }
 }
 
