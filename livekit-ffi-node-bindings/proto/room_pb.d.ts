@@ -20,7 +20,7 @@
 import type { BinaryReadOptions, FieldList, JsonReadOptions, JsonValue, PartialMessage, PlainMessage } from "@bufbuild/protobuf";
 import { Message, proto2 } from "@bufbuild/protobuf";
 import type { DisconnectReason, OwnedParticipant, ParticipantInfo, ParticipantPermission } from "./participant_pb.js";
-import type { OwnedTrack, OwnedTrackPublication, PacketTrailerFeature, TrackSource } from "./track_pb.js";
+import type { OwnedTrack, OwnedTrackPublication, PacketTrailerFeature, TrackPublicationInfo, TrackSource } from "./track_pb.js";
 import type { RtcStats } from "./stats_pb.js";
 import type { VideoCodec } from "./video_frame_pb.js";
 import type { E2eeOptions, EncryptionState } from "./e2ee_pb.js";
@@ -2317,6 +2317,12 @@ export declare class RoomEvent extends Message<RoomEvent> {
      */
     value: DataTrackUnpublished;
     case: "dataTrackUnpublished";
+  } | {
+    /**
+     * @generated from field: livekit.proto.LocalTrackRepublished local_track_republished = 45;
+     */
+    value: LocalTrackRepublished;
+    case: "localTrackRepublished";
   } | { case: undefined; value?: undefined };
 
   constructor(data?: PartialMessage<RoomEvent>);
@@ -2592,6 +2598,48 @@ export declare class LocalTrackUnpublished extends Message<LocalTrackUnpublished
   static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): LocalTrackUnpublished;
 
   static equals(a: LocalTrackUnpublished | PlainMessage<LocalTrackUnpublished> | undefined, b: LocalTrackUnpublished | PlainMessage<LocalTrackUnpublished> | undefined): boolean;
+}
+
+/**
+ * Fired when the SDK auto-republishes a local track during a full
+ * reconnect. The FfiPublication handle is preserved across the cycle —
+ * language bindings should look up the existing publication object by
+ * `previous_sid` (its old SID), update its TrackPublicationInfo in place
+ * with `info`, and rekey it under the new SID. Apps holding a cached
+ * reference to the publication continue to see a valid object whose
+ * reads/writes hit current state.
+ *
+ * @generated from message livekit.proto.LocalTrackRepublished
+ */
+export declare class LocalTrackRepublished extends Message<LocalTrackRepublished> {
+  /**
+   * @generated from field: required uint64 publication_handle = 1;
+   */
+  publicationHandle?: bigint;
+
+  /**
+   * @generated from field: required string previous_sid = 2;
+   */
+  previousSid?: string;
+
+  /**
+   * @generated from field: required livekit.proto.TrackPublicationInfo info = 3;
+   */
+  info?: TrackPublicationInfo;
+
+  constructor(data?: PartialMessage<LocalTrackRepublished>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.LocalTrackRepublished";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): LocalTrackRepublished;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): LocalTrackRepublished;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): LocalTrackRepublished;
+
+  static equals(a: LocalTrackRepublished | PlainMessage<LocalTrackRepublished> | undefined, b: LocalTrackRepublished | PlainMessage<LocalTrackRepublished> | undefined): boolean;
 }
 
 /**
