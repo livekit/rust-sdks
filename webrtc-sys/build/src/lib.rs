@@ -241,8 +241,44 @@ pub fn download_webrtc() -> Result<()> {
         .context("Failed to move extracted WebRTC into place")?;
     let _ = fs::remove_dir_all(&tmp_extract);
 
+    #[cfg(unix)]
+    ensure_owner_readable(&webrtc_dir)
+        .context("Failed to normalize libwebrtc file permissions")?;
+
     fs::remove_file(&tmp_path).context("Failed to remove temporary WebRTC zip file")?;
     Ok(())
+}
+
+#[cfg(unix)]
+fn ensure_owner_readable(root: &path::Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fn walk(p: &path::Path) -> Result<()> {
+        let meta = fs::symlink_metadata(p)?;
+        // Don't try to chmod through symlinks — follow them only via the
+        // entries we walk into normally. set_permissions on a symlink may
+        // affect the target on some platforms; just skip.
+        if meta.file_type().is_symlink() {
+            return Ok(());
+        }
+        let mut perms = meta.permissions();
+        let mut mode = perms.mode();
+        mode |= 0o600; // owner read+write
+        if meta.is_dir() {
+            mode |= 0o100; // owner traverse
+        }
+        perms.set_mode(mode);
+        // Best-effort: if the file is on a read-only mount or owned by another
+        // user (shouldn't happen here), we just skip rather than failing the
+        // build over a permission tweak.
+        let _ = fs::set_permissions(p, perms);
+        if meta.is_dir() {
+            for entry in fs::read_dir(p)? {
+                walk(&entry?.path())?;
+            }
+        }
+        Ok(())
+    }
+    walk(root)
 }
 
 pub fn android_ndk_toolchain() -> Result<path::PathBuf> {
