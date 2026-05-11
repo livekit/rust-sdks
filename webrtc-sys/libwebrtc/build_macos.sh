@@ -1,4 +1,8 @@
 #!/bin/bash
+# Exit immediately if any command fails. This ensures CI properly reports build
+# failures instead of continuing to create empty/broken artifacts.
+set -e
+
 # Copyright 2023 LiveKit, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -94,6 +98,10 @@ if [ "$profile" = "debug" ]; then
 fi
 
 # generate ninja files
+# Note: use_clang_modules=false is required to avoid libc++ header incompatibility
+# with Xcode 26.0. When enabled, C++ module compilation fails with errors like
+# "unknown type name 'size_t'" due to conflicts between WebRTC's bundled libc++
+# headers and the macOS SDK headers.
 gn gen "$OUTPUT_DIR" --root="src" \
   --args="is_debug=$debug \
   enable_dsyms=$debug \
@@ -116,6 +124,7 @@ gn gen "$OUTPUT_DIR" --root="src" \
   rtc_use_h264=true \
   rtc_use_h265=true \
   use_custom_libcxx=false \
+  use_clang_modules=false \
   clang_use_chrome_plugins=false \
   use_rtti=true \
   use_lld=false \

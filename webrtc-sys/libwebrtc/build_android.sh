@@ -1,4 +1,8 @@
 #!/bin/bash
+# Exit immediately if any command fails. This ensures CI properly reports build
+# failures instead of continuing to create empty/broken artifacts.
+set -e
+
 # Copyright 2023 LiveKit, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -87,6 +91,9 @@ if [ "$profile" = "debug" ]; then
   debug="true"
 fi
 
+# Note: use_clang_modules=false is required to avoid C++ module compilation issues.
+# Without this flag, the build may fail partway through, resulting in missing
+# artifacts like libwebrtc.jar.
 args="is_debug=$debug \
   is_java_debug=$debug \
   target_os=\"android\" \
