@@ -1625,16 +1625,20 @@ mod tests {
 
         // Set recording device if available
         if recording_count > 0 {
-            let req =
-                proto::SetRecordingDeviceRequest { platform_audio_handle: handle_id, index: 0 };
+            let req = proto::SetRecordingDeviceRequest {
+                platform_audio_handle: handle_id,
+                device: Some(proto::set_recording_device_request::Device::Index(0)),
+            };
             let res = on_set_recording_device(server(), req).unwrap();
             assert!(res.error.is_none(), "Error: {:?}", res.error);
             println!("Set recording device to index 0");
         }
 
         // Test invalid device index
-        let req =
-            proto::SetRecordingDeviceRequest { platform_audio_handle: handle_id, index: 9999 };
+        let req = proto::SetRecordingDeviceRequest {
+            platform_audio_handle: handle_id,
+            device: Some(proto::set_recording_device_request::Device::Index(9999)),
+        };
         let res = on_set_recording_device(server(), req).unwrap();
         assert!(res.error.is_some(), "Should fail with invalid index");
         println!("Invalid index correctly rejected: {:?}", res.error);
@@ -1658,14 +1662,20 @@ mod tests {
 
         // Set playout device if available
         if playout_count > 0 {
-            let req = proto::SetPlayoutDeviceRequest { platform_audio_handle: handle_id, index: 0 };
+            let req = proto::SetPlayoutDeviceRequest {
+                platform_audio_handle: handle_id,
+                device: Some(proto::set_playout_device_request::Device::Index(0)),
+            };
             let res = on_set_playout_device(server(), req).unwrap();
             assert!(res.error.is_none(), "Error: {:?}", res.error);
             println!("Set playout device to index 0");
         }
 
         // Test invalid device index
-        let req = proto::SetPlayoutDeviceRequest { platform_audio_handle: handle_id, index: 9999 };
+        let req = proto::SetPlayoutDeviceRequest {
+            platform_audio_handle: handle_id,
+            device: Some(proto::set_playout_device_request::Device::Index(9999)),
+        };
         let res = on_set_playout_device(server(), req).unwrap();
         assert!(res.error.is_some(), "Should fail with invalid index");
         println!("Invalid index correctly rejected: {:?}", res.error);

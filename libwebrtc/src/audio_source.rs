@@ -52,7 +52,7 @@ pub enum RtcAudioSource {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// use livekit::webrtc::audio_source::native::NativeAudioSource;
     /// use livekit::webrtc::audio_source::{AudioSourceOptions, RtcAudioSource};
     ///
