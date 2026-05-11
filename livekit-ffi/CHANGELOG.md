@@ -316,6 +316,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.55 (2026-05-11)
+
+### Fixes
+
+- chore: add LocalTrackRepublished event for FFI clients - #1072 (@davidzhao)
+
 ## 0.12.54 (2026-05-10)
 
 ### Features
