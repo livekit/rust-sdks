@@ -232,11 +232,12 @@ impl E2eeManager {
     }
 
     pub fn set_enabled(&self, enabled: bool) {
-        let inner = self.inner.lock();
+        let mut inner = self.inner.lock();
         if inner.enabled == enabled {
             return;
         }
 
+        inner.enabled = enabled;
         for (_, cryptor) in inner.frame_cryptors.iter() {
             cryptor.set_enabled(enabled);
         }
