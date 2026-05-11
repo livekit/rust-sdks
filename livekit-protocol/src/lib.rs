@@ -15,8 +15,6 @@
 #![allow(non_snake_case)]
 #![allow(clippy::large_enum_variant)]
 
-pub mod enum_dispatch;
-
 include!("livekit.rs");
 
 #[cfg(feature = "serde")]

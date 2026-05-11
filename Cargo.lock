@@ -4179,7 +4179,6 @@ dependencies = [
  "jni 0.21.1",
  "js-sys",
  "lazy_static",
- "livekit-protocol",
  "livekit-runtime",
  "log",
  "parking_lot",

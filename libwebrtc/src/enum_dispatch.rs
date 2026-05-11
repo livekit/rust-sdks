@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Crates: livekit and libwebrtc
 // TODO(theomonnom): Async methods
 #[macro_export]
 macro_rules! enum_dispatch {
@@ -30,13 +29,13 @@ macro_rules! enum_dispatch {
     (@fnc [$($variant:ident),+]: $vis:vis fn $fnc:ident($self:ident: $sty:ty $(, $arg:ident: $t:ty)*) -> $ret:ty) => {
         #[inline]
         $vis fn $fnc($self: $sty, $($arg: $t),*) -> $ret {
-            enum_dispatch!(@match [$($variant),+]: $fnc, $self, ($($arg,)*))
+            $crate::enum_dispatch!(@match [$($variant),+]: $fnc, $self, ($($arg,)*))
         }
     };
 
     ($variants:tt; $($vis:vis fn $fnc:ident$args:tt -> $ret:ty;)+) => {
         $(
-            enum_dispatch!(@fnc $variants: $vis fn $fnc$args -> $ret);
+            $crate::enum_dispatch!(@fnc $variants: $vis fn $fnc$args -> $ret);
         )+
     };
 }
