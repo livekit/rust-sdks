@@ -53,19 +53,23 @@ use video_display::{align_up, PublisherTimingSample, SharedYuv};
 #[command(author, version, about, long_about = None)]
 struct Args {
     /// List available cameras and exit
-    #[arg(long)]
+    #[arg(long, conflicts_with = "list_screens")]
     list_cameras: bool,
 
+    /// List available screens that can be shared and exit
+    #[arg(long, conflicts_with = "list_cameras")]
+    list_screens: bool,
+
     /// Camera index to use (numeric)
-    #[arg(long, conflicts_with_all = ["screen_index", "test_pattern"])]
+    #[arg(long, conflicts_with_all = ["screen_index", "test_pattern", "list_cameras", "list_screens"])]
     camera_index: Option<usize>,
 
     /// Screen index to capture instead of a camera (zero-based)
-    #[arg(long, conflicts_with_all = ["camera_index", "test_pattern"])]
+    #[arg(long, conflicts_with_all = ["camera_index", "test_pattern", "list_cameras", "list_screens"])]
     screen_index: Option<usize>,
 
     /// Generate a standard SMPTE color-bar test pattern instead of using a camera
-    #[arg(long, default_value_t = false, conflicts_with = "list_cameras")]
+    #[arg(long, default_value_t = false, conflicts_with_all = ["list_cameras", "list_screens"])]
     test_pattern: bool,
 
     /// Desired width
@@ -497,6 +501,60 @@ fn print_camera_capabilities(capabilities: &BTreeMap<FrameFormat, BTreeMap<Resol
             println!("     {} @ {} fps", resolution, fps_text);
         }
     }
+}
+
+fn list_screens(use_cpu_capturer: bool) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    if !use_cpu_capturer {
+        match list_macos_native_screens() {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                log::warn!(
+                    "Failed to list macOS native screens ({}); falling back to CPU desktop capturer",
+                    err
+                );
+            }
+        }
+    }
+
+    list_cpu_capturer_screens()
+}
+
+#[cfg(target_os = "macos")]
+fn list_macos_native_screens() -> Result<()> {
+    let capturer = webrtc_sys::macos_screen_capturer::ffi::new_macos_screen_capturer();
+    if capturer.is_null() {
+        bail!("Failed to create macOS screen capturer");
+    }
+
+    let screens = capturer.get_screen_list();
+    if screens.is_empty() {
+        println!("No screens detected.");
+        return Ok(());
+    }
+
+    println!("Available screens:");
+    println!("{}", format_macos_screens(&screens));
+    Ok(())
+}
+
+fn list_cpu_capturer_screens() -> Result<()> {
+    let mut options = DesktopCapturerOptions::new(DesktopCaptureSourceType::Screen);
+    options.set_include_cursor(false);
+    #[cfg(target_os = "macos")]
+    options.set_sck_system_picker(false);
+
+    let capturer = DesktopCapturer::new(options)
+        .ok_or_else(|| anyhow!("Failed to create desktop capturer"))?;
+    let sources = capturer.get_source_list();
+    if sources.is_empty() {
+        println!("No screens detected.");
+        return Ok(());
+    }
+
+    println!("Available screens:");
+    println!("{}", format_capture_sources(&sources));
+    Ok(())
 }
 
 enum VideoInput {
@@ -1021,6 +1079,9 @@ fn open_screen_input(
 async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if args.list_cameras {
         return list_cameras();
+    }
+    if args.list_screens {
+        return list_screens(args.burn_timestamp);
     }
 
     // LiveKit connection details
