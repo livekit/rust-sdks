@@ -22,7 +22,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 
 const { proto2 } = require("@bufbuild/protobuf");
 const { DisconnectReason, OwnedParticipant, ParticipantInfo, ParticipantPermission } = require("./participant_pb.js");
-const { OwnedTrack, OwnedTrackPublication, PacketTrailerFeature, TrackSource } = require("./track_pb.js");
+const { OwnedTrack, OwnedTrackPublication, PacketTrailerFeature, TrackPublicationInfo, TrackSource } = require("./track_pb.js");
 const { RtcStats } = require("./stats_pb.js");
 const { VideoCodec } = require("./video_frame_pb.js");
 const { E2eeOptions, EncryptionState } = require("./e2ee_pb.js");
@@ -829,6 +829,7 @@ const RoomEvent = /*@__PURE__*/ proto2.makeMessageType(
     { no: 42, name: "participant_active", kind: "message", T: ParticipantActive, oneof: "message" },
     { no: 43, name: "data_track_published", kind: "message", T: DataTrackPublished, oneof: "message" },
     { no: 44, name: "data_track_unpublished", kind: "message", T: DataTrackUnpublished, oneof: "message" },
+    { no: 45, name: "local_track_republished", kind: "message", T: LocalTrackRepublished, oneof: "message" },
   ],
 );
 
@@ -922,6 +923,26 @@ const LocalTrackUnpublished = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.LocalTrackUnpublished",
   () => [
     { no: 1, name: "publication_sid", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+  ],
+);
+
+/**
+ * Fired when the SDK auto-republishes a local track during a full
+ * reconnect. The FfiPublication handle is preserved across the cycle —
+ * language bindings should look up the existing publication object by
+ * `previous_sid` (its old SID), update its TrackPublicationInfo in place
+ * with `info`, and rekey it under the new SID. Apps holding a cached
+ * reference to the publication continue to see a valid object whose
+ * reads/writes hit current state.
+ *
+ * @generated from message livekit.proto.LocalTrackRepublished
+ */
+const LocalTrackRepublished = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.LocalTrackRepublished",
+  () => [
+    { no: 1, name: "publication_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+    { no: 2, name: "previous_sid", kind: "scalar", T: 9 /* ScalarType.STRING */, req: true },
+    { no: 3, name: "info", kind: "message", T: TrackPublicationInfo, req: true },
   ],
 );
 
@@ -1646,6 +1667,7 @@ exports.ParticipantActive = ParticipantActive;
 exports.ParticipantDisconnected = ParticipantDisconnected;
 exports.LocalTrackPublished = LocalTrackPublished;
 exports.LocalTrackUnpublished = LocalTrackUnpublished;
+exports.LocalTrackRepublished = LocalTrackRepublished;
 exports.LocalTrackSubscribed = LocalTrackSubscribed;
 exports.TrackPublished = TrackPublished;
 exports.TrackUnpublished = TrackUnpublished;

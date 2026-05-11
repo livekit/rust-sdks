@@ -113,6 +113,18 @@ pub enum RoomEvent {
         publication: LocalTrackPublication,
         participant: LocalParticipant,
     },
+    /// Fired when the SDK auto-republishes a local track during a full
+    /// reconnect. The same underlying `Track` (and its bound source) is
+    /// preserved across the cycle, but the publication and track SIDs are
+    /// re-issued by the server. Bindings are expected to update the
+    /// existing publication object in place rather than treating this as
+    /// an unpublish + publish pair.
+    LocalTrackRepublished {
+        previous_sid: TrackSid,
+        publication: LocalTrackPublication,
+        track: LocalTrack,
+        participant: LocalParticipant,
+    },
     LocalTrackSubscribed {
         track: LocalTrack,
     },
@@ -1567,21 +1579,35 @@ impl RoomSession {
                     let track = publication.track().unwrap();
 
                     let lp = session.local_participant.clone();
+                    let republish_session = session.clone();
                     let republish = async move {
-                        // Only "really" used to send LocalTrackUnpublished event (Since we don't
-                        // really need to remove the RtpSender since we know
-                        // we are using a new RtcSession,
-                        // so new PeerConnetions)
-
-                        let _ = lp.unpublish_track(&publication.sid()).await;
-                        if let Err(err) =
-                            lp.publish_track(track.clone(), publication.publish_options()).await
-                        {
-                            log::error!(
-                                "failed to republish track {} after rtc_engine restarted: {}",
-                                track.name(),
-                                err
-                            )
+                        // The unpublish+publish sequence below regenerates
+                        // server-assigned IDs but preserves the local Track
+                        // Arc (and its bound source). We capture the prior
+                        // SID so the `LocalTrackRepublished` event can carry
+                        // it through to the FFI layer / language bindings,
+                        // which use it to find the existing publication
+                        // object and update it in place.
+                        let previous_sid = publication.sid();
+                        let _ = lp.unpublish_track(&previous_sid).await;
+                        match lp.publish_track(track.clone(), publication.publish_options()).await {
+                            Ok(new_publication) => {
+                                republish_session.dispatcher.dispatch(
+                                    &RoomEvent::LocalTrackRepublished {
+                                        previous_sid,
+                                        publication: new_publication,
+                                        track: track.clone(),
+                                        participant: lp.clone(),
+                                    },
+                                );
+                            }
+                            Err(err) => {
+                                log::error!(
+                                    "failed to republish track {} after rtc_engine restarted: {}",
+                                    track.name(),
+                                    err
+                                )
+                            }
                         }
                     };
 
