@@ -58,6 +58,9 @@ pub struct RtpEncodingParameters {
     pub priority: Priority,
     pub rid: String,
     pub scale_resolution_down_by: Option<f64>,
+    /// RTP scalability mode (e.g. "L3T3_KEY"). Required to enable true
+    /// SVC for codecs that support it (VP9, AV1).
+    pub scalability_mode: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +92,7 @@ impl Default for RtpEncodingParameters {
             priority: Priority::Low,
             rid: String::default(),
             scale_resolution_down_by: None,
+            scalability_mode: None,
         }
     }
 }
