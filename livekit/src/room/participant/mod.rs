@@ -23,7 +23,6 @@ use crate::{prelude::*, rtc_engine::RtcEngine};
 mod local_participant;
 mod remote_participant;
 mod rpc;
-use crate::room::utils;
 
 pub use local_participant::*;
 pub use remote_participant::*;
@@ -230,7 +229,7 @@ pub(super) fn update_info(
     info.state = new_info.state().into();
     info.disconnect_reason = new_info.disconnect_reason().into();
     info.kind = new_info.kind().into();
-    info.kind_details = super::utils::convert_kind_details(&new_info.kind_details);
+    info.kind_details = crate::utils::convert_kind_details(&new_info.kind_details);
     info.sid = new_info.sid.try_into().unwrap();
     info.identity = new_info.identity.into();
     info.joined_at = new_info.joined_at_ms;
@@ -251,7 +250,7 @@ pub(super) fn update_info(
 
     let old_attributes = std::mem::replace(&mut info.attributes, new_info.attributes.clone());
     let changed_attributes =
-        utils::calculate_changed_attributes(old_attributes, new_info.attributes.clone());
+        crate::utils::calculate_changed_attributes(old_attributes, new_info.attributes.clone());
     if changed_attributes.len() != 0 {
         if let Some(cb) = inner.events.attributes_changed.lock().as_ref() {
             cb(participant.clone(), changed_attributes);
