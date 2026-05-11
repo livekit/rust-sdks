@@ -70,7 +70,7 @@ pub struct RoomAgentDispatch {
     pub agent_name: String,
     pub metadata: String,
     pub restart_policy: i32,
-    pub deployment: String
+    pub deployment: String,
 }
 
 /// Room configuration
