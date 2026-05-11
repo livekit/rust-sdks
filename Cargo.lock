@@ -4489,6 +4489,7 @@ dependencies = [
  "log",
  "metal 0.32.0",
  "nokhwa",
+ "nokhwa-bindings-macos",
  "objc2 0.6.4",
  "parking_lot",
  "tokio",

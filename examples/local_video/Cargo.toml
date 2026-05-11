@@ -48,6 +48,7 @@ nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9d
 
 [target.'cfg(target_os = "macos")'.dependencies]
 nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-avfoundation"] }
+nokhwa-bindings-macos = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296" }
 metal = "0.32"
 objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
 cxx = "1.0"

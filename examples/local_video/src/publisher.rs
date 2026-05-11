@@ -24,17 +24,20 @@ use livekit_api::services::{ServiceError, TwirpError, TwirpErrorCode};
 use log::{debug, info};
 use nokhwa::pixel_format::RgbFormat;
 use nokhwa::utils::{
-    ApiBackend, CameraFormat, CameraIndex, FrameFormat, RequestedFormat, RequestedFormatType,
-    Resolution,
+    ApiBackend, CameraFormat, CameraIndex, CameraInfo, FrameFormat, RequestedFormat,
+    RequestedFormatType, Resolution,
 };
 use nokhwa::Camera;
+#[cfg(target_os = "macos")]
+use nokhwa_bindings_macos::AVCaptureDevice;
 use parking_lot::Mutex;
+use std::collections::{BTreeMap, HashMap};
+use std::env;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc, Arc,
 };
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use std::{collections::HashMap, env};
 use yuv_sys;
 
 mod test_pattern;
@@ -414,11 +417,86 @@ fn spawn_publisher_outbound_stats_logger(track: LocalVideoTrack, ctrl_c_received
 
 fn list_cameras() -> Result<()> {
     let cams = nokhwa::query(ApiBackend::Auto)?;
-    println!("Available cameras:");
+    if cams.is_empty() {
+        println!("No cameras detected.");
+        return Ok(());
+    }
+
+    println!("Available cameras and capabilities:");
     for (i, cam) in cams.iter().enumerate() {
+        println!();
         println!("{}. {}", i, cam.human_name());
+        match enumerate_camera_capabilities(cam) {
+            Ok(capabilities) => print_camera_capabilities(&capabilities),
+            Err(err) => println!("   Capabilities: unavailable ({})", err),
+        }
     }
     Ok(())
+}
+
+fn enumerate_camera_capabilities(
+    info: &CameraInfo,
+) -> Result<BTreeMap<FrameFormat, BTreeMap<Resolution, Vec<u32>>>> {
+    enumerate_camera_capabilities_for_platform(info)
+}
+
+#[cfg(target_os = "macos")]
+fn enumerate_camera_capabilities_for_platform(
+    info: &CameraInfo,
+) -> Result<BTreeMap<FrameFormat, BTreeMap<Resolution, Vec<u32>>>> {
+    let device = AVCaptureDevice::new(info.index())?;
+    Ok(capabilities_from_formats(device.supported_formats()?))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn enumerate_camera_capabilities_for_platform(
+    info: &CameraInfo,
+) -> Result<BTreeMap<FrameFormat, BTreeMap<Resolution, Vec<u32>>>> {
+    let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::None);
+    let mut camera = Camera::new(info.index().clone(), requested)?;
+    Ok(capabilities_from_formats(camera.compatible_camera_formats()?))
+}
+
+fn capabilities_from_formats(
+    formats: Vec<CameraFormat>,
+) -> BTreeMap<FrameFormat, BTreeMap<Resolution, Vec<u32>>> {
+    let mut capabilities = BTreeMap::new();
+    for fmt in formats {
+        let res_map = capabilities.entry(fmt.format()).or_insert_with(BTreeMap::new);
+        let fps_list = res_map.entry(fmt.resolution()).or_insert_with(Vec::new);
+        fps_list.push(fmt.frame_rate());
+    }
+    for res_map in capabilities.values_mut() {
+        for fps_list in res_map.values_mut() {
+            fps_list.sort();
+            fps_list.dedup();
+        }
+    }
+    capabilities
+}
+
+fn print_camera_capabilities(capabilities: &BTreeMap<FrameFormat, BTreeMap<Resolution, Vec<u32>>>) {
+    if capabilities.is_empty() {
+        println!("   Capabilities: none reported");
+        return;
+    }
+
+    println!("   Capabilities:");
+    for (frame_type, resolutions) in capabilities {
+        println!("   - Frame type: {}", frame_type);
+        if resolutions.is_empty() {
+            println!("     (no resolutions reported)");
+            continue;
+        }
+        for (resolution, fps_list) in resolutions {
+            let fps_text = if fps_list.is_empty() {
+                "unknown".to_string()
+            } else {
+                fps_list.iter().map(u32::to_string).collect::<Vec<String>>().join(", ")
+            };
+            println!("     {} @ {} fps", resolution, fps_text);
+        }
+    }
 }
 
 enum VideoInput {
