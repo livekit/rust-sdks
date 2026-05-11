@@ -641,6 +641,26 @@ fn is_pass_through(signal: &proto::signal_request::Message) -> bool {
     )
 }
 
+fn client_info_sdk_for_name(sdk: &str) -> proto::client_info::Sdk {
+    match sdk.trim().to_ascii_lowercase().as_str() {
+        "js" => proto::client_info::Sdk::Js,
+        "swift" => proto::client_info::Sdk::Swift,
+        "android" => proto::client_info::Sdk::Android,
+        "flutter" => proto::client_info::Sdk::Flutter,
+        "go" => proto::client_info::Sdk::Go,
+        "unity" => proto::client_info::Sdk::Unity,
+        "react_native" | "react-native" | "reactnative" => proto::client_info::Sdk::ReactNative,
+        "rust" => proto::client_info::Sdk::Rust,
+        "python" => proto::client_info::Sdk::Python,
+        "cpp" | "c++" => proto::client_info::Sdk::Cpp,
+        "unity_web" | "unity-web" | "unityweb" => proto::client_info::Sdk::UnityWeb,
+        "node" => proto::client_info::Sdk::Node,
+        "unreal" => proto::client_info::Sdk::Unreal,
+        "esp32" => proto::client_info::Sdk::Esp32,
+        _ => proto::client_info::Sdk::Unknown,
+    }
+}
+
 /// Create the base64-encoded WrappedJoinRequest parameter required for v1 path
 ///
 /// Parameters:
@@ -663,7 +683,7 @@ fn create_join_request_param(
     };
 
     let client_info = proto::ClientInfo {
-        sdk: proto::client_info::Sdk::Rust as i32,
+        sdk: client_info_sdk_for_name(&options.sdk_options.sdk) as i32,
         version: options.sdk_options.sdk_version.clone().unwrap_or_default(),
         protocol: PROTOCOL_VERSION as i32,
         os,
@@ -862,6 +882,28 @@ async fn get_reconnect_response(
 mod tests {
     use super::*;
 
+    fn signal_options_for_cpp(version: &str) -> SignalOptions {
+        let mut options = SignalOptions::default();
+        options.sdk_options.sdk = "cpp".to_string();
+        options.sdk_options.sdk_version = Some(version.to_string());
+        options
+    }
+
+    fn decode_join_request_param(param: &str) -> proto::JoinRequest {
+        let wrapped_bytes = BASE64_STANDARD.decode(param).unwrap();
+        let wrapped = proto::WrappedJoinRequest::decode(wrapped_bytes.as_slice()).unwrap();
+        proto::JoinRequest::decode(wrapped.join_request.as_slice()).unwrap()
+    }
+
+    #[test]
+    fn client_info_sdk_for_name_maps_known_sdks() {
+        assert_eq!(client_info_sdk_for_name("cpp"), proto::client_info::Sdk::Cpp);
+        assert_eq!(client_info_sdk_for_name("C++"), proto::client_info::Sdk::Cpp);
+        assert_eq!(client_info_sdk_for_name("rust"), proto::client_info::Sdk::Rust);
+        assert_eq!(client_info_sdk_for_name("node"), proto::client_info::Sdk::Node);
+        assert_eq!(client_info_sdk_for_name("unknown-sdk"), proto::client_info::Sdk::Unknown);
+    }
+
     /// Build a stream-less SignalInner suitable for exercising the queue routing
     /// in `send`. The stream slot is None so any actual write would be dropped,
     /// which is fine — these tests only assert which side of the queue each
@@ -985,6 +1027,31 @@ mod tests {
             "ws"
         );
         assert!(get_livekit_url("ftp://localhost:7880", &io, false, false, None, "").is_err());
+    }
+
+    #[test]
+    fn livekit_url_v0_reports_cpp_sdk_and_version() {
+        let io = signal_options_for_cpp("9.9.9-test");
+        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap();
+        let query: std::collections::HashMap<_, _> = lk_url.query_pairs().into_owned().collect();
+
+        assert_eq!(query.get("sdk").map(String::as_str), Some("cpp"));
+        assert_eq!(query.get("version").map(String::as_str), Some("9.9.9-test"));
+    }
+
+    #[test]
+    fn livekit_url_v1_join_request_reports_cpp_sdk_and_version() {
+        let io = signal_options_for_cpp("9.9.9-test");
+        let lk_url = get_livekit_url("wss://localhost:7880", &io, true, false, None, "").unwrap();
+        let join_request_param = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+            .unwrap();
+        let join_request = decode_join_request_param(&join_request_param);
+        let client_info = join_request.client_info.unwrap();
+
+        assert_eq!(client_info.sdk, proto::client_info::Sdk::Cpp as i32);
+        assert_eq!(client_info.version, "9.9.9-test");
     }
 
     #[test]
