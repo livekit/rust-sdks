@@ -31,10 +31,7 @@ use livekit_protocol::{self as proto};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
 use prost::Message;
-use proto::{
-    debouncer::{self, Debouncer},
-    SignalTarget,
-};
+use proto::SignalTarget;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{
     mpsc::{self, WeakUnboundedSender},
@@ -46,6 +43,7 @@ use crate::{
     id::ParticipantIdentity,
     rtc_engine::dc_sender::{DataChannelSender, DataChannelSenderOptions, DataTrackSendQueue},
     utils::{
+        debouncer::{self, Debouncer},
         ttl_map::TtlMap,
         tx_queue::{TxQueue, TxQueueItem},
     },

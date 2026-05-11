@@ -22,6 +22,9 @@ pub mod take_cell;
 pub mod ttl_map;
 pub mod tx_queue;
 pub mod utf8_chunk;
+pub mod debouncer;
+pub mod observer;
+pub mod promise;
 
 pub(crate) fn convert_kind_details(kind_details: &[i32]) -> Vec<ParticipantKindDetail> {
     kind_details
