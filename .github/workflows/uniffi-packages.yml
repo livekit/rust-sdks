@@ -1,0 +1,145 @@
+name: UniFFI packages
+
+# Builds per-language wrapper packages produced by `cargo make <lang>-package`
+# (Swift xcframework today; Kotlin/Python can be added as matrix entries) and
+# publishes them to their respective hosting repos.
+#
+# Trigger pattern mirrors ffi-builds.yml: every push to main checks whether
+# knope has produced a draft release for the livekit-uniffi package; if so the
+# matching package job runs. Manual runs go through workflow_dispatch.
+#
+# NOTE: livekit-uniffi must be added to knope.toml with `assets = "marker"`
+# for the auto-trigger path to work. Until then, use workflow_dispatch.
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g., livekit-uniffi/v0.0.7). Required if no draft release exists."
+        required: false
+        type: string
+      dry_run:
+        description: "Build artifacts but skip release upload/PR."
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  TAG_PREFIX: livekit-uniffi/v
+
+jobs:
+  resolve-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag_name: ${{ steps.get-tag.outputs.tag_name }}
+      version: ${{ steps.get-tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: get-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MANUAL_TAG="${{ inputs.tag_name }}"
+          if [ -n "$MANUAL_TAG" ]; then
+            TAG="$MANUAL_TAG"
+            echo "Using manually provided tag: '$TAG'"
+          else
+            TAG=$(gh release list --repo "${{ github.repository }}" \
+              --json 'isDraft,tagName' \
+              --jq "[.[] | select(.isDraft and (.tagName | startswith(\"${TAG_PREFIX}\")))] | first | .tagName // empty")
+            echo "Resolved livekit-uniffi draft release tag: '${TAG:-<none>}'"
+          fi
+          echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
+          # Strip the "livekit-uniffi/v" prefix to get the hosting-repo tag (e.g., 0.0.7)
+          VERSION="${TAG#${TAG_PREFIX}}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.package }} package
+    needs: resolve-tag
+    if: needs.resolve-tag.outputs.tag_name != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - package: swift
+            runner: macos-26
+            hosting-repo: livekit/livekit-uniffi-xcframework
+            # NOTE: spm-name must match SPM_NAME in livekit-uniffi/Makefile.toml.
+            spm-name: LiveKitUniFFI
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: write
+    env:
+      OUTPUT_DIR: livekit-uniffi/packages/${{ matrix.package }}/${{ matrix.spm-name }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: maxim-lobanov/setup-xcode@v1
+        if: matrix.package == 'swift'
+        with:
+          xcode-version: latest-stable
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install Apple Rust targets
+        if: matrix.package == 'swift'
+        run: |
+          rustup target add \
+            aarch64-apple-ios \
+            aarch64-apple-ios-sim \
+            x86_64-apple-ios \
+            aarch64-apple-ios-macabi \
+            x86_64-apple-ios-macabi \
+            aarch64-apple-darwin \
+            x86_64-apple-darwin \
+            aarch64-apple-tvos \
+            aarch64-apple-tvos-sim
+
+      - name: Install nightly + rust-src (visionOS tier-3 target)
+        if: matrix.package == 'swift'
+        run: |
+          rustup toolchain install nightly
+          rustup component add rust-src --toolchain nightly
+
+      - uses: cargo-bins/cargo-binstall@v1
+      - run: cargo binstall cargo-make --no-confirm
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "25.2"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build ${{ matrix.package }} package
+        working-directory: livekit-uniffi
+        env:
+          SPM_VERSION: ${{ needs.resolve-tag.outputs.version }}
+          SPM_HOSTING_REPO: ${{ matrix.hosting-repo }}
+        run: cargo make --profile release ${{ matrix.package }}-package
+
+      - name: Publish Swift package to hosting repo
+        if: matrix.package == 'swift' && !inputs.dry_run
+        uses: livekit/publish-xcframework-action@v1
+        with:
+          xcframework-zip: ${{ env.OUTPUT_DIR }}/Rust${{ matrix.spm-name }}.xcframework.zip
+          version: ${{ needs.resolve-tag.outputs.version }}
+          hosting-repo: ${{ matrix.hosting-repo }}
+          files: |
+            ${{ env.OUTPUT_DIR }}/Package.swift:Package.swift
+            ${{ env.OUTPUT_DIR }}/Package@swift-6.2.swift:Package@swift-6.2.swift
+            ${{ env.OUTPUT_DIR }}/${{ matrix.spm-name }}.podspec:${{ matrix.spm-name }}.podspec
+            ${{ env.OUTPUT_DIR }}/LICENSE:LICENSE
+            ${{ env.OUTPUT_DIR }}/Sources/${{ matrix.spm-name }}/livekit_uniffi.swift:Sources/${{ matrix.spm-name }}/livekit_uniffi.swift
+          token: ${{ secrets.UNIFFI_XCFRAMEWORK_PAT }}
+          pr-body: |
+            Source tag: `${{ needs.resolve-tag.outputs.tag_name }}`
+          release-body: |
+            Source tag: `${{ needs.resolve-tag.outputs.tag_name }}`
