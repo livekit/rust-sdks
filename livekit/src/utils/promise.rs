@@ -14,7 +14,6 @@
 
 use tokio::sync::{oneshot, Mutex, RwLock};
 
-// Crates: livekit
 pub struct Promise<T> {
     tx: Mutex<Option<oneshot::Sender<T>>>,
     rx: Mutex<Option<oneshot::Receiver<T>>>,
