@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_api::access_token::{
+use crate::access_token::{
     self, AccessToken, AccessTokenError, SIPGrants, TokenVerifier, VideoGrants,
 };
 use livekit_protocol::{self as proto, RoomAgentDispatch};
@@ -78,8 +78,8 @@ pub struct Claims {
     pub room_configuration: Option<RoomConfiguration>,
 }
 
-impl From<livekit_api::access_token::Claims> for Claims {
-    fn from(claims: livekit_api::access_token::Claims) -> Self {
+impl From<crate::access_token::Claims> for Claims {
+    fn from(claims: crate::access_token::Claims) -> Self {
         Self {
             exp: claims.exp as u64,
             iss: claims.iss,
