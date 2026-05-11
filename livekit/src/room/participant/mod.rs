@@ -14,8 +14,8 @@
 
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
-use livekit_protocol as proto;
 use libwebrtc::enum_dispatch;
+use livekit_protocol as proto;
 use parking_lot::{Mutex, RwLock};
 
 use crate::{prelude::*, rtc_engine::RtcEngine};

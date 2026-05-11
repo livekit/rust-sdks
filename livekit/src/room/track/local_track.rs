@@ -14,9 +14,9 @@
 
 use std::sync::Arc;
 
+use libwebrtc::enum_dispatch;
 use libwebrtc::{prelude::*, stats::RtcStats};
 use livekit_protocol as proto;
-use libwebrtc::enum_dispatch;
 
 use super::{track_dispatch, TrackInner};
 use crate::prelude::*;
