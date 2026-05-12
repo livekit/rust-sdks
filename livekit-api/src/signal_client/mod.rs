@@ -642,22 +642,24 @@ fn is_pass_through(signal: &proto::signal_request::Message) -> bool {
 }
 
 fn client_info_sdk_for_name(sdk: &str) -> proto::client_info::Sdk {
-    match sdk.trim().to_ascii_lowercase().as_str() {
+    match sdk {
         "js" => proto::client_info::Sdk::Js,
-        "swift" => proto::client_info::Sdk::Swift,
+        "ios" | "swift" => proto::client_info::Sdk::Swift,
         "android" => proto::client_info::Sdk::Android,
         "flutter" => proto::client_info::Sdk::Flutter,
         "go" => proto::client_info::Sdk::Go,
         "unity" => proto::client_info::Sdk::Unity,
-        "react_native" | "react-native" | "reactnative" => proto::client_info::Sdk::ReactNative,
+        "reactnative" => proto::client_info::Sdk::ReactNative,
         "rust" => proto::client_info::Sdk::Rust,
         "python" => proto::client_info::Sdk::Python,
-        "cpp" | "c++" => proto::client_info::Sdk::Cpp,
-        "unity_web" | "unity-web" | "unityweb" => proto::client_info::Sdk::UnityWeb,
+        "cpp" => proto::client_info::Sdk::Cpp,
+        "unityweb" => proto::client_info::Sdk::UnityWeb,
         "node" => proto::client_info::Sdk::Node,
-        "unreal" => proto::client_info::Sdk::Unreal,
         "esp32" => proto::client_info::Sdk::Esp32,
-        _ => proto::client_info::Sdk::Unknown,
+        _ => {
+            log::warn!("unknown SDK name in signal options: {}", sdk);
+            proto::client_info::Sdk::Unknown
+        }
     }
 }
 
@@ -889,7 +891,7 @@ mod tests {
         options
     }
 
-    fn decode_join_request_param(param: &str) -> proto::JoinRequest {
+    fn decode_join_request_param_for_test(param: &str) -> proto::JoinRequest {
         let wrapped_bytes = BASE64_STANDARD.decode(param).unwrap();
         let wrapped = proto::WrappedJoinRequest::decode(wrapped_bytes.as_slice()).unwrap();
         proto::JoinRequest::decode(wrapped.join_request.as_slice()).unwrap()
@@ -898,9 +900,11 @@ mod tests {
     #[test]
     fn client_info_sdk_for_name_maps_known_sdks() {
         assert_eq!(client_info_sdk_for_name("cpp"), proto::client_info::Sdk::Cpp);
-        assert_eq!(client_info_sdk_for_name("C++"), proto::client_info::Sdk::Cpp);
+        assert_eq!(client_info_sdk_for_name("ios"), proto::client_info::Sdk::Swift);
         assert_eq!(client_info_sdk_for_name("rust"), proto::client_info::Sdk::Rust);
         assert_eq!(client_info_sdk_for_name("node"), proto::client_info::Sdk::Node);
+        assert_eq!(client_info_sdk_for_name("reactnative"), proto::client_info::Sdk::ReactNative);
+        assert_eq!(client_info_sdk_for_name("unityweb"), proto::client_info::Sdk::UnityWeb);
         assert_eq!(client_info_sdk_for_name("unknown-sdk"), proto::client_info::Sdk::Unknown);
     }
 
@@ -1047,7 +1051,7 @@ mod tests {
             .query_pairs()
             .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
             .unwrap();
-        let join_request = decode_join_request_param(&join_request_param);
+        let join_request = decode_join_request_param_for_test(&join_request_param);
         let client_info = join_request.client_info.unwrap();
 
         assert_eq!(client_info.sdk, proto::client_info::Sdk::Cpp as i32);
