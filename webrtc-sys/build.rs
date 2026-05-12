@@ -208,6 +208,17 @@ fn main() {
                 }
             }
 
+            if arm {
+                // V4L2 M2M H.264 encoder support (Raspberry Pi 4 bcm2835-codec,
+                // Rockchip, etc.). Uses only kernel headers (linux/videodev2.h)
+                // and POSIX APIs, so no external library dependencies are needed.
+                builder
+                    .file("src/v4l2/v4l2_h264_encoder_wrapper.cpp")
+                    .file("src/v4l2/v4l2_encoder_factory.cpp")
+                    .file("src/v4l2/h264_encoder_impl.cpp")
+                    .flag("-DUSE_V4L2_VIDEO_CODEC=1");
+            }
+
             if x86 || arm {
                 let cuda_home = PathBuf::from(match env::var("CUDA_HOME") {
                     Ok(p) => p,
