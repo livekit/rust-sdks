@@ -36,9 +36,7 @@ use common::test_rooms;
 #[cfg(feature = "__lk-e2e-test")]
 use livekit::options::TrackPublishOptions;
 #[cfg(feature = "__lk-e2e-test")]
-use livekit::prelude::{
-    ConnectionState, LocalAudioTrack, LocalTrack, RoomEvent, TrackSource,
-};
+use livekit::prelude::{ConnectionState, LocalAudioTrack, LocalTrack, RoomEvent, TrackSource};
 #[cfg(feature = "__lk-e2e-test")]
 use tokio::time::timeout;
 
@@ -638,10 +636,7 @@ async fn test_platform_audio_with_native_source() -> Result<()> {
     assert!(matches!(screen_rtc_source, RtcAudioSource::Native(_)));
 
     let recording_count = mic.recording_device_count();
-    log::info!(
-        "PlatformAudio ({} mics) and NativeAudioSource can coexist",
-        recording_count
-    );
+    log::info!("PlatformAudio ({} mics) and NativeAudioSource can coexist", recording_count);
 
     drop(mic);
     Ok(())

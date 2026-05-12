@@ -135,9 +135,7 @@ async fn main() {
             } else {
                 log::error!("Microphone with ID '{}' not found. Using default.", id_str);
                 if let Some(first) = recording_devices.first() {
-                    audio
-                        .set_recording_device(&first.id)
-                        .expect("Failed to set recording device");
+                    audio.set_recording_device(&first.id).expect("Failed to set recording device");
                 }
             }
         } else if let Some(first) = recording_devices.first() {
