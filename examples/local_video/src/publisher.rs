@@ -585,6 +585,17 @@ async fn run_capture_loop(
         .then(|| TimestampOverlay::new(width, height));
     let mut latency_display = LatencyDisplay::default();
     let align_buffers_for_display = display_shared.is_some();
+
+    // Reuse a single I420 buffer 
+    let mut frame = VideoFrame {
+        rotation: VideoRotation::VideoRotation0,
+        timestamp_us: 0,
+        frame_metadata: None,
+        buffer: create_i420_buffer(width, height, align_buffers_for_display),
+    };
+    let (stride_y, stride_u, stride_v) = frame.buffer.strides();
+    let stride_y_usize = stride_y as usize;
+
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
             break;
@@ -596,10 +607,7 @@ async fn run_capture_loop(
 
         let source_frame_started_at = Instant::now();
         let frame_wall_time_us = unix_time_us_now();
-        let mut buffer = create_i420_buffer(width, height, align_buffers_for_display);
-        let (stride_y, stride_u, stride_v) = buffer.strides();
-        let (data_y, data_u, data_v) = buffer.data_mut();
-        let stride_y_usize = stride_y as usize;
+        let (data_y, data_u, data_v) = frame.buffer.data_mut();
         let (
             capture_wall_time_us,
             read_wall_time_us,
@@ -808,18 +816,13 @@ async fn run_capture_loop(
         if burned_timestamp_us.is_some() {
             debug_assert_eq!(burned_timestamp_us, user_ts);
         }
-        let frame_metadata = if user_ts.is_some() || fid.is_some() {
+        frame.frame_metadata = if user_ts.is_some() || fid.is_some() {
             Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
         } else {
             None
         };
-        let frame = VideoFrame {
-            rotation: VideoRotation::VideoRotation0,
-            // Monotonic, microseconds since start.
-            timestamp_us: start_ts.elapsed().as_micros() as i64,
-            frame_metadata,
-            buffer,
-        };
+        // Monotonic, microseconds since start.
+        frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
         rtc_source.capture_frame(&frame);
         let sent_timestamp_us = unix_time_us_now();
         let webrtc_capture_finished_at = Instant::now();
