@@ -35,13 +35,15 @@
 //! // Create PlatformAudio instance (enables platform ADM)
 //! let audio = PlatformAudio::new()?;
 //!
-//! // Enumerate devices
-//! for i in 0..audio.recording_devices() as u16 {
-//!     println!("Mic {}: {}", i, audio.recording_device_name(i));
+//! // Enumerate devices using iterator
+//! for device in audio.recording_devices() {
+//!     println!("[{}] {} (ID: {})", device.index, device.name, device.id);
 //! }
 //!
-//! // Select a device
-//! audio.set_recording_device(0)?;
+//! // Select a device by ID (type-safe)
+//! if let Some(device) = audio.recording_devices().next() {
+//!     audio.set_recording_device(&device.id)?;
+//! }
 //!
 //! // Create and publish audio track
 //! let track = LocalAudioTrack::create_audio_track("mic", audio.rtc_source());
@@ -112,6 +114,109 @@ pub use libwebrtc::audio_source::RtcAudioSource;
 
 use std::fmt;
 use std::sync::{Arc, Weak};
+
+// =============================================================================
+// Device Types - Newtypes for type-safe device identification
+// =============================================================================
+
+/// Unique identifier for a recording (microphone) device.
+///
+/// This is a type-safe wrapper around the platform-specific device GUID.
+/// Obtain this from [`AudioDeviceInfo`] returned by [`PlatformAudio::recording_devices()`].
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let audio = PlatformAudio::new()?;
+/// for device in audio.recording_devices() {
+///     println!("{}: {}", device.name, device.id);
+///     // Save device.id for later use
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RecordingDeviceId(String);
+
+impl RecordingDeviceId {
+    /// Returns the underlying GUID string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for RecordingDeviceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Unique identifier for a playout (speaker) device.
+///
+/// This is a type-safe wrapper around the platform-specific device GUID.
+/// Obtain this from [`AudioDeviceInfo`] returned by [`PlatformAudio::playout_devices()`].
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let audio = PlatformAudio::new()?;
+/// for device in audio.playout_devices() {
+///     println!("{}: {}", device.name, device.id);
+///     // Save device.id for later use
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PlayoutDeviceId(String);
+
+impl PlayoutDeviceId {
+    /// Returns the underlying GUID string.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for PlayoutDeviceId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Information about an audio device.
+///
+/// This struct contains the device's unique identifier, human-readable name,
+/// and index. Use the `id` field with [`PlatformAudio::set_recording_device()`]
+/// or [`PlatformAudio::set_playout_device()`] for type-safe device selection.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let audio = PlatformAudio::new()?;
+/// for device in audio.recording_devices() {
+///     println!("[{}] {} (ID: {})", device.index, device.name, device.id);
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct RecordingDeviceInfo {
+    /// The unique identifier for this device (stable across hot-plug events).
+    pub id: RecordingDeviceId,
+    /// Human-readable device name.
+    pub name: String,
+    /// Device index (may change when devices are added/removed).
+    pub index: u16,
+}
+
+/// Information about a playout (speaker) device.
+///
+/// This struct contains the device's unique identifier, human-readable name,
+/// and index. Use the `id` field with [`PlatformAudio::set_playout_device()`]
+/// for type-safe device selection.
+#[derive(Debug, Clone)]
+pub struct PlayoutDeviceInfo {
+    /// The unique identifier for this device (stable across hot-plug events).
+    pub id: PlayoutDeviceId,
+    /// Human-readable device name.
+    pub name: String,
+    /// Device index (may change when devices are added/removed).
+    pub index: u16,
+}
 
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
@@ -355,110 +460,108 @@ impl PlatformAudio {
     // Device Enumeration
     // =========================================================================
 
-    /// Returns the number of available recording (microphone) devices.
+    /// Returns an iterator over available recording (microphone) devices.
+    ///
+    /// Each [`RecordingDeviceInfo`] contains the device's unique ID, name, and index.
+    /// Use the `id` field with [`set_recording_device()`] for type-safe device selection.
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let audio = PlatformAudio::new()?;
-    /// println!("Found {} microphones", audio.recording_devices());
+    /// for device in audio.recording_devices() {
+    ///     println!("[{}] {} (ID: {})", device.index, device.name, device.id);
+    /// }
+    ///
+    /// // Collect into a Vec for later use
+    /// let devices: Vec<_> = audio.recording_devices().collect();
     /// ```
-    pub fn recording_devices(&self) -> i16 {
+    ///
+    /// [`set_recording_device()`]: Self::set_recording_device
+    pub fn recording_devices(&self) -> impl Iterator<Item = RecordingDeviceInfo> + '_ {
+        let count = self.handle.runtime.recording_devices();
+        (0..count as u16).map(move |index| RecordingDeviceInfo {
+            id: RecordingDeviceId(self.handle.runtime.recording_device_guid(index)),
+            name: self.handle.runtime.recording_device_name(index),
+            index,
+        })
+    }
+
+    /// Returns an iterator over available playout (speaker) devices.
+    ///
+    /// Each [`PlayoutDeviceInfo`] contains the device's unique ID, name, and index.
+    /// Use the `id` field with [`set_playout_device()`] for type-safe device selection.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let audio = PlatformAudio::new()?;
+    /// for device in audio.playout_devices() {
+    ///     println!("[{}] {} (ID: {})", device.index, device.name, device.id);
+    /// }
+    ///
+    /// // Collect into a Vec for later use
+    /// let devices: Vec<_> = audio.playout_devices().collect();
+    /// ```
+    ///
+    /// [`set_playout_device()`]: Self::set_playout_device
+    pub fn playout_devices(&self) -> impl Iterator<Item = PlayoutDeviceInfo> + '_ {
+        let count = self.handle.runtime.playout_devices();
+        (0..count as u16).map(move |index| PlayoutDeviceInfo {
+            id: PlayoutDeviceId(self.handle.runtime.playout_device_guid(index)),
+            name: self.handle.runtime.playout_device_name(index),
+            index,
+        })
+    }
+
+    /// Returns the number of available recording devices.
+    ///
+    /// Prefer using [`recording_devices()`] iterator instead.
+    ///
+    /// [`recording_devices()`]: Self::recording_devices
+    #[doc(hidden)]
+    pub fn recording_device_count(&self) -> i16 {
         self.handle.runtime.recording_devices()
     }
 
-    /// Returns the number of available playout (speaker) devices.
+    /// Returns the number of available playout devices.
     ///
-    /// # Example
+    /// Prefer using [`playout_devices()`] iterator instead.
     ///
-    /// ```rust,ignore
-    /// let audio = PlatformAudio::new()?;
-    /// println!("Found {} speakers", audio.playout_devices());
-    /// ```
-    pub fn playout_devices(&self) -> i16 {
+    /// [`playout_devices()`]: Self::playout_devices
+    #[doc(hidden)]
+    pub fn playout_device_count(&self) -> i16 {
         self.handle.runtime.playout_devices()
     }
 
     /// Returns the name of a recording device by index.
     ///
-    /// # Arguments
-    ///
-    /// * `index` - Device index (0-based, must be < `recording_devices()`)
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let audio = PlatformAudio::new()?;
-    /// for i in 0..audio.recording_devices() as u16 {
-    ///     println!("Mic {}: {}", i, audio.recording_device_name(i));
-    /// }
-    /// ```
+    /// Prefer using [`recording_devices()`] iterator instead.
+    #[doc(hidden)]
     pub fn recording_device_name(&self, index: u16) -> String {
         self.handle.runtime.recording_device_name(index)
     }
 
     /// Returns the name of a playout device by index.
     ///
-    /// # Arguments
-    ///
-    /// * `index` - Device index (0-based, must be < `playout_devices()`)
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let audio = PlatformAudio::new()?;
-    /// for i in 0..audio.playout_devices() as u16 {
-    ///     println!("Speaker {}: {}", i, audio.playout_device_name(i));
-    /// }
-    /// ```
+    /// Prefer using [`playout_devices()`] iterator instead.
+    #[doc(hidden)]
     pub fn playout_device_name(&self, index: u16) -> String {
         self.handle.runtime.playout_device_name(index)
     }
 
     /// Returns the GUID of a recording device by index.
     ///
-    /// The GUID is a platform-specific unique identifier that is stable across
-    /// device hot-plug events. Use this for persistent device selection instead
-    /// of indices, which can change when devices are added or removed.
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - Device index (0-based, must be < `recording_devices()`)
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let audio = PlatformAudio::new()?;
-    /// for i in 0..audio.recording_devices() as u16 {
-    ///     let name = audio.recording_device_name(i);
-    ///     let guid = audio.recording_device_guid(i);
-    ///     println!("Mic {}: {} (GUID: {})", i, name, guid);
-    /// }
-    /// ```
+    /// Prefer using [`recording_devices()`] iterator instead.
+    #[doc(hidden)]
     pub fn recording_device_guid(&self, index: u16) -> String {
         self.handle.runtime.recording_device_guid(index)
     }
 
     /// Returns the GUID of a playout device by index.
     ///
-    /// The GUID is a platform-specific unique identifier that is stable across
-    /// device hot-plug events. Use this for persistent device selection instead
-    /// of indices, which can change when devices are added or removed.
-    ///
-    /// # Arguments
-    ///
-    /// * `index` - Device index (0-based, must be < `playout_devices()`)
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let audio = PlatformAudio::new()?;
-    /// for i in 0..audio.playout_devices() as u16 {
-    ///     let name = audio.playout_device_name(i);
-    ///     let guid = audio.playout_device_guid(i);
-    ///     println!("Speaker {}: {} (GUID: {})", i, name, guid);
-    /// }
-    /// ```
+    /// Prefer using [`playout_devices()`] iterator instead.
+    #[doc(hidden)]
     pub fn playout_device_guid(&self, index: u16) -> String {
         self.handle.runtime.playout_device_guid(index)
     }
@@ -467,66 +570,70 @@ impl PlatformAudio {
     // Device Selection
     // =========================================================================
 
-    /// Selects a recording (microphone) device by index.
+    /// Selects a recording (microphone) device by ID.
     ///
-    /// Call this before creating audio tracks to select which microphone to use.
+    /// This is the preferred method for device selection as IDs are stable
+    /// across device hot-plug events, unlike indices which can change.
     ///
     /// # Arguments
     ///
-    /// * `index` - Device index (0-based, must be < `recording_devices()`)
+    /// * `id` - Device identifier from [`RecordingDeviceInfo::id`]
     ///
     /// # Errors
     ///
-    /// - [`AudioError::InvalidDeviceIndex`] if index is out of range
-    /// - [`AudioError::OperationFailed`] if device selection fails
+    /// - [`AudioError::DeviceNotFound`] if the device is no longer available
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let audio = PlatformAudio::new()?;
-    /// audio.set_recording_device(0)?;  // Select first microphone
+    ///
+    /// // Get the first microphone
+    /// if let Some(device) = audio.recording_devices().next() {
+    ///     audio.set_recording_device(&device.id)?;
+    /// }
+    ///
+    /// // Or save the ID for later use
+    /// let devices: Vec<_> = audio.recording_devices().collect();
+    /// let preferred_id = devices[0].id.clone();
+    /// // ... later ...
+    /// audio.set_recording_device(&preferred_id)?;
     /// ```
-    pub fn set_recording_device(&self, index: u16) -> AudioResult<()> {
-        let count = self.recording_devices();
-        if index >= count as u16 {
-            return Err(AudioError::InvalidDeviceIndex);
-        }
-
-        if self.handle.runtime.set_recording_device(index) {
+    pub fn set_recording_device(&self, id: &RecordingDeviceId) -> AudioResult<()> {
+        if self.handle.runtime.set_recording_device_by_guid(id.as_str()) {
             Ok(())
         } else {
-            Err(AudioError::OperationFailed("set_recording_device failed".to_string()))
+            Err(AudioError::DeviceNotFound)
         }
     }
 
-    /// Selects a playout (speaker) device by index.
+    /// Selects a playout (speaker) device by ID.
     ///
-    /// Call this before connecting to select which speaker to use for audio output.
+    /// This is the preferred method for device selection as IDs are stable
+    /// across device hot-plug events, unlike indices which can change.
     ///
     /// # Arguments
     ///
-    /// * `index` - Device index (0-based, must be < `playout_devices()`)
+    /// * `id` - Device identifier from [`PlayoutDeviceInfo::id`]
     ///
     /// # Errors
     ///
-    /// - [`AudioError::InvalidDeviceIndex`] if index is out of range
-    /// - [`AudioError::OperationFailed`] if device selection fails
+    /// - [`AudioError::DeviceNotFound`] if the device is no longer available
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let audio = PlatformAudio::new()?;
-    /// audio.set_playout_device(0)?;  // Select first speaker
+    ///
+    /// // Get the first speaker
+    /// if let Some(device) = audio.playout_devices().next() {
+    ///     audio.set_playout_device(&device.id)?;
+    /// }
     /// ```
-    pub fn set_playout_device(&self, index: u16) -> AudioResult<()> {
-        let count = self.playout_devices();
-        if index >= count as u16 {
-            return Err(AudioError::InvalidDeviceIndex);
-        }
-
+    pub fn set_playout_device(&self, id: &PlayoutDeviceId) -> AudioResult<()> {
         let runtime = &self.handle.runtime;
-        if !runtime.set_playout_device(index) {
-            return Err(AudioError::OperationFailed("set_playout_device failed".to_string()));
+        if !runtime.set_playout_device_by_guid(id.as_str()) {
+            return Err(AudioError::DeviceNotFound);
         }
 
         // Note: We intentionally do NOT call init_playout()/start_playout() here.
@@ -539,31 +646,12 @@ impl PlatformAudio {
         Ok(())
     }
 
-    /// Selects a recording (microphone) device by GUID.
+    /// Selects a recording device by GUID string (for FFI use).
     ///
-    /// This is the preferred method for device selection as GUIDs are stable
-    /// across device hot-plug events, unlike indices which can change.
+    /// Prefer using [`set_recording_device()`] with a [`RecordingDeviceId`] instead.
     ///
-    /// # Arguments
-    ///
-    /// * `guid` - Platform-specific device identifier from [`recording_device_guid`]
-    ///
-    /// # Errors
-    ///
-    /// - [`AudioError::DeviceNotFound`] if no device matches the GUID
-    /// - [`AudioError::OperationFailed`] if device selection fails
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let audio = PlatformAudio::new()?;
-    /// // Save the GUID of the preferred microphone
-    /// let preferred_guid = audio.recording_device_guid(0);
-    /// // Later, select it by GUID (works even if indices changed)
-    /// audio.set_recording_device_by_guid(&preferred_guid)?;
-    /// ```
-    ///
-    /// [`recording_device_guid`]: Self::recording_device_guid
+    /// [`set_recording_device()`]: Self::set_recording_device
+    #[doc(hidden)]
     pub fn set_recording_device_by_guid(&self, guid: &str) -> AudioResult<()> {
         if self.handle.runtime.set_recording_device_by_guid(guid) {
             Ok(())
@@ -572,42 +660,57 @@ impl PlatformAudio {
         }
     }
 
-    /// Selects a playout (speaker) device by GUID.
+    /// Selects a playout device by GUID string (for FFI use).
     ///
-    /// This is the preferred method for device selection as GUIDs are stable
-    /// across device hot-plug events, unlike indices which can change.
+    /// Prefer using [`set_playout_device()`] with a [`PlayoutDeviceId`] instead.
     ///
-    /// # Arguments
-    ///
-    /// * `guid` - Platform-specific device identifier from [`playout_device_guid`]
-    ///
-    /// # Errors
-    ///
-    /// - [`AudioError::DeviceNotFound`] if no device matches the GUID
-    /// - [`AudioError::OperationFailed`] if device selection fails
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let audio = PlatformAudio::new()?;
-    /// // Save the GUID of the preferred speakers
-    /// let preferred_guid = audio.playout_device_guid(0);
-    /// // Later, select it by GUID (works even if indices changed)
-    /// audio.set_playout_device_by_guid(&preferred_guid)?;
-    /// ```
-    ///
-    /// [`playout_device_guid`]: Self::playout_device_guid
+    /// [`set_playout_device()`]: Self::set_playout_device
+    #[doc(hidden)]
     pub fn set_playout_device_by_guid(&self, guid: &str) -> AudioResult<()> {
-        let runtime = &self.handle.runtime;
-        if !runtime.set_playout_device_by_guid(guid) {
-            return Err(AudioError::DeviceNotFound);
+        if self.handle.runtime.set_playout_device_by_guid(guid) {
+            Ok(())
+        } else {
+            Err(AudioError::DeviceNotFound)
+        }
+    }
+
+    /// Selects a recording device by index.
+    ///
+    /// Prefer using [`set_recording_device()`] with a [`RecordingDeviceId`] instead,
+    /// as indices can change when devices are hot-plugged.
+    ///
+    /// [`set_recording_device()`]: Self::set_recording_device
+    #[doc(hidden)]
+    pub fn set_recording_device_by_index(&self, index: u16) -> AudioResult<()> {
+        let count = self.handle.runtime.recording_devices();
+        if index >= count as u16 {
+            return Err(AudioError::InvalidDeviceIndex);
         }
 
-        // Note: We intentionally do NOT call init_playout()/start_playout() here.
-        // On iOS, calling these too early causes a race condition crash in
-        // AudioDeviceIOS::OnChangedOutputVolume() because the KVO observers
-        // fire before the audio device is fully initialized.
-        // WebRTC will automatically initialize and start playout when needed.
+        if self.handle.runtime.set_recording_device(index) {
+            Ok(())
+        } else {
+            Err(AudioError::OperationFailed("set_recording_device failed".to_string()))
+        }
+    }
+
+    /// Selects a playout device by index.
+    ///
+    /// Prefer using [`set_playout_device()`] with a [`PlayoutDeviceId`] instead,
+    /// as indices can change when devices are hot-plugged.
+    ///
+    /// [`set_playout_device()`]: Self::set_playout_device
+    #[doc(hidden)]
+    pub fn set_playout_device_by_index(&self, index: u16) -> AudioResult<()> {
+        let count = self.handle.runtime.playout_devices();
+        if index >= count as u16 {
+            return Err(AudioError::InvalidDeviceIndex);
+        }
+
+        let runtime = &self.handle.runtime;
+        if !runtime.set_playout_device(index) {
+            return Err(AudioError::OperationFailed("set_playout_device failed".to_string()));
+        }
 
         Ok(())
     }
@@ -619,27 +722,23 @@ impl PlatformAudio {
     ///
     /// # Arguments
     ///
-    /// * `index` - Device index (0-based, must be < `recording_devices()`)
+    /// * `id` - Device identifier from [`RecordingDeviceInfo::id`]
     ///
     /// # Errors
     ///
-    /// - [`AudioError::InvalidDeviceIndex`] if index is out of range
+    /// - [`AudioError::DeviceNotFound`] if the device is no longer available
     /// - [`AudioError::OperationFailed`] if any step fails
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// // During an active call, switch to a different microphone
-    /// audio.switch_recording_device(1)?;
+    /// let devices: Vec<_> = audio.recording_devices().collect();
+    /// audio.switch_recording_device(&devices[1].id)?;
     /// ```
     ///
     /// [`set_recording_device`]: Self::set_recording_device
-    pub fn switch_recording_device(&self, index: u16) -> AudioResult<()> {
-        let count = self.recording_devices();
-        if index >= count as u16 {
-            return Err(AudioError::InvalidDeviceIndex);
-        }
-
+    pub fn switch_recording_device(&self, id: &RecordingDeviceId) -> AudioResult<()> {
         let runtime = &self.handle.runtime;
         let was_initialized = runtime.recording_is_initialized();
 
@@ -649,8 +748,8 @@ impl PlatformAudio {
             }
         }
 
-        if !runtime.set_recording_device(index) {
-            return Err(AudioError::OperationFailed("set_recording_device failed".to_string()));
+        if !runtime.set_recording_device_by_guid(id.as_str()) {
+            return Err(AudioError::DeviceNotFound);
         }
 
         if was_initialized {
@@ -673,27 +772,23 @@ impl PlatformAudio {
     ///
     /// # Arguments
     ///
-    /// * `index` - Device index (0-based, must be < `playout_devices()`)
+    /// * `id` - Device identifier from [`PlayoutDeviceInfo::id`]
     ///
     /// # Errors
     ///
-    /// - [`AudioError::InvalidDeviceIndex`] if index is out of range
+    /// - [`AudioError::DeviceNotFound`] if the device is no longer available
     /// - [`AudioError::OperationFailed`] if any step fails
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// // During an active call, switch to a different speaker
-    /// audio.switch_playout_device(1)?;
+    /// let devices: Vec<_> = audio.playout_devices().collect();
+    /// audio.switch_playout_device(&devices[1].id)?;
     /// ```
     ///
     /// [`set_playout_device`]: Self::set_playout_device
-    pub fn switch_playout_device(&self, index: u16) -> AudioResult<()> {
-        let count = self.playout_devices();
-        if index >= count as u16 {
-            return Err(AudioError::InvalidDeviceIndex);
-        }
-
+    pub fn switch_playout_device(&self, id: &PlayoutDeviceId) -> AudioResult<()> {
         let runtime = &self.handle.runtime;
         let was_initialized = runtime.playout_is_initialized();
 
@@ -703,8 +798,8 @@ impl PlatformAudio {
             }
         }
 
-        if !runtime.set_playout_device(index) {
-            return Err(AudioError::OperationFailed("set_playout_device failed".to_string()));
+        if !runtime.set_playout_device_by_guid(id.as_str()) {
+            return Err(AudioError::DeviceNotFound);
         }
 
         if was_initialized {
@@ -1070,8 +1165,8 @@ impl fmt::Debug for PlatformAudio {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("PlatformAudio")
             .field("ref_count", &self.ref_count())
-            .field("recording_devices", &self.recording_devices())
-            .field("playout_devices", &self.playout_devices())
+            .field("recording_device_count", &self.recording_device_count())
+            .field("playout_device_count", &self.playout_device_count())
             .finish()
     }
 }

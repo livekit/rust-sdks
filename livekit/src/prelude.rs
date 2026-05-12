@@ -38,5 +38,5 @@ pub use crate::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use crate::platform_audio::{
     AudioError, AudioProcessingOptions, AudioProcessingType, AudioResult, PlatformAudio,
-    RtcAudioSource,
+    PlayoutDeviceId, PlayoutDeviceInfo, RecordingDeviceId, RecordingDeviceInfo, RtcAudioSource,
 };

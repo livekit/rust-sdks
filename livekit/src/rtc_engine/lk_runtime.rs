@@ -56,180 +56,156 @@ impl LkRuntime {
     }
 
     // ===== Device Management Methods =====
-    // These methods are primarily for FFI use. Use PlatformAudio for the public API.
+    // These methods are internal - used by PlatformAudio. Use PlatformAudio for the public API.
 
     /// Get the number of playout (output) devices
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn playout_devices(&self) -> i16 {
+    pub(crate) fn playout_devices(&self) -> i16 {
         self.pc_factory.playout_devices()
     }
 
     /// Get the number of recording (input) devices
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn recording_devices(&self) -> i16 {
+    pub(crate) fn recording_devices(&self) -> i16 {
         self.pc_factory.recording_devices()
     }
 
     /// Get the name of a playout device by index
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn playout_device_name(&self, index: u16) -> String {
+    pub(crate) fn playout_device_name(&self, index: u16) -> String {
         self.pc_factory.playout_device_name(index)
     }
 
     /// Get the name of a recording device by index
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn recording_device_name(&self, index: u16) -> String {
+    pub(crate) fn recording_device_name(&self, index: u16) -> String {
         self.pc_factory.recording_device_name(index)
     }
 
     /// Get the GUID of a playout device by index.
     /// The GUID is a platform-specific unique identifier that is stable across device hot-plug events.
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn playout_device_guid(&self, index: u16) -> String {
+    pub(crate) fn playout_device_guid(&self, index: u16) -> String {
         self.pc_factory.playout_device_guid(index)
     }
 
     /// Get the GUID of a recording device by index.
     /// The GUID is a platform-specific unique identifier that is stable across device hot-plug events.
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn recording_device_guid(&self, index: u16) -> String {
+    pub(crate) fn recording_device_guid(&self, index: u16) -> String {
         self.pc_factory.recording_device_guid(index)
     }
 
     /// Set the playout device by index
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn set_playout_device(&self, index: u16) -> bool {
+    pub(crate) fn set_playout_device(&self, index: u16) -> bool {
         self.pc_factory.set_playout_device(index)
     }
 
     /// Set the recording device by index
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn set_recording_device(&self, index: u16) -> bool {
+    pub(crate) fn set_recording_device(&self, index: u16) -> bool {
         self.pc_factory.set_recording_device(index)
     }
 
     /// Set the playout device by GUID.
     /// This is preferred over index as GUIDs are stable across device hot-plug events.
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn set_playout_device_by_guid(&self, guid: &str) -> bool {
+    pub(crate) fn set_playout_device_by_guid(&self, guid: &str) -> bool {
         self.pc_factory.set_playout_device_by_guid(guid)
     }
 
     /// Set the recording device by GUID.
     /// This is preferred over index as GUIDs are stable across device hot-plug events.
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn set_recording_device_by_guid(&self, guid: &str) -> bool {
+    pub(crate) fn set_recording_device_by_guid(&self, guid: &str) -> bool {
         self.pc_factory.set_recording_device_by_guid(guid)
     }
 
     /// Stop recording (clears initialized state, allowing device switch)
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn stop_recording(&self) -> bool {
+    pub(crate) fn stop_recording(&self) -> bool {
         self.pc_factory.stop_recording()
     }
 
     /// Initialize recording
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn init_recording(&self) -> bool {
+    pub(crate) fn init_recording(&self) -> bool {
         self.pc_factory.init_recording()
     }
 
     /// Start recording
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn start_recording(&self) -> bool {
+    pub(crate) fn start_recording(&self) -> bool {
         self.pc_factory.start_recording()
     }
 
     /// Check if recording is initialized
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn recording_is_initialized(&self) -> bool {
+    pub(crate) fn recording_is_initialized(&self) -> bool {
         self.pc_factory.recording_is_initialized()
     }
 
     /// Stop playout (clears initialized state, allowing device switch)
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn stop_playout(&self) -> bool {
+    pub(crate) fn stop_playout(&self) -> bool {
         self.pc_factory.stop_playout()
     }
 
     /// Initialize playout
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn init_playout(&self) -> bool {
+    pub(crate) fn init_playout(&self) -> bool {
         self.pc_factory.init_playout()
     }
 
     /// Start playout
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn start_playout(&self) -> bool {
+    pub(crate) fn start_playout(&self) -> bool {
         self.pc_factory.start_playout()
     }
 
     /// Check if playout is initialized
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn playout_is_initialized(&self) -> bool {
+    pub(crate) fn playout_is_initialized(&self) -> bool {
         self.pc_factory.playout_is_initialized()
     }
 
     // ===== Built-in Audio Processing Methods =====
-    // These methods are primarily for FFI use. Use PlatformAudio for the public API.
+    // These methods are internal - used by PlatformAudio. Use PlatformAudio for the public API.
 
     /// Check if built-in (hardware) AEC is available
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn builtin_aec_is_available(&self) -> bool {
+    pub(crate) fn builtin_aec_is_available(&self) -> bool {
         self.pc_factory.builtin_aec_is_available()
     }
 
     /// Check if built-in (hardware) AGC is available
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn builtin_agc_is_available(&self) -> bool {
+    pub(crate) fn builtin_agc_is_available(&self) -> bool {
         self.pc_factory.builtin_agc_is_available()
     }
 
     /// Check if built-in (hardware) NS is available
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn builtin_ns_is_available(&self) -> bool {
+    pub(crate) fn builtin_ns_is_available(&self) -> bool {
         self.pc_factory.builtin_ns_is_available()
     }
 
     /// Enable or disable built-in (hardware) AEC
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn enable_builtin_aec(&self, enable: bool) -> bool {
+    pub(crate) fn enable_builtin_aec(&self, enable: bool) -> bool {
         self.pc_factory.enable_builtin_aec(enable)
     }
 
     /// Enable or disable built-in (hardware) AGC
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn enable_builtin_agc(&self, enable: bool) -> bool {
+    pub(crate) fn enable_builtin_agc(&self, enable: bool) -> bool {
         self.pc_factory.enable_builtin_agc(enable)
     }
 
     /// Enable or disable built-in (hardware) NS
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn enable_builtin_ns(&self, enable: bool) -> bool {
+    pub(crate) fn enable_builtin_ns(&self, enable: bool) -> bool {
         self.pc_factory.enable_builtin_ns(enable)
     }
 
@@ -238,16 +214,14 @@ impl LkRuntime {
     /// When disabled, WebRTC's calls to InitRecording/StartRecording will be no-ops.
     /// Use this when only using NativeAudioSource (no microphone capture needed).
     /// This prevents the microphone from interfering with the audio pipeline.
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn set_adm_recording_enabled(&self, enabled: bool) {
+    pub(crate) fn set_adm_recording_enabled(&self, enabled: bool) {
         self.pc_factory.set_adm_recording_enabled(enabled)
     }
 
     /// Check if ADM recording (microphone) is enabled.
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn adm_recording_enabled(&self) -> bool {
+    pub(crate) fn adm_recording_enabled(&self) -> bool {
         self.pc_factory.adm_recording_enabled()
     }
 
@@ -256,21 +230,19 @@ impl LkRuntime {
     /// When disabled (default), playout uses synthetic mode - remote audio is
     /// delivered via FFI callbacks to the application (e.g., Unity AudioSource).
     /// When enabled, remote audio plays through the platform speakers with AEC.
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn set_adm_playout_enabled(&self, enabled: bool) {
+    pub(crate) fn set_adm_playout_enabled(&self, enabled: bool) {
         self.pc_factory.set_adm_playout_enabled(enabled)
     }
 
     /// Check if ADM playout (speakers) is enabled.
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn adm_playout_enabled(&self) -> bool {
+    pub(crate) fn adm_playout_enabled(&self) -> bool {
         self.pc_factory.adm_playout_enabled()
     }
 
     // ===== Platform ADM Lifecycle Management =====
-    // These methods are primarily for FFI use. Use PlatformAudio for the public API.
+    // These methods are internal - used by PlatformAudio. Use PlatformAudio for the public API.
 
     /// Acquires a reference to the Platform ADM.
     ///
@@ -278,9 +250,8 @@ impl LkRuntime {
     /// calls, just increments the reference count.
     ///
     /// Returns true if Platform ADM is ready for use, false if initialization failed.
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn acquire_platform_adm(&self) -> bool {
+    pub(crate) fn acquire_platform_adm(&self) -> bool {
         self.pc_factory.acquire_platform_adm()
     }
 
@@ -288,23 +259,20 @@ impl LkRuntime {
     ///
     /// When the reference count reaches zero, the Platform ADM is terminated
     /// and the proxy returns to synthetic mode.
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn release_platform_adm(&self) {
+    pub(crate) fn release_platform_adm(&self) {
         self.pc_factory.release_platform_adm()
     }
 
     /// Returns the current reference count for the Platform ADM.
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn platform_adm_ref_count(&self) -> i32 {
+    pub(crate) fn platform_adm_ref_count(&self) -> i32 {
         self.pc_factory.platform_adm_ref_count()
     }
 
     /// Returns true if Platform ADM is currently active (ref_count > 0).
-    #[doc(hidden)]
     #[cfg(not(target_arch = "wasm32"))]
-    pub fn is_platform_adm_active(&self) -> bool {
+    pub(crate) fn is_platform_adm_active(&self) -> bool {
         self.pc_factory.is_platform_adm_active()
     }
 }

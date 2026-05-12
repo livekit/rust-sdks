@@ -760,6 +760,7 @@ dependencies = [
 name = "basic_room"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "env_logger 0.11.10",
  "hound",
  "livekit",

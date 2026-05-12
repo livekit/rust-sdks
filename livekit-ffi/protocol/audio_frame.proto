@@ -437,22 +437,16 @@ message GetAudioDevicesResponse {
 // Set the recording device (microphone).
 //
 // Call this before creating audio tracks to select which microphone to use.
-// Prefer using GUID over index for robust device selection across hot-plug events.
+// Use the GUID from AudioDeviceInfo for stable device selection across hot-plug events.
 message SetRecordingDeviceRequest {
   // The PlatformAudio handle.
   required uint64 platform_audio_handle = 1;
-  // Device selection - use one of:
-  oneof device {
-    // Device index (0-based). Note: indices can change when devices are added/removed.
-    uint32 index = 2;
-    // Device GUID from AudioDeviceInfo.guid (preferred - stable across device changes).
-    string guid = 3;
-  }
+  // Device GUID from AudioDeviceInfo.guid - stable across device additions/removals.
+  required string device_id = 2;
 }
 
 message SetRecordingDeviceResponse {
   // Error message if the operation failed:
-  // - "Invalid device index" if index >= recording device count
   // - "Device not found" if GUID doesn't match any device
   // - Other platform-specific errors
   // Empty/absent on success.
@@ -462,22 +456,16 @@ message SetRecordingDeviceResponse {
 // Set the playout device (speaker/headphones).
 //
 // Call this before connecting to select which speaker to use for audio output.
-// Prefer using GUID over index for robust device selection across hot-plug events.
+// Use the GUID from AudioDeviceInfo for stable device selection across hot-plug events.
 message SetPlayoutDeviceRequest {
   // The PlatformAudio handle.
   required uint64 platform_audio_handle = 1;
-  // Device selection - use one of:
-  oneof device {
-    // Device index (0-based). Note: indices can change when devices are added/removed.
-    uint32 index = 2;
-    // Device GUID from AudioDeviceInfo.guid (preferred - stable across device changes).
-    string guid = 3;
-  }
+  // Device GUID from AudioDeviceInfo.guid - stable across device additions/removals.
+  required string device_id = 2;
 }
 
 message SetPlayoutDeviceResponse {
   // Error message if the operation failed:
-  // - "Invalid device index" if index >= playout device count
   // - "Device not found" if GUID doesn't match any device
   // - Other platform-specific errors
   // Empty/absent on success.

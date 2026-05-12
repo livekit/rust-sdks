@@ -1,3 +1,4 @@
+use clap::Parser;
 use livekit::options::TrackPublishOptions;
 use livekit::prelude::*;
 use livekit::webrtc::audio_source::native::NativeAudioSource;
@@ -10,69 +11,47 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
 
-// Usage:
-//   cargo run -p basic_room -- --list-devices                         # List audio devices (with GUIDs) and exit
-//   cargo run -p basic_room -- --platform-audio                       # Publish microphone using PlatformAudio
-//   cargo run -p basic_room -- --platform-audio-and-file <path.wav>   # Publish both mic + WAV file
-//   cargo run -p basic_room -- --file <path.wav>                      # Publish just WAV file (no mic)
-//   cargo run -p basic_room -- --room <room-name>                     # Specify room name (default: my-room)
-//   cargo run -p basic_room -- --mic-guid <guid>                      # Select microphone by GUID
-//   cargo run -p basic_room -- --speaker-guid <guid>                  # Select speaker by GUID
-//   cargo run -p basic_room                                           # Connect without audio publishing
-//
-// Example with GUID-based device selection:
-//   cargo run -p basic_room -- --list-devices                         # Find the GUID you want
-//   cargo run -p basic_room -- --platform-audio --mic-guid "your-guid-here"
+/// Basic room example demonstrating PlatformAudio and audio publishing
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// List available audio devices and exit
+    #[arg(long)]
+    list_devices: bool,
+
+    /// Publish microphone using PlatformAudio
+    #[arg(long)]
+    platform_audio: bool,
+
+    /// Publish both microphone and WAV file
+    #[arg(long, value_name = "WAV_PATH")]
+    platform_audio_and_file: Option<String>,
+
+    /// Publish just WAV file (no microphone)
+    #[arg(long, value_name = "WAV_PATH")]
+    file: Option<String>,
+
+    /// Room name to join (default: my-room)
+    #[arg(long, default_value = "my-room")]
+    room: String,
+
+    /// Select microphone by device ID (from --list-devices)
+    #[arg(long, value_name = "DEVICE_ID")]
+    mic_id: Option<String>,
+
+    /// Select speaker by device ID (from --list-devices)
+    #[arg(long, value_name = "DEVICE_ID")]
+    speaker_id: Option<String>,
+}
 
 #[tokio::main]
 async fn main() {
     env_logger::init();
 
-    let args: Vec<String> = env::args().collect();
-    let list_devices = args.iter().any(|arg| arg == "--list-devices");
-    let use_platform_audio = args.iter().any(|arg| arg == "--platform-audio");
-
-    // Check for --platform-audio-and-file <path>
-    let platform_audio_and_file_path = args
-        .iter()
-        .position(|arg| arg == "--platform-audio-and-file")
-        .and_then(|i| args.get(i + 1))
-        .map(|s| s.clone());
-
-    // Check for --file <path> (file only, no microphone)
-    let file_only_path = args
-        .iter()
-        .position(|arg| arg == "--file")
-        .and_then(|i| args.get(i + 1))
-        .map(|s| s.clone());
-
-    // Check for --room <name> (default: my-room)
-    let room_name = args
-        .iter()
-        .position(|arg| arg == "--room")
-        .and_then(|i| args.get(i + 1))
-        .map(|s| s.clone())
-        .unwrap_or_else(|| "my-room".to_string());
-
-    // Check for --mic-guid <guid> (select microphone by GUID)
-    let mic_guid = args
-        .iter()
-        .position(|arg| arg == "--mic-guid")
-        .and_then(|i| args.get(i + 1))
-        .map(|s| s.clone());
-
-    // Check for --speaker-guid <guid> (select speaker by GUID)
-    let speaker_guid = args
-        .iter()
-        .position(|arg| arg == "--speaker-guid")
-        .and_then(|i| args.get(i + 1))
-        .map(|s| s.clone());
-
-    let use_platform_audio_and_file = platform_audio_and_file_path.is_some();
-    let file_path = platform_audio_and_file_path.or(file_only_path.clone());
+    let args = Args::parse();
 
     // --list-devices: enumerate audio devices and exit
-    if list_devices {
+    if args.list_devices {
         let audio = match PlatformAudio::new() {
             Ok(audio) => audio,
             Err(e) => {
@@ -82,26 +61,22 @@ async fn main() {
         };
 
         println!("Recording devices (microphones):");
-        let recording_count = audio.recording_devices();
-        if recording_count == 0 {
+        let recording_devices: Vec<_> = audio.recording_devices().collect();
+        if recording_devices.is_empty() {
             println!("  (none)");
         } else {
-            for i in 0..recording_count as u16 {
-                let name = audio.recording_device_name(i);
-                let guid = audio.recording_device_guid(i);
-                println!("  [{}] {} (GUID: {})", i, name, guid);
+            for device in &recording_devices {
+                println!("  [{}] {} (ID: {})", device.index, device.name, device.id);
             }
         }
 
         println!("\nPlayout devices (speakers):");
-        let playout_count = audio.playout_devices();
-        if playout_count == 0 {
+        let playout_devices: Vec<_> = audio.playout_devices().collect();
+        if playout_devices.is_empty() {
             println!("  (none)");
         } else {
-            for i in 0..playout_count as u16 {
-                let name = audio.playout_device_name(i);
-                let guid = audio.playout_device_guid(i);
-                println!("  [{}] {} (GUID: {})", i, name, guid);
+            for device in &playout_devices {
+                println!("  [{}] {} (ID: {})", device.index, device.name, device.id);
             }
         }
 
@@ -118,66 +93,81 @@ async fn main() {
     let api_secret = env::var("LIVEKIT_API_SECRET").expect("LIVEKIT_API_SECRET is not set");
 
     // Determine what to publish
-    let publish_mic = use_platform_audio || use_platform_audio_and_file;
+    let use_platform_audio_and_file = args.platform_audio_and_file.is_some();
+    let publish_mic = args.platform_audio || use_platform_audio_and_file;
+    let file_path = args.platform_audio_and_file.or(args.file.clone());
 
     // Create PlatformAudio if needed (must be created BEFORE connecting to room)
     let platform_audio = if publish_mic {
         let audio = PlatformAudio::new().expect("Failed to initialize platform audio");
         log::info!("Platform audio initialized");
 
-        let recording_count = audio.recording_devices();
-        let playout_count = audio.playout_devices();
+        // Collect devices for display and selection
+        let recording_devices: Vec<_> = audio.recording_devices().collect();
+        let playout_devices: Vec<_> = audio.playout_devices().collect();
 
-        log::info!("Recording devices: {}", recording_count);
-        for i in 0..recording_count as u16 {
-            let name = audio.recording_device_name(i);
-            let guid = audio.recording_device_guid(i);
-            log::info!("  [{}] {} (GUID: {})", i, name, guid);
+        log::info!("Recording devices: {}", recording_devices.len());
+        for device in &recording_devices {
+            log::info!("  [{}] {} (ID: {})", device.index, device.name, device.id);
         }
 
-        log::info!("Playout devices: {}", playout_count);
-        for i in 0..playout_count as u16 {
-            let name = audio.playout_device_name(i);
-            let guid = audio.playout_device_guid(i);
-            log::info!("  [{}] {} (GUID: {})", i, name, guid);
+        log::info!("Playout devices: {}", playout_devices.len());
+        for device in &playout_devices {
+            log::info!("  [{}] {} (ID: {})", device.index, device.name, device.id);
         }
 
-        // Select recording device (prefer GUID if provided, otherwise use index 0)
-        if let Some(ref guid) = mic_guid {
-            log::info!("Selecting microphone by GUID: {}", guid);
-            match audio.set_recording_device_by_guid(guid) {
-                Ok(()) => log::info!("Successfully selected microphone by GUID"),
-                Err(e) => {
-                    log::error!(
-                        "Failed to select microphone by GUID: {}. Falling back to default.",
-                        e
-                    );
-                    if recording_count > 0 {
-                        audio.set_recording_device(0).expect("Failed to set recording device");
+        // Select recording device (prefer ID if provided, otherwise use first)
+        if let Some(ref id_str) = args.mic_id {
+            // Find device by ID string
+            if let Some(device) = recording_devices.iter().find(|d| d.id.as_str() == id_str) {
+                log::info!("Selecting microphone by ID: {}", device.id);
+                match audio.set_recording_device(&device.id) {
+                    Ok(()) => log::info!("Successfully selected microphone: {}", device.name),
+                    Err(e) => {
+                        log::error!("Failed to select microphone: {}. Using default.", e);
+                        if let Some(first) = recording_devices.first() {
+                            audio
+                                .set_recording_device(&first.id)
+                                .expect("Failed to set recording device");
+                        }
                     }
                 }
-            }
-        } else if recording_count > 0 {
-            audio.set_recording_device(0).expect("Failed to set recording device");
-        }
-
-        // Select playout device (prefer GUID if provided, otherwise use index 0)
-        if let Some(ref guid) = speaker_guid {
-            log::info!("Selecting speaker by GUID: {}", guid);
-            match audio.set_playout_device_by_guid(guid) {
-                Ok(()) => log::info!("Successfully selected speaker by GUID"),
-                Err(e) => {
-                    log::error!(
-                        "Failed to select speaker by GUID: {}. Falling back to default.",
-                        e
-                    );
-                    if playout_count > 0 {
-                        audio.set_playout_device(0).expect("Failed to set playout device");
-                    }
+            } else {
+                log::error!("Microphone with ID '{}' not found. Using default.", id_str);
+                if let Some(first) = recording_devices.first() {
+                    audio
+                        .set_recording_device(&first.id)
+                        .expect("Failed to set recording device");
                 }
             }
-        } else if playout_count > 0 {
-            audio.set_playout_device(0).expect("Failed to set playout device");
+        } else if let Some(first) = recording_devices.first() {
+            audio.set_recording_device(&first.id).expect("Failed to set recording device");
+        }
+
+        // Select playout device (prefer ID if provided, otherwise use first)
+        if let Some(ref id_str) = args.speaker_id {
+            // Find device by ID string
+            if let Some(device) = playout_devices.iter().find(|d| d.id.as_str() == id_str) {
+                log::info!("Selecting speaker by ID: {}", device.id);
+                match audio.set_playout_device(&device.id) {
+                    Ok(()) => log::info!("Successfully selected speaker: {}", device.name),
+                    Err(e) => {
+                        log::error!("Failed to select speaker: {}. Using default.", e);
+                        if let Some(first) = playout_devices.first() {
+                            audio
+                                .set_playout_device(&first.id)
+                                .expect("Failed to set playout device");
+                        }
+                    }
+                }
+            } else {
+                log::error!("Speaker with ID '{}' not found. Using default.", id_str);
+                if let Some(first) = playout_devices.first() {
+                    audio.set_playout_device(&first.id).expect("Failed to set playout device");
+                }
+            }
+        } else if let Some(first) = playout_devices.first() {
+            audio.set_playout_device(&first.id).expect("Failed to set playout device");
         }
 
         audio
@@ -227,13 +217,13 @@ async fn main() {
         .with_name("Rust Bot")
         .with_grants(access_token::VideoGrants {
             room_join: true,
-            room: room_name.clone(),
+            room: args.room.clone(),
             ..Default::default()
         })
         .to_jwt()
         .unwrap();
 
-    log::info!("Joining room: {}", room_name);
+    log::info!("Joining room: {}", args.room);
 
     let (room, mut rx) = Room::connect(&url, &token, RoomOptions::default()).await.unwrap();
     log::info!("Connected to room: {}", room.name());
@@ -324,7 +314,7 @@ async fn main() {
 
             log::info!("Published microphone track using PlatformAudio");
 
-            if file_task.is_some() {
+            if file_path.is_some() {
                 log::info!("Both tracks published: file (48kHz) FIRST, then microphone");
                 log::warn!(
                     "WARNING: Publishing both simultaneously may cause sample rate conflicts!"

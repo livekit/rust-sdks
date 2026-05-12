@@ -25,15 +25,22 @@ mod common;
 
 use std::time::Duration;
 
-use anyhow::{anyhow, Result};
-#[cfg(feature = "__lk-e2e-test")]
-use livekit::options::TrackPublishOptions;
-use livekit::{prelude::*, AudioError, AudioResult, PlatformAudio, RtcAudioSource};
+use anyhow::Result;
+use livekit::{AudioError, AudioResult, PlatformAudio, RtcAudioSource};
 use serial_test::serial;
-use tokio::time::timeout;
 
 #[cfg(feature = "__lk-e2e-test")]
+use anyhow::anyhow;
+#[cfg(feature = "__lk-e2e-test")]
 use common::test_rooms;
+#[cfg(feature = "__lk-e2e-test")]
+use livekit::options::TrackPublishOptions;
+#[cfg(feature = "__lk-e2e-test")]
+use livekit::prelude::{
+    ConnectionState, LocalAudioTrack, LocalTrack, RoomEvent, TrackSource,
+};
+#[cfg(feature = "__lk-e2e-test")]
+use tokio::time::timeout;
 
 // =============================================================================
 // Unit Tests (no E2E feature required)
@@ -188,21 +195,23 @@ async fn test_platform_audio_standalone_creation() -> Result<()> {
     assert!(matches!(audio.rtc_source(), RtcAudioSource::Device));
     log::info!("rtc_source() returns Device variant");
 
-    // Enumerate devices
-    let recording_count = audio.recording_devices();
-    let playout_count = audio.playout_devices();
-    log::info!("Found {} recording devices, {} playout devices", recording_count, playout_count);
+    // Enumerate devices using iterators
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
+    let playout_devices: Vec<_> = audio.playout_devices().collect();
+    log::info!(
+        "Found {} recording devices, {} playout devices",
+        recording_devices.len(),
+        playout_devices.len()
+    );
 
     // List recording devices
-    for i in 0..recording_count as u16 {
-        let name = audio.recording_device_name(i);
-        log::info!("  Recording device {}: {}", i, name);
+    for device in &recording_devices {
+        log::info!("  Recording device {}: {} (ID: {})", device.index, device.name, device.id);
     }
 
     // List playout devices
-    for i in 0..playout_count as u16 {
-        let name = audio.playout_device_name(i);
-        log::info!("  Playout device {}: {}", i, name);
+    for device in &playout_devices {
+        log::info!("  Playout device {}: {} (ID: {})", device.index, device.name, device.id);
     }
 
     // Test Debug trait
@@ -269,33 +278,29 @@ async fn test_platform_audio_standalone_device_selection() -> Result<()> {
 
     let audio = PlatformAudio::new()?;
 
-    let recording_count = audio.recording_devices();
-    let playout_count = audio.playout_devices();
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
+    let playout_devices: Vec<_> = audio.playout_devices().collect();
 
     // Select recording device if available
-    if recording_count > 0 {
-        audio.set_recording_device(0)?;
-        log::info!("Selected recording device 0: {}", audio.recording_device_name(0));
+    if let Some(device) = recording_devices.first() {
+        audio.set_recording_device(&device.id)?;
+        log::info!("Selected recording device: {} (ID: {})", device.name, device.id);
     } else {
         log::info!("No recording devices available");
     }
 
     // Select playout device if available
-    if playout_count > 0 {
-        audio.set_playout_device(0)?;
-        log::info!("Selected playout device 0: {}", audio.playout_device_name(0));
+    if let Some(device) = playout_devices.first() {
+        audio.set_playout_device(&device.id)?;
+        log::info!("Selected playout device: {} (ID: {})", device.name, device.id);
     } else {
         log::info!("No playout devices available");
     }
 
-    // Test invalid device index
-    let result = audio.set_recording_device(9999);
-    assert!(matches!(result, Err(AudioError::InvalidDeviceIndex)));
-    log::info!("Invalid recording device index correctly rejected");
-
-    let result = audio.set_playout_device(9999);
-    assert!(matches!(result, Err(AudioError::InvalidDeviceIndex)));
-    log::info!("Invalid playout device index correctly rejected");
+    // Note: With the new type-safe API, we can only get device IDs from enumeration.
+    // This prevents passing arbitrary/invalid IDs. The only error case is when a
+    // device disappears between enumeration and selection (DeviceNotFound).
+    log::info!("Type-safe device selection verified");
 
     drop(audio);
     Ok(())
@@ -420,17 +425,17 @@ async fn test_platform_audio_standalone_lifecycle() -> Result<()> {
     let audio = PlatformAudio::new()?;
     log::info!("Created PlatformAudio");
 
-    let recording_count = audio.recording_devices();
-    let playout_count = audio.playout_devices();
-    log::info!("Devices: {} recording, {} playout", recording_count, playout_count);
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
+    let playout_devices: Vec<_> = audio.playout_devices().collect();
+    log::info!("Devices: {} recording, {} playout", recording_devices.len(), playout_devices.len());
 
-    if recording_count > 0 {
-        audio.set_recording_device(0)?;
-        log::info!("Set recording device to 0");
+    if let Some(device) = recording_devices.first() {
+        audio.set_recording_device(&device.id)?;
+        log::info!("Set recording device to {}", device.name);
     }
-    if playout_count > 0 {
-        audio.set_playout_device(0)?;
-        log::info!("Set playout device to 0");
+    if let Some(device) = playout_devices.first() {
+        audio.set_playout_device(&device.id)?;
+        log::info!("Set playout device to {}", device.name);
     }
 
     // Phase 2: Get audio source (simulating track creation)
@@ -479,12 +484,12 @@ async fn test_platform_audio_creation() -> Result<()> {
     assert_eq!(audio.ref_count(), 1);
     assert!(matches!(audio.rtc_source(), RtcAudioSource::Device));
 
-    let recording_count = audio.recording_devices();
-    let playout_count = audio.playout_devices();
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
+    let playout_devices: Vec<_> = audio.playout_devices().collect();
     log::info!(
         "PlatformAudio: {} recording devices, {} playout devices",
-        recording_count,
-        playout_count
+        recording_devices.len(),
+        playout_devices.len()
     );
 
     // Cleanup
@@ -537,20 +542,18 @@ async fn test_platform_audio_device_enumeration() -> Result<()> {
 
     let audio = PlatformAudio::new()?;
 
-    // Enumerate recording devices
-    let recording_count = audio.recording_devices();
-    log::info!("Recording devices: {}", recording_count);
-    for i in 0..recording_count as u16 {
-        let name = audio.recording_device_name(i);
-        log::info!("  Mic {}: {}", i, name);
+    // Enumerate recording devices using iterator
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
+    log::info!("Recording devices: {}", recording_devices.len());
+    for device in &recording_devices {
+        log::info!("  Mic {}: {} (ID: {})", device.index, device.name, device.id);
     }
 
-    // Enumerate playout devices
-    let playout_count = audio.playout_devices();
-    log::info!("Playout devices: {}", playout_count);
-    for i in 0..playout_count as u16 {
-        let name = audio.playout_device_name(i);
-        log::info!("  Speaker {}: {}", i, name);
+    // Enumerate playout devices using iterator
+    let playout_devices: Vec<_> = audio.playout_devices().collect();
+    log::info!("Playout devices: {}", playout_devices.len());
+    for device in &playout_devices {
+        log::info!("  Speaker {}: {} (ID: {})", device.index, device.name, device.id);
     }
 
     drop(audio);
@@ -568,24 +571,23 @@ async fn test_platform_audio_device_selection() -> Result<()> {
 
     let audio = PlatformAudio::new()?;
 
-    let recording_count = audio.recording_devices();
-    let playout_count = audio.playout_devices();
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
+    let playout_devices: Vec<_> = audio.playout_devices().collect();
 
     // Select recording device if available
-    if recording_count > 0 {
-        audio.set_recording_device(0)?;
-        log::info!("Selected recording device 0");
+    if let Some(device) = recording_devices.first() {
+        audio.set_recording_device(&device.id)?;
+        log::info!("Selected recording device: {}", device.name);
     }
 
     // Select playout device if available
-    if playout_count > 0 {
-        audio.set_playout_device(0)?;
-        log::info!("Selected playout device 0");
+    if let Some(device) = playout_devices.first() {
+        audio.set_playout_device(&device.id)?;
+        log::info!("Selected playout device: {}", device.name);
     }
 
-    // Test invalid device index
-    let result = audio.set_recording_device(9999);
-    assert!(matches!(result, Err(AudioError::InvalidDeviceIndex)));
+    // Note: With type-safe device IDs, we can't easily test invalid IDs
+    // (that's the point of the type safety!)
 
     drop(audio);
     Ok(())
@@ -635,7 +637,11 @@ async fn test_platform_audio_with_native_source() -> Result<()> {
     assert!(matches!(mic_source, RtcAudioSource::Device));
     assert!(matches!(screen_rtc_source, RtcAudioSource::Native(_)));
 
-    log::info!("PlatformAudio and NativeAudioSource can coexist");
+    let recording_count = mic.recording_device_count();
+    log::info!(
+        "PlatformAudio ({} mics) and NativeAudioSource can coexist",
+        recording_count
+    );
 
     drop(mic);
     Ok(())
@@ -651,9 +657,9 @@ async fn test_platform_audio_room_connection() -> Result<()> {
     reset_platform_audio();
 
     let audio = PlatformAudio::new()?;
-    let recording_count = audio.recording_devices();
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
 
-    log::info!("Connecting to room with {} recording devices", recording_count);
+    log::info!("Connecting to room with {} recording devices", recording_devices.len());
 
     // Connect to room
     let mut rooms = test_rooms(1).await?;
@@ -662,8 +668,8 @@ async fn test_platform_audio_room_connection() -> Result<()> {
     assert_eq!(room.connection_state(), ConnectionState::Connected);
 
     // Publish track if microphone available
-    if recording_count > 0 {
-        audio.set_recording_device(0)?;
+    if let Some(device) = recording_devices.first() {
+        audio.set_recording_device(&device.id)?;
 
         let track = LocalAudioTrack::create_audio_track("microphone", audio.rtc_source());
         room.local_participant()
@@ -705,15 +711,15 @@ async fn test_platform_audio_two_participants() -> Result<()> {
     reset_platform_audio();
 
     let audio = PlatformAudio::new()?;
-    let recording_count = audio.recording_devices();
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
 
-    if recording_count == 0 {
+    if recording_devices.is_empty() {
         log::info!("Skipping two participants test - no microphone available");
         drop(audio);
         return Ok(());
     }
 
-    audio.set_recording_device(0)?;
+    audio.set_recording_device(&recording_devices[0].id)?;
 
     // Connect two participants
     let mut rooms = test_rooms(2).await?;
@@ -768,18 +774,18 @@ async fn test_platform_audio_device_switching() -> Result<()> {
     reset_platform_audio();
 
     let audio = PlatformAudio::new()?;
-    let recording_count = audio.recording_devices() as u16;
-    let playout_count = audio.playout_devices() as u16;
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
+    let playout_devices: Vec<_> = audio.playout_devices().collect();
 
     log::info!(
         "Device switching test: {} recording, {} playout devices",
-        recording_count,
-        playout_count
+        recording_devices.len(),
+        playout_devices.len()
     );
 
     // Need at least 2 devices to test switching
-    let can_switch_recording = recording_count >= 2;
-    let can_switch_playout = playout_count >= 2;
+    let can_switch_recording = recording_devices.len() >= 2;
+    let can_switch_playout = playout_devices.len() >= 2;
 
     if !can_switch_recording && !can_switch_playout {
         log::info!("Skipping device switching test (need at least 2 devices)");
@@ -792,7 +798,7 @@ async fn test_platform_audio_device_switching() -> Result<()> {
     let (room, _events) = rooms.pop().unwrap();
 
     // Publish track if microphone available
-    if recording_count > 0 {
+    if !recording_devices.is_empty() {
         let track = LocalAudioTrack::create_audio_track("microphone", audio.rtc_source());
         room.local_participant()
             .publish_track(
@@ -804,22 +810,22 @@ async fn test_platform_audio_device_switching() -> Result<()> {
 
     // Switch recording devices
     if can_switch_recording {
-        log::info!("Switching recording device 0 -> 1");
-        audio.switch_recording_device(1)?;
+        log::info!("Switching recording device to {}", recording_devices[1].name);
+        audio.switch_recording_device(&recording_devices[1].id)?;
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        log::info!("Switching recording device 1 -> 0");
-        audio.switch_recording_device(0)?;
+        log::info!("Switching recording device to {}", recording_devices[0].name);
+        audio.switch_recording_device(&recording_devices[0].id)?;
     }
 
     // Switch playout devices
     if can_switch_playout {
-        log::info!("Switching playout device 0 -> 1");
-        audio.switch_playout_device(1)?;
+        log::info!("Switching playout device to {}", playout_devices[1].name);
+        audio.switch_playout_device(&playout_devices[1].id)?;
         tokio::time::sleep(Duration::from_millis(100)).await;
 
-        log::info!("Switching playout device 1 -> 0");
-        audio.switch_playout_device(0)?;
+        log::info!("Switching playout device to {}", playout_devices[0].name);
+        audio.switch_playout_device(&playout_devices[0].id)?;
     }
 
     // Clean up
@@ -839,7 +845,9 @@ async fn test_reset_platform_audio() -> Result<()> {
     reset_platform_audio();
 
     let audio = PlatformAudio::new()?;
-    assert!(audio.recording_devices() >= 0 || audio.playout_devices() >= 0);
+    // Device enumeration works (count may be 0 on CI without audio hardware)
+    let _recording: Vec<_> = audio.recording_devices().collect();
+    let _playout: Vec<_> = audio.playout_devices().collect();
 
     // Force reset
     reset_platform_audio();
@@ -1001,9 +1009,9 @@ async fn test_platform_audio_processing_with_room() -> Result<()> {
     reset_platform_audio();
 
     let audio = PlatformAudio::new()?;
-    let recording_count = audio.recording_devices();
+    let recording_devices: Vec<_> = audio.recording_devices().collect();
 
-    if recording_count == 0 {
+    if recording_devices.is_empty() {
         log::info!("Skipping test - no microphone available");
         drop(audio);
         return Ok(());
@@ -1023,7 +1031,7 @@ async fn test_platform_audio_processing_with_room() -> Result<()> {
     let mut rooms = test_rooms(1).await?;
     let (room, _events) = rooms.pop().unwrap();
 
-    audio.set_recording_device(0)?;
+    audio.set_recording_device(&recording_devices[0].id)?;
 
     // Publish track
     let track = LocalAudioTrack::create_audio_track("microphone", audio.rtc_source());

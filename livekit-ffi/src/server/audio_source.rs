@@ -57,7 +57,7 @@ impl FfiAudioSource {
                     (&new_source.options, new_source.platform_audio_handle)
                 {
                     if let Ok(ffi_audio) =
-                        server.retrieve_handle::<super::requests::FfiPlatformAudio>(handle)
+                        server.retrieve_handle::<super::platform_audio::FfiPlatformAudio>(handle)
                     {
                         let processing_options = livekit::AudioProcessingOptions {
                             echo_cancellation: options.echo_cancellation,
