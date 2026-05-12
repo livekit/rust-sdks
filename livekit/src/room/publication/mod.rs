@@ -14,7 +14,7 @@
 
 use std::sync::Arc;
 
-use livekit_protocol::enum_dispatch;
+use libwebrtc::enum_dispatch;
 use livekit_protocol::{self as proto, AudioTrackFeature, PacketTrailerFeature};
 use parking_lot::{Mutex, RwLock};
 

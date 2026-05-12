@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub use crate::utils::take_cell::TakeCell;
 use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::{Stream, StreamExt};
 use libwebrtc::{
@@ -28,12 +29,11 @@ use livekit_datatrack::{
     api::{DataTrackSid, RemoteDataTrack},
     backend as dt,
 };
-use livekit_protocol::observer::Dispatcher;
 use livekit_protocol::{self as proto, encryption};
 use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
-use proto::{promise::Promise, SignalTarget};
+use proto::SignalTarget;
 use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{
@@ -41,7 +41,6 @@ use tokio::sync::{
     mpsc::{self, UnboundedReceiver},
     oneshot, Mutex as AsyncMutex,
 };
-pub use utils::take_cell::TakeCell;
 
 pub use self::{
     data_stream::*,
@@ -58,6 +57,7 @@ use crate::{
         EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, RtcEngine,
         SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
     },
+    utils::{observer::Dispatcher, promise::Promise},
 };
 
 pub mod data_stream;
@@ -68,7 +68,6 @@ pub mod options;
 pub mod participant;
 pub mod publication;
 pub mod track;
-pub(crate) mod utils;
 
 pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -551,7 +550,7 @@ impl Room {
 
         let pi = join_response.participant.unwrap();
         let pi_kind = pi.kind().into();
-        let pi_kind_details = utils::convert_kind_details(&pi.kind_details);
+        let pi_kind_details = crate::utils::convert_kind_details(&pi.kind_details);
         let pi_state = pi.state().into();
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
@@ -732,7 +731,7 @@ impl Room {
             let participant = {
                 let pi = pi.clone();
                 let pi_kind = pi.kind().into();
-                let pi_kind_details = utils::convert_kind_details(&pi.kind_details);
+                let pi_kind_details = crate::utils::convert_kind_details(&pi.kind_details);
                 let pi_state = pi.state().into();
                 inner.create_participant(
                     pi_kind,
@@ -1142,7 +1141,7 @@ impl RoomSession {
                 let remote_participant = {
                     let pi = pi.clone();
                     let pi_kind = pi.kind().into();
-                    let pi_kind_details = utils::convert_kind_details(&pi.kind_details);
+                    let pi_kind_details = crate::utils::convert_kind_details(&pi.kind_details);
                     let pi_state = pi.state().into();
                     self.create_participant(
                         pi_kind,

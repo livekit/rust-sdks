@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_protocol::enum_dispatch;
-
-use crate::imp::audio_source as imp_as;
+use crate::{enum_dispatch, imp::audio_source as imp_as};
 
 #[derive(Default, Debug)]
 pub struct AudioSourceOptions {
