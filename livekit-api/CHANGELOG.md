@@ -96,6 +96,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Update protocol and add SendDataRequest nonce
+## 0.4.21 (2026-05-11)
+
+### Fixes
+
+- Upgrade protocol to v1.45.8
+
 ## 0.4.20 (2026-05-10)
 
 ### Features
