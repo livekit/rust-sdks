@@ -483,7 +483,25 @@ fn build_descriptor(
             );
             return (empty, None, false);
         }
-        plane_descs.push(DmabufPlane { offset, stride: stride as i32 });
+        // libcamera reports a single stream-level stride (the Y row pitch).
+        // Per-plane strides have to be derived from the pixel format:
+        //   YUV420: Y=stride, U=stride/2, V=stride/2
+        //   NV12:   Y=stride, UV=stride (interleaved chroma uses full width)
+        // Using the Y stride for chroma planes makes ToI420's libyuv read
+        // walk off the end of the mapped region (CVE-style OOB read /
+        // segfault), so this must be precise.
+        let plane_stride = match fourcc {
+            Fourcc::YUV420 => {
+                if i == 0 {
+                    stride as i32
+                } else {
+                    (stride / 2) as i32
+                }
+            }
+            Fourcc::NV12 => stride as i32,
+            _ => stride as i32,
+        };
+        plane_descs.push(DmabufPlane { offset, stride: plane_stride });
         total_size = total_size.max(offset + length);
     }
 
