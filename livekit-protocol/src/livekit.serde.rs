@@ -974,9 +974,6 @@ impl serde::Serialize for AgentDispatch {
         if self.restart_policy != 0 {
             len += 1;
         }
-        if !self.deployment.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.AgentDispatch", len)?;
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
@@ -998,9 +995,6 @@ impl serde::Serialize for AgentDispatch {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.restart_policy)))?;
             struct_ser.serialize_field("restartPolicy", &v)?;
         }
-        if !self.deployment.is_empty() {
-            struct_ser.serialize_field("deployment", &self.deployment)?;
-        }
         struct_ser.end()
     }
 }
@@ -1019,7 +1013,6 @@ impl<'de> serde::Deserialize<'de> for AgentDispatch {
             "state",
             "restart_policy",
             "restartPolicy",
-            "deployment",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -1030,7 +1023,6 @@ impl<'de> serde::Deserialize<'de> for AgentDispatch {
             Metadata,
             State,
             RestartPolicy,
-            Deployment,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -1059,7 +1051,6 @@ impl<'de> serde::Deserialize<'de> for AgentDispatch {
                             "metadata" => Ok(GeneratedField::Metadata),
                             "state" => Ok(GeneratedField::State),
                             "restartPolicy" | "restart_policy" => Ok(GeneratedField::RestartPolicy),
-                            "deployment" => Ok(GeneratedField::Deployment),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -1085,7 +1076,6 @@ impl<'de> serde::Deserialize<'de> for AgentDispatch {
                 let mut metadata__ = None;
                 let mut state__ = None;
                 let mut restart_policy__ = None;
-                let mut deployment__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -1124,12 +1114,6 @@ impl<'de> serde::Deserialize<'de> for AgentDispatch {
                             }
                             restart_policy__ = Some(map_.next_value::<JobRestartPolicy>()? as i32);
                         }
-                        GeneratedField::Deployment => {
-                            if deployment__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("deployment"));
-                            }
-                            deployment__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -1142,7 +1126,6 @@ impl<'de> serde::Deserialize<'de> for AgentDispatch {
                     metadata: metadata__.unwrap_or_default(),
                     state: state__,
                     restart_policy: restart_policy__.unwrap_or_default(),
-                    deployment: deployment__.unwrap_or_default(),
                 })
             }
         }
@@ -5129,9 +5112,6 @@ impl serde::Serialize for CreateAgentDispatchRequest {
         if self.restart_policy != 0 {
             len += 1;
         }
-        if !self.deployment.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.CreateAgentDispatchRequest", len)?;
         if !self.agent_name.is_empty() {
             struct_ser.serialize_field("agentName", &self.agent_name)?;
@@ -5146,9 +5126,6 @@ impl serde::Serialize for CreateAgentDispatchRequest {
             let v = JobRestartPolicy::try_from(self.restart_policy)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.restart_policy)))?;
             struct_ser.serialize_field("restartPolicy", &v)?;
-        }
-        if !self.deployment.is_empty() {
-            struct_ser.serialize_field("deployment", &self.deployment)?;
         }
         struct_ser.end()
     }
@@ -5166,7 +5143,6 @@ impl<'de> serde::Deserialize<'de> for CreateAgentDispatchRequest {
             "metadata",
             "restart_policy",
             "restartPolicy",
-            "deployment",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -5175,7 +5151,6 @@ impl<'de> serde::Deserialize<'de> for CreateAgentDispatchRequest {
             Room,
             Metadata,
             RestartPolicy,
-            Deployment,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -5202,7 +5177,6 @@ impl<'de> serde::Deserialize<'de> for CreateAgentDispatchRequest {
                             "room" => Ok(GeneratedField::Room),
                             "metadata" => Ok(GeneratedField::Metadata),
                             "restartPolicy" | "restart_policy" => Ok(GeneratedField::RestartPolicy),
-                            "deployment" => Ok(GeneratedField::Deployment),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -5226,7 +5200,6 @@ impl<'de> serde::Deserialize<'de> for CreateAgentDispatchRequest {
                 let mut room__ = None;
                 let mut metadata__ = None;
                 let mut restart_policy__ = None;
-                let mut deployment__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AgentName => {
@@ -5253,12 +5226,6 @@ impl<'de> serde::Deserialize<'de> for CreateAgentDispatchRequest {
                             }
                             restart_policy__ = Some(map_.next_value::<JobRestartPolicy>()? as i32);
                         }
-                        GeneratedField::Deployment => {
-                            if deployment__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("deployment"));
-                            }
-                            deployment__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -5269,7 +5236,6 @@ impl<'de> serde::Deserialize<'de> for CreateAgentDispatchRequest {
                     room: room__.unwrap_or_default(),
                     metadata: metadata__.unwrap_or_default(),
                     restart_policy: restart_policy__.unwrap_or_default(),
-                    deployment: deployment__.unwrap_or_default(),
                 })
             }
         }
@@ -6415,9 +6381,6 @@ impl serde::Serialize for CreateSipParticipantRequest {
         if self.media_encryption != 0 {
             len += 1;
         }
-        if self.media.is_some() {
-            len += 1;
-        }
         if self.wait_until_answered {
             len += 1;
         }
@@ -6489,9 +6452,6 @@ impl serde::Serialize for CreateSipParticipantRequest {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.media_encryption)))?;
             struct_ser.serialize_field("mediaEncryption", &v)?;
         }
-        if let Some(v) = self.media.as_ref() {
-            struct_ser.serialize_field("media", v)?;
-        }
         if self.wait_until_answered {
             struct_ser.serialize_field("waitUntilAnswered", &self.wait_until_answered)?;
         }
@@ -6546,7 +6506,6 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
             "krispEnabled",
             "media_encryption",
             "mediaEncryption",
-            "media",
             "wait_until_answered",
             "waitUntilAnswered",
             "display_name",
@@ -6575,7 +6534,6 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
             MaxCallDuration,
             KrispEnabled,
             MediaEncryption,
-            Media,
             WaitUntilAnswered,
             DisplayName,
             Destination,
@@ -6620,7 +6578,6 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                             "maxCallDuration" | "max_call_duration" => Ok(GeneratedField::MaxCallDuration),
                             "krispEnabled" | "krisp_enabled" => Ok(GeneratedField::KrispEnabled),
                             "mediaEncryption" | "media_encryption" => Ok(GeneratedField::MediaEncryption),
-                            "media" => Ok(GeneratedField::Media),
                             "waitUntilAnswered" | "wait_until_answered" => Ok(GeneratedField::WaitUntilAnswered),
                             "displayName" | "display_name" => Ok(GeneratedField::DisplayName),
                             "destination" => Ok(GeneratedField::Destination),
@@ -6662,7 +6619,6 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                 let mut max_call_duration__ = None;
                 let mut krisp_enabled__ = None;
                 let mut media_encryption__ = None;
-                let mut media__ = None;
                 let mut wait_until_answered__ = None;
                 let mut display_name__ = None;
                 let mut destination__ = None;
@@ -6786,12 +6742,6 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                             }
                             media_encryption__ = Some(map_.next_value::<SipMediaEncryption>()? as i32);
                         }
-                        GeneratedField::Media => {
-                            if media__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("media"));
-                            }
-                            media__ = map_.next_value()?;
-                        }
                         GeneratedField::WaitUntilAnswered => {
                             if wait_until_answered__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("waitUntilAnswered"));
@@ -6835,7 +6785,6 @@ impl<'de> serde::Deserialize<'de> for CreateSipParticipantRequest {
                     max_call_duration: max_call_duration__,
                     krisp_enabled: krisp_enabled__.unwrap_or_default(),
                     media_encryption: media_encryption__.unwrap_or_default(),
-                    media: media__,
                     wait_until_answered: wait_until_answered__.unwrap_or_default(),
                     display_name: display_name__,
                     destination: destination__,
@@ -17650,9 +17599,6 @@ impl serde::Serialize for Job {
         if self.enable_recording {
             len += 1;
         }
-        if !self.deployment.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.Job", len)?;
         if !self.id.is_empty() {
             struct_ser.serialize_field("id", &self.id)?;
@@ -17686,9 +17632,6 @@ impl serde::Serialize for Job {
         if self.enable_recording {
             struct_ser.serialize_field("enableRecording", &self.enable_recording)?;
         }
-        if !self.deployment.is_empty() {
-            struct_ser.serialize_field("deployment", &self.deployment)?;
-        }
         struct_ser.end()
     }
 }
@@ -17712,7 +17655,6 @@ impl<'de> serde::Deserialize<'de> for Job {
             "state",
             "enable_recording",
             "enableRecording",
-            "deployment",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -17727,7 +17669,6 @@ impl<'de> serde::Deserialize<'de> for Job {
             AgentName,
             State,
             EnableRecording,
-            Deployment,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -17760,7 +17701,6 @@ impl<'de> serde::Deserialize<'de> for Job {
                             "agentName" | "agent_name" => Ok(GeneratedField::AgentName),
                             "state" => Ok(GeneratedField::State),
                             "enableRecording" | "enable_recording" => Ok(GeneratedField::EnableRecording),
-                            "deployment" => Ok(GeneratedField::Deployment),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -17790,7 +17730,6 @@ impl<'de> serde::Deserialize<'de> for Job {
                 let mut agent_name__ = None;
                 let mut state__ = None;
                 let mut enable_recording__ = None;
-                let mut deployment__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Id => {
@@ -17853,12 +17792,6 @@ impl<'de> serde::Deserialize<'de> for Job {
                             }
                             enable_recording__ = Some(map_.next_value()?);
                         }
-                        GeneratedField::Deployment => {
-                            if deployment__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("deployment"));
-                            }
-                            deployment__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -17875,7 +17808,6 @@ impl<'de> serde::Deserialize<'de> for Job {
                     agent_name: agent_name__.unwrap_or_default(),
                     state: state__,
                     enable_recording: enable_recording__.unwrap_or_default(),
-                    deployment: deployment__.unwrap_or_default(),
                 })
             }
         }
@@ -28450,9 +28382,6 @@ impl serde::Serialize for RegisterWorkerRequest {
         if self.allowed_permissions.is_some() {
             len += 1;
         }
-        if !self.deployment.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.RegisterWorkerRequest", len)?;
         if self.r#type != 0 {
             let v = JobType::try_from(self.r#type)
@@ -28474,9 +28403,6 @@ impl serde::Serialize for RegisterWorkerRequest {
         if let Some(v) = self.allowed_permissions.as_ref() {
             struct_ser.serialize_field("allowedPermissions", v)?;
         }
-        if !self.deployment.is_empty() {
-            struct_ser.serialize_field("deployment", &self.deployment)?;
-        }
         struct_ser.end()
     }
 }
@@ -28496,7 +28422,6 @@ impl<'de> serde::Deserialize<'de> for RegisterWorkerRequest {
             "namespace",
             "allowed_permissions",
             "allowedPermissions",
-            "deployment",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -28507,7 +28432,6 @@ impl<'de> serde::Deserialize<'de> for RegisterWorkerRequest {
             PingInterval,
             Namespace,
             AllowedPermissions,
-            Deployment,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -28536,7 +28460,6 @@ impl<'de> serde::Deserialize<'de> for RegisterWorkerRequest {
                             "pingInterval" | "ping_interval" => Ok(GeneratedField::PingInterval),
                             "namespace" => Ok(GeneratedField::Namespace),
                             "allowedPermissions" | "allowed_permissions" => Ok(GeneratedField::AllowedPermissions),
-                            "deployment" => Ok(GeneratedField::Deployment),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -28562,7 +28485,6 @@ impl<'de> serde::Deserialize<'de> for RegisterWorkerRequest {
                 let mut ping_interval__ = None;
                 let mut namespace__ = None;
                 let mut allowed_permissions__ = None;
-                let mut deployment__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::Type => {
@@ -28603,12 +28525,6 @@ impl<'de> serde::Deserialize<'de> for RegisterWorkerRequest {
                             }
                             allowed_permissions__ = map_.next_value()?;
                         }
-                        GeneratedField::Deployment => {
-                            if deployment__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("deployment"));
-                            }
-                            deployment__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -28621,7 +28537,6 @@ impl<'de> serde::Deserialize<'de> for RegisterWorkerRequest {
                     ping_interval: ping_interval__.unwrap_or_default(),
                     namespace: namespace__,
                     allowed_permissions: allowed_permissions__,
-                    deployment: deployment__.unwrap_or_default(),
                 })
             }
         }
@@ -29621,9 +29536,6 @@ impl serde::Serialize for RoomAgentDispatch {
         if self.restart_policy != 0 {
             len += 1;
         }
-        if !self.deployment.is_empty() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.RoomAgentDispatch", len)?;
         if !self.agent_name.is_empty() {
             struct_ser.serialize_field("agentName", &self.agent_name)?;
@@ -29635,9 +29547,6 @@ impl serde::Serialize for RoomAgentDispatch {
             let v = JobRestartPolicy::try_from(self.restart_policy)
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", self.restart_policy)))?;
             struct_ser.serialize_field("restartPolicy", &v)?;
-        }
-        if !self.deployment.is_empty() {
-            struct_ser.serialize_field("deployment", &self.deployment)?;
         }
         struct_ser.end()
     }
@@ -29654,7 +29563,6 @@ impl<'de> serde::Deserialize<'de> for RoomAgentDispatch {
             "metadata",
             "restart_policy",
             "restartPolicy",
-            "deployment",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -29662,7 +29570,6 @@ impl<'de> serde::Deserialize<'de> for RoomAgentDispatch {
             AgentName,
             Metadata,
             RestartPolicy,
-            Deployment,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -29688,7 +29595,6 @@ impl<'de> serde::Deserialize<'de> for RoomAgentDispatch {
                             "agentName" | "agent_name" => Ok(GeneratedField::AgentName),
                             "metadata" => Ok(GeneratedField::Metadata),
                             "restartPolicy" | "restart_policy" => Ok(GeneratedField::RestartPolicy),
-                            "deployment" => Ok(GeneratedField::Deployment),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -29711,7 +29617,6 @@ impl<'de> serde::Deserialize<'de> for RoomAgentDispatch {
                 let mut agent_name__ = None;
                 let mut metadata__ = None;
                 let mut restart_policy__ = None;
-                let mut deployment__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::AgentName => {
@@ -29732,12 +29637,6 @@ impl<'de> serde::Deserialize<'de> for RoomAgentDispatch {
                             }
                             restart_policy__ = Some(map_.next_value::<JobRestartPolicy>()? as i32);
                         }
-                        GeneratedField::Deployment => {
-                            if deployment__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("deployment"));
-                            }
-                            deployment__ = Some(map_.next_value()?);
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -29747,7 +29646,6 @@ impl<'de> serde::Deserialize<'de> for RoomAgentDispatch {
                     agent_name: agent_name__.unwrap_or_default(),
                     metadata: metadata__.unwrap_or_default(),
                     restart_policy: restart_policy__.unwrap_or_default(),
-                    deployment: deployment__.unwrap_or_default(),
                 })
             }
         }
@@ -32519,120 +32417,6 @@ impl<'de> serde::Deserialize<'de> for SipCallStatus {
         deserializer.deserialize_any(GeneratedVisitor)
     }
 }
-impl serde::Serialize for SipCodec {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if !self.name.is_empty() {
-            len += 1;
-        }
-        if self.rate != 0 {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("livekit.SIPCodec", len)?;
-        if !self.name.is_empty() {
-            struct_ser.serialize_field("name", &self.name)?;
-        }
-        if self.rate != 0 {
-            struct_ser.serialize_field("rate", &self.rate)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for SipCodec {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "name",
-            "rate",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            Name,
-            Rate,
-            __SkipField__,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "name" => Ok(GeneratedField::Name),
-                            "rate" => Ok(GeneratedField::Rate),
-                            _ => Ok(GeneratedField::__SkipField__),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = SipCodec;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct livekit.SIPCodec")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SipCodec, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut name__ = None;
-                let mut rate__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::Name => {
-                            if name__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("name"));
-                            }
-                            name__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Rate => {
-                            if rate__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("rate"));
-                            }
-                            rate__ = 
-                                Some(map_.next_value::<::pbjson::private::NumberDeserialize<_>>()?.0)
-                            ;
-                        }
-                        GeneratedField::__SkipField__ => {
-                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
-                        }
-                    }
-                }
-                Ok(SipCodec {
-                    name: name__.unwrap_or_default(),
-                    rate: rate__.unwrap_or_default(),
-                })
-            }
-        }
-        deserializer.deserialize_struct("livekit.SIPCodec", FIELDS, GeneratedVisitor)
-    }
-}
 impl serde::Serialize for SipDispatchRule {
     #[allow(deprecated)]
     fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
@@ -33177,9 +32961,6 @@ impl serde::Serialize for SipDispatchRuleInfo {
         if self.room_config.is_some() {
             len += 1;
         }
-        if self.media.is_some() {
-            len += 1;
-        }
         if self.krisp_enabled {
             len += 1;
         }
@@ -33226,9 +33007,6 @@ impl serde::Serialize for SipDispatchRuleInfo {
         if let Some(v) = self.room_config.as_ref() {
             struct_ser.serialize_field("roomConfig", v)?;
         }
-        if let Some(v) = self.media.as_ref() {
-            struct_ser.serialize_field("media", v)?;
-        }
         if self.krisp_enabled {
             struct_ser.serialize_field("krispEnabled", &self.krisp_enabled)?;
         }
@@ -33270,7 +33048,6 @@ impl<'de> serde::Deserialize<'de> for SipDispatchRuleInfo {
             "roomPreset",
             "room_config",
             "roomConfig",
-            "media",
             "krisp_enabled",
             "krispEnabled",
             "media_encryption",
@@ -33294,7 +33071,6 @@ impl<'de> serde::Deserialize<'de> for SipDispatchRuleInfo {
             Attributes,
             RoomPreset,
             RoomConfig,
-            Media,
             KrispEnabled,
             MediaEncryption,
             CreatedAt,
@@ -33332,7 +33108,6 @@ impl<'de> serde::Deserialize<'de> for SipDispatchRuleInfo {
                             "attributes" => Ok(GeneratedField::Attributes),
                             "roomPreset" | "room_preset" => Ok(GeneratedField::RoomPreset),
                             "roomConfig" | "room_config" => Ok(GeneratedField::RoomConfig),
-                            "media" => Ok(GeneratedField::Media),
                             "krispEnabled" | "krisp_enabled" => Ok(GeneratedField::KrispEnabled),
                             "mediaEncryption" | "media_encryption" => Ok(GeneratedField::MediaEncryption),
                             "createdAt" | "created_at" => Ok(GeneratedField::CreatedAt),
@@ -33367,7 +33142,6 @@ impl<'de> serde::Deserialize<'de> for SipDispatchRuleInfo {
                 let mut attributes__ = None;
                 let mut room_preset__ = None;
                 let mut room_config__ = None;
-                let mut media__ = None;
                 let mut krisp_enabled__ = None;
                 let mut media_encryption__ = None;
                 let mut created_at__ = None;
@@ -33442,12 +33216,6 @@ impl<'de> serde::Deserialize<'de> for SipDispatchRuleInfo {
                             }
                             room_config__ = map_.next_value()?;
                         }
-                        GeneratedField::Media => {
-                            if media__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("media"));
-                            }
-                            media__ = map_.next_value()?;
-                        }
                         GeneratedField::KrispEnabled => {
                             if krisp_enabled__.is_some() {
                                 return Err(serde::de::Error::duplicate_field("krispEnabled"));
@@ -33489,7 +33257,6 @@ impl<'de> serde::Deserialize<'de> for SipDispatchRuleInfo {
                     attributes: attributes__.unwrap_or_default(),
                     room_preset: room_preset__.unwrap_or_default(),
                     room_config: room_config__,
-                    media: media__,
                     krisp_enabled: krisp_enabled__.unwrap_or_default(),
                     media_encryption: media_encryption__.unwrap_or_default(),
                     created_at: created_at__,
@@ -33526,9 +33293,6 @@ impl serde::Serialize for SipDispatchRuleUpdate {
         if self.media_encryption.is_some() {
             len += 1;
         }
-        if self.media.is_some() {
-            len += 1;
-        }
         let mut struct_ser = serializer.serialize_struct("livekit.SIPDispatchRuleUpdate", len)?;
         if let Some(v) = self.trunk_ids.as_ref() {
             struct_ser.serialize_field("trunkIds", v)?;
@@ -33550,9 +33314,6 @@ impl serde::Serialize for SipDispatchRuleUpdate {
                 .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
             struct_ser.serialize_field("mediaEncryption", &v)?;
         }
-        if let Some(v) = self.media.as_ref() {
-            struct_ser.serialize_field("media", v)?;
-        }
         struct_ser.end()
     }
 }
@@ -33571,7 +33332,6 @@ impl<'de> serde::Deserialize<'de> for SipDispatchRuleUpdate {
             "attributes",
             "media_encryption",
             "mediaEncryption",
-            "media",
         ];
 
         #[allow(clippy::enum_variant_names)]
@@ -33582,7 +33342,6 @@ impl<'de> serde::Deserialize<'de> for SipDispatchRuleUpdate {
             Metadata,
             Attributes,
             MediaEncryption,
-            Media,
             __SkipField__,
         }
         impl<'de> serde::Deserialize<'de> for GeneratedField {
@@ -33611,7 +33370,6 @@ impl<'de> serde::Deserialize<'de> for SipDispatchRuleUpdate {
                             "metadata" => Ok(GeneratedField::Metadata),
                             "attributes" => Ok(GeneratedField::Attributes),
                             "mediaEncryption" | "media_encryption" => Ok(GeneratedField::MediaEncryption),
-                            "media" => Ok(GeneratedField::Media),
                             _ => Ok(GeneratedField::__SkipField__),
                         }
                     }
@@ -33637,7 +33395,6 @@ impl<'de> serde::Deserialize<'de> for SipDispatchRuleUpdate {
                 let mut metadata__ = None;
                 let mut attributes__ = None;
                 let mut media_encryption__ = None;
-                let mut media__ = None;
                 while let Some(k) = map_.next_key()? {
                     match k {
                         GeneratedField::TrunkIds => {
@@ -33678,12 +33435,6 @@ impl<'de> serde::Deserialize<'de> for SipDispatchRuleUpdate {
                             }
                             media_encryption__ = map_.next_value::<::std::option::Option<SipMediaEncryption>>()?.map(|x| x as i32);
                         }
-                        GeneratedField::Media => {
-                            if media__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("media"));
-                            }
-                            media__ = map_.next_value()?;
-                        }
                         GeneratedField::__SkipField__ => {
                             let _ = map_.next_value::<serde::de::IgnoredAny>()?;
                         }
@@ -33696,7 +33447,6 @@ impl<'de> serde::Deserialize<'de> for SipDispatchRuleUpdate {
                     metadata: metadata__,
                     attributes: attributes__.unwrap_or_default(),
                     media_encryption: media_encryption__,
-                    media: media__,
                 })
             }
         }
@@ -34475,138 +34225,6 @@ impl<'de> serde::Deserialize<'de> for SipInboundTrunkUpdate {
             }
         }
         deserializer.deserialize_struct("livekit.SIPInboundTrunkUpdate", FIELDS, GeneratedVisitor)
-    }
-}
-impl serde::Serialize for SipMediaConfig {
-    #[allow(deprecated)]
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        use serde::ser::SerializeStruct;
-        let mut len = 0;
-        if self.only_listed_codecs {
-            len += 1;
-        }
-        if !self.codecs.is_empty() {
-            len += 1;
-        }
-        if self.encryption.is_some() {
-            len += 1;
-        }
-        let mut struct_ser = serializer.serialize_struct("livekit.SIPMediaConfig", len)?;
-        if self.only_listed_codecs {
-            struct_ser.serialize_field("onlyListedCodecs", &self.only_listed_codecs)?;
-        }
-        if !self.codecs.is_empty() {
-            struct_ser.serialize_field("codecs", &self.codecs)?;
-        }
-        if let Some(v) = self.encryption.as_ref() {
-            let v = SipMediaEncryption::try_from(*v)
-                .map_err(|_| serde::ser::Error::custom(format!("Invalid variant {}", *v)))?;
-            struct_ser.serialize_field("encryption", &v)?;
-        }
-        struct_ser.end()
-    }
-}
-impl<'de> serde::Deserialize<'de> for SipMediaConfig {
-    #[allow(deprecated)]
-    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        const FIELDS: &[&str] = &[
-            "only_listed_codecs",
-            "onlyListedCodecs",
-            "codecs",
-            "encryption",
-        ];
-
-        #[allow(clippy::enum_variant_names)]
-        enum GeneratedField {
-            OnlyListedCodecs,
-            Codecs,
-            Encryption,
-            __SkipField__,
-        }
-        impl<'de> serde::Deserialize<'de> for GeneratedField {
-            fn deserialize<D>(deserializer: D) -> std::result::Result<GeneratedField, D::Error>
-            where
-                D: serde::Deserializer<'de>,
-            {
-                struct GeneratedVisitor;
-
-                impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-                    type Value = GeneratedField;
-
-                    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                        write!(formatter, "expected one of: {:?}", &FIELDS)
-                    }
-
-                    #[allow(unused_variables)]
-                    fn visit_str<E>(self, value: &str) -> std::result::Result<GeneratedField, E>
-                    where
-                        E: serde::de::Error,
-                    {
-                        match value {
-                            "onlyListedCodecs" | "only_listed_codecs" => Ok(GeneratedField::OnlyListedCodecs),
-                            "codecs" => Ok(GeneratedField::Codecs),
-                            "encryption" => Ok(GeneratedField::Encryption),
-                            _ => Ok(GeneratedField::__SkipField__),
-                        }
-                    }
-                }
-                deserializer.deserialize_identifier(GeneratedVisitor)
-            }
-        }
-        struct GeneratedVisitor;
-        impl<'de> serde::de::Visitor<'de> for GeneratedVisitor {
-            type Value = SipMediaConfig;
-
-            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                formatter.write_str("struct livekit.SIPMediaConfig")
-            }
-
-            fn visit_map<V>(self, mut map_: V) -> std::result::Result<SipMediaConfig, V::Error>
-                where
-                    V: serde::de::MapAccess<'de>,
-            {
-                let mut only_listed_codecs__ = None;
-                let mut codecs__ = None;
-                let mut encryption__ = None;
-                while let Some(k) = map_.next_key()? {
-                    match k {
-                        GeneratedField::OnlyListedCodecs => {
-                            if only_listed_codecs__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("onlyListedCodecs"));
-                            }
-                            only_listed_codecs__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Codecs => {
-                            if codecs__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("codecs"));
-                            }
-                            codecs__ = Some(map_.next_value()?);
-                        }
-                        GeneratedField::Encryption => {
-                            if encryption__.is_some() {
-                                return Err(serde::de::Error::duplicate_field("encryption"));
-                            }
-                            encryption__ = map_.next_value::<::std::option::Option<SipMediaEncryption>>()?.map(|x| x as i32);
-                        }
-                        GeneratedField::__SkipField__ => {
-                            let _ = map_.next_value::<serde::de::IgnoredAny>()?;
-                        }
-                    }
-                }
-                Ok(SipMediaConfig {
-                    only_listed_codecs: only_listed_codecs__.unwrap_or_default(),
-                    codecs: codecs__.unwrap_or_default(),
-                    encryption: encryption__,
-                })
-            }
-        }
-        deserializer.deserialize_struct("livekit.SIPMediaConfig", FIELDS, GeneratedVisitor)
     }
 }
 impl serde::Serialize for SipMediaEncryption {
