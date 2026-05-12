@@ -166,6 +166,29 @@ impl NativeBuffer {
         unsafe { vfb_sys::ffi::native_buffer_to_platform_image_buffer(&self.sys_handle) as *mut _ }
     }
 
+    /// Construct a `kNative` buffer from a Linux DMABUF file descriptor.
+    /// The fd is `dup`'d internally so the caller may close their copy
+    /// after this returns. Returns `None` if the buffer descriptor is
+    /// rejected (invalid dimensions, unsupported fourcc, etc.).
+    #[cfg(target_os = "linux")]
+    pub fn from_dmabuf(desc: &vf::native::DmabufFrameDesc) -> Option<vf::native::NativeBuffer> {
+        let plane_offsets: Vec<u64> = desc.planes.iter().map(|p| p.offset).collect();
+        let plane_strides: Vec<i32> = desc.planes.iter().map(|p| p.stride).collect();
+        let sys_handle = vfb_sys::ffi::new_native_buffer_from_dmabuf(
+            desc.fd,
+            desc.fourcc.0,
+            desc.width as i32,
+            desc.height as i32,
+            desc.total_size,
+            &plane_offsets,
+            &plane_strides,
+        );
+        if sys_handle.is_null() {
+            return None;
+        }
+        Some(vf::native::NativeBuffer { handle: NativeBuffer { sys_handle } })
+    }
+
     pub fn sys_handle(&self) -> &vfb_sys::ffi::VideoFrameBuffer {
         &self.sys_handle
     }

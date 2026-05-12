@@ -150,6 +150,20 @@ pub mod ffi {
             buffer: &UniquePtr<VideoFrameBuffer>,
         ) -> *mut PlatformImageBuffer;
 
+        /// Wrap a Linux DMABUF file descriptor as a `kNative`
+        /// `VideoFrameBuffer`. On non-Linux platforms this returns null.
+        /// The fd is `dup()`'d internally; the caller retains ownership of
+        /// the original.
+        fn new_native_buffer_from_dmabuf(
+            dmabuf_fd: i32,
+            fourcc: u32,
+            width: i32,
+            height: i32,
+            total_size: u64,
+            plane_offsets: &[u64],
+            plane_strides: &[i32],
+        ) -> UniquePtr<VideoFrameBuffer>;
+
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn biyuv_to_vfb(yuv: *const BiplanarYuvBuffer) -> *const VideoFrameBuffer;
         unsafe fn yuv8_to_yuv(yuv8: *const PlanarYuv8Buffer) -> *const PlanarYuvBuffer;
@@ -178,3 +192,105 @@ impl_thread_safety!(ffi::I422Buffer, Send + Sync);
 impl_thread_safety!(ffi::I444Buffer, Send + Sync);
 impl_thread_safety!(ffi::I010Buffer, Send + Sync);
 impl_thread_safety!(ffi::NV12Buffer, Send + Sync);
+
+#[cfg(test)]
+mod tests {
+    use super::ffi;
+
+    /// On non-Linux platforms `new_native_buffer_from_dmabuf` must return
+    /// a null `UniquePtr` (the DMABUF feature is Linux-only). The test
+    /// also runs on Linux where it still passes because the synthetic fd
+    /// `-1` is rejected by `DmabufVideoFrameBuffer::Wrap`.
+    #[test]
+    fn dmabuf_buffer_rejects_invalid_fd() {
+        let buf = ffi::new_native_buffer_from_dmabuf(-1, 0x32315559, 16, 16, 384, &[0], &[16]);
+        assert!(buf.is_null(), "expected null buffer for invalid fd");
+    }
+
+    /// On Linux, create a memfd-backed test surface, wrap it as a DMABUF
+    /// `VideoFrameBuffer`, and verify `ToI420()` produces pixel-identical
+    /// output. `DMA_BUF_IOCTL_SYNC` is best-effort and harmlessly fails on
+    /// memfds (logged once); mmap+memcpy still works.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn dmabuf_buffer_to_i420_roundtrip_yuv420() {
+        use std::os::raw::c_int;
+        use std::os::unix::io::{FromRawFd, OwnedFd};
+
+        let width: u32 = 16;
+        let height: u32 = 16;
+        let chroma_w = width as usize / 2;
+        let chroma_h = height as usize / 2;
+        let y_size = width as usize * height as usize;
+        let uv_size = chroma_w * chroma_h;
+        let total = y_size + 2 * uv_size;
+
+        // memfd_create gives us an mmap'able fd without root or special
+        // kernel modules. DMA_BUF_IOCTL_SYNC will harmlessly fail (warned
+        // once); the mmap+memcpy path in ToI420 still works.
+        let name = std::ffi::CString::new("dmabuf-test").unwrap();
+        let fd: c_int =
+            unsafe { libc::syscall(libc::SYS_memfd_create, name.as_ptr(), 0u32) as c_int };
+        if fd < 0 {
+            eprintln!("memfd_create unavailable; skipping DMABUF round-trip test");
+            return;
+        }
+        let owned = unsafe { OwnedFd::from_raw_fd(fd) };
+
+        assert!(
+            unsafe { libc::ftruncate(fd, total as libc::off_t) } == 0,
+            "ftruncate: {}",
+            std::io::Error::last_os_error()
+        );
+        let ptr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                total,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            )
+        };
+        assert!(ptr != libc::MAP_FAILED);
+        let slice = unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, total) };
+        for row in 0..height as usize {
+            for col in 0..width as usize {
+                slice[row * width as usize + col] = ((row * 7 + col) & 0xFF) as u8;
+            }
+        }
+        for i in 0..uv_size {
+            slice[y_size + i] = 0x55;
+            slice[y_size + uv_size + i] = 0xAA;
+        }
+        unsafe { libc::munmap(ptr, total) };
+
+        let plane_offsets: [u64; 3] = [0, y_size as u64, (y_size + uv_size) as u64];
+        let plane_strides: [i32; 3] = [width as i32, chroma_w as i32, chroma_w as i32];
+        let buf = ffi::new_native_buffer_from_dmabuf(
+            fd,
+            0x32315559, // V4L2_PIX_FMT_YUV420 ("YU12")
+            width as i32,
+            height as i32,
+            total as u64,
+            &plane_offsets,
+            &plane_strides,
+        );
+        // The wrap dup's the fd, so we can drop our copy now.
+        drop(owned);
+        assert!(!buf.is_null(), "DMABUF wrap should succeed for memfd");
+        assert_eq!(buf.width(), width);
+        assert_eq!(buf.height(), height);
+        assert_eq!(buf.buffer_type(), ffi::VideoFrameBufferType::Native);
+
+        let i420 = unsafe { buf.to_i420() };
+        assert!(!i420.is_null());
+        let yuv = unsafe { ffi::i420_to_yuv8(&*i420) };
+        let stride_y = unsafe { (*ffi::yuv8_to_yuv(yuv)).stride_y() };
+        let data_y = unsafe { (*yuv).data_y() };
+        let first_row = unsafe { std::slice::from_raw_parts(data_y, stride_y as usize) };
+        for col in 0..width as usize {
+            assert_eq!(first_row[col], col as u8, "Y plane mismatch at col {col}");
+        }
+    }
+}

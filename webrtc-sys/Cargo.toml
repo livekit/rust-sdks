@@ -26,3 +26,6 @@ pkg-config = "0.3.22"
 
 [dev-dependencies]
 env_logger = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+libc = "0.2"

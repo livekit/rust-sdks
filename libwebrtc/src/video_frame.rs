@@ -512,6 +512,62 @@ pub mod native {
         pub fn get_cv_pixel_buffer(&self) -> *mut std::ffi::c_void {
             self.handle.get_cv_pixel_buffer()
         }
+
+        /// Wraps a Linux DMABUF file descriptor as a `kNative`
+        /// `VideoFrameBuffer`. The fd is `dup`'d internally; the caller
+        /// retains ownership of the original handle.
+        ///
+        /// Returns `None` if the descriptor is rejected (invalid
+        /// dimensions, unsupported fourcc, etc.).
+        #[cfg(target_os = "linux")]
+        pub fn from_dmabuf(desc: &DmabufFrameDesc) -> Option<Self> {
+            vf_imp::NativeBuffer::from_dmabuf(desc)
+        }
+    }
+
+    /// V4L2-style pixel format four-character code.
+    ///
+    /// The integer value is the little-endian packing of the four ASCII
+    /// characters, e.g. `Fourcc::YUV420` for `"YU12"` (V4L2_PIX_FMT_YUV420).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub struct Fourcc(pub u32);
+
+    impl Fourcc {
+        /// `V4L2_PIX_FMT_YUV420` -- planar Y/U/V (4:2:0).
+        pub const YUV420: Self = Self(0x32315559);
+        /// `V4L2_PIX_FMT_NV12` -- planar Y + interleaved UV (4:2:0).
+        pub const NV12: Self = Self(0x3231564E);
+    }
+
+    /// Description of a single plane within a DMABUF.
+    ///
+    /// `offset` is the byte offset from the start of the dmabuf where the
+    /// plane data begins; `stride` is the row pitch in bytes.
+    #[derive(Debug, Clone, Copy)]
+    pub struct DmabufPlane {
+        pub offset: u64,
+        pub stride: i32,
+    }
+
+    /// Description of a DMABUF-backed YUV frame.
+    ///
+    /// `fd` is a borrowed file descriptor; the constructor `dup`'s it so
+    /// the caller may close their handle immediately after constructing a
+    /// `NativeBuffer`.
+    ///
+    /// `total_size` is the byte length of the entire mapped region (sum
+    /// of plane offsets + last plane size) -- used as the
+    /// `bytesused`/`length` value when handing the dmabuf to a V4L2
+    /// encoder.
+    #[cfg(target_os = "linux")]
+    #[derive(Debug, Clone)]
+    pub struct DmabufFrameDesc {
+        pub fd: i32,
+        pub fourcc: Fourcc,
+        pub width: u32,
+        pub height: u32,
+        pub total_size: u64,
+        pub planes: Vec<DmabufPlane>,
     }
 
     pub trait VideoFrameBufferExt: VideoBuffer {

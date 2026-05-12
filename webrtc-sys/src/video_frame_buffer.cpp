@@ -18,6 +18,10 @@
 
 #include "api/make_ref_counted.h"
 
+#if defined(__linux__)
+#include "v4l2/dmabuf_video_frame_buffer.h"
+#endif
+
 namespace livekit_ffi {
 
 VideoFrameBuffer::VideoFrameBuffer(
@@ -358,5 +362,43 @@ PlatformImageBuffer* native_buffer_to_platform_image_buffer(
 }
 
 #endif
+
+std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_dmabuf(
+    int32_t dmabuf_fd,
+    uint32_t fourcc,
+    int32_t width,
+    int32_t height,
+    uint64_t total_size,
+    rust::Slice<const uint64_t> plane_offsets,
+    rust::Slice<const int32_t> plane_strides) {
+#if defined(__linux__)
+  if (plane_offsets.size() == 0 ||
+      plane_offsets.size() != plane_strides.size() ||
+      plane_offsets.size() > DmabufVideoFrameBuffer::kMaxPlanes) {
+    return nullptr;
+  }
+  DmabufVideoFrameBuffer::Plane planes[DmabufVideoFrameBuffer::kMaxPlanes] = {};
+  for (size_t i = 0; i < plane_offsets.size(); ++i) {
+    planes[i].offset = static_cast<size_t>(plane_offsets[i]);
+    planes[i].stride = plane_strides[i];
+  }
+  auto buf = DmabufVideoFrameBuffer::Wrap(dmabuf_fd, fourcc, width, height,
+                                           static_cast<size_t>(total_size),
+                                           planes, plane_offsets.size());
+  if (!buf) {
+    return nullptr;
+  }
+  return std::make_unique<VideoFrameBuffer>(buf);
+#else
+  (void)dmabuf_fd;
+  (void)fourcc;
+  (void)width;
+  (void)height;
+  (void)total_size;
+  (void)plane_offsets;
+  (void)plane_strides;
+  return nullptr;
+#endif
+}
 
 }  // namespace livekit_ffi

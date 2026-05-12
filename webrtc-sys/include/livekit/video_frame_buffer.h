@@ -24,6 +24,7 @@
 #include "api/video/i010_buffer.h"
 #include "api/video/nv12_buffer.h"
 #include "api/video/video_frame_buffer.h"
+#include "rust/cxx.h"
 
 namespace livekit_ffi {
 class VideoFrameBuffer;
@@ -221,6 +222,19 @@ std::unique_ptr<NV12Buffer> new_nv12_buffer(int width, int height, int stride_y,
 
 std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_platform_image_buffer(PlatformImageBuffer *buffer);
 PlatformImageBuffer* native_buffer_to_platform_image_buffer(const std::unique_ptr<VideoFrameBuffer> &);
+
+// Wrap a Linux DMABUF fd as a kNative VideoFrameBuffer. Returns null on
+// non-Linux platforms or when the fourcc / dimensions are unsupported.
+// The fd is duplicated internally; the caller retains ownership of its
+// original handle.
+std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_dmabuf(
+    int32_t dmabuf_fd,
+    uint32_t fourcc,
+    int32_t width,
+    int32_t height,
+    uint64_t total_size,
+    rust::Slice<const uint64_t> plane_offsets,
+    rust::Slice<const int32_t> plane_strides);
 
 static const VideoFrameBuffer* yuv_to_vfb(const PlanarYuvBuffer* yuv) {
   return yuv;

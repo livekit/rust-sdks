@@ -168,6 +168,12 @@ fn main() {
             println!("cargo:rustc-link-lib=dylib=pthread");
             println!("cargo:rustc-link-lib=dylib=m");
 
+            // DMABUF-backed native VideoFrameBuffer. Always compiled on
+            // Linux so consumers (e.g. libcamera-rs based capture) can
+            // construct DMABUF frames even when the V4L2 hardware encoder
+            // isn't built (e.g. x86 hosts).
+            builder.file("src/v4l2/dmabuf_video_frame_buffer.cpp");
+
             // In order to avoid any ABI mismatches we use the sysroot's headers.
             add_gio_headers(&mut builder);
 

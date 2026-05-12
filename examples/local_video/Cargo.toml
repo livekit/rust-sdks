@@ -28,6 +28,7 @@ livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 webrtc-sys = { workspace = true }
 libwebrtc = { workspace = true }
 livekit-api = { workspace = true }
+livekit-capture = { workspace = true, default-features = false, features = ["uvc"] }
 yuv-sys = { workspace = true, features = ["jpeg"] }
 futures = { workspace = true }
 clap = { workspace = true, features = ["derive"] }
@@ -52,6 +53,9 @@ objc2 = { version = "0.6.0", features = ["relax-sign-encoding"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-v4l"] }
+# Enable the libcamera capture backend so `--source libcamera` is available
+# on Linux (requires `pkg-config libcamera` >= 0.4 at build time).
+livekit-capture = { workspace = true, default-features = false, features = ["uvc", "libcamera"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 nokhwa = { git = "https://github.com/l1npengtul/nokhwa", rev = "4923ecab7cf26f9dba83867a15a9d8662d021296", default-features = false, features = ["input-msmf"] }

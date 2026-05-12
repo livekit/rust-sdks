@@ -30,6 +30,8 @@
 #include "rtc_base/logging.h"
 #include "system_wrappers/include/metrics.h"
 
+#include "dmabuf_video_frame_buffer.h"
+
 namespace webrtc {
 
 // Histogram event codes -- values must not be changed (persisted metrics).
@@ -130,25 +132,10 @@ int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* inst,
 
   // --- Initialize the V4L2 hardware encoder ---
 
-  if (!encoder_->IsInitialized()) {
-    // Use the keyframe interval from codec settings if available;
-    // otherwise default to ~2 seconds so that late-joining subscribers
-    // (or those recovering from packet loss) resync quickly.
-    int kf_interval = codec_.H264()->keyFrameInterval;
-    if (kf_interval <= 0) {
-      kf_interval = codec_.maxFramerate > 0
-                        ? codec_.maxFramerate * 2  // ~2 seconds worth of frames
-                        : 60;
-    }
-
-    if (!encoder_->Initialize(codec_.width, codec_.height,
-                               codec_.startBitrate * 1000, kf_interval,
-                               codec_.maxFramerate)) {
-      RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize H.264 encoder";
-      ReportError();
-      return WEBRTC_VIDEO_CODEC_ERROR;
-    }
-  }
+  // The encoder's output-queue memory mode is decided lazily when the
+  // first frame arrives in Encode(), so we don't initialize the hardware
+  // here. This lets us pick DMABUF when the source actually provides
+  // dmabuf-backed native buffers, falling back to MMAP otherwise.
 
   // Kick off rate control with the initial bitrate allocation.
   SimulcastRateAllocator init_allocator(env_, codec_);
@@ -179,7 +166,7 @@ int32_t V4L2H264EncoderImpl::Release() {
 int32_t V4L2H264EncoderImpl::Encode(
     const VideoFrame& input_frame,
     const std::vector<VideoFrameType>* frame_types) {
-  if (!encoder_ || !encoder_->IsInitialized()) {
+  if (!encoder_) {
     ReportError();
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
@@ -189,21 +176,6 @@ int32_t V4L2H264EncoderImpl::Encode(
     ReportError();
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
-
-  // Convert the incoming frame to I420 (may already be I420).
-  scoped_refptr<I420BufferInterface> frame_buffer =
-      input_frame.video_frame_buffer()->ToI420();
-  if (!frame_buffer) {
-    RTC_LOG(LS_ERROR) << "V4L2: Failed to convert "
-                      << VideoFrameBufferTypeToString(
-                             input_frame.video_frame_buffer()->type())
-                      << " to I420";
-    return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
-  }
-  RTC_CHECK(frame_buffer->type() == VideoFrameBuffer::Type::kI420 ||
-            frame_buffer->type() == VideoFrameBuffer::Type::kI420A);
-  RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
-  RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
 
   if (!configuration_.sending)
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
@@ -219,23 +191,76 @@ int32_t V4L2H264EncoderImpl::Encode(
   if (send_key_frame)
     configuration_.key_frame_request = false;
 
+  // Probe the incoming buffer: if it's a DMABUF native buffer, we can
+  // import it directly into the encoder's OUTPUT queue. Otherwise we
+  // fall back to ToI420 + USERPTR.
+  auto* native_dmabuf = livekit_ffi::DmabufVideoFrameBuffer::TryCast(
+      input_frame.video_frame_buffer().get());
+
+  // Lazily initialize the hardware encoder, picking the mode based on
+  // the first frame seen. The mode is then locked for the lifetime of
+  // the encoder; mode changes (which would require destroy + reinit)
+  // are logged and silently routed through ToI420.
+  if (!encoder_->IsInitialized()) {
+    livekit_ffi::OutputBufferMode desired =
+        native_dmabuf ? livekit_ffi::OutputBufferMode::Dmabuf
+                      : livekit_ffi::OutputBufferMode::UserPtr;
+    int kf_interval = codec_.H264()->keyFrameInterval;
+    if (kf_interval <= 0) {
+      kf_interval = codec_.maxFramerate > 0
+                        ? codec_.maxFramerate * 2  // ~2 seconds of frames
+                        : 60;
+    }
+    uint32_t fourcc = native_dmabuf ? native_dmabuf->fourcc()
+                                    : 0x32315559u;  // V4L2_PIX_FMT_YUV420
+    if (!encoder_->Initialize(codec_.width, codec_.height,
+                               codec_.startBitrate * 1000, kf_interval,
+                               codec_.maxFramerate, desired, fourcc)) {
+      RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize H.264 encoder";
+      ReportError();
+      return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+    }
+  }
+
   // --- Encode via V4L2 ---
 
-  std::vector<uint8_t> bitstream;
-  bool ok = encoder_->Encode(
-      frame_buffer->DataY(), frame_buffer->DataU(), frame_buffer->DataV(),
-      frame_buffer->StrideY(), frame_buffer->StrideU(),
-      frame_buffer->StrideV(), send_key_frame, bitstream);
+  webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> bitstream;
+  if (native_dmabuf &&
+      encoder_->mode() == livekit_ffi::OutputBufferMode::Dmabuf) {
+    bitstream = encoder_->EncodeDmabuf(native_dmabuf->dmabuf_fd(),
+                                        native_dmabuf->plane_offset(0),
+                                        native_dmabuf->total_size(),
+                                        send_key_frame);
+  } else {
+    if (native_dmabuf) {
+      RTC_LOG(LS_WARNING) << "V4L2: Native DMABUF frame received but encoder "
+                             "is in non-DMABUF mode; falling back to ToI420";
+    }
+    scoped_refptr<I420BufferInterface> frame_buffer =
+        input_frame.video_frame_buffer()->ToI420();
+    if (!frame_buffer) {
+      RTC_LOG(LS_ERROR) << "V4L2: Failed to convert "
+                        << VideoFrameBufferTypeToString(
+                               input_frame.video_frame_buffer()->type())
+                        << " to I420";
+      return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+    }
+    RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
+    RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
+    bitstream = encoder_->Encode(
+        frame_buffer->DataY(), frame_buffer->DataU(), frame_buffer->DataV(),
+        frame_buffer->StrideY(), frame_buffer->StrideU(),
+        frame_buffer->StrideV(), send_key_frame);
+  }
 
-  if (!ok || bitstream.empty()) {
+  if (!bitstream || bitstream->size() == 0) {
     RTC_LOG(LS_ERROR) << "V4L2: Encode() failed";
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
   // --- Populate the EncodedImage and deliver it ---
 
-  encoded_image_.SetEncodedData(
-      EncodedImageBuffer::Create(bitstream.data(), bitstream.size()));
+  encoded_image_.SetEncodedData(bitstream);
 
   // Parse the bitstream to extract QP for rate-control feedback.
   h264_bitstream_parser_.ParseBitstream(encoded_image_);
@@ -268,12 +293,15 @@ int32_t V4L2H264EncoderImpl::Encode(
 
 VideoEncoder::EncoderInfo V4L2H264EncoderImpl::GetEncoderInfo() const {
   EncoderInfo info;
-  info.supports_native_handle = false;
+  // Accept DMABUF-backed native frames so the V4L2 encoder can import
+  // them directly via V4L2_MEMORY_DMABUF (see livekit_ffi::DmabufVideoFrameBuffer).
+  info.supports_native_handle = true;
   info.implementation_name = "V4L2 H264 Encoder";
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
-  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kI420};
+  info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNative,
+                                  VideoFrameBuffer::Type::kI420};
   return info;
 }
 

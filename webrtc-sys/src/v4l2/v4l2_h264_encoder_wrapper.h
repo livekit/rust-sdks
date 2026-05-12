@@ -19,9 +19,29 @@
 
 #include <cstdint>
 #include <string>
-#include <vector>
+
+#include "api/scoped_refptr.h"
+#include "api/video/encoded_image.h"
 
 namespace livekit_ffi {
+
+// How the OUTPUT (raw YUV) queue is fed.
+//
+//   Mmap    -- driver-allocated buffers, user-space writes via memcpy.
+//              Always works; one copy per frame.
+//   UserPtr -- user-space pointer is passed to the driver. Eliminates the
+//              CopyI420ToOutputBuffer memcpy when the source I420 planes
+//              are already contiguous in memory. Falls back transparently
+//              to memcpy when planes are not contiguous.
+//   Dmabuf  -- the OUTPUT queue imports DMABUF file descriptors. True
+//              zero-copy when the source produces DMABUF-backed frames
+//              (e.g. libcamera on Pi 4). Only `EncodeDmabuf` may be called
+//              in this mode.
+enum class OutputBufferMode {
+  Mmap,
+  UserPtr,
+  Dmabuf,
+};
 
 // Low-level wrapper around a V4L2 memory-to-memory (M2M) H.264 hardware
 // encoder, as found on Raspberry Pi (bcm2835-codec).
@@ -46,30 +66,53 @@ class V4l2H264EncoderWrapper {
 
   // Initialize the encoder with the given parameters.
   // |device_path| may be empty, in which case FindEncoderDevice() is called.
+  // |mode| selects the OUTPUT-queue memory model; see `OutputBufferMode`.
+  // |input_fourcc| is the V4L2 pixelformat of the input (e.g.
+  // V4L2_PIX_FMT_YUV420 or V4L2_PIX_FMT_NV12). Defaults to YUV420.
   bool Initialize(int width,
                   int height,
                   int bitrate,
                   int keyframe_interval,
                   int framerate,
+                  OutputBufferMode mode = OutputBufferMode::Mmap,
+                  uint32_t input_fourcc = 0x32315559,  // V4L2_PIX_FMT_YUV420 = "YU12"
                   const std::string& device_path = "");
 
-  // Encode a single I420 frame.
-  // |y|, |u|, |v| point to the respective planes with the given strides.
-  // If |force_idr| is true, a keyframe is requested for this frame.
-  // On success the encoded H.264 bitstream is written to |output|.
-  bool Encode(const uint8_t* y,
-              const uint8_t* u,
-              const uint8_t* v,
-              int stride_y,
-              int stride_u,
-              int stride_v,
-              bool force_idr,
-              std::vector<uint8_t>& output);
+  // Encode a single planar YUV frame.
+  // In `Mmap` mode the planes are memcpy'd into a driver-allocated buffer.
+  // In `UserPtr` mode the buffer is fed to the encoder via userspace pointer
+  // when the planes are contiguous; otherwise it falls back to memcpy.
+  // Not valid in `Dmabuf` mode.
+  //
+  // On success returns a refcounted EncodedImageBuffer with the H.264
+  // bitstream; on failure returns null.
+  webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> Encode(
+      const uint8_t* y,
+      const uint8_t* u,
+      const uint8_t* v,
+      int stride_y,
+      int stride_u,
+      int stride_v,
+      bool force_idr);
+
+  // Encode a single DMABUF-backed YUV frame. Only valid in `Dmabuf` mode.
+  // The fd is borrowed -- the caller retains ownership and must keep it
+  // alive until this call returns.
+  //
+  // `offset` is the byte offset into the dmabuf where the frame data
+  // begins, `length` is the total size of the YUV frame in bytes (use 0 to
+  // request the encoder's configured `sizeimage`).
+  webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> EncodeDmabuf(
+      int dmabuf_fd,
+      size_t offset,
+      size_t length,
+      bool force_idr);
 
   // Update bitrate (bps) and framerate (fps) at runtime.
   void UpdateRates(int framerate, int bitrate);
 
   bool IsInitialized() const { return initialized_; }
+  OutputBufferMode mode() const { return mode_; }
 
   // Stop streaming and release all V4L2 resources.
   void Destroy();
@@ -99,12 +142,26 @@ class V4l2H264EncoderWrapper {
                               int stride_u,
                               int stride_v);
 
+  // Submit OUTPUT buffer at `buf_index` and wait for an encoded CAPTURE
+  // buffer; builds an `EncodedImageBuffer` from the mmap'd CAPTURE data
+  // before re-queueing it. Used by both `Encode` and `EncodeDmabuf`.
+  webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> RunEncode(
+      int buf_index,
+      bool force_idr,
+      const uint8_t* userptr,
+      int dmabuf_fd,
+      size_t offset,
+      size_t length);
+
   // --- State ---
   bool initialized_ = false;
   int fd_ = -1;
   int width_ = 0;
   int height_ = 0;
   int framerate_ = 30;
+  int frame_size_ = 0;  // configured sizeimage for OUTPUT (single plane)
+  OutputBufferMode mode_ = OutputBufferMode::Mmap;
+  uint32_t input_fourcc_ = 0;
 
   // MMAP'd buffer descriptor (one per slot in each queue).
   struct MmapBuffer {
@@ -113,6 +170,7 @@ class V4l2H264EncoderWrapper {
   };
 
   // OUTPUT queue buffers (raw YUV frames fed into the encoder).
+  // Only populated when |mode_| == Mmap.
   MmapBuffer output_buffers_[kNumOutputBuffers];
   int num_output_buffers_ = 0;
 
