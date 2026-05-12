@@ -62,6 +62,12 @@
 ### Changed
 
 - Update protocol version to v1.31.0
+## 0.7.6 (2026-05-11)
+
+### Features
+
+- Upgrade protocol to v1.45.8
+
 ## 0.7.5 (2026-04-23)
 
 ### Features

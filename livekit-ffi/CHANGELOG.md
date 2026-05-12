@@ -316,6 +316,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.56 (2026-05-11)
+
+### Fixes
+
+- fix: Sync inner.enabled state for E2EE manager. - #1073 (@cloudwebrtc)
+- Upgrade protocol to v1.45.8
+
+## 0.12.55 (2026-05-11)
+
+### Fixes
+
+- chore: add LocalTrackRepublished event for FFI clients - #1072 (@davidzhao)
+
+## 0.12.54 (2026-05-10)
+
+### Features
+
+- Bump `rustls-webpki` to 0.103.13, addressing [GHSA-82j2-j2ch-gfr8](https://github.com/advisories/GHSA-82j2-j2ch-gfr8)
+- Expose error message on EOS for data track subscriptions
+
+### Fixes
+
+- Fix missing `libwebrtc.jar` for Android builds, harden build scripts
+- fix: derive `simulcasted` from non-deprecated TrackInfo fields - #1052 (@cloudwebrtc)
+- fix race in download_webrtc to reduce flaky build - #1047 (@hechen-eng)
+- Improve WebRTC build scripts and add external_audio_source patch - #1053 (@xianshijing-lk)
+- support SimulateScenario through FFI to improve testing - #1069 (@davidzhao)
+- TEL-464: reduce redundant resampling in audio filter - #1019 (@hechen-eng)
+
 ## 0.12.53 (2026-04-23)
 
 ### Features

@@ -336,8 +336,17 @@ impl LocalParticipant {
                 encodings = compute_video_encodings(req.width, req.height, &options);
                 req.layers = video_layers_from_encodings(req.width, req.height, &encodings);
 
-                // Populate simulcast_codecs so the server knows this track is simulcasted
-                if options.simulcast && encodings.len() > 1 {
+                // Populate simulcast_codecs so the server knows this track has
+                // multiple quality layers — either real simulcast (multiple
+                // RTP encodings) or SVC (one encoding with several spatial
+                // layers carried inside it).
+                let is_svc_multilayer = encodings.len() == 1
+                    && encodings
+                        .first()
+                        .and_then(|e| e.scalability_mode.as_ref())
+                        .map(|m| options::spatial_layers_from_scalability_mode(m) > 1)
+                        .unwrap_or(false);
+                if (options.simulcast && encodings.len() > 1) || is_svc_multilayer {
                     req.simulcast_codecs = vec![proto::SimulcastCodec {
                         codec: options.video_codec.as_str().to_string(),
                         cid: track.rtc_track().id(),
