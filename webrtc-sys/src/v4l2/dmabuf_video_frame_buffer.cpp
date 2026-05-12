@@ -24,6 +24,7 @@
 #include <linux/dma-buf.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 
 #include "api/make_ref_counted.h"
@@ -101,7 +102,11 @@ webrtc::scoped_refptr<DmabufVideoFrameBuffer> DmabufVideoFrameBuffer::Wrap(
     return nullptr;
   }
   if (fourcc != kFourccYUV420 && fourcc != kFourccNV12) {
-    RTC_LOG(LS_WARNING) << "DMABUF: unsupported fourcc 0x" << std::hex << fourcc
+    // webrtc's RTC_LOG streamer doesn't support iostream manipulators like
+    // std::hex, so format the fourcc into a stack buffer first.
+    char fourcc_str[16];
+    std::snprintf(fourcc_str, sizeof(fourcc_str), "0x%08x", fourcc);
+    RTC_LOG(LS_WARNING) << "DMABUF: unsupported fourcc " << fourcc_str
                         << "; only YUV420 and NV12 are supported";
     return nullptr;
   }
