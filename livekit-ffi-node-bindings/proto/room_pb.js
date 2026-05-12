@@ -697,6 +697,7 @@ const TrackPublishOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 8, name: "stream", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
     { no: 9, name: "preconnect_buffer", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
     { no: 10, name: "packet_trailer_features", kind: "enum", T: proto2.getEnumType(PacketTrailerFeature), repeated: true },
+    { no: 11, name: "scalability_mode", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
   ],
 );
 

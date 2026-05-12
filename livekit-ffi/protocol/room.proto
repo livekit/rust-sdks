@@ -308,6 +308,10 @@ message TrackPublishOptions {
   optional string stream = 8;
   optional bool preconnect_buffer = 9;
   repeated PacketTrailerFeature packet_trailer_features = 10;
+  // RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP
+  // encoding is produced with this mode, enabling true SVC for codecs
+  // that support it (VP9, AV1). Has no effect for VP8/H264.
+  optional string scalability_mode = 11;
 }
 
 enum IceTransportType {

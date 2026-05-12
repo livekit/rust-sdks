@@ -1770,6 +1770,15 @@ export declare class TrackPublishOptions extends Message<TrackPublishOptions> {
    */
   packetTrailerFeatures: PacketTrailerFeature[];
 
+  /**
+   * RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP
+   * encoding is produced with this mode, enabling true SVC for codecs
+   * that support it (VP9, AV1). Has no effect for VP8/H264.
+   *
+   * @generated from field: optional string scalability_mode = 11;
+   */
+  scalabilityMode?: string;
+
   constructor(data?: PartialMessage<TrackPublishOptions>);
 
   static readonly runtime: typeof proto2;
