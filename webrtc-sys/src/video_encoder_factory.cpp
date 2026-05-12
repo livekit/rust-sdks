@@ -16,6 +16,9 @@
 
 #include "livekit/video_encoder_factory.h"
 
+#include <cstdlib>
+#include <string_view>
+
 #include "api/environment/environment_factory.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
@@ -47,6 +50,86 @@
 
 namespace livekit_ffi {
 
+namespace {
+
+constexpr char kPreferredHwEncoderEnv[] = "PREFERRED_HW_ENCODER";
+
+enum class PreferredHwEncoder {
+  kNvenc,
+  kVaapi,
+};
+
+struct PreferredHwEncoderConfig {
+  PreferredHwEncoder encoder = PreferredHwEncoder::kNvenc;
+  bool explicitly_set = false;
+};
+
+PreferredHwEncoderConfig GetPreferredHwEncoderConfig() {
+  const char* preferred_encoder = std::getenv(kPreferredHwEncoderEnv);
+  if (!preferred_encoder) {
+    return {};
+  }
+
+  std::string_view preferred_encoder_view(preferred_encoder);
+  if (preferred_encoder_view == "nvenc") {
+    return {PreferredHwEncoder::kNvenc, true};
+  }
+  if (preferred_encoder_view == "vaapi") {
+    return {PreferredHwEncoder::kVaapi, true};
+  }
+
+  RTC_LOG(LS_WARNING) << "Ignoring invalid PREFERRED_HW_ENCODER=\""
+                      << preferred_encoder
+                      << "\"; expected \"nvenc\" or \"vaapi\".";
+  return {};
+}
+
+void AddNvencFactory(
+    std::vector<std::unique_ptr<webrtc::VideoEncoderFactory>>& factories,
+    bool preferred) {
+#if defined(USE_NVIDIA_VIDEO_CODEC)
+  if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
+    factories.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
+    return;
+  }
+
+  if (preferred) {
+    RTC_LOG(LS_WARNING) << "PREFERRED_HW_ENCODER=nvenc requested, but NVENC "
+                           "is unavailable; falling back to other encoders.";
+  }
+#else
+  if (preferred) {
+    RTC_LOG(LS_WARNING)
+        << "PREFERRED_HW_ENCODER=nvenc requested, but NVENC support is not "
+           "compiled in; falling back to other encoders.";
+  }
+#endif
+}
+
+void AddVaapiFactory(
+    std::vector<std::unique_ptr<webrtc::VideoEncoderFactory>>& factories,
+    bool preferred) {
+#if defined(USE_VAAPI_VIDEO_CODEC)
+  if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
+    factories.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
+    return;
+  }
+
+  if (preferred) {
+    RTC_LOG(LS_WARNING) << "PREFERRED_HW_ENCODER=vaapi requested, but VAAPI "
+                           "is unavailable; falling back to other encoders.";
+  }
+#else
+  if (preferred) {
+    RTC_LOG(LS_WARNING)
+        << "PREFERRED_HW_ENCODER=vaapi requested, but VAAPI support is not "
+           "compiled in; falling back to other encoders.";
+  }
+#endif
+}
+
+}  // namespace
+
 using Factory = webrtc::VideoEncoderFactoryTemplate<
     webrtc::LibvpxVp8EncoderTemplateAdapter,
 #if defined(WEBRTC_USE_H264)
@@ -66,21 +149,15 @@ VideoEncoderFactory::InternalFactory::InternalFactory() {
   factories_.push_back(CreateAndroidVideoEncoderFactory());
 #endif
 
-#if defined(USE_NVIDIA_VIDEO_CODEC)
-  if (webrtc::NvidiaVideoEncoderFactory::IsSupported()) {
-    factories_.push_back(std::make_unique<webrtc::NvidiaVideoEncoderFactory>());
+  const PreferredHwEncoderConfig preferred_hw_encoder =
+      GetPreferredHwEncoderConfig();
+  if (preferred_hw_encoder.encoder == PreferredHwEncoder::kVaapi) {
+    AddVaapiFactory(factories_, preferred_hw_encoder.explicitly_set);
+    AddNvencFactory(factories_, false);
   } else {
-#endif
-
-#if defined(USE_VAAPI_VIDEO_CODEC)
-    if (webrtc::VAAPIVideoEncoderFactory::IsSupported()) {
-      factories_.push_back(std::make_unique<webrtc::VAAPIVideoEncoderFactory>());
-    }
-#endif
-
-#if defined(USE_NVIDIA_VIDEO_CODEC)
+    AddNvencFactory(factories_, preferred_hw_encoder.explicitly_set);
+    AddVaapiFactory(factories_, false);
   }
-#endif
 }
 
 std::vector<webrtc::SdpVideoFormat>
