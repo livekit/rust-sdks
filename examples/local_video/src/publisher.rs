@@ -586,7 +586,7 @@ async fn run_capture_loop(
     let mut latency_display = LatencyDisplay::default();
     let align_buffers_for_display = display_shared.is_some();
 
-    // Reuse a single I420 buffer 
+    // Reuse a single I420 buffer
     let mut frame = VideoFrame {
         rotation: VideoRotation::VideoRotation0,
         timestamp_us: 0,
