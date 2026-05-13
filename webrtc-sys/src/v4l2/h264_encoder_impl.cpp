@@ -259,7 +259,8 @@ int32_t V4L2H264EncoderImpl::Encode(
       native_dmabuf && IsContiguousDmabufLayout(*native_dmabuf);
   if (native_dmabuf_safe && encoder_->IsInitialized() &&
       encoder_->mode() == livekit_ffi::OutputBufferMode::Dmabuf &&
-      native_dmabuf->plane_stride(0) != encoder_->output_stride()) {
+      (native_dmabuf->fourcc() != encoder_->output_fourcc() ||
+       native_dmabuf->plane_stride(0) != encoder_->output_stride())) {
     native_dmabuf_safe = false;
   }
   if (native_dmabuf && !native_dmabuf_safe) {
@@ -301,16 +302,35 @@ int32_t V4L2H264EncoderImpl::Encode(
     int input_stride = native_dmabuf_safe ? native_dmabuf->plane_stride(0)
                                           : codec_.width;
     if (!initialize_encoder(desired, fourcc, input_stride)) {
-      RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize H.264 encoder";
-      first_frame_ = true;
-      ReportError();
-      return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+      if (desired != livekit_ffi::OutputBufferMode::Dmabuf) {
+        RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize H.264 encoder";
+        first_frame_ = true;
+        ReportError();
+        return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+      }
+
+      RTC_LOG(LS_WARNING)
+          << "V4L2: Failed to initialize DMABUF import; falling back to "
+             "ToI420 + MMAP";
+      native_dmabuf_safe = false;
+      send_key_frame = true;
+      desired = livekit_ffi::OutputBufferMode::Mmap;
+      fourcc = kFourccYuv420;
+      input_stride = codec_.width;
+      if (!initialize_encoder(desired, fourcc, input_stride)) {
+        RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize MMAP fallback";
+        first_frame_ = true;
+        ReportError();
+        return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+      }
     }
     if (desired == livekit_ffi::OutputBufferMode::Dmabuf &&
-        encoder_->output_stride() != input_stride) {
+        (encoder_->output_fourcc() != fourcc ||
+         encoder_->output_stride() != input_stride)) {
       RTC_LOG(LS_WARNING)
-          << "V4L2: Driver adjusted DMABUF output stride from "
-          << input_stride << " to " << encoder_->output_stride()
+          << "V4L2: Driver adjusted DMABUF output format/stride; requested "
+          << fourcc << "/" << input_stride << ", negotiated "
+          << encoder_->output_fourcc() << "/" << encoder_->output_stride()
           << "; falling back to ToI420 + MMAP";
       encoder_->Destroy();
       native_dmabuf_safe = false;

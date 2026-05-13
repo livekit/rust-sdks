@@ -137,6 +137,8 @@ class V4l2H264EncoderWrapper {
 
   bool IsInitialized() const { return initialized_; }
   OutputBufferMode mode() const { return mode_; }
+  // Negotiated OUTPUT-queue pixel format after initialization.
+  uint32_t output_fourcc() const { return input_fourcc_; }
   int output_stride() const { return output_stride_; }
 
   // Stop streaming and release all V4L2 resources.

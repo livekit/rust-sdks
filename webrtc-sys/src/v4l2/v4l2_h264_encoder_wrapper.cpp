@@ -96,6 +96,17 @@ static uint64_t TimevalToUsec(const timeval& tv) {
          static_cast<uint64_t>(tv.tv_usec);
 }
 
+static std::string FourccToString(uint32_t fourcc) {
+  char fourcc_chars[5] = {
+      static_cast<char>(fourcc & 0xff),
+      static_cast<char>((fourcc >> 8) & 0xff),
+      static_cast<char>((fourcc >> 16) & 0xff),
+      static_cast<char>((fourcc >> 24) & 0xff),
+      '\0',
+  };
+  return std::string(fourcc_chars);
+}
+
 static EncodeResult EncodeNoOutput() {
   EncodeResult result;
   result.status = EncodeResult::Status::NoOutput;
@@ -323,6 +334,14 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
     fd_ = -1;
     return false;
   }
+  const uint32_t negotiated_fourcc = fmt.fmt.pix_mp.pixelformat;
+  if (negotiated_fourcc != input_fourcc_) {
+    RTC_LOG(LS_WARNING)
+        << "V4L2: Driver adjusted output pixel format from "
+        << FourccToString(input_fourcc_) << " to "
+        << FourccToString(negotiated_fourcc);
+  }
+  input_fourcc_ = negotiated_fourcc;
   output_stride_ = fmt.fmt.pix_mp.plane_fmt[0].bytesperline > 0
                        ? fmt.fmt.pix_mp.plane_fmt[0].bytesperline
                        : output_stride_;
@@ -330,6 +349,17 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
   frame_size_ = std::max<int>(
       FrameSizeForFourcc(input_fourcc_, output_stride_, height),
       fmt.fmt.pix_mp.plane_fmt[0].sizeimage);
+
+  if (mode_ != OutputBufferMode::Dmabuf &&
+      input_fourcc_ != V4L2_PIX_FMT_YUV420) {
+    RTC_LOG(LS_ERROR)
+        << "V4L2: Driver negotiated unsupported CPU-input pixel format "
+        << FourccToString(input_fourcc_) << "; expected "
+        << FourccToString(V4L2_PIX_FMT_YUV420);
+    close(fd_);
+    fd_ = -1;
+    return false;
+  }
 
   // --- Set framerate via stream parameters ---
 
