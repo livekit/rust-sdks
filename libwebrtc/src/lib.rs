@@ -18,6 +18,8 @@ use thiserror::Error;
 #[cfg_attr(not(target_arch = "wasm32"), path = "native/mod.rs")]
 mod imp;
 
+mod enum_dispatch;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum MediaType {
     Audio,

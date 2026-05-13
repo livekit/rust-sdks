@@ -4181,7 +4181,6 @@ dependencies = [
  "jni 0.21.1",
  "js-sys",
  "lazy_static",
- "livekit-protocol",
  "livekit-runtime",
  "log",
  "parking_lot",
@@ -4412,15 +4411,10 @@ dependencies = [
 name = "livekit-protocol"
 version = "0.7.6"
 dependencies = [
- "futures-util",
- "livekit-runtime",
- "parking_lot",
  "pbjson",
  "pbjson-types",
  "prost 0.12.6",
  "serde",
- "thiserror 2.0.18",
- "tokio",
 ]
 
 [[package]]

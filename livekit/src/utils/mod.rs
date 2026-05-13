@@ -18,9 +18,12 @@ use livekit_protocol as proto;
 
 use crate::participant::ParticipantKindDetail;
 
+pub mod debouncer;
+pub mod observer;
+pub mod promise;
 pub mod take_cell;
-pub(crate) mod ttl_map;
-pub(crate) mod tx_queue;
+pub mod ttl_map;
+pub mod tx_queue;
 pub mod utf8_chunk;
 
 pub(crate) fn convert_kind_details(kind_details: &[i32]) -> Vec<ParticipantKindDetail> {

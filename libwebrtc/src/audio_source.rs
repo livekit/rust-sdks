@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::imp::audio_source as imp_as;
+use crate::{enum_dispatch, imp::audio_source as imp_as};
 
 /// Default sample rate used by WebRTC audio pipelines (48kHz).
 pub const DEFAULT_SAMPLE_RATE: u32 = 48000;
