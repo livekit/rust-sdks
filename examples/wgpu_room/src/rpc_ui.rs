@@ -80,10 +80,6 @@ impl RpcUiState {
     }
 
     pub fn show(&mut self, ui: &mut egui::Ui, service: &LkService, room: &Arc<Room>) {
-        ui.add_space(8.0);
-        ui.label("RPC");
-        ui.separator();
-
         self.show_send(ui, service, room);
         ui.add_space(8.0);
         ui.separator();

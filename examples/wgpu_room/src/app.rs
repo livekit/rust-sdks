@@ -8,6 +8,7 @@ use crate::{
 use egui::{emath, epaint, pos2, Color32, CornerRadius, Rect, Stroke};
 use livekit::{e2ee::EncryptionType, prelude::*, track::VideoQuality, SimulateScenario};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// The state of the application are saved on app exit and restored on app start.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -18,6 +19,12 @@ struct AppState {
     key: String,
     auto_subscribe: bool,
     enable_e2ee: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RightTab {
+    Participants,
+    Rpc,
 }
 
 pub struct LkApp {
@@ -31,6 +38,7 @@ pub struct LkApp {
     render_state: egui_wgpu::RenderState,
     service: LkService,
     rpc_ui: RpcUiState,
+    right_tab: RightTab,
 }
 
 impl Default for AppState {
@@ -66,6 +74,7 @@ impl LkApp {
             connection_failure: None,
             render_state: cc.wgpu_render_state.clone().unwrap(),
             rpc_ui: RpcUiState::default(),
+            right_tab: RightTab::Participants,
         }
     }
 
@@ -251,18 +260,32 @@ impl LkApp {
         ui.separator();
     }
 
-    /// Show remote_participants and their tracks
     fn right_panel(&mut self, ui: &mut egui::Ui) {
-        ui.label("Participants");
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.right_tab, RightTab::Participants, "Participants");
+            ui.selectable_value(&mut self.right_tab, RightTab::Rpc, "RPC");
+        });
         ui.separator();
 
         let Some(room) = self.service.room() else {
+            ui.label("Not connected");
             return;
         };
 
-        let service = &self.service;
-        let rpc_ui = &mut self.rpc_ui;
+        match self.right_tab {
+            RightTab::Participants => self.participants_tab(ui, &room),
+            RightTab::Rpc => {
+                let service = &self.service;
+                let rpc_ui = &mut self.rpc_ui;
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    rpc_ui.show(ui, service, &room);
+                });
+            }
+        }
+    }
 
+    /// Show remote_participants and their tracks
+    fn participants_tab(&self, ui: &mut egui::Ui, room: &Arc<Room>) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             // Iterate with sorted keys to avoid flickers (Because this is a immediate mode UI)
             let participants = room.remote_participants();
@@ -300,17 +323,17 @@ impl LkApp {
                             ui.menu_button("Set Quality", |ui| {
                                 let publication = publication.clone();
                                 if ui.button("Low").clicked() {
-                                    let _ = service.send(AsyncCmd::SetVideoQuality {
+                                    let _ = self.service.send(AsyncCmd::SetVideoQuality {
                                         publication,
                                         quality: VideoQuality::Low,
                                     });
                                 } else if ui.button("Medium").clicked() {
-                                    let _ = service.send(AsyncCmd::SetVideoQuality {
+                                    let _ = self.service.send(AsyncCmd::SetVideoQuality {
                                         publication,
                                         quality: VideoQuality::Medium,
                                     });
                                 } else if ui.button("High").clicked() {
-                                    let _ = service.send(AsyncCmd::SetVideoQuality {
+                                    let _ = self.service.send(AsyncCmd::SetVideoQuality {
                                         publication,
                                         quality: VideoQuality::High,
                                     });
@@ -332,17 +355,16 @@ impl LkApp {
 
                         if publication.is_subscribed() {
                             if ui.button("Unsubscribe").clicked() {
-                                let _ = service.send(AsyncCmd::UnsubscribeTrack { publication });
+                                let _ =
+                                    self.service.send(AsyncCmd::UnsubscribeTrack { publication });
                             }
                         } else if ui.button("Subscribe").clicked() {
-                            let _ = service.send(AsyncCmd::SubscribeTrack { publication });
+                            let _ = self.service.send(AsyncCmd::SubscribeTrack { publication });
                         }
                     });
                 }
                 ui.separator();
             }
-
-            rpc_ui.show(ui, service, &room);
         });
     }
 
