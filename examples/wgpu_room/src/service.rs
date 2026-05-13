@@ -44,6 +44,7 @@ pub struct LkService {
     ui_rx: mpsc::UnboundedReceiver<UiCmd>,
     handle: tokio::task::JoinHandle<()>,
     inner: Arc<ServiceInner>,
+    runtime: tokio::runtime::Handle,
 }
 
 struct ServiceInner {
@@ -60,11 +61,15 @@ impl LkService {
         let inner = Arc::new(ServiceInner { ui_tx, room: Default::default() });
         let handle = async_handle.spawn(service_task(inner.clone(), cmd_rx));
 
-        Self { cmd_tx, ui_rx, handle, inner }
+        Self { cmd_tx, ui_rx, handle, inner, runtime: async_handle.clone() }
     }
 
     pub fn room(&self) -> Option<Arc<Room>> {
         self.inner.room.lock().clone()
+    }
+
+    pub fn runtime(&self) -> &tokio::runtime::Handle {
+        &self.runtime
     }
 
     pub fn send(&self, cmd: AsyncCmd) -> Result<(), SendError<AsyncCmd>> {

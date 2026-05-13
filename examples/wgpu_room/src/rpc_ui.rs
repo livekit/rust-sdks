@@ -87,8 +87,8 @@ impl RpcUiState {
         self.show_send(ui, service, room);
         ui.add_space(8.0);
         ui.separator();
-        self.show_register(ui, room);
-        self.show_handler_cards(ui, room);
+        self.show_register(ui, service, room);
+        self.show_handler_cards(ui, service, room);
     }
 
     fn show_send(&mut self, ui: &mut egui::Ui, service: &LkService, room: &Arc<Room>) {
@@ -193,7 +193,7 @@ impl RpcUiState {
         }
     }
 
-    fn show_register(&mut self, ui: &mut egui::Ui, room: &Arc<Room>) {
+    fn show_register(&mut self, ui: &mut egui::Ui, service: &LkService, room: &Arc<Room>) {
         ui.label(egui::RichText::new("Handlers").strong());
 
         let mut do_register = false;
@@ -224,6 +224,7 @@ impl RpcUiState {
                     invocation_count: 0,
                 }));
                 let entry_for_cb = entry.clone();
+                let _guard = service.runtime().enter();
                 room.local_participant().register_rpc_method(method.clone(), move |data| {
                     let entry_for_cb = entry_for_cb.clone();
                     Box::pin(async move {
@@ -245,7 +246,7 @@ impl RpcUiState {
         }
     }
 
-    fn show_handler_cards(&mut self, ui: &mut egui::Ui, room: &Arc<Room>) {
+    fn show_handler_cards(&mut self, ui: &mut egui::Ui, service: &LkService, room: &Arc<Room>) {
         let methods: Vec<String> = self.handlers.keys().cloned().collect();
         let mut to_remove: Option<String> = None;
 
@@ -308,6 +309,7 @@ impl RpcUiState {
         }
 
         if let Some(m) = to_remove {
+            let _guard = service.runtime().enter();
             room.local_participant().unregister_rpc_method(m.clone());
             self.handlers.remove(&m);
         }
