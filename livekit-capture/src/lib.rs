@@ -31,7 +31,7 @@
 
 use std::time::Duration;
 
-use libwebrtc::video_frame::{I420Buffer, native::NativeBuffer};
+use libwebrtc::video_frame::{native::NativeBuffer, I420Buffer};
 
 mod error;
 mod publisher;
@@ -108,8 +108,7 @@ pub trait Capture: Send {
 
     /// Block until the next frame is available (or `timeout` elapses).
     /// Returns `Ok(None)` on timeout.
-    fn next_frame(&mut self, timeout: Duration)
-        -> Result<Option<CaptureFrame>, CaptureError>;
+    fn next_frame(&mut self, timeout: Duration) -> Result<Option<CaptureFrame>, CaptureError>;
 
     /// Stop streaming and release the device.
     fn stop(&mut self);

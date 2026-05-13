@@ -483,6 +483,11 @@ VideoEncoder::EncoderInfo V4L2H264EncoderImpl::GetEncoderInfo() const {
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
+  // bcm2835-codec's H.264 path is unreliable for visible frame sizes that are
+  // not macroblock aligned. Tell WebRTC's source adapter to avoid rungs such as
+  // 480x360 and prefer dimensions that are cleanly divisible by 16.
+  info.requested_resolution_alignment = 16;
+  info.apply_alignment_to_all_simulcast_layers = true;
   info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNative,
                                   VideoFrameBuffer::Type::kI420};
   return info;

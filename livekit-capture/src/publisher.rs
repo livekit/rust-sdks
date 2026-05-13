@@ -39,11 +39,7 @@ pub struct PublisherConfig {
 
 impl Default for PublisherConfig {
     fn default() -> Self {
-        Self {
-            capture: CaptureConfig::default(),
-            attach_timestamp: false,
-            attach_frame_id: false,
-        }
+        Self { capture: CaptureConfig::default(), attach_timestamp: false, attach_frame_id: false }
     }
 }
 
@@ -59,8 +55,7 @@ pub struct PublisherStats {
 /// Frame hook invoked after each frame is captured but before it's
 /// handed to the video source. Useful for in-place overlays (e.g.
 /// burned-in timestamps).
-pub type CaptureHook =
-    Box<dyn FnMut(&mut CaptureFrame, FrameContext) + Send + 'static>;
+pub type CaptureHook = Box<dyn FnMut(&mut CaptureFrame, FrameContext) + Send + 'static>;
 
 /// Context passed to a [`CaptureHook`].
 #[derive(Debug, Clone, Copy)]
@@ -216,16 +211,9 @@ fn run_loop<C: Capture>(
 
         let capture_ts_us = captured.capture_ts_us().unwrap_or_else(unix_time_us_now);
         let user_ts = cfg.attach_timestamp.then_some(capture_ts_us);
-        let fid = if cfg.attach_frame_id {
-            Some(frame_counter)
-        } else {
-            None
-        };
-        let frame_metadata =
-            (user_ts.is_some() || fid.is_some()).then_some(FrameMetadata {
-                user_timestamp: user_ts,
-                frame_id: fid,
-            });
+        let fid = if cfg.attach_frame_id { Some(frame_counter) } else { None };
+        let frame_metadata = (user_ts.is_some() || fid.is_some())
+            .then_some(FrameMetadata { user_timestamp: user_ts, frame_id: fid });
         let timestamp_us = start_ts.elapsed().as_micros() as i64;
 
         // Hand the frame to NativeVideoSource. The two arms differ only
@@ -233,13 +221,21 @@ fn run_loop<C: Capture>(
         // each variant carries its concrete buffer type.
         match captured {
             CaptureFrame::I420 { buffer, .. } => {
-                let frame =
-                    VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us, frame_metadata, buffer };
+                let frame = VideoFrame {
+                    rotation: VideoRotation::VideoRotation0,
+                    timestamp_us,
+                    frame_metadata,
+                    buffer,
+                };
                 source.capture_frame(&frame);
             }
             CaptureFrame::Native { buffer, .. } => {
-                let frame =
-                    VideoFrame { rotation: VideoRotation::VideoRotation0, timestamp_us, frame_metadata, buffer };
+                let frame = VideoFrame {
+                    rotation: VideoRotation::VideoRotation0,
+                    timestamp_us,
+                    frame_metadata,
+                    buffer,
+                };
                 source.capture_frame(&frame);
             }
         }

@@ -31,6 +31,8 @@ use std::time::Duration;
 
 use libcamera::camera::CameraConfigurationStatus;
 use libcamera::camera_manager::CameraManager;
+use libcamera::control::{ControlEntry, ControlList};
+use libcamera::controls::FrameDurationLimits;
 use libcamera::framebuffer::AsFrameBuffer;
 use libcamera::framebuffer_allocator::{FrameBuffer, FrameBufferAllocator};
 use libcamera::geometry::Size;
@@ -96,14 +98,24 @@ impl Drop for InflightToken {
     }
 }
 
+fn frame_duration_us_for_fps(fps: u32) -> i64 {
+    let fps = fps.max(1);
+    ((1_000_000u64 + u64::from(fps / 2)) / u64::from(fps)).max(1) as i64
+}
+
+fn apply_frame_duration_control(req: &mut libcamera::request::Request, fps: u32) {
+    let frame_duration_us = frame_duration_us_for_fps(fps);
+    if let Err(e) =
+        req.controls_mut().set(FrameDurationLimits([frame_duration_us, frame_duration_us]))
+    {
+        warn!("LibCameraCapture: failed to set request frame duration: {e}");
+    }
+}
+
 impl LibCameraCapture {
     /// Construct a new (unstarted) libcamera capture backend.
     pub fn new() -> Self {
-        Self {
-            worker: None,
-            format: None,
-            inflight: VecDeque::with_capacity(MAX_INFLIGHT + 1),
-        }
+        Self { worker: None, format: None, inflight: VecDeque::with_capacity(MAX_INFLIGHT + 1) }
     }
 }
 
@@ -136,10 +148,7 @@ impl Capture for LibCameraCapture {
         Ok(fmt)
     }
 
-    fn next_frame(
-        &mut self,
-        timeout: Duration,
-    ) -> Result<Option<CaptureFrame>, CaptureError> {
+    fn next_frame(&mut self, timeout: Duration) -> Result<Option<CaptureFrame>, CaptureError> {
         let worker = self.worker.as_ref().ok_or_else(|| {
             CaptureError::DeviceUnavailable("LibCameraCapture not started".into())
         })?;
@@ -198,9 +207,8 @@ fn run_worker(
     let mgr = match CameraManager::new() {
         Ok(m) => m,
         Err(e) => {
-            let _ = init_tx.send(Err(CaptureError::DeviceUnavailable(format!(
-                "CameraManager::new: {e}"
-            ))));
+            let _ = init_tx
+                .send(Err(CaptureError::DeviceUnavailable(format!("CameraManager::new: {e}"))));
             return;
         }
     };
@@ -220,9 +228,8 @@ fn run_worker(
     let mut active_cam = match cam_ref.acquire() {
         Ok(c) => c,
         Err(e) => {
-            let _ = init_tx.send(Err(CaptureError::DeviceUnavailable(format!(
-                "Camera::acquire: {e}"
-            ))));
+            let _ =
+                init_tx.send(Err(CaptureError::DeviceUnavailable(format!("Camera::acquire: {e}"))));
             return;
         }
     };
@@ -289,18 +296,15 @@ fn run_worker(
     );
 
     if let Err(e) = active_cam.configure(&mut cfgs) {
-        let _ = init_tx.send(Err(CaptureError::DeviceUnavailable(format!(
-            "configure: {e}"
-        ))));
+        let _ = init_tx.send(Err(CaptureError::DeviceUnavailable(format!("configure: {e}"))));
         return;
     }
 
     let stream = match cfgs.get(0).and_then(|c| c.stream()) {
         Some(s) => s,
         None => {
-            let _ = init_tx.send(Err(CaptureError::DeviceUnavailable(
-                "no stream after configure".into(),
-            )));
+            let _ = init_tx
+                .send(Err(CaptureError::DeviceUnavailable("no stream after configure".into())));
             return;
         }
     };
@@ -332,20 +336,36 @@ fn run_worker(
             }
         };
         if let Err(e) = req.add_buffer(&stream, buf) {
-            let _ = init_tx.send(Err(CaptureError::DeviceUnavailable(format!(
-                "Request::add_buffer: {e}"
-            ))));
+            let _ = init_tx
+                .send(Err(CaptureError::DeviceUnavailable(format!("Request::add_buffer: {e}"))));
             return;
         }
+        apply_frame_duration_control(&mut req, cfg.fps);
         requests.push(Some(req));
     }
 
     let completed_rx = active_cam.subscribe_request_completed();
 
-    if let Err(e) = active_cam.start(None) {
-        let _ = init_tx.send(Err(CaptureError::DeviceUnavailable(format!(
-            "ActiveCamera::start: {e}"
-        ))));
+    let frame_duration_us = frame_duration_us_for_fps(cfg.fps);
+    let mut start_controls = ControlList::new();
+    if active_cam.controls().count(<FrameDurationLimits as ControlEntry>::ID) > 0 {
+        if let Err(e) =
+            start_controls.set(FrameDurationLimits([frame_duration_us, frame_duration_us]))
+        {
+            warn!("LibCameraCapture: failed to set start frame duration: {e}");
+        } else {
+            info!(
+                "LibCameraCapture: requested fixed frame duration {} us (~{} fps)",
+                frame_duration_us, cfg.fps
+            );
+        }
+    } else {
+        warn!("LibCameraCapture: camera does not advertise FrameDurationLimits control");
+    }
+
+    if let Err(e) = active_cam.start(Some(&start_controls)) {
+        let _ =
+            init_tx.send(Err(CaptureError::DeviceUnavailable(format!("ActiveCamera::start: {e}"))));
         return;
     }
 
@@ -377,6 +397,7 @@ fn run_worker(
             };
             if let Some(mut req) = slot.take() {
                 req.reuse(ReuseFlag::REUSE_BUFFERS);
+                apply_frame_duration_control(&mut req, cfg.fps);
                 if let Err((req, e)) = active_cam.queue_request(req) {
                     warn!("LibCameraCapture: re-queue failed: {e}");
                     *slot = Some(req);
@@ -396,12 +417,14 @@ fn run_worker(
         let idx = cookie as usize;
 
         // Build a DmabufFrameDesc by inspecting the framebuffer's planes.
-        let (desc, capture_ts_us, ok) = build_descriptor(&req, &stream, fourcc, neg_w, neg_h, neg_stride);
+        let (desc, capture_ts_us, ok) =
+            build_descriptor(&req, &stream, fourcc, neg_w, neg_h, neg_stride);
 
         if !ok {
             // Couldn't build descriptor; immediately re-queue.
             let mut req = req;
             req.reuse(ReuseFlag::REUSE_BUFFERS);
+            apply_frame_duration_control(&mut req, cfg.fps);
             if let Err((req, e)) = active_cam.queue_request(req) {
                 warn!("LibCameraCapture: re-queue (drop) failed: {e}");
                 if idx < requests.len() {
@@ -418,14 +441,9 @@ fn run_worker(
         }
         requests[idx] = Some(req);
 
-        let msg = CaptureMessage {
-            desc,
-            capture_ts_us,
-            cookie,
-            release_tx: release_tx.clone(),
-        };
+        let msg = CaptureMessage { desc, capture_ts_us, cookie, release_tx: release_tx.clone() };
         if frame_tx.send(msg).is_err() {
-            break;  // consumer hung up
+            break; // consumer hung up
         }
     }
 
@@ -448,14 +466,8 @@ fn build_descriptor(
     height: u32,
     stride: u32,
 ) -> (DmabufFrameDesc, Option<u64>, bool) {
-    let empty = DmabufFrameDesc {
-        fd: -1,
-        fourcc,
-        width,
-        height,
-        total_size: 0,
-        planes: Vec::new(),
-    };
+    let empty =
+        DmabufFrameDesc { fd: -1, fourcc, width, height, total_size: 0, planes: Vec::new() };
 
     let fb: &FrameBuffer = match req.buffer::<FrameBuffer>(stream) {
         Some(b) => b,
@@ -513,13 +525,7 @@ fn build_descriptor(
     // pipeline); we report microseconds.
     let capture_ts_us = fb.metadata().map(|m| (m.timestamp() / 1000) as u64);
 
-    let desc = DmabufFrameDesc {
-        fd: primary_fd,
-        fourcc,
-        width,
-        height,
-        total_size,
-        planes: plane_descs,
-    };
+    let desc =
+        DmabufFrameDesc { fd: primary_fd, fourcc, width, height, total_size, planes: plane_descs };
     (desc, capture_ts_us, true)
 }

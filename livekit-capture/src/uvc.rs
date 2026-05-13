@@ -91,11 +91,8 @@ impl Capture for UvcCapture {
             .open_stream()
             .map_err(|e| CaptureError::DeviceUnavailable(format!("open_stream: {e}")))?;
         let fmt = camera.camera_format();
-        let stream_fmt = StreamFormat {
-            width: fmt.width(),
-            height: fmt.height(),
-            fps: fmt.frame_rate(),
-        };
+        let stream_fmt =
+            StreamFormat { width: fmt.width(), height: fmt.height(), fps: fmt.frame_rate() };
         info!(
             "UvcCapture: opened {}x{} @ {} fps (format: {})",
             stream_fmt.width, stream_fmt.height, stream_fmt.fps, using_fmt
@@ -105,10 +102,7 @@ impl Capture for UvcCapture {
         Ok(stream_fmt)
     }
 
-    fn next_frame(
-        &mut self,
-        _timeout: Duration,
-    ) -> Result<Option<CaptureFrame>, CaptureError> {
+    fn next_frame(&mut self, _timeout: Duration) -> Result<Option<CaptureFrame>, CaptureError> {
         let camera = match self.camera.as_mut() {
             Some(c) => c,
             None => return Err(CaptureError::DeviceUnavailable("not started".into())),
@@ -248,10 +242,7 @@ impl Capture for UvcCapture {
             }
         }
 
-        Ok(Some(CaptureFrame::I420 {
-            buffer: frame,
-            capture_ts_us: Some(capture_wall_time_us),
-        }))
+        Ok(Some(CaptureFrame::I420 { buffer: frame, capture_ts_us: Some(capture_wall_time_us) }))
     }
 
     fn stop(&mut self) {
