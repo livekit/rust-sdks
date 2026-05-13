@@ -140,10 +140,16 @@ impl RpcUiState {
                 self.send_payload = "X".repeat(20_000);
             }
         });
-        ui.add(
-            egui::TextEdit::multiline(&mut self.send_payload)
-                .desired_rows(2)
-                .desired_width(f32::INFINITY),
+        let max_h = ui.text_style_height(&egui::TextStyle::Body) * 5.0 + 8.0;
+        egui::ScrollArea::vertical().id_salt("rpc_send_payload_scroll").max_height(max_h).show(
+            ui,
+            |ui| {
+                ui.add(
+                    egui::TextEdit::multiline(&mut self.send_payload)
+                        .desired_rows(2)
+                        .desired_width(f32::INFINITY),
+                );
+            },
         );
 
         let can_send = self.send_in_flight.is_none()
@@ -269,9 +275,17 @@ impl RpcUiState {
                         guard.reply = "X".repeat(20_000);
                     }
                 });
-                ui.add(
-                    egui::TextEdit::singleline(&mut guard.reply).desired_width(f32::INFINITY),
-                );
+                let max_h = ui.text_style_height(&egui::TextStyle::Body) * 5.0 + 8.0;
+                egui::ScrollArea::vertical()
+                    .id_salt(format!("rpc_handler_reply_scroll_{}", guard.method))
+                    .max_height(max_h)
+                    .show(ui, |ui| {
+                        ui.add(
+                            egui::TextEdit::multiline(&mut guard.reply)
+                                .desired_rows(1)
+                                .desired_width(f32::INFINITY),
+                        );
+                    });
 
                 ui.label(format!("Invocations ({})", guard.invocation_count));
 
