@@ -17,7 +17,9 @@
 #ifndef V4L2_H264_ENCODER_WRAPPER_H_
 #define V4L2_H264_ENCODER_WRAPPER_H_
 
+#include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <string>
 
 #include "api/scoped_refptr.h"
@@ -41,6 +43,23 @@ enum class OutputBufferMode {
   Mmap,
   UserPtr,
   Dmabuf,
+};
+
+struct EncodedFrame {
+  webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> bitstream;
+  uint32_t rtp_timestamp = 0;
+  bool key_frame = false;
+};
+
+struct EncodeResult {
+  enum class Status {
+    Ok,
+    NoOutput,
+    Error,
+  };
+
+  Status status = Status::Error;
+  EncodedFrame frame;
 };
 
 // Low-level wrapper around a V4L2 memory-to-memory (M2M) H.264 hardware
@@ -76,6 +95,7 @@ class V4l2H264EncoderWrapper {
                   int framerate,
                   OutputBufferMode mode = OutputBufferMode::Mmap,
                   uint32_t input_fourcc = 0x32315559,  // V4L2_PIX_FMT_YUV420 = "YU12"
+                  int input_stride = 0,
                   const std::string& device_path = "");
 
   // Encode a single planar YUV frame.
@@ -84,16 +104,19 @@ class V4l2H264EncoderWrapper {
   // when the planes are contiguous; otherwise it falls back to memcpy.
   // Not valid in `Dmabuf` mode.
   //
-  // On success returns a refcounted EncodedImageBuffer with the H.264
-  // bitstream; on failure returns null.
-  webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> Encode(
+  // On success returns an encoded frame with the H.264 bitstream and
+  // metadata copied from the originating input frame. May return NoOutput
+  // when the stateful encoder has accepted input but has not produced a
+  // completed coded frame yet.
+  EncodeResult Encode(
       const uint8_t* y,
       const uint8_t* u,
       const uint8_t* v,
       int stride_y,
       int stride_u,
       int stride_v,
-      bool force_idr);
+      bool force_idr,
+      uint32_t rtp_timestamp);
 
   // Encode a single DMABUF-backed YUV frame. Only valid in `Dmabuf` mode.
   // The fd is borrowed -- the caller retains ownership and must keep it
@@ -102,17 +125,19 @@ class V4l2H264EncoderWrapper {
   // `offset` is the byte offset into the dmabuf where the frame data
   // begins, `length` is the total size of the YUV frame in bytes (use 0 to
   // request the encoder's configured `sizeimage`).
-  webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> EncodeDmabuf(
+  EncodeResult EncodeDmabuf(
       int dmabuf_fd,
       size_t offset,
       size_t length,
-      bool force_idr);
+      bool force_idr,
+      uint32_t rtp_timestamp);
 
   // Update bitrate (bps) and framerate (fps) at runtime.
   void UpdateRates(int framerate, int bitrate);
 
   bool IsInitialized() const { return initialized_; }
   OutputBufferMode mode() const { return mode_; }
+  int output_stride() const { return output_stride_; }
 
   // Stop streaming and release all V4L2 resources.
   void Destroy();
@@ -133,6 +158,12 @@ class V4l2H264EncoderWrapper {
   // The bcm2835 encoder needs several frames before it produces valid output.
   void PrimeEncoderPipeline();
 
+  int AcquireOutputBuffer(int timeout_ms);
+  void DrainReadyOutputBuffers();
+  void DrainReadyCaptureBuffers();
+  bool QueueCaptureBuffer(int index);
+  EncodeResult WaitForEncodedFrame(int timeout_ms);
+
   // Copy an I420 frame into the mmap'd OUTPUT buffer at |index|.
   void CopyI420ToOutputBuffer(int index,
                               const uint8_t* y,
@@ -142,16 +173,22 @@ class V4l2H264EncoderWrapper {
                               int stride_u,
                               int stride_v);
 
-  // Submit OUTPUT buffer at `buf_index` and wait for an encoded CAPTURE
-  // buffer; builds an `EncodedImageBuffer` from the mmap'd CAPTURE data
-  // before re-queueing it. Used by both `Encode` and `EncodeDmabuf`.
-  webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> RunEncode(
+  // Submit OUTPUT buffer at `buf_index` and wait briefly for an encoded
+  // CAPTURE buffer. Used by both `Encode` and `EncodeDmabuf`.
+  EncodeResult RunEncode(
       int buf_index,
       bool force_idr,
       const uint8_t* userptr,
       int dmabuf_fd,
       size_t offset,
-      size_t length);
+      size_t length,
+      uint32_t rtp_timestamp);
+
+  struct PendingFrame {
+    uint64_t v4l2_timestamp_us = 0;
+    uint32_t rtp_timestamp = 0;
+    bool key_frame = false;
+  };
 
   // --- State ---
   bool initialized_ = false;
@@ -160,6 +197,9 @@ class V4l2H264EncoderWrapper {
   int height_ = 0;
   int framerate_ = 30;
   int frame_size_ = 0;  // configured sizeimage for OUTPUT (single plane)
+  int output_stride_ = 0;
+  int output_chroma_stride_ = 0;
+  int capture_buffer_size_ = 0;
   OutputBufferMode mode_ = OutputBufferMode::Mmap;
   uint32_t input_fourcc_ = 0;
 
@@ -173,6 +213,7 @@ class V4l2H264EncoderWrapper {
   // Only populated when |mode_| == Mmap.
   MmapBuffer output_buffers_[kNumOutputBuffers];
   int num_output_buffers_ = 0;
+  bool output_buffer_queued_[kNumOutputBuffers] = {};
 
   // CAPTURE queue buffers (encoded H.264 bitstream from the encoder).
   MmapBuffer capture_buffers_[kNumCaptureBuffers];
@@ -181,9 +222,10 @@ class V4l2H264EncoderWrapper {
   // Round-robin index for the next OUTPUT buffer to use.
   int next_output_index_ = 0;
 
-  // Force the very first encoded frame to be an IDR keyframe so the
-  // decoder starts with a clean reference.
-  bool first_frame_ = true;
+  std::deque<PendingFrame> pending_frames_;
+  std::deque<EncodedFrame> ready_frames_;
+  uint64_t next_v4l2_timestamp_us_ = 1;
+  bool force_next_keyframe_ = false;
 };
 
 }  // namespace livekit_ffi

@@ -97,6 +97,8 @@ class V4L2H264EncoderImpl : public VideoEncoder {
   webrtc::H264BitstreamParser h264_bitstream_parser_;
 
   const SdpVideoFormat format_;
+
+  bool first_frame_ = true;
 };
 
 }  // namespace webrtc

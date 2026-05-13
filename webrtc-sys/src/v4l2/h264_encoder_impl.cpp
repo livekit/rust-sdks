@@ -17,6 +17,7 @@
 #include "h264_encoder_impl.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <limits>
 #include <string>
 
@@ -33,6 +34,58 @@
 #include "dmabuf_video_frame_buffer.h"
 
 namespace webrtc {
+
+namespace {
+
+constexpr uint32_t kFourccYuv420 = 0x32315559u;  // V4L2_PIX_FMT_YUV420
+constexpr uint32_t kFourccNv12 = 0x3231564Eu;    // V4L2_PIX_FMT_NV12
+
+int ChromaHeight(int height) {
+  return (height + 1) / 2;
+}
+
+bool IsContiguousDmabufLayout(
+    const livekit_ffi::DmabufVideoFrameBuffer& buffer) {
+  const int width = buffer.width();
+  const int height = buffer.height();
+  if (buffer.num_planes() == 0)
+    return false;
+  const int stride_y = buffer.plane_stride(0);
+  if (stride_y < width || buffer.plane_offset(0) > buffer.total_size())
+    return false;
+
+  const size_t base = buffer.plane_offset(0);
+  const int chroma_height = ChromaHeight(height);
+  if (buffer.fourcc() == kFourccYuv420) {
+    if (buffer.num_planes() < 3 || (stride_y % 2) != 0)
+      return false;
+    const int stride_uv = stride_y / 2;
+    const size_t u_offset = base + static_cast<size_t>(stride_y) * height;
+    const size_t v_offset =
+        u_offset + static_cast<size_t>(stride_uv) * chroma_height;
+    const size_t end = v_offset + static_cast<size_t>(stride_uv) * chroma_height;
+    return buffer.plane_stride(1) == stride_uv &&
+           buffer.plane_stride(2) == stride_uv &&
+           buffer.plane_offset(1) == u_offset &&
+           buffer.plane_offset(2) == v_offset &&
+           end <= buffer.total_size();
+  }
+
+  if (buffer.fourcc() == kFourccNv12) {
+    if (buffer.num_planes() < 2)
+      return false;
+    const size_t uv_offset = base + static_cast<size_t>(stride_y) * height;
+    const size_t end =
+        uv_offset + static_cast<size_t>(stride_y) * chroma_height;
+    return buffer.plane_stride(1) == stride_y &&
+           buffer.plane_offset(1) == uv_offset &&
+           end <= buffer.total_size();
+  }
+
+  return false;
+}
+
+}  // namespace
 
 // Histogram event codes -- values must not be changed (persisted metrics).
 enum V4L2H264EncoderImplEvent {
@@ -100,6 +153,7 @@ int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* inst,
     ReportError();
     return release_ret;
   }
+  first_frame_ = true;
 
   codec_ = *inst;
 
@@ -156,6 +210,7 @@ int32_t V4L2H264EncoderImpl::RegisterEncodeCompleteCallback(
 int32_t V4L2H264EncoderImpl::Release() {
   if (encoder_->IsInitialized())
     encoder_->Destroy();
+  first_frame_ = true;
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -188,14 +243,45 @@ int32_t V4L2H264EncoderImpl::Encode(
   bool send_key_frame =
       (configuration_.key_frame_request && configuration_.sending) ||
       (frame_types && (*frame_types)[0] == VideoFrameType::kVideoFrameKey);
+  if (first_frame_) {
+    send_key_frame = true;
+    first_frame_ = false;
+  }
   if (send_key_frame)
     configuration_.key_frame_request = false;
 
   // Probe the incoming buffer: if it's a DMABUF native buffer, we can
   // import it directly into the encoder's OUTPUT queue. Otherwise we
-  // fall back to ToI420 + USERPTR.
+  // fall back to ToI420 + MMAP.
   auto* native_dmabuf = livekit_ffi::DmabufVideoFrameBuffer::TryCast(
       input_frame.video_frame_buffer().get());
+  bool native_dmabuf_safe =
+      native_dmabuf && IsContiguousDmabufLayout(*native_dmabuf);
+  if (native_dmabuf_safe && encoder_->IsInitialized() &&
+      encoder_->mode() == livekit_ffi::OutputBufferMode::Dmabuf &&
+      native_dmabuf->plane_stride(0) != encoder_->output_stride()) {
+    native_dmabuf_safe = false;
+  }
+  if (native_dmabuf && !native_dmabuf_safe) {
+    RTC_LOG(LS_WARNING)
+        << "V4L2: Native DMABUF layout is not contiguous/stride-compatible; "
+           "falling back to ToI420 + MMAP";
+  }
+
+  auto initialize_encoder = [&](livekit_ffi::OutputBufferMode desired,
+                                uint32_t fourcc,
+                                int input_stride) -> bool {
+    int kf_interval = codec_.H264()->keyFrameInterval;
+    if (kf_interval <= 0) {
+      kf_interval = codec_.maxFramerate > 0
+                        ? codec_.maxFramerate * 2  // ~2 seconds of frames
+                        : 60;
+    }
+    return encoder_->Initialize(codec_.width, codec_.height,
+                                codec_.startBitrate * 1000, kf_interval,
+                                codec_.maxFramerate, desired, fourcc,
+                                input_stride);
+  };
 
   // Lazily initialize the hardware encoder, picking the mode based on
   // the first frame seen. The mode is then locked for the lifetime of
@@ -205,22 +291,49 @@ int32_t V4L2H264EncoderImpl::Encode(
     // CPU-backed frames are fed through MMAP for driver compatibility. USERPTR
     // avoids one copy when planes are already contiguous, but bcm2835-codec on
     // Raspberry Pi is much happier with driver-owned MMAP buffers. Native
-    // DMABUF frames still use true zero-copy import.
+    // DMABUF frames use zero-copy only when the single-planar V4L2 encoder can
+    // represent their layout exactly.
     livekit_ffi::OutputBufferMode desired =
-        native_dmabuf ? livekit_ffi::OutputBufferMode::Dmabuf
-                      : livekit_ffi::OutputBufferMode::Mmap;
-    int kf_interval = codec_.H264()->keyFrameInterval;
-    if (kf_interval <= 0) {
-      kf_interval = codec_.maxFramerate > 0
-                        ? codec_.maxFramerate * 2  // ~2 seconds of frames
-                        : 60;
-    }
-    uint32_t fourcc = native_dmabuf ? native_dmabuf->fourcc()
-                                    : 0x32315559u;  // V4L2_PIX_FMT_YUV420
-    if (!encoder_->Initialize(codec_.width, codec_.height,
-                               codec_.startBitrate * 1000, kf_interval,
-                               codec_.maxFramerate, desired, fourcc)) {
+        native_dmabuf_safe ? livekit_ffi::OutputBufferMode::Dmabuf
+                           : livekit_ffi::OutputBufferMode::Mmap;
+    uint32_t fourcc = native_dmabuf_safe ? native_dmabuf->fourcc()
+                                         : kFourccYuv420;
+    int input_stride = native_dmabuf_safe ? native_dmabuf->plane_stride(0)
+                                          : codec_.width;
+    if (!initialize_encoder(desired, fourcc, input_stride)) {
       RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize H.264 encoder";
+      first_frame_ = true;
+      ReportError();
+      return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+    }
+    if (desired == livekit_ffi::OutputBufferMode::Dmabuf &&
+        encoder_->output_stride() != input_stride) {
+      RTC_LOG(LS_WARNING)
+          << "V4L2: Driver adjusted DMABUF output stride from "
+          << input_stride << " to " << encoder_->output_stride()
+          << "; falling back to ToI420 + MMAP";
+      encoder_->Destroy();
+      native_dmabuf_safe = false;
+      send_key_frame = true;
+      if (!initialize_encoder(livekit_ffi::OutputBufferMode::Mmap,
+                              kFourccYuv420, codec_.width)) {
+        RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize MMAP fallback";
+        first_frame_ = true;
+        ReportError();
+        return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+      }
+    }
+  } else if (encoder_->mode() == livekit_ffi::OutputBufferMode::Dmabuf &&
+             !native_dmabuf_safe) {
+    RTC_LOG(LS_WARNING)
+        << "V4L2: Switching from DMABUF to MMAP because the incoming frame "
+           "cannot be safely imported";
+    encoder_->Destroy();
+    send_key_frame = true;
+    if (!initialize_encoder(livekit_ffi::OutputBufferMode::Mmap,
+                            kFourccYuv420, codec_.width)) {
+      RTC_LOG(LS_ERROR) << "V4L2: Failed to reinitialize H.264 encoder";
+      first_frame_ = true;
       ReportError();
       return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
     }
@@ -228,13 +341,14 @@ int32_t V4L2H264EncoderImpl::Encode(
 
   // --- Encode via V4L2 ---
 
-  webrtc::scoped_refptr<webrtc::EncodedImageBufferInterface> bitstream;
-  if (native_dmabuf &&
+  livekit_ffi::EncodeResult result;
+  if (native_dmabuf_safe &&
       encoder_->mode() == livekit_ffi::OutputBufferMode::Dmabuf) {
-    bitstream = encoder_->EncodeDmabuf(native_dmabuf->dmabuf_fd(),
-                                        native_dmabuf->plane_offset(0),
-                                        native_dmabuf->total_size(),
-                                        send_key_frame);
+    result = encoder_->EncodeDmabuf(native_dmabuf->dmabuf_fd(),
+                                    native_dmabuf->plane_offset(0),
+                                    native_dmabuf->total_size(),
+                                    send_key_frame,
+                                    input_frame.rtp_timestamp());
   } else {
     if (native_dmabuf) {
       RTC_LOG(LS_WARNING) << "V4L2: Native DMABUF frame received but encoder "
@@ -251,20 +365,24 @@ int32_t V4L2H264EncoderImpl::Encode(
     }
     RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
     RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
-    bitstream = encoder_->Encode(
+    result = encoder_->Encode(
         frame_buffer->DataY(), frame_buffer->DataU(), frame_buffer->DataV(),
         frame_buffer->StrideY(), frame_buffer->StrideU(),
-        frame_buffer->StrideV(), send_key_frame);
+        frame_buffer->StrideV(), send_key_frame, input_frame.rtp_timestamp());
   }
 
-  if (!bitstream || bitstream->size() == 0) {
+  if (result.status == livekit_ffi::EncodeResult::Status::NoOutput) {
+    return WEBRTC_VIDEO_CODEC_OK;
+  }
+  if (result.status == livekit_ffi::EncodeResult::Status::Error ||
+      !result.frame.bitstream || result.frame.bitstream->size() == 0) {
     RTC_LOG(LS_ERROR) << "V4L2: Encode() failed";
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
   // --- Populate the EncodedImage and deliver it ---
 
-  encoded_image_.SetEncodedData(bitstream);
+  encoded_image_.SetEncodedData(result.frame.bitstream);
 
   // Parse the bitstream to extract QP for rate-control feedback.
   h264_bitstream_parser_.ParseBitstream(encoded_image_);
@@ -273,9 +391,9 @@ int32_t V4L2H264EncoderImpl::Encode(
 
   encoded_image_._encodedWidth = configuration_.width;
   encoded_image_._encodedHeight = configuration_.height;
-  encoded_image_.SetRtpTimestamp(input_frame.rtp_timestamp());
+  encoded_image_.SetRtpTimestamp(result.frame.rtp_timestamp);
   encoded_image_.SetColorSpace(input_frame.color_space());
-  encoded_image_._frameType = send_key_frame
+  encoded_image_._frameType = result.frame.key_frame
                                   ? VideoFrameType::kVideoFrameKey
                                   : VideoFrameType::kVideoFrameDelta;
 
@@ -284,7 +402,7 @@ int32_t V4L2H264EncoderImpl::Encode(
   codec_specific.codecSpecific.H264.packetization_mode = packetization_mode_;
   codec_specific.codecSpecific.H264.temporal_idx = kNoTemporalIdx;
   codec_specific.codecSpecific.H264.base_layer_sync = false;
-  codec_specific.codecSpecific.H264.idr_frame = send_key_frame;
+  codec_specific.codecSpecific.H264.idr_frame = result.frame.key_frame;
 
   encoded_image_callback_->OnEncodedImage(encoded_image_, &codec_specific);
 
