@@ -25,6 +25,7 @@ pub enum AsyncCmd {
     SetVideoQuality { publication: RemoteTrackPublication, quality: VideoQuality },
     E2eeKeyRatchet,
     LogStats,
+    RpcSendRequest { destination: String, method: String, payload: String, request_id: u64 },
 }
 
 #[derive(Debug)]
@@ -33,6 +34,7 @@ pub enum UiCmd {
     RoomEvent { event: RoomEvent },
     DataTrackPublished { track: LocalDataTrack },
     DataTrackUnpublished,
+    RpcSendResult { request_id: u64, result: Result<String, RpcError> },
 }
 
 /// AppService is the "asynchronous" part of our application, where we connect to a room and
@@ -193,6 +195,32 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     if let Some(key_provider) = e2ee_manager.key_provider() {
                         key_provider.ratchet_shared_key(0);
                     }
+                }
+            }
+            AsyncCmd::RpcSendRequest { destination, method, payload, request_id } => {
+                if let Some(state) = running_state.as_ref() {
+                    let local = state.room.local_participant();
+                    let ui_tx = inner.ui_tx.clone();
+                    tokio::spawn(async move {
+                        let result = local
+                            .perform_rpc(PerformRpcData {
+                                destination_identity: destination,
+                                method,
+                                payload,
+                                ..Default::default()
+                            })
+                            .await;
+                        let _ = ui_tx.send(UiCmd::RpcSendResult { request_id, result });
+                    });
+                } else {
+                    let _ = inner.ui_tx.send(UiCmd::RpcSendResult {
+                        request_id,
+                        result: Err(RpcError {
+                            code: RpcErrorCode::SendFailed as u32,
+                            message: "Not connected".to_string(),
+                            data: None,
+                        }),
+                    });
                 }
             }
             AsyncCmd::LogStats => {

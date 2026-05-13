@@ -1,5 +1,6 @@
 use crate::{
     data_track::{LocalDataTrackTile, RemoteDataTrackTile, MAX_VALUE, TIME_WINDOW},
+    rpc_ui::RpcUiState,
     service::{AsyncCmd, LkService, UiCmd},
     video_grid::VideoGrid,
     video_renderer::VideoRenderer,
@@ -29,6 +30,7 @@ pub struct LkApp {
     connection_failure: Option<String>,
     render_state: egui_wgpu::RenderState,
     service: LkService,
+    rpc_ui: RpcUiState,
 }
 
 impl Default for AppState {
@@ -63,6 +65,7 @@ impl LkApp {
             connecting: false,
             connection_failure: None,
             render_state: cc.wgpu_render_state.clone().unwrap(),
+            rpc_ui: RpcUiState::default(),
         }
     }
 
@@ -79,6 +82,9 @@ impl LkApp {
             }
             UiCmd::DataTrackUnpublished => {
                 self.local_data_tracks.clear();
+            }
+            UiCmd::RpcSendResult { request_id, result } => {
+                self.rpc_ui.handle_send_result(request_id, result);
             }
             UiCmd::RoomEvent { event } => {
                 log::info!("{:?}", event);
@@ -119,6 +125,7 @@ impl LkApp {
                         self.video_renderers.clear();
                         self.local_data_tracks.clear();
                         self.remote_data_tracks.clear();
+                        self.rpc_ui.on_disconnect();
                     }
                     _ => {}
                 }
@@ -245,13 +252,16 @@ impl LkApp {
     }
 
     /// Show remote_participants and their tracks
-    fn right_panel(&self, ui: &mut egui::Ui) {
+    fn right_panel(&mut self, ui: &mut egui::Ui) {
         ui.label("Participants");
         ui.separator();
 
         let Some(room) = self.service.room() else {
             return;
         };
+
+        let service = &self.service;
+        let rpc_ui = &mut self.rpc_ui;
 
         egui::ScrollArea::vertical().show(ui, |ui| {
             // Iterate with sorted keys to avoid flickers (Because this is a immediate mode UI)
@@ -290,17 +300,17 @@ impl LkApp {
                             ui.menu_button("Set Quality", |ui| {
                                 let publication = publication.clone();
                                 if ui.button("Low").clicked() {
-                                    let _ = self.service.send(AsyncCmd::SetVideoQuality {
+                                    let _ = service.send(AsyncCmd::SetVideoQuality {
                                         publication,
                                         quality: VideoQuality::Low,
                                     });
                                 } else if ui.button("Medium").clicked() {
-                                    let _ = self.service.send(AsyncCmd::SetVideoQuality {
+                                    let _ = service.send(AsyncCmd::SetVideoQuality {
                                         publication,
                                         quality: VideoQuality::Medium,
                                     });
                                 } else if ui.button("High").clicked() {
-                                    let _ = self.service.send(AsyncCmd::SetVideoQuality {
+                                    let _ = service.send(AsyncCmd::SetVideoQuality {
                                         publication,
                                         quality: VideoQuality::High,
                                     });
@@ -322,16 +332,17 @@ impl LkApp {
 
                         if publication.is_subscribed() {
                             if ui.button("Unsubscribe").clicked() {
-                                let _ =
-                                    self.service.send(AsyncCmd::UnsubscribeTrack { publication });
+                                let _ = service.send(AsyncCmd::UnsubscribeTrack { publication });
                             }
                         } else if ui.button("Subscribe").clicked() {
-                            let _ = self.service.send(AsyncCmd::SubscribeTrack { publication });
+                            let _ = service.send(AsyncCmd::SubscribeTrack { publication });
                         }
                     });
                 }
                 ui.separator();
             }
+
+            rpc_ui.show(ui, service, &room);
         });
     }
 
