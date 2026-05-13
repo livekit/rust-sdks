@@ -190,6 +190,7 @@ class V4l2H264EncoderWrapper {
     uint64_t v4l2_timestamp_us = 0;
     uint32_t rtp_timestamp = 0;
     bool key_frame = false;
+    bool requires_parameter_sets = false;
   };
 
   // --- State ---
@@ -228,6 +229,7 @@ class V4l2H264EncoderWrapper {
   std::deque<EncodedFrame> ready_frames_;
   uint64_t next_v4l2_timestamp_us_ = 1;
   bool force_next_keyframe_ = false;
+  bool require_next_keyframe_parameter_sets_ = true;
 };
 
 }  // namespace livekit_ffi

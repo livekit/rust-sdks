@@ -107,6 +107,77 @@ static std::string FourccToString(uint32_t fourcc) {
   return std::string(fourcc_chars);
 }
 
+struct H264AccessUnitInfo {
+  bool saw_nal = false;
+  bool has_idr = false;
+  bool has_sps = false;
+  bool has_pps = false;
+};
+
+static const uint8_t* FindH264StartCode(const uint8_t* begin,
+                                        const uint8_t* end,
+                                        int* start_code_size) {
+  for (const uint8_t* p = begin; p + 3 <= end; ++p) {
+    if (p[0] != 0 || p[1] != 0)
+      continue;
+    if (p[2] == 1) {
+      *start_code_size = 3;
+      return p;
+    }
+    if (p + 4 <= end && p[2] == 0 && p[3] == 1) {
+      *start_code_size = 4;
+      return p;
+    }
+  }
+  *start_code_size = 0;
+  return end;
+}
+
+static void RecordH264NalType(uint8_t nal_header, H264AccessUnitInfo* info) {
+  info->saw_nal = true;
+  switch (nal_header & 0x1f) {
+    case 5:
+      info->has_idr = true;
+      break;
+    case 7:
+      info->has_sps = true;
+      break;
+    case 8:
+      info->has_pps = true;
+      break;
+  }
+}
+
+static H264AccessUnitInfo InspectH264AccessUnit(const uint8_t* data,
+                                                size_t size) {
+  H264AccessUnitInfo info;
+  if (!data || size == 0)
+    return info;
+
+  const uint8_t* end = data + size;
+  int start_code_size = 0;
+  const uint8_t* start = FindH264StartCode(data, end, &start_code_size);
+  if (start == end) {
+    // Fallback for a single raw NAL unit. V4L2 H.264 output is normally
+    // Annex B byte stream, but this keeps keyframe metadata conservative if
+    // a driver emits one bare NAL.
+    RecordH264NalType(data[0], &info);
+    return info;
+  }
+
+  while (start < end) {
+    const uint8_t* nal = start + start_code_size;
+    int next_start_code_size = 0;
+    const uint8_t* next = FindH264StartCode(nal, end, &next_start_code_size);
+    if (nal < next)
+      RecordH264NalType(nal[0], &info);
+    start = next;
+    start_code_size = next_start_code_size;
+  }
+
+  return info;
+}
+
 static EncodeResult EncodeNoOutput() {
   EncodeResult result;
   result.status = EncodeResult::Status::NoOutput;
@@ -267,6 +338,7 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
   ready_frames_.clear();
   next_v4l2_timestamp_us_ = 1;
   force_next_keyframe_ = false;
+  require_next_keyframe_parameter_sets_ = true;
   for (int i = 0; i < kNumOutputBuffers; ++i)
     output_buffer_queued_[i] = false;
 
@@ -834,6 +906,8 @@ void V4l2H264EncoderWrapper::DrainReadyCaptureBuffers() {
             << " data_offset=" << data_offset
             << " length=" << capture_buffers_[buf.index].length;
         force_next_keyframe_ = true;
+        if (found_pending && pending.requires_parameter_sets)
+          require_next_keyframe_parameter_sets_ = true;
       }
       QueueCaptureBuffer(buf.index);
       continue;
@@ -842,11 +916,32 @@ void V4l2H264EncoderWrapper::DrainReadyCaptureBuffers() {
     const size_t encoded_size = bytesused - data_offset;
     auto* data = static_cast<const uint8_t*>(capture_buffers_[buf.index].start) +
                  data_offset;
+    const H264AccessUnitInfo h264_info =
+        InspectH264AccessUnit(data, encoded_size);
+    const bool has_parameter_sets = h264_info.has_sps && h264_info.has_pps;
+    const bool real_key_frame = h264_info.has_idr;
+    if (pending.key_frame && !real_key_frame) {
+      RTC_LOG(LS_WARNING)
+          << "V4L2: dropping requested keyframe without IDR NAL";
+      force_next_keyframe_ = true;
+      if (pending.requires_parameter_sets)
+        require_next_keyframe_parameter_sets_ = true;
+      QueueCaptureBuffer(buf.index);
+      continue;
+    }
+    if (pending.requires_parameter_sets && !has_parameter_sets) {
+      RTC_LOG(LS_WARNING)
+          << "V4L2: dropping post-initialization keyframe without SPS/PPS";
+      force_next_keyframe_ = true;
+      require_next_keyframe_parameter_sets_ = true;
+      QueueCaptureBuffer(buf.index);
+      continue;
+    }
+
     EncodedFrame frame;
     frame.bitstream = webrtc::EncodedImageBuffer::Create(data, encoded_size);
     frame.rtp_timestamp = pending.rtp_timestamp;
-    frame.key_frame =
-        pending.key_frame || ((buf.flags & V4L2_BUF_FLAG_KEYFRAME) != 0);
+    frame.key_frame = real_key_frame;
     ready_frames_.push_back(std::move(frame));
 
     QueueCaptureBuffer(buf.index);
@@ -1082,10 +1177,14 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
     return EncodeError();
   }
   output_buffer_queued_[buf_index] = true;
-  pending_frames_.push_back(
-      PendingFrame{v4l2_timestamp_us, rtp_timestamp, force_idr});
-  if (force_idr)
+  const bool requires_parameter_sets =
+      force_idr && require_next_keyframe_parameter_sets_;
+  pending_frames_.push_back(PendingFrame{
+      v4l2_timestamp_us, rtp_timestamp, force_idr, requires_parameter_sets});
+  if (force_idr) {
     force_next_keyframe_ = false;
+    require_next_keyframe_parameter_sets_ = false;
+  }
 
   EncodeResult result = WaitForEncodedFrame(/*timeout_ms=*/1000);
   if (mode_ == OutputBufferMode::UserPtr && result.status == EncodeResult::Status::NoOutput &&
