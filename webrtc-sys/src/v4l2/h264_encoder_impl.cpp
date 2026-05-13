@@ -239,8 +239,41 @@ int32_t V4L2H264EncoderImpl::Encode(
   if (frame_types && (*frame_types)[0] == VideoFrameType::kEmptyFrame)
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
 
+  const int frame_width = input_frame.width();
+  const int frame_height = input_frame.height();
+  if (frame_width <= 0 || frame_height <= 0) {
+    RTC_LOG(LS_ERROR) << "V4L2: Invalid input frame size " << frame_width
+                      << "x" << frame_height;
+    ReportError();
+    return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
+  }
+
+  const bool frame_size_changed = frame_width != configuration_.width ||
+                                  frame_height != configuration_.height;
+  if (frame_size_changed) {
+    RTC_LOG(LS_INFO) << "V4L2: Reconfiguring H.264 encoder from "
+                     << configuration_.width << "x" << configuration_.height
+                     << " to " << frame_width << "x" << frame_height;
+    if (encoder_->IsInitialized())
+      encoder_->Destroy();
+
+    configuration_.width = frame_width;
+    configuration_.height = frame_height;
+    codec_.width = frame_width;
+    codec_.height = frame_height;
+    codec_.simulcastStream[0].width = frame_width;
+    codec_.simulcastStream[0].height = frame_height;
+
+    encoded_image_.SetEncodedData(EncodedImageBuffer::Create(
+        CalcBufferSize(VideoType::kI420, frame_width, frame_height)));
+    encoded_image_._encodedWidth = frame_width;
+    encoded_image_._encodedHeight = frame_height;
+    encoded_image_.set_size(0);
+  }
+
   // Determine whether we need to force an IDR keyframe.
   bool send_key_frame =
+      frame_size_changed ||
       (configuration_.key_frame_request && configuration_.sending) ||
       (frame_types && (*frame_types)[0] == VideoFrameType::kVideoFrameKey);
   if (first_frame_) {
@@ -278,7 +311,7 @@ int32_t V4L2H264EncoderImpl::Encode(
                         ? codec_.maxFramerate * 2  // ~2 seconds of frames
                         : 60;
     }
-    return encoder_->Initialize(codec_.width, codec_.height,
+    return encoder_->Initialize(configuration_.width, configuration_.height,
                                 codec_.startBitrate * 1000, kf_interval,
                                 codec_.maxFramerate, desired, fourcc,
                                 input_stride);
@@ -300,7 +333,7 @@ int32_t V4L2H264EncoderImpl::Encode(
     uint32_t fourcc = native_dmabuf_safe ? native_dmabuf->fourcc()
                                          : kFourccYuv420;
     int input_stride = native_dmabuf_safe ? native_dmabuf->plane_stride(0)
-                                          : codec_.width;
+                                          : configuration_.width;
     if (!initialize_encoder(desired, fourcc, input_stride)) {
       if (desired != livekit_ffi::OutputBufferMode::Dmabuf) {
         RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize H.264 encoder";
@@ -316,7 +349,7 @@ int32_t V4L2H264EncoderImpl::Encode(
       send_key_frame = true;
       desired = livekit_ffi::OutputBufferMode::Mmap;
       fourcc = kFourccYuv420;
-      input_stride = codec_.width;
+      input_stride = configuration_.width;
       if (!initialize_encoder(desired, fourcc, input_stride)) {
         RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize MMAP fallback";
         first_frame_ = true;
@@ -336,7 +369,7 @@ int32_t V4L2H264EncoderImpl::Encode(
       native_dmabuf_safe = false;
       send_key_frame = true;
       if (!initialize_encoder(livekit_ffi::OutputBufferMode::Mmap,
-                              kFourccYuv420, codec_.width)) {
+                              kFourccYuv420, configuration_.width)) {
         RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize MMAP fallback";
         first_frame_ = true;
         ReportError();
@@ -351,7 +384,7 @@ int32_t V4L2H264EncoderImpl::Encode(
     encoder_->Destroy();
     send_key_frame = true;
     if (!initialize_encoder(livekit_ffi::OutputBufferMode::Mmap,
-                            kFourccYuv420, codec_.width)) {
+                            kFourccYuv420, configuration_.width)) {
       RTC_LOG(LS_ERROR) << "V4L2: Failed to reinitialize H.264 encoder";
       first_frame_ = true;
       ReportError();
@@ -383,8 +416,16 @@ int32_t V4L2H264EncoderImpl::Encode(
                         << " to I420";
       return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
     }
-    RTC_DCHECK_EQ(configuration_.width, frame_buffer->width());
-    RTC_DCHECK_EQ(configuration_.height, frame_buffer->height());
+    if (configuration_.width != frame_buffer->width() ||
+        configuration_.height != frame_buffer->height()) {
+      RTC_LOG(LS_ERROR) << "V4L2: Converted frame size "
+                        << frame_buffer->width() << "x"
+                        << frame_buffer->height()
+                        << " does not match configured encoder size "
+                        << configuration_.width << "x"
+                        << configuration_.height;
+      return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
+    }
     result = encoder_->Encode(
         frame_buffer->DataY(), frame_buffer->DataU(), frame_buffer->DataV(),
         frame_buffer->StrideY(), frame_buffer->StrideU(),
