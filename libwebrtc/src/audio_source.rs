@@ -87,7 +87,9 @@ pub enum RtcAudioSource {
     /// let audio = PlatformAudio::new()?;
     ///
     /// // Optionally select a specific device
-    /// audio.set_recording_device(0)?;
+    /// if let Some(device) = audio.recording_devices().next() {
+    ///     audio.set_recording_device(&device.id)?;
+    /// }
     ///
     /// // Create track using the device source
     /// let track = LocalAudioTrack::create_audio_track("mic", audio.rtc_source());

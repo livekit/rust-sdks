@@ -14,7 +14,7 @@
 
 //! FFI bindings for PlatformAudio device management.
 
-use livekit::PlatformAudio;
+use livekit::{PlatformAudio, PlayoutDeviceId, RecordingDeviceId};
 
 use super::{FfiHandle, FfiServer};
 use crate::{proto, FfiResult};
@@ -90,7 +90,8 @@ pub fn on_set_recording_device(
 ) -> FfiResult<proto::SetRecordingDeviceResponse> {
     let ffi_audio = server.retrieve_handle::<FfiPlatformAudio>(req.platform_audio_handle)?;
 
-    match ffi_audio.audio.set_recording_device_by_guid(&req.device_id) {
+    let device_id = RecordingDeviceId::from_unchecked_guid(&req.device_id);
+    match ffi_audio.audio.set_recording_device(&device_id) {
         Ok(()) => Ok(proto::SetRecordingDeviceResponse { error: None }),
         Err(e) => Ok(proto::SetRecordingDeviceResponse { error: Some(e.to_string()) }),
     }
@@ -102,7 +103,8 @@ pub fn on_set_playout_device(
 ) -> FfiResult<proto::SetPlayoutDeviceResponse> {
     let ffi_audio = server.retrieve_handle::<FfiPlatformAudio>(req.platform_audio_handle)?;
 
-    match ffi_audio.audio.set_playout_device_by_guid(&req.device_id) {
+    let device_id = PlayoutDeviceId::from_unchecked_guid(&req.device_id);
+    match ffi_audio.audio.set_playout_device(&device_id) {
         Ok(()) => Ok(proto::SetPlayoutDeviceResponse { error: None }),
         Err(e) => Ok(proto::SetPlayoutDeviceResponse { error: Some(e.to_string()) }),
     }

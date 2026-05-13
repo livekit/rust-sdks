@@ -635,7 +635,7 @@ async fn test_platform_audio_with_native_source() -> Result<()> {
     assert!(matches!(mic_source, RtcAudioSource::Device));
     assert!(matches!(screen_rtc_source, RtcAudioSource::Native(_)));
 
-    let recording_count = mic.recording_device_count();
+    let recording_count = mic.recording_devices().count();
     log::info!("PlatformAudio ({} mics) and NativeAudioSource can coexist", recording_count);
 
     drop(mic);
