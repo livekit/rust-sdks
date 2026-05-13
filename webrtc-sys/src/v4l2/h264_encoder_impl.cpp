@@ -94,6 +94,15 @@ std::pair<int, int> MacroblockAlignedEncodeSize(int width, int height) {
   return largest_aligned;
 }
 
+int PostReconfigureDropFrameCount(float frame_rate) {
+  const int nominal_frame_rate = static_cast<int>(std::round(frame_rate));
+  // Drop roughly half a second of encoder output, capped to keep adaptation
+  // responsive. bcm2835-codec can emit parseable but visually corrupt frames
+  // immediately after a size reconfiguration; the released frame after this
+  // window is forced to be a fresh IDR.
+  return std::min(15, std::max(4, nominal_frame_rate / 2));
+}
+
 int ChromaHeight(int height) {
   return (height + 1) / 2;
 }
@@ -208,6 +217,7 @@ int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* inst,
     return release_ret;
   }
   first_frame_ = true;
+  post_reconfigure_drop_frames_ = 0;
 
   codec_ = *inst;
 
@@ -265,6 +275,7 @@ int32_t V4L2H264EncoderImpl::Release() {
   if (encoder_->IsInitialized())
     encoder_->Destroy();
   first_frame_ = true;
+  post_reconfigure_drop_frames_ = 0;
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -335,6 +346,12 @@ int32_t V4L2H264EncoderImpl::Encode(
     encoded_image_._encodedWidth = encode_width;
     encoded_image_._encodedHeight = encode_height;
     encoded_image_.set_size(0);
+
+    post_reconfigure_drop_frames_ =
+        PostReconfigureDropFrameCount(configuration_.max_frame_rate);
+    RTC_LOG(LS_INFO) << "V4L2: Dropping "
+                     << post_reconfigure_drop_frames_
+                     << " post-reconfigure warmup frames";
   }
 
   // Determine whether we need to force an IDR keyframe.
@@ -519,6 +536,14 @@ int32_t V4L2H264EncoderImpl::Encode(
       !result.frame.bitstream || result.frame.bitstream->size() == 0) {
     RTC_LOG(LS_ERROR) << "V4L2: Encode() failed";
     return WEBRTC_VIDEO_CODEC_ERROR;
+  }
+
+  if (post_reconfigure_drop_frames_ > 0) {
+    --post_reconfigure_drop_frames_;
+    configuration_.key_frame_request = true;
+    RTC_LOG(LS_INFO) << "V4L2: Dropping post-reconfigure warmup frame; "
+                     << post_reconfigure_drop_frames_ << " remaining";
+    return WEBRTC_VIDEO_CODEC_OK;
   }
 
   // --- Populate the EncodedImage and deliver it ---

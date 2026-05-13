@@ -99,6 +99,7 @@ class V4L2H264EncoderImpl : public VideoEncoder {
   const SdpVideoFormat format_;
 
   bool first_frame_ = true;
+  int post_reconfigure_drop_frames_ = 0;
 };
 
 }  // namespace webrtc
