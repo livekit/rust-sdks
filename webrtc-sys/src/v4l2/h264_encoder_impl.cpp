@@ -202,9 +202,13 @@ int32_t V4L2H264EncoderImpl::Encode(
   // the encoder; mode changes (which would require destroy + reinit)
   // are logged and silently routed through ToI420.
   if (!encoder_->IsInitialized()) {
+    // CPU-backed frames are fed through MMAP for driver compatibility. USERPTR
+    // avoids one copy when planes are already contiguous, but bcm2835-codec on
+    // Raspberry Pi is much happier with driver-owned MMAP buffers. Native
+    // DMABUF frames still use true zero-copy import.
     livekit_ffi::OutputBufferMode desired =
         native_dmabuf ? livekit_ffi::OutputBufferMode::Dmabuf
-                      : livekit_ffi::OutputBufferMode::UserPtr;
+                      : livekit_ffi::OutputBufferMode::Mmap;
     int kf_interval = codec_.H264()->keyFrameInterval;
     if (kf_interval <= 0) {
       kf_interval = codec_.maxFramerate > 0

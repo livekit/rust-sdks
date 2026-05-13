@@ -6,6 +6,7 @@ use livekit::options::{
     VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
+use livekit::webrtc::stats::RtcStats;
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
@@ -116,6 +117,37 @@ fn list_cameras() -> Result<()> {
         println!("{}. {}", i, cam.human_name());
     }
     Ok(())
+}
+
+fn log_video_outbound_stats(stats: &[RtcStats]) {
+    for stat in stats {
+        let RtcStats::OutboundRtp(outbound) = stat else {
+            continue;
+        };
+        if outbound.stream.kind != "video" {
+            continue;
+        }
+
+        let rid = if outbound.outbound.rid.is_empty() {
+            "single".to_string()
+        } else {
+            outbound.outbound.rid.clone()
+        };
+        info!(
+            "WebRTC outbound ({rid}): {}x{} | ~{:.1} fps | encoded {} (key {}) | sent {} frames, {} packets, {} bytes | encoder: {} | active: {} | target {:.0} bps",
+            outbound.outbound.frame_width,
+            outbound.outbound.frame_height,
+            outbound.outbound.frames_per_second,
+            outbound.outbound.frames_encoded,
+            outbound.outbound.key_frames_encoded,
+            outbound.outbound.frames_sent,
+            outbound.sent.packets_sent,
+            outbound.sent.bytes_sent,
+            outbound.outbound.encoder_implementation,
+            outbound.outbound.active,
+            outbound.outbound.target_bitrate,
+        );
+    }
 }
 
 #[tokio::main]
@@ -369,6 +401,10 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             "Video status: {}x{} | ~{:.1} fps | total published {} | dropped {}",
             fmt.width, fmt.height, fps_est, stats.frames_published, stats.frames_dropped,
         );
+        match track.get_stats().await {
+            Ok(stats) => log_video_outbound_stats(&stats),
+            Err(e) => debug!("Unable to read outbound WebRTC stats: {e:?}"),
+        }
         last_log = std::time::Instant::now();
         last_published = stats.frames_published;
     }
