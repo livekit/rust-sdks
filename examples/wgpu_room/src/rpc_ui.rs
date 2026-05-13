@@ -181,14 +181,17 @@ impl RpcUiState {
         if self.send_in_flight.is_some() {
             let dest =
                 self.send_destination.as_ref().map(|i| i.as_str().to_string()).unwrap_or_default();
-            ui.colored_label(Color32::GRAY, format!("→ {} {}…", dest, self.send_method));
+            ui.colored_label(Color32::GRAY, format!("Sending to {} {}...", dest, self.send_method));
         } else {
             match &self.send_result {
                 Some(SendResult::Ok(s)) => {
-                    ui.colored_label(Color32::LIGHT_GREEN, format!("✓ {}", preview_response(s)));
+                    ui.colored_label(Color32::LIGHT_GREEN, format!("OK: {}", preview_response(s)));
                 }
                 Some(SendResult::Err { code, message }) => {
-                    ui.colored_label(Color32::LIGHT_RED, format!("✕ {}: {}", code, message));
+                    ui.colored_label(
+                        Color32::LIGHT_RED,
+                        format!("Error {}: {}", code, message),
+                    );
                 }
                 None => {}
             }
@@ -260,7 +263,7 @@ impl RpcUiState {
                 ui.horizontal(|ui| {
                     ui.monospace(egui::RichText::new(&guard.method).strong());
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("✕ Unregister").clicked() {
+                        if ui.button("Unregister").clicked() {
                             to_remove = Some(guard.method.clone());
                         }
                     });
@@ -289,32 +292,26 @@ impl RpcUiState {
 
                 ui.label(format!("Invocations ({})", guard.invocation_count));
 
-                egui::ScrollArea::vertical()
-                    .id_salt(format!("rpc_handler_scroll_{}", guard.method))
-                    .max_height(180.0)
-                    .stick_to_bottom(true)
-                    .show(ui, |ui| {
-                        if guard.invocations.is_empty() {
-                            ui.colored_label(Color32::GRAY, "No invocations yet");
-                        } else {
-                            for inv in guard.invocations.iter() {
-                                let meta = format!(
-                                    "#{} · {} · {} · {}",
-                                    inv.n,
-                                    inv.caller,
-                                    format_size(inv.payload_len),
-                                    format_ts(inv.received_at),
-                                );
-                                ui.add(egui::Label::new(
-                                    egui::RichText::new(meta).small().color(Color32::GRAY),
-                                ));
-                                ui.add(egui::Label::new(
-                                    egui::RichText::new(&inv.payload_preview).monospace(),
-                                ));
-                                ui.separator();
-                            }
-                        }
-                    });
+                if guard.invocations.is_empty() {
+                    ui.colored_label(Color32::GRAY, "No invocations yet");
+                } else {
+                    for inv in guard.invocations.iter() {
+                        let meta = format!(
+                            "#{} | {} | {} | {}",
+                            inv.n,
+                            inv.caller,
+                            format_size(inv.payload_len),
+                            format_ts(inv.received_at),
+                        );
+                        ui.add(egui::Label::new(
+                            egui::RichText::new(meta).small().color(Color32::GRAY),
+                        ));
+                        ui.add(egui::Label::new(
+                            egui::RichText::new(&inv.payload_preview).monospace(),
+                        ));
+                        ui.separator();
+                    }
+                }
             });
         }
 
@@ -346,7 +343,7 @@ fn truncate_chars(s: &str, max_chars: usize) -> String {
     let mut iter = s.chars();
     let head: String = iter.by_ref().take(max_chars).collect();
     if iter.next().is_some() {
-        format!("{}…", head)
+        format!("{}...", head)
     } else {
         head
     }
@@ -357,7 +354,7 @@ fn preview_response(s: &str) -> String {
     let mut iter = s.chars();
     let head: String = iter.by_ref().take(RESPONSE_PREVIEW_CHARS).collect();
     if iter.next().is_some() {
-        format!("{}… ({}B)", head, bytes)
+        format!("{}... ({}B)", head, bytes)
     } else {
         head
     }
