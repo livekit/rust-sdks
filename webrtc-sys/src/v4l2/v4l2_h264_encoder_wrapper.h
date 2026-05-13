@@ -202,6 +202,8 @@ class V4l2H264EncoderWrapper {
   int frame_size_ = 0;  // configured sizeimage for OUTPUT (single plane)
   int output_stride_ = 0;
   int output_chroma_stride_ = 0;
+  int output_luma_height_ = 0;
+  int output_chroma_height_ = 0;
   int capture_buffer_size_ = 0;
   OutputBufferMode mode_ = OutputBufferMode::Mmap;
   uint32_t input_fourcc_ = 0;

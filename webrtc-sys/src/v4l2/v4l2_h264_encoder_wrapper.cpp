@@ -61,6 +61,10 @@ static int ChromaWidth(int width) {
   return (width + 1) / 2;
 }
 
+static int AlignUp(int value, int alignment) {
+  return ((value + alignment - 1) / alignment) * alignment;
+}
+
 static int ChromaStrideForFourcc(uint32_t fourcc, int stride) {
   if (fourcc == V4L2_PIX_FMT_YUV420) {
     return stride / 2;
@@ -82,6 +86,25 @@ static int FrameSizeForFourcc(uint32_t fourcc, int stride, int height) {
   }
   // Conservative fallback: treat as 1 byte/pixel.
   return stride * height;
+}
+
+static int StorageLumaHeightForFourcc(uint32_t fourcc,
+                                      int stride,
+                                      int visible_height,
+                                      int sizeimage) {
+  if (fourcc != V4L2_PIX_FMT_YUV420 && fourcc != V4L2_PIX_FMT_NV12)
+    return visible_height;
+
+  // bcm2835-codec stores raw OUTPUT planes at macroblock-aligned heights
+  // for H.264, even when the visible frame height is not a multiple of 16
+  // (for example 480x360). The negotiated sizeimage tells us when that
+  // storage layout is available; keep visible-height offsets otherwise.
+  const int aligned_height = AlignUp(visible_height, 16);
+  if (aligned_height == visible_height)
+    return visible_height;
+  if (FrameSizeForFourcc(fourcc, stride, aligned_height) <= sizeimage)
+    return aligned_height;
+  return visible_height;
 }
 
 static timeval TimevalFromUsec(uint64_t timestamp_us) {
@@ -332,6 +355,8 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
   input_fourcc_ = input_fourcc;
   output_stride_ = input_stride > 0 ? input_stride : width;
   output_chroma_stride_ = ChromaStrideForFourcc(input_fourcc_, output_stride_);
+  output_luma_height_ = height;
+  output_chroma_height_ = ChromaHeight(height);
   frame_size_ = FrameSizeForFourcc(input_fourcc_, output_stride_, height);
   capture_buffer_size_ = std::max(2 << 20, width * height);
   pending_frames_.clear();
@@ -421,6 +446,14 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
   frame_size_ = std::max<int>(
       FrameSizeForFourcc(input_fourcc_, output_stride_, height),
       fmt.fmt.pix_mp.plane_fmt[0].sizeimage);
+  output_luma_height_ = StorageLumaHeightForFourcc(
+      input_fourcc_, output_stride_, height, frame_size_);
+  output_chroma_height_ = ChromaHeight(output_luma_height_);
+  if (output_luma_height_ != height) {
+    RTC_LOG(LS_INFO)
+        << "V4L2: using macroblock-aligned OUTPUT plane height "
+        << output_luma_height_ << " for visible height " << height;
+  }
 
   if (mode_ != OutputBufferMode::Dmabuf &&
       input_fourcc_ != V4L2_PIX_FMT_YUV420) {
@@ -683,13 +716,13 @@ void V4l2H264EncoderWrapper::CopyI420ToOutputBuffer(int index,
   for (int row = 0; row < height_; row++)
     memcpy(dst + row * dst_stride_y, y + row * stride_y, width_);
 
-  uint8_t* dst_u = dst + dst_stride_y * height_;
-  memset(dst_u, 128, dst_stride_uv * chroma_height);
+  uint8_t* dst_u = dst + dst_stride_y * output_luma_height_;
+  memset(dst_u, 128, dst_stride_uv * output_chroma_height_);
   for (int row = 0; row < chroma_height; row++)
     memcpy(dst_u + row * dst_stride_uv, u + row * stride_u, chroma_width);
 
-  uint8_t* dst_v = dst_u + dst_stride_uv * chroma_height;
-  memset(dst_v, 128, dst_stride_uv * chroma_height);
+  uint8_t* dst_v = dst_u + dst_stride_uv * output_chroma_height_;
+  memset(dst_v, 128, dst_stride_uv * output_chroma_height_);
   for (int row = 0; row < chroma_height; row++)
     memcpy(dst_v + row * dst_stride_uv, v + row * stride_v, chroma_width);
 }
@@ -709,9 +742,8 @@ void V4l2H264EncoderWrapper::PrimeEncoderPipeline() {
 
   // Build a proper black I420 frame: Y=0 (black luma), U=V=128 (neutral
   // chroma, i.e. no colour cast).
-  const int y_size = output_stride_ * height_;
-  const int chroma_height = ChromaHeight(height_);
-  const int uv_size = output_chroma_stride_ * chroma_height;
+  const int y_size = output_stride_ * output_luma_height_;
+  const int uv_size = output_chroma_stride_ * output_chroma_height_;
   memset(black_frame.data() + y_size, 128, uv_size);
   memset(black_frame.data() + y_size + uv_size, 128, uv_size);
 
@@ -1070,12 +1102,12 @@ V4l2H264EncoderWrapper::Encode(const uint8_t* y,
       memset(dst, 0, scratch.size());
       for (int row = 0; row < height_; row++)
         memcpy(dst + row * dst_stride_y, y + row * stride_y, width_);
-      uint8_t* dst_u = dst + dst_stride_y * height_;
-      memset(dst_u, 128, dst_stride_uv * chroma_height);
+      uint8_t* dst_u = dst + dst_stride_y * output_luma_height_;
+      memset(dst_u, 128, dst_stride_uv * output_chroma_height_);
       for (int row = 0; row < chroma_height; row++)
         memcpy(dst_u + row * dst_stride_uv, u + row * stride_u, chroma_width);
-      uint8_t* dst_v = dst_u + dst_stride_uv * chroma_height;
-      memset(dst_v, 128, dst_stride_uv * chroma_height);
+      uint8_t* dst_v = dst_u + dst_stride_uv * output_chroma_height_;
+      memset(dst_v, 128, dst_stride_uv * output_chroma_height_);
       for (int row = 0; row < chroma_height; row++)
         memcpy(dst_v + row * dst_stride_uv, v + row * stride_v, chroma_width);
       userptr = dst;
