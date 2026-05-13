@@ -22,6 +22,19 @@ pub enum Priority {
     High,
 }
 
+/// Controls how WebRTC adapts video when bandwidth or CPU is constrained.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum DegradationPreference {
+    /// Disable automatic quality degradation.
+    Disabled,
+    /// Preserve frame rate by adapting resolution first.
+    MaintainFramerate,
+    /// Preserve resolution by adapting frame rate first.
+    MaintainResolution,
+    /// Let WebRTC balance frame-rate and resolution adaptation.
+    Balanced,
+}
+
 #[derive(Debug, Clone)]
 pub struct RtpHeaderExtensionParameters {
     pub uri: String,
@@ -34,6 +47,8 @@ pub struct RtpParameters {
     pub codecs: Vec<RtpCodecParameters>,
     pub header_extensions: Vec<RtpHeaderExtensionParameters>,
     pub rtcp: RtcpParameters,
+    /// Preferred video degradation behavior for this sender.
+    pub degradation_preference: Option<DegradationPreference>,
 }
 
 #[derive(Debug, Clone, Default)]

@@ -28,6 +28,18 @@ impl From<sys_webrtc::ffi::Priority> for Priority {
     }
 }
 
+impl From<sys_rp::ffi::DegradationPreference> for DegradationPreference {
+    fn from(value: sys_rp::ffi::DegradationPreference) -> Self {
+        match value {
+            sys_rp::ffi::DegradationPreference::Disabled => Self::Disabled,
+            sys_rp::ffi::DegradationPreference::MaintainFramerate => Self::MaintainFramerate,
+            sys_rp::ffi::DegradationPreference::MaintainResolution => Self::MaintainResolution,
+            sys_rp::ffi::DegradationPreference::Balanced => Self::Balanced,
+            _ => panic!("unknown DegradationPreference"),
+        }
+    }
+}
+
 impl From<sys_rp::ffi::RtpExtension> for RtpHeaderExtensionParameters {
     fn from(value: sys_rp::ffi::RtpExtension) -> Self {
         Self { uri: value.uri, id: value.id, encrypted: value.encrypt }
@@ -40,6 +52,9 @@ impl From<sys_rp::ffi::RtpParameters> for RtpParameters {
             codecs: value.codecs.into_iter().map(Into::into).collect(),
             header_extensions: value.header_extensions.into_iter().map(Into::into).collect(),
             rtcp: value.rtcp.into(),
+            degradation_preference: value
+                .has_degradation_preference
+                .then_some(value.degradation_preference.into()),
         }
     }
 }
@@ -132,6 +147,17 @@ impl From<Priority> for sys_webrtc::ffi::Priority {
     }
 }
 
+impl From<DegradationPreference> for sys_rp::ffi::DegradationPreference {
+    fn from(value: DegradationPreference) -> Self {
+        match value {
+            DegradationPreference::Disabled => Self::Disabled,
+            DegradationPreference::MaintainFramerate => Self::MaintainFramerate,
+            DegradationPreference::MaintainResolution => Self::MaintainResolution,
+            DegradationPreference::Balanced => Self::Balanced,
+        }
+    }
+}
+
 impl From<RtpHeaderExtensionParameters> for sys_rp::ffi::RtpExtension {
     fn from(value: RtpHeaderExtensionParameters) -> Self {
         Self { uri: value.uri, id: value.id, encrypt: value.encrypted }
@@ -147,8 +173,11 @@ impl From<RtpParameters> for sys_rp::ffi::RtpParameters {
             rtcp: value.rtcp.into(),
             transaction_id: "".to_string(),
             mid: "".to_string(),
-            has_degradation_preference: false,
-            degradation_preference: sys_rp::ffi::DegradationPreference::Balanced,
+            has_degradation_preference: value.degradation_preference.is_some(),
+            degradation_preference: value
+                .degradation_preference
+                .unwrap_or(DegradationPreference::Balanced)
+                .into(),
         }
     }
 }

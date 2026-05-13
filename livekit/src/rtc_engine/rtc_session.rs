@@ -53,8 +53,8 @@ use crate::{
 };
 use crate::{
     id::ParticipantSid,
-    options::TrackPublishOptions,
-    prelude::TrackKind,
+    options::{TrackPublishOptions, VideoCodec},
+    prelude::{TrackKind, TrackSource},
     room::{e2ee::manager::E2eeManager, DisconnectReason},
     rtc_engine::{
         lk_runtime::LkRuntime,
@@ -1607,6 +1607,11 @@ impl SessionInner {
     ) -> EngineResult<RtpTransceiver> {
         // If video track, derive "ultimate" bitrate from encodings and stash it for offer munging.
         // Must be done before encodings is moved into RtpTransceiverInit.
+        let maintain_h264_camera_resolution = track.kind() == TrackKind::Video
+            && options.source == TrackSource::Camera
+            && options.video_codec == VideoCodec::H264
+            && encodings.len() == 1;
+
         if track.kind() == TrackKind::Video {
             let ultimate_bps: Option<u64> = {
                 let sum: u64 = encodings.iter().filter_map(|e| e.max_bitrate).sum();
@@ -1623,6 +1628,15 @@ impl SessionInner {
 
         let transceiver =
             self.publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
+
+        if maintain_h264_camera_resolution {
+            let sender = transceiver.sender();
+            let mut parameters = sender.parameters();
+            parameters.degradation_preference = Some(DegradationPreference::MaintainResolution);
+            if let Err(err) = sender.set_parameters(parameters) {
+                log::warn!("failed to set H.264 camera degradation preference: {err}");
+            }
+        }
 
         if track.kind() == TrackKind::Video {
             let capabilities = LkRuntime::instance().pc_factory().get_rtp_sender_capabilities(
