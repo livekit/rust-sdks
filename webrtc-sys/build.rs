@@ -194,8 +194,10 @@ fn main() {
                         .include(libva_include)
                         .file("src/vaapi/vaapi_display_drm.cpp")
                         .file("src/vaapi/vaapi_h264_encoder_wrapper.cpp")
+                        .file("src/vaapi/vaapi_h265_encoder_wrapper.cpp")
                         .file("src/vaapi/vaapi_encoder_factory.cpp")
                         .file("src/vaapi/h264_encoder_impl.cpp")
+                        .file("src/vaapi/h265_encoder_impl.cpp")
                         .flag("-DUSE_VAAPI_VIDEO_CODEC=1");
 
                     add_lazy_load_so(

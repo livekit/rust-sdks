@@ -31,7 +31,7 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
 - [x] Hardware video enc/dec
   - [x] H.264, H.265 using VideoToolbox (MacOS/iOS)
   - [x] H.264, H.265 on NVidia discrete GPUs (Linux)
-  - [x] H.264, H.265 on AMD CPUs & GPUs (Linux)
+  - [x] H.264, H.265 using VAAPI on supported AMD/Intel CPU/GPUs (Linux)
   - [ ] H.264, H.265 on NVidia Jetson (Linux)
 - Supported Platforms
   - [x] Windows
@@ -39,6 +39,11 @@ Use this SDK to add realtime video, audio and data features to your Rust app. By
   - [x] Linux
   - [x] iOS
   - [x] Android
+
+On Linux systems with multiple hardware encoders, set `LK_PREFERRED_HW_ENCODER`
+to `vaapi` or `nvidia` to choose the first hardware encoder to try. If the
+preferred encoder is unavailable, the SDK falls back to the other hardware
+encoder and then to software codecs.
 
 ## Crates
 

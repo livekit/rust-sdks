@@ -13,11 +13,9 @@
 
 #include "rtc_base/logging.h"
 
-static bool check_h264_encoding_support(VADisplay va_display) {
-  VAProfile profile_list[] = {VAProfileH264High, VAProfileH264Main,
-                              VAProfileH264ConstrainedBaseline};
-
-  VAProfile h264_profile = VAProfileH264ConstrainedBaseline;
+static bool check_encoding_support(VADisplay va_display,
+                                   const VAProfile* profile_list,
+                                   int profile_count) {
   VAEntrypoint* entrypoints;
   int num_entrypoints, slice_entrypoint;
   bool support_encode = false;
@@ -41,16 +39,12 @@ static bool check_h264_encoding_support(VADisplay va_display) {
   entrypoints = new VAEntrypoint[num_entrypoints * sizeof(*entrypoints)];
   if (!entrypoints) {
     RTC_LOG(LS_ERROR) << "failed to allocate VA entrypoints";
+    vaTerminate(va_display);
     return false;
   }
 
-  /* use the highest profile */
-  for (i = 0; i < sizeof(profile_list) / sizeof(profile_list[0]); i++) {
-    if ((h264_profile != ~0) && h264_profile != profile_list[i])
-      continue;
-
-    h264_profile = profile_list[i];
-    vaQueryConfigEntrypoints(va_display, h264_profile, entrypoints,
+  for (i = 0; i < static_cast<uint32_t>(profile_count); i++) {
+    vaQueryConfigEntrypoints(va_display, profile_list[i], entrypoints,
                              &num_entrypoints);
     for (slice_entrypoint = 0; slice_entrypoint < num_entrypoints;
          slice_entrypoint++) {
@@ -68,18 +62,35 @@ static bool check_h264_encoding_support(VADisplay va_display) {
   }
 
   if (support_encode) {
-    RTC_LOG(LS_INFO) << "Supported H264 Encoder, Using EntryPoint - "
+    RTC_LOG(LS_INFO) << "Supported VAAPI Encoder, Using EntryPoint - "
                      << selected_entrypoint;
   } else {
     RTC_LOG(LS_ERROR)
         << "Can't find VAEntrypointEncSlice or VAEntrypointEncSliceLP for "
-           "H264 profiles";
+           "requested VAAPI encode profiles";
     delete[] entrypoints;
+    vaTerminate(va_display);
     return false;
   }
 
   delete[] entrypoints;
+  vaTerminate(va_display);
   return true;
+}
+
+static bool check_h264_encoding_support(VADisplay va_display) {
+  VAProfile profile_list[] = {VAProfileH264High, VAProfileH264Main,
+                              VAProfileH264ConstrainedBaseline};
+  return check_encoding_support(
+      va_display, profile_list,
+      static_cast<int>(sizeof(profile_list) / sizeof(profile_list[0])));
+}
+
+static bool check_h265_encoding_support(VADisplay va_display) {
+  VAProfile profile_list[] = {VAProfileHEVCMain};
+  return check_encoding_support(
+      va_display, profile_list,
+      static_cast<int>(sizeof(profile_list) / sizeof(profile_list[0])));
 }
 
 static VADisplay va_open_display_drm(int* drm_fd) {
@@ -96,7 +107,7 @@ static VADisplay va_open_display_drm(int* drm_fd) {
     va_dpy = vaGetDisplayDRM(*drm_fd);
     vaSetErrorCallback(va_dpy, NULL, NULL);
     vaSetInfoCallback(va_dpy, NULL, NULL);
-    if (va_dpy && check_h264_encoding_support(va_dpy))
+    if (va_dpy)
       return va_dpy;
 
     close(*drm_fd);
@@ -110,11 +121,19 @@ namespace livekit_ffi {
 bool VaapiDisplayDrm::Open() {
   va_display_ = va_open_display_drm(&drm_fd_);
   if (!va_display_) {
-    RTC_LOG(LS_ERROR) << "Failed to open VA drm display. Maybe the AMD video "
+    RTC_LOG(LS_ERROR) << "Failed to open VA drm display. Maybe the video "
                          "driver or libva-dev/libdrm-dev is not installed?";
     return false;
   }
   return true;
+}
+
+bool VaapiDisplayDrm::SupportsH264Encode() const {
+  return check_h264_encoding_support(va_display_);
+}
+
+bool VaapiDisplayDrm::SupportsH265Encode() const {
+  return check_h265_encoding_support(va_display_);
 }
 
 bool VaapiDisplayDrm::isOpen() const {

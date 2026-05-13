@@ -126,7 +126,7 @@ class Benchmark {
     } else if (_bitRate == 0) {
       _bitRate = 600;
     }
-    _inst.codecType = webrtc::kVideoCodecH264;
+    _inst.codecType = _codecType;
     _inst.maxFramerate = (unsigned char)frameRate;
     _inst.minBitrate = (unsigned char)frameRate;
     _inst.startBitrate = (int)_bitRate;
@@ -180,6 +180,7 @@ class Benchmark {
   double _totalEncodePipeTime;
   double _totalDecodePipeTime;
   webrtc::VideoCodec _inst;
+  webrtc::VideoCodecType _codecType = webrtc::kVideoCodecH264;
   int _sumEncBytes;
 
   unsigned int _lengthSourceFrame = 0;

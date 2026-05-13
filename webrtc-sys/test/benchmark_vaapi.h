@@ -18,7 +18,19 @@ class VaapiBenchmark : public Benchmark {
  protected:
   webrtc::VideoEncoder* GetNewEncoder(webrtc::Environment &env) override;
 
- private:
+ protected:
   std::unique_ptr<webrtc::VideoEncoder> _encoder;
   std::unique_ptr<webrtc::VAAPIVideoEncoderFactory> _factory;
+};
+
+class VaapiH265Benchmark : public VaapiBenchmark {
+ public:
+  VaapiH265Benchmark();
+
+  bool IsSupported() override {
+    return webrtc::VAAPIVideoEncoderFactory::IsH265Supported();
+  }
+
+ protected:
+  webrtc::VideoEncoder* GetNewEncoder(webrtc::Environment &env) override;
 };

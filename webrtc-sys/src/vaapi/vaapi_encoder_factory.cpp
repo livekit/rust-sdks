@@ -3,8 +3,10 @@
 #include <memory>
 #include <iostream>
 #include <dlfcn.h>
+#include <map>
 
 #include "h264_encoder_impl.h"
+#include "h265_encoder_impl.h"
 #include "rtc_base/logging.h"
 
 #if defined(WIN32)
@@ -18,12 +20,19 @@ using VaapiDisplay = livekit_ffi::VaapiDisplayDrm;
 namespace webrtc {
 
 VAAPIVideoEncoderFactory::VAAPIVideoEncoderFactory() {
-  std::map<std::string, std::string> baselineParameters = {
-      {"profile-level-id", "42e01f"},
-      {"level-asymmetry-allowed", "1"},
-      {"packetization-mode", "1"},
-  };
-  supported_formats_.push_back(SdpVideoFormat("H264", baselineParameters));
+  if (IsH264Supported()) {
+    std::map<std::string, std::string> baselineParameters = {
+        {"profile-level-id", "42e01f"},
+        {"level-asymmetry-allowed", "1"},
+        {"packetization-mode", "1"},
+    };
+    supported_formats_.push_back(SdpVideoFormat("H264", baselineParameters));
+  }
+
+  if (IsH265Supported()) {
+    supported_formats_.push_back(SdpVideoFormat("H265"));
+    supported_formats_.push_back(SdpVideoFormat("HEVC"));
+  }
   /*
   std::map<std::string, std::string> highParameters = {
       {"profile-level-id", "4d0032"},
@@ -38,6 +47,10 @@ VAAPIVideoEncoderFactory::VAAPIVideoEncoderFactory() {
 VAAPIVideoEncoderFactory::~VAAPIVideoEncoderFactory() {}
 
 bool VAAPIVideoEncoderFactory::IsSupported() {
+  return IsH264Supported() || IsH265Supported();
+}
+
+bool VAAPIVideoEncoderFactory::CanLoadLibva() {
   // Ensure that libva and libva-drm are actually available for loading.
   // Otherwise, we will immediately abort.
   void* libva_ptr = dlopen("libva.so.2", RTLD_LAZY);
@@ -53,7 +66,15 @@ bool VAAPIVideoEncoderFactory::IsSupported() {
     return false;
   }
   dlclose(libvadrm_ptr);
-  
+
+  return true;
+}
+
+bool VAAPIVideoEncoderFactory::IsH264Supported() {
+  if (!CanLoadLibva()) {
+    return false;
+  }
+
   // Check if VAAPI is supported by the environment.
   // This could involve checking if the VAAPI display can be opened.
   VaapiDisplay vaapi_display;
@@ -62,10 +83,31 @@ bool VAAPIVideoEncoderFactory::IsSupported() {
     return false;
   }
 
+  bool supported = vaapi_display.SupportsH264Encode();
   vaapi_display.Close();
-  // If we can open the VAAPI display, we consider it supported.
-  std::cout << "VAAPI is supported." << std::endl;
-  return true;
+  if (supported) {
+    RTC_LOG(LS_INFO) << "VAAPI H264 encoder is supported.";
+  }
+  return supported;
+}
+
+bool VAAPIVideoEncoderFactory::IsH265Supported() {
+  if (!CanLoadLibva()) {
+    return false;
+  }
+
+  VaapiDisplay vaapi_display;
+  if (!vaapi_display.Open()) {
+    RTC_LOG(LS_WARNING) << "Failed to open VAAPI display.";
+    return false;
+  }
+
+  bool supported = vaapi_display.SupportsH265Encode();
+  vaapi_display.Close();
+  if (supported) {
+    RTC_LOG(LS_INFO) << "VAAPI H265 encoder is supported.";
+  }
+  return supported;
 }
 
 std::unique_ptr<VideoEncoder> VAAPIVideoEncoderFactory::Create(
@@ -74,8 +116,13 @@ std::unique_ptr<VideoEncoder> VAAPIVideoEncoderFactory::Create(
   // Check if the requested format is supported.
   for (const auto& supported_format : supported_formats_) {
     if (format.IsSameCodec(supported_format)) {
-      // If the format is supported, create and return the encoder.
-      return std::make_unique<VAAPIH264EncoderWrapper>(env, format);
+      if (format.name == "H264") {
+        return std::make_unique<VAAPIH264EncoderWrapper>(env, format);
+      }
+
+      if (format.name == "H265" || format.name == "HEVC") {
+        return std::make_unique<VAAPIH265EncoderWrapper>(env, format);
+      }
     }
   }
   return nullptr;
