@@ -188,10 +188,7 @@ impl RpcUiState {
                     ui.colored_label(Color32::LIGHT_GREEN, format!("OK: {}", preview_response(s)));
                 }
                 Some(SendResult::Err { code, message }) => {
-                    ui.colored_label(
-                        Color32::LIGHT_RED,
-                        format!("Error {}: {}", code, message),
-                    );
+                    ui.colored_label(Color32::LIGHT_RED, format!("Error {}: {}", code, message));
                 }
                 None => {}
             }
