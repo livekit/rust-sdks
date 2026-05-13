@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub use crate::utils::take_cell::TakeCell;
 use bmrng::unbounded::UnboundedRequestReceiver;
 use futures_util::{Stream, StreamExt};
 use libwebrtc::{
@@ -28,12 +29,11 @@ use livekit_datatrack::{
     api::{DataTrackSid, RemoteDataTrack},
     backend as dt,
 };
-use livekit_protocol::observer::Dispatcher;
 use livekit_protocol::{self as proto, encryption};
 use livekit_runtime::JoinHandle;
 use parking_lot::RwLock;
 pub use proto::DisconnectReason;
-use proto::{promise::Promise, SignalTarget};
+use proto::SignalTarget;
 use std::{collections::HashMap, fmt::Debug, sync::Arc, time::Duration};
 use thiserror::Error;
 use tokio::sync::{
@@ -41,7 +41,6 @@ use tokio::sync::{
     mpsc::{self, UnboundedReceiver},
     oneshot, Mutex as AsyncMutex,
 };
-pub use utils::take_cell::TakeCell;
 
 pub use self::{
     data_stream::*,
@@ -58,6 +57,7 @@ use crate::{
         EngineError, EngineEvent, EngineEvents, EngineOptions, EngineResult, RtcEngine,
         SessionStats, INITIAL_BUFFERED_AMOUNT_LOW_THRESHOLD,
     },
+    utils::{observer::Dispatcher, promise::Promise},
 };
 
 pub mod data_stream;
@@ -68,7 +68,6 @@ pub mod options;
 pub mod participant;
 pub mod publication;
 pub mod track;
-pub(crate) mod utils;
 
 pub const SDK_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -111,6 +110,18 @@ pub enum RoomEvent {
     },
     LocalTrackUnpublished {
         publication: LocalTrackPublication,
+        participant: LocalParticipant,
+    },
+    /// Fired when the SDK auto-republishes a local track during a full
+    /// reconnect. The same underlying `Track` (and its bound source) is
+    /// preserved across the cycle, but the publication and track SIDs are
+    /// re-issued by the server. Bindings are expected to update the
+    /// existing publication object in place rather than treating this as
+    /// an unpublish + publish pair.
+    LocalTrackRepublished {
+        previous_sid: TrackSid,
+        publication: LocalTrackPublication,
+        track: LocalTrack,
         participant: LocalParticipant,
     },
     LocalTrackSubscribed {
@@ -539,7 +550,7 @@ impl Room {
 
         let pi = join_response.participant.unwrap();
         let pi_kind = pi.kind().into();
-        let pi_kind_details = utils::convert_kind_details(&pi.kind_details);
+        let pi_kind_details = crate::utils::convert_kind_details(&pi.kind_details);
         let pi_state = pi.state().into();
         let local_participant = LocalParticipant::new(
             rtc_engine.clone(),
@@ -720,7 +731,7 @@ impl Room {
             let participant = {
                 let pi = pi.clone();
                 let pi_kind = pi.kind().into();
-                let pi_kind_details = utils::convert_kind_details(&pi.kind_details);
+                let pi_kind_details = crate::utils::convert_kind_details(&pi.kind_details);
                 let pi_state = pi.state().into();
                 inner.create_participant(
                     pi_kind,
@@ -1130,7 +1141,7 @@ impl RoomSession {
                 let remote_participant = {
                     let pi = pi.clone();
                     let pi_kind = pi.kind().into();
-                    let pi_kind_details = utils::convert_kind_details(&pi.kind_details);
+                    let pi_kind_details = crate::utils::convert_kind_details(&pi.kind_details);
                     let pi_state = pi.state().into();
                     self.create_participant(
                         pi_kind,
@@ -1567,21 +1578,35 @@ impl RoomSession {
                     let track = publication.track().unwrap();
 
                     let lp = session.local_participant.clone();
+                    let republish_session = session.clone();
                     let republish = async move {
-                        // Only "really" used to send LocalTrackUnpublished event (Since we don't
-                        // really need to remove the RtpSender since we know
-                        // we are using a new RtcSession,
-                        // so new PeerConnetions)
-
-                        let _ = lp.unpublish_track(&publication.sid()).await;
-                        if let Err(err) =
-                            lp.publish_track(track.clone(), publication.publish_options()).await
-                        {
-                            log::error!(
-                                "failed to republish track {} after rtc_engine restarted: {}",
-                                track.name(),
-                                err
-                            )
+                        // The unpublish+publish sequence below regenerates
+                        // server-assigned IDs but preserves the local Track
+                        // Arc (and its bound source). We capture the prior
+                        // SID so the `LocalTrackRepublished` event can carry
+                        // it through to the FFI layer / language bindings,
+                        // which use it to find the existing publication
+                        // object and update it in place.
+                        let previous_sid = publication.sid();
+                        let _ = lp.unpublish_track(&previous_sid).await;
+                        match lp.publish_track(track.clone(), publication.publish_options()).await {
+                            Ok(new_publication) => {
+                                republish_session.dispatcher.dispatch(
+                                    &RoomEvent::LocalTrackRepublished {
+                                        previous_sid,
+                                        publication: new_publication,
+                                        track: track.clone(),
+                                        participant: lp.clone(),
+                                    },
+                                );
+                            }
+                            Err(err) => {
+                                log::error!(
+                                    "failed to republish track {} after rtc_engine restarted: {}",
+                                    track.name(),
+                                    err
+                                )
+                            }
                         }
                     };
 

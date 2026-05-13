@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use livekit_protocol::enum_dispatch;
-
-use crate::imp::video_source as vs_imp;
+use crate::{enum_dispatch, imp::video_source as vs_imp};
 
 #[derive(Debug, Clone)]
 pub struct VideoResolution {

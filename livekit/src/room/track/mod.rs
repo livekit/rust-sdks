@@ -14,8 +14,8 @@
 
 use std::{fmt::Debug, sync::Arc};
 
+use libwebrtc::enum_dispatch;
 use libwebrtc::{prelude::*, stats::RtcStats};
-use livekit_protocol::enum_dispatch;
 use livekit_protocol::{self as proto};
 use parking_lot::{Mutex, RwLock};
 use thiserror::Error;
@@ -129,6 +129,18 @@ impl Track {
             Self::RemoteAudio(track) => track.get_stats().await,
             Self::RemoteVideo(track) => track.get_stats().await,
         }
+    }
+
+    /// Returns the codec clock rate from the receiver's RTP parameters.
+    /// This is the actual sample rate of the audio delivered by WebRTC's decoder.
+    pub fn codec_clock_rate(&self) -> Option<u32> {
+        self.transceiver()?
+            .receiver()
+            .parameters()
+            .codecs
+            .first()
+            .and_then(|c| c.clock_rate)
+            .map(|r| r as u32)
     }
 }
 

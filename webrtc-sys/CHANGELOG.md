@@ -165,6 +165,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.30 (2026-05-11)
+
+### Fixes
+
+#### Fix missing RTC_OBJC_TYPE macros in webrtc-sys .mm files
+
+Wrap bare ObjC class references in `RTC_OBJC_TYPE()` in `objc_video_factory.mm` and `objc_video_frame_buffer.mm` to support builds with `rtc_objc_prefix` set.
+
+#### Fix WebRTC build scripts to properly report failures and fix C++ module compilation issues
+
+- Add `set -e` to all build scripts so CI properly reports build failures instead of silently creating empty/broken artifacts
+- Re-add `use_clang_modules=false` to macOS, iOS, and Linux build scripts to fix C++ module compilation errors
+
+Without `use_clang_modules=false`, builds fail due to libc++ header incompatibilities (on macOS/iOS with Xcode 26.0) or other C++ module issues, resulting in:
+- macOS/iOS: Empty `libwebrtc.a` (~13KB instead of ~700MB)
+- Android: Missing `libwebrtc.jar`
+- Linux: Incomplete artifacts
+
+The builds appeared successful because the scripts continued after ninja failures, but now with `set -e`, failures will be properly reported.
+
+## 0.3.29 (2026-05-10)
+
+### Fixes
+
+- Fix missing `libwebrtc.jar` for Android builds, harden build scripts
+- fix race in download_webrtc to reduce flaky build - #1047 (@hechen-eng)
+- Improve WebRTC build scripts and add external_audio_source patch - #1053 (@xianshijing-lk)
+
 ## 0.3.28 (2026-04-23)
 
 ### Features

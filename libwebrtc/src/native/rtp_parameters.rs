@@ -72,6 +72,7 @@ impl From<sys_rp::ffi::RtpEncodingParameters> for RtpEncodingParameters {
             scale_resolution_down_by: value
                 .has_scale_resolution_down_by
                 .then_some(value.scale_resolution_down_by),
+            scalability_mode: value.has_scalability_mode.then_some(value.scalability_mode),
         }
     }
 }
@@ -203,8 +204,8 @@ impl From<RtpEncodingParameters> for sys_rp::ffi::RtpEncodingParameters {
             min_bitrate_bps: 0,
             has_num_temporal_layers: false,
             num_temporal_layers: 0,
-            has_scalability_mode: false,
-            scalability_mode: "".to_string(),
+            has_scalability_mode: value.scalability_mode.is_some(),
+            scalability_mode: value.scalability_mode.unwrap_or_default(),
             has_ssrc: false,
             ssrc: 0,
         }

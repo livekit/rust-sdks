@@ -1,0 +1,15 @@
+# CODEOWNERS for rust-sdks
+# These owners will be requested for review on all PRs
+* @ladvoc
+
+/device-info/ @MaxHeimbrock
+/docker/ @pham-tuan-binh
+/libwebrtc/ @cloudwebrtc
+/livekit-datatrack/ @ladvoc @1egoman
+/livekit-ffi-node-bindings/ @lukasIO @1egoman
+/livekit-ffi/ @xianshijing-lk @MaxHeimbrock @stephen-derosa @alan-george-lk
+/livekit-uniffi/ @ladvoc @pblazej
+/livekit-wakeword/ @pham-tuan-binh
+/soxr-sys/ @cloudwebrtc
+/webrtc-sys/ @cloudwebrtc
+/yuv-sys/ @cloudwebrtc

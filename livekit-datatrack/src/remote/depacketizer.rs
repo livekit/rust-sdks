@@ -306,7 +306,9 @@ mod tests {
         assert!(result.frame.is_none() && result.drop_error.is_none());
 
         let first_frame_number = packet.header.frame_number;
-        packet.header.frame_number += packet.header.frame_number.wrapping_add(1); // Next frame
+        // Advance to the next frame; `wrapping_add` so a Faker-generated
+        // u32::MAX frame_number doesn't blow up on overflow.
+        packet.header.frame_number = packet.header.frame_number.wrapping_add(1);
 
         let result = depacketizer.push(packet);
         assert!(result.frame.is_none());

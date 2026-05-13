@@ -44,9 +44,17 @@ type CreateFn = unsafe extern "C" fn(
     options: *const c_char,
     stream_info: *const c_char,
 ) -> *mut c_void;
+type CreateV2Fn = unsafe extern "C" fn(
+    input_sample_rate: u32,
+    output_sample_rate: u32,
+    options: *const c_char,
+    stream_info: *const c_char,
+) -> *mut c_void;
 type DestroyFn = unsafe extern "C" fn(*const c_void);
 type ProcessI16Fn = unsafe extern "C" fn(*const c_void, usize, *const i16, *mut i16);
+type ProcessI16V2Fn = unsafe extern "C" fn(*const c_void, usize, *const i16, usize, *mut i16);
 type ProcessF32Fn = unsafe extern "C" fn(*const c_void, usize, *const f32, *mut f32);
+type ProcessF32V2Fn = unsafe extern "C" fn(*const c_void, usize, *const f32, usize, *mut f32);
 type UpdateStreamInfoFn = unsafe extern "C" fn(*const c_void, *const c_char);
 type UpdateRefreshedTokenFn = unsafe extern "C" fn(*const c_char, *const c_char);
 
@@ -70,9 +78,12 @@ pub struct AudioFilterPlugin {
     dependencies: Vec<Library>,
     on_load_fn_ptr: *const c_void,
     create_fn_ptr: *const c_void,
+    create_v2_fn_ptr: *const c_void,
     destroy_fn_ptr: *const c_void,
     process_i16_fn_ptr: *const c_void,
+    process_i16_v2_fn_ptr: *const c_void,
     process_f32_fn_ptr: *const c_void,
+    process_f32_v2_fn_ptr: *const c_void,
     update_stream_info_fn_ptr: *const c_void,
     update_token_fn_ptr: *const c_void,
 }
@@ -106,7 +117,13 @@ impl AudioFilterPlugin {
         let create_fn_ptr = unsafe {
             lib.get::<Symbol<CreateFn>>(b"audio_filter_create")?.try_as_raw_ptr().unwrap()
         };
-        if create_fn_ptr.is_null() {
+        let create_v2_fn_ptr = unsafe {
+            match lib.get::<Symbol<CreateV2Fn>>(b"audio_filter_create_v2") {
+                Ok(sym) => sym.try_as_raw_ptr().unwrap(),
+                Err(_) => std::ptr::null(),
+            }
+        };
+        if create_fn_ptr.is_null() && create_v2_fn_ptr.is_null() {
             return Err(PluginError::NotImplemented(
                 "audio_filter_create is not implemented".into(),
             ));
@@ -124,7 +141,13 @@ impl AudioFilterPlugin {
                 .try_as_raw_ptr()
                 .unwrap()
         };
-        if process_i16_fn_ptr.is_null() {
+        let process_i16_v2_fn_ptr = unsafe {
+            match lib.get::<Symbol<ProcessI16V2Fn>>(b"audio_filter_process_int16_v2") {
+                Ok(sym) => sym.try_as_raw_ptr().unwrap(),
+                Err(_) => std::ptr::null(),
+            }
+        };
+        if process_i16_fn_ptr.is_null() && process_i16_v2_fn_ptr.is_null() {
             return Err(PluginError::NotImplemented(
                 "audio_filter_process_int16 is not implemented".into(),
             ));
@@ -133,6 +156,12 @@ impl AudioFilterPlugin {
             lib.get::<Symbol<ProcessF32Fn>>(b"audio_filter_process_float")?
                 .try_as_raw_ptr()
                 .unwrap()
+        };
+        let process_f32_v2_fn_ptr = unsafe {
+            match lib.get::<Symbol<ProcessF32V2Fn>>(b"audio_filter_process_float_v2") {
+                Ok(sym) => sym.try_as_raw_ptr().unwrap(),
+                Err(_) => std::ptr::null(),
+            }
         };
         let update_stream_info_fn_ptr = unsafe {
             lib.get::<Symbol<UpdateStreamInfoFn>>(b"audio_filter_update_stream_info")?
@@ -152,9 +181,12 @@ impl AudioFilterPlugin {
             dependencies: Default::default(),
             on_load_fn_ptr,
             create_fn_ptr,
+            create_v2_fn_ptr,
             destroy_fn_ptr,
             process_i16_fn_ptr,
+            process_i16_v2_fn_ptr,
             process_f32_fn_ptr,
+            process_f32_v2_fn_ptr,
             update_stream_info_fn_ptr,
             update_token_fn_ptr,
         })
@@ -197,20 +229,36 @@ impl AudioFilterPlugin {
         unsafe { update_token_fn(url.as_ptr(), token.as_ptr()) }
     }
 
+    pub fn supports_separate_rates(&self) -> bool {
+        !self.create_v2_fn_ptr.is_null() && !self.process_i16_v2_fn_ptr.is_null()
+    }
+
     pub fn new_session<S: AsRef<str>>(
         self: Arc<Self>,
-        sampling_rate: u32,
+        input_sample_rate: u32,
+        output_sample_rate: u32,
         options: S,
         stream_info: AudioFilterStreamInfo,
     ) -> Option<AudioFilterSession> {
-        let create_fn: CreateFn = unsafe { std::mem::transmute(self.create_fn_ptr) };
-
         let options = CString::new(options.as_ref()).unwrap_or(CString::new("").unwrap());
 
         let stream_info = serde_json::to_string(&stream_info).unwrap();
         let stream_info = CString::new(stream_info).unwrap_or(CString::new("").unwrap());
 
-        let ptr = unsafe { create_fn(sampling_rate, options.as_ptr(), stream_info.as_ptr()) };
+        let ptr = if !self.create_v2_fn_ptr.is_null() {
+            let create_fn: CreateV2Fn = unsafe { std::mem::transmute(self.create_v2_fn_ptr) };
+            unsafe {
+                create_fn(
+                    input_sample_rate,
+                    output_sample_rate,
+                    options.as_ptr(),
+                    stream_info.as_ptr(),
+                )
+            }
+        } else {
+            let create_fn: CreateFn = unsafe { std::mem::transmute(self.create_fn_ptr) };
+            unsafe { create_fn(input_sample_rate, options.as_ptr(), stream_info.as_ptr()) }
+        };
         if ptr.is_null() {
             return None;
         }
@@ -230,14 +278,56 @@ impl AudioFilterSession {
         unsafe { destroy(self.ptr) };
     }
 
-    pub fn process_i16(&self, num_samples: usize, input: &[i16], output: &mut [i16]) {
-        let process: ProcessI16Fn = unsafe { std::mem::transmute(self.plugin.process_i16_fn_ptr) };
-        unsafe { process(self.ptr, num_samples, input.as_ptr(), output.as_mut_ptr()) };
+    pub fn process_i16(
+        &self,
+        in_num_samples: usize,
+        input: &[i16],
+        out_num_samples: usize,
+        output: &mut [i16],
+    ) {
+        if !self.plugin.process_i16_v2_fn_ptr.is_null() {
+            let process: ProcessI16V2Fn =
+                unsafe { std::mem::transmute(self.plugin.process_i16_v2_fn_ptr) };
+            unsafe {
+                process(
+                    self.ptr,
+                    in_num_samples,
+                    input.as_ptr(),
+                    out_num_samples,
+                    output.as_mut_ptr(),
+                )
+            };
+        } else {
+            let process: ProcessI16Fn =
+                unsafe { std::mem::transmute(self.plugin.process_i16_fn_ptr) };
+            unsafe { process(self.ptr, in_num_samples, input.as_ptr(), output.as_mut_ptr()) };
+        }
     }
 
-    pub fn process_f32(&self, num_samples: usize, input: &[f32], output: &mut [f32]) {
-        let process: ProcessF32Fn = unsafe { std::mem::transmute(self.plugin.process_f32_fn_ptr) };
-        unsafe { process(self.ptr, num_samples, input.as_ptr(), output.as_mut_ptr()) };
+    pub fn process_f32(
+        &self,
+        in_num_samples: usize,
+        input: &[f32],
+        out_num_samples: usize,
+        output: &mut [f32],
+    ) {
+        if !self.plugin.process_f32_v2_fn_ptr.is_null() {
+            let process: ProcessF32V2Fn =
+                unsafe { std::mem::transmute(self.plugin.process_f32_v2_fn_ptr) };
+            unsafe {
+                process(
+                    self.ptr,
+                    in_num_samples,
+                    input.as_ptr(),
+                    out_num_samples,
+                    output.as_mut_ptr(),
+                )
+            };
+        } else {
+            let process: ProcessF32Fn =
+                unsafe { std::mem::transmute(self.plugin.process_f32_fn_ptr) };
+            unsafe { process(self.ptr, in_num_samples, input.as_ptr(), output.as_mut_ptr()) };
+        }
     }
 
     pub fn update_stream_info(&self, info: AudioFilterStreamInfo) {
@@ -264,9 +354,10 @@ pub struct AudioFilterAudioStream {
     inner: NativeAudioStream,
     session: AudioFilterSession,
     buffer: Vec<i16>,
-    sample_rate: u32,
+    output_sample_rate: u32,
     num_channels: u32,
-    frame_size: usize,
+    input_frame_size: usize,
+    output_frame_size: usize,
 }
 
 impl AudioFilterAudioStream {
@@ -274,18 +365,22 @@ impl AudioFilterAudioStream {
         inner: NativeAudioStream,
         session: AudioFilterSession,
         duration: Duration,
-        sample_rate: u32,
+        input_sample_rate: u32,
+        output_sample_rate: u32,
         num_channels: u32,
     ) -> Self {
-        let frame_size =
-            ((sample_rate as f64) * duration.as_secs_f64() * num_channels as f64) as usize;
+        let input_frame_size =
+            ((input_sample_rate as f64) * duration.as_secs_f64() * num_channels as f64) as usize;
+        let output_frame_size =
+            ((output_sample_rate as f64) * duration.as_secs_f64() * num_channels as f64) as usize;
         Self {
             inner,
             session,
-            buffer: Vec::with_capacity(frame_size),
-            sample_rate,
+            buffer: Vec::with_capacity(input_frame_size),
+            output_sample_rate,
             num_channels,
-            frame_size,
+            input_frame_size,
+            output_frame_size,
         }
     }
 
@@ -306,17 +401,23 @@ impl Stream for AudioFilterAudioStream {
             };
             this.buffer.extend_from_slice(&frame.data);
 
-            if this.buffer.len() >= this.frame_size {
-                let data = this.buffer.drain(..this.frame_size).collect::<Vec<_>>();
-                let mut out: Vec<i16> = vec![0; this.frame_size];
+            if this.buffer.len() >= this.input_frame_size {
+                let data = this.buffer.drain(..this.input_frame_size).collect::<Vec<_>>();
+                let mut out: Vec<i16> = vec![0; this.output_frame_size];
 
-                this.session.process_i16(this.frame_size, &data, &mut out);
+                this.session.process_i16(
+                    this.input_frame_size,
+                    &data,
+                    this.output_frame_size,
+                    &mut out,
+                );
 
                 return Poll::Ready(Some(AudioFrame {
                     data: out.into(),
-                    sample_rate: this.sample_rate,
+                    sample_rate: this.output_sample_rate,
                     num_channels: this.num_channels,
-                    samples_per_channel: (this.frame_size / this.num_channels as usize) as u32,
+                    samples_per_channel: (this.output_frame_size / this.num_channels as usize)
+                        as u32,
                 }));
             }
         }
