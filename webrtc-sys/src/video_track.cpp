@@ -107,10 +107,7 @@ std::shared_ptr<NativeVideoSink> new_native_video_sink(
 
 VideoTrackSource::InternalSource::InternalSource(
     const VideoResolution& resolution, bool is_screencast)
-    // Native camera frames can be routed into hardware encoders whose H.264
-    // paths require macroblock-aligned visible dimensions. Keep source
-    // adaptation aligned so rungs such as 480x360 are never emitted.
-    : webrtc::AdaptedVideoTrackSource(16),
+    : webrtc::AdaptedVideoTrackSource(4),
       resolution_(resolution),
       is_screencast_(is_screencast) {}
 

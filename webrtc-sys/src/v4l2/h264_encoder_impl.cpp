@@ -21,7 +21,6 @@
 #include <cstdint>
 #include <limits>
 #include <string>
-#include <utility>
 
 #include "api/video/video_codec_constants.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
@@ -43,55 +42,8 @@ constexpr uint32_t kFourccYuv420 = 0x32315559u;  // V4L2_PIX_FMT_YUV420
 constexpr uint32_t kFourccNv12 = 0x3231564Eu;    // V4L2_PIX_FMT_NV12
 constexpr int kH264MacroblockAlignment = 16;
 
-int AlignDown(int value, int alignment) {
-  return value / alignment * alignment;
-}
-
-std::pair<int, int> MacroblockAlignedEncodeSize(int width, int height) {
-  if (width < kH264MacroblockAlignment || height < kH264MacroblockAlignment ||
-      (width % kH264MacroblockAlignment == 0 &&
-       height % kH264MacroblockAlignment == 0)) {
-    return {width, height};
-  }
-
-  const double source_aspect = static_cast<double>(width) / height;
-  const int64_t source_area = static_cast<int64_t>(width) * height;
-  const std::pair<int, int> largest_aligned = {
-      AlignDown(width, kH264MacroblockAlignment),
-      AlignDown(height, kH264MacroblockAlignment)};
-
-  std::pair<int, int> best_aspect_match = {0, 0};
-  int64_t best_aspect_area = 0;
-  for (int candidate_height = kH264MacroblockAlignment;
-       candidate_height <= height;
-       candidate_height += kH264MacroblockAlignment) {
-    const int candidate_width =
-        AlignDown(static_cast<int>(
-                      std::round(candidate_height * source_aspect)),
-                  kH264MacroblockAlignment);
-    if (candidate_width <= 0 || candidate_width > width)
-      continue;
-
-    const double candidate_aspect =
-        static_cast<double>(candidate_width) / candidate_height;
-    const double aspect_error = std::abs(candidate_aspect - source_aspect);
-    const int64_t candidate_area =
-        static_cast<int64_t>(candidate_width) * candidate_height;
-    if (aspect_error < 0.001 && candidate_area > best_aspect_area) {
-      best_aspect_match = {candidate_width, candidate_height};
-      best_aspect_area = candidate_area;
-    }
-  }
-
-  // Prefer an aspect-perfect rung when it is still close to the requested
-  // size. This maps 480x360 to 448x336, avoiding bcm2835-codec's bad 360px
-  // visible height without needlessly shrinking large 16:9 sizes such as
-  // 1920x1080 down to 1536x864.
-  if (best_aspect_area * 5 >= source_area * 4) {
-    return best_aspect_match;
-  }
-
-  return largest_aligned;
+int AlignUp(int value, int alignment) {
+  return ((value + alignment - 1) / alignment) * alignment;
 }
 
 int PostReconfigureDropFrameCount(float frame_rate) {
@@ -118,15 +70,19 @@ bool IsContiguousDmabufLayout(
     return false;
 
   const size_t base = buffer.plane_offset(0);
-  const int chroma_height = ChromaHeight(height);
+  const int storage_luma_height =
+      AlignUp(height, kH264MacroblockAlignment);
+  const int storage_chroma_height = ChromaHeight(storage_luma_height);
   if (buffer.fourcc() == kFourccYuv420) {
     if (buffer.num_planes() < 3 || (stride_y % 2) != 0)
       return false;
     const int stride_uv = stride_y / 2;
-    const size_t u_offset = base + static_cast<size_t>(stride_y) * height;
+    const size_t u_offset =
+        base + static_cast<size_t>(stride_y) * storage_luma_height;
     const size_t v_offset =
-        u_offset + static_cast<size_t>(stride_uv) * chroma_height;
-    const size_t end = v_offset + static_cast<size_t>(stride_uv) * chroma_height;
+        u_offset + static_cast<size_t>(stride_uv) * storage_chroma_height;
+    const size_t end =
+        v_offset + static_cast<size_t>(stride_uv) * storage_chroma_height;
     return buffer.plane_stride(1) == stride_uv &&
            buffer.plane_stride(2) == stride_uv &&
            buffer.plane_offset(1) == u_offset &&
@@ -137,9 +93,10 @@ bool IsContiguousDmabufLayout(
   if (buffer.fourcc() == kFourccNv12) {
     if (buffer.num_planes() < 2)
       return false;
-    const size_t uv_offset = base + static_cast<size_t>(stride_y) * height;
+    const size_t uv_offset =
+        base + static_cast<size_t>(stride_y) * storage_luma_height;
     const size_t end =
-        uv_offset + static_cast<size_t>(stride_y) * chroma_height;
+        uv_offset + static_cast<size_t>(stride_y) * storage_chroma_height;
     return buffer.plane_stride(1) == stride_y &&
            buffer.plane_offset(1) == uv_offset &&
            end <= buffer.total_size();
@@ -313,38 +270,26 @@ int32_t V4L2H264EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_ERR_PARAMETER;
   }
 
-  const std::pair<int, int> encode_size =
-      MacroblockAlignedEncodeSize(frame_width, frame_height);
-  const int encode_width = encode_size.first;
-  const int encode_height = encode_size.second;
-  const bool frame_size_adjusted = encode_width != frame_width ||
-                                   encode_height != frame_height;
-  const bool frame_size_changed = encode_width != configuration_.width ||
-                                  encode_height != configuration_.height;
+  const bool frame_size_changed = frame_width != configuration_.width ||
+                                  frame_height != configuration_.height;
   if (frame_size_changed) {
     RTC_LOG(LS_INFO) << "V4L2: Reconfiguring H.264 encoder from "
                      << configuration_.width << "x" << configuration_.height
-                     << " to " << encode_width << "x" << encode_height;
-    if (frame_size_adjusted) {
-      RTC_LOG(LS_INFO)
-          << "V4L2: Scaling input frame " << frame_width << "x"
-          << frame_height << " to macroblock-aligned " << encode_width << "x"
-          << encode_height;
-    }
+                     << " to " << frame_width << "x" << frame_height;
     if (encoder_->IsInitialized())
       encoder_->Destroy();
 
-    configuration_.width = encode_width;
-    configuration_.height = encode_height;
-    codec_.width = encode_width;
-    codec_.height = encode_height;
-    codec_.simulcastStream[0].width = encode_width;
-    codec_.simulcastStream[0].height = encode_height;
+    configuration_.width = frame_width;
+    configuration_.height = frame_height;
+    codec_.width = frame_width;
+    codec_.height = frame_height;
+    codec_.simulcastStream[0].width = frame_width;
+    codec_.simulcastStream[0].height = frame_height;
 
     encoded_image_.SetEncodedData(EncodedImageBuffer::Create(
-        CalcBufferSize(VideoType::kI420, encode_width, encode_height)));
-    encoded_image_._encodedWidth = encode_width;
-    encoded_image_._encodedHeight = encode_height;
+        CalcBufferSize(VideoType::kI420, frame_width, frame_height)));
+    encoded_image_._encodedWidth = frame_width;
+    encoded_image_._encodedHeight = frame_height;
     encoded_image_.set_size(0);
 
     post_reconfigure_drop_frames_ =
@@ -372,8 +317,7 @@ int32_t V4L2H264EncoderImpl::Encode(
   auto* native_dmabuf = livekit_ffi::DmabufVideoFrameBuffer::TryCast(
       input_frame.video_frame_buffer().get());
   bool native_dmabuf_safe =
-      !frame_size_adjusted && native_dmabuf &&
-      IsContiguousDmabufLayout(*native_dmabuf);
+      native_dmabuf && IsContiguousDmabufLayout(*native_dmabuf);
   if (native_dmabuf_safe && encoder_->IsInitialized() &&
       encoder_->mode() == livekit_ffi::OutputBufferMode::Dmabuf &&
       (native_dmabuf->fourcc() != encoder_->output_fourcc() ||
@@ -382,9 +326,8 @@ int32_t V4L2H264EncoderImpl::Encode(
   }
   if (native_dmabuf && !native_dmabuf_safe && frame_size_changed) {
     RTC_LOG(LS_WARNING)
-        << "V4L2: Native DMABUF layout cannot be used directly"
-        << (frame_size_adjusted ? " after macroblock alignment" : "")
-        << "; falling back to ToI420 + MMAP";
+        << "V4L2: Native DMABUF layout cannot be imported directly; "
+           "falling back to ToI420 + padded MMAP";
   }
 
   auto initialize_encoder = [&](livekit_ffi::OutputBufferMode desired,
@@ -494,17 +437,6 @@ int32_t V4L2H264EncoderImpl::Encode(
     }
     scoped_refptr<VideoFrameBuffer> encode_buffer =
         input_frame.video_frame_buffer();
-    if (frame_size_adjusted) {
-      encode_buffer = encode_buffer->CropAndScale(
-          /*offset_x=*/0, /*offset_y=*/0, frame_width, frame_height,
-          encode_width, encode_height);
-      if (!encode_buffer) {
-        RTC_LOG(LS_ERROR) << "V4L2: Failed to scale frame " << frame_width
-                          << "x" << frame_height << " to " << encode_width
-                          << "x" << encode_height;
-        return WEBRTC_VIDEO_CODEC_ENCODER_FAILURE;
-      }
-    }
     scoped_refptr<I420BufferInterface> frame_buffer = encode_buffer->ToI420();
     if (!frame_buffer) {
       RTC_LOG(LS_ERROR) << "V4L2: Failed to convert "
@@ -588,11 +520,10 @@ VideoEncoder::EncoderInfo V4L2H264EncoderImpl::GetEncoderInfo() const {
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
-  // bcm2835-codec's H.264 path is unreliable for visible frame sizes that are
-  // not macroblock aligned. Tell WebRTC's source adapter to avoid rungs such as
-  // 480x360 and prefer dimensions that are cleanly divisible by 16.
-  info.requested_resolution_alignment = 16;
-  info.apply_alignment_to_all_simulcast_layers = true;
+  // Do not advertise a 16-pixel resolution alignment here. WebRTC applies that
+  // before the encoder sees the frame, which prevents standard 1080p from
+  // reaching the Pi encoder. Non-aligned DMABUF frames fall back to a padded
+  // MMAP copy locally instead of being resampled.
   info.preferred_pixel_formats = {VideoFrameBuffer::Type::kNative,
                                   VideoFrameBuffer::Type::kI420};
   return info;
