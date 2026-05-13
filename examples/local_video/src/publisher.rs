@@ -425,6 +425,64 @@ fn compute_simulcast_presets_30fps(width: u32, height: u32, target_fps: f64) -> 
     };
     defaults
         .iter()
-        .map(|p| VideoPreset::new(p.width, p.height, p.encoding.max_bitrate, target_fps))
+        .map(|p| {
+            let (aligned_width, aligned_height) =
+                align_preset_to_h264_macroblocks(p.width, p.height);
+            VideoPreset::new(aligned_width, aligned_height, p.encoding.max_bitrate, target_fps)
+        })
         .collect()
+}
+
+fn align_preset_to_h264_macroblocks(width: u32, height: u32) -> (u32, u32) {
+    const ALIGNMENT: u32 = 16;
+    if width % ALIGNMENT == 0 && height % ALIGNMENT == 0 {
+        return (width, height);
+    }
+
+    let aspect = width as f64 / height as f64;
+    let mut best = (width / ALIGNMENT * ALIGNMENT, height / ALIGNMENT * ALIGNMENT);
+    let mut best_score = f64::MAX;
+
+    for candidate_height in (ALIGNMENT..=height).step_by(ALIGNMENT as usize) {
+        let candidate_width =
+            ((candidate_height as f64 * aspect).round() as u32 / ALIGNMENT) * ALIGNMENT;
+        if candidate_width == 0 || candidate_width > width {
+            continue;
+        }
+        let aspect_error = ((candidate_width as f64 / candidate_height as f64) - aspect).abs();
+        let area_error =
+            ((width * height) as i64 - (candidate_width * candidate_height) as i64).abs() as f64;
+        let score = aspect_error * 10_000.0 + area_error / (width * height).max(1) as f64;
+        if score < best_score {
+            best = (candidate_width, candidate_height);
+            best_score = score;
+        }
+    }
+
+    (best.0.max(ALIGNMENT), best.1.max(ALIGNMENT))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn macroblock_alignment_keeps_already_aligned_presets() {
+        assert_eq!(align_preset_to_h264_macroblocks(320, 240), (320, 240));
+        assert_eq!(align_preset_to_h264_macroblocks(640, 480), (640, 480));
+    }
+
+    #[test]
+    fn macroblock_alignment_avoids_known_bad_480p_rung() {
+        assert_eq!(align_preset_to_h264_macroblocks(480, 360), (448, 336));
+    }
+
+    #[test]
+    fn four_by_three_simulcast_presets_are_macroblock_aligned() {
+        let presets = compute_simulcast_presets_30fps(640, 480, 30.0);
+
+        assert!(presets.iter().all(|preset| preset.width % 16 == 0 && preset.height % 16 == 0));
+        assert!(!presets.iter().any(|preset| preset.width == 480 && preset.height == 360));
+        assert!(presets.iter().any(|preset| preset.width == 448 && preset.height == 336));
+    }
 }
