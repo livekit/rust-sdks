@@ -17,7 +17,9 @@
 #ifndef V4L2_H264_ENCODER_IMPL_H_
 #define V4L2_H264_ENCODER_IMPL_H_
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include "api/video/i420_buffer.h"
@@ -78,14 +80,26 @@ class V4L2H264EncoderImpl : public VideoEncoder {
   void ReportInit();
   void ReportError();
 
+  // Async callback invoked from `encoder_`'s poll thread when the V4L2
+  // hardware finishes a frame. Builds an `EncodedImage` and forwards it
+  // to `encoded_image_callback_->OnEncodedImage()`. Decoupling the
+  // emission path from `Encode()` is what keeps WebRTC's reported
+  // encode_time close to actual hardware encode time -- otherwise
+  // frames pile up in the wrapper's `ready_frames_` and only get
+  // drained one-per-Encode call.
+  void OnEncodedFrame(livekit_ffi::EncodedFrame frame);
+
   const webrtc::Environment& env_;
+  // Guards `encoded_image_callback_` so we never race with
+  // RegisterEncodeCompleteCallback() while the poll thread fires
+  // `OnEncodedFrame`.
+  std::mutex callback_mutex_;
   EncodedImageCallback* encoded_image_callback_ = nullptr;
 
   // The underlying V4L2 hardware encoder.
   std::unique_ptr<livekit_ffi::V4l2H264EncoderWrapper> encoder_;
 
   LayerConfig configuration_;
-  EncodedImage encoded_image_;
   H264PacketizationMode packetization_mode_;
   VideoCodec codec_;
 
@@ -93,13 +107,17 @@ class V4L2H264EncoderImpl : public VideoEncoder {
   bool has_reported_init_ = false;
   bool has_reported_error_ = false;
 
-  // Used to extract QP from the encoded bitstream.
+  // Used to extract QP from the encoded bitstream. Touched from the
+  // poll thread inside `OnEncodedFrame`.
   webrtc::H264BitstreamParser h264_bitstream_parser_;
 
   const SdpVideoFormat format_;
 
   bool first_frame_ = true;
-  int post_reconfigure_drop_frames_ = 0;
+  // Atomic so the poll thread (decrementing in `OnEncodedFrame`) and
+  // the encoder thread (resetting in `Encode()` on reconfigure) don't
+  // race on the warmup-drop counter.
+  std::atomic<int> post_reconfigure_drop_frames_{0};
 };
 
 }  // namespace webrtc

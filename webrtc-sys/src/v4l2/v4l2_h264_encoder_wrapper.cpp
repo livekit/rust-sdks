@@ -314,6 +314,12 @@ V4l2H264EncoderWrapper::~V4l2H264EncoderWrapper() {
   }
 }
 
+void V4l2H264EncoderWrapper::SetEncodedFrameCallback(
+    EncodedFrameCallback callback) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  encoded_frame_callback_ = std::move(callback);
+}
+
 // ---------------------------------------------------------------------------
 // Device discovery
 // ---------------------------------------------------------------------------
@@ -410,7 +416,7 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
   capture_buffer_size_ = std::max(2 << 20, width * height);
   pending_frames_.clear();
   ready_frames_.clear();
-  next_v4l2_timestamp_us_ = 1;
+  next_synthetic_v4l2_timestamp_us_ = 1;
   force_next_keyframe_ = false;
   require_next_keyframe_parameter_sets_ = true;
   for (int i = 0; i < kNumOutputBuffers; ++i)
@@ -1110,13 +1116,26 @@ void V4l2H264EncoderWrapper::DrainReadyCaptureBuffers() {
     frame.bitstream = webrtc::EncodedImageBuffer::Create(data, encoded_size);
     frame.rtp_timestamp = pending.rtp_timestamp;
     frame.key_frame = real_key_frame;
+
+    // Snapshot the async callback (if any) under the lock; either way,
+    // re-queue the capture buffer right away so the encoder always has
+    // a free CAPTURE slot to write into (matches rpicam-apps's
+    // outputThread, which re-queues before delivering the frame to its
+    // consumer).
+    EncodedFrameCallback callback_copy;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      ready_frames_.push_back(std::move(frame));
+      callback_copy = encoded_frame_callback_;
+      if (!callback_copy) {
+        ready_frames_.push_back(std::move(frame));
+      }
     }
-    encoded_frame_cv_.notify_all();
-
     QueueCaptureBuffer(buf.index);
+    if (callback_copy) {
+      callback_copy(std::move(frame));
+    } else {
+      encoded_frame_cv_.notify_all();
+    }
   }
 }
 
@@ -1252,7 +1271,8 @@ V4l2H264EncoderWrapper::Encode(const uint8_t* y,
                                 int stride_u,
                                 int stride_v,
                                 bool force_idr,
-                                uint32_t rtp_timestamp) {
+                                uint32_t rtp_timestamp,
+                                int64_t capture_timestamp_us) {
   if (!initialized_) {
     RTC_LOG(LS_ERROR) << "V4L2: Encode called on uninitialized encoder";
     return EncodeError();
@@ -1317,6 +1337,7 @@ V4l2H264EncoderWrapper::Encode(const uint8_t* y,
 
   return RunEncode(buf_index, force_idr, userptr, /*dmabuf_fd=*/-1,
                    /*offset=*/0, /*length=*/0, rtp_timestamp,
+                   capture_timestamp_us,
                    /*retained_input_buffer=*/nullptr,
                    /*encoded_timeout_ms=*/1000,
                    /*wait_for_output_buffer=*/mode_ == OutputBufferMode::UserPtr);
@@ -1332,6 +1353,7 @@ V4l2H264EncoderWrapper::EncodeDmabuf(int dmabuf_fd,
                                       size_t length,
                                       bool force_idr,
                                       uint32_t rtp_timestamp,
+                                      int64_t capture_timestamp_us,
                                       webrtc::scoped_refptr<webrtc::VideoFrameBuffer>
                                           retained_input_buffer) {
   if (!initialized_) {
@@ -1354,7 +1376,8 @@ V4l2H264EncoderWrapper::EncodeDmabuf(int dmabuf_fd,
 
   return RunEncode(buf_index, force_idr, /*userptr=*/nullptr, dmabuf_fd, offset,
                    length == 0 ? static_cast<size_t>(frame_size_) : length,
-                   rtp_timestamp, std::move(retained_input_buffer),
+                   rtp_timestamp, capture_timestamp_us,
+                   std::move(retained_input_buffer),
                    /*encoded_timeout_ms=*/0,
                    /*wait_for_output_buffer=*/false);
 }
@@ -1371,12 +1394,19 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
                                    size_t offset,
                                    size_t length,
                                    uint32_t rtp_timestamp,
+                                   int64_t capture_timestamp_us,
                                    webrtc::scoped_refptr<webrtc::VideoFrameBuffer>
                                        retained_input_buffer,
                                    int encoded_timeout_ms,
                                    bool wait_for_output_buffer) {
   // Take the lock to consume force_next_keyframe_ atomically and to grab
   // a unique v4l2 timestamp for matching in DrainReadyCaptureBuffers.
+  // Prefer the caller-supplied capture timestamp (mirroring rpicam-apps,
+  // which forwards the camera timestamp verbatim) so the bcm2835-codec
+  // CBR rate controller sees realistic frame spacing rather than the
+  // 1us-spaced counter values we used to send. Fall back to a synthetic
+  // 30 fps-spaced counter if the caller passes 0 or a non-monotonic
+  // value.
   uint64_t v4l2_timestamp_us;
   bool requires_parameter_sets;
   {
@@ -1384,7 +1414,20 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
     force_idr = force_idr || force_next_keyframe_;
     requires_parameter_sets =
         force_idr && require_next_keyframe_parameter_sets_;
-    v4l2_timestamp_us = next_v4l2_timestamp_us_++;
+    if (capture_timestamp_us > 0 &&
+        static_cast<uint64_t>(capture_timestamp_us) >=
+            next_synthetic_v4l2_timestamp_us_) {
+      v4l2_timestamp_us = static_cast<uint64_t>(capture_timestamp_us);
+      // Keep the synthetic counter past the real timestamp so any
+      // subsequent fallback stays monotonic.
+      next_synthetic_v4l2_timestamp_us_ = v4l2_timestamp_us + 1;
+    } else {
+      v4l2_timestamp_us = next_synthetic_v4l2_timestamp_us_;
+      // Space synthetic timestamps at ~30 fps so the encoder's rate
+      // controller sees realistic intervals when no real timestamp is
+      // available.
+      next_synthetic_v4l2_timestamp_us_ += 33333;
+    }
   }
 
   if (force_idr) {
@@ -1456,14 +1499,27 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
     return EncodeError();
   }
 
-  EncodeResult result = WaitForEncodedFrame(encoded_timeout_ms);
+  // When an async callback is installed, encoded frames are delivered
+  // straight from the poll thread -- never via `ready_frames_` -- so
+  // there's no point waiting on `encoded_frame_cv_` here. Just report
+  // NoOutput; the V4L2H264EncoderImpl will see the encoded data via
+  // its callback hook.
+  bool has_async_callback;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    has_async_callback = static_cast<bool>(encoded_frame_callback_);
+  }
+  EncodeResult result = has_async_callback
+                            ? EncodeNoOutput()
+                            : WaitForEncodedFrame(encoded_timeout_ms);
   if (wait_for_output_buffer) {
     if (!WaitForOutputBuffer(buf_index, /*timeout_ms=*/1000)) {
       RTC_LOG(LS_ERROR) << "V4L2: " << ModeName(mode_)
                         << " input buffer still queued after timeout";
       return EncodeError();
     }
-    if (result.status == EncodeResult::Status::NoOutput) {
+    if (!has_async_callback &&
+        result.status == EncodeResult::Status::NoOutput) {
       std::lock_guard<std::mutex> lock(mutex_);
       if (!ready_frames_.empty()) {
         EncodedFrame frame = std::move(ready_frames_.front());

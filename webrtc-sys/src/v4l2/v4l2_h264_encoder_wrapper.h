@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -67,6 +68,15 @@ struct EncodeResult {
   EncodedFrame frame;
 };
 
+// Asynchronous callback invoked from the wrapper's poll thread for every
+// encoded frame the V4L2 hardware emits. Mirroring rpicam-apps's
+// `OutputReadyCallback`, this lets the caller deliver encoded data to
+// the WebRTC pipeline as soon as the encoder finishes a frame -- without
+// waiting for the next `Encode()` call to drain it. The callback runs on
+// the wrapper's poll thread and must be reentrant-safe but need not be
+// thread-safe with itself (calls are serialized on the poll thread).
+using EncodedFrameCallback = std::function<void(EncodedFrame)>;
+
 // Low-level wrapper around a V4L2 memory-to-memory (M2M) H.264 hardware
 // encoder, as found on Raspberry Pi (bcm2835-codec).
 //
@@ -110,16 +120,39 @@ class V4l2H264EncoderWrapper {
                   uint32_t input_colorspace_v4l2 = 0,
                   const std::string& device_path = "");
 
+  // Install (or clear, with `nullptr`) the asynchronous encoded-frame
+  // callback. Once set, the wrapper's poll thread invokes the callback
+  // for every encoded frame the V4L2 hardware emits, instead of buffering
+  // them in `ready_frames_` to be drained by `Encode()/EncodeDmabuf()`'s
+  // synchronous wait. This matches rpicam-apps's separate `outputThread`
+  // model and avoids OnEncodedImage latency that would otherwise grow
+  // with the encoder's CAPTURE-queue depth.
+  //
+  // Safe to call before or after `Initialize()`. The wrapper's
+  // destructor / `Destroy()` joins the poll thread before returning, so
+  // the callback is guaranteed not to fire after `Destroy()` returns.
+  void SetEncodedFrameCallback(EncodedFrameCallback callback);
+
   // Encode a single planar YUV frame.
   // In `Mmap` mode the planes are memcpy'd into a driver-allocated buffer.
   // In `UserPtr` mode the buffer is fed to the encoder via userspace pointer
   // when the planes are contiguous; otherwise it falls back to memcpy.
   // Not valid in `Dmabuf` mode.
   //
+  // `capture_timestamp_us` is forwarded verbatim to V4L2 as the OUTPUT
+  // buffer timestamp (matching rpicam-apps's behaviour) and used to
+  // correlate the emitted CAPTURE buffer back to its source frame. It
+  // should be a monotonically increasing value (e.g. the input frame's
+  // capture-time microseconds) so the bcm2835-codec rate controller sees
+  // realistic frame spacing.
+  //
   // On success returns an encoded frame with the H.264 bitstream and
-  // metadata copied from the originating input frame. May return NoOutput
-  // when the stateful encoder has accepted input but has not produced a
-  // completed coded frame yet.
+  // metadata copied from the originating input frame. When an
+  // asynchronous `EncodedFrameCallback` is installed, this always
+  // returns NoOutput on success and the encoded frame is delivered via
+  // the callback instead. May also return NoOutput when the stateful
+  // encoder has accepted input but has not produced a completed coded
+  // frame yet.
   EncodeResult Encode(
       const uint8_t* y,
       const uint8_t* u,
@@ -128,7 +161,8 @@ class V4l2H264EncoderWrapper {
       int stride_u,
       int stride_v,
       bool force_idr,
-      uint32_t rtp_timestamp);
+      uint32_t rtp_timestamp,
+      int64_t capture_timestamp_us);
 
   // Encode a single DMABUF-backed YUV frame. Only valid in `Dmabuf` mode.
   // The fd is borrowed. `retained_input_buffer`, when provided, is held until
@@ -138,12 +172,15 @@ class V4l2H264EncoderWrapper {
   // `offset` is the byte offset into the dmabuf where the frame data
   // begins, `length` is the total size of the YUV frame in bytes (use 0 to
   // request the encoder's configured `sizeimage`).
+  //
+  // See `Encode()` for the meaning of `capture_timestamp_us`.
   EncodeResult EncodeDmabuf(
       int dmabuf_fd,
       size_t offset,
       size_t length,
       bool force_idr,
       uint32_t rtp_timestamp,
+      int64_t capture_timestamp_us,
       webrtc::scoped_refptr<webrtc::VideoFrameBuffer> retained_input_buffer);
 
   // Update bitrate (bps) and framerate (fps) at runtime.
@@ -215,6 +252,7 @@ class V4l2H264EncoderWrapper {
       size_t offset,
       size_t length,
       uint32_t rtp_timestamp,
+      int64_t capture_timestamp_us,
       webrtc::scoped_refptr<webrtc::VideoFrameBuffer> retained_input_buffer,
       int encoded_timeout_ms,
       bool wait_for_output_buffer);
@@ -265,9 +303,13 @@ class V4l2H264EncoderWrapper {
 
   std::deque<PendingFrame> pending_frames_;
   std::deque<EncodedFrame> ready_frames_;
-  uint64_t next_v4l2_timestamp_us_ = 1;
+  // Counter for fabricating monotonically-increasing V4L2 timestamps when
+  // the caller passes in 0 (or a non-monotonic value). Real timestamps
+  // from the producer are preferred; this is a defensive fallback.
+  uint64_t next_synthetic_v4l2_timestamp_us_ = 1;
   bool force_next_keyframe_ = false;
   bool require_next_keyframe_parameter_sets_ = true;
+  EncodedFrameCallback encoded_frame_callback_;
 
   // --- Poll-thread synchronisation ---
   //

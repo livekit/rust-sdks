@@ -247,7 +247,7 @@ int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* inst,
     return release_ret;
   }
   first_frame_ = true;
-  post_reconfigure_drop_frames_ = 0;
+  post_reconfigure_drop_frames_.store(0, std::memory_order_relaxed);
 
   codec_ = *inst;
 
@@ -258,14 +258,17 @@ int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* inst,
     codec_.simulcastStream[0].height = codec_.height;
   }
 
-  // --- Pre-allocate the encoded image buffer ---
-
-  const size_t initial_capacity =
-      CalcBufferSize(VideoType::kI420, codec_.width, codec_.height);
-  encoded_image_.SetEncodedData(EncodedImageBuffer::Create(initial_capacity));
-  encoded_image_._encodedWidth = codec_.width;
-  encoded_image_._encodedHeight = codec_.height;
-  encoded_image_.set_size(0);
+  // Install the async encoded-frame callback. The wrapper's poll thread
+  // calls back into `OnEncodedFrame` for every frame the V4L2 hardware
+  // produces, mirroring rpicam-apps's dedicated `outputThread`. This
+  // keeps WebRTC's per-frame encode_time stat ~= real hardware latency
+  // instead of accumulating one frame interval per `ready_frames_` slot
+  // -- otherwise initial-burst buffering inflates encode_time to
+  // hundreds of ms and chokes the source's effective frame rate.
+  encoder_->SetEncodedFrameCallback(
+      [this](livekit_ffi::EncodedFrame frame) {
+        OnEncodedFrame(std::move(frame));
+      });
 
   // --- Populate layer configuration ---
 
@@ -297,15 +300,23 @@ int32_t V4L2H264EncoderImpl::InitEncode(const VideoCodec* inst,
 
 int32_t V4L2H264EncoderImpl::RegisterEncodeCompleteCallback(
     EncodedImageCallback* callback) {
+  std::lock_guard<std::mutex> lock(callback_mutex_);
   encoded_image_callback_ = callback;
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
 int32_t V4L2H264EncoderImpl::Release() {
-  if (encoder_->IsInitialized())
+  if (encoder_->IsInitialized()) {
+    // Tear down the wrapper first so its poll thread is joined (no
+    // more `OnEncodedFrame` calls can fire) before we drop our
+    // `encoded_image_callback_` pointer.
     encoder_->Destroy();
+  }
+  // Drop the wrapper's reference to our `OnEncodedFrame` so any later
+  // re-`Initialize()` reinstall is unambiguous.
+  encoder_->SetEncodedFrameCallback(nullptr);
   first_frame_ = true;
-  post_reconfigure_drop_frames_ = 0;
+  post_reconfigure_drop_frames_.store(0, std::memory_order_relaxed);
   return WEBRTC_VIDEO_CODEC_OK;
 }
 
@@ -320,11 +331,14 @@ int32_t V4L2H264EncoderImpl::Encode(
     ReportError();
     return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
   }
-  if (!encoded_image_callback_) {
-    RTC_LOG(LS_WARNING) << "V4L2: Encode() called before "
-                           "RegisterEncodeCompleteCallback()";
-    ReportError();
-    return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+  {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
+    if (!encoded_image_callback_) {
+      RTC_LOG(LS_WARNING) << "V4L2: Encode() called before "
+                             "RegisterEncodeCompleteCallback()";
+      ReportError();
+      return WEBRTC_VIDEO_CODEC_UNINITIALIZED;
+    }
   }
 
   if (!configuration_.sending)
@@ -359,16 +373,11 @@ int32_t V4L2H264EncoderImpl::Encode(
     codec_.simulcastStream[0].width = frame_width;
     codec_.simulcastStream[0].height = frame_height;
 
-    encoded_image_.SetEncodedData(EncodedImageBuffer::Create(
-        CalcBufferSize(VideoType::kI420, frame_width, frame_height)));
-    encoded_image_._encodedWidth = frame_width;
-    encoded_image_._encodedHeight = frame_height;
-    encoded_image_.set_size(0);
-
-    post_reconfigure_drop_frames_ =
+    const int drop_frames =
         PostReconfigureDropFrameCount(configuration_.max_frame_rate);
-    RTC_LOG(LS_INFO) << "V4L2: Dropping "
-                     << post_reconfigure_drop_frames_
+    post_reconfigure_drop_frames_.store(drop_frames,
+                                        std::memory_order_relaxed);
+    RTC_LOG(LS_INFO) << "V4L2: Dropping " << drop_frames
                      << " post-reconfigure warmup frames";
   }
 
@@ -533,6 +542,20 @@ int32_t V4L2H264EncoderImpl::Encode(
   }
 
   // --- Encode via V4L2 ---
+  //
+  // Hand the frame off to the wrapper and return immediately. Encoded
+  // bitstream delivery happens asynchronously from the wrapper's poll
+  // thread via `OnEncodedFrame()`. This mirrors rpicam-apps's
+  // `EncodeBuffer()` -> dedicated `outputThread` design and is what
+  // keeps WebRTC's reported per-frame encode_time close to the
+  // bcm2835-codec hardware encode latency (~5-10 ms) rather than
+  // ballooning to hundreds of ms when frames buffer up internally.
+
+  // The capture-time microseconds doubles as the V4L2 buffer timestamp;
+  // bcm2835-codec uses it for rate control, so realistic spacing
+  // (matching the actual frame interval) keeps CBR output stable. This
+  // is exactly what `H264Encoder::EncodeBuffer()` in rpicam-apps does.
+  const int64_t capture_timestamp_us = input_frame.timestamp_us();
 
   livekit_ffi::EncodeResult result;
   if (native_dmabuf_safe &&
@@ -542,6 +565,7 @@ int32_t V4L2H264EncoderImpl::Encode(
                                     native_dmabuf->total_size(),
                                     send_key_frame,
                                     input_frame.rtp_timestamp(),
+                                    capture_timestamp_us,
                                     input_frame.video_frame_buffer());
   } else {
     if (native_dmabuf && frame_size_changed) {
@@ -571,53 +595,78 @@ int32_t V4L2H264EncoderImpl::Encode(
     result = encoder_->Encode(
         frame_buffer->DataY(), frame_buffer->DataU(), frame_buffer->DataV(),
         frame_buffer->StrideY(), frame_buffer->StrideU(),
-        frame_buffer->StrideV(), send_key_frame, input_frame.rtp_timestamp());
+        frame_buffer->StrideV(), send_key_frame, input_frame.rtp_timestamp(),
+        capture_timestamp_us);
   }
 
-  if (result.status == livekit_ffi::EncodeResult::Status::NoOutput) {
-    return WEBRTC_VIDEO_CODEC_OK;
-  }
-  if (result.status == livekit_ffi::EncodeResult::Status::Error ||
-      !result.frame.bitstream || result.frame.bitstream->size() == 0) {
+  // With the async callback installed, success looks like NoOutput here
+  // -- the encoded frame will be delivered later via `OnEncodedFrame`.
+  // A non-NoOutput Ok would mean the wrapper still returned a
+  // synchronously-drained backlog frame; it's already going to fire the
+  // callback for it, so just acknowledge OK.
+  if (result.status == livekit_ffi::EncodeResult::Status::Error) {
     RTC_LOG(LS_ERROR) << "V4L2: Encode() failed";
     return WEBRTC_VIDEO_CODEC_ERROR;
   }
 
-  if (post_reconfigure_drop_frames_ > 0) {
-    --post_reconfigure_drop_frames_;
-    configuration_.key_frame_request = true;
-    RTC_LOG(LS_INFO) << "V4L2: Dropping post-reconfigure warmup frame; "
-                     << post_reconfigure_drop_frames_ << " remaining";
-    return WEBRTC_VIDEO_CODEC_OK;
+  return WEBRTC_VIDEO_CODEC_OK;
+}
+
+// ---------------------------------------------------------------------------
+// Async encoded-frame delivery (poll thread)
+// ---------------------------------------------------------------------------
+
+void V4L2H264EncoderImpl::OnEncodedFrame(livekit_ffi::EncodedFrame frame) {
+  if (!frame.bitstream || frame.bitstream->size() == 0)
+    return;
+
+  // Drop encoder-warmup frames after a reconfigure. The bcm2835-codec
+  // can emit visually corrupt frames immediately after a S_FMT change;
+  // requesting a key frame for the first real frame past the warmup
+  // window keeps decoders cleanly resyncable.
+  for (;;) {
+    int remaining =
+        post_reconfigure_drop_frames_.load(std::memory_order_relaxed);
+    if (remaining <= 0)
+      break;
+    if (post_reconfigure_drop_frames_.compare_exchange_weak(
+            remaining, remaining - 1, std::memory_order_acq_rel)) {
+      configuration_.key_frame_request = true;
+      RTC_LOG(LS_INFO) << "V4L2: Dropping post-reconfigure warmup frame; "
+                       << (remaining - 1) << " remaining";
+      return;
+    }
   }
 
-  // --- Populate the EncodedImage and deliver it ---
-
-  encoded_image_.SetEncodedData(result.frame.bitstream);
+  EncodedImage encoded_image;
+  encoded_image.SetEncodedData(frame.bitstream);
 
   // Parse the bitstream to extract QP for rate-control feedback.
-  h264_bitstream_parser_.ParseBitstream(encoded_image_);
-  encoded_image_.qp_ =
+  h264_bitstream_parser_.ParseBitstream(encoded_image);
+  encoded_image.qp_ =
       h264_bitstream_parser_.GetLastSliceQp().value_or(-1);
 
-  encoded_image_._encodedWidth = configuration_.width;
-  encoded_image_._encodedHeight = configuration_.height;
-  encoded_image_.SetRtpTimestamp(result.frame.rtp_timestamp);
-  encoded_image_.SetColorSpace(input_frame.color_space());
-  encoded_image_._frameType = result.frame.key_frame
-                                  ? VideoFrameType::kVideoFrameKey
-                                  : VideoFrameType::kVideoFrameDelta;
+  encoded_image._encodedWidth = configuration_.width;
+  encoded_image._encodedHeight = configuration_.height;
+  encoded_image.SetRtpTimestamp(frame.rtp_timestamp);
+  encoded_image._frameType = frame.key_frame
+                                 ? VideoFrameType::kVideoFrameKey
+                                 : VideoFrameType::kVideoFrameDelta;
 
   CodecSpecificInfo codec_specific;
   codec_specific.codecType = kVideoCodecH264;
   codec_specific.codecSpecific.H264.packetization_mode = packetization_mode_;
   codec_specific.codecSpecific.H264.temporal_idx = kNoTemporalIdx;
   codec_specific.codecSpecific.H264.base_layer_sync = false;
-  codec_specific.codecSpecific.H264.idr_frame = result.frame.key_frame;
+  codec_specific.codecSpecific.H264.idr_frame = frame.key_frame;
 
-  encoded_image_callback_->OnEncodedImage(encoded_image_, &codec_specific);
-
-  return WEBRTC_VIDEO_CODEC_OK;
+  EncodedImageCallback* callback;
+  {
+    std::lock_guard<std::mutex> lock(callback_mutex_);
+    callback = encoded_image_callback_;
+  }
+  if (callback)
+    callback->OnEncodedImage(encoded_image, &codec_specific);
 }
 
 // ---------------------------------------------------------------------------
