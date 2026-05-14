@@ -18,6 +18,7 @@
 #define V4L2_H264_ENCODER_WRAPPER_H_
 
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <cstdint>
@@ -26,6 +27,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 
 #include "api/scoped_refptr.h"
 #include "api/video/encoded_image.h"
@@ -242,6 +244,13 @@ class V4l2H264EncoderWrapper {
                               int stride_u,
                               int stride_v);
 
+  // Emit a single-line periodic snapshot of throughput counters so an
+  // operator can see in real time where the encoder is spending time
+  // (submission rate vs. hardware completion rate vs. queue waits).
+  // Called from the poll thread once per second; resets the counters
+  // after logging.
+  void MaybeLogThroughputStats();
+
   // Submit OUTPUT buffer at `buf_index` and wait briefly for an encoded
   // CAPTURE buffer. Used by both `Encode` and `EncodeDmabuf`.
   EncodeResult RunEncode(
@@ -325,6 +334,36 @@ class V4l2H264EncoderWrapper {
   std::condition_variable encoded_frame_cv_;
   std::thread poll_thread_;
   std::atomic<bool> abort_poll_{false};
+
+  // --- Lightweight throughput diagnostics ---
+  //
+  // All counters are updated under `mutex_` (or with relaxed atomics
+  // where they're only read by the poll thread) and reset every time
+  // the poll thread emits a periodic stats line. This is the minimum
+  // instrumentation needed to localise an encoder bottleneck (slow
+  // hardware vs. starved input vs. wedged output queue) without
+  // shipping per-frame logs to production builds.
+  struct ThroughputStats {
+    uint32_t encode_calls = 0;       // entries to Encode/EncodeDmabuf
+    uint32_t output_dequeued = 0;    // OUTPUT (input-consumed) DQBUFs
+    uint32_t capture_dequeued = 0;   // CAPTURE (encoded) DQBUFs
+    uint32_t acquire_calls = 0;      // calls to AcquireOutputBuffer
+    uint32_t acquire_waited = 0;     // those that hit the cv (queue full)
+    uint64_t acquire_wait_total_us = 0;
+    uint64_t acquire_wait_max_us = 0;
+    uint64_t encode_latency_total_us = 0;  // QBUF -> matched DQBUF
+    uint32_t encode_latency_count = 0;
+    uint64_t encode_latency_max_us = 0;
+  };
+  ThroughputStats stats_;
+  std::chrono::steady_clock::time_point stats_last_log_ =
+      std::chrono::steady_clock::now();
+  // Maps v4l2 buffer timestamp -> steady_clock time of QBUF, used to
+  // compute per-frame encode latency in DrainReadyCaptureBuffers.
+  // Bounded by the number of in-flight frames (<= kNumOutputBuffers +
+  // kNumCaptureBuffers); cleaned up as frames complete.
+  std::unordered_map<uint64_t, std::chrono::steady_clock::time_point>
+      qbuf_steady_time_;
 };
 
 }  // namespace livekit_ffi

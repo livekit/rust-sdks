@@ -416,6 +416,9 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
   capture_buffer_size_ = std::max(2 << 20, width * height);
   pending_frames_.clear();
   ready_frames_.clear();
+  qbuf_steady_time_.clear();
+  stats_ = ThroughputStats{};
+  stats_last_log_ = std::chrono::steady_clock::now();
   next_synthetic_v4l2_timestamp_us_ = 1;
   force_next_keyframe_ = false;
   require_next_keyframe_parameter_sets_ = true;
@@ -450,11 +453,16 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
   // rpicam-apps applies controls first; mirror that order here so that
   // S_FMT calls don't clobber any control-derived defaults.
 
-  // Bitrate must be constant for WebRTC's congestion control to behave
-  // predictably; relying on the driver default is fragile.
-  TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_BITRATE_MODE,
-                V4L2_MPEG_VIDEO_BITRATE_MODE_CBR, "bitrate mode (CBR)");
-
+  // Use the bcm2835-codec's default rate-control mode (VBR) -- this is
+  // the path rpicam-apps uses, and it lets the firmware pace the
+  // encoder against the configured bitrate without any additional
+  // throttling. Forcing CBR via V4L2_CID_MPEG_VIDEO_BITRATE_MODE here
+  // caused the encoder to silently cap output at ~10 fps regardless of
+  // submission rate (firmware HRD/CPB enforcement under CBR appears to
+  // pace the bitstream output even when the budget isn't reached). VBR
+  // still respects the bitrate target on average and is what every
+  // working bcm2835-codec consumer (rpicam-apps, gst-v4l2h264enc with
+  // default mode) uses for live encoding.
   if (bitrate > 0) {
     TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_BITRATE, bitrate, "bitrate");
   }
@@ -953,6 +961,7 @@ void V4l2H264EncoderWrapper::PrimeEncoderPipeline() {
   next_output_index_ = 0;
   pending_frames_.clear();
   ready_frames_.clear();
+  qbuf_steady_time_.clear();
   RTC_LOG(LS_INFO) << "V4L2: Encoder pipeline primed";
 }
 
@@ -1005,6 +1014,7 @@ void V4l2H264EncoderWrapper::DrainReadyOutputBuffers() {
         std::lock_guard<std::mutex> lock(mutex_);
         output_buffer_queued_[buf.index] = false;
         retained_input_buffers_[buf.index] = nullptr;
+        ++stats_.output_dequeued;
       }
       output_buffer_cv_.notify_all();
     }
@@ -1039,6 +1049,23 @@ void V4l2H264EncoderWrapper::DrainReadyCaptureBuffers() {
     bool found_pending = false;
     {
       std::lock_guard<std::mutex> lock(mutex_);
+      ++stats_.capture_dequeued;
+      // Compute hardware encode latency from QBUF -> DQBUF for this
+      // exact frame (matched on the V4L2 buffer timestamp).
+      auto it_q = qbuf_steady_time_.find(timestamp_us);
+      if (it_q != qbuf_steady_time_.end()) {
+        const auto latency_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(
+                std::chrono::steady_clock::now() - it_q->second)
+                .count();
+        if (latency_us > 0) {
+          stats_.encode_latency_total_us += static_cast<uint64_t>(latency_us);
+          ++stats_.encode_latency_count;
+          stats_.encode_latency_max_us = std::max(
+              stats_.encode_latency_max_us, static_cast<uint64_t>(latency_us));
+        }
+        qbuf_steady_time_.erase(it_q);
+      }
       for (auto it = pending_frames_.begin(); it != pending_frames_.end(); ++it) {
         if (it->v4l2_timestamp_us == timestamp_us) {
           pending = *it;
@@ -1171,16 +1198,100 @@ void V4l2H264EncoderWrapper::PollThreadLoop() {
     // immediately when its queue is idle.
     DrainReadyOutputBuffers();
     DrainReadyCaptureBuffers();
+    MaybeLogThroughputStats();
   }
 }
 
+void V4l2H264EncoderWrapper::MaybeLogThroughputStats() {
+  // Cheap snapshot/reset of the last-second counters so an operator can
+  // see, at INFO level, exactly where the encoder is spending its time.
+  // We keep this on the poll thread so the `mutex_` we already take to
+  // reset the counters is uncontended (the encoder thread only touches
+  // `mutex_` briefly per Encode call). The fields tell us:
+  //   * encode_calls vs. capture_dequeued -- submission vs. encoded
+  //     output rate. A persistent gap means frames are being absorbed
+  //     somewhere downstream of QBUF.
+  //   * acquire_avg_us / acquire_max_us -- how long the encoder thread
+  //     waits for a free OUTPUT slot. Large values mean the OUTPUT
+  //     queue is backed up because the hardware can't keep up.
+  //   * encode_latency_avg_us / encode_latency_max_us -- per-frame
+  //     hardware latency from QBUF to its matched CAPTURE DQBUF. This
+  //     is the closest proxy we have for "wall-clock cost of encoding
+  //     one frame" and is the number to compare against expected
+  //     bcm2835-codec timing (~5-15 ms for 720p30 H.264).
+  //   * in_flight -- OUTPUT slots currently held by the encoder. If
+  //     this sits at the buffer count, the OUTPUT queue is saturated.
+  using clock = std::chrono::steady_clock;
+  const auto now = clock::now();
+  if (now - stats_last_log_ < std::chrono::seconds(1))
+    return;
+
+  ThroughputStats snapshot;
+  int in_flight = 0;
+  size_t pending_frames = 0;
+  size_t qbuf_outstanding = 0;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    snapshot = stats_;
+    stats_ = ThroughputStats{};
+    for (int i = 0; i < num_output_buffers_; ++i) {
+      if (output_buffer_queued_[i])
+        ++in_flight;
+    }
+    pending_frames = pending_frames_.size();
+    qbuf_outstanding = qbuf_steady_time_.size();
+  }
+
+  const uint64_t acq_avg_us =
+      snapshot.acquire_calls
+          ? snapshot.acquire_wait_total_us / snapshot.acquire_calls
+          : 0;
+  const uint64_t enc_avg_us =
+      snapshot.encode_latency_count
+          ? snapshot.encode_latency_total_us / snapshot.encode_latency_count
+          : 0;
+  RTC_LOG(LS_INFO) << "V4L2: enc_stats encode_calls=" << snapshot.encode_calls
+                   << " out_dq=" << snapshot.output_dequeued
+                   << " cap_dq=" << snapshot.capture_dequeued
+                   << " acq_avg_us=" << acq_avg_us
+                   << " acq_max_us=" << snapshot.acquire_wait_max_us
+                   << " acq_waited=" << snapshot.acquire_waited << "/"
+                   << snapshot.acquire_calls
+                   << " hw_lat_avg_us=" << enc_avg_us
+                   << " hw_lat_max_us=" << snapshot.encode_latency_max_us
+                   << " out_in_flight=" << in_flight << "/"
+                   << num_output_buffers_
+                   << " pending_frames=" << pending_frames
+                   << " qbuf_outstanding=" << qbuf_outstanding;
+  stats_last_log_ = now;
+}
+
 int V4l2H264EncoderWrapper::AcquireOutputBuffer(int timeout_ms) {
+  const auto wait_start = std::chrono::steady_clock::now();
   std::unique_lock<std::mutex> lock(mutex_);
   const auto deadline =
-      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+      wait_start + std::chrono::milliseconds(timeout_ms);
+  ++stats_.acquire_calls;
+  bool waited = false;
+
+  auto record_wait = [this, &wait_start, &waited]() {
+    if (!waited)
+      return;
+    const auto wait_us =
+        std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now() - wait_start)
+            .count();
+    if (wait_us > 0) {
+      ++stats_.acquire_waited;
+      stats_.acquire_wait_total_us += static_cast<uint64_t>(wait_us);
+      stats_.acquire_wait_max_us =
+          std::max(stats_.acquire_wait_max_us, static_cast<uint64_t>(wait_us));
+    }
+  };
 
   for (;;) {
     if (abort_poll_.load(std::memory_order_acquire)) {
+      record_wait();
       RTC_LOG(LS_ERROR) << "V4L2: poll thread aborted while acquiring OUTPUT";
       return -1;
     }
@@ -1188,10 +1299,12 @@ int V4l2H264EncoderWrapper::AcquireOutputBuffer(int timeout_ms) {
       const int index = (next_output_index_ + attempt) % num_output_buffers_;
       if (!output_buffer_queued_[index]) {
         next_output_index_ = (index + 1) % num_output_buffers_;
+        record_wait();
         return index;
       }
     }
 
+    waited = true;
     if (output_buffer_cv_.wait_until(lock, deadline) ==
         std::cv_status::timeout) {
       // One more pass after timeout to handle the case where the poll
@@ -1200,9 +1313,11 @@ int V4l2H264EncoderWrapper::AcquireOutputBuffer(int timeout_ms) {
         const int index = (next_output_index_ + attempt) % num_output_buffers_;
         if (!output_buffer_queued_[index]) {
           next_output_index_ = (index + 1) % num_output_buffers_;
+          record_wait();
           return index;
         }
       }
+      record_wait();
       RTC_LOG(LS_ERROR) << "V4L2: timeout waiting for a free OUTPUT buffer";
       return -1;
     }
@@ -1469,6 +1584,7 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
   // Mark the slot as queued and record the pending frame BEFORE QBUF so
   // the poll thread cannot dequeue and reuse the index between QBUF and
   // our state update. If QBUF fails we roll the bookkeeping back.
+  const auto qbuf_steady_now = std::chrono::steady_clock::now();
   {
     std::lock_guard<std::mutex> lock(mutex_);
     output_buffer_queued_[buf_index] = true;
@@ -1479,6 +1595,8 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
       force_next_keyframe_ = false;
       require_next_keyframe_parameter_sets_ = false;
     }
+    qbuf_steady_time_[v4l2_timestamp_us] = qbuf_steady_now;
+    ++stats_.encode_calls;
   }
 
   if (Xioctl(fd_, VIDIOC_QBUF, &buf) < 0) {
@@ -1494,6 +1612,7 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
           break;
         }
       }
+      qbuf_steady_time_.erase(v4l2_timestamp_us);
     }
     output_buffer_cv_.notify_all();
     return EncodeError();
@@ -1546,18 +1665,19 @@ void V4l2H264EncoderWrapper::UpdateRates(int framerate, int bitrate) {
     TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_BITRATE, bitrate, "bitrate");
   }
 
-  if (framerate > 0 && framerate != framerate_) {
-    RTC_LOG(LS_VERBOSE) << "V4L2: updating encoder framerate from "
-                        << framerate_ << " to " << framerate << " fps";
-    framerate_ = framerate;
-    struct v4l2_streamparm parm = {};
-    parm.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
-    parm.parm.output.timeperframe.numerator = 1;
-    parm.parm.output.timeperframe.denominator = framerate;
-    if (Xioctl(fd_, VIDIOC_S_PARM, &parm) < 0)
-      RTC_LOG(LS_WARNING) << "V4L2: Failed to update framerate: "
-                          << strerror(errno);
-  }
+  // Deliberately do *not* push a runtime framerate change down to V4L2
+  // here. WebRTC's `SetRates()` feeds back the *observed* output fps,
+  // which means the moment the encoder dips even briefly (e.g. during a
+  // bitrate ramp) we'd issue a S_PARM with a lower denominator. The
+  // bcm2835-codec uses that value for its rate-control budget; once it
+  // believes the stream is e.g. 12 fps it sizes per-frame budgets to
+  // match and the output stays at ~12 fps, creating a self-reinforcing
+  // throttle. rpicam-apps sets framerate exactly once at init and never
+  // updates, and the encoder runs at the requested rate without
+  // collapsing. Mirror that behaviour: the init-time S_PARM in
+  // `Initialize()` is the single source of truth for the encoder's
+  // framerate. Only bitrate is mutable at runtime.
+  (void)framerate;
 }
 
 // ---------------------------------------------------------------------------
@@ -1621,6 +1741,7 @@ void V4l2H264EncoderWrapper::Destroy() {
   num_capture_buffers_ = 0;
   pending_frames_.clear();
   ready_frames_.clear();
+  qbuf_steady_time_.clear();
   for (int i = 0; i < kNumOutputBuffers; ++i)
     output_buffer_queued_[i] = false;
   for (int i = 0; i < kNumOutputBuffers; ++i)
