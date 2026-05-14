@@ -252,7 +252,7 @@ impl RpcClientManager {
     ///
     /// Also handles error responses for v2 calls, since error responses
     /// always use v1 packets regardless of transport version.
-    pub(crate) fn handle_response(
+    pub(crate) fn handle_v1_response_packet(
         &self,
         request_id: String,
         payload: Option<String>,
@@ -274,7 +274,7 @@ impl RpcClientManager {
     /// Success responses between v2 clients arrive as text data streams
     /// on the `lk.rpc_response` topic. Error responses always arrive
     /// as v1 packets and are handled by `handle_response`.
-    pub(crate) async fn handle_response_stream(&self, reader: TextStreamReader) {
+    pub(crate) async fn handle_v2_response_stream(&self, reader: TextStreamReader) {
         let request_id = reader.info().attributes.get(ATTR_REQUEST_ID).cloned().unwrap_or_default();
 
         if request_id.is_empty() {

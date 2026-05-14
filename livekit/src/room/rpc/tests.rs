@@ -263,7 +263,7 @@ async fn test_v2_v2_caller_happy_path_short() {
 
     // Simulate ACK + response
     client.handle_incoming_rpc_ack(request_id.clone());
-    client.handle_response(request_id, Some("world".into()), None);
+    client.handle_v1_response_packet(request_id, Some("world".into()), None);
 
     let result = handle.await.unwrap();
     assert_eq!(result.unwrap(), "world");
@@ -297,7 +297,7 @@ async fn test_v2_v2_caller_happy_path_large_payload() {
 
     let request_id = transport.extract_request_id();
     client.handle_incoming_rpc_ack(request_id.clone());
-    client.handle_response(request_id, Some("ok".into()), None);
+    client.handle_v1_response_packet(request_id, Some("ok".into()), None);
 
     let result = handle.await.unwrap();
     assert_eq!(result.unwrap(), "ok");
@@ -428,7 +428,7 @@ async fn test_v2_v2_error_response() {
 
     client.handle_incoming_rpc_ack(request_id.clone());
     // Error response arrives as v1 packet (per spec)
-    client.handle_response(
+    client.handle_v1_response_packet(
         request_id,
         None,
         Some(proto::RpcError { code: 101, message: "nope".into(), data: "details".into() }),
@@ -505,7 +505,7 @@ async fn test_v2_v1_caller_request_fallback() {
 
     let request_id = transport.extract_request_id();
     client.handle_incoming_rpc_ack(request_id.clone());
-    client.handle_response(request_id, Some("yo".into()), None);
+    client.handle_v1_response_packet(request_id, Some("yo".into()), None);
 
     let result = handle.await.unwrap();
     assert_eq!(result.unwrap(), "yo");
@@ -617,7 +617,7 @@ async fn test_v2_v1_error_response() {
     let request_id = transport.extract_request_id();
 
     client.handle_incoming_rpc_ack(request_id.clone());
-    client.handle_response(
+    client.handle_v1_response_packet(
         request_id,
         None,
         Some(proto::RpcError { code: 101, message: "v1-err".into(), data: String::new() }),
@@ -769,7 +769,7 @@ async fn test_v2_response_stream_resolves_caller() {
     let reader =
         make_text_reader("stream-result", v2_response_attrs("req-stream"), RPC_RESPONSE_TOPIC);
 
-    client.handle_response_stream(reader).await;
+    client.handle_v2_response_stream(reader).await;
 
     let result: Result<String, RpcError> = rx.await.unwrap();
     assert_eq!(result.unwrap(), "stream-result");

@@ -1004,7 +1004,7 @@ impl RoomSession {
                 });
             }
             EngineEvent::RpcResponse { request_id, payload, error } => {
-                self.rpc_client.handle_response(request_id, payload, error);
+                self.rpc_client.handle_v1_response_packet(request_id, payload, error);
             }
             EngineEvent::RpcAck { request_id } => {
                 self.rpc_client.handle_incoming_rpc_ack(request_id);
@@ -2118,7 +2118,7 @@ async fn incoming_data_stream_task(
                             rpc::RPC_RESPONSE_TOPIC => {
                                 let session = session.clone();
                                 livekit_runtime::spawn(async move {
-                                    session.rpc_client.handle_response_stream(reader).await;
+                                    session.rpc_client.handle_v2_response_stream(reader).await;
                                 });
                             }
                             _ => {
