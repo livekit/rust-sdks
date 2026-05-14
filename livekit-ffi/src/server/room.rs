@@ -91,6 +91,8 @@ pub struct RoomInner {
     url: String,
 }
 
+const ROOM_EVENT_FLUSH_TIMEOUT: Duration = Duration::from_secs(1);
+
 struct Handle {
     event_handle: JoinHandle<()>,
     data_handle: JoinHandle<()>,
@@ -240,7 +242,24 @@ impl FfiRoom {
                     // events. This avoids a race where events emitted between
                     // the ConnectCallback and the listener registration are
                     // dropped.
-                    ffi_room.flush_notify.notified().await;
+                    if tokio::time::timeout(
+                        ROOM_EVENT_FLUSH_TIMEOUT,
+                        ffi_room.flush_notify.notified(),
+                    )
+                    .await
+                    .is_err()
+                    {
+                        let msg = format!(
+                            "timed out waiting for FlushEventsRequest after ConnectCallback \
+                             (room_handle={handle_id})"
+                        );
+                        log::error!("{msg}");
+                        drop(handle);
+                        ffi_room.close(server, DisconnectReason::ConnectionTimeout).await;
+                        server.drop_handle(handle_id);
+                        server.send_panic(Box::new(FfiError::InvalidRequest(msg.into())));
+                        return;
+                    }
 
                     // Update Room SID on promise resolve. Spawned after the
                     // flush handshake so the RoomSidChanged event is never
