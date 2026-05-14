@@ -317,7 +317,7 @@ async fn test_v2_v2_handler_happy_path() {
         RPC_REQUEST_TOPIC,
     );
 
-    server.handle_request_stream(reader, ParticipantIdentity("caller".into()), &transport).await;
+    server.handle_v2_request_stream(reader, ParticipantIdentity("caller".into()), &transport).await;
 
     // ACK should be sent as v1 packet
     assert_eq!(transport.count_packets(is_rpc_ack_packet), 1);
@@ -346,7 +346,7 @@ async fn test_v2_v2_handler_unhandled_error() {
     let reader =
         make_text_reader("payload", v2_request_attrs("req-2", "crash", 5000), RPC_REQUEST_TOPIC);
 
-    server.handle_request_stream(reader, ParticipantIdentity("caller".into()), &transport).await;
+    server.handle_v2_request_stream(reader, ParticipantIdentity("caller".into()), &transport).await;
 
     // Error responses always use v1 packets, even between v2 clients
     assert_eq!(transport.count_packets(is_rpc_response_packet), 1);
@@ -369,7 +369,7 @@ async fn test_v2_v2_handler_rpc_error_passthrough() {
     let reader =
         make_text_reader("payload", v2_request_attrs("req-3", "fail", 5000), RPC_REQUEST_TOPIC);
 
-    server.handle_request_stream(reader, ParticipantIdentity("caller".into()), &transport).await;
+    server.handle_v2_request_stream(reader, ParticipantIdentity("caller".into()), &transport).await;
 
     // Error sent as v1 packet
     let err = extract_response_error(&transport).unwrap();
@@ -520,7 +520,7 @@ async fn test_v2_v1_handler_v1_request() {
     server.register_method("echo".to_string(), |data| Box::pin(async move { Ok(data.payload) }));
 
     server
-        .handle_request(
+        .handle_v1_request(
             HandleRequestOptions {
                 caller_identity: ParticipantIdentity("caller".into()),
                 request_id: "req-v1".into(),
@@ -674,7 +674,7 @@ async fn test_v1_v2_handler_response_fallback() {
 
     // v1 caller sends a v1 packet request to our v2 handler
     server
-        .handle_request(
+        .handle_v1_request(
             HandleRequestOptions {
                 caller_identity: ParticipantIdentity("v1-caller".into()),
                 request_id: "req-v1-to-v2".into(),
@@ -707,7 +707,7 @@ async fn test_v1_v2_handler_unhandled_error() {
     });
 
     server
-        .handle_request(
+        .handle_v1_request(
             HandleRequestOptions {
                 caller_identity: ParticipantIdentity("v1-caller".into()),
                 request_id: "req-crash".into(),
@@ -735,7 +735,7 @@ async fn test_v1_v2_handler_rpc_error_passthrough() {
     });
 
     server
-        .handle_request(
+        .handle_v1_request(
             HandleRequestOptions {
                 caller_identity: ParticipantIdentity("v1-caller".into()),
                 request_id: "req-fail".into(),
@@ -787,7 +787,7 @@ async fn test_v2_handler_unsupported_method() {
         RPC_REQUEST_TOPIC,
     );
 
-    server.handle_request_stream(reader, ParticipantIdentity("caller".into()), &transport).await;
+    server.handle_v2_request_stream(reader, ParticipantIdentity("caller".into()), &transport).await;
 
     let err = extract_response_error(&transport).unwrap();
     assert_eq!(err.code, RpcErrorCode::UnsupportedMethod as u32);

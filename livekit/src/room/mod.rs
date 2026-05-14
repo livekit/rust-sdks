@@ -989,7 +989,7 @@ impl RoomSession {
                     let transport = rpc::SessionTransport(session.clone());
                     session
                         .rpc_server
-                        .handle_request(
+                        .handle_v1_request(
                             rpc::HandleRequestOptions {
                                 caller_identity: caller,
                                 request_id,
@@ -2108,7 +2108,7 @@ async fn incoming_data_stream_task(
                                 let session = session.clone();
                                 livekit_runtime::spawn(async move {
                                     let transport = rpc::SessionTransport(session.clone());
-                                    session.rpc_server.handle_request_stream(
+                                    session.rpc_server.handle_v2_request_stream(
                                         reader,
                                         caller_identity,
                                         &transport,

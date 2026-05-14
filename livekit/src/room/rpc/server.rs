@@ -76,7 +76,7 @@ impl RpcServerManager {
     ///
     /// Sends ACK, invokes the registered handler, and sends the response
     /// as a v1 RPC response packet.
-    pub(crate) async fn handle_request(
+    pub(crate) async fn handle_v1_request(
         &self,
         options: HandleRequestOptions,
         transport: &(impl RpcTransport + 'static),
@@ -98,8 +98,15 @@ impl RpcServerManager {
         let response = if version != RPC_VERSION_V1 {
             Err(RpcError::built_in(RpcErrorCode::UnsupportedVersion, None))
         } else {
-            self.invoke_handler(&caller_identity, &request_id, &method, &payload, response_timeout)
-                .await
+            self.invoke_handler(
+                &caller_identity,
+                &request_id,
+                &method,
+                &payload,
+                response_timeout,
+                RpcWireTransport::V1Packet,
+            )
+            .await
         };
 
         let (resp_payload, error) = match response {
@@ -132,7 +139,7 @@ impl RpcServerManager {
     /// Parses request metadata from stream attributes, sends ACK,
     /// invokes the handler, and sends the response. Success responses
     /// use a v2 data stream; error responses always use v1 packets.
-    pub(crate) async fn handle_request_stream(
+    pub(crate) async fn handle_v2_request_stream(
         &self,
         reader: TextStreamReader,
         caller_identity: ParticipantIdentity,
