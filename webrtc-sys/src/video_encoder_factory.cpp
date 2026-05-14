@@ -52,7 +52,7 @@ namespace livekit_ffi {
 
 namespace {
 
-constexpr char kPreferredHwEncoderEnv[] = "PREFERRED_HW_ENCODER";
+constexpr char kPreferredHwEncoderEnv[] = "LIVEKIT_PREFERRED_HW_ENCODER";
 
 enum class PreferredHwEncoder {
   kNvenc,
@@ -78,7 +78,7 @@ PreferredHwEncoderConfig GetPreferredHwEncoderConfig() {
     return {PreferredHwEncoder::kVaapi, true};
   }
 
-  RTC_LOG(LS_WARNING) << "Ignoring invalid PREFERRED_HW_ENCODER=\""
+  RTC_LOG(LS_WARNING) << "Ignoring invalid LIVEKIT_PREFERRED_HW_ENCODER=\""
                       << preferred_encoder
                       << "\"; expected \"nvenc\" or \"vaapi\".";
   return {};
@@ -94,14 +94,15 @@ void AddNvencFactory(
   }
 
   if (preferred) {
-    RTC_LOG(LS_WARNING) << "PREFERRED_HW_ENCODER=nvenc requested, but NVENC "
-                           "is unavailable; falling back to other encoders.";
+    RTC_LOG(LS_WARNING)
+        << "LIVEKIT_PREFERRED_HW_ENCODER=nvenc requested, but NVENC "
+           "is unavailable; falling back to other encoders.";
   }
 #else
   if (preferred) {
     RTC_LOG(LS_WARNING)
-        << "PREFERRED_HW_ENCODER=nvenc requested, but NVENC support is not "
-           "compiled in; falling back to other encoders.";
+        << "LIVEKIT_PREFERRED_HW_ENCODER=nvenc requested, but NVENC support "
+           "is not compiled in; falling back to other encoders.";
   }
 #endif
 }
@@ -116,14 +117,15 @@ void AddVaapiFactory(
   }
 
   if (preferred) {
-    RTC_LOG(LS_WARNING) << "PREFERRED_HW_ENCODER=vaapi requested, but VAAPI "
-                           "is unavailable; falling back to other encoders.";
+    RTC_LOG(LS_WARNING)
+        << "LIVEKIT_PREFERRED_HW_ENCODER=vaapi requested, but VAAPI "
+           "is unavailable; falling back to other encoders.";
   }
 #else
   if (preferred) {
     RTC_LOG(LS_WARNING)
-        << "PREFERRED_HW_ENCODER=vaapi requested, but VAAPI support is not "
-           "compiled in; falling back to other encoders.";
+        << "LIVEKIT_PREFERRED_HW_ENCODER=vaapi requested, but VAAPI support "
+           "is not compiled in; falling back to other encoders.";
   }
 #endif
 }
