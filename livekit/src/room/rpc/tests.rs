@@ -555,7 +555,7 @@ async fn test_v2_v1_payload_too_large() {
     let client = RpcClientManager::new();
     let transport = MockTransport::new().with_remote_protocol("dest", CLIENT_PROTOCOL_DEFAULT);
 
-    let large_payload = "x".repeat(MAX_PAYLOAD_BYTES + 1);
+    let large_payload = "x".repeat(MAX_V1_PAYLOAD_BYTES + 1);
     let result = client
         .perform_rpc(
             PerformRpcData {

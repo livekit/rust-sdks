@@ -154,7 +154,7 @@ pub struct RpcError {
 
 impl RpcError {
     pub const MAX_MESSAGE_BYTES: usize = 256;
-    pub const MAX_DATA_BYTES: usize = 15360; // 15 KB
+    pub const MAX_DATA_BYTES: usize = MAX_V1_PAYLOAD_BYTES;
 
     /// Creates an error object with the given code and message, plus an optional data payload.
     ///
@@ -232,7 +232,7 @@ impl RpcError {
 }
 
 /// Maximum payload size in bytes for RPC v1
-pub const MAX_PAYLOAD_BYTES: usize = 15360; // 15 KB
+pub const MAX_V1_PAYLOAD_BYTES: usize = 15360; // 15 KB
 
 /// Calculate the byte length of a string
 pub(crate) fn byte_length(s: &str) -> usize {

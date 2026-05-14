@@ -14,7 +14,7 @@
 
 use super::{
     RpcError, RpcErrorCode, RpcInvocationData, RpcTransport, ATTR_METHOD, ATTR_REQUEST_ID,
-    ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, MAX_PAYLOAD_BYTES, RPC_RESPONSE_TOPIC, RPC_VERSION_V1,
+    ATTR_RESPONSE_TIMEOUT_MS, ATTR_VERSION, MAX_V1_PAYLOAD_BYTES, RPC_RESPONSE_TOPIC, RPC_VERSION_V1,
     RPC_VERSION_V2,
 };
 use crate::data_stream::{StreamReader, StreamTextOptions, TextStreamReader};
@@ -103,7 +103,7 @@ impl RpcServerManager {
         };
 
         let (resp_payload, error) = match response {
-            Ok(response_payload) if response_payload.len() <= MAX_PAYLOAD_BYTES => {
+            Ok(response_payload) if response_payload.len() <= MAX_V1_PAYLOAD_BYTES => {
                 (Some(response_payload), None)
             }
             Ok(_) => (
