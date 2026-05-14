@@ -26,7 +26,7 @@ use parking_lot::Mutex;
 use super::{
     audio_source, audio_stream, colorcvt, data_stream, data_track,
     participant::FfiParticipant,
-    resampler,
+    platform_audio, resampler,
     room::{self, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
@@ -1400,6 +1400,19 @@ pub fn handle_request(
             on_remote_data_track_is_published(server, req)?.into()
         }
         Request::DataTrackStreamRead(req) => on_data_track_stream_read(server, req)?.into(),
+        // Platform Audio
+        Request::NewPlatformAudio(req) => {
+            platform_audio::on_new_platform_audio(server, req)?.into()
+        }
+        Request::GetAudioDevices(req) => platform_audio::on_get_audio_devices(server, req)?.into(),
+        Request::SetRecordingDevice(req) => {
+            platform_audio::on_set_recording_device(server, req)?.into()
+        }
+        Request::SetPlayoutDevice(req) => {
+            platform_audio::on_set_playout_device(server, req)?.into()
+        }
+        Request::StartRecording(req) => platform_audio::on_start_recording(server, req)?.into(),
+        Request::StopRecording(req) => platform_audio::on_stop_recording(server, req)?.into(),
     });
 
     Ok(res)

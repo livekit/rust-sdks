@@ -28,7 +28,6 @@ std::string serialize_error(
 
 #ifdef LIVEKIT_TEST
 rust::String serialize_deserialize();
-void throw_error();
 #endif
 
 }  // namespace livekit_ffi

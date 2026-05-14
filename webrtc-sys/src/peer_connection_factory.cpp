@@ -31,7 +31,9 @@
 #include "api/task_queue/default_task_queue_factory.h"
 #include "api/video_codecs/builtin_video_decoder_factory.h"
 #include "api/video_codecs/builtin_video_encoder_factory.h"
-#include "livekit/audio_device.h"
+#include "api/audio/audio_device.h"
+#include "api/audio_options.h"
+#include "livekit/adm_proxy.h"
 #include "livekit/audio_track.h"
 #include "livekit/peer_connection.h"
 #include "livekit/rtc_error.h"
@@ -51,22 +53,21 @@ PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
     : rtc_runtime_(rtc_runtime),
     env_(webrtc::EnvironmentFactory().Create()) {
-  RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::PeerConnectionFactory()";
-
   webrtc::PeerConnectionFactoryDependencies dependencies;
   dependencies.network_thread = rtc_runtime_->network_thread();
   dependencies.worker_thread = rtc_runtime_->worker_thread();
   dependencies.signaling_thread = rtc_runtime_->signaling_thread();
   dependencies.socket_factory = rtc_runtime_->network_thread()->socketserver();
   dependencies.event_log_factory = std::make_unique<webrtc::RtcEventLogFactory>();
-  // TODO:
-  // dependencies.trials = std::make_unique<webrtc::FieldTrialBasedConfig>();
 
-  audio_device_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
-    return webrtc::make_ref_counted<livekit_ffi::AudioDevice>(env_);
+  // Create AdmProxy - it creates and initializes Platform ADM internally
+  adm_proxy_ = rtc_runtime_->worker_thread()->BlockingCall([&] {
+    return webrtc::make_ref_counted<livekit_ffi::AdmProxy>(
+        env_, rtc_runtime_->worker_thread());
   });
+  audio_device_ = std::make_shared<AudioDeviceController>(adm_proxy_);
 
-  dependencies.adm = audio_device_;
+  dependencies.adm = adm_proxy_;
 
   dependencies.video_encoder_factory =
       std::move(std::make_unique<livekit_ffi::VideoEncoderFactory>());
@@ -90,8 +91,9 @@ PeerConnectionFactory::~PeerConnectionFactory() {
   RTC_LOG(LS_VERBOSE) << "PeerConnectionFactory::~PeerConnectionFactory()";
 
   peer_factory_ = nullptr;
+  audio_device_ = nullptr;
   rtc_runtime_->worker_thread()->BlockingCall(
-      [this] { audio_device_ = nullptr; });
+      [this] { adm_proxy_ = nullptr; });
 }
 
 std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
@@ -124,6 +126,27 @@ std::shared_ptr<AudioTrack> PeerConnectionFactory::create_audio_track(
           peer_factory_->CreateAudioTrack(label.c_str(), source->get().get())));
 }
 
+std::shared_ptr<AudioTrack> PeerConnectionFactory::create_device_audio_track(
+    rust::String label) const {
+  // Create an audio source that uses the ADM for capture
+  webrtc::AudioOptions audio_options;
+  audio_options.echo_cancellation = true;
+  audio_options.auto_gain_control = true;
+  audio_options.noise_suppression = true;
+
+  webrtc::scoped_refptr<webrtc::AudioSourceInterface> audio_source =
+      peer_factory_->CreateAudioSource(audio_options);
+
+  if (!audio_source) {
+    RTC_LOG(LS_ERROR) << "Failed to create device audio source";
+    return nullptr;
+  }
+
+  return std::static_pointer_cast<AudioTrack>(
+      rtc_runtime_->get_or_create_media_stream_track(
+          peer_factory_->CreateAudioTrack(label.c_str(), audio_source.get())));
+}
+
 RtpCapabilities PeerConnectionFactory::rtp_sender_capabilities(
     MediaType type) const {
   return to_rust_rtp_capabilities(peer_factory_->GetRtpSenderCapabilities(
@@ -134,6 +157,10 @@ RtpCapabilities PeerConnectionFactory::rtp_receiver_capabilities(
     MediaType type) const {
   return to_rust_rtp_capabilities(peer_factory_->GetRtpReceiverCapabilities(
       static_cast<webrtc::MediaType>(type)));
+}
+
+std::shared_ptr<AudioDeviceController> PeerConnectionFactory::audio_device() const {
+  return audio_device_;
 }
 
 std::shared_ptr<PeerConnectionFactory> create_peer_connection_factory() {

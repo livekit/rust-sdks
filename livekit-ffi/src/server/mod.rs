@@ -41,6 +41,7 @@ pub mod data_stream;
 pub mod data_track;
 pub mod logger;
 pub mod participant;
+pub mod platform_audio;
 pub mod requests;
 pub mod resampler;
 pub mod room;
