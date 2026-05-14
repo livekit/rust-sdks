@@ -90,4 +90,15 @@ void RtpSender::set_parameters(RtpParameters params) const {
     throw std::runtime_error(serialize_error(to_error(error)));
 }
 
+void RtpSender::set_degradation_preference(
+    DegradationPreference degradation_preference) const {
+  auto params = sender_->GetParameters();
+  params.degradation_preference =
+      static_cast<webrtc::DegradationPreference>(degradation_preference);
+
+  auto error = sender_->SetParameters(params);
+  if (!error.ok())
+    throw std::runtime_error(serialize_error(to_error(error)));
+}
+
 }  // namespace livekit_ffi

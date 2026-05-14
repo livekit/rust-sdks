@@ -18,8 +18,10 @@ use webrtc_sys::{rtc_error as sys_err, rtp_sender as sys_rs};
 
 use super::media_stream_track::new_media_stream_track;
 use crate::{
-    media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters, stats::RtcStats, RtcError,
-    RtcErrorType,
+    media_stream_track::MediaStreamTrack,
+    rtp_parameters::{DegradationPreference, RtpParameters},
+    stats::RtcStats,
+    RtcError, RtcErrorType,
 };
 
 #[derive(Clone)]
@@ -78,6 +80,15 @@ impl RtpSender {
     pub fn set_parameters(&self, parameters: RtpParameters) -> Result<(), RtcError> {
         self.sys_handle
             .set_parameters(parameters.into())
+            .map_err(|e| unsafe { sys_err::ffi::RtcError::from(e.what()).into() })
+    }
+
+    pub fn set_degradation_preference(
+        &self,
+        degradation_preference: DegradationPreference,
+    ) -> Result<(), RtcError> {
+        self.sys_handle
+            .set_degradation_preference(degradation_preference.into())
             .map_err(|e| unsafe { sys_err::ffi::RtcError::from(e.what()).into() })
     }
 }

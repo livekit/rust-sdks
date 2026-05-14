@@ -1631,9 +1631,9 @@ impl SessionInner {
 
         if maintain_h264_camera_resolution {
             let sender = transceiver.sender();
-            let mut parameters = sender.parameters();
-            parameters.degradation_preference = Some(DegradationPreference::MaintainResolution);
-            if let Err(err) = sender.set_parameters(parameters) {
+            if let Err(err) =
+                sender.set_degradation_preference(DegradationPreference::MaintainResolution)
+            {
                 log::warn!("failed to set H.264 camera degradation preference: {err}");
             }
         }

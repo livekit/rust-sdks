@@ -25,6 +25,7 @@ pub mod ffi {
         include!("livekit/media_stream.h");
 
         type MediaType = crate::webrtc::ffi::MediaType;
+        type DegradationPreference = crate::rtp_parameters::ffi::DegradationPreference;
         type RtpEncodingParameters = crate::rtp_parameters::ffi::RtpEncodingParameters;
         type RtpParameters = crate::rtp_parameters::ffi::RtpParameters;
         type MediaStreamTrack = crate::media_stream::ffi::MediaStreamTrack;
@@ -50,6 +51,10 @@ pub mod ffi {
         fn init_send_encodings(self: &RtpSender) -> Vec<RtpEncodingParameters>;
         fn get_parameters(self: &RtpSender) -> RtpParameters;
         fn set_parameters(self: &RtpSender, parameters: RtpParameters) -> Result<()>;
+        fn set_degradation_preference(
+            self: &RtpSender,
+            degradation_preference: DegradationPreference,
+        ) -> Result<()>;
 
         fn _shared_rtp_sender() -> SharedPtr<RtpSender>;
     }

@@ -47,8 +47,6 @@ pub struct RtpParameters {
     pub codecs: Vec<RtpCodecParameters>,
     pub header_extensions: Vec<RtpHeaderExtensionParameters>,
     pub rtcp: RtcpParameters,
-    /// Preferred video degradation behavior for this sender.
-    pub degradation_preference: Option<DegradationPreference>,
 }
 
 #[derive(Debug, Clone, Default)]

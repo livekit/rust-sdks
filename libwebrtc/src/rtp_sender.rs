@@ -15,8 +15,11 @@
 use std::fmt::Debug;
 
 use crate::{
-    imp::rtp_sender as imp_rs, media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters,
-    stats::RtcStats, RtcError,
+    imp::rtp_sender as imp_rs,
+    media_stream_track::MediaStreamTrack,
+    rtp_parameters::{DegradationPreference, RtpParameters},
+    stats::RtcStats,
+    RtcError,
 };
 
 #[derive(Clone)]
@@ -43,6 +46,14 @@ impl RtpSender {
 
     pub fn set_parameters(&self, parameters: RtpParameters) -> Result<(), RtcError> {
         self.handle.set_parameters(parameters)
+    }
+
+    /// Sets the sender's preferred video degradation behavior.
+    pub fn set_degradation_preference(
+        &self,
+        degradation_preference: DegradationPreference,
+    ) -> Result<(), RtcError> {
+        self.handle.set_degradation_preference(degradation_preference)
     }
 }
 
