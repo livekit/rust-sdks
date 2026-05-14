@@ -119,8 +119,11 @@ impl FfiRemoteDataTrack {
         let notify_read = Arc::new(Notify::new());
         let eos_event = Arc::new(OnceLock::new());
 
-        let stream =
-            FfiDataTrackStream { notify_read: notify_read.clone(), eos_event: eos_event.clone(), drop_tx };
+        let stream = FfiDataTrackStream {
+            notify_read: notify_read.clone(),
+            eos_event: eos_event.clone(),
+            drop_tx,
+        };
         server.store_handle(handle_id, stream);
 
         let task = SubscriptionTask { server, handle_id, notify_read, eos_event, drop_rx };
@@ -139,7 +142,7 @@ pub struct FfiDataTrackStream {
     eos_event: Arc<OnceLock<proto::DataTrackStreamEos>>,
     /// Used to drop the associated task when self is dropped
     #[allow(dead_code)]
-    drop_tx: oneshot::Sender<()>
+    drop_tx: oneshot::Sender<()>,
 }
 
 impl FfiHandle for FfiDataTrackStream {}
