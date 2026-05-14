@@ -123,6 +123,10 @@ pub struct TrackPublishOptions {
     ///
     /// When unset, the SDK uses its codec/source defaults.
     pub video_degradation_preference: Option<DegradationPreference>,
+    /// Minimum bitrate for the highest video encoding, in bits per second.
+    ///
+    /// When unset, WebRTC chooses its own minimum bitrate.
+    pub video_min_bitrate: Option<u64>,
     /// RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP
     /// encoding is produced and that mode is forwarded to libwebrtc to
     /// enable true SVC for VP9/AV1. Has no effect for VP8/H264.
@@ -144,6 +148,7 @@ impl Default for TrackPublishOptions {
             preconnect_buffer: false,
             packet_trailer_features: PacketTrailerFeatures::default(),
             video_degradation_preference: None,
+            video_min_bitrate: None,
             scalability_mode: None,
         }
     }
@@ -193,11 +198,14 @@ pub fn compute_video_encodings(
         if let Some(first) = encodings.first_mut() {
             first.scalability_mode = Some(mode);
         }
-        return encodings;
+        return apply_video_min_bitrate(encodings, options.video_min_bitrate);
     }
 
     if !options.simulcast {
-        return into_rtp_encodings(width, height, &[initial_preset]);
+        return apply_video_min_bitrate(
+            into_rtp_encodings(width, height, &[initial_preset]),
+            options.video_min_bitrate,
+        );
     }
 
     let mut simulcast_presets = match options.simulcast_layers {
@@ -212,17 +220,36 @@ pub fn compute_video_encodings(
 
     if size >= 960 && low_preset.is_some() {
         #[allow(clippy::unnecessary_unwrap)]
-        return into_rtp_encodings(
-            width,
-            height,
-            &[low_preset.unwrap(), mid_preset.unwrap(), initial_preset],
+        return apply_video_min_bitrate(
+            into_rtp_encodings(
+                width,
+                height,
+                &[low_preset.unwrap(), mid_preset.unwrap(), initial_preset],
+            ),
+            options.video_min_bitrate,
         );
     } else if size >= 480 {
-        return into_rtp_encodings(width, height, &[mid_preset.unwrap(), initial_preset]);
+        return apply_video_min_bitrate(
+            into_rtp_encodings(width, height, &[mid_preset.unwrap(), initial_preset]),
+            options.video_min_bitrate,
+        );
     }
 
     // Other layers not needed
-    into_rtp_encodings(width, height, &[initial_preset])
+    apply_video_min_bitrate(
+        into_rtp_encodings(width, height, &[initial_preset]),
+        options.video_min_bitrate,
+    )
+}
+
+fn apply_video_min_bitrate(
+    mut encodings: Vec<RtpEncodingParameters>,
+    min_bitrate: Option<u64>,
+) -> Vec<RtpEncodingParameters> {
+    if let (Some(encoding), Some(min_bitrate)) = (encodings.first_mut(), min_bitrate) {
+        encoding.min_bitrate = Some(min_bitrate);
+    }
+    encodings
 }
 
 /// Return an appropriate VideoEncdoding for the specified resolution based on our presets
@@ -490,5 +517,44 @@ pub mod screenshare {
             ),
             FPS,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn video_min_bitrate_applies_to_single_encoding() {
+        let options = TrackPublishOptions {
+            video_encoding: Some(VideoEncoding { max_bitrate: 5_000_000, max_framerate: 30.0 }),
+            video_codec: VideoCodec::H264,
+            simulcast: false,
+            video_min_bitrate: Some(5_000_000),
+            ..Default::default()
+        };
+
+        let encodings = compute_video_encodings(1920, 1080, &options);
+
+        assert_eq!(encodings.len(), 1);
+        assert_eq!(encodings[0].min_bitrate, Some(5_000_000));
+        assert_eq!(encodings[0].max_bitrate, Some(5_000_000));
+    }
+
+    #[test]
+    fn video_min_bitrate_applies_to_highest_simulcast_encoding() {
+        let options = TrackPublishOptions {
+            video_encoding: Some(VideoEncoding { max_bitrate: 5_000_000, max_framerate: 30.0 }),
+            video_codec: VideoCodec::H264,
+            simulcast: true,
+            video_min_bitrate: Some(5_000_000),
+            ..Default::default()
+        };
+
+        let encodings = compute_video_encodings(1920, 1080, &options);
+
+        assert_eq!(encodings[0].rid, "f");
+        assert_eq!(encodings[0].min_bitrate, Some(5_000_000));
+        assert!(encodings[1..].iter().all(|encoding| encoding.min_bitrate.is_none()));
     }
 }

@@ -317,6 +317,7 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
                 opts.packet_trailer_features,
             ),
             video_degradation_preference: default_publish_options.video_degradation_preference,
+            video_min_bitrate: default_publish_options.video_min_bitrate,
             scalability_mode: opts.scalability_mode,
         }
     }

@@ -14,6 +14,7 @@ use livekit_api::access_token;
 use livekit_capture::{CaptureConfig, CaptureFrame, Publisher, PublisherConfig};
 use log::{debug, info, warn};
 use nokhwa::utils::ApiBackend;
+use std::collections::HashMap;
 use std::env;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -35,7 +36,7 @@ enum CaptureSource {
     Libcamera,
 }
 
-#[derive(Copy, Clone, Debug, ValueEnum)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 enum DegradationPreferenceArg {
     /// Use the example default: disabled for libcamera, SDK default otherwise.
     Auto,
@@ -95,6 +96,10 @@ struct Args {
     #[arg(long)]
     max_bitrate: Option<u64>,
 
+    /// Min video bitrate for the main layer in bps (optional)
+    #[arg(long)]
+    min_bitrate: Option<u64>,
+
     /// Enable simulcast publishing (low/medium/high layers as appropriate)
     #[arg(long, default_value_t = false)]
     simulcast: bool,
@@ -153,7 +158,16 @@ fn list_cameras() -> Result<()> {
     Ok(())
 }
 
-fn log_video_outbound_stats(stats: &[RtcStats]) {
+#[derive(Clone, Copy, Debug, Default)]
+struct OutboundStatsSnapshot {
+    frames_encoded: u32,
+    total_encode_time: f64,
+}
+
+fn log_video_outbound_stats(
+    stats: &[RtcStats],
+    snapshots: &mut HashMap<String, OutboundStatsSnapshot>,
+) {
     for stat in stats {
         let RtcStats::OutboundRtp(outbound) = stat else {
             continue;
@@ -167,8 +181,23 @@ fn log_video_outbound_stats(stats: &[RtcStats]) {
         } else {
             outbound.outbound.rid.clone()
         };
+        let snapshot = OutboundStatsSnapshot {
+            frames_encoded: outbound.outbound.frames_encoded,
+            total_encode_time: outbound.outbound.total_encode_time,
+        };
+        let previous = snapshots.insert(rid.clone(), snapshot);
+        let avg_encode_ms = previous
+            .and_then(|previous| {
+                let frames = snapshot.frames_encoded.saturating_sub(previous.frames_encoded);
+                (frames > 0).then(|| {
+                    let encode_secs =
+                        (snapshot.total_encode_time - previous.total_encode_time).max(0.0);
+                    encode_secs * 1000.0 / frames as f64
+                })
+            })
+            .unwrap_or(0.0);
         info!(
-            "WebRTC outbound after adaptation ({rid}): {}x{} | ~{:.1} fps | encoded {} (key {}) | sent {} frames, {} packets, {} bytes | encoder: {} | active: {} | target {:.0} bps",
+            "WebRTC outbound after adaptation ({rid}): {}x{} | ~{:.1} fps | encoded {} (key {}) | sent {} frames, {} packets, {} bytes | encoder: {} | active: {} | target {:.0} bps | quality {:?} | encode avg {:.1} ms/frame",
             outbound.outbound.frame_width,
             outbound.outbound.frame_height,
             outbound.outbound.frames_per_second,
@@ -180,6 +209,8 @@ fn log_video_outbound_stats(stats: &[RtcStats]) {
             outbound.outbound.encoder_implementation,
             outbound.outbound.active,
             outbound.outbound.target_bitrate,
+            outbound.outbound.quality_limitation_reason,
+            avg_encode_ms,
         );
     }
 }
@@ -416,6 +447,29 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     packet_trailer_features.user_timestamp = args.attach_timestamp;
     packet_trailer_features.frame_id = args.attach_frame_id;
     let degradation_preference = args.degradation_preference.to_webrtc(args.source);
+    let libcamera_throughput_mode = matches!(args.source, CaptureSource::Libcamera)
+        && degradation_preference == Some(DegradationPreference::Disabled);
+    let requested_min_bitrate =
+        args.min_bitrate.or_else(|| libcamera_throughput_mode.then_some(main_encoding.max_bitrate));
+    let video_min_bitrate = requested_min_bitrate.map(|min_bitrate| {
+        if min_bitrate > main_encoding.max_bitrate {
+            warn!(
+                "Video minimum bitrate {} bps is above max {} bps; clamping to max",
+                min_bitrate, main_encoding.max_bitrate
+            );
+            main_encoding.max_bitrate
+        } else {
+            min_bitrate
+        }
+    });
+    if let Some(min_bitrate) = video_min_bitrate {
+        let source = if args.min_bitrate.is_some() {
+            "selected by --min-bitrate"
+        } else {
+            "auto selected for libcamera throughput mode"
+        };
+        info!("Video minimum bitrate: {min_bitrate} bps ({source})");
+    }
     if let Some(preference) = degradation_preference {
         let preference_source = match (args.degradation_preference, args.source) {
             (DegradationPreferenceArg::Auto, CaptureSource::Libcamera) => {
@@ -437,6 +491,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         video_codec: codec,
         packet_trailer_features,
         video_encoding: Some(main_encoding.clone()),
+        video_min_bitrate,
         simulcast_layers: simulcast_presets.clone(),
         video_degradation_preference: degradation_preference,
         ..Default::default()
@@ -465,6 +520,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     let mut last_log = std::time::Instant::now();
     let mut last_published = 0u64;
+    let mut outbound_snapshots = HashMap::new();
     loop {
         if ctrl_c_received.load(Ordering::Acquire) {
             break;
@@ -479,7 +535,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             fmt.width, fmt.height, fps_est, stats.frames_published, stats.frames_dropped,
         );
         match track.get_stats().await {
-            Ok(stats) => log_video_outbound_stats(&stats),
+            Ok(stats) => log_video_outbound_stats(&stats, &mut outbound_snapshots),
             Err(e) => debug!("Unable to read outbound WebRTC stats: {e:?}"),
         }
         last_log = std::time::Instant::now();
