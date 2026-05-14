@@ -262,7 +262,7 @@ async fn test_v2_v2_caller_happy_path_short() {
     let request_id = transport.extract_request_id();
 
     // Simulate ACK + response
-    client.handle_ack(request_id.clone());
+    client.handle_incoming_rpc_ack(request_id.clone());
     client.handle_response(request_id, Some("world".into()), None);
 
     let result = handle.await.unwrap();
@@ -296,7 +296,7 @@ async fn test_v2_v2_caller_happy_path_large_payload() {
     assert_eq!(body.len(), 20_000);
 
     let request_id = transport.extract_request_id();
-    client.handle_ack(request_id.clone());
+    client.handle_incoming_rpc_ack(request_id.clone());
     client.handle_response(request_id, Some("ok".into()), None);
 
     let result = handle.await.unwrap();
@@ -426,7 +426,7 @@ async fn test_v2_v2_error_response() {
     transport.wait_for_text().await;
     let request_id = transport.extract_request_id();
 
-    client.handle_ack(request_id.clone());
+    client.handle_incoming_rpc_ack(request_id.clone());
     // Error response arrives as v1 packet (per spec)
     client.handle_response(
         request_id,
@@ -464,7 +464,7 @@ async fn test_v2_v2_participant_disconnection() {
     let request_id = transport.extract_request_id();
 
     // ACK arrives, then the responder disconnects (response channel dropped)
-    client.handle_ack(request_id.clone());
+    client.handle_incoming_rpc_ack(request_id.clone());
     // Simulate disconnect by dropping the pending response sender
     client.drop_pending_response(&request_id);
 
@@ -504,7 +504,7 @@ async fn test_v2_v1_caller_request_fallback() {
     assert_eq!(transport.texts().iter().filter(|(_, o)| o.topic == RPC_REQUEST_TOPIC).count(), 0);
 
     let request_id = transport.extract_request_id();
-    client.handle_ack(request_id.clone());
+    client.handle_incoming_rpc_ack(request_id.clone());
     client.handle_response(request_id, Some("yo".into()), None);
 
     let result = handle.await.unwrap();
@@ -616,7 +616,7 @@ async fn test_v2_v1_error_response() {
     transport.wait_for_packet().await;
     let request_id = transport.extract_request_id();
 
-    client.handle_ack(request_id.clone());
+    client.handle_incoming_rpc_ack(request_id.clone());
     client.handle_response(
         request_id,
         None,
@@ -651,7 +651,7 @@ async fn test_v2_v1_participant_disconnection() {
     transport.wait_for_packet().await;
     let request_id = transport.extract_request_id();
 
-    client.handle_ack(request_id.clone());
+    client.handle_incoming_rpc_ack(request_id.clone());
     // Simulate disconnect by dropping the pending response sender
     client.drop_pending_response(&request_id);
 

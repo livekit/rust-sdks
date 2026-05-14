@@ -1007,7 +1007,7 @@ impl RoomSession {
                 self.rpc_client.handle_response(request_id, payload, error);
             }
             EngineEvent::RpcAck { request_id } => {
-                self.rpc_client.handle_ack(request_id);
+                self.rpc_client.handle_incoming_rpc_ack(request_id);
             }
             EngineEvent::SpeakersChanged { speakers } => self.handle_speakers_changed(speakers),
             EngineEvent::ConnectionQuality { updates } => {

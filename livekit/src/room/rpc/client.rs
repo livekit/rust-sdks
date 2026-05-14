@@ -239,7 +239,7 @@ impl RpcClientManager {
         self.pending_responses.lock().insert(request_id, tx);
     }
 
-    pub(crate) fn handle_ack(&self, request_id: String) {
+    pub(crate) fn handle_incoming_rpc_ack(&self, request_id: String) {
         let mut pending = self.pending_acks.lock();
         if let Some(tx) = pending.remove(&request_id) {
             let _ = tx.send(());
