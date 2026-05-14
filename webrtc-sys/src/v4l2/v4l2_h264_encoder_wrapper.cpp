@@ -399,6 +399,8 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
   require_next_keyframe_parameter_sets_ = true;
   for (int i = 0; i < kNumOutputBuffers; ++i)
     output_buffer_queued_[i] = false;
+  for (int i = 0; i < kNumOutputBuffers; ++i)
+    retained_input_buffers_[i] = nullptr;
 
   // --- Open the encoder device ---
 
@@ -938,8 +940,10 @@ void V4l2H264EncoderWrapper::DrainReadyOutputBuffers() {
         RTC_LOG(LS_ERROR) << "V4L2: DQBUF output failed: " << strerror(errno);
       return;
     }
-    if (buf.index < kNumOutputBuffers)
+    if (buf.index < kNumOutputBuffers) {
       output_buffer_queued_[buf.index] = false;
+      retained_input_buffers_[buf.index] = nullptr;
+    }
   }
 }
 
@@ -1211,7 +1215,10 @@ V4l2H264EncoderWrapper::Encode(const uint8_t* y,
   }
 
   return RunEncode(buf_index, force_idr, userptr, /*dmabuf_fd=*/-1,
-                   /*offset=*/0, /*length=*/0, rtp_timestamp);
+                   /*offset=*/0, /*length=*/0, rtp_timestamp,
+                   /*retained_input_buffer=*/nullptr,
+                   /*encoded_timeout_ms=*/1000,
+                   /*wait_for_output_buffer=*/mode_ == OutputBufferMode::UserPtr);
 }
 
 // ---------------------------------------------------------------------------
@@ -1223,7 +1230,9 @@ V4l2H264EncoderWrapper::EncodeDmabuf(int dmabuf_fd,
                                       size_t offset,
                                       size_t length,
                                       bool force_idr,
-                                      uint32_t rtp_timestamp) {
+                                      uint32_t rtp_timestamp,
+                                      webrtc::scoped_refptr<webrtc::VideoFrameBuffer>
+                                          retained_input_buffer) {
   if (!initialized_) {
     RTC_LOG(LS_ERROR) << "V4L2: EncodeDmabuf called on uninitialized encoder";
     return EncodeError();
@@ -1244,7 +1253,9 @@ V4l2H264EncoderWrapper::EncodeDmabuf(int dmabuf_fd,
 
   return RunEncode(buf_index, force_idr, /*userptr=*/nullptr, dmabuf_fd, offset,
                    length == 0 ? static_cast<size_t>(frame_size_) : length,
-                   rtp_timestamp);
+                   rtp_timestamp, std::move(retained_input_buffer),
+                   /*encoded_timeout_ms=*/0,
+                   /*wait_for_output_buffer=*/false);
 }
 
 // ---------------------------------------------------------------------------
@@ -1258,7 +1269,11 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
                                    int dmabuf_fd,
                                    size_t offset,
                                    size_t length,
-                                   uint32_t rtp_timestamp) {
+                                   uint32_t rtp_timestamp,
+                                   webrtc::scoped_refptr<webrtc::VideoFrameBuffer>
+                                       retained_input_buffer,
+                                   int encoded_timeout_ms,
+                                   bool wait_for_output_buffer) {
   force_idr = force_idr || force_next_keyframe_;
   if (force_idr) {
     v4l2_control ctrl = {};
@@ -1302,6 +1317,7 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
     return EncodeError();
   }
   output_buffer_queued_[buf_index] = true;
+  retained_input_buffers_[buf_index] = std::move(retained_input_buffer);
   const bool requires_parameter_sets =
       force_idr && require_next_keyframe_parameter_sets_;
   pending_frames_.push_back(PendingFrame{
@@ -1311,10 +1327,8 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
     require_next_keyframe_parameter_sets_ = false;
   }
 
-  EncodeResult result = WaitForEncodedFrame(/*timeout_ms=*/1000);
-  if ((mode_ == OutputBufferMode::UserPtr ||
-       mode_ == OutputBufferMode::Dmabuf) &&
-      output_buffer_queued_[buf_index]) {
+  EncodeResult result = WaitForEncodedFrame(encoded_timeout_ms);
+  if (wait_for_output_buffer && output_buffer_queued_[buf_index]) {
     if (!WaitForOutputBuffer(buf_index, /*timeout_ms=*/1000)) {
       RTC_LOG(LS_ERROR) << "V4L2: " << ModeName(mode_)
                         << " input buffer still queued after timeout";
@@ -1412,6 +1426,8 @@ void V4l2H264EncoderWrapper::Destroy() {
   ready_frames_.clear();
   for (int i = 0; i < kNumOutputBuffers; ++i)
     output_buffer_queued_[i] = false;
+  for (int i = 0; i < kNumOutputBuffers; ++i)
+    retained_input_buffers_[i] = nullptr;
   initialized_ = false;
 
   RTC_LOG(LS_INFO) << "V4L2: Encoder destroyed";

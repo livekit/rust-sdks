@@ -24,6 +24,7 @@
 
 #include "api/scoped_refptr.h"
 #include "api/video/encoded_image.h"
+#include "api/video/video_frame_buffer.h"
 
 namespace livekit_ffi {
 
@@ -119,8 +120,9 @@ class V4l2H264EncoderWrapper {
       uint32_t rtp_timestamp);
 
   // Encode a single DMABUF-backed YUV frame. Only valid in `Dmabuf` mode.
-  // The fd is borrowed -- the caller retains ownership and must keep it
-  // alive until this call returns.
+  // The fd is borrowed. `retained_input_buffer`, when provided, is held until
+  // V4L2 dequeues the submitted OUTPUT buffer so the underlying DMABUF cannot
+  // be recycled while the hardware is still reading it.
   //
   // `offset` is the byte offset into the dmabuf where the frame data
   // begins, `length` is the total size of the YUV frame in bytes (use 0 to
@@ -130,7 +132,8 @@ class V4l2H264EncoderWrapper {
       size_t offset,
       size_t length,
       bool force_idr,
-      uint32_t rtp_timestamp);
+      uint32_t rtp_timestamp,
+      webrtc::scoped_refptr<webrtc::VideoFrameBuffer> retained_input_buffer);
 
   // Update bitrate (bps) and framerate (fps) at runtime.
   void UpdateRates(int framerate, int bitrate);
@@ -185,7 +188,10 @@ class V4l2H264EncoderWrapper {
       int dmabuf_fd,
       size_t offset,
       size_t length,
-      uint32_t rtp_timestamp);
+      uint32_t rtp_timestamp,
+      webrtc::scoped_refptr<webrtc::VideoFrameBuffer> retained_input_buffer,
+      int encoded_timeout_ms,
+      bool wait_for_output_buffer);
 
   struct PendingFrame {
     uint64_t v4l2_timestamp_us = 0;
@@ -221,6 +227,8 @@ class V4l2H264EncoderWrapper {
   MmapBuffer output_buffers_[kNumOutputBuffers];
   int num_output_buffers_ = 0;
   bool output_buffer_queued_[kNumOutputBuffers] = {};
+  webrtc::scoped_refptr<webrtc::VideoFrameBuffer>
+      retained_input_buffers_[kNumOutputBuffers];
 
   // CAPTURE queue buffers (encoded H.264 bitstream from the encoder).
   MmapBuffer capture_buffers_[kNumCaptureBuffers];

@@ -531,7 +531,8 @@ int32_t V4L2H264EncoderImpl::Encode(
                                     native_dmabuf->plane_offset(0),
                                     native_dmabuf->total_size(),
                                     send_key_frame,
-                                    input_frame.rtp_timestamp());
+                                    input_frame.rtp_timestamp(),
+                                    input_frame.video_frame_buffer());
   } else {
     if (native_dmabuf && frame_size_changed) {
       RTC_LOG(LS_WARNING) << "V4L2: Native DMABUF frame received but encoder "
