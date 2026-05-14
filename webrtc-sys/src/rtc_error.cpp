@@ -53,16 +53,6 @@ rust::String serialize_deserialize() {
   lk_error.message = "this is not a test, I repeat, this is not a test";
   return serialize_error(lk_error);
 }
-
-rust::String throw_error() {
-  RtcError lk_error;
-  lk_error.error_type = RtcErrorType::InvalidModification;
-  lk_error.error_detail = RtcErrorDetailType::None;
-  lk_error.has_sctp_cause_code = false;
-  lk_error.sctp_cause_code = 0;
-  lk_error.message = "exception is thrown!";
-  throw std::runtime_error(serialize_error(lk_error));
-}
 #endif
 
 }  // namespace livekit_ffi
