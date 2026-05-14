@@ -78,7 +78,7 @@ jobs:
 
       - name: Publish to hosting repo
         if: ${{ !inputs.dry_run }}
-        uses: livekit/publish-xcframework-action@54107be7b38f01dbdb375d88684833b254913fa1 # blaze/fail-on-missing-files (PR #3)
+        uses: livekit/publish-xcframework-action@200ee4984ef1b68068c0b3c4e87e798988730c90 # main @ fix: abort on missing source files (#3)
         with:
           xcframework-zip: ${{ env.OUTPUT_DIR }}/Rust${{ env.SPM_NAME }}.xcframework.zip
           version: ${{ inputs.version }}
