@@ -1630,6 +1630,10 @@ impl SessionInner {
             self.publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
 
         if maintain_h264_camera_resolution {
+            log::info!(
+                "using MaintainResolution degradation preference for single-stream H.264 camera \
+                 track; WebRTC may lower encoded fps under bandwidth or CPU pressure"
+            );
             let sender = transceiver.sender();
             if let Err(err) =
                 sender.set_degradation_preference(DegradationPreference::MaintainResolution)

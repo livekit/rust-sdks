@@ -35,6 +35,24 @@ lazy_static! {
     static ref LOG_SINK: Mutex<Option<UniquePtr<sys_rtc::ffi::LogSink>>> = Default::default();
 }
 
+fn log_webrtc_message(msg: String, severity: sys_rtc::ffi::LoggingSeverity) {
+    let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
+    let is_capture_path = msg.contains("V4L2:") || msg.contains("DMABUF:");
+    let target = if is_capture_path { "libwebrtc::v4l2" } else { "libwebrtc" };
+
+    match severity {
+        sys_rtc::ffi::LoggingSeverity::Error => log::error!(target: target, "{}", msg),
+        sys_rtc::ffi::LoggingSeverity::Warning => log::warn!(target: target, "{}", msg),
+        sys_rtc::ffi::LoggingSeverity::Info if is_capture_path => {
+            log::info!(target: target, "{}", msg)
+        }
+        sys_rtc::ffi::LoggingSeverity::Info => log::debug!(target: target, "{}", msg),
+        sys_rtc::ffi::LoggingSeverity::Verbose => log::trace!(target: target, "{}", msg),
+        sys_rtc::ffi::LoggingSeverity::None => {}
+        _ => log::debug!(target: target, "{}", msg),
+    }
+}
+
 #[derive(Clone)]
 pub struct PeerConnectionFactory {
     pub(crate) sys_handle: SharedPtr<sys_pcf::ffi::PeerConnectionFactory>,
@@ -44,10 +62,7 @@ impl Default for PeerConnectionFactory {
     fn default() -> Self {
         let mut log_sink = LOG_SINK.lock();
         if log_sink.is_none() {
-            *log_sink = Some(sys_rtc::ffi::new_log_sink(|msg, _| {
-                let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
-                log::debug!(target: "libwebrtc", "{}", msg);
-            }));
+            *log_sink = Some(sys_rtc::ffi::new_log_sink(log_webrtc_message));
         }
 
         Self { sys_handle: sys_pcf::ffi::create_peer_connection_factory() }

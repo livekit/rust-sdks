@@ -353,22 +353,30 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             max_framerate: target_fps,
         }
     };
-    let simulcast_presets = compute_simulcast_presets_30fps(fmt.width, fmt.height, target_fps);
-    info!(
-        "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast layers: {})",
-        fmt.width,
-        fmt.height,
-        target_fps,
-        main_encoding.max_bitrate,
-        simulcast_presets
-            .iter()
-            .map(|p| format!(
-                "{}x{}@{:.0}fps/{}bps",
-                p.width, p.height, p.encoding.max_framerate, p.encoding.max_bitrate
-            ))
-            .collect::<Vec<_>>()
-            .join(", "),
-    );
+    let simulcast_presets = simulcast_enabled
+        .then(|| compute_simulcast_presets_30fps(fmt.width, fmt.height, target_fps));
+    if let Some(presets) = simulcast_presets.as_ref() {
+        info!(
+            "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast layers: {})",
+            fmt.width,
+            fmt.height,
+            target_fps,
+            main_encoding.max_bitrate,
+            presets
+                .iter()
+                .map(|p| format!(
+                    "{}x{}@{:.0}fps/{}bps",
+                    p.width, p.height, p.encoding.max_framerate, p.encoding.max_bitrate
+                ))
+                .collect::<Vec<_>>()
+                .join(", "),
+        );
+    } else {
+        info!(
+            "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast disabled)",
+            fmt.width, fmt.height, target_fps, main_encoding.max_bitrate,
+        );
+    }
 
     let mut packet_trailer_features = PacketTrailerFeatures::default();
     packet_trailer_features.user_timestamp = args.attach_timestamp;
@@ -380,7 +388,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         video_codec: codec,
         packet_trailer_features,
         video_encoding: Some(main_encoding.clone()),
-        simulcast_layers: Some(simulcast_presets.clone()),
+        simulcast_layers: simulcast_presets.clone(),
         ..Default::default()
     };
 
