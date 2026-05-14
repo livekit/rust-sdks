@@ -50,6 +50,7 @@ webrtc-sys-build = { workspace = true }
 
 [dev-dependencies]
 livekit-api = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "test-util", "time"] }
 
 [lib]
 crate-type = ["lib", "staticlib", "cdylib"]
