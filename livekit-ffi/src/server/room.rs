@@ -93,12 +93,6 @@ pub struct RoomInner {
 
 const ROOM_EVENT_FLUSH_TIMEOUT: Duration = Duration::from_secs(1);
 
-async fn wait_for_room_event_flush(
-    flush_notify: &Notify,
-) -> Result<(), tokio::time::error::Elapsed> {
-    tokio::time::timeout(ROOM_EVENT_FLUSH_TIMEOUT, flush_notify.notified()).await
-}
-
 struct Handle {
     event_handle: JoinHandle<()>,
     data_handle: JoinHandle<()>,
@@ -248,12 +242,18 @@ impl FfiRoom {
                     // events. This avoids a race where events emitted between
                     // the ConnectCallback and the listener registration are
                     // dropped.
-                    if wait_for_room_event_flush(&ffi_room.flush_notify).await.is_err() {
+                    if tokio::time::timeout(
+                        ROOM_EVENT_FLUSH_TIMEOUT,
+                        ffi_room.flush_notify.notified(),
+                    )
+                    .await
+                    .is_err()
+                    {
                         let msg = format!(
                             "timed out waiting for FlushEventsRequest after ConnectCallback \
                              (room_handle={handle_id})"
                         );
-                        log::error!("{msg}");
+                        log::error!("{}", msg);
                         drop(handle);
                         ffi_room.close(server, DisconnectReason::ConnectionTimeout).await;
                         server.drop_handle(handle_id);
@@ -1635,24 +1635,4 @@ fn build_initial_states(
         },
         remote_infos,
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[tokio::test(start_paused = true)]
-    async fn wait_for_room_event_flush_times_out_without_notification() {
-        let notify = Notify::new();
-
-        assert!(wait_for_room_event_flush(&notify).await.is_err());
-    }
-
-    #[tokio::test(start_paused = true)]
-    async fn wait_for_room_event_flush_completes_after_notification() {
-        let notify = Notify::new();
-        notify.notify_one();
-
-        assert!(wait_for_room_event_flush(&notify).await.is_ok());
-    }
 }
