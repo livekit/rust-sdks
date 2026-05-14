@@ -111,6 +111,20 @@ changelog = "livekit-ffi/CHANGELOG.md"
 assets = "marker"
 scopes = ["ffi", "livekit-ffi"]
 
+[packages.livekit-uniffi]
+# Not in workspace.dependencies (not consumed by other crates here), so no
+# root Cargo.toml entry is needed.
+versioned_files = [
+  "livekit-uniffi/Cargo.toml",
+  "Cargo.lock",
+]
+changelog = "livekit-uniffi/CHANGELOG.md"
+# Asset marker tells knope to create a draft release; uniffi-packages.yml
+# picks it up, builds the Swift xcframework, and publishes via PR + draft
+# release on livekit/livekit-uniffi-xcframework.
+assets = "marker"
+scopes = ["uniffi", "livekit-uniffi"]
+
 [packages.livekit-wakeword]
 versioned_files = [
   "livekit-wakeword/Cargo.toml",
