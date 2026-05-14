@@ -623,7 +623,7 @@ async fn test_platform_audio_with_native_source() -> Result<()> {
 
     // Create PlatformAudio for microphone
     let mic = PlatformAudio::new()?;
-    log::info!("Created PlatformAudio with {} mics", mic.recording_devices());
+    log::info!("Created PlatformAudio with {} mics", mic.recording_devices().count());
 
     // Create NativeAudioSource for screen capture / TTS
     let screen_source = NativeAudioSource::new(AudioSourceOptions::default(), 48000, 2, 100);
