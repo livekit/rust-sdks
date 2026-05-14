@@ -147,9 +147,10 @@ static H264LevelSelection SelectH264Level(int width,
   const int mb_per_frame = mb_width * mb_height;
   const int mb_per_second = mb_per_frame * std::max(1, framerate);
 
-  // H.264 Annex A limits. Level 3.1 is enough for 720p30; 1080p30 needs
-  // level 4.0, and 1080p60 needs level 4.2.
-  if (mb_per_frame <= 3600 && mb_per_second <= 108000) {
+  // H.264 Annex A limits. Although 720p30 lands exactly on the level 3.1
+  // macroblock-rate boundary, bcm2835-codec on Pi can behave as if it is
+  // still capped lower. Use level 4.0 at and above that boundary.
+  if (mb_per_frame < 3600 && mb_per_second < 108000) {
     return {V4L2_MPEG_VIDEO_H264_LEVEL_3_1, "3.1", "42e01f",
             mb_per_frame, mb_per_second, false};
   }
@@ -253,14 +254,27 @@ static EncodeResult EncodeOk(EncodedFrame frame) {
 }
 
 // Set a single V4L2 control, logging a warning on failure but not aborting.
-static void TrySetControl(int fd, uint32_t id, int32_t value, const char* name) {
+static bool TrySetControl(int fd, uint32_t id, int32_t value, const char* name) {
   v4l2_control ctrl = {};
   ctrl.id = id;
   ctrl.value = value;
   if (V4l2H264EncoderWrapper::Xioctl(fd, VIDIOC_S_CTRL, &ctrl) < 0) {
     RTC_LOG(LS_WARNING) << "V4L2: Failed to set " << name << ": "
                         << strerror(errno);
+    return false;
   }
+
+  v4l2_control readback = {};
+  readback.id = id;
+  if (V4l2H264EncoderWrapper::Xioctl(fd, VIDIOC_G_CTRL, &readback) == 0) {
+    if (readback.value != value) {
+      RTC_LOG(LS_WARNING) << "V4L2: " << name << " read back as "
+                          << readback.value << " after setting " << value;
+    } else {
+      RTC_LOG(LS_VERBOSE) << "V4L2: set " << name << " to " << value;
+    }
+  }
+  return true;
 }
 
 static uint32_t V4l2MemoryFor(OutputBufferMode mode) {
