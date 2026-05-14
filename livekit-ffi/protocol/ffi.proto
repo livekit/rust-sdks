@@ -15,19 +15,18 @@
 syntax = "proto2";
 
 package livekit.proto;
+option csharp_namespace = "LiveKit.Proto";
 
-import "audio_frame.proto";
-import "data_stream.proto";
-import "data_track.proto";
 // import "handle.proto";
 import "e2ee.proto";
-import "room.proto";
-import "rpc.proto";
 import "track.proto";
 import "track_publication.proto";
+import "room.proto";
 import "video_frame.proto";
-
-option csharp_namespace = "LiveKit.Proto";
+import "audio_frame.proto";
+import "rpc.proto";
+import "data_stream.proto";
+import "data_track.proto";
 
 // **How is the livekit-ffi working:
 // We refer as the ffi server the Rust server that is running the LiveKit client implementation, and we
