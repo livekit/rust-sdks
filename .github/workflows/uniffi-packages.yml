@@ -23,6 +23,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  contents: read
+
 env:
   TAG_PREFIX: livekit-uniffi/v
 
