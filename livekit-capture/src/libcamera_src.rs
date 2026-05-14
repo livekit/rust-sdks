@@ -330,6 +330,10 @@ fn run_worker(
         "LibCameraCapture: negotiated {}x{} stride {}, frame_size {}, fourcc {:?}",
         neg_w, neg_h, neg_stride, neg_frame_size, fourcc
     );
+    info!(
+        "LibCameraCapture: capture path: libcamera DMABUF native frames \
+         (zero-copy candidate for V4L2 H.264)"
+    );
 
     if let Err(e) = active_cam.configure(&mut cfgs) {
         let _ = init_tx.send(Err(CaptureError::DeviceUnavailable(format!("configure: {e}"))));

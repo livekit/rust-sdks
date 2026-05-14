@@ -130,6 +130,38 @@ static std::string FourccToString(uint32_t fourcc) {
   return std::string(fourcc_chars);
 }
 
+struct H264LevelSelection {
+  int32_t control_value;
+  const char* level_name;
+  const char* profile_level_id;
+  int macroblocks_per_frame;
+  int macroblocks_per_second;
+  bool capped_at_level_42;
+};
+
+static H264LevelSelection SelectH264Level(int width,
+                                          int height,
+                                          int framerate) {
+  const int mb_width = AlignUp(width, 16) / 16;
+  const int mb_height = AlignUp(height, 16) / 16;
+  const int mb_per_frame = mb_width * mb_height;
+  const int mb_per_second = mb_per_frame * std::max(1, framerate);
+
+  // H.264 Annex A limits. Level 3.1 is enough for 720p30; 1080p30 needs
+  // level 4.0, and 1080p60 needs level 4.2.
+  if (mb_per_frame <= 3600 && mb_per_second <= 108000) {
+    return {V4L2_MPEG_VIDEO_H264_LEVEL_3_1, "3.1", "42e01f",
+            mb_per_frame, mb_per_second, false};
+  }
+  if (mb_per_frame <= 8192 && mb_per_second <= 245760) {
+    return {V4L2_MPEG_VIDEO_H264_LEVEL_4_0, "4.0", "42e028",
+            mb_per_frame, mb_per_second, false};
+  }
+  return {V4L2_MPEG_VIDEO_H264_LEVEL_4_2, "4.2", "42e02a",
+          mb_per_frame, mb_per_second,
+          mb_per_frame > 8704 || mb_per_second > 522240};
+}
+
 struct H264AccessUnitInfo {
   bool saw_nal = false;
   bool has_idr = false;
@@ -465,6 +497,23 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
     fd_ = -1;
     return false;
   }
+  if (mode_ == OutputBufferMode::Dmabuf) {
+    RTC_LOG(LS_INFO)
+        << "V4L2: encoder input path confirmed: DMABUF zero-copy import "
+        << "(memory DMABUF, fourcc " << FourccToString(input_fourcc_)
+        << ", stride " << output_stride_ << ", sizeimage " << frame_size_
+        << ")";
+  } else if (mode_ == OutputBufferMode::Mmap) {
+    RTC_LOG(LS_INFO)
+        << "V4L2: encoder input path confirmed: CPU I420 copy into MMAP "
+        << "(fourcc " << FourccToString(input_fourcc_) << ", stride "
+        << output_stride_ << ", sizeimage " << frame_size_ << ")";
+  } else {
+    RTC_LOG(LS_INFO)
+        << "V4L2: encoder input path confirmed: USERPTR input (fourcc "
+        << FourccToString(input_fourcc_) << ", stride " << output_stride_
+        << ", sizeimage " << frame_size_ << ")";
+  }
 
   // --- Set framerate via stream parameters ---
 
@@ -502,10 +551,21 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
                           << strerror(errno);
   }
 
-  // H.264 level 3.1 -- matches the SDP profile-level-id ("42e01f")
-  // advertised by V4L2VideoEncoderFactory. Supports up to 1280x720@30.
+  const H264LevelSelection h264_level =
+      SelectH264Level(width, height, framerate_);
+  RTC_LOG(LS_INFO) << "V4L2: selected H.264 level " << h264_level.level_name
+                   << " (profile-level-id "
+                   << h264_level.profile_level_id << ") for " << width << "x"
+                   << height << " @ " << framerate_ << " fps, "
+                   << h264_level.macroblocks_per_frame << " MB/frame, "
+                   << h264_level.macroblocks_per_second << " MB/s";
+  if (h264_level.capped_at_level_42) {
+    RTC_LOG(LS_WARNING)
+        << "V4L2: requested H.264 size/rate exceeds level 4.2 limits; "
+           "driver may reject the stream or encode below the requested rate";
+  }
   TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_H264_LEVEL,
-                V4L2_MPEG_VIDEO_H264_LEVEL_3_1, "H.264 level");
+                h264_level.control_value, "H.264 level");
 
   // Keyframe (IDR) interval in frames.
   if (keyframe_interval > 0) {

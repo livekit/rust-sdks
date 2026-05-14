@@ -25,10 +25,12 @@
 namespace webrtc {
 
 V4L2VideoEncoderFactory::V4L2VideoEncoderFactory() {
-  // Constrained Baseline profile, level 3.1, packetization mode 1.
-  // profile-level-id 42e01f = Constrained Baseline, level 3.1.
+  // Constrained Baseline profile, level 4.2, packetization mode 1.
+  // profile-level-id 42e02a = Constrained Baseline, level 4.2. The wrapper
+  // still sets the lowest driver H.264 level needed for each resolution/fps,
+  // but advertising 4.2 avoids capping negotiation at 720p30.
   std::map<std::string, std::string> params = {
-      {"profile-level-id", "42e01f"},
+      {"profile-level-id", "42e02a"},
       {"level-asymmetry-allowed", "1"},
       {"packetization-mode", "1"},
   };

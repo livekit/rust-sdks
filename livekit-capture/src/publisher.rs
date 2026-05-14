@@ -167,6 +167,7 @@ fn run_loop<C: Capture>(
     let start_ts = Instant::now();
     let mut next_frame_at = Instant::now();
     let mut frame_counter: u32 = 1;
+    let mut logged_frame_path = false;
 
     while !stop_flag.load(Ordering::Acquire) {
         // Pace at the negotiated frame rate. The capture backend may
@@ -207,6 +208,21 @@ fn run_loop<C: Capture>(
 
         if let Some(hook) = hook.as_mut() {
             hook(&mut captured, FrameContext { format, frame_id: frame_counter });
+        }
+
+        if !logged_frame_path {
+            match &captured {
+                CaptureFrame::I420 { .. } => {
+                    info!("Publisher: capture frame path: CPU I420 copy into NativeVideoSource");
+                }
+                CaptureFrame::Native { .. } => {
+                    info!(
+                        "Publisher: capture frame path: native DMABUF frames into \
+                         NativeVideoSource"
+                    );
+                }
+            }
+            logged_frame_path = true;
         }
 
         let capture_ts_us = captured.capture_ts_us().unwrap_or_else(unix_time_us_now);

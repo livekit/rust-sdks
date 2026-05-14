@@ -46,6 +46,17 @@ int AlignUp(int value, int alignment) {
   return ((value + alignment - 1) / alignment) * alignment;
 }
 
+std::string FourccToString(uint32_t fourcc) {
+  char fourcc_chars[5] = {
+      static_cast<char>(fourcc & 0xff),
+      static_cast<char>((fourcc >> 8) & 0xff),
+      static_cast<char>((fourcc >> 16) & 0xff),
+      static_cast<char>((fourcc >> 24) & 0xff),
+      '\0',
+  };
+  return std::string(fourcc_chars);
+}
+
 int PostReconfigureDropFrameCount(float frame_rate) {
   const int nominal_frame_rate = static_cast<int>(std::round(frame_rate));
   // Drop roughly half a second of encoder output, capped to keep adaptation
@@ -424,6 +435,24 @@ int32_t V4L2H264EncoderImpl::Encode(
                                          : kFourccYuv420;
     int input_stride = native_dmabuf_safe ? native_dmabuf->plane_stride(0)
                                           : configuration_.width;
+    if (desired == livekit_ffi::OutputBufferMode::Dmabuf) {
+      RTC_LOG(LS_INFO)
+          << "V4L2: encoder input path: DMABUF zero-copy import (fourcc "
+          << FourccToString(fourcc) << ", stride " << input_stride
+          << ", planes " << native_dmabuf->num_planes() << ", size "
+          << native_dmabuf->total_size() << ")";
+    } else if (native_dmabuf) {
+      RTC_LOG(LS_INFO)
+          << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
+             "(native DMABUF layout is not directly importable)";
+    } else {
+      RTC_LOG(LS_INFO)
+          << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
+             "(input buffer type "
+          << VideoFrameBufferTypeToString(
+                 input_frame.video_frame_buffer()->type())
+          << ")";
+    }
     if (!initialize_encoder(desired, fourcc, input_stride)) {
       if (desired != livekit_ffi::OutputBufferMode::Dmabuf) {
         RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize H.264 encoder";
@@ -440,6 +469,9 @@ int32_t V4L2H264EncoderImpl::Encode(
       desired = livekit_ffi::OutputBufferMode::Mmap;
       fourcc = kFourccYuv420;
       input_stride = configuration_.width;
+      RTC_LOG(LS_INFO)
+          << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
+             "(DMABUF import initialization failed)";
       if (!initialize_encoder(desired, fourcc, input_stride)) {
         RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize MMAP fallback";
         first_frame_ = true;
@@ -452,12 +484,15 @@ int32_t V4L2H264EncoderImpl::Encode(
          encoder_->output_stride() != input_stride)) {
       RTC_LOG(LS_WARNING)
           << "V4L2: Driver adjusted DMABUF output format/stride; requested "
-          << fourcc << "/" << input_stride << ", negotiated "
-          << encoder_->output_fourcc() << "/" << encoder_->output_stride()
-          << "; falling back to ToI420 + MMAP";
+          << FourccToString(fourcc) << "/" << input_stride << ", negotiated "
+          << FourccToString(encoder_->output_fourcc()) << "/"
+          << encoder_->output_stride() << "; falling back to ToI420 + MMAP";
       encoder_->Destroy();
       native_dmabuf_safe = false;
       send_key_frame = true;
+      RTC_LOG(LS_INFO)
+          << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
+             "(driver changed imported DMABUF layout)";
       if (!initialize_encoder(livekit_ffi::OutputBufferMode::Mmap,
                               kFourccYuv420, configuration_.width)) {
         RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize MMAP fallback";
@@ -473,6 +508,9 @@ int32_t V4L2H264EncoderImpl::Encode(
            "cannot be safely imported";
     encoder_->Destroy();
     send_key_frame = true;
+    RTC_LOG(LS_INFO)
+        << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
+           "(incoming frame cannot be safely imported as DMABUF)";
     if (!initialize_encoder(livekit_ffi::OutputBufferMode::Mmap,
                             kFourccYuv420, configuration_.width)) {
       RTC_LOG(LS_ERROR) << "V4L2: Failed to reinitialize H.264 encoder";

@@ -97,6 +97,10 @@ impl Capture for UvcCapture {
             "UvcCapture: opened {}x{} @ {} fps (format: {})",
             stream_fmt.width, stream_fmt.height, stream_fmt.fps, using_fmt
         );
+        info!(
+            "UvcCapture: capture path: CPU I420 copy ({} camera frames converted before publish)",
+            using_fmt
+        );
         self.camera = Some(camera);
         self.format = Some(stream_fmt);
         Ok(stream_fmt)
