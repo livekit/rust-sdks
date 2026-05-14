@@ -77,17 +77,17 @@ jobs:
     env:
       OUTPUT_DIR: livekit-uniffi/packages/${{ matrix.package }}/${{ matrix.spm-name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           submodules: recursive
 
-      - uses: maxim-lobanov/setup-xcode@v1
+      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
         if: matrix.package == 'swift'
         with:
           xcode-version: latest-stable
 
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
 
       - name: Install Apple Rust targets
         if: matrix.package == 'swift'
@@ -101,22 +101,12 @@ jobs:
             aarch64-apple-darwin \
             x86_64-apple-darwin \
             aarch64-apple-tvos \
-            aarch64-apple-tvos-sim
+            aarch64-apple-tvos-sim \
+            aarch64-apple-visionos \
+            aarch64-apple-visionos-sim
 
-      - name: Install nightly + rust-src (visionOS tier-3 target)
-        if: matrix.package == 'swift'
-        run: |
-          rustup toolchain install nightly
-          rustup component add rust-src --toolchain nightly
-
-      - uses: cargo-bins/cargo-binstall@v1
+      - uses: cargo-bins/cargo-binstall@dc19f1e48450eefe5a29b8da6c6b00a87d730b37 # v1.18.1
       - run: cargo binstall cargo-make --no-confirm
-
-      - name: Install Protoc
-        uses: arduino/setup-protoc@v3
-        with:
-          version: "25.2"
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build ${{ matrix.package }} package
         working-directory: livekit-uniffi
@@ -127,7 +117,7 @@ jobs:
 
       - name: Publish Swift package to hosting repo
         if: matrix.package == 'swift' && !inputs.dry_run
-        uses: livekit/publish-xcframework-action@v1
+        uses: livekit/publish-xcframework-action@54107be7b38f01dbdb375d88684833b254913fa1 # blaze/fail-on-missing-files (PR #3)
         with:
           xcframework-zip: ${{ env.OUTPUT_DIR }}/Rust${{ matrix.spm-name }}.xcframework.zip
           version: ${{ needs.resolve-tag.outputs.version }}
