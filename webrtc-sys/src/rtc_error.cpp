@@ -54,7 +54,7 @@ rust::String serialize_deserialize() {
   return serialize_error(lk_error);
 }
 
-void throw_error() {
+rust::String throw_error() {
   RtcError lk_error;
   lk_error.error_type = RtcErrorType::InvalidModification;
   lk_error.error_detail = RtcErrorDetailType::None;

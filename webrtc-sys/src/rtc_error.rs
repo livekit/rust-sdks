@@ -166,7 +166,7 @@ mod tests {
             include!("livekit/rtc_error.h");
 
             fn serialize_deserialize() -> String;
-            fn throw_error() -> Result<()>;
+            fn throw_error() -> Result<String>;
         }
     }
 
