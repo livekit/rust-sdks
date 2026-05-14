@@ -253,7 +253,7 @@ SWIFT_RELEASE_FLAG = { value = "--release", condition = { profiles = ["release"]
 [tasks.swift-xcframework]
 private = true
 install_crate = { crate_name = "cargo-swift", binary = "cargo-swift", test_arg = "--help" }
-install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--branch", "feature/framework-wrapping"]
+install_crate_args = ["--git", "https://github.com/antoniusnaumann/cargo-swift.git", "--rev", "fe7becfcfe377c014902719165b6a834b427e072"]
 script_runner = "@shell"
 script = """
 export IPHONEOS_DEPLOYMENT_TARGET=13.0
