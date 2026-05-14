@@ -104,7 +104,6 @@ impl RpcServerManager {
                 &method,
                 &payload,
                 response_timeout,
-                RpcWireTransport::V1Packet,
             )
             .await
         };
