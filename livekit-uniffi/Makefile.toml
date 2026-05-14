@@ -293,9 +293,10 @@ echo "Rust${SPM_NAME}.xcframework.zip checksum: $(cat .checksum)"
 
 [tasks.swift-generate-manifest.env]
 # Caller sets SPM_VERSION for release publishing. Hosting repo defaults to the
-# canonical LiveKit one; override if forking.
-SPM_VERSION = { value = "0.0.0-dev" }
-SPM_HOSTING_REPO = { value = "livekit/livekit-uniffi-xcframework" }
+# canonical LiveKit one; override if forking. The condition makes these
+# defaults only — caller-set values from the environment take precedence.
+SPM_VERSION = { value = "0.0.0-dev", condition = { env_not_set = ["SPM_VERSION"] } }
+SPM_HOSTING_REPO = { value = "livekit/livekit-uniffi-xcframework", condition = { env_not_set = ["SPM_HOSTING_REPO"] } }
 
 [tasks.swift-generate-manifest]
 private = true
