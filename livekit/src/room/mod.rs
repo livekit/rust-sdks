@@ -344,6 +344,33 @@ pub struct ChatMessage {
     pub generated: Option<bool>,
 }
 
+#[deprecated(note = "RPC requests are now handled internally; see the `rpc` module.")]
+#[derive(Debug, Clone)]
+pub struct RpcRequest {
+    pub destination_identity: String,
+    pub id: String,
+    pub method: String,
+    pub payload: String,
+    pub response_timeout: Duration,
+    pub version: u32,
+}
+
+#[deprecated(note = "RPC responses are now handled internally; see the `rpc` module.")]
+#[derive(Debug, Clone)]
+pub struct RpcResponse {
+    destination_identity: String,
+    request_id: String,
+    payload: Option<String>,
+    error: Option<proto::RpcError>,
+}
+
+#[deprecated(note = "RPC acks are now handled internally; see the `rpc` module.")]
+#[derive(Debug, Clone)]
+pub struct RpcAck {
+    destination_identity: String,
+    request_id: String,
+}
+
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct RoomSdkOptions {
