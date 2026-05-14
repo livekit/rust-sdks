@@ -383,6 +383,7 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
   width_ = width;
   height_ = height;
   framerate_ = framerate > 0 ? framerate : 30;
+  bitrate_ = bitrate;
   mode_ = mode;
   input_fourcc_ = input_fourcc;
   output_stride_ = input_stride > 0 ? input_stride : width;
@@ -1337,11 +1338,16 @@ void V4l2H264EncoderWrapper::UpdateRates(int framerate, int bitrate) {
   if (fd_ < 0)
     return;
 
-  if (bitrate > 0) {
+  if (bitrate > 0 && bitrate != bitrate_) {
+    RTC_LOG(LS_INFO) << "V4L2: updating encoder bitrate from " << bitrate_
+                     << " to " << bitrate << " bps";
+    bitrate_ = bitrate;
     TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_BITRATE, bitrate, "bitrate");
   }
 
   if (framerate > 0 && framerate != framerate_) {
+    RTC_LOG(LS_INFO) << "V4L2: updating encoder framerate from "
+                     << framerate_ << " to " << framerate << " fps";
     framerate_ = framerate;
     struct v4l2_streamparm parm = {};
     parm.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;

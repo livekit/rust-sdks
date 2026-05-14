@@ -38,18 +38,24 @@ lazy_static! {
 fn log_webrtc_message(msg: String, severity: sys_rtc::ffi::LoggingSeverity) {
     let msg = msg.strip_suffix("\r\n").or(msg.strip_suffix('\n')).unwrap_or(&msg);
     let is_capture_path = msg.contains("V4L2:") || msg.contains("DMABUF:");
-    let target = if is_capture_path { "libwebrtc::v4l2" } else { "libwebrtc" };
+    if !is_capture_path {
+        log::debug!(target: "libwebrtc", "{}", msg);
+        return;
+    }
 
     match severity {
-        sys_rtc::ffi::LoggingSeverity::Error => log::error!(target: target, "{}", msg),
-        sys_rtc::ffi::LoggingSeverity::Warning => log::warn!(target: target, "{}", msg),
-        sys_rtc::ffi::LoggingSeverity::Info if is_capture_path => {
-            log::info!(target: target, "{}", msg)
+        sys_rtc::ffi::LoggingSeverity::Error => {
+            log::error!(target: "libwebrtc::v4l2", "{}", msg)
         }
-        sys_rtc::ffi::LoggingSeverity::Info => log::debug!(target: target, "{}", msg),
-        sys_rtc::ffi::LoggingSeverity::Verbose => log::trace!(target: target, "{}", msg),
+        sys_rtc::ffi::LoggingSeverity::Warning => {
+            log::warn!(target: "libwebrtc::v4l2", "{}", msg)
+        }
+        sys_rtc::ffi::LoggingSeverity::Info => log::info!(target: "libwebrtc::v4l2", "{}", msg),
+        sys_rtc::ffi::LoggingSeverity::Verbose => {
+            log::trace!(target: "libwebrtc::v4l2", "{}", msg)
+        }
         sys_rtc::ffi::LoggingSeverity::None => {}
-        _ => log::debug!(target: target, "{}", msg),
+        _ => log::debug!(target: "libwebrtc::v4l2", "{}", msg),
     }
 }
 

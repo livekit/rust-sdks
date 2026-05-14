@@ -119,6 +119,10 @@ pub struct TrackPublishOptions {
     pub stream: String,
     pub preconnect_buffer: bool,
     pub packet_trailer_features: PacketTrailerFeatures,
+    /// Override WebRTC's automatic video quality adaptation behavior.
+    ///
+    /// When unset, the SDK uses its codec/source defaults.
+    pub video_degradation_preference: Option<DegradationPreference>,
     /// RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP
     /// encoding is produced and that mode is forwarded to libwebrtc to
     /// enable true SVC for VP9/AV1. Has no effect for VP8/H264.
@@ -139,6 +143,7 @@ impl Default for TrackPublishOptions {
             stream: "".to_string(),
             preconnect_buffer: false,
             packet_trailer_features: PacketTrailerFeatures::default(),
+            video_degradation_preference: None,
             scalability_mode: None,
         }
     }

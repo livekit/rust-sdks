@@ -200,6 +200,7 @@ class V4l2H264EncoderWrapper {
   int width_ = 0;
   int height_ = 0;
   int framerate_ = 30;
+  int bitrate_ = 0;
   int frame_size_ = 0;  // configured sizeimage for OUTPUT (single plane)
   int output_stride_ = 0;
   int output_chroma_stride_ = 0;

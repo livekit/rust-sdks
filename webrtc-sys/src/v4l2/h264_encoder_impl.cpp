@@ -412,10 +412,12 @@ int32_t V4L2H264EncoderImpl::Encode(
                         ? codec_.maxFramerate * 2  // ~2 seconds of frames
                         : 60;
     }
+    const int bitrate = configuration_.target_bps > 0
+                            ? configuration_.target_bps
+                            : codec_.startBitrate * 1000;
     return encoder_->Initialize(configuration_.width, configuration_.height,
-                                codec_.startBitrate * 1000, kf_interval,
-                                codec_.maxFramerate, desired, fourcc,
-                                input_stride);
+                                bitrate, kf_interval, codec_.maxFramerate,
+                                desired, fourcc, input_stride);
   };
 
   // Lazily initialize the hardware encoder, picking the mode based on

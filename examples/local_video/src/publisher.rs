@@ -6,6 +6,7 @@ use livekit::options::{
     VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
+use livekit::webrtc::rtp_parameters::DegradationPreference;
 use livekit::webrtc::stats::RtcStats;
 use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
@@ -32,6 +33,35 @@ enum CaptureSource {
     /// frames that the V4L2 hardware encoder imports zero-copy.
     /// Linux-only; requires the `libcamera` feature.
     Libcamera,
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum DegradationPreferenceArg {
+    /// Use the example default: disabled for libcamera, SDK default otherwise.
+    Auto,
+    /// Disable WebRTC quality adaptation for hardware throughput tests.
+    Disabled,
+    /// Preserve frame rate by adapting resolution first.
+    MaintainFramerate,
+    /// Preserve resolution by adapting frame rate first.
+    MaintainResolution,
+    /// Let WebRTC balance frame-rate and resolution adaptation.
+    Balanced,
+}
+
+impl DegradationPreferenceArg {
+    fn to_webrtc(self, source: CaptureSource) -> Option<DegradationPreference> {
+        match self {
+            Self::Auto if matches!(source, CaptureSource::Libcamera) => {
+                Some(DegradationPreference::Disabled)
+            }
+            Self::Auto => None,
+            Self::Disabled => Some(DegradationPreference::Disabled),
+            Self::MaintainFramerate => Some(DegradationPreference::MaintainFramerate),
+            Self::MaintainResolution => Some(DegradationPreference::MaintainResolution),
+            Self::Balanced => Some(DegradationPreference::Balanced),
+        }
+    }
 }
 
 #[derive(Parser, Debug)]
@@ -68,6 +98,10 @@ struct Args {
     /// Enable simulcast publishing (low/medium/high layers as appropriate)
     #[arg(long, default_value_t = false)]
     simulcast: bool,
+
+    /// WebRTC video degradation preference
+    #[arg(long, value_enum, default_value_t = DegradationPreferenceArg::Auto)]
+    degradation_preference: DegradationPreferenceArg,
 
     /// LiveKit participant identity
     #[arg(long, default_value = "rust-camera-pub")]
@@ -381,6 +415,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let mut packet_trailer_features = PacketTrailerFeatures::default();
     packet_trailer_features.user_timestamp = args.attach_timestamp;
     packet_trailer_features.frame_id = args.attach_frame_id;
+    let degradation_preference = args.degradation_preference.to_webrtc(args.source);
+    if let Some(preference) = degradation_preference {
+        info!("WebRTC degradation preference: {:?}", preference);
+    } else {
+        info!("WebRTC degradation preference: SDK default");
+    }
 
     let publish_opts = |codec: VideoCodec| TrackPublishOptions {
         source: TrackSource::Camera,
@@ -389,6 +429,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         packet_trailer_features,
         video_encoding: Some(main_encoding.clone()),
         simulcast_layers: simulcast_presets.clone(),
+        video_degradation_preference: degradation_preference,
         ..Default::default()
     };
 

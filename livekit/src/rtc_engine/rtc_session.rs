@@ -1607,10 +1607,13 @@ impl SessionInner {
     ) -> EngineResult<RtpTransceiver> {
         // If video track, derive "ultimate" bitrate from encodings and stash it for offer munging.
         // Must be done before encodings is moved into RtpTransceiverInit.
-        let maintain_h264_camera_resolution = track.kind() == TrackKind::Video
+        let default_h264_degradation_preference = track.kind() == TrackKind::Video
             && options.source == TrackSource::Camera
             && options.video_codec == VideoCodec::H264
             && encodings.len() == 1;
+        let degradation_preference = options.video_degradation_preference.or_else(|| {
+            default_h264_degradation_preference.then_some(DegradationPreference::MaintainResolution)
+        });
 
         if track.kind() == TrackKind::Video {
             let ultimate_bps: Option<u64> = {
@@ -1629,16 +1632,11 @@ impl SessionInner {
         let transceiver =
             self.publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
 
-        if maintain_h264_camera_resolution {
-            log::info!(
-                "using MaintainResolution degradation preference for single-stream H.264 camera \
-                 track; WebRTC may lower encoded fps under bandwidth or CPU pressure"
-            );
+        if let Some(preference) = degradation_preference {
+            log::info!("using {:?} degradation preference for video track", preference);
             let sender = transceiver.sender();
-            if let Err(err) =
-                sender.set_degradation_preference(DegradationPreference::MaintainResolution)
-            {
-                log::warn!("failed to set H.264 camera degradation preference: {err}");
+            if let Err(err) = sender.set_degradation_preference(preference) {
+                log::warn!("failed to set video degradation preference: {err}");
             }
         }
 
