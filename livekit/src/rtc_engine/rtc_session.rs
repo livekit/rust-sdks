@@ -1633,7 +1633,7 @@ impl SessionInner {
             self.publisher_pc.peer_connection().add_transceiver(track.rtc_track(), init)?;
 
         if let Some(preference) = degradation_preference {
-            log::info!("using {:?} degradation preference for video track", preference);
+            log::debug!("using {:?} degradation preference for video track", preference);
             let sender = transceiver.sender();
             if let Err(err) = sender.set_degradation_preference(preference) {
                 log::warn!("failed to set video degradation preference: {err}");

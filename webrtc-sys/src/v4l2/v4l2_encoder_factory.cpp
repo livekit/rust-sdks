@@ -43,10 +43,10 @@ bool V4L2VideoEncoderFactory::IsSupported() {
   std::string device =
       livekit_ffi::V4l2H264EncoderWrapper::FindEncoderDevice();
   if (device.empty()) {
-    RTC_LOG(LS_INFO) << "V4L2: No H.264 M2M encoder device found";
+    RTC_LOG(LS_VERBOSE) << "V4L2: No H.264 M2M encoder device found";
     return false;
   }
-  RTC_LOG(LS_INFO) << "V4L2: H.264 M2M encoder available at " << device;
+  RTC_LOG(LS_VERBOSE) << "V4L2: H.264 M2M encoder available at " << device;
   return true;
 }
 

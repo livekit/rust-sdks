@@ -353,8 +353,8 @@ std::string V4l2H264EncoderWrapper::FindEncoderDevice() {
     close(fd);
 
     if (supports_h264) {
-      RTC_LOG(LS_INFO) << "V4L2: Found H.264 M2M encoder at " << path
-                       << " (" << cap.card << ")";
+      RTC_LOG(LS_VERBOSE) << "V4L2: Found H.264 M2M encoder at " << path
+                          << " (" << cap.card << ")";
       result = path;
       break;
     }
@@ -603,8 +603,8 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
     fd_ = -1;
     return false;
   }
-  RTC_LOG(LS_INFO) << "V4L2: Allocated " << num_output_buffers_
-                   << " output buffers";
+  RTC_LOG(LS_VERBOSE) << "V4L2: Allocated " << num_output_buffers_
+                      << " output buffers";
 
   if (mode_ == OutputBufferMode::Mmap) {
     for (int i = 0; i < num_output_buffers_; i++) {
@@ -669,8 +669,8 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
     Destroy();
     return false;
   }
-  RTC_LOG(LS_INFO) << "V4L2: Allocated " << num_capture_buffers_
-                   << " capture buffers";
+  RTC_LOG(LS_VERBOSE) << "V4L2: Allocated " << num_capture_buffers_
+                      << " capture buffers";
 
   for (int i = 0; i < num_capture_buffers_; i++) {
     v4l2_plane planes[VIDEO_MAX_PLANES] = {};
@@ -1339,15 +1339,15 @@ void V4l2H264EncoderWrapper::UpdateRates(int framerate, int bitrate) {
     return;
 
   if (bitrate > 0 && bitrate != bitrate_) {
-    RTC_LOG(LS_INFO) << "V4L2: updating encoder bitrate from " << bitrate_
-                     << " to " << bitrate << " bps";
+    RTC_LOG(LS_VERBOSE) << "V4L2: updating encoder bitrate from "
+                        << bitrate_ << " to " << bitrate << " bps";
     bitrate_ = bitrate;
     TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_BITRATE, bitrate, "bitrate");
   }
 
   if (framerate > 0 && framerate != framerate_) {
-    RTC_LOG(LS_INFO) << "V4L2: updating encoder framerate from "
-                     << framerate_ << " to " << framerate << " fps";
+    RTC_LOG(LS_VERBOSE) << "V4L2: updating encoder framerate from "
+                        << framerate_ << " to " << framerate << " fps";
     framerate_ = framerate;
     struct v4l2_streamparm parm = {};
     parm.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;

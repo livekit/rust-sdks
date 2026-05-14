@@ -168,7 +168,7 @@ fn log_video_outbound_stats(stats: &[RtcStats]) {
             outbound.outbound.rid.clone()
         };
         info!(
-            "WebRTC outbound ({rid}): {}x{} | ~{:.1} fps | encoded {} (key {}) | sent {} frames, {} packets, {} bytes | encoder: {} | active: {} | target {:.0} bps",
+            "WebRTC outbound after adaptation ({rid}): {}x{} | ~{:.1} fps | encoded {} (key {}) | sent {} frames, {} packets, {} bytes | encoder: {} | active: {} | target {:.0} bps",
             outbound.outbound.frame_width,
             outbound.outbound.frame_height,
             outbound.outbound.frames_per_second,
@@ -391,7 +391,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         .then(|| compute_simulcast_presets_30fps(fmt.width, fmt.height, target_fps));
     if let Some(presets) = simulcast_presets.as_ref() {
         info!(
-            "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast layers: {})",
+            "Video encoding target: {}x{} @ max {:.0} fps, {} bps (simulcast layers: {})",
             fmt.width,
             fmt.height,
             target_fps,
@@ -407,7 +407,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         );
     } else {
         info!(
-            "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast disabled)",
+            "Video encoding target: {}x{} @ max {:.0} fps, {} bps (simulcast disabled)",
             fmt.width, fmt.height, target_fps, main_encoding.max_bitrate,
         );
     }
@@ -417,9 +417,18 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     packet_trailer_features.frame_id = args.attach_frame_id;
     let degradation_preference = args.degradation_preference.to_webrtc(args.source);
     if let Some(preference) = degradation_preference {
-        info!("WebRTC degradation preference: {:?}", preference);
+        let preference_source = match (args.degradation_preference, args.source) {
+            (DegradationPreferenceArg::Auto, CaptureSource::Libcamera) => {
+                "auto selected this for libcamera"
+            }
+            _ => "selected by --degradation-preference",
+        };
+        info!(
+            "WebRTC degradation preference: {:?} ({}; capture stays at requested fps; outbound stats show adaptation)",
+            preference, preference_source
+        );
     } else {
-        info!("WebRTC degradation preference: SDK default");
+        debug!("WebRTC degradation preference: SDK default");
     }
 
     let publish_opts = |codec: VideoCodec| TrackPublishOptions {
@@ -466,7 +475,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         let delta = stats.frames_published.saturating_sub(last_published);
         let fps_est = delta as f64 / secs;
         info!(
-            "Video status: {}x{} | ~{:.1} fps | total published {} | dropped {}",
+            "Capture input to WebRTC source: {}x{} | ~{:.1} fps | total delivered {} | dropped {}",
             fmt.width, fmt.height, fps_est, stats.frames_published, stats.frames_dropped,
         );
         match track.get_stats().await {

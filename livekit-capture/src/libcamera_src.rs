@@ -41,7 +41,7 @@ use libcamera::pixel_format::PixelFormat;
 use libcamera::request::{RequestStatus, ReuseFlag};
 use libcamera::stream::StreamRole;
 use libwebrtc::video_frame::native::{DmabufFrameDesc, DmabufPlane, Fourcc, NativeBuffer};
-use log::{info, warn};
+use log::{debug, info, warn};
 
 use crate::{Capture, CaptureConfig, CaptureError, CaptureFrame, StreamFormat};
 
@@ -359,7 +359,7 @@ fn run_worker(
             return;
         }
     };
-    info!("LibCameraCapture: allocated {} dmabuf buffers", buffers.len());
+    debug!("LibCameraCapture: allocated {} dmabuf buffers", buffers.len());
     let num_buffers = buffers.len();
 
     // One slot per buffer; cookie == slot index. Requests are owned by
@@ -394,7 +394,7 @@ fn run_worker(
         {
             warn!("LibCameraCapture: failed to set start frame duration: {e}");
         } else {
-            info!(
+            debug!(
                 "LibCameraCapture: requested fixed frame duration {} us (~{} fps)",
                 frame_duration_us, cfg.fps
             );
@@ -496,7 +496,7 @@ fn run_worker(
     if let Err(e) = active_cam.stop() {
         warn!("LibCameraCapture: camera stop failed: {e}");
     }
-    info!("LibCameraCapture: worker thread exiting");
+    debug!("LibCameraCapture: worker thread exiting");
 }
 
 struct DescriptorResult {
@@ -514,8 +514,14 @@ fn build_descriptor(
     stride: u32,
     frame_size: u32,
 ) -> Option<DescriptorResult> {
-    if req.status() != RequestStatus::Complete {
-        warn!("LibCameraCapture: dropping request with status {:?}", req.status());
+    let request_status = req.status();
+    if request_status != RequestStatus::Complete {
+        match request_status {
+            RequestStatus::Cancelled => {
+                debug!("LibCameraCapture: dropping cancelled request");
+            }
+            _ => warn!("LibCameraCapture: dropping request with status {request_status:?}"),
+        }
         return None;
     }
 
@@ -530,7 +536,15 @@ fn build_descriptor(
     };
     let status = metadata.status();
     if status != FrameMetadataStatus::Success {
-        warn!("LibCameraCapture: dropping frame with metadata status {status:?}");
+        match status {
+            FrameMetadataStatus::Startup | FrameMetadataStatus::Cancelled => {
+                debug!("LibCameraCapture: dropping frame with metadata status {status:?}");
+            }
+            FrameMetadataStatus::Error => {
+                warn!("LibCameraCapture: dropping frame with metadata status {status:?}");
+            }
+            FrameMetadataStatus::Success => {}
+        }
         return None;
     }
     let sensor_ts_ns = Some(metadata.timestamp());

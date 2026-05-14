@@ -86,7 +86,7 @@ Publisher flags (in addition to the common connection flags above):
 - `--fps <n>`: Desired capture framerate (default: `30`).
 - `--h265`: Use H.265/HEVC encoding if supported (falls back to H.264 on failure).
 - `--simulcast`: Publish simulcast video (multiple layers when the resolution is large enough).
-- `--degradation-preference <auto|disabled|maintain-framerate|maintain-resolution|balanced>`: Control WebRTC video adaptation. `auto` disables adaptation for `--source libcamera` so Pi hardware throughput tests are not silently frame-rate limited.
+- `--degradation-preference <auto|disabled|maintain-framerate|maintain-resolution|balanced>`: Control WebRTC video adaptation. `auto` disables adaptation for `--source libcamera` so Pi hardware throughput tests are not silently frame-rate limited. This does not change the camera capture rate; check the `WebRTC outbound after adaptation` stats line for the encoded/sent frame rate.
 - `--max-bitrate <bps>`: Max video bitrate for the main (highest) layer in bits per second (e.g. `1500000`).
 - `--attach-timestamp`: Attach the current wall-clock time (microseconds since UNIX epoch) as the user timestamp on each published frame. The subscriber can display this to measure end-to-end latency.
 - `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set.

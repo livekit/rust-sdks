@@ -438,17 +438,17 @@ int32_t V4L2H264EncoderImpl::Encode(
     int input_stride = native_dmabuf_safe ? native_dmabuf->plane_stride(0)
                                           : configuration_.width;
     if (desired == livekit_ffi::OutputBufferMode::Dmabuf) {
-      RTC_LOG(LS_INFO)
+      RTC_LOG(LS_VERBOSE)
           << "V4L2: encoder input path: DMABUF zero-copy import (fourcc "
           << FourccToString(fourcc) << ", stride " << input_stride
           << ", planes " << native_dmabuf->num_planes() << ", size "
           << native_dmabuf->total_size() << ")";
     } else if (native_dmabuf) {
-      RTC_LOG(LS_INFO)
+      RTC_LOG(LS_VERBOSE)
           << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
              "(native DMABUF layout is not directly importable)";
     } else {
-      RTC_LOG(LS_INFO)
+      RTC_LOG(LS_VERBOSE)
           << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
              "(input buffer type "
           << VideoFrameBufferTypeToString(
@@ -471,7 +471,7 @@ int32_t V4L2H264EncoderImpl::Encode(
       desired = livekit_ffi::OutputBufferMode::Mmap;
       fourcc = kFourccYuv420;
       input_stride = configuration_.width;
-      RTC_LOG(LS_INFO)
+      RTC_LOG(LS_VERBOSE)
           << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
              "(DMABUF import initialization failed)";
       if (!initialize_encoder(desired, fourcc, input_stride)) {
@@ -492,7 +492,7 @@ int32_t V4L2H264EncoderImpl::Encode(
       encoder_->Destroy();
       native_dmabuf_safe = false;
       send_key_frame = true;
-      RTC_LOG(LS_INFO)
+      RTC_LOG(LS_VERBOSE)
           << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
              "(driver changed imported DMABUF layout)";
       if (!initialize_encoder(livekit_ffi::OutputBufferMode::Mmap,
@@ -510,7 +510,7 @@ int32_t V4L2H264EncoderImpl::Encode(
            "cannot be safely imported";
     encoder_->Destroy();
     send_key_frame = true;
-    RTC_LOG(LS_INFO)
+    RTC_LOG(LS_VERBOSE)
         << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
            "(incoming frame cannot be safely imported as DMABUF)";
     if (!initialize_encoder(livekit_ffi::OutputBufferMode::Mmap,
