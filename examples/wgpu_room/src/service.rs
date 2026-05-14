@@ -4,6 +4,7 @@ use crate::{
 };
 use livekit::{
     e2ee::{key_provider::*, E2eeOptions, EncryptionType},
+    options::VideoCodec,
     prelude::*,
     track::VideoQuality,
     SimulateScenario,
@@ -17,7 +18,7 @@ pub enum AsyncCmd {
     RoomConnect { url: String, token: String, auto_subscribe: bool, enable_e2ee: bool, key: String },
     RoomDisconnect,
     SimulateScenario { scenario: SimulateScenario },
-    ToggleLogo,
+    ToggleLogo { simulcast: bool, video_codec: VideoCodec },
     ToggleSine,
     ToggleDataTrack,
     SubscribeTrack { publication: RemoteTrackPublication },
@@ -142,12 +143,12 @@ async fn service_task(inner: Arc<ServiceInner>, mut cmd_rx: mpsc::UnboundedRecei
                     }
                 }
             }
-            AsyncCmd::ToggleLogo => {
+            AsyncCmd::ToggleLogo { simulcast, video_codec } => {
                 if let Some(state) = running_state.as_mut() {
                     if state.logo_track.is_published() {
                         state.logo_track.unpublish().await.unwrap();
                     } else {
-                        state.logo_track.publish().await.unwrap();
+                        state.logo_track.publish(simulcast, video_codec).await.unwrap();
                     }
                 }
             }
