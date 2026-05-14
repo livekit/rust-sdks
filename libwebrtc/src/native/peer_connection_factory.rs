@@ -165,9 +165,7 @@ impl PeerConnectionFactory {
     /// Set the recording device by GUID
     /// This is preferred over index as GUIDs are stable across device hot-plug events.
     pub fn set_recording_device_by_guid(&self, guid: &str) -> bool {
-        self.sys_handle
-            .audio_device()
-            .set_recording_device_by_guid(guid.to_string())
+        self.sys_handle.audio_device().set_recording_device_by_guid(guid.to_string())
     }
 
     /// Stop recording (clears initialized state, allowing device switch)
