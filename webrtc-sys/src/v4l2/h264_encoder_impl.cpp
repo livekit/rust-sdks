@@ -682,6 +682,16 @@ VideoEncoder::EncoderInfo V4L2H264EncoderImpl::GetEncoderInfo() const {
   info.scaling_settings = VideoEncoder::ScalingSettings::kOff;
   info.is_hardware_accelerated = true;
   info.supports_simulcast = false;
+  // The bcm2835-codec runs in V4L2 CBR mode (V4L2_CID_MPEG_VIDEO_BITRATE_MODE
+  // = CBR with V4L2_CID_MPEG_VIDEO_BITRATE, see Initialize()). The hardware
+  // rate controller produces output that tracks target bitrate over its own
+  // time window, so we tell WebRTC's media-opt FrameDropper to stay out of
+  // the way. Without this hint, WebRTC's FrameDropper assumes the encoder
+  // may "misbehave" -- the default is tuned for unreliable hardware codecs
+  // -- and silently drops 2/3 of input frames before they reach Encode(),
+  // pinning visible output to ~10 fps regardless of capture rate. Hardware
+  // CBR is what the bcm2835-codec was designed for, so trust it.
+  info.has_trusted_rate_controller = true;
   // Do not advertise a 16-pixel resolution alignment here. WebRTC applies that
   // before the encoder sees the frame, which prevents standard 1080p from
   // reaching the Pi encoder. Non-aligned DMABUF frames fall back to a padded
