@@ -1,15 +1,13 @@
 name: UniFFI packages
 
-# Builds per-language wrapper packages produced by `cargo make <lang>-package`
-# (Swift xcframework today; Kotlin/Python can be added as matrix entries) and
-# publishes them to their respective hosting repos.
+# Orchestrates per-language wrapper-package publishing on knope draft releases
+# for the livekit-uniffi crate. Resolves the source tag once, then delegates
+# to per-language reusable workflows (uniffi-swift.yml today; uniffi-kotlin.yml
+# / uniffi-python.yml would slot in as additional jobs).
 #
-# Trigger pattern mirrors ffi-builds.yml: every push to main checks whether
-# knope has produced a draft release for the livekit-uniffi package; if so the
-# matching package job runs. Manual runs go through workflow_dispatch.
-#
-# NOTE: livekit-uniffi must be added to knope.toml with `assets = "marker"`
-# for the auto-trigger path to work. Until then, use workflow_dispatch.
+# Trigger pattern mirrors ffi-builds.yml: every push to main checks for a
+# draft release with prefix `livekit-uniffi/v`; workflow_dispatch allows
+# manual runs with an explicit tag.
 
 on:
   push:
@@ -26,7 +24,6 @@ on:
         default: false
 
 env:
-  CARGO_TERM_COLOR: always
   TAG_PREFIX: livekit-uniffi/v
 
 jobs:
@@ -38,7 +35,7 @@ jobs:
       tag_name: ${{ steps.get-tag.outputs.tag_name }}
       version: ${{ steps.get-tag.outputs.version }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - id: get-tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -58,78 +55,13 @@ jobs:
           VERSION="${TAG#${TAG_PREFIX}}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
-  build:
-    name: Build ${{ matrix.package }} package
+  swift:
     needs: resolve-tag
     if: needs.resolve-tag.outputs.tag_name != ''
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - package: swift
-            runner: macos-26
-            hosting-repo: livekit/livekit-uniffi-xcframework
-            # NOTE: spm-name must match SPM_NAME in livekit-uniffi/Makefile.toml.
-            spm-name: LiveKitUniFFI
-    runs-on: ${{ matrix.runner }}
-    permissions:
-      contents: write
-    env:
-      OUTPUT_DIR: livekit-uniffi/packages/${{ matrix.package }}/${{ matrix.spm-name }}
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          submodules: recursive
-
-      - uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1
-        if: matrix.package == 'swift'
-        with:
-          xcode-version: latest-stable
-
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
-      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-
-      - name: Install Apple Rust targets
-        if: matrix.package == 'swift'
-        run: |
-          rustup target add \
-            aarch64-apple-ios \
-            aarch64-apple-ios-sim \
-            x86_64-apple-ios \
-            aarch64-apple-ios-macabi \
-            x86_64-apple-ios-macabi \
-            aarch64-apple-darwin \
-            x86_64-apple-darwin \
-            aarch64-apple-tvos \
-            aarch64-apple-tvos-sim \
-            aarch64-apple-visionos \
-            aarch64-apple-visionos-sim
-
-      - uses: cargo-bins/cargo-binstall@dc19f1e48450eefe5a29b8da6c6b00a87d730b37 # v1.18.1
-      - run: cargo binstall cargo-make --no-confirm
-
-      - name: Build ${{ matrix.package }} package
-        working-directory: livekit-uniffi
-        env:
-          SPM_VERSION: ${{ needs.resolve-tag.outputs.version }}
-          SPM_HOSTING_REPO: ${{ matrix.hosting-repo }}
-        run: cargo make --profile release ${{ matrix.package }}-package
-
-      - name: Publish Swift package to hosting repo
-        if: matrix.package == 'swift' && !inputs.dry_run
-        uses: livekit/publish-xcframework-action@54107be7b38f01dbdb375d88684833b254913fa1 # blaze/fail-on-missing-files (PR #3)
-        with:
-          xcframework-zip: ${{ env.OUTPUT_DIR }}/Rust${{ matrix.spm-name }}.xcframework.zip
-          version: ${{ needs.resolve-tag.outputs.version }}
-          hosting-repo: ${{ matrix.hosting-repo }}
-          files: |
-            ${{ env.OUTPUT_DIR }}/Package.swift:Package.swift
-            ${{ env.OUTPUT_DIR }}/Package@swift-6.2.swift:Package@swift-6.2.swift
-            ${{ env.OUTPUT_DIR }}/${{ matrix.spm-name }}.podspec:${{ matrix.spm-name }}.podspec
-            ${{ env.OUTPUT_DIR }}/LICENSE:LICENSE
-            ${{ env.OUTPUT_DIR }}/Sources/${{ matrix.spm-name }}/livekit_uniffi.swift:Sources/${{ matrix.spm-name }}/livekit_uniffi.swift
-          token: ${{ secrets.UNIFFI_XCFRAMEWORK_PAT }}
-          pr-body: |
-            Source tag: `${{ needs.resolve-tag.outputs.tag_name }}`
-          release-body: |
-            Source tag: `${{ needs.resolve-tag.outputs.tag_name }}`
+    uses: ./.github/workflows/uniffi-swift.yml
+    with:
+      version: ${{ needs.resolve-tag.outputs.version }}
+      tag_name: ${{ needs.resolve-tag.outputs.tag_name }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets:
+      UNIFFI_XCFRAMEWORK_PAT: ${{ secrets.UNIFFI_XCFRAMEWORK_PAT }}
