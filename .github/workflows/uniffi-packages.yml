@@ -1,0 +1,70 @@
+name: UniFFI packages
+
+# Orchestrates per-language wrapper-package publishing on knope draft releases
+# for the livekit-uniffi crate. Resolves the source tag once, then delegates
+# to per-language reusable workflows (uniffi-swift.yml today; uniffi-kotlin.yml
+# / uniffi-python.yml would slot in as additional jobs).
+#
+# Trigger pattern mirrors ffi-builds.yml: every push to main checks for a
+# draft release with prefix `livekit-uniffi/v`; workflow_dispatch allows
+# manual runs with an explicit tag.
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g., livekit-uniffi/v0.0.7). Required if no draft release exists."
+        required: false
+        type: string
+      dry_run:
+        description: "Build artifacts but skip release upload/PR."
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  TAG_PREFIX: livekit-uniffi/v
+
+jobs:
+  resolve-tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag_name: ${{ steps.get-tag.outputs.tag_name }}
+      version: ${{ steps.get-tag.outputs.version }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - id: get-tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          MANUAL_TAG="${{ inputs.tag_name }}"
+          if [ -n "$MANUAL_TAG" ]; then
+            TAG="$MANUAL_TAG"
+            echo "Using manually provided tag: '$TAG'"
+          else
+            TAG=$(gh release list --repo "${{ github.repository }}" \
+              --json 'isDraft,tagName' \
+              --jq "[.[] | select(.isDraft and (.tagName | startswith(\"${TAG_PREFIX}\")))] | first | .tagName // empty")
+            echo "Resolved livekit-uniffi draft release tag: '${TAG:-<none>}'"
+          fi
+          echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
+          # Strip the "livekit-uniffi/v" prefix to get the hosting-repo tag (e.g., 0.0.7)
+          VERSION="${TAG#${TAG_PREFIX}}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+  swift:
+    needs: resolve-tag
+    if: needs.resolve-tag.outputs.tag_name != ''
+    uses: ./.github/workflows/uniffi-swift.yml
+    with:
+      version: ${{ needs.resolve-tag.outputs.version }}
+      tag_name: ${{ needs.resolve-tag.outputs.tag_name }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets:
+      UNIFFI_XCFRAMEWORK_PAT: ${{ secrets.UNIFFI_XCFRAMEWORK_PAT }}

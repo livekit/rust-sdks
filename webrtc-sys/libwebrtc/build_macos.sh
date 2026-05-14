@@ -84,6 +84,7 @@ apply_patch_if_needed() {
 }
 
 apply_patch_if_needed "$COMMAND_DIR/patches/add_licenses.patch"
+apply_patch_if_needed "$COMMAND_DIR/patches/fix_license_json_parsing.patch"
 apply_patch_if_needed "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch"
 apply_patch_if_needed "$COMMAND_DIR/patches/add_deps.patch"
 apply_patch_if_needed "$COMMAND_DIR/patches/external_audio_source.patch"
@@ -146,15 +147,16 @@ ninja -C "$OUTPUT_DIR" :default \
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
-# License generation is optional - may fail with some Python versions
+# License generation - may fail locally due to GN warnings breaking JSON parsing
 # Use vpython3 from depot_tools for consistent Python version
 vpython3 "./src/tools_webrtc/libs/generate_licenses.py" \
-  --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR" || echo "Warning: License generation failed (non-critical)"
+  --target :webrtc "$OUTPUT_DIR" "$OUTPUT_DIR" || echo "Warning: License generation failed"
 
 cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/obj/modules/desktop_capture/desktop_capture.ninja" "$ARTIFACTS_DIR" 2>/dev/null || true
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
-cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR" 2>/dev/null || echo "Warning: LICENSE.md not found (non-critical)"
+
+cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 
 cd src
 find . -name "*.h" -print | cpio -pd "$ARTIFACTS_DIR/include"
