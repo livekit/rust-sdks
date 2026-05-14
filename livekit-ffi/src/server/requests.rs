@@ -114,16 +114,15 @@ fn on_simulate_scenario(
     Ok(proto::SimulateScenarioResponse { async_id })
 }
 
-/// Release the connect task's wait point so room event forwarding can begin.
-/// The FFI client should send this once it has installed its event listener
-/// and is ready to receive room events.
-fn on_flush_events(
+/// Mark the room event listener as ready so room event forwarding can begin.
+/// The FFI client should send this once it has installed its event listener.
+fn on_ready_for_room_event(
     server: &'static FfiServer,
-    flush: proto::FlushEventsRequest,
-) -> FfiResult<proto::FlushEventsResponse> {
-    let ffi_room = server.retrieve_handle::<room::FfiRoom>(flush.room_handle)?.clone();
-    ffi_room.flush_events();
-    Ok(proto::FlushEventsResponse::default())
+    request: proto::ReadyForRoomEventRequest,
+) -> FfiResult<proto::ReadyForRoomEventResponse> {
+    let ffi_room = server.retrieve_handle::<room::FfiRoom>(request.room_handle)?.clone();
+    ffi_room.ready_for_room_event();
+    Ok(proto::ReadyForRoomEventResponse::default())
 }
 
 /// Publish a track to a room, and send a response to the FfiClient
@@ -1317,7 +1316,7 @@ pub fn handle_request(
         Request::Connect(req) => on_connect(server, req)?.into(),
         Request::Disconnect(req) => on_disconnect(server, req)?.into(),
         Request::SimulateScenario(req) => on_simulate_scenario(server, req)?.into(),
-        Request::FlushEvents(req) => on_flush_events(server, req)?.into(),
+        Request::ReadyForRoomEvent(req) => on_ready_for_room_event(server, req)?.into(),
         Request::PublishTrack(req) => on_publish_track(server, req)?.into(),
         Request::UnpublishTrack(req) => on_unpublish_track(server, req)?.into(),
         Request::PublishData(req) => on_publish_data(server, req)?.into(),

@@ -628,49 +628,6 @@ export declare class PublishTrackCallback extends Message<PublishTrackCallback> 
 }
 
 /**
- * @generated from message livekit.proto.FlushEventsRequest
- */
-export declare class FlushEventsRequest extends Message<FlushEventsRequest> {
-  /**
-   * @generated from field: required uint64 room_handle = 1;
-   */
-  roomHandle?: bigint;
-
-  constructor(data?: PartialMessage<FlushEventsRequest>);
-
-  static readonly runtime: typeof proto2;
-  static readonly typeName = "livekit.proto.FlushEventsRequest";
-  static readonly fields: FieldList;
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): FlushEventsRequest;
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): FlushEventsRequest;
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): FlushEventsRequest;
-
-  static equals(a: FlushEventsRequest | PlainMessage<FlushEventsRequest> | undefined, b: FlushEventsRequest | PlainMessage<FlushEventsRequest> | undefined): boolean;
-}
-
-/**
- * @generated from message livekit.proto.FlushEventsResponse
- */
-export declare class FlushEventsResponse extends Message<FlushEventsResponse> {
-  constructor(data?: PartialMessage<FlushEventsResponse>);
-
-  static readonly runtime: typeof proto2;
-  static readonly typeName = "livekit.proto.FlushEventsResponse";
-  static readonly fields: FieldList;
-
-  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): FlushEventsResponse;
-
-  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): FlushEventsResponse;
-
-  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): FlushEventsResponse;
-
-  static equals(a: FlushEventsResponse | PlainMessage<FlushEventsResponse> | undefined, b: FlushEventsResponse | PlainMessage<FlushEventsResponse> | undefined): boolean;
-}
-
-/**
  * Unpublish a track from the room
  *
  * @generated from message livekit.proto.UnpublishTrackRequest

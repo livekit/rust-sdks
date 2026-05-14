@@ -164,7 +164,7 @@ message FfiRequest {
     RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
     DataTrackStreamReadRequest data_track_stream_read = 75;
 
-// Reconnection / chaos testing
+    // Reconnection / chaos testing
     SimulateScenarioRequest simulate_scenario = 76;
 
     // Platform Audio (ADM)
@@ -302,7 +302,7 @@ message FfiResponse {
     // Room event ready signal
     ReadyForRoomEventResponse ready_for_room_event = 82;
 
-    // NEXT_ID: 84
+    // NEXT_ID: 83
   }
 }
 

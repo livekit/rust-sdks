@@ -115,10 +115,10 @@ message PublishTrackCallback {
 
 }
 
-message FlushEventsRequest {
+message ReadyForRoomEventRequest {
   required uint64 room_handle = 1;
 }
-message FlushEventsResponse {}
+message ReadyForRoomEventResponse {}
 
 // Unpublish a track from the room
 message UnpublishTrackRequest {

@@ -54,12 +54,12 @@ impl FfiHandle for FfiRoom {}
 pub struct FfiRoom {
     pub inner: Arc<RoomInner>,
     handle: Arc<AsyncMutex<Option<Handle>>>,
-    /// Signaled by the FFI client (via [`proto::FlushEventsRequest`]) once it
+    /// Signaled by the FFI client (via [`proto::ReadyForRoomEventRequest`]) once it
     /// has finished installing its event listener. The connect task parks on
     /// this notify after sending [`proto::ConnectCallback`] and only spawns the
     /// event-forwarding tasks once it fires, ensuring no room events are
     /// emitted before the client is ready to receive them.
-    flush_notify: Arc<Notify>,
+    room_event_ready_notify: Arc<Notify>,
 }
 
 pub struct RoomInner {
@@ -91,7 +91,7 @@ pub struct RoomInner {
     url: String,
 }
 
-const ROOM_EVENT_FLUSH_TIMEOUT: Duration = Duration::from_secs(1);
+const ROOM_EVENT_READY_TIMEOUT: Duration = Duration::from_secs(1);
 
 struct Handle {
     event_handle: JoinHandle<()>,
@@ -206,7 +206,7 @@ impl FfiRoom {
                     let ffi_room = Self {
                         inner: inner.clone(),
                         handle: Default::default(),
-                        flush_notify: Arc::new(Notify::new()),
+                        room_event_ready_notify: Arc::new(Notify::new()),
                     };
                     server.store_handle(ffi_room.inner.handle_id, ffi_room.clone());
 
@@ -238,19 +238,19 @@ impl FfiRoom {
                     );
 
                     // Wait for the FFI client to install its event listener and
-                    // send a FlushEventsRequest before forwarding any room
+                    // send a ReadyForRoomEventRequest before forwarding any room
                     // events. This avoids a race where events emitted between
                     // the ConnectCallback and the listener registration are
                     // dropped.
                     if tokio::time::timeout(
-                        ROOM_EVENT_FLUSH_TIMEOUT,
-                        ffi_room.flush_notify.notified(),
+                        ROOM_EVENT_READY_TIMEOUT,
+                        ffi_room.room_event_ready_notify.notified(),
                     )
                     .await
                     .is_err()
                     {
                         let msg = format!(
-                            "timed out waiting for FlushEventsRequest after ConnectCallback \
+                            "timed out waiting for ReadyForRoomEventRequest after ConnectCallback \
                              (room_handle={handle_id})"
                         );
                         log::error!("{}", msg);
@@ -262,7 +262,7 @@ impl FfiRoom {
                     }
 
                     // Update Room SID on promise resolve. Spawned after the
-                    // flush handshake so the RoomSidChanged event is never
+                    // ready handshake so the RoomSidChanged event is never
                     // delivered before the client is ready to receive it.
                     let room_handle = inner.handle_id.clone();
                     server.async_runtime.spawn(async move {
@@ -348,10 +348,10 @@ impl FfiRoom {
     }
 
     /// Release the connect task's wait point so room event forwarding can
-    /// begin. Called in response to a [`proto::FlushEventsRequest`] from the
+    /// begin. Called in response to a [`proto::ReadyForRoomEventRequest`] from the
     /// FFI client once it has installed its event listener.
-    pub fn flush_events(&self) {
-        self.flush_notify.notify_one();
+    pub fn ready_for_room_event(&self) {
+        self.room_event_ready_notify.notify_one();
     }
 
     /// Close the room and stop the tasks
