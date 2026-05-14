@@ -327,20 +327,18 @@ impl PeerConnectionFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
     #[tokio::test]
-    async fn test_peer_connection_factory() {
+    async fn test_peer_connection_factory_and_audio_device_controller_bridge() {
+        let _guard = TEST_MUTEX.lock().expect("test mutex poisoned");
         let _ = env_logger::builder().is_test(true).try_init();
 
         let factory = PeerConnectionFactory::default();
         let source = NativeVideoSource::default();
         let _track = factory.create_video_track("test", source);
-        drop(factory);
-    }
-
-    #[test]
-    fn test_audio_device_controller_bridge() {
-        let factory = PeerConnectionFactory::default();
         let recording_count = factory.recording_devices();
         let playout_count = factory.playout_devices();
 

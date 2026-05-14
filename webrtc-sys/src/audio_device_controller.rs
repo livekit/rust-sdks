@@ -74,9 +74,13 @@ impl_thread_safety!(ffi::AudioDeviceController, Send + Sync);
 #[cfg(test)]
 mod tests {
     use crate::peer_connection_factory::ffi::create_peer_connection_factory;
+    use std::sync::Mutex;
+
+    static TEST_MUTEX: Mutex<()> = Mutex::new(());
 
     #[test]
-    fn test_audio_device_controller_basic_queries() {
+    fn test_audio_device_controller_bridge() {
+        let _guard = TEST_MUTEX.lock().expect("test mutex poisoned");
         let factory = create_peer_connection_factory();
         let audio = factory.audio_device();
 
@@ -96,12 +100,6 @@ mod tests {
             let guid = audio.playout_device_guid(0);
             let _ = audio.set_playout_device_by_guid(guid);
         }
-    }
-
-    #[test]
-    fn test_audio_device_controller_adm_controls() {
-        let factory = create_peer_connection_factory();
-        let audio = factory.audio_device();
 
         let initial_recording = audio.adm_recording_enabled();
         audio.set_adm_recording_enabled(!initial_recording);
