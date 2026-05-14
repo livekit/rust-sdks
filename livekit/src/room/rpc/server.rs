@@ -98,14 +98,8 @@ impl RpcServerManager {
         let response = if version != RPC_VERSION_V1 {
             Err(RpcError::built_in(RpcErrorCode::UnsupportedVersion, None))
         } else {
-            self.invoke_handler(
-                &caller_identity,
-                &request_id,
-                &method,
-                &payload,
-                response_timeout,
-            )
-            .await
+            self.invoke_handler(&caller_identity, &request_id, &method, &payload, response_timeout)
+                .await
         };
 
         let (resp_payload, error) = match response {
