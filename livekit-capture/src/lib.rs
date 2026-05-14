@@ -39,7 +39,7 @@ mod publisher;
 #[cfg(feature = "uvc")]
 pub mod uvc;
 
-#[cfg(feature = "libcamera")]
+#[cfg(all(feature = "libcamera", target_os = "linux"))]
 pub mod libcamera_src;
 
 pub use error::CaptureError;

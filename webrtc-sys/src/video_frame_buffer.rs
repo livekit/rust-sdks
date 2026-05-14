@@ -397,6 +397,109 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn dmabuf_buffer_to_i420_accepts_single_plane_padded_yuv420() {
+        use std::os::raw::c_int;
+        use std::os::unix::io::{FromRawFd, OwnedFd};
+
+        let width: usize = 10;
+        let height: usize = 5;
+        let chroma_w = width / 2;
+        let chroma_h = (height + 1) / 2;
+        let stride_y: usize = 16;
+        let stride_uv: usize = 8;
+        let storage_luma_h: usize = 16;
+        let storage_chroma_h = storage_luma_h / 2;
+        let y_size = stride_y * storage_luma_h;
+        let u_size = stride_uv * storage_chroma_h;
+        let total = y_size + 2 * u_size;
+
+        let name = std::ffi::CString::new("dmabuf-yuv420-single-plane-test").unwrap();
+        let fd: c_int =
+            unsafe { libc::syscall(libc::SYS_memfd_create, name.as_ptr(), 0u32) as c_int };
+        if fd < 0 {
+            eprintln!("memfd_create unavailable; skipping single-plane DMABUF test");
+            return;
+        }
+        let owned = unsafe { OwnedFd::from_raw_fd(fd) };
+        assert!(
+            unsafe { libc::ftruncate(fd, total as libc::off_t) } == 0,
+            "ftruncate: {}",
+            std::io::Error::last_os_error()
+        );
+        let ptr = unsafe {
+            libc::mmap(
+                std::ptr::null_mut(),
+                total,
+                libc::PROT_READ | libc::PROT_WRITE,
+                libc::MAP_SHARED,
+                fd,
+                0,
+            )
+        };
+        assert!(ptr != libc::MAP_FAILED);
+        let slice = unsafe { std::slice::from_raw_parts_mut(ptr as *mut u8, total) };
+        slice.fill(0xEE);
+        for row in 0..height {
+            for col in 0..width {
+                slice[row * stride_y + col] = (row * 17 + col) as u8;
+            }
+        }
+        for row in 0..chroma_h {
+            for col in 0..chroma_w {
+                slice[y_size + row * stride_uv + col] = (0x20 + row * 3 + col) as u8;
+                slice[y_size + u_size + row * stride_uv + col] = (0xB0 + row * 5 + col) as u8;
+            }
+        }
+        unsafe { libc::munmap(ptr, total) };
+
+        let plane_offsets: [u64; 1] = [0];
+        let plane_strides: [i32; 1] = [stride_y as i32];
+        let buf = ffi::new_native_buffer_from_dmabuf(
+            fd,
+            0x32315559,
+            width as i32,
+            height as i32,
+            total as u64,
+            &plane_offsets,
+            &plane_strides,
+        );
+        drop(owned);
+        assert!(!buf.is_null(), "DMABUF wrap should accept single-plane YUV420");
+
+        let i420 = unsafe { buf.to_i420() };
+        assert!(!i420.is_null());
+        let yuv = unsafe { ffi::i420_to_yuv8(&*i420) };
+        let yuv = unsafe { &*ffi::yuv8_to_yuv(yuv) };
+        let data_y = unsafe {
+            std::slice::from_raw_parts((*yuv).data_y(), yuv.stride_y() as usize * height)
+        };
+        let data_u = unsafe {
+            std::slice::from_raw_parts((*yuv).data_u(), yuv.stride_u() as usize * chroma_h)
+        };
+        let data_v = unsafe {
+            std::slice::from_raw_parts((*yuv).data_v(), yuv.stride_v() as usize * chroma_h)
+        };
+        for row in 0..height {
+            for col in 0..width {
+                assert_eq!(data_y[row * yuv.stride_y() as usize + col], (row * 17 + col) as u8);
+            }
+        }
+        for row in 0..chroma_h {
+            for col in 0..chroma_w {
+                assert_eq!(
+                    data_u[row * yuv.stride_u() as usize + col],
+                    (0x20 + row * 3 + col) as u8
+                );
+                assert_eq!(
+                    data_v[row * yuv.stride_v() as usize + col],
+                    (0xB0 + row * 5 + col) as u8
+                );
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn dmabuf_buffer_to_i420_respects_padded_nv12_stride() {
         use std::os::raw::c_int;
         use std::os::unix::io::{FromRawFd, OwnedFd};

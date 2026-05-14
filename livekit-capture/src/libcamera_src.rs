@@ -27,17 +27,18 @@
 use std::collections::VecDeque;
 use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use libcamera::camera::CameraConfigurationStatus;
 use libcamera::camera_manager::CameraManager;
+use libcamera::color_space::ColorSpace;
 use libcamera::control::{ControlEntry, ControlList};
 use libcamera::controls::FrameDurationLimits;
-use libcamera::framebuffer::AsFrameBuffer;
+use libcamera::framebuffer::{AsFrameBuffer, FrameMetadataStatus};
 use libcamera::framebuffer_allocator::{FrameBuffer, FrameBufferAllocator};
 use libcamera::geometry::Size;
 use libcamera::pixel_format::PixelFormat;
-use libcamera::request::ReuseFlag;
+use libcamera::request::{RequestStatus, ReuseFlag};
 use libcamera::stream::StreamRole;
 use libwebrtc::video_frame::native::{DmabufFrameDesc, DmabufPlane, Fourcc, NativeBuffer};
 use log::{info, warn};
@@ -101,6 +102,30 @@ impl Drop for InflightToken {
 fn frame_duration_us_for_fps(fps: u32) -> i64 {
     let fps = fps.max(1);
     ((1_000_000u64 + u64::from(fps / 2)) / u64::from(fps)).max(1) as i64
+}
+
+fn unix_time_us_now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_micros() as u64).unwrap_or(0)
+}
+
+#[derive(Debug, Default)]
+struct SensorTimestampMapper {
+    anchor_sensor_ns: Option<u64>,
+    anchor_wall_us: u64,
+}
+
+impl SensorTimestampMapper {
+    fn wall_time_us(&mut self, sensor_ns: u64) -> u64 {
+        let Some(anchor_sensor_ns) = self.anchor_sensor_ns else {
+            let wall_us = unix_time_us_now();
+            self.anchor_sensor_ns = Some(sensor_ns);
+            self.anchor_wall_us = wall_us;
+            return wall_us;
+        };
+
+        let delta_us = sensor_ns.saturating_sub(anchor_sensor_ns) / 1000;
+        self.anchor_wall_us.saturating_add(delta_us)
+    }
 }
 
 fn apply_frame_duration_control(req: &mut libcamera::request::Request, fps: u32) {
@@ -259,6 +284,12 @@ fn run_worker(
         stream_cfg.set_size(Size { width: cfg.width, height: cfg.height });
         stream_cfg.set_buffer_count(NUM_BUFFERS);
         stream_cfg.set_pixel_format(PIXEL_FORMAT_YUV420);
+        let color_space = if cfg.width >= 1280 || cfg.height >= 720 {
+            ColorSpace::rec709()
+        } else {
+            ColorSpace::smpte170m()
+        };
+        stream_cfg.set_color_space(Some(color_space));
     }
 
     match cfgs.validate() {
@@ -274,8 +305,13 @@ fn run_worker(
         }
     }
 
-    let (fourcc, neg_w, neg_h, neg_stride) = {
-        let stream_cfg = cfgs.get(0).unwrap();
+    let (fourcc, neg_w, neg_h, neg_stride, neg_frame_size) = {
+        let Some(stream_cfg) = cfgs.get(0) else {
+            let _ = init_tx.send(Err(CaptureError::UnsupportedFormat(
+                "no stream in validated configuration".into(),
+            )));
+            return;
+        };
         let pf = stream_cfg.get_pixel_format();
         let fourcc = if pf == PIXEL_FORMAT_YUV420 {
             Fourcc::YUV420
@@ -288,11 +324,11 @@ fn run_worker(
             return;
         };
         let size = stream_cfg.get_size();
-        (fourcc, size.width, size.height, stream_cfg.get_stride())
+        (fourcc, size.width, size.height, stream_cfg.get_stride(), stream_cfg.get_frame_size())
     };
     info!(
-        "LibCameraCapture: negotiated {}x{} stride {}, fourcc {:?}",
-        neg_w, neg_h, neg_stride, fourcc
+        "LibCameraCapture: negotiated {}x{} stride {}, frame_size {}, fourcc {:?}",
+        neg_w, neg_h, neg_stride, neg_frame_size, fourcc
     );
 
     if let Err(e) = active_cam.configure(&mut cfgs) {
@@ -383,6 +419,7 @@ fn run_worker(
     // ---- main pump loop ----
 
     let (release_tx, release_rx) = mpsc::channel::<u64>();
+    let mut timestamp_mapper = SensorTimestampMapper::default();
 
     'pump: loop {
         if shutdown_rx.try_recv().is_ok() {
@@ -416,11 +453,9 @@ fn run_worker(
         let cookie = req.cookie();
         let idx = cookie as usize;
 
-        // Build a DmabufFrameDesc by inspecting the framebuffer's planes.
-        let (desc, capture_ts_us, ok) =
-            build_descriptor(&req, &stream, fourcc, neg_w, neg_h, neg_stride);
-
-        if !ok {
+        let Some(descriptor) =
+            build_descriptor(&req, &stream, fourcc, neg_w, neg_h, neg_stride, neg_frame_size)
+        else {
             // Couldn't build descriptor; immediately re-queue.
             let mut req = req;
             req.reuse(ReuseFlag::REUSE_BUFFERS);
@@ -432,7 +467,7 @@ fn run_worker(
                 }
             }
             continue;
-        }
+        };
 
         // Park the Request until the consumer signals completion.
         if idx >= requests.len() {
@@ -441,7 +476,14 @@ fn run_worker(
         }
         requests[idx] = Some(req);
 
-        let msg = CaptureMessage { desc, capture_ts_us, cookie, release_tx: release_tx.clone() };
+        let capture_ts_us =
+            descriptor.sensor_ts_ns.map(|sensor_ns| timestamp_mapper.wall_time_us(sensor_ns));
+        let msg = CaptureMessage {
+            desc: descriptor.desc,
+            capture_ts_us,
+            cookie,
+            release_tx: release_tx.clone(),
+        };
         if frame_tx.send(msg).is_err() {
             break; // consumer hung up
         }
@@ -453,11 +495,12 @@ fn run_worker(
     info!("LibCameraCapture: worker thread exiting");
 }
 
+struct DescriptorResult {
+    desc: DmabufFrameDesc,
+    sensor_ts_ns: Option<u64>,
+}
+
 /// Build a [`DmabufFrameDesc`] from a completed libcamera [`Request`].
-///
-/// Returns `(desc, capture_ts_us, ok)`. When `ok` is false, the
-/// descriptor is meaningless and the caller should re-queue without
-/// yielding to the consumer.
 fn build_descriptor(
     req: &libcamera::request::Request,
     stream: &libcamera::stream::Stream,
@@ -465,19 +508,34 @@ fn build_descriptor(
     width: u32,
     height: u32,
     stride: u32,
-) -> (DmabufFrameDesc, Option<u64>, bool) {
-    let empty =
-        DmabufFrameDesc { fd: -1, fourcc, width, height, total_size: 0, planes: Vec::new() };
+    frame_size: u32,
+) -> Option<DescriptorResult> {
+    if req.status() != RequestStatus::Complete {
+        warn!("LibCameraCapture: dropping request with status {:?}", req.status());
+        return None;
+    }
 
     let fb: &FrameBuffer = match req.buffer::<FrameBuffer>(stream) {
         Some(b) => b,
-        None => return (empty, None, false),
+        None => return None,
     };
+
+    let metadata = match fb.metadata() {
+        Some(metadata) => metadata,
+        None => return None,
+    };
+    let status = metadata.status();
+    if status != FrameMetadataStatus::Success {
+        warn!("LibCameraCapture: dropping frame with metadata status {status:?}");
+        return None;
+    }
+    let sensor_ts_ns = Some(metadata.timestamp());
 
     let planes = fb.planes();
     let mut plane_descs = Vec::with_capacity(planes.len());
     let mut total_size: u64 = 0;
     let mut primary_fd: i32 = -1;
+    let mut primary_offset: u64 = 0;
     for i in 0..planes.len() {
         let plane = match planes.get(i) {
             Some(p) => p,
@@ -488,12 +546,13 @@ fn build_descriptor(
         let length = plane.len() as u64;
         if primary_fd == -1 {
             primary_fd = fd;
+            primary_offset = offset;
         } else if fd != primary_fd {
             warn!(
                 "LibCameraCapture: planes use multiple dmabuf fds; \
                  not supported by V4L2 encoder import path"
             );
-            return (empty, None, false);
+            return None;
         }
         // libcamera reports a single stream-level stride (the Y row pitch).
         // Per-plane strides have to be derived from the pixel format:
@@ -518,14 +577,34 @@ fn build_descriptor(
     }
 
     if primary_fd < 0 || plane_descs.is_empty() {
-        return (empty, None, false);
+        return None;
     }
 
-    // FrameBuffer timestamp is in nanoseconds (from the libcamera
-    // pipeline); we report microseconds.
-    let capture_ts_us = fb.metadata().map(|m| (m.timestamp() / 1000) as u64);
+    if frame_size > 0 {
+        total_size = total_size.max(primary_offset + u64::from(frame_size));
+    }
 
     let desc =
         DmabufFrameDesc { fd: primary_fd, fourcc, width, height, total_size, planes: plane_descs };
-    (desc, capture_ts_us, true)
+    Some(DescriptorResult { desc, sensor_ts_ns })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_duration_rounds_to_nearest_microsecond() {
+        assert_eq!(frame_duration_us_for_fps(30), 33_333);
+        assert_eq!(frame_duration_us_for_fps(0), 1_000_000);
+    }
+
+    #[test]
+    fn sensor_timestamp_mapper_keeps_monotonic_wall_clock() {
+        let mut mapper = SensorTimestampMapper::default();
+        let first = mapper.wall_time_us(1_000_000_000);
+        let second = mapper.wall_time_us(1_033_333_000);
+
+        assert_eq!(second.saturating_sub(first), 33_333);
+    }
 }

@@ -51,7 +51,24 @@ struct VideoSourceInner {
 }
 
 impl NativeVideoSource {
+    /// Create a source that emits synthetic I420 frames until capture starts.
     pub fn new(resolution: VideoResolution, is_screencast: bool) -> NativeVideoSource {
+        Self::new_inner(resolution, is_screencast, true)
+    }
+
+    /// Create a source that waits for real captured frames before emitting video.
+    pub fn new_without_synthetic_frames(
+        resolution: VideoResolution,
+        is_screencast: bool,
+    ) -> NativeVideoSource {
+        Self::new_inner(resolution, is_screencast, false)
+    }
+
+    fn new_inner(
+        resolution: VideoResolution,
+        is_screencast: bool,
+        emit_synthetic_frames: bool,
+    ) -> NativeVideoSource {
         let source = Self {
             sys_handle: vt_sys::ffi::new_video_track_source(
                 &vt_sys::ffi::VideoResolution::from(resolution.clone()),
@@ -60,38 +77,43 @@ impl NativeVideoSource {
             inner: Arc::new(Mutex::new(VideoSourceInner { captured_frames: 0 })),
         };
 
-        livekit_runtime::spawn({
-            let source = source.clone();
-            let i420 = I420Buffer::new(resolution.width, resolution.height);
-            async move {
-                let mut interval = interval(Duration::from_millis(100)); // 10 fps
+        if emit_synthetic_frames {
+            livekit_runtime::spawn({
+                let source = source.clone();
+                let i420 = I420Buffer::new(resolution.width, resolution.height);
+                async move {
+                    let mut interval = interval(Duration::from_millis(100)); // 10 fps
 
-                loop {
-                    interval.tick().await;
+                    loop {
+                        interval.tick().await;
 
-                    let inner = source.inner.lock();
-                    if inner.captured_frames > 0 {
-                        break;
+                        let inner = source.inner.lock();
+                        if inner.captured_frames > 0 {
+                            break;
+                        }
+
+                        let mut builder = vf_sys::ffi::new_video_frame_builder();
+                        builder.pin_mut().set_rotation(VideoRotation::VideoRotation0);
+                        builder.pin_mut().set_video_frame_buffer(i420.as_ref().sys_handle());
+
+                        let now = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .map(|d| d.as_micros() as i64)
+                            .unwrap_or(0);
+                        builder.pin_mut().set_timestamp_us(now);
+
+                        source.sys_handle.on_captured_frame(
+                            &builder.pin_mut().build(),
+                            &vt_sys::ffi::FrameMetadata {
+                                has_packet_trailer: false,
+                                user_timestamp: 0,
+                                frame_id: 0,
+                            },
+                        );
                     }
-
-                    let mut builder = vf_sys::ffi::new_video_frame_builder();
-                    builder.pin_mut().set_rotation(VideoRotation::VideoRotation0);
-                    builder.pin_mut().set_video_frame_buffer(i420.as_ref().sys_handle());
-
-                    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-                    builder.pin_mut().set_timestamp_us(now.as_micros() as i64);
-
-                    source.sys_handle.on_captured_frame(
-                        &builder.pin_mut().build(),
-                        &vt_sys::ffi::FrameMetadata {
-                            has_packet_trailer: false,
-                            user_timestamp: 0,
-                            frame_id: 0,
-                        },
-                    );
                 }
-            }
-        });
+            });
+        }
 
         source
     }
@@ -106,8 +128,7 @@ impl NativeVideoSource {
         builder.pin_mut().set_video_frame_buffer(frame.buffer.as_ref().sys_handle());
 
         let capture_ts = if frame.timestamp_us == 0 {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-            now.as_micros() as i64
+            SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_micros() as i64).unwrap_or(0)
         } else {
             frame.timestamp_us
         };

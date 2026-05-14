@@ -40,6 +40,46 @@ namespace {
 // in <linux/videodev2.h> from this header.
 constexpr uint32_t kFourccYUV420 = 0x32315559;  // 'YU12'
 constexpr uint32_t kFourccNV12 = 0x3231564E;    // 'NV12'
+constexpr int kH264MacroblockAlignment = 16;
+
+int AlignUp(int value, int alignment) {
+  return ((value + alignment - 1) / alignment) * alignment;
+}
+
+int ChromaHeight(int height) {
+  return (height + 1) / 2;
+}
+
+size_t Yuv420Size(int stride_y, int storage_luma_height) {
+  const int stride_uv = stride_y / 2;
+  return static_cast<size_t>(stride_y) * storage_luma_height +
+         2u * static_cast<size_t>(stride_uv) *
+             ChromaHeight(storage_luma_height);
+}
+
+size_t Nv12Size(int stride_y, int storage_luma_height) {
+  return static_cast<size_t>(stride_y) * storage_luma_height +
+         static_cast<size_t>(stride_y) * ChromaHeight(storage_luma_height);
+}
+
+int InferSinglePlaneStorageHeight(int visible_height,
+                                  int stride_y,
+                                  size_t available,
+                                  bool yuv420) {
+  const int aligned_height =
+      AlignUp(visible_height, kH264MacroblockAlignment);
+  const size_t aligned_size =
+      yuv420 ? Yuv420Size(stride_y, aligned_height)
+             : Nv12Size(stride_y, aligned_height);
+  if (available >= aligned_size) {
+    return aligned_height;
+  }
+
+  const size_t visible_size =
+      yuv420 ? Yuv420Size(stride_y, visible_height)
+             : Nv12Size(stride_y, visible_height);
+  return available >= visible_size ? visible_height : 0;
+}
 
 // Best-effort DMA-BUF CPU access synchronization. Some DMA-BUF exporters
 // (e.g. CMA) don't require this; some (e.g. udmabuf) do. Failures are
@@ -110,6 +150,15 @@ webrtc::scoped_refptr<DmabufVideoFrameBuffer> DmabufVideoFrameBuffer::Wrap(
                         << "; only YUV420 and NV12 are supported";
     return nullptr;
   }
+  for (size_t i = 0; i < num_planes; ++i) {
+    if (planes[i].stride <= 0 || planes[i].offset >= total_size) {
+      RTC_LOG(LS_WARNING) << "DMABUF: invalid plane " << i
+                          << " offset=" << planes[i].offset
+                          << " stride=" << planes[i].stride
+                          << " total_size=" << total_size;
+      return nullptr;
+    }
+  }
 
   // Dup the fd so the buffer owns its own copy. The caller can safely
   // close the original after this returns.
@@ -166,16 +215,30 @@ DmabufVideoFrameBuffer::ToI420() {
   }
 
   const uint8_t* base = static_cast<const uint8_t*>(mapped);
-  const int chroma_height = (height_ + 1) / 2;
 
   if (fourcc_ == kFourccYUV420) {
+    const int storage_luma_height = num_planes_ == 1
+                                        ? InferSinglePlaneStorageHeight(
+                                              height_, planes_[0].stride,
+                                              total_size_ - planes_[0].offset,
+                                              /*yuv420=*/true)
+                                        : height_;
+    if (storage_luma_height == 0) {
+      RTC_LOG(LS_ERROR) << "DMABUF: YUV420 buffer is too small for "
+                        << width_ << "x" << height_;
+      DmabufSync(dmabuf_fd_, /*start=*/false, /*read_only=*/true);
+      munmap(mapped, total_size_);
+      return nullptr;
+    }
+    const int storage_chroma_height = ChromaHeight(storage_luma_height);
     const uint8_t* y = base + planes_[0].offset;
     const uint8_t* u = num_planes_ > 1 ? base + planes_[1].offset
-                                       : y + planes_[0].stride * height_;
+                                       : y + planes_[0].stride *
+                                                 storage_luma_height;
     const uint8_t* v = num_planes_ > 2
                            ? base + planes_[2].offset
                            : u + (num_planes_ > 1 ? planes_[1].stride : planes_[0].stride / 2) *
-                                     chroma_height;
+                                     storage_chroma_height;
     const int src_stride_y = planes_[0].stride;
     const int src_stride_u =
         num_planes_ > 1 ? planes_[1].stride : src_stride_y / 2;
@@ -187,9 +250,23 @@ DmabufVideoFrameBuffer::ToI420() {
                      dst->MutableDataV(), dst->StrideV(), width_, height_);
   } else {
     // NV12: Y plane followed by interleaved UV.
+    const int storage_luma_height = num_planes_ == 1
+                                        ? InferSinglePlaneStorageHeight(
+                                              height_, planes_[0].stride,
+                                              total_size_ - planes_[0].offset,
+                                              /*yuv420=*/false)
+                                        : height_;
+    if (storage_luma_height == 0) {
+      RTC_LOG(LS_ERROR) << "DMABUF: NV12 buffer is too small for "
+                        << width_ << "x" << height_;
+      DmabufSync(dmabuf_fd_, /*start=*/false, /*read_only=*/true);
+      munmap(mapped, total_size_);
+      return nullptr;
+    }
     const uint8_t* y = base + planes_[0].offset;
     const uint8_t* uv = num_planes_ > 1 ? base + planes_[1].offset
-                                        : y + planes_[0].stride * height_;
+                                        : y + planes_[0].stride *
+                                                  storage_luma_height;
     const int src_stride_y = planes_[0].stride;
     const int src_stride_uv =
         num_planes_ > 1 ? planes_[1].stride : src_stride_y;

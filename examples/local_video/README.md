@@ -56,6 +56,15 @@ Publisher usage:
    --room-name demo \
    --identity cam-1
 
+ # Raspberry Pi 4 CSI camera through libcamera + V4L2 H.264
+ RUST_LOG=info cargo run -p local_video -F desktop --bin publisher -- \
+   --source libcamera \
+   --width 1280 \
+   --height 720 \
+   --fps 30 \
+   --room-name demo \
+   --identity pi-cam-1
+
  # publish with end-to-end encryption
  cargo run -p local_video -F desktop --bin publisher -- \
    --camera-index 0 \
@@ -70,6 +79,7 @@ List devices usage:
 ```
 
 Publisher flags (in addition to the common connection flags above):
+- `--source <uvc|libcamera>`: Capture backend to use. `uvc` is the default; `libcamera` is intended for Raspberry Pi CSI cameras on Linux.
 - `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
 - `--width <px>`: Desired capture width (default: `1280`).
 - `--height <px>`: Desired capture height (default: `720`).
@@ -123,3 +133,5 @@ Notes:
 - If the active video track is unsubscribed or unpublished, the app clears its state and will automatically attach to the next matching video track when it appears.
 - For E2EE to work, both publisher and subscriber must specify the same `--e2ee-key` value. If the keys don't match, the subscriber will not be able to decode the video.
 - The timestamp overlay updates at ~2 Hz so the latency value is readable rather than flickering every frame.
+- On Raspberry Pi, `--source libcamera` is tuned for H.264 at 1280x720@30. The publisher disables H.265 and simulcast for this path because the V4L2 M2M H.264 encoder is a single-stream encoder. In the periodic WebRTC stats, expect `encoder: V4L2 H264 Encoder`; startup logs should show the V4L2 encoder using DMABUF import rather than falling back to I420/MMAP.
+- `--burn-timestamp` is CPU-only and does not draw on libcamera DMABUF frames. `--attach-timestamp` still works and carries a wall-clock capture timestamp in the packet trailer.

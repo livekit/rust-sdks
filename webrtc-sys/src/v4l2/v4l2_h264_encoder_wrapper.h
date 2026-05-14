@@ -165,6 +165,7 @@ class V4l2H264EncoderWrapper {
   void DrainReadyCaptureBuffers();
   bool QueueCaptureBuffer(int index);
   EncodeResult WaitForEncodedFrame(int timeout_ms);
+  bool WaitForOutputBuffer(int index, int timeout_ms);
 
   // Copy an I420 frame into the mmap'd OUTPUT buffer at |index|.
   void CopyI420ToOutputBuffer(int index,

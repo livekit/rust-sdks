@@ -1042,6 +1042,38 @@ EncodeResult V4l2H264EncoderWrapper::WaitForEncodedFrame(int timeout_ms) {
   }
 }
 
+bool V4l2H264EncoderWrapper::WaitForOutputBuffer(int index, int timeout_ms) {
+  if (index < 0 || index >= kNumOutputBuffers)
+    return false;
+
+  const int poll_step_ms = 20;
+  int waited_ms = 0;
+
+  for (;;) {
+    DrainReadyOutputBuffers();
+    DrainReadyCaptureBuffers();
+
+    if (!output_buffer_queued_[index])
+      return true;
+
+    if (waited_ms >= timeout_ms) {
+      RTC_LOG(LS_ERROR) << "V4L2: timeout waiting for OUTPUT buffer "
+                        << index << " to be consumed";
+      return false;
+    }
+
+    pollfd pfd = {fd_, POLLIN | POLLOUT, 0};
+    const int wait_ms = std::min(poll_step_ms, timeout_ms - waited_ms);
+    int ret = poll(&pfd, 1, wait_ms);
+    if (ret < 0 && errno != EINTR) {
+      RTC_LOG(LS_ERROR) << "V4L2: poll waiting for OUTPUT dequeue failed: "
+                        << strerror(errno);
+      return false;
+    }
+    waited_ms += wait_ms;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Encoding -- planar Y/U/V input (Mmap or UserPtr)
 // ---------------------------------------------------------------------------
@@ -1219,10 +1251,20 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
   }
 
   EncodeResult result = WaitForEncodedFrame(/*timeout_ms=*/1000);
-  if (mode_ == OutputBufferMode::UserPtr && result.status == EncodeResult::Status::NoOutput &&
+  if ((mode_ == OutputBufferMode::UserPtr ||
+       mode_ == OutputBufferMode::Dmabuf) &&
       output_buffer_queued_[buf_index]) {
-    RTC_LOG(LS_ERROR) << "V4L2: USERPTR input buffer still queued after timeout";
-    return EncodeError();
+    if (!WaitForOutputBuffer(buf_index, /*timeout_ms=*/1000)) {
+      RTC_LOG(LS_ERROR) << "V4L2: " << ModeName(mode_)
+                        << " input buffer still queued after timeout";
+      return EncodeError();
+    }
+    if (result.status == EncodeResult::Status::NoOutput &&
+        !ready_frames_.empty()) {
+      EncodedFrame frame = std::move(ready_frames_.front());
+      ready_frames_.pop_front();
+      return EncodeOk(std::move(frame));
+    }
   }
   return result;
 }

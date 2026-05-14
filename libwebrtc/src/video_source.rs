@@ -71,8 +71,26 @@ pub mod native {
     }
 
     impl NativeVideoSource {
+        /// Create a native video source that emits synthetic I420 frames until capture starts.
         pub fn new(resolution: VideoResolution, is_screencast: bool) -> Self {
             Self { handle: vs_imp::NativeVideoSource::new(resolution, is_screencast) }
+        }
+
+        /// Create a native video source without synthetic warmup frames.
+        ///
+        /// Use this for native-handle producers where the first frame must
+        /// preserve its original buffer type, such as DMABUF-backed capture
+        /// feeding a hardware encoder.
+        pub fn new_without_synthetic_frames(
+            resolution: VideoResolution,
+            is_screencast: bool,
+        ) -> Self {
+            Self {
+                handle: vs_imp::NativeVideoSource::new_without_synthetic_frames(
+                    resolution,
+                    is_screencast,
+                ),
+            }
         }
 
         pub fn capture_frame<T: AsRef<dyn VideoBuffer>>(&self, frame: &VideoFrame<T>) {

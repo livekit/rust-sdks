@@ -11,7 +11,7 @@ use livekit::webrtc::video_source::native::NativeVideoSource;
 use livekit::webrtc::video_source::{RtcVideoSource, VideoResolution};
 use livekit_api::access_token;
 use livekit_capture::{CaptureConfig, CaptureFrame, Publisher, PublisherConfig};
-use log::{debug, info};
+use log::{debug, info, warn};
 use nokhwa::utils::ApiBackend;
 use std::env;
 use std::sync::{
@@ -243,76 +243,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         fps: args.fps,
     };
 
-    let (width, height, fps) = (args.width, args.height, args.fps);
-
-    // Create the RTC video source up front so we can hand it to the
-    // Publisher and use the same handle to build the LocalVideoTrack.
-    let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
-    let track =
-        LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(rtc_source.clone()));
-
-    // --- Configure encoding ---
-
-    let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
-    info!("Attempting publish with codec: {}", requested_codec.as_str());
-
-    let target_fps = fps as f64;
-    let main_encoding = {
-        let base = options::compute_appropriate_encoding(false, width, height, VideoCodec::H264);
-        VideoEncoding {
-            max_bitrate: args.max_bitrate.unwrap_or(base.max_bitrate),
-            max_framerate: target_fps,
-        }
+    let (width, height) = (args.width, args.height);
+    let rtc_source = match args.source {
+        CaptureSource::Uvc => NativeVideoSource::new(VideoResolution { width, height }, false),
+        CaptureSource::Libcamera => NativeVideoSource::new_without_synthetic_frames(
+            VideoResolution { width: 0, height: 0 },
+            false,
+        ),
     };
-    let simulcast_presets = compute_simulcast_presets_30fps(width, height, target_fps);
-    info!(
-        "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast layers: {})",
-        width,
-        height,
-        target_fps,
-        main_encoding.max_bitrate,
-        simulcast_presets
-            .iter()
-            .map(|p| format!(
-                "{}x{}@{:.0}fps/{}bps",
-                p.width, p.height, p.encoding.max_framerate, p.encoding.max_bitrate
-            ))
-            .collect::<Vec<_>>()
-            .join(", "),
-    );
-
-    let mut packet_trailer_features = PacketTrailerFeatures::default();
-    packet_trailer_features.user_timestamp = args.attach_timestamp;
-    packet_trailer_features.frame_id = args.attach_frame_id;
-
-    let publish_opts = |codec: VideoCodec| TrackPublishOptions {
-        source: TrackSource::Camera,
-        simulcast: args.simulcast,
-        video_codec: codec,
-        packet_trailer_features,
-        video_encoding: Some(main_encoding.clone()),
-        simulcast_layers: Some(simulcast_presets.clone()),
-        ..Default::default()
-    };
-
-    let publish_result = room
-        .local_participant()
-        .publish_track(LocalTrack::Video(track.clone()), publish_opts(requested_codec))
-        .await;
-
-    if let Err(e) = publish_result {
-        if matches!(requested_codec, VideoCodec::H265) {
-            log::warn!("H.265 publish failed ({}). Falling back to H.264...", e);
-            room.local_participant()
-                .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
-                .await?;
-            info!("Published camera track with H.264 fallback");
-        } else {
-            return Err(e.into());
-        }
-    } else {
-        info!("Published camera track");
-    }
 
     // --- Build the optional burned-in timestamp overlay hook ---
     //
@@ -348,7 +286,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         None
     };
 
-    // --- Start the publisher actor ---
+    // --- Start the publisher actor before publishing the track ---
 
     let publisher_cfg = PublisherConfig {
         capture: capture_cfg,
@@ -383,6 +321,87 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         "Publisher running: {}x{} @ {} fps (source: {:?})",
         fmt.width, fmt.height, fmt.fps, args.source
     );
+
+    let track =
+        LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(rtc_source.clone()));
+
+    // --- Configure encoding from the negotiated capture format ---
+
+    let requested_codec = if args.h265 && matches!(args.source, CaptureSource::Libcamera) {
+        warn!("--h265 is ignored for --source libcamera; the Pi V4L2 M2M path is H.264");
+        VideoCodec::H264
+    } else if args.h265 {
+        VideoCodec::H265
+    } else {
+        VideoCodec::H264
+    };
+    info!("Attempting publish with codec: {}", requested_codec.as_str());
+
+    let simulcast_enabled = if args.simulcast && matches!(args.source, CaptureSource::Libcamera) {
+        warn!("--simulcast is disabled for --source libcamera; the V4L2 H.264 encoder is single-stream");
+        false
+    } else {
+        args.simulcast
+    };
+
+    let target_fps = fmt.fps as f64;
+    let main_encoding = {
+        let base =
+            options::compute_appropriate_encoding(false, fmt.width, fmt.height, VideoCodec::H264);
+        VideoEncoding {
+            max_bitrate: args.max_bitrate.unwrap_or(base.max_bitrate),
+            max_framerate: target_fps,
+        }
+    };
+    let simulcast_presets = compute_simulcast_presets_30fps(fmt.width, fmt.height, target_fps);
+    info!(
+        "Video encoding: {}x{} @ {:.0} fps, {} bps (simulcast layers: {})",
+        fmt.width,
+        fmt.height,
+        target_fps,
+        main_encoding.max_bitrate,
+        simulcast_presets
+            .iter()
+            .map(|p| format!(
+                "{}x{}@{:.0}fps/{}bps",
+                p.width, p.height, p.encoding.max_framerate, p.encoding.max_bitrate
+            ))
+            .collect::<Vec<_>>()
+            .join(", "),
+    );
+
+    let mut packet_trailer_features = PacketTrailerFeatures::default();
+    packet_trailer_features.user_timestamp = args.attach_timestamp;
+    packet_trailer_features.frame_id = args.attach_frame_id;
+
+    let publish_opts = |codec: VideoCodec| TrackPublishOptions {
+        source: TrackSource::Camera,
+        simulcast: simulcast_enabled,
+        video_codec: codec,
+        packet_trailer_features,
+        video_encoding: Some(main_encoding.clone()),
+        simulcast_layers: Some(simulcast_presets.clone()),
+        ..Default::default()
+    };
+
+    let publish_result = room
+        .local_participant()
+        .publish_track(LocalTrack::Video(track.clone()), publish_opts(requested_codec))
+        .await;
+
+    if let Err(e) = publish_result {
+        if matches!(requested_codec, VideoCodec::H265) {
+            warn!("H.265 publish failed ({}). Falling back to H.264...", e);
+            room.local_participant()
+                .publish_track(LocalTrack::Video(track.clone()), publish_opts(VideoCodec::H264))
+                .await?;
+            info!("Published camera track with H.264 fallback");
+        } else {
+            return Err(e.into());
+        }
+    } else {
+        info!("Published camera track");
+    }
 
     // --- Periodically log progress until Ctrl-C ---
 

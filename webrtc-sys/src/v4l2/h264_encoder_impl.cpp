@@ -59,6 +59,37 @@ int ChromaHeight(int height) {
   return (height + 1) / 2;
 }
 
+size_t Yuv420Size(int stride_y, int storage_luma_height) {
+  const int stride_uv = stride_y / 2;
+  return static_cast<size_t>(stride_y) * storage_luma_height +
+         2u * static_cast<size_t>(stride_uv) *
+             ChromaHeight(storage_luma_height);
+}
+
+size_t Nv12Size(int stride_y, int storage_luma_height) {
+  return static_cast<size_t>(stride_y) * storage_luma_height +
+         static_cast<size_t>(stride_y) * ChromaHeight(storage_luma_height);
+}
+
+int InferSinglePlaneStorageHeight(int visible_height,
+                                  int stride_y,
+                                  size_t available,
+                                  bool yuv420) {
+  const int aligned_height =
+      AlignUp(visible_height, kH264MacroblockAlignment);
+  const size_t aligned_size =
+      yuv420 ? Yuv420Size(stride_y, aligned_height)
+             : Nv12Size(stride_y, aligned_height);
+  if (available >= aligned_size) {
+    return aligned_height;
+  }
+
+  const size_t visible_size =
+      yuv420 ? Yuv420Size(stride_y, visible_height)
+             : Nv12Size(stride_y, visible_height);
+  return available >= visible_size ? visible_height : 0;
+}
+
 bool IsContiguousDmabufLayout(
     const livekit_ffi::DmabufVideoFrameBuffer& buffer) {
   const int width = buffer.width();
@@ -70,36 +101,67 @@ bool IsContiguousDmabufLayout(
     return false;
 
   const size_t base = buffer.plane_offset(0);
-  const int storage_luma_height =
-      AlignUp(height, kH264MacroblockAlignment);
-  const int storage_chroma_height = ChromaHeight(storage_luma_height);
   if (buffer.fourcc() == kFourccYuv420) {
-    if (buffer.num_planes() < 3 || (stride_y % 2) != 0)
+    if ((stride_y % 2) != 0)
       return false;
     const int stride_uv = stride_y / 2;
-    const size_t u_offset =
-        base + static_cast<size_t>(stride_y) * storage_luma_height;
+    if (buffer.num_planes() == 1) {
+      const int storage_luma_height = InferSinglePlaneStorageHeight(
+          height, stride_y, buffer.total_size() - base, /*yuv420=*/true);
+      if (storage_luma_height == 0)
+        return false;
+      return base + Yuv420Size(stride_y, storage_luma_height) <=
+             buffer.total_size();
+    }
+
+    if (buffer.num_planes() < 2 ||
+        buffer.plane_offset(1) < base ||
+        ((buffer.plane_offset(1) - base) % stride_y) != 0 ||
+        buffer.plane_stride(1) != stride_uv) {
+      return false;
+    }
+    const int storage_luma_height =
+        static_cast<int>((buffer.plane_offset(1) - base) / stride_y);
+    if (storage_luma_height < height)
+      return false;
+    const int storage_chroma_height = ChromaHeight(storage_luma_height);
     const size_t v_offset =
-        u_offset + static_cast<size_t>(stride_uv) * storage_chroma_height;
+        buffer.plane_offset(1) +
+        static_cast<size_t>(stride_uv) * storage_chroma_height;
     const size_t end =
         v_offset + static_cast<size_t>(stride_uv) * storage_chroma_height;
-    return buffer.plane_stride(1) == stride_uv &&
-           buffer.plane_stride(2) == stride_uv &&
-           buffer.plane_offset(1) == u_offset &&
-           buffer.plane_offset(2) == v_offset &&
-           end <= buffer.total_size();
+    if (buffer.num_planes() >= 3 &&
+        (buffer.plane_stride(2) != stride_uv ||
+         buffer.plane_offset(2) != v_offset)) {
+      return false;
+    }
+    return end <= buffer.total_size();
   }
 
   if (buffer.fourcc() == kFourccNv12) {
-    if (buffer.num_planes() < 2)
+    if (buffer.num_planes() == 1) {
+      const int storage_luma_height = InferSinglePlaneStorageHeight(
+          height, stride_y, buffer.total_size() - base, /*yuv420=*/false);
+      if (storage_luma_height == 0)
+        return false;
+      return base + Nv12Size(stride_y, storage_luma_height) <=
+             buffer.total_size();
+    }
+
+    if (buffer.num_planes() < 2 ||
+        buffer.plane_offset(1) < base ||
+        ((buffer.plane_offset(1) - base) % stride_y) != 0 ||
+        buffer.plane_stride(1) != stride_y) {
       return false;
-    const size_t uv_offset =
-        base + static_cast<size_t>(stride_y) * storage_luma_height;
+    }
+    const int storage_luma_height =
+        static_cast<int>((buffer.plane_offset(1) - base) / stride_y);
+    if (storage_luma_height < height)
+      return false;
     const size_t end =
-        uv_offset + static_cast<size_t>(stride_y) * storage_chroma_height;
-    return buffer.plane_stride(1) == stride_y &&
-           buffer.plane_offset(1) == uv_offset &&
-           end <= buffer.total_size();
+        buffer.plane_offset(1) +
+        static_cast<size_t>(stride_y) * ChromaHeight(storage_luma_height);
+    return end <= buffer.total_size();
   }
 
   return false;
