@@ -52,8 +52,17 @@ class DmabufVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   // retains ownership of the original handle.
   //
   // `total_size` is the byte length of the entire mapped region (sum of
-  // plane offsets + last plane size). Returns null on failure (invalid
-  // fd, dup() failure, or unsupported fourcc).
+  // plane offsets + last plane size).
+  //
+  // `colorspace_v4l2` carries a V4L2-style `v4l2_colorspace` value
+  // (e.g. `V4L2_COLORSPACE_REC709 == 3`,
+  // `V4L2_COLORSPACE_SMPTE170M == 1`). Use 0 (`V4L2_COLORSPACE_DEFAULT`)
+  // to let the encoder pick its built-in default. The V4L2 H.264 encoder
+  // wrapper passes this value into `S_FMT` on the OUTPUT queue so the
+  // hardware encoder is told the producer's actual colorspace.
+  //
+  // Returns null on failure (invalid fd, dup() failure, or unsupported
+  // fourcc).
   static webrtc::scoped_refptr<DmabufVideoFrameBuffer> Wrap(
       int dmabuf_fd,
       uint32_t fourcc,
@@ -61,7 +70,8 @@ class DmabufVideoFrameBuffer : public webrtc::VideoFrameBuffer {
       int height,
       size_t total_size,
       const Plane* planes,
-      size_t num_planes);
+      size_t num_planes,
+      uint32_t colorspace_v4l2 = 0);
 
   // Down-cast helper: returns non-null only when `buffer` is a
   // DmabufVideoFrameBuffer.
@@ -91,6 +101,11 @@ class DmabufVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   // Used by the V4L2 encoder as the OUTPUT plane bytesused/length.
   size_t total_size() const { return total_size_; }
 
+  // V4L2-style colorspace (e.g. V4L2_COLORSPACE_REC709 == 3). 0 means
+  // "unspecified, use encoder default". See the comment on `Wrap()`
+  // above for how this is consumed by the V4L2 H.264 encoder.
+  uint32_t colorspace_v4l2() const { return colorspace_v4l2_; }
+
  protected:
   DmabufVideoFrameBuffer(int dmabuf_fd,
                          uint32_t fourcc,
@@ -98,7 +113,8 @@ class DmabufVideoFrameBuffer : public webrtc::VideoFrameBuffer {
                          int height,
                          size_t total_size,
                          const Plane* planes,
-                         size_t num_planes);
+                         size_t num_planes,
+                         uint32_t colorspace_v4l2);
   ~DmabufVideoFrameBuffer() override;
 
  private:
@@ -109,6 +125,7 @@ class DmabufVideoFrameBuffer : public webrtc::VideoFrameBuffer {
   size_t total_size_ = 0;
   std::array<Plane, kMaxPlanes> planes_{};
   size_t num_planes_ = 0;
+  uint32_t colorspace_v4l2_ = 0;
 };
 
 }  // namespace livekit_ffi

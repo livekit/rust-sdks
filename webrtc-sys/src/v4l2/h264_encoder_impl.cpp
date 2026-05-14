@@ -405,7 +405,8 @@ int32_t V4L2H264EncoderImpl::Encode(
 
   auto initialize_encoder = [&](livekit_ffi::OutputBufferMode desired,
                                 uint32_t fourcc,
-                                int input_stride) -> bool {
+                                int input_stride,
+                                uint32_t input_colorspace_v4l2) -> bool {
     int kf_interval = codec_.H264()->keyFrameInterval;
     if (kf_interval <= 0) {
       kf_interval = codec_.maxFramerate > 0
@@ -417,7 +418,8 @@ int32_t V4L2H264EncoderImpl::Encode(
                             : codec_.startBitrate * 1000;
     return encoder_->Initialize(configuration_.width, configuration_.height,
                                 bitrate, kf_interval, codec_.maxFramerate,
-                                desired, fourcc, input_stride);
+                                desired, fourcc, input_stride,
+                                input_colorspace_v4l2);
   };
 
   // Lazily initialize the hardware encoder, picking the mode based on
@@ -437,6 +439,11 @@ int32_t V4L2H264EncoderImpl::Encode(
                                          : kFourccYuv420;
     int input_stride = native_dmabuf_safe ? native_dmabuf->plane_stride(0)
                                           : configuration_.width;
+    // Forward the producer's negotiated V4L2 colorspace when we have one
+    // (DMABUF native frames carry it through DmabufVideoFrameBuffer);
+    // otherwise let the wrapper pick its own default.
+    uint32_t input_colorspace_v4l2 =
+        native_dmabuf_safe ? native_dmabuf->colorspace_v4l2() : 0u;
     if (desired == livekit_ffi::OutputBufferMode::Dmabuf) {
       RTC_LOG(LS_VERBOSE)
           << "V4L2: encoder input path: DMABUF zero-copy import (fourcc "
@@ -455,7 +462,8 @@ int32_t V4L2H264EncoderImpl::Encode(
                  input_frame.video_frame_buffer()->type())
           << ")";
     }
-    if (!initialize_encoder(desired, fourcc, input_stride)) {
+    if (!initialize_encoder(desired, fourcc, input_stride,
+                            input_colorspace_v4l2)) {
       if (desired != livekit_ffi::OutputBufferMode::Dmabuf) {
         RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize H.264 encoder";
         first_frame_ = true;
@@ -471,10 +479,12 @@ int32_t V4L2H264EncoderImpl::Encode(
       desired = livekit_ffi::OutputBufferMode::Mmap;
       fourcc = kFourccYuv420;
       input_stride = configuration_.width;
+      input_colorspace_v4l2 = 0;
       RTC_LOG(LS_VERBOSE)
           << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
              "(DMABUF import initialization failed)";
-      if (!initialize_encoder(desired, fourcc, input_stride)) {
+      if (!initialize_encoder(desired, fourcc, input_stride,
+                              input_colorspace_v4l2)) {
         RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize MMAP fallback";
         first_frame_ = true;
         ReportError();
@@ -496,7 +506,7 @@ int32_t V4L2H264EncoderImpl::Encode(
           << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
              "(driver changed imported DMABUF layout)";
       if (!initialize_encoder(livekit_ffi::OutputBufferMode::Mmap,
-                              kFourccYuv420, configuration_.width)) {
+                              kFourccYuv420, configuration_.width, 0u)) {
         RTC_LOG(LS_ERROR) << "V4L2: Failed to initialize MMAP fallback";
         first_frame_ = true;
         ReportError();
@@ -514,7 +524,7 @@ int32_t V4L2H264EncoderImpl::Encode(
         << "V4L2: encoder input path: CPU I420 copy into V4L2 MMAP "
            "(incoming frame cannot be safely imported as DMABUF)";
     if (!initialize_encoder(livekit_ffi::OutputBufferMode::Mmap,
-                            kFourccYuv420, configuration_.width)) {
+                            kFourccYuv420, configuration_.width, 0u)) {
       RTC_LOG(LS_ERROR) << "V4L2: Failed to reinitialize H.264 encoder";
       first_frame_ = true;
       ReportError();

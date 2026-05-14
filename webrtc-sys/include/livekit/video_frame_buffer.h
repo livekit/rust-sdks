@@ -227,6 +227,12 @@ PlatformImageBuffer* native_buffer_to_platform_image_buffer(const std::unique_pt
 // non-Linux platforms or when the fourcc / dimensions are unsupported.
 // The fd is duplicated internally; the caller retains ownership of its
 // original handle.
+//
+// `colorspace_v4l2` is a V4L2 `v4l2_colorspace` value (e.g.
+// `V4L2_COLORSPACE_REC709 == 3`, `V4L2_COLORSPACE_SMPTE170M == 1`). Use
+// 0 (`V4L2_COLORSPACE_DEFAULT`) when the producer cannot supply a more
+// specific value; the V4L2 H.264 encoder will fall back to its built-in
+// default in that case.
 std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_dmabuf(
     int32_t dmabuf_fd,
     uint32_t fourcc,
@@ -234,7 +240,8 @@ std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_dmabuf(
     int32_t height,
     uint64_t total_size,
     rust::Slice<const uint64_t> plane_offsets,
-    rust::Slice<const int32_t> plane_strides);
+    rust::Slice<const int32_t> plane_strides,
+    uint32_t colorspace_v4l2);
 
 static const VideoFrameBuffer* yuv_to_vfb(const PlanarYuvBuffer* yuv) {
   return yuv;

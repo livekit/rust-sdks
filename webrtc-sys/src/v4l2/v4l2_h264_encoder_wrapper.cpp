@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstdio>
 #include <cstdint>
 #include <string>
@@ -390,6 +391,7 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
                                        OutputBufferMode mode,
                                        uint32_t input_fourcc,
                                        int input_stride,
+                                       uint32_t input_colorspace_v4l2,
                                        const std::string& device_path) {
   if (initialized_)
     Destroy();
@@ -435,41 +437,90 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
   RTC_LOG(LS_INFO) << "V4L2: Opened encoder device " << path
                    << " (fd " << fd_ << ", mode " << ModeName(mode_) << ")";
 
-  // --- Set CAPTURE format (H.264 bitstream from the encoder) ---
+  // --- Configure encoder controls (before format negotiation) ---
   //
-  // Stateful V4L2 encoders define the coded CAPTURE format first, then
-  // the raw OUTPUT format. Setting CAPTURE first also ensures bcm2835-codec
-  // exposes its H.264 controls before we configure them below.
+  // bcm2835-codec exposes the H.264 controls based on the device node
+  // alone, so they're settable before either format is configured.
+  // rpicam-apps applies controls first; mirror that order here so that
+  // S_FMT calls don't clobber any control-derived defaults.
 
-  v4l2_format fmt = {};
-  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
-  fmt.fmt.pix_mp.width = width;
-  fmt.fmt.pix_mp.height = height;
-  fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H264;
-  fmt.fmt.pix_mp.field = V4L2_FIELD_ANY;
-  fmt.fmt.pix_mp.colorspace = V4L2_COLORSPACE_DEFAULT;
-  fmt.fmt.pix_mp.num_planes = 1;
-  fmt.fmt.pix_mp.plane_fmt[0].bytesperline = 0;
-  fmt.fmt.pix_mp.plane_fmt[0].sizeimage = capture_buffer_size_;
-  if (Xioctl(fd_, VIDIOC_S_FMT, &fmt) < 0) {
-    RTC_LOG(LS_ERROR) << "V4L2: Failed to set capture format: "
-                      << strerror(errno);
-    close(fd_);
-    fd_ = -1;
-    return false;
+  // Bitrate must be constant for WebRTC's congestion control to behave
+  // predictably; relying on the driver default is fragile.
+  TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_BITRATE_MODE,
+                V4L2_MPEG_VIDEO_BITRATE_MODE_CBR, "bitrate mode (CBR)");
+
+  if (bitrate > 0) {
+    TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_BITRATE, bitrate, "bitrate");
   }
-  capture_buffer_size_ =
-      std::max<int>(capture_buffer_size_, fmt.fmt.pix_mp.plane_fmt[0].sizeimage);
+
+  // H.264 profile -- prefer Constrained Baseline for maximum WebRTC
+  // compatibility; fall back to plain Baseline if the driver doesn't
+  // support the constrained variant.
+  v4l2_control ctrl = {};
+  ctrl.id = V4L2_CID_MPEG_VIDEO_H264_PROFILE;
+  ctrl.value = V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE;
+  if (Xioctl(fd_, VIDIOC_S_CTRL, &ctrl) < 0) {
+    ctrl.value = V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE;
+    if (Xioctl(fd_, VIDIOC_S_CTRL, &ctrl) < 0)
+      RTC_LOG(LS_WARNING) << "V4L2: Failed to set H.264 profile: "
+                          << strerror(errno);
+  }
+
+  const H264LevelSelection h264_level =
+      SelectH264Level(width, height, framerate_);
+  RTC_LOG(LS_INFO) << "V4L2: selected H.264 level " << h264_level.level_name
+                   << " (profile-level-id "
+                   << h264_level.profile_level_id << ") for " << width << "x"
+                   << height << " @ " << framerate_ << " fps, "
+                   << h264_level.macroblocks_per_frame << " MB/frame, "
+                   << h264_level.macroblocks_per_second << " MB/s";
+  if (h264_level.capped_at_level_42) {
+    RTC_LOG(LS_WARNING)
+        << "V4L2: requested H.264 size/rate exceeds level 4.2 limits; "
+           "driver may reject the stream or encode below the requested rate";
+  }
+  TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_H264_LEVEL,
+                h264_level.control_value, "H.264 level");
+
+  // Keyframe (IDR) interval in frames.
+  if (keyframe_interval > 0) {
+    TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_H264_I_PERIOD, keyframe_interval,
+                  "intra period");
+  }
+
+  // Repeat SPS/PPS headers before every IDR -- required for WebRTC so
+  // that late-joining subscribers can decode immediately.
+  TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_REPEAT_SEQ_HEADER, 1,
+                "inline headers");
 
   // --- Set OUTPUT format (raw YUV fed into the encoder) ---
+  //
+  // rpicam-apps sets OUTPUT first then CAPTURE; bcm2835-codec accepts
+  // either order, but matching rpicam-apps keeps us on the well-trodden
+  // path for this driver.
 
-  fmt = {};
+  // Pick a colorspace for the OUTPUT plane. If the producer told us
+  // exactly which colorspace its frames carry (e.g. libcamera's
+  // negotiated `Rec709` for >=720p), pass that through verbatim.
+  // Otherwise default to `SMPTE170M` for SD and `REC709` for HD,
+  // matching what rpicam-apps does for unannotated frames.
+  uint32_t output_colorspace = input_colorspace_v4l2;
+  if (output_colorspace == 0) {
+    output_colorspace = (width >= 1280 || height >= 720)
+                            ? V4L2_COLORSPACE_REC709
+                            : V4L2_COLORSPACE_SMPTE170M;
+  }
+
+  v4l2_format fmt = {};
   fmt.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
   fmt.fmt.pix_mp.width = width;
   fmt.fmt.pix_mp.height = height;
   fmt.fmt.pix_mp.pixelformat = input_fourcc_;
+  // V4L2_FIELD_ANY on S_FMT lets the driver pick (rpicam-apps does the
+  // same); V4L2_FIELD_NONE is set explicitly on every QBUF below so
+  // bcm2835-codec never interprets a frame as interlaced.
   fmt.fmt.pix_mp.field = V4L2_FIELD_ANY;
-  fmt.fmt.pix_mp.colorspace = V4L2_COLORSPACE_SMPTE170M;
+  fmt.fmt.pix_mp.colorspace = output_colorspace;
   fmt.fmt.pix_mp.num_planes = 1;
   fmt.fmt.pix_mp.plane_fmt[0].bytesperline = output_stride_;
   fmt.fmt.pix_mp.plane_fmt[0].sizeimage = frame_size_;
@@ -532,6 +583,28 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
         << ", sizeimage " << frame_size_ << ")";
   }
 
+  // --- Set CAPTURE format (H.264 bitstream from the encoder) ---
+
+  fmt = {};
+  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+  fmt.fmt.pix_mp.width = width;
+  fmt.fmt.pix_mp.height = height;
+  fmt.fmt.pix_mp.pixelformat = V4L2_PIX_FMT_H264;
+  fmt.fmt.pix_mp.field = V4L2_FIELD_ANY;
+  fmt.fmt.pix_mp.colorspace = V4L2_COLORSPACE_DEFAULT;
+  fmt.fmt.pix_mp.num_planes = 1;
+  fmt.fmt.pix_mp.plane_fmt[0].bytesperline = 0;
+  fmt.fmt.pix_mp.plane_fmt[0].sizeimage = capture_buffer_size_;
+  if (Xioctl(fd_, VIDIOC_S_FMT, &fmt) < 0) {
+    RTC_LOG(LS_ERROR) << "V4L2: Failed to set capture format: "
+                      << strerror(errno);
+    close(fd_);
+    fd_ = -1;
+    return false;
+  }
+  capture_buffer_size_ =
+      std::max<int>(capture_buffer_size_, fmt.fmt.pix_mp.plane_fmt[0].sizeimage);
+
   // --- Set framerate via stream parameters ---
 
   if (framerate > 0) {
@@ -543,57 +616,6 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
       RTC_LOG(LS_WARNING) << "V4L2: Failed to set framerate: "
                           << strerror(errno);
   }
-
-  // --- Configure encoder controls (after format negotiation) ---
-
-  // Bitrate must be constant for WebRTC's congestion control to behave
-  // predictably; relying on the driver default is fragile.
-  TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_BITRATE_MODE,
-                V4L2_MPEG_VIDEO_BITRATE_MODE_CBR, "bitrate mode (CBR)");
-
-  if (bitrate > 0) {
-    TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_BITRATE, bitrate, "bitrate");
-  }
-
-  // H.264 profile -- prefer Constrained Baseline for maximum WebRTC
-  // compatibility; fall back to plain Baseline if the driver doesn't
-  // support the constrained variant.
-  v4l2_control ctrl = {};
-  ctrl.id = V4L2_CID_MPEG_VIDEO_H264_PROFILE;
-  ctrl.value = V4L2_MPEG_VIDEO_H264_PROFILE_CONSTRAINED_BASELINE;
-  if (Xioctl(fd_, VIDIOC_S_CTRL, &ctrl) < 0) {
-    ctrl.value = V4L2_MPEG_VIDEO_H264_PROFILE_BASELINE;
-    if (Xioctl(fd_, VIDIOC_S_CTRL, &ctrl) < 0)
-      RTC_LOG(LS_WARNING) << "V4L2: Failed to set H.264 profile: "
-                          << strerror(errno);
-  }
-
-  const H264LevelSelection h264_level =
-      SelectH264Level(width, height, framerate_);
-  RTC_LOG(LS_INFO) << "V4L2: selected H.264 level " << h264_level.level_name
-                   << " (profile-level-id "
-                   << h264_level.profile_level_id << ") for " << width << "x"
-                   << height << " @ " << framerate_ << " fps, "
-                   << h264_level.macroblocks_per_frame << " MB/frame, "
-                   << h264_level.macroblocks_per_second << " MB/s";
-  if (h264_level.capped_at_level_42) {
-    RTC_LOG(LS_WARNING)
-        << "V4L2: requested H.264 size/rate exceeds level 4.2 limits; "
-           "driver may reject the stream or encode below the requested rate";
-  }
-  TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_H264_LEVEL,
-                h264_level.control_value, "H.264 level");
-
-  // Keyframe (IDR) interval in frames.
-  if (keyframe_interval > 0) {
-    TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_H264_I_PERIOD, keyframe_interval,
-                  "intra period");
-  }
-
-  // Repeat SPS/PPS headers before every IDR -- required for WebRTC so
-  // that late-joining subscribers can decode immediately.
-  TrySetControl(fd_, V4L2_CID_MPEG_VIDEO_REPEAT_SEQ_HEADER, 1,
-                "inline headers");
 
   // --- Request OUTPUT buffers (mmap'd only in Mmap mode) ---
 
@@ -720,6 +742,7 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
     buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     buf.memory = V4L2_MEMORY_MMAP;
     buf.index = i;
+    buf.field = V4L2_FIELD_NONE;
     buf.length = 1;
     buf.m.planes = planes;
     buf.m.planes[0].length = capture_buffers_[i].length;
@@ -761,9 +784,17 @@ bool V4l2H264EncoderWrapper::Initialize(int width,
   // require fabricating a contiguous user buffer or DMABUF, which the
   // caller would need to provide. The first user-submitted frame is
   // marked as IDR so the decoder still gets a clean start.
+  //
+  // PrimeEncoderPipeline does its own inline DQBUF, so it must run
+  // before the poll thread is spawned to avoid a race on the V4L2 fd.
   if (mode_ == OutputBufferMode::Mmap) {
     PrimeEncoderPipeline();
   }
+
+  // Spawn the poll thread that owns DQBUF on both queues. From now on
+  // the encoder thread interacts with V4L2 only via QBUF + condvars.
+  abort_poll_.store(false, std::memory_order_release);
+  poll_thread_ = std::thread([this]() { PollThreadLoop(); });
 
   return true;
 }
@@ -841,6 +872,7 @@ void V4l2H264EncoderWrapper::PrimeEncoderPipeline() {
     buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
     buf.memory = V4L2_MEMORY_MMAP;
     buf.index = idx;
+    buf.field = V4L2_FIELD_NONE;
     buf.length = 1;
     buf.m.planes = planes;
     buf.m.planes[0].bytesused = frame_size_;
@@ -904,6 +936,7 @@ void V4l2H264EncoderWrapper::PrimeEncoderPipeline() {
     requeue.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
     requeue.memory = V4L2_MEMORY_MMAP;
     requeue.index = buf.index;
+    requeue.field = V4L2_FIELD_NONE;
     requeue.length = 1;
     requeue.m.planes = rq_planes;
     requeue.m.planes[0].length = capture_buffers_[buf.index].length;
@@ -919,6 +952,12 @@ void V4l2H264EncoderWrapper::PrimeEncoderPipeline() {
 
 // ---------------------------------------------------------------------------
 // Queue draining helpers
+//
+// All DQBUF on both queues happens on the dedicated poll thread (see
+// PollThreadLoop). The encoder thread (calling Encode/EncodeDmabuf) only
+// QBUFs and waits on condvars for state changes. This mirrors the
+// rpicam-apps design (separate pollThread / outputThread) and keeps the
+// WebRTC encoder thread off the V4L2 fd hot path.
 // ---------------------------------------------------------------------------
 
 bool V4l2H264EncoderWrapper::QueueCaptureBuffer(int index) {
@@ -930,6 +969,7 @@ bool V4l2H264EncoderWrapper::QueueCaptureBuffer(int index) {
   buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
   buf.memory = V4L2_MEMORY_MMAP;
   buf.index = index;
+  buf.field = V4L2_FIELD_NONE;
   buf.length = 1;
   buf.m.planes = planes;
   buf.m.planes[0].length = capture_buffers_[index].length;
@@ -950,13 +990,17 @@ void V4l2H264EncoderWrapper::DrainReadyOutputBuffers() {
     buf.length = 1;
     buf.m.planes = planes;
     if (Xioctl(fd_, VIDIOC_DQBUF, &buf) < 0) {
-      if (errno != EAGAIN)
+      if (errno != EAGAIN && errno != EPIPE)
         RTC_LOG(LS_ERROR) << "V4L2: DQBUF output failed: " << strerror(errno);
       return;
     }
     if (buf.index < kNumOutputBuffers) {
-      output_buffer_queued_[buf.index] = false;
-      retained_input_buffers_[buf.index] = nullptr;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        output_buffer_queued_[buf.index] = false;
+        retained_input_buffers_[buf.index] = nullptr;
+      }
+      output_buffer_cv_.notify_all();
     }
   }
 }
@@ -970,35 +1014,41 @@ void V4l2H264EncoderWrapper::DrainReadyCaptureBuffers() {
     buf.length = 1;
     buf.m.planes = planes;
     if (Xioctl(fd_, VIDIOC_DQBUF, &buf) < 0) {
-      if (errno != EAGAIN)
+      if (errno != EAGAIN && errno != EPIPE)
         RTC_LOG(LS_ERROR) << "V4L2: DQBUF capture failed: " << strerror(errno);
       return;
     }
     if (buf.index >= static_cast<uint32_t>(num_capture_buffers_)) {
       RTC_LOG(LS_WARNING) << "V4L2: ignoring CAPTURE buffer with invalid index "
                           << buf.index;
-      force_next_keyframe_ = true;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        force_next_keyframe_ = true;
+      }
       continue;
     }
 
+    const uint64_t timestamp_us = TimevalToUsec(buf.timestamp);
     PendingFrame pending;
     bool found_pending = false;
-    const uint64_t timestamp_us = TimevalToUsec(buf.timestamp);
-    for (auto it = pending_frames_.begin(); it != pending_frames_.end(); ++it) {
-      if (it->v4l2_timestamp_us == timestamp_us) {
-        pending = *it;
-        pending_frames_.erase(it);
-        found_pending = true;
-        break;
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      for (auto it = pending_frames_.begin(); it != pending_frames_.end(); ++it) {
+        if (it->v4l2_timestamp_us == timestamp_us) {
+          pending = *it;
+          pending_frames_.erase(it);
+          found_pending = true;
+          break;
+        }
       }
-    }
-    if (!found_pending && !pending_frames_.empty()) {
-      pending = pending_frames_.front();
-      pending_frames_.pop_front();
-      found_pending = true;
-      RTC_LOG(LS_WARNING)
-          << "V4L2: CAPTURE buffer timestamp did not match any pending "
-             "OUTPUT buffer; using oldest pending frame";
+      if (!found_pending && !pending_frames_.empty()) {
+        pending = pending_frames_.front();
+        pending_frames_.pop_front();
+        found_pending = true;
+        RTC_LOG(LS_WARNING)
+            << "V4L2: CAPTURE buffer timestamp did not match any pending "
+               "OUTPUT buffer; using oldest pending frame";
+      }
     }
 
     const size_t bytesused = buf.m.planes[0].bytesused;
@@ -1016,6 +1066,7 @@ void V4l2H264EncoderWrapper::DrainReadyCaptureBuffers() {
             << " bytesused=" << bytesused
             << " data_offset=" << data_offset
             << " length=" << capture_buffers_[buf.index].length;
+        std::lock_guard<std::mutex> lock(mutex_);
         force_next_keyframe_ = true;
         if (found_pending && pending.requires_parameter_sets)
           require_next_keyframe_parameter_sets_ = true;
@@ -1034,17 +1085,23 @@ void V4l2H264EncoderWrapper::DrainReadyCaptureBuffers() {
     if (pending.key_frame && !real_key_frame) {
       RTC_LOG(LS_WARNING)
           << "V4L2: dropping requested keyframe without IDR NAL";
-      force_next_keyframe_ = true;
-      if (pending.requires_parameter_sets)
-        require_next_keyframe_parameter_sets_ = true;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        force_next_keyframe_ = true;
+        if (pending.requires_parameter_sets)
+          require_next_keyframe_parameter_sets_ = true;
+      }
       QueueCaptureBuffer(buf.index);
       continue;
     }
     if (pending.requires_parameter_sets && !has_parameter_sets) {
       RTC_LOG(LS_WARNING)
           << "V4L2: dropping post-initialization keyframe without SPS/PPS";
-      force_next_keyframe_ = true;
-      require_next_keyframe_parameter_sets_ = true;
+      {
+        std::lock_guard<std::mutex> lock(mutex_);
+        force_next_keyframe_ = true;
+        require_next_keyframe_parameter_sets_ = true;
+      }
       QueueCaptureBuffer(buf.index);
       continue;
     }
@@ -1053,20 +1110,61 @@ void V4l2H264EncoderWrapper::DrainReadyCaptureBuffers() {
     frame.bitstream = webrtc::EncodedImageBuffer::Create(data, encoded_size);
     frame.rtp_timestamp = pending.rtp_timestamp;
     frame.key_frame = real_key_frame;
-    ready_frames_.push_back(std::move(frame));
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      ready_frames_.push_back(std::move(frame));
+    }
+    encoded_frame_cv_.notify_all();
 
     QueueCaptureBuffer(buf.index);
   }
 }
 
-int V4l2H264EncoderWrapper::AcquireOutputBuffer(int timeout_ms) {
-  const int poll_step_ms = 20;
-  int waited_ms = 0;
-
-  for (;;) {
+void V4l2H264EncoderWrapper::PollThreadLoop() {
+  while (!abort_poll_.load(std::memory_order_acquire)) {
+    pollfd pfd = {fd_, POLLIN, 0};
+    int ret = poll(&pfd, 1, /*timeout_ms=*/200);
+    if (abort_poll_.load(std::memory_order_acquire))
+      break;
+    if (ret < 0) {
+      if (errno == EINTR)
+        continue;
+      RTC_LOG(LS_ERROR) << "V4L2: poll thread: poll failed: "
+                        << strerror(errno);
+      // Hand off to the encoder thread by waking any waiters; they will
+      // observe the abort flag and bail.
+      abort_poll_.store(true, std::memory_order_release);
+      output_buffer_cv_.notify_all();
+      encoded_frame_cv_.notify_all();
+      return;
+    }
+    if (ret == 0)
+      continue;  // 200ms tick, just loop and re-check abort
+    if (pfd.revents & (POLLERR | POLLNVAL)) {
+      RTC_LOG(LS_ERROR) << "V4L2: poll thread: poll reported error revents";
+      abort_poll_.store(true, std::memory_order_release);
+      output_buffer_cv_.notify_all();
+      encoded_frame_cv_.notify_all();
+      return;
+    }
+    // bcm2835-codec signals POLLIN whenever either queue has work to
+    // dequeue. Drain both unconditionally; either DQBUF returns EAGAIN
+    // immediately when its queue is idle.
     DrainReadyOutputBuffers();
     DrainReadyCaptureBuffers();
+  }
+}
 
+int V4l2H264EncoderWrapper::AcquireOutputBuffer(int timeout_ms) {
+  std::unique_lock<std::mutex> lock(mutex_);
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+
+  for (;;) {
+    if (abort_poll_.load(std::memory_order_acquire)) {
+      RTC_LOG(LS_ERROR) << "V4L2: poll thread aborted while acquiring OUTPUT";
+      return -1;
+    }
     for (int attempt = 0; attempt < num_output_buffers_; ++attempt) {
       const int index = (next_output_index_ + attempt) % num_output_buffers_;
       if (!output_buffer_queued_[index]) {
@@ -1075,49 +1173,47 @@ int V4l2H264EncoderWrapper::AcquireOutputBuffer(int timeout_ms) {
       }
     }
 
-    if (waited_ms >= timeout_ms) {
+    if (output_buffer_cv_.wait_until(lock, deadline) ==
+        std::cv_status::timeout) {
+      // One more pass after timeout to handle the case where the poll
+      // thread freed a buffer just as we were timing out.
+      for (int attempt = 0; attempt < num_output_buffers_; ++attempt) {
+        const int index = (next_output_index_ + attempt) % num_output_buffers_;
+        if (!output_buffer_queued_[index]) {
+          next_output_index_ = (index + 1) % num_output_buffers_;
+          return index;
+        }
+      }
       RTC_LOG(LS_ERROR) << "V4L2: timeout waiting for a free OUTPUT buffer";
       return -1;
     }
-
-    pollfd pfd = {fd_, POLLIN | POLLOUT, 0};
-    const int wait_ms = std::min(poll_step_ms, timeout_ms - waited_ms);
-    int ret = poll(&pfd, 1, wait_ms);
-    if (ret < 0 && errno != EINTR) {
-      RTC_LOG(LS_ERROR) << "V4L2: poll while acquiring OUTPUT failed: "
-                        << strerror(errno);
-      return -1;
-    }
-    waited_ms += wait_ms;
   }
 }
 
 EncodeResult V4l2H264EncoderWrapper::WaitForEncodedFrame(int timeout_ms) {
-  const int poll_step_ms = 20;
-  int waited_ms = 0;
+  std::unique_lock<std::mutex> lock(mutex_);
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
 
   for (;;) {
-    DrainReadyOutputBuffers();
-    DrainReadyCaptureBuffers();
-
     if (!ready_frames_.empty()) {
       EncodedFrame frame = std::move(ready_frames_.front());
       ready_frames_.pop_front();
       return EncodeOk(std::move(frame));
     }
-
-    if (waited_ms >= timeout_ms)
-      return EncodeNoOutput();
-
-    pollfd pfd = {fd_, POLLIN | POLLOUT, 0};
-    const int wait_ms = std::min(poll_step_ms, timeout_ms - waited_ms);
-    int ret = poll(&pfd, 1, wait_ms);
-    if (ret < 0 && errno != EINTR) {
-      RTC_LOG(LS_ERROR) << "V4L2: poll waiting for encoded data failed: "
-                        << strerror(errno);
+    if (abort_poll_.load(std::memory_order_acquire))
       return EncodeError();
+    if (timeout_ms <= 0)
+      return EncodeNoOutput();
+    if (encoded_frame_cv_.wait_until(lock, deadline) ==
+        std::cv_status::timeout) {
+      if (!ready_frames_.empty()) {
+        EncodedFrame frame = std::move(ready_frames_.front());
+        ready_frames_.pop_front();
+        return EncodeOk(std::move(frame));
+      }
+      return EncodeNoOutput();
     }
-    waited_ms += wait_ms;
   }
 }
 
@@ -1125,32 +1221,23 @@ bool V4l2H264EncoderWrapper::WaitForOutputBuffer(int index, int timeout_ms) {
   if (index < 0 || index >= kNumOutputBuffers)
     return false;
 
-  const int poll_step_ms = 20;
-  int waited_ms = 0;
+  std::unique_lock<std::mutex> lock(mutex_);
+  const auto deadline =
+      std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
 
-  for (;;) {
-    DrainReadyOutputBuffers();
-    DrainReadyCaptureBuffers();
-
-    if (!output_buffer_queued_[index])
-      return true;
-
-    if (waited_ms >= timeout_ms) {
+  while (output_buffer_queued_[index]) {
+    if (abort_poll_.load(std::memory_order_acquire))
+      return false;
+    if (output_buffer_cv_.wait_until(lock, deadline) ==
+        std::cv_status::timeout) {
+      if (!output_buffer_queued_[index])
+        return true;
       RTC_LOG(LS_ERROR) << "V4L2: timeout waiting for OUTPUT buffer "
                         << index << " to be consumed";
       return false;
     }
-
-    pollfd pfd = {fd_, POLLIN | POLLOUT, 0};
-    const int wait_ms = std::min(poll_step_ms, timeout_ms - waited_ms);
-    int ret = poll(&pfd, 1, wait_ms);
-    if (ret < 0 && errno != EINTR) {
-      RTC_LOG(LS_ERROR) << "V4L2: poll waiting for OUTPUT dequeue failed: "
-                        << strerror(errno);
-      return false;
-    }
-    waited_ms += wait_ms;
   }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1288,7 +1375,18 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
                                        retained_input_buffer,
                                    int encoded_timeout_ms,
                                    bool wait_for_output_buffer) {
-  force_idr = force_idr || force_next_keyframe_;
+  // Take the lock to consume force_next_keyframe_ atomically and to grab
+  // a unique v4l2 timestamp for matching in DrainReadyCaptureBuffers.
+  uint64_t v4l2_timestamp_us;
+  bool requires_parameter_sets;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    force_idr = force_idr || force_next_keyframe_;
+    requires_parameter_sets =
+        force_idr && require_next_keyframe_parameter_sets_;
+    v4l2_timestamp_us = next_v4l2_timestamp_us_++;
+  }
+
   if (force_idr) {
     v4l2_control ctrl = {};
     ctrl.id = V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME;
@@ -1297,17 +1395,17 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
       RTC_LOG(LS_WARNING) << "V4L2: Failed to force IDR: " << strerror(errno);
   }
 
-  // Queue the OUTPUT buffer for encoding.
+  // Build the OUTPUT QBUF descriptor.
   v4l2_buffer buf = {};
   v4l2_plane planes[VIDEO_MAX_PLANES] = {};
   buf.type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
   buf.memory = V4l2MemoryFor(mode_);
   buf.index = buf_index;
+  buf.field = V4L2_FIELD_NONE;
   buf.length = 1;
   buf.m.planes = planes;
   buf.m.planes[0].bytesused = static_cast<uint32_t>(
       mode_ == OutputBufferMode::Dmabuf ? length : frame_size_);
-  const uint64_t v4l2_timestamp_us = next_v4l2_timestamp_us_++;
   buf.timestamp = TimevalFromUsec(v4l2_timestamp_us);
 
   switch (mode_) {
@@ -1325,34 +1423,53 @@ V4l2H264EncoderWrapper::RunEncode(int buf_index,
       break;
   }
 
+  // Mark the slot as queued and record the pending frame BEFORE QBUF so
+  // the poll thread cannot dequeue and reuse the index between QBUF and
+  // our state update. If QBUF fails we roll the bookkeeping back.
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    output_buffer_queued_[buf_index] = true;
+    retained_input_buffers_[buf_index] = std::move(retained_input_buffer);
+    pending_frames_.push_back(PendingFrame{
+        v4l2_timestamp_us, rtp_timestamp, force_idr, requires_parameter_sets});
+    if (force_idr) {
+      force_next_keyframe_ = false;
+      require_next_keyframe_parameter_sets_ = false;
+    }
+  }
+
   if (Xioctl(fd_, VIDIOC_QBUF, &buf) < 0) {
     RTC_LOG(LS_ERROR) << "V4L2: QBUF output failed (mode " << ModeName(mode_)
                       << "): " << strerror(errno);
+    {
+      std::lock_guard<std::mutex> lock(mutex_);
+      output_buffer_queued_[buf_index] = false;
+      retained_input_buffers_[buf_index] = nullptr;
+      for (auto it = pending_frames_.begin(); it != pending_frames_.end(); ++it) {
+        if (it->v4l2_timestamp_us == v4l2_timestamp_us) {
+          pending_frames_.erase(it);
+          break;
+        }
+      }
+    }
+    output_buffer_cv_.notify_all();
     return EncodeError();
-  }
-  output_buffer_queued_[buf_index] = true;
-  retained_input_buffers_[buf_index] = std::move(retained_input_buffer);
-  const bool requires_parameter_sets =
-      force_idr && require_next_keyframe_parameter_sets_;
-  pending_frames_.push_back(PendingFrame{
-      v4l2_timestamp_us, rtp_timestamp, force_idr, requires_parameter_sets});
-  if (force_idr) {
-    force_next_keyframe_ = false;
-    require_next_keyframe_parameter_sets_ = false;
   }
 
   EncodeResult result = WaitForEncodedFrame(encoded_timeout_ms);
-  if (wait_for_output_buffer && output_buffer_queued_[buf_index]) {
+  if (wait_for_output_buffer) {
     if (!WaitForOutputBuffer(buf_index, /*timeout_ms=*/1000)) {
       RTC_LOG(LS_ERROR) << "V4L2: " << ModeName(mode_)
                         << " input buffer still queued after timeout";
       return EncodeError();
     }
-    if (result.status == EncodeResult::Status::NoOutput &&
-        !ready_frames_.empty()) {
-      EncodedFrame frame = std::move(ready_frames_.front());
-      ready_frames_.pop_front();
-      return EncodeOk(std::move(frame));
+    if (result.status == EncodeResult::Status::NoOutput) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      if (!ready_frames_.empty()) {
+        EncodedFrame frame = std::move(ready_frames_.front());
+        ready_frames_.pop_front();
+        return EncodeOk(std::move(frame));
+      }
     }
   }
   return result;
@@ -1397,13 +1514,23 @@ void V4l2H264EncoderWrapper::Destroy() {
     return;
   }
 
-  // 1. Stop both streaming queues.
+  // 1. Stop the poll thread first so we own the V4L2 fd exclusively
+  //    when issuing STREAMOFF / REQBUFS(0). Joining within ~200 ms
+  //    (the poll() timeout in PollThreadLoop) is acceptable for
+  //    Release()/Destroy() paths.
+  abort_poll_.store(true, std::memory_order_release);
+  output_buffer_cv_.notify_all();
+  encoded_frame_cv_.notify_all();
+  if (poll_thread_.joinable())
+    poll_thread_.join();
+
+  // 2. Stop both streaming queues.
   v4l2_buf_type type = V4L2_BUF_TYPE_VIDEO_OUTPUT_MPLANE;
   Xioctl(fd_, VIDIOC_STREAMOFF, &type);
   type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
   Xioctl(fd_, VIDIOC_STREAMOFF, &type);
 
-  // 2. Unmap and release OUTPUT buffers (only mapped in Mmap mode).
+  // 3. Unmap and release OUTPUT buffers (only mapped in Mmap mode).
   if (mode_ == OutputBufferMode::Mmap) {
     for (int i = 0; i < num_output_buffers_; i++) {
       if (output_buffers_[i].start && output_buffers_[i].start != MAP_FAILED) {
@@ -1418,7 +1545,7 @@ void V4l2H264EncoderWrapper::Destroy() {
   reqbufs.memory = V4l2MemoryFor(mode_);
   Xioctl(fd_, VIDIOC_REQBUFS, &reqbufs);
 
-  // 3. Unmap and release CAPTURE buffers.
+  // 4. Unmap and release CAPTURE buffers.
   for (int i = 0; i < num_capture_buffers_; i++) {
     if (capture_buffers_[i].start && capture_buffers_[i].start != MAP_FAILED) {
       munmap(capture_buffers_[i].start, capture_buffers_[i].length);
@@ -1431,7 +1558,7 @@ void V4l2H264EncoderWrapper::Destroy() {
   reqbufs.memory = V4L2_MEMORY_MMAP;
   Xioctl(fd_, VIDIOC_REQBUFS, &reqbufs);
 
-  // 4. Close the device.
+  // 5. Close the device.
   close(fd_);
   fd_ = -1;
   num_output_buffers_ = 0;

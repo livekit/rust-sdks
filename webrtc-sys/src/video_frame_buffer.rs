@@ -154,6 +154,11 @@ pub mod ffi {
         /// `VideoFrameBuffer`. On non-Linux platforms this returns null.
         /// The fd is `dup()`'d internally; the caller retains ownership of
         /// the original.
+        ///
+        /// `colorspace_v4l2` is a V4L2 `v4l2_colorspace` value (e.g.
+        /// `V4L2_COLORSPACE_REC709 == 3`,
+        /// `V4L2_COLORSPACE_SMPTE170M == 1`); pass `0` to leave the value
+        /// unspecified and let the encoder fall back to its default.
         fn new_native_buffer_from_dmabuf(
             dmabuf_fd: i32,
             fourcc: u32,
@@ -162,6 +167,7 @@ pub mod ffi {
             total_size: u64,
             plane_offsets: &[u64],
             plane_strides: &[i32],
+            colorspace_v4l2: u32,
         ) -> UniquePtr<VideoFrameBuffer>;
 
         unsafe fn yuv_to_vfb(yuv: *const PlanarYuvBuffer) -> *const VideoFrameBuffer;
@@ -203,7 +209,8 @@ mod tests {
     /// `-1` is rejected by `DmabufVideoFrameBuffer::Wrap`.
     #[test]
     fn dmabuf_buffer_rejects_invalid_fd() {
-        let buf = ffi::new_native_buffer_from_dmabuf(-1, 0x32315559, 16, 16, 384, &[0], &[16]);
+        let buf =
+            ffi::new_native_buffer_from_dmabuf(-1, 0x32315559, 16, 16, 384, &[0], &[16], 0);
         assert!(buf.is_null(), "expected null buffer for invalid fd");
     }
 
@@ -275,6 +282,7 @@ mod tests {
             total as u64,
             &plane_offsets,
             &plane_strides,
+            0,
         );
         // The wrap dup's the fd, so we can drop our copy now.
         drop(owned);
@@ -359,6 +367,7 @@ mod tests {
             total as u64,
             &plane_offsets,
             &plane_strides,
+            0,
         );
         drop(owned);
         assert!(!buf.is_null(), "DMABUF wrap should succeed for padded YUV420");
@@ -462,6 +471,7 @@ mod tests {
             total as u64,
             &plane_offsets,
             &plane_strides,
+            0,
         );
         drop(owned);
         assert!(!buf.is_null(), "DMABUF wrap should accept single-plane YUV420");
@@ -563,6 +573,7 @@ mod tests {
             total as u64,
             &plane_offsets,
             &plane_strides,
+            0,
         );
         drop(owned);
         assert!(!buf.is_null(), "DMABUF wrap should succeed for padded NV12");

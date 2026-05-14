@@ -17,10 +17,14 @@
 #ifndef V4L2_H264_ENCODER_WRAPPER_H_
 #define V4L2_H264_ENCODER_WRAPPER_H_
 
+#include <atomic>
+#include <condition_variable>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <mutex>
 #include <string>
+#include <thread>
 
 #include "api/scoped_refptr.h"
 #include "api/video/encoded_image.h"
@@ -89,6 +93,12 @@ class V4l2H264EncoderWrapper {
   // |mode| selects the OUTPUT-queue memory model; see `OutputBufferMode`.
   // |input_fourcc| is the V4L2 pixelformat of the input (e.g.
   // V4L2_PIX_FMT_YUV420 or V4L2_PIX_FMT_NV12). Defaults to YUV420.
+  //
+  // |input_colorspace_v4l2| is the V4L2 `v4l2_colorspace` value of the
+  // OUTPUT-queue (input) frames (e.g. `V4L2_COLORSPACE_REC709 == 3`,
+  // `V4L2_COLORSPACE_SMPTE170M == 1`). Pass 0 (`V4L2_COLORSPACE_DEFAULT`)
+  // to let the wrapper pick `SMPTE170M` for SD and `REC709` for HD --
+  // matching what `rpicam-apps` does when the producer doesn't specify.
   bool Initialize(int width,
                   int height,
                   int bitrate,
@@ -97,6 +107,7 @@ class V4l2H264EncoderWrapper {
                   OutputBufferMode mode = OutputBufferMode::Mmap,
                   uint32_t input_fourcc = 0x32315559,  // V4L2_PIX_FMT_YUV420 = "YU12"
                   int input_stride = 0,
+                  uint32_t input_colorspace_v4l2 = 0,
                   const std::string& device_path = "");
 
   // Encode a single planar YUV frame.
@@ -152,9 +163,14 @@ class V4l2H264EncoderWrapper {
   static int Xioctl(int fd, unsigned long ctl, void* arg);
 
  private:
-  // Number of MMAP buffers to request for each queue.
-  static constexpr int kNumOutputBuffers = 4;
-  static constexpr int kNumCaptureBuffers = 4;
+  // Number of buffers to request for each queue. Sized to match
+  // rpicam-apps: 6 OUTPUT buffers so we always have at least as many as
+  // the libcamera capture queue (we want to be able to immediately
+  // import a new DMABUF the moment libcamera produces one), and 12
+  // CAPTURE buffers so the encoder has ample room to keep producing
+  // bitstream while user-space is draining it.
+  static constexpr int kNumOutputBuffers = 6;
+  static constexpr int kNumCaptureBuffers = 12;
   // A working M2M pipeline needs at least 2 buffers per queue so the
   // encoder can have one queued while user-space holds another.
   static constexpr int kMinBuffersPerQueue = 2;
@@ -163,9 +179,19 @@ class V4l2H264EncoderWrapper {
   // The bcm2835 encoder needs several frames before it produces valid output.
   void PrimeEncoderPipeline();
 
-  int AcquireOutputBuffer(int timeout_ms);
+  // Poll-thread loop. Blocks on poll(fd, POLLIN, ...) and drains both
+  // OUTPUT and CAPTURE queues whenever the encoder signals readiness.
+  // Spawned in Initialize() after STREAMON and joined in Destroy().
+  void PollThreadLoop();
+
+  // Owns DQBUF / queue-state mutation. Called only from PollThreadLoop()
+  // after poll() reports POLLIN. They acquire `mutex_` internally and
+  // notify the appropriate condvar after updating shared state, so the
+  // WebRTC encoder thread can wake without hammering the V4L2 fd.
   void DrainReadyOutputBuffers();
   void DrainReadyCaptureBuffers();
+
+  int AcquireOutputBuffer(int timeout_ms);
   bool QueueCaptureBuffer(int index);
   EncodeResult WaitForEncodedFrame(int timeout_ms);
   bool WaitForOutputBuffer(int index, int timeout_ms);
@@ -242,6 +268,21 @@ class V4l2H264EncoderWrapper {
   uint64_t next_v4l2_timestamp_us_ = 1;
   bool force_next_keyframe_ = false;
   bool require_next_keyframe_parameter_sets_ = true;
+
+  // --- Poll-thread synchronisation ---
+  //
+  // The poll thread owns DQBUF on both queues and updates
+  // `output_buffer_queued_`, `retained_input_buffers_`, `pending_frames_`,
+  // `ready_frames_`, `force_next_keyframe_`, and
+  // `require_next_keyframe_parameter_sets_` under `mutex_`. The encoder
+  // thread (calls into Encode/EncodeDmabuf) updates the same fields while
+  // QBUF-ing under the same mutex, then waits on the appropriate condvar
+  // for state changes instead of polling the V4L2 fd directly.
+  std::mutex mutex_;
+  std::condition_variable output_buffer_cv_;
+  std::condition_variable encoded_frame_cv_;
+  std::thread poll_thread_;
+  std::atomic<bool> abort_poll_{false};
 };
 
 }  // namespace livekit_ffi

@@ -182,6 +182,7 @@ impl NativeBuffer {
             desc.total_size,
             &plane_offsets,
             &plane_strides,
+            desc.colorspace_v4l2,
         );
         if sys_handle.is_null() {
             return None;

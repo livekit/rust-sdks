@@ -52,13 +52,25 @@ const PIXEL_FORMAT_YUV420: PixelFormat =
 const PIXEL_FORMAT_NV12: PixelFormat =
     PixelFormat::new(u32::from_le_bytes([b'N', b'V', b'1', b'2']), 0);
 
+/// V4L2 `v4l2_colorspace` numeric values, mirrored here so we don't
+/// need to pull in `<linux/videodev2.h>`. Used to forward the libcamera
+/// negotiated colorspace through `DmabufFrameDesc` to the V4L2 H.264
+/// encoder so it tags the encoded bitstream's VUI parameters correctly.
+const V4L2_COLORSPACE_SMPTE170M: u32 = 1;
+const V4L2_COLORSPACE_REC709: u32 = 3;
+
 /// Number of libcamera buffers to allocate. Must be larger than
-/// `MAX_INFLIGHT` so libcamera always has at least 2 free buffers to
-/// feed the ISP.
+/// `MAX_INFLIGHT` so libcamera always has at least 4 free buffers to
+/// feed the ISP. With NUM_BUFFERS=6 / MAX_INFLIGHT=2 we keep 4 of 6
+/// buffers continuously available to libcamera, matching how
+/// rpicam-apps balances its own NUM_OUTPUT_BUFFERS against the encoder
+/// queue depth.
 const NUM_BUFFERS: u32 = 6;
 /// Maximum number of completed requests parked while waiting for the
-/// encoder to drain. Provides ~4 frames of slack at 30fps.
-const MAX_INFLIGHT: usize = 4;
+/// encoder to drain. The V4L2 encoder also retains the
+/// `VideoFrameBuffer` for each of its OUTPUT slots, so allowing more
+/// than 2 here would fight the encoder for libcamera's pool.
+const MAX_INFLIGHT: usize = 2;
 
 /// A single captured frame, delivered from worker to consumer.
 struct CaptureMessage {
@@ -125,15 +137,6 @@ impl SensorTimestampMapper {
 
         let delta_us = sensor_ns.saturating_sub(anchor_sensor_ns) / 1000;
         self.anchor_wall_us.saturating_add(delta_us)
-    }
-}
-
-fn apply_frame_duration_control(req: &mut libcamera::request::Request, fps: u32) {
-    let frame_duration_us = frame_duration_us_for_fps(fps);
-    if let Err(e) =
-        req.controls_mut().set(FrameDurationLimits([frame_duration_us, frame_duration_us]))
-    {
-        warn!("LibCameraCapture: failed to set request frame duration: {e}");
     }
 }
 
@@ -291,6 +294,14 @@ fn run_worker(
         };
         stream_cfg.set_color_space(Some(color_space));
     }
+    // Mirror the libcamera ColorSpace to the V4L2 colorspace value so
+    // the V4L2 H.264 encoder can tag the bitstream identically. Must
+    // stay in sync with the branch above.
+    let colorspace_v4l2 = if cfg.width >= 1280 || cfg.height >= 720 {
+        V4L2_COLORSPACE_REC709
+    } else {
+        V4L2_COLORSPACE_SMPTE170M
+    };
 
     match cfgs.validate() {
         CameraConfigurationStatus::Valid => {}
@@ -380,7 +391,9 @@ fn run_worker(
                 .send(Err(CaptureError::DeviceUnavailable(format!("Request::add_buffer: {e}"))));
             return;
         }
-        apply_frame_duration_control(&mut req, cfg.fps);
+        // FrameDurationLimits is applied once via `start_controls` below;
+        // re-applying it on every request only added overhead per
+        // queue_request and was not what rpicam-apps does.
         requests.push(Some(req));
     }
 
@@ -438,7 +451,6 @@ fn run_worker(
             };
             if let Some(mut req) = slot.take() {
                 req.reuse(ReuseFlag::REUSE_BUFFERS);
-                apply_frame_duration_control(&mut req, cfg.fps);
                 if let Err((req, e)) = active_cam.queue_request(req) {
                     warn!("LibCameraCapture: re-queue failed: {e}");
                     *slot = Some(req);
@@ -457,13 +469,19 @@ fn run_worker(
         let cookie = req.cookie();
         let idx = cookie as usize;
 
-        let Some(descriptor) =
-            build_descriptor(&req, &stream, fourcc, neg_w, neg_h, neg_stride, neg_frame_size)
-        else {
+        let Some(descriptor) = build_descriptor(
+            &req,
+            &stream,
+            fourcc,
+            neg_w,
+            neg_h,
+            neg_stride,
+            neg_frame_size,
+            colorspace_v4l2,
+        ) else {
             // Couldn't build descriptor; immediately re-queue.
             let mut req = req;
             req.reuse(ReuseFlag::REUSE_BUFFERS);
-            apply_frame_duration_control(&mut req, cfg.fps);
             if let Err((req, e)) = active_cam.queue_request(req) {
                 warn!("LibCameraCapture: re-queue (drop) failed: {e}");
                 if idx < requests.len() {
@@ -513,6 +531,7 @@ fn build_descriptor(
     height: u32,
     stride: u32,
     frame_size: u32,
+    colorspace_v4l2: u32,
 ) -> Option<DescriptorResult> {
     let request_status = req.status();
     if request_status != RequestStatus::Complete {
@@ -602,8 +621,15 @@ fn build_descriptor(
         total_size = total_size.max(primary_offset + u64::from(frame_size));
     }
 
-    let desc =
-        DmabufFrameDesc { fd: primary_fd, fourcc, width, height, total_size, planes: plane_descs };
+    let desc = DmabufFrameDesc {
+        fd: primary_fd,
+        fourcc,
+        width,
+        height,
+        total_size,
+        planes: plane_descs,
+        colorspace_v4l2,
+    };
     Some(DescriptorResult { desc, sensor_ts_ns })
 }
 

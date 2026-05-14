@@ -370,7 +370,8 @@ std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_dmabuf(
     int32_t height,
     uint64_t total_size,
     rust::Slice<const uint64_t> plane_offsets,
-    rust::Slice<const int32_t> plane_strides) {
+    rust::Slice<const int32_t> plane_strides,
+    uint32_t colorspace_v4l2) {
 #if defined(__linux__)
   if (plane_offsets.size() == 0 ||
       plane_offsets.size() != plane_strides.size() ||
@@ -384,7 +385,8 @@ std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_dmabuf(
   }
   auto buf = DmabufVideoFrameBuffer::Wrap(dmabuf_fd, fourcc, width, height,
                                            static_cast<size_t>(total_size),
-                                           planes, plane_offsets.size());
+                                           planes, plane_offsets.size(),
+                                           colorspace_v4l2);
   if (!buf) {
     return nullptr;
   }
@@ -397,6 +399,7 @@ std::unique_ptr<VideoFrameBuffer> new_native_buffer_from_dmabuf(
   (void)total_size;
   (void)plane_offsets;
   (void)plane_strides;
+  (void)colorspace_v4l2;
   return nullptr;
 #endif
 }

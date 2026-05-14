@@ -110,13 +110,15 @@ DmabufVideoFrameBuffer::DmabufVideoFrameBuffer(int dmabuf_fd,
                                                 int height,
                                                 size_t total_size,
                                                 const Plane* planes,
-                                                size_t num_planes)
+                                                size_t num_planes,
+                                                uint32_t colorspace_v4l2)
     : dmabuf_fd_(dmabuf_fd),
       fourcc_(fourcc),
       width_(width),
       height_(height),
       total_size_(total_size),
-      num_planes_(num_planes) {
+      num_planes_(num_planes),
+      colorspace_v4l2_(colorspace_v4l2) {
   for (size_t i = 0; i < num_planes; ++i) {
     planes_[i] = planes[i];
   }
@@ -136,7 +138,8 @@ webrtc::scoped_refptr<DmabufVideoFrameBuffer> DmabufVideoFrameBuffer::Wrap(
     int height,
     size_t total_size,
     const Plane* planes,
-    size_t num_planes) {
+    size_t num_planes,
+    uint32_t colorspace_v4l2) {
   if (dmabuf_fd < 0 || width <= 0 || height <= 0 || num_planes == 0 ||
       num_planes > kMaxPlanes || total_size == 0) {
     return nullptr;
@@ -170,7 +173,8 @@ webrtc::scoped_refptr<DmabufVideoFrameBuffer> DmabufVideoFrameBuffer::Wrap(
   }
 
   return webrtc::make_ref_counted<DmabufVideoFrameBuffer>(
-      dup_fd, fourcc, width, height, total_size, planes, num_planes);
+      dup_fd, fourcc, width, height, total_size, planes, num_planes,
+      colorspace_v4l2);
 }
 
 DmabufVideoFrameBuffer* DmabufVideoFrameBuffer::TryCast(

@@ -568,6 +568,17 @@ pub mod native {
         pub height: u32,
         pub total_size: u64,
         pub planes: Vec<DmabufPlane>,
+        /// V4L2 `v4l2_colorspace` value of the source frame (e.g.
+        /// `V4L2_COLORSPACE_REC709 == 3`,
+        /// `V4L2_COLORSPACE_SMPTE170M == 1`).
+        ///
+        /// Pass `0` (`V4L2_COLORSPACE_DEFAULT`) when the producer does
+        /// not have a precise value; the V4L2 H.264 encoder will then
+        /// fall back to its built-in default. Producers that know the
+        /// real colorspace -- e.g. libcamera's negotiated stream
+        /// configuration -- should fill this in so the encoder emits
+        /// correctly-tagged H.264 VUI parameters.
+        pub colorspace_v4l2: u32,
     }
 
     pub trait VideoFrameBufferExt: VideoBuffer {
