@@ -153,9 +153,9 @@ impl FfiRoom {
                         .map_err(|e| e.to_string());
                     match result {
                         Err(e) | Ok(Err(e)) => {
-                            log::debug!("error while initializing audio filter: {}", e);
+                            log::warn!("error while initializing audio filter: {}", e);
                             log::error!(
-                                "audio filter cannot be enabled: LiveKit Cloud is required"
+                                "audio filter cannot be enabled: ensure you are connecting to LiveKit Cloud and that the filter is properly configured"
                             );
                             // Skip returning an error here to keep the rtc session alive
                             // But in this case, the filter isn't enabled in the session.
