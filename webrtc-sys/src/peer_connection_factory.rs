@@ -122,67 +122,6 @@ pub mod ffi {
             self: &PeerConnectionFactory,
             kind: MediaType,
         ) -> RtpCapabilities;
-
-        // Device enumeration
-        fn playout_devices(self: &PeerConnectionFactory) -> i16;
-        fn recording_devices(self: &PeerConnectionFactory) -> i16;
-        fn playout_device_name(self: &PeerConnectionFactory, index: u16) -> String;
-        fn recording_device_name(self: &PeerConnectionFactory, index: u16) -> String;
-        // Get device GUID (platform-specific unique identifier, stable across hot-plug)
-        fn playout_device_guid(self: &PeerConnectionFactory, index: u16) -> String;
-        fn recording_device_guid(self: &PeerConnectionFactory, index: u16) -> String;
-
-        // Device selection by index
-        fn set_playout_device(self: &PeerConnectionFactory, index: u16) -> bool;
-        fn set_recording_device(self: &PeerConnectionFactory, index: u16) -> bool;
-        // Device selection by GUID (preferred - stable across device changes)
-        fn set_playout_device_by_guid(self: &PeerConnectionFactory, guid: String) -> bool;
-        fn set_recording_device_by_guid(self: &PeerConnectionFactory, guid: String) -> bool;
-
-        // Recording control (for device switching while active)
-        fn stop_recording(self: &PeerConnectionFactory) -> bool;
-        fn init_recording(self: &PeerConnectionFactory) -> bool;
-        fn start_recording(self: &PeerConnectionFactory) -> bool;
-        fn recording_is_initialized(self: &PeerConnectionFactory) -> bool;
-
-        // Playout control (for device switching while active)
-        fn stop_playout(self: &PeerConnectionFactory) -> bool;
-        fn init_playout(self: &PeerConnectionFactory) -> bool;
-        fn start_playout(self: &PeerConnectionFactory) -> bool;
-        fn playout_is_initialized(self: &PeerConnectionFactory) -> bool;
-
-        // Built-in audio processing (hardware AEC/AGC/NS)
-        // These are only available on iOS and some Android devices
-        fn builtin_aec_is_available(self: &PeerConnectionFactory) -> bool;
-        fn builtin_agc_is_available(self: &PeerConnectionFactory) -> bool;
-        fn builtin_ns_is_available(self: &PeerConnectionFactory) -> bool;
-        fn enable_builtin_aec(self: &PeerConnectionFactory, enable: bool) -> bool;
-        fn enable_builtin_agc(self: &PeerConnectionFactory, enable: bool) -> bool;
-        fn enable_builtin_ns(self: &PeerConnectionFactory, enable: bool) -> bool;
-
-        // Control whether ADM recording (microphone) is enabled.
-        // When disabled, InitRecording/StartRecording will be no-ops.
-        // Use this when only using NativeAudioSource (no microphone needed).
-        fn set_adm_recording_enabled(self: &PeerConnectionFactory, enabled: bool);
-        fn adm_recording_enabled(self: &PeerConnectionFactory) -> bool;
-
-        // Control whether ADM playout (speakers) is enabled.
-        // When disabled (default), playout uses synthetic mode - remote audio is
-        // delivered via FFI callbacks to the application (e.g., Unity AudioSource).
-        // When enabled, remote audio plays through the platform speakers with AEC.
-        fn set_adm_playout_enabled(self: &PeerConnectionFactory, enabled: bool);
-        fn adm_playout_enabled(self: &PeerConnectionFactory) -> bool;
-
-        // Platform ADM lifecycle management.
-        // Call acquire_platform_adm when creating PlatformAudio.
-        // Call release_platform_adm when disposing PlatformAudio.
-        // The Platform ADM is only created when first acquired, and terminated
-        // when the last reference is released. This allows synthetic mode to work
-        // without Platform ADM interference.
-        fn acquire_platform_adm(self: &PeerConnectionFactory) -> bool;
-        fn release_platform_adm(self: &PeerConnectionFactory);
-        fn platform_adm_ref_count(self: &PeerConnectionFactory) -> i32;
-        fn is_platform_adm_active(self: &PeerConnectionFactory) -> bool;
     }
 
     extern "Rust" {

@@ -20,7 +20,7 @@
 
 #include "api/environment/environment.h"
 #include "api/scoped_refptr.h"
-#include "livekit/audio_device.h"
+#include "livekit/synthetic_audio_device.h"
 #include "modules/audio_device/include/audio_device.h"
 #include "modules/audio_device/include/audio_device_defines.h"
 #include "rtc_base/synchronization/mutex.h"
@@ -34,8 +34,8 @@ namespace livekit_ffi {
 /// ADM Proxy that manages synthetic and platform audio modes.
 ///
 /// This proxy implements the AudioDeviceModule interface and switches between:
-/// 1. **Synthetic mode**: Uses AudioDevice class which pumps the WebRTC audio
-///    pipeline without platform audio. Remote audio is delivered via FFI
+/// 1. **Synthetic mode**: Uses `SyntheticAudioDevice`, which pumps the WebRTC
+///    audio pipeline without platform audio. Remote audio is delivered via FFI
 ///    callbacks to external audio systems (e.g., Unity AudioSource).
 /// 2. **Platform mode**: Real audio I/O through the Platform ADM with microphone
 ///    capture and speaker playout. Used when PlatformAudio is active for VoIP
@@ -233,9 +233,9 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // Mutex for thread-safe access to mutable state
   mutable webrtc::Mutex mutex_;
 
-  // Synthetic ADM for synthetic mode - pumps audio pipeline without platform audio
-  // Uses the AudioDevice class which has its own audio pumping task.
-  webrtc::scoped_refptr<AudioDevice> synthetic_adm_;
+  // Synthetic ADM for synthetic mode - pumps the WebRTC audio pipeline without
+  // platform audio via SyntheticAudioDevice's internal task.
+  webrtc::scoped_refptr<SyntheticAudioDevice> synthetic_adm_;
 
   // Platform ADM for real audio I/O (microphone capture, speaker playout with AEC)
   webrtc::scoped_refptr<webrtc::AudioDeviceModule> platform_adm_;

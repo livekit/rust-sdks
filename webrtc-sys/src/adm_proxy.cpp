@@ -29,12 +29,12 @@ AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread
       worker_thread_(worker_thread) {
   RTC_LOG(LS_INFO) << "AdmProxy::AdmProxy() - Initializing";
 
-  // Create synthetic ADM for synthetic mode.
-  // This pumps the WebRTC audio pipeline without platform audio,
-  // allowing FFI callbacks to receive decoded remote audio.
-  synthetic_adm_ = webrtc::make_ref_counted<AudioDevice>(env_);
+  // Create the synthetic ADM for synthetic mode. SyntheticAudioDevice pumps
+  // the WebRTC audio pipeline without platform audio, allowing FFI callbacks
+  // to receive decoded remote audio.
+  synthetic_adm_ = webrtc::make_ref_counted<SyntheticAudioDevice>(env_);
   if (synthetic_adm_->Init() != 0) {
-    RTC_LOG(LS_ERROR) << "AdmProxy: Failed to initialize Synthetic ADM";
+    RTC_LOG(LS_ERROR) << "AdmProxy: Failed to initialize synthetic ADM";
   } else {
     RTC_LOG(LS_INFO) << "AdmProxy: Synthetic ADM initialized";
   }
@@ -210,7 +210,7 @@ void AdmProxy::SwitchPlayoutModeIfNeeded() {
       platform_adm_->StartPlayout();
     }
   } else {
-    // Switch to synthetic mode - stop platform ADM, start synthetic ADM
+    // Switch to synthetic mode: stop platform ADM, start synthetic ADM.
     RTC_LOG(LS_INFO) << "AdmProxy: Switching playout to synthetic mode";
 
     if (platform_adm_) {

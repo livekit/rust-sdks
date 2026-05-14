@@ -17,7 +17,10 @@ use std::sync::Arc;
 use cxx::{SharedPtr, UniquePtr};
 use lazy_static::lazy_static;
 use parking_lot::Mutex;
-use webrtc_sys::{peer_connection_factory as sys_pcf, rtc_error as sys_err, webrtc as sys_rtc};
+use webrtc_sys::{
+    audio_device_controller as sys_adc, peer_connection_factory as sys_pcf, rtc_error as sys_err,
+    webrtc as sys_rtc,
+};
 
 use crate::{
     audio_source::native::NativeAudioSource,
@@ -38,6 +41,7 @@ lazy_static! {
 #[derive(Clone)]
 pub struct PeerConnectionFactory {
     pub(crate) sys_handle: SharedPtr<sys_pcf::ffi::PeerConnectionFactory>,
+    pub(crate) sys_audio_device_handle: SharedPtr<sys_adc::ffi::AudioDeviceController>,
 }
 
 impl Default for PeerConnectionFactory {
@@ -50,7 +54,10 @@ impl Default for PeerConnectionFactory {
             }));
         }
 
-        Self { sys_handle: sys_pcf::ffi::create_peer_connection_factory() }
+        let sys_handle = sys_pcf::ffi::create_peer_connection_factory();
+        let sys_audio_device_handle = sys_handle.audio_device();
+
+        Self { sys_handle, sys_audio_device_handle }
     }
 }
 
@@ -115,96 +122,96 @@ impl PeerConnectionFactory {
 
     /// Get the number of playout (output) devices
     pub fn playout_devices(&self) -> i16 {
-        self.sys_handle.playout_devices()
+        self.sys_audio_device_handle.playout_devices()
     }
 
     /// Get the number of recording (input) devices
     pub fn recording_devices(&self) -> i16 {
-        self.sys_handle.recording_devices()
+        self.sys_audio_device_handle.recording_devices()
     }
 
     /// Get the name of a playout device by index
     pub fn playout_device_name(&self, index: u16) -> String {
-        self.sys_handle.playout_device_name(index)
+        self.sys_audio_device_handle.playout_device_name(index)
     }
 
     /// Get the name of a recording device by index
     pub fn recording_device_name(&self, index: u16) -> String {
-        self.sys_handle.recording_device_name(index)
+        self.sys_audio_device_handle.recording_device_name(index)
     }
 
     /// Get the GUID of a playout device by index
     /// The GUID is a platform-specific unique identifier that is stable across device hot-plug events.
     pub fn playout_device_guid(&self, index: u16) -> String {
-        self.sys_handle.playout_device_guid(index)
+        self.sys_audio_device_handle.playout_device_guid(index)
     }
 
     /// Get the GUID of a recording device by index
     /// The GUID is a platform-specific unique identifier that is stable across device hot-plug events.
     pub fn recording_device_guid(&self, index: u16) -> String {
-        self.sys_handle.recording_device_guid(index)
+        self.sys_audio_device_handle.recording_device_guid(index)
     }
 
     /// Set the playout device by index
     pub fn set_playout_device(&self, index: u16) -> bool {
-        self.sys_handle.set_playout_device(index)
+        self.sys_audio_device_handle.set_playout_device(index)
     }
 
     /// Set the recording device by index
     pub fn set_recording_device(&self, index: u16) -> bool {
-        self.sys_handle.set_recording_device(index)
+        self.sys_audio_device_handle.set_recording_device(index)
     }
 
     /// Set the playout device by GUID
     /// This is preferred over index as GUIDs are stable across device hot-plug events.
     pub fn set_playout_device_by_guid(&self, guid: &str) -> bool {
-        self.sys_handle.set_playout_device_by_guid(guid.to_string())
+        self.sys_audio_device_handle.set_playout_device_by_guid(guid.to_string())
     }
 
     /// Set the recording device by GUID
     /// This is preferred over index as GUIDs are stable across device hot-plug events.
     pub fn set_recording_device_by_guid(&self, guid: &str) -> bool {
-        self.sys_handle.set_recording_device_by_guid(guid.to_string())
+        self.sys_audio_device_handle.set_recording_device_by_guid(guid.to_string())
     }
 
     /// Stop recording (clears initialized state, allowing device switch)
     pub fn stop_recording(&self) -> bool {
-        self.sys_handle.stop_recording()
+        self.sys_audio_device_handle.stop_recording()
     }
 
     /// Initialize recording
     pub fn init_recording(&self) -> bool {
-        self.sys_handle.init_recording()
+        self.sys_audio_device_handle.init_recording()
     }
 
     /// Start recording
     pub fn start_recording(&self) -> bool {
-        self.sys_handle.start_recording()
+        self.sys_audio_device_handle.start_recording()
     }
 
     /// Check if recording is initialized
     pub fn recording_is_initialized(&self) -> bool {
-        self.sys_handle.recording_is_initialized()
+        self.sys_audio_device_handle.recording_is_initialized()
     }
 
     /// Stop playout (clears initialized state, allowing device switch)
     pub fn stop_playout(&self) -> bool {
-        self.sys_handle.stop_playout()
+        self.sys_audio_device_handle.stop_playout()
     }
 
     /// Initialize playout
     pub fn init_playout(&self) -> bool {
-        self.sys_handle.init_playout()
+        self.sys_audio_device_handle.init_playout()
     }
 
     /// Start playout
     pub fn start_playout(&self) -> bool {
-        self.sys_handle.start_playout()
+        self.sys_audio_device_handle.start_playout()
     }
 
     /// Check if playout is initialized
     pub fn playout_is_initialized(&self) -> bool {
-        self.sys_handle.playout_is_initialized()
+        self.sys_audio_device_handle.playout_is_initialized()
     }
 
     // ===== Built-in Audio Processing Methods =====
@@ -215,7 +222,7 @@ impl PeerConnectionFactory {
     /// Returns true on iOS (VPIO) and some Android devices.
     /// Returns false on desktop platforms (macOS, Windows, Linux).
     pub fn builtin_aec_is_available(&self) -> bool {
-        self.sys_handle.builtin_aec_is_available()
+        self.sys_audio_device_handle.builtin_aec_is_available()
     }
 
     /// Check if built-in (hardware) AGC is available on this device.
@@ -223,7 +230,7 @@ impl PeerConnectionFactory {
     /// Returns true on iOS (VPIO) and some Android devices.
     /// Returns false on desktop platforms (macOS, Windows, Linux).
     pub fn builtin_agc_is_available(&self) -> bool {
-        self.sys_handle.builtin_agc_is_available()
+        self.sys_audio_device_handle.builtin_agc_is_available()
     }
 
     /// Check if built-in (hardware) NS is available on this device.
@@ -231,7 +238,7 @@ impl PeerConnectionFactory {
     /// Returns true on iOS (VPIO) and some Android devices.
     /// Returns false on desktop platforms (macOS, Windows, Linux).
     pub fn builtin_ns_is_available(&self) -> bool {
-        self.sys_handle.builtin_ns_is_available()
+        self.sys_audio_device_handle.builtin_ns_is_available()
     }
 
     /// Enable or disable built-in (hardware) AEC.
@@ -239,7 +246,7 @@ impl PeerConnectionFactory {
     /// When disabled on platforms that support it, WebRTC's software AEC
     /// will be used instead.
     pub fn enable_builtin_aec(&self, enable: bool) -> bool {
-        self.sys_handle.enable_builtin_aec(enable)
+        self.sys_audio_device_handle.enable_builtin_aec(enable)
     }
 
     /// Enable or disable built-in (hardware) AGC.
@@ -247,7 +254,7 @@ impl PeerConnectionFactory {
     /// When disabled on platforms that support it, WebRTC's software AGC
     /// will be used instead.
     pub fn enable_builtin_agc(&self, enable: bool) -> bool {
-        self.sys_handle.enable_builtin_agc(enable)
+        self.sys_audio_device_handle.enable_builtin_agc(enable)
     }
 
     /// Enable or disable built-in (hardware) NS.
@@ -255,7 +262,7 @@ impl PeerConnectionFactory {
     /// When disabled on platforms that support it, WebRTC's software NS
     /// will be used instead.
     pub fn enable_builtin_ns(&self, enable: bool) -> bool {
-        self.sys_handle.enable_builtin_ns(enable)
+        self.sys_audio_device_handle.enable_builtin_ns(enable)
     }
 
     /// Control whether ADM recording (microphone) is enabled.
@@ -264,12 +271,12 @@ impl PeerConnectionFactory {
     /// Use this when only using NativeAudioSource (no microphone capture needed).
     /// This prevents the microphone from interfering with the audio pipeline.
     pub fn set_adm_recording_enabled(&self, enabled: bool) {
-        self.sys_handle.set_adm_recording_enabled(enabled)
+        self.sys_audio_device_handle.set_adm_recording_enabled(enabled)
     }
 
     /// Check if ADM recording (microphone) is enabled.
     pub fn adm_recording_enabled(&self) -> bool {
-        self.sys_handle.adm_recording_enabled()
+        self.sys_audio_device_handle.adm_recording_enabled()
     }
 
     /// Control whether ADM playout (speakers) is enabled.
@@ -278,12 +285,12 @@ impl PeerConnectionFactory {
     /// delivered via FFI callbacks to the application (e.g., Unity AudioSource).
     /// When enabled, remote audio plays through the platform speakers with AEC.
     pub fn set_adm_playout_enabled(&self, enabled: bool) {
-        self.sys_handle.set_adm_playout_enabled(enabled)
+        self.sys_audio_device_handle.set_adm_playout_enabled(enabled)
     }
 
     /// Check if ADM playout (speakers) is enabled.
     pub fn adm_playout_enabled(&self) -> bool {
-        self.sys_handle.adm_playout_enabled()
+        self.sys_audio_device_handle.adm_playout_enabled()
     }
 
     // ===== Platform ADM Lifecycle Management =====
@@ -295,7 +302,7 @@ impl PeerConnectionFactory {
     ///
     /// Returns true if Platform ADM is ready for use, false if initialization failed.
     pub fn acquire_platform_adm(&self) -> bool {
-        self.sys_handle.acquire_platform_adm()
+        self.sys_audio_device_handle.acquire_platform_adm()
     }
 
     /// Releases a reference to the Platform ADM.
@@ -303,17 +310,17 @@ impl PeerConnectionFactory {
     /// When the reference count reaches zero, the Platform ADM is terminated
     /// and the proxy returns to synthetic mode.
     pub fn release_platform_adm(&self) {
-        self.sys_handle.release_platform_adm()
+        self.sys_audio_device_handle.release_platform_adm()
     }
 
     /// Returns the current reference count for the Platform ADM.
     pub fn platform_adm_ref_count(&self) -> i32 {
-        self.sys_handle.platform_adm_ref_count()
+        self.sys_audio_device_handle.platform_adm_ref_count()
     }
 
     /// Returns true if Platform ADM is currently active (ref_count > 0).
     pub fn is_platform_adm_active(&self) -> bool {
-        self.sys_handle.is_platform_adm_active()
+        self.sys_audio_device_handle.is_platform_adm_active()
     }
 }
 
@@ -329,5 +336,20 @@ mod tests {
         let source = NativeVideoSource::default();
         let _track = factory.create_video_track("test", source);
         drop(factory);
+    }
+
+    #[test]
+    fn test_audio_device_controller_bridge() {
+        let factory = PeerConnectionFactory::default();
+        let recording_count = factory.recording_devices();
+        let playout_count = factory.playout_devices();
+
+        assert!(recording_count >= 0);
+        assert!(playout_count >= 0);
+
+        let initial_recording = factory.adm_recording_enabled();
+        factory.set_adm_recording_enabled(!initial_recording);
+        assert_eq!(factory.adm_recording_enabled(), !initial_recording);
+        factory.set_adm_recording_enabled(initial_recording);
     }
 }

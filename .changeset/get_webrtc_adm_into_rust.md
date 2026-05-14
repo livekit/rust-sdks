@@ -1,6 +1,7 @@
 ---
 libwebrtc: patch
 livekit: patch
+livekit-ffi: patch
 webrtc-sys: patch
 ---
 
@@ -13,6 +14,7 @@ This PR introduces platform audio device management via WebRTC's Audio Device Mo
 - **PlatformAudio API**: High-level Rust API for microphone capture and speaker playout with AEC/AGC/NS
 - **Device enumeration**: List and select recording/playout devices by index or GUID
 - **Mode switching**: Seamlessly switch between synthetic mode (FFI callbacks) and platform mode (native speakers) while audio is active
+- **FFI platform audio support**: Expose platform audio device enumeration and selection through `livekit-ffi`
 - **Audio processing**: Configure echo cancellation, noise suppression, and auto gain control with platform-specific defaults (hardware on iOS, software elsewhere)
 
 ### Audio Modes

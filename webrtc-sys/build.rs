@@ -31,6 +31,7 @@ fn main() {
     let mut rust_files = vec![
         "src/peer_connection.rs",
         "src/peer_connection_factory.rs",
+        "src/audio_device_controller.rs",
         "src/media_stream.rs",
         "src/media_stream_track.rs",
         "src/audio_track.rs",
@@ -66,6 +67,7 @@ fn main() {
     builder.files(&[
         "src/peer_connection.cpp",
         "src/peer_connection_factory.cpp",
+        "src/audio_device_controller.cpp",
         "src/media_stream.cpp",
         "src/media_stream_track.cpp",
         "src/audio_track.cpp",
@@ -83,7 +85,7 @@ fn main() {
         "src/video_frame_buffer.cpp",
         "src/video_encoder_factory.cpp",
         "src/video_decoder_factory.cpp",
-        "src/audio_device.cpp",
+        "src/synthetic_audio_device.cpp",
         "src/adm_proxy.cpp",
         "src/audio_resampler.cpp",
         "src/frame_cryptor.cpp",

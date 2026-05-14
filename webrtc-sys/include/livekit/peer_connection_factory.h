@@ -21,6 +21,7 @@
 #include "api/scoped_refptr.h"
 #include "api/task_queue/task_queue_factory.h"
 #include "livekit/adm_proxy.h"
+#include "livekit/audio_device_controller.h"
 #include "media_stream.h"
 #include "rtp_parameters.h"
 #include "rust/cxx.h"
@@ -28,6 +29,7 @@
 
 namespace livekit_ffi {
 class PeerConnectionFactory;
+class AudioDeviceController;
 class PeerConnectionObserverWrapper;
 }  // namespace livekit_ffi
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
@@ -67,71 +69,12 @@ class PeerConnectionFactory {
   RtpCapabilities rtp_receiver_capabilities(MediaType type) const;
 
   std::shared_ptr<RtcRuntime> rtc_runtime() const { return rtc_runtime_; }
-
-  // Device enumeration
-  int16_t playout_devices() const;
-  int16_t recording_devices() const;
-  rust::String playout_device_name(uint16_t index) const;
-  rust::String recording_device_name(uint16_t index) const;
-  // Get device GUID (platform-specific unique identifier, stable across hot-plug)
-  rust::String playout_device_guid(uint16_t index) const;
-  rust::String recording_device_guid(uint16_t index) const;
-
-  // Device selection by index
-  bool set_playout_device(uint16_t index) const;
-  bool set_recording_device(uint16_t index) const;
-  // Device selection by GUID (preferred - stable across device changes)
-  bool set_playout_device_by_guid(rust::String guid) const;
-  bool set_recording_device_by_guid(rust::String guid) const;
-
-  // Recording control (for device switching while active)
-  bool stop_recording() const;
-  bool init_recording() const;
-  bool start_recording() const;
-  bool recording_is_initialized() const;
-
-  // Playout control (for device switching while active)
-  bool stop_playout() const;
-  bool init_playout() const;
-  bool start_playout() const;
-  bool playout_is_initialized() const;
-
-  // Built-in audio processing (hardware AEC/AGC/NS)
-  // These are only available on iOS and some Android devices
-  bool builtin_aec_is_available() const;
-  bool builtin_agc_is_available() const;
-  bool builtin_ns_is_available() const;
-  bool enable_builtin_aec(bool enable) const;
-  bool enable_builtin_agc(bool enable) const;
-  bool enable_builtin_ns(bool enable) const;
-
-  // Control whether ADM recording (microphone) is enabled.
-  // When disabled, WebRTC's calls to InitRecording/StartRecording will be no-ops.
-  // Use this when only using NativeAudioSource (no microphone capture needed).
-  void set_adm_recording_enabled(bool enabled) const;
-  bool adm_recording_enabled() const;
-
-  // Control whether ADM playout (speakers) is enabled.
-  // When disabled (default), playout uses synthetic mode - remote audio is
-  // delivered via FFI callbacks to the application (e.g., Unity AudioSource).
-  // When enabled, remote audio plays through the platform speakers with AEC.
-  void set_adm_playout_enabled(bool enabled) const;
-  bool adm_playout_enabled() const;
-
-  // Platform ADM lifecycle management.
-  // Call AcquirePlatformAdm when creating PlatformAudio.
-  // Call ReleasePlatformAdm when disposing PlatformAudio.
-  // The Platform ADM is only created when first acquired, and terminated
-  // when the last reference is released. This allows synthetic mode to work
-  // without Platform ADM interference.
-  bool acquire_platform_adm() const;
-  void release_platform_adm() const;
-  int platform_adm_ref_count() const;
-  bool is_platform_adm_active() const;
+  std::shared_ptr<AudioDeviceController> audio_device() const;
 
  private:
   std::shared_ptr<RtcRuntime> rtc_runtime_;
   webrtc::scoped_refptr<AdmProxy> adm_proxy_;
+  std::shared_ptr<AudioDeviceController> audio_device_;
   webrtc::scoped_refptr<webrtc::PeerConnectionFactoryInterface> peer_factory_;
   webrtc::Environment env_;
 };
