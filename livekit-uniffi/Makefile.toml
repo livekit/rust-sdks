@@ -249,6 +249,13 @@ run_task = "node-package-flow"
 
 [tasks.swift-xcframework.env]
 SWIFT_RELEASE_FLAG = { value = "--release", condition = { profiles = ["release"] } }
+# Apple-only debug-info knobs. Cargo treats these env vars as profile.release
+# overrides. Scoped to this task so other release builds (FFI, node bindings,
+# Linux/Windows/Android) remain on the lean Cargo.toml profile.
+# `split-debuginfo = "packed"` triggers dsymutil → produces .dSYM bundles next
+# to each per-arch .dylib at target/<arch>/release/deps/lib<name>.dylib.dSYM.
+CARGO_PROFILE_RELEASE_DEBUG = { value = "limited", condition = { profiles = ["release"] } }
+CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO = { value = "packed", condition = { profiles = ["release"] } }
 
 [tasks.swift-xcframework]
 private = true
