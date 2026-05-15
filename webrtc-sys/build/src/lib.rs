@@ -242,8 +242,7 @@ pub fn download_webrtc() -> Result<()> {
     let _ = fs::remove_dir_all(&tmp_extract);
 
     #[cfg(unix)]
-    ensure_owner_readable(&webrtc_dir)
-        .context("Failed to normalize libwebrtc file permissions")?;
+    ensure_owner_readable(&webrtc_dir).context("Failed to normalize libwebrtc file permissions")?;
 
     fs::remove_file(&tmp_path).context("Failed to remove temporary WebRTC zip file")?;
     Ok(())
