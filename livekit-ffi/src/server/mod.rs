@@ -132,6 +132,63 @@ impl Default for FfiServer {
             }
         });
 
+        // TEMPORARY: diagnostic thread that periodically logs the FFI handle
+        // table size and a breakdown by handle type. Used to investigate
+        // untracked memory growth from the Unity SDK. Remove once the leak is
+        // identified.
+        thread::spawn(|| loop {
+            thread::sleep(Duration::from_secs(5));
+            let handles = &crate::FFI_SERVER.ffi_handles;
+            let total = handles.len();
+
+            let mut rooms = 0usize;
+            let mut participants = 0usize;
+            let mut tracks = 0usize;
+            let mut publications = 0usize;
+            let mut video_sources = 0usize;
+            let mut audio_sources = 0usize;
+            let mut video_streams = 0usize;
+            let mut audio_streams = 0usize;
+            let mut audio_frames = 0usize;
+            let mut data_buffers = 0usize;
+            let mut byte_boxes = 0usize;
+            let mut other = 0usize;
+
+            for entry in handles.iter() {
+                let v = entry.value();
+                if v.is::<room::FfiRoom>() {
+                    rooms += 1;
+                } else if v.is::<participant::FfiParticipant>() {
+                    participants += 1;
+                } else if v.is::<room::FfiTrack>() {
+                    tracks += 1;
+                } else if v.is::<room::FfiPublication>() {
+                    publications += 1;
+                } else if v.is::<video_source::FfiVideoSource>() {
+                    video_sources += 1;
+                } else if v.is::<audio_source::FfiAudioSource>() {
+                    audio_sources += 1;
+                } else if v.is::<video_stream::FfiVideoStream>() {
+                    video_streams += 1;
+                } else if v.is::<audio_stream::FfiAudioStream>() {
+                    audio_streams += 1;
+                } else if v.is::<AudioFrame<'static>>() {
+                    audio_frames += 1;
+                } else if v.is::<FfiDataBuffer>() {
+                    data_buffers += 1;
+                } else if v.is::<Box<[u8]>>() {
+                    byte_boxes += 1;
+                } else {
+                    other += 1;
+                }
+            }
+
+            log::error!(
+                "[ffi-handles-diag] total={} rooms={} participants={} tracks={} publications={} video_sources={} audio_sources={} video_streams={} audio_streams={} audio_frames={} data_buffers={} byte_boxes={} other={}",
+                total, rooms, participants, tracks, publications, video_sources, audio_sources, video_streams, audio_streams, audio_frames, data_buffers, byte_boxes, other,
+            );
+        });
+
         Self {
             ffi_handles: Default::default(),
             next_id: AtomicU64::new(1), // 0 is invalid
