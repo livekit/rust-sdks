@@ -156,6 +156,35 @@ fn is_twirp_not_found(err: &ServiceError) -> bool {
     )
 }
 
+fn requested_playout_delay(
+    min_playout_delay: Option<u32>,
+    max_playout_delay: Option<u32>,
+) -> Option<(u32, u32)> {
+    match (min_playout_delay, max_playout_delay) {
+        (None, None) => None,
+        (min_playout_delay, max_playout_delay) => {
+            Some((min_playout_delay.unwrap_or_default(), max_playout_delay.unwrap_or_default()))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::requested_playout_delay;
+
+    #[test]
+    fn requested_playout_delay_is_absent_when_no_delay_flags_are_set() {
+        assert_eq!(requested_playout_delay(None, None), None);
+    }
+
+    #[test]
+    fn requested_playout_delay_defaults_unset_partial_delay() {
+        assert_eq!(requested_playout_delay(Some(120), None), Some((120, 0)));
+        assert_eq!(requested_playout_delay(None, Some(240)), Some((0, 240)));
+        assert_eq!(requested_playout_delay(Some(120), Some(240)), Some((120, 240)));
+    }
+}
+
 fn normalize_twirp_host(url: &str) -> String {
     if let Some(rest) = url.strip_prefix("wss://") {
         return format!("https://{}", rest.trim_end_matches("/rtc"));
@@ -367,12 +396,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         .or_else(|| env::var("LIVEKIT_API_SECRET").ok())
         .expect("LIVEKIT_API_SECRET must be provided via --api-secret or env");
 
-    if args.min_playout_delay.is_some() || args.max_playout_delay.is_some() {
+    if let Some((min_playout_delay, max_playout_delay)) =
+        requested_playout_delay(args.min_playout_delay, args.max_playout_delay)
+    {
         let twirp_host = normalize_twirp_host(&url);
         let room_client = RoomClient::with_api_key(&twirp_host, &api_key, &api_secret);
         info!(
-            "Recreating room '{}' with playout delay min={:?} max={:?} ms",
-            args.room_name, args.min_playout_delay, args.max_playout_delay
+            "Recreating room '{}' with playout delay min={} max={} ms",
+            args.room_name, min_playout_delay, max_playout_delay
         );
         match room_client.delete_room(&args.room_name).await {
             Ok(()) => info!("Deleted existing room '{}'", args.room_name),
@@ -385,8 +416,8 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             .create_room_with_playout_delay(
                 &args.room_name,
                 CreateRoomOptions::default(),
-                args.min_playout_delay.unwrap_or_default(),
-                args.max_playout_delay.unwrap_or_default(),
+                min_playout_delay,
+                max_playout_delay,
             )
             .await?;
     }
