@@ -664,8 +664,13 @@ impl EngineInner {
             session.close(reason).await;
             let _ = close_tx.send(());
             let _ = engine_task.await;
-            let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
         }
+
+        // Always emit Disconnected, even when the engine_task was already taken by a
+        // prior failed `try_restart_connection`. Without this, a reconnect cycle that
+        // exhausts all attempts leaves the room stuck in Reconnecting forever because
+        // the room's task never sees the event that drives `handle_disconnected`.
+        let _ = self.engine_tx.send(EngineEvent::Disconnected { reason });
     }
 
     /// When waiting for reconnection, it ensures we're always using the latest session.
