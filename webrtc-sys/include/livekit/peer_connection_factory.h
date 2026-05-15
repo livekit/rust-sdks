@@ -31,6 +31,7 @@ namespace livekit_ffi {
 class PeerConnectionFactory;
 class AudioDeviceController;
 class PeerConnectionObserverWrapper;
+class EncodedVideoTrackSource;  // forward decl
 }  // namespace livekit_ffi
 #include "webrtc-sys/src/peer_connection_factory.rs.h"
 
@@ -54,6 +55,13 @@ class PeerConnectionFactory {
   std::shared_ptr<VideoTrack> create_video_track(
       rust::String label,
       std::shared_ptr<VideoTrackSource> source) const;
+
+  /// Build a video track backed by a pre-encoded source.  The matching
+  /// `PassthroughVideoEncoder` is selected by the encoder factory at SDP
+  /// negotiation time via `EncodedSourceRegistry`.
+  std::shared_ptr<VideoTrack> create_video_track_from_encoded_source(
+      rust::String label,
+      std::shared_ptr<EncodedVideoTrackSource> source) const;
 
   std::shared_ptr<AudioTrack> create_audio_track(
       rust::String label,

@@ -35,6 +35,7 @@
 #include "api/audio_options.h"
 #include "livekit/adm_proxy.h"
 #include "livekit/audio_track.h"
+#include "livekit/encoded_video_source.h"
 #include "livekit/peer_connection.h"
 #include "livekit/rtc_error.h"
 #include "livekit/rtp_parameters.h"
@@ -113,6 +114,15 @@ std::shared_ptr<PeerConnection> PeerConnectionFactory::create_peer_connection(
 std::shared_ptr<VideoTrack> PeerConnectionFactory::create_video_track(
     rust::String label,
     std::shared_ptr<VideoTrackSource> source) const {
+  return std::static_pointer_cast<VideoTrack>(
+      rtc_runtime_->get_or_create_media_stream_track(
+          peer_factory_->CreateVideoTrack(source->get(), label.c_str())));
+}
+
+std::shared_ptr<VideoTrack>
+PeerConnectionFactory::create_video_track_from_encoded_source(
+    rust::String label,
+    std::shared_ptr<EncodedVideoTrackSource> source) const {
   return std::static_pointer_cast<VideoTrack>(
       rtc_runtime_->get_or_create_media_stream_track(
           peer_factory_->CreateVideoTrack(source->get(), label.c_str())));

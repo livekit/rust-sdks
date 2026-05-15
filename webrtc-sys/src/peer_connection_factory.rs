@@ -50,6 +50,7 @@ pub mod ffi {
         include!("livekit/webrtc.h");
         include!("livekit/peer_connection.h");
         include!("livekit/audio_track.h");
+        include!("livekit/encoded_video_source.h");
 
         type RtcConfiguration = crate::peer_connection::ffi::RtcConfiguration;
         type PeerConnectionState = crate::peer_connection::ffi::PeerConnectionState;
@@ -58,6 +59,8 @@ pub mod ffi {
         type IceGatheringState = crate::peer_connection::ffi::IceGatheringState;
         type AudioTrackSource = crate::audio_track::ffi::AudioTrackSource;
         type VideoTrackSource = crate::video_track::ffi::VideoTrackSource;
+        type EncodedVideoTrackSource =
+            crate::encoded_video_source::ffi::EncodedVideoTrackSource;
         type RtpCapabilities = crate::rtp_parameters::ffi::RtpCapabilities;
         type AudioTrack = crate::audio_track::ffi::AudioTrack;
         type VideoTrack = crate::video_track::ffi::VideoTrack;
@@ -99,6 +102,12 @@ pub mod ffi {
             self: &PeerConnectionFactory,
             label: String,
             source: SharedPtr<VideoTrackSource>,
+        ) -> SharedPtr<VideoTrack>;
+
+        fn create_video_track_from_encoded_source(
+            self: &PeerConnectionFactory,
+            label: String,
+            source: SharedPtr<EncodedVideoTrackSource>,
         ) -> SharedPtr<VideoTrack>;
 
         fn create_audio_track(

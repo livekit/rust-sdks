@@ -24,6 +24,7 @@
 #include "api/video_codecs/video_encoder.h"
 #include "api/video_codecs/video_encoder_factory_template.h"
 #include "livekit/objc_video_factory.h"
+#include "livekit/passthrough_video_encoder.h"
 #include "media/base/media_constants.h"
 #include "media/engine/simulcast_encoder_adapter.h"
 #include "rtc_base/logging.h"
@@ -225,6 +226,16 @@ VideoEncoderFactory::CodecSupport VideoEncoderFactory::QueryCodecSupport(
 std::unique_ptr<webrtc::VideoEncoder> VideoEncoderFactory::Create(
     const webrtc::Environment& env,
     const webrtc::SdpVideoFormat& format) {
+  // If a registered encoded video source is waiting for this codec, hand
+  // back a passthrough encoder so the pre-encoded payloads flow through
+  // unchanged instead of being re-encoded.
+  auto encoded_source =
+      EncodedSourceRegistry::instance().find_by_codec_name(format.name);
+  if (encoded_source) {
+    RTC_LOG(LS_INFO) << "Creating PassthroughVideoEncoder for " << format.name;
+    return std::make_unique<PassthroughVideoEncoder>(encoded_source);
+  }
+
   std::unique_ptr<webrtc::VideoEncoder> encoder;
   if (format.IsCodecInList(internal_factory_->GetSupportedFormats())) {
     encoder = std::make_unique<webrtc::SimulcastEncoderAdapter>(

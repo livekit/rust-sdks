@@ -1,0 +1,19 @@
+[package]
+name = "preencoded_ingest"
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[[bin]]
+name = "preencoded_ingest"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true, features = ["full"] }
+livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
+libwebrtc = { workspace = true }
+livekit-api = { workspace = true, features = ["rustls-tls-native-roots"] }
+clap = { workspace = true, features = ["derive", "env"] }
+log = { workspace = true }
+env_logger = { workspace = true }
+anyhow = { workspace = true }

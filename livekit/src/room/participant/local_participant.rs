@@ -300,8 +300,28 @@ impl LocalParticipant {
     pub async fn publish_track(
         &self,
         track: LocalTrack,
-        options: TrackPublishOptions,
+        mut options: TrackPublishOptions,
     ) -> RoomResult<LocalTrackPublication> {
+        // Pre-encoded sources push their own bitstream. Force the publish
+        // codec to match the source's codec and disable simulcast (the
+        // passthrough encoder does not produce multiple layers).
+        #[cfg(not(target_arch = "wasm32"))]
+        if let LocalTrack::Video(ref video_track) = track {
+            if let RtcVideoSource::Encoded(ref encoded_source) = video_track.rtc_source() {
+                use crate::options::VideoCodec;
+                use libwebrtc::encoded_video_source::VideoCodecType;
+
+                options.simulcast = false;
+                options.video_codec = match encoded_source.codec_type() {
+                    VideoCodecType::VP8 => VideoCodec::VP8,
+                    VideoCodecType::VP9 => VideoCodec::VP9,
+                    VideoCodecType::AV1 => VideoCodec::AV1,
+                    VideoCodecType::H264 => VideoCodec::H264,
+                    VideoCodecType::H265 => VideoCodec::H265,
+                };
+            }
+        }
+
         let disable_red = self.local.encryption_type != EncryptionType::None || !options.red;
 
         let mut req = proto::AddTrackRequest {

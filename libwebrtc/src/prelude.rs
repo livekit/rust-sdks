@@ -17,6 +17,7 @@ pub use crate::{
     audio_source::{AudioSourceOptions, RtcAudioSource},
     audio_track::RtcAudioTrack,
     data_channel::{DataBuffer, DataChannel, DataChannelError, DataChannelInit, DataChannelState},
+    encoded_video_source::{EncodedFrameInfo, KeyFrameRequestCallback, VideoCodecType},
     ice_candidate::IceCandidate,
     media_stream::MediaStream,
     media_stream_track::{MediaStreamTrack, RtcTrackState},
