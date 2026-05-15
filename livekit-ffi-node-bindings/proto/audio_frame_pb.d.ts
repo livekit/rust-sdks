@@ -364,12 +364,20 @@ export declare class NewAudioSourceRequest extends Message<NewAudioSourceRequest
   options?: AudioSourceOptions;
 
   /**
-   * @generated from field: required uint32 sample_rate = 3;
+   * Sample rate in Hz. Optional - defaults to 48000 if not specified.
+   * For AudioSourcePlatform: ignored, ADM uses hardware native sample rate.
+   * For AudioSourceNative with queue_size_ms=0 (fast path): ignored, frame values used directly.
+   *
+   * @generated from field: optional uint32 sample_rate = 3;
    */
   sampleRate?: number;
 
   /**
-   * @generated from field: required uint32 num_channels = 4;
+   * Number of audio channels. Optional - defaults to 1 (mono) if not specified.
+   * For AudioSourcePlatform: ignored, ADM uses hardware native channels.
+   * For AudioSourceNative with queue_size_ms=0 (fast path): ignored, frame values used directly.
+   *
+   * @generated from field: optional uint32 num_channels = 4;
    */
   numChannels?: number;
 
