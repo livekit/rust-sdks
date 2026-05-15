@@ -70,8 +70,14 @@ message AudioStreamFromParticipantResponse { required OwnedAudioStream stream = 
 message NewAudioSourceRequest {
   required AudioSourceType type = 1;
   optional AudioSourceOptions options = 2;
-  required uint32 sample_rate = 3;
-  required uint32 num_channels = 4;
+  // Sample rate in Hz. Optional - defaults to 48000 if not specified.
+  // For AudioSourcePlatform: ignored, ADM uses hardware native sample rate.
+  // For AudioSourceNative with queue_size_ms=0 (fast path): ignored, frame values used directly.
+  optional uint32 sample_rate = 3;
+  // Number of audio channels. Optional - defaults to 1 (mono) if not specified.
+  // For AudioSourcePlatform: ignored, ADM uses hardware native channels.
+  // For AudioSourceNative with queue_size_ms=0 (fast path): ignored, frame values used directly.
+  optional uint32 num_channels = 4;
   optional uint32 queue_size_ms = 5;
   // For AudioSourcePlatform: the PlatformAudio handle to configure audio processing on.
   // If provided with options, audio processing will be configured on the PlatformAudio.
