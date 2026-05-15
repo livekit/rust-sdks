@@ -18,7 +18,7 @@ pub use crate::{
     data_track::{
         DataTrackFrame, DataTrackInfo, DataTrackOptions, DataTrackSid, DataTrackStream,
         DataTrackSubscribeError, DataTrackSubscribeOptions, LocalDataTrack, PublishError,
-        PushFrameError, PushFrameErrorReason, RemoteDataTrack,
+        PushFrameError, PushFrameErrorReason, RemoteDataTrack, RemoteDataTrackPipelineOptions,
     },
     id::*,
     participant::{

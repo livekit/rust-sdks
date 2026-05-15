@@ -18,7 +18,10 @@ use super::{
     RemoteDataTrack, RemoteTrackInner,
 };
 use crate::{
-    api::{DataTrackFrame, DataTrackInfo, DataTrackSid, DataTrackSubscribeError, InternalError},
+    api::{
+        DataTrackFrame, DataTrackInfo, DataTrackSid, DataTrackSubscribeError, InternalError,
+        RemoteDataTrackPipelineOptions,
+    },
     e2ee::DecryptionProvider,
     packet::{Handle, Packet},
 };
@@ -27,7 +30,10 @@ use bytes::Bytes;
 use std::{
     collections::{HashMap, HashSet},
     mem,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    },
 };
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
@@ -102,6 +108,7 @@ impl Manager {
                     self.on_sfu_publication_updates(event).await
                 }
                 InputEvent::SfuSubscriberHandles(event) => self.on_sfu_subscriber_handles(event),
+                InputEvent::SetPipelineOptions(event) => self.on_set_pipeline_options(event),
                 InputEvent::PacketReceived(bytes) => self.on_packet_received(bytes),
                 InputEvent::ResendSubscriptionUpdates => {
                     self.on_resend_subscription_updates().await
@@ -207,6 +214,9 @@ impl Manager {
             publisher_identity: publisher_identity.clone(),
             published_tx,
             subscription: SubscriptionState::None,
+            max_partial_frames: Arc::new(AtomicUsize::new(
+                RemoteDataTrackPipelineOptions::default().max_partial_frames(),
+            )),
         };
         self.descriptors.insert(sid, descriptor);
 
@@ -217,6 +227,14 @@ impl Manager {
         };
         let track = RemoteDataTrack::new(info, inner);
         _ = self.event_out_tx.send(TrackPublished { track }.into()).await;
+    }
+
+    fn on_set_pipeline_options(&mut self, event: SetPipelineOptions) {
+        let Some(descriptor) = self.descriptors.get(&event.sid) else {
+            log::warn!("Unknown track {}, cannot set pipeline options", event.sid);
+            return;
+        };
+        descriptor.max_partial_frames.store(event.options.max_partial_frames(), Ordering::Relaxed);
     }
 
     async fn handle_track_unpublished(&mut self, sid: DataTrackSid) {
@@ -274,6 +292,7 @@ impl Manager {
             info: descriptor.info.clone(),
             publisher_identity: descriptor.publisher_identity.clone(),
             decryption_provider,
+            max_partial_frames: descriptor.max_partial_frames.clone(),
         };
         let pipeline = Pipeline::new(pipeline_opts);
 
@@ -369,6 +388,7 @@ struct Descriptor {
     publisher_identity: Arc<str>,
     published_tx: watch::Sender<bool>,
     subscription: SubscriptionState,
+    max_partial_frames: Arc<AtomicUsize>,
 }
 
 #[derive(Debug)]
@@ -516,8 +536,12 @@ mod tests {
         let sid = info.sid();
         let publisher_identity: Arc<str> = Faker.fake::<String>().into();
 
-        let pipeline_opts =
-            PipelineOptions { info: info.clone(), publisher_identity, decryption_provider: None };
+        let pipeline_opts = PipelineOptions {
+            info: info.clone(),
+            publisher_identity,
+            decryption_provider: None,
+            max_partial_frames: Arc::new(AtomicUsize::new(1)),
+        };
         let pipeline = Pipeline::new(pipeline_opts);
 
         let (published_tx, published_rx) = watch::channel(true);
