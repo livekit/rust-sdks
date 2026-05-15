@@ -4487,6 +4487,7 @@ dependencies = [
  "livekit",
  "livekit-api",
  "log",
+ "metal 0.32.0",
  "nokhwa",
  "objc2 0.6.4",
  "parking_lot",

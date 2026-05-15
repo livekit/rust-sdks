@@ -4,6 +4,7 @@ Three examples demonstrating capturing frames from a local camera video and publ
 
 **Note:** These examples are intended for **desktop platforms only** (macOS, Linux, Windows).
 You must enable the `desktop` feature when building or running them.
+For smoother local rendering, especially above 720p, run the publisher/subscriber with `cargo run --release`.
 
 - list_devices: enumerate available cameras and their capabilities
 - publisher: capture from a selected camera and publish a video track
@@ -56,12 +57,25 @@ Publisher usage:
    --room-name demo \
    --identity cam-1
 
+ # publish a static SMPTE color-bar test pattern (no camera required)
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --test-pattern \
+   --room-name demo \
+   --identity test-1
+
  # publish with end-to-end encryption
  cargo run -p local_video -F desktop --bin publisher -- \
    --camera-index 0 \
    --room-name demo \
    --identity cam-1 \
    --e2ee-key my-secret-key
+
+ # publish and display the outgoing video locally
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --room-name demo \
+   --identity cam-1 \
+   --display-video
 ```
 
 List devices usage:
@@ -71,6 +85,7 @@ List devices usage:
 
 Publisher flags (in addition to the common connection flags above):
 - `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
+- `--test-pattern`: Generate a standard SMPTE 75% color-bar test pattern instead of capturing from a camera. `--camera-index` is ignored when this is set; `--width`, `--height`, and `--fps` still control the output resolution and frame rate.
 - `--width <px>`: Desired capture width (default: `1280`).
 - `--height <px>`: Desired capture height (default: `720`).
 - `--fps <n>`: Desired capture framerate (default: `30`).
@@ -80,6 +95,8 @@ Publisher flags (in addition to the common connection flags above):
 - `--attach-timestamp`: Attach the current wall-clock time (microseconds since UNIX epoch) as the user timestamp on each published frame. The subscriber can display this to measure end-to-end latency.
 - `--burn-timestamp`: Burn the attached timestamp into the video frame as a visible overlay. Has no effect unless `--attach-timestamp` is also set.
 - `--attach-frame-id`: Attach a monotonically increasing frame ID to each published frame via the packet trailer. The subscriber displays this in the timestamp overlay when `--display-timestamp` is used.
+- `--display-video`: Open a window that displays the video frames being published.
+- `--display-timing`: Burn publisher timing metrics into the local preview window. Requires `--display-video`.
 - `--e2ee-key <key>`: Enable end-to-end encryption with the given shared key. The subscriber must use the same key to decrypt.
 
 Subscriber usage:
