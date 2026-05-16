@@ -1,5 +1,5 @@
 ---
-livekit-ffi: patch
+livekit-ffi: minor
 ---
 
 Make `sample_rate` and `num_channels` optional in `NewAudioSourceRequest`.
