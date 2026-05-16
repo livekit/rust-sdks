@@ -429,13 +429,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             room_join: true,
             room: args.room_name.clone(),
             can_publish: true,
+            can_subscribe: false,
             ..Default::default()
         })
         .to_jwt()?;
 
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
-    room_options.auto_subscribe = true;
+    room_options.auto_subscribe = false;
     room_options.dynacast = true;
 
     // Configure E2EE if an encryption key is provided

@@ -2,6 +2,7 @@
 
 #include <modules/video_coding/codecs/h264/include/h264.h>
 
+#include <dlfcn.h>
 #include <memory>
 
 #include "cuda_context.h"
@@ -13,6 +14,23 @@ namespace webrtc {
 
 constexpr char kSdpKeyNameCodecImpl[] = "implementation_name";
 constexpr char kCodecName[] = "NvCodec";
+constexpr char kNvdecRuntimeLibrary[] = "libnvcuvid.so.1";
+
+namespace {
+
+bool IsNvdecRuntimeAvailable() {
+  void* hModule = dlopen(kNvdecRuntimeLibrary, RTLD_LAZY | RTLD_LOCAL);
+  if (!hModule) {
+    RTC_LOG(LS_WARNING) << "NVDEC runtime library (" << kNvdecRuntimeLibrary
+                        << ") not found, hardware decoding unavailable.";
+    return false;
+  }
+
+  dlclose(hModule);
+  return true;
+}
+
+}  // namespace
 
 static int GetCudaDeviceCapabilityMajorVersion(CUcontext context) {
   cuCtxSetCurrent(context);
@@ -67,7 +85,14 @@ std::vector<SdpVideoFormat> SupportedNvDecoderCodecs(CUcontext context) {
 }
 
 NvidiaVideoDecoderFactory::NvidiaVideoDecoderFactory()
-    : cu_context_(livekit_ffi::CudaContext::GetInstance()) {
+    : cu_context_(nullptr) {
+  if (!IsNvdecRuntimeAvailable()) {
+    RTC_LOG(LS_INFO) << "NvidiaVideoDecoderFactory created without NVDEC "
+                        "support because the runtime library is unavailable.";
+    return;
+  }
+
+  cu_context_ = livekit_ffi::CudaContext::GetInstance();
   if (cu_context_->Initialize()) {
     supported_formats_ = SupportedNvDecoderCodecs(cu_context_->GetContext());
   } else {
@@ -82,6 +107,10 @@ NvidiaVideoDecoderFactory::~NvidiaVideoDecoderFactory() {}
 bool NvidiaVideoDecoderFactory::IsSupported() {
   if (!livekit_ffi::CudaContext::IsAvailable()) {
     RTC_LOG(LS_WARNING) << "Cuda Context is not available.";
+    return false;
+  }
+
+  if (!IsNvdecRuntimeAvailable()) {
     return false;
   }
 
