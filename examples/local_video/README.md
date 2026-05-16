@@ -57,6 +57,13 @@ Publisher usage:
    --room-name demo \
    --identity cam-1
 
+ # request MJPEG camera capture to reduce USB bandwidth
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --format mjpeg \
+   --room-name demo \
+   --identity cam-1
+
  # publish a static SMPTE color-bar test pattern (no camera required)
  cargo run -p local_video -F desktop --bin publisher -- \
    --test-pattern \
@@ -85,6 +92,7 @@ List devices usage:
 
 Publisher flags (in addition to the common connection flags above):
 - `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
+- `--format <auto|yuv|mjpeg>`: UVC camera capture format (default: `auto`). `auto` tries uncompressed YUYV first and falls back to MJPEG; `mjpeg` can reduce USB bandwidth when running multiple cameras.
 - `--test-pattern`: Generate a standard SMPTE 75% color-bar test pattern instead of capturing from a camera. `--camera-index` is ignored when this is set; `--width`, `--height`, and `--fps` still control the output resolution and frame rate.
 - `--width <px>`: Desired capture width (default: `1280`).
 - `--height <px>`: Desired capture height (default: `720`).

@@ -48,6 +48,37 @@ enum SourceKind {
     Argus,
 }
 
+/// Selects the UVC camera capture pixel format.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+enum CaptureFormat {
+    /// Try YUYV first and fall back to MJPEG.
+    Auto,
+    /// Request uncompressed YUYV capture.
+    Yuv,
+    /// Request compressed MJPEG capture.
+    Mjpeg,
+}
+
+impl CaptureFormat {
+    fn frame_formats(self) -> &'static [FrameFormat] {
+        match self {
+            Self::Auto => &[FrameFormat::YUYV, FrameFormat::MJPEG],
+            Self::Yuv => &[FrameFormat::YUYV],
+            Self::Mjpeg => &[FrameFormat::MJPEG],
+        }
+    }
+}
+
+impl std::fmt::Display for CaptureFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auto => write!(f, "auto"),
+            Self::Yuv => write!(f, "yuv"),
+            Self::Mjpeg => write!(f, "mjpeg"),
+        }
+    }
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -62,6 +93,10 @@ struct Args {
     /// Camera index to use (numeric)
     #[arg(long, default_value_t = 0)]
     camera_index: usize,
+
+    /// UVC camera capture format: `auto` tries YUYV then MJPEG; `mjpeg` uses less USB bandwidth.
+    #[arg(long, value_enum, default_value_t = CaptureFormat::Auto)]
+    format: CaptureFormat,
 
     /// Generate a standard SMPTE color-bar test pattern instead of using a camera
     #[arg(long, default_value_t = false, conflicts_with = "list_cameras")]
@@ -527,33 +562,74 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     RequestedFormatType::AbsoluteHighestFrameRate,
                 );
                 let mut camera = Camera::new(index, requested)?;
-                // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
-                let wanted = CameraFormat::new(
-                    Resolution::new(args.width, args.height),
-                    FrameFormat::YUYV,
-                    args.fps,
-                );
-                let mut using_fmt = "YUYV";
-                if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
-                    RequestedFormatType::Exact(wanted),
-                )) {
-                    let alt = CameraFormat::new(
+
+                let mut requested_camera_format = None;
+                let mut last_request_error = None;
+                for frame_format in args.format.frame_formats() {
+                    let wanted = CameraFormat::new(
                         Resolution::new(args.width, args.height),
-                        FrameFormat::MJPEG,
+                        *frame_format,
                         args.fps,
                     );
-                    using_fmt = "MJPEG";
-                    let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
-                        RequestedFormatType::Exact(alt),
-                    ));
+                    match camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
+                        RequestedFormatType::Exact(wanted),
+                    )) {
+                        Ok(format) => {
+                            requested_camera_format = Some(format);
+                            break;
+                        }
+                        Err(err) => {
+                            last_request_error = Some(err);
+                        }
+                    }
                 }
+                if let Some(requested_camera_format) = requested_camera_format {
+                    debug!("Requested nokhwa CameraFormat: {:?}", requested_camera_format);
+                } else if args.format == CaptureFormat::Auto {
+                    if let Some(err) = last_request_error {
+                        log::warn!(
+                            "Failed to request YUYV or MJPEG at {}x{} @ {} fps; using backend-selected camera format: {}",
+                            args.width,
+                            args.height,
+                            args.fps,
+                            err
+                        );
+                    }
+                } else {
+                    let formats = args
+                        .format
+                        .frame_formats()
+                        .iter()
+                        .map(ToString::to_string)
+                        .collect::<Vec<_>>()
+                        .join(" or ");
+                    return Err(match last_request_error {
+                        Some(err) => anyhow::anyhow!(
+                            "failed to request camera format {} at {}x{} @ {} fps: {}",
+                            formats,
+                            args.width,
+                            args.height,
+                            args.fps,
+                            err
+                        ),
+                        None => anyhow::anyhow!("no camera capture formats were requested"),
+                    });
+                }
+
                 camera.open_stream()?;
                 let fmt = camera.camera_format();
                 let width = fmt.width();
                 let height = fmt.height();
                 let fps = fmt.frame_rate();
                 let is_yuyv = fmt.format() == FrameFormat::YUYV;
-                info!("Camera opened: {}x{} @ {} fps (format: {})", width, height, fps, using_fmt);
+                info!(
+                    "Camera opened: {}x{} @ {} fps (format: {}, requested: {})",
+                    width,
+                    height,
+                    fps,
+                    fmt.format(),
+                    args.format
+                );
                 debug!("Negotiated nokhwa CameraFormat: {:?}", fmt);
                 info!(
                     "Selected conversion path: {}",
