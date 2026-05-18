@@ -929,6 +929,13 @@ export declare class DataTrackStreamReadRequest extends Message<DataTrackStreamR
  * @generated from message livekit.proto.DataTrackStreamReadResponse
  */
 export declare class DataTrackStreamReadResponse extends Message<DataTrackStreamReadResponse> {
+  /**
+   * The end-of-stream event if the stream has already ended.
+   *
+   * @generated from field: optional livekit.proto.DataTrackStreamEOS eos_event = 1;
+   */
+  eosEvent?: DataTrackStreamEOS;
+
   constructor(data?: PartialMessage<DataTrackStreamReadResponse>);
 
   static readonly runtime: typeof proto2;
