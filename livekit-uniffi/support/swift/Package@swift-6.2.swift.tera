@@ -23,19 +23,19 @@ let package = Package(
             name: "{{ SPM_NAME }}",
             dependencies: ["Rust{{ SPM_NAME }}"]
         ),
-        {% if CARGO_MAKE_PROFILE == "development" -%}
+{%- if CARGO_MAKE_PROFILE == "development" %}
         .binaryTarget(
             name: "Rust{{ SPM_NAME }}",
             path: "./Rust{{ SPM_NAME }}.xcframework"
         )
-        {%- elif CARGO_MAKE_PROFILE == "release" %}
+{%- elif CARGO_MAKE_PROFILE == "release" %}
         .binaryTarget(
             name: "Rust{{ SPM_NAME }}",
             url: "{{ SPM_URL }}",
             checksum: "{{ SPM_CHECKSUM }}"
         )
-        {%- else %}
+{%- else %}
         {{ throw(message="Unsupported CARGO_MAKE_PROFILE") }}
-        {%- endif %}
+{%- endif %}
     ]
 )
