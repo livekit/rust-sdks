@@ -255,6 +255,9 @@ impl FfiServer {
     pub fn drop_handle(&self, id: FfiHandleId) -> bool {
         let existed = self.ffi_handles.remove(&id).is_some();
         self.handle_dropped_txs.remove(&id);
+        if !existed {
+            log::warn!("Attempted to drop unknown FFI handle: {id}");
+        }
         return existed;
     }
 
