@@ -278,6 +278,24 @@ const PublishTrackCallback = /*@__PURE__*/ proto2.makeMessageType(
 );
 
 /**
+ * @generated from message livekit.proto.ReadyForRoomEventRequest
+ */
+const ReadyForRoomEventRequest = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.ReadyForRoomEventRequest",
+  () => [
+    { no: 1, name: "room_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, req: true },
+  ],
+);
+
+/**
+ * @generated from message livekit.proto.ReadyForRoomEventResponse
+ */
+const ReadyForRoomEventResponse = /*@__PURE__*/ proto2.makeMessageType(
+  "livekit.proto.ReadyForRoomEventResponse",
+  [],
+);
+
+/**
  * Unpublish a track from the room
  *
  * @generated from message livekit.proto.UnpublishTrackRequest
@@ -1618,6 +1636,8 @@ exports.SimulateScenarioCallback = SimulateScenarioCallback;
 exports.PublishTrackRequest = PublishTrackRequest;
 exports.PublishTrackResponse = PublishTrackResponse;
 exports.PublishTrackCallback = PublishTrackCallback;
+exports.ReadyForRoomEventRequest = ReadyForRoomEventRequest;
+exports.ReadyForRoomEventResponse = ReadyForRoomEventResponse;
 exports.UnpublishTrackRequest = UnpublishTrackRequest;
 exports.UnpublishTrackResponse = UnpublishTrackResponse;
 exports.UnpublishTrackCallback = UnpublishTrackCallback;
