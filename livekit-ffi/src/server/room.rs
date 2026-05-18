@@ -1150,6 +1150,18 @@ async fn forward_event(
             );
         }
         RoomEvent::LocalTrackSubscribed { track } => {
+            // During a full reconnect, the engine auto-resubscribes the
+            // republished local tracks under their new server-issued
+            // SIDs. The binding's publication object is preserved across
+            // `LocalTrackRepublished`, so the first-subscription signal
+            // it gave the application on the original publish is still
+            // valid. Forwarding this event would race with the sid
+            // rekey driven by `LocalTrackRepublished` (different task,
+            // same dispatcher channel) and surface as a KeyError /
+            // already-resolved future on the binding side.
+            if present_state.lock().reconnecting {
+                return;
+            }
             let _ = send_event(
                 proto::LocalTrackSubscribed { track_sid: track.sid().to_string() }.into(),
             );
