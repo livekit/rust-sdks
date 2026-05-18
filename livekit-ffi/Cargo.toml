@@ -32,9 +32,9 @@ prost = { workspace = true }
 lazy_static = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
-dashmap = "5.4"
+dashmap = "6.0"
 env_logger = { workspace = true }
-downcast-rs = "1.2"
+downcast-rs = "2.0"
 console-subscriber = { workspace = true, features = ["parking_lot"], optional = true }
 bytes = { workspace = true }
 from_variants = "1.0.2"
