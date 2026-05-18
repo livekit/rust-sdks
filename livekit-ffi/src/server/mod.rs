@@ -151,7 +151,7 @@ impl FfiServer {
         *self.config.lock() = Some(config.clone());
         self.logger.set_capture_logs(config.capture_logs);
 
-        log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION")); // TODO: Move this log
+        log::debug!("initializing ffi server v{}", env!("CARGO_PKG_VERSION")); // TODO: Move this log
     }
 
     /// Returns whether the server has been setup.
@@ -161,7 +161,7 @@ impl FfiServer {
 
     pub async fn dispose(&'static self) {
         self.logger.set_capture_logs(false);
-        log::info!("disposing ffi server");
+        log::debug!("disposing ffi server");
 
         // Close all rooms
         let mut rooms = Vec::new();
