@@ -1071,4 +1071,218 @@ mod tests {
         assert!(!event.subscribe);
         assert_eq!(event.sid, track_sid);
     }
+
+    /// Should depacketize multiple interleaved partial frames when
+    /// `max_partial_frames` is set before subscribe.
+    #[tokio::test]
+    async fn test_max_partial_frames_set_before_subscribe() {
+        let options = ManagerOptions { decryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
+
+        let mut info: DataTrackInfo = Faker.fake();
+        info.uses_e2ee = false;
+        let track_sid = info.sid();
+        let sub_handle: Handle = Faker.fake();
+
+        // Simulate track published
+        let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
+        input.send(event.into()).unwrap();
+        let track = expect_event!(output, OutputEvent::TrackPublished).track;
+
+        // Configure the track BEFORE any subscribe.
+        track.set_pipeline_options(
+            RemoteDataTrackPipelineOptions::default().with_max_partial_frames(3),
+        );
+
+        // Subscribe to the track
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = SubscribeRequest {
+            sid: track_sid.clone(),
+            options: DataTrackSubscribeOptions::default(),
+            result_tx,
+        };
+        input.send(event.into()).unwrap();
+
+        let event = expect_event!(output, OutputEvent::SfuUpdateSubscription);
+        assert!(event.subscribe);
+
+        // Simulate SFU assigning subscriber handle
+        let event = SfuSubscriberHandles { mapping: HashMap::from([(sub_handle, track_sid)]) };
+        input.send(event.into()).unwrap();
+
+        let mut frame_rx =
+            time::timeout(Duration::from_secs(1), result_rx).await.unwrap().unwrap().unwrap();
+
+        // Two interleaved partial frames: Start(1), Start(2), Final(1), Final(2). With the default
+        // max_partial_frames=1 frame 1 would be evicted by frame 2; with max_partial_frames=3 both
+        // frames coexist and emerge.
+        push_interleaved_two_frame_pair(
+            &input,
+            sub_handle,
+            1,
+            0,
+            [&[0xA1], &[0xA2]],
+            2,
+            100,
+            [&[0xB1], &[0xB2]],
+        );
+
+        let first = time::timeout(Duration::from_secs(1), frame_rx.recv()).await.unwrap().unwrap();
+        assert_eq!(first.payload.as_ref(), &[0xA1, 0xA2]);
+
+        let second = time::timeout(Duration::from_secs(1), frame_rx.recv()).await.unwrap().unwrap();
+        assert_eq!(second.payload.as_ref(), &[0xB1, 0xB2]);
+    }
+
+    /// Should pick up `max_partial_frames` live on an already-active subscription.
+    #[tokio::test]
+    async fn test_max_partial_frames_set_live() {
+        let options = ManagerOptions { decryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
+
+        let mut info: DataTrackInfo = Faker.fake();
+        info.uses_e2ee = false;
+        let track_sid = info.sid();
+        let sub_handle: Handle = Faker.fake();
+
+        // Simulate track published
+        let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
+        input.send(event.into()).unwrap();
+        let track = expect_event!(output, OutputEvent::TrackPublished).track;
+
+        // Subscribe to the track
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = SubscribeRequest {
+            sid: track_sid.clone(),
+            options: DataTrackSubscribeOptions::default(),
+            result_tx,
+        };
+        input.send(event.into()).unwrap();
+
+        let event = expect_event!(output, OutputEvent::SfuUpdateSubscription);
+        assert!(event.subscribe);
+
+        // Simulate SFU assigning subscriber handle
+        let event = SfuSubscriberHandles { mapping: HashMap::from([(sub_handle, track_sid)]) };
+        input.send(event.into()).unwrap();
+
+        let mut frame_rx =
+            time::timeout(Duration::from_secs(1), result_rx).await.unwrap().unwrap().unwrap();
+
+        // Subscription is now active; flip the cap on the live pipeline.
+        track.set_pipeline_options(
+            RemoteDataTrackPipelineOptions::default().with_max_partial_frames(3),
+        );
+
+        push_interleaved_two_frame_pair(
+            &input,
+            sub_handle,
+            1,
+            0,
+            [&[0xA1], &[0xA2]],
+            2,
+            100,
+            [&[0xB1], &[0xB2]],
+        );
+
+        let first = time::timeout(Duration::from_secs(1), frame_rx.recv()).await.unwrap().unwrap();
+        assert_eq!(first.payload.as_ref(), &[0xA1, 0xA2]);
+
+        let second = time::timeout(Duration::from_secs(1), frame_rx.recv()).await.unwrap().unwrap();
+        assert_eq!(second.payload.as_ref(), &[0xB1, 0xB2]);
+    }
+
+    /// Should drop the older partial frame by default (no `max_partial_frames` set).
+    #[tokio::test]
+    async fn test_default_drops_older_partial_frame() {
+        let options = ManagerOptions { decryption_provider: None };
+        let (manager, input, mut output) = Manager::new(options);
+        livekit_runtime::spawn(manager.run());
+
+        let mut info: DataTrackInfo = Faker.fake();
+        info.uses_e2ee = false;
+        let track_sid = info.sid();
+        let sub_handle: Handle = Faker.fake();
+
+        // Simulate track published
+        let event = SfuPublicationUpdates { updates: HashMap::from([("id".into(), vec![info])]) };
+        input.send(event.into()).unwrap();
+        expect_event!(output, OutputEvent::TrackPublished);
+
+        // Subscribe to the track
+        let (result_tx, result_rx) = oneshot::channel();
+        let event = SubscribeRequest {
+            sid: track_sid.clone(),
+            options: DataTrackSubscribeOptions::default(),
+            result_tx,
+        };
+        input.send(event.into()).unwrap();
+
+        let event = expect_event!(output, OutputEvent::SfuUpdateSubscription);
+        assert!(event.subscribe);
+
+        // Simulate SFU assigning subscriber handle
+        let event = SfuSubscriberHandles { mapping: HashMap::from([(sub_handle, track_sid)]) };
+        input.send(event.into()).unwrap();
+
+        let mut frame_rx =
+            time::timeout(Duration::from_secs(1), result_rx).await.unwrap().unwrap().unwrap();
+
+        // Default cap of 1: Start(2) evicts Start(1), so Final(1) is unknown and only frame 2
+        // makes it through.
+        push_interleaved_two_frame_pair(
+            &input,
+            sub_handle,
+            1,
+            0,
+            [&[0xA1], &[0xA2]],
+            2,
+            100,
+            [&[0xB1], &[0xB2]],
+        );
+
+        let only_frame =
+            time::timeout(Duration::from_secs(1), frame_rx.recv()).await.unwrap().unwrap();
+        assert_eq!(only_frame.payload.as_ref(), &[0xB1, 0xB2]);
+    }
+
+    /// Pushes Start(frame1), Start(frame2), Final(frame1), Final(frame2) packets through the
+    /// manager to exercise the depacketizer's concurrent-partial-frame handling.
+    fn push_interleaved_two_frame_pair(
+        input: &ManagerInput,
+        handle: Handle,
+        frame_one_number: u16,
+        frame_one_start_sequence: u16,
+        frame_one_payloads: [&[u8]; 2],
+        frame_two_number: u16,
+        frame_two_start_sequence: u16,
+        frame_two_payloads: [&[u8]; 2],
+    ) {
+        let push = |frame_number: u16, sequence: u16, marker: FrameMarker, payload: &[u8]| {
+            let mut packet: Packet = Faker.fake();
+            packet.header.marker = marker;
+            packet.header.track_handle = handle;
+            packet.header.frame_number = frame_number;
+            packet.header.sequence = sequence;
+            packet.header.extensions.e2ee = None;
+            packet.payload = Bytes::copy_from_slice(payload);
+            input.send(InputEvent::PacketReceived(packet.serialize())).unwrap();
+        };
+        push(frame_one_number, frame_one_start_sequence, FrameMarker::Start, frame_one_payloads[0]);
+        push(frame_two_number, frame_two_start_sequence, FrameMarker::Start, frame_two_payloads[0]);
+        push(
+            frame_one_number,
+            frame_one_start_sequence + 1,
+            FrameMarker::Final,
+            frame_one_payloads[1],
+        );
+        push(
+            frame_two_number,
+            frame_two_start_sequence + 1,
+            FrameMarker::Final,
+            frame_two_payloads[1],
+        );
+    }
 }
