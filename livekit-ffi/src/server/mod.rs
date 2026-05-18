@@ -160,7 +160,6 @@ impl FfiServer {
     }
 
     pub async fn dispose(&'static self) {
-        self.logger.set_capture_logs(false);
         log::debug!("disposing ffi server");
 
         // Close all rooms
@@ -174,6 +173,8 @@ impl FfiServer {
         for room in rooms {
             room.close(self, DisconnectReason::ClientInitiated).await;
         }
+
+        self.logger.set_capture_logs(false);
 
         // Drop all handles
         *self.config.lock() = None; // Invalidate the config
