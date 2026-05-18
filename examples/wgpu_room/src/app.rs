@@ -1,5 +1,6 @@
 use crate::{
     data_track::{LocalDataTrackTile, RemoteDataTrackTile, MAX_VALUE, TIME_WINDOW},
+    rpc_ui::RpcUiState,
     service::{AsyncCmd, LkService, UiCmd},
     video_grid::VideoGrid,
     video_renderer::VideoRenderer,
@@ -7,6 +8,7 @@ use crate::{
 use egui::{emath, epaint, pos2, Color32, CornerRadius, Rect, Stroke};
 use livekit::{e2ee::EncryptionType, prelude::*, track::VideoQuality, SimulateScenario};
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// The state of the application are saved on app exit and restored on app start.
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -19,6 +21,12 @@ struct AppState {
     enable_e2ee: bool,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RightTab {
+    Participants,
+    Rpc,
+}
+
 pub struct LkApp {
     async_runtime: tokio::runtime::Runtime,
     state: AppState,
@@ -29,6 +37,8 @@ pub struct LkApp {
     connection_failure: Option<String>,
     render_state: egui_wgpu::RenderState,
     service: LkService,
+    rpc_ui: RpcUiState,
+    right_tab: RightTab,
 }
 
 impl Default for AppState {
@@ -63,6 +73,8 @@ impl LkApp {
             connecting: false,
             connection_failure: None,
             render_state: cc.wgpu_render_state.clone().unwrap(),
+            rpc_ui: RpcUiState::default(),
+            right_tab: RightTab::Participants,
         }
     }
 
@@ -79,6 +91,9 @@ impl LkApp {
             }
             UiCmd::DataTrackUnpublished => {
                 self.local_data_tracks.clear();
+            }
+            UiCmd::RpcSendResult { request_id, result } => {
+                self.rpc_ui.handle_send_result(request_id, result);
             }
             UiCmd::RoomEvent { event } => {
                 log::info!("{:?}", event);
@@ -119,6 +134,7 @@ impl LkApp {
                         self.video_renderers.clear();
                         self.local_data_tracks.clear();
                         self.remote_data_tracks.clear();
+                        self.rpc_ui.on_disconnect();
                     }
                     _ => {}
                 }
@@ -244,15 +260,32 @@ impl LkApp {
         ui.separator();
     }
 
-    /// Show remote_participants and their tracks
-    fn right_panel(&self, ui: &mut egui::Ui) {
-        ui.label("Participants");
+    fn right_panel(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.selectable_value(&mut self.right_tab, RightTab::Participants, "Participants");
+            ui.selectable_value(&mut self.right_tab, RightTab::Rpc, "RPC");
+        });
         ui.separator();
 
         let Some(room) = self.service.room() else {
+            ui.label("Not connected");
             return;
         };
 
+        match self.right_tab {
+            RightTab::Participants => self.participants_tab(ui, &room),
+            RightTab::Rpc => {
+                let service = &self.service;
+                let rpc_ui = &mut self.rpc_ui;
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    rpc_ui.show(ui, service, &room);
+                });
+            }
+        }
+    }
+
+    /// Show remote_participants and their tracks
+    fn participants_tab(&self, ui: &mut egui::Ui, room: &Arc<Room>) {
         egui::ScrollArea::vertical().show(ui, |ui| {
             // Iterate with sorted keys to avoid flickers (Because this is a immediate mode UI)
             let participants = room.remote_participants();

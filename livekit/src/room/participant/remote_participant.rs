@@ -89,6 +89,7 @@ impl RemoteParticipant {
         joined_at: i64,
         auto_subscribe: bool,
         permission: Option<proto::ParticipantPermission>,
+        client_protocol: i32,
     ) -> Self {
         Self {
             inner: super::new_inner(
@@ -103,6 +104,7 @@ impl RemoteParticipant {
                 kind_details,
                 joined_at,
                 permission,
+                client_protocol,
             ),
             remote: Arc::new(RemoteInfo { events: Default::default(), auto_subscribe }),
         }
@@ -573,6 +575,10 @@ impl RemoteParticipant {
 
     pub fn permission(&self) -> Option<proto::ParticipantPermission> {
         self.inner.info.read().permission.clone()
+    }
+
+    pub fn client_protocol(&self) -> i32 {
+        self.inner.info.read().client_protocol
     }
 
     pub fn is_encrypted(&self) -> bool {
