@@ -41,8 +41,8 @@ impl FfiAudioSource {
 
                 let audio_source = NativeAudioSource::new(
                     new_source.options.map(Into::into).unwrap_or_default(),
-                    new_source.sample_rate,
-                    new_source.num_channels,
+                    new_source.sample_rate.unwrap_or(48000),
+                    new_source.num_channels.unwrap_or(1),
                     new_source.queue_size_ms.unwrap_or(1000),
                 );
                 RtcAudioSource::Native(audio_source)

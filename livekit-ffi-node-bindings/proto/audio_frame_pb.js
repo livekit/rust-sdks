@@ -154,8 +154,8 @@ const NewAudioSourceRequest = /*@__PURE__*/ proto2.makeMessageType(
   () => [
     { no: 1, name: "type", kind: "enum", T: proto2.getEnumType(AudioSourceType), req: true },
     { no: 2, name: "options", kind: "message", T: AudioSourceOptions, opt: true },
-    { no: 3, name: "sample_rate", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
-    { no: 4, name: "num_channels", kind: "scalar", T: 13 /* ScalarType.UINT32 */, req: true },
+    { no: 3, name: "sample_rate", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
+    { no: 4, name: "num_channels", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
     { no: 5, name: "queue_size_ms", kind: "scalar", T: 13 /* ScalarType.UINT32 */, opt: true },
     { no: 6, name: "platform_audio_handle", kind: "scalar", T: 4 /* ScalarType.UINT64 */, opt: true },
   ],
