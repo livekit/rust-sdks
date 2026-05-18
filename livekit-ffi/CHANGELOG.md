@@ -316,6 +316,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.58 (2026-05-18)
+
+### Features
+
+- FFI logging improvements
+
+#### Make `sample_rate` and `num_channels` optional in `NewAudioSourceRequest`.
+
+These fields are ignored for `AudioSourcePlatform` (ADM uses hardware native settings) and for `AudioSourceNative` fast path (queue_size_ms=0, frame values used directly). Defaults to 48000 Hz and 1 channel when not specified.
+
+### Fixes
+
+- fix: don't fire local_track_subscribed during reconnect - #1099 (@davidzhao)
+- Fix LocalTrackPublished handle leak - #1065 (@MaxHeimbrock)
+- Return EOS event from data track stream read request
+
 ## 0.12.57 (2026-05-14)
 
 ### Fixes
