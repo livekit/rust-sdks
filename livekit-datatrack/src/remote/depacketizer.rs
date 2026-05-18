@@ -306,9 +306,7 @@ mod tests {
         assert!(result.frame.is_none() && result.drop_error.is_none());
 
         let first_frame_number = packet.header.frame_number;
-        // Advance to the next frame; `wrapping_add` so a Faker-generated
-        // u32::MAX frame_number doesn't blow up on overflow.
-        packet.header.frame_number = packet.header.frame_number.wrapping_add(1);
+        packet.header.frame_number = packet.header.frame_number.wrapping_add(1); // Next frame
 
         let result = depacketizer.push(packet);
         assert!(result.frame.is_none());
@@ -414,13 +412,5 @@ mod tests {
 
         assert!(frame.payload.starts_with(&[0xCD; 3]));
         // Should retain the second packet with duplicate sequence number
-    }
-
-    impl fake::Dummy<fake::Faker> for Packet {
-        fn dummy_with_rng<R: rand::Rng + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
-            let payload_len = rng.random_range(0..=1500);
-            let payload = (0..payload_len).map(|_| rng.random()).collect::<Bytes>();
-            Self { header: Faker.fake_with_rng(rng), payload }
-        }
     }
 }

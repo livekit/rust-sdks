@@ -20,6 +20,10 @@ from_variants = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
 anyhow = { workspace = true } # For internal error handling only
 rand = { workspace = true }
+fake = { version = "4.4", features = ["derive"], optional = true }
+
+[features]
+__fuzz = ["dep:fake"]
 
 [dev-dependencies]
 test-case = "3.3"
