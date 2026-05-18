@@ -20,7 +20,9 @@ from_variants = { workspace = true }
 tokio-stream = { workspace = true, features = ["sync"] }
 anyhow = { workspace = true } # For internal error handling only
 rand = { workspace = true }
+indexmap = "2"
 
 [dev-dependencies]
 test-case = "3.3"
 fake = { version = "4.4", features = ["derive"] }
+tokio = { workspace = true, default-features = false, features = ["macros", "rt", "rt-multi-thread", "time"] }

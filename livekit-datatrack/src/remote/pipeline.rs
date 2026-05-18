@@ -12,25 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::depacketizer::{Depacketizer, DepacketizerFrame};
+use super::depacketizer::{Depacketizer, DepacketizerFrame, DepacketizerPushOptions};
 use crate::{
     api::{DataTrackFrame, DataTrackInfo},
     e2ee::{DecryptionProvider, EncryptedPayload},
     packet::Packet,
 };
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 
 /// Options for creating a [`Pipeline`].
 pub(super) struct PipelineOptions {
     pub info: Arc<DataTrackInfo>,
     pub publisher_identity: Arc<str>,
     pub decryption_provider: Option<Arc<dyn DecryptionProvider>>,
+    pub max_partial_frames: Arc<AtomicUsize>,
 }
 
 /// Pipeline for an individual data track subscription.
 pub(super) struct Pipeline {
     publisher_identity: Arc<str>,
     e2ee_provider: Option<Arc<dyn DecryptionProvider>>,
+    max_partial_frames: Arc<AtomicUsize>,
     depacketizer: Depacketizer,
 }
 
@@ -42,6 +47,7 @@ impl Pipeline {
         Self {
             publisher_identity: options.publisher_identity,
             e2ee_provider: options.decryption_provider,
+            max_partial_frames: options.max_partial_frames,
             depacketizer,
         }
     }
@@ -54,7 +60,10 @@ impl Pipeline {
 
     /// Depacketize the given frame, log if a drop occurs.
     fn depacketize(&mut self, packet: Packet) -> Option<DepacketizerFrame> {
-        let result = self.depacketizer.push(packet);
+        let push_options = DepacketizerPushOptions {
+            max_partial_frames: self.max_partial_frames.load(Ordering::Relaxed),
+        };
+        let result = self.depacketizer.push(packet, push_options);
         if let Some(drop) = result.drop_error {
             // In a future version, use this to maintain drop statistics.
             log::debug!("{}", drop);
@@ -108,8 +117,12 @@ mod tests {
 
         let publisher_identity: Arc<str> = Faker.fake::<String>().into();
 
-        let options =
-            PipelineOptions { info: info.into(), publisher_identity, decryption_provider: None };
+        let options = PipelineOptions {
+            info: info.into(),
+            publisher_identity,
+            decryption_provider: None,
+            max_partial_frames: Arc::new(AtomicUsize::new(1)),
+        };
         let mut pipeline = Pipeline::new(options);
 
         let mut header: Header = Faker.fake();
