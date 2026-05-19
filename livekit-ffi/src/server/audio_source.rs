@@ -12,12 +12,61 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{borrow::Cow, slice};
+use std::{
+    borrow::Cow, slice,
+    sync::{
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+        Once,
+    },
+    time::Duration,
+};
 
 use livekit::webrtc::prelude::*;
 
 use super::FfiHandle;
 use crate::{proto, server, FfiError, FfiHandleId, FfiResult};
+
+// Diagnostic counters for capture_frame task accounting.
+// Used to investigate suspected unbounded task accumulation on `audio_runtime`.
+static CAPTURE_INFLIGHT: AtomicUsize = AtomicUsize::new(0);
+static CAPTURE_INFLIGHT_PEAK: AtomicUsize = AtomicUsize::new(0);
+static CAPTURE_SPAWNED: AtomicU64 = AtomicU64::new(0);
+static CAPTURE_COMPLETED: AtomicU64 = AtomicU64::new(0);
+static CAPTURE_BYTES_INFLIGHT: AtomicUsize = AtomicUsize::new(0);
+static CAPTURE_LOGGER_STARTED: Once = Once::new();
+
+fn ensure_capture_logger(server: &'static server::FfiServer) {
+    CAPTURE_LOGGER_STARTED.call_once(|| {
+        server.async_runtime.spawn(async {
+            let mut last_spawned: u64 = 0;
+            let mut last_completed: u64 = 0;
+            let mut tick = tokio::time::interval(Duration::from_secs(1));
+            loop {
+                tick.tick().await;
+                let inflight = CAPTURE_INFLIGHT.load(Ordering::Relaxed);
+                let peak = CAPTURE_INFLIGHT_PEAK.load(Ordering::Relaxed);
+                let spawned = CAPTURE_SPAWNED.load(Ordering::Relaxed);
+                let completed = CAPTURE_COMPLETED.load(Ordering::Relaxed);
+                let bytes = CAPTURE_BYTES_INFLIGHT.load(Ordering::Relaxed);
+                let spawn_rate = spawned.saturating_sub(last_spawned);
+                let completion_rate = completed.saturating_sub(last_completed);
+                last_spawned = spawned;
+                last_completed = completed;
+                println!(
+                    "[AUDIO_CAPTURE_DIAG] inflight={} peak={} bytes_inflight={} \
+                     spawned_total={} completed_total={} spawn_rate={}/s completion_rate={}/s",
+                    inflight,
+                    peak,
+                    bytes,
+                    spawned,
+                    completed,
+                    spawn_rate,
+                    completion_rate,
+                );
+            }
+        });
+    });
+}
 
 pub struct FfiAudioSource {
     pub handle_id: FfiHandleId,
@@ -83,6 +132,26 @@ impl FfiAudioSource {
         }
         .to_vec();
 
+        ensure_capture_logger(server);
+
+        let frame_bytes = data.len() * std::mem::size_of::<i16>();
+        let inflight = CAPTURE_INFLIGHT.fetch_add(1, Ordering::Relaxed) + 1;
+        CAPTURE_SPAWNED.fetch_add(1, Ordering::Relaxed);
+        CAPTURE_BYTES_INFLIGHT.fetch_add(frame_bytes, Ordering::Relaxed);
+        // Track peak in-flight (non-atomic CAS loop, Relaxed is fine for diagnostics).
+        let mut peak = CAPTURE_INFLIGHT_PEAK.load(Ordering::Relaxed);
+        while inflight > peak {
+            match CAPTURE_INFLIGHT_PEAK.compare_exchange_weak(
+                peak,
+                inflight,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(observed) => peak = observed,
+            }
+        }
+
         // Use dedicated audio_runtime for audio capture
         let handle = server.audio_runtime.spawn(async move {
             // The data must be available as long as the client receive the callback.
@@ -113,6 +182,9 @@ impl FfiAudioSource {
                 }
                 _ => {}
             }
+            CAPTURE_INFLIGHT.fetch_sub(1, Ordering::Relaxed);
+            CAPTURE_BYTES_INFLIGHT.fetch_sub(frame_bytes, Ordering::Relaxed);
+            CAPTURE_COMPLETED.fetch_add(1, Ordering::Relaxed);
         });
         server.watch_panic(handle);
 
