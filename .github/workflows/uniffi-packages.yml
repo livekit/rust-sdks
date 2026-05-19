@@ -68,3 +68,13 @@ jobs:
       dry_run: ${{ inputs.dry_run || false }}
     secrets:
       UNIFFI_XCFRAMEWORK_PAT: ${{ secrets.UNIFFI_XCFRAMEWORK_PAT }}
+
+  android:
+    needs: resolve-tag
+    if: needs.resolve-tag.outputs.tag_name != ''
+    uses: ./.github/workflows/uniffi-android.yml
+    with:
+      version: ${{ needs.resolve-tag.outputs.version }}
+      tag_name: ${{ needs.resolve-tag.outputs.tag_name }}
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets: inherit
