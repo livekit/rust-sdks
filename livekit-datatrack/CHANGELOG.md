@@ -1,4 +1,17 @@
 # Changelog
+## 0.1.6 (2026-05-18)
+
+### Fixes
+
+- Add AGENTS.md and minor doc revisions
+- Add `cargo-fuzz` target for packet deserialization
+
+## 0.1.5 (2026-05-11)
+
+### Fixes
+
+- Upgrade protocol to v1.45.8
+
 ## 0.1.4 (2026-04-23)
 
 ### Fixes

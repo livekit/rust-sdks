@@ -238,6 +238,14 @@ env = { LANG = "node" }
 run_task = "node-package-flow"
 
 # MARK: - Swift
+#
+# Output: ${PACKAGES_DIR}/swift/${SPM_NAME}/ ready to publish.
+#
+# Local dev:   cargo make swift-package
+#              → Package.swift uses local `.xcframework` path; podspec/zip skipped.
+#
+# Release:     SPM_VERSION=0.0.7 cargo make --profile release swift-package
+#              → Package.swift uses release URL + checksum; zip + podspec generated.
 
 [tasks.swift-xcframework.env]
 SWIFT_RELEASE_FLAG = { value = "--release", condition = { profiles = ["release"] } }
@@ -269,18 +277,47 @@ cargo swift package \
 ${SWIFT_RELEASE_FLAG}
 """
 
+# Zip the xcframework and stash the SHA256 next to it so swift-generate-manifest
+# can pick it up. Only runs in release profile — local dev points at the
+# unzipped xcframework directly.
+[tasks.swift-zip-xcframework]
+private = true
+condition = { profiles = ["release"] }
+script_runner = "@shell"
+script = """
+cd ${SPM_NAME}
+zip -r --symlinks Rust${SPM_NAME}.xcframework.zip Rust${SPM_NAME}.xcframework
+shasum -a 256 Rust${SPM_NAME}.xcframework.zip | awk '{print $1}' > .checksum
+echo "Rust${SPM_NAME}.xcframework.zip checksum: $(cat .checksum)"
+"""
+
 [tasks.swift-generate-manifest.env]
-SPM_URL = { value = "https://dummy.com" }
-SPM_CHECKSUM = { value = "1234" }
+# Caller sets SPM_VERSION for release publishing. Hosting repo defaults to the
+# canonical LiveKit one; override if forking. The condition makes these
+# defaults only — caller-set values from the environment take precedence.
+SPM_VERSION = { value = "0.0.0-dev", condition = { env_not_set = ["SPM_VERSION"] } }
+SPM_HOSTING_REPO = { value = "livekit/livekit-uniffi-xcframework", condition = { env_not_set = ["SPM_HOSTING_REPO"] } }
 
 [tasks.swift-generate-manifest]
 private = true
 install_crate = { crate_name = "tera-cli", binary = "tera", test_arg = "--version" }
 script_runner = "@shell"
 script = """
-tera  --env --file ${SUPPORT_DIR}/${LANG}/Package.swift.tera > ${SPM_NAME}/Package.swift
-tera  --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.2.swift.tera > ${SPM_NAME}/Package@swift-6.2.swift
+# Derive URL and read the checksum produced by swift-zip-xcframework. In dev
+# profile the .checksum file is absent and these aren't substituted into the
+# template (the path: branch is used instead), so dummy values are fine.
+export SPM_URL="https://github.com/${SPM_HOSTING_REPO}/releases/download/${SPM_VERSION}/Rust${SPM_NAME}.xcframework.zip"
+if [ -f ${SPM_NAME}/.checksum ]; then
+  export SPM_CHECKSUM=$(cat ${SPM_NAME}/.checksum)
+else
+  export SPM_CHECKSUM="0000000000000000000000000000000000000000000000000000000000000000"
+fi
+
+tera --env --file ${SUPPORT_DIR}/${LANG}/Package.swift.tera > ${SPM_NAME}/Package.swift
+tera --env --file ${SUPPORT_DIR}/${LANG}/Package@swift-6.2.swift.tera > ${SPM_NAME}/Package@swift-6.2.swift
+tera --env --file ${SUPPORT_DIR}/${LANG}/${SPM_NAME}.podspec.tera > ${SPM_NAME}/${SPM_NAME}.podspec
 cp ${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/LICENSE ${SPM_NAME}/LICENSE
+rm -f ${SPM_NAME}/.checksum
 """
 
 [tasks.swift-move-to-packages]
@@ -297,6 +334,7 @@ mv "${SPM_NAME}" "${out_dir}"
 private = true
 dependencies = [
     "swift-xcframework",
+    "swift-zip-xcframework",
     "swift-generate-manifest",
     "swift-move-to-packages"
 ]

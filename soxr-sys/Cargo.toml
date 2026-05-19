@@ -14,4 +14,4 @@ repository.workspace = true
 cc = "1.0"
 
 [dev-dependencies]
-hound = "3.4"
+hound = { workspace = true }

@@ -16,9 +16,10 @@ use super::{FfiHandle, FfiServer};
 use crate::{proto, FfiHandleId, FfiResult};
 use futures_util::StreamExt;
 use livekit::data_track::{
-    DataTrackFrame, DataTrackStream, DataTrackSubscribeOptions, LocalDataTrack, RemoteDataTrack,
+    DataTrackFrame, DataTrackStream, DataTrackSubscribeError, DataTrackSubscribeOptions,
+    LocalDataTrack, RemoteDataTrack,
 };
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::{oneshot, Notify};
 
 /// FFI wrapper around [`LocalDataTrack`].
@@ -116,11 +117,16 @@ impl FfiRemoteDataTrack {
         let handle_id = server.next_id();
         let (drop_tx, drop_rx) = oneshot::channel();
         let notify_read = Arc::new(Notify::new());
+        let eos_event = Arc::new(OnceLock::new());
 
-        let stream = FfiDataTrackStream { notify_read: notify_read.clone(), drop_tx };
+        let stream = FfiDataTrackStream {
+            notify_read: notify_read.clone(),
+            eos_event: eos_event.clone(),
+            drop_tx,
+        };
         server.store_handle(handle_id, stream);
 
-        let task = SubscriptionTask { server, handle_id, notify_read, drop_rx };
+        let task = SubscriptionTask { server, handle_id, notify_read, eos_event, drop_rx };
         let task_handle = server.async_runtime.spawn(task.run(self.inner, request.options.into()));
         server.watch_panic(task_handle);
 
@@ -132,8 +138,11 @@ impl FfiRemoteDataTrack {
 
 pub struct FfiDataTrackStream {
     notify_read: Arc<Notify>,
+    // Populated with the end-of-stream event once the stream has ended.
+    eos_event: Arc<OnceLock<proto::DataTrackStreamEos>>,
+    /// Used to drop the associated task when self is dropped
     #[allow(dead_code)]
-    drop_tx: oneshot::Sender<()>, // Used to drop the associated task when self is dropped
+    drop_tx: oneshot::Sender<()>,
 }
 
 impl FfiHandle for FfiDataTrackStream {}
@@ -143,8 +152,11 @@ impl FfiDataTrackStream {
         &self,
         _request: proto::DataTrackStreamReadRequest,
     ) -> proto::DataTrackStreamReadResponse {
-        self.notify_read.notify_one();
-        proto::DataTrackStreamReadResponse::default()
+        let eos_event = self.eos_event.get().cloned();
+        if eos_event.is_none() {
+            self.notify_read.notify_one();
+        }
+        proto::DataTrackStreamReadResponse { eos_event }
     }
 }
 
@@ -152,6 +164,7 @@ struct SubscriptionTask {
     server: &'static FfiServer,
     handle_id: FfiHandleId,
     notify_read: Arc<Notify>,
+    eos_event: Arc<OnceLock<proto::DataTrackStreamEos>>,
     drop_rx: oneshot::Receiver<()>,
 }
 
@@ -176,7 +189,7 @@ impl SubscriptionTask {
             result = track.subscribe_with_options(options) => match result {
                 Ok(stream) => Some(stream),
                 Err(err) => {
-                    self.send_eos(Some(err.to_string()));
+                    self.send_eos(Some(err));
                     None
                 }
             },
@@ -198,10 +211,12 @@ impl SubscriptionTask {
         let _ = self.server.send_event(event.into());
     }
 
-    fn send_eos(&self, error: Option<String>) {
+    fn send_eos(&self, error: Option<DataTrackSubscribeError>) {
+        let eos_event = proto::DataTrackStreamEos { error: error.map(Into::into) };
+        let _ = self.eos_event.set(eos_event.clone()); // Store for read request
         let event = proto::DataTrackStreamEvent {
             stream_handle: self.handle_id,
-            detail: Some(proto::DataTrackStreamEos { error }.into()),
+            detail: Some(eos_event.into()),
         };
         let _ = self.server.send_event(event.into());
     }

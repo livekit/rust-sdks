@@ -206,7 +206,10 @@ message SubscribeDataTrackResponse {
 message DataTrackStreamReadRequest {
   required uint64 stream_handle = 1;
 }
-message DataTrackStreamReadResponse {}
+message DataTrackStreamReadResponse {
+  // The end-of-stream event if the stream has already ended.
+  optional DataTrackStreamEOS eos_event = 1;
+}
 
 // Event emitted on an active stream.
 message DataTrackStreamEvent {
@@ -224,7 +227,7 @@ message DataTrackStreamFrameReceived {
 
 // Stream has ended.
 message DataTrackStreamEOS {
-  // If the track could not be subscribed to, a message describing the error.
-  // Absent if the stream ended normally.
-  optional string error = 1;
+  // Present if stream ended before any frames were emitted due to subscription establishment failing.
+  // Absent if the stream ended normally (i.e., due to the track being unpublished).
+  optional SubscribeDataTrackError error = 1;
 }

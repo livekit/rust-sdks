@@ -257,6 +257,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.40 (2026-05-14)
+
+### Fixes
+
+- feat: add scalability mode for AV1/VP9. - #1076 (@cloudwebrtc)
+- Add `LIVEKIT_PREFERRED_HW_ENCODER` to prefer `nvenc` or `vaapi` hardware video encoding when both are available.
+- Relocate unrelated types out of `livekit-protocol`
+
+#### Get WebRTC ADM into Rust - #1037 (@xianshijing-lk)
+
+This PR introduces platform audio device management via WebRTC's Audio Device Module (ADM).
+
+#### Features
+- **ADM Proxy**: New `AdmProxy` class that switches between Dummy ADM (synthetic mode) and Platform ADM (real audio I/O)
+- **PlatformAudio API**: High-level Rust API for microphone capture and speaker playout with AEC/AGC/NS
+- **Device enumeration**: List and select recording/playout devices by index or GUID
+- **Mode switching**: Seamlessly switch between synthetic mode (FFI callbacks) and platform mode (native speakers) while audio is active
+- **FFI platform audio support**: Expose platform audio device enumeration and selection through `livekit-ffi`
+- **Audio processing**: Configure echo cancellation, noise suppression, and auto gain control with platform-specific defaults (hardware on iOS, software elsewhere)
+
+#### Audio Modes
+| Mode | Recording | Playout | Use Case |
+|------|-----------|---------|----------|
+| Synthetic | NativeAudioSource | Dummy ADM + FFI | Unity audio, agents |
+| Platform | Platform ADM mic | Platform ADM speakers | VoIP with AEC |
+
+#### API
+```rust
+// Create PlatformAudio for microphone/speaker access
+let audio = PlatformAudio::new()?;
+
+// Enumerate and select devices
+for i in 0..audio.recording_devices() as u16 {
+    println!("Mic {}: {}", i, audio.recording_device_name(i));
+}
+audio.set_recording_device(0)?;
+
+// Create audio track for publishing
+let track = LocalAudioTrack::create_audio_track("mic", audio.rtc_source());
+```
+
+## 0.7.39 (2026-05-11)
+
+### Fixes
+
+- fix: Sync inner.enabled state for E2EE manager. - #1073 (@cloudwebrtc)
+- Upgrade protocol to v1.45.8
+
+## 0.7.38 (2026-05-10)
+
+### Fixes
+
+- Bump `rustls-webpki` to 0.103.13, addressing [GHSA-82j2-j2ch-gfr8](https://github.com/advisories/GHSA-82j2-j2ch-gfr8)
+- Fix missing `libwebrtc.jar` for Android builds, harden build scripts
+- fix: derive `simulcasted` from non-deprecated TrackInfo fields - #1052 (@cloudwebrtc)
+- fix race in download_webrtc to reduce flaky build - #1047 (@hechen-eng)
+- Improve WebRTC build scripts and add external_audio_source patch - #1053 (@xianshijing-lk)
+- support SimulateScenario through FFI to improve testing - #1069 (@davidzhao)
+- TEL-464: reduce redundant resampling in audio filter - #1019 (@hechen-eng)
+
 ## 0.7.37 (2026-04-23)
 
 ### Features

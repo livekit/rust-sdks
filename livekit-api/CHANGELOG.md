@@ -96,6 +96,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Update protocol and add SendDataRequest nonce
+## 0.4.23 (2026-05-18)
+
+### Fixes
+
+- Expose room playout delay options in the server API and let the local video publisher recreate rooms with explicit min/max playout delay settings.
+
+## 0.4.22 (2026-05-14)
+
+### Fixes
+
+- Proper client SDK - #1081 (@stephen-derosa)
+
+## 0.4.21 (2026-05-11)
+
+### Fixes
+
+- Upgrade protocol to v1.45.8
+
+## 0.4.20 (2026-05-10)
+
+### Features
+
+- Bump `rustls-webpki` to 0.103.13, addressing [GHSA-82j2-j2ch-gfr8](https://github.com/advisories/GHSA-82j2-j2ch-gfr8)
+
+### Fixes
+
+- fix(signal-client): carry access token on validate() fallback - #1044 (@abhisheksingh-R41)
+- Add advertising of SDK client capabilities - #1022 (@chenosaurus)
+
 ## 0.4.19 (2026-04-23)
 
 ### Features

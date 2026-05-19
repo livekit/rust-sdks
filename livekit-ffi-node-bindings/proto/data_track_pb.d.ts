@@ -929,6 +929,13 @@ export declare class DataTrackStreamReadRequest extends Message<DataTrackStreamR
  * @generated from message livekit.proto.DataTrackStreamReadResponse
  */
 export declare class DataTrackStreamReadResponse extends Message<DataTrackStreamReadResponse> {
+  /**
+   * The end-of-stream event if the stream has already ended.
+   *
+   * @generated from field: optional livekit.proto.DataTrackStreamEOS eos_event = 1;
+   */
+  eosEvent?: DataTrackStreamEOS;
+
   constructor(data?: PartialMessage<DataTrackStreamReadResponse>);
 
   static readonly runtime: typeof proto2;
@@ -1020,12 +1027,12 @@ export declare class DataTrackStreamFrameReceived extends Message<DataTrackStrea
  */
 export declare class DataTrackStreamEOS extends Message<DataTrackStreamEOS> {
   /**
-   * If the track could not be subscribed to, a message describing the error.
-   * Absent if the stream ended normally.
+   * Present if stream ended before any frames were emitted due to subscription establishment failing.
+   * Absent if the stream ended normally (i.e., due to the track being unpublished).
    *
-   * @generated from field: optional string error = 1;
+   * @generated from field: optional livekit.proto.SubscribeDataTrackError error = 1;
    */
-  error?: string;
+  error?: SubscribeDataTrackError;
 
   constructor(data?: PartialMessage<DataTrackStreamEOS>);
 

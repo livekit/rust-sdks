@@ -433,16 +433,29 @@ async fn test_publisher_side_fault(scenario: SimulateScenario) -> Result<()> {
         assert!(track.is_published(), "Should still be reported as published");
 
         if scenario == SimulateScenario::ForceTcp {
-            // Give some time for the track to be republished. Frames will be dropped until then.
-            time::sleep(Duration::from_millis(2000)).await;
-            assert_ne!(initial_sid, track.info().sid(), "Should have new SID");
+            // Republish (full reconnect → new RtcSession → new sid) is async.
+            // Poll up to 8s for the new sid instead of unconditionally sleeping
+            // a fixed window:
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+            loop {
+                if track.info().sid() != initial_sid {
+                    break;
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    panic!(
+                        "Should have new SID after ForceTcp reconnect (still {:?})",
+                        initial_sid
+                    );
+                }
+                time::sleep(Duration::from_millis(100)).await;
+            }
         }
 
         assert!(track.is_published(), "Should still be reported as published");
         track.try_push(vec![0xFA; 64].into()).expect("Should be able to push frame");
     };
 
-    let _ = timeout(Duration::from_secs(10), publish).await?;
+    let _ = timeout(Duration::from_secs(15), publish).await?;
     Ok(())
 }
 

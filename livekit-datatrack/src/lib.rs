@@ -57,3 +57,10 @@ pub mod backend {
         pub use crate::remote::{events::*, manager::*, proto::*};
     }
 }
+
+/// Internal re-export for the fuzzing target.
+#[doc(hidden)]
+#[cfg(feature = "__fuzz")]
+pub mod __fuzz {
+    pub use crate::packet::{Extensions, FrameMarker, Handle, Header, Packet, Timestamp};
+}

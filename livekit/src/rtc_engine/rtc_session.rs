@@ -31,10 +31,7 @@ use livekit_protocol::{self as proto};
 use livekit_runtime::{sleep, JoinHandle};
 use parking_lot::Mutex;
 use prost::Message;
-use proto::{
-    debouncer::{self, Debouncer},
-    SignalTarget,
-};
+use proto::SignalTarget;
 use serde::{Deserialize, Serialize};
 use tokio::sync::{
     mpsc::{self, WeakUnboundedSender},
@@ -46,6 +43,7 @@ use crate::{
     id::ParticipantIdentity,
     rtc_engine::dc_sender::{DataChannelSender, DataChannelSenderOptions, DataTrackSendQueue},
     utils::{
+        debouncer::{self, Debouncer},
         ttl_map::TtlMap,
         tx_queue::{TxQueue, TxQueueItem},
     },
@@ -748,6 +746,16 @@ impl RtcSession {
 
     pub async fn wait_pc_connection(&self) -> EngineResult<()> {
         self.inner.wait_pc_connection().await
+    }
+
+    /// Wait for PCs to be connected on the resume path.
+    ///
+    /// Sleeps `settle_delay` before polling, giving the just-issued ICE
+    /// restart offer/answer round-trip a chance to take effect when the
+    /// failure was signal-only (PCs may still report `Connected` immediately
+    /// after a WS hiccup, even though the new ufrag/pwd hasn't propagated yet).
+    pub async fn wait_pc_reconnected(&self, settle_delay: Duration) -> EngineResult<()> {
+        self.inner.wait_pc_connection_with_delay(settle_delay).await
     }
 
     /// Ensure the publisher peer connection is connected and the data channel is open.
@@ -1830,6 +1838,15 @@ impl SessionInner {
                 }))
                 .await?
             }
+            SimulateScenario::FullReconnect => {
+                self.signal_client
+                    .send(proto::signal_request::Message::Simulate(proto::SimulateScenario {
+                        scenario: Some(
+                            proto::simulate_scenario::Scenario::LeaveRequestFullReconnect(true),
+                        ),
+                    }))
+                    .await;
+            }
         }
         Ok(())
     }
@@ -1947,7 +1964,10 @@ impl SessionInner {
     }
 
     async fn restart_publisher(&self) -> EngineResult<()> {
-        if self.has_published.load(Ordering::Acquire) {
+        // In single-PC mode the publisher is the only transport, so always restart its ICE
+        // even if the user hasn't explicitly published a track yet. Otherwise only restart
+        // when we have something to keep alive on the publisher side.
+        if self.single_pc_mode || self.has_published.load(Ordering::Acquire) {
             self.publisher_pc
                 .create_and_send_offer(OfferOptions { ice_restart: true, ..Default::default() })
                 .await?;
@@ -1957,7 +1977,16 @@ impl SessionInner {
 
     /// Timeout after ['MAX_ICE_CONNECT_TIMEOUT']
     async fn wait_pc_connection(&self) -> EngineResult<()> {
+        self.wait_pc_connection_with_delay(Duration::ZERO).await
+    }
+
+    /// Like [`Self::wait_pc_connection`] but sleeps `settle_delay` before polling.
+    async fn wait_pc_connection_with_delay(&self, settle_delay: Duration) -> EngineResult<()> {
         let wait_connected = async move {
+            if !settle_delay.is_zero() {
+                livekit_runtime::sleep(settle_delay).await;
+            }
+
             loop {
                 let notified = self.pc_state_notify.notified();
 
@@ -1972,7 +2001,10 @@ impl SessionInner {
                     self.subscriber_pc.as_ref().map(|pc| pc.is_connected()).unwrap_or(true)
                 };
 
-                let need_publisher = self.has_published.load(Ordering::Acquire);
+                // In single-PC mode the publisher is the only transport, so it must always
+                // be connected — independent of whether the user has published any tracks.
+                let need_publisher =
+                    self.single_pc_mode || self.has_published.load(Ordering::Acquire);
 
                 if subscriber_connected && (!need_publisher || publisher_connected) {
                     break;

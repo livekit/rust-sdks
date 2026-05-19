@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use chrono::{DateTime, Utc};
-use livekit_protocol::{data_stream as proto, enum_dispatch};
+use libwebrtc::enum_dispatch;
+use livekit_protocol::data_stream as proto;
 use std::collections::HashMap;
 use thiserror::Error;
 

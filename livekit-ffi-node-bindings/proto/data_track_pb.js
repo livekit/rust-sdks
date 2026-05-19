@@ -391,7 +391,9 @@ const DataTrackStreamReadRequest = /*@__PURE__*/ proto2.makeMessageType(
  */
 const DataTrackStreamReadResponse = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.DataTrackStreamReadResponse",
-  [],
+  () => [
+    { no: 1, name: "eos_event", kind: "message", T: DataTrackStreamEOS, opt: true },
+  ],
 );
 
 /**
@@ -428,7 +430,7 @@ const DataTrackStreamFrameReceived = /*@__PURE__*/ proto2.makeMessageType(
 const DataTrackStreamEOS = /*@__PURE__*/ proto2.makeMessageType(
   "livekit.proto.DataTrackStreamEOS",
   () => [
-    { no: 1, name: "error", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 1, name: "error", kind: "message", T: SubscribeDataTrackError, opt: true },
   ],
 );
 

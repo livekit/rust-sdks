@@ -19,10 +19,24 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+    paths-ignore:
+      - "**/*.md"
+      - ".changeset/**"
+      - "LICENSE"
+      - "NOTICE"
+      - "renovate.json"
+      - ".vscode/**"
   workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
+  # sccache caches rustc invocations across runs (key: source hash + flags).
+  # RUSTC_WRAPPER is intentionally NOT set at workflow scope — see the probe
+  # step below for why (transient GHA cache backend errors should not fail
+  # the whole build). We do NOT wrap CC/CXX in this workflow because the
+  # matrix includes cross-compile targets (iOS, Android, Windows-arm64)
+  # where wrapping is fragile.
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   build:
@@ -101,7 +115,41 @@ jobs:
         run: |
           rustup target add ${{ matrix.target }}
 
-      - uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@054db53350805f83040bf3e6e9b8cf5a139aa7c9 # v0.0.7
+
+      - name: Enable sccache wrapping (probe first)
+        shell: bash
+        run: |
+          # Probe the GHA cache backend by starting the sccache server. If it
+          # fails (transient HTTP 400 from actions.githubusercontent.com has
+          # been seen in practice), skip exporting RUSTC_WRAPPER so the build
+          # falls back to vanilla rustc instead of erroring out.
+          if sccache --start-server >/dev/null 2>&1; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+            echo "::notice::sccache enabled (RUSTC_WRAPPER=sccache)"
+          else
+            echo "::warning::sccache backend unreachable; building without compile cache this run"
+          fi
+
+      - name: Cache cargo registry
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-registry-
+
+      - name: Cache cargo target
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        with:
+          path: target/
+          key: ${{ runner.os }}-cargo-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-target-${{ matrix.target }}-
 
       - name: Build (Cargo)
         if: ${{ !contains(matrix.target, 'android') }}

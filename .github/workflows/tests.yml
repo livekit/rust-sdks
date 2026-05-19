@@ -19,10 +19,27 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+    # Skip the test matrix for changes that can't possibly affect Rust
+    # compilation/tests (docs, changesets, license/notice, dependabot config).
+    # Source-only changes still trigger normally.
+    paths-ignore:
+      - "**/*.md"
+      - ".changeset/**"
+      - "LICENSE"
+      - "NOTICE"
+      - "renovate.json"
+      - ".vscode/**"
 
 env:
   CARGO_TERM_COLOR: always
   RUST_LOG: debug
+  # sccache stores its cache in GitHub Actions' cache backend; both rustc and
+  # C/C++ invocations route through it. RUSTC_WRAPPER is intentionally NOT set
+  # at workflow scope — the "Enable sccache" step only exports it after the
+  # backend probe succeeds, so transient outages of the GHA cache service
+  # (which return HTTP 400 and abort sccache server startup) make CI continue
+  # without sccache instead of failing the whole build.
+  SCCACHE_GHA_ENABLED: "true"
 
 jobs:
   build:
@@ -58,8 +75,38 @@ jobs:
           version: "25.2"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Cache Cargo registry
-        uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3.5.0
+      # sccache wraps both rustc and the C/C++ compilers used by `cxx_build`
+      # in `webrtc-sys`. The Mozilla action installs the binary; the probe
+      # step below only enables wrapping if the GHA cache backend is reachable
+      # (it occasionally returns transient HTTP 400s that crash sccache
+      # startup — we want builds to continue, not fail, in that case).
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@054db53350805f83040bf3e6e9b8cf5a139aa7c9 # v0.0.7
+
+      - name: Enable sccache wrapping (probe first)
+        shell: bash
+        run: |
+          # `sccache --start-server` actually exercises the configured backend
+          # (here: GHA cache). If it fails — e.g. azure-side outage — log a
+          # warning and skip exporting RUSTC_WRAPPER / CC / CXX so the build
+          # falls back to vanilla rustc. Slower, but green.
+          if sccache --start-server >/dev/null 2>&1; then
+            echo "RUSTC_WRAPPER=sccache" >> "$GITHUB_ENV"
+            # All three matrix targets in tests.yml are host targets (no
+            # cross-compile), so wrapping CC/CXX is safe. Skip on Windows:
+            # MSVC `cl` setup needs more care.
+            if [ "${{ runner.os }}" != "Windows" ]; then
+              echo "CC=sccache cc"  >> "$GITHUB_ENV"
+              echo "CXX=sccache c++" >> "$GITHUB_ENV"
+            fi
+            echo "::notice::sccache enabled (RUSTC_WRAPPER=sccache)"
+          else
+            echo "::warning::sccache backend unreachable; building without compile cache this run"
+          fi
+
+      # Cache cargo's downloaded crate sources + per-target build outputs.
+      - name: Cache cargo registry
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: |
             ~/.cargo/registry/index/
@@ -69,14 +116,13 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-registry-
 
-      - name: Cache Cargo build
-        uses: actions/cache@6f8efc29b200d32929f49075959781ed54ec270c # v3.5.0
+      - name: Cache cargo target
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
         with:
           path: target/
-          key: ${{ runner.os }}-cargo-build-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-target-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-build-${{ matrix.target }}-
-            ${{ runner.os }}-cargo-build-
+            ${{ runner.os }}-cargo-target-${{ matrix.target }}-
 
       - name: Install linux dependencies
         if: ${{ matrix.os == 'ubuntu-latest' }}
@@ -102,14 +148,43 @@ jobs:
             libxcomposite-dev \
             libglib2.0-dev
 
+      # Use the official install script for latest. If it fails (typically
+      # because GitHub's unauthenticated API rate-limit fires and the script
+      # can't resolve the latest tag → `Invalid version:`), fall back to a
+      # pinned release downloaded directly from GitHub releases. The fallback
+      # version is bumped manually here when needed; e2e tests don't need
+      # bleeding-edge server features.
       - name: Install LiveKit server
         if: ${{ matrix.e2e-testing }}
+        env:
+          LIVEKIT_FALLBACK_VERSION: v1.11.0
         run: |
-          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
-            curl -sSL https://get.livekit.io | bash
-          elif [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
             brew install livekit
+            exit 0
           fi
+
+          # Linux: try the install script first. errexit is suppressed inside
+          # an `if` condition, so a failed install just falls through to the
+          # fallback path instead of aborting.
+          if curl -sSL https://get.livekit.io | bash; then
+            echo "Installed livekit-server via install.livekit.io"
+            exit 0
+          fi
+
+          echo "::warning::install.livekit.io failed (likely API rate-limit); falling back to ${LIVEKIT_FALLBACK_VERSION}"
+          mkdir -p ~/.local/bin
+          case "${{ runner.arch }}" in
+            X64)   asset="livekit_${LIVEKIT_FALLBACK_VERSION#v}_linux_amd64.tar.gz" ;;
+            ARM64) asset="livekit_${LIVEKIT_FALLBACK_VERSION#v}_linux_arm64.tar.gz" ;;
+            *) echo "::error::no livekit-server linux asset for arch ${{ runner.arch }}"; exit 1 ;;
+          esac
+          url="https://github.com/livekit/livekit/releases/download/${LIVEKIT_FALLBACK_VERSION}/${asset}"
+          curl --fail --silent --show-error --location --retry 3 --output /tmp/livekit.tar.gz "$url"
+          tar -xzf /tmp/livekit.tar.gz -C /tmp
+          mv /tmp/livekit-server ~/.local/bin/
+          rm /tmp/livekit.tar.gz
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Run LiveKit server
         if: ${{ matrix.e2e-testing }}
@@ -118,11 +193,16 @@ jobs:
           LIVEKIT_CONFIG: "enable_data_tracks: true"
         run: livekit-server --dev &
 
+      # Unit tests run in dev profile to keep CI compile time low. E2E tests
+      # run in release: their timing windows (ICE handshake, reconnect, ping
+      # timeout) are sensitive to real-clock runtime, and dev-profile WebRTC
+      # adds enough overhead under load to push close to test timeouts.
+      # sccache absorbs most of the extra release-profile compile cost.
       - name: Test (no E2E)
         if: ${{ !matrix.e2e-testing }}
         env:
           RUST_LOG: info
-        run: cargo +nightly test --release --verbose --target ${{ matrix.target }} -- --nocapture
+        run: cargo +nightly test --verbose --target ${{ matrix.target }} -- --nocapture
 
       - name: Test (with E2E)
         if: ${{ matrix.e2e-testing }}
