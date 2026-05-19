@@ -462,7 +462,21 @@ impl RtcSession {
             );
 
             let dcs = Self::create_data_channels(&publisher_pc, &emitter)?;
-            Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
+
+            // The JS SDK creates recv media sections in the initial offer to receive
+            // existing tracks as soon as possible. Rust cannot do this due to
+            // different `ontrack` behavior between browsers and libwebrtc:
+            // 1. The client sends an initial offer with recv sections.
+            // 2. The server responds with an answer, but with sendonly media
+            //    sections without msid because no new track has been published.
+            // 3. Later, after a track is published and subscribed to by the client,
+            //    the server may reuse the media section from step 2 with the actual
+            //    track ID.
+            // 4. Browsers fire `ontrack`:
+            //    https://source.chromium.org/chromium/chromium/src/+/main:third_party/blink/renderer/modules/peerconnection/rtc_peer_connection.cc;l=2447
+            //    This is browser behavior, not libwebrtc core behavior.
+            // 5. libwebrtc does not fire `ontrack`, so the track subscription fails.
+            // Self::add_recv_media_sections(&publisher_pc.peer_connection(), 3, 3)?;
 
             match publisher_pc.create_initial_offer().await {
                 Ok(Some(offer)) => {
