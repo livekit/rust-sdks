@@ -178,7 +178,10 @@ message FfiRequest {
     // Room event ready signal
     ReadyForRoomEventRequest ready_for_room_event = 83;
 
-    // NEXT_ID: 84
+    // Logs
+    FlushLogsRequest flush_logs = 84;
+
+    // NEXT_ID: 85
   }
 }
 
@@ -302,7 +305,10 @@ message FfiResponse {
     // Room event ready signal
     ReadyForRoomEventResponse ready_for_room_event = 82;
 
-    // NEXT_ID: 83
+    // Logs
+    FlushLogsResponse flush_logs = 84;
+
+    // NEXT_ID: 85
   }
 }
 
@@ -405,6 +411,11 @@ message LogRecord {
 message LogBatch {
   repeated LogRecord records = 1;
 }
+
+// Flush any Rust log records buffered by the FFI logger.
+message FlushLogsRequest {}
+
+message FlushLogsResponse {}
 
 message Panic {
   required string message = 1;

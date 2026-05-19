@@ -21,6 +21,7 @@ use livekit::{
     webrtc::{native::apm, native::audio_resampler, prelude::*},
     AudioFilterPlugin, SimulateScenario,
 };
+use log::Log;
 use parking_lot::Mutex;
 
 use super::{
@@ -46,6 +47,15 @@ fn on_dispose(
     } else {
         todo!("async dispose");
     }
+}
+
+/// Flush buffered Rust logs to the FFI client.
+fn on_flush_logs(
+    server: &'static FfiServer,
+    _request: proto::FlushLogsRequest,
+) -> FfiResult<proto::FlushLogsResponse> {
+    server.logger.flush();
+    Ok(proto::FlushLogsResponse::default())
 }
 
 /// Connect to a room, and start listening for events
@@ -1317,6 +1327,7 @@ pub fn handle_request(
         Request::Disconnect(req) => on_disconnect(server, req)?.into(),
         Request::SimulateScenario(req) => on_simulate_scenario(server, req)?.into(),
         Request::ReadyForRoomEvent(req) => on_ready_for_room_event(server, req)?.into(),
+        Request::FlushLogs(req) => on_flush_logs(server, req)?.into(),
         Request::PublishTrack(req) => on_publish_track(server, req)?.into(),
         Request::UnpublishTrack(req) => on_unpublish_track(server, req)?.into(),
         Request::PublishData(req) => on_publish_data(server, req)?.into(),
