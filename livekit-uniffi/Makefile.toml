@@ -51,6 +51,15 @@ else
 end
 """
 
+[tasks.build-android]
+install_crate = { crate_name = "cargo-ndk", binary = "cargo-ndk", test_arg = "--help" }
+script_runner = "@duckscript"
+script = """
+echo "TARGET: ${TARGET}"
+exec rustup target add ${TARGET}
+exec cargo ndk --target ${TARGET} build --release
+"""
+
 # MARK: - Build, specific platforms
 
 [tasks.build-windows-x64]
@@ -70,15 +79,15 @@ extend = "build"
 env = { TARGET = "x86_64-unknown-linux-gnu" }
 
 [tasks.build-android-aarch64]
-extend = "build"
+extend = "build-android"
 env = { TARGET = "aarch64-linux-android" }
 
 [tasks.build-android-armv7]
-extend = "build"
+extend = "build-android"
 env = { TARGET = "armv7-linux-androideabi" }
 
 [tasks.build-android-x64]
-extend = "build"
+extend = "build-android"
 env = { TARGET = "x86_64-linux-android" }
 
 # MARK: - Build, platform groups
