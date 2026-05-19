@@ -12,11 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::{sync::LazyLock, time::Duration};
+
 use cxx::SharedPtr;
 use tokio::sync::oneshot;
 use webrtc_sys::audio_track as sys_at;
 
 use crate::{audio_frame::AudioFrame, audio_source::AudioSourceOptions, RtcError, RtcErrorType};
+
+/// Artificial delay injected into `capture_frame` to simulate slow capture.
+///
+/// Read once from the `LK_CAPTURE_DELAY` env var (in microseconds) to avoid
+/// touching the environment on every call in this hot path. Defaults to zero
+/// (no delay) when unset or unparseable.
+static CAPTURE_DELAY: LazyLock<Duration> = LazyLock::new(|| {
+    let delay = std::env::var("LK_CAPTURE_DELAY")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(Duration::from_micros)
+        .unwrap_or(Duration::ZERO);
+    if !delay.is_zero() {
+        log::warn!("LK_CAPTURE_DELAY is set: injecting {}us of sleep per capture_frame", delay.as_micros());
+    }
+    delay
+});
 
 #[derive(Clone)]
 pub struct NativeAudioSource {
@@ -129,6 +148,9 @@ impl NativeAudioSource {
                 // Use a valid no-op callback instead of null for safety
                 // In release mode, transmuting null pointers can cause UB
                 let noop_callback = sys_at::CompleteCallback(noop_complete_callback);
+                if !CAPTURE_DELAY.is_zero() {
+                    std::thread::sleep(*CAPTURE_DELAY);
+                }
                 let ok = self.sys_handle.capture_frame(
                     data,
                     self.sample_rate,
