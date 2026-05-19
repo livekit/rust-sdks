@@ -164,7 +164,7 @@ message FfiRequest {
     RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
     DataTrackStreamReadRequest data_track_stream_read = 75;
 
-// Reconnection / chaos testing
+    // Reconnection / chaos testing
     SimulateScenarioRequest simulate_scenario = 76;
 
     // Platform Audio (ADM)
@@ -175,7 +175,10 @@ message FfiRequest {
     StartRecordingRequest start_recording = 81;
     StopRecordingRequest stop_recording = 82;
 
-    // NEXT_ID: 83
+    // Room event ready signal
+    ReadyForRoomEventRequest ready_for_room_event = 83;
+
+    // NEXT_ID: 84
   }
 }
 
@@ -285,7 +288,7 @@ message FfiResponse {
     RemoteDataTrackIsPublishedResponse remote_data_track_is_published = 73;
     DataTrackStreamReadResponse data_track_stream_read = 74;
 
-// Reconnection / chaos testing
+    // Reconnection / chaos testing
     SimulateScenarioResponse simulate_scenario = 75;
 
     // Platform Audio (ADM)
@@ -296,7 +299,10 @@ message FfiResponse {
     StartRecordingResponse start_recording = 80;
     StopRecordingResponse stop_recording = 81;
 
-    // NEXT_ID: 82
+    // Room event ready signal
+    ReadyForRoomEventResponse ready_for_room_event = 82;
+
+    // NEXT_ID: 83
   }
 }
 

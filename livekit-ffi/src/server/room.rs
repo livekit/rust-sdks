@@ -20,7 +20,7 @@ use livekit::{prelude::*, registered_audio_filter_plugins};
 use livekit::{ChatMessage, StreamReader};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
-use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex, Notify};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
@@ -54,6 +54,12 @@ impl FfiHandle for FfiRoom {}
 pub struct FfiRoom {
     pub inner: Arc<RoomInner>,
     handle: Arc<AsyncMutex<Option<Handle>>>,
+    /// Signaled by the FFI client (via [`proto::ReadyForRoomEventRequest`]) once it
+    /// has finished installing its event listener. The connect task parks on
+    /// this notify after sending [`proto::ConnectCallback`] and only spawns the
+    /// event-forwarding tasks once it fires, ensuring no room events are
+    /// emitted before the client is ready to receive them.
+    room_event_ready_notify: Arc<Notify>,
 }
 
 pub struct RoomInner {
@@ -84,6 +90,8 @@ pub struct RoomInner {
     // ws url associated with this room
     url: String,
 }
+
+const ROOM_EVENT_READY_TIMEOUT: Duration = Duration::from_secs(1);
 
 struct Handle {
     event_handle: JoinHandle<()>,
@@ -195,7 +203,11 @@ impl FfiRoom {
                         build_initial_states(server, &inner, participants_with_tracks);
 
                     // Send callback
-                    let ffi_room = Self { inner: inner.clone(), handle: Default::default() };
+                    let ffi_room = Self {
+                        inner: inner.clone(),
+                        handle: Default::default(),
+                        room_event_ready_notify: Arc::new(Notify::new()),
+                    };
                     server.store_handle(ffi_room.inner.handle_id, ffi_room.clone());
 
                     // Keep the lock until the handle is "Some" (So it is OK for the client to
@@ -225,7 +237,33 @@ impl FfiRoom {
                         .into(),
                     );
 
-                    // Update Room SID on promise resolve
+                    // Wait for the FFI client to install its event listener and
+                    // send a ReadyForRoomEventRequest before forwarding any room
+                    // events. This avoids a race where events emitted between
+                    // the ConnectCallback and the listener registration are
+                    // dropped.
+                    if tokio::time::timeout(
+                        ROOM_EVENT_READY_TIMEOUT,
+                        ffi_room.room_event_ready_notify.notified(),
+                    )
+                    .await
+                    .is_err()
+                    {
+                        let msg = format!(
+                            "timed out waiting for ReadyForRoomEventRequest after ConnectCallback \
+                             (room_handle={handle_id})"
+                        );
+                        log::error!("{}", msg);
+                        drop(handle);
+                        ffi_room.close(server, DisconnectReason::ConnectionTimeout).await;
+                        server.drop_handle(handle_id);
+                        server.send_panic(Box::new(FfiError::InvalidRequest(msg.into())));
+                        return;
+                    }
+
+                    // Update Room SID on promise resolve. Spawned after the
+                    // ready handshake so the RoomSidChanged event is never
+                    // delivered before the client is ready to receive it.
                     let room_handle = inner.handle_id.clone();
                     server.async_runtime.spawn(async move {
                         let _ = server.send_event(
@@ -307,6 +345,13 @@ impl FfiRoom {
 
         server.watch_panic(server.async_runtime.spawn(connect));
         proto::ConnectResponse { async_id }
+    }
+
+    /// Release the connect task's wait point so room event forwarding can
+    /// begin. Called in response to a [`proto::ReadyForRoomEventRequest`] from the
+    /// FFI client once it has installed its event listener.
+    pub fn ready_for_room_event(&self) {
+        self.room_event_ready_notify.notify_one();
     }
 
     /// Close the room and stop the tasks
