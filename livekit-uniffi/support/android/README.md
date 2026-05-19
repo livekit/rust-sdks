@@ -15,9 +15,15 @@ From the crate root:
 cargo make android-package
 ```
 
-This runs, in order: `build-android-platforms` → `bindgen-kotlin` → `android-copy-so` → `android-assemble` → `android-copy-to-packages`.
-
 Published artifact: `packages/android/livekit-uniffi-android-release.aar`
+
+### Local Dev
+
+```bash
+cargo make android-package-local
+```
+
+Additionally publishes the package to the local maven repo for local dev use.
 
 ## Step by step
 

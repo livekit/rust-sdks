@@ -366,6 +366,9 @@ run_task = "swift-package-flow"
 # Output: ${PACKAGES_DIR}/android/livekit-uniffi-android-release.aar
 #
 # Full flow: cargo make android-package
+#
+# Local dev: cargo make swift-package-local
+#            → additionally publishes the package to local maven for local use
 
 [tasks.android-copy-jniLibs]
 description = "Copy release Android .so files into support/android jniLibs"
@@ -410,6 +413,22 @@ dependencies = [
 [tasks.android-package]
 description = "Build Android AAR with native libs and Kotlin bindings"
 run_task = "android-package-flow"
+
+[tasks.android-publish-maven-local]
+description = "Publish the release AAR to the local Maven repository (~/.m2/repository)"
+script_runner = "@shell"
+script = """
+cd "${SUPPORT_DIR}/android"
+./gradlew publishToMavenLocal -PRELEASE_SIGNING_ENABLED=false
+version="$(grep '^VERSION_NAME=' gradle.properties | cut -d= -f2)"
+group="$(grep '^GROUP=' gradle.properties | cut -d= -f2)"
+echo "Published to local Maven: ${group}:livekit-uniffi-android:${version}"
+"""
+
+[tasks.android-package-local]
+description = "Build Android AAR with native libs and Kotlin bindings; publish to local Maven"
+dependencies = ["android-package-flow"]
+run_task = "android-publish-maven-local"
 
 # Add other bindgen tasks here, following the same pattern
 # as above for the task name (e.g., "bindgen-<lang>").
