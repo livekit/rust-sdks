@@ -32,7 +32,7 @@ static CAPTURE_DELAY: LazyLock<Duration> = LazyLock::new(|| {
         .map(Duration::from_micros)
         .unwrap_or(Duration::ZERO);
     if !delay.is_zero() {
-        log::warn!("LK_CAPTURE_DELAY is set: injecting {}us of sleep per capture_frame", delay.as_micros());
+        println!("LK_CAPTURE_DELAY is set: injecting {}us of sleep per capture_frame", delay.as_micros());
     }
     delay
 });
