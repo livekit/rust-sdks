@@ -99,6 +99,14 @@ dependencies = [
     "build-windows-aarch64"
 ]
 
+[tasks.build-android-platforms]
+description = "Build for Android"
+dependencies = [
+    "build-android-aarch64",
+    "build-android-armv7",
+    "build-android-x64"
+]
+
 [tasks.build-linux-platforms]
 description = "Build for generic Linux and Android"
 dependencies = [
@@ -352,6 +360,56 @@ dependencies = [
 description = "Generate Swift package using cargo-swift"
 env = { LANG = "swift" }
 run_task = "swift-package-flow"
+
+# MARK: - Android
+#
+# Output: ${PACKAGES_DIR}/android/livekit-uniffi-android-release.aar
+#
+# Full flow: cargo make android-package
+
+[tasks.android-copy-jniLibs]
+description = "Copy release Android .so files into support/android jniLibs"
+script_runner = "@shell"
+script = """
+JNI_LIBS="${SUPPORT_DIR}/android/src/main/jniLibs"
+cp "${TARGET_DIR}/aarch64-linux-android/release/${LIB_NAME}.so" "${JNI_LIBS}/arm64-v8a/"
+cp "${TARGET_DIR}/armv7-linux-androideabi/release/${LIB_NAME}.so" "${JNI_LIBS}/armeabi-v7a/"
+cp "${TARGET_DIR}/x86_64-linux-android/release/${LIB_NAME}.so" "${JNI_LIBS}/x86_64/"
+"""
+
+[tasks.android-assemble]
+description = "Build the release AAR from support/android"
+script_runner = "@shell"
+script = """
+cd "${SUPPORT_DIR}/android"
+./gradlew assembleRelease
+echo "AAR: ${SUPPORT_DIR}/android/build/outputs/aar/livekit-uniffi-android-release.aar"
+"""
+
+[tasks.android-copy-to-packages]
+description = "Copy the release AAR into packages/android"
+script_runner = "@shell"
+script = """
+out_dir="${PACKAGES_DIR}/android"
+aar="${SUPPORT_DIR}/android/build/outputs/aar/livekit-uniffi-android-release.aar"
+mkdir -p "${out_dir}"
+cp "${aar}" "${out_dir}/"
+echo "AAR: ${out_dir}/livekit-uniffi-android-release.aar"
+"""
+
+[tasks.android-package-flow]
+private = true
+dependencies = [
+    "build-android-platforms",
+    "bindgen-kotlin",
+    "android-copy-jniLibs",
+    "android-assemble",
+    "android-copy-to-packages",
+]
+
+[tasks.android-package]
+description = "Build Android AAR with native libs and Kotlin bindings"
+run_task = "android-package-flow"
 
 # Add other bindgen tasks here, following the same pattern
 # as above for the task name (e.g., "bindgen-<lang>").

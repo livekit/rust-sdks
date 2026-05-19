@@ -28,3 +28,12 @@ cargo make node-package
 ```
 
 To test them out, run `cd node_test && npx tsx index.ts`
+
+### Android
+
+Build native libraries, Kotlin bindings, and a release AAR:
+```
+cargo make android-package
+```
+
+See [support/android/README.md](./support/android/README.md) for prerequisites (Android SDK/NDK).

@@ -1,2 +1,7 @@
 [bindings.swift]
 ffi_module_name = "RustLiveKitUniFFI"
+
+[bindings.kotlin]
+android = true
+package_name = "io.livekit.uniffi"
+cdylib_name = "livekit_uniffi" # the name of the so file to be loaded
