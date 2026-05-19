@@ -449,9 +449,16 @@ impl SignalInner {
 
         let sid = &self.join_response.participant.as_ref().unwrap().sid;
         let token = self.token.lock().clone();
-        let lk_url =
-            get_livekit_url(&self.url, &self.options, self.single_pc_mode_active, true, None, sid, None)
-                .unwrap();
+        let lk_url = get_livekit_url(
+            &self.url,
+            &self.options,
+            self.single_pc_mode_active,
+            true,
+            None,
+            sid,
+            None,
+        )
+        .unwrap();
 
         let result = async {
             let (new_stream, mut events) =
