@@ -917,6 +917,8 @@ async fn get_reconnect_response(
 
 #[cfg(test)]
 mod tests {
+    use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+
     use super::*;
 
     fn signal_options_for_cpp(version: &str) -> SignalOptions {
@@ -1077,7 +1079,8 @@ mod tests {
     #[test]
     fn livekit_url_v0_reports_cpp_sdk_and_version() {
         let io = signal_options_for_cpp("9.9.9-test");
-        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap();
+        let lk_url =
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
         let query: std::collections::HashMap<_, _> = lk_url.query_pairs().into_owned().collect();
 
         assert_eq!(query.get("sdk").map(String::as_str), Some("cpp"));
@@ -1087,7 +1090,8 @@ mod tests {
     #[test]
     fn livekit_url_v1_join_request_reports_cpp_sdk_and_version() {
         let io = signal_options_for_cpp("9.9.9-test");
-        let lk_url = get_livekit_url("wss://localhost:7880", &io, true, false, None, "").unwrap();
+        let lk_url =
+            get_livekit_url("wss://localhost:7880", &io, true, false, None, "", None).unwrap();
         let join_request_param = lk_url
             .query_pairs()
             .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
@@ -1114,7 +1118,8 @@ mod tests {
     #[test]
     fn livekit_url_includes_client_capabilities() {
         let io = SignalOptions::default();
-        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap();
+        let lk_url =
+            get_livekit_url("wss://localhost:7880", &io, false, false, None, "", None).unwrap();
 
         let capabilities = lk_url
             .query_pairs()
