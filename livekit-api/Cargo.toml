@@ -18,7 +18,7 @@ signal-client-tokio = [
     "dep:livekit-runtime",
     "livekit-runtime/tokio",
     "dep:base64",
-    "dep:flate2"
+    "dep:flate2",
     "dep:bytes"
 ]
 
@@ -39,7 +39,7 @@ __signal-client-async-compatible = [
     "dep:isahc",
     "dep:livekit-runtime",
     "dep:base64",
-    "dep:flate2"
+    "dep:flate2",
     "dep:bytes"
 ]
 
