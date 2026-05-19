@@ -257,6 +257,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.41 (2026-05-19)
+
+### Fixes
+
+- Bugfix: Always emit Disconnected on engine close - #1096 (@MaxHeimbrock)
+
 ## 0.7.40 (2026-05-14)
 
 ### Fixes
