@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::sync::Arc;
+pub use cxx::SharedPtr;
 
-use cxx::SharedPtr;
+use std::sync::Arc;
 
 use crate::{
     candidate::ffi::Candidate, data_channel::ffi::DataChannel, impl_thread_safety,
@@ -105,6 +105,12 @@ pub mod ffi {
             self: &PeerConnectionFactory,
             label: String,
             source: SharedPtr<AudioTrackSource>,
+        ) -> SharedPtr<AudioTrack>;
+
+        // Create an audio track that uses the ADM for capture (Platform ADM mode)
+        fn create_device_audio_track(
+            self: &PeerConnectionFactory,
+            label: String,
         ) -> SharedPtr<AudioTrack>;
 
         fn rtp_sender_capabilities(

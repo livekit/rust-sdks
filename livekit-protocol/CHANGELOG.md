@@ -62,6 +62,12 @@
 ### Changed
 
 - Update protocol version to v1.31.0
+## 0.7.7 (2026-05-14)
+
+### Features
+
+- Relocate unrelated types out of `livekit-protocol`
+
 ## 0.7.6 (2026-05-11)
 
 ### Features

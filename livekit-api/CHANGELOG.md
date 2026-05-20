@@ -96,6 +96,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Update protocol and add SendDataRequest nonce
+## 0.4.24 (2026-05-20)
+
+### Fixes
+
+- Support for large RPC messages using data streams - #1013 (@1egoman)
+
+## 0.4.23 (2026-05-18)
+
+### Fixes
+
+- Expose room playout delay options in the server API and let the local video publisher recreate rooms with explicit min/max playout delay settings.
+
+## 0.4.22 (2026-05-14)
+
+### Fixes
+
+- Proper client SDK - #1081 (@stephen-derosa)
+
 ## 0.4.21 (2026-05-11)
 
 ### Fixes

@@ -26,10 +26,10 @@
 
 namespace livekit_ffi {
 
-class AudioDevice : public webrtc::AudioDeviceModule {
+class SyntheticAudioDevice : public webrtc::AudioDeviceModule {
  public:
-  AudioDevice(const webrtc::Environment& env);
-  ~AudioDevice() override;
+  SyntheticAudioDevice(const webrtc::Environment& env);
+  ~SyntheticAudioDevice() override;
 
   int32_t ActiveAudioLayer(AudioLayer* audioLayer) const override;
   int32_t RegisterAudioCallback(webrtc::AudioTransport* transport) override;

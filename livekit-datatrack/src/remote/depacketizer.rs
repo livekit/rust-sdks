@@ -359,10 +359,7 @@ mod tests {
         assert!(result.frame.is_none() && result.drop_error.is_none());
 
         let first_frame_number = packet.header.frame_number;
-        // Advance to the next frame; `wrapping_add` so a Faker-generated
-        // u32::MAX frame_number doesn't blow up on overflow.
-        packet.header.frame_number = packet.header.frame_number.wrapping_add(1);
-        let new_frame_number = packet.header.frame_number;
+        packet.header.frame_number = packet.header.frame_number.wrapping_add(1); // Next frame
 
         let result = depacketizer.push(packet, Default::default());
         assert!(result.frame.is_none());
@@ -913,13 +910,5 @@ mod tests {
 
         assert!(depacketizer.push(final_for(4), opts).frame.is_some());
         assert!(depacketizer.push(final_for(5), opts).frame.is_some());
-    }
-
-    impl fake::Dummy<fake::Faker> for Packet {
-        fn dummy_with_rng<R: rand::Rng + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
-            let payload_len = rng.random_range(0..=1500);
-            let payload = (0..payload_len).map(|_| rng.random()).collect::<Bytes>();
-            Self { header: Faker.fake_with_rng(rng), payload }
-        }
     }
 }

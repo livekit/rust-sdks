@@ -12,6 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! Conversions between [`super::events`] and [`livekit_protocol`] wire types.
+//!
+//! Where there is a one-to-one mapping between proto message and event, a `From`
+//! or `TryFrom` implementation is defined. Otherwise, a helper function extracts
+//! the event from a larger composite proto message.
+
 use super::events::*;
 use crate::{
     api::{DataTrackInfo, DataTrackSid, InternalError},

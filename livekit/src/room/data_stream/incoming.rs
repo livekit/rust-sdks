@@ -148,6 +148,17 @@ impl Stream for ByteStreamReader {
     }
 }
 
+#[cfg(test)]
+impl TextStreamReader {
+    /// Create a TextStreamReader for testing purposes.
+    pub(crate) fn new_for_test(
+        info: TextStreamInfo,
+        chunk_rx: UnboundedReceiver<StreamResult<Bytes>>,
+    ) -> Self {
+        Self { info, chunk_rx }
+    }
+}
+
 impl StreamReader for TextStreamReader {
     type Output = String;
     type Info = TextStreamInfo;

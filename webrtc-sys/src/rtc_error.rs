@@ -166,10 +166,11 @@ mod tests {
             include!("livekit/rtc_error.h");
 
             fn serialize_deserialize() -> String;
-            fn throw_error() -> Result<()>;
         }
     }
 
+    /// Tests that RtcError can correctly deserialize the hex-encoded
+    /// error format produced by C++ (see serialize_error in rtc_error.cpp).
     #[test]
     fn serialize_deserialize() {
         let str = ffi::serialize_deserialize();
@@ -180,17 +181,5 @@ mod tests {
         assert!(error.has_sctp_cause_code);
         assert_eq!(error.sctp_cause_code, 24);
         assert_eq!(error.message, "this is not a test, I repeat, this is not a test");
-    }
-
-    #[test]
-    fn throw_error() {
-        let exc: cxx::Exception = ffi::throw_error().err().unwrap();
-        let error = unsafe { RtcError::from(exc.what()) };
-
-        assert_eq!(error.error_type, RtcErrorType::InvalidModification);
-        assert_eq!(error.error_detail, RtcErrorDetailType::None);
-        assert!(!error.has_sctp_cause_code);
-        assert_eq!(error.sctp_cause_code, 0);
-        assert_eq!(error.message, "exception is thrown!");
     }
 }

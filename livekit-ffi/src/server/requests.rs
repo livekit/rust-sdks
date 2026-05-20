@@ -26,7 +26,7 @@ use parking_lot::Mutex;
 use super::{
     audio_source, audio_stream, colorcvt, data_stream, data_track,
     participant::FfiParticipant,
-    resampler,
+    platform_audio, resampler,
     room::{self, FfiPublication, FfiTrack},
     video_source, video_stream, FfiError, FfiResult, FfiServer,
 };
@@ -112,6 +112,17 @@ fn on_simulate_scenario(
     });
     server.watch_panic(handle);
     Ok(proto::SimulateScenarioResponse { async_id })
+}
+
+/// Mark the room event listener as ready so room event forwarding can begin.
+/// The FFI client should send this once it has installed its event listener.
+fn on_ready_for_room_event(
+    server: &'static FfiServer,
+    request: proto::ReadyForRoomEventRequest,
+) -> FfiResult<proto::ReadyForRoomEventResponse> {
+    let ffi_room = server.retrieve_handle::<room::FfiRoom>(request.room_handle)?.clone();
+    ffi_room.ready_for_room_event();
+    Ok(proto::ReadyForRoomEventResponse::default())
 }
 
 /// Publish a track to a room, and send a response to the FfiClient
@@ -1314,6 +1325,7 @@ pub fn handle_request(
         Request::Connect(req) => on_connect(server, req)?.into(),
         Request::Disconnect(req) => on_disconnect(server, req)?.into(),
         Request::SimulateScenario(req) => on_simulate_scenario(server, req)?.into(),
+        Request::ReadyForRoomEvent(req) => on_ready_for_room_event(server, req)?.into(),
         Request::PublishTrack(req) => on_publish_track(server, req)?.into(),
         Request::UnpublishTrack(req) => on_unpublish_track(server, req)?.into(),
         Request::PublishData(req) => on_publish_data(server, req)?.into(),
@@ -1412,6 +1424,19 @@ pub fn handle_request(
             on_remote_data_track_set_pipeline_options(server, req)?.into()
         }
         Request::DataTrackStreamRead(req) => on_data_track_stream_read(server, req)?.into(),
+        // Platform Audio
+        Request::NewPlatformAudio(req) => {
+            platform_audio::on_new_platform_audio(server, req)?.into()
+        }
+        Request::GetAudioDevices(req) => platform_audio::on_get_audio_devices(server, req)?.into(),
+        Request::SetRecordingDevice(req) => {
+            platform_audio::on_set_recording_device(server, req)?.into()
+        }
+        Request::SetPlayoutDevice(req) => {
+            platform_audio::on_set_playout_device(server, req)?.into()
+        }
+        Request::StartRecording(req) => platform_audio::on_start_recording(server, req)?.into(),
+        Request::StopRecording(req) => platform_audio::on_stop_recording(server, req)?.into(),
     });
 
     Ok(res)

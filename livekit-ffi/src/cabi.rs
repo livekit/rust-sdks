@@ -47,7 +47,7 @@ pub unsafe extern "C" fn livekit_ffi_initialize(
         sdk_version: CStr::from_ptr(sdk_version).to_string_lossy().into_owned(),
     });
 
-    log::info!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
+    log::debug!("initializing ffi server v{}", env!("CARGO_PKG_VERSION"));
 }
 
 /// # Safety

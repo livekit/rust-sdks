@@ -84,6 +84,10 @@ static std::unique_ptr<SessionDescription> _unique_session_description() {
   return nullptr;  // Ignore
 }
 
+#ifdef LIVEKIT_TEST
+rust::String serialize_sdp_parse_error_for_test();
+#endif
+
 class NativeCreateSdpObserver
     : public webrtc::CreateSessionDescriptionObserver {
  public:

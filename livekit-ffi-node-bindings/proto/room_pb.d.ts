@@ -628,6 +628,49 @@ export declare class PublishTrackCallback extends Message<PublishTrackCallback> 
 }
 
 /**
+ * @generated from message livekit.proto.ReadyForRoomEventRequest
+ */
+export declare class ReadyForRoomEventRequest extends Message<ReadyForRoomEventRequest> {
+  /**
+   * @generated from field: required uint64 room_handle = 1;
+   */
+  roomHandle?: bigint;
+
+  constructor(data?: PartialMessage<ReadyForRoomEventRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.ReadyForRoomEventRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReadyForRoomEventRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReadyForRoomEventRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReadyForRoomEventRequest;
+
+  static equals(a: ReadyForRoomEventRequest | PlainMessage<ReadyForRoomEventRequest> | undefined, b: ReadyForRoomEventRequest | PlainMessage<ReadyForRoomEventRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.ReadyForRoomEventResponse
+ */
+export declare class ReadyForRoomEventResponse extends Message<ReadyForRoomEventResponse> {
+  constructor(data?: PartialMessage<ReadyForRoomEventResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.ReadyForRoomEventResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): ReadyForRoomEventResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): ReadyForRoomEventResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): ReadyForRoomEventResponse;
+
+  static equals(a: ReadyForRoomEventResponse | PlainMessage<ReadyForRoomEventResponse> | undefined, b: ReadyForRoomEventResponse | PlainMessage<ReadyForRoomEventResponse> | undefined): boolean;
+}
+
+/**
  * Unpublish a track from the room
  *
  * @generated from message livekit.proto.UnpublishTrackRequest

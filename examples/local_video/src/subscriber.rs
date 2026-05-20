@@ -1,5 +1,4 @@
 use anyhow::Result;
-use chrono::{DateTime, Utc};
 use clap::Parser;
 use eframe::egui;
 use eframe::wgpu::{self, util::DeviceExt};
@@ -8,6 +7,7 @@ use egui_wgpu_backend::CallbackTrait;
 use futures::StreamExt;
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::prelude::*;
+use livekit::webrtc::video_frame::BoxVideoFrame;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
 use log::{debug, info};
@@ -21,6 +21,354 @@ use std::{
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
+
+mod timestamp_burn;
+mod viewport_aspect;
+
+use timestamp_burn::{format_timestamp_us, LatencyDisplay};
+use viewport_aspect::AspectConstrainedViewport;
+
+#[cfg(target_os = "macos")]
+mod macos_native_video {
+    use std::ffi::c_void;
+
+    use anyhow::{anyhow, Result};
+    use eframe::wgpu;
+    use metal::{foreign_types::ForeignType, MTLPixelFormat, MTLTextureType};
+
+    use livekit::webrtc::video_frame::BoxVideoFrame;
+
+    type CVReturn = i32;
+    type OSType = u32;
+    type CVPixelBufferRef = *mut c_void;
+    type CVImageBufferRef = *mut c_void;
+    type CVMetalTextureCacheRef = *mut c_void;
+    type CVMetalTextureRef = *mut c_void;
+    type CFAllocatorRef = *const c_void;
+    type CFDictionaryRef = *const c_void;
+    type CFTypeRef = *const c_void;
+    type Id = *mut c_void;
+
+    const K_CV_RETURN_SUCCESS: CVReturn = 0;
+    const K_CV_PIXEL_FORMAT_TYPE_420YPCBCR8_BIPLANAR_VIDEO_RANGE: OSType = 0x3432_3076;
+    const K_CV_PIXEL_FORMAT_TYPE_420YPCBCR8_BIPLANAR_FULL_RANGE: OSType = 0x3432_3066;
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFRelease(cf: CFTypeRef);
+    }
+
+    #[link(name = "CoreVideo", kind = "framework")]
+    unsafe extern "C" {
+        fn CVMetalTextureCacheCreate(
+            allocator: CFAllocatorRef,
+            cache_attributes: CFDictionaryRef,
+            metal_device: Id,
+            texture_attributes: CFDictionaryRef,
+            cache_out: *mut CVMetalTextureCacheRef,
+        ) -> CVReturn;
+        fn CVMetalTextureCacheCreateTextureFromImage(
+            allocator: CFAllocatorRef,
+            texture_cache: CVMetalTextureCacheRef,
+            source_image: CVImageBufferRef,
+            texture_attributes: CFDictionaryRef,
+            pixel_format: MTLPixelFormat,
+            width: usize,
+            height: usize,
+            plane_index: usize,
+            texture_out: *mut CVMetalTextureRef,
+        ) -> CVReturn;
+        fn CVMetalTextureGetTexture(image: CVMetalTextureRef) -> Id;
+        fn CVPixelBufferGetPixelFormatType(pixel_buffer: CVPixelBufferRef) -> OSType;
+        fn CVPixelBufferGetPlaneCount(pixel_buffer: CVPixelBufferRef) -> usize;
+        fn CVPixelBufferGetWidthOfPlane(
+            pixel_buffer: CVPixelBufferRef,
+            plane_index: usize,
+        ) -> usize;
+        fn CVPixelBufferGetHeightOfPlane(
+            pixel_buffer: CVPixelBufferRef,
+            plane_index: usize,
+        ) -> usize;
+    }
+
+    #[link(name = "objc")]
+    unsafe extern "C" {
+        fn objc_retain(obj: Id) -> Id;
+    }
+
+    pub(crate) struct CvMetalTextureCache {
+        raw: CVMetalTextureCacheRef,
+    }
+
+    // SAFETY: The cache object is immutable after creation and CoreVideo objects are ref-counted.
+    unsafe impl Send for CvMetalTextureCache {}
+    // SAFETY: Calls through the cache are synchronized by CoreVideo/Metal; we never mutate Rust state through it.
+    unsafe impl Sync for CvMetalTextureCache {}
+
+    impl CvMetalTextureCache {
+        pub(crate) fn new(device: &wgpu::Device) -> Result<Self> {
+            let raw_device = unsafe {
+                // SAFETY: We only inspect the backend device and copy out the retained MTLDevice
+                // pointer for CoreVideo cache creation.
+                let hal_device = device
+                    .as_hal::<wgpu::hal::api::Metal>()
+                    .ok_or_else(|| anyhow!("wgpu is not using the Metal backend"))?;
+                let raw_device = hal_device.raw_device().lock().as_ptr() as Id;
+                raw_device
+            };
+
+            let mut cache = std::ptr::null_mut();
+            let status = unsafe {
+                // SAFETY: CoreVideo writes a retained cache object into `cache` when it succeeds.
+                CVMetalTextureCacheCreate(
+                    std::ptr::null(),
+                    std::ptr::null(),
+                    raw_device,
+                    std::ptr::null(),
+                    &mut cache,
+                )
+            };
+            if status != K_CV_RETURN_SUCCESS || cache.is_null() {
+                return Err(anyhow!("CVMetalTextureCacheCreate failed with status {status}"));
+            }
+
+            Ok(Self { raw: cache })
+        }
+    }
+
+    impl Drop for CvMetalTextureCache {
+        fn drop(&mut self) {
+            if !self.raw.is_null() {
+                unsafe {
+                    // SAFETY: `raw` is a non-null CoreFoundation object returned retained by CoreVideo.
+                    CFRelease(self.raw as CFTypeRef)
+                };
+            }
+        }
+    }
+
+    pub(crate) struct NativeFrameResources {
+        _y_cv_texture: CvMetalTexture,
+        _uv_cv_texture: CvMetalTexture,
+        _frame: BoxVideoFrame,
+    }
+
+    // SAFETY: The contained native handles are ref-counted and only kept alive for rendering.
+    unsafe impl Send for NativeFrameResources {}
+    // SAFETY: The struct is used as lifetime storage; it does not provide interior mutation.
+    unsafe impl Sync for NativeFrameResources {}
+
+    struct CvMetalTexture {
+        raw: CVMetalTextureRef,
+    }
+
+    impl Drop for CvMetalTexture {
+        fn drop(&mut self) {
+            if !self.raw.is_null() {
+                unsafe {
+                    // SAFETY: `raw` is a non-null CoreFoundation object returned retained by CoreVideo.
+                    CFRelease(self.raw as CFTypeRef)
+                };
+            }
+        }
+    }
+
+    pub(crate) struct ImportedNativeFrame {
+        pub(crate) y_tex: wgpu::Texture,
+        pub(crate) uv_tex: wgpu::Texture,
+        pub(crate) y_view: wgpu::TextureView,
+        pub(crate) uv_view: wgpu::TextureView,
+        pub(crate) resources: NativeFrameResources,
+        pub(crate) full_size: (u32, u32),
+        pub(crate) uv_size: (u32, u32),
+    }
+
+    pub(crate) fn import_nv12_frame(
+        device: &wgpu::Device,
+        cache: &CvMetalTextureCache,
+        frame: BoxVideoFrame,
+    ) -> Result<ImportedNativeFrame> {
+        let native = frame
+            .buffer
+            .as_native()
+            .ok_or_else(|| anyhow!("frame is not backed by a native buffer"))?;
+        let pixel_buffer = native.get_cv_pixel_buffer() as CVPixelBufferRef;
+        if pixel_buffer.is_null() {
+            return Err(anyhow!("native buffer is not backed by a CVPixelBuffer"));
+        }
+
+        let pixel_format = unsafe {
+            // SAFETY: `pixel_buffer` was returned by the native frame and checked for null.
+            CVPixelBufferGetPixelFormatType(pixel_buffer)
+        };
+        if pixel_format != K_CV_PIXEL_FORMAT_TYPE_420YPCBCR8_BIPLANAR_VIDEO_RANGE
+            && pixel_format != K_CV_PIXEL_FORMAT_TYPE_420YPCBCR8_BIPLANAR_FULL_RANGE
+        {
+            return Err(anyhow!("unsupported CVPixelBuffer pixel format 0x{pixel_format:08x}"));
+        }
+
+        let plane_count = unsafe {
+            // SAFETY: `pixel_buffer` was returned by the native frame and checked for null.
+            CVPixelBufferGetPlaneCount(pixel_buffer)
+        };
+        if plane_count != 2 {
+            return Err(anyhow!("expected 2-plane NV12 CVPixelBuffer, got {plane_count} planes"));
+        }
+
+        let y_w = unsafe {
+            // SAFETY: The pixel buffer reported exactly two planes, so plane 0 is valid.
+            CVPixelBufferGetWidthOfPlane(pixel_buffer, 0)
+        };
+        let y_h = unsafe {
+            // SAFETY: The pixel buffer reported exactly two planes, so plane 0 is valid.
+            CVPixelBufferGetHeightOfPlane(pixel_buffer, 0)
+        };
+        let uv_w = unsafe {
+            // SAFETY: The pixel buffer reported exactly two planes, so plane 1 is valid.
+            CVPixelBufferGetWidthOfPlane(pixel_buffer, 1)
+        };
+        let uv_h = unsafe {
+            // SAFETY: The pixel buffer reported exactly two planes, so plane 1 is valid.
+            CVPixelBufferGetHeightOfPlane(pixel_buffer, 1)
+        };
+        if y_w == 0 || y_h == 0 || uv_w == 0 || uv_h == 0 {
+            return Err(anyhow!("CVPixelBuffer has an empty plane"));
+        }
+
+        let y_cv_texture =
+            create_cv_metal_texture(cache, pixel_buffer, MTLPixelFormat::R8Unorm, y_w, y_h, 0)?;
+        let uv_cv_texture =
+            create_cv_metal_texture(cache, pixel_buffer, MTLPixelFormat::RG8Unorm, uv_w, uv_h, 1)?;
+
+        let y_mtl = retained_metal_texture(y_cv_texture.raw)?;
+        let uv_mtl = retained_metal_texture(uv_cv_texture.raw)?;
+        let y_tex = create_wgpu_texture_from_metal(
+            device,
+            y_mtl,
+            wgpu::TextureFormat::R8Unorm,
+            y_w as u32,
+            y_h as u32,
+            "cvpixelbuffer_y_plane",
+        )?;
+        let uv_tex = create_wgpu_texture_from_metal(
+            device,
+            uv_mtl,
+            wgpu::TextureFormat::Rg8Unorm,
+            uv_w as u32,
+            uv_h as u32,
+            "cvpixelbuffer_uv_plane",
+        )?;
+        let y_view = y_tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let uv_view = uv_tex.create_view(&wgpu::TextureViewDescriptor::default());
+
+        Ok(ImportedNativeFrame {
+            y_tex,
+            uv_tex,
+            y_view,
+            uv_view,
+            resources: NativeFrameResources {
+                _y_cv_texture: y_cv_texture,
+                _uv_cv_texture: uv_cv_texture,
+                _frame: frame,
+            },
+            full_size: (y_w as u32, y_h as u32),
+            uv_size: (uv_w as u32, uv_h as u32),
+        })
+    }
+
+    fn create_cv_metal_texture(
+        cache: &CvMetalTextureCache,
+        pixel_buffer: CVPixelBufferRef,
+        pixel_format: MTLPixelFormat,
+        width: usize,
+        height: usize,
+        plane_index: usize,
+    ) -> Result<CvMetalTexture> {
+        let mut texture = std::ptr::null_mut();
+        let status = unsafe {
+            // SAFETY: The cache and pixel buffer are valid CoreVideo objects and `texture` is an
+            // out-pointer for CoreVideo to fill with a retained CVMetalTexture.
+            CVMetalTextureCacheCreateTextureFromImage(
+                std::ptr::null(),
+                cache.raw,
+                pixel_buffer as CVImageBufferRef,
+                std::ptr::null(),
+                pixel_format,
+                width,
+                height,
+                plane_index,
+                &mut texture,
+            )
+        };
+        if status != K_CV_RETURN_SUCCESS || texture.is_null() {
+            return Err(anyhow!(
+                "CVMetalTextureCacheCreateTextureFromImage failed for plane {plane_index} with status {status}"
+            ));
+        }
+        Ok(CvMetalTexture { raw: texture })
+    }
+
+    fn retained_metal_texture(cv_texture: CVMetalTextureRef) -> Result<metal::Texture> {
+        let raw_texture = unsafe {
+            // SAFETY: `cv_texture` is a non-null CVMetalTexture returned by CoreVideo.
+            CVMetalTextureGetTexture(cv_texture)
+        };
+        if raw_texture.is_null() {
+            return Err(anyhow!("CVMetalTextureGetTexture returned null"));
+        }
+        let retained = unsafe {
+            // SAFETY: `raw_texture` is a live Objective-C object. Retaining transfers ownership
+            // to the `metal::Texture` wrapper below.
+            objc_retain(raw_texture)
+        };
+        if retained.is_null() {
+            return Err(anyhow!("objc_retain returned null for MTLTexture"));
+        }
+        Ok(unsafe {
+            // SAFETY: The pointer was retained above and is an MTLTexture.
+            metal::Texture::from_ptr(retained.cast())
+        })
+    }
+
+    fn create_wgpu_texture_from_metal(
+        device: &wgpu::Device,
+        metal_texture: metal::Texture,
+        format: wgpu::TextureFormat,
+        width: u32,
+        height: u32,
+        label: &'static str,
+    ) -> Result<wgpu::Texture> {
+        let desc = wgpu::TextureDescriptor {
+            label: Some(label),
+            size: wgpu::Extent3d { width, height, depth_or_array_layers: 1 },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        };
+
+        let hal_texture = unsafe {
+            // SAFETY: The raw MTLTexture is retained and the descriptor matches its plane format,
+            // type, layer count, mip count, and copy extent.
+            wgpu::hal::metal::Device::texture_from_raw(
+                metal_texture,
+                format,
+                MTLTextureType::D2,
+                1,
+                1,
+                wgpu::hal::CopyExtent { width, height, depth: 1 },
+            )
+        };
+
+        Ok(unsafe {
+            // SAFETY: The hal texture was created for this Metal-backed wgpu device with a
+            // descriptor matching the wrapped native texture.
+            device.create_texture_from_hal::<wgpu::hal::api::Metal>(hal_texture, &desc)
+        })
+    }
+}
 
 async fn wait_for_shutdown(flag: Arc<AtomicBool>) {
     while !flag.load(Ordering::Acquire) {
@@ -55,7 +403,7 @@ struct Args {
     #[arg(long)]
     participant: Option<String>,
 
-    /// Display user timestamp, current timestamp, and latency overlay
+    /// Display frame timing and stats over the rendered video
     #[arg(long)]
     display_timestamp: bool,
 
@@ -67,11 +415,7 @@ struct Args {
 struct SharedYuv {
     width: u32,
     height: u32,
-    y_bytes_per_row: u32,
-    uv_bytes_per_row: u32,
-    y: Vec<u8>,
-    u: Vec<u8>,
-    v: Vec<u8>,
+    frame: Option<BoxVideoFrame>,
     codec: String,
     fps: f32,
     dirty: bool,
@@ -79,8 +423,6 @@ struct SharedYuv {
     received_at_us: Option<u64>,
     /// Packet-trailer metadata from the most recent frame, if any.
     frame_metadata: Option<livekit::webrtc::video_frame::FrameMetadata>,
-    /// Whether the publisher advertised PTF_USER_TIMESTAMP in its track info.
-    has_user_timestamp: bool,
     /// Latest frame whose GPU submit has completed; lags CPU receive by ~1 display frame.
     gpu_done: Option<GpuDoneSample>,
 }
@@ -88,7 +430,7 @@ struct SharedYuv {
 #[derive(Clone, Copy, Debug)]
 struct GpuDoneSample {
     frame_id: Option<u32>,
-    publish_us: Option<u64>,
+    capture_timestamp_us: Option<u64>,
     cpu_received_us: u64,
     gpu_done_us: u64,
 }
@@ -97,7 +439,7 @@ struct GpuDoneSample {
 #[derive(Clone, Copy, Debug)]
 struct PendingGpuSample {
     frame_id: Option<u32>,
-    publish_us: Option<u64>,
+    capture_timestamp_us: Option<u64>,
     cpu_received_us: u64,
 }
 
@@ -158,6 +500,79 @@ fn find_video_inbound_stats(
     })
 }
 
+#[derive(Clone, Copy)]
+struct JitterBufferSnapshot {
+    delay_secs: f64,
+    target_delay_secs: f64,
+    minimum_delay_secs: f64,
+    emitted_count: u64,
+}
+
+fn seconds_to_ms(seconds: f64) -> f64 {
+    seconds * 1_000.0
+}
+
+fn average_delay_ms(total_delay_secs: f64, emitted_count: u64) -> Option<f64> {
+    (emitted_count > 0).then(|| seconds_to_ms(total_delay_secs / emitted_count as f64))
+}
+
+fn window_average_delay_ms(
+    current_total_delay_secs: f64,
+    previous_total_delay_secs: f64,
+    emitted_delta: u64,
+) -> Option<f64> {
+    let delay_delta = current_total_delay_secs - previous_total_delay_secs;
+    (emitted_delta > 0 && delay_delta >= 0.0)
+        .then(|| seconds_to_ms(delay_delta / emitted_delta as f64))
+}
+
+fn log_video_jitter_buffer_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+    previous: &mut Option<JitterBufferSnapshot>,
+) {
+    let Some(inbound) = find_video_inbound_stats(stats) else {
+        return;
+    };
+
+    let current = JitterBufferSnapshot {
+        delay_secs: inbound.inbound.jitter_buffer_delay,
+        target_delay_secs: inbound.inbound.jitter_buffer_target_delay,
+        minimum_delay_secs: inbound.inbound.jitter_buffer_minimum_delay,
+        emitted_count: inbound.inbound.jitter_buffer_emitted_count,
+    };
+    let window_delay_ms = previous.and_then(|prev| {
+        let emitted_delta = current.emitted_count.saturating_sub(prev.emitted_count);
+        window_average_delay_ms(current.delay_secs, prev.delay_secs, emitted_delta)
+    });
+    let cumulative_delay_ms = average_delay_ms(current.delay_secs, current.emitted_count);
+    let target_delay_ms = average_delay_ms(current.target_delay_secs, current.emitted_count);
+    let minimum_delay_ms = average_delay_ms(current.minimum_delay_secs, current.emitted_count);
+
+    match (window_delay_ms, cumulative_delay_ms, target_delay_ms, minimum_delay_ms) {
+        (Some(window), Some(cumulative), Some(target), Some(minimum)) => info!(
+            "WebRTC jitter buffer: delay_window_avg={:.1}ms, delay_avg={:.1}ms, target_avg={:.1}ms, minimum_avg={:.1}ms, emitted={}",
+            window,
+            cumulative,
+            target,
+            minimum,
+            current.emitted_count
+        ),
+        (None, Some(cumulative), Some(target), Some(minimum)) => info!(
+            "WebRTC jitter buffer: delay_avg={:.1}ms, target_avg={:.1}ms, minimum_avg={:.1}ms, emitted={}",
+            cumulative,
+            target,
+            minimum,
+            current.emitted_count
+        ),
+        _ => info!(
+            "WebRTC jitter buffer: waiting for emitted frames, emitted={}",
+            current.emitted_count,
+        ),
+    }
+
+    *previous = Some(current);
+}
+
 fn log_video_inbound_stats(stats: &[livekit::webrtc::stats::RtcStats]) {
     let mut codec_by_id: HashMap<String, (String, String)> = HashMap::new();
     for stat in stats {
@@ -212,30 +627,77 @@ fn current_timestamp_us() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_micros() as u64
 }
 
-/// Format a user timestamp (microseconds since Unix epoch) as
-/// `yyyy-mm-dd hh:mm:ss:xxx` where xxx is milliseconds.
-fn format_timestamp_us(ts_us: u64) -> String {
-    DateTime::<Utc>::from_timestamp_micros(ts_us as i64)
-        .map(|dt| {
-            dt.format("%Y-%m-%d %H:%M:%S:").to_string()
-                + &format!("{:03}", dt.timestamp_subsec_millis())
-        })
-        .unwrap_or_else(|| format!("<invalid timestamp {ts_us}>"))
-}
-
 fn format_optional_timestamp_us(ts_us: Option<u64>) -> String {
-    ts_us.map(format_timestamp_us).unwrap_or_else(|| "N/A".to_string())
+    ts_us.map(format_timestamp_us).unwrap_or_else(|| "NA".to_string())
 }
 
 /// Format the us delta as a millisecond string like `"12.3ms"`.
 fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
     let delta_us = later_us.saturating_sub(earlier_us);
-    format!("{:.1}ms", delta_us as f64 / 1_000.0)
+    format!("{:.1}MS", delta_us as f64 / 1_000.0)
 }
 
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
     let sc = state.lock();
     sc.full_dims
+}
+
+fn video_quality_label(q: livekit::track::VideoQuality) -> &'static str {
+    match q {
+        livekit::track::VideoQuality::Low => "LOW",
+        livekit::track::VideoQuality::Medium => "MED",
+        livekit::track::VideoQuality::High => "HIGH",
+    }
+}
+
+fn frame_id_label(frame_id: Option<u32>) -> String {
+    frame_id.map(|id| id.to_string()).unwrap_or_else(|| "NA".to_string())
+}
+
+fn overlay_stats_line(label: &str, value: impl std::fmt::Display) -> String {
+    format!("{label:<17}{value}")
+}
+
+fn build_timing_overlay_lines(
+    frame_id: Option<u32>,
+    publish_us: Option<u64>,
+    receive_us: u64,
+    prev_render: Option<GpuDoneSample>,
+    prev_latency_display: &str,
+) -> Vec<String> {
+    let mut lines = vec![
+        overlay_stats_line("FRAME ID:", frame_id_label(frame_id)),
+        overlay_stats_line("CAPT TIMESTAMP:", format_optional_timestamp_us(publish_us)),
+        overlay_stats_line("RECV TIMESTAMP:", format_timestamp_us(receive_us)),
+    ];
+
+    if let Some(sample) = prev_render {
+        lines.push(overlay_stats_line("PREV FRAME ID:", frame_id_label(sample.frame_id)));
+        lines.push(overlay_stats_line(
+            "PREV CAPT:",
+            format_optional_timestamp_us(sample.capture_timestamp_us),
+        ));
+        lines.push(overlay_stats_line("PREV RECV:", format_timestamp_us(sample.cpu_received_us)));
+        lines.push(overlay_stats_line("PREV RENDER:", format_timestamp_us(sample.gpu_done_us)));
+        lines.push(overlay_stats_line("PREV LATENCY:", prev_latency_display));
+    } else {
+        lines.push(overlay_stats_line("PREV FRAME ID:", "NA"));
+        lines.push(overlay_stats_line("PREV CAPT:", "NA"));
+        lines.push(overlay_stats_line("PREV RECV:", "NA"));
+        lines.push(overlay_stats_line("PREV RENDER:", "NA"));
+        lines.push(overlay_stats_line("PREV LATENCY:", prev_latency_display));
+    }
+
+    lines
+}
+
+fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
+    let s = shared.lock();
+    if s.width > 0 && s.height > 0 {
+        Some((s.width, s.height))
+    } else {
+        None
+    }
 }
 
 async fn handle_track_subscribed(
@@ -247,6 +709,7 @@ async fn handle_track_subscribed(
     active_sid: &Arc<Mutex<Option<TrackSid>>>,
     ctrl_c_received: &Arc<AtomicBool>,
     simulcast: &Arc<Mutex<SimulcastState>>,
+    repaint_ctx: &Arc<Mutex<Option<egui::Context>>>,
 ) {
     // If a participant filter is set, skip others
     if let Some(ref allow) = allowed_identity {
@@ -284,8 +747,6 @@ async fn handle_track_subscribed(
     {
         let mut s = shared.lock();
         s.codec = codec;
-        s.has_user_timestamp =
-            publication.packet_trailer_features().contains(&PacketTrailerFeature::PtfUserTimestamp);
     }
 
     info!(
@@ -307,6 +768,7 @@ async fn handle_track_subscribed(
     let active_sid2 = active_sid.clone();
     let my_sid = sid.clone();
     let ctrl_c_sink = ctrl_c_received.clone();
+    let repaint_ctx_sink = repaint_ctx.clone();
     // Initialize simulcast state for this publication
     {
         let mut sc = simulcast.lock();
@@ -325,10 +787,6 @@ async fn handle_track_subscribed(
         let mut fps_window_frames: u64 = 0;
         let mut fps_window_start = Instant::now();
         let mut fps_smoothed: f32 = 0.0;
-        // YUV buffers reused to avoid per-frame allocations
-        let mut y_buf: Vec<u8> = Vec::new();
-        let mut u_buf: Vec<u8> = Vec::new();
-        let mut v_buf: Vec<u8> = Vec::new();
         loop {
             if ctrl_c_sink.load(Ordering::Acquire) {
                 break;
@@ -347,40 +805,7 @@ async fn handle_track_subscribed(
                 logged_first = true;
             }
 
-            let i420 = frame.buffer.to_i420();
-            let (sy, su, sv) = i420.strides();
-            let (dy, du, dv) = i420.data();
-
-            let width = w as u32;
-            let height = h as u32;
-            let uv_w = (width + 1) / 2;
-            let uv_h = (height + 1) / 2;
-            let y_bytes_per_row = align_up(width, 256);
-            let uv_bytes_per_row = align_up(uv_w, 256);
-
-            pack_plane(dy, sy as u32, width, height, y_bytes_per_row, &mut y_buf);
-            pack_plane(du, su as u32, uv_w, uv_h, uv_bytes_per_row, &mut u_buf);
-            pack_plane(dv, sv as u32, uv_w, uv_h, uv_bytes_per_row, &mut v_buf);
-
-            // Swap buffers into shared state
             let mut s = shared2.lock();
-            s.width = width;
-            s.height = height;
-            s.y_bytes_per_row = y_bytes_per_row;
-            s.uv_bytes_per_row = uv_bytes_per_row;
-            std::mem::swap(&mut s.y, &mut y_buf);
-            std::mem::swap(&mut s.u, &mut u_buf);
-            std::mem::swap(&mut s.v, &mut v_buf);
-            s.dirty = true;
-            s.received_at_us = Some(received_at_us);
-
-            s.frame_metadata = frame.frame_metadata;
-
-            if !s.has_user_timestamp
-                && frame.frame_metadata.and_then(|m| m.user_timestamp).is_some()
-            {
-                s.has_user_timestamp = true;
-            }
 
             // Update smoothed FPS (~500ms window)
             fps_window_frames += 1;
@@ -396,6 +821,18 @@ async fn handle_track_subscribed(
                 s.fps = fps_smoothed;
                 fps_window_frames = 0;
                 fps_window_start = Instant::now();
+            }
+
+            s.width = w;
+            s.height = h;
+            s.dirty = true;
+            s.received_at_us = Some(received_at_us);
+            s.frame_metadata = frame.frame_metadata;
+            s.frame = Some(frame);
+            drop(s);
+
+            if let Some(ctx) = repaint_ctx_sink.lock().as_ref() {
+                ctx.request_repaint();
             }
 
             frames += 1;
@@ -421,6 +858,9 @@ async fn handle_track_subscribed(
     let simulcast_stats = simulcast.clone();
     tokio::spawn(async move {
         let mut logged_initial = false;
+        let mut jitter_buffer_snapshot = None;
+        let mut last_jitter_buffer_log =
+            Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
         let mut interval = tokio::time::interval(Duration::from_secs(1));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -437,6 +877,10 @@ async fn handle_track_subscribed(
                     if !logged_initial {
                         log_video_inbound_stats(&stats);
                         logged_initial = true;
+                    }
+                    if last_jitter_buffer_log.elapsed() >= Duration::from_secs(5) {
+                        log_video_jitter_buffer_stats(&stats, &mut jitter_buffer_snapshot);
+                        last_jitter_buffer_log = Instant::now();
                     }
                     update_simulcast_quality_from_stats(&stats, &simulcast_stats);
                 }
@@ -457,13 +901,68 @@ fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex
         let mut s = shared.lock();
         s.codec.clear();
         s.fps = 0.0;
+        s.frame = None;
+        s.dirty = false;
         s.received_at_us = None;
         s.frame_metadata = None;
-        s.has_user_timestamp = false;
         s.gpu_done = None;
     }
     let mut sc = simulcast.lock();
     *sc = SimulcastState::default();
+}
+
+fn timing_overlay_lines(
+    shared: &Arc<Mutex<SharedYuv>>,
+    latency_display: &mut LatencyDisplay,
+) -> Option<Vec<String>> {
+    let s = shared.lock();
+    let receive_us = s.received_at_us?;
+    let frame_id = s.frame_metadata.and_then(|m| m.frame_id);
+    let publish_us = s.frame_metadata.and_then(|m| m.user_timestamp);
+    let previous_gpu_done = s.gpu_done;
+    drop(s);
+
+    let prev_latency_display = latency_display
+        .value(
+            Instant::now(),
+            previous_gpu_done.and_then(|sample| {
+                sample
+                    .capture_timestamp_us
+                    .map(|capture_us| format_us_delta_ms(sample.gpu_done_us, capture_us))
+            }),
+        )
+        .to_string();
+
+    Some(build_timing_overlay_lines(
+        frame_id,
+        publish_us,
+        receive_us,
+        previous_gpu_done,
+        &prev_latency_display,
+    ))
+}
+
+fn paint_timing_overlay(ctx: &egui::Context, video_rect: egui::Rect, lines: &[String]) {
+    egui::Area::new("timing_overlay".into())
+        .fixed_pos(video_rect.left_top() + egui::vec2(10.0, 10.0))
+        .interactable(false)
+        .show(ctx, |ui| {
+            egui::Frame::NONE
+                .fill(egui::Color32::from_black_alpha(170))
+                .corner_radius(egui::CornerRadius::same(4))
+                .inner_margin(egui::Margin::same(6))
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(lines.join("\n"))
+                                .monospace()
+                                .size(12.0)
+                                .color(egui::Color32::WHITE),
+                        )
+                        .extend(),
+                    );
+                });
+        });
 }
 
 fn handle_track_unsubscribed(
@@ -499,40 +998,40 @@ fn handle_track_unpublished(
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     simulcast: Arc<Mutex<SimulcastState>>,
+    repaint_ctx: Arc<Mutex<Option<egui::Context>>>,
     ctrl_c_received: Arc<AtomicBool>,
-    locked_aspect: Option<f32>,
+    viewport: AspectConstrainedViewport,
     display_timestamp: bool,
-    /// Cached timestamp overlay text to avoid layout churn on every repaint.
-    last_timestamp_text: String,
-    /// Cached latency text, refreshed at 2 Hz for readability.
-    last_latency_text: String,
-    last_render_dur_text: String,
-    last_latency_refresh: Option<Instant>,
+    latency_display: LatencyDisplay,
 }
 
 impl eframe::App for VideoApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        *self.repaint_ctx.lock() = Some(ctx.clone());
         if self.ctrl_c_received.load(Ordering::Acquire) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
 
-        // Lock aspect ratio based on the first received video frame.
-        if self.locked_aspect.is_none() {
-            let s = self.shared.lock();
-            if s.width > 0 && s.height > 0 {
-                self.locked_aspect = Some(s.width as f32 / s.height as f32);
-            }
+        let mut aspect_just_changed = false;
+        if let Some((width, height)) = video_size(&self.shared) {
+            aspect_just_changed = self.viewport.set_video_size(ctx, width, height);
         }
+        self.viewport.constrain(ctx, aspect_just_changed);
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        let timing_lines = self
+            .display_timestamp
+            .then(|| timing_overlay_lines(&self.shared, &mut self.latency_display))
+            .flatten();
+
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             // Ensure we keep repainting for smooth playback.
             ui.ctx().request_repaint();
 
             // Render into a centered rect that matches the source aspect ratio. This keeps resize
             // smooth (no feedback loop) and avoids stretching/distortion while dragging.
             let available = ui.available_size();
-            let size = if let Some(aspect) = self.locked_aspect {
+            let size = if let Some(aspect) = self.viewport.aspect() {
                 let mut w = available.x.max(1.0);
                 let mut h = (w / aspect).max(1.0);
                 if h > available.y.max(1.0) {
@@ -553,11 +1052,14 @@ impl eframe::App for VideoApp {
                         YuvPaintCallback { shared: self.shared.clone() },
                     );
                     ui.painter().add(cb);
+                    if let Some(lines) = timing_lines.as_ref() {
+                        paint_timing_overlay(ui.ctx(), rect, lines);
+                    }
                 },
             );
         });
 
-        // Resolution/FPS overlay: top-right
+        // Non-timing video stats stay in egui so they don't become part of the frame timing record.
         egui::Area::new("video_hud".into())
             .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
             .interactable(false)
@@ -567,21 +1069,17 @@ impl eframe::App for VideoApp {
                     return;
                 }
                 let mut text = format!("{} {}x{} {:.1}fps", s.codec, s.width, s.height, s.fps);
+                drop(s);
+
                 let sc = self.simulcast.lock();
                 if sc.available {
-                    let layer = sc
-                        .active_quality
-                        .map(|q| match q {
-                            livekit::track::VideoQuality::Low => "Low",
-                            livekit::track::VideoQuality::Medium => "Medium",
-                            livekit::track::VideoQuality::High => "High",
-                        })
-                        .unwrap_or("?");
+                    let layer = sc.active_quality.map(video_quality_label).unwrap_or("NA");
                     text.push_str(&format!("\nSimulcast: {}", layer));
                 } else {
                     text.push_str("\nSimulcast: off");
                 }
                 drop(sc);
+
                 egui::Frame::NONE
                     .fill(egui::Color32::from_black_alpha(140))
                     .corner_radius(egui::CornerRadius::same(4))
@@ -593,90 +1091,6 @@ impl eframe::App for VideoApp {
                         );
                     });
             });
-
-        if self.display_timestamp {
-            let s = self.shared.lock();
-            let meta = s.frame_metadata;
-            let receive_us = s.received_at_us;
-            let has_user_timestamp = s.has_user_timestamp;
-            let gpu_done = s.gpu_done;
-            drop(s);
-
-            let publish_us = meta.and_then(|m| m.user_timestamp);
-            let frame_id = meta.and_then(|m| m.frame_id);
-
-            // Prefer the GPU-done sample so latency reflects "pixels drawn", not just CPU receive.
-            let gpu_frame_id = gpu_done.and_then(|g| g.frame_id);
-            let hud_frame_id = gpu_frame_id.or(frame_id);
-            let hud_publish_us = gpu_done.and_then(|g| g.publish_us).or(publish_us);
-            let hud_receive_us = gpu_done.map(|g| g.cpu_received_us).or(receive_us);
-            let hud_gpu_done_us = gpu_done.map(|g| g.gpu_done_us);
-
-            if hud_publish_us.is_some() || hud_frame_id.is_some() {
-                let frame_id_line = match hud_frame_id {
-                    Some(fid) => format!("Frame ID:    {}", fid),
-                    None => "Frame ID:    N/A".to_string(),
-                };
-                if has_user_timestamp {
-                    let should_refresh = self.last_latency_text.is_empty()
-                        || self
-                            .last_latency_refresh
-                            .map_or(true, |last| last.elapsed() >= Duration::from_millis(500));
-                    if should_refresh {
-                        self.last_latency_text = match (hud_publish_us, hud_gpu_done_us) {
-                            (Some(pub_ts), Some(gpu_ts)) => format_us_delta_ms(gpu_ts, pub_ts),
-                            (Some(pub_ts), None) => match hud_receive_us {
-                                Some(recv_ts) => format_us_delta_ms(recv_ts, pub_ts),
-                                None => "N/A".to_string(),
-                            },
-                            _ => "N/A".to_string(),
-                        };
-                        self.last_render_dur_text = match (hud_receive_us, hud_gpu_done_us) {
-                            (Some(recv_ts), Some(gpu_ts)) => format_us_delta_ms(gpu_ts, recv_ts),
-                            _ => "N/A".to_string(),
-                        };
-                        self.last_latency_refresh = Some(Instant::now());
-                    }
-                    let gpu_done_line = match hud_gpu_done_us {
-                        Some(ts) => format!("Render:      {}", format_timestamp_us(ts)),
-                        None => "Render:      N/A".to_string(),
-                    };
-                    self.last_timestamp_text = format!(
-                        "{}\nSensor:      {}\nReceive:     {}\n{}\nRender dur:  {}\nE2E Latency: {}",
-                        frame_id_line,
-                        format_optional_timestamp_us(hud_publish_us),
-                        format_optional_timestamp_us(hud_receive_us),
-                        gpu_done_line,
-                        self.last_render_dur_text,
-                        self.last_latency_text,
-                    );
-                } else {
-                    self.last_timestamp_text = frame_id_line;
-                }
-            }
-
-            if !self.last_timestamp_text.is_empty() {
-                egui::Area::new("timestamp_hud".into())
-                    .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
-                    .interactable(false)
-                    .show(ctx, |ui| {
-                        egui::Frame::NONE
-                            .fill(egui::Color32::from_black_alpha(140))
-                            .corner_radius(egui::CornerRadius::same(4))
-                            .inner_margin(egui::Margin::same(6))
-                            .show(ui, |ui| {
-                                ui.add(
-                                    egui::Label::new(
-                                        egui::RichText::new(&self.last_timestamp_text)
-                                            .color(egui::Color32::WHITE)
-                                            .monospace(),
-                                    )
-                                    .extend(),
-                                );
-                            });
-                    });
-            }
-        }
 
         // Simulcast layer controls: bottom-left overlay
         egui::Area::new("simulcast_controls".into())
@@ -785,17 +1199,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let shared = Arc::new(Mutex::new(SharedYuv {
         width: 0,
         height: 0,
-        y_bytes_per_row: 0,
-        uv_bytes_per_row: 0,
-        y: Vec::new(),
-        u: Vec::new(),
-        v: Vec::new(),
+        frame: None,
         codec: String::new(),
         fps: 0.0,
         dirty: false,
         received_at_us: None,
         frame_metadata: None,
-        has_user_timestamp: false,
         gpu_done: None,
     }));
 
@@ -806,7 +1215,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let active_sid = Arc::new(Mutex::new(None::<TrackSid>));
     // Shared simulcast UI/control state
     let simulcast = Arc::new(Mutex::new(SimulcastState::default()));
+    let repaint_ctx = Arc::new(Mutex::new(None::<egui::Context>));
     let simulcast_events = simulcast.clone();
+    let repaint_ctx_events = repaint_ctx.clone();
     let ctrl_c_events = ctrl_c_received.clone();
     tokio::spawn(async move {
         let active_sid = active_sid.clone();
@@ -826,6 +1237,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         &active_sid,
                         &ctrl_c_events,
                         &simulcast,
+                        &repaint_ctx_events,
                     )
                     .await;
                 }
@@ -844,15 +1256,13 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let app = VideoApp {
         shared,
         simulcast,
+        repaint_ctx,
         ctrl_c_received: ctrl_c_received.clone(),
-        locked_aspect: None,
+        viewport: AspectConstrainedViewport::new(None),
         display_timestamp: args.display_timestamp,
-        last_timestamp_text: String::new(),
-        last_latency_text: String::new(),
-        last_render_dur_text: String::new(),
-        last_latency_refresh: None,
+        latency_display: LatencyDisplay::default(),
     };
-    let native_options = eframe::NativeOptions { vsync: false, ..Default::default() };
+    let native_options = viewport_aspect::native_options(None);
     eframe::run_native(
         "LiveKit Video Subscriber",
         native_options,
@@ -883,21 +1293,26 @@ struct YuvGpuState {
     v_view: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
     params_buf: wgpu::Buffer,
-    y_pad_w: u32,
-    uv_pad_w: u32,
+    y_tex_w: u32,
+    uv_tex_w: u32,
     dims: (u32, u32),
-    upload_y: Vec<u8>,
-    upload_u: Vec<u8>,
-    upload_v: Vec<u8>,
+    yuv_layout: u32,
+    cpu_upload_logged: bool,
+    #[cfg(target_os = "macos")]
+    native_resources: Option<macos_native_video::NativeFrameResources>,
+    #[cfg(target_os = "macos")]
+    native_cache: Option<macos_native_video::CvMetalTextureCache>,
+    #[cfg(target_os = "macos")]
+    native_import_logged: bool,
+    #[cfg(target_os = "macos")]
+    native_import_failed_logged: bool,
 }
 
 impl YuvGpuState {
     fn create_textures(
         device: &wgpu::Device,
-        _width: u32,
+        width: u32,
         height: u32,
-        y_pad_w: u32,
-        uv_pad_w: u32,
     ) -> (
         wgpu::Texture,
         wgpu::Texture,
@@ -906,9 +1321,10 @@ impl YuvGpuState {
         wgpu::TextureView,
         wgpu::TextureView,
     ) {
-        let y_size = wgpu::Extent3d { width: y_pad_w, height, depth_or_array_layers: 1 };
-        let uv_size =
-            wgpu::Extent3d { width: uv_pad_w, height: (height + 1) / 2, depth_or_array_layers: 1 };
+        let uv_w = (width + 1) / 2;
+        let uv_h = (height + 1) / 2;
+        let y_size = wgpu::Extent3d { width, height, depth_or_array_layers: 1 };
+        let uv_size = wgpu::Extent3d { width: uv_w, height: uv_h, depth_or_array_layers: 1 };
         let usage = wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING;
         let desc = |size: wgpu::Extent3d| wgpu::TextureDescriptor {
             label: Some("yuv_plane"),
@@ -928,35 +1344,31 @@ impl YuvGpuState {
         let v_view = v_tex.create_view(&wgpu::TextureViewDescriptor::default());
         (y_tex, u_tex, v_tex, y_view, u_view, v_view)
     }
-}
 
-fn align_up(value: u32, alignment: u32) -> u32 {
-    ((value + alignment - 1) / alignment) * alignment
-}
-
-fn resize_reused_buffer(buf: &mut Vec<u8>, len: usize) {
-    if buf.len() != len {
-        buf.resize(len, 0);
-    }
-}
-
-fn pack_plane(
-    src: &[u8],
-    src_stride: u32,
-    row_width: u32,
-    rows: u32,
-    dst_stride: u32,
-    dst: &mut Vec<u8>,
-) {
-    resize_reused_buffer(dst, (dst_stride * rows) as usize);
-    for row in 0..rows {
-        let src_off = (row * src_stride) as usize;
-        let dst_off = (row * dst_stride) as usize;
-        let row_end = dst_off + row_width as usize;
-        dst[dst_off..row_end].copy_from_slice(&src[src_off..src_off + row_width as usize]);
-        if dst_stride > row_width {
-            dst[row_end..dst_off + dst_stride as usize].fill(0);
-        }
+    fn recreate_bind_group(&mut self, device: &wgpu::Device) {
+        self.bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("yuv_bind_group"),
+            layout: &self.bind_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.y_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&self.u_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&self.v_view),
+                },
+                wgpu::BindGroupEntry { binding: 4, resource: self.params_buf.as_entire_binding() },
+            ],
+        });
     }
 }
 
@@ -967,6 +1379,10 @@ struct ParamsUniform {
     src_h: u32,
     y_tex_w: u32,
     uv_tex_w: u32,
+    yuv_layout: u32,
+    _pad0: u32,
+    _pad1: u32,
+    _pad2: u32,
 }
 
 impl CallbackTrait for YuvPaintCallback {
@@ -1114,13 +1530,17 @@ impl CallbackTrait for YuvPaintCallback {
                     src_h: 1,
                     y_tex_w: 1,
                     uv_tex_w: 1,
+                    yuv_layout: 0,
+                    _pad0: 0,
+                    _pad1: 0,
+                    _pad2: 0,
                 }),
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             });
 
             // Initial tiny textures
             let (y_tex, u_tex, v_tex, y_view, u_view, v_view) =
-                YuvGpuState::create_textures(device, 1, 1, 256, 256);
+                YuvGpuState::create_textures(device, 1, 1);
             let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("yuv_bind_group"),
                 layout: &bind_layout,
@@ -1157,87 +1577,169 @@ impl CallbackTrait for YuvPaintCallback {
                 v_view,
                 bind_group,
                 params_buf,
-                y_pad_w: 256,
-                uv_pad_w: 256,
+                y_tex_w: 1,
+                uv_tex_w: 1,
                 dims: (0, 0),
-                upload_y: Vec::new(),
-                upload_u: Vec::new(),
-                upload_v: Vec::new(),
+                yuv_layout: 0,
+                cpu_upload_logged: false,
+                #[cfg(target_os = "macos")]
+                native_resources: None,
+                #[cfg(target_os = "macos")]
+                native_cache: None,
+                #[cfg(target_os = "macos")]
+                native_import_logged: false,
+                #[cfg(target_os = "macos")]
+                native_import_failed_logged: false,
             };
             resources.insert(new_state);
         }
         let state = resources.get_mut::<YuvGpuState>().unwrap();
 
         let dims = (shared.width, shared.height);
-        let upload_row_bytes = (shared.y_bytes_per_row, shared.uv_bytes_per_row);
-        let mut gpu_sample_in_flight: Option<PendingGpuSample> = None;
-        let has_dirty_frame = if shared.dirty {
-            std::mem::swap(&mut state.upload_y, &mut shared.y);
-            std::mem::swap(&mut state.upload_u, &mut shared.u);
-            std::mem::swap(&mut state.upload_v, &mut shared.v);
+        let frame_for_upload = if shared.dirty {
             shared.dirty = false;
-            if let Some(cpu_received_us) = shared.received_at_us {
+            shared.frame.take().map(|frame| {
                 let frame_id = shared.frame_metadata.and_then(|m| m.frame_id);
-                let publish_us = shared.frame_metadata.and_then(|m| m.user_timestamp);
-                gpu_sample_in_flight =
-                    Some(PendingGpuSample { frame_id, publish_us, cpu_received_us });
-            }
-            true
+                let capture_timestamp_us = shared.frame_metadata.and_then(|m| m.user_timestamp);
+                let cpu_received_us = shared.received_at_us.unwrap_or_default();
+                let sample = PendingGpuSample { frame_id, capture_timestamp_us, cpu_received_us };
+                (frame, sample)
+            })
         } else {
-            false
+            None
         };
         drop(shared);
 
-        // Recreate textures/bind group on size change.
-        if state.dims != dims {
-            let y_pad_w = align_up(dims.0, 256);
-            let uv_w = (dims.0 + 1) / 2;
-            let uv_pad_w = align_up(uv_w, 256);
+        // Recreate CPU-upload textures/bind group on size change.
+        if state.dims != dims && state.yuv_layout == 0 {
             let (y_tex, u_tex, v_tex, y_view, u_view, v_view) =
-                YuvGpuState::create_textures(device, dims.0, dims.1, y_pad_w, uv_pad_w);
-            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("yuv_bind_group"),
-                layout: &state.bind_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::Sampler(&state.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(&y_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::TextureView(&u_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: wgpu::BindingResource::TextureView(&v_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: state.params_buf.as_entire_binding(),
-                    },
-                ],
-            });
+                YuvGpuState::create_textures(device, dims.0, dims.1);
             state.y_tex = y_tex;
             state.u_tex = u_tex;
             state.v_tex = v_tex;
             state.y_view = y_view;
             state.u_view = u_view;
             state.v_view = v_view;
-            state.bind_group = bind_group;
-            state.y_pad_w = y_pad_w;
-            state.uv_pad_w = uv_pad_w;
+            state.y_tex_w = dims.0;
+            state.uv_tex_w = (dims.0 + 1) / 2;
             state.dims = dims;
+            state.recreate_bind_group(device);
         }
 
-        if has_dirty_frame {
+        let mut gpu_sample_in_flight: Option<PendingGpuSample> = None;
+        let mut frame_for_cpu_upload = frame_for_upload;
+
+        #[cfg(target_os = "macos")]
+        if let Some((frame, sample)) = frame_for_cpu_upload.take() {
+            if frame.buffer.as_native().is_some() {
+                if state.native_cache.is_none() {
+                    match macos_native_video::CvMetalTextureCache::new(device) {
+                        Ok(cache) => state.native_cache = Some(cache),
+                        Err(err) if !state.native_import_failed_logged => {
+                            debug!("Unable to create CVMetalTextureCache, falling back to CPU upload: {err:?}");
+                            state.native_import_failed_logged = true;
+                        }
+                        Err(_) => {}
+                    }
+                }
+
+                if let Some(cache) = state.native_cache.as_ref() {
+                    match macos_native_video::import_nv12_frame(device, cache, frame) {
+                        Ok(imported) => {
+                            let full_size = imported.full_size;
+                            let uv_size = imported.uv_size;
+                            let resources = imported.resources;
+                            state.y_tex = imported.y_tex;
+                            state.u_tex = imported.uv_tex.clone();
+                            state.v_tex = imported.uv_tex;
+                            state.y_view = imported.y_view;
+                            state.u_view = imported.uv_view.clone();
+                            state.v_view = imported.uv_view;
+                            state.y_tex_w = full_size.0;
+                            state.uv_tex_w = uv_size.0;
+                            state.dims = full_size;
+                            state.yuv_layout = 1;
+                            state.native_resources = Some(resources);
+                            if !state.native_import_logged {
+                                info!(
+                                    "Using native CVPixelBuffer to Metal texture render path \
+                                     (no CPU frame upload)"
+                                );
+                                state.native_import_logged = true;
+                            }
+                            state.recreate_bind_group(device);
+                            queue.write_buffer(
+                                &state.params_buf,
+                                0,
+                                bytemuck::bytes_of(&ParamsUniform {
+                                    src_w: full_size.0,
+                                    src_h: full_size.1,
+                                    y_tex_w: state.y_tex_w,
+                                    uv_tex_w: state.uv_tex_w,
+                                    yuv_layout: state.yuv_layout,
+                                    _pad0: 0,
+                                    _pad1: 0,
+                                    _pad2: 0,
+                                }),
+                            );
+                            gpu_sample_in_flight = Some(sample);
+                        }
+                        Err(err) => {
+                            if !state.native_import_failed_logged {
+                                debug!("Unable to import native video frame, falling back to CPU upload: {err:?}");
+                                state.native_import_failed_logged = true;
+                            }
+                            // The failed import consumed the native frame. Continue with the
+                            // next frame rather than forcing a CPU conversion from this one.
+                        }
+                    }
+                } else {
+                    frame_for_cpu_upload = Some((frame, sample));
+                }
+            } else {
+                frame_for_cpu_upload = Some((frame, sample));
+            }
+        }
+
+        if let Some((frame, sample)) = frame_for_cpu_upload {
+            #[cfg(target_os = "macos")]
+            {
+                state.native_resources = None;
+            }
+            if !state.cpu_upload_logged {
+                info!("Using CPU I420 upload render path");
+                state.cpu_upload_logged = true;
+            }
+            if state.dims != dims || state.yuv_layout != 0 {
+                let (y_tex, u_tex, v_tex, y_view, u_view, v_view) =
+                    YuvGpuState::create_textures(device, dims.0, dims.1);
+                state.y_tex = y_tex;
+                state.u_tex = u_tex;
+                state.v_tex = v_tex;
+                state.y_view = y_view;
+                state.u_view = u_view;
+                state.v_view = v_view;
+                state.y_tex_w = dims.0;
+                state.uv_tex_w = (dims.0 + 1) / 2;
+                state.dims = dims;
+                state.yuv_layout = 0;
+                state.recreate_bind_group(device);
+            }
+
+            let owned_i420;
+            let i420 = match frame.buffer.as_i420() {
+                Some(i420) => i420,
+                None => {
+                    owned_i420 = frame.buffer.to_i420();
+                    &owned_i420
+                }
+            };
+            let (stride_y, stride_u, stride_v) = i420.strides();
+            let (data_y, data_u, data_v) = i420.data();
             let uv_w = (dims.0 + 1) / 2;
             let uv_h = (dims.1 + 1) / 2;
 
-            if upload_row_bytes.0 >= dims.0 {
+            if stride_y >= dims.0 {
                 queue.write_texture(
                     wgpu::TexelCopyTextureInfo {
                         texture: &state.y_tex,
@@ -1245,17 +1747,17 @@ impl CallbackTrait for YuvPaintCallback {
                         origin: wgpu::Origin3d::ZERO,
                         aspect: wgpu::TextureAspect::All,
                     },
-                    &state.upload_y,
+                    data_y,
                     wgpu::TexelCopyBufferLayout {
                         offset: 0,
-                        bytes_per_row: Some(upload_row_bytes.0),
+                        bytes_per_row: Some(stride_y),
                         rows_per_image: Some(dims.1),
                     },
                     wgpu::Extent3d { width: dims.0, height: dims.1, depth_or_array_layers: 1 },
                 );
             }
 
-            if upload_row_bytes.1 >= uv_w {
+            if stride_u >= uv_w {
                 queue.write_texture(
                     wgpu::TexelCopyTextureInfo {
                         texture: &state.u_tex,
@@ -1263,14 +1765,17 @@ impl CallbackTrait for YuvPaintCallback {
                         origin: wgpu::Origin3d::ZERO,
                         aspect: wgpu::TextureAspect::All,
                     },
-                    &state.upload_u,
+                    data_u,
                     wgpu::TexelCopyBufferLayout {
                         offset: 0,
-                        bytes_per_row: Some(upload_row_bytes.1),
+                        bytes_per_row: Some(stride_u),
                         rows_per_image: Some(uv_h),
                     },
                     wgpu::Extent3d { width: uv_w, height: uv_h, depth_or_array_layers: 1 },
                 );
+            }
+
+            if stride_v >= uv_w {
                 queue.write_texture(
                     wgpu::TexelCopyTextureInfo {
                         texture: &state.v_tex,
@@ -1278,10 +1783,10 @@ impl CallbackTrait for YuvPaintCallback {
                         origin: wgpu::Origin3d::ZERO,
                         aspect: wgpu::TextureAspect::All,
                     },
-                    &state.upload_v,
+                    data_v,
                     wgpu::TexelCopyBufferLayout {
                         offset: 0,
-                        bytes_per_row: Some(upload_row_bytes.1),
+                        bytes_per_row: Some(stride_v),
                         rows_per_image: Some(uv_h),
                     },
                     wgpu::Extent3d { width: uv_w, height: uv_h, depth_or_array_layers: 1 },
@@ -1294,10 +1799,15 @@ impl CallbackTrait for YuvPaintCallback {
                 bytemuck::bytes_of(&ParamsUniform {
                     src_w: dims.0,
                     src_h: dims.1,
-                    y_tex_w: state.y_pad_w,
-                    uv_tex_w: state.uv_pad_w,
+                    y_tex_w: state.y_tex_w,
+                    uv_tex_w: state.uv_tex_w,
+                    yuv_layout: state.yuv_layout,
+                    _pad0: 0,
+                    _pad1: 0,
+                    _pad2: 0,
                 }),
             );
+            gpu_sample_in_flight = Some(sample);
         }
 
         // Ride an empty command buffer with egui's submit so we can stamp GPU-done.
@@ -1312,7 +1822,7 @@ impl CallbackTrait for YuvPaintCallback {
                 let mut s = shared_for_cb.lock();
                 s.gpu_done = Some(GpuDoneSample {
                     frame_id: sample.frame_id,
-                    publish_us: sample.publish_us,
+                    capture_timestamp_us: sample.capture_timestamp_us,
                     cpu_received_us: sample.cpu_received_us,
                     gpu_done_us,
                 });

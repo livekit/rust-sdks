@@ -85,7 +85,7 @@ impl HandleAllocator {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "__fuzz"))]
 impl fake::Dummy<fake::Faker> for Handle {
     fn dummy_with_rng<R: rand::Rng + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
         Self::try_from(rng.random_range(1..u16::MAX)).unwrap()

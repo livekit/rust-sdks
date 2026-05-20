@@ -99,34 +99,25 @@ impl ffi::SdpParseError {
 
 #[cfg(test)]
 mod tests {
-    use log::info;
+    #[cxx::bridge(namespace = "livekit_ffi")]
+    pub mod ffi_tests {
+        unsafe extern "C++" {
+            include!("livekit/jsep.h");
+
+            fn serialize_sdp_parse_error_for_test() -> String;
+        }
+    }
 
     use crate::jsep::ffi;
 
+    /// Tests that SdpParseError can correctly deserialize the hex-encoded
+    /// error format produced by C++ when SDP parsing fails.
     #[test]
-    fn throw_error() {
-        let sdp_string = "v=0
-o=- 6549709950142776241 2 IN IP4 127.0.0.1
-s=-
-t=0 0
-======================== ERROR HERE
-a=group:BUNDLE 0
-a=extmap-allow-mixed
-a=msid-semantic: WMS
-m=application 9 UDP/DTLS/SCTP webrtc-datachannel
-c=IN IP4 0.0.0.0
-a=ice-ufrag:Tw7h
-a=ice-pwd:6XOVUD6HpcB4c1M8EB8jXJE9
-a=ice-options:trickle
-a=fingerprint:sha-256 4F:EC:23:59:5D:A5:E6:3E:3E:5D:8A:09:B6:FA:04:AA:19:99:49:67:BD:65:93:06:BB:EE:AC:D5:21:0F:57:D6
-a=setup:actpass
-a=mid:0
-a=sctp-port:5000
-a=max-message-size:262144
-";
+    fn sdp_parse_error_deserialization() {
+        let serialized = ffi_tests::serialize_sdp_parse_error_for_test();
+        let err = unsafe { ffi::SdpParseError::from(&serialized) };
 
-        let sdp = ffi::create_session_description(ffi::SdpType::Offer, sdp_string.to_string());
-        let err = unsafe { ffi::SdpParseError::from(sdp.err().unwrap().what()) };
-        info!("parse err: {:?}", err)
+        assert!(!err.line.is_empty(), "error line should not be empty");
+        assert!(!err.description.is_empty(), "error description should not be empty");
     }
 }

@@ -115,6 +115,11 @@ message PublishTrackCallback {
 
 }
 
+message ReadyForRoomEventRequest {
+  required uint64 room_handle = 1;
+}
+message ReadyForRoomEventResponse {}
+
 // Unpublish a track from the room
 message UnpublishTrackRequest {
   required uint64 local_participant_handle = 1;
