@@ -45,7 +45,7 @@ pub struct ManagerOptions {
     pub encryption_provider: Option<Arc<dyn EncryptionProvider>>,
 }
 
-/// System for managing data track publications.
+/// An actor that manages the state of data tracks published by the local participant.
 pub struct Manager {
     encryption_provider: Option<Arc<dyn EncryptionProvider>>,
     event_in_tx: mpsc::Sender<InputEvent>,

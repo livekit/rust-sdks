@@ -119,6 +119,10 @@ pub struct TrackPublishOptions {
     pub stream: String,
     pub preconnect_buffer: bool,
     pub packet_trailer_features: PacketTrailerFeatures,
+    /// RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP
+    /// encoding is produced and that mode is forwarded to libwebrtc to
+    /// enable true SVC for VP9/AV1. Has no effect for VP8/H264.
+    pub scalability_mode: Option<String>,
 }
 
 impl Default for TrackPublishOptions {
@@ -135,6 +139,7 @@ impl Default for TrackPublishOptions {
             stream: "".to_string(),
             preconnect_buffer: false,
             packet_trailer_features: PacketTrailerFeatures::default(),
+            scalability_mode: None,
         }
     }
 }
@@ -175,6 +180,16 @@ pub fn compute_video_encodings(
             max_framerate: encoding.max_framerate,
         },
     };
+
+    // SVC: when an explicit scalability_mode is set, emit a single encoding
+    // and let libwebrtc produce the spatial/temporal layers internally.
+    if let Some(mode) = options.scalability_mode.clone() {
+        let mut encodings = into_rtp_encodings(width, height, &[initial_preset]);
+        if let Some(first) = encodings.first_mut() {
+            first.scalability_mode = Some(mode);
+        }
+        return encodings;
+    }
 
     if !options.simulcast {
         return into_rtp_encodings(width, height, &[initial_preset]);
@@ -310,6 +325,19 @@ pub fn video_quality_for_rid(rid: &str) -> Option<proto::VideoQuality> {
     }
 }
 
+/// Parse the number of spatial layers from an RTP scalability mode string.
+/// Standard modes start with `L<N>` where `<N>` is the spatial-layer count
+/// (e.g. "L3T3_KEY" -> 3, "L2T3" -> 2, "L1T3" -> 1).
+pub fn spatial_layers_from_scalability_mode(mode: &str) -> u32 {
+    if let Some(rest) = mode.strip_prefix('L') {
+        let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+        if let Ok(n) = digits.parse::<u32>() {
+            return n.max(1);
+        }
+    }
+    1
+}
+
 pub fn video_layers_from_encodings(
     width: u32,
     height: u32,
@@ -324,6 +352,39 @@ pub fn video_layers_from_encodings(
             ssrc: 0,
             ..Default::default()
         }];
+    }
+
+    // SVC: a single RTP encoding carries multiple spatial layers internally.
+    // Synthesise one VideoLayer per spatial layer so the SFU knows the track
+    // has switchable quality tiers.
+    if encodings.len() == 1 {
+        if let Some(mode) = encodings[0].scalability_mode.as_ref() {
+            let spatial = spatial_layers_from_scalability_mode(mode);
+            if spatial > 1 {
+                let total_bitrate = encodings[0].max_bitrate.unwrap_or(0);
+                let mut layers = Vec::with_capacity(spatial as usize);
+                // Highest spatial layer is the source resolution; each lower
+                // layer is half on each axis (the libwebrtc default for
+                // L2/L3 scalability modes).
+                for i in 0..spatial {
+                    let scale = 1u32 << (spatial - 1 - i);
+                    let quality = match (spatial - 1 - i, spatial) {
+                        (0, _) => proto::VideoQuality::High,
+                        (1, _) => proto::VideoQuality::Medium,
+                        _ => proto::VideoQuality::Low,
+                    };
+                    layers.push(proto::VideoLayer {
+                        quality: quality as i32,
+                        width: width / scale,
+                        height: height / scale,
+                        bitrate: (total_bitrate / spatial as u64) as u32,
+                        ssrc: 0,
+                        ..Default::default()
+                    });
+                }
+                return layers;
+            }
+        }
     }
 
     let mut layers = Vec::with_capacity(encodings.len());

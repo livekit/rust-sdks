@@ -115,7 +115,7 @@ mod tests {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "__fuzz"))]
 impl<const RATE: u32> fake::Dummy<fake::Faker> for Timestamp<RATE> {
     fn dummy_with_rng<R: rand::Rng + ?Sized>(_: &fake::Faker, rng: &mut R) -> Self {
         Self(rng.random())

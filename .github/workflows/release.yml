@@ -30,7 +30,7 @@ jobs:
           toolchain: stable
 
       - name: Install cargo-binstall
-        uses: cargo-bins/cargo-binstall@113a77a4ce971c41332f2129c3d995df993cf746 # v1.17.8
+        uses: cargo-bins/cargo-binstall@aaa84a43aec4955a42c5ffc65d258961e39f276e # v1.19.1
 
       - name: Install cargo-release
         run: cargo binstall cargo-release@1.1.2 --no-confirm

@@ -316,6 +316,118 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.12.59 (2026-05-20)
+
+### Fixes
+
+- Bugfix: Always emit Disconnected on engine close - #1096 (@MaxHeimbrock)
+- (WIP) FFI room event ready signal after initial connection - #1068 (@ladvoc, @stephen-derosa)
+- Support for large RPC messages using data streams - #1013 (@1egoman)
+
+## 0.12.58 (2026-05-18)
+
+### Features
+
+- FFI logging improvements
+
+#### Make `sample_rate` and `num_channels` optional in `NewAudioSourceRequest`.
+
+These fields are ignored for `AudioSourcePlatform` (ADM uses hardware native settings) and for `AudioSourceNative` fast path (queue_size_ms=0, frame values used directly). Defaults to 48000 Hz and 1 channel when not specified.
+
+### Fixes
+
+- fix: don't fire local_track_subscribed during reconnect - #1099 (@davidzhao)
+- Fix LocalTrackPublished handle leak - #1065 (@MaxHeimbrock)
+- Return EOS event from data track stream read request
+
+## 0.12.57 (2026-05-14)
+
+### Fixes
+
+- feat: add scalability mode for AV1/VP9. - #1076 (@cloudwebrtc)
+- Add `LIVEKIT_PREFERRED_HW_ENCODER` to prefer `nvenc` or `vaapi` hardware video encoding when both are available.
+- Reword audio filter logs to be less confusing - #1092 (@1egoman)
+
+#### Get WebRTC ADM into Rust - #1037 (@xianshijing-lk)
+
+This PR introduces platform audio device management via WebRTC's Audio Device Module (ADM).
+
+#### Features
+- **ADM Proxy**: New `AdmProxy` class that switches between Dummy ADM (synthetic mode) and Platform ADM (real audio I/O)
+- **PlatformAudio API**: High-level Rust API for microphone capture and speaker playout with AEC/AGC/NS
+- **Device enumeration**: List and select recording/playout devices by index or GUID
+- **Mode switching**: Seamlessly switch between synthetic mode (FFI callbacks) and platform mode (native speakers) while audio is active
+- **FFI platform audio support**: Expose platform audio device enumeration and selection through `livekit-ffi`
+- **Audio processing**: Configure echo cancellation, noise suppression, and auto gain control with platform-specific defaults (hardware on iOS, software elsewhere)
+
+#### Audio Modes
+| Mode | Recording | Playout | Use Case |
+|------|-----------|---------|----------|
+| Synthetic | NativeAudioSource | Dummy ADM + FFI | Unity audio, agents |
+| Platform | Platform ADM mic | Platform ADM speakers | VoIP with AEC |
+
+#### API
+```rust
+// Create PlatformAudio for microphone/speaker access
+let audio = PlatformAudio::new()?;
+
+// Enumerate and select devices
+for i in 0..audio.recording_devices() as u16 {
+    println!("Mic {}: {}", i, audio.recording_device_name(i));
+}
+audio.set_recording_device(0)?;
+
+// Create audio track for publishing
+let track = LocalAudioTrack::create_audio_track("mic", audio.rtc_source());
+```
+
+## 0.12.56 (2026-05-11)
+
+### Fixes
+
+- fix: Sync inner.enabled state for E2EE manager. - #1073 (@cloudwebrtc)
+- Upgrade protocol to v1.45.8
+
+## 0.12.55 (2026-05-11)
+
+### Fixes
+
+- chore: add LocalTrackRepublished event for FFI clients - #1072 (@davidzhao)
+
+## 0.12.54 (2026-05-10)
+
+### Features
+
+- Bump `rustls-webpki` to 0.103.13, addressing [GHSA-82j2-j2ch-gfr8](https://github.com/advisories/GHSA-82j2-j2ch-gfr8)
+- Expose error message on EOS for data track subscriptions
+
+### Fixes
+
+- Fix missing `libwebrtc.jar` for Android builds, harden build scripts
+- fix: derive `simulcasted` from non-deprecated TrackInfo fields - #1052 (@cloudwebrtc)
+- fix race in download_webrtc to reduce flaky build - #1047 (@hechen-eng)
+- Improve WebRTC build scripts and add external_audio_source patch - #1053 (@xianshijing-lk)
+- support SimulateScenario through FFI to improve testing - #1069 (@davidzhao)
+- TEL-464: reduce redundant resampling in audio filter - #1019 (@hechen-eng)
+
+## 0.12.53 (2026-04-23)
+
+### Features
+
+#### Add support for frame level packet trailer
+
+##890 by @chenosaurus
+
+- Add support to attach/parse frame level timestamps & frame ID to VideoTracks as a custom payload trailer.
+- Breaking change in VideoFrame API, must include `frame_metadata` or use VideoFrame::new().
+
+### Fixes
+
+- Add device-info crate and send device_info to telemetry - #982 (@maxheimbrock)
+- Fix data track packet format issue breaking E2EE
+- Fix unbound send queue that can cause latency in data track messages - #1032 (@chenosaurus)
+- Fix for raw stream drop called from non tokio thread like Unity .NET GC - #1016 (@MaxHeimbrock)
+
 ## 0.12.52 (2026-04-02)
 
 ### Features

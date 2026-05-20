@@ -164,7 +164,21 @@ message FfiRequest {
     RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
     DataTrackStreamReadRequest data_track_stream_read = 75;
 
-    // NEXT_ID: 76
+    // Reconnection / chaos testing
+    SimulateScenarioRequest simulate_scenario = 76;
+
+    // Platform Audio (ADM)
+    NewPlatformAudioRequest new_platform_audio = 77;
+    GetAudioDevicesRequest get_audio_devices = 78;
+    SetRecordingDeviceRequest set_recording_device = 79;
+    SetPlayoutDeviceRequest set_playout_device = 80;
+    StartRecordingRequest start_recording = 81;
+    StopRecordingRequest stop_recording = 82;
+
+    // Room event ready signal
+    ReadyForRoomEventRequest ready_for_room_event = 83;
+
+    // NEXT_ID: 84
   }
 }
 
@@ -274,7 +288,21 @@ message FfiResponse {
     RemoteDataTrackIsPublishedResponse remote_data_track_is_published = 73;
     DataTrackStreamReadResponse data_track_stream_read = 74;
 
-    // NEXT_ID: 75
+    // Reconnection / chaos testing
+    SimulateScenarioResponse simulate_scenario = 75;
+
+    // Platform Audio (ADM)
+    NewPlatformAudioResponse new_platform_audio = 76;
+    GetAudioDevicesResponse get_audio_devices = 77;
+    SetRecordingDeviceResponse set_recording_device = 78;
+    SetPlayoutDeviceResponse set_playout_device = 79;
+    StartRecordingResponse start_recording = 80;
+    StopRecordingResponse stop_recording = 81;
+
+    // Room event ready signal
+    ReadyForRoomEventResponse ready_for_room_event = 82;
+
+    // NEXT_ID: 83
   }
 }
 
@@ -337,7 +365,9 @@ message FfiEvent {
     // Data Track (remote)
     DataTrackStreamEvent data_track_stream_event = 43;
 
-    // NEXT_ID: 44
+    SimulateScenarioCallback simulate_scenario = 44;
+
+    // NEXT_ID: 45
   }
 }
 

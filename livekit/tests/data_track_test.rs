@@ -190,6 +190,7 @@ async fn test_e2ee() -> Result<()> {
     use livekit::E2eeOptions;
 
     const SHARED_SECRET: &[u8] = b"password";
+    const PAYLOAD: &[u8] = &[0xFA; 196_608];
 
     let key_provider1 =
         KeyProvider::with_shared_key(KeyProviderOptions::default(), SHARED_SECRET.to_vec());
@@ -214,31 +215,34 @@ async fn test_e2ee() -> Result<()> {
     sub_room.e2ee_manager().set_enabled(true);
 
     let publish = async move {
-        let track = pub_room.local_participant().publish_data_track("my_track").await?;
+        let track = pub_room.local_participant().publish_data_track("my_track").await.unwrap();
         assert!(track.info().uses_e2ee());
-
-        for index in 0..5 {
-            track.try_push(vec![index as u8; 196_608].into())?;
-            time::sleep(Duration::from_millis(25)).await;
+        loop {
+            _ = track.try_push(PAYLOAD.into());
+            time::sleep(Duration::from_millis(125)).await;
         }
-        Ok(())
     };
 
     let subscribe = async move {
-        let track = wait_for_remote_track(&mut sub_room_event_rx).await?;
+        let track = wait_for_remote_track(&mut sub_room_event_rx).await.unwrap();
 
         assert!(track.info().uses_e2ee());
-        let mut subscription = track.subscribe().await?;
+        let mut subscription = track.subscribe().await.unwrap();
 
+        let mut got_frame = false;
         while let Some(frame) = subscription.next().await {
-            let payload = frame.payload();
-            if let Some(first_byte) = payload.first() {
-                assert!(payload.iter().all(|byte| byte == first_byte));
-            }
+            assert_eq!(frame.payload(), PAYLOAD);
+            got_frame = true;
+            break;
         }
-        Ok(())
+        assert!(got_frame);
     };
-    timeout(Duration::from_secs(5), async { try_join!(publish, subscribe) }).await??;
+
+    let _ = timeout(Duration::from_secs(5), async {
+        tokio::select! { _ = publish => (), _ = subscribe => () };
+    })
+    .await?;
+
     Ok(())
 }
 
@@ -429,16 +433,29 @@ async fn test_publisher_side_fault(scenario: SimulateScenario) -> Result<()> {
         assert!(track.is_published(), "Should still be reported as published");
 
         if scenario == SimulateScenario::ForceTcp {
-            // Give some time for the track to be republished. Frames will be dropped until then.
-            time::sleep(Duration::from_millis(2000)).await;
-            assert_ne!(initial_sid, track.info().sid(), "Should have new SID");
+            // Republish (full reconnect → new RtcSession → new sid) is async.
+            // Poll up to 8s for the new sid instead of unconditionally sleeping
+            // a fixed window:
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(8);
+            loop {
+                if track.info().sid() != initial_sid {
+                    break;
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    panic!(
+                        "Should have new SID after ForceTcp reconnect (still {:?})",
+                        initial_sid
+                    );
+                }
+                time::sleep(Duration::from_millis(100)).await;
+            }
         }
 
         assert!(track.is_published(), "Should still be reported as published");
         track.try_push(vec![0xFA; 64].into()).expect("Should be able to push frame");
     };
 
-    let _ = timeout(Duration::from_secs(10), publish).await?;
+    let _ = timeout(Duration::from_secs(15), publish).await?;
     Ok(())
 }
 

@@ -1,4 +1,8 @@
 #!/bin/bash
+# Exit immediately if any command fails. This ensures CI properly reports build
+# failures instead of continuing to create empty/broken artifacts.
+set -e
+
 # Copyright 2023 LiveKit, Inc.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -67,10 +71,12 @@ then
 fi
 
 cd src
-# git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/add_licenses.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/fix_license_json_parsing.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/ssl_verify_callback_with_native_handle.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/add_deps.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 git apply "$COMMAND_DIR/patches/android_use_libunwind.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
+git apply "$COMMAND_DIR/patches/external_audio_source.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 # livekit prefixed jni
 git apply "$COMMAND_DIR/patches/jni_prefix.patch" -v --ignore-space-change --ignore-whitespace --whitespace=nowarn
 
@@ -86,6 +92,9 @@ if [ "$profile" = "debug" ]; then
   debug="true"
 fi
 
+# Note: use_clang_modules=false is required to avoid C++ module compilation issues.
+# Without this flag, the build may fail partway through, resulting in missing
+# artifacts like libwebrtc.jar.
 args="is_debug=$debug \
   is_java_debug=$debug \
   target_os=\"android\" \
@@ -125,12 +134,15 @@ autoninja -C "$OUTPUT_DIR" :default \
 # don't include nasm
 ar -rc "$ARTIFACTS_DIR/lib/libwebrtc.a" `find "$OUTPUT_DIR/obj" -name '*.o' -not -path "*/third_party/nasm/*"`
 
-python3 "./src/tools_webrtc/libs/generate_licenses.py" \
-  --target :default "$OUTPUT_DIR" "$OUTPUT_DIR"
+# License generation is optional - may fail with some Python versions
+# Use vpython3 from depot_tools for consistent Python version
+vpython3 "./src/tools_webrtc/libs/generate_licenses.py" \
+  --target :default "$OUTPUT_DIR" "$OUTPUT_DIR" || echo "Warning: License generation failed (non-critical)"
 
 cp "$OUTPUT_DIR/obj/webrtc.ninja" "$ARTIFACTS_DIR"
 cp "$OUTPUT_DIR/libjingle_peerconnection_so.so" "$ARTIFACTS_DIR/lib"
 cp "$OUTPUT_DIR/args.gn" "$ARTIFACTS_DIR"
+
 cp "$OUTPUT_DIR/LICENSE.md" "$ARTIFACTS_DIR"
 
 mkdir -p "$COMMAND_DIR/prefixed-jni/libs"

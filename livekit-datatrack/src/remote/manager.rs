@@ -45,7 +45,7 @@ pub struct ManagerOptions {
     pub decryption_provider: Option<Arc<dyn DecryptionProvider>>,
 }
 
-/// System for managing data track subscriptions.
+/// An actor that manages the state of data tracks published by remote participants.
 pub struct Manager {
     decryption_provider: Option<Arc<dyn DecryptionProvider>>,
     event_in_tx: mpsc::Sender<InputEvent>,

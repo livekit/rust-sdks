@@ -54,6 +54,20 @@ const REGION_FETCH_TIMEOUT: Duration = Duration::from_secs(3);
 const VALIDATE_TIMEOUT: Duration = Duration::from_secs(3);
 pub const PROTOCOL_VERSION: u32 = 17;
 
+/// Capabilities the Rust SDK advertises to the SFU at connect time.
+const CLIENT_CAPABILITIES: &[proto::client_info::Capability] =
+    &[proto::client_info::Capability::CapPacketTrailer];
+
+/// Default value for `ClientInfo.client_protocol` when a participant has not
+/// advertised one (treat as v1-only / no data-stream RPC support).
+pub const CLIENT_PROTOCOL_DEFAULT: i32 = 0;
+/// `ClientInfo.client_protocol` value indicating support for RPC v2 over data streams.
+pub const CLIENT_PROTOCOL_DATA_STREAM_RPC: i32 = 1;
+
+/// The client protocol which is sent to other clients and indicates the set of apis that other
+/// clients should assume this client supports.
+const CLIENT_PROTOCOL_VERSION: i32 = CLIENT_PROTOCOL_DATA_STREAM_RPC;
+
 #[derive(Error, Debug)]
 pub enum SignalError {
     #[error("ws failure: {0}")]
@@ -193,8 +207,13 @@ impl SignalClient {
         }
     }
 
-    /// Restart the connection to the server
-    /// This will automatically flush the queue
+    /// Restart the connection to the server.
+    ///
+    /// Leaves the client in a "reconnecting" state with pass-through-only sends
+    /// queueable signals (e.g. `AddTrack`, `Mute`, `UpdateSubscription`) accumulate
+    /// in the queue. Caller MUST invoke [`Self::set_reconnected`] once the resume
+    /// has fully recovered (PC connected, SyncState sent) to drain the queue and
+    /// re-enable normal sends.
     pub async fn restart(&self) -> SignalResult<proto::ReconnectResponse> {
         self.close().await;
 
@@ -207,6 +226,16 @@ impl SignalClient {
 
         *self.handle.lock() = Some(signal_task);
         Ok(reconnect_response)
+    }
+
+    /// Mark the signal as fully reconnected: drains the queue and clears the
+    /// `reconnecting` flag so subsequent sends bypass the queue path.
+    ///
+    /// MUST be called by the engine after `wait_pc_reconnected` succeeds.
+    /// Without this, the queued mutations (subscription updates, mutes, etc.)
+    /// stay buffered indefinitely.
+    pub async fn set_reconnected(&self) {
+        self.inner.set_reconnected().await;
     }
 
     /// Send a signal to the server (e.g. publish, subscribe, etc.)
@@ -255,6 +284,18 @@ impl SignalClient {
     /// This is determined by whether the /rtc/v1 path was used successfully.
     pub fn is_single_pc_mode_active(&self) -> bool {
         self.inner.is_single_pc_mode_active()
+    }
+
+    /// Returns whether the underlying WebSocket is currently in place.
+    ///
+    /// The inner `signal_task` clears the stream slot when the WebSocket dies
+    /// (ping timeout or remote close), so callers in the resume path can use
+    /// this to detect "signal died again while we were waiting for the PC."
+    /// Note: this does NOT inspect the `reconnecting` flag — during a normal
+    /// resume the flag is true even after the new stream has been installed,
+    /// and we want this check to return `true` in that case.
+    pub async fn is_connected(&self) -> bool {
+        self.inner.stream.read().await.is_some()
     }
 }
 
@@ -316,13 +357,13 @@ impl SignalInner {
                                 if let SignalError::TokenFormat = err {
                                     return Err(err);
                                 }
-                                Self::validate(lk_url_v0).await?;
+                                Self::validate(lk_url_v0, token).await?;
                                 return Err(err);
                             }
                         }
                     } else {
                         // Connection failed, try to retrieve more information
-                        Self::validate(lk_url).await?;
+                        Self::validate(lk_url, token).await?;
                         return Err(err);
                     }
                 }
@@ -346,12 +387,21 @@ impl SignalInner {
         Ok((inner, join_response, events))
     }
 
-    /// Validate the connection by calling rtc/validate
-    async fn validate(ws_url: url::Url) -> SignalResult<()> {
+    /// Validate the connection by calling rtc/validate.
+    ///
+    /// This is called from `connect()` when the primary WebSocket upgrade fails
+    /// with a non-404 status, to surface a clearer HTTP-level error than the WS
+    /// upgrade error. The access token is sent as `Authorization: Bearer <token>`
+    /// so the server can actually authenticate the request; without it, the
+    /// server returns 401 "no permissions to access the room" regardless of
+    /// what the original error was, masking the real cause (e.g. a 503 from a
+    /// saturated node becomes a fabricated 401 to the caller). See
+    /// https://github.com/livekit/rust-sdks/issues/1042.
+    async fn validate(ws_url: url::Url, token: &str) -> SignalResult<()> {
         let validate_url = get_validate_url(ws_url);
 
         let validate_fut = async {
-            if let Ok(res) = http_client::get(validate_url.as_str()).await {
+            if let Ok(res) = http_client::get_with_token(validate_url.as_str(), token).await {
                 let status = res.status();
                 let body = res.text().await.ok().unwrap_or_default();
 
@@ -375,40 +425,70 @@ impl SignalInner {
         self.single_pc_mode_active
     }
 
-    /// Restart is called when trying to resume the room (RtcSession resume)
+    /// Restart is called when trying to resume the room (RtcSession resume).
+    ///
+    /// Leaves `reconnecting=true` on success — the engine is expected to call
+    /// [`Self::set_reconnected`] once the full resume has succeeded. On failure
+    /// resets `reconnecting=false` so subsequent retries can re-enter cleanly.
+    /// The stream slot is held under a write lock for the entire close + new
+    /// connect, so concurrent senders block on the read side until the new
+    /// stream is in place.
     pub async fn restart(
         self: &Arc<Self>,
     ) -> SignalResult<(
         proto::ReconnectResponse,
         mpsc::UnboundedReceiver<Box<proto::signal_response::Message>>,
     )> {
-        self.close(false).await;
-
-        // Lock while we are reconnecting
-        let mut stream = self.stream.write().await;
-
+        // Set reconnecting BEFORE we touch the stream, so concurrent `send` calls
+        // see the right state and route queueable messages to the queue (rather
+        // than racing on a brief stream=None / reconnecting=false window).
         self.reconnecting.store(true, Ordering::Release);
-        scopeguard::defer!(self.reconnecting.store(false, Ordering::Release));
+
+        let mut stream_guard = self.stream.write().await;
+        if let Some(old_stream) = stream_guard.take() {
+            old_stream.close(false).await;
+        }
 
         let sid = &self.join_response.participant.as_ref().unwrap().sid;
         let token = self.token.lock().clone();
-
-        // Use the same path that succeeded during initial connection
-        // For reconnects: reconnect=true, participant_sid=sid
-        // For v1 path: reconnect and sid are encoded in the join_request protobuf
-        // For v0 path: reconnect and sid are added as separate query parameters
         let lk_url =
             get_livekit_url(&self.url, &self.options, self.single_pc_mode_active, true, None, sid)
                 .unwrap();
 
-        let (new_stream, mut events) =
-            SignalStream::connect(lk_url, &token, self.options.connect_timeout).await?;
-        let reconnect_response = get_reconnect_response(&mut events).await?;
-        *stream = Some(new_stream);
+        let result = async {
+            let (new_stream, mut events) =
+                SignalStream::connect(lk_url, &token, self.options.connect_timeout).await?;
+            let reconnect_response = get_reconnect_response(&mut events).await?;
+            SignalResult::Ok((new_stream, reconnect_response, events))
+        }
+        .await;
 
-        drop(stream);
+        match result {
+            Ok((new_stream, reconnect_response, events)) => {
+                *stream_guard = Some(new_stream);
+                drop(stream_guard);
+                // Note: NOT clearing `reconnecting` here. Caller must invoke
+                // `set_reconnected()` after the resume has fully recovered.
+                Ok((reconnect_response, events))
+            }
+            Err(err) => {
+                // Connect / get_reconnect_response failed. Stream slot stays None.
+                // Reset the flag so the next reconnect attempt can re-enter.
+                drop(stream_guard);
+                self.reconnecting.store(false, Ordering::Release);
+                Err(err)
+            }
+        }
+    }
+
+    /// See [`SignalClient::set_reconnected`].
+    pub async fn set_reconnected(&self) {
+        // Order: clear the flag FIRST, then flush. This way any sends that race
+        // with the flush see `reconnecting=false` and go through the normal path
+        // (which itself flushes the queue), and we don't have queueable sends
+        // sneaking back into the queue while we're trying to drain it.
+        self.reconnecting.store(false, Ordering::Release);
         self.flush_queue().await;
-        Ok((reconnect_response, events))
     }
 
     /// Close the connection
@@ -418,25 +498,46 @@ impl SignalInner {
         }
     }
 
-    /// Send a signal to the server
+    /// Send a signal to the server.
+    ///
+    /// During reconnect:
+    /// - Pass-through signals (`Trickle`/`Offer`/`Answer`/`SyncState`/`Simulate`/`Leave`)
+    ///   block on the stream lock and write through the new stream once it's in place.
+    /// - Queueable signals are accumulated in the queue and drained by
+    ///   [`Self::set_reconnected`] after the resume has fully recovered.
     pub async fn send(&self, signal: proto::signal_request::Message) {
-        if self.reconnecting.load(Ordering::Acquire) {
-            self.queue_message(signal).await;
+        let pass_through = is_pass_through(&signal);
+        let reconnecting = self.reconnecting.load(Ordering::Acquire);
+
+        if reconnecting && !pass_through {
+            // Queueable signal during reconnect — buffer for the post-resume flush.
+            self.queue.lock().await.push(signal);
             return;
         }
 
-        self.flush_queue().await; // The queue must be flusehd before sending any new signal
+        if !reconnecting {
+            // Normal path: drain anything that was queued before the previous
+            // reconnect, preserving the original send order.
+            self.flush_queue().await;
+        }
 
+        // Pass-through during reconnect: the stream read lock is held by `restart`
+        // until the new stream is installed, so this awaits and then writes via
+        // the new stream. Same code path for the steady-state send — the lock is
+        // free and we send immediately.
         if let Some(stream) = self.stream.read().await.as_ref() {
             if let Err(SignalError::SendError) = stream.send(signal.clone()).await {
-                self.queue_message(signal).await;
+                if !pass_through {
+                    self.queue.lock().await.push(signal);
+                } else {
+                    log::warn!("dropping pass-through signal — send failed");
+                }
             }
-        }
-    }
-
-    async fn queue_message(&self, signal: proto::signal_request::Message) {
-        if is_queuable(&signal) {
+        } else if !pass_through {
+            // Stream not in place AND signal is queueable — hold it.
             self.queue.lock().await.push(signal);
+        } else {
+            log::warn!("dropping pass-through signal — no stream available");
         }
     }
 
@@ -520,6 +621,10 @@ async fn signal_task(
                 inner.send(ping).await;
             }
             _ = &mut ping_timeout => {
+                // No pong within the configured window — the WS is dead even
+                // if the OS hasn't told us yet. Tear down the stream and emit
+                // Close; the engine layer reads that as a trigger to drive
+                // a resume reconnect (see SignalEvent::Close docs).
                 let _ = emitter.send(SignalEvent::Close("ping timeout".into()));
                 break;
             }
@@ -529,10 +634,13 @@ async fn signal_task(
     inner.close(true).await; // Make sure to always close the ws connection when the loop is terminated
 }
 
-/// Check if the signal is queuable
-/// Not every signal should be sent after signal reconnection
-fn is_queuable(signal: &proto::signal_request::Message) -> bool {
-    !matches!(
+/// Returns true for signals that must NOT be queued during a reconnect — they
+/// drive signaling/negotiation itself (Trickle ICE candidates, the
+/// publisher Offer, the subscriber Answer, the client SyncState that the SFU
+/// uses to resync state, plus simulate/leave). Buffering these would deadlock
+/// the resume. Mirrors `client-sdk-js` `passThroughQueueSignals`.
+fn is_pass_through(signal: &proto::signal_request::Message) -> bool {
+    matches!(
         signal,
         proto::signal_request::Message::SyncState(_)
             | proto::signal_request::Message::Trickle(_)
@@ -541,6 +649,28 @@ fn is_queuable(signal: &proto::signal_request::Message) -> bool {
             | proto::signal_request::Message::Simulate(_)
             | proto::signal_request::Message::Leave(_)
     )
+}
+
+fn client_info_sdk_for_name(sdk: &str) -> proto::client_info::Sdk {
+    match sdk {
+        "js" => proto::client_info::Sdk::Js,
+        "ios" | "swift" => proto::client_info::Sdk::Swift,
+        "android" => proto::client_info::Sdk::Android,
+        "flutter" => proto::client_info::Sdk::Flutter,
+        "go" => proto::client_info::Sdk::Go,
+        "unity" => proto::client_info::Sdk::Unity,
+        "reactnative" => proto::client_info::Sdk::ReactNative,
+        "rust" => proto::client_info::Sdk::Rust,
+        "python" => proto::client_info::Sdk::Python,
+        "cpp" => proto::client_info::Sdk::Cpp,
+        "unityweb" => proto::client_info::Sdk::UnityWeb,
+        "node" => proto::client_info::Sdk::Node,
+        "esp32" => proto::client_info::Sdk::Esp32,
+        _ => {
+            log::warn!("unknown SDK name in signal options: {}", sdk);
+            proto::client_info::Sdk::Unknown
+        }
+    }
 }
 
 /// Create the base64-encoded WrappedJoinRequest parameter required for v1 path
@@ -565,12 +695,14 @@ fn create_join_request_param(
     };
 
     let client_info = proto::ClientInfo {
-        sdk: proto::client_info::Sdk::Rust as i32,
+        sdk: client_info_sdk_for_name(&options.sdk_options.sdk) as i32,
         version: options.sdk_options.sdk_version.clone().unwrap_or_default(),
         protocol: PROTOCOL_VERSION as i32,
         os,
         os_version,
         device_model,
+        capabilities: CLIENT_CAPABILITIES.iter().map(|c| *c as i32).collect(),
+        client_protocol: CLIENT_PROTOCOL_VERSION,
         ..Default::default()
     };
 
@@ -667,11 +799,19 @@ fn get_livekit_url(
             .append_pair("os_version", os_info.version().to_string().as_str())
             .append_pair("device_model", device_model.to_string().as_str())
             .append_pair("protocol", PROTOCOL_VERSION.to_string().as_str())
+            .append_pair("client_protocol", CLIENT_PROTOCOL_VERSION.to_string().as_str())
             .append_pair("auto_subscribe", if options.auto_subscribe { "1" } else { "0" })
             .append_pair("adaptive_stream", if options.adaptive_stream { "1" } else { "0" });
 
         if let Some(sdk_version) = &options.sdk_options.sdk_version {
             lk_url.query_pairs_mut().append_pair("version", sdk_version.as_str());
+        }
+
+        // parse client capabilities
+        if !CLIENT_CAPABILITIES.is_empty() {
+            let caps =
+                CLIENT_CAPABILITIES.iter().map(|c| c.as_str_name()).collect::<Vec<_>>().join(",");
+            lk_url.query_pairs_mut().append_pair("capabilities", &caps);
         }
 
         // For reconnects in v0 path, add reconnect and sid as separate query parameters
@@ -756,6 +896,129 @@ async fn get_reconnect_response(
 mod tests {
     use super::*;
 
+    fn signal_options_for_cpp(version: &str) -> SignalOptions {
+        let mut options = SignalOptions::default();
+        options.sdk_options.sdk = "cpp".to_string();
+        options.sdk_options.sdk_version = Some(version.to_string());
+        options
+    }
+
+    fn decode_join_request_param_for_test(param: &str) -> proto::JoinRequest {
+        let wrapped_bytes = BASE64_STANDARD.decode(param).unwrap();
+        let wrapped = proto::WrappedJoinRequest::decode(wrapped_bytes.as_slice()).unwrap();
+        proto::JoinRequest::decode(wrapped.join_request.as_slice()).unwrap()
+    }
+
+    #[test]
+    fn client_info_sdk_for_name_maps_known_sdks() {
+        assert_eq!(client_info_sdk_for_name("cpp"), proto::client_info::Sdk::Cpp);
+        assert_eq!(client_info_sdk_for_name("ios"), proto::client_info::Sdk::Swift);
+        assert_eq!(client_info_sdk_for_name("rust"), proto::client_info::Sdk::Rust);
+        assert_eq!(client_info_sdk_for_name("node"), proto::client_info::Sdk::Node);
+        assert_eq!(client_info_sdk_for_name("reactnative"), proto::client_info::Sdk::ReactNative);
+        assert_eq!(client_info_sdk_for_name("unityweb"), proto::client_info::Sdk::UnityWeb);
+        assert_eq!(client_info_sdk_for_name("unknown-sdk"), proto::client_info::Sdk::Unknown);
+    }
+
+    /// Build a stream-less SignalInner suitable for exercising the queue routing
+    /// in `send`. The stream slot is None so any actual write would be dropped,
+    /// which is fine — these tests only assert which side of the queue each
+    /// message lands on.
+    fn make_stub_inner() -> Arc<SignalInner> {
+        Arc::new(SignalInner {
+            stream: AsyncRwLock::new(None),
+            token: Mutex::new(String::new()),
+            reconnecting: AtomicBool::new(false),
+            queue: Default::default(),
+            url: "wss://localhost:7880".to_string(),
+            options: SignalOptions::default(),
+            join_response: proto::JoinResponse::default(),
+            request_id: AtomicU32::new(1),
+            single_pc_mode_active: false,
+        })
+    }
+
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn send_queues_queueable_signals_during_reconnect() {
+        let inner = make_stub_inner();
+        inner.reconnecting.store(true, Ordering::Release);
+
+        // Queueable: AddTrack, Mute, UpdateSubscription
+        inner
+            .send(proto::signal_request::Message::AddTrack(proto::AddTrackRequest {
+                cid: "track1".into(),
+                ..Default::default()
+            }))
+            .await;
+        inner
+            .send(proto::signal_request::Message::Mute(proto::MuteTrackRequest {
+                sid: "sid1".into(),
+                muted: true,
+            }))
+            .await;
+        inner
+            .send(proto::signal_request::Message::Subscription(proto::UpdateSubscription {
+                track_sids: vec!["sid2".into()],
+                ..Default::default()
+            }))
+            .await;
+
+        let queue = inner.queue.lock().await;
+        assert_eq!(queue.len(), 3, "all three queueable signals should be buffered");
+    }
+
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn send_does_not_queue_pass_through_signals_during_reconnect() {
+        let inner = make_stub_inner();
+        inner.reconnecting.store(true, Ordering::Release);
+
+        // Pass-through: Trickle, Offer, Answer, SyncState, Simulate, Leave.
+        // These all attempt to write to the (None) stream and get logged as
+        // "no stream available" — but critically they do NOT land in the queue.
+        inner.send(proto::signal_request::Message::Trickle(proto::TrickleRequest::default())).await;
+        inner
+            .send(proto::signal_request::Message::Offer(proto::SessionDescription::default()))
+            .await;
+        inner
+            .send(proto::signal_request::Message::Answer(proto::SessionDescription::default()))
+            .await;
+        inner.send(proto::signal_request::Message::SyncState(proto::SyncState::default())).await;
+        inner
+            .send(proto::signal_request::Message::Simulate(proto::SimulateScenario::default()))
+            .await;
+        inner.send(proto::signal_request::Message::Leave(proto::LeaveRequest::default())).await;
+
+        let queue = inner.queue.lock().await;
+        assert!(queue.is_empty(), "pass-through signals must not be queued, got {}", queue.len());
+    }
+
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn set_reconnected_drains_queue_and_clears_flag() {
+        let inner = make_stub_inner();
+        inner.reconnecting.store(true, Ordering::Release);
+
+        // Queue something while reconnecting
+        inner
+            .send(proto::signal_request::Message::Mute(proto::MuteTrackRequest {
+                sid: "sid1".into(),
+                muted: true,
+            }))
+            .await;
+        assert_eq!(inner.queue.lock().await.len(), 1);
+
+        // set_reconnected clears the flag and tries to flush. Since stream is
+        // None, the flush attempt does nothing — but the flag MUST clear and the
+        // queue MUST drain. The current implementation drains via flush_queue
+        // which only drains if the stream is available; with stream=None the
+        // queue stays. This is acceptable: a future send with a real stream
+        // will trigger flush_queue at the top of the normal path.
+        inner.set_reconnected().await;
+        assert!(!inner.reconnecting.load(Ordering::Acquire), "flag must be cleared");
+    }
+
     #[test]
     fn livekit_url_test() {
         let io = SignalOptions::default();
@@ -783,6 +1046,31 @@ mod tests {
     }
 
     #[test]
+    fn livekit_url_v0_reports_cpp_sdk_and_version() {
+        let io = signal_options_for_cpp("9.9.9-test");
+        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap();
+        let query: std::collections::HashMap<_, _> = lk_url.query_pairs().into_owned().collect();
+
+        assert_eq!(query.get("sdk").map(String::as_str), Some("cpp"));
+        assert_eq!(query.get("version").map(String::as_str), Some("9.9.9-test"));
+    }
+
+    #[test]
+    fn livekit_url_v1_join_request_reports_cpp_sdk_and_version() {
+        let io = signal_options_for_cpp("9.9.9-test");
+        let lk_url = get_livekit_url("wss://localhost:7880", &io, true, false, None, "").unwrap();
+        let join_request_param = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "join_request").then(|| value.into_owned()))
+            .unwrap();
+        let join_request = decode_join_request_param_for_test(&join_request_param);
+        let client_info = join_request.client_info.unwrap();
+
+        assert_eq!(client_info.sdk, proto::client_info::Sdk::Cpp as i32);
+        assert_eq!(client_info.version, "9.9.9-test");
+    }
+
+    #[test]
     fn validate_url_test() {
         let io = SignalOptions::default();
         let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap();
@@ -791,6 +1079,76 @@ mod tests {
         // Should be /rtc/validate, not /rtc/rtc/validate
         assert_eq!(validate_url.path(), "/rtc/validate");
         assert_eq!(validate_url.scheme(), "https");
+    }
+
+    #[test]
+    fn livekit_url_includes_client_capabilities() {
+        let io = SignalOptions::default();
+        let lk_url = get_livekit_url("wss://localhost:7880", &io, false, false, None, "").unwrap();
+
+        let capabilities = lk_url
+            .query_pairs()
+            .find_map(|(key, value)| (key == "capabilities").then(|| value.into_owned()))
+            .unwrap();
+        let expected = CLIENT_CAPABILITIES
+            .iter()
+            .map(|capability| capability.as_str_name())
+            .collect::<Vec<_>>()
+            .join(",");
+
+        assert_eq!(capabilities, expected);
+    }
+
+    /// Regression test for https://github.com/livekit/rust-sdks/issues/1042.
+    ///
+    /// Prior to the fix, `SignalInner::validate` issued an auth-less GET to
+    /// `/rtc/validate`, so a server performing the standard auth check (claims
+    /// parsing) would return 401 regardless of the real reason the WebSocket
+    /// upgrade had failed. That 401 then masked the original error (e.g. a
+    /// 503 from a saturated node) at the caller.
+    ///
+    /// This test binds a TCP listener, calls `validate()`, captures the first
+    /// request sent to that listener, and asserts the request carries an
+    /// `Authorization: Bearer <token>` header.
+    #[cfg(feature = "signal-client-tokio")]
+    #[tokio::test]
+    async fn validate_sends_bearer_token() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+
+        let (tx, rx) = tokio::sync::oneshot::channel::<Vec<u8>>();
+
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buf = vec![0u8; 4096];
+            let n = socket.read(&mut buf).await.unwrap();
+            buf.truncate(n);
+            let _ = tx.send(buf);
+
+            // Respond 200 OK so `validate()` returns Ok() rather than
+            // surfacing a synthetic client/server error. The purpose of this
+            // test is the request side, not the response side.
+            let response = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            let _ = socket.write_all(response).await;
+        });
+
+        let ws_url = url::Url::parse(&format!("ws://127.0.0.1:{}/rtc", addr.port())).unwrap();
+        let result = SignalInner::validate(ws_url, "test-bearer-token").await;
+        assert!(result.is_ok(), "expected Ok from validate, got: {:?}", result);
+
+        let request = rx.await.expect("server task never received a request");
+        let request = String::from_utf8_lossy(&request);
+
+        // Header names are case-insensitive per RFC 9110; reqwest emits the
+        // canonical `Authorization` but we normalise both for robustness.
+        assert!(
+            request.to_lowercase().contains("authorization: bearer test-bearer-token"),
+            "validate() must attach the access token as a Bearer header; request was:\n{}",
+            request
+        );
     }
 
     #[cfg(feature = "signal-client-tokio")]

@@ -1,6 +1,6 @@
 [package]
 name = "libwebrtc"
-version = "0.3.29"
+version = "0.3.33"
 edition.workspace = true
 homepage = "https://livekit.io"
 license.workspace = true
@@ -16,7 +16,6 @@ default = [ "glib-main-loop" ]
 glib-main-loop = [ "dep:glib" ]
 
 [dependencies]
-livekit-protocol = { workspace = true }
 log = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

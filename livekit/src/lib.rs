@@ -15,7 +15,7 @@
 mod plugin;
 pub mod proto;
 mod room;
-mod rtc_engine;
+pub mod rtc_engine;
 
 pub mod webrtc {
     pub use libwebrtc::*;
@@ -26,6 +26,12 @@ pub use room::*;
 /// `use livekit::prelude::*;` to import livekit types
 pub mod prelude;
 
+// Platform Audio Device Module (ADM) management
+#[cfg(not(target_arch = "wasm32"))]
+mod platform_audio;
+#[cfg(not(target_arch = "wasm32"))]
+pub use platform_audio::*;
+
 #[cfg(feature = "dispatcher")]
 pub mod dispatcher {
     pub use livekit_runtime::set_dispatcher;
@@ -34,3 +40,5 @@ pub mod dispatcher {
 }
 
 pub use plugin::*;
+
+mod utils;

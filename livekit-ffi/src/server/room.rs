@@ -20,7 +20,7 @@ use livekit::{prelude::*, registered_audio_filter_plugins};
 use livekit::{ChatMessage, StreamReader};
 use livekit_protocol as lk_proto;
 use parking_lot::Mutex;
-use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex};
+use tokio::sync::{broadcast, mpsc, oneshot, Mutex as AsyncMutex, Notify};
 use tokio::task::JoinHandle;
 
 use super::FfiDataBuffer;
@@ -54,6 +54,12 @@ impl FfiHandle for FfiRoom {}
 pub struct FfiRoom {
     pub inner: Arc<RoomInner>,
     handle: Arc<AsyncMutex<Option<Handle>>>,
+    /// Signaled by the FFI client (via [`proto::ReadyForRoomEventRequest`]) once it
+    /// has finished installing its event listener. The connect task parks on
+    /// this notify after sending [`proto::ConnectCallback`] and only spawns the
+    /// event-forwarding tasks once it fires, ensuring no room events are
+    /// emitted before the client is ready to receive them.
+    room_event_ready_notify: Arc<Notify>,
 }
 
 pub struct RoomInner {
@@ -71,12 +77,21 @@ pub struct RoomInner {
 
     track_handle_lookup: Arc<Mutex<HashMap<TrackSid, FfiHandleId>>>,
 
+    // Maps a local publication's current sid -> its FfiPublication handle.
+    // Used to preserve the FfiPublication handle across the SDK's
+    // auto-republish during a full reconnect — the language binding can
+    // continue to use the same publication handle while the inner
+    // publication is swapped to the new (re-issued) one.
+    local_publication_lookup: Arc<Mutex<HashMap<TrackSid, FfiHandleId>>>,
+
     // Used to forward RPC method invocation to the FfiClient and collect their results
     rpc_method_invocation_waiters: Mutex<HashMap<u64, oneshot::Sender<Result<String, RpcError>>>>,
 
     // ws url associated with this room
     url: String,
 }
+
+const ROOM_EVENT_READY_TIMEOUT: Duration = Duration::from_secs(1);
 
 struct Handle {
     event_handle: JoinHandle<()>,
@@ -146,9 +161,9 @@ impl FfiRoom {
                         .map_err(|e| e.to_string());
                     match result {
                         Err(e) | Ok(Err(e)) => {
-                            log::debug!("error while initializing audio filter: {}", e);
+                            log::warn!("error while initializing audio filter: {}", e);
                             log::error!(
-                                "audio filter cannot be enabled: LiveKit Cloud is required"
+                                "audio filter cannot be enabled: ensure you are connecting to LiveKit Cloud and that the filter is properly configured"
                             );
                             // Skip returning an error here to keep the rtc session alive
                             // But in this case, the filter isn't enabled in the session.
@@ -179,6 +194,7 @@ impl FfiRoom {
                         pending_published_tracks: Default::default(),
                         pending_unpublished_tracks: Default::default(),
                         track_handle_lookup: Default::default(),
+                        local_publication_lookup: Default::default(),
                         rpc_method_invocation_waiters: Default::default(),
                         url: connect.url,
                     });
@@ -187,7 +203,11 @@ impl FfiRoom {
                         build_initial_states(server, &inner, participants_with_tracks);
 
                     // Send callback
-                    let ffi_room = Self { inner: inner.clone(), handle: Default::default() };
+                    let ffi_room = Self {
+                        inner: inner.clone(),
+                        handle: Default::default(),
+                        room_event_ready_notify: Arc::new(Notify::new()),
+                    };
                     server.store_handle(ffi_room.inner.handle_id, ffi_room.clone());
 
                     // Keep the lock until the handle is "Some" (So it is OK for the client to
@@ -217,7 +237,33 @@ impl FfiRoom {
                         .into(),
                     );
 
-                    // Update Room SID on promise resolve
+                    // Wait for the FFI client to install its event listener and
+                    // send a ReadyForRoomEventRequest before forwarding any room
+                    // events. This avoids a race where events emitted between
+                    // the ConnectCallback and the listener registration are
+                    // dropped.
+                    if tokio::time::timeout(
+                        ROOM_EVENT_READY_TIMEOUT,
+                        ffi_room.room_event_ready_notify.notified(),
+                    )
+                    .await
+                    .is_err()
+                    {
+                        let msg = format!(
+                            "timed out waiting for ReadyForRoomEventRequest after ConnectCallback \
+                             (room_handle={handle_id})"
+                        );
+                        log::error!("{}", msg);
+                        drop(handle);
+                        ffi_room.close(server, DisconnectReason::ConnectionTimeout).await;
+                        server.drop_handle(handle_id);
+                        server.send_panic(Box::new(FfiError::InvalidRequest(msg.into())));
+                        return;
+                    }
+
+                    // Update Room SID on promise resolve. Spawned after the
+                    // ready handshake so the RoomSidChanged event is never
+                    // delivered before the client is ready to receive it.
                     let room_handle = inner.handle_id.clone();
                     server.async_runtime.spawn(async move {
                         let _ = server.send_event(
@@ -299,6 +345,13 @@ impl FfiRoom {
 
         server.watch_panic(server.async_runtime.spawn(connect));
         proto::ConnectResponse { async_id }
+    }
+
+    /// Release the connect task's wait point so room event forwarding can
+    /// begin. Called in response to a [`proto::ReadyForRoomEventRequest`] from the
+    /// FFI client once it has installed its event listener.
+    pub fn ready_for_room_event(&self) {
+        self.room_event_ready_notify.notify_one();
     }
 
     /// Close the room and stop the tasks
@@ -1051,38 +1104,109 @@ async fn forward_event(
         }
         RoomEvent::LocalTrackPublished { publication, track: _, participant: _ } => {
             let sid = publication.sid();
-            // If we're currently reconnecting, users can't publish tracks, if we receive this
-            // event it means the RoomEngine is republishing tracks to finish the reconnection
-            // process. (So we're not waiting for any PublishCallback)
-            if !present_state.lock().reconnecting {
-                // Make sure to send the event *after* the async callback of the PublishTrackRequest
-                // Wait for the PublishTrack callback to be sent (waiting time is really short, so
-                // it is fine to not spawn a new task)
-                loop {
-                    if inner.pending_published_tracks.lock().remove(&sid) {
-                        break;
-                    }
-                    log::debug!("waiting for the PublishTrack callback to be sent");
-                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-                }
+            let reconnecting = present_state.lock().reconnecting;
+            if reconnecting {
+                // The engine is auto-republishing tracks during a full
+                // reconnect. We defer the FfiPublication swap (and the
+                // proto event) to the LocalTrackRepublished handler
+                return;
             }
 
-            let ffi_publication = FfiPublication {
-                handle: server.next_id(),
-                publication: TrackPublication::Local(publication),
-            };
-            server.store_handle(ffi_publication.handle, ffi_publication);
+            // Make sure to send the event *after* the async callback of the PublishTrackRequest
+            // Wait for the PublishTrack callback to be sent (waiting time is really short, so
+            // it is fine to not spawn a new task)
+            loop {
+                if inner.pending_published_tracks.lock().remove(&sid) {
+                    break;
+                }
+                log::debug!("waiting for the PublishTrack callback to be sent");
+                tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+            }
 
+            // The PublishTrackCallback already gave the foreign side a wrapped publication
+            // handle. Allocating a second FfiPublication here would store an entry in the
+            // handle table whose id is never communicated to the client — pure leak.
             let _ = send_event(proto::LocalTrackPublished { track_sid: sid.to_string() }.into());
         }
         RoomEvent::LocalTrackUnpublished { publication, participant: _ } => {
-            let _ = send_event(
-                proto::LocalTrackUnpublished { publication_sid: publication.sid().into() }.into(),
-            );
+            let sid = publication.sid();
+            // During a reconnect, the unpublish is the SDK's internal
+            // bookkeeping for the auto-republish flow. we will ignore it here and handle it in
+            // the LocalTrackRepublished handler
+            if present_state.lock().reconnecting {
+                return;
+            }
 
-            inner.pending_unpublished_tracks.lock().insert(publication.sid());
+            inner.local_publication_lookup.lock().remove(&sid);
+            inner.pending_unpublished_tracks.lock().insert(sid.clone());
+            let _ = send_event(proto::LocalTrackUnpublished { publication_sid: sid.into() }.into());
+        }
+        RoomEvent::LocalTrackRepublished {
+            previous_sid,
+            publication,
+            track: _,
+            participant: _,
+        } => {
+            let new_sid = publication.sid();
+            let mut lookup = inner.local_publication_lookup.lock();
+            let Some(handle_id) = lookup.remove(&previous_sid) else {
+                // We never tracked an FfiPublication for this SID —
+                // shouldn't happen on the auto-republish path, but fall
+                // back to creating a fresh one so the binding still gets
+                // a usable handle.
+                let ffi_publication = FfiPublication {
+                    handle: server.next_id(),
+                    publication: TrackPublication::Local(publication),
+                };
+                let new_handle_id = ffi_publication.handle;
+                let info = proto::TrackPublicationInfo::from(&ffi_publication);
+                server.store_handle(new_handle_id, ffi_publication);
+                lookup.insert(new_sid, new_handle_id);
+                drop(lookup);
+                let _ = send_event(
+                    proto::LocalTrackRepublished {
+                        publication_handle: new_handle_id,
+                        previous_sid: previous_sid.into(),
+                        info,
+                    }
+                    .into(),
+                );
+                return;
+            };
+
+            // Swap the inner publication on the existing FfiPublication
+            // (handle id preserved); rekey the lookup under the new sid.
+            let ffi_publication = FfiPublication {
+                handle: handle_id,
+                publication: TrackPublication::Local(publication),
+            };
+            let info = proto::TrackPublicationInfo::from(&ffi_publication);
+            server.store_handle(handle_id, ffi_publication);
+            lookup.insert(new_sid, handle_id);
+            drop(lookup);
+
+            let _ = send_event(
+                proto::LocalTrackRepublished {
+                    publication_handle: handle_id,
+                    previous_sid: previous_sid.into(),
+                    info,
+                }
+                .into(),
+            );
         }
         RoomEvent::LocalTrackSubscribed { track } => {
+            // During a full reconnect, the engine auto-resubscribes the
+            // republished local tracks under their new server-issued
+            // SIDs. The binding's publication object is preserved across
+            // `LocalTrackRepublished`, so the first-subscription signal
+            // it gave the application on the original publish is still
+            // valid. Forwarding this event would race with the sid
+            // rekey driven by `LocalTrackRepublished` (different task,
+            // same dispatcher channel) and surface as a KeyError /
+            // already-resolved future on the binding side.
+            if present_state.lock().reconnecting {
+                return;
+            }
             let _ = send_event(
                 proto::LocalTrackSubscribed { track_sid: track.sid().to_string() }.into(),
             );

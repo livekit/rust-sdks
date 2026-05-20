@@ -41,11 +41,42 @@ impl FfiAudioSource {
 
                 let audio_source = NativeAudioSource::new(
                     new_source.options.map(Into::into).unwrap_or_default(),
-                    new_source.sample_rate,
-                    new_source.num_channels,
+                    new_source.sample_rate.unwrap_or(48000),
+                    new_source.num_channels.unwrap_or(1),
                     new_source.queue_size_ms.unwrap_or(1000),
                 );
                 RtcAudioSource::Native(audio_source)
+            }
+            #[cfg(not(target_arch = "wasm32"))]
+            proto::AudioSourceType::AudioSourcePlatform => {
+                // Platform ADM-based source - captures from microphone automatically
+                // PlatformAudio must be created first to enable ADM recording
+
+                // If options and platform_audio_handle are provided, configure audio processing
+                if let (Some(ref options), Some(handle)) =
+                    (&new_source.options, new_source.platform_audio_handle)
+                {
+                    if let Ok(ffi_audio) =
+                        server.retrieve_handle::<super::platform_audio::FfiPlatformAudio>(handle)
+                    {
+                        let processing_options = livekit::AudioProcessingOptions {
+                            echo_cancellation: options.echo_cancellation,
+                            noise_suppression: options.noise_suppression,
+                            auto_gain_control: options.auto_gain_control,
+                            prefer_hardware_processing: options.prefer_hardware.unwrap_or(true),
+                        };
+                        if let Err(e) =
+                            ffi_audio.audio.configure_audio_processing(processing_options)
+                        {
+                            log::warn!(
+                                "Failed to configure audio processing for platform source: {}",
+                                e
+                            );
+                        }
+                    }
+                }
+
+                RtcAudioSource::Device
             }
             _ => return Err(FfiError::InvalidRequest("unsupported audio source type".into())),
         };

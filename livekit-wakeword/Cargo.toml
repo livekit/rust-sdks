@@ -17,4 +17,4 @@ ort = { version = "2.0.0-rc.11", default-features = false, features = ["alternat
 ort-tract = "0.2.0+0.22"
 
 [dev-dependencies]
-hound = "3.5"
+hound = { workspace = true }
