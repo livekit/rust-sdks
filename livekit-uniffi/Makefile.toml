@@ -111,10 +111,7 @@ dependencies = [
 description = "Build for generic Linux and Android"
 dependencies = [
     "build-linux-aarch64",
-    "build-linux-x64",
-    "build-android-aarch64",
-    "build-android-armv7",
-    "build-android-x64"
+    "build-linux-x64"
 ]
 
 # MARK: - Bindgen common
@@ -367,7 +364,7 @@ run_task = "swift-package-flow"
 #
 # Full flow: cargo make android-package
 #
-# Local dev: cargo make swift-package-local
+# Local dev: cargo make android-package-local
 #            → additionally publishes the package to local maven for local use
 
 [tasks.android-copy-jniLibs]

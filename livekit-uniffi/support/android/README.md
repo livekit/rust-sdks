@@ -30,7 +30,7 @@ Additionally publishes the package to the local maven repo for local dev use.
 ```bash
 cargo make build-android-platforms
 cargo make bindgen-kotlin
-cargo make android-copy-so
+cargo make android-copy-jniLibs
 ```
 
 ## Kotlin sources
