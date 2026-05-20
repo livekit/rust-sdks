@@ -4586,8 +4586,6 @@ pub struct Job {
     pub state: ::core::option::Option<JobState>,
     #[prost(bool, tag="10")]
     pub enable_recording: bool,
-    #[prost(string, tag="11")]
-    pub deployment: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4708,8 +4706,6 @@ pub struct RegisterWorkerRequest {
     pub namespace: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, optional, tag="7")]
     pub allowed_permissions: ::core::option::Option<ParticipantPermission>,
-    #[prost(string, tag="9")]
-    pub deployment: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4895,8 +4891,6 @@ pub struct CreateAgentDispatchRequest {
     /// cloud only
     #[prost(enumeration="JobRestartPolicy", tag="4")]
     pub restart_policy: i32,
-    #[prost(string, tag="5")]
-    pub deployment: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4908,8 +4902,6 @@ pub struct RoomAgentDispatch {
     /// cloud only
     #[prost(enumeration="JobRestartPolicy", tag="3")]
     pub restart_policy: i32,
-    #[prost(string, tag="4")]
-    pub deployment: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -4951,8 +4943,6 @@ pub struct AgentDispatch {
     /// cloud only
     #[prost(enumeration="JobRestartPolicy", tag="6")]
     pub restart_policy: i32,
-    #[prost(string, tag="7")]
-    pub deployment: ::prost::alloc::string::String,
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
@@ -5792,26 +5782,6 @@ pub struct CreateSipTrunkRequest {
 }
 #[allow(clippy::derive_partial_eq_without_eq)]
 #[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SipCodec {
-    #[prost(string, tag="1")]
-    pub name: ::prost::alloc::string::String,
-    #[prost(uint32, tag="2")]
-    pub rate: u32,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
-pub struct SipMediaConfig {
-    /// if set, ignore the default codecs and use the list below.
-    #[prost(bool, tag="1")]
-    pub only_listed_codecs: bool,
-    /// List of allowed codecs. If only_listed_codecs is not set, this list is added to default codecs.
-    #[prost(message, repeated, tag="2")]
-    pub codecs: ::prost::alloc::vec::Vec<SipCodec>,
-    #[prost(enumeration="SipMediaEncryption", optional, tag="3")]
-    pub encryption: ::core::option::Option<i32>,
-}
-#[allow(clippy::derive_partial_eq_without_eq)]
-#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct ProviderInfo {
     #[prost(string, tag="1")]
     pub id: ::prost::alloc::string::String,
@@ -6359,11 +6329,8 @@ pub struct SipDispatchRuleInfo {
     /// RoomConfiguration to use if the participant initiates the room
     #[prost(message, optional, tag="10")]
     pub room_config: ::core::option::Option<RoomConfiguration>,
-    #[prost(message, optional, tag="16")]
-    pub media: ::core::option::Option<SipMediaConfig>,
     #[prost(bool, tag="11")]
     pub krisp_enabled: bool,
-    #[deprecated]
     #[prost(enumeration="SipMediaEncryption", tag="12")]
     pub media_encryption: i32,
     #[prost(message, optional, tag="14")]
@@ -6384,11 +6351,8 @@ pub struct SipDispatchRuleUpdate {
     pub metadata: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(map="string, string", tag="5")]
     pub attributes: ::std::collections::HashMap<::prost::alloc::string::String, ::prost::alloc::string::String>,
-    #[deprecated]
     #[prost(enumeration="SipMediaEncryption", optional, tag="6")]
     pub media_encryption: ::core::option::Option<i32>,
-    #[prost(message, optional, tag="7")]
-    pub media: ::core::option::Option<SipMediaConfig>,
 }
 /// ListSIPDispatchRuleRequest lists dispatch rules for given filters. If no filters are set, all rules are listed.
 #[allow(clippy::derive_partial_eq_without_eq)]
@@ -6511,11 +6475,8 @@ pub struct CreateSipParticipantRequest {
     /// Enable voice isolation for the callee.
     #[prost(bool, tag="14")]
     pub krisp_enabled: bool,
-    #[deprecated]
     #[prost(enumeration="SipMediaEncryption", tag="18")]
     pub media_encryption: i32,
-    #[prost(message, optional, tag="23")]
-    pub media: ::core::option::Option<SipMediaConfig>,
     /// Wait for the answer for the call before returning.
     #[prost(bool, tag="19")]
     pub wait_until_answered: bool,
@@ -6527,7 +6488,7 @@ pub struct CreateSipParticipantRequest {
     /// 3) Non-empty: Use the specified value as the display name.
     #[prost(string, optional, tag="21")]
     pub display_name: ::core::option::Option<::prost::alloc::string::String>,
-    /// NEXT ID: 24
+    /// NEXT ID: 23
     #[prost(message, optional, tag="22")]
     pub destination: ::core::option::Option<Destination>,
 }
