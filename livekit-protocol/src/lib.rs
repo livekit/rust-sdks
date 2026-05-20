@@ -16,6 +16,3 @@
 #![allow(clippy::large_enum_variant)]
 
 include!("livekit.rs");
-
-#[cfg(feature = "serde")]
-include!("livekit.serde.rs");
