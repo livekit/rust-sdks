@@ -72,15 +72,7 @@ bool AudioDeviceController::set_recording_device(uint16_t index) const {
 bool AudioDeviceController::set_playout_device_by_guid(rust::String guid) const {
   int16_t count = adm_proxy_->PlayoutDevices();
 
-  // On Android, devices don't have GUIDs - they're identified by index only.
-  // Android also only reports a single "default" device because audio routing
-  // (speaker vs earpiece vs Bluetooth) is handled by the system via AudioManager,
-  // not through WebRTC device selection.
-  // If an empty GUID is passed and we have at least one device, use index 0.
-  if (guid.empty() && count > 0) {
-    return adm_proxy_->SetPlayoutDevice(0) == 0;
-  }
-
+  // Try to find a device matching the GUID
   for (int16_t i = 0; i < count; i++) {
     char name[webrtc::kAdmMaxDeviceNameSize] = {0};
     char device_guid[webrtc::kAdmMaxGuidSize] = {0};
@@ -90,20 +82,21 @@ bool AudioDeviceController::set_playout_device_by_guid(rust::String guid) const 
       }
     }
   }
+
+  // No match found - fall back to default device (index 0).
+  // This handles mobile platforms (iOS/Android) where:
+  // - GUIDs may be empty or not meaningful
+  // - Device selection is a no-op (system handles routing)
+  if (count > 0) {
+    return adm_proxy_->SetPlayoutDevice(0) == 0;
+  }
   return false;
 }
 
 bool AudioDeviceController::set_recording_device_by_guid(rust::String guid) const {
   int16_t count = adm_proxy_->RecordingDevices();
 
-  // On Android, devices don't have GUIDs - they're identified by index only.
-  // Android also only reports a single "default" microphone because the system
-  // automatically selects the best input source based on the audio mode.
-  // If an empty GUID is passed and we have at least one device, use index 0.
-  if (guid.empty() && count > 0) {
-    return adm_proxy_->SetRecordingDevice(0) == 0;
-  }
-
+  // Try to find a device matching the GUID
   for (int16_t i = 0; i < count; i++) {
     char name[webrtc::kAdmMaxDeviceNameSize] = {0};
     char device_guid[webrtc::kAdmMaxGuidSize] = {0};
@@ -112,6 +105,14 @@ bool AudioDeviceController::set_recording_device_by_guid(rust::String guid) cons
         return adm_proxy_->SetRecordingDevice(i) == 0;
       }
     }
+  }
+
+  // No match found - fall back to default device (index 0).
+  // This handles mobile platforms (iOS/Android) where:
+  // - GUIDs may be empty or not meaningful
+  // - Device selection is a no-op (system handles routing)
+  if (count > 0) {
+    return adm_proxy_->SetRecordingDevice(0) == 0;
   }
   return false;
 }

@@ -16,6 +16,7 @@
 
 #include "livekit/android.h"
 
+#include <atomic>
 #include <jni.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -42,10 +43,20 @@ FILE *stderr = fdopen(STDERR_FILENO, "w");
 
 namespace livekit_ffi {
 
+// Track whether Android WebRTC has been initialized to prevent crashes on double-init.
+static std::atomic<bool> g_android_initialized{false};
+
 void init_android(JavaVM* jvm) {
+  // Idempotent - safe to call multiple times
+  if (g_android_initialized.exchange(true)) {
+    RTC_LOG(LS_INFO) << "livekit_ffi::init_android() - already initialized, skipping";
+    return;
+  }
+
   RTC_LOG(LS_INFO) << "livekit_ffi::init_android() called with jvm=" << (jvm ? "valid" : "null");
   if (!jvm) {
     RTC_LOG(LS_ERROR) << "livekit_ffi::init_android() - JavaVM is null! Cannot initialize Android WebRTC.";
+    g_android_initialized.store(false);
     return;
   }
   webrtc::InitAndroid(jvm);
@@ -59,6 +70,9 @@ bool init_android_context(JavaVM* jvm, uintptr_t context_ptr) {
     RTC_LOG(LS_ERROR) << "livekit_ffi::init_android_context() - jvm or context is null";
     return false;
   }
+
+  // Initialize JVM first (idempotent - WebRTC handles double-init internally)
+  init_android(jvm);
 
   // Cast uintptr_t back to jobject
   jobject context = reinterpret_cast<jobject>(context_ptr);

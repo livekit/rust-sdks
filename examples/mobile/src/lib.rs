@@ -441,6 +441,8 @@ pub mod android {
         );
 
         log::info!("JNI_OnLoad, initializing LiveKit");
+        // Early JVM init for video/data. PlatformAudio requires additional context init
+        // via initializeContextNative() - see Java_io_livekit_rustexample_App_initializeContextNative.
         livekit::webrtc::android::initialize_android(&vm);
         JNI_VERSION_1_6
     }
@@ -448,6 +450,9 @@ pub mod android {
     /// Initialize the Android application context for WebRTC audio (PlatformAudio).
     /// This should be called from Application.onCreate() or Activity.onCreate()
     /// with the application context.
+    ///
+    /// This function handles both JVM and context initialization, so it's safe to call
+    /// even if JNI_OnLoad already ran (idempotent).
     ///
     /// Note: This is only required if you want to use PlatformAudio (microphone/speaker
     /// via WebRTC ADM). If you only use NativeAudioSource (custom audio buffers),

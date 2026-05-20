@@ -21,18 +21,23 @@ pub mod ffi {
         type JavaVM;
 
         /// Initialize Android WebRTC with the JVM.
-        /// This must be called before any WebRTC operations on Android.
+        /// Called automatically by init_android_context(), so only call directly
+        /// in JNI_OnLoad or when you don't have an Android Context.
+        /// Idempotent - safe to call multiple times.
         unsafe fn init_android(vm: *mut JavaVM);
 
-        /// Initialize the Android application context for WebRTC audio.
-        /// This must be called before using PlatformAudio on Android.
+        /// Initialize Android WebRTC with the application context.
+        /// This is the main init function - calls init_android() internally,
+        /// then initializes ContextUtils for PlatformAudio.
+        /// Idempotent - safe to call multiple times.
         ///
         /// # Arguments
         /// * `jvm` - The JavaVM pointer
         /// * `context` - The Android application context (jobject as usize)
         ///
         /// # Returns
-        /// true if initialization was successful, false otherwise
+        /// true if context init succeeded, false otherwise.
+        /// Note: JVM init always happens regardless of return value.
         unsafe fn init_android_context(jvm: *mut JavaVM, context: usize) -> bool;
     }
 }

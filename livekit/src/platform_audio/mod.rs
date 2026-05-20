@@ -648,33 +648,24 @@ impl PlatformAudio {
     ///
     /// **Desktop:** Works as expected - select from enumerated devices.
     ///
-    /// **Android:** Device selection has no effect. Android only reports one "default"
-    /// device, and the system controls microphone selection based on audio mode.
-    /// Calling this method on Android is a no-op (will succeed but does nothing).
+    /// **Mobile (iOS/Android):** Device selection is a no-op. Both platforms handle
+    /// microphone selection at the system level. This method will succeed but has no effect.
+    /// - iOS: VPIO AudioUnit handles input selection
+    /// - Android: System selects best input source based on audio mode
     ///
     /// # Arguments
     ///
     /// * `id` - Device identifier from [`RecordingDeviceInfo::id`]
-    ///
-    /// # Errors
-    ///
-    /// - [`AudioError::DeviceNotFound`] if the device is no longer available
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let audio = PlatformAudio::new()?;
     ///
-    /// // Get the first microphone
+    /// // Get the first microphone (desktop only - on mobile this is a no-op)
     /// if let Some(device) = audio.recording_devices().next() {
     ///     audio.set_recording_device(&device.id)?;
     /// }
-    ///
-    /// // Or save the ID for later use
-    /// let devices: Vec<_> = audio.recording_devices().collect();
-    /// let preferred_id = devices[0].id.clone();
-    /// // ... later ...
-    /// audio.set_recording_device(&preferred_id)?;
     /// ```
     pub fn set_recording_device(&self, id: &RecordingDeviceId) -> AudioResult<()> {
         if self.handle.runtime.set_recording_device_by_guid(id.as_str()) {
@@ -693,26 +684,21 @@ impl PlatformAudio {
     ///
     /// **Desktop:** Works as expected - select from enumerated devices.
     ///
-    /// **Android:** Device selection has no effect. Android handles audio routing
-    /// (speaker, earpiece, Bluetooth) at the system level via `AudioManager`.
-    /// To switch outputs on Android, use the Android `AudioManager` API instead:
-    /// - `audioManager.setSpeakerphoneOn(true/false)`
-    /// - `audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION)`
+    /// **Mobile (iOS/Android):** Device selection is a no-op. Both platforms handle
+    /// audio routing at the system level. This method will succeed but has no effect.
+    /// - iOS: Use `AVAudioSession` to control routing (speaker, earpiece, Bluetooth)
+    /// - Android: Use `AudioManager.setSpeakerphoneOn()` to switch outputs
     ///
     /// # Arguments
     ///
     /// * `id` - Device identifier from [`PlayoutDeviceInfo::id`]
-    ///
-    /// # Errors
-    ///
-    /// - [`AudioError::DeviceNotFound`] if the device is no longer available
     ///
     /// # Example
     ///
     /// ```rust,ignore
     /// let audio = PlatformAudio::new()?;
     ///
-    /// // Get the first speaker
+    /// // Get the first speaker (desktop only - on mobile this is a no-op)
     /// if let Some(device) = audio.playout_devices().next() {
     ///     audio.set_playout_device(&device.id)?;
     /// }

@@ -16,31 +16,42 @@ use jni::objects::JObject;
 use webrtc_sys::android::ffi as sys_android;
 
 /// Initialize Android WebRTC with the JVM.
-/// This must be called before any WebRTC operations on Android.
+///
+/// This is automatically called by [`initialize_android_context`], so you only
+/// need to call this directly if you don't have access to an Android Context
+/// (e.g., in `JNI_OnLoad`).
+///
+/// This function is idempotent - safe to call multiple times.
 pub fn initialize_android(vm: &jni::JavaVM) {
     unsafe {
         sys_android::init_android(vm.get_java_vm_pointer() as *mut _);
     }
 }
 
-/// Initialize the Android application context for WebRTC audio.
-/// This must be called before using PlatformAudio on Android.
+/// Initialize Android WebRTC with the application context.
+///
+/// This is the main initialization function for Android. It performs both:
+/// 1. JVM initialization (same as [`initialize_android`])
+/// 2. Context initialization (required for PlatformAudio)
+///
+/// This function is idempotent - safe to call multiple times.
 ///
 /// # Arguments
 /// * `vm` - The JavaVM instance
 /// * `context` - The Android application context
 ///
 /// # Returns
-/// true if initialization was successful, false otherwise
+/// `true` if context initialization succeeded, `false` otherwise.
+/// Note: JVM initialization always happens regardless of return value.
 ///
 /// # Example
 /// ```ignore
 /// use jni::JavaVM;
-/// use livekit::webrtc::android::{initialize_android, initialize_android_context};
+/// use jni::objects::JObject;
+/// use livekit::webrtc::android::initialize_android_context;
 ///
-/// // In JNI_OnLoad or similar:
 /// fn init(vm: JavaVM, context: JObject) {
-///     initialize_android(&vm);
+///     // Just one call needed - handles both JVM and context init
 ///     initialize_android_context(&vm, &context);
 /// }
 /// ```
