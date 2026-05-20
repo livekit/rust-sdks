@@ -21,8 +21,10 @@ tokio-stream = { workspace = true, features = ["sync"] }
 anyhow = { workspace = true } # For internal error handling only
 rand = { workspace = true }
 fake = { version = "4.4", features = ["derive"], optional = true }
+uniffi = { workspace = true, features = ["cli", "scaffolding-ffi-buffer-fns"], optional = true }
 
 [features]
+uniffi = ["dep:uniffi"]
 __fuzz = ["dep:fake"]
 
 [dev-dependencies]
