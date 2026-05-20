@@ -1,0 +1,46 @@
+# Copyright 2026 LiveKit, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: Docs
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths: ["**/*.rs"]
+  push:
+    branches: [main]
+    paths: ["**/*.rs"]
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  docs:
+    name: Build Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Setup Rust Toolchain
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+      - name: Cargo Doc
+        env:
+          RUSTDOCFLAGS: "-D warnings" # Fail on warnings
+        run: cargo doc --no-deps
+      - name: Upload
+        uses: actions/upload-artifact@v6
+        with:
+          name: docs
+          path: target/doc
+          if-no-files-found: error
+          retention-days: 1
