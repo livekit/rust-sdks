@@ -144,6 +144,7 @@ struct ParticipantInfo {
     pub disconnect_reason: DisconnectReason,
     pub joined_at: i64,
     pub permission: Option<proto::ParticipantPermission>,
+    pub client_protocol: i32,
 }
 
 type TrackMutedHandler = Box<dyn Fn(Participant, TrackPublication) + Send>;
@@ -194,6 +195,7 @@ pub(super) fn new_inner(
     kind_details: Vec<ParticipantKindDetail>,
     joined_at: i64,
     permission: Option<proto::ParticipantPermission>,
+    client_protocol: i32,
 ) -> Arc<ParticipantInner> {
     Arc::new(ParticipantInner {
         rtc_engine,
@@ -212,6 +214,7 @@ pub(super) fn new_inner(
             disconnect_reason: DisconnectReason::UnknownReason,
             joined_at,
             permission,
+            client_protocol,
         }),
         track_publications: Default::default(),
         events: Default::default(),
@@ -263,6 +266,8 @@ pub(super) fn update_info(
             cb(participant.clone(), new_info.permission.clone());
         }
     }
+
+    info.client_protocol = new_info.client_protocol;
 }
 
 pub(super) fn set_speaking(
