@@ -63,6 +63,7 @@ impl AspectConstrainedViewport {
     }
 }
 
+#[allow(dead_code)] // used by other binaries in this crate (e.g. `publisher`)
 pub(crate) fn native_options(initial_aspect: Option<f32>) -> eframe::NativeOptions {
     let aspect = initial_aspect.filter(|aspect| valid_aspect(*aspect)).unwrap_or(DEFAULT_ASPECT);
     eframe::NativeOptions {
@@ -94,6 +95,7 @@ fn aspect_size(long_edge: f32, aspect: f32) -> egui::Vec2 {
     }
 }
 
+#[allow(dead_code)] // used via `native_options` from other binaries in this crate
 fn initial_window_size(aspect: Option<f32>) -> egui::Vec2 {
     aspect_size(INITIAL_LONG_EDGE, aspect.filter(|a| valid_aspect(*a)).unwrap_or(DEFAULT_ASPECT))
 }
