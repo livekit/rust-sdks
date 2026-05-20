@@ -15,7 +15,7 @@ From the crate root:
 cargo make android-package
 ```
 
-Published artifact: `packages/android/livekit-uniffi-android-release.aar`
+The built AAR library is located at: `packages/android/livekit-uniffi-android-release.aar`
 
 ### Local Dev
 
@@ -24,14 +24,8 @@ cargo make android-package-local
 ```
 
 Additionally publishes the package to the local maven repo for local dev use.
-
-## Step by step
-
-```bash
-cargo make build-android-platforms
-cargo make bindgen-kotlin
-cargo make android-copy-jniLibs
-```
+AARs are not yet easily consumed directly by dev tooling, so consuming through 
+local maven is simplest.
 
 ## Kotlin sources
 
@@ -65,4 +59,4 @@ dependencies {
 }
 ```
 
-The AAR bundles `jniLibs` and compiled Kotlin. UniFFI also requires **JNA** and **kotlinx-coroutines**; this module declares them as `implementation` dependencies so they are pulled in transitively.
+The AAR bundles `jniLibs` and compiled Kotlin. UniFFI also requires **JNA** and **kotlinx-coroutines**; this module declares them as `implementation` dependencies so they are pulled in transitively when consuming through Maven.
