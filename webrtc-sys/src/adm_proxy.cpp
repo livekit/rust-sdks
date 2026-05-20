@@ -22,42 +22,106 @@
 #include "rtc_base/logging.h"
 #include "rtc_base/thread.h"
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#include <jni.h>
+#include "sdk/android/native_api/audio_device_module/audio_device_android.h"
+#include "sdk/android/native_api/base/init.h"
+#define LOGCAT_TAG "LIVEKIT_ADM"
+#define LOGCAT_INFO(...) __android_log_print(ANDROID_LOG_INFO, LOGCAT_TAG, __VA_ARGS__)
+#define LOGCAT_ERROR(...) __android_log_print(ANDROID_LOG_ERROR, LOGCAT_TAG, __VA_ARGS__)
+#else
+#define LOGCAT_INFO(...) do {} while(0)
+#define LOGCAT_ERROR(...) do {} while(0)
+#endif
+
 namespace livekit_ffi {
 
 AdmProxy::AdmProxy(const webrtc::Environment& env, webrtc::Thread* worker_thread)
     : env_(env),
       worker_thread_(worker_thread) {
-  RTC_LOG(LS_INFO) << "AdmProxy::AdmProxy() - Initializing";
+  LOGCAT_INFO("AdmProxy::AdmProxy() - Initializing on thread: %s",
+              worker_thread ? "provided" : "null");
+  RTC_LOG(LS_INFO) << "AdmProxy::AdmProxy() - Initializing on thread: "
+                   << (worker_thread ? "provided" : "null");
 
   // Create the synthetic ADM for synthetic mode. SyntheticAudioDevice pumps
   // the WebRTC audio pipeline without platform audio, allowing FFI callbacks
   // to receive decoded remote audio.
+  LOGCAT_INFO("AdmProxy: Creating synthetic ADM...");
+  RTC_LOG(LS_INFO) << "AdmProxy: Creating synthetic ADM...";
   synthetic_adm_ = webrtc::make_ref_counted<SyntheticAudioDevice>(env_);
   if (synthetic_adm_->Init() != 0) {
+    LOGCAT_ERROR("AdmProxy: Failed to initialize synthetic ADM");
     RTC_LOG(LS_ERROR) << "AdmProxy: Failed to initialize synthetic ADM";
   } else {
-    RTC_LOG(LS_INFO) << "AdmProxy: Synthetic ADM initialized";
+    LOGCAT_INFO("AdmProxy: Synthetic ADM initialized successfully");
+    RTC_LOG(LS_INFO) << "AdmProxy: Synthetic ADM initialized successfully";
   }
 
   // Create the Platform ADM for real audio I/O.
   // This is created immediately (not lazily) for iOS compatibility.
   // iOS audio session requires early setup to avoid KVO race conditions.
+  // On Android, we defer Platform ADM creation to AcquirePlatformAdm().
+  // This is because:
+  // 1. CreateAudioDeviceModule requires JNI to be fully initialized
+  // 2. The JNI initialization (via JNI_OnLoad or manual init) may not have
+  //    completed by the time the AdmProxy constructor runs
+  // 3. Deferring creation ensures JNI is ready when we actually need the ADM
+#if defined(__ANDROID__)
+  LOGCAT_INFO("AdmProxy: Deferring Platform ADM creation until first acquire (Android)");
+  RTC_LOG(LS_INFO) << "AdmProxy: Deferring Platform ADM creation until first acquire (Android)";
+  // platform_adm_ stays nullptr, will be created in EnsurePlatformAdmCreated()
+#else
+  LOGCAT_INFO("AdmProxy: Creating Platform ADM with kPlatformDefaultAudio...");
+  RTC_LOG(LS_INFO) << "AdmProxy: Creating Platform ADM with kPlatformDefaultAudio...";
   platform_adm_ = webrtc::CreateAudioDeviceModule(
       env_, webrtc::AudioDeviceModule::kPlatformDefaultAudio);
 
   if (!platform_adm_) {
-    RTC_LOG(LS_ERROR) << "AdmProxy: Failed to create Platform ADM";
+    LOGCAT_ERROR("AdmProxy: CreateAudioDeviceModule returned nullptr!");
+    RTC_LOG(LS_ERROR) << "AdmProxy: CreateAudioDeviceModule returned nullptr! "
+                      << "This usually means: (1) No audio devices available, "
+                      << "(2) Audio permissions not granted, or "
+                      << "(3) JNI/Android audio subsystem not initialized properly.";
   } else {
+    LOGCAT_INFO("AdmProxy: Platform ADM created, calling Init()...");
+    RTC_LOG(LS_INFO) << "AdmProxy: Platform ADM created, calling Init()...";
     int32_t init_result = platform_adm_->Init();
     if (init_result != 0) {
-      RTC_LOG(LS_ERROR) << "AdmProxy: Failed to initialize Platform ADM, error=" << init_result;
+      LOGCAT_ERROR("AdmProxy: Platform ADM Init() failed with error=%d", init_result);
+      RTC_LOG(LS_ERROR) << "AdmProxy: Platform ADM Init() failed with error=" << init_result
+                        << ". Common causes: (1) RECORD_AUDIO permission denied, "
+                        << "(2) Audio focus conflict, (3) Hardware audio initialization failed.";
       platform_adm_ = nullptr;
     } else {
-      RTC_LOG(LS_INFO) << "AdmProxy: Platform ADM initialized, "
-                       << platform_adm_->RecordingDevices() << " recording devices, "
-                       << platform_adm_->PlayoutDevices() << " playout devices";
+      LOGCAT_INFO("AdmProxy: Platform ADM initialized successfully!");
+      RTC_LOG(LS_INFO) << "AdmProxy: Platform ADM initialized successfully!";
+      int16_t rec_devices = platform_adm_->RecordingDevices();
+      int16_t play_devices = platform_adm_->PlayoutDevices();
+      LOGCAT_INFO("AdmProxy: Found %d recording devices, %d playout devices",
+                  rec_devices, play_devices);
+      RTC_LOG(LS_INFO) << "AdmProxy: Found " << rec_devices << " recording devices, "
+                       << play_devices << " playout devices";
+
+      // Log device names for debugging
+      char name[webrtc::kAdmMaxDeviceNameSize] = {0};
+      char guid[webrtc::kAdmMaxGuidSize] = {0};
+      for (int i = 0; i < rec_devices; i++) {
+        if (platform_adm_->RecordingDeviceName(i, name, guid) == 0) {
+          LOGCAT_INFO("AdmProxy: Recording device [%d]: %s", i, name);
+          RTC_LOG(LS_INFO) << "AdmProxy: Recording device [" << i << "]: " << name;
+        }
+      }
+      for (int i = 0; i < play_devices; i++) {
+        if (platform_adm_->PlayoutDeviceName(i, name, guid) == 0) {
+          LOGCAT_INFO("AdmProxy: Playout device [%d]: %s", i, name);
+          RTC_LOG(LS_INFO) << "AdmProxy: Playout device [" << i << "]: " << name;
+        }
+      }
     }
   }
+#endif
 }
 
 AdmProxy::~AdmProxy() {
@@ -97,16 +161,84 @@ webrtc::AudioDeviceModule* AdmProxy::recording_adm() const {
 // Platform ADM Lifecycle Management
 // =============================================================================
 
-bool AdmProxy::AcquirePlatformAdm() {
-  webrtc::MutexLock lock(&mutex_);
+#if defined(__ANDROID__)
+// Lazily creates the Platform ADM on Android. Must be called with mutex held.
+// Returns true if ADM is available (either already existed or successfully created).
+bool AdmProxy::EnsurePlatformAdmCreated() {
+  if (platform_adm_) {
+    return true;  // Already created
+  }
+
+  LOGCAT_INFO("AdmProxy: Lazily creating Platform ADM (Android)...");
+  RTC_LOG(LS_INFO) << "AdmProxy: Lazily creating Platform ADM (Android)...";
+
+  // Use CreateAndroidAudioDeviceModule which properly uses GetAppContext()
+  // to get the application context set via ContextUtils.initialize().
+  // This is the correct way to create an ADM on Android.
+  //
+  // The function automatically selects the best audio layer based on device capabilities:
+  // - AAudio (Android 8.1+) for low latency
+  // - OpenSL ES for devices that support it
+  // - Java audio for fallback
+  LOGCAT_INFO("AdmProxy: Calling CreateAndroidAudioDeviceModule with kPlatformDefaultAudio...");
+  platform_adm_ = webrtc::CreateAndroidAudioDeviceModule(
+      env_, webrtc::AudioDeviceModule::kPlatformDefaultAudio);
 
   if (!platform_adm_) {
-    RTC_LOG(LS_ERROR) << "AdmProxy::AcquirePlatformAdm() - Platform ADM not available";
+    LOGCAT_ERROR("AdmProxy: CreateAndroidAudioDeviceModule failed! "
+                 "Possible causes: (1) ContextUtils.initialize() not called, "
+                 "(2) JNI not initialized, (3) No audio devices available.");
+    RTC_LOG(LS_ERROR) << "AdmProxy: CreateAndroidAudioDeviceModule returned nullptr";
     return false;
   }
 
+  LOGCAT_INFO("AdmProxy: Platform ADM created, calling Init()...");
+  RTC_LOG(LS_INFO) << "AdmProxy: Platform ADM created, calling Init()...";
+
+  int32_t init_result = platform_adm_->Init();
+  if (init_result != 0) {
+    LOGCAT_ERROR("AdmProxy: Platform ADM Init() failed with error=%d", init_result);
+    RTC_LOG(LS_ERROR) << "AdmProxy: Platform ADM Init() failed with error=" << init_result;
+    platform_adm_ = nullptr;
+    return false;
+  }
+
+  LOGCAT_INFO("AdmProxy: Platform ADM initialized successfully!");
+  RTC_LOG(LS_INFO) << "AdmProxy: Platform ADM initialized successfully!";
+
+  int16_t rec_devices = platform_adm_->RecordingDevices();
+  int16_t play_devices = platform_adm_->PlayoutDevices();
+  LOGCAT_INFO("AdmProxy: Found %d recording devices, %d playout devices",
+              rec_devices, play_devices);
+  RTC_LOG(LS_INFO) << "AdmProxy: Found " << rec_devices << " recording devices, "
+                   << play_devices << " playout devices";
+
+  return true;
+}
+#endif
+
+bool AdmProxy::AcquirePlatformAdm() {
+  webrtc::MutexLock lock(&mutex_);
+
+#if defined(__ANDROID__)
+  // On Android, lazily create the Platform ADM on first acquire.
+  // This ensures JNI is fully initialized before we try to create the ADM.
+  if (!EnsurePlatformAdmCreated()) {
+    LOGCAT_ERROR("AdmProxy::AcquirePlatformAdm() - Failed to create Platform ADM");
+    RTC_LOG(LS_ERROR) << "AdmProxy::AcquirePlatformAdm() - Failed to create Platform ADM";
+    return false;
+  }
+#else
+  if (!platform_adm_) {
+    LOGCAT_ERROR("AdmProxy::AcquirePlatformAdm() - Platform ADM not available (nullptr)");
+    RTC_LOG(LS_ERROR) << "AdmProxy::AcquirePlatformAdm() - Platform ADM not available";
+    return false;
+  }
+#endif
+
   int old_ref_count = platform_adm_ref_count_;
   platform_adm_ref_count_++;
+  LOGCAT_INFO("AdmProxy::AcquirePlatformAdm() ref_count=%d", platform_adm_ref_count_);
   RTC_LOG(LS_INFO) << "AdmProxy::AcquirePlatformAdm() ref_count=" << platform_adm_ref_count_;
 
   // If this is the first acquisition and playout/recording is enabled,

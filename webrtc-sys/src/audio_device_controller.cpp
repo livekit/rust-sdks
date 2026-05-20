@@ -71,6 +71,16 @@ bool AudioDeviceController::set_recording_device(uint16_t index) const {
 
 bool AudioDeviceController::set_playout_device_by_guid(rust::String guid) const {
   int16_t count = adm_proxy_->PlayoutDevices();
+
+  // On Android, devices don't have GUIDs - they're identified by index only.
+  // Android also only reports a single "default" device because audio routing
+  // (speaker vs earpiece vs Bluetooth) is handled by the system via AudioManager,
+  // not through WebRTC device selection.
+  // If an empty GUID is passed and we have at least one device, use index 0.
+  if (guid.empty() && count > 0) {
+    return adm_proxy_->SetPlayoutDevice(0) == 0;
+  }
+
   for (int16_t i = 0; i < count; i++) {
     char name[webrtc::kAdmMaxDeviceNameSize] = {0};
     char device_guid[webrtc::kAdmMaxGuidSize] = {0};
@@ -85,6 +95,15 @@ bool AudioDeviceController::set_playout_device_by_guid(rust::String guid) const 
 
 bool AudioDeviceController::set_recording_device_by_guid(rust::String guid) const {
   int16_t count = adm_proxy_->RecordingDevices();
+
+  // On Android, devices don't have GUIDs - they're identified by index only.
+  // Android also only reports a single "default" microphone because the system
+  // automatically selects the best input source based on the audio mode.
+  // If an empty GUID is passed and we have at least one device, use index 0.
+  if (guid.empty() && count > 0) {
+    return adm_proxy_->SetRecordingDevice(0) == 0;
+  }
+
   for (int16_t i = 0; i < count; i++) {
     char name[webrtc::kAdmMaxDeviceNameSize] = {0};
     char device_guid[webrtc::kAdmMaxGuidSize] = {0};

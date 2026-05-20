@@ -227,6 +227,13 @@ class AdmProxy : public webrtc::AudioDeviceModule {
   // Must be called with mutex_ held.
   void SwitchRecordingAdmIfNeeded();
 
+#if defined(__ANDROID__)
+  // Lazily creates the Platform ADM on Android.
+  // Must be called with mutex_ held.
+  // Returns true if ADM is available after the call.
+  bool EnsurePlatformAdmCreated();
+#endif
+
   const webrtc::Environment env_;
   webrtc::Thread* worker_thread_;
 

@@ -18,6 +18,7 @@
 
 #include <jni.h>
 
+#include <cstdint>
 #include <memory>
 
 #include "api/video_codecs/video_decoder_factory.h"
@@ -30,6 +31,14 @@ typedef JavaVM JavaVM;
 
 namespace livekit_ffi {
 void init_android(JavaVM* jvm);
+
+/// Initialize the Android application context for WebRTC audio.
+/// This must be called before using PlatformAudio on Android.
+///
+/// @param jvm The JavaVM pointer
+/// @param context The Android application context (jobject cast to uintptr_t)
+/// @return true if initialization was successful, false otherwise
+bool init_android_context(JavaVM* jvm, uintptr_t context);
 
 std::unique_ptr<webrtc::VideoEncoderFactory> CreateAndroidVideoEncoderFactory();
 std::unique_ptr<webrtc::VideoDecoderFactory> CreateAndroidVideoDecoderFactory();

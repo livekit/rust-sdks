@@ -97,9 +97,15 @@
 //!
 //! - **iOS**: Creates a VPIO (Voice Processing IO) AudioUnit. Only one VPIO
 //!   can exist per process. Drop all `PlatformAudio` instances to release it.
-//! - **macOS**: Uses CoreAudio.
-//! - **Windows**: Uses WASAPI.
-//! - **Linux**: Uses PulseAudio or ALSA.
+//! - **macOS**: Uses CoreAudio. Full device enumeration and selection supported.
+//! - **Windows**: Uses WASAPI. Full device enumeration and selection supported.
+//! - **Linux**: Uses PulseAudio or ALSA. Full device enumeration and selection supported.
+//! - **Android**: Uses Java AudioRecord/AudioTrack via WebRTC's `JavaAudioDeviceModule`.
+//!   **Important:** Device enumeration and selection are NOT meaningful on Android.
+//!   Android only reports a single "default" device with no name or ID. Audio routing
+//!   (speaker, earpiece, Bluetooth, wired headset) is handled by the system via
+//!   `AudioManager`, not through WebRTC device selection. To switch outputs on Android,
+//!   use Android's `AudioManager.setSpeakerphoneOn()` API instead.
 //!
 //! [`NativeAudioSource`]: crate::webrtc::audio_source::native::NativeAudioSource
 
@@ -122,7 +128,14 @@ use std::sync::{Arc, Weak};
 /// Unique identifier for a recording (microphone) device.
 ///
 /// This is a type-safe wrapper around the platform-specific device GUID.
-/// Obtain this from [`AudioDeviceInfo`] returned by [`PlatformAudio::recording_devices()`].
+/// Obtain this from [`RecordingDeviceInfo`] returned by [`PlatformAudio::recording_devices()`].
+///
+/// # Platform Notes
+///
+/// - **Desktop (Windows, macOS, Linux):** Contains a unique GUID that persists across
+///   device hot-plug events. Use this for reliable device selection.
+/// - **Android:** Always empty. Android doesn't provide device GUIDs and only reports
+///   a single "default" device. Device selection on Android is not meaningful.
 ///
 /// # Example
 ///
@@ -130,7 +143,7 @@ use std::sync::{Arc, Weak};
 /// let audio = PlatformAudio::new()?;
 /// for device in audio.recording_devices() {
 ///     println!("{}: {}", device.name, device.id);
-///     // Save device.id for later use
+///     // Save device.id for later use (desktop only)
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -158,7 +171,15 @@ impl fmt::Display for RecordingDeviceId {
 /// Unique identifier for a playout (speaker) device.
 ///
 /// This is a type-safe wrapper around the platform-specific device GUID.
-/// Obtain this from [`AudioDeviceInfo`] returned by [`PlatformAudio::playout_devices()`].
+/// Obtain this from [`PlayoutDeviceInfo`] returned by [`PlatformAudio::playout_devices()`].
+///
+/// # Platform Notes
+///
+/// - **Desktop (Windows, macOS, Linux):** Contains a unique GUID that persists across
+///   device hot-plug events. Use this for reliable device selection.
+/// - **Android:** Always empty. Android doesn't provide device GUIDs and only reports
+///   a single "default" device. Audio routing (speaker, earpiece, Bluetooth) is handled
+///   by the system via `AudioManager`, not through WebRTC device selection.
 ///
 /// # Example
 ///
@@ -166,7 +187,7 @@ impl fmt::Display for RecordingDeviceId {
 /// let audio = PlatformAudio::new()?;
 /// for device in audio.playout_devices() {
 ///     println!("{}: {}", device.name, device.id);
-///     // Save device.id for later use
+///     // Save device.id for later use (desktop only)
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -191,11 +212,19 @@ impl fmt::Display for PlayoutDeviceId {
     }
 }
 
-/// Information about an audio device.
+/// Information about a recording (microphone) device.
 ///
 /// This struct contains the device's unique identifier, human-readable name,
 /// and index. Use the `id` field with [`PlatformAudio::set_recording_device()`]
-/// or [`PlatformAudio::set_playout_device()`] for type-safe device selection.
+/// for type-safe device selection.
+///
+/// # Platform Notes
+///
+/// - **Desktop (Windows, macOS, Linux):** Full device information is available.
+///   The `id` is a unique GUID, and `name` is a descriptive string (e.g., "MacBook Pro Microphone").
+/// - **Android:** Only a single device is reported with an empty `id` and `name`.
+///   Android does not support app-level microphone selection - the system automatically
+///   selects the best input source. This struct is not useful for device pickers on Android.
 ///
 /// # Example
 ///
@@ -207,9 +236,9 @@ impl fmt::Display for PlayoutDeviceId {
 /// ```
 #[derive(Debug, Clone)]
 pub struct RecordingDeviceInfo {
-    /// The unique identifier for this device (stable across hot-plug events).
+    /// The unique identifier for this device (stable across hot-plug events on desktop; empty on Android).
     pub id: RecordingDeviceId,
-    /// Human-readable device name.
+    /// Human-readable device name (empty on Android).
     pub name: String,
     /// Device index (may change when devices are added/removed).
     pub index: usize,
@@ -220,11 +249,29 @@ pub struct RecordingDeviceInfo {
 /// This struct contains the device's unique identifier, human-readable name,
 /// and index. Use the `id` field with [`PlatformAudio::set_playout_device()`]
 /// for type-safe device selection.
+///
+/// # Platform Notes
+///
+/// - **Desktop (Windows, macOS, Linux):** Full device information is available.
+///   The `id` is a unique GUID, and `name` is a descriptive string (e.g., "MacBook Pro Speakers").
+/// - **Android:** Only a single device is reported with an empty `id` and `name`.
+///   Audio routing (speaker, earpiece, Bluetooth, wired headset) is handled by the system
+///   via `AudioManager`, not through WebRTC. Use `AudioManager.setSpeakerphoneOn()` to
+///   switch between speaker and earpiece on Android.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let audio = PlatformAudio::new()?;
+/// for device in audio.playout_devices() {
+///     println!("[{}] {} (ID: {})", device.index, device.name, device.id);
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct PlayoutDeviceInfo {
-    /// The unique identifier for this device (stable across hot-plug events).
+    /// The unique identifier for this device (stable across hot-plug events on desktop; empty on Android).
     pub id: PlayoutDeviceId,
-    /// Human-readable device name.
+    /// Human-readable device name (empty on Android).
     pub name: String,
     /// Device index (may change when devices are added/removed).
     pub index: usize,
@@ -477,6 +524,20 @@ impl PlatformAudio {
     /// Each [`RecordingDeviceInfo`] contains the device's unique ID, name, and index.
     /// Use the `id` field with [`set_recording_device()`] for type-safe device selection.
     ///
+    /// # Platform Notes
+    ///
+    /// **Desktop (Windows, macOS, Linux):** Full device enumeration is supported.
+    /// You can enumerate USB microphones, built-in mics, audio interfaces, etc.
+    /// Each device has a unique ID (GUID) and descriptive name.
+    ///
+    /// **Android:** Only a single "default" device is reported with an empty name and ID.
+    /// Android does not support app-level microphone selection - the system automatically
+    /// selects the best input source based on the audio mode and connected accessories.
+    /// Device enumeration on Android is not meaningful for user-facing device pickers.
+    ///
+    /// **iOS:** Similar to desktop - devices can be enumerated, though typically only
+    /// the built-in microphone and any connected accessories are available.
+    ///
     /// # Example
     ///
     /// ```rust,ignore
@@ -499,6 +560,24 @@ impl PlatformAudio {
     ///
     /// Each [`PlayoutDeviceInfo`] contains the device's unique ID, name, and index.
     /// Use the `id` field with [`set_playout_device()`] for type-safe device selection.
+    ///
+    /// # Platform Notes
+    ///
+    /// **Desktop (Windows, macOS, Linux):** Full device enumeration is supported.
+    /// You can enumerate speakers, headphones, USB audio devices, HDMI outputs, etc.
+    /// Each device has a unique ID (GUID) and descriptive name.
+    ///
+    /// **Android:** Only a single "default" device is reported with an empty name and ID.
+    /// Android handles audio routing (speaker, earpiece, Bluetooth, wired headset) at the
+    /// system level via `AudioManager`, not through WebRTC device selection. To switch
+    /// between speaker and earpiece on Android, use the Android `AudioManager` API:
+    /// - `audioManager.setSpeakerphoneOn(true/false)`
+    /// - `audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION)`
+    ///
+    /// Device enumeration on Android is not meaningful for user-facing device pickers.
+    ///
+    /// **iOS:** Similar to desktop - devices can be enumerated and selected, including
+    /// built-in speaker, receiver, and connected Bluetooth/wired accessories.
     ///
     /// # Example
     ///
@@ -565,6 +644,14 @@ impl PlatformAudio {
     /// This is the preferred method for device selection as IDs are stable
     /// across device hot-plug events, unlike indices which can change.
     ///
+    /// # Platform Notes
+    ///
+    /// **Desktop:** Works as expected - select from enumerated devices.
+    ///
+    /// **Android:** Device selection has no effect. Android only reports one "default"
+    /// device, and the system controls microphone selection based on audio mode.
+    /// Calling this method on Android is a no-op (will succeed but does nothing).
+    ///
     /// # Arguments
     ///
     /// * `id` - Device identifier from [`RecordingDeviceInfo::id`]
@@ -601,6 +688,16 @@ impl PlatformAudio {
     ///
     /// This is the preferred method for device selection as IDs are stable
     /// across device hot-plug events, unlike indices which can change.
+    ///
+    /// # Platform Notes
+    ///
+    /// **Desktop:** Works as expected - select from enumerated devices.
+    ///
+    /// **Android:** Device selection has no effect. Android handles audio routing
+    /// (speaker, earpiece, Bluetooth) at the system level via `AudioManager`.
+    /// To switch outputs on Android, use the Android `AudioManager` API instead:
+    /// - `audioManager.setSpeakerphoneOn(true/false)`
+    /// - `audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION)`
     ///
     /// # Arguments
     ///

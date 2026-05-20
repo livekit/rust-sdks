@@ -19,6 +19,20 @@ pub mod ffi {
         include!("livekit/android.h");
 
         type JavaVM;
+
+        /// Initialize Android WebRTC with the JVM.
+        /// This must be called before any WebRTC operations on Android.
         unsafe fn init_android(vm: *mut JavaVM);
+
+        /// Initialize the Android application context for WebRTC audio.
+        /// This must be called before using PlatformAudio on Android.
+        ///
+        /// # Arguments
+        /// * `jvm` - The JavaVM pointer
+        /// * `context` - The Android application context (jobject as usize)
+        ///
+        /// # Returns
+        /// true if initialization was successful, false otherwise
+        unsafe fn init_android_context(jvm: *mut JavaVM, context: usize) -> bool;
     }
 }

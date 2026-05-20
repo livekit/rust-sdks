@@ -116,17 +116,155 @@ pub extern "C" fn livekit_ffi_dispose() {
 #[cfg(target_os = "android")]
 pub mod android {
     use jni::{
-        sys::{jint, JNI_VERSION_1_6},
+        objects::{JObject, JValue},
+        sys::{jint, jobject, JNI_VERSION_1_6},
         JavaVM,
     };
     use std::os::raw::c_void;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    /// Track whether Android WebRTC has been initialized to prevent double-initialization.
+    /// WebRTC's InitAndroid() will crash if called twice (g_jvm check fails).
+    static ANDROID_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+    /// Track whether ContextUtils has been initialized.
+    static CONTEXT_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+    /// Internal function to initialize Android WebRTC. Returns true if initialization
+    /// was performed, false if already initialized.
+    fn do_android_init(vm: &JavaVM) -> bool {
+        // Use compare_exchange to ensure only one thread can initialize
+        if ANDROID_INITIALIZED
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_ok()
+        {
+            livekit::webrtc::android::initialize_android(vm);
+            device_info::android::init_vm(vm);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Initialize WebRTC ContextUtils with the Android application context.
+    /// This is required for Android audio (microphone/speaker) to work.
+    ///
+    /// # Arguments
+    /// * `vm` - The JavaVM instance
+    /// * `context` - The Android application context (must be a global reference or
+    ///               guaranteed to be valid for the duration of the call)
+    ///
+    /// # Returns
+    /// true if initialization was successful, false otherwise
+    fn do_context_init(vm: &JavaVM, context: JObject) -> bool {
+        // Only initialize once
+        if CONTEXT_INITIALIZED
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return true; // Already initialized
+        }
+
+        let mut env = match vm.attach_current_thread() {
+            Ok(env) => env,
+            Err(e) => {
+                log::error!("Failed to attach thread to JVM: {:?}", e);
+                CONTEXT_INITIALIZED.store(false, Ordering::SeqCst);
+                return false;
+            }
+        };
+
+        // Call livekit.org.webrtc.ContextUtils.initialize(context)
+        // The class is prefixed with "livekit" because WebRTC JNI is built with
+        // android_package_prefix="livekit" to avoid conflicts with other WebRTC builds.
+        let class_name = "livekit/org/webrtc/ContextUtils";
+        let class = match env.find_class(class_name) {
+            Ok(c) => c,
+            Err(e) => {
+                log::error!("Failed to find class {}: {:?}", class_name, e);
+                CONTEXT_INITIALIZED.store(false, Ordering::SeqCst);
+                return false;
+            }
+        };
+
+        match env.call_static_method(
+            class,
+            "initialize",
+            "(Landroid/content/Context;)V",
+            &[JValue::Object(&context)],
+        ) {
+            Ok(_) => {
+                log::info!("Android WebRTC ContextUtils initialized successfully");
+                true
+            }
+            Err(e) => {
+                log::error!("Failed to call ContextUtils.initialize: {:?}", e);
+                CONTEXT_INITIALIZED.store(false, Ordering::SeqCst);
+                false
+            }
+        }
+    }
 
     #[allow(non_snake_case)]
     #[no_mangle]
     pub extern "C" fn JNI_OnLoad(vm: JavaVM, _: *mut c_void) -> jint {
-        println!("JNI_OnLoad, initializing LiveKit");
-        livekit::webrtc::android::initialize_android(&vm);
-        device_info::android::init_vm(&vm);
+        do_android_init(&vm);
         JNI_VERSION_1_6
+    }
+
+    // TODO(CLT-xxxx): Add JNI entry point for C++/Python SDKs when they support Android.
+    // This would allow Java/Kotlin code to call:
+    //   System.loadLibrary("livekit_ffi");
+    //   LiveKitFfi.initializeContext(getApplicationContext());
+    //
+    // The native method would be:
+    //   #[allow(non_snake_case)]
+    //   #[no_mangle]
+    //   pub extern "C" fn Java_livekit_ffi_LiveKitFfi_initializeContext(...)
+
+    /// Initialize Android WebRTC with the application context.
+    /// This is required for Android audio (microphone/speaker) to work.
+    ///
+    /// This function performs two initializations:
+    /// 1. JVM initialization (WebRTC's InitAndroid)
+    /// 2. ContextUtils initialization with the application context
+    ///
+    /// # Safety
+    /// * `vm_ptr` must be a valid pointer to a JavaVM
+    /// * `context_ptr` must be a valid jobject pointing to an Android Context
+    ///
+    /// # Arguments
+    /// * `vm_ptr` - Pointer to the JavaVM
+    /// * `context_ptr` - The Android application context (jobject)
+    ///
+    /// # Returns
+    /// true if context initialization was successful, false otherwise.
+    /// Note: JVM initialization always happens regardless of return value.
+    #[no_mangle]
+    pub unsafe extern "C" fn livekit_ffi_initialize_android_context(
+        vm_ptr: *mut c_void,
+        context_ptr: jobject,
+    ) -> bool {
+        if vm_ptr.is_null() || context_ptr.is_null() {
+            log::error!("livekit_ffi_initialize_android_context: null pointer provided");
+            return false;
+        }
+
+        // Safety: vm_ptr must be a valid JavaVM pointer
+        let vm = match JavaVM::from_raw(vm_ptr as *mut _) {
+            Ok(vm) => vm,
+            Err(e) => {
+                log::error!("Failed to get JavaVM from pointer: {:?}", e);
+                return false;
+            }
+        };
+
+        // Initialize the JVM first
+        do_android_init(&vm);
+
+        // Initialize ContextUtils with the application context
+        // Safety: context_ptr is guaranteed to be valid by the caller
+        let context = JObject::from_raw(context_ptr);
+        do_context_init(&vm, context)
     }
 }
