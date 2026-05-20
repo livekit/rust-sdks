@@ -79,7 +79,7 @@ serde_json = "1.0"
 thiserror = "2"
 tokio = { version = "1", default-features = false }
 tokio-stream = "0.1"
-hound = "3.5"
+uniffi = "0.30.0"
 
 # For examples
 eframe = { version = "0.33.3", default-features = false }
@@ -88,6 +88,7 @@ egui-wgpu = "0.33.3"
 image = "0.25"
 wgpu = "28.0"
 winit = "0.30.12"
+hound = "3.5"
 
 [profile.release]
 opt-level = "z"
