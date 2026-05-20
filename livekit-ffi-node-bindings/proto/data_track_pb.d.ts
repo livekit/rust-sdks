@@ -840,6 +840,85 @@ export declare class RemoteDataTrackIsPublishedResponse extends Message<RemoteDa
 }
 
 /**
+ * Track-level options that configure how the incoming-frame pipeline reassembles packets for a remote data track.
+ *
+ * @generated from message livekit.proto.RemoteDataTrackPipelineOptions
+ */
+export declare class RemoteDataTrackPipelineOptions extends Message<RemoteDataTrackPipelineOptions> {
+  /**
+   * Maximum number of partial frames the depacketizer will track concurrently for this track.
+   *
+   * Zero is not a valid value; if a value of zero is provided, it will be clamped to one.
+   *
+   *
+   * @generated from field: optional uint32 max_partial_frames = 1;
+   */
+  maxPartialFrames?: number;
+
+  constructor(data?: PartialMessage<RemoteDataTrackPipelineOptions>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.RemoteDataTrackPipelineOptions";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RemoteDataTrackPipelineOptions;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RemoteDataTrackPipelineOptions;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RemoteDataTrackPipelineOptions;
+
+  static equals(a: RemoteDataTrackPipelineOptions | PlainMessage<RemoteDataTrackPipelineOptions> | undefined, b: RemoteDataTrackPipelineOptions | PlainMessage<RemoteDataTrackPipelineOptions> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.RemoteDataTrackSetPipelineOptionsRequest
+ */
+export declare class RemoteDataTrackSetPipelineOptionsRequest extends Message<RemoteDataTrackSetPipelineOptionsRequest> {
+  /**
+   * @generated from field: required uint64 track_handle = 1;
+   */
+  trackHandle?: bigint;
+
+  /**
+   * @generated from field: required livekit.proto.RemoteDataTrackPipelineOptions options = 2;
+   */
+  options?: RemoteDataTrackPipelineOptions;
+
+  constructor(data?: PartialMessage<RemoteDataTrackSetPipelineOptionsRequest>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.RemoteDataTrackSetPipelineOptionsRequest";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RemoteDataTrackSetPipelineOptionsRequest;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RemoteDataTrackSetPipelineOptionsRequest;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RemoteDataTrackSetPipelineOptionsRequest;
+
+  static equals(a: RemoteDataTrackSetPipelineOptionsRequest | PlainMessage<RemoteDataTrackSetPipelineOptionsRequest> | undefined, b: RemoteDataTrackSetPipelineOptionsRequest | PlainMessage<RemoteDataTrackSetPipelineOptionsRequest> | undefined): boolean;
+}
+
+/**
+ * @generated from message livekit.proto.RemoteDataTrackSetPipelineOptionsResponse
+ */
+export declare class RemoteDataTrackSetPipelineOptionsResponse extends Message<RemoteDataTrackSetPipelineOptionsResponse> {
+  constructor(data?: PartialMessage<RemoteDataTrackSetPipelineOptionsResponse>);
+
+  static readonly runtime: typeof proto2;
+  static readonly typeName = "livekit.proto.RemoteDataTrackSetPipelineOptionsResponse";
+  static readonly fields: FieldList;
+
+  static fromBinary(bytes: Uint8Array, options?: Partial<BinaryReadOptions>): RemoteDataTrackSetPipelineOptionsResponse;
+
+  static fromJson(jsonValue: JsonValue, options?: Partial<JsonReadOptions>): RemoteDataTrackSetPipelineOptionsResponse;
+
+  static fromJsonString(jsonString: string, options?: Partial<JsonReadOptions>): RemoteDataTrackSetPipelineOptionsResponse;
+
+  static equals(a: RemoteDataTrackSetPipelineOptionsResponse | PlainMessage<RemoteDataTrackSetPipelineOptionsResponse> | undefined, b: RemoteDataTrackSetPipelineOptionsResponse | PlainMessage<RemoteDataTrackSetPipelineOptionsResponse> | undefined): boolean;
+}
+
+/**
  * Subscribe to a data track.
  *
  * @generated from message livekit.proto.SubscribeDataTrackRequest
