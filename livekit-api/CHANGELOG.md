@@ -96,6 +96,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Update protocol and add SendDataRequest nonce
+## 0.4.24 (2026-05-20)
+
+### Fixes
+
+- Support for large RPC messages using data streams - #1013 (@1egoman)
+
 ## 0.4.23 (2026-05-18)
 
 ### Fixes
