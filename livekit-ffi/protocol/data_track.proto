@@ -188,6 +188,21 @@ message RemoteDataTrackIsPublishedResponse {
   required bool is_published = 1;
 }
 
+// Track-level options that configure how the incoming-frame pipeline reassembles packets for a remote data track.
+message RemoteDataTrackPipelineOptions {
+  // Maximum number of partial frames the depacketizer will track concurrently for this track.
+  //
+  // Zero is not a valid value; if a value of zero is provided, it will be clamped to one.
+  //
+  optional uint32 max_partial_frames = 1;
+}
+
+message RemoteDataTrackSetPipelineOptionsRequest {
+  required uint64 track_handle = 1;
+  required RemoteDataTrackPipelineOptions options = 2;
+}
+message RemoteDataTrackSetPipelineOptionsResponse {}
+
 // Subscribe to a data track.
 message SubscribeDataTrackRequest {
   required uint64 track_handle = 1;

@@ -163,11 +163,12 @@ message FfiRequest {
     SubscribeDataTrackRequest subscribe_data_track = 73;
     RemoteDataTrackIsPublishedRequest remote_data_track_is_published = 74;
     DataTrackStreamReadRequest data_track_stream_read = 75;
+    RemoteDataTrackSetPipelineOptionsRequest remote_data_track_set_pipeline_options = 77;
 
     // Reconnection / chaos testing
     SimulateScenarioRequest simulate_scenario = 76;
 
-    // NEXT_ID: 77
+    // NEXT_ID: 78
   }
 }
 
@@ -276,11 +277,12 @@ message FfiResponse {
     SubscribeDataTrackResponse subscribe_data_track = 72;
     RemoteDataTrackIsPublishedResponse remote_data_track_is_published = 73;
     DataTrackStreamReadResponse data_track_stream_read = 74;
+    RemoteDataTrackSetPipelineOptionsResponse remote_data_track_set_pipeline_options = 76;
 
     // Reconnection / chaos testing
     SimulateScenarioResponse simulate_scenario = 75;
 
-    // NEXT_ID: 76
+    // NEXT_ID: 77
   }
 }
 

@@ -1281,6 +1281,15 @@ fn on_remote_data_track_is_published(
     track.is_published(server, request)
 }
 
+fn on_remote_data_track_set_pipeline_options(
+    server: &'static FfiServer,
+    request: proto::RemoteDataTrackSetPipelineOptionsRequest,
+) -> FfiResult<proto::RemoteDataTrackSetPipelineOptionsResponse> {
+    let track =
+        server.retrieve_handle::<data_track::FfiRemoteDataTrack>(request.track_handle)?.clone();
+    track.set_pipeline_options(server, request)
+}
+
 fn on_data_track_stream_read(
     server: &'static FfiServer,
     request: proto::DataTrackStreamReadRequest,
@@ -1398,6 +1407,9 @@ pub fn handle_request(
         Request::SubscribeDataTrack(req) => on_subscribe_local_data_track(server, req)?.into(),
         Request::RemoteDataTrackIsPublished(req) => {
             on_remote_data_track_is_published(server, req)?.into()
+        }
+        Request::RemoteDataTrackSetPipelineOptions(req) => {
+            on_remote_data_track_set_pipeline_options(server, req)?.into()
         }
         Request::DataTrackStreamRead(req) => on_data_track_stream_read(server, req)?.into(),
     });
