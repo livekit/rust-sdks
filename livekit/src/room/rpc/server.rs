@@ -29,7 +29,7 @@ pub(crate) type RpcHandlerFn = Arc<
         + Sync,
 >;
 
-/// Parameters for [`RpcServerManager::handle_request`].
+/// Parameters for request handling.
 pub struct HandleRequestOptions {
     pub caller_identity: ParticipantIdentity,
     pub request_id: String,

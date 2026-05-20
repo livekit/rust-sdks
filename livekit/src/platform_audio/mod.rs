@@ -122,7 +122,7 @@ use std::sync::{Arc, Weak};
 /// Unique identifier for a recording (microphone) device.
 ///
 /// This is a type-safe wrapper around the platform-specific device GUID.
-/// Obtain this from [`AudioDeviceInfo`] returned by [`PlatformAudio::recording_devices()`].
+/// Obtain this from [`RecordingDeviceInfo`] returned by [`PlatformAudio::recording_devices()`].
 ///
 /// # Example
 ///
@@ -158,7 +158,7 @@ impl fmt::Display for RecordingDeviceId {
 /// Unique identifier for a playout (speaker) device.
 ///
 /// This is a type-safe wrapper around the platform-specific device GUID.
-/// Obtain this from [`AudioDeviceInfo`] returned by [`PlatformAudio::playout_devices()`].
+/// Obtain this from [`PlayoutDeviceInfo`] returned by [`PlatformAudio::playout_devices()`].
 ///
 /// # Example
 ///

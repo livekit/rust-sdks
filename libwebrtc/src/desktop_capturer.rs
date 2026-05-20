@@ -109,7 +109,7 @@ impl DesktopCapturer {
     /// * `source` - The capture source to use. It should be None when the capturer
     ///   is configured to use the system picker (on platforms that support it).
     /// * `callback` - A function that will be called for each captured frame. The callback
-    ///   receives a [`CaptureResult`] indicating success or error, and a [`DesktopFrame`]
+    ///   receives a [`Result<DesktopFrame, CaptureError>`] indicating success or error, and a [`DesktopFrame`]
     ///   containing the captured image data.
     ///
     /// # Note
