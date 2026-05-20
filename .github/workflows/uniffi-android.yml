@@ -63,7 +63,9 @@ jobs:
           UNIFFI_MAVEN_SIGNING_PASSWORD: ${{ secrets.UNIFFI_MAVEN_SIGNING_PASSWORD }}
           UNIFFI_MAVEN_SIGNING_KEY: ${{ secrets.UNIFFI_MAVEN_SIGNING_KEY }}
         run: |
-          echo "Publishing io.livekit.uniffi:livekit-uniffi-android:${{ inputs.version }}"
+          group="$(grep '^GROUP=' gradle.properties | cut -d= -f2)"
+          artifact="$(grep '^POM_ARTIFACT_ID=' gradle.properties | cut -d= -f2)"
+          echo "Publishing ${group}:${artifact}:${{ inputs.version }}"
           echo "Source tag: ${{ inputs.tag_name }}"
 
           signing_key_file="${RUNNER_TEMP}/signing-key.gpg"

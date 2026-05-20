@@ -419,7 +419,8 @@ cd "${SUPPORT_DIR}/android"
 ./gradlew publishToMavenLocal -PRELEASE_SIGNING_ENABLED=false
 version="$(grep '^VERSION_NAME=' gradle.properties | cut -d= -f2)"
 group="$(grep '^GROUP=' gradle.properties | cut -d= -f2)"
-echo "Published to local Maven: ${group}:livekit-uniffi-android:${version}"
+artifact="$(grep '^POM_ARTIFACT_ID=' gradle.properties | cut -d= -f2)"
+echo "Published to local Maven: ${group}:${artifact}:${version}"
 """
 
 [tasks.android-package-local]

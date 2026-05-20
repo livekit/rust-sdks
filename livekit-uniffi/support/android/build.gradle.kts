@@ -68,11 +68,12 @@ afterEvaluate {
         publications {
             register<MavenPublication>("release") {
                 from(components["release"])
-                artifactId = rootProject.name
+                artifactId = providers.gradleProperty("POM_ARTIFACT_ID").get()
 
                 pom {
-                    name.set("LiveKit UniFFI Android")
+                    name.set(providers.gradleProperty("POM_NAME").get())
                     description.set(providers.gradleProperty("POM_DESCRIPTION").get())
+                    packaging = providers.gradleProperty("POM_PACKAGING").get()
                     url.set(providers.gradleProperty("POM_URL").get())
                     licenses {
                         license {
