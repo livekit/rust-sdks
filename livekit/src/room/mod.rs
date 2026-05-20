@@ -14,7 +14,7 @@
 
 pub use crate::utils::take_cell::TakeCell;
 use bmrng::unbounded::UnboundedRequestReceiver;
-use futures_util::{Stream, StreamExt};
+use futures_util::StreamExt;
 use libwebrtc::{
     native::frame_cryptor::EncryptionState,
     prelude::{
@@ -2062,7 +2062,7 @@ impl RoomSession {
     /// Task for handling output events from the local data track manager.
     async fn local_dt_forward_task(
         self: Arc<Self>,
-        mut events: impl Stream<Item = dt::local::OutputEvent> + Unpin,
+        mut events: dt::local::ManagerOutput,
         mut close_rx: broadcast::Receiver<()>,
     ) {
         loop {
@@ -2082,7 +2082,7 @@ impl RoomSession {
     /// Task for handling output events from the remote data track manager.
     async fn remote_dt_forward_task(
         self: Arc<Self>,
-        mut events: impl Stream<Item = dt::remote::OutputEvent> + Unpin,
+        mut events: dt::remote::ManagerOutput,
         mut close_rx: broadcast::Receiver<()>,
     ) {
         loop {

@@ -37,7 +37,7 @@ impl dt::EncryptionProvider for DataTrackEncryptionProvider {
         let encrypted = self
             .manager
             .encrypt_data(payload.into(), &self.sender_identity, key_index)
-            .map_err(|_| dt::EncryptionError)?;
+            .map_err(|_| dt::EncryptionError::Failed)?;
 
         debug_assert_eq!(
             encrypted.key_index as u32,
@@ -46,8 +46,8 @@ impl dt::EncryptionProvider for DataTrackEncryptionProvider {
             );
 
         let payload = encrypted.data.into();
-        let iv = encrypted.iv.try_into().map_err(|_| dt::EncryptionError)?;
-        let key_index = encrypted.key_index.try_into().map_err(|_| dt::EncryptionError)?;
+        let iv = encrypted.iv.try_into().map_err(|_| dt::EncryptionError::Failed)?;
+        let key_index = encrypted.key_index.try_into().map_err(|_| dt::EncryptionError::Failed)?;
 
         Ok(dt::EncryptedPayload { payload, iv, key_index })
     }
@@ -79,7 +79,7 @@ impl dt::DecryptionProvider for DataTrackDecryptionProvider {
                 payload.key_index as u32,
                 sender_identity,
             )
-            .ok_or_else(|| dt::DecryptionError)?;
+            .ok_or_else(|| dt::DecryptionError::Failed)?;
         Ok(Bytes::from(decrypted))
     }
 }

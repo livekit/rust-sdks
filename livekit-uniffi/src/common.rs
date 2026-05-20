@@ -1,4 +1,4 @@
-// Copyright 2025 LiveKit, Inc.
+// Copyright 2026 LiveKit, Inc.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,22 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// Data tracks core from [`livekit-datatrack`].
-pub mod data_track;
+use bytes::Bytes;
 
-/// Access token generation and verification from [`livekit-api::access_token`].
-pub mod access_token;
-
-/// Forward log messages from Rust.
-pub mod log_forward;
-
-/// Information about the build such as version.
-pub mod build_info;
-
-/// Shared exports and utilities.
-pub mod common;
-
-/// Global async runtime.
-pub mod runtime;
-
-uniffi::setup_scaffolding!();
+uniffi::custom_type!(Bytes, Vec<u8>, { remote });
