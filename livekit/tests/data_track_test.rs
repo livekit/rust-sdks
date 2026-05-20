@@ -46,15 +46,16 @@ async fn test_data_track(payload_len: usize) {
     let remote_track = wait_for_remote_track(&mut sub_room_event_rx).await.unwrap();
     log::info!("Got remote track: {}", remote_track.info().sid());
 
+    const PAYLOAD_VALUE: u8 = 0xFA;
+
     let publish = async move {
         assert!(local_track.is_published());
         assert!(!local_track.info().uses_e2ee());
         assert_eq!(local_track.info().name(), "my_track");
 
-        let mut index: u8 = 0;
+        let payload = vec![PAYLOAD_VALUE; payload_len];
         loop {
-            local_track.try_push(vec![index; payload_len].into()).unwrap();
-            index = index.wrapping_add(1);
+            local_track.try_push(payload.clone().into()).unwrap();
             time::sleep(Duration::from_millis(50)).await;
         }
     };
@@ -72,9 +73,7 @@ async fn test_data_track(payload_len: usize) {
             let payload = frame.payload();
             assert_eq!(payload.len(), payload_len);
 
-            if let Some(first_byte) = payload.first() {
-                assert!(payload.iter().all(|byte| byte == first_byte));
-            }
+            assert!(payload.iter().all(|byte| *byte == PAYLOAD_VALUE));
             assert_eq!(frame.user_timestamp(), None);
 
             got_frame = true;
