@@ -540,7 +540,9 @@ mod tests {
             info: info.clone(),
             publisher_identity,
             decryption_provider: None,
-            max_partial_frames: Arc::new(AtomicUsize::new(1)),
+            max_partial_frames: Arc::new(AtomicUsize::new(
+                RemoteDataTrackPipelineOptions::default().max_partial_frames(),
+            )),
         };
         let pipeline = Pipeline::new(pipeline_opts);
 
