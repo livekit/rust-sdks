@@ -4367,6 +4367,7 @@ dependencies = [
  "from_variants",
  "futures-core",
  "futures-util",
+ "indexmap 2.13.0",
  "livekit-protocol",
  "livekit-runtime",
  "log",

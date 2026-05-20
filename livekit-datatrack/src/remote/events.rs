@@ -15,7 +15,7 @@
 use crate::{
     api::{
         DataTrackFrame, DataTrackInfo, DataTrackSid, DataTrackSubscribeError,
-        DataTrackSubscribeOptions, RemoteDataTrack,
+        DataTrackSubscribeOptions, RemoteDataTrack, RemoteDataTrackPipelineOptions,
     },
     packet::Handle,
 };
@@ -31,6 +31,7 @@ pub enum InputEvent {
     UnsubscribeRequest(UnsubscribeRequest),
     SfuPublicationUpdates(SfuPublicationUpdates),
     SfuSubscriberHandles(SfuSubscriberHandles),
+    SetPipelineOptions(SetPipelineOptions),
     /// Packet has been received over the transport.
     PacketReceived(Bytes),
     /// Resend all subscription updates.
@@ -80,6 +81,15 @@ pub struct SubscribeRequest {
 pub struct UnsubscribeRequest {
     /// Identifier of the track to unsubscribe from.
     pub(super) sid: DataTrackSid,
+}
+
+/// Client requested to update the pipeline options for a data track.
+#[derive(Debug)]
+pub struct SetPipelineOptions {
+    /// Identifier of the track to update.
+    pub(super) sid: DataTrackSid,
+    /// New pipeline options to apply.
+    pub(super) options: RemoteDataTrackPipelineOptions,
 }
 
 /// SFU notification that track publications have changed.
