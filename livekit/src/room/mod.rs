@@ -2164,15 +2164,14 @@ async fn incoming_data_stream_task(
                                     session.rpc_client.handle_v2_response_stream(reader).await;
                                 });
                             }
-                            other if data_stream::is_internal_topic(other) => {
-                                // Future internal topic without a dedicated routing branch.
-                            }
                             _ => {
-                                dispatcher.dispatch(&RoomEvent::TextStreamOpened {
-                                    topic,
-                                    reader: TakeCell::new(reader),
-                                    participant_identity: ParticipantIdentity(identity)
-                                });
+                                if !data_stream::is_internal_topic(other) {
+                                    dispatcher.dispatch(&RoomEvent::TextStreamOpened {
+                                        topic,
+                                        reader: TakeCell::new(reader),
+                                        participant_identity: ParticipantIdentity(identity)
+                                    });
+                                }
                             }
                         }
                     }
