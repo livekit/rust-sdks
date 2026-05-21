@@ -251,7 +251,9 @@ run_task = "node-package-flow"
 SWIFT_RELEASE_FLAG = { value = "--release", condition = { profiles = ["release"] } }
 # `--debug-symbols` embeds .dSYM bundles into the xcframework; only meaningful
 # alongside --release where the dylib is stripped and a sidecar carries DWARF.
-SWIFT_DEBUG_SYMBOLS_FLAG = { value = "--debug-symbols", condition = { profiles = ["release"] } }
+# (Named SWIFT_DSYMS_* rather than SWIFT_DEBUG_SYMBOLS_* because tera-cli's
+# --env mode warns on any env var matching SWIFT_DEBUG_*.)
+SWIFT_DSYMS_FLAG = { value = "--debug-symbols", condition = { profiles = ["release"] } }
 # Apple-only debug-info knobs. Cargo treats these env vars as profile.release
 # overrides. Scoped to this task so other release builds (FFI, node bindings,
 # Linux/Windows/Android) remain on the lean Cargo.toml profile.
@@ -285,7 +287,7 @@ cargo swift package \
 --privacy-manifest ${SUPPORT_DIR}/swift/PrivacyInfo.xcprivacy \
 --exclude-arch x86_64-apple-tvos \
 ${SWIFT_RELEASE_FLAG} \
-${SWIFT_DEBUG_SYMBOLS_FLAG}
+${SWIFT_DSYMS_FLAG}
 """
 
 # Zip the xcframework and stash the SHA256 next to it so swift-generate-manifest
