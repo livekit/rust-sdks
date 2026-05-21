@@ -169,15 +169,13 @@ pub async fn test_rpc_v2_does_not_emit_data_stream_events() -> Result<()> {
     let (callee_room, callee_events) = rooms.pop().unwrap();
     let callee_identity = callee_room.local_participant().identity();
 
-    callee_room.local_participant().register_rpc_method("echo".to_string(), |data| {
-        Box::pin(async move { Ok(data.payload) })
-    });
+    callee_room
+        .local_participant()
+        .register_rpc_method("echo".to_string(), |data| Box::pin(async move { Ok(data.payload) }));
 
     async fn collect(mut rx: UnboundedReceiver<RoomEvent>) -> Vec<RoomEvent> {
         let mut events = Vec::new();
-        while let Ok(Some(ev)) =
-            tokio::time::timeout(Duration::from_millis(250), rx.recv()).await
-        {
+        while let Ok(Some(ev)) = tokio::time::timeout(Duration::from_millis(250), rx.recv()).await {
             events.push(ev);
         }
         events
