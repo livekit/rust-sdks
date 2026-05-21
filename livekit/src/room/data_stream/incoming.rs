@@ -237,6 +237,7 @@ struct Descriptor {
     progress: StreamProgress,
     chunk_tx: UnboundedSender<StreamResult<Bytes>>,
     encryption_type: EncryptionType,
+    is_internal: bool,
     // TODO(ladvoc): keep track of open time.
 }
 
@@ -264,6 +265,7 @@ impl IncomingStreamManager {
         identity: String,
         encryption_type: livekit_protocol::encryption::Type,
     ) {
+        let is_internal = super::is_internal_topic(&header.topic);
         let Ok(info) = AnyStreamInfo::try_from_with_encryption(header, encryption_type.into())
             .inspect_err(|e| log::error!("Invalid header: {}", e))
         else {
@@ -287,8 +289,16 @@ impl IncomingStreamManager {
             progress: StreamProgress { bytes_total, ..Default::default() },
             chunk_tx,
             encryption_type: stream_encryption_type,
+            is_internal,
         };
         inner.open_streams.insert(id, descriptor);
+    }
+
+    /// Returns whether the given open stream belongs to an internal topic
+    /// (e.g. `lk.rpc_request`). Used to suppress `RoomEvent::Stream*Received`
+    /// dispatches for traffic the SDK handles itself.
+    pub fn is_internal(&self, stream_id: &str) -> bool {
+        self.inner.lock().open_streams.get(stream_id).is_some_and(|d| d.is_internal)
     }
 
     /// Handles an incoming chunk packet.

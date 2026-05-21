@@ -1775,6 +1775,7 @@ impl RoomSession {
         participant_identity: String,
         encryption_type: proto::encryption::Type,
     ) {
+        let is_internal = data_stream::is_internal_topic(&header.topic);
         self.incoming_stream_manager.handle_header(
             header.clone(),
             participant_identity.clone(),
@@ -1790,9 +1791,11 @@ impl RoomSession {
             participant.update_data_encryption_status(is_encrypted);
         }
 
-        // For backwards compatibly
-        let event = RoomEvent::StreamHeaderReceived { header, participant_identity };
-        self.dispatcher.dispatch(&event);
+        if !is_internal {
+            // For backwards compatibly
+            let event = RoomEvent::StreamHeaderReceived { header, participant_identity };
+            self.dispatcher.dispatch(&event);
+        }
     }
 
     fn handle_data_stream_chunk(
@@ -1801,11 +1804,14 @@ impl RoomSession {
         participant_identity: String,
         encryption_type: proto::encryption::Type,
     ) {
+        let is_internal = self.incoming_stream_manager.is_internal(&chunk.stream_id);
         self.incoming_stream_manager.handle_chunk(chunk.clone(), encryption_type);
 
-        // For backwards compatibly
-        let event = RoomEvent::StreamChunkReceived { chunk, participant_identity };
-        self.dispatcher.dispatch(&event);
+        if !is_internal {
+            // For backwards compatibly
+            let event = RoomEvent::StreamChunkReceived { chunk, participant_identity };
+            self.dispatcher.dispatch(&event);
+        }
     }
 
     fn handle_data_stream_trailer(
@@ -1813,11 +1819,16 @@ impl RoomSession {
         trailer: proto::data_stream::Trailer,
         participant_identity: String,
     ) {
+        // Check is_internal *before* handle_trailer, which removes the
+        // descriptor from the open-streams map.
+        let is_internal = self.incoming_stream_manager.is_internal(&trailer.stream_id);
         self.incoming_stream_manager.handle_trailer(trailer.clone());
 
-        // For backwards compatibly
-        let event = RoomEvent::StreamTrailerReceived { trailer, participant_identity };
-        self.dispatcher.dispatch(&event);
+        if !is_internal {
+            // For backwards compatibly
+            let event = RoomEvent::StreamTrailerReceived { trailer, participant_identity };
+            self.dispatcher.dispatch(&event);
+        }
     }
 
     fn handle_data_channel_buffered_low_threshold_change(
@@ -2122,11 +2133,16 @@ async fn incoming_data_stream_task(
         tokio::select! {
             Some((reader, identity)) = open_rx.recv() => {
                 match reader {
-                    AnyStreamReader::Byte(reader) => dispatcher.dispatch(&RoomEvent::ByteStreamOpened {
-                        topic: reader.info().topic.clone(),
-                        reader: TakeCell::new(reader),
-                        participant_identity: ParticipantIdentity(identity)
-                    }),
+                    AnyStreamReader::Byte(reader) => {
+                        let topic = reader.info().topic.clone();
+                        if !data_stream::is_internal_topic(&topic) {
+                            dispatcher.dispatch(&RoomEvent::ByteStreamOpened {
+                                topic,
+                                reader: TakeCell::new(reader),
+                                participant_identity: ParticipantIdentity(identity)
+                            });
+                        }
+                    }
                     AnyStreamReader::Text(reader) => {
                         let topic = reader.info().topic.clone();
                         match topic.as_str() {
@@ -2149,11 +2165,13 @@ async fn incoming_data_stream_task(
                                 });
                             }
                             _ => {
-                                dispatcher.dispatch(&RoomEvent::TextStreamOpened {
-                                    topic,
-                                    reader: TakeCell::new(reader),
-                                    participant_identity: ParticipantIdentity(identity)
-                                });
+                                if !data_stream::is_internal_topic(&topic) {
+                                    dispatcher.dispatch(&RoomEvent::TextStreamOpened {
+                                        topic,
+                                        reader: TakeCell::new(reader),
+                                        participant_identity: ParticipantIdentity(identity)
+                                    });
+                                }
                             }
                         }
                     }
