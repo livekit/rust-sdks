@@ -290,6 +290,43 @@ ${SWIFT_RELEASE_FLAG} \
 ${SWIFT_DSYMS_FLAG}
 """
 
+# Enforce a size budget on the framework binary an iPhone user actually
+# downloads. The ios-arm64 slice is single-arch and matches App Store Connect's
+# thinning output for ~95% of consumers, so it's the most meaningful proxy
+# for "how much does this dep cost an end user". Universal/simulator slices
+# are ~2× larger by construction (two archs in one Mach-O) and shouldn't be
+# the metric. Override the limit per release with SPM_SIZE_LIMIT_BYTES.
+[tasks.swift-check-size.env]
+SPM_SIZE_LIMIT_BYTES = { value = "1048576", condition = { env_not_set = ["SPM_SIZE_LIMIT_BYTES"] } }
+
+[tasks.swift-check-size]
+private = true
+condition = { profiles = ["release"] }
+script_runner = "@shell"
+script = """
+binary="${SPM_NAME}/Rust${SPM_NAME}.xcframework/ios-arm64/Rust${SPM_NAME}.framework/Rust${SPM_NAME}"
+
+if [ ! -f "${binary}" ]; then
+  echo "swift-check-size: framework binary not found at ${binary}" >&2
+  exit 1
+fi
+
+bytes=$(stat -f%z "${binary}")
+limit=${SPM_SIZE_LIMIT_BYTES}
+
+# Trailing decimal trick avoids depending on numfmt (not in macOS base).
+kib=$((bytes / 1024))
+limit_kib=$((limit / 1024))
+
+if [ "${bytes}" -gt "${limit}" ]; then
+  echo "swift-check-size: Rust${SPM_NAME} (ios-arm64) is ${kib} KiB (${bytes} bytes), exceeds limit ${limit_kib} KiB (${limit} bytes)." >&2
+  echo "  Either land the size regression intentionally and bump SPM_SIZE_LIMIT_BYTES, or investigate (cargo bloat, panic = abort, opt-level)." >&2
+  exit 1
+fi
+
+echo "Rust${SPM_NAME} (ios-arm64) ${kib} KiB / ${limit_kib} KiB budget"
+"""
+
 # Zip the xcframework and stash the SHA256 next to it so swift-generate-manifest
 # can pick it up. Only runs in release profile — local dev points at the
 # unzipped xcframework directly.
@@ -347,6 +384,7 @@ mv "${SPM_NAME}" "${out_dir}"
 private = true
 dependencies = [
     "swift-xcframework",
+    "swift-check-size",
     "swift-zip-xcframework",
     "swift-generate-manifest",
     "swift-move-to-packages"
