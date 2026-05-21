@@ -30,12 +30,22 @@ pub fn on_new_platform_audio(
     server: &'static FfiServer,
     _req: proto::NewPlatformAudioRequest,
 ) -> FfiResult<proto::NewPlatformAudioResponse> {
+    log::info!("[PLATFORM_AUDIO_FFI] on_new_platform_audio() called");
+
     match PlatformAudio::new() {
         Ok(audio) => {
             let handle_id = server.next_id();
+            let recording_count = audio.recording_devices().count() as i32;
+            let playout_count = audio.playout_devices().count() as i32;
+
+            log::info!(
+                "[PLATFORM_AUDIO_FFI] PlatformAudio created successfully: handle_id={}, recording_devices={}, playout_devices={}",
+                handle_id, recording_count, playout_count
+            );
+
             let info = proto::PlatformAudioInfo {
-                recording_device_count: audio.recording_devices().count() as i32,
-                playout_device_count: audio.playout_devices().count() as i32,
+                recording_device_count: recording_count,
+                playout_device_count: playout_count,
             };
 
             server.store_handle(handle_id, FfiPlatformAudio { audio });
@@ -49,9 +59,19 @@ pub fn on_new_platform_audio(
                 )),
             })
         }
-        Err(e) => Ok(proto::NewPlatformAudioResponse {
-            message: Some(proto::new_platform_audio_response::Message::Error(e.to_string())),
-        }),
+        Err(e) => {
+            log::error!(
+                "[PLATFORM_AUDIO_FFI] PlatformAudio::new() failed: {}. This typically means: \
+                (1) Android JNI not initialized (init_android not called), \
+                (2) RECORD_AUDIO permission not granted, \
+                (3) No audio devices available, or \
+                (4) Another app has exclusive audio focus.",
+                e
+            );
+            Ok(proto::NewPlatformAudioResponse {
+                message: Some(proto::new_platform_audio_response::Message::Error(e.to_string())),
+            })
+        }
     }
 }
 

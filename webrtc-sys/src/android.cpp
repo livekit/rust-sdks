@@ -16,12 +16,14 @@
 
 #include "livekit/android.h"
 
+#include <atomic>
 #include <jni.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <memory>
 
 #include "api/video_codecs/video_decoder_factory.h"
+#include "rtc_base/logging.h"
 #include "sdk/android/native_api/base/init.h"
 #include "sdk/android/native_api/codecs/wrapper.h"
 #include "sdk/android/native_api/jni/class_loader.h"
@@ -41,8 +43,79 @@ FILE *stderr = fdopen(STDERR_FILENO, "w");
 
 namespace livekit_ffi {
 
+// Track whether Android WebRTC has been initialized to prevent crashes on double-init.
+static std::atomic<bool> g_android_initialized{false};
+
 void init_android(JavaVM* jvm) {
+  // Idempotent - safe to call multiple times
+  if (g_android_initialized.exchange(true)) {
+    RTC_LOG(LS_INFO) << "livekit_ffi::init_android() - already initialized, skipping";
+    return;
+  }
+
+  RTC_LOG(LS_INFO) << "livekit_ffi::init_android() called with jvm=" << (jvm ? "valid" : "null");
+  if (!jvm) {
+    RTC_LOG(LS_ERROR) << "livekit_ffi::init_android() - JavaVM is null! Cannot initialize Android WebRTC.";
+    g_android_initialized.store(false);
+    return;
+  }
   webrtc::InitAndroid(jvm);
+  RTC_LOG(LS_INFO) << "livekit_ffi::init_android() - webrtc::InitAndroid() completed";
+}
+
+bool init_android_context(JavaVM* jvm, uintptr_t context_ptr) {
+  RTC_LOG(LS_INFO) << "livekit_ffi::init_android_context() called";
+
+  if (!jvm || !context_ptr) {
+    RTC_LOG(LS_ERROR) << "livekit_ffi::init_android_context() - jvm or context is null";
+    return false;
+  }
+
+  // Initialize JVM first (idempotent - WebRTC handles double-init internally)
+  init_android(jvm);
+
+  // Cast uintptr_t back to jobject
+  jobject context = reinterpret_cast<jobject>(context_ptr);
+
+  JNIEnv* env = webrtc::AttachCurrentThreadIfNeeded();
+  if (!env) {
+    RTC_LOG(LS_ERROR) << "livekit_ffi::init_android_context() - Failed to attach to JNI";
+    return false;
+  }
+
+  // Find livekit.org.webrtc.ContextUtils class
+  jclass context_utils_class = env->FindClass("livekit/org/webrtc/ContextUtils");
+  if (!context_utils_class) {
+    RTC_LOG(LS_ERROR) << "livekit_ffi::init_android_context() - Failed to find ContextUtils class";
+    env->ExceptionClear();
+    return false;
+  }
+
+  // Get the initialize method
+  jmethodID initialize_method = env->GetStaticMethodID(
+      context_utils_class, "initialize", "(Landroid/content/Context;)V");
+  if (!initialize_method) {
+    RTC_LOG(LS_ERROR) << "livekit_ffi::init_android_context() - Failed to find initialize method";
+    env->ExceptionClear();
+    env->DeleteLocalRef(context_utils_class);
+    return false;
+  }
+
+  // Call ContextUtils.initialize(context)
+  env->CallStaticVoidMethod(context_utils_class, initialize_method, context);
+
+  // Check for exceptions
+  if (env->ExceptionCheck()) {
+    RTC_LOG(LS_ERROR) << "livekit_ffi::init_android_context() - Exception during initialize";
+    env->ExceptionDescribe();
+    env->ExceptionClear();
+    env->DeleteLocalRef(context_utils_class);
+    return false;
+  }
+
+  env->DeleteLocalRef(context_utils_class);
+  RTC_LOG(LS_INFO) << "livekit_ffi::init_android_context() - ContextUtils initialized successfully";
+  return true;
 }
 
 std::unique_ptr<webrtc::VideoEncoderFactory>

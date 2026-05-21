@@ -1837,6 +1837,12 @@ export declare class NewPlatformAudioResponse extends Message<NewPlatformAudioRe
  *
  * Returns lists of available recording (microphone) and playout (speaker) devices.
  *
+ * # Platform Notes
+ *
+ * - Desktop (Windows/macOS/Linux): Returns all available devices with names and GUIDs.
+ * - Mobile (iOS/Android): Returns only one "default" device with empty name and GUID.
+ *   Device enumeration is not meaningful on mobile - use for device count only.
+ *
  * @generated from message livekit.proto.GetAudioDevicesRequest
  */
 export declare class GetAudioDevicesRequest extends Message<GetAudioDevicesRequest> {
@@ -1908,6 +1914,12 @@ export declare class GetAudioDevicesResponse extends Message<GetAudioDevicesResp
  * Call this before creating audio tracks to select which microphone to use.
  * Use the GUID from AudioDeviceInfo for stable device selection across hot-plug events.
  *
+ * # Platform Notes
+ *
+ * - Desktop: Works as expected - selects from enumerated devices.
+ * - Mobile (iOS/Android): No-op. Mobile platforms handle microphone selection at the
+ *   system level. This will succeed but has no effect. Skip calling on mobile.
+ *
  * @generated from message livekit.proto.SetRecordingDeviceRequest
  */
 export declare class SetRecordingDeviceRequest extends Message<SetRecordingDeviceRequest> {
@@ -1945,10 +1957,8 @@ export declare class SetRecordingDeviceRequest extends Message<SetRecordingDevic
  */
 export declare class SetRecordingDeviceResponse extends Message<SetRecordingDeviceResponse> {
   /**
-   * Error message if the operation failed:
-   * - "Device not found" if GUID doesn't match any device
-   * - Other platform-specific errors
-   * Empty/absent on success.
+   * Error message if the operation failed.
+   * Empty/absent on success (including no-op success on mobile).
    *
    * @generated from field: optional string error = 1;
    */
@@ -1974,6 +1984,14 @@ export declare class SetRecordingDeviceResponse extends Message<SetRecordingDevi
  *
  * Call this before connecting to select which speaker to use for audio output.
  * Use the GUID from AudioDeviceInfo for stable device selection across hot-plug events.
+ *
+ * # Platform Notes
+ *
+ * - Desktop: Works as expected - selects from enumerated devices.
+ * - Mobile (iOS/Android): No-op. Mobile platforms handle audio routing at the system level.
+ *   This will succeed but has no effect. For audio routing on mobile:
+ *   - iOS: Use AVAudioSession to control speaker/earpiece/Bluetooth routing
+ *   - Android: Use AudioManager.setSpeakerphoneOn() to switch outputs
  *
  * @generated from message livekit.proto.SetPlayoutDeviceRequest
  */
@@ -2012,10 +2030,8 @@ export declare class SetPlayoutDeviceRequest extends Message<SetPlayoutDeviceReq
  */
 export declare class SetPlayoutDeviceResponse extends Message<SetPlayoutDeviceResponse> {
   /**
-   * Error message if the operation failed:
-   * - "Device not found" if GUID doesn't match any device
-   * - Other platform-specific errors
-   * Empty/absent on success.
+   * Error message if the operation failed.
+   * Empty/absent on success (including no-op success on mobile).
    *
    * @generated from field: optional string error = 1;
    */
