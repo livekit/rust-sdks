@@ -249,6 +249,9 @@ run_task = "node-package-flow"
 
 [tasks.swift-xcframework.env]
 SWIFT_RELEASE_FLAG = { value = "--release", condition = { profiles = ["release"] } }
+# `--debug-symbols` embeds .dSYM bundles into the xcframework; only meaningful
+# alongside --release where the dylib is stripped and a sidecar carries DWARF.
+SWIFT_DEBUG_SYMBOLS_FLAG = { value = "--debug-symbols", condition = { profiles = ["release"] } }
 # Apple-only debug-info knobs. Cargo treats these env vars as profile.release
 # overrides. Scoped to this task so other release builds (FFI, node bindings,
 # Linux/Windows/Android) remain on the lean Cargo.toml profile.
@@ -260,7 +263,7 @@ CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO = { value = "packed", condition = { profil
 [tasks.swift-xcframework]
 private = true
 install_crate = { crate_name = "cargo-swift", binary = "cargo-swift", test_arg = "--help" }
-install_crate_args = ["--git", "https://github.com/antoniusnaumann/cargo-swift.git", "--rev", "fe7becfcfe377c014902719165b6a834b427e072"]
+install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "f94e76675b9524e71be028c4b03a51163d6a5c28"]
 script_runner = "@shell"
 script = """
 export IPHONEOS_DEPLOYMENT_TARGET=13.0
@@ -281,7 +284,8 @@ cargo swift package \
 --lib-type dynamic \
 --privacy-manifest ${SUPPORT_DIR}/swift/PrivacyInfo.xcprivacy \
 --exclude-arch x86_64-apple-tvos \
-${SWIFT_RELEASE_FLAG}
+${SWIFT_RELEASE_FLAG} \
+${SWIFT_DEBUG_SYMBOLS_FLAG}
 """
 
 # Zip the xcframework and stash the SHA256 next to it so swift-generate-manifest
