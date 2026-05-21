@@ -359,7 +359,8 @@ mod tests {
         assert!(result.frame.is_none() && result.drop_error.is_none());
 
         let first_frame_number = packet.header.frame_number;
-        packet.header.frame_number = packet.header.frame_number.wrapping_add(1); // Next frame
+        let new_frame_number = packet.header.frame_number.wrapping_add(1);
+        packet.header.frame_number = new_frame_number; // Next frame
 
         let result = depacketizer.push(packet, Default::default());
         assert!(result.frame.is_none());
