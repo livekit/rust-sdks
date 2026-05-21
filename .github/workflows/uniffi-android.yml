@@ -1,0 +1,78 @@
+name: UniFFI Android package
+
+# Builds livekit-uniffi as an Android AAR and publishes it to Maven Central.
+#
+# Reusable workflow — called from uniffi-packages.yml after the source draft
+# release has been resolved. Not triggered directly.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Maven artifact version (e.g., 0.0.7)
+        required: true
+        type: string
+      tag_name:
+        description: Source release tag (e.g., livekit-uniffi/v0.0.7) — surfaced in publish logs for traceability
+        required: true
+        type: string
+      dry_run:
+        description: Build artifacts but skip Maven Central upload / release
+        required: false
+        type: boolean
+        default: false
+
+env:
+  CARGO_TERM_COLOR: always
+  ANDROID_DIR: livekit-uniffi/support/android
+
+jobs:
+  build-and-publish:
+    name: Build & publish Android AAR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+
+      - uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: cargo-bins/cargo-binstall@dc19f1e48450eefe5a29b8da6c6b00a87d730b37 # v1.18.1
+      - run: cargo binstall cargo-make --no-confirm
+
+      - name: Build Android package
+        working-directory: livekit-uniffi
+        run: cargo make --profile release android-package
+
+      - name: Publish to Maven Central
+        if: ${{ !inputs.dry_run }}
+        working-directory: ${{ env.ANDROID_DIR }}
+        env:
+          # Simple property mapping: ORG_GRADLE_PROJECT_<name> -> project property <name>
+          ORG_GRADLE_PROJECT_VERSION_NAME: ${{ inputs.version }}
+          ORG_GRADLE_PROJECT_nexusUsername: ${{ secrets.UNIFFI_MAVEN_NEXUS_USERNAME }}
+          ORG_GRADLE_PROJECT_nexusPassword: ${{ secrets.UNIFFI_MAVEN_NEXUS_PASSWORD }}
+          ORG_GRADLE_PROJECT_STAGING_PROFILE_ID: ${{ secrets.UNIFFI_MAVEN_STAGING_PROFILE_ID }}
+          UNIFFI_MAVEN_SIGNING_KEY_ID: ${{ secrets.UNIFFI_MAVEN_SIGNING_KEY_ID }}
+          UNIFFI_MAVEN_SIGNING_PASSWORD: ${{ secrets.UNIFFI_MAVEN_SIGNING_PASSWORD }}
+          UNIFFI_MAVEN_SIGNING_KEY: ${{ secrets.UNIFFI_MAVEN_SIGNING_KEY }}
+        run: |
+          group="$(grep '^GROUP=' gradle.properties | cut -d= -f2)"
+          artifact="$(grep '^POM_ARTIFACT_ID=' gradle.properties | cut -d= -f2)"
+          echo "Publishing ${group}:${artifact}:${{ inputs.version }}"
+          echo "Source tag: ${{ inputs.tag_name }}"
+
+          signing_key_file="${RUNNER_TEMP}/signing-key.gpg"
+          printf '%s' "${UNIFFI_MAVEN_SIGNING_KEY}" > "${signing_key_file}"
+          chmod 600 "${signing_key_file}"
+
+          ./gradlew publishToNexus closeAndReleaseNexusStagingRepository \
+            -Dorg.gradle.project.signing.keyId="${UNIFFI_MAVEN_SIGNING_KEY_ID}" \
+            -Dorg.gradle.project.signing.password="${UNIFFI_MAVEN_SIGNING_PASSWORD}" \
+            -Dorg.gradle.project.signing.secretKeyRingFile="${signing_key_file}"
