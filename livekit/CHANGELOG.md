@@ -257,6 +257,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.42 (2026-05-21)
+
+### Features
+
+- Introduce pipeline options for remote data tracks, support multiple in-flight frames.
+
+### Fixes
+
+- Filter internal data streams out of livekit-ffi interface - #1112 (@1egoman)
+
+#### feat: add Android application context initialization for PlatformAudio support.
+
+Android requires `ContextUtils.initialize(applicationContext)` before WebRTC audio components can be created. This change:
+
+- Adds `livekit_ffi_initialize_android_context()` C FFI function for Unity and other FFI consumers
+- Uses `CreateAndroidAudioDeviceModule()` instead of generic `CreateAudioDeviceModule()` on Android
+- Handles empty device GUIDs on Android (falls back to index 0)
+- Documents Android-specific limitations: single default device, no app-level device selection
+
+Platform notes:
+- Android device enumeration returns only one "default" device with empty name/GUID
+- Audio routing (speaker/earpiece/Bluetooth) is controlled by Android's AudioManager, not WebRTC
+
 ## 0.7.41 (2026-05-20)
 
 ### Fixes

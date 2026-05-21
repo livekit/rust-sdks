@@ -1,4 +1,14 @@
 # Changelog
+## 0.1.7 (2026-05-21)
+
+### Features
+
+- Introduce pipeline options for remote data tracks, support multiple in-flight frames.
+
+### Fixes
+
+- Fix compilation error in depacketizer test by using correct variable name.
+
 ## 0.1.6 (2026-05-18)
 
 ### Fixes
