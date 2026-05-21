@@ -370,7 +370,7 @@ mod tests {
         let DepacketizerDropReason::Interrupted { new_frame_number: reported } = drop.reason else {
             panic!("Expected Interrupted, got {:?}", drop.reason);
         };
-        assert_eq!(reported, new_frame_number);
+        assert_eq!(reported, first_frame_number.wrapping_add(1));
     }
 
     #[test]
