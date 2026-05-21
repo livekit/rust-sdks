@@ -298,7 +298,7 @@ impl IncomingStreamManager {
     /// (e.g. `lk.rpc_request`). Used to suppress `RoomEvent::Stream*Received`
     /// dispatches for traffic the SDK handles itself.
     pub fn is_internal(&self, stream_id: &str) -> bool {
-        self.inner.lock().open_streams.get(stream_id).map(|d| d.is_internal).unwrap_or(false)
+        self.inner.lock().open_streams.get(stream_id).is_some_and(|d| d.is_internal)
     }
 
     /// Handles an incoming chunk packet.
