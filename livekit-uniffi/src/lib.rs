@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// Access token generation and verification from [`livekit-api::access_token`].
+/// Access token generation and verification from [`livekit_api::access_token`].
 pub mod access_token;
 
 /// Forward log messages from Rust.

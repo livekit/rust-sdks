@@ -18,7 +18,7 @@ use serde::Deserialize;
 
 use crate::data_channel::DataChannelState;
 
-/// Values from https://www.w3.org/TR/webrtc-stats/ (NOTE: Some of the structs are not in the SPEC
+/// Values from <https://www.w3.org/TR/webrtc-stats/> (NOTE: Some of the structs are not in the SPEC
 /// but inside libwebrtc)
 /// serde will handle the magic of correctly deserializing the json into our structs.
 /// The enums values are inside encapsulated inside option because we're not sure about their
