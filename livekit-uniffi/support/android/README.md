@@ -55,8 +55,35 @@ build/outputs/aar/livekit-uniffi-android-release.aar
 
 ```kotlin
 dependencies {
-    implementation(project(":livekit-uniffi")) // or published Maven coordinate
+    implementation("io.livekit:livekit-uniffi-android:x.y.z")
 }
 ```
 
 The AAR bundles `jniLibs` and compiled Kotlin. UniFFI also requires **JNA** and **kotlinx-coroutines**; this module declares them as `implementation` dependencies so they are pulled in transitively when consuming through Maven.
+
+### Local app development
+
+Add `mavenLocal()` to your app's repository list (before `mavenCentral()` so that the local artifact wins):
+
+```kotlin
+// settings.gradle.kts
+dependencyResolutionManagement {
+    repositories {
+        mavenLocal()
+        google()
+        mavenCentral()
+    }
+}
+```
+
+If your project uses per-module `repositories` in `build.gradle.kts` instead, add `mavenLocal()` there in the same order.
+
+Depend on the artifact as above, using the `VERSION_NAME` in this module's `gradle.properties`:
+
+```kotlin
+dependencies {
+    implementation("io.livekit:livekit-uniffi-android:0.0.1")
+}
+```
+
+Re-run `cargo make android-package-local` to rebuild and publish any changes.
