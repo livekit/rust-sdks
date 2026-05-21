@@ -2165,7 +2165,7 @@ async fn incoming_data_stream_task(
                                 });
                             }
                             _ => {
-                                if !data_stream::is_internal_topic(other) {
+                                if !data_stream::is_internal_topic(&topic) {
                                     dispatcher.dispatch(&RoomEvent::TextStreamOpened {
                                         topic,
                                         reader: TakeCell::new(reader),
