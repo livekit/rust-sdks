@@ -180,22 +180,23 @@ mod tests {
 
     #[test]
     fn test_error_with_chain_two_level_chain() {
-        let root = RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
+        let root =
+            RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
         let middle = MiddleError { message: "error trying to connect".to_string(), source: root };
         let result = error_with_chain(middle);
-        assert_eq!(
-            result,
-            "error trying to connect: invalid peer certificate: UnknownIssuer"
-        );
+        assert_eq!(result, "error trying to connect: invalid peer certificate: UnknownIssuer");
     }
 
     #[test]
     fn test_error_with_chain_three_level_chain() {
         // Simulates the actual error chain from reqwest -> hyper -> TLS
-        let root = RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
+        let root =
+            RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
         let middle = MiddleError { message: "error trying to connect".to_string(), source: root };
         let outer = OuterError {
-            message: "error sending request for url (https://example.livekit.cloud/settings/regions)".to_string(),
+            message:
+                "error sending request for url (https://example.livekit.cloud/settings/regions)"
+                    .to_string(),
             source: middle,
         };
         let result = error_with_chain(outer);
@@ -208,7 +209,8 @@ mod tests {
     #[test]
     fn test_error_with_chain_preserves_tls_error_info() {
         // Verify that TLS-specific error messages are preserved in the chain
-        let root = RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
+        let root =
+            RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
         let outer = MiddleError { message: "TLS connection error".to_string(), source: root };
         let result = error_with_chain(outer);
 
@@ -221,12 +223,10 @@ mod tests {
     #[test]
     fn test_region_error_includes_full_chain() {
         // Test that SignalError::RegionError properly includes the full error chain
-        let root = RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
+        let root =
+            RootCauseError { message: "invalid peer certificate: UnknownIssuer".to_string() };
         let middle = MiddleError { message: "error trying to connect".to_string(), source: root };
-        let outer = OuterError {
-            message: "error sending request".to_string(),
-            source: middle,
-        };
+        let outer = OuterError { message: "error sending request".to_string(), source: middle };
 
         let signal_error = SignalError::RegionError(error_with_chain(outer));
         let error_string = signal_error.to_string();
