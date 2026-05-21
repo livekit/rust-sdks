@@ -57,6 +57,12 @@
 ### Added
 
 - bump libwebrtc to m125
+## 0.3.18 (2026-05-21)
+
+### Fixes
+
+- Disable default features for zip dependency
+
 ## 0.3.17 (2026-05-18)
 
 ### Fixes
