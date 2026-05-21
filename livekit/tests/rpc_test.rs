@@ -16,8 +16,9 @@
 use {
     anyhow::{Context, Result},
     common::test_rooms,
-    livekit::prelude::PerformRpcData,
+    livekit::{prelude::PerformRpcData, RoomEvent},
     std::time::Duration,
+    tokio::sync::mpsc::UnboundedReceiver,
 };
 
 mod common;
@@ -157,5 +158,60 @@ pub async fn test_rpc_unknown_destination() -> Result<()> {
     };
     let result = caller_room.local_participant().perform_rpc(perform_data).await;
     assert!(result.is_err(), "Expected error");
+    Ok(())
+}
+
+#[cfg(feature = "__lk-e2e-test")]
+#[test_log::test(tokio::test)]
+pub async fn test_rpc_v2_does_not_emit_data_stream_events() -> Result<()> {
+    let mut rooms = test_rooms(2).await?;
+    let (caller_room, caller_events) = rooms.pop().unwrap();
+    let (callee_room, callee_events) = rooms.pop().unwrap();
+    let callee_identity = callee_room.local_participant().identity();
+
+    callee_room
+        .local_participant()
+        .register_rpc_method("echo".to_string(), |data| Box::pin(async move { Ok(data.payload) }));
+
+    async fn collect(mut rx: UnboundedReceiver<RoomEvent>) -> Vec<RoomEvent> {
+        let mut events = Vec::new();
+        while let Ok(Some(ev)) = tokio::time::timeout(Duration::from_millis(250), rx.recv()).await {
+            events.push(ev);
+        }
+        events
+    }
+    let caller_handle = tokio::spawn(collect(caller_events));
+    let callee_handle = tokio::spawn(collect(callee_events));
+
+    let perform_data = PerformRpcData {
+        method: "echo".to_string(),
+        destination_identity: callee_identity.to_string(),
+        payload: "hi".to_string(),
+        response_timeout: Duration::from_millis(500),
+        ..Default::default()
+    };
+    let resp = caller_room
+        .local_participant()
+        .perform_rpc(perform_data)
+        .await
+        .context("Invocation failed")?;
+    assert_eq!(resp, "hi");
+
+    let caller = caller_handle.await?;
+    let callee = callee_handle.await?;
+    for ev in caller.iter().chain(callee.iter()) {
+        assert!(
+            !matches!(
+                ev,
+                RoomEvent::TextStreamOpened { .. }
+                    | RoomEvent::ByteStreamOpened { .. }
+                    | RoomEvent::StreamHeaderReceived { .. }
+                    | RoomEvent::StreamChunkReceived { .. }
+                    | RoomEvent::StreamTrailerReceived { .. }
+            ),
+            "unexpected data-stream event leaked from internal RPC traffic: {:?}",
+            ev,
+        );
+    }
     Ok(())
 }
