@@ -263,11 +263,23 @@ run_task = "node-package-flow"
 
 [tasks.swift-xcframework.env]
 SWIFT_RELEASE_FLAG = { value = "--release", condition = { profiles = ["release"] } }
+# `--debug-symbols` embeds .dSYM bundles into the xcframework; only meaningful
+# alongside --release where the dylib is stripped and a sidecar carries DWARF.
+# (Named SWIFT_DSYMS_* rather than SWIFT_DEBUG_SYMBOLS_* because tera-cli's
+# --env mode warns on any env var matching SWIFT_DEBUG_*.)
+SWIFT_DSYMS_FLAG = { value = "--debug-symbols", condition = { profiles = ["release"] } }
+# Apple-only debug-info knobs. Cargo treats these env vars as profile.release
+# overrides. Scoped to this task so other release builds (FFI, node bindings,
+# Linux/Windows/Android) remain on the lean Cargo.toml profile.
+# `split-debuginfo = "packed"` triggers dsymutil → produces .dSYM bundles next
+# to each per-arch .dylib at target/<arch>/release/deps/lib<name>.dylib.dSYM.
+CARGO_PROFILE_RELEASE_DEBUG = { value = "limited", condition = { profiles = ["release"] } }
+CARGO_PROFILE_RELEASE_SPLIT_DEBUGINFO = { value = "packed", condition = { profiles = ["release"] } }
 
 [tasks.swift-xcframework]
 private = true
 install_crate = { crate_name = "cargo-swift", binary = "cargo-swift", test_arg = "--help" }
-install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--branch", "feature/framework-wrapping", "--force"]
+install_crate_args = ["--git", "https://github.com/livekit/cargo-swift.git", "--rev", "f94e76675b9524e71be028c4b03a51163d6a5c28"]
 script_runner = "@shell"
 script = """
 export IPHONEOS_DEPLOYMENT_TARGET=13.0
@@ -288,7 +300,80 @@ cargo swift package \
 --lib-type dynamic \
 --privacy-manifest ${SUPPORT_DIR}/swift/PrivacyInfo.xcprivacy \
 --exclude-arch x86_64-apple-tvos \
-${SWIFT_RELEASE_FLAG}
+${SWIFT_RELEASE_FLAG} \
+${SWIFT_DSYMS_FLAG}
+"""
+
+# Print a size breakdown of the iPhone-arm64 framework binary (the slice that
+# actually ships to end users) using bloaty. Runs right before the size gate
+# so a failing gate ends with the diagnostic already in the log — no need to
+# rerun anything to find out who got fat. Uses the .dSYM we just embedded for
+# per-crate attribution; without it bloaty still prints sections + symbols.
+[tasks.swift-bloat]
+private = true
+condition = { profiles = ["release"] }
+script_runner = "@shell"
+script = """
+bin="${SPM_NAME}/Rust${SPM_NAME}.xcframework/ios-arm64/Rust${SPM_NAME}.framework/Rust${SPM_NAME}"
+dsym="${SPM_NAME}/Rust${SPM_NAME}.xcframework/ios-arm64/dSYMs/Rust${SPM_NAME}.framework.dSYM/Contents/Resources/DWARF/Rust${SPM_NAME}"
+
+if ! command -v bloaty >/dev/null 2>&1; then
+  if command -v brew >/dev/null 2>&1; then
+    echo "swift-bloat: installing bloaty via brew..."
+    brew install --quiet bloaty >/dev/null || true
+  fi
+fi
+if ! command -v bloaty >/dev/null 2>&1; then
+  echo "swift-bloat: bloaty unavailable, skipping size breakdown (brew install bloaty)."
+  exit 0
+fi
+
+dsym_arg=""
+[ -f "${dsym}" ] && dsym_arg="--debug-file=${dsym}"
+
+for view in sections compileunits symbols; do
+  echo
+  echo "=== Rust${SPM_NAME} (ios-arm64) — bloaty -d ${view} ==="
+  bloaty "${bin}" ${dsym_arg} -d "${view}" -n 15 || true
+done
+echo
+"""
+
+# Enforce a size budget on the framework binary an iPhone user actually
+# downloads. The ios-arm64 slice is single-arch and matches App Store Connect's
+# thinning output for ~95% of consumers, so it's the most meaningful proxy
+# for "how much does this dep cost an end user". Universal/simulator slices
+# are ~2× larger by construction (two archs in one Mach-O) and shouldn't be
+# the metric. Override the limit per release with SPM_SIZE_LIMIT_BYTES.
+[tasks.swift-check-size.env]
+SPM_SIZE_LIMIT_BYTES = { value = "1048576", condition = { env_not_set = ["SPM_SIZE_LIMIT_BYTES"] } }
+
+[tasks.swift-check-size]
+private = true
+condition = { profiles = ["release"] }
+script_runner = "@shell"
+script = """
+binary="${SPM_NAME}/Rust${SPM_NAME}.xcframework/ios-arm64/Rust${SPM_NAME}.framework/Rust${SPM_NAME}"
+
+if [ ! -f "${binary}" ]; then
+  echo "swift-check-size: framework binary not found at ${binary}" >&2
+  exit 1
+fi
+
+bytes=$(stat -f%z "${binary}")
+limit=${SPM_SIZE_LIMIT_BYTES}
+
+# Trailing decimal trick avoids depending on numfmt (not in macOS base).
+kib=$((bytes / 1024))
+limit_kib=$((limit / 1024))
+
+if [ "${bytes}" -gt "${limit}" ]; then
+  echo "swift-check-size: Rust${SPM_NAME} (ios-arm64) is ${kib} KiB (${bytes} bytes), exceeds limit ${limit_kib} KiB (${limit} bytes)." >&2
+  echo "  Either land the size regression intentionally and bump SPM_SIZE_LIMIT_BYTES, or investigate (cargo bloat, panic = abort, opt-level)." >&2
+  exit 1
+fi
+
+echo "Rust${SPM_NAME} (ios-arm64) ${kib} KiB / ${limit_kib} KiB budget"
 """
 
 # Zip the xcframework and stash the SHA256 next to it so swift-generate-manifest
@@ -348,6 +433,8 @@ mv "${SPM_NAME}" "${out_dir}"
 private = true
 dependencies = [
     "swift-xcframework",
+    "swift-bloat",
+    "swift-check-size",
     "swift-zip-xcframework",
     "swift-generate-manifest",
     "swift-move-to-packages"

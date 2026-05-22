@@ -32,8 +32,6 @@ env:
 jobs:
   resolve-tag:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
       tag_name: ${{ steps.get-tag.outputs.tag_name }}
       version: ${{ steps.get-tag.outputs.version }}
