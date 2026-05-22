@@ -21,6 +21,5 @@
 //!
 
 pub mod common;
-pub mod e2ee;
 pub mod local;
 pub mod remote;

@@ -23,6 +23,7 @@ use thiserror::Error;
 pub type InitializationVector = [u8; 12];
 
 /// Encrypted payload and metadata required for decryption.
+#[cfg_attr(feature = "uniffi", derive(uniffi::Record))]
 pub struct EncryptedPayload {
     pub payload: Bytes,
     pub iv: InitializationVector,
@@ -31,6 +32,8 @@ pub struct EncryptedPayload {
 
 /// An error indicating a payload could not be encrypted.
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
+#[cfg_attr(feature = "uniffi", uniffi(flat_error))]
 pub enum EncryptionError {
     #[error("Encryption failed")]
     Failed,
@@ -38,18 +41,22 @@ pub enum EncryptionError {
 
 /// An error indicating a payload could not be decrypted.
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
+#[cfg_attr(feature = "uniffi", uniffi(flat_error))]
 pub enum DecryptionError {
     #[error("Decryption failed")]
     Failed,
 }
 
 /// Provider for encrypting payloads for E2EE.
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 pub trait EncryptionProvider: Send + Sync + Debug {
     /// Encrypts the given payload being sent by the local participant.
     fn encrypt(&self, payload: Bytes) -> Result<EncryptedPayload, EncryptionError>;
 }
 
 /// Provider for decrypting payloads for E2EE.
+#[cfg_attr(feature = "uniffi", uniffi::export(with_foreign))]
 pub trait DecryptionProvider: Send + Sync + Debug {
     /// Decrypts the given payload received from a remote participant.
     ///
@@ -59,6 +66,17 @@ pub trait DecryptionProvider: Send + Sync + Debug {
     fn decrypt(
         &self,
         payload: EncryptedPayload,
-        sender_identity: &str,
+        sender_identity: String,
     ) -> Result<Bytes, DecryptionError>;
 }
+
+#[cfg(feature = "uniffi")]
+uniffi::custom_type!(Bytes, Vec<u8>, { remote });
+
+#[cfg(feature = "uniffi")]
+uniffi::custom_type!(InitializationVector, Vec<u8>, {
+    remote,
+    lower: |iv| iv.to_vec(),
+    try_lift: |v| v.try_into()
+        .map_err(|_| uniffi::deps::anyhow::anyhow!("IV must be exactly 12 bytes"))
+});

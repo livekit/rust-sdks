@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use super::{
-    common::{deserialize_signal_response, DataTrackInfo, HandleSignalResponseError},
-    e2ee::{DataTrackEncryptionProvider, FfiEncryptionProvider},
+    common::{deserialize_signal_response, DataTrackInfo, HandleSignalResponseError}
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -92,12 +91,12 @@ impl LocalDataTrackManager {
     #[uniffi::constructor]
     pub fn new(
         delegate: Arc<dyn LocalDataTrackManagerDelegate>,
-        encryption_provider: Option<Arc<dyn DataTrackEncryptionProvider>>,
+        encryption_provider: Option<Arc<dyn EncryptionProvider>>,
     ) -> Arc<Self> {
         let token = CancellationToken::new();
 
         let encryption_provider = encryption_provider
-            .map(|p| Arc::new(FfiEncryptionProvider(p)) as Arc<dyn EncryptionProvider>);
+            .map(|p| p as Arc<dyn EncryptionProvider>);
         let manager_options = local::ManagerOptions { encryption_provider };
 
         let (manager, input, output) = local::Manager::new(manager_options);

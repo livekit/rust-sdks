@@ -502,7 +502,7 @@ mod tests {
         fn decrypt(
             &self,
             payload: EncryptedPayload,
-            _sender_identity: &str,
+            _sender_identity: String,
         ) -> Result<Bytes, DecryptionError> {
             Ok(payload.payload.slice(4..))
         }

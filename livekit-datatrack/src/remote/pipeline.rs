@@ -73,7 +73,7 @@ impl Pipeline {
 
         let encrypted =
             EncryptedPayload { payload: frame.payload, iv: e2ee.iv, key_index: e2ee.key_index };
-        frame.payload = match decryption.decrypt(encrypted, &self.publisher_identity) {
+        frame.payload = match decryption.decrypt(encrypted, self.publisher_identity.to_string()) {
             Ok(decrypted) => decrypted,
             Err(err) => {
                 log::error!("{}", err);

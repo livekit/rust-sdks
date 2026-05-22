@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use super::{
-    common::{deserialize_signal_response, DataTrackInfo, HandleSignalResponseError},
-    e2ee::{DataTrackDecryptionProvider, FfiDecryptionProvider},
+    common::{deserialize_signal_response, DataTrackInfo, HandleSignalResponseError}
 };
 use bytes::Bytes;
 use futures_util::StreamExt;
@@ -107,12 +106,12 @@ impl RemoteDataTrackManager {
     #[uniffi::constructor]
     pub fn new(
         delegate: Arc<dyn RemoteDataTrackManagerDelegate>,
-        decryption_provider: Option<Arc<dyn DataTrackDecryptionProvider>>,
+        decryption_provider: Option<Arc<dyn DecryptionProvider>>,
     ) -> Arc<Self> {
         let token = CancellationToken::new();
 
         let decryption_provider = decryption_provider
-            .map(|p| Arc::new(FfiDecryptionProvider(p)) as Arc<dyn DecryptionProvider>);
+            .map(|p| p as Arc<dyn DecryptionProvider>);
         let manager_options = remote::ManagerOptions { decryption_provider };
 
         let (manager, input, output) = remote::Manager::new(manager_options);

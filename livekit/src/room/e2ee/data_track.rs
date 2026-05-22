@@ -69,7 +69,7 @@ impl dt::DecryptionProvider for DataTrackDecryptionProvider {
     fn decrypt(
         &self,
         payload: dt::EncryptedPayload,
-        sender_identity: &str,
+        sender_identity: String,
     ) -> Result<bytes::Bytes, dt::DecryptionError> {
         let decrypted = self
             .manager
@@ -77,7 +77,7 @@ impl dt::DecryptionProvider for DataTrackDecryptionProvider {
                 payload.payload.into(),
                 payload.iv.to_vec(),
                 payload.key_index as u32,
-                sender_identity,
+                &sender_identity
             )
             .ok_or_else(|| dt::DecryptionError::Failed)?;
         Ok(Bytes::from(decrypted))
