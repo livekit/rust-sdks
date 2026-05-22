@@ -65,27 +65,9 @@ impl LocalDataTrack {
     }
 }
 
-#[uniffi::remote(Error)]
-pub enum PushFrameErrorReason {
-    TrackUnpublished,
-    QueueFull,
-}
-
 #[uniffi::remote(Record)]
 pub struct DataTrackOptions {
     pub name: String,
-}
-
-#[uniffi::remote(Error)]
-#[uniffi(flat_error)]
-pub enum PublishError {
-    NotAllowed,
-    DuplicateName,
-    InvalidName,
-    Timeout,
-    LimitReached,
-    Disconnected,
-    Internal,
 }
 
 /// System for managing data track publications.

@@ -64,15 +64,6 @@ impl RemoteDataTrack {
     }
 }
 
-#[uniffi::remote(Error)]
-#[uniffi(flat_error)]
-pub enum DataTrackSubscribeError {
-    Unpublished,
-    Timeout,
-    Disconnected,
-    Internal,
-}
-
 /// A stream of [`DataTrackFrame`]s received from a [`RemoteDataTrack`].
 #[derive(uniffi::Object)]
 pub struct DataTrackStream(Mutex<livekit_datatrack::api::DataTrackStream>);

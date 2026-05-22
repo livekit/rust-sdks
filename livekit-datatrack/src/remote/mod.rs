@@ -158,6 +158,8 @@ impl RemoteTrackInner {
 }
 
 #[derive(Debug, Error)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Error))]
+#[cfg_attr(feature = "uniffi", uniffi(flat_error))]
 pub enum DataTrackSubscribeError {
     #[error("The track has been unpublished and is no longer available")]
     Unpublished,
