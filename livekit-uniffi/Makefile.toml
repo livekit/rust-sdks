@@ -454,7 +454,49 @@ run_task = "swift-package-flow"
 # Local dev: cargo make android-package-local
 #            → additionally publishes the package to local maven for local use
 
+# Enforce a size budget on the arm64-v8a native library an Android user actually
+# downloads. arm64-v8a is the primary shipping arch, so it's the most meaningful 
+# proxy for "how much does this dep cost an end user".
+# Measured on the stripped .so inside the release AAR (AGP strips debug symbols
+# during assemble; the raw target/ artifact is larger and not what ships).
+# Override the limit per release with ANDROID_SIZE_LIMIT_BYTES.
+[tasks.android-check-size.env]
+ANDROID_SIZE_LIMIT_BYTES = { value = "1572864", condition = { env_not_set = ["ANDROID_SIZE_LIMIT_BYTES"] } }
+
+[tasks.android-check-size]
+private = true
+condition = { profiles = ["release"] }
+script_runner = "@shell"
+script = """
+aar="${SUPPORT_DIR}/android/build/outputs/aar/livekit-uniffi-android-release.aar"
+
+if [ ! -f "${aar}" ]; then
+  echo "android-check-size: release AAR not found at ${aar}" >&2
+  exit 1
+fi
+
+bytes=$(unzip -l "${aar}" | awk '$4 ~ /jni\\/arm64-v8a\\/.*\\.so$/ { print $1; exit }')
+if [ -z "${bytes}" ]; then
+  echo "android-check-size: arm64-v8a .so not found in ${aar}" >&2
+  exit 1
+fi
+
+limit=${ANDROID_SIZE_LIMIT_BYTES}
+
+kib=$((bytes / 1024))
+limit_kib=$((limit / 1024))
+
+if [ "${bytes}" -gt "${limit}" ]; then
+  echo "android-check-size: ${LIB_NAME} (arm64-v8a) is ${kib} KiB (${bytes} bytes), exceeds limit ${limit_kib} KiB (${limit} bytes)." >&2
+  echo "  Either land the size regression intentionally and bump ANDROID_SIZE_LIMIT_BYTES, or investigate (cargo bloat, panic = abort, opt-level)." >&2
+  exit 1
+fi
+
+echo "${LIB_NAME} (arm64-v8a) ${kib} KiB / ${limit_kib} KiB budget"
+"""
+
 [tasks.android-copy-jniLibs]
+private = true
 description = "Copy release Android .so files into support/android jniLibs"
 script_runner = "@shell"
 script = """
@@ -465,6 +507,7 @@ cp "${TARGET_DIR}/x86_64-linux-android/release/${LIB_NAME}.so" "${JNI_LIBS}/x86_
 """
 
 [tasks.android-assemble]
+private = true
 description = "Build the release AAR from support/android"
 script_runner = "@shell"
 script = """
@@ -474,6 +517,7 @@ echo "AAR: ${SUPPORT_DIR}/android/build/outputs/aar/livekit-uniffi-android-relea
 """
 
 [tasks.android-copy-to-packages]
+private = true
 description = "Copy the release AAR into packages/android"
 script_runner = "@shell"
 script = """
@@ -491,6 +535,7 @@ dependencies = [
     "bindgen-kotlin",
     "android-copy-jniLibs",
     "android-assemble",
+    "android-check-size",
     "android-copy-to-packages",
 ]
 
@@ -499,6 +544,7 @@ description = "Build Android AAR with native libs and Kotlin bindings"
 run_task = "android-package-flow"
 
 [tasks.android-publish-maven-local]
+private = true
 description = "Publish the release AAR to the local Maven repository (~/.m2/repository)"
 script_runner = "@shell"
 script = """

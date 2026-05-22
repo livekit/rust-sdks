@@ -61,6 +61,7 @@ jobs:
           ORG_GRADLE_PROJECT_STAGING_PROFILE_ID: ${{ secrets.UNIFFI_MAVEN_STAGING_PROFILE_ID }}
           UNIFFI_MAVEN_SIGNING_KEY_ID: ${{ secrets.UNIFFI_MAVEN_SIGNING_KEY_ID }}
           UNIFFI_MAVEN_SIGNING_PASSWORD: ${{ secrets.UNIFFI_MAVEN_SIGNING_PASSWORD }}
+          # UNIFFI_MAVEN_SIGNING_KEY is base64 armored GPG export
           UNIFFI_MAVEN_SIGNING_KEY: ${{ secrets.UNIFFI_MAVEN_SIGNING_KEY }}
         run: |
           group="$(grep '^GROUP=' gradle.properties | cut -d= -f2)"
@@ -68,8 +69,12 @@ jobs:
           echo "Publishing ${group}:${artifact}:${{ inputs.version }}"
           echo "Source tag: ${{ inputs.tag_name }}"
 
+          signing_key_armored="${RUNNER_TEMP}/signing-key.asc"
           signing_key_file="${RUNNER_TEMP}/signing-key.gpg"
-          printf '%s' "${UNIFFI_MAVEN_SIGNING_KEY}" > "${signing_key_file}"
+          trap 'rm -f "${signing_key_armored}" "${signing_key_file}"' EXIT
+          printf '%s' "${UNIFFI_MAVEN_SIGNING_KEY}" | base64 --decode > "${signing_key_armored}"
+          gpg --batch --yes --dearmor --output "${signing_key_file}" "${signing_key_armored}"
+          rm -f "${signing_key_armored}"
           chmod 600 "${signing_key_file}"
 
           ./gradlew publishToNexus closeAndReleaseNexusStagingRepository \
