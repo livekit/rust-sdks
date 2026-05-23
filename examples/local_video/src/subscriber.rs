@@ -7,13 +7,16 @@ use egui_wgpu_backend::CallbackTrait;
 use futures::StreamExt;
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::prelude::*;
+use livekit::webrtc::native::packet_trailer::{
+    SubscribeTimingEvent, SubscribeTimingObserver, SubscribeTimingStage,
+};
 use livekit::webrtc::video_frame::BoxVideoFrame;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
 use log::{debug, info};
 use parking_lot::Mutex;
 use std::{
-    collections::HashMap,
+    collections::{HashMap, VecDeque},
     env,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -22,10 +25,8 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
-mod timestamp_burn;
 mod viewport_aspect;
 
-use timestamp_burn::{format_timestamp_us, LatencyDisplay};
 use viewport_aspect::AspectConstrainedViewport;
 
 #[cfg(target_os = "macos")]
@@ -423,24 +424,135 @@ struct SharedYuv {
     received_at_us: Option<u64>,
     /// Packet-trailer metadata from the most recent frame, if any.
     frame_metadata: Option<livekit::webrtc::video_frame::FrameMetadata>,
-    /// Latest frame whose GPU submit has completed; lags CPU receive by ~1 display frame.
-    gpu_done: Option<GpuDoneSample>,
 }
 
 #[derive(Clone, Copy, Debug)]
-struct GpuDoneSample {
+struct SubscriberTimingSample {
     frame_id: Option<u32>,
-    capture_timestamp_us: Option<u64>,
-    cpu_received_us: u64,
-    gpu_done_us: u64,
+    sensor_exposure_timestamp_us: u64,
+    webrtc_receive_timestamp_us: Option<u64>,
+    decoder_upload_timestamp_us: Option<u64>,
+    decoder_output_timestamp_us: Option<u64>,
+    frame_rendered_timestamp_us: Option<u64>,
 }
 
-/// Carried from upload into the wgpu submit callback to stamp `gpu_done_us`.
+impl SubscriberTimingSample {
+    fn new(sensor_exposure_timestamp_us: u64, frame_id: Option<u32>) -> Self {
+        Self {
+            frame_id,
+            sensor_exposure_timestamp_us,
+            webrtc_receive_timestamp_us: None,
+            decoder_upload_timestamp_us: None,
+            decoder_output_timestamp_us: None,
+            frame_rendered_timestamp_us: None,
+        }
+    }
+}
+
+/// Carried from upload into the wgpu submit callback to stamp render completion.
 #[derive(Clone, Copy, Debug)]
 struct PendingGpuSample {
     frame_id: Option<u32>,
     capture_timestamp_us: Option<u64>,
-    cpu_received_us: u64,
+}
+
+const MAX_SUBSCRIBER_TIMING_SAMPLES: usize = 300;
+
+#[derive(Default)]
+struct SubscriberTimingState {
+    samples: HashMap<u64, SubscriberTimingSample>,
+    order: VecDeque<u64>,
+    latest_rendered_sample: Option<SubscriberTimingSample>,
+}
+
+impl SubscriberTimingState {
+    fn record_subscribe_event(&mut self, event: SubscribeTimingEvent) {
+        if event.capture_timestamp_us == 0 {
+            return;
+        }
+
+        let sample = self.get_or_insert_sample(event.capture_timestamp_us, event.frame_id);
+        match event.stage {
+            SubscribeTimingStage::WebrtcReceive => {
+                sample.webrtc_receive_timestamp_us = Some(event.timestamp_us);
+            }
+            SubscribeTimingStage::DecoderUpload => {
+                sample.decoder_upload_timestamp_us = Some(event.timestamp_us);
+            }
+            SubscribeTimingStage::DecoderOutput => {
+                sample.decoder_output_timestamp_us = Some(event.timestamp_us);
+            }
+        }
+    }
+
+    fn record_decoder_output_fallback(
+        &mut self,
+        sensor_exposure_timestamp_us: u64,
+        frame_id: Option<u32>,
+        decoder_output_timestamp_us: u64,
+    ) {
+        let sample = self.get_or_insert_sample(sensor_exposure_timestamp_us, frame_id);
+        sample.decoder_output_timestamp_us.get_or_insert(decoder_output_timestamp_us);
+    }
+
+    fn record_frame_rendered(
+        &mut self,
+        sensor_exposure_timestamp_us: u64,
+        frame_id: Option<u32>,
+        frame_rendered_timestamp_us: u64,
+    ) -> SubscriberTimingSample {
+        let sample = self.get_or_insert_sample(sensor_exposure_timestamp_us, frame_id);
+        sample.frame_rendered_timestamp_us = Some(frame_rendered_timestamp_us);
+        let sample = *sample;
+        self.latest_rendered_sample = Some(sample);
+        sample
+    }
+
+    fn display_sample(&self) -> Option<SubscriberTimingSample> {
+        self.latest_rendered_sample
+    }
+
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    fn get_or_insert_sample(
+        &mut self,
+        sensor_exposure_timestamp_us: u64,
+        frame_id: Option<u32>,
+    ) -> &mut SubscriberTimingSample {
+        if !self.samples.contains_key(&sensor_exposure_timestamp_us) {
+            self.samples.insert(
+                sensor_exposure_timestamp_us,
+                SubscriberTimingSample::new(sensor_exposure_timestamp_us, frame_id),
+            );
+            self.order.push_back(sensor_exposure_timestamp_us);
+            self.prune();
+        }
+
+        let sample = self
+            .samples
+            .get_mut(&sensor_exposure_timestamp_us)
+            .expect("timing sample should exist after insertion");
+        if frame_id.is_some() {
+            sample.frame_id = frame_id;
+        }
+        sample
+    }
+
+    fn prune(&mut self) {
+        while self.order.len() > MAX_SUBSCRIBER_TIMING_SAMPLES {
+            if let Some(oldest) = self.order.pop_front() {
+                self.samples.remove(&oldest);
+                if self
+                    .latest_rendered_sample
+                    .is_some_and(|sample| sample.sensor_exposure_timestamp_us == oldest)
+                {
+                    self.latest_rendered_sample = None;
+                }
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -627,14 +739,19 @@ fn current_timestamp_us() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_micros() as u64
 }
 
-fn format_optional_timestamp_us(ts_us: Option<u64>) -> String {
-    ts_us.map(format_timestamp_us).unwrap_or_else(|| "NA".to_string())
+fn format_time_of_day_us(timestamp_us: u64) -> String {
+    let total_millis = timestamp_us / 1_000;
+    let millis = total_millis % 1_000;
+    let total_seconds = total_millis / 1_000;
+    let seconds = total_seconds % 60;
+    let minutes = (total_seconds / 60) % 60;
+    let hours = (total_seconds / 3_600) % 24;
+    format!("{hours:02}:{minutes:02}:{seconds:02}:{millis:03}")
 }
 
-/// Format the us delta as a millisecond string like `"12.3ms"`.
-fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
-    let delta_us = later_us.saturating_sub(earlier_us);
-    format!("{:.1}MS", delta_us as f64 / 1_000.0)
+fn format_timing_delta_ms(timestamp_us: u64, base_timestamp_us: u64) -> String {
+    let delta_us = i128::from(timestamp_us) - i128::from(base_timestamp_us);
+    format!("{:+.1}ms", delta_us as f64 / 1_000.0)
 }
 
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
@@ -650,45 +767,159 @@ fn video_quality_label(q: livekit::track::VideoQuality) -> &'static str {
     }
 }
 
-fn frame_id_label(frame_id: Option<u32>) -> String {
-    frame_id.map(|id| id.to_string()).unwrap_or_else(|| "NA".to_string())
+const SUBSCRIBER_TIMING_LABEL_WIDTH: usize = 16;
+const SUBSCRIBER_TIMING_TIMESTAMP_WIDTH: usize = 12;
+const SUBSCRIBER_TIMING_DELTA_WIDTH: usize = 10;
+const SUBSCRIBER_TIMING_VALUE_WIDTH: usize =
+    SUBSCRIBER_TIMING_TIMESTAMP_WIDTH + 1 + SUBSCRIBER_TIMING_DELTA_WIDTH;
+const SUBSCRIBER_TIMING_LINE_WIDTH: usize =
+    SUBSCRIBER_TIMING_LABEL_WIDTH + 1 + SUBSCRIBER_TIMING_VALUE_WIDTH;
+
+fn subscriber_timing_label(label: &str) -> String {
+    format!("{label}:")
 }
 
-fn overlay_stats_line(label: &str, value: impl std::fmt::Display) -> String {
-    format!("{label:<17}{value}")
+fn subscriber_timing_value_line(label: &str, value: &str) -> String {
+    let label = subscriber_timing_label(label);
+    format!(
+        "{label:<label_width$} {value:>value_width$}",
+        label_width = SUBSCRIBER_TIMING_LABEL_WIDTH,
+        value_width = SUBSCRIBER_TIMING_VALUE_WIDTH
+    )
 }
 
-fn build_timing_overlay_lines(
-    frame_id: Option<u32>,
-    publish_us: Option<u64>,
-    receive_us: u64,
-    prev_render: Option<GpuDoneSample>,
-    prev_latency_display: &str,
-) -> Vec<String> {
-    let mut lines = vec![
-        overlay_stats_line("FRAME ID:", frame_id_label(frame_id)),
-        overlay_stats_line("CAPT TIMESTAMP:", format_optional_timestamp_us(publish_us)),
-        overlay_stats_line("RECV TIMESTAMP:", format_timestamp_us(receive_us)),
-    ];
+fn subscriber_timing_line(
+    label: &str,
+    timestamp_us: Option<u64>,
+    base_timestamp_us: u64,
+) -> String {
+    let label = subscriber_timing_label(label);
+    match timestamp_us {
+        Some(timestamp_us) => format!(
+            "{label:<label_width$} {timestamp:>timestamp_width$} {delta:>delta_width$}",
+            timestamp = format_time_of_day_us(timestamp_us),
+            delta = format_timing_delta_ms(timestamp_us, base_timestamp_us),
+            label_width = SUBSCRIBER_TIMING_LABEL_WIDTH,
+            timestamp_width = SUBSCRIBER_TIMING_TIMESTAMP_WIDTH,
+            delta_width = SUBSCRIBER_TIMING_DELTA_WIDTH
+        ),
+        None => format!(
+            "{label:<label_width$} {timestamp:>timestamp_width$} {delta:>delta_width$}",
+            timestamp = "--:--:--:---",
+            delta = "+--.-ms",
+            label_width = SUBSCRIBER_TIMING_LABEL_WIDTH,
+            timestamp_width = SUBSCRIBER_TIMING_TIMESTAMP_WIDTH,
+            delta_width = SUBSCRIBER_TIMING_DELTA_WIDTH
+        ),
+    }
+}
 
-    if let Some(sample) = prev_render {
-        lines.push(overlay_stats_line("PREV FRAME ID:", frame_id_label(sample.frame_id)));
-        lines.push(overlay_stats_line(
-            "PREV CAPT:",
-            format_optional_timestamp_us(sample.capture_timestamp_us),
-        ));
-        lines.push(overlay_stats_line("PREV RECV:", format_timestamp_us(sample.cpu_received_us)));
-        lines.push(overlay_stats_line("PREV RENDER:", format_timestamp_us(sample.gpu_done_us)));
-        lines.push(overlay_stats_line("PREV LATENCY:", prev_latency_display));
-    } else {
-        lines.push(overlay_stats_line("PREV FRAME ID:", "NA"));
-        lines.push(overlay_stats_line("PREV CAPT:", "NA"));
-        lines.push(overlay_stats_line("PREV RECV:", "NA"));
-        lines.push(overlay_stats_line("PREV RENDER:", "NA"));
-        lines.push(overlay_stats_line("PREV LATENCY:", prev_latency_display));
+fn build_timing_overlay_lines(sample: SubscriberTimingSample) -> Vec<String> {
+    let base = sample.sensor_exposure_timestamp_us;
+    let frame_id = sample.frame_id.map(|id| id.to_string()).unwrap_or_else(|| "NA".to_string());
+    vec![
+        subscriber_timing_value_line("Frame ID", &frame_id),
+        subscriber_timing_line("sensor exposure", Some(base), base),
+        subscriber_timing_line("webrtc receive", sample.webrtc_receive_timestamp_us, base),
+        subscriber_timing_line("decoder upload", sample.decoder_upload_timestamp_us, base),
+        subscriber_timing_line("decoder output", sample.decoder_output_timestamp_us, base),
+        subscriber_timing_line("frame rendered", sample.frame_rendered_timestamp_us, base),
+    ]
+}
+
+#[cfg(test)]
+fn assert_subscriber_timing_lines_are_stable(lines: &[String]) {
+    assert!(lines.iter().all(|line| line.len() == SUBSCRIBER_TIMING_LINE_WIDTH));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn timestamp_us(hour: u64, minute: u64, second: u64, millisecond: u64) -> u64 {
+        (((hour * 3_600 + minute * 60 + second) * 1_000) + millisecond) * 1_000
     }
 
-    lines
+    fn subscribe_event(
+        stage: SubscribeTimingStage,
+        capture_timestamp_us: u64,
+        timestamp_us: u64,
+    ) -> SubscribeTimingEvent {
+        SubscribeTimingEvent { stage, timestamp_us, capture_timestamp_us, frame_id: Some(123) }
+    }
+
+    #[test]
+    fn subscriber_timing_lines_match_requested_format() {
+        let base = timestamp_us(1, 2, 3, 456);
+        let sample = SubscriberTimingSample {
+            frame_id: Some(123),
+            sensor_exposure_timestamp_us: base,
+            webrtc_receive_timestamp_us: Some(base + 32_400),
+            decoder_upload_timestamp_us: Some(base + 35_500),
+            decoder_output_timestamp_us: Some(base + 55_300),
+            frame_rendered_timestamp_us: Some(base + 56_900),
+        };
+
+        let lines = build_timing_overlay_lines(sample);
+        assert_subscriber_timing_lines_are_stable(&lines);
+        assert_eq!(
+            lines,
+            vec![
+                "Frame ID:                            123",
+                "sensor exposure: 01:02:03:456     +0.0ms",
+                "webrtc receive:  01:02:03:488    +32.4ms",
+                "decoder upload:  01:02:03:491    +35.5ms",
+                "decoder output:  01:02:03:511    +55.3ms",
+                "frame rendered:  01:02:03:512    +56.9ms",
+            ]
+        );
+    }
+
+    #[test]
+    fn subscriber_timing_lines_use_placeholders_for_missing_stages() {
+        let base = timestamp_us(1, 2, 3, 456);
+        let sample = SubscriberTimingSample::new(base, None);
+
+        let lines = build_timing_overlay_lines(sample);
+        assert_subscriber_timing_lines_are_stable(&lines);
+        assert_eq!(
+            lines,
+            vec![
+                "Frame ID:                             NA",
+                "sensor exposure: 01:02:03:456     +0.0ms",
+                "webrtc receive:  --:--:--:---    +--.-ms",
+                "decoder upload:  --:--:--:---    +--.-ms",
+                "decoder output:  --:--:--:---    +--.-ms",
+                "frame rendered:  --:--:--:---    +--.-ms",
+            ]
+        );
+    }
+
+    #[test]
+    fn subscriber_timing_state_displays_rendered_sample() {
+        let mut state = SubscriberTimingState::default();
+        state.record_subscribe_event(subscribe_event(
+            SubscribeTimingStage::WebrtcReceive,
+            1_000,
+            1_200,
+        ));
+        state.record_subscribe_event(subscribe_event(
+            SubscribeTimingStage::DecoderUpload,
+            1_000,
+            1_300,
+        ));
+        state.record_subscribe_event(subscribe_event(
+            SubscribeTimingStage::DecoderOutput,
+            1_000,
+            1_400,
+        ));
+        assert!(state.display_sample().is_none());
+
+        let sample = state.record_frame_rendered(1_000, Some(123), 1_500);
+
+        assert_eq!(sample.frame_rendered_timestamp_us, Some(1_500));
+        assert_eq!(state.display_sample().unwrap().decoder_output_timestamp_us, Some(1_400));
+    }
 }
 
 fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
@@ -710,6 +941,7 @@ async fn handle_track_subscribed(
     ctrl_c_received: &Arc<AtomicBool>,
     simulcast: &Arc<Mutex<SimulcastState>>,
     repaint_ctx: &Arc<Mutex<Option<egui::Context>>>,
+    subscriber_timing_state: Option<Arc<Mutex<SubscriberTimingState>>>,
 ) {
     // If a participant filter is set, skip others
     if let Some(ref allow) = allowed_identity {
@@ -762,6 +994,17 @@ async fn handle_track_subscribed(
     );
 
     let rtc_track = video_track.rtc_track();
+    if let Some(timing_state) = subscriber_timing_state.as_ref() {
+        if let Some(handler) = video_track.packet_trailer_handler() {
+            let timing_state = timing_state.clone();
+            let observer: SubscribeTimingObserver = Arc::new(move |event| {
+                timing_state.lock().record_subscribe_event(event);
+            });
+            handler.set_subscribe_timing_observer(Some(observer));
+        } else {
+            debug!("No packet trailer handler available for subscriber timing overlay");
+        }
+    }
 
     // Start background sink task immediately so stats lookup cannot delay first-frame handling.
     let shared2 = shared.clone();
@@ -769,6 +1012,7 @@ async fn handle_track_subscribed(
     let my_sid = sid.clone();
     let ctrl_c_sink = ctrl_c_received.clone();
     let repaint_ctx_sink = repaint_ctx.clone();
+    let subscriber_timing_state_sink = subscriber_timing_state.clone();
     // Initialize simulcast state for this publication
     {
         let mut sc = simulcast.lock();
@@ -828,6 +1072,17 @@ async fn handle_track_subscribed(
             s.dirty = true;
             s.received_at_us = Some(received_at_us);
             s.frame_metadata = frame.frame_metadata;
+            if let (Some(timing_state), Some(metadata)) =
+                (subscriber_timing_state_sink.as_ref(), frame.frame_metadata)
+            {
+                if let Some(sensor_exposure_timestamp_us) = metadata.user_timestamp {
+                    timing_state.lock().record_decoder_output_fallback(
+                        sensor_exposure_timestamp_us,
+                        metadata.frame_id,
+                        received_at_us,
+                    );
+                }
+            }
             s.frame = Some(frame);
             drop(s);
 
@@ -896,7 +1151,11 @@ async fn handle_track_subscribed(
     });
 }
 
-fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex<SimulcastState>>) {
+fn clear_hud_and_simulcast(
+    shared: &Arc<Mutex<SharedYuv>>,
+    simulcast: &Arc<Mutex<SimulcastState>>,
+    subscriber_timing_state: Option<&Arc<Mutex<SubscriberTimingState>>>,
+) {
     {
         let mut s = shared.lock();
         s.codec.clear();
@@ -905,41 +1164,19 @@ fn clear_hud_and_simulcast(shared: &Arc<Mutex<SharedYuv>>, simulcast: &Arc<Mutex
         s.dirty = false;
         s.received_at_us = None;
         s.frame_metadata = None;
-        s.gpu_done = None;
+    }
+    if let Some(timing_state) = subscriber_timing_state {
+        timing_state.lock().reset();
     }
     let mut sc = simulcast.lock();
     *sc = SimulcastState::default();
 }
 
 fn timing_overlay_lines(
-    shared: &Arc<Mutex<SharedYuv>>,
-    latency_display: &mut LatencyDisplay,
+    subscriber_timing_state: &Arc<Mutex<SubscriberTimingState>>,
 ) -> Option<Vec<String>> {
-    let s = shared.lock();
-    let receive_us = s.received_at_us?;
-    let frame_id = s.frame_metadata.and_then(|m| m.frame_id);
-    let publish_us = s.frame_metadata.and_then(|m| m.user_timestamp);
-    let previous_gpu_done = s.gpu_done;
-    drop(s);
-
-    let prev_latency_display = latency_display
-        .value(
-            Instant::now(),
-            previous_gpu_done.and_then(|sample| {
-                sample
-                    .capture_timestamp_us
-                    .map(|capture_us| format_us_delta_ms(sample.gpu_done_us, capture_us))
-            }),
-        )
-        .to_string();
-
-    Some(build_timing_overlay_lines(
-        frame_id,
-        publish_us,
-        receive_us,
-        previous_gpu_done,
-        &prev_latency_display,
-    ))
+    let sample = subscriber_timing_state.lock().display_sample()?;
+    Some(build_timing_overlay_lines(sample))
 }
 
 fn paint_timing_overlay(ctx: &egui::Context, video_rect: egui::Rect, lines: &[String]) {
@@ -952,6 +1189,7 @@ fn paint_timing_overlay(ctx: &egui::Context, video_rect: egui::Rect, lines: &[St
                 .corner_radius(egui::CornerRadius::same(4))
                 .inner_margin(egui::Margin::same(6))
                 .show(ui, |ui| {
+                    ui.set_min_width(SUBSCRIBER_TIMING_LINE_WIDTH as f32 * 8.0);
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(lines.join("\n"))
@@ -970,6 +1208,7 @@ fn handle_track_unsubscribed(
     shared: &Arc<Mutex<SharedYuv>>,
     active_sid: &Arc<Mutex<Option<TrackSid>>>,
     simulcast: &Arc<Mutex<SimulcastState>>,
+    subscriber_timing_state: Option<&Arc<Mutex<SubscriberTimingState>>>,
 ) {
     let sid = publication.sid().clone();
     let mut active = active_sid.lock();
@@ -977,7 +1216,7 @@ fn handle_track_unsubscribed(
         info!("Video track unsubscribed ({}), clearing active sink", sid);
         *active = None;
     }
-    clear_hud_and_simulcast(shared, simulcast);
+    clear_hud_and_simulcast(shared, simulcast, subscriber_timing_state);
 }
 
 fn handle_track_unpublished(
@@ -985,6 +1224,7 @@ fn handle_track_unpublished(
     shared: &Arc<Mutex<SharedYuv>>,
     active_sid: &Arc<Mutex<Option<TrackSid>>>,
     simulcast: &Arc<Mutex<SimulcastState>>,
+    subscriber_timing_state: Option<&Arc<Mutex<SubscriberTimingState>>>,
 ) {
     let sid = publication.sid().clone();
     let mut active = active_sid.lock();
@@ -992,17 +1232,17 @@ fn handle_track_unpublished(
         info!("Video track unpublished ({}), clearing active sink", sid);
         *active = None;
     }
-    clear_hud_and_simulcast(shared, simulcast);
+    clear_hud_and_simulcast(shared, simulcast, subscriber_timing_state);
 }
 
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     simulcast: Arc<Mutex<SimulcastState>>,
+    subscriber_timing_state: Option<Arc<Mutex<SubscriberTimingState>>>,
     repaint_ctx: Arc<Mutex<Option<egui::Context>>>,
     ctrl_c_received: Arc<AtomicBool>,
     viewport: AspectConstrainedViewport,
     display_timestamp: bool,
-    latency_display: LatencyDisplay,
 }
 
 impl eframe::App for VideoApp {
@@ -1021,7 +1261,7 @@ impl eframe::App for VideoApp {
 
         let timing_lines = self
             .display_timestamp
-            .then(|| timing_overlay_lines(&self.shared, &mut self.latency_display))
+            .then(|| self.subscriber_timing_state.as_ref().and_then(timing_overlay_lines))
             .flatten();
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
@@ -1049,7 +1289,10 @@ impl eframe::App for VideoApp {
                     let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
                     let cb = egui_wgpu_backend::Callback::new_paint_callback(
                         rect,
-                        YuvPaintCallback { shared: self.shared.clone() },
+                        YuvPaintCallback {
+                            shared: self.shared.clone(),
+                            subscriber_timing_state: self.subscriber_timing_state.clone(),
+                        },
                     );
                     ui.painter().add(cb);
                     if let Some(lines) = timing_lines.as_ref() {
@@ -1205,8 +1448,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         dirty: false,
         received_at_us: None,
         frame_metadata: None,
-        gpu_done: None,
     }));
+    let subscriber_timing_state =
+        args.display_timestamp.then(|| Arc::new(Mutex::new(SubscriberTimingState::default())));
 
     // Subscribe to room events: on first video track, start sink task
     let allowed_identity = args.participant.clone();
@@ -1219,9 +1463,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let simulcast_events = simulcast.clone();
     let repaint_ctx_events = repaint_ctx.clone();
     let ctrl_c_events = ctrl_c_received.clone();
+    let subscriber_timing_state_events = subscriber_timing_state.clone();
     tokio::spawn(async move {
         let active_sid = active_sid.clone();
         let simulcast = simulcast_events;
+        let subscriber_timing_state = subscriber_timing_state_events;
         let mut events = room.subscribe();
         info!("Subscribed to room events");
         while let Some(evt) = events.recv().await {
@@ -1238,14 +1484,27 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                         &ctrl_c_events,
                         &simulcast,
                         &repaint_ctx_events,
+                        subscriber_timing_state.clone(),
                     )
                     .await;
                 }
                 RoomEvent::TrackUnsubscribed { publication, .. } => {
-                    handle_track_unsubscribed(publication, &shared_clone, &active_sid, &simulcast);
+                    handle_track_unsubscribed(
+                        publication,
+                        &shared_clone,
+                        &active_sid,
+                        &simulcast,
+                        subscriber_timing_state.as_ref(),
+                    );
                 }
                 RoomEvent::TrackUnpublished { publication, .. } => {
-                    handle_track_unpublished(publication, &shared_clone, &active_sid, &simulcast);
+                    handle_track_unpublished(
+                        publication,
+                        &shared_clone,
+                        &active_sid,
+                        &simulcast,
+                        subscriber_timing_state.as_ref(),
+                    );
                 }
                 _ => {}
             }
@@ -1256,11 +1515,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let app = VideoApp {
         shared,
         simulcast,
+        subscriber_timing_state,
         repaint_ctx,
         ctrl_c_received: ctrl_c_received.clone(),
         viewport: AspectConstrainedViewport::new(None),
         display_timestamp: args.display_timestamp,
-        latency_display: LatencyDisplay::default(),
     };
     let native_options = viewport_aspect::native_options(None);
     eframe::run_native(
@@ -1279,6 +1538,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
 struct YuvPaintCallback {
     shared: Arc<Mutex<SharedYuv>>,
+    subscriber_timing_state: Option<Arc<Mutex<SubscriberTimingState>>>,
 }
 
 struct YuvGpuState {
@@ -1601,8 +1861,7 @@ impl CallbackTrait for YuvPaintCallback {
             shared.frame.take().map(|frame| {
                 let frame_id = shared.frame_metadata.and_then(|m| m.frame_id);
                 let capture_timestamp_us = shared.frame_metadata.and_then(|m| m.user_timestamp);
-                let cpu_received_us = shared.received_at_us.unwrap_or_default();
-                let sample = PendingGpuSample { frame_id, capture_timestamp_us, cpu_received_us };
+                let sample = PendingGpuSample { frame_id, capture_timestamp_us };
                 (frame, sample)
             })
         } else {
@@ -1812,20 +2071,21 @@ impl CallbackTrait for YuvPaintCallback {
 
         // Ride an empty command buffer with egui's submit so we can stamp GPU-done.
         if let Some(sample) = gpu_sample_in_flight {
-            let shared_for_cb = self.shared.clone();
+            let subscriber_timing_state = self.subscriber_timing_state.clone();
             let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("yuv_gpu_done_probe"),
             });
             let cb = encoder.finish();
             cb.on_submitted_work_done(move || {
-                let gpu_done_us = current_timestamp_us();
-                let mut s = shared_for_cb.lock();
-                s.gpu_done = Some(GpuDoneSample {
-                    frame_id: sample.frame_id,
-                    capture_timestamp_us: sample.capture_timestamp_us,
-                    cpu_received_us: sample.cpu_received_us,
-                    gpu_done_us,
-                });
+                if let (Some(timing_state), Some(capture_timestamp_us)) =
+                    (subscriber_timing_state.as_ref(), sample.capture_timestamp_us)
+                {
+                    timing_state.lock().record_frame_rendered(
+                        capture_timestamp_us,
+                        sample.frame_id,
+                        current_timestamp_us(),
+                    );
+                }
             });
             vec![cb]
         } else {

@@ -10,7 +10,6 @@ use std::sync::{
 };
 use std::time::Duration;
 
-use crate::timestamp_burn::format_timestamp_us;
 use crate::viewport_aspect::{self, AspectConstrainedViewport};
 
 #[derive(Default)]
@@ -26,15 +25,36 @@ pub(crate) struct SharedYuv {
     pub(crate) fps: f32,
     pub(crate) dirty: bool,
     pub(crate) timing_sample: Option<PublisherTimingSample>,
-    pub(crate) publish_latency_display: String,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PublisherTimingSample {
     pub(crate) frame_id: Option<u32>,
-    pub(crate) capture_timestamp_us: u64,
-    pub(crate) read_timestamp_us: u64,
-    pub(crate) sent_timestamp_us: u64,
+    pub(crate) sensor_exposure_timestamp_us: u64,
+    pub(crate) got_frame_buffer_timestamp_us: Option<u64>,
+    pub(crate) encoder_upload_timestamp_us: Option<u64>,
+    pub(crate) encoder_output_timestamp_us: Option<u64>,
+    pub(crate) webrtc_packetize_timestamp_us: Option<u64>,
+}
+
+impl PublisherTimingSample {
+    pub(crate) fn new(sensor_exposure_timestamp_us: u64, frame_id: Option<u32>) -> Self {
+        Self {
+            frame_id,
+            sensor_exposure_timestamp_us,
+            got_frame_buffer_timestamp_us: None,
+            encoder_upload_timestamp_us: None,
+            encoder_output_timestamp_us: None,
+            webrtc_packetize_timestamp_us: None,
+        }
+    }
+
+    pub(crate) fn is_complete(&self) -> bool {
+        self.got_frame_buffer_timestamp_us.is_some()
+            && self.encoder_upload_timestamp_us.is_some()
+            && self.encoder_output_timestamp_us.is_some()
+            && self.webrtc_packetize_timestamp_us.is_some()
+    }
 }
 
 pub(crate) fn align_up(value: u32, alignment: u32) -> u32 {
@@ -88,7 +108,6 @@ pub(crate) fn pack_i420_into_shared(
     v: &[u8],
     v_stride: u32,
     timing_sample: Option<PublisherTimingSample>,
-    publish_latency_display: Option<&str>,
 ) -> bool {
     let uv_w = (width + 1) / 2;
     let uv_h = (height + 1) / 2;
@@ -104,48 +123,95 @@ pub(crate) fn pack_i420_into_shared(
     pack_plane(u, u_stride, uv_w, uv_h, uv_bytes_per_row, &mut s.u);
     pack_plane(v, v_stride, uv_w, uv_h, uv_bytes_per_row, &mut s.v);
 
-    let publish_latency_display = timing_sample
-        .map(|sample| {
-            publish_latency_display.map(str::to_string).unwrap_or_else(|| {
-                format_us_delta_ms(sample.sent_timestamp_us, sample.capture_timestamp_us)
-            })
-        })
-        .unwrap_or_default();
-
     s.width = width;
     s.height = height;
     s.y_bytes_per_row = y_bytes_per_row;
     s.uv_bytes_per_row = uv_bytes_per_row;
-    s.timing_sample = timing_sample;
-    s.publish_latency_display = publish_latency_display;
+    if let Some(timing_sample) = timing_sample {
+        s.timing_sample = Some(timing_sample);
+    }
     s.dirty = true;
     true
 }
 
-fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
-    let delta_us = later_us.saturating_sub(earlier_us);
-    format!("{:.1}ms", delta_us as f64 / 1_000.0)
+fn format_time_of_day_us(timestamp_us: u64) -> String {
+    let total_millis = timestamp_us / 1_000;
+    let millis = total_millis % 1_000;
+    let total_seconds = total_millis / 1_000;
+    let seconds = total_seconds % 60;
+    let minutes = (total_seconds / 60) % 60;
+    let hours = (total_seconds / 3_600) % 24;
+    format!("{hours:02}:{minutes:02}:{seconds:02}:{millis:03}")
 }
 
-fn frame_id_label(frame_id: Option<u32>) -> String {
-    frame_id.map(|id| id.to_string()).unwrap_or_else(|| "NA".to_string())
+fn format_timing_delta_ms(timestamp_us: u64, base_timestamp_us: u64) -> String {
+    let delta_us = i128::from(timestamp_us) - i128::from(base_timestamp_us);
+    format!("{:+.1}ms", delta_us as f64 / 1_000.0)
 }
 
-fn burned_stats_line(label: &str, value: impl std::fmt::Display) -> String {
-    format!("{label:<17}{value}")
+const PUBLISHER_TIMING_LABEL_WIDTH: usize = 17;
+const PUBLISHER_TIMING_TIMESTAMP_WIDTH: usize = 12;
+const PUBLISHER_TIMING_DELTA_WIDTH: usize = 10;
+const PUBLISHER_TIMING_VALUE_WIDTH: usize =
+    PUBLISHER_TIMING_TIMESTAMP_WIDTH + 1 + PUBLISHER_TIMING_DELTA_WIDTH;
+const PUBLISHER_TIMING_LINE_WIDTH: usize =
+    PUBLISHER_TIMING_LABEL_WIDTH + 1 + PUBLISHER_TIMING_VALUE_WIDTH;
+
+fn publisher_timing_label(label: &str) -> String {
+    format!("{label}:")
 }
 
-fn build_publisher_timing_lines(
-    sample: PublisherTimingSample,
-    publish_latency_display: &str,
-) -> Vec<String> {
+fn publisher_timing_value_line(label: &str, value: &str) -> String {
+    let label = publisher_timing_label(label);
+    format!(
+        "{label:<label_width$} {value:>value_width$}",
+        label_width = PUBLISHER_TIMING_LABEL_WIDTH,
+        value_width = PUBLISHER_TIMING_VALUE_WIDTH
+    )
+}
+
+fn publisher_timing_line(label: &str, timestamp_us: Option<u64>, base_timestamp_us: u64) -> String {
+    let label = publisher_timing_label(label);
+    match timestamp_us {
+        Some(timestamp_us) => format!(
+            "{label:<label_width$} {timestamp:>timestamp_width$} {delta:>delta_width$}",
+            timestamp = format_time_of_day_us(timestamp_us),
+            delta = format_timing_delta_ms(timestamp_us, base_timestamp_us),
+            label_width = PUBLISHER_TIMING_LABEL_WIDTH,
+            timestamp_width = PUBLISHER_TIMING_TIMESTAMP_WIDTH,
+            delta_width = PUBLISHER_TIMING_DELTA_WIDTH
+        ),
+        None => format!(
+            "{label:<label_width$} {timestamp:>timestamp_width$} {delta:>delta_width$}",
+            timestamp = "--:--:--:---",
+            delta = "+--.-ms",
+            label_width = PUBLISHER_TIMING_LABEL_WIDTH,
+            timestamp_width = PUBLISHER_TIMING_TIMESTAMP_WIDTH,
+            delta_width = PUBLISHER_TIMING_DELTA_WIDTH
+        ),
+    }
+}
+
+fn publisher_timing_frame_id_line(frame_id: Option<u32>) -> String {
+    let frame_id = frame_id.map(|id| id.to_string()).unwrap_or_else(|| "NA".to_string());
+    publisher_timing_value_line("frame ID", &frame_id)
+}
+
+fn build_publisher_timing_lines(sample: PublisherTimingSample) -> Vec<String> {
+    let base = sample.sensor_exposure_timestamp_us;
     vec![
-        burned_stats_line("FRAME ID:", frame_id_label(sample.frame_id)),
-        burned_stats_line("CAPT TIMESTAMP:", format_timestamp_us(sample.capture_timestamp_us)),
-        burned_stats_line("READ TIMESTAMP:", format_timestamp_us(sample.read_timestamp_us)),
-        burned_stats_line("SENT TIMESTAMP:", format_timestamp_us(sample.sent_timestamp_us)),
-        burned_stats_line("PUBLISH LATENCY:", publish_latency_display),
+        publisher_timing_frame_id_line(sample.frame_id),
+        publisher_timing_line("sensor exposure", Some(base), base),
+        publisher_timing_line("got frame buffer", sample.got_frame_buffer_timestamp_us, base),
+        publisher_timing_line("encoder upload", sample.encoder_upload_timestamp_us, base),
+        publisher_timing_line("encoder output", sample.encoder_output_timestamp_us, base),
+        publisher_timing_line("webrtc packetize", sample.webrtc_packetize_timestamp_us, base),
     ]
+}
+
+#[cfg(test)]
+fn assert_publisher_timing_lines_are_stable(lines: &[String]) {
+    assert!(lines.iter().all(|line| line.len() == PUBLISHER_TIMING_LINE_WIDTH));
 }
 
 fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
@@ -160,12 +226,81 @@ fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
 fn publisher_timing_text(shared: &Arc<Mutex<SharedYuv>>) -> Option<String> {
     let s = shared.lock();
     let sample = s.timing_sample?;
-    let latency_display = if s.publish_latency_display.is_empty() {
-        format_us_delta_ms(sample.sent_timestamp_us, sample.capture_timestamp_us)
-    } else {
-        s.publish_latency_display.clone()
-    };
-    Some(build_publisher_timing_lines(sample, &latency_display).join("\n"))
+    Some(build_publisher_timing_lines(sample).join("\n"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn timestamp_us(hour: u64, minute: u64, second: u64, millisecond: u64) -> u64 {
+        (((hour * 3_600 + minute * 60 + second) * 1_000) + millisecond) * 1_000
+    }
+
+    #[test]
+    fn publisher_timing_lines_match_requested_format() {
+        let base = timestamp_us(1, 2, 3, 456);
+        let sample = PublisherTimingSample {
+            frame_id: Some(7),
+            sensor_exposure_timestamp_us: base,
+            got_frame_buffer_timestamp_us: Some(base + 32_400),
+            encoder_upload_timestamp_us: Some(base + 35_500),
+            encoder_output_timestamp_us: Some(base + 55_300),
+            webrtc_packetize_timestamp_us: Some(base + 56_900),
+        };
+
+        let lines = build_publisher_timing_lines(sample);
+        assert_publisher_timing_lines_are_stable(&lines);
+        assert_eq!(
+            lines,
+            vec![
+                "frame ID:                               7",
+                "sensor exposure:  01:02:03:456     +0.0ms",
+                "got frame buffer: 01:02:03:488    +32.4ms",
+                "encoder upload:   01:02:03:491    +35.5ms",
+                "encoder output:   01:02:03:511    +55.3ms",
+                "webrtc packetize: 01:02:03:512    +56.9ms",
+            ]
+        );
+    }
+
+    #[test]
+    fn publisher_timing_lines_use_placeholder_for_missing_async_stages() {
+        let base = timestamp_us(1, 2, 3, 456);
+        let mut sample = PublisherTimingSample::new(base, None);
+        sample.got_frame_buffer_timestamp_us = Some(base + 32_400);
+
+        let lines = build_publisher_timing_lines(sample);
+        assert_publisher_timing_lines_are_stable(&lines);
+        assert_eq!(
+            lines,
+            vec![
+                "frame ID:                              NA",
+                "sensor exposure:  01:02:03:456     +0.0ms",
+                "got frame buffer: 01:02:03:488    +32.4ms",
+                "encoder upload:   --:--:--:---    +--.-ms",
+                "encoder output:   --:--:--:---    +--.-ms",
+                "webrtc packetize: --:--:--:---    +--.-ms",
+            ]
+        );
+    }
+
+    #[test]
+    fn publisher_timing_deltas_are_relative_to_sensor_exposure() {
+        let base = timestamp_us(0, 0, 1, 0);
+        let sample = PublisherTimingSample {
+            frame_id: None,
+            sensor_exposure_timestamp_us: base,
+            got_frame_buffer_timestamp_us: Some(base + 1_500_000),
+            encoder_upload_timestamp_us: None,
+            encoder_output_timestamp_us: None,
+            webrtc_packetize_timestamp_us: None,
+        };
+
+        let lines = build_publisher_timing_lines(sample);
+        assert_publisher_timing_lines_are_stable(&lines);
+        assert_eq!(lines[2], "got frame buffer: 00:00:02:500  +1500.0ms");
+    }
 }
 
 struct VideoApp {
@@ -249,6 +384,7 @@ impl eframe::App for VideoApp {
                     .corner_radius(egui::CornerRadius::same(4))
                     .inner_margin(egui::Margin::same(6))
                     .show(ui, |ui| {
+                        ui.set_min_width(PUBLISHER_TIMING_LINE_WIDTH as f32 * 8.0);
                         ui.add(
                             egui::Label::new(
                                 egui::RichText::new(text).monospace().color(egui::Color32::WHITE),

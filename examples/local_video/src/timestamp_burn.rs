@@ -10,7 +10,9 @@ const PADDING_Y: usize = 4;
 const MARGIN: usize = 8;
 const BG_LUMA: u8 = 16;
 const FG_LUMA: u8 = 235;
+#[allow(dead_code)]
 const LATENCY_DISPLAY_UPDATE_INTERVAL: Duration = Duration::from_millis(500);
+#[allow(dead_code)]
 const LATENCY_DISPLAY_STALE_AFTER: Duration = Duration::from_secs(2);
 
 /// Text scale used for burned-in timing metrics overlays.
@@ -18,12 +20,14 @@ const LATENCY_DISPLAY_STALE_AFTER: Duration = Duration::from_secs(2);
 pub(crate) const METRICS_OVERLAY_SCALE: usize = 3;
 
 /// Holds a latency string that refreshes at a readable 2 Hz cadence.
+#[allow(dead_code)]
 #[derive(Default)]
 pub(crate) struct LatencyDisplay {
     value: String,
     last_update: Option<Instant>,
 }
 
+#[allow(dead_code)]
 impl LatencyDisplay {
     /// Return the latency string to display, refreshing it when the 2 Hz interval has elapsed.
     pub(crate) fn value(&mut self, now: Instant, latest_value: Option<String>) -> &str {
