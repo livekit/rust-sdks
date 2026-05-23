@@ -457,12 +457,57 @@ struct PendingGpuSample {
 }
 
 const MAX_SUBSCRIBER_TIMING_SAMPLES: usize = 300;
+const SUBSCRIBER_TIMING_DISPLAY_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
 
 #[derive(Default)]
 struct SubscriberTimingState {
     samples: HashMap<u64, SubscriberTimingSample>,
     order: VecDeque<u64>,
     latest_rendered_sample: Option<SubscriberTimingSample>,
+    displayed_timing_deltas: Option<SubscriberTimingDeltaValues>,
+    displayed_exp2recv_latency: Option<String>,
+    displayed_e2e_latency: Option<String>,
+    last_latency_update: Option<Instant>,
+}
+
+#[derive(Clone, Debug)]
+struct SubscriberTimingDeltaValues {
+    sensor_exposure: String,
+    webrtc_receive: String,
+    decoder_upload: String,
+    decoder_output: String,
+    frame_rendered: String,
+}
+
+impl SubscriberTimingDeltaValues {
+    fn from_sample(sample: SubscriberTimingSample) -> Self {
+        let base = sample.sensor_exposure_timestamp_us;
+        Self {
+            sensor_exposure: format_timing_delta_ms(base, base),
+            webrtc_receive: format_optional_timing_delta_ms(
+                sample.webrtc_receive_timestamp_us,
+                Some(base),
+            ),
+            decoder_upload: format_optional_timing_delta_ms(
+                sample.decoder_upload_timestamp_us,
+                sample.webrtc_receive_timestamp_us,
+            ),
+            decoder_output: format_optional_timing_delta_ms(
+                sample.decoder_output_timestamp_us,
+                sample.decoder_upload_timestamp_us,
+            ),
+            frame_rendered: format_optional_timing_delta_ms(
+                sample.frame_rendered_timestamp_us,
+                sample.decoder_output_timestamp_us,
+            ),
+        }
+    }
+}
+
+struct SubscriberTimingOverlayValues {
+    deltas: SubscriberTimingDeltaValues,
+    exp2recv_latency: String,
+    e2e_latency: String,
 }
 
 impl SubscriberTimingState {
@@ -512,8 +557,55 @@ impl SubscriberTimingState {
         self.latest_rendered_sample
     }
 
+    fn display_overlay_lines(&mut self, now: Instant) -> Option<Vec<String>> {
+        let sample = self.display_sample()?;
+        let overlay_values = self.overlay_values(sample, now);
+        Some(build_timing_overlay_lines(sample, &overlay_values))
+    }
+
     fn reset(&mut self) {
         *self = Self::default();
+    }
+
+    fn overlay_values(
+        &mut self,
+        sample: SubscriberTimingSample,
+        now: Instant,
+    ) -> SubscriberTimingOverlayValues {
+        let should_update = self.last_latency_update.map_or(true, |last_update| {
+            now.duration_since(last_update) >= SUBSCRIBER_TIMING_DISPLAY_UPDATE_INTERVAL
+        });
+
+        if should_update {
+            self.displayed_timing_deltas = Some(SubscriberTimingDeltaValues::from_sample(sample));
+            self.displayed_exp2recv_latency =
+                sample.webrtc_receive_timestamp_us.map(|webrtc_receive_timestamp_us| {
+                    format_latency_ms(
+                        webrtc_receive_timestamp_us,
+                        sample.sensor_exposure_timestamp_us,
+                    )
+                });
+            self.displayed_e2e_latency =
+                sample.frame_rendered_timestamp_us.map(|frame_rendered_timestamp_us| {
+                    format_latency_ms(
+                        frame_rendered_timestamp_us,
+                        sample.sensor_exposure_timestamp_us,
+                    )
+                });
+            self.last_latency_update = Some(now);
+        }
+
+        SubscriberTimingOverlayValues {
+            deltas: self
+                .displayed_timing_deltas
+                .clone()
+                .unwrap_or_else(|| SubscriberTimingDeltaValues::from_sample(sample)),
+            exp2recv_latency: self
+                .displayed_exp2recv_latency
+                .clone()
+                .unwrap_or_else(|| "NA".to_string()),
+            e2e_latency: self.displayed_e2e_latency.clone().unwrap_or_else(|| "NA".to_string()),
+        }
     }
 
     fn get_or_insert_sample(
@@ -754,6 +846,23 @@ fn format_timing_delta_ms(timestamp_us: u64, base_timestamp_us: u64) -> String {
     format!("{:+.1}ms", delta_us as f64 / 1_000.0)
 }
 
+fn format_optional_timing_delta_ms(
+    timestamp_us: Option<u64>,
+    base_timestamp_us: Option<u64>,
+) -> String {
+    match (timestamp_us, base_timestamp_us) {
+        (Some(timestamp_us), Some(base_timestamp_us)) => {
+            format_timing_delta_ms(timestamp_us, base_timestamp_us)
+        }
+        _ => "+--.-ms".to_string(),
+    }
+}
+
+fn format_latency_ms(end_timestamp_us: u64, start_timestamp_us: u64) -> String {
+    let delta_us = i128::from(end_timestamp_us) - i128::from(start_timestamp_us);
+    format!("{:.1}ms", delta_us as f64 / 1_000.0)
+}
+
 fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32, u32)> {
     let sc = state.lock();
     sc.full_dims
@@ -767,7 +876,7 @@ fn video_quality_label(q: livekit::track::VideoQuality) -> &'static str {
     }
 }
 
-const SUBSCRIBER_TIMING_LABEL_WIDTH: usize = 16;
+const SUBSCRIBER_TIMING_LABEL_WIDTH: usize = 17;
 const SUBSCRIBER_TIMING_TIMESTAMP_WIDTH: usize = 12;
 const SUBSCRIBER_TIMING_DELTA_WIDTH: usize = 10;
 const SUBSCRIBER_TIMING_VALUE_WIDTH: usize =
@@ -788,17 +897,13 @@ fn subscriber_timing_value_line(label: &str, value: &str) -> String {
     )
 }
 
-fn subscriber_timing_line(
-    label: &str,
-    timestamp_us: Option<u64>,
-    base_timestamp_us: u64,
-) -> String {
+fn subscriber_timing_line(label: &str, timestamp_us: Option<u64>, delta: &str) -> String {
     let label = subscriber_timing_label(label);
     match timestamp_us {
         Some(timestamp_us) => format!(
             "{label:<label_width$} {timestamp:>timestamp_width$} {delta:>delta_width$}",
             timestamp = format_time_of_day_us(timestamp_us),
-            delta = format_timing_delta_ms(timestamp_us, base_timestamp_us),
+            delta = delta,
             label_width = SUBSCRIBER_TIMING_LABEL_WIDTH,
             timestamp_width = SUBSCRIBER_TIMING_TIMESTAMP_WIDTH,
             delta_width = SUBSCRIBER_TIMING_DELTA_WIDTH
@@ -814,16 +919,45 @@ fn subscriber_timing_line(
     }
 }
 
-fn build_timing_overlay_lines(sample: SubscriberTimingSample) -> Vec<String> {
+fn build_timing_overlay_lines(
+    sample: SubscriberTimingSample,
+    overlay_values: &SubscriberTimingOverlayValues,
+) -> Vec<String> {
     let base = sample.sensor_exposure_timestamp_us;
+    let webrtc_receive = sample.webrtc_receive_timestamp_us;
+    let decoder_upload = sample.decoder_upload_timestamp_us;
+    let decoder_output = sample.decoder_output_timestamp_us;
+    let frame_rendered = sample.frame_rendered_timestamp_us;
     let frame_id = sample.frame_id.map(|id| id.to_string()).unwrap_or_else(|| "NA".to_string());
     vec![
         subscriber_timing_value_line("Frame ID", &frame_id),
-        subscriber_timing_line("sensor exposure", Some(base), base),
-        subscriber_timing_line("webrtc receive", sample.webrtc_receive_timestamp_us, base),
-        subscriber_timing_line("decoder upload", sample.decoder_upload_timestamp_us, base),
-        subscriber_timing_line("decoder output", sample.decoder_output_timestamp_us, base),
-        subscriber_timing_line("frame rendered", sample.frame_rendered_timestamp_us, base),
+        subscriber_timing_line(
+            "sensor exposure",
+            Some(base),
+            &overlay_values.deltas.sensor_exposure,
+        ),
+        subscriber_timing_line(
+            "webrtc receive",
+            webrtc_receive,
+            &overlay_values.deltas.webrtc_receive,
+        ),
+        subscriber_timing_line(
+            "decoder upload",
+            decoder_upload,
+            &overlay_values.deltas.decoder_upload,
+        ),
+        subscriber_timing_line(
+            "decoder output",
+            decoder_output,
+            &overlay_values.deltas.decoder_output,
+        ),
+        subscriber_timing_line(
+            "frame rendered",
+            frame_rendered,
+            &overlay_values.deltas.frame_rendered,
+        ),
+        subscriber_timing_value_line("exp2recv latency", &overlay_values.exp2recv_latency),
+        subscriber_timing_value_line("e2e latency", &overlay_values.e2e_latency),
     ]
 }
 
@@ -848,6 +982,18 @@ mod tests {
         SubscribeTimingEvent { stage, timestamp_us, capture_timestamp_us, frame_id: Some(123) }
     }
 
+    fn overlay_values(
+        sample: SubscriberTimingSample,
+        exp2recv_latency: &str,
+        e2e_latency: &str,
+    ) -> SubscriberTimingOverlayValues {
+        SubscriberTimingOverlayValues {
+            deltas: SubscriberTimingDeltaValues::from_sample(sample),
+            exp2recv_latency: exp2recv_latency.to_string(),
+            e2e_latency: e2e_latency.to_string(),
+        }
+    }
+
     #[test]
     fn subscriber_timing_lines_match_requested_format() {
         let base = timestamp_us(1, 2, 3, 456);
@@ -860,17 +1006,20 @@ mod tests {
             frame_rendered_timestamp_us: Some(base + 56_900),
         };
 
-        let lines = build_timing_overlay_lines(sample);
+        let overlay_values = overlay_values(sample, "32.4ms", "56.9ms");
+        let lines = build_timing_overlay_lines(sample, &overlay_values);
         assert_subscriber_timing_lines_are_stable(&lines);
         assert_eq!(
             lines,
             vec![
-                "Frame ID:                            123",
-                "sensor exposure: 01:02:03:456     +0.0ms",
-                "webrtc receive:  01:02:03:488    +32.4ms",
-                "decoder upload:  01:02:03:491    +35.5ms",
-                "decoder output:  01:02:03:511    +55.3ms",
-                "frame rendered:  01:02:03:512    +56.9ms",
+                "Frame ID:                             123",
+                "sensor exposure:  01:02:03:456     +0.0ms",
+                "webrtc receive:   01:02:03:488    +32.4ms",
+                "decoder upload:   01:02:03:491     +3.1ms",
+                "decoder output:   01:02:03:511    +19.8ms",
+                "frame rendered:   01:02:03:512     +1.6ms",
+                "exp2recv latency:                  32.4ms",
+                "e2e latency:                       56.9ms",
             ]
         );
     }
@@ -880,17 +1029,20 @@ mod tests {
         let base = timestamp_us(1, 2, 3, 456);
         let sample = SubscriberTimingSample::new(base, None);
 
-        let lines = build_timing_overlay_lines(sample);
+        let overlay_values = overlay_values(sample, "NA", "NA");
+        let lines = build_timing_overlay_lines(sample, &overlay_values);
         assert_subscriber_timing_lines_are_stable(&lines);
         assert_eq!(
             lines,
             vec![
-                "Frame ID:                             NA",
-                "sensor exposure: 01:02:03:456     +0.0ms",
-                "webrtc receive:  --:--:--:---    +--.-ms",
-                "decoder upload:  --:--:--:---    +--.-ms",
-                "decoder output:  --:--:--:---    +--.-ms",
-                "frame rendered:  --:--:--:---    +--.-ms",
+                "Frame ID:                              NA",
+                "sensor exposure:  01:02:03:456     +0.0ms",
+                "webrtc receive:   --:--:--:---    +--.-ms",
+                "decoder upload:   --:--:--:---    +--.-ms",
+                "decoder output:   --:--:--:---    +--.-ms",
+                "frame rendered:   --:--:--:---    +--.-ms",
+                "exp2recv latency:                      NA",
+                "e2e latency:                           NA",
             ]
         );
     }
@@ -919,6 +1071,69 @@ mod tests {
 
         assert_eq!(sample.frame_rendered_timestamp_us, Some(1_500));
         assert_eq!(state.display_sample().unwrap().decoder_output_timestamp_us, Some(1_400));
+    }
+
+    #[test]
+    fn subscriber_timing_summary_latencies_refresh_at_ten_hz() {
+        let mut state = SubscriberTimingState::default();
+        let now = Instant::now();
+
+        state.record_subscribe_event(subscribe_event(
+            SubscribeTimingStage::WebrtcReceive,
+            1_000,
+            33_400,
+        ));
+        state.record_subscribe_event(subscribe_event(
+            SubscribeTimingStage::DecoderUpload,
+            1_000,
+            36_500,
+        ));
+        state.record_subscribe_event(subscribe_event(
+            SubscribeTimingStage::DecoderOutput,
+            1_000,
+            56_300,
+        ));
+        state.record_frame_rendered(1_000, Some(1), 57_900);
+        let lines = state.display_overlay_lines(now).expect("overlay should render");
+        assert_eq!(lines[3], "decoder upload:   00:00:00:036     +3.1ms");
+        assert_eq!(lines[4], "decoder output:   00:00:00:056    +19.8ms");
+        assert_eq!(lines[5], "frame rendered:   00:00:00:057     +1.6ms");
+        assert_eq!(lines[6], "exp2recv latency:                  32.4ms");
+        assert_eq!(lines[7], "e2e latency:                       56.9ms");
+
+        state.record_subscribe_event(subscribe_event(
+            SubscribeTimingStage::WebrtcReceive,
+            1_000_000,
+            1_050_000,
+        ));
+        state.record_subscribe_event(subscribe_event(
+            SubscribeTimingStage::DecoderUpload,
+            1_000_000,
+            1_060_000,
+        ));
+        state.record_subscribe_event(subscribe_event(
+            SubscribeTimingStage::DecoderOutput,
+            1_000_000,
+            1_080_000,
+        ));
+        state.record_frame_rendered(1_000_000, Some(2), 1_100_000);
+        let lines = state
+            .display_overlay_lines(now + Duration::from_millis(99))
+            .expect("overlay should render");
+        assert_eq!(lines[3], "decoder upload:   00:00:01:060     +3.1ms");
+        assert_eq!(lines[4], "decoder output:   00:00:01:080    +19.8ms");
+        assert_eq!(lines[5], "frame rendered:   00:00:01:100     +1.6ms");
+        assert_eq!(lines[6], "exp2recv latency:                  32.4ms");
+        assert_eq!(lines[7], "e2e latency:                       56.9ms");
+
+        let lines = state
+            .display_overlay_lines(now + Duration::from_millis(100))
+            .expect("overlay should render");
+        assert_eq!(lines[3], "decoder upload:   00:00:01:060    +10.0ms");
+        assert_eq!(lines[4], "decoder output:   00:00:01:080    +20.0ms");
+        assert_eq!(lines[5], "frame rendered:   00:00:01:100    +20.0ms");
+        assert_eq!(lines[6], "exp2recv latency:                  50.0ms");
+        assert_eq!(lines[7], "e2e latency:                      100.0ms");
     }
 }
 
@@ -1175,8 +1390,7 @@ fn clear_hud_and_simulcast(
 fn timing_overlay_lines(
     subscriber_timing_state: &Arc<Mutex<SubscriberTimingState>>,
 ) -> Option<Vec<String>> {
-    let sample = subscriber_timing_state.lock().display_sample()?;
-    Some(build_timing_overlay_lines(sample))
+    subscriber_timing_state.lock().display_overlay_lines(Instant::now())
 }
 
 fn paint_timing_overlay(ctx: &egui::Context, video_rect: egui::Rect, lines: &[String]) {

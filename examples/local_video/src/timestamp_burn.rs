@@ -11,7 +11,7 @@ const MARGIN: usize = 8;
 const BG_LUMA: u8 = 16;
 const FG_LUMA: u8 = 235;
 #[allow(dead_code)]
-const LATENCY_DISPLAY_UPDATE_INTERVAL: Duration = Duration::from_millis(500);
+const LATENCY_DISPLAY_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
 #[allow(dead_code)]
 const LATENCY_DISPLAY_STALE_AFTER: Duration = Duration::from_secs(2);
 
@@ -19,7 +19,7 @@ const LATENCY_DISPLAY_STALE_AFTER: Duration = Duration::from_secs(2);
 #[allow(dead_code)]
 pub(crate) const METRICS_OVERLAY_SCALE: usize = 3;
 
-/// Holds a latency string that refreshes at a readable 2 Hz cadence.
+/// Holds a latency string that refreshes at a readable 10 Hz cadence.
 #[allow(dead_code)]
 #[derive(Default)]
 pub(crate) struct LatencyDisplay {
@@ -29,7 +29,7 @@ pub(crate) struct LatencyDisplay {
 
 #[allow(dead_code)]
 impl LatencyDisplay {
-    /// Return the latency string to display, refreshing it when the 2 Hz interval has elapsed.
+    /// Return the latency string to display, refreshing it when the 10 Hz interval has elapsed.
     pub(crate) fn value(&mut self, now: Instant, latest_value: Option<String>) -> &str {
         let should_update = match self.last_update {
             Some(last_update) => now.duration_since(last_update) >= LATENCY_DISPLAY_UPDATE_INTERVAL,
