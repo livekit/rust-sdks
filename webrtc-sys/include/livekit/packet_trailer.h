@@ -166,12 +166,14 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   std::vector<uint8_t> AppendTrailer(
       webrtc::ArrayView<const uint8_t> data,
       uint64_t user_timestamp,
-      uint32_t frame_id);
+      uint32_t frame_id,
+      bool is_av1);
 
   /// Extract and remove frame metadata trailer from frame data
   std::optional<PacketTrailerMetadata> ExtractTrailer(
       webrtc::ArrayView<const uint8_t> data,
-      std::vector<uint8_t>& out_data);
+      std::vector<uint8_t>& out_data,
+      bool is_av1);
 
   const Direction direction_;
   std::atomic<bool> enabled_{true};

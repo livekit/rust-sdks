@@ -104,6 +104,17 @@ async fn test_timestamp_and_frame_id_vp8_e2ee() -> Result<()> {
     .await
 }
 
+#[test_log::test(tokio::test)]
+async fn test_timestamp_and_frame_id_av1() -> Result<()> {
+    run_packet_trailer_test(PacketTrailerTestParams {
+        attach_timestamp: true,
+        attach_frame_id: true,
+        e2ee: false,
+        codec: VideoCodec::AV1,
+    })
+    .await
+}
+
 // ==================== Implementation ====================
 
 /// Publishes solid-color video frames with packet trailer metadata (user_timestamp
