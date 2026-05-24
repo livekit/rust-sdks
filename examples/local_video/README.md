@@ -26,7 +26,7 @@ Publisher usage:
    --room-name demo \
    --identity cam-1 \
    --simulcast \
-   --h265 \
+   --codec h265 \
    --max-bitrate 1500000 \
    --url https://your.livekit.server \
    --api-key YOUR_KEY \
@@ -89,7 +89,7 @@ Publisher flags (in addition to the common connection flags above):
 - `--width <px>`: Desired capture width (default: `1280`).
 - `--height <px>`: Desired capture height (default: `720`).
 - `--fps <n>`: Desired capture framerate (default: `30`).
-- `--h265`: Use H.265/HEVC encoding if supported (falls back to H.264 on failure).
+- `--codec <codec>`: Video codec to use for publishing: `h264`, `h265`, `vp8`, `vp9`, or `av1` (default: `h264`). H.265 falls back to H.264 on failure.
 - `--simulcast`: Publish simulcast video (multiple layers when the resolution is large enough).
 - `--max-bitrate <bps>`: Max video bitrate for the main (highest) layer in bits per second (e.g. `1500000`).
 - `--attach-timestamp`: Attach the current wall-clock time (microseconds since UNIX epoch) as the user timestamp on each published frame. The subscriber can display this to measure end-to-end latency.

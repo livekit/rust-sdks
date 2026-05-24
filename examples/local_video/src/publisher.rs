@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{
     self, video as video_presets, PacketTrailerFeatures, TrackPublishOptions, VideoCodec,
@@ -37,6 +37,27 @@ mod viewport_aspect;
 use test_pattern::TestPattern;
 use timestamp_burn::TimestampOverlay;
 use video_display::{align_up, PublisherTimingSample, SharedYuv};
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum PublisherCodec {
+    H264,
+    H265,
+    VP8,
+    VP9,
+    AV1,
+}
+
+impl From<PublisherCodec> for VideoCodec {
+    fn from(codec: PublisherCodec) -> Self {
+        match codec {
+            PublisherCodec::H264 => VideoCodec::H264,
+            PublisherCodec::H265 => VideoCodec::H265,
+            PublisherCodec::VP8 => VideoCodec::VP8,
+            PublisherCodec::VP9 => VideoCodec::VP9,
+            PublisherCodec::AV1 => VideoCodec::AV1,
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -101,9 +122,9 @@ struct Args {
     #[arg(long)]
     api_secret: Option<String>,
 
-    /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
-    #[arg(long, default_value_t = false)]
-    h265: bool,
+    /// Video codec to use for publishing
+    #[arg(long, value_enum, default_value_t = PublisherCodec::H264)]
+    codec: PublisherCodec,
 
     /// Attach the current system time (microseconds since UNIX epoch) as the user timestamp on each frame
     #[arg(long, default_value_t = false)]
@@ -622,14 +643,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     }
 
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
-    let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
+    let requested_codec = VideoCodec::from(args.codec);
     info!("Attempting publish with codec: {}", requested_codec.as_str());
 
     // Compute an explicit video encoding so all simulcast layers use 30 fps.
     // The SDK defaults reduce lower layers to 15/20 fps; we override that here.
     let target_fps = args.fps as f64;
     let main_encoding = {
-        let base = options::compute_appropriate_encoding(false, width, height, VideoCodec::H264);
+        let base = options::compute_appropriate_encoding(false, width, height, requested_codec);
         VideoEncoding {
             max_bitrate: args.max_bitrate.unwrap_or(base.max_bitrate),
             max_framerate: target_fps,
