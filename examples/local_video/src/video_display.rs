@@ -23,6 +23,7 @@ pub(crate) struct SharedYuv {
     pub(crate) v: Vec<u8>,
     pub(crate) codec: String,
     pub(crate) fps: f32,
+    pub(crate) simulcast: bool,
     pub(crate) dirty: bool,
     pub(crate) timing_sample: Option<PublisherTimingSample>,
 }
@@ -146,6 +147,9 @@ fn format_time_of_day_us(timestamp_us: u64) -> String {
 
 fn format_timing_delta_ms(timestamp_us: u64, base_timestamp_us: u64) -> String {
     let delta_us = i128::from(timestamp_us) - i128::from(base_timestamp_us);
+    if delta_us == 0 {
+        return "0.0ms".to_string();
+    }
     format!("{:+.1}ms", delta_us as f64 / 1_000.0)
 }
 
@@ -247,7 +251,7 @@ fn build_publisher_timing_lines(
             sample.webrtc_packetize_timestamp_us,
             &overlay_values.deltas.webrtc_packetize,
         ),
-        publisher_timing_value_line("exp2send latency", &overlay_values.exp2send_latency),
+        publisher_timing_value_line("Exposure to Send", &overlay_values.exp2send_latency),
     ]
 }
 
@@ -346,15 +350,35 @@ impl PublisherTimingOverlayState {
     }
 }
 
-fn publisher_timing_text(
+fn video_status_line(width: u32, height: u32, fps: f32, codec: &str, simulcast: bool) -> String {
+    let codec = if codec.is_empty() { "Unknown" } else { codec };
+    if simulcast {
+        format!("{}x{} {:.1}fps {codec} Simulcast", width, height, fps.max(0.0))
+    } else {
+        format!("{}x{} {:.1}fps {codec}", width, height, fps.max(0.0))
+    }
+}
+
+fn publisher_overlay_lines(
     shared: &Arc<Mutex<SharedYuv>>,
     overlay_state: &mut PublisherTimingOverlayState,
     now: Instant,
-) -> Option<String> {
-    let s = shared.lock();
-    let sample = s.timing_sample?;
-    let overlay_values = overlay_state.overlay_values(sample, now);
-    Some(build_publisher_timing_lines(sample, &overlay_values).join("\n"))
+) -> Option<Vec<String>> {
+    let (status_line, sample) = {
+        let s = shared.lock();
+        if s.width == 0 || s.height == 0 {
+            return None;
+        }
+
+        (video_status_line(s.width, s.height, s.fps, &s.codec, s.simulcast), s.timing_sample)
+    };
+
+    let mut lines = vec![status_line];
+    if let Some(sample) = sample {
+        let overlay_values = overlay_state.overlay_values(sample, now);
+        lines.extend(build_publisher_timing_lines(sample, &overlay_values));
+    }
+    Some(lines)
 }
 
 #[cfg(test)]
@@ -376,6 +400,25 @@ mod tests {
     }
 
     #[test]
+    fn publisher_overlay_shows_status_without_timing() {
+        let shared = Arc::new(Mutex::new(SharedYuv::default()));
+        {
+            let mut s = shared.lock();
+            s.width = 1280;
+            s.height = 720;
+            s.codec = "H264".to_string();
+            s.fps = 29.6;
+            s.simulcast = true;
+        }
+
+        let mut overlay_state = PublisherTimingOverlayState::default();
+        let lines = publisher_overlay_lines(&shared, &mut overlay_state, Instant::now())
+            .expect("status overlay should render");
+
+        assert_eq!(lines, vec!["1280x720 29.6fps H264 Simulcast"]);
+    }
+
+    #[test]
     fn publisher_timing_lines_match_requested_format() {
         let base = timestamp_us(1, 2, 3, 456);
         let sample = PublisherTimingSample {
@@ -394,12 +437,12 @@ mod tests {
             lines,
             vec![
                 "frame ID:                               7",
-                "sensor exposure:  01:02:03:456     +0.0ms",
+                "sensor exposure:  01:02:03:456      0.0ms",
                 "got frame buffer: 01:02:03:488    +32.4ms",
                 "encoder upload:   01:02:03:491     +3.1ms",
                 "encoder output:   01:02:03:511    +19.8ms",
                 "webrtc packetize: 01:02:03:512     +1.6ms",
-                "exp2send latency:                  56.9ms",
+                "Exposure to Send:                  56.9ms",
             ]
         );
     }
@@ -417,12 +460,12 @@ mod tests {
             lines,
             vec![
                 "frame ID:                              NA",
-                "sensor exposure:  01:02:03:456     +0.0ms",
+                "sensor exposure:  01:02:03:456      0.0ms",
                 "got frame buffer: 01:02:03:488    +32.4ms",
                 "encoder upload:   --:--:--:---    +--.-ms",
                 "encoder output:   --:--:--:---    +--.-ms",
                 "webrtc packetize: --:--:--:---    +--.-ms",
-                "exp2send latency:                      NA",
+                "Exposure to Send:                      NA",
             ]
         );
     }
@@ -536,44 +579,27 @@ impl eframe::App for VideoApp {
             );
         });
 
-        egui::Area::new("video_hud".into())
-            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
-            .interactable(false)
-            .show(ctx, |ui| {
-                let s = self.shared.lock();
-                if s.width == 0 || s.height == 0 || s.fps <= 0.0 || s.codec.is_empty() {
-                    return;
-                }
-                let text = format!("{} {}x{} {:.1}fps", s.codec, s.width, s.height, s.fps);
-                egui::Frame::NONE
-                    .fill(egui::Color32::from_black_alpha(140))
-                    .corner_radius(egui::CornerRadius::same(4))
-                    .inner_margin(egui::Margin::same(6))
-                    .show(ui, |ui| {
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(text).color(egui::Color32::WHITE))
-                                .extend(),
-                        );
-                    });
-            });
-
-        egui::Area::new("publisher_timing".into())
+        egui::Area::new("publisher_overlay".into())
             .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
             .interactable(false)
             .show(ctx, |ui| {
-                let Some(text) = publisher_timing_text(
+                let Some(lines) = publisher_overlay_lines(
                     &self.shared,
                     &mut self.timing_overlay_state,
                     Instant::now(),
                 ) else {
                     return;
                 };
+                let has_timing = lines.len() > 1;
+                let text = lines.join("\n");
                 egui::Frame::NONE
                     .fill(egui::Color32::from_black_alpha(160))
                     .corner_radius(egui::CornerRadius::same(4))
                     .inner_margin(egui::Margin::same(6))
                     .show(ui, |ui| {
-                        ui.set_min_width(PUBLISHER_TIMING_LINE_WIDTH as f32 * 8.0);
+                        if has_timing {
+                            ui.set_min_width(PUBLISHER_TIMING_LINE_WIDTH as f32 * 8.0);
+                        }
                         ui.add(
                             egui::Label::new(
                                 egui::RichText::new(text).monospace().color(egui::Color32::WHITE),

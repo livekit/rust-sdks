@@ -697,7 +697,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     if args.display_video {
         let shared = display_shared.expect("display video should create shared preview state");
-        shared.lock().codec = actual_codec.as_str().to_ascii_uppercase();
+        {
+            let mut shared = shared.lock();
+            shared.codec = actual_codec.as_str().to_ascii_uppercase();
+            shared.simulcast = args.simulcast;
+        }
         let capture_task = tokio::spawn(run_capture_loop(
             capture_config,
             ctrl_c_received.clone(),

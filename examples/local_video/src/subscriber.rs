@@ -843,6 +843,9 @@ fn format_time_of_day_us(timestamp_us: u64) -> String {
 
 fn format_timing_delta_ms(timestamp_us: u64, base_timestamp_us: u64) -> String {
     let delta_us = i128::from(timestamp_us) - i128::from(base_timestamp_us);
+    if delta_us == 0 {
+        return "0.0ms".to_string();
+    }
     format!("{:+.1}ms", delta_us as f64 / 1_000.0)
 }
 
@@ -868,15 +871,16 @@ fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32,
     sc.full_dims
 }
 
-fn video_quality_label(q: livekit::track::VideoQuality) -> &'static str {
-    match q {
-        livekit::track::VideoQuality::Low => "LOW",
-        livekit::track::VideoQuality::Medium => "MED",
-        livekit::track::VideoQuality::High => "HIGH",
+fn video_status_line(width: u32, height: u32, fps: f32, codec: &str, simulcast: bool) -> String {
+    let codec = if codec.is_empty() { "Unknown" } else { codec };
+    if simulcast {
+        format!("{}x{} {:.1}fps {codec} Simulcast", width, height, fps.max(0.0))
+    } else {
+        format!("{}x{} {:.1}fps {codec}", width, height, fps.max(0.0))
     }
 }
 
-const SUBSCRIBER_TIMING_LABEL_WIDTH: usize = 17;
+const SUBSCRIBER_TIMING_LABEL_WIDTH: usize = 20;
 const SUBSCRIBER_TIMING_TIMESTAMP_WIDTH: usize = 12;
 const SUBSCRIBER_TIMING_DELTA_WIDTH: usize = 10;
 const SUBSCRIBER_TIMING_VALUE_WIDTH: usize =
@@ -956,7 +960,7 @@ fn build_timing_overlay_lines(
             frame_rendered,
             &overlay_values.deltas.frame_rendered,
         ),
-        subscriber_timing_value_line("exp2recv latency", &overlay_values.exp2recv_latency),
+        subscriber_timing_value_line("Exposure to Receive", &overlay_values.exp2recv_latency),
         subscriber_timing_value_line("e2e latency", &overlay_values.e2e_latency),
     ]
 }
@@ -995,6 +999,27 @@ mod tests {
     }
 
     #[test]
+    fn subscriber_overlay_shows_status_without_timing() {
+        let shared = Arc::new(Mutex::new(SharedYuv {
+            width: 1280,
+            height: 720,
+            frame: None,
+            codec: "H264".to_string(),
+            fps: 29.6,
+            dirty: false,
+            received_at_us: None,
+            frame_metadata: None,
+        }));
+        let simulcast =
+            Arc::new(Mutex::new(SimulcastState { available: true, ..Default::default() }));
+
+        let lines = subscriber_overlay_lines(&shared, &simulcast, false, None)
+            .expect("overlay should render");
+
+        assert_eq!(lines, vec!["1280x720 29.6fps H264 Simulcast"]);
+    }
+
+    #[test]
     fn subscriber_timing_lines_match_requested_format() {
         let base = timestamp_us(1, 2, 3, 456);
         let sample = SubscriberTimingSample {
@@ -1012,14 +1037,14 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "Frame ID:                             123",
-                "sensor exposure:  01:02:03:456     +0.0ms",
-                "webrtc receive:   01:02:03:488    +32.4ms",
-                "decoder upload:   01:02:03:491     +3.1ms",
-                "decoder output:   01:02:03:511    +19.8ms",
-                "frame rendered:   01:02:03:512     +1.6ms",
-                "exp2recv latency:                  32.4ms",
-                "e2e latency:                       56.9ms",
+                "Frame ID:                                123",
+                "sensor exposure:     01:02:03:456      0.0ms",
+                "webrtc receive:      01:02:03:488    +32.4ms",
+                "decoder upload:      01:02:03:491     +3.1ms",
+                "decoder output:      01:02:03:511    +19.8ms",
+                "frame rendered:      01:02:03:512     +1.6ms",
+                "Exposure to Receive:                  32.4ms",
+                "e2e latency:                          56.9ms",
             ]
         );
     }
@@ -1035,14 +1060,14 @@ mod tests {
         assert_eq!(
             lines,
             vec![
-                "Frame ID:                              NA",
-                "sensor exposure:  01:02:03:456     +0.0ms",
-                "webrtc receive:   --:--:--:---    +--.-ms",
-                "decoder upload:   --:--:--:---    +--.-ms",
-                "decoder output:   --:--:--:---    +--.-ms",
-                "frame rendered:   --:--:--:---    +--.-ms",
-                "exp2recv latency:                      NA",
-                "e2e latency:                           NA",
+                "Frame ID:                                 NA",
+                "sensor exposure:     01:02:03:456      0.0ms",
+                "webrtc receive:      --:--:--:---    +--.-ms",
+                "decoder upload:      --:--:--:---    +--.-ms",
+                "decoder output:      --:--:--:---    +--.-ms",
+                "frame rendered:      --:--:--:---    +--.-ms",
+                "Exposure to Receive:                      NA",
+                "e2e latency:                              NA",
             ]
         );
     }
@@ -1095,11 +1120,11 @@ mod tests {
         ));
         state.record_frame_rendered(1_000, Some(1), 57_900);
         let lines = state.display_overlay_lines(now).expect("overlay should render");
-        assert_eq!(lines[3], "decoder upload:   00:00:00:036     +3.1ms");
-        assert_eq!(lines[4], "decoder output:   00:00:00:056    +19.8ms");
-        assert_eq!(lines[5], "frame rendered:   00:00:00:057     +1.6ms");
-        assert_eq!(lines[6], "exp2recv latency:                  32.4ms");
-        assert_eq!(lines[7], "e2e latency:                       56.9ms");
+        assert_eq!(lines[3], "decoder upload:      00:00:00:036     +3.1ms");
+        assert_eq!(lines[4], "decoder output:      00:00:00:056    +19.8ms");
+        assert_eq!(lines[5], "frame rendered:      00:00:00:057     +1.6ms");
+        assert_eq!(lines[6], "Exposure to Receive:                  32.4ms");
+        assert_eq!(lines[7], "e2e latency:                          56.9ms");
 
         state.record_subscribe_event(subscribe_event(
             SubscribeTimingStage::WebrtcReceive,
@@ -1120,20 +1145,20 @@ mod tests {
         let lines = state
             .display_overlay_lines(now + Duration::from_millis(99))
             .expect("overlay should render");
-        assert_eq!(lines[3], "decoder upload:   00:00:01:060     +3.1ms");
-        assert_eq!(lines[4], "decoder output:   00:00:01:080    +19.8ms");
-        assert_eq!(lines[5], "frame rendered:   00:00:01:100     +1.6ms");
-        assert_eq!(lines[6], "exp2recv latency:                  32.4ms");
-        assert_eq!(lines[7], "e2e latency:                       56.9ms");
+        assert_eq!(lines[3], "decoder upload:      00:00:01:060     +3.1ms");
+        assert_eq!(lines[4], "decoder output:      00:00:01:080    +19.8ms");
+        assert_eq!(lines[5], "frame rendered:      00:00:01:100     +1.6ms");
+        assert_eq!(lines[6], "Exposure to Receive:                  32.4ms");
+        assert_eq!(lines[7], "e2e latency:                          56.9ms");
 
         let lines = state
             .display_overlay_lines(now + Duration::from_millis(100))
             .expect("overlay should render");
-        assert_eq!(lines[3], "decoder upload:   00:00:01:060    +10.0ms");
-        assert_eq!(lines[4], "decoder output:   00:00:01:080    +20.0ms");
-        assert_eq!(lines[5], "frame rendered:   00:00:01:100    +20.0ms");
-        assert_eq!(lines[6], "exp2recv latency:                  50.0ms");
-        assert_eq!(lines[7], "e2e latency:                      100.0ms");
+        assert_eq!(lines[3], "decoder upload:      00:00:01:060    +10.0ms");
+        assert_eq!(lines[4], "decoder output:      00:00:01:080    +20.0ms");
+        assert_eq!(lines[5], "frame rendered:      00:00:01:100    +20.0ms");
+        assert_eq!(lines[6], "Exposure to Receive:                  50.0ms");
+        assert_eq!(lines[7], "e2e latency:                         100.0ms");
     }
 }
 
@@ -1190,23 +1215,22 @@ async fn handle_track_subscribed(
         *active = Some(sid.clone());
     }
 
-    // Update HUD codec label and feature flags early (before first frame arrives)
-    {
-        let mut s = shared.lock();
-        s.codec = codec;
-    }
-
     info!(
         "Subscribed to video track: {} (sid {}) from {} - codec: {}, simulcast: {}, dimension: {}x{}, packet_trailer_features: {:?}",
         publication.name(),
         publication.sid(),
         participant.identity(),
-        publication.mime_type(),
+        codec,
         publication.simulcasted(),
         publication.dimension().0,
         publication.dimension().1,
         publication.packet_trailer_features(),
     );
+
+    {
+        let mut s = shared.lock();
+        s.codec = codec;
+    }
 
     let rtc_track = video_track.rtc_track();
     if let Some(timing_state) = subscriber_timing_state.as_ref() {
@@ -1373,6 +1397,8 @@ fn clear_hud_and_simulcast(
 ) {
     {
         let mut s = shared.lock();
+        s.width = 0;
+        s.height = 0;
         s.codec.clear();
         s.fps = 0.0;
         s.frame = None;
@@ -1387,14 +1413,38 @@ fn clear_hud_and_simulcast(
     *sc = SimulcastState::default();
 }
 
-fn timing_overlay_lines(
-    subscriber_timing_state: &Arc<Mutex<SubscriberTimingState>>,
+fn subscriber_overlay_lines(
+    shared: &Arc<Mutex<SharedYuv>>,
+    simulcast: &Arc<Mutex<SimulcastState>>,
+    include_timing: bool,
+    subscriber_timing_state: Option<&Arc<Mutex<SubscriberTimingState>>>,
 ) -> Option<Vec<String>> {
-    subscriber_timing_state.lock().display_overlay_lines(Instant::now())
+    let status_line = {
+        let s = shared.lock();
+        if s.width == 0 || s.height == 0 {
+            return None;
+        }
+
+        let simulcast_enabled = simulcast.lock().available;
+        video_status_line(s.width, s.height, s.fps, &s.codec, simulcast_enabled)
+    };
+
+    let mut lines = vec![status_line];
+    if include_timing {
+        if let Some(timing_state) = subscriber_timing_state {
+            if let Some(mut timing_lines) =
+                timing_state.lock().display_overlay_lines(Instant::now())
+            {
+                lines.append(&mut timing_lines);
+            }
+        }
+    }
+
+    Some(lines)
 }
 
-fn paint_timing_overlay(ctx: &egui::Context, video_rect: egui::Rect, lines: &[String]) {
-    egui::Area::new("timing_overlay".into())
+fn paint_subscriber_overlay(ctx: &egui::Context, video_rect: egui::Rect, lines: &[String]) {
+    egui::Area::new("subscriber_overlay".into())
         .fixed_pos(video_rect.left_top() + egui::vec2(10.0, 10.0))
         .interactable(false)
         .show(ctx, |ui| {
@@ -1403,7 +1453,9 @@ fn paint_timing_overlay(ctx: &egui::Context, video_rect: egui::Rect, lines: &[St
                 .corner_radius(egui::CornerRadius::same(4))
                 .inner_margin(egui::Margin::same(6))
                 .show(ui, |ui| {
-                    ui.set_min_width(SUBSCRIBER_TIMING_LINE_WIDTH as f32 * 8.0);
+                    if lines.len() > 1 {
+                        ui.set_min_width(SUBSCRIBER_TIMING_LINE_WIDTH as f32 * 8.0);
+                    }
                     ui.add(
                         egui::Label::new(
                             egui::RichText::new(lines.join("\n"))
@@ -1473,10 +1525,12 @@ impl eframe::App for VideoApp {
         }
         self.viewport.constrain(ctx, aspect_just_changed);
 
-        let timing_lines = self
-            .display_timestamp
-            .then(|| self.subscriber_timing_state.as_ref().and_then(timing_overlay_lines))
-            .flatten();
+        let overlay_lines = subscriber_overlay_lines(
+            &self.shared,
+            &self.simulcast,
+            self.display_timestamp,
+            self.subscriber_timing_state.as_ref(),
+        );
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             // Ensure we keep repainting for smooth playback.
@@ -1509,45 +1563,12 @@ impl eframe::App for VideoApp {
                         },
                     );
                     ui.painter().add(cb);
-                    if let Some(lines) = timing_lines.as_ref() {
-                        paint_timing_overlay(ui.ctx(), rect, lines);
+                    if let Some(lines) = overlay_lines.as_ref() {
+                        paint_subscriber_overlay(ui.ctx(), rect, lines);
                     }
                 },
             );
         });
-
-        // Non-timing video stats stay in egui so they don't become part of the frame timing record.
-        egui::Area::new("video_hud".into())
-            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
-            .interactable(false)
-            .show(ctx, |ui| {
-                let s = self.shared.lock();
-                if s.width == 0 || s.height == 0 || s.fps <= 0.0 || s.codec.is_empty() {
-                    return;
-                }
-                let mut text = format!("{} {}x{} {:.1}fps", s.codec, s.width, s.height, s.fps);
-                drop(s);
-
-                let sc = self.simulcast.lock();
-                if sc.available {
-                    let layer = sc.active_quality.map(video_quality_label).unwrap_or("NA");
-                    text.push_str(&format!("\nSimulcast: {}", layer));
-                } else {
-                    text.push_str("\nSimulcast: off");
-                }
-                drop(sc);
-
-                egui::Frame::NONE
-                    .fill(egui::Color32::from_black_alpha(140))
-                    .corner_radius(egui::CornerRadius::same(4))
-                    .inner_margin(egui::Margin::same(6))
-                    .show(ui, |ui| {
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(text).color(egui::Color32::WHITE))
-                                .extend(),
-                        );
-                    });
-            });
 
         // Simulcast layer controls: bottom-left overlay
         egui::Area::new("simulcast_controls".into())
