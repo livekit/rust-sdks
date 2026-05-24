@@ -25,8 +25,10 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
+mod codec_display;
 mod viewport_aspect;
 
+use codec_display::{codec_from_mime, codec_with_implementation};
 use viewport_aspect::AspectConstrainedViewport;
 
 #[cfg(target_os = "macos")]
@@ -418,6 +420,7 @@ struct SharedYuv {
     height: u32,
     frame: Option<BoxVideoFrame>,
     codec: String,
+    codec_implementation: String,
     fps: f32,
     dirty: bool,
     /// Time when the latest frame became available to the subscriber code.
@@ -668,12 +671,6 @@ impl Default for SimulcastState {
     }
 }
 
-fn codec_label(mime: &str) -> String {
-    let base = mime.split(';').next().unwrap_or(mime).trim();
-    let last = base.rsplit('/').next().unwrap_or(base).trim();
-    last.to_ascii_uppercase()
-}
-
 fn infer_quality_from_dims(
     full_w: u32,
     _full_h: u32,
@@ -826,6 +823,21 @@ fn update_simulcast_quality_from_stats(
     sc.active_quality = Some(q);
 }
 
+fn update_decoder_implementation_from_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+    shared: &Arc<Mutex<SharedYuv>>,
+) {
+    let Some(inbound) = find_video_inbound_stats(stats) else {
+        return;
+    };
+    if inbound.inbound.decoder_implementation.is_empty() {
+        return;
+    }
+
+    let mut shared = shared.lock();
+    shared.codec_implementation = inbound.inbound.decoder_implementation;
+}
+
 /// Returns the current wall-clock time as microseconds since Unix epoch.
 fn current_timestamp_us() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_micros() as u64
@@ -871,8 +883,15 @@ fn simulcast_state_full_dims(state: &Arc<Mutex<SimulcastState>>) -> Option<(u32,
     sc.full_dims
 }
 
-fn video_status_line(width: u32, height: u32, fps: f32, codec: &str, simulcast: bool) -> String {
-    let codec = if codec.is_empty() { "Unknown" } else { codec };
+fn video_status_line(
+    width: u32,
+    height: u32,
+    fps: f32,
+    codec: &str,
+    codec_implementation: &str,
+    simulcast: bool,
+) -> String {
+    let codec = codec_with_implementation(codec, codec_implementation);
     if simulcast {
         format!("{}x{} {:.1}fps {codec} Simulcast", width, height, fps.max(0.0))
     } else {
@@ -1005,6 +1024,7 @@ mod tests {
             height: 720,
             frame: None,
             codec: "H264".to_string(),
+            codec_implementation: "NVIDIA H264 Decoder".to_string(),
             fps: 29.6,
             dirty: false,
             received_at_us: None,
@@ -1016,7 +1036,7 @@ mod tests {
         let lines = subscriber_overlay_lines(&shared, &simulcast, false, None)
             .expect("overlay should render");
 
-        assert_eq!(lines, vec!["1280x720 29.6fps H264 Simulcast"]);
+        assert_eq!(lines, vec!["1280x720 29.6fps H264 NVDEC Simulcast"]);
     }
 
     #[test]
@@ -1196,7 +1216,7 @@ async fn handle_track_subscribed(
     };
 
     let sid = publication.sid().clone();
-    let codec = codec_label(&publication.mime_type());
+    let codec = codec_from_mime(&publication.mime_type());
     // Only handle if we don't already have an active video track
     {
         let mut active = active_sid.lock();
@@ -1350,6 +1370,7 @@ async fn handle_track_subscribed(
     let active_sid_stats = active_sid.clone();
     let my_sid_stats = sid.clone();
     let simulcast_stats = simulcast.clone();
+    let shared_stats = shared.clone();
     tokio::spawn(async move {
         let mut logged_initial = false;
         let mut jitter_buffer_snapshot = None;
@@ -1376,6 +1397,7 @@ async fn handle_track_subscribed(
                         log_video_jitter_buffer_stats(&stats, &mut jitter_buffer_snapshot);
                         last_jitter_buffer_log = Instant::now();
                     }
+                    update_decoder_implementation_from_stats(&stats, &shared_stats);
                     update_simulcast_quality_from_stats(&stats, &simulcast_stats);
                 }
                 Err(e) if !logged_initial => {
@@ -1400,6 +1422,7 @@ fn clear_hud_and_simulcast(
         s.width = 0;
         s.height = 0;
         s.codec.clear();
+        s.codec_implementation.clear();
         s.fps = 0.0;
         s.frame = None;
         s.dirty = false;
@@ -1426,7 +1449,14 @@ fn subscriber_overlay_lines(
         }
 
         let simulcast_enabled = simulcast.lock().available;
-        video_status_line(s.width, s.height, s.fps, &s.codec, simulcast_enabled)
+        video_status_line(
+            s.width,
+            s.height,
+            s.fps,
+            &s.codec,
+            &s.codec_implementation,
+            simulcast_enabled,
+        )
     };
 
     let mut lines = vec![status_line];
@@ -1679,6 +1709,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         height: 0,
         frame: None,
         codec: String::new(),
+        codec_implementation: String::new(),
         fps: 0.0,
         dirty: false,
         received_at_us: None,

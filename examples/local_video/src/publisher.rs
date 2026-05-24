@@ -29,6 +29,7 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use yuv_sys;
 
+mod codec_display;
 mod test_pattern;
 mod timestamp_burn;
 mod video_display;
@@ -203,6 +204,59 @@ struct PublisherTimingSummary {
     frame_draw_ms: RollingMs,
     submit_to_webrtc_ms: RollingMs,
     capture_to_webrtc_total_ms: RollingMs,
+}
+
+fn find_video_outbound_encoder(stats: &[livekit::webrtc::stats::RtcStats]) -> Option<&str> {
+    let mut fallback = None;
+    for stat in stats {
+        let livekit::webrtc::stats::RtcStats::OutboundRtp(outbound) = stat else {
+            continue;
+        };
+        if outbound.stream.kind != "video" || outbound.outbound.encoder_implementation.is_empty() {
+            continue;
+        }
+
+        let implementation = outbound.outbound.encoder_implementation.as_str();
+        if outbound.outbound.active {
+            return Some(implementation);
+        }
+        fallback.get_or_insert(implementation);
+    }
+
+    fallback
+}
+
+async fn update_publisher_encoder_overlay(
+    track: LocalVideoTrack,
+    shared: Arc<Mutex<SharedYuv>>,
+    ctrl_c_received: Arc<AtomicBool>,
+) {
+    let mut logged_initial = false;
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            break;
+        }
+
+        match track.get_stats().await {
+            Ok(stats) => {
+                if let Some(implementation) = find_video_outbound_encoder(&stats) {
+                    let mut shared = shared.lock();
+                    shared.codec_implementation = implementation.to_string();
+                }
+                logged_initial = true;
+            }
+            Err(e) if !logged_initial => {
+                debug!("Failed to get publisher stats for video track: {:?}", e);
+                logged_initial = true;
+            }
+            Err(_) => {}
+        }
+
+        interval.tick().await;
+    }
 }
 
 impl PublisherTimingSummary {
@@ -723,6 +777,11 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             shared.codec = actual_codec.as_str().to_ascii_uppercase();
             shared.simulcast = args.simulcast;
         }
+        let stats_task = tokio::spawn(update_publisher_encoder_overlay(
+            track.clone(),
+            shared.clone(),
+            ctrl_c_received.clone(),
+        ));
         let capture_task = tokio::spawn(run_capture_loop(
             capture_config,
             ctrl_c_received.clone(),
@@ -742,6 +801,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         );
 
         let capture_result = capture_task.await?;
+        let _ = stats_task.await;
         display_result?;
         capture_result?;
     } else {

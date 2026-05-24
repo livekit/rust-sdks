@@ -10,6 +10,7 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+use crate::codec_display::codec_with_implementation;
 use crate::viewport_aspect::{self, AspectConstrainedViewport};
 
 #[derive(Default)]
@@ -22,6 +23,7 @@ pub(crate) struct SharedYuv {
     pub(crate) u: Vec<u8>,
     pub(crate) v: Vec<u8>,
     pub(crate) codec: String,
+    pub(crate) codec_implementation: String,
     pub(crate) fps: f32,
     pub(crate) simulcast: bool,
     pub(crate) dirty: bool,
@@ -350,8 +352,15 @@ impl PublisherTimingOverlayState {
     }
 }
 
-fn video_status_line(width: u32, height: u32, fps: f32, codec: &str, simulcast: bool) -> String {
-    let codec = if codec.is_empty() { "Unknown" } else { codec };
+fn video_status_line(
+    width: u32,
+    height: u32,
+    fps: f32,
+    codec: &str,
+    codec_implementation: &str,
+    simulcast: bool,
+) -> String {
+    let codec = codec_with_implementation(codec, codec_implementation);
     if simulcast {
         format!("{}x{} {:.1}fps {codec} Simulcast", width, height, fps.max(0.0))
     } else {
@@ -370,7 +379,17 @@ fn publisher_overlay_lines(
             return None;
         }
 
-        (video_status_line(s.width, s.height, s.fps, &s.codec, s.simulcast), s.timing_sample)
+        (
+            video_status_line(
+                s.width,
+                s.height,
+                s.fps,
+                &s.codec,
+                &s.codec_implementation,
+                s.simulcast,
+            ),
+            s.timing_sample,
+        )
     };
 
     let mut lines = vec![status_line];
@@ -407,6 +426,7 @@ mod tests {
             s.width = 1280;
             s.height = 720;
             s.codec = "H264".to_string();
+            s.codec_implementation = "NVIDIA H264 Encoder".to_string();
             s.fps = 29.6;
             s.simulcast = true;
         }
@@ -415,7 +435,7 @@ mod tests {
         let lines = publisher_overlay_lines(&shared, &mut overlay_state, Instant::now())
             .expect("status overlay should render");
 
-        assert_eq!(lines, vec!["1280x720 29.6fps H264 Simulcast"]);
+        assert_eq!(lines, vec!["1280x720 29.6fps H264 NVENC Simulcast"]);
     }
 
     #[test]
