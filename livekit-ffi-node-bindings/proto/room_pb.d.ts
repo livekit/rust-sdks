@@ -179,6 +179,41 @@ export declare enum DataPacketKind {
 }
 
 /**
+ * @generated from enum livekit.proto.VideoEncoderBackend
+ */
+export declare enum VideoEncoderBackend {
+  /**
+   * @generated from enum value: ENCODER_BACKEND_AUTO = 0;
+   */
+  ENCODER_BACKEND_AUTO = 0,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_SOFTWARE = 1;
+   */
+  ENCODER_BACKEND_SOFTWARE = 1,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_HARDWARE = 2;
+   */
+  ENCODER_BACKEND_HARDWARE = 2,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_NVENC = 3;
+   */
+  ENCODER_BACKEND_NVENC = 3,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_VAAPI = 4;
+   */
+  ENCODER_BACKEND_VAAPI = 4,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_VIDEOTOOLBOX = 5;
+   */
+  ENCODER_BACKEND_VIDEOTOOLBOX = 5,
+}
+
+/**
  * Connect to a new LiveKit room
  *
  * @generated from message livekit.proto.ConnectRequest
@@ -1821,6 +1856,13 @@ export declare class TrackPublishOptions extends Message<TrackPublishOptions> {
    * @generated from field: optional string scalability_mode = 11;
    */
   scalabilityMode?: string;
+
+  /**
+   * Preferred encoder backend to use when publishing a video track.
+   *
+   * @generated from field: optional livekit.proto.VideoEncoderBackend video_encoder_backend = 12;
+   */
+  videoEncoderBackend?: VideoEncoderBackend;
 
   constructor(data?: PartialMessage<TrackPublishOptions>);
 
@@ -4446,4 +4488,3 @@ export declare class DataTrackUnpublished extends Message<DataTrackUnpublished> 
 
   static equals(a: DataTrackUnpublished | PlainMessage<DataTrackUnpublished> | undefined, b: DataTrackUnpublished | PlainMessage<DataTrackUnpublished> | undefined): boolean;
 }
-

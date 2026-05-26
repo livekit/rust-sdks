@@ -14,12 +14,12 @@
 
 use cxx::SharedPtr;
 use tokio::sync::oneshot;
-use webrtc_sys::{rtc_error as sys_err, rtp_sender as sys_rs};
+use webrtc_sys::{rtc_error as sys_err, rtp_sender as sys_rs, webrtc as sys_webrtc};
 
 use super::media_stream_track::new_media_stream_track;
 use crate::{
-    media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters, stats::RtcStats, RtcError,
-    RtcErrorType,
+    media_stream_track::MediaStreamTrack, rtp_parameters::RtpParameters,
+    rtp_sender::VideoEncoderBackend, stats::RtcStats, RtcError, RtcErrorType,
 };
 
 #[derive(Clone)]
@@ -79,5 +79,43 @@ impl RtpSender {
         self.sys_handle
             .set_parameters(parameters.into())
             .map_err(|e| unsafe { sys_err::ffi::RtcError::from(e.what()).into() })
+    }
+
+    pub fn set_video_encoder_backend(&self, backend: VideoEncoderBackend) {
+        self.sys_handle.set_video_encoder_backend(backend.into());
+    }
+}
+
+impl From<VideoEncoderBackend> for sys_webrtc::ffi::VideoEncoderBackend {
+    fn from(value: VideoEncoderBackend) -> Self {
+        match value {
+            VideoEncoderBackend::Auto => Self::Auto,
+            VideoEncoderBackend::Software => Self::Software,
+            VideoEncoderBackend::Hardware => Self::Hardware,
+            VideoEncoderBackend::Nvenc => Self::Nvenc,
+            VideoEncoderBackend::Vaapi => Self::Vaapi,
+            VideoEncoderBackend::VideoToolbox => Self::VideoToolbox,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sys_webrtc, VideoEncoderBackend};
+
+    #[test]
+    fn video_encoder_backend_maps_to_native_enum() {
+        let cases = [
+            (VideoEncoderBackend::Auto, sys_webrtc::ffi::VideoEncoderBackend::Auto),
+            (VideoEncoderBackend::Software, sys_webrtc::ffi::VideoEncoderBackend::Software),
+            (VideoEncoderBackend::Hardware, sys_webrtc::ffi::VideoEncoderBackend::Hardware),
+            (VideoEncoderBackend::Nvenc, sys_webrtc::ffi::VideoEncoderBackend::Nvenc),
+            (VideoEncoderBackend::Vaapi, sys_webrtc::ffi::VideoEncoderBackend::Vaapi),
+            (VideoEncoderBackend::VideoToolbox, sys_webrtc::ffi::VideoEncoderBackend::VideoToolbox),
+        ];
+
+        for (backend, expected) in cases {
+            assert_eq!(sys_webrtc::ffi::VideoEncoderBackend::from(backend), expected);
+        }
     }
 }
