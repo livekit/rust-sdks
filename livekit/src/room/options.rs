@@ -126,7 +126,7 @@ pub struct TrackPublishOptions {
     ///
     /// If the requested backend is unavailable, the SDK logs a warning and
     /// falls back to another compatible encoder.
-    pub video_encoder_backend: VideoEncoderBackend,
+    pub video_encoder: VideoEncoderBackend,
     /// RTP scalability mode (e.g. "L3T3_KEY"). When set, a single RTP
     /// encoding is produced and that mode is forwarded to libwebrtc to
     /// enable true SVC for VP9/AV1. Has no effect for VP8/H264.
@@ -147,7 +147,7 @@ impl Default for TrackPublishOptions {
             stream: "".to_string(),
             preconnect_buffer: false,
             packet_trailer_features: PacketTrailerFeatures::default(),
-            video_encoder_backend: VideoEncoderBackend::Auto,
+            video_encoder: VideoEncoderBackend::Auto,
             scalability_mode: None,
         }
     }
@@ -421,8 +421,8 @@ mod tests {
     use super::{TrackPublishOptions, VideoEncoderBackend};
 
     #[test]
-    fn track_publish_options_default_encoder_backend_is_auto() {
-        assert_eq!(TrackPublishOptions::default().video_encoder_backend, VideoEncoderBackend::Auto);
+    fn track_publish_options_default_encoder_is_auto() {
+        assert_eq!(TrackPublishOptions::default().video_encoder, VideoEncoderBackend::Auto);
     }
 }
 

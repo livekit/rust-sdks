@@ -781,7 +781,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         source: TrackSource::Camera,
         simulcast: args.simulcast,
         video_codec: codec,
-        video_encoder_backend: requested_encoder,
+        video_encoder: requested_encoder,
         packet_trailer_features,
         video_encoding: Some(main_encoding.clone()),
         simulcast_layers: Some(simulcast_presets.clone()),

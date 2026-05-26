@@ -1860,9 +1860,9 @@ export declare class TrackPublishOptions extends Message<TrackPublishOptions> {
   /**
    * Preferred encoder backend to use when publishing a video track.
    *
-   * @generated from field: optional livekit.proto.VideoEncoderBackend video_encoder_backend = 12;
+   * @generated from field: optional livekit.proto.VideoEncoderBackend video_encoder = 12;
    */
-  videoEncoderBackend?: VideoEncoderBackend;
+  videoEncoder?: VideoEncoderBackend;
 
   constructor(data?: PartialMessage<TrackPublishOptions>);
 

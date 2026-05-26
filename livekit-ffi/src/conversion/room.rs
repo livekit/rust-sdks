@@ -50,7 +50,7 @@ fn packet_trailer_features_from_proto(features: Vec<i32>) -> PacketTrailerFeatur
     packet_trailer_features
 }
 
-fn video_encoder_backend_from_proto(backend: Option<i32>) -> Option<VideoEncoderBackend> {
+fn video_encoder_from_proto(backend: Option<i32>) -> Option<VideoEncoderBackend> {
     match backend.and_then(|value| proto::VideoEncoderBackend::try_from(value).ok())? {
         proto::VideoEncoderBackend::EncoderBackendAuto => Some(VideoEncoderBackend::Auto),
         proto::VideoEncoderBackend::EncoderBackendSoftware => Some(VideoEncoderBackend::Software),
@@ -332,8 +332,8 @@ impl From<proto::TrackPublishOptions> for TrackPublishOptions {
             packet_trailer_features: packet_trailer_features_from_proto(
                 opts.packet_trailer_features,
             ),
-            video_encoder_backend: video_encoder_backend_from_proto(opts.video_encoder_backend)
-                .unwrap_or(default_publish_options.video_encoder_backend),
+            video_encoder: video_encoder_from_proto(opts.video_encoder)
+                .unwrap_or(default_publish_options.video_encoder),
             scalability_mode: opts.scalability_mode,
         }
     }
@@ -355,7 +355,7 @@ impl From<proto::AudioEncoding> for AudioEncoding {
 mod tests {
     use livekit::options::{TrackPublishOptions, VideoEncoderBackend};
 
-    use super::{packet_trailer_features_from_proto, video_encoder_backend_from_proto};
+    use super::{packet_trailer_features_from_proto, video_encoder_from_proto};
     use crate::proto;
 
     #[test]
@@ -378,14 +378,14 @@ mod tests {
     }
 
     #[test]
-    fn video_encoder_backend_defaults_to_auto() {
+    fn video_encoder_defaults_to_auto() {
         let options = TrackPublishOptions::from(proto::TrackPublishOptions::default());
 
-        assert_eq!(options.video_encoder_backend, VideoEncoderBackend::Auto);
+        assert_eq!(options.video_encoder, VideoEncoderBackend::Auto);
     }
 
     #[test]
-    fn video_encoder_backend_maps_known_values() {
+    fn video_encoder_maps_known_values() {
         let cases = [
             (proto::VideoEncoderBackend::EncoderBackendAuto, VideoEncoderBackend::Auto),
             (proto::VideoEncoderBackend::EncoderBackendSoftware, VideoEncoderBackend::Software),
@@ -399,10 +399,7 @@ mod tests {
         ];
 
         for (proto_backend, expected) in cases {
-            assert_eq!(
-                video_encoder_backend_from_proto(Some(proto_backend as i32)),
-                Some(expected)
-            );
+            assert_eq!(video_encoder_from_proto(Some(proto_backend as i32)), Some(expected));
         }
     }
 }
