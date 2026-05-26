@@ -3,7 +3,7 @@ use clap::{Parser, ValueEnum};
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{
     self, video as video_presets, PacketTrailerFeatures, TrackPublishOptions, VideoCodec,
-    VideoEncoding, VideoPreset,
+    VideoEncoderBackend, VideoEncoding, VideoPreset,
 };
 use livekit::prelude::*;
 use livekit::webrtc::video_frame::{FrameMetadata, I420Buffer, VideoFrame, VideoRotation};
@@ -56,6 +56,43 @@ impl From<PublisherCodec> for VideoCodec {
             PublisherCodec::VP8 => VideoCodec::VP8,
             PublisherCodec::VP9 => VideoCodec::VP9,
             PublisherCodec::AV1 => VideoCodec::AV1,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum PublisherEncoder {
+    Auto,
+    Software,
+    Hardware,
+    Nvenc,
+    Vaapi,
+    #[value(alias = "videotoolbox")]
+    VideoToolbox,
+}
+
+impl PublisherEncoder {
+    fn as_str(&self) -> &'static str {
+        match self {
+            PublisherEncoder::Auto => "auto",
+            PublisherEncoder::Software => "software",
+            PublisherEncoder::Hardware => "hardware",
+            PublisherEncoder::Nvenc => "nvenc",
+            PublisherEncoder::Vaapi => "vaapi",
+            PublisherEncoder::VideoToolbox => "video-toolbox",
+        }
+    }
+}
+
+impl From<PublisherEncoder> for VideoEncoderBackend {
+    fn from(encoder: PublisherEncoder) -> Self {
+        match encoder {
+            PublisherEncoder::Auto => VideoEncoderBackend::Auto,
+            PublisherEncoder::Software => VideoEncoderBackend::Software,
+            PublisherEncoder::Hardware => VideoEncoderBackend::Hardware,
+            PublisherEncoder::Nvenc => VideoEncoderBackend::Nvenc,
+            PublisherEncoder::Vaapi => VideoEncoderBackend::Vaapi,
+            PublisherEncoder::VideoToolbox => VideoEncoderBackend::VideoToolbox,
         }
     }
 }
@@ -126,6 +163,10 @@ struct Args {
     /// Video codec to use for publishing
     #[arg(long, value_enum, default_value_t = PublisherCodec::H264)]
     codec: PublisherCodec,
+
+    /// Preferred video encoder backend to use for publishing
+    #[arg(long, value_enum, default_value_t = PublisherEncoder::Auto)]
+    encoder: PublisherEncoder,
 
     /// Attach the current system time (microseconds since UNIX epoch) as the user timestamp on each frame
     #[arg(long, default_value_t = false)]
@@ -698,7 +739,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
 
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
     let requested_codec = VideoCodec::from(args.codec);
-    info!("Attempting publish with codec: {}", requested_codec.as_str());
+    let requested_encoder = VideoEncoderBackend::from(args.encoder);
+    info!(
+        "Attempting publish with codec: {}, encoder: {}",
+        requested_codec.as_str(),
+        args.encoder.as_str()
+    );
 
     // Compute an explicit video encoding so all simulcast layers use 30 fps.
     // The SDK defaults reduce lower layers to 15/20 fps; we override that here.
@@ -735,6 +781,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         source: TrackSource::Camera,
         simulcast: args.simulcast,
         video_codec: codec,
+        video_encoder_backend: requested_encoder,
         packet_trailer_features,
         video_encoding: Some(main_encoding.clone()),
         simulcast_layers: Some(simulcast_presets.clone()),
