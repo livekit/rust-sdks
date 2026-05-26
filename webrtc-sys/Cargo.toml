@@ -9,6 +9,8 @@ repository.workspace = true
 
 [features]
 default = []
+# Disable native desktop capture dependencies (X11, GLib, GIO, DRM, GBM) for headless/server builds
+headless = []
 
 [dependencies]
 cxx = "1.0"

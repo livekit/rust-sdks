@@ -182,6 +182,12 @@ When building on MacOS, `-ObjC` linker flag is needed. LiveKit's WebRTC implemen
 
 ## Environment variables
 
+### `LK_HEADLESS`
+
+For server/headless Linux deployments where desktop capturing dependencies (such as X11, GLib, GIO, DRM, and GBM) are not present, set `LK_HEADLESS=1` to compile without those native library requirements. The C++ desktop capturer will be replaced by stubs at build time, and `DesktopCapturer::new()` will return `None`.
+
+See [HEADLESS.md](docs/HEADLESS.md) for more details.
+
 ### `LIVEKIT_PREFERRED_HW_ENCODER`
 
 On Linux builds that include support for multiple hardware video encoders (NVENC and VAAPI), this variable selects which one is preferred when both are available at runtime. Accepted values:

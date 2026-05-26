@@ -9,18 +9,20 @@ readme = "README.md"
 publish = false
 
 [features]
-default = ["rustls-tls-native-roots"]
+default = ["rustls-tls-native-roots", "livekit/tokio", "livekit/glib-main-loop"]
 native-tls = ["livekit/native-tls"]
 native-tls-vendored = ["livekit/native-tls-vendored"]
 rustls-tls-native-roots = ["livekit/rustls-tls-native-roots"]
 rustls-tls-webpki-roots = ["livekit/rustls-tls-webpki-roots"]
 __rustls-tls = ["livekit/__rustls-tls"]
+# Disable native desktop capture dependencies (X11, GLib, GIO, DRM, GBM) for headless/server builds
+headless = ["livekit/headless", "webrtc-sys/headless"]
 
 # Enable tokio-console to debug tasks
 tracing = ["tokio/tracing", "console-subscriber"]
 
 [dependencies]
-livekit = { workspace = true }
+livekit = { workspace = true, default-features = false }
 webrtc-sys = { workspace = true }
 soxr-sys = { workspace = true }
 imgproc = { workspace = true }

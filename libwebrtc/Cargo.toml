@@ -14,6 +14,8 @@ default = [ "glib-main-loop" ]
 # event loop running in your application, for example if you are using the
 # GTK or GStreamer Rust bindings, disable this feature.
 glib-main-loop = [ "dep:glib" ]
+# Disable native desktop capture dependencies (X11, GLib, GIO, DRM, GBM) for headless/server builds
+headless = [ "webrtc-sys/headless" ]
 
 [dependencies]
 log = { workspace = true }
