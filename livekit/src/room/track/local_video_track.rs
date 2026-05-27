@@ -16,7 +16,7 @@ use std::{fmt::Debug, sync::Arc};
 
 use libwebrtc::{
     native::packet_trailer::{
-        PacketTrailerHandler, PublishTimingEvent as RtcPublishTimingEvent,
+        self, PacketTrailerHandler, PublishTimingEvent as RtcPublishTimingEvent,
         PublishTimingObserver as RtcPublishTimingObserver,
         PublishTimingStage as RtcPublishTimingStage,
     },
@@ -191,9 +191,14 @@ impl LocalVideoTrack {
     /// The observer is invoked from WebRTC worker threads and should avoid
     /// blocking. Pass `None` to clear a previously registered observer.
     pub fn set_publish_timing_observer(&self, observer: Option<PublishTimingObserver>) {
+        let should_apply = observer.is_some();
         *self.publish_timing_observer.lock() = observer.map(Arc::from);
 
-        let handler = self.packet_trailer_handler.lock().clone();
+        let handler = if should_apply {
+            self.ensure_publish_timing_handler()
+        } else {
+            self.packet_trailer_handler.lock().clone()
+        };
         if let Some(handler) = handler {
             self.apply_publish_timing_observer(&handler);
         }
@@ -214,6 +219,27 @@ impl LocalVideoTrack {
     pub(crate) fn set_packet_trailer_handler(&self, handler: PacketTrailerHandler) {
         self.apply_publish_timing_observer(&handler);
         *self.packet_trailer_handler.lock() = Some(handler);
+    }
+
+    fn ensure_publish_timing_handler(&self) -> Option<PacketTrailerHandler> {
+        if let Some(handler) = self.packet_trailer_handler.lock().clone() {
+            return Some(handler);
+        }
+
+        let transceiver = self.transceiver()?;
+        let handler = packet_trailer::create_sender_handler(
+            LkRuntime::instance().pc_factory(),
+            &transceiver.sender(),
+        );
+        handler.set_enabled(false);
+        self.set_packet_trailer_handler(handler.clone());
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if let RtcVideoSource::Native(ref native_source) = self.rtc_source() {
+            native_source.set_packet_trailer_handler(handler.clone());
+        }
+
+        Some(handler)
     }
 
     fn apply_publish_timing_observer(&self, handler: &PacketTrailerHandler) {
