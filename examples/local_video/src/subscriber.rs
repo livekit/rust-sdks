@@ -1627,7 +1627,10 @@ impl CallbackTrait for YuvPaintCallback {
         }
 
         let mut gpu_sample_in_flight: Option<PendingGpuSample> = None;
+        #[cfg(target_os = "macos")]
         let mut frame_for_cpu_upload = frame_for_upload;
+        #[cfg(not(target_os = "macos"))]
+        let frame_for_cpu_upload = frame_for_upload;
 
         #[cfg(target_os = "macos")]
         if let Some((frame, sample)) = frame_for_cpu_upload.take() {
