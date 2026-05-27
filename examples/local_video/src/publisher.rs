@@ -1190,6 +1190,13 @@ async fn run_capture_loop(
                     true,
                 )
             }
+            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+            VideoInput::Argus(_) => {
+                // The Argus source bypasses this loop entirely and is dispatched to
+                // `run_argus_capture_loop` from `run`. This arm exists only to satisfy
+                // exhaustiveness checking on Jetson builds.
+                unreachable!("argus video input must be driven by run_argus_capture_loop")
+            }
         };
 
         let fid = if config.attach_frame_id {
