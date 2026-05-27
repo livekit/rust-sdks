@@ -57,6 +57,21 @@ Publisher usage:
    --room-name demo \
    --identity cam-1
 
+ # request MJPEG camera capture to reduce USB bandwidth
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --camera-index 0 \
+   --format mjpeg \
+   --room-name demo \
+   --identity cam-1
+
+ # publish from a Jetson MIPI CSI camera through libargus and the Jetson hardware encoder
+ cargo run -p local_video -F desktop --bin publisher -- \
+   --source argus \
+   --camera-index 0 \
+   --codec h265 \
+   --room-name demo \
+   --identity jetson-cam-1
+
  # publish a static SMPTE color-bar test pattern (no camera required)
  cargo run -p local_video -F desktop --bin publisher -- \
    --test-pattern \
@@ -85,6 +100,8 @@ List devices usage:
 
 Publisher flags (in addition to the common connection flags above):
 - `--camera-index <n>`: Camera index to use (default: `0`). Use `--list-cameras` to see available indices.
+- `--source <uvc|argus>`: Camera backend to use (default: `uvc`). `argus` uses NVIDIA libargus for MIPI CSI cameras and is available only on Linux aarch64 Jetson builds.
+- `--format <auto|yuv|mjpeg>`: UVC camera capture format (default: `auto`). `auto` tries uncompressed YUYV first and falls back to MJPEG; `mjpeg` can reduce USB bandwidth when running multiple cameras.
 - `--test-pattern`: Generate a standard SMPTE 75% color-bar test pattern instead of capturing from a camera. `--camera-index` is ignored when this is set; `--width`, `--height`, and `--fps` still control the output resolution and frame rate.
 - `--width <px>`: Desired capture width (default: `1280`).
 - `--height <px>`: Desired capture height (default: `720`).
@@ -140,3 +157,4 @@ Notes:
 - If the active video track is unsubscribed or unpublished, the app clears its state and will automatically attach to the next matching video track when it appears.
 - For E2EE to work, both publisher and subscriber must specify the same `--e2ee-key` value. If the keys don't match, the subscriber will not be able to decode the video.
 - The timestamp overlay updates at ~2 Hz so the latency value is readable rather than flickering every frame.
+- On Jetson, `--source argus` requires the Jetson Multimedia API headers under `/usr/src/jetson_multimedia_api`. It publishes NV12 DMA buffers through the Jetson hardware encoder; local publisher preview and burned timestamps are not supported on that path.
