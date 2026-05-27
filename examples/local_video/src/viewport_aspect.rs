@@ -39,8 +39,21 @@ pub(crate) fn native_options(initial_aspect: Option<f32>) -> eframe::NativeOptio
             .with_min_inner_size(minimum_window_size(aspect)),
         persist_window: false,
         vsync: false,
+        wgpu_options: wgpu_options(),
         ..Default::default()
     }
+}
+
+fn wgpu_options() -> egui_wgpu::WgpuConfiguration {
+    let mut options = egui_wgpu::WgpuConfiguration::default();
+
+    if cfg!(target_os = "linux") && std::env::var_os("WGPU_BACKEND").is_none() {
+        if let egui_wgpu::WgpuSetup::CreateNew(create_new) = &mut options.wgpu_setup {
+            create_new.instance_descriptor.backends = egui_wgpu::wgpu::Backends::VULKAN;
+        }
+    }
+
+    options
 }
 
 fn valid_aspect(aspect: f32) -> bool {
