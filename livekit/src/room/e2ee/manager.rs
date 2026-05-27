@@ -50,30 +50,6 @@ fn needs_video_receiver_packet_trailer_handler(features: &[i32]) -> bool {
     has_packet_trailer_features(features)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn receiver_packet_trailer_handler_is_skipped_without_features() {
-        assert!(!needs_video_receiver_packet_trailer_handler(&[]));
-    }
-
-    #[test]
-    fn receiver_packet_trailer_handler_is_needed_for_user_timestamp() {
-        let features = [PacketTrailerFeature::PtfUserTimestamp as i32];
-
-        assert!(needs_video_receiver_packet_trailer_handler(&features));
-    }
-
-    #[test]
-    fn receiver_packet_trailer_handler_is_needed_for_frame_id() {
-        let features = [PacketTrailerFeature::PtfFrameId as i32];
-
-        assert!(needs_video_receiver_packet_trailer_handler(&features));
-    }
-}
-
 struct ManagerInner {
     options: Option<E2eeOptions>, // If Some, it means the e2ee was initialized
     enabled: bool,                // Used to enable/disable e2ee
@@ -374,5 +350,29 @@ impl Debug for E2eeManager {
         f.debug_struct("E2eeManager")
             .field("enabled", &self.inner.lock().enabled)
             .finish_non_exhaustive()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn receiver_packet_trailer_handler_is_skipped_without_features() {
+        assert!(!needs_video_receiver_packet_trailer_handler(&[]));
+    }
+
+    #[test]
+    fn receiver_packet_trailer_handler_is_needed_for_user_timestamp() {
+        let features = [PacketTrailerFeature::PtfUserTimestamp as i32];
+
+        assert!(needs_video_receiver_packet_trailer_handler(&features));
+    }
+
+    #[test]
+    fn receiver_packet_trailer_handler_is_needed_for_frame_id() {
+        let features = [PacketTrailerFeature::PtfFrameId as i32];
+
+        assert!(needs_video_receiver_packet_trailer_handler(&features));
     }
 }

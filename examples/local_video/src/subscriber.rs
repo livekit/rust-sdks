@@ -7,9 +7,6 @@ use egui_wgpu_backend::CallbackTrait;
 use futures::StreamExt;
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::prelude::*;
-use livekit::webrtc::native::packet_trailer::{
-    SubscribeTimingEvent, SubscribeTimingObserver, SubscribeTimingStage,
-};
 use livekit::webrtc::video_frame::BoxVideoFrame;
 use livekit::webrtc::video_stream::native::NativeVideoStream;
 use livekit_api::access_token;
@@ -1279,15 +1276,13 @@ async fn handle_track_subscribed(
 
     let rtc_track = video_track.rtc_track();
     if let Some(timing_state) = subscriber_timing_state.as_ref() {
-        if let Some(handler) = video_track.packet_trailer_handler() {
-            let timing_state = timing_state.clone();
-            let observer: SubscribeTimingObserver = Arc::new(move |event| {
+        let timing_state = timing_state.clone();
+        let mut events = video_track.subscribe_timing_events();
+        tokio::spawn(async move {
+            while let Some(event) = events.next().await {
                 timing_state.lock().record_subscribe_event(event);
-            });
-            handler.set_subscribe_timing_observer(Some(observer));
-        } else {
-            debug!("No packet trailer handler available for subscriber timing overlay");
-        }
+            }
+        });
     }
 
     // Start background sink task immediately so stats lookup cannot delay first-frame handling.

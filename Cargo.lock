@@ -4266,6 +4266,7 @@ dependencies = [
  "test-log",
  "thiserror 1.0.69",
  "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -4437,6 +4438,7 @@ dependencies = [
  "objc2 0.6.4",
  "parking_lot",
  "tokio",
+ "tokio-stream",
  "webrtc-sys",
  "wgpu 28.0.0",
  "winit",

@@ -24,6 +24,7 @@ required-features = ["desktop"]
 
 [dependencies]
 tokio = { workspace = true, features = ["full", "parking_lot"] }
+tokio-stream = { workspace = true }
 livekit = { workspace = true, features = ["rustls-tls-native-roots"] }
 webrtc-sys = { workspace = true }
 libwebrtc = { workspace = true }

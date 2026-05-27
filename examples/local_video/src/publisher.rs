@@ -688,12 +688,17 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     if let Some(timing_state) = publish_timing_state.as_ref() {
         let timing_state = timing_state.clone();
         let display_shared_for_timing = display_shared.clone();
-        track.set_publish_timing_observer(Some(Box::new(move |event| {
-            let sample = timing_state.lock().record_sdk_event(event);
-            if let Some(sample) = sample {
-                update_shared_timing_sample(display_shared_for_timing.as_ref(), sample);
+        let mut events = track.publish_timing_events();
+        tokio::spawn(async move {
+            use tokio_stream::StreamExt;
+
+            while let Some(event) = events.next().await {
+                let sample = timing_state.lock().record_sdk_event(event);
+                if let Some(sample) = sample {
+                    update_shared_timing_sample(display_shared_for_timing.as_ref(), sample);
+                }
             }
-        })));
+        });
     }
 
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
