@@ -29,6 +29,8 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use yuv_sys;
 
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+mod argus;
 mod codec_display;
 mod test_pattern;
 mod timestamp_burn;
@@ -60,6 +62,15 @@ impl From<PublisherCodec> for VideoCodec {
     }
 }
 
+/// Selects the camera backend used by the publisher.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+enum SourceKind {
+    /// USB / V4L2 camera via the `nokhwa` crate (default).
+    Uvc,
+    /// NVIDIA Jetson MIPI CSI camera via libargus (Jetson-only).
+    Argus,
+}
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
@@ -70,6 +81,10 @@ struct Args {
     /// Camera index to use (numeric)
     #[arg(long, default_value_t = 0)]
     camera_index: usize,
+
+    /// Camera backend: `uvc` (default, V4L2/USB via nokhwa) or `argus` (Jetson MIPI CSI).
+    #[arg(long, value_enum, default_value_t = SourceKind::Uvc)]
+    source: SourceKind,
 
     /// Generate a standard SMPTE color-bar test pattern instead of using a camera
     #[arg(long, default_value_t = false, conflicts_with = "list_cameras")]
@@ -494,7 +509,50 @@ fn list_cameras() -> Result<()> {
 
 enum VideoInput {
     TestPattern(TestPattern),
-    Camera { camera: Camera, is_yuyv: bool },
+    Camera {
+        camera: Camera,
+        is_yuyv: bool,
+    },
+    #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+    Argus(argus::ArgusCaptureSession),
+}
+
+/// `CLOCK_MONOTONIC` value used to translate Argus sensor timestamps into wall time.
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+fn monotonic_time_ns_now() -> Option<u64> {
+    #[repr(C)]
+    struct Timespec {
+        tv_sec: i64,
+        tv_nsec: i64,
+    }
+
+    extern "C" {
+        fn clock_gettime(clk_id: i32, tp: *mut Timespec) -> i32;
+    }
+
+    const CLOCK_MONOTONIC: i32 = 1;
+    let mut ts = Timespec { tv_sec: 0, tv_nsec: 0 };
+    let ret = unsafe {
+        // SAFETY: `ts` is a valid, writable `Timespec` for the duration of the call.
+        clock_gettime(CLOCK_MONOTONIC, &mut ts)
+    };
+    if ret != 0 || ts.tv_sec < 0 || ts.tv_nsec < 0 {
+        return None;
+    }
+    Some(ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64)
+}
+
+/// Convert an Argus `CLOCK_MONOTONIC` sensor timestamp into a UNIX-epoch microsecond value
+/// by computing the offset between the current monotonic clock and the supplied wall time.
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+fn sensor_monotonic_ns_to_unix_us(sensor_timestamp_ns: u64, wall_time_us: u64) -> Option<u64> {
+    let monotonic_now_ns = monotonic_time_ns_now()?;
+    let monotonic_delta_us = monotonic_now_ns.abs_diff(sensor_timestamp_ns) / 1_000;
+    if sensor_timestamp_ns <= monotonic_now_ns {
+        Some(wall_time_us.saturating_sub(monotonic_delta_us))
+    } else {
+        Some(wall_time_us.saturating_add(monotonic_delta_us))
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -589,13 +647,14 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             room_join: true,
             room: args.room_name.clone(),
             can_publish: true,
+            can_subscribe: false,
             ..Default::default()
         })
         .to_jwt()?;
 
     info!("Connecting to LiveKit room '{}' as '{}'...", args.room_name, args.identity);
     let mut room_options = RoomOptions::default();
-    room_options.auto_subscribe = true;
+    room_options.auto_subscribe = false;
     room_options.dynacast = true;
 
     // Configure E2EE if an encryption key is provided
@@ -631,51 +690,97 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         });
     }
 
-    let (width, height, video_input) = if args.test_pattern {
-        let width = args.width;
-        let height = args.height;
-        let fps = args.fps;
-        info!("Test pattern enabled: SMPTE 75% color bars at {}x{} @ {} fps", width, height, fps);
-        (width, height, VideoInput::TestPattern(TestPattern::new(width, height)))
-    } else {
-        // Setup camera
-        let index = CameraIndex::Index(args.camera_index as u32);
-        let requested =
-            RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
-        let mut camera = Camera::new(index, requested)?;
-        // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
-        let wanted = CameraFormat::new(
-            Resolution::new(args.width, args.height),
-            FrameFormat::YUYV,
-            args.fps,
-        );
-        let mut using_fmt = "YUYV";
-        if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
-            RequestedFormatType::Exact(wanted),
-        )) {
-            let alt = CameraFormat::new(
-                Resolution::new(args.width, args.height),
-                FrameFormat::MJPEG,
-                args.fps,
-            );
-            using_fmt = "MJPEG";
-            let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
-                RequestedFormatType::Exact(alt),
-            ));
+    let (width, height, video_input) = match args.source {
+        SourceKind::Argus => {
+            #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+            {
+                if args.test_pattern {
+                    anyhow::bail!("--test-pattern is not supported with --source argus");
+                }
+                if args.display_video {
+                    anyhow::bail!("--display-video is not supported with --source argus");
+                }
+                if args.burn_timestamp {
+                    log::warn!(
+                        "--burn-timestamp is ignored with --source argus (DMA buffers are not CPU-mapped on the publish path)"
+                    );
+                }
+                let session = argus::ArgusCaptureSession::new(
+                    args.camera_index as u32,
+                    args.width,
+                    args.height,
+                    args.fps,
+                )?;
+                info!(
+                    "Argus MIPI capture session opened: {}x{} @ {} fps (camera {})",
+                    session.width(),
+                    session.height(),
+                    args.fps,
+                    args.camera_index,
+                );
+                (session.width(), session.height(), VideoInput::Argus(session))
+            }
+            #[cfg(not(all(target_os = "linux", target_arch = "aarch64")))]
+            {
+                anyhow::bail!(
+                    "--source argus requires Linux aarch64 on NVIDIA Jetson; this binary was built for {}-{}",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH,
+                );
+            }
         }
-        camera.open_stream()?;
-        let fmt = camera.camera_format();
-        let width = fmt.width();
-        let height = fmt.height();
-        let fps = fmt.frame_rate();
-        let is_yuyv = fmt.format() == FrameFormat::YUYV;
-        info!("Camera opened: {}x{} @ {} fps (format: {})", width, height, fps, using_fmt);
-        debug!("Negotiated nokhwa CameraFormat: {:?}", fmt);
-        info!(
-            "Selected conversion path: {}",
-            if is_yuyv { "YUYV->I420 (libyuv)" } else { "Auto (RGB24 or MJPEG)" }
-        );
-        (width, height, VideoInput::Camera { camera, is_yuyv })
+        SourceKind::Uvc => {
+            if args.test_pattern {
+                let width = args.width;
+                let height = args.height;
+                let fps = args.fps;
+                info!(
+                    "Test pattern enabled: SMPTE 75% color bars at {}x{} @ {} fps",
+                    width, height, fps
+                );
+                (width, height, VideoInput::TestPattern(TestPattern::new(width, height)))
+            } else {
+                // Setup camera
+                let index = CameraIndex::Index(args.camera_index as u32);
+                let requested = RequestedFormat::new::<RgbFormat>(
+                    RequestedFormatType::AbsoluteHighestFrameRate,
+                );
+                let mut camera = Camera::new(index, requested)?;
+                // Try raw YUYV first (cheaper than MJPEG), fall back to MJPEG
+                let wanted = CameraFormat::new(
+                    Resolution::new(args.width, args.height),
+                    FrameFormat::YUYV,
+                    args.fps,
+                );
+                let mut using_fmt = "YUYV";
+                if let Err(_) = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
+                    RequestedFormatType::Exact(wanted),
+                )) {
+                    let alt = CameraFormat::new(
+                        Resolution::new(args.width, args.height),
+                        FrameFormat::MJPEG,
+                        args.fps,
+                    );
+                    using_fmt = "MJPEG";
+                    let _ = camera.set_camera_requset(RequestedFormat::new::<RgbFormat>(
+                        RequestedFormatType::Exact(alt),
+                    ));
+                }
+                camera.open_stream()?;
+                let fmt = camera.camera_format();
+                let width = fmt.width();
+                let height = fmt.height();
+                let fps = fmt.frame_rate();
+                let is_yuyv = fmt.format() == FrameFormat::YUYV;
+                info!("Camera opened: {}x{} @ {} fps (format: {})", width, height, fps, using_fmt);
+                debug!("Negotiated nokhwa CameraFormat: {:?}", fmt);
+                info!(
+                    "Selected conversion path: {}",
+                    if is_yuyv { "YUYV->I420 (libyuv)" } else { "Auto (RGB24 or MJPEG)" }
+                );
+                (width, height, VideoInput::Camera { camera, is_yuyv })
+            }
+        }
     };
     // Create LiveKit video source and track
     let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
@@ -775,52 +880,69 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         display_timing: args.display_timing,
     };
 
-    if args.display_video {
-        let shared = display_shared.expect("display video should create shared preview state");
-        {
-            let mut shared = shared.lock();
-            shared.codec = actual_codec.as_str().to_ascii_uppercase();
-            shared.simulcast = args.simulcast;
+    match video_input {
+        #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+        VideoInput::Argus(session) => {
+            run_argus_capture_loop(
+                capture_config,
+                ctrl_c_received,
+                rtc_source,
+                session,
+                width,
+                height,
+            )
+            .await?;
         }
-        let stats_task = tokio::spawn(update_publisher_encoder_overlay(
-            track.clone(),
-            shared.clone(),
-            ctrl_c_received.clone(),
-        ));
-        let capture_task = tokio::spawn(run_capture_loop(
-            capture_config,
-            ctrl_c_received.clone(),
-            rtc_source,
-            video_input,
-            width,
-            height,
-            Some(shared.clone()),
-            publish_timing_state.clone(),
-        ));
+        video_input => {
+            if args.display_video {
+                let shared =
+                    display_shared.expect("display video should create shared preview state");
+                {
+                    let mut shared = shared.lock();
+                    shared.codec = actual_codec.as_str().to_ascii_uppercase();
+                    shared.simulcast = args.simulcast;
+                }
+                let stats_task = tokio::spawn(update_publisher_encoder_overlay(
+                    track.clone(),
+                    shared.clone(),
+                    ctrl_c_received.clone(),
+                ));
+                let capture_task = tokio::spawn(run_capture_loop(
+                    capture_config,
+                    ctrl_c_received.clone(),
+                    rtc_source,
+                    video_input,
+                    width,
+                    height,
+                    Some(shared.clone()),
+                    publish_timing_state.clone(),
+                ));
 
-        let display_result = video_display::run_display(
-            "LiveKit Video Publisher",
-            shared,
-            ctrl_c_received.clone(),
-            Some(width as f32 / height as f32),
-        );
+                let display_result = video_display::run_display(
+                    "LiveKit Video Publisher",
+                    shared,
+                    ctrl_c_received.clone(),
+                    Some(width as f32 / height as f32),
+                );
 
-        let capture_result = capture_task.await?;
-        let _ = stats_task.await;
-        display_result?;
-        capture_result?;
-    } else {
-        run_capture_loop(
-            capture_config,
-            ctrl_c_received,
-            rtc_source,
-            video_input,
-            width,
-            height,
-            None,
-            publish_timing_state.clone(),
-        )
-        .await?;
+                let capture_result = capture_task.await?;
+                let _ = stats_task.await;
+                display_result?;
+                capture_result?;
+            } else {
+                run_capture_loop(
+                    capture_config,
+                    ctrl_c_received,
+                    rtc_source,
+                    video_input,
+                    width,
+                    height,
+                    None,
+                    publish_timing_state.clone(),
+                )
+                .await?;
+            }
+        }
     }
 
     Ok(())
@@ -1194,6 +1316,230 @@ async fn run_capture_loop(
             last_fps_log = Instant::now();
         }
     }
+
+    Ok(())
+}
+
+/// Capture loop dedicated to Jetson MIPI capture via libargus.
+///
+/// Argus blocks inside `acquireFrame`, pacing capture itself, so this loop runs in a
+/// dedicated OS thread and pushes NV12 DMA-buffer fds straight into `NativeVideoSource`
+/// via [`NativeVideoSource::capture_dmabuf_frame_with_metadata`] for zero-copy hand-off
+/// to the Jetson hardware encoder.
+#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
+async fn run_argus_capture_loop(
+    config: CaptureConfig,
+    ctrl_c_received: Arc<AtomicBool>,
+    rtc_source: NativeVideoSource,
+    session: argus::ArgusCaptureSession,
+    width: u32,
+    height: u32,
+) -> Result<()> {
+    let capture_handle = std::thread::Builder::new()
+        .name("mipi-capture".into())
+        .spawn(move || -> Result<()> {
+            let mut session = session;
+            let start_ts = Instant::now();
+            let mut frames: u64 = 0;
+            let mut last_fps_log = Instant::now();
+            let mut sum_acquire_ms = 0.0;
+            let mut sum_argus_wait_ms = 0.0;
+            let mut sum_argus_blit_ms = 0.0;
+            let mut sum_capture_ms = 0.0;
+            let mut sum_iter_ms = 0.0;
+            let mut consecutive_failures: u32 = 0;
+            let mut frame_counter: u32 = 1;
+            let mut logged_sensor_ts_source = false;
+            let mut logged_sensor_ts_missing = false;
+            let mut logged_sensor_ts_conversion_failed = false;
+            let mut sensor_timestamp_frames: u64 = 0;
+            let mut backup_timestamp_frames: u64 = 0;
+            let mut sum_sensor_to_acquire_ms = 0.0;
+            let mut sum_sensor_to_argus_acquire_ms = 0.0;
+
+            loop {
+                if ctrl_c_received.load(Ordering::Acquire) {
+                    break;
+                }
+
+                let iter_start = Instant::now();
+                let acquire_started_at = Instant::now();
+                let argus_frame = match session.acquire_frame() {
+                    Ok(frame) => {
+                        consecutive_failures = 0;
+                        frame
+                    }
+                    Err(e) => {
+                        consecutive_failures += 1;
+                        if consecutive_failures <= 3 {
+                            log::warn!(
+                                "MIPI frame acquisition failed (attempt {}): {}",
+                                consecutive_failures,
+                                e
+                            );
+                        }
+                        let backoff =
+                            Duration::from_millis(5 * (consecutive_failures as u64).min(20));
+                        std::thread::sleep(backoff);
+                        continue;
+                    }
+                };
+                let acquire_finished_at = Instant::now();
+                let fallback_wall_time_us =
+                    if config.attach_timestamp { unix_time_us_now() } else { 0 };
+
+                let (capture_wall_time_us, timestamp_from_sensor) = if config.attach_timestamp {
+                    match argus_frame.sensor_timestamp_ns {
+                        Some(sensor_timestamp_ns) => match sensor_monotonic_ns_to_unix_us(
+                            sensor_timestamp_ns,
+                            fallback_wall_time_us,
+                        ) {
+                            Some(sensor_wall_time_us) => {
+                                if !logged_sensor_ts_source {
+                                    info!(
+                                        "Using Argus sensor timestamp for packet trailer user_timestamp"
+                                    );
+                                    logged_sensor_ts_source = true;
+                                }
+                                (sensor_wall_time_us, true)
+                            }
+                            None => {
+                                if !logged_sensor_ts_conversion_failed {
+                                    log::warn!(
+                                        "Failed to convert Argus sensor timestamp to wall time; using backup system wall clock for packet trailer user_timestamp"
+                                    );
+                                    logged_sensor_ts_conversion_failed = true;
+                                }
+                                (fallback_wall_time_us, false)
+                            }
+                        },
+                        None => {
+                            if !logged_sensor_ts_missing {
+                                log::warn!(
+                                    "Argus sensor timestamp not available; using backup system wall clock for packet trailer user_timestamp"
+                                );
+                                logged_sensor_ts_missing = true;
+                            }
+                            (fallback_wall_time_us, false)
+                        }
+                    }
+                } else {
+                    (0, false)
+                };
+                if config.attach_timestamp {
+                    if timestamp_from_sensor {
+                        sensor_timestamp_frames += 1;
+                        let sensor_to_acquire_ms = fallback_wall_time_us
+                            .saturating_sub(capture_wall_time_us)
+                            as f64
+                            / 1_000.0;
+                        let blit_ms = argus_frame.blit_ns as f64 / 1_000_000.0;
+                        sum_sensor_to_acquire_ms += sensor_to_acquire_ms;
+                        sum_sensor_to_argus_acquire_ms +=
+                            (sensor_to_acquire_ms - blit_ms).max(0.0);
+                    } else {
+                        backup_timestamp_frames += 1;
+                    }
+                }
+                let user_ts =
+                    if config.attach_timestamp { Some(capture_wall_time_us) } else { None };
+                let fid = if config.attach_frame_id {
+                    let id = frame_counter;
+                    frame_counter = frame_counter.wrapping_add(1);
+                    Some(id)
+                } else {
+                    None
+                };
+                let frame_metadata = if user_ts.is_some() || fid.is_some() {
+                    Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
+                } else {
+                    None
+                };
+
+                rtc_source.capture_dmabuf_frame_with_metadata(
+                    argus_frame.dmabuf_fd,
+                    width,
+                    height,
+                    0, // NV12
+                    start_ts.elapsed().as_micros() as i64,
+                    frame_metadata,
+                );
+                let capture_finished_at = Instant::now();
+
+                frames += 1;
+                sum_acquire_ms += (acquire_finished_at - acquire_started_at).as_secs_f64() * 1000.0;
+                sum_argus_wait_ms += argus_frame.acquire_wait_ns as f64 / 1_000_000.0;
+                sum_argus_blit_ms += argus_frame.blit_ns as f64 / 1_000_000.0;
+                sum_capture_ms +=
+                    (capture_finished_at - acquire_finished_at).as_secs_f64() * 1000.0;
+                sum_iter_ms += (Instant::now() - iter_start).as_secs_f64() * 1000.0;
+
+                if last_fps_log.elapsed() >= Duration::from_secs(2) {
+                    let secs = last_fps_log.elapsed().as_secs_f64();
+                    let fps_est = frames as f64 / secs;
+                    let n = frames.max(1) as f64;
+                    if config.attach_timestamp {
+                        let sensor_age_ms = if sensor_timestamp_frames > 0 {
+                            sum_sensor_to_acquire_ms / sensor_timestamp_frames as f64
+                        } else {
+                            0.0
+                        };
+                        let sensor_to_argus_acquire_ms = if sensor_timestamp_frames > 0 {
+                            sum_sensor_to_argus_acquire_ms / sensor_timestamp_frames as f64
+                        } else {
+                            0.0
+                        };
+                        info!(
+                            "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp source: sensor {} frames, backup system {} frames | avg ms: sensor_to_argus_acquire {:.2}, argus_wait {:.2}, argus_blit {:.2}, sensor_to_acquire {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
+                            width,
+                            height,
+                            fps_est,
+                            sensor_timestamp_frames,
+                            backup_timestamp_frames,
+                            sensor_to_argus_acquire_ms,
+                            sum_argus_wait_ms / n,
+                            sum_argus_blit_ms / n,
+                            sensor_age_ms,
+                            sum_acquire_ms / n,
+                            sum_capture_ms / n,
+                            sum_iter_ms / n,
+                        );
+                    } else {
+                        info!(
+                            "MIPI publishing: {}x{}, ~{:.1} fps | packet trailer timestamp: disabled | avg ms: argus_wait {:.2}, argus_blit {:.2}, acquire {:.2}, capture {:.2}, iter {:.2}",
+                            width,
+                            height,
+                            fps_est,
+                            sum_argus_wait_ms / n,
+                            sum_argus_blit_ms / n,
+                            sum_acquire_ms / n,
+                            sum_capture_ms / n,
+                            sum_iter_ms / n,
+                        );
+                    }
+                    frames = 0;
+                    sensor_timestamp_frames = 0;
+                    backup_timestamp_frames = 0;
+                    sum_acquire_ms = 0.0;
+                    sum_argus_wait_ms = 0.0;
+                    sum_argus_blit_ms = 0.0;
+                    sum_capture_ms = 0.0;
+                    sum_iter_ms = 0.0;
+                    sum_sensor_to_acquire_ms = 0.0;
+                    sum_sensor_to_argus_acquire_ms = 0.0;
+                    last_fps_log = Instant::now();
+                }
+            }
+
+            Ok(())
+        })?;
+
+    tokio::task::spawn_blocking(move || {
+        capture_handle
+            .join()
+            .map_err(|e| anyhow::anyhow!("MIPI capture thread panicked: {:?}", e))?
+    })
+    .await??;
 
     Ok(())
 }
