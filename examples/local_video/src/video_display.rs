@@ -564,11 +564,9 @@ impl eframe::App for VideoApp {
             return;
         }
 
-        let mut aspect_just_changed = false;
         if let Some((width, height)) = video_size(&self.shared) {
-            aspect_just_changed = self.viewport.set_video_size(ctx, width, height);
+            self.viewport.set_video_size(ctx, width, height);
         }
-        self.viewport.constrain(ctx, aspect_just_changed);
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             ui.ctx().request_repaint();

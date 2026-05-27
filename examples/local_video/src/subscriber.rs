@@ -436,7 +436,7 @@ struct SubscriberTimingSample {
     webrtc_receive_timestamp_us: Option<u64>,
     decoder_upload_timestamp_us: Option<u64>,
     decoder_output_timestamp_us: Option<u64>,
-    frame_rendered_timestamp_us: Option<u64>,
+    frame_uploaded_to_gpu_timestamp_us: Option<u64>,
 }
 
 impl SubscriberTimingSample {
@@ -447,12 +447,12 @@ impl SubscriberTimingSample {
             webrtc_receive_timestamp_us: None,
             decoder_upload_timestamp_us: None,
             decoder_output_timestamp_us: None,
-            frame_rendered_timestamp_us: None,
+            frame_uploaded_to_gpu_timestamp_us: None,
         }
     }
 }
 
-/// Carried from upload into the wgpu submit callback to stamp render completion.
+/// Carried from upload into the wgpu submit callback to stamp GPU upload completion.
 #[derive(Clone, Copy, Debug)]
 struct PendingGpuSample {
     frame_id: Option<u32>,
@@ -466,9 +466,10 @@ const SUBSCRIBER_TIMING_DISPLAY_UPDATE_INTERVAL: Duration = Duration::from_milli
 struct SubscriberTimingState {
     samples: HashMap<u64, SubscriberTimingSample>,
     order: VecDeque<u64>,
-    latest_rendered_sample: Option<SubscriberTimingSample>,
+    latest_uploaded_sample: Option<SubscriberTimingSample>,
     displayed_timing_deltas: Option<SubscriberTimingDeltaValues>,
     displayed_exp2recv_latency: Option<String>,
+    displayed_receive_to_gpu_latency: Option<String>,
     displayed_e2e_latency: Option<String>,
     last_latency_update: Option<Instant>,
 }
@@ -479,7 +480,7 @@ struct SubscriberTimingDeltaValues {
     webrtc_receive: String,
     decoder_upload: String,
     decoder_output: String,
-    frame_rendered: String,
+    frame_uploaded_to_gpu: String,
 }
 
 impl SubscriberTimingDeltaValues {
@@ -499,8 +500,8 @@ impl SubscriberTimingDeltaValues {
                 sample.decoder_output_timestamp_us,
                 sample.decoder_upload_timestamp_us,
             ),
-            frame_rendered: format_optional_timing_delta_ms(
-                sample.frame_rendered_timestamp_us,
+            frame_uploaded_to_gpu: format_optional_timing_delta_ms(
+                sample.frame_uploaded_to_gpu_timestamp_us,
                 sample.decoder_output_timestamp_us,
             ),
         }
@@ -510,6 +511,7 @@ impl SubscriberTimingDeltaValues {
 struct SubscriberTimingOverlayValues {
     deltas: SubscriberTimingDeltaValues,
     exp2recv_latency: String,
+    receive_to_gpu_latency: String,
     e2e_latency: String,
 }
 
@@ -543,21 +545,21 @@ impl SubscriberTimingState {
         sample.decoder_output_timestamp_us.get_or_insert(decoder_output_timestamp_us);
     }
 
-    fn record_frame_rendered(
+    fn record_frame_uploaded_to_gpu(
         &mut self,
         sensor_exposure_timestamp_us: u64,
         frame_id: Option<u32>,
-        frame_rendered_timestamp_us: u64,
+        frame_uploaded_to_gpu_timestamp_us: u64,
     ) -> SubscriberTimingSample {
         let sample = self.get_or_insert_sample(sensor_exposure_timestamp_us, frame_id);
-        sample.frame_rendered_timestamp_us = Some(frame_rendered_timestamp_us);
+        sample.frame_uploaded_to_gpu_timestamp_us = Some(frame_uploaded_to_gpu_timestamp_us);
         let sample = *sample;
-        self.latest_rendered_sample = Some(sample);
+        self.latest_uploaded_sample = Some(sample);
         sample
     }
 
     fn display_sample(&self) -> Option<SubscriberTimingSample> {
-        self.latest_rendered_sample
+        self.latest_uploaded_sample
     }
 
     fn display_overlay_lines(&mut self, now: Instant) -> Option<Vec<String>> {
@@ -588,13 +590,24 @@ impl SubscriberTimingState {
                         sample.sensor_exposure_timestamp_us,
                     )
                 });
-            self.displayed_e2e_latency =
-                sample.frame_rendered_timestamp_us.map(|frame_rendered_timestamp_us| {
+            self.displayed_receive_to_gpu_latency = sample
+                .frame_uploaded_to_gpu_timestamp_us
+                .and_then(|frame_uploaded_to_gpu_timestamp_us| {
+                    sample.webrtc_receive_timestamp_us.map(|webrtc_receive_timestamp_us| {
+                        format_latency_ms(
+                            frame_uploaded_to_gpu_timestamp_us,
+                            webrtc_receive_timestamp_us,
+                        )
+                    })
+                });
+            self.displayed_e2e_latency = sample.frame_uploaded_to_gpu_timestamp_us.map(
+                |frame_uploaded_to_gpu_timestamp_us| {
                     format_latency_ms(
-                        frame_rendered_timestamp_us,
+                        frame_uploaded_to_gpu_timestamp_us,
                         sample.sensor_exposure_timestamp_us,
                     )
-                });
+                },
+            );
             self.last_latency_update = Some(now);
         }
 
@@ -605,6 +618,10 @@ impl SubscriberTimingState {
                 .unwrap_or_else(|| SubscriberTimingDeltaValues::from_sample(sample)),
             exp2recv_latency: self
                 .displayed_exp2recv_latency
+                .clone()
+                .unwrap_or_else(|| "NA".to_string()),
+            receive_to_gpu_latency: self
+                .displayed_receive_to_gpu_latency
                 .clone()
                 .unwrap_or_else(|| "NA".to_string()),
             e2e_latency: self.displayed_e2e_latency.clone().unwrap_or_else(|| "NA".to_string()),
@@ -640,10 +657,10 @@ impl SubscriberTimingState {
             if let Some(oldest) = self.order.pop_front() {
                 self.samples.remove(&oldest);
                 if self
-                    .latest_rendered_sample
+                    .latest_uploaded_sample
                     .is_some_and(|sample| sample.sensor_exposure_timestamp_us == oldest)
                 {
-                    self.latest_rendered_sample = None;
+                    self.latest_uploaded_sample = None;
                 }
             }
         }
@@ -899,7 +916,7 @@ fn video_status_line(
     }
 }
 
-const SUBSCRIBER_TIMING_LABEL_WIDTH: usize = 20;
+const SUBSCRIBER_TIMING_LABEL_WIDTH: usize = 22;
 const SUBSCRIBER_TIMING_TIMESTAMP_WIDTH: usize = 12;
 const SUBSCRIBER_TIMING_DELTA_WIDTH: usize = 10;
 const SUBSCRIBER_TIMING_VALUE_WIDTH: usize =
@@ -950,7 +967,7 @@ fn build_timing_overlay_lines(
     let webrtc_receive = sample.webrtc_receive_timestamp_us;
     let decoder_upload = sample.decoder_upload_timestamp_us;
     let decoder_output = sample.decoder_output_timestamp_us;
-    let frame_rendered = sample.frame_rendered_timestamp_us;
+    let frame_uploaded_to_gpu = sample.frame_uploaded_to_gpu_timestamp_us;
     let frame_id = sample.frame_id.map(|id| id.to_string()).unwrap_or_else(|| "NA".to_string());
     vec![
         subscriber_timing_value_line("Frame ID", &frame_id),
@@ -975,11 +992,12 @@ fn build_timing_overlay_lines(
             &overlay_values.deltas.decoder_output,
         ),
         subscriber_timing_line(
-            "frame rendered",
-            frame_rendered,
-            &overlay_values.deltas.frame_rendered,
+            "frame uploaded to GPU",
+            frame_uploaded_to_gpu,
+            &overlay_values.deltas.frame_uploaded_to_gpu,
         ),
         subscriber_timing_value_line("Exposure to Receive", &overlay_values.exp2recv_latency),
+        subscriber_timing_value_line("Receive to GPU", &overlay_values.receive_to_gpu_latency),
         subscriber_timing_value_line("e2e latency", &overlay_values.e2e_latency),
     ]
 }
@@ -1008,11 +1026,13 @@ mod tests {
     fn overlay_values(
         sample: SubscriberTimingSample,
         exp2recv_latency: &str,
+        receive_to_gpu_latency: &str,
         e2e_latency: &str,
     ) -> SubscriberTimingOverlayValues {
         SubscriberTimingOverlayValues {
             deltas: SubscriberTimingDeltaValues::from_sample(sample),
             exp2recv_latency: exp2recv_latency.to_string(),
+            receive_to_gpu_latency: receive_to_gpu_latency.to_string(),
             e2e_latency: e2e_latency.to_string(),
         }
     }
@@ -1048,23 +1068,24 @@ mod tests {
             webrtc_receive_timestamp_us: Some(base + 32_400),
             decoder_upload_timestamp_us: Some(base + 35_500),
             decoder_output_timestamp_us: Some(base + 55_300),
-            frame_rendered_timestamp_us: Some(base + 56_900),
+            frame_uploaded_to_gpu_timestamp_us: Some(base + 56_900),
         };
 
-        let overlay_values = overlay_values(sample, "32.4ms", "56.9ms");
+        let overlay_values = overlay_values(sample, "32.4ms", "24.5ms", "56.9ms");
         let lines = build_timing_overlay_lines(sample, &overlay_values);
         assert_subscriber_timing_lines_are_stable(&lines);
         assert_eq!(
             lines,
             vec![
-                "Frame ID:                                123",
-                "sensor exposure:     01:02:03:456      0.0ms",
-                "webrtc receive:      01:02:03:488    +32.4ms",
-                "decoder upload:      01:02:03:491     +3.1ms",
-                "decoder output:      01:02:03:511    +19.8ms",
-                "frame rendered:      01:02:03:512     +1.6ms",
-                "Exposure to Receive:                  32.4ms",
-                "e2e latency:                          56.9ms",
+                "Frame ID:                                  123",
+                "sensor exposure:       01:02:03:456      0.0ms",
+                "webrtc receive:        01:02:03:488    +32.4ms",
+                "decoder upload:        01:02:03:491     +3.1ms",
+                "decoder output:        01:02:03:511    +19.8ms",
+                "frame uploaded to GPU: 01:02:03:512     +1.6ms",
+                "Exposure to Receive:                    32.4ms",
+                "Receive to GPU:                         24.5ms",
+                "e2e latency:                            56.9ms",
             ]
         );
     }
@@ -1074,26 +1095,27 @@ mod tests {
         let base = timestamp_us(1, 2, 3, 456);
         let sample = SubscriberTimingSample::new(base, None);
 
-        let overlay_values = overlay_values(sample, "NA", "NA");
+        let overlay_values = overlay_values(sample, "NA", "NA", "NA");
         let lines = build_timing_overlay_lines(sample, &overlay_values);
         assert_subscriber_timing_lines_are_stable(&lines);
         assert_eq!(
             lines,
             vec![
-                "Frame ID:                                 NA",
-                "sensor exposure:     01:02:03:456      0.0ms",
-                "webrtc receive:      --:--:--:---    +--.-ms",
-                "decoder upload:      --:--:--:---    +--.-ms",
-                "decoder output:      --:--:--:---    +--.-ms",
-                "frame rendered:      --:--:--:---    +--.-ms",
-                "Exposure to Receive:                      NA",
-                "e2e latency:                              NA",
+                "Frame ID:                                   NA",
+                "sensor exposure:       01:02:03:456      0.0ms",
+                "webrtc receive:        --:--:--:---    +--.-ms",
+                "decoder upload:        --:--:--:---    +--.-ms",
+                "decoder output:        --:--:--:---    +--.-ms",
+                "frame uploaded to GPU: --:--:--:---    +--.-ms",
+                "Exposure to Receive:                        NA",
+                "Receive to GPU:                             NA",
+                "e2e latency:                                NA",
             ]
         );
     }
 
     #[test]
-    fn subscriber_timing_state_displays_rendered_sample() {
+    fn subscriber_timing_state_displays_uploaded_sample() {
         let mut state = SubscriberTimingState::default();
         state.record_subscribe_event(subscribe_event(
             SubscribeTimingStage::WebrtcReceive,
@@ -1112,9 +1134,9 @@ mod tests {
         ));
         assert!(state.display_sample().is_none());
 
-        let sample = state.record_frame_rendered(1_000, Some(123), 1_500);
+        let sample = state.record_frame_uploaded_to_gpu(1_000, Some(123), 1_500);
 
-        assert_eq!(sample.frame_rendered_timestamp_us, Some(1_500));
+        assert_eq!(sample.frame_uploaded_to_gpu_timestamp_us, Some(1_500));
         assert_eq!(state.display_sample().unwrap().decoder_output_timestamp_us, Some(1_400));
     }
 
@@ -1138,13 +1160,14 @@ mod tests {
             1_000,
             56_300,
         ));
-        state.record_frame_rendered(1_000, Some(1), 57_900);
+        state.record_frame_uploaded_to_gpu(1_000, Some(1), 57_900);
         let lines = state.display_overlay_lines(now).expect("overlay should render");
-        assert_eq!(lines[3], "decoder upload:      00:00:00:036     +3.1ms");
-        assert_eq!(lines[4], "decoder output:      00:00:00:056    +19.8ms");
-        assert_eq!(lines[5], "frame rendered:      00:00:00:057     +1.6ms");
-        assert_eq!(lines[6], "Exposure to Receive:                  32.4ms");
-        assert_eq!(lines[7], "e2e latency:                          56.9ms");
+        assert_eq!(lines[3], "decoder upload:        00:00:00:036     +3.1ms");
+        assert_eq!(lines[4], "decoder output:        00:00:00:056    +19.8ms");
+        assert_eq!(lines[5], "frame uploaded to GPU: 00:00:00:057     +1.6ms");
+        assert_eq!(lines[6], "Exposure to Receive:                    32.4ms");
+        assert_eq!(lines[7], "Receive to GPU:                         24.5ms");
+        assert_eq!(lines[8], "e2e latency:                            56.9ms");
 
         state.record_subscribe_event(subscribe_event(
             SubscribeTimingStage::WebrtcReceive,
@@ -1161,24 +1184,26 @@ mod tests {
             1_000_000,
             1_080_000,
         ));
-        state.record_frame_rendered(1_000_000, Some(2), 1_100_000);
+        state.record_frame_uploaded_to_gpu(1_000_000, Some(2), 1_100_000);
         let lines = state
             .display_overlay_lines(now + Duration::from_millis(99))
             .expect("overlay should render");
-        assert_eq!(lines[3], "decoder upload:      00:00:01:060     +3.1ms");
-        assert_eq!(lines[4], "decoder output:      00:00:01:080    +19.8ms");
-        assert_eq!(lines[5], "frame rendered:      00:00:01:100     +1.6ms");
-        assert_eq!(lines[6], "Exposure to Receive:                  32.4ms");
-        assert_eq!(lines[7], "e2e latency:                          56.9ms");
+        assert_eq!(lines[3], "decoder upload:        00:00:01:060     +3.1ms");
+        assert_eq!(lines[4], "decoder output:        00:00:01:080    +19.8ms");
+        assert_eq!(lines[5], "frame uploaded to GPU: 00:00:01:100     +1.6ms");
+        assert_eq!(lines[6], "Exposure to Receive:                    32.4ms");
+        assert_eq!(lines[7], "Receive to GPU:                         24.5ms");
+        assert_eq!(lines[8], "e2e latency:                            56.9ms");
 
         let lines = state
             .display_overlay_lines(now + Duration::from_millis(100))
             .expect("overlay should render");
-        assert_eq!(lines[3], "decoder upload:      00:00:01:060    +10.0ms");
-        assert_eq!(lines[4], "decoder output:      00:00:01:080    +20.0ms");
-        assert_eq!(lines[5], "frame rendered:      00:00:01:100    +20.0ms");
-        assert_eq!(lines[6], "Exposure to Receive:                  50.0ms");
-        assert_eq!(lines[7], "e2e latency:                         100.0ms");
+        assert_eq!(lines[3], "decoder upload:        00:00:01:060    +10.0ms");
+        assert_eq!(lines[4], "decoder output:        00:00:01:080    +20.0ms");
+        assert_eq!(lines[5], "frame uploaded to GPU: 00:00:01:100    +20.0ms");
+        assert_eq!(lines[6], "Exposure to Receive:                    50.0ms");
+        assert_eq!(lines[7], "Receive to GPU:                         50.0ms");
+        assert_eq!(lines[8], "e2e latency:                           100.0ms");
     }
 }
 
@@ -1473,9 +1498,9 @@ fn subscriber_overlay_lines(
     Some(lines)
 }
 
-fn paint_subscriber_overlay(ctx: &egui::Context, video_rect: egui::Rect, lines: &[String]) {
+fn paint_subscriber_overlay(ctx: &egui::Context, lines: &[String]) {
     egui::Area::new("subscriber_overlay".into())
-        .fixed_pos(video_rect.left_top() + egui::vec2(10.0, 10.0))
+        .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
         .interactable(false)
         .show(ctx, |ui| {
             egui::Frame::NONE
@@ -1549,11 +1574,9 @@ impl eframe::App for VideoApp {
             return;
         }
 
-        let mut aspect_just_changed = false;
         if let Some((width, height)) = video_size(&self.shared) {
-            aspect_just_changed = self.viewport.set_video_size(ctx, width, height);
+            self.viewport.set_video_size(ctx, width, height);
         }
-        self.viewport.constrain(ctx, aspect_just_changed);
 
         let overlay_lines = subscriber_overlay_lines(
             &self.shared,
@@ -1566,8 +1589,8 @@ impl eframe::App for VideoApp {
             // Ensure we keep repainting for smooth playback.
             ui.ctx().request_repaint();
 
-            // Render into a centered rect that matches the source aspect ratio. This keeps resize
-            // smooth (no feedback loop) and avoids stretching/distortion while dragging.
+            // Let the native window follow live resize, and letterbox the video instead of
+            // programmatically resizing the window while the user is dragging it.
             let available = ui.available_size();
             let size = if let Some(aspect) = self.viewport.aspect() {
                 let mut w = available.x.max(1.0);
@@ -1593,12 +1616,13 @@ impl eframe::App for VideoApp {
                         },
                     );
                     ui.painter().add(cb);
-                    if let Some(lines) = overlay_lines.as_ref() {
-                        paint_subscriber_overlay(ui.ctx(), rect, lines);
-                    }
                 },
             );
         });
+
+        if let Some(lines) = overlay_lines.as_ref() {
+            paint_subscriber_overlay(ctx, lines);
+        }
 
         // Simulcast layer controls: bottom-left overlay
         egui::Area::new("simulcast_controls".into())
@@ -2335,7 +2359,7 @@ impl CallbackTrait for YuvPaintCallback {
             gpu_sample_in_flight = Some(sample);
         }
 
-        // Ride an empty command buffer with egui's submit so we can stamp GPU-done.
+        // Ride an empty command buffer with egui's submit so we can stamp GPU-upload completion.
         if let Some(sample) = gpu_sample_in_flight {
             let subscriber_timing_state = self.subscriber_timing_state.clone();
             let encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -2346,7 +2370,7 @@ impl CallbackTrait for YuvPaintCallback {
                 if let (Some(timing_state), Some(capture_timestamp_us)) =
                     (subscriber_timing_state.as_ref(), sample.capture_timestamp_us)
                 {
-                    timing_state.lock().record_frame_rendered(
+                    timing_state.lock().record_frame_uploaded_to_gpu(
                         capture_timestamp_us,
                         sample.frame_id,
                         current_timestamp_us(),
