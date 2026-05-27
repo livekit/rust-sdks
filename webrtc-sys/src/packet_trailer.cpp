@@ -155,7 +155,6 @@ PacketTrailerMetadata PacketTrailerTransformer::LookupSendMetadata(
 
 void PacketTrailerTransformer::TransformReceive(
     std::unique_ptr<webrtc::TransformableFrameInterface> frame) {
-  uint64_t receive_timestamp_us = CurrentUnixTimeMicros();
   uint32_t ssrc = frame->GetSsrc();
   uint32_t rtp_timestamp = frame->GetTimestamp();
   auto data = frame->GetData();
@@ -207,6 +206,8 @@ void PacketTrailerTransformer::TransformReceive(
     // Update frame with stripped data
     frame->SetData(webrtc::ArrayView<const uint8_t>(stripped_data));
   }
+  uint64_t receive_timestamp_us =
+      subscribe_timing_enabled() ? CurrentUnixTimeMicros() : 0;
   emit_subscribe_timing(VideoSubscribeTimingStage::WebrtcReceive,
                         timing_meta.user_timestamp, timing_meta.frame_id,
                         receive_timestamp_us);
@@ -434,17 +435,23 @@ void PacketTrailerTransformer::set_publish_timing_observer(
   publish_timing_observer_ =
       std::make_shared<rust::Box<VideoPublishTimingObserverWrapper>>(
           std::move(observer));
+  publish_timing_enabled_.store(true);
 }
 
 void PacketTrailerTransformer::clear_publish_timing_observer() {
   webrtc::MutexLock lock(&publish_timing_observer_mutex_);
   publish_timing_observer_.reset();
+  publish_timing_enabled_.store(false);
 }
 
 void PacketTrailerTransformer::emit_publish_timing(
     VideoPublishTimingStage stage,
     uint64_t user_timestamp,
     uint32_t frame_id) const {
+  if (!publish_timing_enabled()) {
+    return;
+  }
+
   std::shared_ptr<rust::Box<VideoPublishTimingObserverWrapper>> observer;
   {
     webrtc::MutexLock lock(&publish_timing_observer_mutex_);
@@ -464,17 +471,23 @@ void PacketTrailerTransformer::set_subscribe_timing_observer(
   subscribe_timing_observer_ =
       std::make_shared<rust::Box<VideoSubscribeTimingObserverWrapper>>(
           std::move(observer));
+  subscribe_timing_enabled_.store(true);
 }
 
 void PacketTrailerTransformer::clear_subscribe_timing_observer() {
   webrtc::MutexLock lock(&subscribe_timing_observer_mutex_);
   subscribe_timing_observer_.reset();
+  subscribe_timing_enabled_.store(false);
 }
 
 void PacketTrailerTransformer::emit_subscribe_timing(
     VideoSubscribeTimingStage stage,
     uint64_t user_timestamp,
     uint32_t frame_id) const {
+  if (!subscribe_timing_enabled()) {
+    return;
+  }
+
   emit_subscribe_timing(stage, user_timestamp, frame_id,
                         CurrentUnixTimeMicros());
 }
@@ -484,6 +497,10 @@ void PacketTrailerTransformer::emit_subscribe_timing(
     uint64_t user_timestamp,
     uint32_t frame_id,
     uint64_t timestamp_us) const {
+  if (!subscribe_timing_enabled()) {
+    return;
+  }
+
   std::shared_ptr<rust::Box<VideoSubscribeTimingObserverWrapper>> observer;
   {
     webrtc::MutexLock lock(&subscribe_timing_observer_mutex_);
@@ -495,6 +512,14 @@ void PacketTrailerTransformer::emit_subscribe_timing(
 
   (*observer)->on_subscribe_timing(VideoSubscribeTimingEvent{
       stage, timestamp_us, user_timestamp, frame_id});
+}
+
+bool PacketTrailerTransformer::publish_timing_enabled() const {
+  return publish_timing_enabled_.load();
+}
+
+bool PacketTrailerTransformer::subscribe_timing_enabled() const {
+  return subscribe_timing_enabled_.load();
 }
 
 // PacketTrailerHandler implementation

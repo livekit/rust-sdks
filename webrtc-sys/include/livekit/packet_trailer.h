@@ -156,6 +156,8 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
                              uint64_t user_timestamp,
                              uint32_t frame_id,
                              uint64_t timestamp_us) const;
+  bool publish_timing_enabled() const;
+  bool subscribe_timing_enabled() const;
 
   PacketTrailerMetadata LookupSendMetadata(
       const webrtc::TransformableFrameInterface& frame,
@@ -200,9 +202,11 @@ class PacketTrailerTransformer : public webrtc::FrameTransformerInterface {
   mutable uint32_t recv_active_ssrc_{0};
 
   mutable webrtc::Mutex publish_timing_observer_mutex_;
+  std::atomic<bool> publish_timing_enabled_{false};
   mutable std::shared_ptr<rust::Box<VideoPublishTimingObserverWrapper>>
       publish_timing_observer_;
   mutable webrtc::Mutex subscribe_timing_observer_mutex_;
+  std::atomic<bool> subscribe_timing_enabled_{false};
   mutable std::shared_ptr<rust::Box<VideoSubscribeTimingObserverWrapper>>
       subscribe_timing_observer_;
 };
