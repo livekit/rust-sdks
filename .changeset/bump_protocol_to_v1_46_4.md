@@ -1,6 +1,6 @@
 ---
 livekit: patch
-livekit-api: patch
+livekit-api: minor
 livekit-datatrack: patch
 livekit-ffi: patch
 livekit-protocol: patch
