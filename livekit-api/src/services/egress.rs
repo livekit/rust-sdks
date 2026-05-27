@@ -84,17 +84,20 @@ pub enum TrackEgressOutput {
     WebSocket(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum EgressListFilter {
+    #[default]
     All,
     Egress(String),
     Room(String),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EgressListOptions {
     pub filter: EgressListFilter,
     pub active: bool,
+    /// Pagination token, e.g. from a previous response's `next_page_token`.
+    pub page_token: Option<proto::TokenPagination>,
 }
 
 const SVC: &str = "Egress";
@@ -340,7 +343,12 @@ impl EgressClient {
             .request(
                 SVC,
                 "ListEgress",
-                proto::ListEgressRequest { room_name, egress_id, active: options.active },
+                proto::ListEgressRequest {
+                    room_name,
+                    egress_id,
+                    active: options.active,
+                    page_token: options.page_token,
+                },
                 self.base
                     .auth_header(VideoGrants { room_record: true, ..Default::default() }, None)?,
             )
