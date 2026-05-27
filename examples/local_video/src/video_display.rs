@@ -8,9 +8,9 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use crate::timestamp_burn::format_timestamp_us;
+use crate::codec_display::codec_with_implementation;
 use crate::viewport_aspect::{self, AspectConstrainedViewport};
 
 #[derive(Default)]
@@ -23,18 +23,41 @@ pub(crate) struct SharedYuv {
     pub(crate) u: Vec<u8>,
     pub(crate) v: Vec<u8>,
     pub(crate) codec: String,
+    pub(crate) codec_implementation: String,
     pub(crate) fps: f32,
+    pub(crate) simulcast: bool,
     pub(crate) dirty: bool,
     pub(crate) timing_sample: Option<PublisherTimingSample>,
-    pub(crate) publish_latency_display: String,
 }
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct PublisherTimingSample {
     pub(crate) frame_id: Option<u32>,
-    pub(crate) capture_timestamp_us: u64,
-    pub(crate) read_timestamp_us: u64,
-    pub(crate) sent_timestamp_us: u64,
+    pub(crate) sensor_exposure_timestamp_us: u64,
+    pub(crate) got_frame_buffer_timestamp_us: Option<u64>,
+    pub(crate) encoder_upload_timestamp_us: Option<u64>,
+    pub(crate) encoder_output_timestamp_us: Option<u64>,
+    pub(crate) webrtc_packetize_timestamp_us: Option<u64>,
+}
+
+impl PublisherTimingSample {
+    pub(crate) fn new(sensor_exposure_timestamp_us: u64, frame_id: Option<u32>) -> Self {
+        Self {
+            frame_id,
+            sensor_exposure_timestamp_us,
+            got_frame_buffer_timestamp_us: None,
+            encoder_upload_timestamp_us: None,
+            encoder_output_timestamp_us: None,
+            webrtc_packetize_timestamp_us: None,
+        }
+    }
+
+    pub(crate) fn is_complete(&self) -> bool {
+        self.got_frame_buffer_timestamp_us.is_some()
+            && self.encoder_upload_timestamp_us.is_some()
+            && self.encoder_output_timestamp_us.is_some()
+            && self.webrtc_packetize_timestamp_us.is_some()
+    }
 }
 
 pub(crate) fn align_up(value: u32, alignment: u32) -> u32 {
@@ -88,7 +111,6 @@ pub(crate) fn pack_i420_into_shared(
     v: &[u8],
     v_stride: u32,
     timing_sample: Option<PublisherTimingSample>,
-    publish_latency_display: Option<&str>,
 ) -> bool {
     let uv_w = (width + 1) / 2;
     let uv_h = (height + 1) / 2;
@@ -104,48 +126,140 @@ pub(crate) fn pack_i420_into_shared(
     pack_plane(u, u_stride, uv_w, uv_h, uv_bytes_per_row, &mut s.u);
     pack_plane(v, v_stride, uv_w, uv_h, uv_bytes_per_row, &mut s.v);
 
-    let publish_latency_display = timing_sample
-        .map(|sample| {
-            publish_latency_display.map(str::to_string).unwrap_or_else(|| {
-                format_us_delta_ms(sample.sent_timestamp_us, sample.capture_timestamp_us)
-            })
-        })
-        .unwrap_or_default();
-
     s.width = width;
     s.height = height;
     s.y_bytes_per_row = y_bytes_per_row;
     s.uv_bytes_per_row = uv_bytes_per_row;
-    s.timing_sample = timing_sample;
-    s.publish_latency_display = publish_latency_display;
+    if let Some(timing_sample) = timing_sample {
+        s.timing_sample = Some(timing_sample);
+    }
     s.dirty = true;
     true
 }
 
-fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
-    let delta_us = later_us.saturating_sub(earlier_us);
+fn format_time_of_day_us(timestamp_us: u64) -> String {
+    let total_millis = timestamp_us / 1_000;
+    let millis = total_millis % 1_000;
+    let total_seconds = total_millis / 1_000;
+    let seconds = total_seconds % 60;
+    let minutes = (total_seconds / 60) % 60;
+    let hours = (total_seconds / 3_600) % 24;
+    format!("{hours:02}:{minutes:02}:{seconds:02}:{millis:03}")
+}
+
+fn format_timing_delta_ms(timestamp_us: u64, base_timestamp_us: u64) -> String {
+    let delta_us = i128::from(timestamp_us) - i128::from(base_timestamp_us);
+    if delta_us == 0 {
+        return "0.0ms".to_string();
+    }
+    format!("{:+.1}ms", delta_us as f64 / 1_000.0)
+}
+
+fn format_optional_timing_delta_ms(
+    timestamp_us: Option<u64>,
+    base_timestamp_us: Option<u64>,
+) -> String {
+    match (timestamp_us, base_timestamp_us) {
+        (Some(timestamp_us), Some(base_timestamp_us)) => {
+            format_timing_delta_ms(timestamp_us, base_timestamp_us)
+        }
+        _ => "+--.-ms".to_string(),
+    }
+}
+
+fn format_latency_ms(end_timestamp_us: u64, start_timestamp_us: u64) -> String {
+    let delta_us = i128::from(end_timestamp_us) - i128::from(start_timestamp_us);
     format!("{:.1}ms", delta_us as f64 / 1_000.0)
 }
 
-fn frame_id_label(frame_id: Option<u32>) -> String {
-    frame_id.map(|id| id.to_string()).unwrap_or_else(|| "NA".to_string())
+const PUBLISHER_TIMING_LABEL_WIDTH: usize = 17;
+const PUBLISHER_TIMING_TIMESTAMP_WIDTH: usize = 12;
+const PUBLISHER_TIMING_DELTA_WIDTH: usize = 10;
+const PUBLISHER_TIMING_VALUE_WIDTH: usize =
+    PUBLISHER_TIMING_TIMESTAMP_WIDTH + 1 + PUBLISHER_TIMING_DELTA_WIDTH;
+const PUBLISHER_TIMING_LINE_WIDTH: usize =
+    PUBLISHER_TIMING_LABEL_WIDTH + 1 + PUBLISHER_TIMING_VALUE_WIDTH;
+const PUBLISHER_TIMING_DISPLAY_UPDATE_INTERVAL: Duration = Duration::from_millis(100);
+
+fn publisher_timing_label(label: &str) -> String {
+    format!("{label}:")
 }
 
-fn burned_stats_line(label: &str, value: impl std::fmt::Display) -> String {
-    format!("{label:<17}{value}")
+fn publisher_timing_value_line(label: &str, value: &str) -> String {
+    let label = publisher_timing_label(label);
+    format!(
+        "{label:<label_width$} {value:>value_width$}",
+        label_width = PUBLISHER_TIMING_LABEL_WIDTH,
+        value_width = PUBLISHER_TIMING_VALUE_WIDTH
+    )
+}
+
+fn publisher_timing_line(label: &str, timestamp_us: Option<u64>, delta: &str) -> String {
+    let label = publisher_timing_label(label);
+    match timestamp_us {
+        Some(timestamp_us) => format!(
+            "{label:<label_width$} {timestamp:>timestamp_width$} {delta:>delta_width$}",
+            timestamp = format_time_of_day_us(timestamp_us),
+            delta = delta,
+            label_width = PUBLISHER_TIMING_LABEL_WIDTH,
+            timestamp_width = PUBLISHER_TIMING_TIMESTAMP_WIDTH,
+            delta_width = PUBLISHER_TIMING_DELTA_WIDTH
+        ),
+        None => format!(
+            "{label:<label_width$} {timestamp:>timestamp_width$} {delta:>delta_width$}",
+            timestamp = "--:--:--:---",
+            delta = "+--.-ms",
+            label_width = PUBLISHER_TIMING_LABEL_WIDTH,
+            timestamp_width = PUBLISHER_TIMING_TIMESTAMP_WIDTH,
+            delta_width = PUBLISHER_TIMING_DELTA_WIDTH
+        ),
+    }
+}
+
+fn publisher_timing_frame_id_line(frame_id: Option<u32>) -> String {
+    let frame_id = frame_id.map(|id| id.to_string()).unwrap_or_else(|| "NA".to_string());
+    publisher_timing_value_line("frame ID", &frame_id)
 }
 
 fn build_publisher_timing_lines(
     sample: PublisherTimingSample,
-    publish_latency_display: &str,
+    overlay_values: &PublisherTimingOverlayValues,
 ) -> Vec<String> {
+    let base = sample.sensor_exposure_timestamp_us;
     vec![
-        burned_stats_line("FRAME ID:", frame_id_label(sample.frame_id)),
-        burned_stats_line("CAPT TIMESTAMP:", format_timestamp_us(sample.capture_timestamp_us)),
-        burned_stats_line("READ TIMESTAMP:", format_timestamp_us(sample.read_timestamp_us)),
-        burned_stats_line("SENT TIMESTAMP:", format_timestamp_us(sample.sent_timestamp_us)),
-        burned_stats_line("PUBLISH LATENCY:", publish_latency_display),
+        publisher_timing_frame_id_line(sample.frame_id),
+        publisher_timing_line(
+            "sensor exposure",
+            Some(base),
+            &overlay_values.deltas.sensor_exposure,
+        ),
+        publisher_timing_line(
+            "got frame buffer",
+            sample.got_frame_buffer_timestamp_us,
+            &overlay_values.deltas.got_frame_buffer,
+        ),
+        publisher_timing_line(
+            "encoder upload",
+            sample.encoder_upload_timestamp_us,
+            &overlay_values.deltas.encoder_upload,
+        ),
+        publisher_timing_line(
+            "encoder output",
+            sample.encoder_output_timestamp_us,
+            &overlay_values.deltas.encoder_output,
+        ),
+        publisher_timing_line(
+            "webrtc packetize",
+            sample.webrtc_packetize_timestamp_us,
+            &overlay_values.deltas.webrtc_packetize,
+        ),
+        publisher_timing_value_line("Exposure to Send", &overlay_values.exp2send_latency),
     ]
+}
+
+#[cfg(test)]
+fn assert_publisher_timing_lines_are_stable(lines: &[String]) {
+    assert!(lines.iter().all(|line| line.len() == PUBLISHER_TIMING_LINE_WIDTH));
 }
 
 fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
@@ -157,21 +271,290 @@ fn video_size(shared: &Arc<Mutex<SharedYuv>>) -> Option<(u32, u32)> {
     }
 }
 
-fn publisher_timing_text(shared: &Arc<Mutex<SharedYuv>>) -> Option<String> {
-    let s = shared.lock();
-    let sample = s.timing_sample?;
-    let latency_display = if s.publish_latency_display.is_empty() {
-        format_us_delta_ms(sample.sent_timestamp_us, sample.capture_timestamp_us)
+#[derive(Default)]
+struct PublisherTimingOverlayState {
+    displayed_timing_deltas: Option<PublisherTimingDeltaValues>,
+    displayed_exp2send_latency: Option<String>,
+    last_latency_update: Option<Instant>,
+}
+
+#[derive(Clone, Debug)]
+struct PublisherTimingDeltaValues {
+    sensor_exposure: String,
+    got_frame_buffer: String,
+    encoder_upload: String,
+    encoder_output: String,
+    webrtc_packetize: String,
+}
+
+impl PublisherTimingDeltaValues {
+    fn from_sample(sample: PublisherTimingSample) -> Self {
+        let base = sample.sensor_exposure_timestamp_us;
+        Self {
+            sensor_exposure: format_timing_delta_ms(base, base),
+            got_frame_buffer: format_optional_timing_delta_ms(
+                sample.got_frame_buffer_timestamp_us,
+                Some(base),
+            ),
+            encoder_upload: format_optional_timing_delta_ms(
+                sample.encoder_upload_timestamp_us,
+                sample.got_frame_buffer_timestamp_us,
+            ),
+            encoder_output: format_optional_timing_delta_ms(
+                sample.encoder_output_timestamp_us,
+                sample.encoder_upload_timestamp_us,
+            ),
+            webrtc_packetize: format_optional_timing_delta_ms(
+                sample.webrtc_packetize_timestamp_us,
+                sample.encoder_output_timestamp_us,
+            ),
+        }
+    }
+}
+
+struct PublisherTimingOverlayValues {
+    deltas: PublisherTimingDeltaValues,
+    exp2send_latency: String,
+}
+
+impl PublisherTimingOverlayState {
+    fn overlay_values(
+        &mut self,
+        sample: PublisherTimingSample,
+        now: Instant,
+    ) -> PublisherTimingOverlayValues {
+        let should_update = self.last_latency_update.map_or(true, |last_update| {
+            now.duration_since(last_update) >= PUBLISHER_TIMING_DISPLAY_UPDATE_INTERVAL
+        });
+
+        if should_update {
+            self.displayed_timing_deltas = Some(PublisherTimingDeltaValues::from_sample(sample));
+            self.displayed_exp2send_latency =
+                sample.webrtc_packetize_timestamp_us.map(|webrtc_packetize_timestamp_us| {
+                    format_latency_ms(
+                        webrtc_packetize_timestamp_us,
+                        sample.sensor_exposure_timestamp_us,
+                    )
+                });
+            self.last_latency_update = Some(now);
+        }
+
+        PublisherTimingOverlayValues {
+            deltas: self
+                .displayed_timing_deltas
+                .clone()
+                .unwrap_or_else(|| PublisherTimingDeltaValues::from_sample(sample)),
+            exp2send_latency: self
+                .displayed_exp2send_latency
+                .clone()
+                .unwrap_or_else(|| "NA".to_string()),
+        }
+    }
+}
+
+fn video_status_line(
+    width: u32,
+    height: u32,
+    fps: f32,
+    codec: &str,
+    codec_implementation: &str,
+    simulcast: bool,
+) -> String {
+    let codec = codec_with_implementation(codec, codec_implementation);
+    if simulcast {
+        format!("{}x{} {:.1}fps {codec} Simulcast", width, height, fps.max(0.0))
     } else {
-        s.publish_latency_display.clone()
+        format!("{}x{} {:.1}fps {codec}", width, height, fps.max(0.0))
+    }
+}
+
+fn publisher_overlay_lines(
+    shared: &Arc<Mutex<SharedYuv>>,
+    overlay_state: &mut PublisherTimingOverlayState,
+    now: Instant,
+) -> Option<Vec<String>> {
+    let (status_line, sample) = {
+        let s = shared.lock();
+        if s.width == 0 || s.height == 0 {
+            return None;
+        }
+
+        (
+            video_status_line(
+                s.width,
+                s.height,
+                s.fps,
+                &s.codec,
+                &s.codec_implementation,
+                s.simulcast,
+            ),
+            s.timing_sample,
+        )
     };
-    Some(build_publisher_timing_lines(sample, &latency_display).join("\n"))
+
+    let mut lines = vec![status_line];
+    if let Some(sample) = sample {
+        let overlay_values = overlay_state.overlay_values(sample, now);
+        lines.extend(build_publisher_timing_lines(sample, &overlay_values));
+    }
+    Some(lines)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn timestamp_us(hour: u64, minute: u64, second: u64, millisecond: u64) -> u64 {
+        (((hour * 3_600 + minute * 60 + second) * 1_000) + millisecond) * 1_000
+    }
+
+    fn overlay_values(
+        sample: PublisherTimingSample,
+        exp2send_latency: &str,
+    ) -> PublisherTimingOverlayValues {
+        PublisherTimingOverlayValues {
+            deltas: PublisherTimingDeltaValues::from_sample(sample),
+            exp2send_latency: exp2send_latency.to_string(),
+        }
+    }
+
+    #[test]
+    fn publisher_overlay_shows_status_without_timing() {
+        let shared = Arc::new(Mutex::new(SharedYuv::default()));
+        {
+            let mut s = shared.lock();
+            s.width = 1280;
+            s.height = 720;
+            s.codec = "H264".to_string();
+            s.codec_implementation = "NVIDIA H264 Encoder".to_string();
+            s.fps = 29.6;
+            s.simulcast = true;
+        }
+
+        let mut overlay_state = PublisherTimingOverlayState::default();
+        let lines = publisher_overlay_lines(&shared, &mut overlay_state, Instant::now())
+            .expect("status overlay should render");
+
+        assert_eq!(lines, vec!["1280x720 29.6fps H264 NVENC Simulcast"]);
+    }
+
+    #[test]
+    fn publisher_timing_lines_match_requested_format() {
+        let base = timestamp_us(1, 2, 3, 456);
+        let sample = PublisherTimingSample {
+            frame_id: Some(7),
+            sensor_exposure_timestamp_us: base,
+            got_frame_buffer_timestamp_us: Some(base + 32_400),
+            encoder_upload_timestamp_us: Some(base + 35_500),
+            encoder_output_timestamp_us: Some(base + 55_300),
+            webrtc_packetize_timestamp_us: Some(base + 56_900),
+        };
+
+        let overlay_values = overlay_values(sample, "56.9ms");
+        let lines = build_publisher_timing_lines(sample, &overlay_values);
+        assert_publisher_timing_lines_are_stable(&lines);
+        assert_eq!(
+            lines,
+            vec![
+                "frame ID:                               7",
+                "sensor exposure:  01:02:03:456      0.0ms",
+                "got frame buffer: 01:02:03:488    +32.4ms",
+                "encoder upload:   01:02:03:491     +3.1ms",
+                "encoder output:   01:02:03:511    +19.8ms",
+                "webrtc packetize: 01:02:03:512     +1.6ms",
+                "Exposure to Send:                  56.9ms",
+            ]
+        );
+    }
+
+    #[test]
+    fn publisher_timing_lines_use_placeholder_for_missing_async_stages() {
+        let base = timestamp_us(1, 2, 3, 456);
+        let mut sample = PublisherTimingSample::new(base, None);
+        sample.got_frame_buffer_timestamp_us = Some(base + 32_400);
+
+        let overlay_values = overlay_values(sample, "NA");
+        let lines = build_publisher_timing_lines(sample, &overlay_values);
+        assert_publisher_timing_lines_are_stable(&lines);
+        assert_eq!(
+            lines,
+            vec![
+                "frame ID:                              NA",
+                "sensor exposure:  01:02:03:456      0.0ms",
+                "got frame buffer: 01:02:03:488    +32.4ms",
+                "encoder upload:   --:--:--:---    +--.-ms",
+                "encoder output:   --:--:--:---    +--.-ms",
+                "webrtc packetize: --:--:--:---    +--.-ms",
+                "Exposure to Send:                      NA",
+            ]
+        );
+    }
+
+    #[test]
+    fn publisher_timing_deltas_are_relative_to_previous_stage() {
+        let base = timestamp_us(0, 0, 1, 0);
+        let sample = PublisherTimingSample {
+            frame_id: None,
+            sensor_exposure_timestamp_us: base,
+            got_frame_buffer_timestamp_us: Some(base + 1_500_000),
+            encoder_upload_timestamp_us: Some(base + 1_600_000),
+            encoder_output_timestamp_us: None,
+            webrtc_packetize_timestamp_us: None,
+        };
+
+        let overlay_values = overlay_values(sample, "NA");
+        let lines = build_publisher_timing_lines(sample, &overlay_values);
+        assert_publisher_timing_lines_are_stable(&lines);
+        assert_eq!(lines[2], "got frame buffer: 00:00:02:500  +1500.0ms");
+        assert_eq!(lines[3], "encoder upload:   00:00:02:600   +100.0ms");
+    }
+
+    #[test]
+    fn publisher_timing_exp2send_latency_refreshes_at_ten_hz() {
+        let mut overlay_state = PublisherTimingOverlayState::default();
+        let now = Instant::now();
+
+        let sample = PublisherTimingSample {
+            frame_id: Some(1),
+            sensor_exposure_timestamp_us: 1_000,
+            got_frame_buffer_timestamp_us: Some(2_000),
+            encoder_upload_timestamp_us: Some(5_100),
+            encoder_output_timestamp_us: Some(24_900),
+            webrtc_packetize_timestamp_us: Some(57_900),
+        };
+        let overlay_values = overlay_state.overlay_values(sample, now);
+        assert_eq!(overlay_values.deltas.encoder_upload, "+3.1ms");
+        assert_eq!(overlay_values.deltas.encoder_output, "+19.8ms");
+        assert_eq!(overlay_values.deltas.webrtc_packetize, "+33.0ms");
+        assert_eq!(overlay_values.exp2send_latency, "56.9ms");
+
+        let sample = PublisherTimingSample {
+            frame_id: Some(2),
+            sensor_exposure_timestamp_us: 1_000_000,
+            got_frame_buffer_timestamp_us: Some(1_001_000),
+            encoder_upload_timestamp_us: Some(1_011_000),
+            encoder_output_timestamp_us: Some(1_031_000),
+            webrtc_packetize_timestamp_us: Some(1_100_000),
+        };
+        let overlay_values = overlay_state.overlay_values(sample, now + Duration::from_millis(99));
+        assert_eq!(overlay_values.deltas.encoder_upload, "+3.1ms");
+        assert_eq!(overlay_values.deltas.encoder_output, "+19.8ms");
+        assert_eq!(overlay_values.deltas.webrtc_packetize, "+33.0ms");
+        assert_eq!(overlay_values.exp2send_latency, "56.9ms");
+
+        let overlay_values = overlay_state.overlay_values(sample, now + Duration::from_millis(100));
+        assert_eq!(overlay_values.deltas.encoder_upload, "+10.0ms");
+        assert_eq!(overlay_values.deltas.encoder_output, "+20.0ms");
+        assert_eq!(overlay_values.deltas.webrtc_packetize, "+69.0ms");
+        assert_eq!(overlay_values.exp2send_latency, "100.0ms");
+    }
 }
 
 struct VideoApp {
     shared: Arc<Mutex<SharedYuv>>,
     ctrl_c_received: Arc<AtomicBool>,
     viewport: AspectConstrainedViewport,
+    timing_overlay_state: PublisherTimingOverlayState,
 }
 
 impl eframe::App for VideoApp {
@@ -181,11 +564,9 @@ impl eframe::App for VideoApp {
             return;
         }
 
-        let mut aspect_just_changed = false;
         if let Some((width, height)) = video_size(&self.shared) {
-            aspect_just_changed = self.viewport.set_video_size(ctx, width, height);
+            self.viewport.set_video_size(ctx, width, height);
         }
-        self.viewport.constrain(ctx, aspect_just_changed);
 
         egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
             ui.ctx().request_repaint();
@@ -216,39 +597,27 @@ impl eframe::App for VideoApp {
             );
         });
 
-        egui::Area::new("video_hud".into())
-            .anchor(egui::Align2::RIGHT_TOP, egui::vec2(-10.0, 10.0))
-            .interactable(false)
-            .show(ctx, |ui| {
-                let s = self.shared.lock();
-                if s.width == 0 || s.height == 0 || s.fps <= 0.0 || s.codec.is_empty() {
-                    return;
-                }
-                let text = format!("{} {}x{} {:.1}fps", s.codec, s.width, s.height, s.fps);
-                egui::Frame::NONE
-                    .fill(egui::Color32::from_black_alpha(140))
-                    .corner_radius(egui::CornerRadius::same(4))
-                    .inner_margin(egui::Margin::same(6))
-                    .show(ui, |ui| {
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(text).color(egui::Color32::WHITE))
-                                .extend(),
-                        );
-                    });
-            });
-
-        egui::Area::new("publisher_timing".into())
+        egui::Area::new("publisher_overlay".into())
             .anchor(egui::Align2::LEFT_TOP, egui::vec2(10.0, 10.0))
             .interactable(false)
             .show(ctx, |ui| {
-                let Some(text) = publisher_timing_text(&self.shared) else {
+                let Some(lines) = publisher_overlay_lines(
+                    &self.shared,
+                    &mut self.timing_overlay_state,
+                    Instant::now(),
+                ) else {
                     return;
                 };
+                let has_timing = lines.len() > 1;
+                let text = lines.join("\n");
                 egui::Frame::NONE
                     .fill(egui::Color32::from_black_alpha(160))
                     .corner_radius(egui::CornerRadius::same(4))
                     .inner_margin(egui::Margin::same(6))
                     .show(ui, |ui| {
+                        if has_timing {
+                            ui.set_min_width(PUBLISHER_TIMING_LINE_WIDTH as f32 * 8.0);
+                        }
                         ui.add(
                             egui::Label::new(
                                 egui::RichText::new(text).monospace().color(egui::Color32::WHITE),
@@ -272,6 +641,7 @@ pub(crate) fn run_display(
         shared,
         ctrl_c_received: ctrl_c_received.clone(),
         viewport: AspectConstrainedViewport::new(initial_aspect),
+        timing_overlay_state: PublisherTimingOverlayState::default(),
     };
     let native_options = viewport_aspect::native_options(initial_aspect);
     let result = eframe::run_native(title, native_options, Box::new(|_| Ok(Box::new(app))));

@@ -57,6 +57,13 @@ const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 type LocalTrackPublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
 type LocalTrackUnpublishedHandler = Box<dyn Fn(LocalParticipant, LocalTrackPublication) + Send>;
 
+fn needs_video_sender_transformer(
+    options: &TrackPublishOptions,
+    has_publish_timing_subscribers: bool,
+) -> bool {
+    !options.packet_trailer_features.is_empty() || has_publish_timing_subscribers
+}
+
 #[derive(Default)]
 struct LocalEvents {
     local_track_published: Mutex<Option<LocalTrackPublishedHandler>>,
@@ -355,14 +362,22 @@ impl LocalParticipant {
 
         track.set_transceiver(Some(transceiver));
 
-        if !options.packet_trailer_features.is_empty() {
-            if let LocalTrack::Video(video_track) = &track {
-                log::info!("packet_trailer enabled for local video track {}", publication.sid(),);
+        if let LocalTrack::Video(video_track) = &track {
+            let has_timing_subscribers = video_track.has_publish_timing_subscribers();
+            if needs_video_sender_transformer(&options, has_timing_subscribers) {
+                let trailers_enabled = !options.packet_trailer_features.is_empty();
+                log::info!(
+                    "sender frame transformer enabled for local video track {} (packet_trailer={}, publish_timing={})",
+                    publication.sid(),
+                    trailers_enabled,
+                    has_timing_subscribers,
+                );
                 let sender = track.transceiver().unwrap().sender();
                 let handler = packet_trailer::create_sender_handler(
                     LkRuntime::instance().pc_factory(),
                     &sender,
                 );
+                handler.set_enabled(trailers_enabled);
                 video_track.set_packet_trailer_handler(handler.clone());
 
                 #[cfg(not(target_arch = "wasm32"))]
@@ -901,5 +916,44 @@ impl LocalParticipant {
     #[doc(hidden)]
     pub fn update_data_encryption_status(&self, _is_encrypted: bool) {
         // Local participants don't receive data messages, so this is a no-op
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::options::PacketTrailerFeatures;
+
+    #[test]
+    fn timing_subscribers_request_video_sender_transformer_without_packet_trailers() {
+        let options = TrackPublishOptions {
+            packet_trailer_features: PacketTrailerFeatures::default(),
+            ..Default::default()
+        };
+
+        assert!(needs_video_sender_transformer(&options, true));
+    }
+
+    #[test]
+    fn packet_trailer_features_request_video_sender_transformer_without_timing_subscribers() {
+        let options = TrackPublishOptions {
+            packet_trailer_features: PacketTrailerFeatures {
+                user_timestamp: true,
+                frame_id: false,
+            },
+            ..Default::default()
+        };
+
+        assert!(needs_video_sender_transformer(&options, false));
+    }
+
+    #[test]
+    fn video_sender_transformer_is_skipped_without_timing_or_packet_trailers() {
+        let options = TrackPublishOptions {
+            packet_trailer_features: PacketTrailerFeatures::default(),
+            ..Default::default()
+        };
+
+        assert!(!needs_video_sender_transformer(&options, false));
     }
 }

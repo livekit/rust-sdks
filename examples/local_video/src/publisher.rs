@@ -1,5 +1,5 @@
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use livekit::e2ee::{key_provider::*, E2eeOptions, EncryptionType};
 use livekit::options::{
     self, video as video_presets, PacketTrailerFeatures, TrackPublishOptions, VideoCodec,
@@ -20,6 +20,7 @@ use nokhwa::utils::{
 };
 use nokhwa::Camera;
 use parking_lot::Mutex;
+use std::collections::{HashMap, VecDeque};
 use std::env;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -28,14 +29,36 @@ use std::sync::{
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use yuv_sys;
 
+mod codec_display;
 mod test_pattern;
 mod timestamp_burn;
 mod video_display;
 mod viewport_aspect;
 
 use test_pattern::TestPattern;
-use timestamp_burn::{LatencyDisplay, TimestampOverlay};
+use timestamp_burn::TimestampOverlay;
 use video_display::{align_up, PublisherTimingSample, SharedYuv};
+
+#[derive(Copy, Clone, Debug, ValueEnum)]
+enum PublisherCodec {
+    H264,
+    H265,
+    VP8,
+    VP9,
+    AV1,
+}
+
+impl From<PublisherCodec> for VideoCodec {
+    fn from(codec: PublisherCodec) -> Self {
+        match codec {
+            PublisherCodec::H264 => VideoCodec::H264,
+            PublisherCodec::H265 => VideoCodec::H265,
+            PublisherCodec::VP8 => VideoCodec::VP8,
+            PublisherCodec::VP9 => VideoCodec::VP9,
+            PublisherCodec::AV1 => VideoCodec::AV1,
+        }
+    }
+}
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -100,9 +123,9 @@ struct Args {
     #[arg(long)]
     api_secret: Option<String>,
 
-    /// Use H.265/HEVC encoding if supported (falls back to H.264 on failure)
-    #[arg(long, default_value_t = false)]
-    h265: bool,
+    /// Video codec to use for publishing
+    #[arg(long, value_enum, default_value_t = PublisherCodec::H264)]
+    codec: PublisherCodec,
 
     /// Attach the current system time (microseconds since UNIX epoch) as the user timestamp on each frame
     #[arg(long, default_value_t = false)]
@@ -151,12 +174,6 @@ fn normalize_twirp_host(url: &str) -> String {
     url.trim_end_matches("/rtc").to_string()
 }
 
-/// Format the us delta as a millisecond string like `"12.3ms"`.
-fn format_us_delta_ms(later_us: u64, earlier_us: u64) -> String {
-    let delta_us = later_us.saturating_sub(earlier_us);
-    format!("{:.1}ms", delta_us as f64 / 1_000.0)
-}
-
 #[derive(Default)]
 struct RollingMs {
     total_ms: f64,
@@ -187,6 +204,59 @@ struct PublisherTimingSummary {
     frame_draw_ms: RollingMs,
     submit_to_webrtc_ms: RollingMs,
     capture_to_webrtc_total_ms: RollingMs,
+}
+
+fn find_video_outbound_encoder(stats: &[livekit::webrtc::stats::RtcStats]) -> Option<&str> {
+    let mut fallback = None;
+    for stat in stats {
+        let livekit::webrtc::stats::RtcStats::OutboundRtp(outbound) = stat else {
+            continue;
+        };
+        if outbound.stream.kind != "video" || outbound.outbound.encoder_implementation.is_empty() {
+            continue;
+        }
+
+        let implementation = outbound.outbound.encoder_implementation.as_str();
+        if outbound.outbound.active {
+            return Some(implementation);
+        }
+        fallback.get_or_insert(implementation);
+    }
+
+    fallback
+}
+
+async fn update_publisher_encoder_overlay(
+    track: LocalVideoTrack,
+    shared: Arc<Mutex<SharedYuv>>,
+    ctrl_c_received: Arc<AtomicBool>,
+) {
+    let mut logged_initial = false;
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            break;
+        }
+
+        match track.get_stats().await {
+            Ok(stats) => {
+                if let Some(implementation) = find_video_outbound_encoder(&stats) {
+                    let mut shared = shared.lock();
+                    shared.codec_implementation = implementation.to_string();
+                }
+                logged_initial = true;
+            }
+            Err(e) if !logged_initial => {
+                debug!("Failed to get publisher stats for video track: {:?}", e);
+                logged_initial = true;
+            }
+            Err(_) => {}
+        }
+
+        interval.tick().await;
+    }
 }
 
 impl PublisherTimingSummary {
@@ -232,6 +302,185 @@ fn format_timing_line(timings: &PublisherTimingSummary) -> String {
     ));
 
     format!("Timing ms: {}\nTiming ms: {}", line_one.join(" | "), line_two.join(" | "))
+}
+
+const MAX_PUBLISH_TIMING_SAMPLES: usize = 300;
+
+#[derive(Default)]
+struct PublisherTimingState {
+    samples: HashMap<u64, PublisherTimingSample>,
+    order: VecDeque<u64>,
+    latest_complete_sample: Option<PublisherTimingSample>,
+}
+
+impl PublisherTimingState {
+    fn record_frame_buffer(
+        &mut self,
+        sensor_exposure_timestamp_us: u64,
+        got_frame_buffer_timestamp_us: u64,
+        frame_id: Option<u32>,
+    ) -> PublisherTimingSample {
+        let sample = self.get_or_insert_sample(sensor_exposure_timestamp_us, frame_id);
+        sample.got_frame_buffer_timestamp_us = Some(got_frame_buffer_timestamp_us);
+        *sample
+    }
+
+    fn record_sdk_event(&mut self, event: PublishTimingEvent) -> Option<PublisherTimingSample> {
+        if event.capture_timestamp_us == 0 {
+            return None;
+        }
+
+        let updated_sample = {
+            let sample = self.get_or_insert_sample(event.capture_timestamp_us, event.frame_id);
+            match event.stage {
+                PublishTimingStage::EncoderUpload => {
+                    sample.encoder_upload_timestamp_us = Some(event.timestamp_us);
+                }
+                PublishTimingStage::EncoderOutput => {
+                    sample.encoder_output_timestamp_us = Some(event.timestamp_us);
+                }
+                PublishTimingStage::WebrtcPacketize => {
+                    sample.webrtc_packetize_timestamp_us = Some(event.timestamp_us);
+                }
+            }
+            *sample
+        };
+
+        if updated_sample.is_complete() {
+            self.latest_complete_sample = Some(updated_sample);
+            Some(updated_sample)
+        } else {
+            None
+        }
+    }
+
+    fn display_sample(&self) -> Option<PublisherTimingSample> {
+        self.latest_complete_sample
+    }
+
+    fn get_or_insert_sample(
+        &mut self,
+        sensor_exposure_timestamp_us: u64,
+        frame_id: Option<u32>,
+    ) -> &mut PublisherTimingSample {
+        if !self.samples.contains_key(&sensor_exposure_timestamp_us) {
+            self.samples.insert(
+                sensor_exposure_timestamp_us,
+                PublisherTimingSample::new(sensor_exposure_timestamp_us, frame_id),
+            );
+            self.order.push_back(sensor_exposure_timestamp_us);
+            self.prune();
+        }
+
+        let sample = self
+            .samples
+            .get_mut(&sensor_exposure_timestamp_us)
+            .expect("timing sample should exist after insertion");
+        if frame_id.is_some() {
+            sample.frame_id = frame_id;
+        }
+        sample
+    }
+
+    fn prune(&mut self) {
+        while self.order.len() > MAX_PUBLISH_TIMING_SAMPLES {
+            if let Some(oldest) = self.order.pop_front() {
+                self.samples.remove(&oldest);
+                if self
+                    .latest_complete_sample
+                    .is_some_and(|sample| sample.sensor_exposure_timestamp_us == oldest)
+                {
+                    self.latest_complete_sample = None;
+                }
+            }
+        }
+    }
+}
+
+fn update_shared_timing_sample(
+    shared: Option<&Arc<Mutex<SharedYuv>>>,
+    sample: PublisherTimingSample,
+) {
+    if let Some(shared) = shared {
+        let mut shared = shared.lock();
+        let should_update = shared.timing_sample.map_or(true, |current| {
+            sample.sensor_exposure_timestamp_us >= current.sensor_exposure_timestamp_us
+        });
+        if should_update {
+            shared.timing_sample = Some(sample);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn timing_event(
+        stage: PublishTimingStage,
+        capture_timestamp_us: u64,
+        timestamp_us: u64,
+    ) -> PublishTimingEvent {
+        PublishTimingEvent { stage, timestamp_us, capture_timestamp_us, frame_id: Some(7) }
+    }
+
+    #[test]
+    fn publisher_timing_state_waits_for_complete_sample() {
+        let mut state = PublisherTimingState::default();
+        state.record_frame_buffer(1_000, 1_100, Some(7));
+
+        assert!(state.display_sample().is_none());
+        assert!(state
+            .record_sdk_event(timing_event(PublishTimingStage::EncoderUpload, 1_000, 1_200))
+            .is_none());
+        assert!(state
+            .record_sdk_event(timing_event(PublishTimingStage::EncoderOutput, 1_000, 1_300))
+            .is_none());
+        assert!(state.display_sample().is_none());
+    }
+
+    #[test]
+    fn publisher_timing_state_displays_packetized_sample() {
+        let mut state = PublisherTimingState::default();
+        state.record_frame_buffer(1_000, 1_100, Some(7));
+        state.record_sdk_event(timing_event(PublishTimingStage::EncoderUpload, 1_000, 1_200));
+        state.record_sdk_event(timing_event(PublishTimingStage::EncoderOutput, 1_000, 1_300));
+
+        let sample = state
+            .record_sdk_event(timing_event(PublishTimingStage::WebrtcPacketize, 1_000, 1_400))
+            .expect("packetized sample should be displayable");
+
+        assert!(sample.is_complete());
+        assert_eq!(state.display_sample().unwrap().webrtc_packetize_timestamp_us, Some(1_400));
+    }
+
+    #[test]
+    fn publisher_timing_shared_update_accepts_current_frame() {
+        let shared = Arc::new(Mutex::new(SharedYuv::default()));
+        let mut current = PublisherTimingSample::new(1_000, Some(1));
+        shared.lock().timing_sample = Some(current);
+
+        current.encoder_upload_timestamp_us = Some(1_500);
+        update_shared_timing_sample(Some(&shared), current);
+
+        assert_eq!(shared.lock().timing_sample.unwrap().encoder_upload_timestamp_us, Some(1_500));
+    }
+
+    #[test]
+    fn publisher_timing_shared_update_ignores_other_frames() {
+        let shared = Arc::new(Mutex::new(SharedYuv::default()));
+        let current = PublisherTimingSample::new(2_000, Some(2));
+        let mut stale = PublisherTimingSample::new(1_000, Some(1));
+        stale.encoder_upload_timestamp_us = Some(1_500);
+        shared.lock().timing_sample = Some(current);
+
+        update_shared_timing_sample(Some(&shared), stale);
+
+        assert_eq!(
+            shared.lock().timing_sample.unwrap().sensor_exposure_timestamp_us,
+            current.sensor_exposure_timestamp_us
+        );
+    }
 }
 
 fn list_cameras() -> Result<()> {
@@ -432,16 +681,35 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     let rtc_source = NativeVideoSource::new(VideoResolution { width, height }, false);
     let track =
         LocalVideoTrack::create_video_track("camera", RtcVideoSource::Native(rtc_source.clone()));
+    let display_shared = args.display_video.then(|| Arc::new(Mutex::new(SharedYuv::default())));
+    let publish_timing_state =
+        args.display_timing.then(|| Arc::new(Mutex::new(PublisherTimingState::default())));
+
+    if let Some(timing_state) = publish_timing_state.as_ref() {
+        let timing_state = timing_state.clone();
+        let display_shared_for_timing = display_shared.clone();
+        let mut events = track.publish_timing_events();
+        tokio::spawn(async move {
+            use tokio_stream::StreamExt;
+
+            while let Some(event) = events.next().await {
+                let sample = timing_state.lock().record_sdk_event(event);
+                if let Some(sample) = sample {
+                    update_shared_timing_sample(display_shared_for_timing.as_ref(), sample);
+                }
+            }
+        });
+    }
 
     // Choose requested codec and attempt to publish; if H.265 fails, retry with H.264
-    let requested_codec = if args.h265 { VideoCodec::H265 } else { VideoCodec::H264 };
+    let requested_codec = VideoCodec::from(args.codec);
     info!("Attempting publish with codec: {}", requested_codec.as_str());
 
     // Compute an explicit video encoding so all simulcast layers use 30 fps.
     // The SDK defaults reduce lower layers to 15/20 fps; we override that here.
     let target_fps = args.fps as f64;
     let main_encoding = {
-        let base = options::compute_appropriate_encoding(false, width, height, VideoCodec::H264);
+        let base = options::compute_appropriate_encoding(false, width, height, requested_codec);
         VideoEncoding {
             max_bitrate: args.max_bitrate.unwrap_or(base.max_bitrate),
             max_framerate: target_fps,
@@ -508,10 +776,17 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
     };
 
     if args.display_video {
-        let shared = Arc::new(Mutex::new(SharedYuv {
-            codec: actual_codec.as_str().to_ascii_uppercase(),
-            ..Default::default()
-        }));
+        let shared = display_shared.expect("display video should create shared preview state");
+        {
+            let mut shared = shared.lock();
+            shared.codec = actual_codec.as_str().to_ascii_uppercase();
+            shared.simulcast = args.simulcast;
+        }
+        let stats_task = tokio::spawn(update_publisher_encoder_overlay(
+            track.clone(),
+            shared.clone(),
+            ctrl_c_received.clone(),
+        ));
         let capture_task = tokio::spawn(run_capture_loop(
             capture_config,
             ctrl_c_received.clone(),
@@ -520,6 +795,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             width,
             height,
             Some(shared.clone()),
+            publish_timing_state.clone(),
         ));
 
         let display_result = video_display::run_display(
@@ -530,6 +806,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         );
 
         let capture_result = capture_task.await?;
+        let _ = stats_task.await;
         display_result?;
         capture_result?;
     } else {
@@ -541,6 +818,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
             width,
             height,
             None,
+            publish_timing_state.clone(),
         )
         .await?;
     }
@@ -556,6 +834,7 @@ async fn run_capture_loop(
     width: u32,
     height: u32,
     display_shared: Option<Arc<Mutex<SharedYuv>>>,
+    publish_timing_state: Option<Arc<Mutex<PublisherTimingState>>>,
 ) -> Result<()> {
     // Pace publishing at the requested FPS (not the camera-reported FPS) to hit desired cadence
     let pace_fps = config.fps as f64;
@@ -583,7 +862,6 @@ async fn run_capture_loop(
     let mut frame_counter: u32 = 1;
     let mut timestamp_overlay = (config.attach_timestamp && config.burn_timestamp)
         .then(|| TimestampOverlay::new(width, height));
-    let mut latency_display = LatencyDisplay::default();
     let align_buffers_for_display = display_shared.is_some();
 
     // Reuse a single I420 buffer
@@ -799,6 +1077,9 @@ async fn run_capture_loop(
         } else {
             None
         };
+        if let Some(timing_state) = publish_timing_state.as_ref() {
+            timing_state.lock().record_frame_buffer(capture_wall_time_us, read_wall_time_us, fid);
+        }
         let mut buffer_ready_at = convert_finished_at;
         let mut frame_draw_ms = None;
         let mut burned_timestamp_us = None;
@@ -811,10 +1092,14 @@ async fn run_capture_loop(
             buffer_ready_at = overlay_finished_at;
         }
 
-        // Build frame metadata from enabled packet trailer features
-        let user_ts = if config.attach_timestamp { Some(capture_wall_time_us) } else { None };
+        // Build frame metadata from enabled packet trailer features and local timing correlation.
+        let user_ts = if config.attach_timestamp || config.display_timing {
+            Some(capture_wall_time_us)
+        } else {
+            None
+        };
         if burned_timestamp_us.is_some() {
-            debug_assert_eq!(burned_timestamp_us, user_ts);
+            debug_assert_eq!(burned_timestamp_us, Some(capture_wall_time_us));
         }
         frame.frame_metadata = if user_ts.is_some() || fid.is_some() {
             Some(FrameMetadata { user_timestamp: user_ts, frame_id: fid })
@@ -824,25 +1109,16 @@ async fn run_capture_loop(
         // Monotonic, microseconds since start.
         frame.timestamp_us = start_ts.elapsed().as_micros() as i64;
         rtc_source.capture_frame(&frame);
-        let sent_timestamp_us = unix_time_us_now();
         let webrtc_capture_finished_at = Instant::now();
         if let Some(shared) = display_shared.as_ref() {
             let (stride_y, stride_u, stride_v) = frame.buffer.strides();
             let (data_y, data_u, data_v) = frame.buffer.data();
-            let (timing_sample, publish_latency_display) = if config.display_timing {
-                let timing_sample = PublisherTimingSample {
-                    frame_id: fid,
-                    capture_timestamp_us: capture_wall_time_us,
-                    read_timestamp_us: read_wall_time_us,
-                    sent_timestamp_us,
-                };
-                let publish_latency_display = latency_display.value(
-                    Instant::now(),
-                    Some(format_us_delta_ms(sent_timestamp_us, capture_wall_time_us)),
-                );
-                (Some(timing_sample), Some(publish_latency_display))
+            let timing_sample = if config.display_timing {
+                publish_timing_state
+                    .as_ref()
+                    .and_then(|timing_state| timing_state.lock().display_sample())
             } else {
-                (None, None)
+                None
             };
             video_display::pack_i420_into_shared(
                 shared,
@@ -855,7 +1131,6 @@ async fn run_capture_loop(
                 data_v,
                 stride_v as u32,
                 timing_sample,
-                publish_latency_display,
             );
         }
 

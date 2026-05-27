@@ -32,6 +32,7 @@
 #include "rtc_base/ref_counted_object.h"
 #include "rtc_base/synchronization/mutex.h"
 #include "rtc_base/time_utils.h"
+#include "webrtc-sys/src/packet_trailer.rs.h"
 #include "webrtc-sys/src/video_track.rs.h"
 
 namespace livekit_ffi {
@@ -176,6 +177,13 @@ bool VideoTrackSource::InternalSource::on_captured_frame(
     // If the buffer is I420, webrtc::AdaptedVideoTrackSource will handle the
     // rotation for us.
     buffer = buffer->ToI420();
+  }
+
+  if (packet_trailer_handler_) {
+    packet_trailer_handler_->emit_publish_timing(
+        VideoPublishTimingStage::EncoderUpload,
+        frame_metadata.has_packet_trailer ? frame_metadata.user_timestamp : 0,
+        frame_metadata.has_packet_trailer ? frame_metadata.frame_id : 0);
   }
 
   OnFrame(webrtc::VideoFrame::Builder()

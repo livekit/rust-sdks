@@ -28,7 +28,7 @@ use parking_lot::Mutex;
 use rtrb::{Consumer, Producer, PushError, RingBuffer};
 use webrtc_sys::video_track as sys_vt;
 
-use super::video_frame::new_video_frame_buffer;
+use super::{packet_trailer::SubscribeTimingStage, video_frame::new_video_frame_buffer};
 use crate::{
     native::packet_trailer::PacketTrailerHandler,
     video_frame::{BoxVideoFrame, FrameMetadata, VideoFrame},
@@ -108,11 +108,15 @@ struct VideoTrackObserver {
 impl sys_vt::VideoSink for VideoTrackObserver {
     fn on_frame(&self, frame: UniquePtr<webrtc_sys::video_frame::ffi::VideoFrame>) {
         let rtp_timestamp = frame.timestamp();
-        let frame_metadata = self
-            .packet_trailer_handler
-            .lock()
+        let packet_trailer_handler = self.packet_trailer_handler.lock().clone();
+        let frame_metadata = packet_trailer_handler
             .as_ref()
-            .and_then(|h| h.lookup_frame_metadata(rtp_timestamp))
+            .and_then(|handler| {
+                handler.lookup_frame_metadata(rtp_timestamp).map(|(ts, fid)| {
+                    handler.emit_subscribe_timing(SubscribeTimingStage::DecoderOutput, ts, fid);
+                    (ts, fid)
+                })
+            })
             .map(|(ts, fid)| FrameMetadata {
                 user_timestamp: Some(ts),
                 frame_id: if fid != 0 { Some(fid) } else { None },

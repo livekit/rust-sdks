@@ -14,8 +14,46 @@
 
 use crate::impl_thread_safety;
 
+/// Callback invoked for native video publish pipeline timing events.
+pub type OnVideoPublishTiming = Box<dyn Fn(ffi::VideoPublishTimingEvent) + Send + Sync + 'static>;
+/// Callback invoked for native video subscribe pipeline timing events.
+pub type OnVideoSubscribeTiming =
+    Box<dyn Fn(ffi::VideoSubscribeTimingEvent) + Send + Sync + 'static>;
+
 #[cxx::bridge(namespace = "livekit_ffi")]
 pub mod ffi {
+    #[repr(i32)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum VideoPublishTimingStage {
+        EncoderUpload,
+        EncoderOutput,
+        WebrtcPacketize,
+    }
+
+    #[repr(i32)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum VideoSubscribeTimingStage {
+        WebrtcReceive,
+        DecoderUpload,
+        DecoderOutput,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub struct VideoPublishTimingEvent {
+        pub stage: VideoPublishTimingStage,
+        pub timestamp_us: u64,
+        pub capture_timestamp_us: u64,
+        pub frame_id: u32,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub struct VideoSubscribeTimingEvent {
+        pub stage: VideoSubscribeTimingStage,
+        pub timestamp_us: u64,
+        pub capture_timestamp_us: u64,
+        pub frame_id: u32,
+    }
+
     unsafe extern "C++" {
         include!("livekit/packet_trailer.h");
         include!("livekit/rtp_sender.h");
@@ -52,6 +90,32 @@ pub mod ffi {
             frame_id: u32,
         );
 
+        /// Set a callback for sender-side publish timing events.
+        fn set_publish_timing_observer(
+            self: &PacketTrailerHandler,
+            observer: Box<VideoPublishTimingObserverWrapper>,
+        );
+
+        /// Clear the sender-side publish timing callback.
+        fn clear_publish_timing_observer(self: &PacketTrailerHandler);
+
+        /// Set a callback for receiver-side subscribe timing events.
+        fn set_subscribe_timing_observer(
+            self: &PacketTrailerHandler,
+            observer: Box<VideoSubscribeTimingObserverWrapper>,
+        );
+
+        /// Clear the receiver-side subscribe timing callback.
+        fn clear_subscribe_timing_observer(self: &PacketTrailerHandler);
+
+        /// Emit a receiver-side subscribe timing event.
+        fn emit_subscribe_timing(
+            self: &PacketTrailerHandler,
+            stage: VideoSubscribeTimingStage,
+            user_timestamp: u64,
+            frame_id: u32,
+        );
+
         /// Create a new packet trailer handler for a sender.
         fn new_packet_trailer_sender(
             peer_factory: SharedPtr<PeerConnectionFactory>,
@@ -64,6 +128,49 @@ pub mod ffi {
             receiver: SharedPtr<RtpReceiver>,
         ) -> SharedPtr<PacketTrailerHandler>;
     }
+
+    extern "Rust" {
+        type VideoPublishTimingObserverWrapper;
+        type VideoSubscribeTimingObserverWrapper;
+
+        fn on_publish_timing(
+            self: &VideoPublishTimingObserverWrapper,
+            event: VideoPublishTimingEvent,
+        );
+
+        fn on_subscribe_timing(
+            self: &VideoSubscribeTimingObserverWrapper,
+            event: VideoSubscribeTimingEvent,
+        );
+    }
 }
 
 impl_thread_safety!(ffi::PacketTrailerHandler, Send + Sync);
+
+pub struct VideoPublishTimingObserverWrapper {
+    observer: OnVideoPublishTiming,
+}
+
+impl VideoPublishTimingObserverWrapper {
+    pub fn new(observer: OnVideoPublishTiming) -> Self {
+        Self { observer }
+    }
+
+    fn on_publish_timing(&self, event: ffi::VideoPublishTimingEvent) {
+        (self.observer)(event);
+    }
+}
+
+pub struct VideoSubscribeTimingObserverWrapper {
+    observer: OnVideoSubscribeTiming,
+}
+
+impl VideoSubscribeTimingObserverWrapper {
+    pub fn new(observer: OnVideoSubscribeTiming) -> Self {
+        Self { observer }
+    }
+
+    fn on_subscribe_timing(&self, event: ffi::VideoSubscribeTimingEvent) {
+        (self.observer)(event);
+    }
+}

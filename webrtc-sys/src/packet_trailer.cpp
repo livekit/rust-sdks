@@ -16,6 +16,7 @@
 
 #include "livekit/packet_trailer.h"
 
+#include <chrono>
 #include <cstring>
 #include <optional>
 
@@ -28,6 +29,16 @@
 
 namespace livekit_ffi {
 
+namespace {
+
+uint64_t CurrentUnixTimeMicros() {
+  auto now = std::chrono::system_clock::now().time_since_epoch();
+  return static_cast<uint64_t>(
+      std::chrono::duration_cast<std::chrono::microseconds>(now).count());
+}
+
+}  // namespace
+
 // PacketTrailerTransformer implementation
 
 PacketTrailerTransformer::PacketTrailerTransformer(Direction direction)
@@ -37,6 +48,11 @@ void PacketTrailerTransformer::Transform(
     std::unique_ptr<webrtc::TransformableFrameInterface> frame) {
   uint32_t ssrc = frame->GetSsrc();
   uint32_t rtp_timestamp = frame->GetTimestamp();
+
+  if (direction_ == Direction::kSend) {
+    TransformSend(std::move(frame));
+    return;
+  }
 
   if (!enabled_.load()) {
     webrtc::scoped_refptr<webrtc::TransformedFrameCallback> cb;
@@ -62,11 +78,7 @@ void PacketTrailerTransformer::Transform(
     return;
   }
 
-  if (direction_ == Direction::kSend) {
-    TransformSend(std::move(frame));
-  } else {
-    TransformReceive(std::move(frame));
-  }
+  TransformReceive(std::move(frame));
 }
 
 void PacketTrailerTransformer::TransformSend(
@@ -75,29 +87,10 @@ void PacketTrailerTransformer::TransformSend(
   uint32_t ssrc = frame->GetSsrc();
 
   auto data = frame->GetData();
-
-  // Look up the frame metadata by the frame's capture time.
-  // CaptureTime() returns Timestamp::Millis(capture_time_ms_) where
-  // capture_time_ms_ = timestamp_us / 1000.  So capture_time->us()
-  // has millisecond precision (bottom 3 digits always zero).
-  // store_frame_metadata() truncates its key the same way.
-  PacketTrailerMetadata meta_to_embed{0, 0, 0};
-  auto capture_time = frame->CaptureTime();
-  if (capture_time.has_value()) {
-    int64_t capture_us = capture_time->us();
-
-    webrtc::MutexLock lock(&send_map_mutex_);
-    auto it = send_map_.find(capture_us);
-    if (it != send_map_.end()) {
-      meta_to_embed = it->second;
-      // Don't erase — simulcast layers share the same capture time.
-      // Entries are pruned by capacity in store_frame_metadata().
-    }
-  } else {
-    RTC_LOG(LS_WARNING)
-        << "PacketTrailerTransformer::TransformSend CaptureTime() not available"
-        << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
-  }
+  PacketTrailerMetadata meta_to_embed =
+      LookupSendMetadata(*frame, ssrc, rtp_timestamp);
+  emit_publish_timing(VideoPublishTimingStage::EncoderOutput,
+                      meta_to_embed.user_timestamp, meta_to_embed.frame_id);
 
   // Always append trailer when enabled (even if timestamp is 0,
   // which indicates no metadata was set for this frame)
@@ -121,12 +114,43 @@ void PacketTrailerTransformer::TransformSend(
   }
 
   if (cb) {
+    emit_publish_timing(VideoPublishTimingStage::WebrtcPacketize,
+                        meta_to_embed.user_timestamp, meta_to_embed.frame_id);
     cb->OnTransformedFrame(std::move(frame));
   } else {
     RTC_LOG(LS_WARNING)
         << "PacketTrailerTransformer::TransformSend has no callback"
         << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
   }
+}
+
+PacketTrailerMetadata PacketTrailerTransformer::LookupSendMetadata(
+    const webrtc::TransformableFrameInterface& frame,
+    uint32_t ssrc,
+    uint32_t rtp_timestamp) const {
+  // Look up the frame metadata by the frame's capture time.
+  // CaptureTime() returns Timestamp::Millis(capture_time_ms_) where
+  // capture_time_ms_ = timestamp_us / 1000.  So capture_time->us()
+  // has millisecond precision (bottom 3 digits always zero).
+  // store_frame_metadata() truncates its key the same way.
+  PacketTrailerMetadata meta_to_embed{0, 0, 0};
+  auto capture_time = frame.CaptureTime();
+  if (capture_time.has_value()) {
+    int64_t capture_us = capture_time->us();
+
+    webrtc::MutexLock lock(&send_map_mutex_);
+    auto it = send_map_.find(capture_us);
+    if (it != send_map_.end()) {
+      meta_to_embed = it->second;
+      // Don't erase — simulcast layers share the same capture time.
+      // Entries are pruned by capacity in store_frame_metadata().
+    }
+  } else {
+    RTC_LOG(LS_WARNING)
+        << "PacketTrailerTransformer::TransformSend CaptureTime() not available"
+        << " ssrc=" << ssrc << " rtp_ts=" << rtp_timestamp;
+  }
+  return meta_to_embed;
 }
 
 void PacketTrailerTransformer::TransformReceive(
@@ -137,9 +161,11 @@ void PacketTrailerTransformer::TransformReceive(
   std::vector<uint8_t> stripped_data;
 
   auto meta = ExtractTrailer(data, stripped_data);
+  PacketTrailerMetadata timing_meta{0, 0, ssrc};
 
   if (meta.has_value()) {
     meta->ssrc = ssrc;
+    timing_meta = meta.value();
 
     {
       webrtc::MutexLock lock(&recv_map_mutex_);
@@ -180,6 +206,11 @@ void PacketTrailerTransformer::TransformReceive(
     // Update frame with stripped data
     frame->SetData(webrtc::ArrayView<const uint8_t>(stripped_data));
   }
+  uint64_t receive_timestamp_us =
+      subscribe_timing_enabled() ? CurrentUnixTimeMicros() : 0;
+  emit_subscribe_timing(VideoSubscribeTimingStage::WebrtcReceive,
+                        timing_meta.user_timestamp, timing_meta.frame_id,
+                        receive_timestamp_us);
 
   // Forward to the appropriate callback (either global or per-SSRC sink).
   webrtc::scoped_refptr<webrtc::TransformedFrameCallback> cb;
@@ -194,6 +225,8 @@ void PacketTrailerTransformer::TransformReceive(
   }
 
   if (cb) {
+    emit_subscribe_timing(VideoSubscribeTimingStage::DecoderUpload,
+                          timing_meta.user_timestamp, timing_meta.frame_id);
     cb->OnTransformedFrame(std::move(frame));
   } else {
     RTC_LOG(LS_WARNING)
@@ -396,6 +429,99 @@ void PacketTrailerTransformer::store_frame_metadata(
   send_map_[key] = PacketTrailerMetadata{user_timestamp, frame_id, 0};
 }
 
+void PacketTrailerTransformer::set_publish_timing_observer(
+    rust::Box<VideoPublishTimingObserverWrapper> observer) {
+  webrtc::MutexLock lock(&publish_timing_observer_mutex_);
+  publish_timing_observer_ =
+      std::make_shared<rust::Box<VideoPublishTimingObserverWrapper>>(
+          std::move(observer));
+  publish_timing_enabled_.store(true);
+}
+
+void PacketTrailerTransformer::clear_publish_timing_observer() {
+  webrtc::MutexLock lock(&publish_timing_observer_mutex_);
+  publish_timing_observer_.reset();
+  publish_timing_enabled_.store(false);
+}
+
+void PacketTrailerTransformer::emit_publish_timing(
+    VideoPublishTimingStage stage,
+    uint64_t user_timestamp,
+    uint32_t frame_id) const {
+  if (!publish_timing_enabled()) {
+    return;
+  }
+
+  std::shared_ptr<rust::Box<VideoPublishTimingObserverWrapper>> observer;
+  {
+    webrtc::MutexLock lock(&publish_timing_observer_mutex_);
+    observer = publish_timing_observer_;
+  }
+  if (!observer) {
+    return;
+  }
+
+  (*observer)->on_publish_timing(VideoPublishTimingEvent{
+      stage, CurrentUnixTimeMicros(), user_timestamp, frame_id});
+}
+
+void PacketTrailerTransformer::set_subscribe_timing_observer(
+    rust::Box<VideoSubscribeTimingObserverWrapper> observer) {
+  webrtc::MutexLock lock(&subscribe_timing_observer_mutex_);
+  subscribe_timing_observer_ =
+      std::make_shared<rust::Box<VideoSubscribeTimingObserverWrapper>>(
+          std::move(observer));
+  subscribe_timing_enabled_.store(true);
+}
+
+void PacketTrailerTransformer::clear_subscribe_timing_observer() {
+  webrtc::MutexLock lock(&subscribe_timing_observer_mutex_);
+  subscribe_timing_observer_.reset();
+  subscribe_timing_enabled_.store(false);
+}
+
+void PacketTrailerTransformer::emit_subscribe_timing(
+    VideoSubscribeTimingStage stage,
+    uint64_t user_timestamp,
+    uint32_t frame_id) const {
+  if (!subscribe_timing_enabled()) {
+    return;
+  }
+
+  emit_subscribe_timing(stage, user_timestamp, frame_id,
+                        CurrentUnixTimeMicros());
+}
+
+void PacketTrailerTransformer::emit_subscribe_timing(
+    VideoSubscribeTimingStage stage,
+    uint64_t user_timestamp,
+    uint32_t frame_id,
+    uint64_t timestamp_us) const {
+  if (!subscribe_timing_enabled()) {
+    return;
+  }
+
+  std::shared_ptr<rust::Box<VideoSubscribeTimingObserverWrapper>> observer;
+  {
+    webrtc::MutexLock lock(&subscribe_timing_observer_mutex_);
+    observer = subscribe_timing_observer_;
+  }
+  if (!observer) {
+    return;
+  }
+
+  (*observer)->on_subscribe_timing(VideoSubscribeTimingEvent{
+      stage, timestamp_us, user_timestamp, frame_id});
+}
+
+bool PacketTrailerTransformer::publish_timing_enabled() const {
+  return publish_timing_enabled_.load();
+}
+
+bool PacketTrailerTransformer::subscribe_timing_enabled() const {
+  return subscribe_timing_enabled_.load();
+}
+
 // PacketTrailerHandler implementation
 
 PacketTrailerHandler::PacketTrailerHandler(
@@ -442,6 +568,38 @@ void PacketTrailerHandler::store_frame_metadata(
     uint64_t user_timestamp,
     uint32_t frame_id) const {
   transformer_->store_frame_metadata(capture_timestamp_us, user_timestamp, frame_id);
+}
+
+void PacketTrailerHandler::set_publish_timing_observer(
+    rust::Box<VideoPublishTimingObserverWrapper> observer) const {
+  transformer_->set_publish_timing_observer(std::move(observer));
+}
+
+void PacketTrailerHandler::clear_publish_timing_observer() const {
+  transformer_->clear_publish_timing_observer();
+}
+
+void PacketTrailerHandler::emit_publish_timing(
+    VideoPublishTimingStage stage,
+    uint64_t user_timestamp,
+    uint32_t frame_id) const {
+  transformer_->emit_publish_timing(stage, user_timestamp, frame_id);
+}
+
+void PacketTrailerHandler::set_subscribe_timing_observer(
+    rust::Box<VideoSubscribeTimingObserverWrapper> observer) const {
+  transformer_->set_subscribe_timing_observer(std::move(observer));
+}
+
+void PacketTrailerHandler::clear_subscribe_timing_observer() const {
+  transformer_->clear_subscribe_timing_observer();
+}
+
+void PacketTrailerHandler::emit_subscribe_timing(
+    VideoSubscribeTimingStage stage,
+    uint64_t user_timestamp,
+    uint32_t frame_id) const {
+  transformer_->emit_subscribe_timing(stage, user_timestamp, frame_id);
 }
 
 webrtc::scoped_refptr<PacketTrailerTransformer> PacketTrailerHandler::transformer() const {
