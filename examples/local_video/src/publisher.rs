@@ -305,6 +305,77 @@ fn find_video_outbound_encoder(stats: &[livekit::webrtc::stats::RtcStats]) -> Op
     fallback
 }
 
+fn find_video_outbound_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+) -> Option<livekit::webrtc::stats::OutboundRtpStats> {
+    let mut fallback = None;
+    for stat in stats {
+        let livekit::webrtc::stats::RtcStats::OutboundRtp(outbound) = stat else {
+            continue;
+        };
+        if outbound.stream.kind != "video" {
+            continue;
+        }
+        if outbound.outbound.active {
+            return Some(outbound.clone());
+        }
+        fallback.get_or_insert_with(|| outbound.clone());
+    }
+    fallback
+}
+
+fn log_publisher_outbound_health(stats: &[livekit::webrtc::stats::RtcStats]) {
+    let Some(outbound) = find_video_outbound_stats(stats) else {
+        return;
+    };
+
+    info!(
+        "Publish health: encoded={}, sent={}, keyframes={}, packets_sent={}, bytes_sent={}, pli={}, fir={}, encoder={}",
+        outbound.outbound.frames_encoded,
+        outbound.outbound.frames_sent,
+        outbound.outbound.key_frames_encoded,
+        outbound.sent.packets_sent,
+        outbound.sent.bytes_sent,
+        outbound.outbound.pli_count,
+        outbound.outbound.fir_count,
+        outbound.outbound.encoder_implementation,
+    );
+
+    if outbound.outbound.frames_encoded > 0 && outbound.sent.packets_sent == 0 {
+        log::warn!(
+            "Encoder produced frames but no RTP packets were sent; the AV1 bitstream may be malformed"
+        );
+    }
+    if outbound.outbound.key_frames_encoded == 0 && outbound.outbound.pli_count > 0 {
+        log::warn!(
+            "Remote side requested keyframes (PLI={}) but the publisher has not encoded any keyframes",
+            outbound.outbound.pli_count
+        );
+    }
+}
+
+async fn update_publisher_video_stats(track: LocalVideoTrack, ctrl_c_received: Arc<AtomicBool>) {
+    let mut last_log =
+        Instant::now().checked_sub(Duration::from_secs(2)).unwrap_or_else(Instant::now);
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    loop {
+        if ctrl_c_received.load(Ordering::Acquire) {
+            break;
+        }
+
+        if let Ok(stats) = track.get_stats().await {
+            if last_log.elapsed() >= Duration::from_secs(2) {
+                log_publisher_outbound_health(&stats);
+                last_log = Instant::now();
+            }
+        }
+
+        interval.tick().await;
+    }
+}
+
 async fn update_publisher_encoder_overlay(
     track: LocalVideoTrack,
     shared: Arc<Mutex<SharedYuv>>,
@@ -986,10 +1057,13 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
         display_timing: args.display_timing,
     };
 
+    let publish_stats_task =
+        tokio::spawn(update_publisher_video_stats(track.clone(), ctrl_c_received.clone()));
+
     match video_input {
         #[cfg(all(target_os = "linux", target_arch = "aarch64"))]
         VideoInput::Argus(session) => {
-            run_argus_capture_loop(
+            let capture_result = run_argus_capture_loop(
                 capture_config,
                 ctrl_c_received,
                 rtc_source,
@@ -997,7 +1071,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 width,
                 height,
             )
-            .await?;
+            .await;
+            let _ = publish_stats_task.await;
+            capture_result?;
         }
         video_input => {
             if args.display_video {
@@ -1008,7 +1084,7 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     shared.codec = actual_codec.as_str().to_ascii_uppercase();
                     shared.simulcast = args.simulcast;
                 }
-                let stats_task = tokio::spawn(update_publisher_encoder_overlay(
+                let overlay_task = tokio::spawn(update_publisher_encoder_overlay(
                     track.clone(),
                     shared.clone(),
                     ctrl_c_received.clone(),
@@ -1032,11 +1108,12 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                 );
 
                 let capture_result = capture_task.await?;
-                let _ = stats_task.await;
+                let _ = publish_stats_task.await;
+                let _ = overlay_task.await;
                 display_result?;
                 capture_result?;
             } else {
-                run_capture_loop(
+                let capture_result = run_capture_loop(
                     capture_config,
                     ctrl_c_received,
                     rtc_source,
@@ -1046,7 +1123,9 @@ async fn run(args: Args, ctrl_c_received: Arc<AtomicBool>) -> Result<()> {
                     None,
                     publish_timing_state.clone(),
                 )
-                .await?;
+                .await;
+                let _ = publish_stats_task.await;
+                capture_result?;
             }
         }
     }

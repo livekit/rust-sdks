@@ -7,6 +7,7 @@
 #include "api/video/video_codec_constants.h"
 #include "api/video_codecs/scalability_mode.h"
 #include "common_video/libyuv/include/webrtc_libyuv.h"
+#include "jetson_av1_bitstream.h"
 #include "livekit/dmabuf_video_frame_buffer.h"
 #include "modules/video_coding/include/video_codec_interface.h"
 #include "modules/video_coding/include/video_error_codes.h"
@@ -85,6 +86,8 @@ int32_t JetsonAV1EncoderImpl::InitEncode(
   }
 
   codec_ = *inst;
+  sent_decodable_keyframe_ = false;
+  cached_sequence_header_obu_.clear();
   if (!codec_.GetScalabilityMode().has_value()) {
     codec_.SetScalabilityMode(ScalabilityMode::kL1T1);
   }
@@ -180,6 +183,10 @@ int32_t JetsonAV1EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
+  if (!sent_decodable_keyframe_) {
+    is_keyframe_needed = true;
+  }
+
   std::vector<uint8_t> packet;
   bool is_keyframe = false;
 
@@ -219,13 +226,48 @@ int32_t JetsonAV1EncoderImpl::Encode(
     return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
   }
 
-  if (is_keyframe_needed) {
+  livekit::av1::StripIvfFrameHeaderIfPresent(&packet);
+  if (packet.empty()) {
+    RTC_LOG(LS_ERROR)
+        << "Jetson MMAPI AV1 packet contained only IVF framing; skipping.";
+    return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+  }
+
+  std::vector<uint8_t> sequence_header;
+  if (livekit::av1::ExtractSequenceHeaderObu(packet.data(), packet.size(),
+                                             &sequence_header)) {
+    cached_sequence_header_obu_ = std::move(sequence_header);
+  }
+
+  const bool treat_as_keyframe = is_keyframe_needed || is_keyframe;
+  if (treat_as_keyframe) {
+    livekit::av1::EnsureSequenceHeaderOnKeyframe(&packet,
+                                                   cached_sequence_header_obu_);
+  }
+
+  if (!livekit::av1::IsWebRtcParseable(packet.data(), packet.size())) {
+    RTC_LOG(LS_ERROR)
+        << "Jetson MMAPI AV1 bitstream is not parseable by WebRTC; "
+           "dropping frame (size=" << packet.size() << ").";
+    return WEBRTC_VIDEO_CODEC_NO_OUTPUT;
+  }
+
+  if (treat_as_keyframe &&
+      livekit::av1::HasSequenceHeaderObu(packet.data(), packet.size())) {
+    sent_decodable_keyframe_ = true;
+    configuration_.key_frame_request = false;
+  } else if (!sent_decodable_keyframe_) {
+    RTC_LOG(LS_WARNING)
+        << "Jetson MMAPI AV1 keyframe still missing sequence header OBU; "
+           "continuing to force keyframes.";
+    configuration_.key_frame_request = true;
+  } else if (is_keyframe_needed) {
     configuration_.key_frame_request = false;
   }
 
   const int64_t encode_done_us = TimeMicros();
   const int32_t process_result =
-      ProcessEncodedFrame(packet, input_frame, is_keyframe);
+      ProcessEncodedFrame(packet, input_frame, treat_as_keyframe);
   const int64_t callback_done_us = TimeMicros();
   if (send_timing) {
     std::fprintf(stderr,
@@ -237,7 +279,7 @@ int32_t JetsonAV1EncoderImpl::Encode(
                  (encode_start_us - input_frame.timestamp_us()) / 1000.0,
                  (encode_done_us - encode_start_us) / 1000.0,
                  (callback_done_us - encode_done_us) / 1000.0, packet.size(),
-                 is_keyframe ? 1 : 0, process_result);
+                 treat_as_keyframe ? 1 : 0, process_result);
     std::fflush(stderr);
   }
   return process_result;

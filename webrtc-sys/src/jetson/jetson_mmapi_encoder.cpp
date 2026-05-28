@@ -108,6 +108,10 @@ bool GetPitchAndHeightFromNvBufSurfaceFd(int dmabuf_fd,
 #define V4L2_CID_MPEG_VIDEOENC_FORCE_INTRA_FRAME (V4L2_CID_MPEG_BASE + 566)
 #endif
 
+#ifndef V4L2_CID_MPEG_VIDEOENC_FORCE_IDR_FRAME
+#define V4L2_CID_MPEG_VIDEOENC_FORCE_IDR_FRAME (V4L2_CID_MPEG_BASE + 567)
+#endif
+
 #ifndef V4L2_CID_MPEG_VIDEOENC_AV1_ENABLE_TILE_GROUPS
 #define V4L2_CID_MPEG_VIDEOENC_AV1_ENABLE_TILE_GROUPS (V4L2_CID_MPEG_BASE + 598)
 #endif
@@ -539,19 +543,22 @@ bool JetsonMmapiEncoder::CreateEncoder() {
 bool JetsonMmapiEncoder::ConfigureAv1Encoder() {
   const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
 
+  // WebRTC expects raw low-overhead OBUs. NVIDIA's
+  // AV1_HEADERS_WITH_FRAME control attaches IVF container headers, which causes
+  // WebRTC's AV1 packetizer to produce zero RTP packets.
   if (!SetEncoderControl(encoder_,
-                         V4L2_CID_MPEG_VIDEOENC_AV1_HEADERS_WITH_FRAME, 1)) {
+                         V4L2_CID_MPEG_VIDEOENC_AV1_HEADERS_WITH_FRAME, 0)) {
     RTC_LOG(LS_WARNING)
-        << "Failed to enable AV1 headers-with-frame on Jetson encoder; "
+        << "Failed to disable AV1 IVF headers-with-frame on Jetson encoder; "
            "using driver default.";
     if (verbose) {
       std::fprintf(stderr,
-                   "[MMAPI] AV1_HEADERS_WITH_FRAME(1) failed: errno=%d (%s)\n",
+                   "[MMAPI] AV1_HEADERS_WITH_FRAME(0) failed: errno=%d (%s)\n",
                    errno, strerror(errno));
       std::fflush(stderr);
     }
   } else if (verbose) {
-    std::fprintf(stderr, "[MMAPI] AV1_HEADERS_WITH_FRAME enabled\n");
+    std::fprintf(stderr, "[MMAPI] AV1_HEADERS_WITH_FRAME disabled (WebRTC OBU)\n");
     std::fflush(stderr);
   }
 
@@ -1515,6 +1522,7 @@ bool JetsonMmapiEncoder::DequeueCaptureBuffer(std::vector<uint8_t>* encoded,
                  "buffer (dequeue_num=%lu)\n",
                  kMaxEmptyRetries, dequeue_num);
     std::fflush(stderr);
+    return false;
   }
 
   encoded->assign(static_cast<uint8_t*>(buffer->planes[0].data),
@@ -1885,12 +1893,20 @@ bool JetsonMmapiEncoder::QueueOutputBufferDmaBuf(int dmabuf_fd) {
 bool JetsonMmapiEncoder::ForceKeyframe() {
   v4l2_ext_control control = {};
   v4l2_ext_controls controls = {};
-  control.id = codec_ == JetsonCodec::kAV1
-                   ? V4L2_CID_MPEG_VIDEOENC_FORCE_INTRA_FRAME
-                   : V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME;
-  control.value = 1;
   controls.count = 1;
   controls.controls = &control;
+  control.value = 1;
+
+  if (codec_ == JetsonCodec::kAV1) {
+    control.id = V4L2_CID_MPEG_VIDEOENC_FORCE_IDR_FRAME;
+    if (encoder_->setExtControls(controls) == 0) {
+      return true;
+    }
+    control.id = V4L2_CID_MPEG_VIDEOENC_FORCE_INTRA_FRAME;
+    return encoder_->setExtControls(controls) == 0;
+  }
+
+  control.id = V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME;
   return encoder_->setExtControls(controls) == 0;
 }
 

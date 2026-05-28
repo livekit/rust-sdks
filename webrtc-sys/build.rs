@@ -225,6 +225,7 @@ fn main() {
                         .file("src/jetson/h264_encoder_impl.cpp")
                         .file("src/jetson/h265_encoder_impl.cpp")
                         .file("src/jetson/av1_encoder_impl.cpp")
+                        .file("src/jetson/jetson_av1_bitstream.cpp")
                         .file("src/jetson/jetson_encoder_factory.cpp")
                         .flag("-DUSE_JETSON_VIDEO_CODEC=1");
 
