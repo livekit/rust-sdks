@@ -84,6 +84,41 @@ export declare enum SimulateScenarioKind {
 }
 
 /**
+ * @generated from enum livekit.proto.VideoEncoderBackend
+ */
+export declare enum VideoEncoderBackend {
+  /**
+   * @generated from enum value: ENCODER_BACKEND_AUTO = 0;
+   */
+  ENCODER_BACKEND_AUTO = 0,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_SOFTWARE = 1;
+   */
+  ENCODER_BACKEND_SOFTWARE = 1,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_HARDWARE = 2;
+   */
+  ENCODER_BACKEND_HARDWARE = 2,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_NVENC = 3;
+   */
+  ENCODER_BACKEND_NVENC = 3,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_VAAPI = 4;
+   */
+  ENCODER_BACKEND_VAAPI = 4,
+
+  /**
+   * @generated from enum value: ENCODER_BACKEND_VIDEOTOOLBOX = 5;
+   */
+  ENCODER_BACKEND_VIDEOTOOLBOX = 5,
+}
+
+/**
  * @generated from enum livekit.proto.IceTransportType
  */
 export declare enum IceTransportType {
@@ -176,41 +211,6 @@ export declare enum DataPacketKind {
    * @generated from enum value: KIND_RELIABLE = 1;
    */
   KIND_RELIABLE = 1,
-}
-
-/**
- * @generated from enum livekit.proto.VideoEncoderBackend
- */
-export declare enum VideoEncoderBackend {
-  /**
-   * @generated from enum value: ENCODER_BACKEND_AUTO = 0;
-   */
-  ENCODER_BACKEND_AUTO = 0,
-
-  /**
-   * @generated from enum value: ENCODER_BACKEND_SOFTWARE = 1;
-   */
-  ENCODER_BACKEND_SOFTWARE = 1,
-
-  /**
-   * @generated from enum value: ENCODER_BACKEND_HARDWARE = 2;
-   */
-  ENCODER_BACKEND_HARDWARE = 2,
-
-  /**
-   * @generated from enum value: ENCODER_BACKEND_NVENC = 3;
-   */
-  ENCODER_BACKEND_NVENC = 3,
-
-  /**
-   * @generated from enum value: ENCODER_BACKEND_VAAPI = 4;
-   */
-  ENCODER_BACKEND_VAAPI = 4,
-
-  /**
-   * @generated from enum value: ENCODER_BACKEND_VIDEOTOOLBOX = 5;
-   */
-  ENCODER_BACKEND_VIDEOTOOLBOX = 5,
 }
 
 /**

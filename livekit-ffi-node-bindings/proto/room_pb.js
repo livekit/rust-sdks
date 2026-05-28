@@ -53,6 +53,21 @@ const SimulateScenarioKind = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
+ * @generated from enum livekit.proto.VideoEncoderBackend
+ */
+const VideoEncoderBackend = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.VideoEncoderBackend",
+  [
+    {no: 0, name: "ENCODER_BACKEND_AUTO"},
+    {no: 1, name: "ENCODER_BACKEND_SOFTWARE"},
+    {no: 2, name: "ENCODER_BACKEND_HARDWARE"},
+    {no: 3, name: "ENCODER_BACKEND_NVENC"},
+    {no: 4, name: "ENCODER_BACKEND_VAAPI"},
+    {no: 5, name: "ENCODER_BACKEND_VIDEOTOOLBOX"},
+  ],
+);
+
+/**
  * @generated from enum livekit.proto.IceTransportType
  */
 const IceTransportType = /*@__PURE__*/ proto2.makeEnum(
@@ -108,21 +123,6 @@ const DataPacketKind = /*@__PURE__*/ proto2.makeEnum(
   [
     {no: 0, name: "KIND_LOSSY"},
     {no: 1, name: "KIND_RELIABLE"},
-  ],
-);
-
-/**
- * @generated from enum livekit.proto.VideoEncoderBackend
- */
-const VideoEncoderBackend = /*@__PURE__*/ proto2.makeEnum(
-  "livekit.proto.VideoEncoderBackend",
-  [
-    {no: 0, name: "ENCODER_BACKEND_AUTO"},
-    {no: 1, name: "ENCODER_BACKEND_SOFTWARE"},
-    {no: 2, name: "ENCODER_BACKEND_HARDWARE"},
-    {no: 3, name: "ENCODER_BACKEND_NVENC"},
-    {no: 4, name: "ENCODER_BACKEND_VAAPI"},
-    {no: 5, name: "ENCODER_BACKEND_VIDEOTOOLBOX"},
   ],
 );
 
@@ -1633,12 +1633,12 @@ const DataTrackUnpublished = /*@__PURE__*/ proto2.makeMessageType(
 
 
 exports.SimulateScenarioKind = SimulateScenarioKind;
+exports.VideoEncoderBackend = VideoEncoderBackend;
 exports.IceTransportType = IceTransportType;
 exports.ContinualGatheringPolicy = ContinualGatheringPolicy;
 exports.ConnectionQuality = ConnectionQuality;
 exports.ConnectionState = ConnectionState;
 exports.DataPacketKind = DataPacketKind;
-exports.VideoEncoderBackend = VideoEncoderBackend;
 exports.ConnectRequest = ConnectRequest;
 exports.ConnectResponse = ConnectResponse;
 exports.ConnectCallback = ConnectCallback;
