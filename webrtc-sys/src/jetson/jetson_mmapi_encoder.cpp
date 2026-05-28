@@ -540,12 +540,12 @@ bool JetsonMmapiEncoder::CreateEncoder() {
   return true;
 }
 
-bool JetsonMmapiEncoder::ConfigureAv1Encoder() {
+void JetsonMmapiEncoder::ConfigureAv1HeadersWithFrame() {
   const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
 
-  // WebRTC expects raw low-overhead OBUs. NVIDIA's
-  // AV1_HEADERS_WITH_FRAME control attaches IVF container headers, which causes
-  // WebRTC's AV1 packetizer to produce zero RTP packets.
+  // WebRTC expects raw low-overhead OBUs. NVIDIA documents this control as
+  // after both plane formats, but Jetson AV1 applies it before the output
+  // format is set; otherwise IVF headers can still be attached.
   if (!SetEncoderControl(encoder_,
                          V4L2_CID_MPEG_VIDEOENC_AV1_HEADERS_WITH_FRAME, 0)) {
     RTC_LOG(LS_WARNING)
@@ -561,6 +561,10 @@ bool JetsonMmapiEncoder::ConfigureAv1Encoder() {
     std::fprintf(stderr, "[MMAPI] AV1_HEADERS_WITH_FRAME disabled (WebRTC OBU)\n");
     std::fflush(stderr);
   }
+}
+
+bool JetsonMmapiEncoder::ConfigureAv1Encoder() {
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
 
 #ifdef V4L2_CID_MPEG_VIDEOENC_AV1_TILE_CONFIGURATION
   v4l2_enc_av1_tile_config tile_config = {};
@@ -646,29 +650,63 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     std::fflush(stderr);
   }
 
-  // Prefer planar YUV420 (I420-style) for Jetson end-to-end.
-  // If that fails, fall back to NV12M. The I420 input path can still be used
-  // with NV12 by interleaving U/V into UV in QueueOutputBuffer().
-  output_is_nv12_ = false;
-  ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_, height_);
-  if (ret < 0) {
-    if (verbose) {
-      std::fprintf(stderr,
-                   "[MMAPI] YUV420M format failed (ret=%d), trying NV12M\n",
-                   ret);
-      std::fflush(stderr);
-    }
+  if (codec_ == JetsonCodec::kAV1) {
+    ConfigureAv1HeadersWithFrame();
+  }
+
+  if (codec_ == JetsonCodec::kAV1) {
+    // Argus supplies NV12 DMA buffers. Prefer NV12 for AV1 up front so the
+    // DMABUF path does not change the output format after AV1 controls run.
+    output_is_nv12_ = true;
     ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_, height_);
     if (ret < 0) {
-      RTC_LOG(LS_ERROR) << "Failed to set output plane format.";
-      std::fprintf(stderr,
-                   "[MMAPI] setOutputPlaneFormat failed for both YUV420M and "
-                   "NV12M: ret=%d, errno=%d (%s)\n",
-                   ret, errno, strerror(errno));
-      std::fflush(stderr);
-      return false;
+      if (verbose) {
+        std::fprintf(stderr,
+                     "[MMAPI] AV1 NV12M format failed (ret=%d), trying "
+                     "YUV420M\n",
+                     ret);
+        std::fflush(stderr);
+      }
+      ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_,
+                                           height_);
+      if (ret < 0) {
+        RTC_LOG(LS_ERROR) << "Failed to set AV1 output plane format.";
+        std::fprintf(stderr,
+                     "[MMAPI] setOutputPlaneFormat failed for both NV12M and "
+                     "YUV420M: ret=%d, errno=%d (%s)\n",
+                     ret, errno, strerror(errno));
+        std::fflush(stderr);
+        return false;
+      }
+      output_is_nv12_ = false;
     }
-    output_is_nv12_ = true;
+  } else {
+    // Prefer planar YUV420 (I420-style) for Jetson end-to-end.
+    // If that fails, fall back to NV12M. The I420 input path can still be used
+    // with NV12 by interleaving U/V into UV in QueueOutputBuffer().
+    output_is_nv12_ = false;
+    ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_YUV420M, width_,
+                                         height_);
+    if (ret < 0) {
+      if (verbose) {
+        std::fprintf(stderr,
+                     "[MMAPI] YUV420M format failed (ret=%d), trying NV12M\n",
+                     ret);
+        std::fflush(stderr);
+      }
+      ret = encoder_->setOutputPlaneFormat(V4L2_PIX_FMT_NV12M, width_,
+                                           height_);
+      if (ret < 0) {
+        RTC_LOG(LS_ERROR) << "Failed to set output plane format.";
+        std::fprintf(stderr,
+                     "[MMAPI] setOutputPlaneFormat failed for both YUV420M and "
+                     "NV12M: ret=%d, errno=%d (%s)\n",
+                     ret, errno, strerror(errno));
+        std::fflush(stderr);
+        return false;
+      }
+      output_is_nv12_ = true;
+    }
   }
   if (verbose) {
     std::fprintf(stderr,

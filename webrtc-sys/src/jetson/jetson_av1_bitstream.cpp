@@ -50,6 +50,35 @@ bool ShouldTransferObu(int obu_type) {
          obu_type != kObuTypePadding;
 }
 
+uint32_t ReadLittleEndianUint32(const std::vector<uint8_t>& data) {
+  if (data.size() < 4) {
+    return 0;
+  }
+  return static_cast<uint32_t>(data[0]) |
+         (static_cast<uint32_t>(data[1]) << 8) |
+         (static_cast<uint32_t>(data[2]) << 16) |
+         (static_cast<uint32_t>(data[3]) << 24);
+}
+
+bool StripIvfFrameHeader(std::vector<uint8_t>* packet) {
+  if (!packet || packet->size() < 12) {
+    return false;
+  }
+
+  const uint32_t declared_size = ReadLittleEndianUint32(*packet);
+  if (declared_size == 0 || declared_size != packet->size() - 12) {
+    return false;
+  }
+
+  const uint8_t* payload = packet->data() + 12;
+  if (ParseObus(payload, declared_size).empty()) {
+    return false;
+  }
+
+  packet->erase(packet->begin(), packet->begin() + 12);
+  return true;
+}
+
 }  // namespace
 
 std::vector<ObuSpan> ParseObus(const uint8_t* data, size_t len) {
@@ -151,15 +180,7 @@ void StripIvfFrameHeaderIfPresent(std::vector<uint8_t>* packet) {
     }
     packet->erase(packet->begin(), packet->begin() + 32);
   }
-  if (packet->size() >= 12 && ParseObus(packet->data(), packet->size()).empty()) {
-    const uint32_t declared_size = static_cast<uint32_t>(packet->at(0)) |
-                                   (static_cast<uint32_t>(packet->at(1)) << 8) |
-                                   (static_cast<uint32_t>(packet->at(2)) << 16) |
-                                   (static_cast<uint32_t>(packet->at(3)) << 24);
-    if (declared_size > 0 && 12 + declared_size <= packet->size()) {
-      packet->erase(packet->begin(), packet->begin() + 12);
-    }
-  }
+  StripIvfFrameHeader(packet);
 }
 
 bool IsWebRtcParseable(const uint8_t* data, size_t len) {

@@ -63,6 +63,7 @@ class JetsonMmapiEncoder {
  private:
   bool CreateEncoder();
   bool ConfigureEncoder();
+  void ConfigureAv1HeadersWithFrame();
   bool ConfigureAv1Encoder();
   bool SetupPlanes();
   bool QueueCaptureBuffers();
