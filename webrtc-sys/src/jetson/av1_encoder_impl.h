@@ -8,6 +8,7 @@
 #include "api/video/video_codec_constants.h"
 #include "api/video_codecs/sdp_video_format.h"
 #include "api/video_codecs/video_encoder.h"
+#include "modules/video_coding/svc/scalable_video_controller_no_layering.h"
 
 #include "jetson_mmapi_encoder.h"
 
@@ -68,6 +69,13 @@ class JetsonAV1EncoderImpl : public VideoEncoder {
   bool has_reported_error_ = false;
   bool sent_decodable_keyframe_ = false;
   std::vector<uint8_t> cached_sequence_header_obu_;
+  // Produces the per-frame GenericFrameInfo and the keyframe
+  // FrameDependencyStructure that back the AV1 dependency descriptor. The
+  // Jetson hardware only emits an OBU bitstream, so (like libaom's encoder and
+  // WebRTC's SimpleEncoderWrapper) we synthesize the L1T1 scalability metadata
+  // here. Without it the RTP layer has no dependency descriptor to send and the
+  // packetizer never emits packets for AV1.
+  ScalableVideoControllerNoLayering svc_controller_;
   const SdpVideoFormat format_;
 };
 

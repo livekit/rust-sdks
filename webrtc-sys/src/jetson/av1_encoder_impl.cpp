@@ -151,6 +151,9 @@ int32_t JetsonAV1EncoderImpl::InitEncode(
   codec_ = *inst;
   sent_decodable_keyframe_ = false;
   cached_sequence_header_obu_.clear();
+  // Reset the dependency-descriptor controller so the first encoded frame of
+  // the new session is emitted as a keyframe with a fresh template structure.
+  svc_controller_ = ScalableVideoControllerNoLayering();
   if (!codec_.GetScalabilityMode().has_value()) {
     codec_.SetScalabilityMode(ScalabilityMode::kL1T1);
   }
@@ -379,7 +382,27 @@ int32_t JetsonAV1EncoderImpl::ProcessEncodedFrame(
 
   CodecSpecificInfo codecInfo;
   codecInfo.codecType = kVideoCodecAV1;
+  codecInfo.end_of_picture = true;
   codecInfo.scalability_mode = ScalabilityMode::kL1T1;
+
+  // Attach the AV1 dependency-descriptor metadata. The hardware encoder only
+  // produces an OBU bitstream, so we drive WebRTC's no-layering scalability
+  // controller to generate the GenericFrameInfo for every frame (and the
+  // FrameDependencyStructure on keyframes). This is required for the RTP layer
+  // to packetize/send AV1 and for the SFU to forward it; without it the encoder
+  // produces frames but no RTP packets are ever emitted. NextFrameConfig() is
+  // called exactly once per emitted frame (after all drop checks) so the
+  // dependency chain stays consistent with what is actually sent.
+  std::vector<ScalableVideoController::LayerFrameConfig> layer_frames =
+      svc_controller_.NextFrameConfig(/*restart=*/is_keyframe);
+  if (!layer_frames.empty()) {
+    const ScalableVideoController::LayerFrameConfig& layer_frame =
+        layer_frames.front();
+    codecInfo.generic_frame_info = svc_controller_.OnEncodeDone(layer_frame);
+    if (layer_frame.IsKeyframe()) {
+      codecInfo.template_structure = svc_controller_.DependencyStructure();
+    }
+  }
 
   const auto result =
       encoded_image_callback_->OnEncodedImage(encoded_image_, &codecInfo);
