@@ -30,7 +30,7 @@ pub use crate::{
     },
     rtp_parameters::*,
     rtp_receiver::RtpReceiver,
-    rtp_sender::RtpSender,
+    rtp_sender::{RtpSender, VideoEncoderBackend},
     rtp_transceiver::{RtpTransceiver, RtpTransceiverDirection, RtpTransceiverInit},
     session_description::{SdpType, SessionDescription},
     video_frame::{

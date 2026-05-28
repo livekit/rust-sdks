@@ -19,6 +19,25 @@ use crate::{
     stats::RtcStats, RtcError,
 };
 
+/// Preferred backend for video encoding on an [`RtpSender`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum VideoEncoderBackend {
+    /// Use the SDK's default encoder selection.
+    #[default]
+    Auto,
+    /// Prefer a software encoder.
+    Software,
+    /// Prefer any available hardware encoder.
+    Hardware,
+    /// Prefer NVIDIA NVENC when available.
+    Nvenc,
+    /// Prefer VAAPI when available.
+    Vaapi,
+    /// Prefer VideoToolbox on Apple platforms when available.
+    VideoToolbox,
+}
+
 #[derive(Clone)]
 pub struct RtpSender {
     pub(crate) handle: imp_rs::RtpSender,
@@ -43,6 +62,14 @@ impl RtpSender {
 
     pub fn set_parameters(&self, parameters: RtpParameters) -> Result<(), RtcError> {
         self.handle.set_parameters(parameters)
+    }
+
+    /// Sets the preferred video encoder backend for this sender.
+    ///
+    /// If the requested backend is unavailable, libwebrtc falls back to another
+    /// compatible encoder.
+    pub fn set_video_encoder_backend(&self, backend: VideoEncoderBackend) {
+        self.handle.set_video_encoder_backend(backend)
     }
 }
 

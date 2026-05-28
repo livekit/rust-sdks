@@ -54,6 +54,17 @@ pub mod ffi {
         None,
     }
 
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    #[repr(i32)]
+    pub enum VideoEncoderBackend {
+        Auto,
+        Software,
+        Hardware,
+        Nvenc,
+        Vaapi,
+        VideoToolbox,
+    }
+
     unsafe extern "C++" {
         include!("livekit/webrtc.h");
 

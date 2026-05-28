@@ -112,6 +112,21 @@ const DataPacketKind = /*@__PURE__*/ proto2.makeEnum(
 );
 
 /**
+ * @generated from enum livekit.proto.VideoEncoderBackend
+ */
+const VideoEncoderBackend = /*@__PURE__*/ proto2.makeEnum(
+  "livekit.proto.VideoEncoderBackend",
+  [
+    {no: 0, name: "ENCODER_BACKEND_AUTO"},
+    {no: 1, name: "ENCODER_BACKEND_SOFTWARE"},
+    {no: 2, name: "ENCODER_BACKEND_HARDWARE"},
+    {no: 3, name: "ENCODER_BACKEND_NVENC"},
+    {no: 4, name: "ENCODER_BACKEND_VAAPI"},
+    {no: 5, name: "ENCODER_BACKEND_VIDEOTOOLBOX"},
+  ],
+);
+
+/**
  * Connect to a new LiveKit room
  *
  * @generated from message livekit.proto.ConnectRequest
@@ -716,6 +731,7 @@ const TrackPublishOptions = /*@__PURE__*/ proto2.makeMessageType(
     { no: 9, name: "preconnect_buffer", kind: "scalar", T: 8 /* ScalarType.BOOL */, opt: true },
     { no: 10, name: "packet_trailer_features", kind: "enum", T: proto2.getEnumType(PacketTrailerFeature), repeated: true },
     { no: 11, name: "scalability_mode", kind: "scalar", T: 9 /* ScalarType.STRING */, opt: true },
+    { no: 12, name: "video_encoder", kind: "enum", T: proto2.getEnumType(VideoEncoderBackend), opt: true },
   ],
 );
 
@@ -1622,6 +1638,7 @@ exports.ContinualGatheringPolicy = ContinualGatheringPolicy;
 exports.ConnectionQuality = ConnectionQuality;
 exports.ConnectionState = ConnectionState;
 exports.DataPacketKind = DataPacketKind;
+exports.VideoEncoderBackend = VideoEncoderBackend;
 exports.ConnectRequest = ConnectRequest;
 exports.ConnectResponse = ConnectResponse;
 exports.ConnectCallback = ConnectCallback;

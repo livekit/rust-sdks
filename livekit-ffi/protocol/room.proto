@@ -317,6 +317,17 @@ message TrackPublishOptions {
   // encoding is produced with this mode, enabling true SVC for codecs
   // that support it (VP9, AV1). Has no effect for VP8/H264.
   optional string scalability_mode = 11;
+  // Preferred encoder backend to use when publishing a video track.
+  optional VideoEncoderBackend video_encoder = 12;
+}
+
+enum VideoEncoderBackend {
+  ENCODER_BACKEND_AUTO = 0;
+  ENCODER_BACKEND_SOFTWARE = 1;
+  ENCODER_BACKEND_HARDWARE = 2;
+  ENCODER_BACKEND_NVENC = 3;
+  ENCODER_BACKEND_VAAPI = 4;
+  ENCODER_BACKEND_VIDEOTOOLBOX = 5;
 }
 
 enum IceTransportType {
