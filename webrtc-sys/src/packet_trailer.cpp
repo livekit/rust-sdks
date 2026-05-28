@@ -16,7 +16,6 @@
 
 #include "livekit/packet_trailer.h"
 
-#include <chrono>
 #include <cstring>
 #include <optional>
 
@@ -25,6 +24,7 @@
 #include "livekit/rtp_receiver.h"
 #include "livekit/rtp_sender.h"
 #include "rtc_base/logging.h"
+#include "rtc_base/time_utils.h"
 #include "webrtc-sys/src/packet_trailer.rs.h"
 
 namespace livekit_ffi {
@@ -32,9 +32,32 @@ namespace livekit_ffi {
 namespace {
 
 uint64_t CurrentUnixTimeMicros() {
-  auto now = std::chrono::system_clock::now().time_since_epoch();
-  return static_cast<uint64_t>(
-      std::chrono::duration_cast<std::chrono::microseconds>(now).count());
+  return static_cast<uint64_t>(webrtc::TimeUTCMicros());
+}
+
+uint64_t ReceiveTimeUnixMicros(
+    const webrtc::TransformableFrameInterface& frame) {
+  auto receive_time = frame.ReceiveTime();
+  if (!receive_time.has_value() || !receive_time->IsFinite()) {
+    return CurrentUnixTimeMicros();
+  }
+
+  const int64_t monotonic_now_us = webrtc::TimeMicros();
+  const int64_t utc_now_us = webrtc::TimeUTCMicros();
+  const int64_t receive_monotonic_us = receive_time->us();
+  if (receive_monotonic_us >= monotonic_now_us) {
+    return static_cast<uint64_t>(utc_now_us);
+  }
+
+  const int64_t receive_utc_us =
+      utc_now_us - (monotonic_now_us - receive_monotonic_us);
+  return receive_utc_us > 0 ? static_cast<uint64_t>(receive_utc_us)
+                            : CurrentUnixTimeMicros();
+}
+
+uint64_t ClampTimestampAfter(uint64_t timestamp_us, uint64_t lower_bound_us) {
+  return lower_bound_us > 0 && timestamp_us < lower_bound_us ? lower_bound_us
+                                                             : timestamp_us;
 }
 
 }  // namespace
@@ -207,7 +230,7 @@ void PacketTrailerTransformer::TransformReceive(
     frame->SetData(webrtc::ArrayView<const uint8_t>(stripped_data));
   }
   uint64_t receive_timestamp_us =
-      subscribe_timing_enabled() ? CurrentUnixTimeMicros() : 0;
+      subscribe_timing_enabled() ? ReceiveTimeUnixMicros(*frame) : 0;
   emit_subscribe_timing(VideoSubscribeTimingStage::WebrtcReceive,
                         timing_meta.user_timestamp, timing_meta.frame_id,
                         receive_timestamp_us);
@@ -225,8 +248,13 @@ void PacketTrailerTransformer::TransformReceive(
   }
 
   if (cb) {
+    uint64_t decoder_upload_timestamp_us =
+        subscribe_timing_enabled()
+            ? ClampTimestampAfter(CurrentUnixTimeMicros(), receive_timestamp_us)
+            : 0;
     emit_subscribe_timing(VideoSubscribeTimingStage::DecoderUpload,
-                          timing_meta.user_timestamp, timing_meta.frame_id);
+                          timing_meta.user_timestamp, timing_meta.frame_id,
+                          decoder_upload_timestamp_us);
     cb->OnTransformedFrame(std::move(frame));
   } else {
     RTC_LOG(LS_WARNING)

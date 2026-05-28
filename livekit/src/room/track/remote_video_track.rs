@@ -142,6 +142,10 @@ impl RemoteVideoTrack {
 
     /// Returns a stream of native remote video subscribe-pipeline timing events.
     ///
+    /// The [`SubscribeTimingStage::WebrtcReceive`] timestamp is based on
+    /// WebRTC's receive time for the first packet of the encoded frame, when
+    /// available.
+    ///
     /// Multiple concurrent subscriptions are supported; each call returns an
     /// independent stream that begins with the next event observed after this
     /// call. Slow consumers will silently drop intermediate events when the

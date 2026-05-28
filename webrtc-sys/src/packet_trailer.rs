@@ -33,8 +33,11 @@ pub mod ffi {
     #[repr(i32)]
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum VideoSubscribeTimingStage {
+        /// The first packet for the encoded frame was observed on the receive path.
         WebrtcReceive,
+        /// The encoded frame was handed to WebRTC's decoder.
         DecoderUpload,
+        /// WebRTC produced a decoded frame for the native video sink.
         DecoderOutput,
     }
 

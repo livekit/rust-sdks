@@ -50,7 +50,7 @@ pub enum PublishTimingStage {
 /// Stage reached by a native remote video frame in the subscribe pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubscribeTimingStage {
-    /// WebRTC produced an encoded frame after RTP depacketization.
+    /// The first packet for the encoded frame was observed on the receive path.
     WebrtcReceive,
     /// The encoded frame was handed to WebRTC's decoder.
     DecoderUpload,

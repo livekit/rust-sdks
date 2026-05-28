@@ -974,7 +974,7 @@ fn build_timing_overlay_lines(
             &overlay_values.deltas.sensor_exposure,
         ),
         subscriber_timing_line(
-            "webrtc receive",
+            "first packet received",
             webrtc_receive,
             &overlay_values.deltas.webrtc_receive,
         ),
@@ -1076,7 +1076,7 @@ mod tests {
             vec![
                 "Frame ID:                                  123",
                 "sensor exposure:       01:02:03:456      0.0ms",
-                "webrtc receive:        01:02:03:488    +32.4ms",
+                "first packet received: 01:02:03:488    +32.4ms",
                 "decoder upload:        01:02:03:491     +3.1ms",
                 "decoder output:        01:02:03:511    +19.8ms",
                 "frame uploaded to GPU: 01:02:03:512     +1.6ms",
@@ -1100,7 +1100,7 @@ mod tests {
             vec![
                 "Frame ID:                                   NA",
                 "sensor exposure:       01:02:03:456      0.0ms",
-                "webrtc receive:        --:--:--:---    +--.-ms",
+                "first packet received: --:--:--:---    +--.-ms",
                 "decoder upload:        --:--:--:---    +--.-ms",
                 "decoder output:        --:--:--:---    +--.-ms",
                 "frame uploaded to GPU: --:--:--:---    +--.-ms",
