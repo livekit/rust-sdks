@@ -540,19 +540,18 @@ bool JetsonMmapiEncoder::ConfigureAv1Encoder() {
   const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
 
   if (!SetEncoderControl(encoder_,
-                         V4L2_CID_MPEG_VIDEOENC_AV1_HEADERS_WITH_FRAME, 0)) {
-    RTC_LOG(LS_ERROR)
-        << "Failed to disable AV1 headers-with-frame on Jetson encoder.";
+                         V4L2_CID_MPEG_VIDEOENC_AV1_HEADERS_WITH_FRAME, 1)) {
+    RTC_LOG(LS_WARNING)
+        << "Failed to enable AV1 headers-with-frame on Jetson encoder; "
+           "using driver default.";
     if (verbose) {
       std::fprintf(stderr,
-                   "[MMAPI] AV1_HEADERS_WITH_FRAME(0) failed: errno=%d (%s)\n",
+                   "[MMAPI] AV1_HEADERS_WITH_FRAME(1) failed: errno=%d (%s)\n",
                    errno, strerror(errno));
       std::fflush(stderr);
     }
-    return false;
-  }
-  if (verbose) {
-    std::fprintf(stderr, "[MMAPI] AV1_HEADERS_WITH_FRAME disabled\n");
+  } else if (verbose) {
+    std::fprintf(stderr, "[MMAPI] AV1_HEADERS_WITH_FRAME enabled\n");
     std::fflush(stderr);
   }
 
