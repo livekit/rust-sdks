@@ -96,6 +96,45 @@ bool GetPitchAndHeightFromNvBufSurfaceFd(int dmabuf_fd,
 #define V4L2_PIX_FMT_H265 v4l2_fourcc('H', '2', '6', '5')
 #endif
 
+#ifndef V4L2_PIX_FMT_AV1
+#define V4L2_PIX_FMT_AV1 v4l2_fourcc('A', 'V', '1', '0')
+#endif
+
+#ifndef V4L2_CID_MPEG_VIDEOENC_AV1_HEADERS_WITH_FRAME
+#define V4L2_CID_MPEG_VIDEOENC_AV1_HEADERS_WITH_FRAME (V4L2_CID_MPEG_BASE + 569)
+#endif
+
+#ifndef V4L2_CID_MPEG_VIDEOENC_FORCE_INTRA_FRAME
+#define V4L2_CID_MPEG_VIDEOENC_FORCE_INTRA_FRAME (V4L2_CID_MPEG_BASE + 566)
+#endif
+
+#ifndef V4L2_CID_MPEG_VIDEOENC_AV1_ENABLE_TILE_GROUPS
+#define V4L2_CID_MPEG_VIDEOENC_AV1_ENABLE_TILE_GROUPS (V4L2_CID_MPEG_BASE + 598)
+#endif
+
+const char* CodecName(livekit::JetsonCodec codec) {
+  switch (codec) {
+    case livekit::JetsonCodec::kH264:
+      return "H264";
+    case livekit::JetsonCodec::kH265:
+      return "H265";
+    case livekit::JetsonCodec::kAV1:
+      return "AV1";
+  }
+  return "unknown";
+}
+
+bool SetEncoderControl(NvVideoEncoder* encoder, uint32_t id, int32_t value) {
+  v4l2_ext_control control = {};
+  control.id = id;
+  control.value = value;
+
+  v4l2_ext_controls controls = {};
+  controls.count = 1;
+  controls.controls = &control;
+  return encoder->setExtControls(controls) == 0;
+}
+
 }  // namespace
 
 namespace livekit {
@@ -108,7 +147,8 @@ JetsonMmapiEncoder::~JetsonMmapiEncoder() {
 
 bool JetsonMmapiEncoder::IsSupported() {
   return IsCodecSupported(JetsonCodec::kH264) ||
-         IsCodecSupported(JetsonCodec::kH265);
+         IsCodecSupported(JetsonCodec::kH265) ||
+         IsCodecSupported(JetsonCodec::kAV1);
 }
 
 bool JetsonMmapiEncoder::IsCodecSupported(JetsonCodec codec) {
@@ -148,8 +188,15 @@ std::optional<std::string> JetsonMmapiEncoder::FindEncoderDevice() {
 }
 
 uint32_t JetsonMmapiEncoder::CodecToV4L2PixFmt(JetsonCodec codec) {
-  return codec == JetsonCodec::kH264 ? V4L2_PIX_FMT_H264
-                                     : V4L2_PIX_FMT_HEVC;
+  switch (codec) {
+    case JetsonCodec::kH264:
+      return V4L2_PIX_FMT_H264;
+    case JetsonCodec::kH265:
+      return V4L2_PIX_FMT_HEVC;
+    case JetsonCodec::kAV1:
+      return V4L2_PIX_FMT_AV1;
+  }
+  return V4L2_PIX_FMT_H264;
 }
 
 uint32_t JetsonMmapiEncoder::CodecToV4L2FallbackPixFmt(JetsonCodec codec) {
@@ -474,7 +521,9 @@ void JetsonMmapiEncoder::SetKeyframeInterval(int keyframe_interval) {
   if (!encoder_) {
     return;
   }
-  encoder_->setIDRInterval(keyframe_interval_);
+  if (codec_ != JetsonCodec::kAV1) {
+    encoder_->setIDRInterval(keyframe_interval_);
+  }
   encoder_->setIFrameInterval(keyframe_interval_);
 }
 
@@ -484,6 +533,65 @@ bool JetsonMmapiEncoder::CreateEncoder() {
     RTC_LOG(LS_ERROR) << "Failed to create NvVideoEncoder.";
     return false;
   }
+  return true;
+}
+
+bool JetsonMmapiEncoder::ConfigureAv1Encoder() {
+  const bool verbose = std::getenv("LK_ENCODER_DEBUG") != nullptr;
+
+  if (!SetEncoderControl(encoder_,
+                         V4L2_CID_MPEG_VIDEOENC_AV1_HEADERS_WITH_FRAME, 0)) {
+    RTC_LOG(LS_ERROR)
+        << "Failed to disable AV1 headers-with-frame on Jetson encoder.";
+    if (verbose) {
+      std::fprintf(stderr,
+                   "[MMAPI] AV1_HEADERS_WITH_FRAME(0) failed: errno=%d (%s)\n",
+                   errno, strerror(errno));
+      std::fflush(stderr);
+    }
+    return false;
+  }
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] AV1_HEADERS_WITH_FRAME disabled\n");
+    std::fflush(stderr);
+  }
+
+#ifdef V4L2_CID_MPEG_VIDEOENC_AV1_TILE_CONFIGURATION
+  v4l2_enc_av1_tile_config tile_config = {};
+  tile_config.bEnableTile = 0;
+  tile_config.nLog2RowTiles = 0;
+  tile_config.nLog2ColTiles = 0;
+  int ret = encoder_->enableAV1Tile(tile_config);
+  if (verbose) {
+    std::fprintf(stderr, "[MMAPI] enableAV1Tile(single-tile): ret=%d\n", ret);
+    std::fflush(stderr);
+  }
+  if (ret < 0) {
+    RTC_LOG(LS_WARNING)
+        << "Failed to configure AV1 single-tile mode; using driver default.";
+  }
+#endif
+
+  // v1 intentionally stays single-tile and does not emit tile groups. Keep the
+  // tile-group control best-effort because older JetPack drivers may not know
+  // the AV1 extension even when compiling with newer headers.
+  if (SetEncoderControl(encoder_,
+                        V4L2_CID_MPEG_VIDEOENC_AV1_ENABLE_TILE_GROUPS, 0)) {
+    if (verbose) {
+      std::fprintf(stderr, "[MMAPI] AV1 tile groups disabled\n");
+      std::fflush(stderr);
+    }
+  } else {
+    RTC_LOG(LS_WARNING)
+        << "Failed to disable AV1 tile groups; using driver default.";
+    if (verbose) {
+      std::fprintf(stderr,
+                   "[MMAPI] AV1_ENABLE_TILE_GROUPS(0) failed: errno=%d (%s)\n",
+                   errno, strerror(errno));
+      std::fflush(stderr);
+    }
+  }
+
   return true;
 }
 
@@ -497,8 +605,7 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     std::fprintf(stderr,
                  "[MMAPI] ConfigureEncoder: codec=%s, pixfmt=0x%x, "
                  "bitstream_size=%u\n",
-                 codec_ == JetsonCodec::kH264 ? "H264" : "H265", codec_pixfmt,
-                 bitstream_size);
+                 CodecName(codec_), codec_pixfmt, bitstream_size);
     std::fflush(stderr);
   }
 
@@ -564,6 +671,10 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     std::fflush(stderr);
   }
 
+  if (codec_ == JetsonCodec::kAV1 && !ConfigureAv1Encoder()) {
+    return false;
+  }
+
   // These controls must be applied after both plane formats are set and before
   // either plane requests buffers. Keep them best-effort so older JetPack/MMAPI
   // versions can still encode if one low-latency knob is unavailable.
@@ -613,11 +724,13 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     std::fflush(stderr);
   }
 
-  ret = encoder_->setIDRInterval(keyframe_interval_);
-  if (verbose) {
-    std::fprintf(stderr, "[MMAPI] setIDRInterval(%d): ret=%d\n",
-                 keyframe_interval_, ret);
-    std::fflush(stderr);
+  if (codec_ != JetsonCodec::kAV1) {
+    ret = encoder_->setIDRInterval(keyframe_interval_);
+    if (verbose) {
+      std::fprintf(stderr, "[MMAPI] setIDRInterval(%d): ret=%d\n",
+                   keyframe_interval_, ret);
+      std::fflush(stderr);
+    }
   }
 
   ret = encoder_->setIFrameInterval(keyframe_interval_);
@@ -627,11 +740,14 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
     std::fflush(stderr);
   }
 
-  ret = encoder_->setInsertSpsPpsAtIdrEnabled(true);
-  if (verbose) {
-    std::fprintf(stderr, "[MMAPI] setInsertSpsPpsAtIdrEnabled(true): ret=%d\n",
-                 ret);
-    std::fflush(stderr);
+  if (codec_ != JetsonCodec::kAV1) {
+    ret = encoder_->setInsertSpsPpsAtIdrEnabled(true);
+    if (verbose) {
+      std::fprintf(stderr,
+                   "[MMAPI] setInsertSpsPpsAtIdrEnabled(true): ret=%d\n",
+                   ret);
+      std::fflush(stderr);
+    }
   }
 
   if (codec_ == JetsonCodec::kH264) {
@@ -647,7 +763,7 @@ bool JetsonMmapiEncoder::ConfigureEncoder() {
       std::fprintf(stderr, "[MMAPI] setLevel(3.1): ret=%d\n", ret);
       std::fflush(stderr);
     }
-  } else {
+  } else if (codec_ == JetsonCodec::kH265) {
     ret = encoder_->setProfile(V4L2_MPEG_VIDEO_H265_PROFILE_MAIN);
     if (verbose) {
       std::fprintf(stderr, "[MMAPI] setProfile(MAIN): ret=%d\n", ret);
@@ -1770,7 +1886,9 @@ bool JetsonMmapiEncoder::QueueOutputBufferDmaBuf(int dmabuf_fd) {
 bool JetsonMmapiEncoder::ForceKeyframe() {
   v4l2_ext_control control = {};
   v4l2_ext_controls controls = {};
-  control.id = V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME;
+  control.id = codec_ == JetsonCodec::kAV1
+                   ? V4L2_CID_MPEG_VIDEOENC_FORCE_INTRA_FRAME
+                   : V4L2_CID_MPEG_VIDEO_FORCE_KEY_FRAME;
   control.value = 1;
   controls.count = 1;
   controls.controls = &control;

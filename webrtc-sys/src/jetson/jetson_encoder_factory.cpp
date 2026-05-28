@@ -4,6 +4,9 @@
 #include <map>
 #include <memory>
 
+#include "absl/container/inlined_vector.h"
+#include "av1_encoder_impl.h"
+#include "api/video_codecs/scalability_mode.h"
 #include "h264_encoder_impl.h"
 #include "h265_encoder_impl.h"
 #include "jetson_mmapi_encoder.h"
@@ -21,6 +24,15 @@ JetsonVideoEncoderFactory::JetsonVideoEncoderFactory() {
 
   supported_formats_.push_back(SdpVideoFormat("H265"));
   supported_formats_.push_back(SdpVideoFormat("HEVC"));
+
+  if (livekit::JetsonMmapiEncoder::IsCodecSupported(
+          livekit::JetsonCodec::kAV1)) {
+    absl::InlinedVector<ScalabilityMode, kScalabilityModeCount>
+        scalability_modes;
+    scalability_modes.push_back(ScalabilityMode::kL1T1);
+    supported_formats_.push_back(
+        SdpVideoFormat(SdpVideoFormat::AV1Profile0(), scalability_modes));
+  }
 }
 
 JetsonVideoEncoderFactory::~JetsonVideoEncoderFactory() {}
@@ -54,6 +66,12 @@ std::unique_ptr<VideoEncoder> JetsonVideoEncoderFactory::Create(
       RTC_LOG(LS_INFO) << "Using Jetson MMAPI encoder for H265/HEVC";
       std::cout << "Using Jetson MMAPI encoder for H265/HEVC" << std::endl;
       return std::make_unique<JetsonH265EncoderImpl>(env, format);
+    }
+
+    if (format.name == "AV1") {
+      RTC_LOG(LS_INFO) << "Using Jetson MMAPI encoder for AV1";
+      std::cout << "Using Jetson MMAPI encoder for AV1" << std::endl;
+      return std::make_unique<JetsonAV1EncoderImpl>(env, format);
     }
   }
   return nullptr;
