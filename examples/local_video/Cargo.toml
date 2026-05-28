@@ -22,6 +22,11 @@ name = "list_devices"
 path = "src/list_devices.rs"
 required-features = ["desktop"]
 
+[[bin]]
+name = "clock"
+path = "src/clock.rs"
+required-features = ["desktop"]
+
 [dependencies]
 tokio = { workspace = true, features = ["full", "parking_lot"] }
 tokio-stream = { workspace = true }
