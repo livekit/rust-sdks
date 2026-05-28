@@ -35,6 +35,10 @@ void EnsureSequenceHeaderOnKeyframe(std::vector<uint8_t>* packet,
 /// Strip a per-frame IVF container header when present.
 void StripIvfFrameHeaderIfPresent(std::vector<uint8_t>* packet);
 
+/// Convert AV1 Annex-B temporal/frame/OBU units to low-overhead OBUs when
+/// present.
+void ConvertAnnexBToLowOverheadIfPresent(std::vector<uint8_t>* packet);
+
 /// Basic validation that WebRTC's AV1 packetizer can parse the bitstream.
 bool IsWebRtcParseable(const uint8_t* data, size_t len);
 

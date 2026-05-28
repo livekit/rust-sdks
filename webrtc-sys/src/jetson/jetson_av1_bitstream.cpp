@@ -38,7 +38,7 @@ bool ReadLeb128(const uint8_t* data, size_t len, size_t* offset, uint64_t* value
       return true;
     }
     shift += 7;
-    if (shift > 28) {
+    if (shift > 56) {
       return false;
     }
   }
@@ -66,7 +66,7 @@ bool StripIvfFrameHeader(std::vector<uint8_t>* packet) {
   }
 
   const uint32_t declared_size = ReadLittleEndianUint32(*packet);
-  if (declared_size == 0 || declared_size != packet->size() - 12) {
+  if (declared_size == 0 || declared_size > packet->size() - 12) {
     return false;
   }
 
@@ -76,6 +76,111 @@ bool StripIvfFrameHeader(std::vector<uint8_t>* packet) {
   }
 
   packet->erase(packet->begin(), packet->begin() + 12);
+  packet->resize(declared_size);
+  return true;
+}
+
+bool ReadBoundedLeb128(const uint8_t* data,
+                       size_t end,
+                       size_t* offset,
+                       uint64_t* value) {
+  const size_t before = offset ? *offset : 0;
+  if (!ReadLeb128(data, end, offset, value)) {
+    return false;
+  }
+  return offset && *offset > before && *offset <= end;
+}
+
+bool IsCompleteObu(const uint8_t* data, size_t len);
+
+// Annex-B wraps one temporal unit in a LEB128 size, then frame units, then
+// length-delimited OBUs. WebRTC's RTP packetizer wants the OBU bytes only.
+bool AppendAnnexBObus(const uint8_t* data,
+                      size_t len,
+                      std::vector<uint8_t>* low_overhead) {
+  if (!data || len == 0 || !low_overhead) {
+    return false;
+  }
+
+  size_t offset = 0;
+  uint64_t temporal_unit_size = 0;
+  if (!ReadBoundedLeb128(data, len, &offset, &temporal_unit_size) ||
+      temporal_unit_size == 0 || temporal_unit_size != len - offset) {
+    return false;
+  }
+  const size_t temporal_unit_end =
+      offset + static_cast<size_t>(temporal_unit_size);
+
+  while (offset < temporal_unit_end) {
+    uint64_t frame_unit_size = 0;
+    if (!ReadBoundedLeb128(data, temporal_unit_end, &offset, &frame_unit_size) ||
+        frame_unit_size == 0 || frame_unit_size > temporal_unit_end - offset) {
+      return false;
+    }
+    const size_t frame_unit_end = offset + static_cast<size_t>(frame_unit_size);
+
+    while (offset < frame_unit_end) {
+      uint64_t obu_size = 0;
+      if (!ReadBoundedLeb128(data, frame_unit_end, &offset, &obu_size) ||
+          obu_size == 0 || obu_size > frame_unit_end - offset) {
+        return false;
+      }
+      const size_t obu_start = offset;
+      const size_t obu_end = offset + static_cast<size_t>(obu_size);
+      if (!IsCompleteObu(data + obu_start, static_cast<size_t>(obu_size))) {
+        return false;
+      }
+      low_overhead->insert(low_overhead->end(), data + obu_start,
+                           data + obu_end);
+      offset = obu_end;
+    }
+
+    if (offset != frame_unit_end) {
+      return false;
+    }
+  }
+
+  return offset == len && !low_overhead->empty() &&
+         !ParseObus(low_overhead->data(), low_overhead->size()).empty();
+}
+
+bool IsCompleteObu(const uint8_t* data, size_t len) {
+  if (!data || len == 0) {
+    return false;
+  }
+  size_t offset = 0;
+  const uint8_t header = data[offset++];
+  if (ObuHasExtension(header)) {
+    if (offset >= len) {
+      return false;
+    }
+    ++offset;
+  }
+  if (ObuHasSize(header)) {
+    uint64_t payload_size = 0;
+    if (!ReadLeb128(data, len, &offset, &payload_size) ||
+        payload_size > len - offset) {
+      return false;
+    }
+    offset += static_cast<size_t>(payload_size);
+  } else {
+    offset = len;
+  }
+  return offset == len;
+}
+
+bool ConvertAnnexBToLowOverhead(std::vector<uint8_t>* packet) {
+  if (!packet || packet->empty()) {
+    return false;
+  }
+
+  std::vector<uint8_t> low_overhead;
+  low_overhead.reserve(packet->size());
+  if (!AppendAnnexBObus(packet->data(), packet->size(), &low_overhead)) {
+    return false;
+  }
+
+  packet->swap(low_overhead);
   return true;
 }
 
@@ -181,6 +286,10 @@ void StripIvfFrameHeaderIfPresent(std::vector<uint8_t>* packet) {
     packet->erase(packet->begin(), packet->begin() + 32);
   }
   StripIvfFrameHeader(packet);
+}
+
+void ConvertAnnexBToLowOverheadIfPresent(std::vector<uint8_t>* packet) {
+  ConvertAnnexBToLowOverhead(packet);
 }
 
 bool IsWebRtcParseable(const uint8_t* data, size_t len) {
