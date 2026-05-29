@@ -257,6 +257,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - bump libwebrtc to m125
+## 0.7.43 (2026-05-29)
+
+### Fixes
+
+- bump protocol to v1.46.4 - #1121 (@lukasIO)
+- Add native video pipeline timing instrumentation for local video measurements, exposing local publish and subscribe timing through async streams and subscriber overlay GPU upload and receive-to-GPU latency metrics through explicit timing observers.
+
 ## 0.7.42 (2026-05-21)
 
 ### Features
