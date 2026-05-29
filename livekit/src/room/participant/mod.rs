@@ -109,6 +109,7 @@ impl Participant {
         pub fn joined_at(self: &Self) -> i64;
         pub fn is_encrypted(self: &Self) -> bool;
         pub fn permission(self: &Self) -> Option<proto::ParticipantPermission>;
+        pub fn client_protocol(self: &Self) -> i32;
 
         pub(crate) fn update_info(self: &Self, info: proto::ParticipantInfo) -> ();
 
