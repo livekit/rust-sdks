@@ -17,8 +17,40 @@
 #pragma once
 #include <memory>
 
+#ifndef LK_HEADLESS
 #include "modules/desktop_capture/desktop_capturer.h"
+#else
+#include <vector>
+#include <string>
+namespace webrtc {
+class DesktopFrame {
+ public:
+  struct Size { int32_t width() const { return 0; } int32_t height() const { return 0; } };
+  struct Rect { int32_t left() const { return 0; } int32_t top() const { return 0; } };
+  Size size() const { return {}; }
+  Rect rect() const { return {}; }
+  int32_t stride() const { return 0; }
+  const uint8_t* data() const { return nullptr; }
+};
+class DesktopCapturer {
+ public:
+  enum class Result { SUCCESS, ERROR_TEMPORARY, ERROR_PERMANENT };
+  struct Source {
+    int64_t id;
+    std::string title;
+  };
+  typedef std::vector<Source> SourceList;
+  class Callback {
+   public:
+    virtual ~Callback() = default;
+    virtual void OnCaptureResult(Result result, std::unique_ptr<DesktopFrame> frame) = 0;
+  };
+};
+}
+#endif
+
 #include "rust/cxx.h"
+
 
 namespace livekit_ffi {
 class DesktopFrame;
@@ -40,9 +72,17 @@ class DesktopCapturer : public webrtc::DesktopCapturer::Callback {
                        std::unique_ptr<webrtc::DesktopFrame> frame) final;
 
   rust::Vec<Source> get_source_list() const;
+#ifdef LK_HEADLESS
+  bool select_source(uint64_t id) const { return false; }
+#else
   bool select_source(uint64_t id) const { return capturer->SelectSource(id); }
+#endif
   void start(rust::Box<DesktopCapturerCallbackWrapper> callback);
+#ifdef LK_HEADLESS
+  void capture_frame() const {}
+#else
   void capture_frame() const { capturer->CaptureFrame(); }
+#endif
 
  private:
   std::unique_ptr<webrtc::DesktopCapturer> capturer;
