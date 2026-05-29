@@ -1,5 +1,6 @@
 #include "jetson_encoder_factory.h"
 
+#include <cstdlib>
 #include <iostream>
 #include <map>
 #include <memory>
@@ -14,6 +15,15 @@
 
 namespace webrtc {
 
+namespace {
+// Diagnostic gate: when LK_DISABLE_JETSON_AV1 is set, the Jetson factory does
+// not advertise or create an AV1 encoder, so the builtin libaom AV1 software
+// encoder is used instead. Used to bisect encoder-side vs pipeline-side issues.
+bool JetsonAv1Disabled() {
+  return std::getenv("LK_DISABLE_JETSON_AV1") != nullptr;
+}
+}  // namespace
+
 JetsonVideoEncoderFactory::JetsonVideoEncoderFactory() {
   std::map<std::string, std::string> baselineParameters = {
       {"profile-level-id", "42e01f"},
@@ -25,7 +35,7 @@ JetsonVideoEncoderFactory::JetsonVideoEncoderFactory() {
   supported_formats_.push_back(SdpVideoFormat("H265"));
   supported_formats_.push_back(SdpVideoFormat("HEVC"));
 
-  if (livekit::JetsonMmapiEncoder::IsCodecSupported(
+  if (!JetsonAv1Disabled() && livekit::JetsonMmapiEncoder::IsCodecSupported(
           livekit::JetsonCodec::kAV1)) {
     absl::InlinedVector<ScalabilityMode, kScalabilityModeCount>
         scalability_modes;
@@ -68,7 +78,7 @@ std::unique_ptr<VideoEncoder> JetsonVideoEncoderFactory::Create(
       return std::make_unique<JetsonH265EncoderImpl>(env, format);
     }
 
-    if (format.name == "AV1") {
+    if (format.name == "AV1" && !JetsonAv1Disabled()) {
       RTC_LOG(LS_INFO) << "Using Jetson MMAPI encoder for AV1";
       std::cout << "Using Jetson MMAPI encoder for AV1" << std::endl;
       return std::make_unique<JetsonAV1EncoderImpl>(env, format);

@@ -393,14 +393,30 @@ int32_t JetsonAV1EncoderImpl::ProcessEncodedFrame(
   // produces frames but no RTP packets are ever emitted. NextFrameConfig() is
   // called exactly once per emitted frame (after all drop checks) so the
   // dependency chain stays consistent with what is actually sent.
+  // Diagnostic gate: LK_AV1_NO_GFI=1 skips attaching the generic frame info to
+  // bisect whether the dependency-descriptor metadata or the bitstream is the
+  // cause of dropped packets.
+  const bool skip_gfi = std::getenv("LK_AV1_NO_GFI") != nullptr;
   std::vector<ScalableVideoController::LayerFrameConfig> layer_frames =
       svc_controller_.NextFrameConfig(/*restart=*/is_keyframe);
-  if (!layer_frames.empty()) {
+  if (!skip_gfi && !layer_frames.empty()) {
     const ScalableVideoController::LayerFrameConfig& layer_frame =
         layer_frames.front();
-    codecInfo.generic_frame_info = svc_controller_.OnEncodeDone(layer_frame);
+    const webrtc::GenericFrameInfo gfi = svc_controller_.OnEncodeDone(layer_frame);
+    codecInfo.generic_frame_info = gfi;
     if (layer_frame.IsKeyframe()) {
       codecInfo.template_structure = svc_controller_.DependencyStructure();
+    }
+    if (std::getenv("LK_ENCODER_DEBUG") != nullptr) {
+      std::fprintf(stderr,
+                   "[AV1-GFI] kf=%d dti=%zu chain=%zu buffers=%zu sid=%d tid=%d "
+                   "has_template=%d payload=%zu\n",
+                   layer_frame.IsKeyframe() ? 1 : 0,
+                   gfi.decode_target_indications.size(), gfi.part_of_chain.size(),
+                   gfi.encoder_buffers.size(), gfi.spatial_id, gfi.temporal_id,
+                   codecInfo.template_structure.has_value() ? 1 : 0,
+                   packet.size());
+      std::fflush(stderr);
     }
   }
 

@@ -24,6 +24,7 @@
 #include "api/audio/builtin_audio_processing_builder.h"
 #include "api/create_modular_peer_connection_factory.h"
 #include "api/environment/environment_factory.h"
+#include "api/field_trials_view.h"
 #include "api/peer_connection_interface.h"
 #include "api/rtc_error.h"
 #include "api/enable_media.h"
@@ -49,10 +50,46 @@ namespace livekit_ffi {
 
 class PeerConnectionObserver;
 
+namespace {
+
+// Minimal field-trials view that advertises the AV1/VP9 dependency-descriptor
+// RTP header extension. LiveKit's SFU relies on the dependency descriptor to
+// forward AV1 (and VP9 SVC); when it is not advertised the publisher negotiates
+// no dependency-descriptor extmap and the RTP layer emits zero AV1 packets even
+// though the encoder produces valid frames. We implement FieldTrialsView
+// directly rather than using webrtc::FieldTrials, whose factory symbol is not
+// exported by the prebuilt libwebrtc.
+class LkFieldTrials : public webrtc::FieldTrialsView {
+ public:
+  std::string Lookup(absl::string_view key) const override {
+    if (key == "WebRTC-DependencyDescriptorAdvertised") {
+      return "Enabled";
+    }
+    return std::string();
+  }
+  std::unique_ptr<webrtc::FieldTrialsView> CreateCopy() const override {
+    return std::make_unique<LkFieldTrials>();
+  }
+};
+
+// Builds an Environment that carries the LiveKit field trials. We use the
+// non-owning (inline) EnvironmentFactory::Set overload with a process-lifetime
+// singleton so we depend only on EnvironmentFactory::Create(), which the
+// prebuilt libwebrtc exports (the owning Set overload and webrtc::FieldTrials
+// are not exported).
+webrtc::Environment CreateLkEnvironment() {
+  static const LkFieldTrials* kFieldTrials = new LkFieldTrials();
+  webrtc::EnvironmentFactory factory;
+  factory.Set(static_cast<const webrtc::FieldTrialsView*>(kFieldTrials));
+  return factory.Create();
+}
+
+}  // namespace
+
 PeerConnectionFactory::PeerConnectionFactory(
     std::shared_ptr<RtcRuntime> rtc_runtime)
     : rtc_runtime_(rtc_runtime),
-    env_(webrtc::EnvironmentFactory().Create()) {
+    env_(CreateLkEnvironment()) {
   webrtc::PeerConnectionFactoryDependencies dependencies;
   dependencies.network_thread = rtc_runtime_->network_thread();
   dependencies.worker_thread = rtc_runtime_->worker_thread();
@@ -76,6 +113,11 @@ PeerConnectionFactory::PeerConnectionFactory(
   dependencies.audio_encoder_factory = webrtc::CreateBuiltinAudioEncoderFactory();
   dependencies.audio_decoder_factory = webrtc::CreateBuiltinAudioDecoderFactory();
   dependencies.audio_processing_builder = std::make_unique<webrtc::BuiltinAudioProcessingBuilder>();
+
+  // Use the field-trials-carrying environment so the media engine advertises
+  // the dependency descriptor (required for AV1 to produce RTP packets and be
+  // forwarded by the SFU).
+  dependencies.env = env_;
 
   webrtc::EnableMedia(dependencies);
   peer_factory_ =
