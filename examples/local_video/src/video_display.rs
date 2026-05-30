@@ -24,6 +24,7 @@ pub(crate) struct SharedYuv {
     pub(crate) v: Vec<u8>,
     pub(crate) codec: String,
     pub(crate) codec_implementation: String,
+    pub(crate) encode_bitrate_bps: Option<f64>,
     pub(crate) fps: f32,
     pub(crate) simulcast: bool,
     pub(crate) dirty: bool,
@@ -358,14 +359,30 @@ fn video_status_line(
     fps: f32,
     codec: &str,
     codec_implementation: &str,
+    encode_bitrate_bps: Option<f64>,
     simulcast: bool,
 ) -> String {
     let codec = codec_with_implementation(codec, codec_implementation);
-    if simulcast {
-        format!("{}x{} {:.1}fps {codec} Simulcast", width, height, fps.max(0.0))
-    } else {
-        format!("{}x{} {:.1}fps {codec}", width, height, fps.max(0.0))
+    let encode_bitrate = encode_bitrate_bps.and_then(format_encode_bitrate);
+    let mut line = format!("{}x{} {:.1}fps {codec}", width, height, fps.max(0.0));
+    if let Some(encode_bitrate) = encode_bitrate {
+        line.push(' ');
+        line.push_str(&encode_bitrate);
     }
+
+    if simulcast {
+        line.push_str(" Simulcast");
+    }
+
+    line
+}
+
+fn format_encode_bitrate(bitrate_bps: f64) -> Option<String> {
+    if !bitrate_bps.is_finite() || bitrate_bps < 0.0 {
+        return None;
+    }
+
+    Some(format!("{:.1}mb/s", bitrate_bps / 1_000_000.0))
 }
 
 fn publisher_overlay_lines(
@@ -386,6 +403,7 @@ fn publisher_overlay_lines(
                 s.fps,
                 &s.codec,
                 &s.codec_implementation,
+                s.encode_bitrate_bps,
                 s.simulcast,
             ),
             s.timing_sample,
@@ -436,6 +454,26 @@ mod tests {
             .expect("status overlay should render");
 
         assert_eq!(lines, vec!["1280x720 29.6fps H264 NVENC Simulcast"]);
+    }
+
+    #[test]
+    fn publisher_overlay_shows_encode_bitrate_when_available() {
+        let shared = Arc::new(Mutex::new(SharedYuv::default()));
+        {
+            let mut s = shared.lock();
+            s.width = 1280;
+            s.height = 720;
+            s.codec = "H264".to_string();
+            s.codec_implementation = "NVIDIA H264 Encoder".to_string();
+            s.encode_bitrate_bps = Some(1_523_456.0);
+            s.fps = 29.6;
+        }
+
+        let mut overlay_state = PublisherTimingOverlayState::default();
+        let lines = publisher_overlay_lines(&shared, &mut overlay_state, Instant::now())
+            .expect("status overlay should render");
+
+        assert_eq!(lines, vec!["1280x720 29.6fps H264 NVENC 1.52 mb/s"]);
     }
 
     #[test]

@@ -206,24 +206,49 @@ struct PublisherTimingSummary {
     capture_to_webrtc_total_ms: RollingMs,
 }
 
-fn find_video_outbound_encoder(stats: &[livekit::webrtc::stats::RtcStats]) -> Option<&str> {
-    let mut fallback = None;
+#[derive(Default)]
+struct VideoOutboundOverlayStats<'a> {
+    encoder_implementation: Option<&'a str>,
+    encode_bitrate_bps: Option<f64>,
+}
+
+fn video_outbound_overlay_stats(
+    stats: &[livekit::webrtc::stats::RtcStats],
+) -> VideoOutboundOverlayStats<'_> {
+    let mut active_encoder = None;
+    let mut fallback_encoder = None;
+    let mut active_bitrate_bps = 0.0;
+    let mut has_active_bitrate = false;
+
     for stat in stats {
         let livekit::webrtc::stats::RtcStats::OutboundRtp(outbound) = stat else {
             continue;
         };
-        if outbound.stream.kind != "video" || outbound.outbound.encoder_implementation.is_empty() {
+        if outbound.stream.kind != "video" {
+            continue;
+        }
+
+        let target_bitrate = outbound.outbound.target_bitrate;
+        if outbound.outbound.active && target_bitrate.is_finite() && target_bitrate >= 0.0 {
+            active_bitrate_bps += target_bitrate;
+            has_active_bitrate = true;
+        }
+
+        if outbound.outbound.encoder_implementation.is_empty() {
             continue;
         }
 
         let implementation = outbound.outbound.encoder_implementation.as_str();
-        if outbound.outbound.active {
-            return Some(implementation);
+        if outbound.outbound.active && active_encoder.is_none() {
+            active_encoder = Some(implementation);
         }
-        fallback.get_or_insert(implementation);
+        fallback_encoder.get_or_insert(implementation);
     }
 
-    fallback
+    VideoOutboundOverlayStats {
+        encoder_implementation: active_encoder.or(fallback_encoder),
+        encode_bitrate_bps: has_active_bitrate.then_some(active_bitrate_bps),
+    }
 }
 
 async fn update_publisher_encoder_overlay(
@@ -242,9 +267,15 @@ async fn update_publisher_encoder_overlay(
 
         match track.get_stats().await {
             Ok(stats) => {
-                if let Some(implementation) = find_video_outbound_encoder(&stats) {
+                let overlay_stats = video_outbound_overlay_stats(&stats);
+                if overlay_stats.encoder_implementation.is_some()
+                    || overlay_stats.encode_bitrate_bps.is_some()
+                {
                     let mut shared = shared.lock();
-                    shared.codec_implementation = implementation.to_string();
+                    if let Some(implementation) = overlay_stats.encoder_implementation {
+                        shared.codec_implementation = implementation.to_string();
+                    }
+                    shared.encode_bitrate_bps = overlay_stats.encode_bitrate_bps;
                 }
                 logged_initial = true;
             }
@@ -422,6 +453,35 @@ mod tests {
         timestamp_us: u64,
     ) -> PublishTimingEvent {
         PublishTimingEvent { stage, timestamp_us, capture_timestamp_us, frame_id: Some(7) }
+    }
+
+    fn outbound_rtp_stats(
+        kind: &str,
+        active: bool,
+        encoder_implementation: &str,
+        target_bitrate: f64,
+    ) -> livekit::webrtc::stats::RtcStats {
+        let mut outbound = livekit::webrtc::stats::OutboundRtpStats::default();
+        outbound.stream.kind = kind.to_string();
+        outbound.outbound.active = active;
+        outbound.outbound.encoder_implementation = encoder_implementation.to_string();
+        outbound.outbound.target_bitrate = target_bitrate;
+        livekit::webrtc::stats::RtcStats::OutboundRtp(outbound)
+    }
+
+    #[test]
+    fn publisher_overlay_stats_sum_active_video_bitrate() {
+        let stats = vec![
+            outbound_rtp_stats("video", true, "NVIDIA H264 Encoder", 1_000_000.0),
+            outbound_rtp_stats("video", true, "", 500_000.0),
+            outbound_rtp_stats("video", false, "Unused Encoder", 9_000_000.0),
+            outbound_rtp_stats("audio", true, "Audio Encoder", 128_000.0),
+        ];
+
+        let overlay_stats = video_outbound_overlay_stats(&stats);
+
+        assert_eq!(overlay_stats.encoder_implementation, Some("NVIDIA H264 Encoder"));
+        assert_eq!(overlay_stats.encode_bitrate_bps, Some(1_500_000.0));
     }
 
     #[test]
